@@ -1,0 +1,12 @@
+[package]
+name = "flora-ash"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# https://github.com/ash-rs/ash
+ash = "0.38.0"
+# https://github.com/rust-windowing/winit
+winit = { version = "0.30", features = ["rwh_05"] }
+# https://github.com/Traverse-Research/gpu-allocator
+gpu-allocator = "0.27.0"
