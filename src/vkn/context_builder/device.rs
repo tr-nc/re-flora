@@ -12,10 +12,9 @@ pub fn create_device(
     let queue_priorities = [1.0f32];
     let queue_create_infos = {
         let mut indices = HashSet::new();
-        indices.insert(queue_family_indices.graphics);
-        indices.insert(queue_family_indices.present);
-        indices.insert(queue_family_indices.compute);
-        println!("{:?}", indices);
+        for idx in queue_family_indices.get_all_indices() {
+            indices.insert(idx);
+        }
         indices
             .into_iter()
             .map(|index| {

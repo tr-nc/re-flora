@@ -1,11 +1,11 @@
-use std::ffi::CStr;
-
 use ash::{
     khr::{surface, swapchain},
-    vk,
+    vk::{self},
 };
+use std::ffi::CStr;
 
 use crate::vkn::context::QueueFamilyIndices;
+use comfy_table::Table;
 
 // Example device info for scoring / printing
 #[derive(Debug)]
@@ -18,8 +18,6 @@ pub struct DeviceInfo {
 }
 
 fn print_all_devices_with_selection(device_infos: &[DeviceInfo], selection_idx: usize) {
-    use comfy_table::Table;
-
     let mut table = Table::new();
     table.set_header(vec!["Device", "Type", "Memory (MB)", "Score", "Selected?"]);
 
@@ -67,18 +65,119 @@ fn device_supports_required_extensions(
     true
 }
 
-/// Collects all candidate queue-family indices for GRAPHICS, PRESENT, and COMPUTE.
+/// Prints detailed information about each queue family of the given physical device.
+fn print_queue_family_info(
+    instance: &ash::Instance,
+    device: vk::PhysicalDevice,
+    queue_family_index_candidates: &QueueFamilyIndexCandidates,
+) {
+    let queue_families = unsafe { instance.get_physical_device_queue_family_properties(device) };
+
+    let mut table = Table::new();
+    table.set_header(vec![
+        "Queue Family Index",
+        "Graphics",
+        "Present",
+        "Compute",
+        "Transfer",
+        "Sparse Binding",
+    ]);
+
+    for (index, _queue_family) in queue_families.iter().enumerate() {
+        let q_index = index as u32;
+
+        // Determine which operations this queue family supports
+        let supports_graphics = if queue_family_index_candidates.graphics.contains(&q_index) {
+            "Yes"
+        } else {
+            "No"
+        };
+
+        let supports_present = if queue_family_index_candidates.present.contains(&q_index) {
+            "Yes"
+        } else {
+            "No"
+        };
+
+        let supports_compute = if queue_family_index_candidates.compute.contains(&q_index) {
+            "Yes"
+        } else {
+            "No"
+        };
+
+        let supports_transfer = if queue_family_index_candidates.transfer.contains(&q_index) {
+            "Yes"
+        } else {
+            "No"
+        };
+
+        let supports_sparse_binding = if queue_family_index_candidates
+            .sparse_binding
+            .contains(&q_index)
+        {
+            "Yes"
+        } else {
+            "No"
+        };
+
+        table.add_row(vec![
+            q_index.to_string(),
+            supports_graphics.to_string(),
+            supports_present.to_string(),
+            supports_compute.to_string(),
+            supports_transfer.to_string(),
+            supports_sparse_binding.to_string(),
+        ]);
+    }
+
+    println!("Queue Family Properties:");
+    println!("{}", table);
+}
+
+/// Prints a summary table of selected queue families for different operations.
+fn print_selected_queue_families(qf_indices: &QueueFamilyIndices) {
+    let mut table = Table::new();
+    table.set_header(vec!["Queue Type", "Queue Family Index"]);
+
+    table.add_row(vec!["General", &qf_indices.general.to_string()]);
+    table.add_row(vec!["Transfer Only", &qf_indices.transfer_only.to_string()]);
+
+    println!("Selected Queue Families:");
+    println!("{}", table);
+}
+
+struct QueueFamilyIndexCandidates {
+    graphics: Vec<u32>,
+    present: Vec<u32>,
+    compute: Vec<u32>,
+    transfer: Vec<u32>,
+    sparse_binding: Vec<u32>,
+}
+
+impl QueueFamilyIndexCandidates {
+    /// Returns true if all queues have at least one candidate
+    fn is_valid(&self) -> bool {
+        !self.graphics.is_empty()
+            && !self.present.is_empty()
+            && !self.compute.is_empty()
+            && !self.transfer.is_empty()
+            && !self.sparse_binding.is_empty()
+    }
+}
+
 fn gather_queue_family_candidates(
     instance: &ash::Instance,
     surface_loader: &surface::Instance,
     surface_khr: vk::SurfaceKHR,
     device: vk::PhysicalDevice,
-) -> (Vec<u32>, Vec<u32>, Vec<u32>) {
+) -> QueueFamilyIndexCandidates {
     let props = unsafe { instance.get_physical_device_queue_family_properties(device) };
 
-    let mut graphics_candidates = vec![];
-    let mut present_candidates = vec![];
-    let mut compute_candidates = vec![];
+    let mut graphics = vec![];
+    let mut present = vec![];
+    let mut compute = vec![];
+    let mut transfer = vec![];
+    let mut sparse_binding = vec![];
 
     for (idx, family) in props.iter().enumerate() {
         // We ignore families with zero queue_count
@@ -88,11 +187,19 @@ fn gather_queue_family_candidates(
         let index = idx as u32;
 
         if family.queue_flags.contains(vk::QueueFlags::GRAPHICS) {
-            graphics_candidates.push(index);
+            graphics.push(index);
         }
 
         if family.queue_flags.contains(vk::QueueFlags::COMPUTE) {
-            compute_candidates.push(index);
+            compute.push(index);
+        }
+
+        if family.queue_flags.contains(vk::QueueFlags::TRANSFER) {
+            transfer.push(index);
+        }
+
+        if family.queue_flags.contains(vk::QueueFlags::SPARSE_BINDING) {
+            sparse_binding.push(index);
         }
 
         let present_support = unsafe {
@@ -101,86 +208,84 @@ fn gather_queue_family_candidates(
                 .expect("Failed to get surface support")
         };
         if present_support {
-            present_candidates.push(index);
+            present.push(index);
         }
     }
 
-    (graphics_candidates, present_candidates, compute_candidates)
+    QueueFamilyIndexCandidates {
+        graphics,
+        present,
+        compute,
+        transfer,
+        sparse_binding,
+    }
 }
 
-/// Tries to pick distinct queue-family indices for GRAPHICS, PRESENT, and COMPUTE
-/// from the candidate lists. If not possible, tries its best to share the least
-/// amount of queues.
 fn pick_best_queue_family_indices(
-    gfx_candidates: &[u32],
-    present_candidates: &[u32],
-    compute_candidates: &[u32],
+    queue_family_index_candidates: &QueueFamilyIndexCandidates,
 ) -> Option<QueueFamilyIndices> {
-    if gfx_candidates.is_empty() || present_candidates.is_empty() || compute_candidates.is_empty() {
+    if !queue_family_index_candidates.is_valid() {
         return None;
     }
 
-    // if we can find three distinct indices, do it
-    for &gfx_index in gfx_candidates {
-        for &present_index in present_candidates {
-            for &compute_index in compute_candidates {
-                if gfx_index != present_index
-                    && gfx_index != compute_index
-                    && present_index != compute_index
-                {
-                    return Some(QueueFamilyIndices {
-                        graphics: gfx_index,
-                        present: present_index,
-                        compute: compute_index,
-                    });
-                }
-            }
+    // find candidates that support GRAPHICS + PRESENT + COMPUTE + TRANSFER
+    let mut general_candidates = Vec::new();
+    for &gfx_idx in &queue_family_index_candidates.graphics {
+        if queue_family_index_candidates.present.contains(&gfx_idx)
+            && queue_family_index_candidates.compute.contains(&gfx_idx)
+            && queue_family_index_candidates.transfer.contains(&gfx_idx)
+        {
+            general_candidates.push(gfx_idx);
+        }
+    }
+    if general_candidates.is_empty() {
+        return None;
+    }
+
+    // maybe add more criteria here to pick the best general queue (queue count, etc.)
+    let general_idx = general_candidates[0];
+
+    // try to find a separate transfer-only queue that doesn't overlap with the general queue
+    // this is a queue that supports TRANSFER but ideally doesn't also support GRAPHICS or COMPUTE.
+    // if such a dedicated queue cannot be found, pick the same queue as general.
+    let mut dedicated_transfer_candidates = Vec::new();
+    for &transfer_idx in &queue_family_index_candidates.transfer {
+        // we'll consider it "dedicated" if it doesn't appear in the graphics or compute lists.
+        let is_dedicated = !queue_family_index_candidates
+            .graphics
+            .contains(&transfer_idx)
+            && !queue_family_index_candidates
+                .compute
+                .contains(&transfer_idx);
+
+        if is_dedicated {
+            dedicated_transfer_candidates.push(transfer_idx);
         }
     }
 
-    /// Tries to distanct 2 queue-families at least
-    fn try_distinct(candidates_list_1: &[u32], candidates_list_2: &[u32]) -> Option<(u32, u32)> {
-        for &index1 in candidates_list_1 {
-            for &index2 in candidates_list_2 {
-                if index1 != index2 {
-                    return Some((index1, index2));
-                }
+    let transfer_only_idx = if !dedicated_transfer_candidates.is_empty() {
+        // pick the first dedicated queue if it exists
+        dedicated_transfer_candidates[0]
+    } else {
+        // otherwise, see if there’s at least a different queue in transfer:
+        // this might not be "pure" transfer-only, but at least it’s separate
+        let maybe_separate = queue_family_index_candidates
+            .transfer
+            .iter()
+            .find(|&&idx| idx != general_idx);
+
+        match maybe_separate {
+            Some(&separate_transfer_idx) => separate_transfer_idx,
+            None => {
+                // Finally, fall back to the same queue as general if absolutely no separate queue is found.
+                general_idx
             }
         }
-        None
-    }
+    };
 
-    if let Some((gfx_index, present_index)) = try_distinct(gfx_candidates, present_candidates) {
-        return Some(QueueFamilyIndices {
-            graphics: gfx_index,
-            present: present_index,
-            compute: compute_candidates.get(0).unwrap().clone(),
-        });
-    }
-
-    if let Some((gfx_index, compute_index)) = try_distinct(gfx_candidates, compute_candidates) {
-        return Some(QueueFamilyIndices {
-            graphics: gfx_index,
-            present: present_candidates.get(0).unwrap().clone(),
-            compute: compute_index,
-        });
-    }
-
-    if let Some((present_index, compute_index)) =
-        try_distinct(present_candidates, compute_candidates)
-    {
-        return Some(QueueFamilyIndices {
-            graphics: gfx_candidates.get(0).unwrap().clone(),
-            present: present_index,
-            compute: compute_index,
-        });
-    }
-
-    // fallback option: picking the first from each list
     Some(QueueFamilyIndices {
-        graphics: gfx_candidates.get(0).unwrap().clone(),
-        present: present_candidates.get(0).unwrap().clone(),
-        compute: compute_candidates.get(0).unwrap().clone(),
+        general: general_idx,
+        transfer_only: transfer_only_idx,
     })
 }
 
@@ -200,25 +305,22 @@ pub fn create_physical_device(
             .expect("Failed to enumerate physical devices")
     };
 
-    // build a list of device infos for printing / scoring
+    // Build a list of device infos for printing / scoring
     let mut device_infos = vec![];
     for &dev in devices.iter() {
-        // check if it supports required extensions
+        // Check if it supports required extensions
         if !device_supports_required_extensions(instance, dev) {
             continue;
         }
 
-        let (gfx_candidates, present_candidates, compute_candidates) =
+        let queue_family_candidates =
             gather_queue_family_candidates(instance, surface_loader, surface_khr, dev);
 
-        if gfx_candidates.is_empty()
-            || present_candidates.is_empty()
-            || compute_candidates.is_empty()
-        {
+        if !queue_family_candidates.is_valid() {
             continue;
         }
 
-        // get props for device type and name
+        // Get props for device type and name
         let props = unsafe { instance.get_physical_device_properties(dev) };
         let device_name = unsafe {
             CStr::from_ptr(props.device_name.as_ptr())
@@ -238,9 +340,8 @@ pub fn create_physical_device(
         }
         let total_memory_mb = (total_vram as f64) / (1024.0 * 1024.0);
 
-        // discrete GPU: +100, Integrated GPU: +50, others: +10
-        // then add memory-based bonus: 1 point per 256 MB
-
+        // Discrete GPU: +100, Integrated GPU: +50, others: +10
+        // Then add memory-based bonus: 1 point per 256 MB
         let gpu_type_score = match device_type {
             vk::PhysicalDeviceType::DISCRETE_GPU => 100,
             vk::PhysicalDeviceType::INTEGRATED_GPU => 50,
@@ -260,26 +361,30 @@ pub fn create_physical_device(
         });
     }
 
-    // sort descending by score
+    // Sort descending by score
     device_infos.sort_by(|a, b| b.score.cmp(&a.score));
 
     print_all_devices_with_selection(&device_infos, 0);
 
-    // pick the device with the highest score that can also pick distinct queues
+    // Pick the device with the highest score that can also pick distinct queues
     let info = device_infos.get(0).expect("No suitable device found");
 
-    let (gfx_candidates, present_candidates, compute_candidates) =
+    let queue_family_index_candidates =
         gather_queue_family_candidates(instance, surface_loader, surface_khr, info.device);
 
-    let qf_indices =
-        pick_best_queue_family_indices(&gfx_candidates, &present_candidates, &compute_candidates)
-            .expect("Cannot find suitable queue families for the best device");
+    print_queue_family_info(instance, info.device, &queue_family_index_candidates);
 
-    // found the best device with a valid set of indices
+    let queue_family_indices = pick_best_queue_family_indices(&queue_family_index_candidates)
+        .expect("Cannot find suitable queue families for the best device");
+
+    // **New Step:** Print the selected queue families
+    print_selected_queue_families(&queue_family_indices);
+
+    // Found the best device with a valid set of indices
     unsafe {
         let props = instance.get_physical_device_properties(info.device);
         let chosen_name = CStr::from_ptr(props.device_name.as_ptr());
         log::info!("Selected physical device: {:?}", chosen_name);
     }
-    return (info.device, qf_indices);
+    return (info.device, queue_family_indices);
 }

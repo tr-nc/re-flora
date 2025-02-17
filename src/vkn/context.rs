@@ -4,7 +4,7 @@ use ash::vk::{KhrGetPhysicalDeviceProperties2Fn, KhrPortabilityEnumerationFn};
 use ash::{
     ext::debug_utils,
     khr::surface,
-    vk::{self},
+    vk::{self, Queue},
     Device, Entry, Instance,
 };
 use winit::window::Window;
@@ -22,15 +22,18 @@ pub struct ContextCreateInfo {
 }
 
 pub struct QueueFamilyIndices {
-    pub graphics: u32,
-    pub present: u32,
-    pub compute: u32,
+    /// Guaranteed to support GRAPHICS + PRESENT + COMPUTE + TRANSFER,
+    /// and should be used for all main tasks
+    pub general: u32,
+    /// Exclusive to transfer operations, may be slower, but enables parallelism for
+    /// background transfer operations
+    pub transfer_only: u32,
 }
 
-pub struct Queues {
-    pub graphics: vk::Queue,
-    pub present: vk::Queue,
-    pub compute: vk::Queue,
+impl QueueFamilyIndices {
+    pub fn get_all_indices(&self) -> Vec<u32> {
+        vec![self.general, self.transfer_only]
+    }
 }
 
 pub struct Context {
@@ -68,17 +71,10 @@ impl Context {
             &queue_family_indices,
         );
 
-        log::info!("Creating Vulkan command pool");
-        let command_pool = {
-            let command_pool_info = vk::CommandPoolCreateInfo::default()
-                .queue_family_index(queue_family_indices.graphics)
-                .flags(vk::CommandPoolCreateFlags::empty());
-            unsafe {
-                device
-                    .create_command_pool(&command_pool_info, None)
-                    .expect("Failed to create command pool")
-            }
-        };
+        let command_pool = context_builder::command_pool::create_command_pool(
+            &device,
+            queue_family_indices.general,
+        );
 
         Self {
             instance,
@@ -93,24 +89,11 @@ impl Context {
         }
     }
 
-    pub fn compute_queue(&self) -> vk::Queue {
+    /// Obtains the general queue from the device
+    pub fn get_queue(&self) -> vk::Queue {
         unsafe {
             self.device
-                .get_device_queue(self.queue_family_indices.compute, 0)
-        }
-    }
-
-    pub fn graphics_queue(&self) -> vk::Queue {
-        unsafe {
-            self.device
-                .get_device_queue(self.queue_family_indices.graphics, 0)
-        }
-    }
-
-    pub fn present_queue(&self) -> vk::Queue {
-        unsafe {
-            self.device
-                .get_device_queue(self.queue_family_indices.present, 0)
+                .get_device_queue(self.queue_family_indices.general, 0)
         }
     }
 }
