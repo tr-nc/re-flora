@@ -1,0 +1,11 @@
+---
+# this is used for shader formatting, glsl follows the C-style formatting rule
+Language: Cpp
+BasedOnStyle: LLVM
+AlignConsecutiveAssignments: Consecutive
+ColumnLimit: 100
+AllowShortIfStatementsOnASingleLine: true
+AllowShortLoopsOnASingleLine: true
+InsertNewlineAtEOF: true
+---
+

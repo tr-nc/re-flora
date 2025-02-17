@@ -5,51 +5,86 @@ use winit::{
     window::{CursorGrabMode, Fullscreen, Window},
 };
 
-/// Defines the way a window is displayed.
+/// Defines the way a window
+/// is displayed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowMode {
     Windowed,
     BorderlessFullscreen,
 }
 
-/// Describes the information needed for creating a window.
+/// Describes the information
+/// needed for creating a
+/// window.
 #[derive(Debug, Clone)]
 pub struct WindowDescriptor {
-    /// The requested logical width of the window's client area.
+    /// The requested logical
+    /// width of the window's
+    /// client area.
     ///
-    /// May vary from the physical width due to different pixel density on different monitors.
+    /// May vary from the
+    /// physical width due to
+    /// different pixel
+    /// density on different
+    /// monitors.
     pub width: f32,
 
-    /// The requested logical height of the window's client area.
+    /// The requested logical
+    /// height of the window's
+    /// client area.
     ///
-    /// May vary from the physical height due to different pixel density on different monitors.
+    /// May vary from the
+    /// physical height due to
+    /// different pixel
+    /// density on different
+    /// monitors.
     pub height: f32,
 
-    /// The position on the screen that the window will be centered at.
+    /// The position on the
+    /// screen that the window
+    /// will be centered at.
     ///
-    /// If set to `None`, some platform-specific position will be chosen.
+    /// If set to `None`, some
+    /// platform-specific
+    /// position will be
+    /// chosen.
     pub position: Option<[f32; 2]>,
 
-    /// Sets the title that displays on the window top bar, on the system task bar and other OS
+    /// Sets the title that
+    /// displays on the window
+    /// top bar, on the system
+    /// task bar and other OS
     /// specific places.
     pub title: String,
 
-    /// Sets whether the window is resizable.
+    /// Sets whether the
+    /// window is resizable.
     pub resizable: bool,
 
-    /// Sets whether the window should have borders and bars.
+    /// Sets whether the
+    /// window should have
+    /// borders and bars.
     pub decorations: bool,
 
-    /// Sets whether the cursor is visible when the window has focus.
+    /// Sets whether the
+    /// cursor is visible when
+    /// the window has focus.
     pub cursor_visible: bool,
 
-    /// Sets whether the window locks the cursor inside its borders when the window has focus.
+    /// Sets whether the
+    /// window locks the
+    /// cursor inside its
+    /// borders when the
+    /// window has focus.
     pub cursor_locked: bool,
 
     /// Sets the WindowMode.
     pub window_mode: WindowMode,
 
-    /// Sets whether the background of the window should be transparent.
+    /// Sets whether the
+    /// background of the
+    /// window should be
+    /// transparent.
     pub transparent: bool,
 }
 
@@ -70,7 +105,10 @@ impl Default for WindowDescriptor {
     }
 }
 
-/// winit::window::Window is lacking some state tracking, so we wrap it in this struct to keep track
+/// winit::window::Window is
+/// lacking some state
+/// tracking, so we wrap it in
+/// this struct to keep track
 pub struct WindowState {
     window: Arc<Window>,
     window_descriptor: WindowDescriptor,
@@ -120,7 +158,8 @@ impl WindowState {
 
         window.set_cursor_visible(window_descriptor.cursor_visible);
 
-        // set the window to visible after it has been created
+        // set the window to visible
+        // after it has been created
         window.set_visible(true);
 
         Self {
@@ -137,7 +176,14 @@ impl WindowState {
         &self.window_descriptor
     }
 
-    /// Toggles the cursor visibility, this is the only way to change the cursor visibility, do not change it directly, otherwise the internal state will be out of sync.
+    /// Toggles the cursor
+    /// visibility, this is
+    /// the only way to change
+    /// the cursor visibility,
+    /// do not change it
+    /// directly, otherwise
+    /// the internal state
+    /// will be out of sync.
     pub fn toggle_cursor_visibility(&mut self) {
         self.set_cursor_visibility(!self.is_cursor_visible());
     }
@@ -146,13 +192,27 @@ impl WindowState {
         self.window_descriptor.cursor_visible
     }
 
-    /// Sets the cursor visibility, this is the only way to change the cursor visibility, do not change it directly, otherwise the internal state will be out of sync.
+    /// Sets the cursor
+    /// visibility, this is
+    /// the only way to change
+    /// the cursor visibility,
+    /// do not change it
+    /// directly, otherwise
+    /// the internal state
+    /// will be out of sync.
     pub fn set_cursor_visibility(&mut self, cursor_visible: bool) {
         self.window_descriptor.cursor_visible = cursor_visible;
         self.window.set_cursor_visible(cursor_visible);
     }
 
-    /// Toggles the cursor grab, this is the only way to change the cursor grab, do not change it directly, otherwise the internal state will be out of sync.
+    /// Toggles the cursor
+    /// grab, this is the only
+    /// way to change the
+    /// cursor grab, do not
+    /// change it directly,
+    /// otherwise the internal
+    /// state will be out of
+    /// sync.
     pub fn toggle_cursor_grab(&mut self) {
         self.set_cursor_grab(!self.get_cursor_grab());
     }
@@ -161,7 +221,13 @@ impl WindowState {
         self.window_descriptor.cursor_locked
     }
 
-    /// Sets the cursor grab, this is the only way to change the cursor grab, do not change it directly, otherwise the internal state will be out of sync.
+    /// Sets the cursor grab,
+    /// this is the only way
+    /// to change the cursor
+    /// grab, do not change it
+    /// directly, otherwise
+    /// the internal state
+    /// will be out of sync.
     pub fn set_cursor_grab(&mut self, cursor_locked: bool) {
         self.window_descriptor.cursor_locked = cursor_locked;
         let res = self
@@ -172,7 +238,9 @@ impl WindowState {
         }
     }
 
-    /// Size of the physical window, in (width, height).
+    /// Size of the physical
+    /// window, in (width,
+    /// height).
     pub fn window_size(&self) -> [u32; 2] {
         let size = self.window().inner_size();
         [size.width, size.height]
@@ -182,7 +250,8 @@ impl WindowState {
         self.window.is_minimized().unwrap()
     }
 
-    /// Return scale factor accounted window size.
+    /// Return scale factor
+    /// accounted window size.
     pub fn resolution(&self) -> [f32; 2] {
         let size = self.window_size();
         let scale_factor = self.window().scale_factor();
@@ -192,18 +261,24 @@ impl WindowState {
         ]
     }
 
-    /// Return aspect ratio of the window. (width / height)
+    /// Return aspect ratio of
+    /// the window. (width /
+    /// height)
     pub fn aspect_ratio(&self) -> f32 {
         let dims = self.window_size();
         dims[0] as f32 / dims[1] as f32
     }
 
-    /// Returns the cursor grab mode that should be used for the current platform.
+    /// Returns the cursor
+    /// grab mode that should
+    /// be used for the
+    /// current platform.
     fn get_cursor_grab_mode(locked: bool) -> CursorGrabMode {
         if !locked {
             return CursorGrabMode::None;
         }
-        // windows: confined, macos: locked
+        // windows: confined, macos:
+        // locked
         #[cfg(target_os = "windows")]
         return CursorGrabMode::Confined;
         #[cfg(target_os = "macos")]

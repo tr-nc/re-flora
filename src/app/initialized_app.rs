@@ -1,4 +1,7 @@
-use crate::window::{WindowDescriptor, WindowMode, WindowState};
+use crate::{
+    vkn::context::{Context, ContextCreateInfo},
+    window::{WindowDescriptor, WindowMode, WindowState},
+};
 use winit::{
     event::{ElementState, WindowEvent},
     event_loop::ActiveEventLoop,
@@ -29,7 +32,10 @@ impl InitializedApp {
     }
 
     pub fn init(&mut self) {
-        // Initialize resources here
+        let context_create_info = ContextCreateInfo {
+            name: "Flora".into(),
+        };
+        Context::new(&self.window_state.window(), context_create_info);
     }
 
     pub fn on_window_event(
