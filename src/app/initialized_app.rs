@@ -18,9 +18,9 @@ impl InitializedApp {
     pub fn new(_event_loop: &ActiveEventLoop) -> Self {
         let window_descriptor = WindowDescriptor {
             title: "Flora".to_owned(),
-            window_mode: WindowMode::BorderlessFullscreen,
-            cursor_locked: true,
-            cursor_visible: false,
+            window_mode: WindowMode::Windowed,
+            // cursor_locked: true,
+            // cursor_visible: false,
             ..Default::default()
         };
         let window_state = WindowState::new(_event_loop, &window_descriptor);

@@ -17,20 +17,23 @@ pub struct DeviceInfo {
     pub device_type: vk::PhysicalDeviceType,
 }
 
-// TODO: also print status of queues
-
-fn print_all_devices_stats(device_infos: &[DeviceInfo]) {
+fn print_all_devices_with_selection(device_infos: &[DeviceInfo], selection_idx: usize) {
     use comfy_table::Table;
 
     let mut table = Table::new();
-    table.set_header(vec!["Device", "Type", "Memory (MB)", "Score"]);
+    table.set_header(vec!["Device", "Type", "Memory (MB)", "Score", "Selected?"]);
 
-    for info in device_infos {
+    for (idx, info) in device_infos.iter().enumerate() {
         table.add_row(vec![
             info.device_name.clone(),
             format!("{:?}", info.device_type),
             format!("{:.2}", info.total_memory),
             format!("{}", info.score),
+            if idx == selection_idx {
+                "yes".to_string()
+            } else {
+                "".to_string()
+            },
         ]);
     }
 
@@ -235,15 +238,15 @@ pub fn create_physical_device(
         }
         let total_memory_mb = (total_vram as f64) / (1024.0 * 1024.0);
 
-        // Compute a rough score
-        // Discrete GPU: +100, Integrated GPU: +50, others: +10
-        // Then add memory-based bonus
+        // discrete GPU: +100, Integrated GPU: +50, others: +10
+        // then add memory-based bonus: 1 point per 256 MB
+
         let gpu_type_score = match device_type {
             vk::PhysicalDeviceType::DISCRETE_GPU => 100,
             vk::PhysicalDeviceType::INTEGRATED_GPU => 50,
             _ => 10,
         };
-        // Maybe give 1 point per 256 MB
+
         let mem_score = (total_memory_mb / 256.0).floor() as i32;
 
         let score = gpu_type_score + mem_score;
@@ -257,30 +260,26 @@ pub fn create_physical_device(
         });
     }
 
-    print_all_devices_stats(&device_infos);
-
     // sort descending by score
     device_infos.sort_by(|a, b| b.score.cmp(&a.score));
 
+    print_all_devices_with_selection(&device_infos, 0);
+
     // pick the device with the highest score that can also pick distinct queues
-    for info in &device_infos {
-        let (gfx_candidates, present_candidates, compute_candidates) =
-            gather_queue_family_candidates(instance, surface_loader, surface_khr, info.device);
+    let info = device_infos.get(0).expect("No suitable device found");
 
-        if let Some(q_indices) = pick_best_queue_family_indices(
-            &gfx_candidates,
-            &present_candidates,
-            &compute_candidates,
-        ) {
-            // found the best device with a valid set of indices
-            unsafe {
-                let props = instance.get_physical_device_properties(info.device);
-                let chosen_name = CStr::from_ptr(props.device_name.as_ptr());
-                log::info!("Selected physical device: {:?}", chosen_name);
-            }
-            return (info.device, q_indices);
-        }
+    let (gfx_candidates, present_candidates, compute_candidates) =
+        gather_queue_family_candidates(instance, surface_loader, surface_khr, info.device);
+
+    let qf_indices =
+        pick_best_queue_family_indices(&gfx_candidates, &present_candidates, &compute_candidates)
+            .expect("Cannot find suitable queue families for the best device");
+
+    // found the best device with a valid set of indices
+    unsafe {
+        let props = instance.get_physical_device_properties(info.device);
+        let chosen_name = CStr::from_ptr(props.device_name.as_ptr());
+        log::info!("Selected physical device: {:?}", chosen_name);
     }
-
-    panic!("Could not find any suitable device with the required queue families and extensions.");
+    return (info.device, qf_indices);
 }

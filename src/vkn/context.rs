@@ -92,6 +92,27 @@ impl Context {
             command_pool,
         }
     }
+
+    pub fn compute_queue(&self) -> vk::Queue {
+        unsafe {
+            self.device
+                .get_device_queue(self.queue_family_indices.compute, 0)
+        }
+    }
+
+    pub fn graphics_queue(&self) -> vk::Queue {
+        unsafe {
+            self.device
+                .get_device_queue(self.queue_family_indices.graphics, 0)
+        }
+    }
+
+    pub fn present_queue(&self) -> vk::Queue {
+        unsafe {
+            self.device
+                .get_device_queue(self.queue_family_indices.present, 0)
+        }
+    }
 }
 
 impl Drop for Context {
