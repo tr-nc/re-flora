@@ -8,7 +8,7 @@ use crate::{
     window::{WindowDescriptor, WindowMode, WindowState},
 };
 use ash::{vk, Device};
-use egui::{ClippedPrimitive, Color32, RichText, TextureId, ViewportId};
+use egui::{ClippedPrimitive, Color32, RichText, Slider, TextureId, ViewportId};
 use gpu_allocator::vulkan::{Allocator, AllocatorCreateDesc};
 use std::sync::{Arc, Mutex};
 use winit::event::DeviceEvent;
@@ -34,6 +34,8 @@ pub struct InitializedApp {
     render_finished_semaphore: vk::Semaphore,
     fence: vk::Fence,
     time_info: TimeInfo,
+
+    slider_val: f32,
 }
 
 impl InitializedApp {
@@ -159,6 +161,7 @@ impl InitializedApp {
 
             time_info: TimeInfo::default(),
             textures_to_free: None,
+            slider_val: 0.0,
         }
     }
 
@@ -308,9 +311,7 @@ impl InitializedApp {
                                     self.time_info.display_fps()
                                 )));
                                 // https://github.com/emilk/egui/blob/master/crates/egui_demo_lib/src/demo/sliders.rs
-                                // ui.add(
-                                //     Slider::new(&mut self.slider_value, 0.0..=1.0).text("Slider"),
-                                // );
+                                ui.add(Slider::new(&mut self.slider_val, 0.0..=1.0).text("Slider"));
                             });
                         });
                 });
