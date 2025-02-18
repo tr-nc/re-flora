@@ -1,4 +1,5 @@
 pub mod app;
+pub mod renderer;
 pub mod vkn;
 pub mod window;
 

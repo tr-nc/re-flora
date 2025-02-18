@@ -1,21 +1,11 @@
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 use ash::vk::{KhrGetPhysicalDeviceProperties2Fn, KhrPortabilityEnumerationFn};
 
-use ash::{
-    ext::debug_utils,
-    khr::surface,
-    vk::{self, Queue},
-    Device, Entry, Instance,
-};
+use ash::{ext::debug_utils, khr::surface, vk, Device, Entry, Instance};
 use winit::window::Window;
 
 use super::context_builder;
 use std::error::Error;
-
-use {
-    gpu_allocator::vulkan::{Allocator, AllocatorCreateDesc},
-    std::sync::{Arc, Mutex},
-};
 
 pub struct ContextCreateInfo {
     pub name: String,
@@ -36,19 +26,19 @@ impl QueueFamilyIndices {
     }
 }
 
-pub struct Context {
+pub struct VulkanContext {
     pub instance: Instance,
     pub physical_device: vk::PhysicalDevice,
     pub device: Device,
     pub command_pool: vk::CommandPool,
+    pub surface: surface::Instance,
+    pub surface_khr: vk::SurfaceKHR,
     debug_utils: debug_utils::Instance,
     debug_utils_messenger: vk::DebugUtilsMessengerEXT,
-    surface: surface::Instance,
-    surface_khr: vk::SurfaceKHR,
     queue_family_indices: QueueFamilyIndices,
 }
 
-impl Context {
+impl VulkanContext {
     pub fn new(window: &Window, create_info: ContextCreateInfo) -> Self {
         let entry = Entry::linked();
 
@@ -90,15 +80,23 @@ impl Context {
     }
 
     /// Obtains the general queue from the device
-    pub fn get_queue(&self) -> vk::Queue {
+    pub fn get_general_queue(&self) -> vk::Queue {
         unsafe {
             self.device
                 .get_device_queue(self.queue_family_indices.general, 0)
         }
     }
+
+    /// Obtains the transfer-only queue from the device
+    pub fn get_transfer_only_queue(&self) -> vk::Queue {
+        unsafe {
+            self.device
+                .get_device_queue(self.queue_family_indices.transfer_only, 0)
+        }
+    }
 }
 
-impl Drop for Context {
+impl Drop for VulkanContext {
     fn drop(&mut self) {
         log::info!("Destroying Vulkan Context");
         unsafe {

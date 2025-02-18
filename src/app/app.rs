@@ -14,7 +14,6 @@ impl ApplicationHandler for App {
     // initialize resources here
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         self.initialized = Some(InitializedApp::new(event_loop));
-        self.initialized.as_mut().unwrap().init();
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
