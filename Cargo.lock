@@ -640,24 +640,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "flora-ash"
-version = "0.1.0"
-dependencies = [
- "ash",
- "ash-window",
- "comfy-table",
- "egui",
- "egui-winit",
- "egui_demo_lib",
- "gpu-allocator",
- "log",
- "simple_logger",
- "thiserror 2.0.11",
- "time",
- "winit",
-]
-
-[[package]]
 name = "foreign-types"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1557,6 +1539,24 @@ dependencies = [
  "core-graphics",
  "objc",
  "raw-window-handle 0.6.2",
+]
+
+[[package]]
+name = "re-flora"
+version = "0.1.0"
+dependencies = [
+ "ash",
+ "ash-window",
+ "comfy-table",
+ "egui",
+ "egui-winit",
+ "egui_demo_lib",
+ "gpu-allocator",
+ "log",
+ "simple_logger",
+ "thiserror 2.0.11",
+ "time",
+ "winit",
 ]
 
 [[package]]
