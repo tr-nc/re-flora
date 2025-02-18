@@ -1,7 +1,4 @@
 use ash::{khr::swapchain, vk, Device};
-use egui::ClippedPrimitive;
-
-use crate::renderer::Renderer;
 
 use super::context::VulkanContext;
 
@@ -37,7 +34,7 @@ impl Swapchain {
     }
 
     pub fn recreate(&mut self, context: &VulkanContext, window_size: &[u32; 2]) {
-        println!("Recreating the swapchain");
+        log::info!("Recreating vulkan swapchain");
 
         unsafe { context.device.device_wait_idle().unwrap() };
 
@@ -286,56 +283,4 @@ fn create_vulkan_framebuffers(
         })
         .collect::<Result<Vec<_>, _>>()
         .expect("Failed to create framebuffers")
-}
-
-fn record_command_buffers(
-    device: &Device,
-    command_pool: vk::CommandPool,
-    command_buffer: vk::CommandBuffer,
-    framebuffer: vk::Framebuffer,
-    render_pass: vk::RenderPass,
-    extent: vk::Extent2D,
-    pixels_per_point: f32,
-    renderer: &mut Renderer,
-
-    clipped_primitives: &[ClippedPrimitive],
-) {
-    unsafe {
-        device
-            .reset_command_pool(command_pool, vk::CommandPoolResetFlags::empty())
-            .expect("Failed to reset command pool")
-    };
-
-    let command_buffer_begin_info =
-        vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::SIMULTANEOUS_USE);
-    unsafe { device.begin_command_buffer(command_buffer, &command_buffer_begin_info) }
-        .expect("Failed to begin command buffer");
-
-    let render_pass_begin_info = vk::RenderPassBeginInfo::default()
-        .render_pass(render_pass)
-        .framebuffer(framebuffer)
-        .render_area(vk::Rect2D {
-            offset: vk::Offset2D { x: 0, y: 0 },
-            extent,
-        })
-        .clear_values(&[vk::ClearValue {
-            color: vk::ClearColorValue {
-                float32: [0.007, 0.007, 0.007, 1.0],
-            },
-        }]);
-
-    unsafe {
-        device.cmd_begin_render_pass(
-            command_buffer,
-            &render_pass_begin_info,
-            vk::SubpassContents::INLINE,
-        )
-    };
-
-    renderer
-        .cmd_draw(command_buffer, extent, pixels_per_point, clipped_primitives)
-        .expect("Failed to draw");
-
-    unsafe { device.cmd_end_render_pass(command_buffer) };
-    unsafe { device.end_command_buffer(command_buffer).unwrap() };
 }

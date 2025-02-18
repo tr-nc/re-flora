@@ -1,5 +1,4 @@
-use std::sync::{Arc, Mutex};
-
+use crate::util::time_info::TimeInfo;
 use crate::{
     renderer::Renderer,
     vkn::{
@@ -9,14 +8,16 @@ use crate::{
     window::{WindowDescriptor, WindowMode, WindowState},
 };
 use ash::{vk, Device};
-use egui::{ClippedPrimitive, TextureId, ViewportId};
+use egui::{ClippedPrimitive, Color32, RichText, Slider, TextureId, ViewportId};
 use egui_winit::State;
 use gpu_allocator::vulkan::{Allocator, AllocatorCreateDesc};
+use std::sync::{Arc, Mutex};
+use winit::event::DeviceEvent;
 use winit::{
     event::{ElementState, WindowEvent},
     event_loop::ActiveEventLoop,
     keyboard::KeyCode,
-    raw_window_handle::{HasDisplayHandle, HasWindowHandle},
+    raw_window_handle::HasDisplayHandle,
     window::WindowId,
 };
 
@@ -39,7 +40,7 @@ pub struct InitializedApp {
     render_finished_semaphore: vk::Semaphore,
     fence: vk::Fence,
 
-    run: bool,
+    time_info: TimeInfo,
 }
 
 impl InitializedApp {
@@ -151,11 +152,12 @@ impl InitializedApp {
             render_finished_semaphore,
             fence,
 
-            run: true,
             window_state,
             is_resize_pending: false,
             egui_winit,
             renderer,
+
+            time_info: TimeInfo::default(),
 
             textures_to_free: None,
         }
@@ -242,6 +244,8 @@ impl InitializedApp {
                 }
 
                 //
+                self.time_info.update();
+                // self.camera.update_transform(self.time_info.delta_time());
 
                 unsafe {
                     self.vulkan_context
@@ -268,6 +272,32 @@ impl InitializedApp {
                     ..
                 } = self.egui_context.run(raw_input, |ctx| {
                     // self.egui_app.build_ui(ctx); TODO:
+
+                    let my_frame = egui::containers::Frame {
+                        fill: Color32::from_rgba_premultiplied(0, 0, 0, 128),
+                        ..Default::default()
+                    };
+
+                    // https://github.com/emilk/egui/blob/master/crates/egui_demo_lib/src/demo/panels.rs
+                    egui::SidePanel::left("left_panel")
+                        .frame(my_frame)
+                        .resizable(false)
+                        .default_width(300.0)
+                        .show(&ctx, |ui| {
+                            ui.vertical_centered(|ui| {
+                                ui.heading("Left Panel");
+                            });
+                            egui::ScrollArea::vertical().show(ui, |ui| {
+                                ui.label(RichText::new(format!(
+                                    "fps: {:.2}",
+                                    self.time_info.display_fps()
+                                )));
+                                // https://github.com/emilk/egui/blob/master/crates/egui_demo_lib/src/demo/sliders.rs
+                                // ui.add(
+                                //     Slider::new(&mut self.slider_value, 0.0..=1.0).text("Slider"),
+                                // );
+                            });
+                        });
                 });
 
                 self.egui_winit
@@ -379,13 +409,24 @@ impl InitializedApp {
         &mut self,
         _event_loop: &ActiveEventLoop,
         _device_id: winit::event::DeviceId,
-        _event: winit::event::DeviceEvent,
+        event: winit::event::DeviceEvent,
     ) {
+        match event {
+            DeviceEvent::MouseMotion { delta: _delta } => {
+                if !self.window_state.is_cursor_visible() {
+                    // self.camera.handle_mouse(&delta);
+                }
+            }
+            _ => (),
+        }
+
         // Handle device events here
     }
 
     pub fn on_about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        // Handle about to wait here
+        if !self.window_state.is_minimized() {
+            self.window_state.window().request_redraw();
+        }
     }
 
     fn resize(&mut self) {
