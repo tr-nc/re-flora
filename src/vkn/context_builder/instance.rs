@@ -5,7 +5,7 @@ use ash::{
 };
 use std::{
     ffi::{CStr, CString},
-    os::raw::c_void,
+    os::raw::{c_char, c_void},
 };
 use winit::{raw_window_handle::HasDisplayHandle, window::Window};
 
@@ -40,9 +40,25 @@ pub fn create_vulkan_instance(
         vk::InstanceCreateFlags::default()
     };
 
+    let layer_names_raw: Vec<*const c_char> = {
+        #[cfg(not(feature = "no_validation_layer"))]
+        {
+            {
+                let layer_names = [c"VK_LAYER_KHRONOS_validation"];
+                layer_names
+                    .iter()
+                    .map(|raw_name| raw_name.as_ptr())
+                    .collect()
+            }
+        }
+        #[cfg(feature = "no_validation_layer")]
+        Vec::new()
+    };
+
     let instance_create_info = vk::InstanceCreateInfo::default()
         .application_info(&app_info)
         .flags(create_flags)
+        .enabled_layer_names(&layer_names_raw)
         .enabled_extension_names(&extension_names);
 
     let instance = unsafe { entry.create_instance(&instance_create_info, None).unwrap() };
@@ -81,10 +97,10 @@ unsafe extern "system" fn vulkan_debug_callback(
 
     let message = CStr::from_ptr((*p_callback_data).p_message);
     match flag {
-        Flag::INFO => log::info!("{:?} - {:?}", ty, message),
-        Flag::WARNING => log::warn!("{:?} - {:?}", ty, message),
-        Flag::ERROR => log::error!("{:?} - {:?}", ty, message),
-        _ => log::error!("Unexpected type met: {:?} - {:?}", ty, message),
+        Flag::INFO => log::info!("[Validation] {:?} - {:?}", ty, message),
+        Flag::WARNING => log::warn!("[Validation] {:?} - {:?}", ty, message),
+        Flag::ERROR => log::error!("[Validation] {:?} - {:?}", ty, message),
+        _ => log::error!("[Validation] Unexpected type met: {:?} - {:?}", ty, message),
     }
     vk::FALSE
 }

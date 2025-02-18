@@ -25,3 +25,8 @@ egui = "0.31.0"
 thiserror = "2.0.11"
 egui-winit = "0.31.0"
 egui_demo_lib = "0.31.0"
+
+
+[features]
+default = []
+no_validation_layer = []

@@ -8,8 +8,7 @@ use crate::{
     window::{WindowDescriptor, WindowMode, WindowState},
 };
 use ash::{vk, Device};
-use egui::{ClippedPrimitive, Color32, RichText, Slider, TextureId, ViewportId};
-use egui_winit::State;
+use egui::{ClippedPrimitive, Color32, RichText, TextureId, ViewportId};
 use gpu_allocator::vulkan::{Allocator, AllocatorCreateDesc};
 use std::sync::{Arc, Mutex};
 use winit::event::DeviceEvent;
@@ -22,143 +21,143 @@ use winit::{
 };
 
 pub struct InitializedApp {
+    vulkan_context: VulkanContext,
+    egui_context: egui::Context,
+    egui_winit_state: egui_winit::State,
+    renderer: Renderer,
     window_state: WindowState,
     is_resize_pending: bool,
-
-    //
-    pub vulkan_context: VulkanContext,
-    pub egui_context: egui::Context,
-
-    pub egui_winit: State,
-    pub renderer: Renderer,
-
     textures_to_free: Option<Vec<TextureId>>,
-
-    command_buffer: vk::CommandBuffer,
+    cmdbuf: vk::CommandBuffer,
     swapchain: Swapchain,
     image_available_semaphore: vk::Semaphore,
     render_finished_semaphore: vk::Semaphore,
     fence: vk::Fence,
-
     time_info: TimeInfo,
 }
 
 impl InitializedApp {
-    pub fn new(_event_loop: &ActiveEventLoop) -> Self {
+    fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {
         let window_descriptor = WindowDescriptor {
             title: "Flora".to_owned(),
-            window_mode: WindowMode::Windowed,
-            // cursor_locked: true,
-            // cursor_visible: false,
+            window_mode: WindowMode::BorderlessFullscreen,
+            cursor_locked: true,
+            cursor_visible: false,
             ..Default::default()
         };
-        let window_state = WindowState::new(_event_loop, &window_descriptor);
+        WindowState::new(event_loop, &window_descriptor)
+    }
 
-        let context_create_info = ContextCreateInfo {
-            name: "Flora".into(),
-        };
-        let vulkan_context = VulkanContext::new(&window_state.window(), context_create_info);
+    fn create_vulkan_context(window_state: &WindowState) -> VulkanContext {
+        VulkanContext::new(
+            &window_state.window(),
+            ContextCreateInfo {
+                name: "Flora".into(),
+            },
+        )
+    }
 
-        //
-
-        let command_buffer = {
-            let allocate_info = vk::CommandBufferAllocateInfo::default()
-                .command_pool(vulkan_context.command_pool)
-                .level(vk::CommandBufferLevel::PRIMARY)
-                .command_buffer_count(1);
-
-            unsafe {
-                vulkan_context
-                    .device
-                    .allocate_command_buffers(&allocate_info)
-                    .unwrap()[0]
-            }
-        };
-
-        let swapchain = Swapchain::new(&vulkan_context, &window_state.window_size());
-
-        // Semaphore use for presentation
+    /// Returns: (image_available_semaphore, render_finished_semaphore)
+    fn create_semaphores(device: &Device) -> (vk::Semaphore, vk::Semaphore) {
         let image_available_semaphore = {
             let semaphore_info = vk::SemaphoreCreateInfo::default();
-            unsafe {
-                vulkan_context
-                    .device
-                    .create_semaphore(&semaphore_info, None)
-                    .expect("Failed to create semaphore")
-            }
+            unsafe { device.create_semaphore(&semaphore_info, None).unwrap() }
         };
 
         let render_finished_semaphore = {
             let semaphore_info = vk::SemaphoreCreateInfo::default();
-            unsafe {
-                vulkan_context
-                    .device
-                    .create_semaphore(&semaphore_info, None)
-                    .expect("Failed to create semaphore")
-            }
+            unsafe { device.create_semaphore(&semaphore_info, None).unwrap() }
         };
 
-        let fence = {
-            let fence_info = vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED);
-            unsafe {
-                vulkan_context
-                    .device
-                    .create_fence(&fence_info, None)
-                    .expect("Failed to create fence")
-            }
-        };
+        (image_available_semaphore, render_finished_semaphore)
+    }
 
-        // // egui_extras::install_image_loaders(&context);
-
-        let egui_context = egui::Context::default();
-        let egui_winit = State::new(
+    fn create_egui_winit_state(
+        egui_context: &egui::Context,
+        display_target: &dyn HasDisplayHandle,
+    ) -> egui_winit::State {
+        egui_winit::State::new(
             egui_context.clone(),
             ViewportId::ROOT,
-            &window_state.window().display_handle().unwrap(),
+            display_target,
             None,
             None,
             None,
-        );
+        )
+    }
 
-        let renderer = {
-            let allocator = Allocator::new(&AllocatorCreateDesc {
-                instance: vulkan_context.instance.clone(),
-                device: vulkan_context.device.clone(),
-                physical_device: vulkan_context.physical_device,
-                debug_settings: Default::default(),
-                buffer_device_address: false,
-                allocation_sizes: Default::default(),
-            })
-            .expect("Failed to create allocator");
+    fn create_fence(device: &Device) -> vk::Fence {
+        let fence_info = vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED);
+        unsafe { device.create_fence(&fence_info, None).unwrap() }
+    }
 
-            Renderer::with_gpu_allocator(
-                Arc::new(Mutex::new(allocator)),
-                vulkan_context.device.clone(),
-                swapchain.render_pass,
-                crate::renderer::Options {
-                    srgb_framebuffer: true,
-                    ..Default::default()
-                },
-            )
-            .unwrap()
-        };
+    fn create_cmdbuf(device: &Device, command_pool: vk::CommandPool) -> vk::CommandBuffer {
+        let allocate_info = vk::CommandBufferAllocateInfo::default()
+            .command_pool(command_pool)
+            .level(vk::CommandBufferLevel::PRIMARY)
+            .command_buffer_count(1);
+
+        unsafe { device.allocate_command_buffers(&allocate_info).unwrap()[0] }
+    }
+
+    fn create_renderer(vulkan_context: &VulkanContext, swapchain: &Swapchain) -> Renderer {
+        let allocator = Allocator::new(&AllocatorCreateDesc {
+            instance: vulkan_context.instance.clone(),
+            device: vulkan_context.device.clone(),
+            physical_device: vulkan_context.physical_device,
+            debug_settings: Default::default(),
+            buffer_device_address: false,
+            allocation_sizes: Default::default(),
+        })
+        .expect("Failed to create allocator");
+
+        Renderer::with_gpu_allocator(
+            Arc::new(Mutex::new(allocator)),
+            vulkan_context.device.clone(),
+            swapchain.render_pass,
+            crate::renderer::Options {
+                srgb_framebuffer: true,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    }
+
+    pub fn new(_event_loop: &ActiveEventLoop) -> Self {
+        let window_state = Self::create_window_state(_event_loop);
+        let vulkan_context = Self::create_vulkan_context(&window_state);
+
+        let swapchain = Swapchain::new(&vulkan_context, &window_state.window_size());
+
+        let (image_available_semaphore, render_finished_semaphore) =
+            Self::create_semaphores(&vulkan_context.device);
+
+        let fence = Self::create_fence(&vulkan_context.device);
+
+        // enable it for image loading feature
+        // egui_extras::install_image_loaders(&context);
+
+        let egui_context = egui::Context::default();
+        let egui_winit_state = Self::create_egui_winit_state(&egui_context, &window_state.window());
+
+        let cmdbuf = Self::create_cmdbuf(&vulkan_context.device, vulkan_context.command_pool);
+
+        let renderer = Self::create_renderer(&vulkan_context, &swapchain);
 
         Self {
             vulkan_context,
             egui_context,
-            command_buffer,
+            egui_winit_state,
+            renderer,
+            window_state,
+            is_resize_pending: false,
+            cmdbuf,
             swapchain,
             image_available_semaphore,
             render_finished_semaphore,
             fence,
 
-            window_state,
-            is_resize_pending: false,
-            egui_winit,
-            renderer,
-
             time_info: TimeInfo::default(),
-
             textures_to_free: None,
         }
     }
@@ -169,6 +168,21 @@ impl InitializedApp {
         _id: WindowId,
         event: WindowEvent,
     ) {
+        // if cursor is visible, feed the event to gui first, if the event is being consumed by gui, no need to handle it again later
+        if self.window_state.is_cursor_visible() {
+            // let consumed = self.gui.update(&event);
+
+            let consumed = self
+                .egui_winit_state
+                .on_window_event(&self.window_state.window(), &event)
+                .consumed;
+
+            if consumed {
+                println!("Event consumed by egui");
+                return;
+            }
+        }
+
         match event {
             // close the loop, therefore the window, when close button is clicked
             WindowEvent::CloseRequested => {
@@ -194,10 +208,9 @@ impl InitializedApp {
 
                     self.swapchain.destroy(&self.vulkan_context);
 
-                    self.vulkan_context.device.free_command_buffers(
-                        self.vulkan_context.command_pool,
-                        &[self.command_buffer],
-                    );
+                    self.vulkan_context
+                        .device
+                        .free_command_buffers(self.vulkan_context.command_pool, &[self.cmdbuf]);
                 }
             }
 
@@ -262,7 +275,9 @@ impl InitializedApp {
                 }
 
                 // Generate UI
-                let raw_input = self.egui_winit.take_egui_input(&self.window_state.window());
+                let raw_input = self
+                    .egui_winit_state
+                    .take_egui_input(&self.window_state.window());
 
                 let egui::FullOutput {
                     platform_output,
@@ -281,7 +296,7 @@ impl InitializedApp {
                     // https://github.com/emilk/egui/blob/master/crates/egui_demo_lib/src/demo/panels.rs
                     egui::SidePanel::left("left_panel")
                         .frame(my_frame)
-                        .resizable(false)
+                        .resizable(true)
                         .default_width(300.0)
                         .show(&ctx, |ui| {
                             ui.vertical_centered(|ui| {
@@ -300,7 +315,7 @@ impl InitializedApp {
                         });
                 });
 
-                self.egui_winit
+                self.egui_winit_state
                     .handle_platform_output(&self.window_state.window(), platform_output);
 
                 if !textures_delta.free.is_empty() {
@@ -352,7 +367,7 @@ impl InitializedApp {
                 record_command_buffers(
                     &self.vulkan_context.device,
                     self.vulkan_context.command_pool,
-                    self.command_buffer,
+                    self.cmdbuf,
                     self.swapchain.framebuffers[image_index as usize],
                     self.swapchain.render_pass,
                     self.swapchain.extent,
@@ -361,7 +376,7 @@ impl InitializedApp {
                     &clipped_primitives,
                 );
 
-                let command_buffers = [self.command_buffer];
+                let command_buffers = [self.cmdbuf];
                 let submit_info = [vk::SubmitInfo::default()
                     .wait_semaphores(&wait_semaphores)
                     .wait_dst_stage_mask(&wait_stages)

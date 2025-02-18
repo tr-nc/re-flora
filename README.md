@@ -54,3 +54,7 @@ https://crates.io/crates/egui-ash-renderer
 
 4. **Other Optimization Techniques**:
    [Other Optimization Techs](https://www.youtube.com/watch?v=PYu1iwjAxWM)
+
+# Special Thanks
+
+https://github.com/adrien-ben/egui-ash-renderer

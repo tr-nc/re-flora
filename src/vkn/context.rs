@@ -1,6 +1,3 @@
-#[cfg(any(target_os = "macos", target_os = "ios"))]
-use ash::vk::{KhrGetPhysicalDeviceProperties2Fn, KhrPortabilityEnumerationFn};
-
 use ash::{ext::debug_utils, khr::surface, vk, Device, Entry, Instance};
 use winit::window::Window;
 
@@ -14,8 +11,8 @@ pub struct QueueFamilyIndices {
     /// Guaranteed to support GRAPHICS + PRESENT + COMPUTE + TRANSFER,
     /// and should be used for all main tasks
     pub general: u32,
-    /// Exclusive to transfer operations, may be slower, but enables parallelism for
-    /// background transfer operations
+    /// Exclusive to transfer operations, may be slower, but enables
+    /// potential parallelism for background transfer operations
     pub transfer_only: u32,
 }
 

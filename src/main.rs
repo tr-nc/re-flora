@@ -8,7 +8,6 @@ use app::App;
 use simple_logger::SimpleLogger;
 use winit::event_loop::EventLoop;
 
-/// Enable backtrace on panic
 #[allow(unused)]
 fn backtrace_on() {
     use std::env;
