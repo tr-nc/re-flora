@@ -5,6 +5,7 @@
 
 use ash::{vk, Device};
 pub(crate) use buffer::*;
+use shaderc;
 use std::{
     ffi::CString,
     mem::{self, size_of},
@@ -61,17 +62,40 @@ pub(crate) fn create_vulkan_pipeline(
     render_pass: vk::RenderPass,
     options: Options,
 ) -> RendererResult<vk::Pipeline> {
+    let frag_source = std::include_str!("./shaders/shader.frag");
+    let vert_source = std::include_str!("./shaders/shader.vert");
+
+    let compiler = shaderc::Compiler::new().unwrap();
+    let mut compile_options = shaderc::CompileOptions::new().unwrap();
+    compile_options.set_optimization_level(shaderc::OptimizationLevel::Performance);
+
+    let frag_artifact = compiler
+        .compile_into_spirv(
+            frag_source,
+            shaderc::ShaderKind::Fragment,
+            "shader.frag",
+            "main",
+            Some(&compile_options),
+        )
+        .unwrap();
+
+    let vert_artifact = compiler
+        .compile_into_spirv(
+            vert_source,
+            shaderc::ShaderKind::Vertex,
+            "shader.vert",
+            "main",
+            Some(&compile_options),
+        )
+        .unwrap();
+
     let entry_point_name = CString::new("main").unwrap();
 
-    let vertex_shader_source = std::include_bytes!("./shaders/shader.vert.spv");
-    let fragment_shader_source = std::include_bytes!("./shaders/shader.frag.spv");
-
-    let vertex_source = read_shader_from_source(vertex_shader_source)?;
-    let vertex_create_info = vk::ShaderModuleCreateInfo::default().code(&vertex_source);
+    let vertex_create_info = vk::ShaderModuleCreateInfo::default().code(&vert_artifact.as_binary());
     let vertex_module = unsafe { device.create_shader_module(&vertex_create_info, None)? };
 
-    let fragment_source = read_shader_from_source(fragment_shader_source)?;
-    let fragment_create_info = vk::ShaderModuleCreateInfo::default().code(&fragment_source);
+    let fragment_create_info =
+        vk::ShaderModuleCreateInfo::default().code(&frag_artifact.as_binary());
     let fragment_module = unsafe { device.create_shader_module(&fragment_create_info, None)? };
 
     let specialization_entries = [vk::SpecializationMapEntry {

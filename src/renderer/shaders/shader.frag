@@ -15,6 +15,7 @@ const float INV_GAMMA = 1.0 / GAMMA;
 
 vec3 LINEARtoSRGB(vec3 color) { return pow(color, vec3(INV_GAMMA)); }
 vec4 LINEARtoSRGB(vec4 color) { return vec4(LINEARtoSRGB(color.rgb), color.a); }
+
 void main() {
   if (SRGB_FRAMEBUFFER) {
     finalColor = oColor * texture(fontsSampler, oUV);
