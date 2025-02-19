@@ -35,6 +35,7 @@ pub struct Swapchain {
     pub framebuffers: Vec<vk::Framebuffer>,
     images: Vec<vk::Image>,
     image_views: Vec<vk::ImageView>,
+
     swapchain_preference: SwapchainPreference,
 }
 
@@ -48,9 +49,9 @@ impl Swapchain {
             create_vulkan_swapchain(&context, window_size, &swapchain_preference);
 
         Self {
-            render_pass,
             swapchain_device,
             swapchain_khr,
+            render_pass,
             framebuffers,
             images,
             image_views,
@@ -70,10 +71,10 @@ impl Swapchain {
 
         self.swapchain_device = swapchain_device;
         self.swapchain_khr = swapchain_khr;
-        self.images = images;
-        self.image_views = image_views;
         self.render_pass = render_pass;
         self.framebuffers = framebuffers;
+        self.images = images;
+        self.image_views = image_views;
     }
 
     pub fn destroy(&mut self, context: &VulkanContext) {

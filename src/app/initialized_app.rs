@@ -16,7 +16,6 @@ use winit::{
     event::{ElementState, WindowEvent},
     event_loop::ActiveEventLoop,
     keyboard::KeyCode,
-    raw_window_handle::HasDisplayHandle,
     window::WindowId,
 };
 
@@ -39,6 +38,57 @@ pub struct InitializedApp {
 }
 
 impl InitializedApp {
+    pub fn new(_event_loop: &ActiveEventLoop) -> Self {
+        let window_state = Self::create_window_state(_event_loop);
+        let vulkan_context = Self::create_vulkan_context(&window_state);
+
+        let swapchain = Swapchain::new(
+            &vulkan_context,
+            &window_state.window_size(),
+            Default::default(),
+        );
+
+        let (image_available_semaphore, render_finished_semaphore) =
+            Self::create_semaphores(&vulkan_context.device);
+
+        let fence = Self::create_fence(&vulkan_context.device);
+
+        // enable for image loading feature of egui
+        // egui_extras::install_image_loaders(&context);
+
+        let egui_context = egui::Context::default();
+        let egui_winit_state = egui_winit::State::new(
+            egui_context.clone(),
+            ViewportId::ROOT,
+            &window_state.window(),
+            None,
+            None,
+            None,
+        );
+
+        let cmdbuf = Self::create_cmdbuf(&vulkan_context.device, vulkan_context.command_pool);
+
+        let renderer = Self::create_renderer(&vulkan_context, &swapchain);
+
+        Self {
+            vulkan_context,
+            egui_context,
+            egui_winit_state,
+            renderer,
+            window_state,
+            cmdbuf,
+            swapchain,
+            image_available_semaphore,
+            render_finished_semaphore,
+            fence,
+
+            is_resize_pending: false,
+            time_info: TimeInfo::default(),
+            textures_to_free: None,
+            slider_val: 0.0,
+        }
+    }
+
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {
         let window_descriptor = WindowDescriptor {
             title: "Flora".to_owned(),
@@ -74,20 +124,6 @@ impl InitializedApp {
         (image_available_semaphore, render_finished_semaphore)
     }
 
-    fn create_egui_winit_state(
-        egui_context: &egui::Context,
-        display_target: &dyn HasDisplayHandle,
-    ) -> egui_winit::State {
-        egui_winit::State::new(
-            egui_context.clone(),
-            ViewportId::ROOT,
-            display_target,
-            None,
-            None,
-            None,
-        )
-    }
-
     fn create_fence(device: &Device) -> vk::Fence {
         let fence_info = vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED);
         unsafe { device.create_fence(&fence_info, None).unwrap() }
@@ -98,7 +134,6 @@ impl InitializedApp {
             .command_pool(command_pool)
             .level(vk::CommandBufferLevel::PRIMARY)
             .command_buffer_count(1);
-
         unsafe { device.allocate_command_buffers(&allocate_info).unwrap()[0] }
     }
 
@@ -123,50 +158,6 @@ impl InitializedApp {
             },
         )
         .unwrap()
-    }
-
-    pub fn new(_event_loop: &ActiveEventLoop) -> Self {
-        let window_state = Self::create_window_state(_event_loop);
-        let vulkan_context = Self::create_vulkan_context(&window_state);
-
-        let swapchain = Swapchain::new(
-            &vulkan_context,
-            &window_state.window_size(),
-            Default::default(),
-        );
-
-        let (image_available_semaphore, render_finished_semaphore) =
-            Self::create_semaphores(&vulkan_context.device);
-
-        let fence = Self::create_fence(&vulkan_context.device);
-
-        // enable it for image loading feature
-        // egui_extras::install_image_loaders(&context);
-
-        let egui_context = egui::Context::default();
-        let egui_winit_state = Self::create_egui_winit_state(&egui_context, &window_state.window());
-
-        let cmdbuf = Self::create_cmdbuf(&vulkan_context.device, vulkan_context.command_pool);
-
-        let renderer = Self::create_renderer(&vulkan_context, &swapchain);
-
-        Self {
-            vulkan_context,
-            egui_context,
-            egui_winit_state,
-            renderer,
-            window_state,
-            is_resize_pending: false,
-            cmdbuf,
-            swapchain,
-            image_available_semaphore,
-            render_finished_semaphore,
-            fence,
-
-            time_info: TimeInfo::default(),
-            textures_to_free: None,
-            slider_val: 0.0,
-        }
     }
 
     pub fn on_window_event(
