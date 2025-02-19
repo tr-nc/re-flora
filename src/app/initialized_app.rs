@@ -341,8 +341,8 @@ impl InitializedApp {
 
                 // Drawing the frame
                 let next_image_result = unsafe {
-                    self.swapchain.loader.acquire_next_image(
-                        self.swapchain.khr,
+                    self.swapchain.swapchain_device.acquire_next_image(
+                        self.swapchain.swapchain_khr,
                         std::u64::MAX,
                         self.image_available_semaphore,
                         vk::Fence::null(),
@@ -401,7 +401,7 @@ impl InitializedApp {
                         .expect("Failed to submit work to gpu.")
                 };
 
-                let swapchains = [self.swapchain.khr];
+                let swapchains = [self.swapchain.swapchain_khr];
                 let images_indices = [image_index];
                 let present_info = vk::PresentInfoKHR::default()
                     .wait_semaphores(&signal_semaphores)
@@ -410,7 +410,7 @@ impl InitializedApp {
 
                 let present_result = unsafe {
                     self.swapchain
-                        .loader
+                        .swapchain_device
                         .queue_present(self.vulkan_context.get_general_queue(), &present_info)
                 };
                 match present_result {

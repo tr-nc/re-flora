@@ -25,9 +25,13 @@ impl Default for SwapchainPreference {
 }
 
 pub struct Swapchain {
-    pub loader: swapchain::Device,
+    /// The device that created the swapchain.
+    pub swapchain_device: swapchain::Device,
+
+    /// The swapchain handle.
+    pub swapchain_khr: vk::SwapchainKHR,
+
     pub render_pass: vk::RenderPass,
-    pub khr: vk::SwapchainKHR,
     pub framebuffers: Vec<vk::Framebuffer>,
     images: Vec<vk::Image>,
     image_views: Vec<vk::ImageView>,
@@ -40,18 +44,13 @@ impl Swapchain {
         window_size: &[u32; 2],
         swapchain_preference: SwapchainPreference,
     ) -> Self {
-        let (loader, khr, format, images, image_views) =
+        let (swapchain_device, swapchain_khr, images, image_views, render_pass, framebuffers) =
             create_vulkan_swapchain(&context, window_size, &swapchain_preference);
-
-        let render_pass = create_vulkan_render_pass(&context.device, format);
-
-        let framebuffers =
-            create_vulkan_framebuffers(&context.device, render_pass, &image_views, window_size);
 
         Self {
             render_pass,
-            loader,
-            khr,
+            swapchain_device,
+            swapchain_khr,
             framebuffers,
             images,
             image_views,
@@ -66,16 +65,11 @@ impl Swapchain {
 
         self.destroy(context);
 
-        let (loader, khr, format, images, image_views) =
-            create_vulkan_swapchain(context, &window_size, &self.swapchain_preference);
+        let (swapchain_device, swapchain_khr, images, image_views, render_pass, framebuffers) =
+            create_vulkan_swapchain(&context, window_size, &self.swapchain_preference);
 
-        let render_pass = create_vulkan_render_pass(&context.device, format);
-
-        let framebuffers =
-            create_vulkan_framebuffers(&context.device, render_pass, &image_views, window_size);
-
-        self.loader = loader;
-        self.khr = khr;
+        self.swapchain_device = swapchain_device;
+        self.swapchain_khr = swapchain_khr;
         self.images = images;
         self.image_views = image_views;
         self.render_pass = render_pass;
@@ -84,6 +78,8 @@ impl Swapchain {
 
     pub fn destroy(&mut self, context: &VulkanContext) {
         unsafe {
+            log::info!("Destroying vulkan swapchain");
+
             // TODO: check if commented out, validation error will occur or not (it should be)
             self.framebuffers
                 .iter()
@@ -94,7 +90,8 @@ impl Swapchain {
                 .iter()
                 .for_each(|v| context.device.destroy_image_view(*v, None));
             self.image_views.clear();
-            self.loader.destroy_swapchain(self.khr, None);
+            self.swapchain_device
+                .destroy_swapchain(self.swapchain_khr, None);
         }
     }
 }
@@ -209,14 +206,14 @@ fn create_swapchain(
             .clipped(true)
     };
 
-    let swapchain = swapchain::Device::new(&context.instance, &context.device);
-    let swapchain_khr = unsafe {
-        swapchain
+    let swapchain_device = swapchain::Device::new(&context.instance, &context.device);
+    let swapchain = unsafe {
+        swapchain_device
             .create_swapchain(&create_info, None)
             .expect("Failed to create swapchain")
     };
 
-    (swapchain, swapchain_khr)
+    (swapchain_device, swapchain)
 }
 
 fn create_vulkan_swapchain(
@@ -226,9 +223,10 @@ fn create_vulkan_swapchain(
 ) -> (
     swapchain::Device,
     vk::SwapchainKHR,
-    vk::Format,
     Vec<vk::Image>,
     Vec<vk::ImageView>,
+    vk::RenderPass,
+    Vec<vk::Framebuffer>,
 ) {
     let format = choose_surface_format(
         context,
@@ -252,7 +250,7 @@ fn create_vulkan_swapchain(
     let image_count = capabilities.min_image_count;
     log::debug!("Swapchain image count: {image_count:?}");
 
-    let (swapchain, swapchain_khr) = create_swapchain(
+    let (swapchain_device, swapchain_khr) = create_swapchain(
         context,
         image_count,
         format,
@@ -262,7 +260,7 @@ fn create_vulkan_swapchain(
     );
 
     let images = unsafe {
-        swapchain
+        swapchain_device
             .get_swapchain_images(swapchain_khr)
             .expect("Failed to get swapchain images")
     };
@@ -287,7 +285,19 @@ fn create_vulkan_swapchain(
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
 
-    (swapchain, swapchain_khr, format.format, images, views)
+    let render_pass = create_vulkan_render_pass(&context.device, format.format);
+
+    let framebuffers =
+        create_vulkan_framebuffers(&context.device, render_pass, &views, window_size);
+
+    (
+        swapchain_device,
+        swapchain_khr,
+        images,
+        views,
+        render_pass,
+        framebuffers,
+    )
 }
 
 fn create_vulkan_render_pass(device: &ash::Device, format: vk::Format) -> vk::RenderPass {
