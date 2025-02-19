@@ -1,35 +1,61 @@
-use ash::{khr::swapchain, vk, Device};
+use ash::{
+    khr::swapchain,
+    vk::{self, Extent2D, PresentModeKHR, SurfaceCapabilitiesKHR, SurfaceFormatKHR},
+};
 
 use super::context::VulkanContext;
 
+/// The preference for the swapchain.
+///
+/// Preferences are considered every time the swapchain is (re)created.
+pub struct SwapchainPreference {
+    format: vk::Format,
+    color_space: vk::ColorSpaceKHR,
+    present_mode: vk::PresentModeKHR,
+}
+
+impl Default for SwapchainPreference {
+    fn default() -> Self {
+        Self {
+            format: vk::Format::R8G8B8A8_SRGB,
+            color_space: vk::ColorSpaceKHR::SRGB_NONLINEAR,
+            present_mode: vk::PresentModeKHR::MAILBOX,
+        }
+    }
+}
+
 pub struct Swapchain {
-    pub render_pass: vk::RenderPass,
     pub loader: swapchain::Device,
+    pub render_pass: vk::RenderPass,
     pub khr: vk::SwapchainKHR,
     pub framebuffers: Vec<vk::Framebuffer>,
-    pub extent: vk::Extent2D,
     images: Vec<vk::Image>,
     image_views: Vec<vk::ImageView>,
+    swapchain_preference: SwapchainPreference,
 }
 
 impl Swapchain {
-    pub fn new(context: &VulkanContext, window_size: &[u32; 2]) -> Self {
-        let (loader, khr, extent, format, images, image_views) =
-            create_vulkan_swapchain(&context, window_size);
+    pub fn new(
+        context: &VulkanContext,
+        window_size: &[u32; 2],
+        swapchain_preference: SwapchainPreference,
+    ) -> Self {
+        let (loader, khr, format, images, image_views) =
+            create_vulkan_swapchain(&context, window_size, &swapchain_preference);
 
         let render_pass = create_vulkan_render_pass(&context.device, format);
 
         let framebuffers =
-            create_vulkan_framebuffers(&context.device, render_pass, extent, &image_views);
+            create_vulkan_framebuffers(&context.device, render_pass, &image_views, window_size);
 
         Self {
+            render_pass,
             loader,
-            extent,
             khr,
+            framebuffers,
             images,
             image_views,
-            render_pass,
-            framebuffers,
+            swapchain_preference,
         }
     }
 
@@ -40,16 +66,15 @@ impl Swapchain {
 
         self.destroy(context);
 
-        let (loader, khr, extent, format, images, image_views) =
-            create_vulkan_swapchain(context, &window_size);
+        let (loader, khr, format, images, image_views) =
+            create_vulkan_swapchain(context, &window_size, &self.swapchain_preference);
 
         let render_pass = create_vulkan_render_pass(&context.device, format);
 
         let framebuffers =
-            create_vulkan_framebuffers(&context.device, render_pass, extent, &image_views);
+            create_vulkan_framebuffers(&context.device, render_pass, &image_views, window_size);
 
         self.loader = loader;
-        self.extent = extent;
         self.khr = khr;
         self.images = images;
         self.image_views = image_views;
@@ -74,38 +99,63 @@ impl Swapchain {
     }
 }
 
-fn create_vulkan_swapchain(
-    context: &VulkanContext,
-    window_size: &[u32; 2],
-) -> (
-    swapchain::Device,
-    vk::SwapchainKHR,
-    vk::Extent2D,
-    vk::Format,
-    Vec<vk::Image>,
-    Vec<vk::ImageView>,
+fn print_swapchain_format_and_color_space(
+    desired_format: vk::Format,
+    desired_color_space: vk::ColorSpaceKHR,
+    using_format: vk::Format,
+    using_color_space: vk::ColorSpaceKHR,
 ) {
-    log::debug!("Creating vulkan swapchain");
-    // Swapchain format
+    let mut table = comfy_table::Table::new();
+    table.set_header(vec!["Desired", "Using"]);
+
+    table.add_row(vec![
+        &format!("{:?}", desired_format),
+        &format!("{:?}", using_format),
+    ]);
+    table.add_row(vec![
+        &format!("{:?}", desired_color_space),
+        &format!("{:?}", using_color_space),
+    ]);
+
+    println!("{}", table);
+}
+
+fn choose_surface_format(
+    context: &VulkanContext,
+    desired_format: vk::Format,
+    desired_color_space: vk::ColorSpaceKHR,
+) -> SurfaceFormatKHR {
     let format = {
         let formats = unsafe {
             context
                 .surface
                 .get_physical_device_surface_formats(context.physical_device, context.surface_khr)
-                .expect("Failed to get physical device surface formats")
+                .unwrap()
         };
 
         *formats
             .iter()
             .find(|format| {
-                format.format == vk::Format::R8G8B8A8_SRGB
-                    && format.color_space == vk::ColorSpaceKHR::SRGB_NONLINEAR
+                format.format == desired_format && format.color_space == desired_color_space
             })
             .unwrap_or(&formats[0])
     };
-    log::debug!("Swapchain format: {format:?}");
+    print_swapchain_format_and_color_space(
+        desired_format,
+        desired_color_space,
+        format.format,
+        format.color_space,
+    );
+    format
+}
 
-    // Swapchain present mode
+fn choose_present_mode(
+    context: &VulkanContext,
+    desired_present_mode: PresentModeKHR,
+) -> PresentModeKHR {
+    //guaranteed to be available
+    const FALLBACK_PRESENT_MODE: PresentModeKHR = PresentModeKHR::FIFO;
+
     let present_mode = {
         let present_modes = unsafe {
             context
@@ -116,41 +166,25 @@ fn create_vulkan_swapchain(
                 )
                 .expect("Failed to get physical device surface present modes")
         };
-        if present_modes.contains(&vk::PresentModeKHR::IMMEDIATE) {
-            vk::PresentModeKHR::IMMEDIATE
+        if present_modes.contains(&desired_present_mode) {
+            desired_present_mode
         } else {
-            vk::PresentModeKHR::FIFO
+            FALLBACK_PRESENT_MODE
         }
     };
-    log::debug!("Swapchain present mode: {present_mode:?}");
 
-    let capabilities = unsafe {
-        context
-            .surface
-            .get_physical_device_surface_capabilities(context.physical_device, context.surface_khr)
-            .expect("Failed to get physical device surface capabilities")
-    };
+    log::info!("Swapchain present mode: {:?}", present_mode);
+    present_mode
+}
 
-    // Swapchain extent
-    let extent = {
-        if capabilities.current_extent.width != std::u32::MAX {
-            capabilities.current_extent
-        } else {
-            let min = capabilities.min_image_extent;
-            let max = capabilities.max_image_extent;
-            let width = window_size[0].min(max.width).max(min.width);
-            let height = window_size[1].min(max.height).max(min.height);
-            vk::Extent2D { width, height }
-        }
-    };
-    log::debug!("Swapchain extent: {extent:?}");
-
-    // Swapchain image count
-    let image_count = capabilities.min_image_count;
-    log::debug!("Swapchain image count: {image_count:?}");
-
-    // Swapchain
-    // let families_indices = [context.graphics_q_index, context.present_q_index];
+fn create_swapchain(
+    context: &VulkanContext,
+    image_count: u32,
+    format: SurfaceFormatKHR,
+    extent: Extent2D,
+    present_mode: PresentModeKHR,
+    capabilities: SurfaceCapabilitiesKHR,
+) -> (swapchain::Device, vk::SwapchainKHR) {
     let create_info = {
         let mut builder = vk::SwapchainCreateInfoKHR::default()
             .surface(context.surface_khr)
@@ -161,13 +195,10 @@ fn create_vulkan_swapchain(
             .image_array_layers(1)
             .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT);
 
-        // builder = if context.graphics_q_index != context.present_q_index {
-        //     builder
+        // if context.graphics_q_index != context.present_q_index, you may want to use concurrent mode
+        // let families_indices = [context.graphics_q_index, context.present_q_index];
         //         .image_sharing_mode(vk::SharingMode::CONCURRENT)
         //         .queue_family_indices(&families_indices)
-        // } else {
-        //     builder.image_sharing_mode(vk::SharingMode::EXCLUSIVE)
-        // };
 
         builder = builder.image_sharing_mode(vk::SharingMode::EXCLUSIVE);
 
@@ -185,7 +216,51 @@ fn create_vulkan_swapchain(
             .expect("Failed to create swapchain")
     };
 
-    // Swapchain images and image views
+    (swapchain, swapchain_khr)
+}
+
+fn create_vulkan_swapchain(
+    context: &VulkanContext,
+    window_size: &[u32; 2],
+    swapchain_preference: &SwapchainPreference,
+) -> (
+    swapchain::Device,
+    vk::SwapchainKHR,
+    vk::Format,
+    Vec<vk::Image>,
+    Vec<vk::ImageView>,
+) {
+    let format = choose_surface_format(
+        context,
+        swapchain_preference.format,
+        swapchain_preference.color_space,
+    );
+    let present_mode = choose_present_mode(context, swapchain_preference.present_mode);
+
+    let extent = Extent2D {
+        width: window_size[0],
+        height: window_size[1],
+    };
+
+    let capabilities: SurfaceCapabilitiesKHR = unsafe {
+        context
+            .surface
+            .get_physical_device_surface_capabilities(context.physical_device, context.surface_khr)
+            .expect("Failed to get physical device surface capabilities")
+    };
+
+    let image_count = capabilities.min_image_count;
+    log::debug!("Swapchain image count: {image_count:?}");
+
+    let (swapchain, swapchain_khr) = create_swapchain(
+        context,
+        image_count,
+        format,
+        extent,
+        present_mode,
+        capabilities,
+    );
+
     let images = unsafe {
         swapchain
             .get_swapchain_images(swapchain_khr)
@@ -212,17 +287,10 @@ fn create_vulkan_swapchain(
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
 
-    (
-        swapchain,
-        swapchain_khr,
-        extent,
-        format.format,
-        images,
-        views,
-    )
+    (swapchain, swapchain_khr, format.format, images, views)
 }
 
-fn create_vulkan_render_pass(device: &Device, format: vk::Format) -> vk::RenderPass {
+fn create_vulkan_render_pass(device: &ash::Device, format: vk::Format) -> vk::RenderPass {
     log::debug!("Creating vulkan render pass");
     let attachment_descs = [vk::AttachmentDescription::default()
         .format(format)
@@ -263,10 +331,10 @@ fn create_vulkan_render_pass(device: &Device, format: vk::Format) -> vk::RenderP
 }
 
 fn create_vulkan_framebuffers(
-    device: &Device,
+    device: &ash::Device,
     render_pass: vk::RenderPass,
-    extent: vk::Extent2D,
     image_views: &[vk::ImageView],
+    window_size: &[u32; 2],
 ) -> Vec<vk::Framebuffer> {
     log::debug!("Creating vulkan framebuffers");
     image_views
@@ -276,8 +344,8 @@ fn create_vulkan_framebuffers(
             let framebuffer_info = vk::FramebufferCreateInfo::default()
                 .render_pass(render_pass)
                 .attachments(&attachments)
-                .width(extent.width)
-                .height(extent.height)
+                .width(window_size[0])
+                .height(window_size[1])
                 .layers(1);
             unsafe { device.create_framebuffer(&framebuffer_info, None) }
         })

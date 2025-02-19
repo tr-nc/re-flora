@@ -129,7 +129,11 @@ impl InitializedApp {
         let window_state = Self::create_window_state(_event_loop);
         let vulkan_context = Self::create_vulkan_context(&window_state);
 
-        let swapchain = Swapchain::new(&vulkan_context, &window_state.window_size());
+        let swapchain = Swapchain::new(
+            &vulkan_context,
+            &window_state.window_size(),
+            Default::default(),
+        );
 
         let (image_available_semaphore, render_finished_semaphore) =
             Self::create_semaphores(&vulkan_context.device);
@@ -371,7 +375,10 @@ impl InitializedApp {
                     self.cmdbuf,
                     self.swapchain.framebuffers[image_index as usize],
                     self.swapchain.render_pass,
-                    self.swapchain.extent,
+                    vk::Extent2D {
+                        width: self.window_state.window_size()[0],
+                        height: self.window_state.window_size()[1],
+                    },
                     pixels_per_point,
                     &mut self.renderer,
                     &clipped_primitives,

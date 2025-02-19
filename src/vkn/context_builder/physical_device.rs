@@ -5,7 +5,6 @@ use ash::{
 use std::ffi::CStr;
 
 use crate::vkn::context::QueueFamilyIndices;
-use comfy_table::Table;
 
 // Example device info for scoring / printing
 #[derive(Debug)]
@@ -18,7 +17,7 @@ pub struct DeviceInfo {
 }
 
 fn print_all_devices_with_selection(device_infos: &[DeviceInfo], selection_idx: usize) {
-    let mut table = Table::new();
+    let mut table = comfy_table::Table::new();
     table.set_header(vec!["Device", "Type", "Memory (MB)", "Score", "Selected?"]);
 
     for (idx, info) in device_infos.iter().enumerate() {
@@ -73,7 +72,7 @@ fn print_queue_family_info(
 ) {
     let queue_families = unsafe { instance.get_physical_device_queue_family_properties(device) };
 
-    let mut table = Table::new();
+    let mut table = comfy_table::Table::new();
     table.set_header(vec![
         "Queue Family Index",
         "Graphics",
@@ -130,19 +129,17 @@ fn print_queue_family_info(
         ]);
     }
 
-    println!("Queue Family Properties:");
     println!("{}", table);
 }
 
 /// Prints a summary table of selected queue families for different operations.
 fn print_selected_queue_families(qf_indices: &QueueFamilyIndices) {
-    let mut table = Table::new();
+    let mut table = comfy_table::Table::new();
     table.set_header(vec!["Queue Type", "Queue Family Index"]);
 
     table.add_row(vec!["General", &qf_indices.general.to_string()]);
     table.add_row(vec!["Transfer Only", &qf_indices.transfer_only.to_string()]);
 
-    println!("Selected Queue Families:");
     println!("{}", table);
 }
 
