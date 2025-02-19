@@ -23,6 +23,14 @@
 
 ---
 
+# Vscode setup
+
+## Plugins
+
+shader lint: GLSL Lint
+
+don't use glslx for vulkan styled shaders
+
 ## References
 
 [Descriptor set - Vulkan's guide](https://vkguide.dev/docs/chapter-4/descriptors/#binding-descriptors)
@@ -60,3 +68,7 @@ https://crates.io/crates/egui-ash-renderer
 # Special Thanks
 
 https://github.com/adrien-ben/egui-ash-renderer
+
+```
+
+```
