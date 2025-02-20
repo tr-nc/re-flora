@@ -20,10 +20,11 @@ use winit::{
 };
 
 pub struct InitializedApp {
-    vulkan_context: VulkanContext,
-    egui_context: egui::Context,
-    egui_winit_state: egui_winit::State,
     renderer: Renderer,
+    egui_context: egui::Context,
+    vulkan_context: VulkanContext,
+
+    egui_winit_state: egui_winit::State,
     window_state: WindowState,
     is_resize_pending: bool,
     textures_to_free: Option<Vec<TextureId>>,
@@ -35,6 +36,12 @@ pub struct InitializedApp {
     time_info: TimeInfo,
 
     slider_val: f32,
+}
+
+impl Drop for InitializedApp {
+    fn drop(&mut self) {
+        log::info!("Dropping InitializedApp");
+    }
 }
 
 impl InitializedApp {
@@ -159,6 +166,32 @@ impl InitializedApp {
         )
     }
 
+    pub fn on_terminate(&mut self, event_loop: &ActiveEventLoop) {
+        log::info!("Terminating app");
+        event_loop.exit();
+
+        // unsafe {
+        //     self.vulkan_context
+        //         .device
+        //         .device_wait_idle()
+        //         .expect("Failed to wait for graphics device to idle.");
+
+        //     self.vulkan_context.device.destroy_fence(self.fence, None);
+        //     self.vulkan_context
+        //         .device
+        //         .destroy_semaphore(self.image_available_semaphore, None);
+        //     self.vulkan_context
+        //         .device
+        //         .destroy_semaphore(self.render_finished_semaphore, None);
+
+        //     self.swapchain.destroy(&self.vulkan_context);
+
+        //     self.vulkan_context
+        //         .device
+        //         .free_command_buffers(self.vulkan_context.command_pool, &[self.cmdbuf]);
+        // }
+    }
+
     pub fn on_window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
@@ -183,32 +216,7 @@ impl InitializedApp {
         match event {
             // close the loop, therefore the window, when close button is clicked
             WindowEvent::CloseRequested => {
-                event_loop.exit();
-
-                log::info!("Stopping application");
-
-                unsafe {
-                    self.vulkan_context
-                        .device
-                        .device_wait_idle()
-                        .expect("Failed to wait for graphics device to idle.");
-
-                    // self.egui_app.clean(&self.context);
-
-                    self.vulkan_context.device.destroy_fence(self.fence, None);
-                    self.vulkan_context
-                        .device
-                        .destroy_semaphore(self.image_available_semaphore, None);
-                    self.vulkan_context
-                        .device
-                        .destroy_semaphore(self.render_finished_semaphore, None);
-
-                    self.swapchain.destroy(&self.vulkan_context);
-
-                    self.vulkan_context
-                        .device
-                        .free_command_buffers(self.vulkan_context.command_pool, &[self.cmdbuf]);
-                }
+                self.on_terminate(event_loop);
             }
 
             // never happened and never tested, take caution
@@ -225,9 +233,8 @@ impl InitializedApp {
             }
 
             WindowEvent::KeyboardInput { event, .. } => {
-                // close the loop when escape key is pressed
                 if event.state == ElementState::Pressed && event.physical_key == KeyCode::Escape {
-                    event_loop.exit();
+                    self.on_terminate(event_loop);
                     return;
                 }
 
