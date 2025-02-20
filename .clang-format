@@ -8,4 +8,3 @@ AllowShortIfStatementsOnASingleLine: true
 AllowShortLoopsOnASingleLine: true
 InsertNewlineAtEOF: true
 ---
-

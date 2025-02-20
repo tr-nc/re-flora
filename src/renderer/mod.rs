@@ -1,5 +1,4 @@
 mod allocator;
-pub mod error;
 pub mod vulkan;
 
 use std::collections::HashMap;
@@ -9,7 +8,6 @@ use egui::{
     epaint::{ImageDelta, Primitive},
     ClippedPrimitive, ImageData, TextureId,
 };
-use error::RendererError;
 use mesh::*;
 use vulkan::*;
 
@@ -20,16 +18,11 @@ use {
     std::sync::{Arc, Mutex},
 };
 
-/// Convenient return type for function that can return a [`RendererError`].
-///
-/// [`RendererError`]: enum.RendererError.html
-pub type RendererResult<T> = Result<T, RendererError>;
-
 const MAX_TEXTURE_COUNT: u32 = 1024; // TODO: constant max size or user defined ?
 
 /// Optional parameters of the renderer.
 #[derive(Debug, Clone, Copy)]
-pub struct Options {
+pub struct RendererOptions {
     /// The number of in flight frames of the application.
     pub in_flight_frames: usize,
     /// If true enables depth test when rendering.
@@ -45,7 +38,7 @@ pub struct Options {
     pub srgb_framebuffer: bool,
 }
 
-impl Default for Options {
+impl Default for RendererOptions {
     fn default() -> Self {
         Self {
             in_flight_frames: 1,
@@ -74,7 +67,7 @@ pub struct Renderer {
     managed_textures: HashMap<TextureId, Texture>,
     textures: HashMap<TextureId, vk::DescriptorSet>,
     next_user_texture_id: u64,
-    options: Options,
+    options: RendererOptions,
     frames: Option<Frames>,
 }
 
@@ -89,51 +82,36 @@ impl Renderer {
     /// * `device` - A Vulkan device.
     /// * `render_pass` - The render pass used to render the gui.
     /// * `options` - Rendering options.
-    ///
-    /// # Errors
-    ///
-    /// * [`RendererError`] - If the number of in flight frame in incorrect.
-    /// * [`RendererError`] - If any Vulkan or io error is encountered during initialization.
     pub fn with_gpu_allocator(
-        gpu_allocator: Arc<Mutex<GpuAllocator>>,
+        allocator: Arc<Mutex<GpuAllocator>>,
         device: Device,
         render_pass: vk::RenderPass,
-        options: Options,
-    ) -> RendererResult<Self> {
-        Self::from_allocator(device, Allocator::new(gpu_allocator), render_pass, options)
-    }
-
-    fn from_allocator(
-        device: Device,
-        allocator: Allocator,
-        render_pass: vk::RenderPass,
-        options: Options,
-    ) -> RendererResult<Self> {
+        options: RendererOptions,
+    ) -> Self {
         log::debug!("Creating egui renderer with options {options:?}");
 
-        if options.in_flight_frames == 0 {
-            return Err(RendererError::Init(String::from(
-                "'in_flight_frames' parameter should be at least one",
-            )));
-        }
+        assert!(
+            options.in_flight_frames > 0,
+            "in_flight_frames should be at least one"
+        );
 
         // Descriptor set layout
-        let descriptor_set_layout = create_vulkan_descriptor_set_layout(&device)?;
+        let descriptor_set_layout = create_vulkan_descriptor_set_layout(&device);
 
         // Pipeline and layout
-        let pipeline_layout = create_vulkan_pipeline_layout(&device, descriptor_set_layout)?;
-        let pipeline = create_vulkan_pipeline(&device, pipeline_layout, render_pass, options)?;
+        let pipeline_layout = create_vulkan_pipeline_layout(&device, descriptor_set_layout);
+        let pipeline = create_vulkan_pipeline(&device, pipeline_layout, render_pass, options);
 
         // Descriptor pool
-        let descriptor_pool = create_vulkan_descriptor_pool(&device, MAX_TEXTURE_COUNT)?;
+        let descriptor_pool = create_vulkan_descriptor_pool(&device, MAX_TEXTURE_COUNT);
 
         // Textures
         let managed_textures = HashMap::new();
         let textures = HashMap::new();
 
-        Ok(Self {
+        Self {
             device,
-            allocator,
+            allocator: Allocator::new(allocator),
             pipeline,
             pipeline_layout,
             descriptor_set_layout,
@@ -143,7 +121,7 @@ impl Renderer {
             textures,
             options,
             frames: None,
-        })
+        }
     }
 
     /// Change the render pass to render to.
@@ -158,15 +136,14 @@ impl Renderer {
     /// # Errors
     ///
     /// * [`RendererError`] - If any Vulkan error is encountered during pipeline creation.
-    pub fn set_render_pass(&mut self, render_pass: vk::RenderPass) -> RendererResult<()> {
+    pub fn set_render_pass(&mut self, render_pass: vk::RenderPass) {
         unsafe { self.device.destroy_pipeline(self.pipeline, None) };
         self.pipeline = create_vulkan_pipeline(
             &self.device,
             self.pipeline_layout,
             render_pass,
             self.options,
-        )?;
-        Ok(())
+        );
     }
 
     /// Free egui managed textures.
@@ -188,7 +165,7 @@ impl Renderer {
         queue: vk::Queue,
         command_pool: vk::CommandPool,
         textures_delta: &[(TextureId, ImageDelta)],
-    ) -> RendererResult<()> {
+    ) {
         log::trace!("Setting {} textures", textures_delta.len());
         for (id, delta) in textures_delta {
             let (width, height, data) = match &delta.image {
@@ -218,10 +195,7 @@ impl Renderer {
             if let Some([offset_x, offset_y]) = delta.pos {
                 log::trace!("Updating texture {id:?}");
 
-                let texture = self
-                    .managed_textures
-                    .get_mut(id)
-                    .ok_or(RendererError::BadTexture(*id))?;
+                let texture = self.managed_textures.get_mut(id).unwrap();
 
                 texture.update(
                     &self.device,
@@ -236,9 +210,9 @@ impl Renderer {
                         extent: vk::Extent2D { width, height },
                     },
                     data.as_slice(),
-                )?;
+                );
             } else {
-                log::trace!("Adding texture {id:?}");
+                log::trace!("Adding texture {:?}", id);
 
                 let texture = Texture::from_rgba8(
                     &self.device,
@@ -248,7 +222,7 @@ impl Renderer {
                     width,
                     height,
                     data.as_slice(),
-                )?;
+                );
 
                 let set = create_vulkan_descriptor_set(
                     &self.device,
@@ -256,21 +230,20 @@ impl Renderer {
                     self.descriptor_pool,
                     texture.image_view,
                     texture.sampler,
-                )?;
+                );
 
                 if let Some(previous) = self.managed_textures.insert(*id, texture) {
-                    previous.destroy(&self.device, &mut self.allocator)?;
+                    previous.destroy(&self.device, &mut self.allocator);
                 }
                 if let Some(previous) = self.textures.insert(*id, set) {
                     unsafe {
                         self.device
-                            .free_descriptor_sets(self.descriptor_pool, &[previous])?
+                            .free_descriptor_sets(self.descriptor_pool, &[previous])
+                            .unwrap();
                     };
                 }
             }
         }
-
-        Ok(())
     }
 
     /// Free egui managed textures.
@@ -285,21 +258,20 @@ impl Renderer {
     /// # Errors
     ///
     /// * [`RendererError`] - If any Vulkan error is encountered when free the texture.
-    pub fn free_textures(&mut self, ids: &[TextureId]) -> RendererResult<()> {
+    pub fn free_textures(&mut self, ids: &[TextureId]) {
         log::trace!("Freeing {} textures", ids.len());
         for id in ids {
             if let Some(texture) = self.managed_textures.remove(id) {
-                texture.destroy(&self.device, &mut self.allocator)?;
+                texture.destroy(&self.device, &mut self.allocator);
             }
             if let Some(set) = self.textures.remove(id) {
                 unsafe {
                     self.device
-                        .free_descriptor_sets(self.descriptor_pool, &[set])?
+                        .free_descriptor_sets(self.descriptor_pool, &[set])
+                        .unwrap();
                 };
             }
         }
-
-        Ok(())
     }
 
     /// Add a user managed texture used by egui.
@@ -352,9 +324,9 @@ impl Renderer {
         extent: vk::Extent2D,
         pixels_per_point: f32,
         primitives: &[ClippedPrimitive],
-    ) -> RendererResult<()> {
+    ) {
         if primitives.is_empty() {
-            return Ok(());
+            return;
         }
 
         if self.frames.is_none() {
@@ -363,11 +335,11 @@ impl Renderer {
                 &mut self.allocator,
                 primitives,
                 self.options.in_flight_frames,
-            )?);
+            ));
         }
 
         let mesh = self.frames.as_mut().unwrap().next();
-        mesh.update(&self.device, &mut self.allocator, primitives)?;
+        mesh.update(&self.device, &mut self.allocator, primitives);
 
         unsafe {
             self.device.cmd_bind_pipeline(
@@ -456,10 +428,7 @@ impl Renderer {
                     }
 
                     if Some(m.texture_id) != current_texture_id {
-                        let descriptor_set = *self
-                            .textures
-                            .get(&m.texture_id)
-                            .ok_or(RendererError::BadTexture(m.texture_id))?;
+                        let descriptor_set = *self.textures.get(&m.texture_id).unwrap();
 
                         unsafe {
                             self.device.cmd_bind_descriptor_sets(
@@ -494,8 +463,6 @@ impl Renderer {
                 }
             }
         }
-
-        Ok(())
     }
 }
 
@@ -506,17 +473,14 @@ impl Drop for Renderer {
 
         unsafe {
             if let Some(frames) = self.frames.take() {
-                frames
-                    .destroy(device, &mut self.allocator)
-                    .expect("Failed to destroy frame data");
+                frames.destroy(device, &mut self.allocator);
             }
             device.destroy_pipeline(self.pipeline, None);
             device.destroy_pipeline_layout(self.pipeline_layout, None);
             device.destroy_descriptor_pool(self.descriptor_pool, None);
 
             for (_, t) in self.managed_textures.drain() {
-                t.destroy(device, &mut self.allocator)
-                    .expect("Failed to destroy texture");
+                t.destroy(device, &mut self.allocator);
             }
             device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
         }
@@ -536,15 +500,15 @@ impl Frames {
         allocator: &mut Allocator,
         primitives: &[ClippedPrimitive],
         count: usize,
-    ) -> RendererResult<Self> {
+    ) -> Self {
         let meshes = (0..count)
             .map(|_| Mesh::new(device, allocator, primitives))
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(Self {
+            .collect();
+        Self {
             index: 0,
             count,
             meshes,
-        })
+        }
     }
 
     fn next(&mut self) -> &mut Mesh {
@@ -553,18 +517,17 @@ impl Frames {
         result
     }
 
-    fn destroy(self, device: &Device, allocator: &mut Allocator) -> RendererResult<()> {
+    fn destroy(self, device: &Device, allocator: &mut Allocator) {
         for mesh in self.meshes.into_iter() {
-            mesh.destroy(device, allocator)?;
+            mesh.destroy(device, allocator);
         }
-        Ok(())
     }
 }
 
 mod mesh {
 
-    use super::allocator::{Allocate, Allocator, Memory};
-    use super::{vulkan::*, RendererResult};
+    use super::allocator::Allocator;
+    use super::vulkan::*;
     use ash::{vk, Device};
     use egui::epaint::{Primitive, Vertex};
     use egui::ClippedPrimitive;
@@ -573,10 +536,10 @@ mod mesh {
     /// Vertex and index buffer resources for one frame in flight.
     pub struct Mesh {
         pub vertices: vk::Buffer,
-        vertices_mem: Memory,
+        vertices_mem: gpu_allocator::vulkan::Allocation,
         vertex_count: usize,
         pub indices: vk::Buffer,
-        indices_mem: Memory,
+        indices_mem: gpu_allocator::vulkan::Allocation,
         index_count: usize,
     }
 
@@ -585,7 +548,7 @@ mod mesh {
             device: &Device,
             allocator: &mut Allocator,
             primitives: &[ClippedPrimitive],
-        ) -> RendererResult<Self> {
+        ) -> Self {
             let vertices = create_vertices(primitives);
             let vertex_count = vertices.len();
             let indices = create_indices(primitives);
@@ -597,7 +560,7 @@ mod mesh {
                 allocator,
                 &vertices,
                 vk::BufferUsageFlags::VERTEX_BUFFER,
-            )?;
+            );
 
             // Create an index buffer
             let (indices, indices_mem) = create_and_fill_buffer(
@@ -605,16 +568,16 @@ mod mesh {
                 allocator,
                 &indices,
                 vk::BufferUsageFlags::INDEX_BUFFER,
-            )?;
+            );
 
-            Ok(Mesh {
+            Mesh {
                 vertices,
                 vertices_mem,
                 vertex_count,
                 indices,
                 indices_mem,
                 index_count,
-            })
+            }
         }
 
         pub fn update(
@@ -622,7 +585,7 @@ mod mesh {
             device: &Device,
             allocator: &mut Allocator,
             primitives: &[ClippedPrimitive],
-        ) -> RendererResult<()> {
+        ) {
             let vertices = create_vertices(primitives);
             if vertices.len() > self.vertex_count {
                 log::trace!("Resizing vertex buffers");
@@ -630,7 +593,7 @@ mod mesh {
                 let vertex_count = vertices.len();
                 let size = vertex_count * size_of::<Vertex>();
                 let (vertices, vertices_mem) =
-                    allocator.create_buffer(device, size, vk::BufferUsageFlags::VERTEX_BUFFER)?;
+                    allocator.create_buffer(device, size, vk::BufferUsageFlags::VERTEX_BUFFER);
 
                 self.vertex_count = vertex_count;
 
@@ -639,9 +602,9 @@ mod mesh {
 
                 let old_vertices_mem = std::mem::replace(&mut self.vertices_mem, vertices_mem);
 
-                allocator.destroy_buffer(device, old_vertices, old_vertices_mem)?;
+                allocator.destroy_buffer(device, old_vertices, old_vertices_mem);
             }
-            allocator.update_buffer(device, &mut self.vertices_mem, &vertices)?;
+            allocator.update_buffer(device, &mut self.vertices_mem, &vertices);
 
             let indices = create_indices(primitives);
             if indices.len() > self.index_count {
@@ -650,7 +613,7 @@ mod mesh {
                 let index_count = indices.len();
                 let size = index_count * size_of::<u32>();
                 let (indices, indices_mem) =
-                    allocator.create_buffer(device, size, vk::BufferUsageFlags::INDEX_BUFFER)?;
+                    allocator.create_buffer(device, size, vk::BufferUsageFlags::INDEX_BUFFER);
 
                 self.index_count = index_count;
 
@@ -659,17 +622,14 @@ mod mesh {
 
                 let old_indices_mem = std::mem::replace(&mut self.indices_mem, indices_mem);
 
-                allocator.destroy_buffer(device, old_indices, old_indices_mem)?;
+                allocator.destroy_buffer(device, old_indices, old_indices_mem);
             }
-            allocator.update_buffer(device, &mut self.indices_mem, &indices)?;
-
-            Ok(())
+            allocator.update_buffer(device, &mut self.indices_mem, &indices);
         }
 
-        pub fn destroy(self, device: &Device, allocator: &mut Allocator) -> RendererResult<()> {
-            allocator.destroy_buffer(device, self.vertices, self.vertices_mem)?;
-            allocator.destroy_buffer(device, self.indices, self.indices_mem)?;
-            Ok(())
+        pub fn destroy(self, device: &Device, allocator: &mut Allocator) {
+            allocator.destroy_buffer(device, self.vertices, self.vertices_mem);
+            allocator.destroy_buffer(device, self.indices, self.indices_mem);
         }
     }
 

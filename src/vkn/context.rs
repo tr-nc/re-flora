@@ -96,6 +96,7 @@ impl Drop for VulkanContext {
     fn drop(&mut self) {
         log::info!("Destroying Vulkan Context");
         unsafe {
+            self.device.device_wait_idle().unwrap();
             self.device.destroy_command_pool(self.command_pool, None);
             self.device.destroy_device(None);
             self.surface.destroy_surface(self.surface_khr, None);

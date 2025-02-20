@@ -5,13 +5,6 @@ use gpu_allocator::{
 };
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use crate::renderer::{error::RendererError, RendererResult};
-
-use super::Allocate;
-
-/// Abstraction over memory used by Vulkan resources.
-pub type Memory = Allocation;
-
 pub struct Allocator {
     pub allocator: Arc<Mutex<GpuAllocator>>,
 }
@@ -21,31 +14,32 @@ impl Allocator {
         Self { allocator }
     }
 
-    fn get_allocator(&self) -> RendererResult<MutexGuard<GpuAllocator>> {
-        self.allocator.lock().map_err(|e| {
-            RendererError::Allocator(format!("Failed to acquire lock on allocator: {e}"))
-        })
+    fn get_allocator(&self) -> MutexGuard<GpuAllocator> {
+        self.allocator.lock().unwrap()
     }
-}
 
-impl Allocate for Allocator {
-    type Memory = Memory;
-
-    fn create_buffer(
+    /// Create a Vulkan buffer.
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - A reference to Vulkan device.
+    /// * `size` - The size in bytes of the buffer.
+    /// * `usage` - The buffer usage flags.
+    pub fn create_buffer(
         &mut self,
         device: &Device,
         size: usize,
         usage: vk::BufferUsageFlags,
-    ) -> RendererResult<(vk::Buffer, Self::Memory)> {
+    ) -> (vk::Buffer, Allocation) {
         let buffer_info = vk::BufferCreateInfo::default()
             .size(size as _)
             .usage(usage)
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
 
-        let buffer = unsafe { device.create_buffer(&buffer_info, None)? };
+        let buffer = unsafe { device.create_buffer(&buffer_info, None).unwrap() };
         let requirements = unsafe { device.get_buffer_memory_requirements(buffer) };
 
-        let mut allocator = self.get_allocator()?;
+        let mut allocator = self.get_allocator();
 
         let allocation = allocator
             .allocate(&AllocationCreateDesc {
@@ -57,17 +51,30 @@ impl Allocate for Allocator {
             })
             .expect("Failed to allocate buffer memory");
 
-        unsafe { device.bind_buffer_memory(buffer, allocation.memory(), allocation.offset())? };
+        unsafe {
+            device
+                .bind_buffer_memory(buffer, allocation.memory(), allocation.offset())
+                .unwrap()
+        };
 
-        Ok((buffer, allocation))
+        (buffer, allocation)
     }
 
-    fn create_image(
+    /// Create a Vulkan image.
+    ///
+    /// This creates a 2D RGBA8_SRGB image with TRANSFER_DST and SAMPLED flags.
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - A reference to Vulkan device.
+    /// * `width` - The width of the image to create.
+    /// * `height` - The height of the image to create.
+    pub fn create_image(
         &mut self,
         device: &Device,
         width: u32,
         height: u32,
-    ) -> RendererResult<(vk::Image, Self::Memory)> {
+    ) -> (vk::Image, Allocation) {
         let extent = vk::Extent3D {
             width,
             height,
@@ -87,10 +94,10 @@ impl Allocate for Allocator {
             .samples(vk::SampleCountFlags::TYPE_1)
             .flags(vk::ImageCreateFlags::empty());
 
-        let image = unsafe { device.create_image(&image_info, None)? };
+        let image = unsafe { device.create_image(&image_info, None).unwrap() };
         let requirements = unsafe { device.get_image_memory_requirements(image) };
 
-        let mut allocator = self.get_allocator()?;
+        let mut allocator = self.get_allocator();
 
         let allocation = allocator
             .allocate(&AllocationCreateDesc {
@@ -102,58 +109,60 @@ impl Allocate for Allocator {
             })
             .expect("Failed to allocate image memory");
 
-        unsafe { device.bind_image_memory(image, allocation.memory(), allocation.offset())? };
+        unsafe {
+            device
+                .bind_image_memory(image, allocation.memory(), allocation.offset())
+                .unwrap()
+        };
 
-        Ok((image, allocation))
+        (image, allocation)
     }
 
-    fn destroy_buffer(
-        &mut self,
-        device: &Device,
-        buffer: vk::Buffer,
-        memory: Self::Memory,
-    ) -> RendererResult<()> {
-        let mut allocator = self.get_allocator()?;
+    /// Destroys a buffer.
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - A reference to Vulkan device.
+    /// * `buffer` - The buffer to destroy.
+    pub fn destroy_buffer(&mut self, device: &Device, buffer: vk::Buffer, memory: Allocation) {
+        let mut allocator = self.get_allocator();
 
         allocator
             .free(memory)
             .expect("Failed to free buffer memory");
         unsafe { device.destroy_buffer(buffer, None) };
-
-        Ok(())
     }
 
-    fn destroy_image(
-        &mut self,
-        device: &Device,
-        image: vk::Image,
-        memory: Self::Memory,
-    ) -> RendererResult<()> {
-        let mut allocator = self.get_allocator()?;
+    /// Destroys an image.
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - A reference to Vulkan device.
+    /// * `image` - The image to destroy.
+    pub fn destroy_image(&mut self, device: &Device, image: vk::Image, memory: Allocation) {
+        let mut allocator = self.get_allocator();
 
         allocator.free(memory).expect("Failed to free image memory");
         unsafe { device.destroy_image(image, None) };
-
-        Ok(())
     }
 
-    fn update_buffer<T: Copy>(
+    /// Update buffer data
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - A reference to Vulkan device.
+    /// * `data` - The data to update the buffer with.
+    pub fn update_buffer<T: Copy>(
         &mut self,
         _device: &Device,
-        memory: &mut Self::Memory,
+        memory: &mut Allocation,
         data: &[T],
-    ) -> RendererResult<()> {
+    ) {
         let size = std::mem::size_of_val(data) as _;
         unsafe {
-            let data_ptr = memory
-                .mapped_ptr()
-                .ok_or_else(|| {
-                    RendererError::Allocator("Failed to get mapped memory pointer".into())
-                })?
-                .as_ptr();
+            let data_ptr = memory.mapped_ptr().unwrap().as_ptr();
             let mut align = ash::util::Align::new(data_ptr, std::mem::align_of::<T>() as _, size);
             align.copy_from_slice(data);
         };
-        Ok(())
     }
 }

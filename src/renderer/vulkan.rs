@@ -4,26 +4,24 @@
 //! are exposed since they might help users create descriptors sets when using the custom textures.
 
 use ash::{vk, Device};
-pub(crate) use buffer::*;
+pub use buffer::*;
 use shaderc;
 use std::{
     ffi::CString,
     mem::{self, size_of},
 };
-pub(crate) use texture::*;
+pub use texture::*;
 
-use super::{Options, RendererResult};
+use super::RendererOptions;
 
 /// Return a `&[u8]` for any sized object passed in.
-pub(crate) unsafe fn any_as_u8_slice<T: Sized>(any: &T) -> &[u8] {
+pub unsafe fn any_as_u8_slice<T: Sized>(any: &T) -> &[u8] {
     let ptr = (any as *const T) as *const u8;
     std::slice::from_raw_parts(ptr, std::mem::size_of::<T>())
 }
 
 /// Create a descriptor set layout compatible with the graphics pipeline.
-pub fn create_vulkan_descriptor_set_layout(
-    device: &Device,
-) -> RendererResult<vk::DescriptorSetLayout> {
+pub fn create_vulkan_descriptor_set_layout(device: &Device) -> vk::DescriptorSetLayout {
     log::debug!("Creating vulkan descriptor set layout");
     let bindings = [vk::DescriptorSetLayoutBinding::default()
         .binding(0)
@@ -34,13 +32,17 @@ pub fn create_vulkan_descriptor_set_layout(
     let descriptor_set_create_info =
         vk::DescriptorSetLayoutCreateInfo::default().bindings(&bindings);
 
-    unsafe { Ok(device.create_descriptor_set_layout(&descriptor_set_create_info, None)?) }
+    unsafe {
+        device
+            .create_descriptor_set_layout(&descriptor_set_create_info, None)
+            .unwrap()
+    }
 }
 
-pub(crate) fn create_vulkan_pipeline_layout(
+pub fn create_vulkan_pipeline_layout(
     device: &Device,
     descriptor_set_layout: vk::DescriptorSetLayout,
-) -> RendererResult<vk::PipelineLayout> {
+) -> vk::PipelineLayout {
     log::debug!("Creating vulkan pipeline layout");
     let push_const_range = [vk::PushConstantRange {
         stage_flags: vk::ShaderStageFlags::VERTEX,
@@ -52,16 +54,17 @@ pub(crate) fn create_vulkan_pipeline_layout(
     let layout_info = vk::PipelineLayoutCreateInfo::default()
         .set_layouts(&descriptor_set_layouts)
         .push_constant_ranges(&push_const_range);
-    let pipeline_layout = unsafe { device.create_pipeline_layout(&layout_info, None)? };
-    Ok(pipeline_layout)
+    let pipeline_layout = unsafe { device.create_pipeline_layout(&layout_info, None).unwrap() };
+
+    pipeline_layout
 }
 
-pub(crate) fn create_vulkan_pipeline(
+pub fn create_vulkan_pipeline(
     device: &Device,
     pipeline_layout: vk::PipelineLayout,
     render_pass: vk::RenderPass,
-    options: Options,
-) -> RendererResult<vk::Pipeline> {
+    options: RendererOptions,
+) -> vk::Pipeline {
     let frag_source = std::include_str!("./shaders/shader.frag");
     let vert_source = std::include_str!("./shaders/shader.vert");
 
@@ -92,11 +95,19 @@ pub(crate) fn create_vulkan_pipeline(
     let entry_point_name = CString::new("main").unwrap();
 
     let vertex_create_info = vk::ShaderModuleCreateInfo::default().code(&vert_artifact.as_binary());
-    let vertex_module = unsafe { device.create_shader_module(&vertex_create_info, None)? };
+    let vertex_module = unsafe {
+        device
+            .create_shader_module(&vertex_create_info, None)
+            .unwrap()
+    };
 
     let fragment_create_info =
         vk::ShaderModuleCreateInfo::default().code(&frag_artifact.as_binary());
-    let fragment_module = unsafe { device.create_shader_module(&fragment_create_info, None)? };
+    let fragment_module = unsafe {
+        device
+            .create_shader_module(&fragment_create_info, None)
+            .unwrap()
+    };
 
     let specialization_entries = [vk::SpecializationMapEntry {
         constant_id: 0,
@@ -228,7 +239,8 @@ pub(crate) fn create_vulkan_pipeline(
                 std::slice::from_ref(&pipeline_info),
                 None,
             )
-            .map_err(|e| e.1)?[0]
+            .map_err(|e| e.1)
+            .unwrap()[0]
     };
 
     unsafe {
@@ -236,20 +248,11 @@ pub(crate) fn create_vulkan_pipeline(
         device.destroy_shader_module(fragment_module, None);
     }
 
-    Ok(pipeline)
-}
-
-fn read_shader_from_source(source: &[u8]) -> RendererResult<Vec<u32>> {
-    use std::io::Cursor;
-    let mut cursor = Cursor::new(source);
-    Ok(ash::util::read_spv(&mut cursor)?)
+    pipeline
 }
 
 /// Create a descriptor pool of sets compatible with the graphics pipeline.
-pub fn create_vulkan_descriptor_pool(
-    device: &Device,
-    max_sets: u32,
-) -> RendererResult<vk::DescriptorPool> {
+pub fn create_vulkan_descriptor_pool(device: &Device, max_sets: u32) -> vk::DescriptorPool {
     log::debug!("Creating vulkan descriptor pool");
 
     let sizes = [vk::DescriptorPoolSize {
@@ -260,7 +263,7 @@ pub fn create_vulkan_descriptor_pool(
         .pool_sizes(&sizes)
         .max_sets(max_sets)
         .flags(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET);
-    unsafe { Ok(device.create_descriptor_pool(&create_info, None)?) }
+    unsafe { device.create_descriptor_pool(&create_info, None).unwrap() }
 }
 
 /// Create a descriptor set compatible with the graphics pipeline from a texture.
@@ -270,7 +273,7 @@ pub fn create_vulkan_descriptor_set(
     descriptor_pool: vk::DescriptorPool,
     image_view: vk::ImageView,
     sampler: vk::Sampler,
-) -> RendererResult<vk::DescriptorSet> {
+) -> vk::DescriptorSet {
     log::trace!("Creating vulkan descriptor set");
 
     let set = {
@@ -279,7 +282,7 @@ pub fn create_vulkan_descriptor_set(
             .descriptor_pool(descriptor_pool)
             .set_layouts(&set_layouts);
 
-        unsafe { device.allocate_descriptor_sets(&allocate_info)?[0] }
+        unsafe { device.allocate_descriptor_sets(&allocate_info).unwrap()[0] }
     };
 
     unsafe {
@@ -296,14 +299,12 @@ pub fn create_vulkan_descriptor_set(
             .image_info(&image_info)];
         device.update_descriptor_sets(&writes, &[])
     }
-
-    Ok(set)
+    set
 }
 
 mod buffer {
 
-    use crate::renderer::allocator::{Allocate, Allocator, Memory};
-    use crate::renderer::RendererResult;
+    use crate::renderer::allocator::Allocator;
     use ash::vk;
     use ash::Device;
 
@@ -312,35 +313,34 @@ mod buffer {
         allocator: &mut Allocator,
         data: &[T],
         usage: vk::BufferUsageFlags,
-    ) -> RendererResult<(vk::Buffer, Memory)>
+    ) -> (vk::Buffer, gpu_allocator::vulkan::Allocation)
     where
         T: Copy,
     {
         let size = std::mem::size_of_val(data);
-        let (buffer, mut memory) = allocator.create_buffer(device, size, usage)?;
-        allocator.update_buffer(device, &mut memory, data)?;
-        Ok((buffer, memory))
+        let (buffer, mut memory) = allocator.create_buffer(device, size, usage);
+        allocator.update_buffer(device, &mut memory, data);
+        (buffer, memory)
     }
 }
 
 mod texture {
 
     use super::buffer::*;
-    use crate::renderer::allocator::{Allocate, Allocator, Memory};
-    use crate::renderer::RendererResult;
+    use crate::renderer::allocator::Allocator;
     use ash::vk;
     use ash::Device;
 
     /// Helper struct representing a sampled texture.
     pub struct Texture {
         pub image: vk::Image,
-        image_mem: Memory,
+        image_mem: gpu_allocator::vulkan::Allocation,
         pub image_view: vk::ImageView,
         pub sampler: vk::Sampler,
     }
 
     impl Texture {
-        pub(crate) fn from_rgba8(
+        pub fn from_rgba8(
             device: &Device,
             queue: vk::Queue,
             command_pool: vk::CommandPool,
@@ -348,15 +348,13 @@ mod texture {
             width: u32,
             height: u32,
             data: &[u8],
-        ) -> RendererResult<Self> {
+        ) -> Self {
             let (texture, staging_buff, staging_mem) =
                 execute_one_time_commands(device, queue, command_pool, |buffer| {
                     Self::cmd_from_rgba(device, allocator, buffer, width, height, data)
-                })??;
-
-            allocator.destroy_buffer(device, staging_buff, staging_mem)?;
-
-            Ok(texture)
+                });
+            allocator.destroy_buffer(device, staging_buff, staging_mem);
+            texture
         }
 
         fn cmd_from_rgba(
@@ -366,8 +364,8 @@ mod texture {
             width: u32,
             height: u32,
             data: &[u8],
-        ) -> RendererResult<(Self, vk::Buffer, Memory)> {
-            let (image, image_mem) = allocator.create_image(device, width, height)?;
+        ) -> (Self, vk::Buffer, gpu_allocator::vulkan::Allocation) {
+            let (image, image_mem) = allocator.create_image(device, width, height);
 
             let image_view = {
                 let create_info = vk::ImageViewCreateInfo::default()
@@ -382,7 +380,7 @@ mod texture {
                         layer_count: 1,
                     });
 
-                unsafe { device.create_image_view(&create_info, None)? }
+                unsafe { device.create_image_view(&create_info, None).unwrap() }
             };
 
             let sampler = {
@@ -402,7 +400,7 @@ mod texture {
                     .mip_lod_bias(0.0)
                     .min_lod(0.0)
                     .max_lod(1.0);
-                unsafe { device.create_sampler(&sampler_info, None)? }
+                unsafe { device.create_sampler(&sampler_info, None).unwrap() }
             };
 
             let mut texture = Self {
@@ -418,12 +416,12 @@ mod texture {
                 ..Default::default()
             };
             let (staging_buffer, staging_buffer_mem) =
-                texture.cmd_update(device, command_buffer, allocator, region, data)?;
+                texture.cmd_update(device, command_buffer, allocator, region, data);
 
-            Ok((texture, staging_buffer, staging_buffer_mem))
+            (texture, staging_buffer, staging_buffer_mem)
         }
 
-        pub(crate) fn update(
+        pub fn update(
             &mut self,
             device: &Device,
             queue: vk::Queue,
@@ -431,15 +429,12 @@ mod texture {
             allocator: &mut Allocator,
             region: vk::Rect2D,
             data: &[u8],
-        ) -> RendererResult<()> {
+        ) {
             let (staging_buff, staging_mem) =
                 execute_one_time_commands(device, queue, command_pool, |buffer| {
                     self.cmd_update(device, buffer, allocator, region, data)
-                })??;
-
-            allocator.destroy_buffer(device, staging_buff, staging_mem)?;
-
-            Ok(())
+                });
+            allocator.destroy_buffer(device, staging_buff, staging_mem);
         }
 
         fn cmd_update(
@@ -449,13 +444,9 @@ mod texture {
             allocator: &mut Allocator,
             region: vk::Rect2D,
             data: &[u8],
-        ) -> RendererResult<(vk::Buffer, Memory)> {
-            let (buffer, buffer_mem) = create_and_fill_buffer(
-                device,
-                allocator,
-                data,
-                vk::BufferUsageFlags::TRANSFER_SRC,
-            )?;
+        ) -> (vk::Buffer, gpu_allocator::vulkan::Allocation) {
+            let (buffer, buffer_mem) =
+                create_and_fill_buffer(device, allocator, data, vk::BufferUsageFlags::TRANSFER_SRC);
 
             // Transition the image layout and copy the buffer into the image
             // and transition the layout again to be readable from fragment shader.
@@ -536,17 +527,16 @@ mod texture {
                 };
             }
 
-            Ok((buffer, buffer_mem))
+            (buffer, buffer_mem)
         }
 
         /// Free texture's resources.
-        pub fn destroy(self, device: &Device, allocator: &mut Allocator) -> RendererResult<()> {
+        pub fn destroy(self, device: &Device, allocator: &mut Allocator) {
             unsafe {
                 device.destroy_sampler(self.sampler, None);
                 device.destroy_image_view(self.image_view, None);
-                allocator.destroy_image(device, self.image, self.image_mem)?;
+                allocator.destroy_image(device, self.image, self.image_mem);
             }
-            Ok(())
         }
     }
 
@@ -555,14 +545,14 @@ mod texture {
         queue: vk::Queue,
         pool: vk::CommandPool,
         executor: F,
-    ) -> RendererResult<R> {
+    ) -> R {
         let command_buffer = {
             let alloc_info = vk::CommandBufferAllocateInfo::default()
                 .level(vk::CommandBufferLevel::PRIMARY)
                 .command_pool(pool)
                 .command_buffer_count(1);
 
-            unsafe { device.allocate_command_buffers(&alloc_info)?[0] }
+            unsafe { device.allocate_command_buffers(&alloc_info).unwrap()[0] }
         };
         let command_buffers = [command_buffer];
 
@@ -570,28 +560,34 @@ mod texture {
         {
             let begin_info = vk::CommandBufferBeginInfo::default()
                 .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-            unsafe { device.begin_command_buffer(command_buffer, &begin_info)? };
+            unsafe {
+                device
+                    .begin_command_buffer(command_buffer, &begin_info)
+                    .unwrap()
+            };
         }
 
         // Execute user function
         let executor_result = executor(command_buffer);
 
         // End recording
-        unsafe { device.end_command_buffer(command_buffer)? };
+        unsafe { device.end_command_buffer(command_buffer).unwrap() };
 
         // Submit and wait
         {
             let submit_info = vk::SubmitInfo::default().command_buffers(&command_buffers);
             let submit_infos = [submit_info];
             unsafe {
-                device.queue_submit(queue, &submit_infos, vk::Fence::null())?;
-                device.queue_wait_idle(queue)?;
+                device
+                    .queue_submit(queue, &submit_infos, vk::Fence::null())
+                    .unwrap();
+                device.queue_wait_idle(queue).unwrap();
             };
         }
 
         // Free
         unsafe { device.free_command_buffers(pool, &command_buffers) };
 
-        Ok(executor_result)
+        executor_result
     }
 }

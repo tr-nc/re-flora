@@ -152,12 +152,11 @@ impl InitializedApp {
             Arc::new(Mutex::new(allocator)),
             vulkan_context.device.clone(),
             swapchain.render_pass,
-            crate::renderer::Options {
+            crate::renderer::RendererOptions {
                 srgb_framebuffer: true,
                 ..Default::default()
             },
         )
-        .unwrap()
     }
 
     pub fn on_window_event(
@@ -267,9 +266,7 @@ impl InitializedApp {
 
                 // Free last frames textures after the previous frame is done rendering
                 if let Some(textures) = self.textures_to_free.take() {
-                    self.renderer
-                        .free_textures(&textures)
-                        .expect("Failed to free textures");
+                    self.renderer.free_textures(&textures);
                 }
 
                 // Generate UI
@@ -319,13 +316,11 @@ impl InitializedApp {
                 }
 
                 if !textures_delta.set.is_empty() {
-                    self.renderer
-                        .set_textures(
-                            self.vulkan_context.get_general_queue(),
-                            self.vulkan_context.command_pool,
-                            textures_delta.set.as_slice(),
-                        )
-                        .expect("Failed to update texture");
+                    self.renderer.set_textures(
+                        self.vulkan_context.get_general_queue(),
+                        self.vulkan_context.command_pool,
+                        textures_delta.set.as_slice(),
+                    );
                 }
 
                 let clipped_primitives = self.egui_context.tessellate(shapes, pixels_per_point);
@@ -450,9 +445,7 @@ impl InitializedApp {
 
         self.swapchain.recreate(&self.vulkan_context, &window_size);
 
-        self.renderer
-            .set_render_pass(self.swapchain.render_pass)
-            .expect("Failed to rebuild renderer pipeline");
+        self.renderer.set_render_pass(self.swapchain.render_pass);
 
         self.is_resize_pending = false;
     }
@@ -505,9 +498,7 @@ fn record_command_buffers(
         )
     };
 
-    renderer
-        .cmd_draw(command_buffer, extent, pixels_per_point, clipped_primitives)
-        .expect("Failed to draw");
+    renderer.cmd_draw(command_buffer, extent, pixels_per_point, clipped_primitives);
 
     unsafe { device.cmd_end_render_pass(command_buffer) };
 
