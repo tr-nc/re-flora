@@ -151,26 +151,19 @@ impl InitializedApp {
     }
 
     pub fn on_terminate(&mut self, event_loop: &ActiveEventLoop) {
-        // clean up procedures may happen afterwards
+        // ensure all command buffers are done executing before terminating anything
         self.vulkan_context.wait_device_idle().unwrap();
 
         event_loop.exit();
-
-        // unsafe {
-        //     self.vulkan_context.device.destroy_fence(self.fence, None);
-        //     self.vulkan_context
-        //         .device
-        //         .destroy_semaphore(self.image_available_semaphore, None);
-        //     self.vulkan_context
-        //         .device
-        //         .destroy_semaphore(self.render_finished_semaphore, None);
-
-        //     self.swapchain.destroy(&self.vulkan_context);
-
-        //     self.vulkan_context
-        //         .device
-        //         .free_command_buffers(self.vulkan_context.command_pool, &[self.cmdbuf]);
-        // }
+        unsafe {
+            self.vulkan_context.device.destroy_fence(self.fence, None);
+            self.vulkan_context
+                .device
+                .destroy_semaphore(self.image_available_semaphore, None);
+            self.vulkan_context
+                .device
+                .destroy_semaphore(self.render_finished_semaphore, None);
+        }
     }
 
     pub fn on_window_event(
@@ -251,7 +244,7 @@ impl InitializedApp {
                         .expect("Failed to wait ")
                 };
 
-                // Free last frames textures after the previous frame is done rendering
+                // free last frames textures after the previous frame is done rendering
                 if let Some(textures) = self.textures_to_free.take() {
                     self.renderer.free_textures(&textures);
                 }
@@ -269,7 +262,7 @@ impl InitializedApp {
                     ..
                 } = self.egui_context.run(raw_input, |ctx| {
                     let my_frame = egui::containers::Frame {
-                        fill: Color32::from_rgba_premultiplied(0, 0, 0, 128),
+                        fill: Color32::from_rgba_premultiplied(50, 0, 10, 128),
                         ..Default::default()
                     };
 
@@ -280,7 +273,7 @@ impl InitializedApp {
                         .default_width(300.0)
                         .show(&ctx, |ui| {
                             ui.vertical_centered(|ui| {
-                                ui.heading("Left Panel");
+                                ui.heading("Re: Flora");
                             });
                             egui::ScrollArea::vertical().show(ui, |ui| {
                                 ui.label(RichText::new(format!(
@@ -415,6 +408,8 @@ impl InitializedApp {
         let window_size = self.window_state.window_size();
 
         self.swapchain.on_resize(&self.vulkan_context, &window_size);
+
+        // the render pass is rebuilt when the swapchain is recreated
         self.renderer
             .set_render_pass(self.swapchain.get_render_pass());
 
