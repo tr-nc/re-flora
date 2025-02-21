@@ -3,20 +3,19 @@ pub mod vulkan;
 
 use std::collections::HashMap;
 
+use allocator::Allocator;
 use ash::{vk, Device};
 use egui::{
     epaint::{ImageDelta, Primitive},
     ClippedPrimitive, ImageData, TextureId,
 };
+use gpu_allocator::vulkan::AllocatorCreateDesc;
 use mesh::*;
 use vulkan::*;
 
-use self::allocator::Allocator;
+use crate::vkn::context::VulkanContext;
 
-use {
-    gpu_allocator::vulkan::Allocator as GpuAllocator,
-    std::sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 const MAX_TEXTURE_COUNT: u32 = 1024; // TODO: constant max size or user defined ?
 
@@ -58,7 +57,7 @@ impl Default for RendererOptions {
 ///
 /// [`cmd_draw`]: #method.cmd_draw
 pub struct Renderer {
-    device: Device,
+    vulkan_context: Arc<VulkanContext>,
     allocator: Allocator,
     pipeline: vk::Pipeline,
     pipeline_layout: vk::PipelineLayout,
@@ -75,43 +74,51 @@ impl Renderer {
     /// Create a renderer using gpu-allocator.
     ///
     /// At initialization all Vulkan resources are initialized. Vertex and index buffers are not created yet.
-    ///
-    /// # Arguments
-    ///
-    /// * `gpu_allocator` - The allocator that will be used to allocator buffer and image memory.
-    /// * `device` - A Vulkan device.
-    /// * `render_pass` - The render pass used to render the gui.
-    /// * `options` - Rendering options.
-    pub fn with_gpu_allocator(
-        allocator: Arc<Mutex<GpuAllocator>>,
-        device: Device,
+    pub fn new(
+        vulkan_context: &Arc<VulkanContext>,
         render_pass: vk::RenderPass,
         options: RendererOptions,
     ) -> Self {
         log::debug!("Creating egui renderer with options {options:?}");
+
+        let allocator_create_info = AllocatorCreateDesc {
+            instance: vulkan_context.instance.clone(),
+            device: vulkan_context.device.clone(),
+            physical_device: vulkan_context.physical_device,
+            debug_settings: Default::default(),
+            buffer_device_address: false,
+            allocation_sizes: Default::default(),
+        };
+
+        let gpu_allocator = gpu_allocator::vulkan::Allocator::new(&allocator_create_info)
+            .expect("Failed to create gpu allocator");
+
+        let wrapped_allocator = Arc::new(Mutex::new(gpu_allocator));
 
         assert!(
             options.in_flight_frames > 0,
             "in_flight_frames should be at least one"
         );
 
+        let device = &vulkan_context.device;
+
         // Descriptor set layout
-        let descriptor_set_layout = create_vulkan_descriptor_set_layout(&device);
+        let descriptor_set_layout = create_vulkan_descriptor_set_layout(device);
 
         // Pipeline and layout
-        let pipeline_layout = create_vulkan_pipeline_layout(&device, descriptor_set_layout);
-        let pipeline = create_vulkan_pipeline(&device, pipeline_layout, render_pass, options);
+        let pipeline_layout = create_vulkan_pipeline_layout(device, descriptor_set_layout);
+        let pipeline = create_vulkan_pipeline(device, pipeline_layout, render_pass, options);
 
         // Descriptor pool
-        let descriptor_pool = create_vulkan_descriptor_pool(&device, MAX_TEXTURE_COUNT);
+        let descriptor_pool = create_vulkan_descriptor_pool(device, MAX_TEXTURE_COUNT);
 
         // Textures
         let managed_textures = HashMap::new();
         let textures = HashMap::new();
 
         Self {
-            device,
-            allocator: Allocator::new(allocator),
+            vulkan_context: vulkan_context.clone(),
+            allocator: Allocator::new(wrapped_allocator),
             pipeline,
             pipeline_layout,
             descriptor_set_layout,
@@ -137,9 +144,14 @@ impl Renderer {
     ///
     /// * [`RendererError`] - If any Vulkan error is encountered during pipeline creation.
     pub fn set_render_pass(&mut self, render_pass: vk::RenderPass) {
-        unsafe { self.device.destroy_pipeline(self.pipeline, None) };
+        unsafe {
+            self.vulkan_context
+                .device
+                .destroy_pipeline(self.pipeline, None)
+        };
+
         self.pipeline = create_vulkan_pipeline(
-            &self.device,
+            &self.vulkan_context.device,
             self.pipeline_layout,
             render_pass,
             self.options,
@@ -192,13 +204,15 @@ impl Renderer {
                 }
             };
 
+            let device = &self.vulkan_context.device;
+
             if let Some([offset_x, offset_y]) = delta.pos {
                 log::trace!("Updating texture {id:?}");
 
                 let texture = self.managed_textures.get_mut(id).unwrap();
 
                 texture.update(
-                    &self.device,
+                    device,
                     queue,
                     command_pool,
                     &mut self.allocator,
@@ -215,7 +229,7 @@ impl Renderer {
                 log::trace!("Adding texture {:?}", id);
 
                 let texture = Texture::from_rgba8(
-                    &self.device,
+                    device,
                     queue,
                     command_pool,
                     &mut self.allocator,
@@ -225,7 +239,7 @@ impl Renderer {
                 );
 
                 let set = create_vulkan_descriptor_set(
-                    &self.device,
+                    device,
                     self.descriptor_set_layout,
                     self.descriptor_pool,
                     texture.image_view,
@@ -233,11 +247,11 @@ impl Renderer {
                 );
 
                 if let Some(previous) = self.managed_textures.insert(*id, texture) {
-                    previous.destroy(&self.device, &mut self.allocator);
+                    previous.destroy(device, &mut self.allocator);
                 }
                 if let Some(previous) = self.textures.insert(*id, set) {
                     unsafe {
-                        self.device
+                        device
                             .free_descriptor_sets(self.descriptor_pool, &[previous])
                             .unwrap();
                     };
@@ -260,13 +274,15 @@ impl Renderer {
     /// * [`RendererError`] - If any Vulkan error is encountered when free the texture.
     pub fn free_textures(&mut self, ids: &[TextureId]) {
         log::trace!("Freeing {} textures", ids.len());
+        let device = &self.vulkan_context.device;
+
         for id in ids {
             if let Some(texture) = self.managed_textures.remove(id) {
-                texture.destroy(&self.device, &mut self.allocator);
+                texture.destroy(device, &mut self.allocator);
             }
             if let Some(set) = self.textures.remove(id) {
                 unsafe {
-                    self.device
+                    device
                         .free_descriptor_sets(self.descriptor_pool, &[set])
                         .unwrap();
                 };
@@ -329,9 +345,11 @@ impl Renderer {
             return;
         }
 
+        let device = &self.vulkan_context.device;
+
         if self.frames.is_none() {
             self.frames.replace(Frames::new(
-                &self.device,
+                device,
                 &mut self.allocator,
                 primitives,
                 self.options.in_flight_frames,
@@ -339,10 +357,10 @@ impl Renderer {
         }
 
         let mesh = self.frames.as_mut().unwrap().next();
-        mesh.update(&self.device, &mut self.allocator, primitives);
+        mesh.update(device, &mut self.allocator, primitives);
 
         unsafe {
-            self.device.cmd_bind_pipeline(
+            device.cmd_bind_pipeline(
                 command_buffer,
                 vk::PipelineBindPoint::GRAPHICS,
                 self.pipeline,
@@ -353,7 +371,7 @@ impl Renderer {
         let screen_height = extent.height as f32;
 
         unsafe {
-            self.device.cmd_set_viewport(
+            device.cmd_set_viewport(
                 command_buffer,
                 0,
                 &[vk::Viewport {
@@ -376,7 +394,7 @@ impl Renderer {
         );
         unsafe {
             let push = any_as_u8_slice(&projection);
-            self.device.cmd_push_constants(
+            device.cmd_push_constants(
                 command_buffer,
                 self.pipeline_layout,
                 vk::ShaderStageFlags::VERTEX,
@@ -386,18 +404,10 @@ impl Renderer {
         };
 
         unsafe {
-            self.device.cmd_bind_index_buffer(
-                command_buffer,
-                mesh.indices,
-                0,
-                vk::IndexType::UINT32,
-            )
+            device.cmd_bind_index_buffer(command_buffer, mesh.indices, 0, vk::IndexType::UINT32)
         };
 
-        unsafe {
-            self.device
-                .cmd_bind_vertex_buffers(command_buffer, 0, &[mesh.vertices], &[0])
-        };
+        unsafe { device.cmd_bind_vertex_buffers(command_buffer, 0, &[mesh.vertices], &[0]) };
 
         let mut index_offset = 0u32;
         let mut vertex_offset = 0i32;
@@ -424,14 +434,14 @@ impl Renderer {
                     }];
 
                     unsafe {
-                        self.device.cmd_set_scissor(command_buffer, 0, &scissors);
+                        device.cmd_set_scissor(command_buffer, 0, &scissors);
                     }
 
                     if Some(m.texture_id) != current_texture_id {
                         let descriptor_set = *self.textures.get(&m.texture_id).unwrap();
 
                         unsafe {
-                            self.device.cmd_bind_descriptor_sets(
+                            device.cmd_bind_descriptor_sets(
                                 command_buffer,
                                 vk::PipelineBindPoint::GRAPHICS,
                                 self.pipeline_layout,
@@ -445,7 +455,7 @@ impl Renderer {
 
                     let index_count = m.indices.len() as u32;
                     unsafe {
-                        self.device.cmd_draw_indexed(
+                        device.cmd_draw_indexed(
                             command_buffer,
                             index_count,
                             1,
@@ -468,9 +478,7 @@ impl Renderer {
 
 impl Drop for Renderer {
     fn drop(&mut self) {
-        log::debug!("Destroying egui renderer");
-        let device = &self.device;
-
+        let device = &self.vulkan_context.device;
         unsafe {
             if let Some(frames) = self.frames.take() {
                 frames.destroy(device, &mut self.allocator);

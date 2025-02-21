@@ -42,7 +42,6 @@ pub struct Swapchain {
 
 impl Drop for Swapchain {
     fn drop(&mut self) {
-        log::info!("Dropping vulkan swapchain");
         self.clean_up();
     }
 }
@@ -67,9 +66,10 @@ impl Swapchain {
         }
     }
 
-    pub fn recreate(&mut self, context: &VulkanContext, window_size: &[u32; 2]) {
+    pub fn on_resize(&mut self, context: &VulkanContext, window_size: &[u32; 2]) {
         log::info!("Recreating vulkan swapchain");
         self.clean_up();
+
         let (swapchain_device, swapchain_khr, image_views, render_pass, framebuffers) =
             create_vulkan_swapchain(&context, window_size, &self.swapchain_preference);
 
@@ -84,7 +84,6 @@ impl Swapchain {
         log::info!("Cleaning up vulkan swapchain");
 
         let device = &self.vulkan_context.device;
-
         unsafe {
             device.device_wait_idle().unwrap();
 
@@ -103,8 +102,7 @@ impl Swapchain {
                 .for_each(|v| device.destroy_image_view(*v, None));
             self.image_views.clear();
 
-            // images are not destroyed explicitly, because they are owned by the swapchain,
-            // and should be managed by swapchain functions
+            // images are not destroyed explicitly, because they are owned by the swapchain
 
             self.swapchain_device
                 .destroy_swapchain(self.swapchain_khr, None);

@@ -1,4 +1,4 @@
-use ash::{ext::debug_utils, khr::surface, vk, Device, Entry, Instance};
+use ash::{ext::debug_utils, khr::surface, prelude::VkResult, vk, Device, Entry, Instance};
 use winit::window::Window;
 
 use super::context_builder;
@@ -75,10 +75,8 @@ impl VulkanContext {
         }
     }
 
-    pub fn wait_device_idle(&self) {
-        unsafe {
-            self.device.device_wait_idle().unwrap();
-        }
+    pub fn wait_device_idle(&self) -> VkResult<()> {
+        unsafe { self.device.device_wait_idle() }
     }
 
     /// Obtains the general queue from the device

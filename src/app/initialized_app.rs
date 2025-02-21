@@ -10,8 +10,7 @@ use crate::{
 use ash::vk::Extent2D;
 use ash::{vk, Device};
 use egui::{ClippedPrimitive, Color32, RichText, Slider, TextureId, ViewportId};
-use gpu_allocator::vulkan::{Allocator, AllocatorCreateDesc};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use winit::event::DeviceEvent;
 use winit::{
     event::{ElementState, WindowEvent},
@@ -38,12 +37,6 @@ pub struct InitializedApp {
     time_info: TimeInfo,
 
     slider_val: f32,
-}
-
-impl Drop for InitializedApp {
-    fn drop(&mut self) {
-        log::info!("Dropping InitializedApp");
-    }
 }
 
 impl InitializedApp {
@@ -146,20 +139,9 @@ impl InitializedApp {
         unsafe { device.allocate_command_buffers(&allocate_info).unwrap()[0] }
     }
 
-    fn create_renderer(vulkan_context: &VulkanContext, swapchain: &Swapchain) -> Renderer {
-        let allocator = Allocator::new(&AllocatorCreateDesc {
-            instance: vulkan_context.instance.clone(),
-            device: vulkan_context.device.clone(),
-            physical_device: vulkan_context.physical_device,
-            debug_settings: Default::default(),
-            buffer_device_address: false,
-            allocation_sizes: Default::default(),
-        })
-        .expect("Failed to create allocator");
-
-        Renderer::with_gpu_allocator(
-            Arc::new(Mutex::new(allocator)),
-            vulkan_context.device.clone(),
+    fn create_renderer(vulkan_context: &Arc<VulkanContext>, swapchain: &Swapchain) -> Renderer {
+        Renderer::new(
+            vulkan_context,
             swapchain.get_render_pass(),
             crate::renderer::RendererOptions {
                 srgb_framebuffer: true,
@@ -170,16 +152,11 @@ impl InitializedApp {
 
     pub fn on_terminate(&mut self, event_loop: &ActiveEventLoop) {
         // clean up procedures may happen afterwards
-        self.vulkan_context.wait_device_idle();
+        self.vulkan_context.wait_device_idle().unwrap();
 
         event_loop.exit();
 
         // unsafe {
-        //     self.vulkan_context
-        //         .device
-        //         .device_wait_idle()
-        //         .expect("Failed to wait for graphics device to idle.");
-
         //     self.vulkan_context.device.destroy_fence(self.fence, None);
         //     self.vulkan_context
         //         .device
@@ -261,10 +238,9 @@ impl InitializedApp {
 
                 // resize the window if needed
                 if self.is_resize_pending {
-                    self.resize();
+                    self.on_resize();
                 }
 
-                //
                 self.time_info.update();
                 // self.camera.update_transform(self.time_info.delta_time());
 
@@ -292,8 +268,6 @@ impl InitializedApp {
                     pixels_per_point,
                     ..
                 } = self.egui_context.run(raw_input, |ctx| {
-                    // self.egui_app.build_ui(ctx); TODO:
-
                     let my_frame = egui::containers::Frame {
                         fill: Color32::from_rgba_premultiplied(0, 0, 0, 128),
                         ..Default::default()
@@ -435,12 +409,12 @@ impl InitializedApp {
         }
     }
 
-    fn resize(&mut self) {
+    fn on_resize(&mut self) {
         // Resize the window here
 
         let window_size = self.window_state.window_size();
 
-        self.swapchain.recreate(&self.vulkan_context, &window_size);
+        self.swapchain.on_resize(&self.vulkan_context, &window_size);
         self.renderer
             .set_render_pass(self.swapchain.get_render_pass());
 
