@@ -7,6 +7,7 @@ use crate::{
     },
     window::{WindowDescriptor, WindowMode, WindowState},
 };
+use ash::vk::Extent2D;
 use ash::{vk, Device};
 use egui::{ClippedPrimitive, Color32, RichText, Slider, TextureId, ViewportId};
 use gpu_allocator::vulkan::{Allocator, AllocatorCreateDesc};
@@ -20,9 +21,10 @@ use winit::{
 };
 
 pub struct InitializedApp {
+    vulkan_context: Arc<VulkanContext>,
+
     renderer: Renderer,
     egui_context: egui::Context,
-    vulkan_context: VulkanContext,
 
     egui_winit_state: egui_winit::State,
     window_state: WindowState,
@@ -47,7 +49,7 @@ impl Drop for InitializedApp {
 impl InitializedApp {
     pub fn new(_event_loop: &ActiveEventLoop) -> Self {
         let window_state = Self::create_window_state(_event_loop);
-        let vulkan_context = Self::create_vulkan_context(&window_state);
+        let vulkan_context = Arc::new(Self::create_vulkan_context(&window_state));
 
         let swapchain = Swapchain::new(
             &vulkan_context,
@@ -158,7 +160,7 @@ impl InitializedApp {
         Renderer::with_gpu_allocator(
             Arc::new(Mutex::new(allocator)),
             vulkan_context.device.clone(),
-            swapchain.render_pass,
+            swapchain.get_render_pass(),
             crate::renderer::RendererOptions {
                 srgb_framebuffer: true,
                 ..Default::default()
@@ -167,7 +169,9 @@ impl InitializedApp {
     }
 
     pub fn on_terminate(&mut self, event_loop: &ActiveEventLoop) {
-        log::info!("Terminating app");
+        // clean up procedures may happen afterwards
+        self.vulkan_context.wait_device_idle();
+
         event_loop.exit();
 
         // unsafe {
@@ -332,15 +336,10 @@ impl InitializedApp {
 
                 let clipped_primitives = self.egui_context.tessellate(shapes, pixels_per_point);
 
-                // Drawing the frame
-                let next_image_result = unsafe {
-                    self.swapchain.swapchain_device.acquire_next_image(
-                        self.swapchain.swapchain_khr,
-                        std::u64::MAX,
-                        self.image_available_semaphore,
-                        vk::Fence::null(),
-                    )
-                };
+                let next_image_result = self
+                    .swapchain
+                    .acquire_next_image(&self.image_available_semaphore);
+
                 let image_index = match next_image_result {
                     Ok((image_index, _)) => image_index,
                     Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
@@ -361,17 +360,18 @@ impl InitializedApp {
                 let wait_semaphores = [self.image_available_semaphore];
                 let signal_semaphores = [self.render_finished_semaphore];
 
-                // Re-record commands to draw geometry
+                let render_area = Extent2D {
+                    width: self.window_state.window_size()[0],
+                    height: self.window_state.window_size()[1],
+                };
+
                 record_command_buffers(
                     &self.vulkan_context.device,
                     self.vulkan_context.command_pool,
                     self.cmdbuf,
-                    self.swapchain.framebuffers[image_index as usize],
-                    self.swapchain.render_pass,
-                    vk::Extent2D {
-                        width: self.window_state.window_size()[0],
-                        height: self.window_state.window_size()[1],
-                    },
+                    &self.swapchain,
+                    image_index,
+                    render_area,
                     pixels_per_point,
                     &mut self.renderer,
                     &clipped_primitives,
@@ -394,18 +394,8 @@ impl InitializedApp {
                         .expect("Failed to submit work to gpu.")
                 };
 
-                let swapchains = [self.swapchain.swapchain_khr];
-                let images_indices = [image_index];
-                let present_info = vk::PresentInfoKHR::default()
-                    .wait_semaphores(&signal_semaphores)
-                    .swapchains(&swapchains)
-                    .image_indices(&images_indices);
+                let present_result = self.swapchain.present(&signal_semaphores, image_index);
 
-                let present_result = unsafe {
-                    self.swapchain
-                        .swapchain_device
-                        .queue_present(self.vulkan_context.get_general_queue(), &present_info)
-                };
                 match present_result {
                     Ok(is_suboptimal) if is_suboptimal => {
                         self.is_resize_pending = true;
@@ -451,8 +441,8 @@ impl InitializedApp {
         let window_size = self.window_state.window_size();
 
         self.swapchain.recreate(&self.vulkan_context, &window_size);
-
-        self.renderer.set_render_pass(self.swapchain.render_pass);
+        self.renderer
+            .set_render_pass(self.swapchain.get_render_pass());
 
         self.is_resize_pending = false;
     }
@@ -462,9 +452,9 @@ fn record_command_buffers(
     device: &Device,
     command_pool: vk::CommandPool,
     command_buffer: vk::CommandBuffer,
-    framebuffer: vk::Framebuffer,
-    render_pass: vk::RenderPass,
-    extent: vk::Extent2D,
+    swapchain: &Swapchain,
+    image_index: u32,
+    render_area: Extent2D,
     pixels_per_point: f32,
     renderer: &mut Renderer,
 
@@ -484,28 +474,14 @@ fn record_command_buffers(
             .expect("Failed to begin command buffer")
     };
 
-    let render_pass_begin_info = vk::RenderPassBeginInfo::default()
-        .render_pass(render_pass)
-        .framebuffer(framebuffer)
-        .render_area(vk::Rect2D {
-            offset: vk::Offset2D { x: 0, y: 0 },
-            extent,
-        })
-        .clear_values(&[vk::ClearValue {
-            color: vk::ClearColorValue {
-                float32: [0.007, 0.007, 0.007, 1.0],
-            },
-        }]);
+    swapchain.record_begin_render_pass_cmdbuf(command_buffer, image_index, &render_area);
 
-    unsafe {
-        device.cmd_begin_render_pass(
-            command_buffer,
-            &render_pass_begin_info,
-            vk::SubpassContents::INLINE,
-        )
-    };
-
-    renderer.cmd_draw(command_buffer, extent, pixels_per_point, clipped_primitives);
+    renderer.cmd_draw(
+        command_buffer,
+        render_area,
+        pixels_per_point,
+        clipped_primitives,
+    );
 
     unsafe { device.cmd_end_render_pass(command_buffer) };
 

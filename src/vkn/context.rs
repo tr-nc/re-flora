@@ -75,6 +75,12 @@ impl VulkanContext {
         }
     }
 
+    pub fn wait_device_idle(&self) {
+        unsafe {
+            self.device.device_wait_idle().unwrap();
+        }
+    }
+
     /// Obtains the general queue from the device
     pub fn get_general_queue(&self) -> vk::Queue {
         unsafe {

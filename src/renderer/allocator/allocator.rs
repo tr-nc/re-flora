@@ -124,11 +124,11 @@ impl Allocator {
     ///
     /// * `device` - A reference to Vulkan device.
     /// * `buffer` - The buffer to destroy.
-    pub fn destroy_buffer(&mut self, device: &Device, buffer: vk::Buffer, memory: Allocation) {
+    pub fn destroy_buffer(&mut self, device: &Device, buffer: vk::Buffer, allocation: Allocation) {
         let mut allocator = self.get_allocator();
 
         allocator
-            .free(memory)
+            .free(allocation)
             .expect("Failed to free buffer memory");
         unsafe { device.destroy_buffer(buffer, None) };
     }
@@ -139,10 +139,12 @@ impl Allocator {
     ///
     /// * `device` - A reference to Vulkan device.
     /// * `image` - The image to destroy.
-    pub fn destroy_image(&mut self, device: &Device, image: vk::Image, memory: Allocation) {
+    pub fn destroy_image(&mut self, device: &Device, image: vk::Image, allocation: Allocation) {
         let mut allocator = self.get_allocator();
 
-        allocator.free(memory).expect("Failed to free image memory");
+        allocator
+            .free(allocation)
+            .expect("Failed to free image memory");
         unsafe { device.destroy_image(image, None) };
     }
 
