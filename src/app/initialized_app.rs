@@ -1,6 +1,7 @@
 use crate::util::time_info::TimeInfo;
 use crate::{
     renderer::Renderer,
+    renderer::RendererOptions,
     vkn::{
         context::{ContextCreateInfo, VulkanContext},
         swapchain::Swapchain,
@@ -70,7 +71,14 @@ impl InitializedApp {
 
         let cmdbuf = Self::create_cmdbuf(&vulkan_context.device, vulkan_context.command_pool);
 
-        let renderer = Self::create_renderer(&vulkan_context, &swapchain);
+        let renderer = Renderer::new(
+            &vulkan_context,
+            swapchain.get_render_pass(),
+            RendererOptions {
+                srgb_framebuffer: true,
+                ..Default::default()
+            },
+        );
 
         Self {
             vulkan_context,
@@ -137,17 +145,6 @@ impl InitializedApp {
             .level(vk::CommandBufferLevel::PRIMARY)
             .command_buffer_count(1);
         unsafe { device.allocate_command_buffers(&allocate_info).unwrap()[0] }
-    }
-
-    fn create_renderer(vulkan_context: &Arc<VulkanContext>, swapchain: &Swapchain) -> Renderer {
-        Renderer::new(
-            vulkan_context,
-            swapchain.get_render_pass(),
-            crate::renderer::RendererOptions {
-                srgb_framebuffer: true,
-                ..Default::default()
-            },
-        )
     }
 
     pub fn on_terminate(&mut self, event_loop: &ActiveEventLoop) {
@@ -249,7 +246,7 @@ impl InitializedApp {
                     self.renderer.free_textures(&textures);
                 }
 
-                // Generate UI
+                // generate UI
                 let raw_input = self
                     .egui_winit_state
                     .take_egui_input(&self.window_state.window());
