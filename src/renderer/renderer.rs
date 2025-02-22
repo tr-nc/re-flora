@@ -1,5 +1,6 @@
 use super::frames::Frames;
 use super::{allocator::Allocator, texture::Texture};
+use ash::vk::Extent2D;
 use ash::{vk, Device};
 use egui::ViewportId;
 use egui::{
@@ -13,6 +14,7 @@ use winit::event::WindowEvent;
 use winit::window::Window;
 
 use crate::vkn::context::VulkanContext;
+use crate::vkn::swapchain::Swapchain;
 use crate::vkn::ShaderCompiler;
 
 use std::sync::{Arc, Mutex};
@@ -547,6 +549,45 @@ impl Renderer {
         let clipped_primitives = self.egui_context.tessellate(shapes, pixels_per_point);
 
         (pixels_per_point, clipped_primitives)
+    }
+
+    fn record_command_buffers(
+        device: &Device,
+        swapchain: &Swapchain,
+        command_pool: vk::CommandPool,
+        command_buffer: vk::CommandBuffer,
+        image_index: u32,
+        render_area: Extent2D,
+        pixels_per_point: f32,
+        renderer: &mut Renderer,
+        clipped_primitives: &[ClippedPrimitive],
+    ) {
+        unsafe {
+            device
+                .reset_command_pool(command_pool, vk::CommandPoolResetFlags::empty())
+                .expect("Failed to reset command pool")
+        };
+
+        let command_buffer_begin_info = vk::CommandBufferBeginInfo::default()
+            .flags(vk::CommandBufferUsageFlags::SIMULTANEOUS_USE);
+
+        unsafe {
+            device
+                .begin_command_buffer(command_buffer, &command_buffer_begin_info)
+                .expect("Failed to begin command buffer")
+        };
+
+        swapchain.record_begin_render_pass_cmdbuf(command_buffer, image_index, &render_area);
+
+        renderer.cmd_draw(
+            command_buffer,
+            render_area,
+            pixels_per_point,
+            clipped_primitives,
+        );
+
+        unsafe { device.cmd_end_render_pass(command_buffer) };
+        unsafe { device.end_command_buffer(command_buffer).unwrap() };
     }
 }
 

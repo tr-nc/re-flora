@@ -366,43 +366,42 @@ impl InitializedApp {
     }
 }
 
-fn record_command_buffers(
-    device: &Device,
-    command_pool: vk::CommandPool,
-    command_buffer: vk::CommandBuffer,
-    swapchain: &Swapchain,
-    image_index: u32,
-    render_area: Extent2D,
-    pixels_per_point: f32,
-    renderer: &mut Renderer,
+// fn record_command_buffers(
+//     device: &Device,
+//     command_pool: vk::CommandPool,
+//     command_buffer: vk::CommandBuffer,
+//     swapchain: &Swapchain,
+//     image_index: u32,
+//     render_area: Extent2D,
+//     pixels_per_point: f32,
+//     renderer: &mut Renderer,
 
-    clipped_primitives: &[ClippedPrimitive],
-) {
-    unsafe {
-        device
-            .reset_command_pool(command_pool, vk::CommandPoolResetFlags::empty())
-            .expect("Failed to reset command pool")
-    };
+//     clipped_primitives: &[ClippedPrimitive],
+// ) {
+//     unsafe {
+//         device
+//             .reset_command_pool(command_pool, vk::CommandPoolResetFlags::empty())
+//             .expect("Failed to reset command pool")
+//     };
 
-    let command_buffer_begin_info =
-        vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::SIMULTANEOUS_USE);
+//     let command_buffer_begin_info =
+//         vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::SIMULTANEOUS_USE);
 
-    unsafe {
-        device
-            .begin_command_buffer(command_buffer, &command_buffer_begin_info)
-            .expect("Failed to begin command buffer")
-    };
+//     unsafe {
+//         device
+//             .begin_command_buffer(command_buffer, &command_buffer_begin_info)
+//             .expect("Failed to begin command buffer")
+//     };
 
-    swapchain.record_begin_render_pass_cmdbuf(command_buffer, image_index, &render_area);
+//     swapchain.record_begin_render_pass_cmdbuf(command_buffer, image_index, &render_area);
 
-    renderer.cmd_draw(
-        command_buffer,
-        render_area,
-        pixels_per_point,
-        clipped_primitives,
-    );
+//     renderer.cmd_draw(
+//         command_buffer,
+//         render_area,
+//         pixels_per_point,
+//         clipped_primitives,
+//     );
 
-    unsafe { device.cmd_end_render_pass(command_buffer) };
-
-    unsafe { device.end_command_buffer(command_buffer).unwrap() };
-}
+//     unsafe { device.cmd_end_render_pass(command_buffer) };
+//     unsafe { device.end_command_buffer(command_buffer).unwrap() };
+// }
