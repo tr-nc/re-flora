@@ -1,4 +1,5 @@
 use crate::util::time_info::TimeInfo;
+use crate::vkn::ShaderCompiler;
 use crate::{
     renderer::Renderer,
     renderer::RendererOptions,
@@ -6,7 +7,7 @@ use crate::{
         context::{ContextCreateInfo, VulkanContext},
         swapchain::Swapchain,
     },
-    window::{WindowDescriptor, WindowMode, WindowState},
+    window::{WindowMode, WindowState, WindowStateDesc},
 };
 use ash::vk::Extent2D;
 use ash::{vk, Device};
@@ -22,6 +23,7 @@ use winit::{
 
 pub struct InitializedApp {
     vulkan_context: Arc<VulkanContext>,
+    shader_compiler: ShaderCompiler,
 
     renderer: Renderer,
     egui_context: egui::Context,
@@ -44,6 +46,8 @@ impl InitializedApp {
     pub fn new(_event_loop: &ActiveEventLoop) -> Self {
         let window_state = Self::create_window_state(_event_loop);
         let vulkan_context = Arc::new(Self::create_vulkan_context(&window_state));
+
+        let shader_compiler = ShaderCompiler::new(Default::default()).unwrap();
 
         let swapchain = Swapchain::new(
             &vulkan_context,
@@ -73,6 +77,7 @@ impl InitializedApp {
 
         let renderer = Renderer::new(
             &vulkan_context,
+            &shader_compiler,
             swapchain.get_render_pass(),
             RendererOptions {
                 srgb_framebuffer: true,
@@ -82,6 +87,7 @@ impl InitializedApp {
 
         Self {
             vulkan_context,
+            shader_compiler,
             egui_context,
             egui_winit_state,
             renderer,
@@ -100,7 +106,7 @@ impl InitializedApp {
     }
 
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {
-        let window_descriptor = WindowDescriptor {
+        let window_descriptor = WindowStateDesc {
             title: "Flora".to_owned(),
             window_mode: WindowMode::BorderlessFullscreen,
             cursor_locked: true,

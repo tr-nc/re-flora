@@ -9,10 +9,11 @@ use gpu_allocator::vulkan::AllocatorCreateDesc;
 use std::{collections::HashMap, ffi::CString, mem};
 
 use crate::vkn::context::VulkanContext;
+use crate::vkn::ShaderCompiler;
 
 use std::sync::{Arc, Mutex};
 
-const MAX_TEXTURE_COUNT: u32 = 1024; // TODO: constant max size or user defined ?
+const MAX_TEXTURE_COUNT: u32 = 1024;
 
 /// Optional parameters of the renderer.
 #[derive(Debug, Clone, Copy)]
@@ -75,6 +76,9 @@ pub struct Renderer {
     next_user_texture_id: u64,
     options: RendererOptions,
     frames: Option<Frames>,
+
+    vert_module: vk::ShaderModule,
+    frag_module: vk::ShaderModule,
 }
 
 impl Renderer {
@@ -83,6 +87,7 @@ impl Renderer {
     /// At initialization all Vulkan resources are initialized. Vertex and index buffers are not created yet.
     pub fn new(
         vulkan_context: &Arc<VulkanContext>,
+        shader_compiler: &ShaderCompiler,
         render_pass: vk::RenderPass,
         options: RendererOptions,
     ) -> Self {
@@ -105,11 +110,33 @@ impl Renderer {
 
         let descriptor_set_layout = create_descriptor_set_layout(device);
 
+        let vert_module = shader_compiler
+            .compile_from_path(
+                device,
+                "src/renderer/shaders/shader.vert",
+                shaderc::ShaderKind::Vertex,
+            )
+            .unwrap();
+        let frag_module = shader_compiler
+            .compile_from_path(
+                device,
+                "src/renderer/shaders/shader.frag",
+                shaderc::ShaderKind::Fragment,
+            )
+            .unwrap();
+
         let pipeline_layout = create_pipeline_layout(device, descriptor_set_layout);
-        let pipeline = create_vulkan_pipeline(device, pipeline_layout, render_pass, options);
+        let pipeline = create_pipeline(
+            device,
+            vert_module,
+            frag_module,
+            pipeline_layout,
+            render_pass,
+            options,
+        );
 
         // Descriptor pool
-        let descriptor_pool = create_vulkan_descriptor_pool(device, MAX_TEXTURE_COUNT);
+        let descriptor_pool = create_descriptor_pool(device, MAX_TEXTURE_COUNT);
 
         // Textures
         let managed_textures = HashMap::new();
@@ -127,6 +154,8 @@ impl Renderer {
             textures,
             options,
             frames: None,
+            vert_module,
+            frag_module,
         }
     }
 
@@ -148,9 +177,10 @@ impl Renderer {
                 .device
                 .destroy_pipeline(self.pipeline, None)
         };
-
-        self.pipeline = create_vulkan_pipeline(
+        self.pipeline = create_pipeline(
             &self.vulkan_context.device,
+            self.vert_module,
+            self.frag_module,
             self.pipeline_layout,
             render_pass,
             self.options,
@@ -490,6 +520,9 @@ impl Drop for Renderer {
                 t.destroy(device, &mut self.allocator);
             }
             device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
+
+            // device.destroy_shader_module(self.vert_module, None);
+            // device.destroy_shader_module(self.frag_module, None);
         }
     }
 }
@@ -566,56 +599,14 @@ fn create_pipeline_layout(
     pipeline_layout
 }
 
-fn create_vulkan_pipeline(
+fn create_pipeline(
     device: &Device,
+    vert_module: vk::ShaderModule,
+    frag_module: vk::ShaderModule,
     pipeline_layout: vk::PipelineLayout,
     render_pass: vk::RenderPass,
     options: RendererOptions,
 ) -> vk::Pipeline {
-    let frag_source = std::include_str!("./shaders/shader.frag");
-    let vert_source = std::include_str!("./shaders/shader.vert");
-
-    let compiler = shaderc::Compiler::new().unwrap();
-    let mut compile_options = shaderc::CompileOptions::new().unwrap();
-    compile_options.set_optimization_level(shaderc::OptimizationLevel::Performance);
-
-    let frag_artifact = compiler
-        .compile_into_spirv(
-            frag_source,
-            shaderc::ShaderKind::Fragment,
-            "shader.frag",
-            "main",
-            Some(&compile_options),
-        )
-        .unwrap();
-
-    let vert_artifact = compiler
-        .compile_into_spirv(
-            vert_source,
-            shaderc::ShaderKind::Vertex,
-            "shader.vert",
-            "main",
-            Some(&compile_options),
-        )
-        .unwrap();
-
-    let entry_point_name = CString::new("main").unwrap();
-
-    let vertex_create_info = vk::ShaderModuleCreateInfo::default().code(&vert_artifact.as_binary());
-    let vertex_module = unsafe {
-        device
-            .create_shader_module(&vertex_create_info, None)
-            .unwrap()
-    };
-
-    let fragment_create_info =
-        vk::ShaderModuleCreateInfo::default().code(&frag_artifact.as_binary());
-    let fragment_module = unsafe {
-        device
-            .create_shader_module(&fragment_create_info, None)
-            .unwrap()
-    };
-
     let specialization_entries = [vk::SpecializationMapEntry {
         constant_id: 0,
         offset: 0,
@@ -627,14 +618,15 @@ fn create_vulkan_pipeline(
         .map_entries(&specialization_entries)
         .data(data_raw);
 
+    let entry_point_name = CString::new("main").unwrap();
     let shader_states_infos = [
         vk::PipelineShaderStageCreateInfo::default()
             .stage(vk::ShaderStageFlags::VERTEX)
-            .module(vertex_module)
+            .module(vert_module)
             .name(&entry_point_name),
         vk::PipelineShaderStageCreateInfo::default()
             .stage(vk::ShaderStageFlags::FRAGMENT)
-            .module(fragment_module)
+            .module(frag_module)
             .specialization_info(&specialization_info)
             .name(&entry_point_name),
     ];
@@ -750,18 +742,11 @@ fn create_vulkan_pipeline(
             .unwrap()[0]
     };
 
-    unsafe {
-        device.destroy_shader_module(vertex_module, None);
-        device.destroy_shader_module(fragment_module, None);
-    }
-
     pipeline
 }
 
 /// Create a descriptor pool of sets compatible with the graphics pipeline.
-fn create_vulkan_descriptor_pool(device: &Device, max_sets: u32) -> vk::DescriptorPool {
-    log::debug!("Creating vulkan descriptor pool");
-
+fn create_descriptor_pool(device: &Device, max_sets: u32) -> vk::DescriptorPool {
     let sizes = [vk::DescriptorPoolSize {
         ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
         descriptor_count: max_sets,

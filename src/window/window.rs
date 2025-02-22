@@ -17,7 +17,7 @@ pub enum WindowMode {
 /// needed for creating a
 /// window.
 #[derive(Debug, Clone)]
-pub struct WindowDescriptor {
+pub struct WindowStateDesc {
     /// The requested logical
     /// width of the window's
     /// client area.
@@ -88,9 +88,9 @@ pub struct WindowDescriptor {
     pub transparent: bool,
 }
 
-impl Default for WindowDescriptor {
+impl Default for WindowStateDesc {
     fn default() -> Self {
-        WindowDescriptor {
+        WindowStateDesc {
             title: "Default Window".to_string(),
             width: 1280.0,
             height: 720.0,
@@ -111,13 +111,13 @@ impl Default for WindowDescriptor {
 /// this struct to keep track
 pub struct WindowState {
     window: Arc<Window>,
-    window_descriptor: WindowDescriptor,
+    window_descriptor: WindowStateDesc,
 }
 
 impl WindowState {
     pub fn new(
         event_loop: &winit::event_loop::ActiveEventLoop,
-        window_descriptor: &WindowDescriptor,
+        window_descriptor: &WindowStateDesc,
     ) -> Self {
         // https://docs.rs/winit/latest/winit/window/struct.Window.html#method.default_attributes
         let mut winit_window_attributes = Window::default_attributes();
@@ -126,7 +126,7 @@ impl WindowState {
             WindowMode::BorderlessFullscreen => winit_window_attributes
                 .with_fullscreen(Some(Fullscreen::Borderless(event_loop.primary_monitor()))),
             WindowMode::Windowed => {
-                let WindowDescriptor {
+                let WindowStateDesc {
                     width,
                     height,
                     position,
@@ -172,7 +172,7 @@ impl WindowState {
         self.window.clone()
     }
 
-    pub fn window_descriptor(&self) -> &WindowDescriptor {
+    pub fn window_descriptor(&self) -> &WindowStateDesc {
         &self.window_descriptor
     }
 
