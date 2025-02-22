@@ -11,7 +11,7 @@ use crate::{
 };
 use ash::vk::Extent2D;
 use ash::{vk, Device};
-use egui::{ClippedPrimitive, Color32, RichText, Slider, TextureId, ViewportId};
+use egui::{ClippedPrimitive, Color32, RichText, Slider};
 use std::sync::Arc;
 use winit::event::DeviceEvent;
 use winit::{
@@ -23,15 +23,12 @@ use winit::{
 
 pub struct InitializedApp {
     vulkan_context: Arc<VulkanContext>,
-    shader_compiler: ShaderCompiler,
+    _shader_compiler: ShaderCompiler,
 
     renderer: Renderer,
-    egui_context: egui::Context,
 
-    egui_winit_state: egui_winit::State,
     window_state: WindowState,
     is_resize_pending: bool,
-    textures_to_free: Option<Vec<TextureId>>,
     cmdbuf: vk::CommandBuffer,
     swapchain: Swapchain,
     image_available_semaphore: vk::Semaphore,
@@ -63,20 +60,11 @@ impl InitializedApp {
         // enable for image loading feature of egui
         // egui_extras::install_image_loaders(&context);
 
-        let egui_context = egui::Context::default();
-        let egui_winit_state = egui_winit::State::new(
-            egui_context.clone(),
-            ViewportId::ROOT,
-            &window_state.window(),
-            None,
-            None,
-            None,
-        );
-
         let cmdbuf = Self::create_cmdbuf(&vulkan_context.device, vulkan_context.command_pool);
 
         let renderer = Renderer::new(
             &vulkan_context,
+            &window_state.window(),
             &shader_compiler,
             swapchain.get_render_pass(),
             RendererOptions {
@@ -87,9 +75,7 @@ impl InitializedApp {
 
         Self {
             vulkan_context,
-            shader_compiler,
-            egui_context,
-            egui_winit_state,
+            _shader_compiler: shader_compiler,
             renderer,
             window_state,
             cmdbuf,
@@ -100,7 +86,6 @@ impl InitializedApp {
 
             is_resize_pending: false,
             time_info: TimeInfo::default(),
-            textures_to_free: None,
             slider_val: 0.0,
         }
     }
@@ -108,7 +93,7 @@ impl InitializedApp {
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {
         let window_descriptor = WindowStateDesc {
             title: "Flora".to_owned(),
-            window_mode: WindowMode::BorderlessFullscreen,
+            window_mode: WindowMode::Windowed,
             cursor_locked: true,
             cursor_visible: false,
             ..Default::default()
@@ -177,10 +162,8 @@ impl InitializedApp {
     ) {
         // if cursor is visible, feed the event to gui first, if the event is being consumed by gui, no need to handle it again later
         if self.window_state.is_cursor_visible() {
-            // let consumed = self.gui.update(&event);
-
             let consumed = self
-                .egui_winit_state
+                .renderer
                 .on_window_event(&self.window_state.window(), &event)
                 .consumed;
 
@@ -240,71 +223,34 @@ impl InitializedApp {
                 self.time_info.update();
                 // self.camera.update_transform(self.time_info.delta_time());
 
-                unsafe {
-                    self.vulkan_context
-                        .device
-                        .wait_for_fences(&[self.fence], true, std::u64::MAX)
-                        .expect("Failed to wait ")
-                };
+                self.vulkan_context.wait_for_fences(&[self.fence]).unwrap();
 
-                // free last frames textures after the previous frame is done rendering
-                if let Some(textures) = self.textures_to_free.take() {
-                    self.renderer.free_textures(&textures);
-                }
+                let (pixels_per_point, clipped_primitives) =
+                    self.renderer.update(&self.window_state.window(), |ctx| {
+                        let my_frame = egui::containers::Frame {
+                            fill: Color32::from_rgba_premultiplied(50, 0, 10, 128),
+                            ..Default::default()
+                        };
 
-                // generate UI
-                let raw_input = self
-                    .egui_winit_state
-                    .take_egui_input(&self.window_state.window());
-
-                let egui::FullOutput {
-                    platform_output,
-                    textures_delta,
-                    shapes,
-                    pixels_per_point,
-                    ..
-                } = self.egui_context.run(raw_input, |ctx| {
-                    let my_frame = egui::containers::Frame {
-                        fill: Color32::from_rgba_premultiplied(50, 0, 10, 128),
-                        ..Default::default()
-                    };
-
-                    // https://github.com/emilk/egui/blob/master/crates/egui_demo_lib/src/demo/panels.rs
-                    egui::SidePanel::left("left_panel")
-                        .frame(my_frame)
-                        .resizable(true)
-                        .default_width(300.0)
-                        .show(&ctx, |ui| {
-                            ui.vertical_centered(|ui| {
-                                ui.heading("Re: Flora");
+                        egui::SidePanel::left("left_panel")
+                            .frame(my_frame)
+                            .resizable(true)
+                            .default_width(300.0)
+                            .show(&ctx, |ui| {
+                                ui.vertical_centered(|ui| {
+                                    ui.heading("Re: Flora");
+                                });
+                                egui::ScrollArea::vertical().show(ui, |ui| {
+                                    ui.label(RichText::new(format!(
+                                        "fps: {:.2}",
+                                        self.time_info.display_fps()
+                                    )));
+                                    ui.add(
+                                        Slider::new(&mut self.slider_val, 0.0..=1.0).text("Slider"),
+                                    );
+                                });
                             });
-                            egui::ScrollArea::vertical().show(ui, |ui| {
-                                ui.label(RichText::new(format!(
-                                    "fps: {:.2}",
-                                    self.time_info.display_fps()
-                                )));
-                                // https://github.com/emilk/egui/blob/master/crates/egui_demo_lib/src/demo/sliders.rs
-                                ui.add(Slider::new(&mut self.slider_val, 0.0..=1.0).text("Slider"));
-                            });
-                        });
-                });
-
-                self.egui_winit_state
-                    .handle_platform_output(&self.window_state.window(), platform_output);
-
-                if !textures_delta.free.is_empty() {
-                    self.textures_to_free = Some(textures_delta.free.clone());
-                }
-
-                if !textures_delta.set.is_empty() {
-                    self.renderer.set_textures(
-                        self.vulkan_context.get_general_queue(),
-                        self.vulkan_context.command_pool,
-                        textures_delta.set.as_slice(),
-                    );
-                }
-
-                let clipped_primitives = self.egui_context.tessellate(shapes, pixels_per_point);
+                    });
 
                 let next_image_result = self
                     .swapchain
@@ -440,6 +386,7 @@ fn record_command_buffers(
 
     let command_buffer_begin_info =
         vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::SIMULTANEOUS_USE);
+
     unsafe {
         device
             .begin_command_buffer(command_buffer, &command_buffer_begin_info)

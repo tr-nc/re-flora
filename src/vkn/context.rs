@@ -75,8 +75,14 @@ impl VulkanContext {
         }
     }
 
+    /// Wait for the device to become idle
     pub fn wait_device_idle(&self) -> VkResult<()> {
         unsafe { self.device.device_wait_idle() }
+    }
+
+    /// Wait for all fences without timeout
+    pub fn wait_for_fences(&self, fences: &[vk::Fence]) -> VkResult<()> {
+        unsafe { self.device.wait_for_fences(fences, true, std::u64::MAX) }
     }
 
     /// Obtains the general queue from the device

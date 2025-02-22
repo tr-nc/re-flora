@@ -1,12 +1,16 @@
 use super::frames::Frames;
 use super::{allocator::Allocator, texture::Texture};
 use ash::{vk, Device};
+use egui::ViewportId;
 use egui::{
     epaint::{ImageDelta, Primitive},
     ClippedPrimitive, ImageData, TextureId,
 };
+use egui_winit::EventResponse;
 use gpu_allocator::vulkan::AllocatorCreateDesc;
 use std::{collections::HashMap, ffi::CString, mem};
+use winit::event::WindowEvent;
+use winit::window::Window;
 
 use crate::vkn::context::VulkanContext;
 use crate::vkn::ShaderCompiler;
@@ -77,8 +81,14 @@ pub struct Renderer {
     options: RendererOptions,
     frames: Option<Frames>,
 
+    textures_to_free: Option<Vec<TextureId>>,
+
+    // these shader modules are cached to avoid recompiling them during window scaling
     vert_module: vk::ShaderModule,
     frag_module: vk::ShaderModule,
+
+    egui_context: egui::Context,
+    egui_winit_state: egui_winit::State,
 }
 
 impl Renderer {
@@ -87,6 +97,7 @@ impl Renderer {
     /// At initialization all Vulkan resources are initialized. Vertex and index buffers are not created yet.
     pub fn new(
         vulkan_context: &Arc<VulkanContext>,
+        window: &Window,
         shader_compiler: &ShaderCompiler,
         render_pass: vk::RenderPass,
         options: RendererOptions,
@@ -105,10 +116,9 @@ impl Renderer {
             gpu_allocator::vulkan::Allocator::new(&allocator_create_info)
                 .expect("Failed to create gpu allocator")
         };
+        let allocator = Allocator::new(Arc::new(Mutex::new(gpu_allocator)));
 
         let device = &vulkan_context.device;
-
-        let descriptor_set_layout = create_descriptor_set_layout(device);
 
         let vert_module = shader_compiler
             .compile_from_path(
@@ -125,6 +135,7 @@ impl Renderer {
             )
             .unwrap();
 
+        let descriptor_set_layout = create_descriptor_set_layout(device);
         let pipeline_layout = create_pipeline_layout(device, descriptor_set_layout);
         let pipeline = create_pipeline(
             device,
@@ -142,9 +153,19 @@ impl Renderer {
         let managed_textures = HashMap::new();
         let textures = HashMap::new();
 
+        let egui_context = egui::Context::default();
+        let egui_winit_state = egui_winit::State::new(
+            egui_context.clone(),
+            ViewportId::ROOT,
+            window,
+            None,
+            None,
+            None,
+        );
+
         Self {
             vulkan_context: vulkan_context.clone(),
-            allocator: Allocator::new(Arc::new(Mutex::new(gpu_allocator))),
+            allocator,
             pipeline,
             pipeline_layout,
             descriptor_set_layout,
@@ -154,23 +175,22 @@ impl Renderer {
             textures,
             options,
             frames: None,
+            textures_to_free: None,
             vert_module,
             frag_module,
+
+            egui_context,
+            egui_winit_state,
         }
     }
 
-    /// Change the render pass to render to.
+    pub fn on_window_event(&mut self, window: &Window, event: &WindowEvent) -> EventResponse {
+        self.egui_winit_state.on_window_event(window, event)
+    }
+
+    /// Set the render pass used by the renderer, by recreating the pipeline.
     ///
-    /// Useful if you need to render to a new render pass.
-    /// It will rebuild the graphics pipeline from scratch so it is an expensive operation.
-    ///
-    /// # Arguments
-    ///
-    /// * `render_pass` - The render pass used to render the gui.
-    ///
-    /// # Errors
-    ///
-    /// * [`RendererError`] - If any Vulkan error is encountered during pipeline creation.
+    /// This is an expensive operation.
     pub fn set_render_pass(&mut self, render_pass: vk::RenderPass) {
         unsafe {
             self.vulkan_context
@@ -191,23 +211,12 @@ impl Renderer {
     ///
     /// You should pass the list of textures detla contained in the [`egui::TexturesDelta::set`].
     /// This method should be called _before_ the frame starts rendering.
-    ///
-    /// # Arguments
-    ///
-    /// * `ids` - The list of ids of textures to free.
-    /// * `queue` - The queue used to copy image data on the GPU.
-    /// * `command_pool` - A Vulkan command pool used to allocate command buffers to upload textures to the gpu.
-    /// * `textures_delta` - The modifications to apply to the textures.
-    /// # Errors
-    ///
-    /// * [`RendererError`] - If any Vulkan error is encountered during pipeline creation.
-    pub fn set_textures(
+    fn set_textures(
         &mut self,
         queue: vk::Queue,
         command_pool: vk::CommandPool,
         textures_delta: &[(TextureId, ImageDelta)],
     ) {
-        log::trace!("Setting {} textures", textures_delta.len());
         for (id, delta) in textures_delta {
             let (width, height, data) = match &delta.image {
                 ImageData::Font(font) => {
@@ -236,8 +245,6 @@ impl Renderer {
             let device = &self.vulkan_context.device;
 
             if let Some([offset_x, offset_y]) = delta.pos {
-                log::trace!("Updating texture {id:?}");
-
                 let texture = self.managed_textures.get_mut(id).unwrap();
 
                 texture.update(
@@ -255,8 +262,6 @@ impl Renderer {
                     data.as_slice(),
                 );
             } else {
-                log::trace!("Adding texture {:?}", id);
-
                 let texture = Texture::from_rgba8(
                     device,
                     queue,
@@ -301,7 +306,7 @@ impl Renderer {
     /// # Errors
     ///
     /// * [`RendererError`] - If any Vulkan error is encountered when free the texture.
-    pub fn free_textures(&mut self, ids: &[TextureId]) {
+    fn free_textures(&mut self, ids: &[TextureId]) {
         log::trace!("Freeing {} textures", ids.len());
         let device = &self.vulkan_context.device;
 
@@ -503,6 +508,46 @@ impl Renderer {
             }
         }
     }
+
+    pub fn update(
+        &mut self,
+        window: &Window,
+        run_ui: impl FnMut(&egui::Context),
+    ) -> (f32, Vec<ClippedPrimitive>) {
+        let raw_input = self.egui_winit_state.take_egui_input(window);
+
+        // free last frames textures after the previous frame is done rendering
+        if let Some(textures) = self.textures_to_free.take() {
+            self.free_textures(&textures);
+        }
+
+        let egui::FullOutput {
+            platform_output,
+            textures_delta,
+            shapes,
+            pixels_per_point,
+            ..
+        } = self.egui_context.run(raw_input, run_ui);
+
+        self.egui_winit_state
+            .handle_platform_output(window, platform_output);
+
+        if !textures_delta.free.is_empty() {
+            self.textures_to_free = Some(textures_delta.free.clone());
+        }
+
+        if !textures_delta.set.is_empty() {
+            self.set_textures(
+                self.vulkan_context.get_general_queue(),
+                self.vulkan_context.command_pool,
+                textures_delta.set.as_slice(),
+            );
+        }
+
+        let clipped_primitives = self.egui_context.tessellate(shapes, pixels_per_point);
+
+        (pixels_per_point, clipped_primitives)
+    }
 }
 
 impl Drop for Renderer {
@@ -520,9 +565,8 @@ impl Drop for Renderer {
                 t.destroy(device, &mut self.allocator);
             }
             device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
-
-            // device.destroy_shader_module(self.vert_module, None);
-            // device.destroy_shader_module(self.frag_module, None);
+            device.destroy_shader_module(self.vert_module, None);
+            device.destroy_shader_module(self.frag_module, None);
         }
     }
 }
