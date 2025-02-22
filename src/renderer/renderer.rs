@@ -366,11 +366,7 @@ impl Renderer {
     /// * `extent` - The extent of the surface to render to.
     /// * `pixel_per_point` - The number of physical pixels per point. See [`egui::FullOutput::pixels_per_point`].
     /// * `primitives` - The primitives to render. See [`egui::Context::tessellate`].
-    ///
-    /// # Errors
-    ///
-    /// * [`RendererError`] - If any Vulkan error is encountered when recording.
-    pub fn cmd_draw(
+    fn cmd_draw(
         &mut self,
         command_buffer: vk::CommandBuffer,
         extent: vk::Extent2D,
@@ -551,7 +547,8 @@ impl Renderer {
         (pixels_per_point, clipped_primitives)
     }
 
-    fn record_command_buffers(
+    pub fn record_command_buffer(
+        &mut self,
         device: &Device,
         swapchain: &Swapchain,
         command_pool: vk::CommandPool,
@@ -559,7 +556,6 @@ impl Renderer {
         image_index: u32,
         render_area: Extent2D,
         pixels_per_point: f32,
-        renderer: &mut Renderer,
         clipped_primitives: &[ClippedPrimitive],
     ) {
         unsafe {
@@ -579,7 +575,7 @@ impl Renderer {
 
         swapchain.record_begin_render_pass_cmdbuf(command_buffer, image_index, &render_area);
 
-        renderer.cmd_draw(
+        self.cmd_draw(
             command_buffer,
             render_area,
             pixels_per_point,

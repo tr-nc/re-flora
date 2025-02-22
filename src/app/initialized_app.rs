@@ -11,7 +11,7 @@ use crate::{
 };
 use ash::vk::Extent2D;
 use ash::{vk, Device};
-use egui::{ClippedPrimitive, Color32, RichText, Slider};
+use egui::{Color32, RichText, Slider};
 use std::sync::Arc;
 use winit::event::DeviceEvent;
 use winit::{
@@ -281,17 +281,21 @@ impl InitializedApp {
                     height: self.window_state.window_size()[1],
                 };
 
-                record_command_buffers(
+                // measure time
+                let start_time = std::time::Instant::now();
+                self.renderer.record_command_buffer(
                     &self.vulkan_context.device,
+                    &self.swapchain,
                     self.vulkan_context.command_pool,
                     self.cmdbuf,
-                    &self.swapchain,
                     image_index,
                     render_area,
                     pixels_per_point,
-                    &mut self.renderer,
                     &clipped_primitives,
                 );
+                let end_time = std::time::Instant::now();
+                let elapsed_time = end_time - start_time;
+                println!("Elapsed time: {:?}", elapsed_time);
 
                 let command_buffers = [self.cmdbuf];
                 let submit_info = [vk::SubmitInfo::default()
