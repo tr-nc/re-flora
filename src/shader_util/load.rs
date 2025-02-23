@@ -11,12 +11,22 @@ pub struct LoadedShader {
     pub reflect_shader_module: ReflectShaderModule,
 }
 
+fn predict_shader_kind(file_path: &str) -> Result<shaderc::ShaderKind, String> {
+    match file_path.split('.').last() {
+        Some("vert") => Ok(shaderc::ShaderKind::Vertex),
+        Some("frag") => Ok(shaderc::ShaderKind::Fragment),
+        Some("comp") => Ok(shaderc::ShaderKind::Compute),
+        _ => Err(format!("Unknown shader extension: {}", file_path)),
+    }
+}
+
 pub fn load_from_glsl(
     file_path: &str,
     device: Device,
-    shader_kind: shaderc::ShaderKind,
     compiler: &ShaderCompiler,
 ) -> Result<LoadedShader, String> {
+    let shader_kind = predict_shader_kind(file_path).map_err(|e| e.to_string())?;
+
     let code = get_code_from_path(file_path)?;
     let shader_byte_code_u8 = compiler
         .code_to_bytecode(&code, shader_kind, file_path)
@@ -34,10 +44,14 @@ pub fn load_from_glsl(
 }
 
 pub fn load_from_spv(file_path: &str, device: Device) -> Result<LoadedShader, String> {
+    // the shaders built is located under: $OUT_DIR/shaders_root/
+    // while maintaining the same directory structure as the original source files.
     let out_dir = env!("OUT_DIR");
+    let compiled_path = format!("{}/shaders_root/{}.spv", out_dir, file_path);
 
-    let shader_byte_code_u8 =
-        &std::fs::read(format!("{}/{}", out_dir, file_path)).map_err(|e| e.to_string())?;
+    // Read the compiled SPIR-V
+    let shader_byte_code_u8 = &std::fs::read(&compiled_path)
+        .map_err(|e| format!("Failed to read {}: {}", compiled_path, e))?;
 
     let reflect_shader_module =
         ReflectShaderModule::load_u8_data(&shader_byte_code_u8).map_err(|e| e.to_string())?;

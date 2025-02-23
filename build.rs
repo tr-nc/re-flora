@@ -1,4 +1,3 @@
-// build.rs
 use shaderc;
 use std::env;
 use std::fs;
@@ -15,11 +14,17 @@ macro_rules! log {
 fn main() {
     // Where Cargo places its build artifacts
     let out_dir = env::var("OUT_DIR").expect("Failed to read OUT_DIR.");
+    // 1) Delete everything inside OUT_DIR/shaders_root beforehand
+    let shader_root_out_dir = PathBuf::from(&out_dir).join("shaders_root");
+    if shader_root_out_dir.exists() {
+        // Remove everything inside this directory
+        fs::remove_dir_all(&shader_root_out_dir).expect("Failed to remove old shader_root folder.");
+    }
+    fs::create_dir_all(&shader_root_out_dir).expect("Failed to recreate empty shader_root folder.");
 
-    log!("OUT_DIR: {}", out_dir);
+    let shader_dir = Path::new("src/");
 
-    let shader_dir = Path::new("src/egui_renderer/shaders");
-
+    // The supported shader extensions
     let shader_extensions = [".vert", ".frag", ".comp"];
 
     let compiler = shaderc::Compiler::new().expect("Failed to create shader compiler.");
@@ -28,15 +33,13 @@ fn main() {
         shaderc::CompileOptions::new().expect("Failed to initialize shader compile options.");
     compile_options.set_optimization_level(shaderc::OptimizationLevel::Performance);
 
-    // Recursively walk the shader directory
+    // Recursively compile all shaders
     visit_shader_files(shader_dir, &shader_extensions, &mut |path| {
-        println!("cargo:rerun-if-changed={}", path.display());
-
         let stage = match path.extension().and_then(|ext| ext.to_str()) {
             Some("vert") => shaderc::ShaderKind::Vertex,
             Some("frag") => shaderc::ShaderKind::Fragment,
             Some("comp") => shaderc::ShaderKind::Compute,
-            _ => return, // Unrecognized extension, skip
+            _ => return,
         };
 
         let source = fs::read_to_string(path)
@@ -53,14 +56,26 @@ fn main() {
             )
             .unwrap_or_else(|e| panic!("Failed to compile {}: {}", path.display(), e));
 
-        // Construct output path in OUT_DIR: e.g., $OUT_DIR/shader.frag.spv
-        let out_path = PathBuf::from(&out_dir)
-            .join(path.file_stem().unwrap())
+        let project_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        log!("Project root: {}", project_root.display());
+        log!("Shader path: {}", path.display());
+        let relative_path = path;
+
+        // Construct the final output path inside OUT_DIR/shaders_root
+        let out_path = shader_root_out_dir
+            .join(relative_path)
             .with_extension(format!(
                 "{}.spv",
                 path.extension().and_then(|x| x.to_str()).unwrap()
             ));
 
+        // Create directories if needed
+        if let Some(parent) = out_path.parent() {
+            fs::create_dir_all(parent)
+                .unwrap_or_else(|_| panic!("Failed to create directories for {:?}", parent));
+        }
+
+        // Write the compiled SPIR-V
         fs::write(&out_path, &compiled_spirv.as_binary_u8())
             .unwrap_or_else(|_| panic!("Failed to write SPIR-V file: {:?}", out_path));
 

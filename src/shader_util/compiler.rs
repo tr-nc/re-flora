@@ -12,11 +12,13 @@ impl Default for ShaderCompilerDesc {
     }
 }
 
+#[allow(unused)]
 pub struct ShaderCompiler {
     compiler: Compiler,
     compile_options: CompileOptions<'static>,
 }
 
+#[allow(unused)]
 impl ShaderCompiler {
     pub fn new(create_info: ShaderCompilerDesc) -> Result<Self, String> {
         let compiler = Compiler::new().ok_or("Failed to create shader compiler")?;
