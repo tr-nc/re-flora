@@ -109,6 +109,7 @@ impl Swapchain {
         }
     }
 
+    #[allow(unused)]
     pub fn get_swapchain_device(&self) -> &swapchain::Device {
         &self.swapchain_device
     }

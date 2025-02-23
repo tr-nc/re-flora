@@ -1,8 +1,8 @@
-pub mod app;
-pub mod renderer;
-pub mod util;
-pub mod vkn;
-pub mod window;
+mod app;
+mod renderer;
+mod util;
+mod vkn;
+mod window;
 
 use app::App;
 use simple_logger::SimpleLogger;

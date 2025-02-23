@@ -79,7 +79,6 @@ pub struct Renderer {
     descriptor_pool: vk::DescriptorPool,
     managed_textures: HashMap<TextureId, Texture>,
     textures: HashMap<TextureId, vk::DescriptorSet>,
-    next_user_texture_id: u64,
     options: RendererOptions,
     frames: Option<Frames>,
 
@@ -173,7 +172,6 @@ impl Renderer {
             descriptor_set_layout,
             descriptor_pool,
             managed_textures,
-            next_user_texture_id: 0,
             textures,
             options,
             frames: None,
@@ -324,38 +322,6 @@ impl Renderer {
                 };
             }
         }
-    }
-
-    /// Add a user managed texture used by egui.
-    ///
-    /// The descriptors set passed in this method are managed by the used and *will not* be freed by the renderer.
-    /// This method will return a [`egui::TextureId`] which can then be used in a [`egui::Image`].
-    ///
-    /// # Arguments
-    ///
-    /// * `set` - The descpritor set referencing the texture to display.
-    ///
-    /// # Caveat
-    ///
-    /// Provided `vk::DescriptorSet`s must be created with a descriptor set layout that is compatible with the one used by the renderer.
-    /// See [Pipeline Layout Compatibility](https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#descriptorsets-compatibility).
-    pub fn add_user_texture(&mut self, set: vk::DescriptorSet) -> TextureId {
-        let id = TextureId::User(self.next_user_texture_id);
-        self.next_user_texture_id += 1;
-        self.textures.insert(id, set);
-
-        id
-    }
-
-    /// Remove a user managed texture.
-    ///
-    /// This *does not* free the resources, it just _forgets_ about the texture.
-    ///
-    /// # Arguments
-    ///
-    /// * `id` - The id of the texture to remove.
-    pub fn remove_user_texture(&mut self, id: TextureId) {
-        self.textures.remove(&id);
     }
 
     /// Record commands to render the [`egui::Ui`].
@@ -607,8 +573,6 @@ impl Drop for Renderer {
         }
     }
 }
-
-/// TODO: use a crate for this
 
 /// Orthographic projection matrix for use with Vulkan.
 ///

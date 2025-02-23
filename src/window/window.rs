@@ -9,7 +9,9 @@ use winit::{
 /// is displayed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowMode {
+    #[allow(unused)]
     Windowed,
+    #[allow(unused)]
     BorderlessFullscreen,
 }
 
@@ -172,7 +174,8 @@ impl WindowState {
         self.window.clone()
     }
 
-    pub fn window_descriptor(&self) -> &WindowStateDesc {
+    #[allow(unused)]
+    pub fn get_window_state_desc(&self) -> &WindowStateDesc {
         &self.window_descriptor
     }
 
@@ -252,6 +255,7 @@ impl WindowState {
 
     /// Return scale factor
     /// accounted window size.
+    #[allow(unused)]
     pub fn resolution(&self) -> [f32; 2] {
         let size = self.window_size();
         let scale_factor = self.window().scale_factor();
@@ -264,6 +268,7 @@ impl WindowState {
     /// Return aspect ratio of
     /// the window. (width /
     /// height)
+    #[allow(unused)]
     pub fn aspect_ratio(&self) -> f32 {
         let dims = self.window_size();
         dims[0] as f32 / dims[1] as f32

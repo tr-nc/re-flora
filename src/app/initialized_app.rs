@@ -281,8 +281,6 @@ impl InitializedApp {
                     height: self.window_state.window_size()[1],
                 };
 
-                // measure time
-                let start_time = std::time::Instant::now();
                 self.renderer.record_command_buffer(
                     &self.vulkan_context.device,
                     &self.swapchain,
@@ -293,9 +291,6 @@ impl InitializedApp {
                     pixels_per_point,
                     &clipped_primitives,
                 );
-                let end_time = std::time::Instant::now();
-                let elapsed_time = end_time - start_time;
-                println!("Elapsed time: {:?}", elapsed_time);
 
                 let command_buffers = [self.cmdbuf];
                 let submit_info = [vk::SubmitInfo::default()
@@ -303,6 +298,7 @@ impl InitializedApp {
                     .wait_dst_stage_mask(&wait_stages)
                     .command_buffers(&command_buffers)
                     .signal_semaphores(&signal_semaphores)];
+
                 unsafe {
                     self.vulkan_context
                         .device
