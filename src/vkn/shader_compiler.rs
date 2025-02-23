@@ -1,5 +1,6 @@
 use ash::vk::{ShaderModule, ShaderModuleCreateInfo};
 use shaderc::{CompileOptions, Compiler, OptimizationLevel};
+use spirv_reflect::ShaderModule as ReflectShaderModule;
 
 pub struct ShaderCompilerDesc {
     pub optimization_level: OptimizationLevel,
@@ -12,6 +13,7 @@ impl Default for ShaderCompilerDesc {
         }
     }
 }
+
 pub struct ShaderCompiler {
     compiler: Compiler,
     compile_options: CompileOptions<'static>,

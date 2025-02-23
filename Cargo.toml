@@ -32,3 +32,6 @@ spirv-reflect = "0.2.3"
 [features]
 default = []
 no_validation_layer = []
+
+[build-dependencies]
+shaderc = "0.8.3"
