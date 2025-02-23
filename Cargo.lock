@@ -706,6 +706,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "glam"
+version = "0.30.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17fcdf9683c406c2fc4d124afd29c0d595e22210d633cbdb8695ba9935ab1dc6"
+
+[[package]]
 name = "gpu-allocator"
 version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1560,6 +1566,7 @@ dependencies = [
  "egui",
  "egui-winit",
  "egui_demo_lib",
+ "glam",
  "gpu-allocator",
  "log",
  "shaderc",
