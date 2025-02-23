@@ -8,7 +8,7 @@ use app::App;
 use simple_logger::SimpleLogger;
 use winit::event_loop::EventLoop;
 
-#[allow(unused)]
+#[allow(dead_code)]
 fn backtrace_on() {
     use std::env;
     env::set_var("RUST_BACKTRACE", "1");

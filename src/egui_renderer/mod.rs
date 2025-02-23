@@ -5,5 +5,5 @@ mod mesh;
 mod renderer;
 mod texture;
 
-#[allow(unused)]
+#[allow(dead_code)]
 pub use renderer::{EguiRenderer, EguiRendererDesc};

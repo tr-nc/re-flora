@@ -1,13 +1,13 @@
 use crate::util::time_info::TimeInfo;
 use crate::vkn::ShaderCompiler;
 use crate::{
+    egui_renderer::EguiRenderer,
+    egui_renderer::EguiRendererDesc,
     vkn::{
-        context::{ContextCreateInfo, VulkanContext},
+        context::{VulkanContext, VulkanContextDesc},
         swapchain::Swapchain,
     },
     window::{WindowMode, WindowState, WindowStateDesc},
-    egui_renderer::EguiRenderer,
-    egui_renderer::EguiRendererDesc,
 };
 use ash::vk::Extent2D;
 use ash::{vk, Device};
@@ -92,7 +92,7 @@ impl InitializedApp {
 
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {
         let window_descriptor = WindowStateDesc {
-            title: "Flora".to_owned(),
+            title: "Re: Flora".to_owned(),
             window_mode: WindowMode::Windowed,
             cursor_locked: true,
             cursor_visible: false,
@@ -104,8 +104,8 @@ impl InitializedApp {
     fn create_vulkan_context(window_state: &WindowState) -> VulkanContext {
         VulkanContext::new(
             &window_state.window(),
-            ContextCreateInfo {
-                name: "Flora".into(),
+            VulkanContextDesc {
+                name: "Re: Flora".into(),
             },
         )
     }
@@ -168,7 +168,6 @@ impl InitializedApp {
                 .consumed;
 
             if consumed {
-                log::info!("Event consumed by egui");
                 return;
             }
         }

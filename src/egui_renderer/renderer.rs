@@ -72,7 +72,6 @@ pub struct EguiRenderer {
     descriptor_pool: vk::DescriptorPool,
     managed_textures: HashMap<TextureId, Texture>,
     textures: HashMap<TextureId, vk::DescriptorSet>,
-    options: EguiRendererDesc,
     frames: Option<Frames>,
 
     textures_to_free: Option<Vec<TextureId>>,
@@ -83,6 +82,8 @@ pub struct EguiRenderer {
 
     egui_context: egui::Context,
     egui_winit_state: egui_winit::State,
+
+    desc: EguiRendererDesc,
 }
 
 impl EguiRenderer {
@@ -94,9 +95,9 @@ impl EguiRenderer {
         window: &Window,
         shader_compiler: &ShaderCompiler,
         render_pass: vk::RenderPass,
-        options: EguiRendererDesc,
+        desc: EguiRendererDesc,
     ) -> Self {
-        options.validate().expect("Invalid options");
+        desc.validate().expect("Invalid options");
 
         let gpu_allocator = {
             let allocator_create_info = AllocatorCreateDesc {
@@ -137,7 +138,7 @@ impl EguiRenderer {
             frag_module,
             pipeline_layout,
             render_pass,
-            options,
+            desc,
         );
 
         // Descriptor pool
@@ -166,7 +167,7 @@ impl EguiRenderer {
             descriptor_pool,
             managed_textures,
             textures,
-            options,
+            desc,
             frames: None,
             textures_to_free: None,
             vert_module,
@@ -196,7 +197,7 @@ impl EguiRenderer {
             self.frag_module,
             self.pipeline_layout,
             render_pass,
-            self.options,
+            self.desc,
         );
     }
 
@@ -343,7 +344,7 @@ impl EguiRenderer {
                 device,
                 &mut self.allocator,
                 primitives,
-                self.options.in_flight_frames,
+                self.desc.in_flight_frames,
             ));
         }
 

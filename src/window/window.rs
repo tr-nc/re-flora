@@ -9,9 +9,9 @@ use winit::{
 /// is displayed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowMode {
-    #[allow(unused)]
+    #[allow(dead_code)]
     Windowed,
-    #[allow(unused)]
+    #[allow(dead_code)]
     BorderlessFullscreen,
 }
 
@@ -113,18 +113,16 @@ impl Default for WindowStateDesc {
 /// this struct to keep track
 pub struct WindowState {
     window: Arc<Window>,
-    window_descriptor: WindowStateDesc,
+
+    desc: WindowStateDesc,
 }
 
 impl WindowState {
-    pub fn new(
-        event_loop: &winit::event_loop::ActiveEventLoop,
-        window_descriptor: &WindowStateDesc,
-    ) -> Self {
+    pub fn new(event_loop: &winit::event_loop::ActiveEventLoop, desc: &WindowStateDesc) -> Self {
         // https://docs.rs/winit/latest/winit/window/struct.Window.html#method.default_attributes
         let mut winit_window_attributes = Window::default_attributes();
 
-        winit_window_attributes = match window_descriptor.window_mode {
+        winit_window_attributes = match desc.window_mode {
             WindowMode::BorderlessFullscreen => winit_window_attributes
                 .with_fullscreen(Some(Fullscreen::Borderless(event_loop.primary_monitor()))),
             WindowMode::Windowed => {
@@ -133,7 +131,7 @@ impl WindowState {
                     height,
                     position,
                     ..
-                } = *window_descriptor;
+                } = *desc;
 
                 if let Some(position) = position {
                     winit_window_attributes = winit_window_attributes.with_position(
@@ -145,20 +143,19 @@ impl WindowState {
         }
         // set window to be invisible first to avoid flickering during window creation
         .with_visible(false)
-        .with_resizable(window_descriptor.resizable)
-        .with_decorations(window_descriptor.decorations)
-        .with_transparent(window_descriptor.transparent);
+        .with_resizable(desc.resizable)
+        .with_decorations(desc.decorations)
+        .with_transparent(desc.transparent);
 
-        let winit_window_attributes = winit_window_attributes.with_title(&window_descriptor.title);
+        let winit_window_attributes = winit_window_attributes.with_title(&desc.title);
         let window = event_loop.create_window(winit_window_attributes).unwrap();
 
-        let res =
-            window.set_cursor_grab(Self::get_cursor_grab_mode(window_descriptor.cursor_locked));
+        let res = window.set_cursor_grab(Self::get_cursor_grab_mode(desc.cursor_locked));
         if let Err(e) = res {
             eprintln!("Failed to grab cursor: {:?}", e);
         }
 
-        window.set_cursor_visible(window_descriptor.cursor_visible);
+        window.set_cursor_visible(desc.cursor_visible);
 
         // set the window to visible
         // after it has been created
@@ -166,7 +163,7 @@ impl WindowState {
 
         Self {
             window: Arc::new(window),
-            window_descriptor: window_descriptor.clone(),
+            desc: desc.clone(),
         }
     }
 
@@ -174,9 +171,9 @@ impl WindowState {
         self.window.clone()
     }
 
-    #[allow(unused)]
+    #[allow(dead_code)]
     pub fn get_window_state_desc(&self) -> &WindowStateDesc {
-        &self.window_descriptor
+        &self.desc
     }
 
     /// Toggles the cursor
@@ -192,7 +189,7 @@ impl WindowState {
     }
 
     pub fn is_cursor_visible(&self) -> bool {
-        self.window_descriptor.cursor_visible
+        self.desc.cursor_visible
     }
 
     /// Sets the cursor
@@ -204,7 +201,7 @@ impl WindowState {
     /// the internal state
     /// will be out of sync.
     pub fn set_cursor_visibility(&mut self, cursor_visible: bool) {
-        self.window_descriptor.cursor_visible = cursor_visible;
+        self.desc.cursor_visible = cursor_visible;
         self.window.set_cursor_visible(cursor_visible);
     }
 
@@ -221,7 +218,7 @@ impl WindowState {
     }
 
     pub fn get_cursor_grab(&self) -> bool {
-        self.window_descriptor.cursor_locked
+        self.desc.cursor_locked
     }
 
     /// Sets the cursor grab,
@@ -232,7 +229,7 @@ impl WindowState {
     /// the internal state
     /// will be out of sync.
     pub fn set_cursor_grab(&mut self, cursor_locked: bool) {
-        self.window_descriptor.cursor_locked = cursor_locked;
+        self.desc.cursor_locked = cursor_locked;
         let res = self
             .window
             .set_cursor_grab(Self::get_cursor_grab_mode(cursor_locked));
@@ -255,7 +252,7 @@ impl WindowState {
 
     /// Return scale factor
     /// accounted window size.
-    #[allow(unused)]
+    #[allow(dead_code)]
     pub fn resolution(&self) -> [f32; 2] {
         let size = self.window_size();
         let scale_factor = self.window().scale_factor();
@@ -268,7 +265,7 @@ impl WindowState {
     /// Return aspect ratio of
     /// the window. (width /
     /// height)
-    #[allow(unused)]
+    #[allow(dead_code)]
     pub fn aspect_ratio(&self) -> f32 {
         let dims = self.window_size();
         dims[0] as f32 / dims[1] as f32

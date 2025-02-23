@@ -109,7 +109,7 @@ impl Swapchain {
         }
     }
 
-    #[allow(unused)]
+    #[allow(dead_code)]
     pub fn get_swapchain_device(&self) -> &swapchain::Device {
         &self.swapchain_device
     }

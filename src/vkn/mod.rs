@@ -3,5 +3,5 @@ pub mod context_builder;
 pub mod swapchain;
 
 mod shader_compiler;
-#[allow(unused)]
+#[allow(dead_code)]
 pub use shader_compiler::{ShaderCompiler, ShaderCompilerDesc};
