@@ -3,6 +3,7 @@ mod egui_renderer;
 mod util;
 mod vkn;
 mod window;
+mod shader_util;
 
 use app::App;
 use simple_logger::SimpleLogger;
@@ -16,9 +17,6 @@ fn backtrace_on() {
 
 pub fn main() {
     // backtrace_on();
-
-    let out_dir = env!("OUT_DIR");
-    println!("OUT_DIR in rust code: {}", out_dir);
 
     SimpleLogger::new()
         .with_local_timestamps()

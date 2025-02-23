@@ -13,9 +13,9 @@ use std::{collections::HashMap, ffi::CString, mem};
 use winit::event::WindowEvent;
 use winit::window::Window;
 
+use crate::shader_util::{load_from_glsl, ShaderCompiler};
 use crate::vkn::context::VulkanContext;
 use crate::vkn::swapchain::Swapchain;
-use crate::vkn::ShaderCompiler;
 
 use std::sync::{Arc, Mutex};
 
@@ -115,27 +115,28 @@ impl EguiRenderer {
 
         let device = &vulkan_context.device;
 
-        let vert_module = shader_compiler
-            .compile_from_path(
-                device,
-                "src/egui_renderer/shaders/shader.vert",
-                shaderc::ShaderKind::Vertex,
-            )
-            .unwrap();
-        let frag_module = shader_compiler
-            .compile_from_path(
-                device,
-                "src/egui_renderer/shaders/shader.frag",
-                shaderc::ShaderKind::Fragment,
-            )
-            .unwrap();
+        let vertex_shader_loaded = load_from_glsl(
+            "src/egui_renderer/shaders/shader.vert",
+            device.clone(),
+            shaderc::ShaderKind::Vertex,
+            shader_compiler,
+        )
+        .unwrap();
+
+        let fragment_shader_loaded = load_from_glsl(
+            "src/egui_renderer/shaders/shader.frag",
+            device.clone(),
+            shaderc::ShaderKind::Fragment,
+            shader_compiler,
+        )
+        .unwrap();
 
         let descriptor_set_layout = create_descriptor_set_layout(device);
         let pipeline_layout = create_pipeline_layout(device, descriptor_set_layout);
         let pipeline = create_pipeline(
             device,
-            vert_module,
-            frag_module,
+            vertex_shader_loaded.shader_module,
+            fragment_shader_loaded.shader_module,
             pipeline_layout,
             render_pass,
             desc,
@@ -170,8 +171,8 @@ impl EguiRenderer {
             desc,
             frames: None,
             textures_to_free: None,
-            vert_module,
-            frag_module,
+            vert_module: vertex_shader_loaded.shader_module,
+            frag_module: fragment_shader_loaded.shader_module,
 
             egui_context,
             egui_winit_state,

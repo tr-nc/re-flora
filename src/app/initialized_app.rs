@@ -1,5 +1,5 @@
+use crate::shader_util::ShaderCompiler;
 use crate::util::time_info::TimeInfo;
-use crate::vkn::ShaderCompiler;
 use crate::{
     egui_renderer::EguiRenderer,
     egui_renderer::EguiRendererDesc,
