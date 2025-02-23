@@ -1,5 +1,5 @@
 mod app;
-mod renderer;
+mod egui_renderer;
 mod util;
 mod vkn;
 mod window;

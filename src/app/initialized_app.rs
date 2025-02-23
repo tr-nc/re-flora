@@ -1,13 +1,13 @@
 use crate::util::time_info::TimeInfo;
 use crate::vkn::ShaderCompiler;
 use crate::{
-    renderer::Renderer,
-    renderer::RendererOptions,
     vkn::{
         context::{ContextCreateInfo, VulkanContext},
         swapchain::Swapchain,
     },
     window::{WindowMode, WindowState, WindowStateDesc},
+    egui_renderer::EguiRenderer,
+    egui_renderer::EguiRendererDesc,
 };
 use ash::vk::Extent2D;
 use ash::{vk, Device};
@@ -25,7 +25,7 @@ pub struct InitializedApp {
     vulkan_context: Arc<VulkanContext>,
     _shader_compiler: ShaderCompiler,
 
-    renderer: Renderer,
+    renderer: EguiRenderer,
 
     window_state: WindowState,
     is_resize_pending: bool,
@@ -62,12 +62,12 @@ impl InitializedApp {
 
         let cmdbuf = Self::create_cmdbuf(&vulkan_context.device, vulkan_context.command_pool);
 
-        let renderer = Renderer::new(
+        let renderer = EguiRenderer::new(
             &vulkan_context,
             &window_state.window(),
             &shader_compiler,
             swapchain.get_render_pass(),
-            RendererOptions {
+            EguiRendererDesc {
                 srgb_framebuffer: true,
                 ..Default::default()
             },
@@ -168,7 +168,7 @@ impl InitializedApp {
                 .consumed;
 
             if consumed {
-                println!("Event consumed by egui");
+                log::info!("Event consumed by egui");
                 return;
             }
         }
@@ -365,43 +365,3 @@ impl InitializedApp {
         self.is_resize_pending = false;
     }
 }
-
-// fn record_command_buffers(
-//     device: &Device,
-//     command_pool: vk::CommandPool,
-//     command_buffer: vk::CommandBuffer,
-//     swapchain: &Swapchain,
-//     image_index: u32,
-//     render_area: Extent2D,
-//     pixels_per_point: f32,
-//     renderer: &mut Renderer,
-
-//     clipped_primitives: &[ClippedPrimitive],
-// ) {
-//     unsafe {
-//         device
-//             .reset_command_pool(command_pool, vk::CommandPoolResetFlags::empty())
-//             .expect("Failed to reset command pool")
-//     };
-
-//     let command_buffer_begin_info =
-//         vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::SIMULTANEOUS_USE);
-
-//     unsafe {
-//         device
-//             .begin_command_buffer(command_buffer, &command_buffer_begin_info)
-//             .expect("Failed to begin command buffer")
-//     };
-
-//     swapchain.record_begin_render_pass_cmdbuf(command_buffer, image_index, &render_area);
-
-//     renderer.cmd_draw(
-//         command_buffer,
-//         render_area,
-//         pixels_per_point,
-//         clipped_primitives,
-//     );
-
-//     unsafe { device.cmd_end_render_pass(command_buffer) };
-//     unsafe { device.end_command_buffer(command_buffer).unwrap() };
-// }

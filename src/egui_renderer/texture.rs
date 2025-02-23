@@ -1,5 +1,5 @@
 use super::buffer::*;
-use crate::renderer::allocator::Allocator;
+use crate::egui_renderer::allocator::Allocator;
 use ash::vk;
 use ash::Device;
 

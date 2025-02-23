@@ -23,7 +23,7 @@ const MAX_TEXTURE_COUNT: u32 = 1024;
 
 /// Optional parameters of the renderer.
 #[derive(Debug, Clone, Copy)]
-pub struct RendererOptions {
+pub struct EguiRendererDesc {
     /// The number of in flight frames of the application.
     pub in_flight_frames: usize,
 
@@ -42,7 +42,7 @@ pub struct RendererOptions {
     pub srgb_framebuffer: bool,
 }
 
-impl Default for RendererOptions {
+impl Default for EguiRendererDesc {
     fn default() -> Self {
         Self {
             in_flight_frames: 1,
@@ -53,7 +53,7 @@ impl Default for RendererOptions {
     }
 }
 
-impl RendererOptions {
+impl EguiRendererDesc {
     fn validate(&self) -> Result<(), String> {
         if self.in_flight_frames <= 0 {
             return Err("in_flight_frames should be at least one".to_string());
@@ -62,15 +62,8 @@ impl RendererOptions {
     }
 }
 
-/// Vulkan renderer for egui.
-///
-/// It records rendering command to the provided command buffer at each call to [`cmd_draw`].
-///
-/// The renderer holds a set of vertex/index buffers per in flight frames. Vertex and index buffers
-/// are resized at each call to [`cmd_draw`] if draw data does not fit.
-///
-/// [`cmd_draw`]: #method.cmd_draw
-pub struct Renderer {
+/// Winit-Egui Renderer implemented for Ash Vulkan.
+pub struct EguiRenderer {
     vulkan_context: Arc<VulkanContext>,
     allocator: Allocator,
     pipeline: vk::Pipeline,
@@ -79,7 +72,7 @@ pub struct Renderer {
     descriptor_pool: vk::DescriptorPool,
     managed_textures: HashMap<TextureId, Texture>,
     textures: HashMap<TextureId, vk::DescriptorSet>,
-    options: RendererOptions,
+    options: EguiRendererDesc,
     frames: Option<Frames>,
 
     textures_to_free: Option<Vec<TextureId>>,
@@ -92,7 +85,7 @@ pub struct Renderer {
     egui_winit_state: egui_winit::State,
 }
 
-impl Renderer {
+impl EguiRenderer {
     /// Create a renderer using gpu-allocator.
     ///
     /// At initialization all Vulkan resources are initialized. Vertex and index buffers are not created yet.
@@ -101,7 +94,7 @@ impl Renderer {
         window: &Window,
         shader_compiler: &ShaderCompiler,
         render_pass: vk::RenderPass,
-        options: RendererOptions,
+        options: EguiRendererDesc,
     ) -> Self {
         options.validate().expect("Invalid options");
 
@@ -124,14 +117,14 @@ impl Renderer {
         let vert_module = shader_compiler
             .compile_from_path(
                 device,
-                "src/renderer/shaders/shader.vert",
+                "src/egui_renderer/shaders/shader.vert",
                 shaderc::ShaderKind::Vertex,
             )
             .unwrap();
         let frag_module = shader_compiler
             .compile_from_path(
                 device,
-                "src/renderer/shaders/shader.frag",
+                "src/egui_renderer/shaders/shader.frag",
                 shaderc::ShaderKind::Fragment,
             )
             .unwrap();
@@ -553,7 +546,7 @@ impl Renderer {
     }
 }
 
-impl Drop for Renderer {
+impl Drop for EguiRenderer {
     fn drop(&mut self) {
         let device = &self.vulkan_context.device;
         unsafe {
@@ -650,7 +643,7 @@ fn create_pipeline(
     frag_module: vk::ShaderModule,
     pipeline_layout: vk::PipelineLayout,
     render_pass: vk::RenderPass,
-    options: RendererOptions,
+    options: EguiRendererDesc,
 ) -> vk::Pipeline {
     let specialization_entries = [vk::SpecializationMapEntry {
         constant_id: 0,
