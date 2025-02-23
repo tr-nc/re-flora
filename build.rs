@@ -12,19 +12,16 @@ macro_rules! log {
 }
 
 fn main() {
-    // Where Cargo places its build artifacts
     let out_dir = env::var("OUT_DIR").expect("Failed to read OUT_DIR.");
-    // 1) Delete everything inside OUT_DIR/shaders_root beforehand
     let shader_root_out_dir = PathBuf::from(&out_dir).join("shaders_root");
     if shader_root_out_dir.exists() {
-        // Remove everything inside this directory
         fs::remove_dir_all(&shader_root_out_dir).expect("Failed to remove old shader_root folder.");
     }
+
     fs::create_dir_all(&shader_root_out_dir).expect("Failed to recreate empty shader_root folder.");
 
     let shader_dir = Path::new("src/");
 
-    // The supported shader extensions
     let shader_extensions = [".vert", ".frag", ".comp"];
 
     let compiler = shaderc::Compiler::new().expect("Failed to create shader compiler.");

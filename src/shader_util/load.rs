@@ -11,6 +11,7 @@ pub struct LoadedShader {
     pub reflect_shader_module: ReflectShaderModule,
 }
 
+#[allow(unused)]
 fn predict_shader_kind(file_path: &str) -> Result<shaderc::ShaderKind, String> {
     match file_path.split('.').last() {
         Some("vert") => Ok(shaderc::ShaderKind::Vertex),
@@ -20,6 +21,7 @@ fn predict_shader_kind(file_path: &str) -> Result<shaderc::ShaderKind, String> {
     }
 }
 
+#[allow(unused)]
 pub fn load_from_glsl(
     file_path: &str,
     device: Device,
