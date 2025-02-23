@@ -26,6 +26,7 @@ egui-winit = "0.31.0"
 egui_demo_lib = "0.31.0"
 shaderc = "0.8.3"
 glam = "0.30.0"
+spirv-reflect = "0.2.3"
 
 
 [features]
