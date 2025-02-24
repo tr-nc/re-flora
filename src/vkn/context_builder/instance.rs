@@ -17,10 +17,10 @@ pub fn create_vulkan_instance(
     let app_name = CString::new(title).unwrap();
     let app_info = vk::ApplicationInfo::default()
         .application_name(app_name.as_c_str())
-        .application_version(vk::make_api_version(0, 0, 1, 0))
         .engine_name(c"No Engine")
+        .application_version(vk::make_api_version(0, 0, 1, 0))
         .engine_version(vk::make_api_version(0, 0, 1, 0))
-        .api_version(vk::make_api_version(0, 1, 0, 0));
+        .api_version(vk::make_api_version(0, 1, 3, 0));
 
     let mut extension_names =
         ash_window::enumerate_required_extensions(window.display_handle().unwrap().as_raw())

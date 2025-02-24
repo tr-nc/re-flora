@@ -24,6 +24,11 @@ impl ShaderCompiler {
         let compiler = Compiler::new().ok_or("Failed to create shader compiler")?;
         let mut compile_options =
             CompileOptions::new().ok_or("Failed to create compile options")?;
+        compile_options.set_target_env(
+            shaderc::TargetEnv::Vulkan,
+            shaderc::EnvVersion::Vulkan1_3 as u32,
+        );
+        compile_options.set_source_language(shaderc::SourceLanguage::GLSL);
         compile_options.set_optimization_level(create_info.optimization_level);
 
         Ok(Self {
@@ -32,7 +37,7 @@ impl ShaderCompiler {
         })
     }
 
-    pub fn code_to_bytecode(
+    pub fn compile_to_bytecode(
         &self,
         code: &str,
         shader_kind: shaderc::ShaderKind,

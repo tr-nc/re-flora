@@ -13,7 +13,7 @@ use std::{collections::HashMap, ffi::CString, mem};
 use winit::event::WindowEvent;
 use winit::window::Window;
 
-use crate::shader_util::{load_from_spv, ShaderCompiler};
+use crate::shader_util::{load_from_glsl, load_from_spv, ShaderCompiler};
 use crate::vkn::context::VulkanContext;
 use crate::vkn::swapchain::Swapchain;
 
@@ -93,7 +93,7 @@ impl EguiRenderer {
     pub fn new(
         vulkan_context: &Arc<VulkanContext>,
         window: &Window,
-        _shader_compiler: &ShaderCompiler,
+        compiler: &ShaderCompiler,
         render_pass: vk::RenderPass,
         desc: EguiRendererDesc,
     ) -> Self {
@@ -115,11 +115,18 @@ impl EguiRenderer {
 
         let device = &vulkan_context.device;
 
-        let vertex_shader_loaded =
-            load_from_spv("src/egui_renderer/shaders/shader.vert", device.clone()).unwrap();
-
-        let fragment_shader_loaded =
-            load_from_spv("src/egui_renderer/shaders/shader.frag", device.clone()).unwrap();
+        let vertex_shader_loaded = load_from_glsl(
+            "src/egui_renderer/shaders/shader.vert",
+            device.clone(),
+            &compiler,
+        )
+        .unwrap();
+        let fragment_shader_loaded = load_from_glsl(
+            "src/egui_renderer/shaders/shader.frag",
+            device.clone(),
+            &compiler,
+        )
+        .unwrap();
 
         let descriptor_set_layout = create_descriptor_set_layout(device);
         let pipeline_layout = create_pipeline_layout(device, descriptor_set_layout);

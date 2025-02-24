@@ -1,6 +1,4 @@
-use shaderc;
 use std::env;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 #[macro_export]
@@ -11,7 +9,50 @@ macro_rules! log {
     }};
 }
 
+fn dump_env() {
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not set");
+    let target_dir = env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| {
+        let default = Path::new(&manifest_dir).join("target");
+        default.to_str().unwrap().to_owned()
+    });
+    println!("cargo:rustc-env=PROJECT_ROOT={}/", manifest_dir);
+    println!("cargo:rustc-env=TARGET_DIR={}/", target_dir);
+}
+
 fn main() {
+    dump_env();
+
+    // this is disabled for now
+    // pre_compile_shaders();
+}
+
+#[allow(dead_code)]
+fn pre_compile_shaders() {
+    use shaderc;
+    use std::fs;
+
+    /// Recursively visits all files in `dir` that match one of the given `extensions`.
+    fn visit_shader_files<F: FnMut(&Path)>(dir: &Path, extensions: &[&str], callback: &mut F) {
+        if !dir.exists() {
+            panic!("Shader directory not found: {}", dir.display());
+        }
+
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+
+            if path.is_dir() {
+                visit_shader_files(&path, extensions, callback);
+            } else if let Some(ext) = path.extension().and_then(|x| x.to_str()) {
+                if extensions
+                    .iter()
+                    .any(|e| ext.eq_ignore_ascii_case(e.trim_start_matches('.')))
+                {
+                    callback(&path);
+                }
+            }
+        }
+    }
+
     let out_dir = env::var("OUT_DIR").expect("Failed to read OUT_DIR.");
     let shader_root_out_dir = PathBuf::from(&out_dir).join("shaders_root");
     if shader_root_out_dir.exists() {
@@ -78,26 +119,4 @@ fn main() {
 
         log!("Compiled: {} -> {}", path.display(), out_path.display());
     });
-}
-
-/// Recursively visits all files in `dir` that match one of the given `extensions`.
-fn visit_shader_files<F: FnMut(&Path)>(dir: &Path, extensions: &[&str], callback: &mut F) {
-    if !dir.exists() {
-        panic!("Shader directory not found: {}", dir.display());
-    }
-
-    for entry in fs::read_dir(dir).unwrap() {
-        let path = entry.unwrap().path();
-
-        if path.is_dir() {
-            visit_shader_files(&path, extensions, callback);
-        } else if let Some(ext) = path.extension().and_then(|x| x.to_str()) {
-            if extensions
-                .iter()
-                .any(|e| ext.eq_ignore_ascii_case(e.trim_start_matches('.')))
-            {
-                callback(&path);
-            }
-        }
-    }
 }
