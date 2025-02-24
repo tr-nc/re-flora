@@ -3,8 +3,10 @@
 Language: Cpp
 BasedOnStyle: LLVM
 AlignConsecutiveAssignments: Consecutive
+IndentWidth: 4
 ColumnLimit: 100
 AllowShortIfStatementsOnASingleLine: true
 AllowShortLoopsOnASingleLine: true
 InsertNewlineAtEOF: true
 ---
+

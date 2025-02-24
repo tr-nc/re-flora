@@ -1,4 +1,4 @@
-use super::frames::Frames;
+use super::mesh::Mesh;
 use super::{allocator::Allocator, texture::Texture};
 use ash::vk::Extent2D;
 use ash::{vk, Device};
@@ -13,7 +13,7 @@ use std::{collections::HashMap, ffi::CString, mem};
 use winit::event::WindowEvent;
 use winit::window::Window;
 
-use crate::shader_util::{load_from_glsl, load_from_spv, ShaderCompiler};
+use crate::shader_util::{load_from_glsl, ShaderCompiler};
 use crate::vkn::context::VulkanContext;
 use crate::vkn::swapchain::Swapchain;
 
@@ -24,9 +24,6 @@ const MAX_TEXTURE_COUNT: u32 = 1024;
 /// Optional parameters of the renderer.
 #[derive(Debug, Clone, Copy)]
 pub struct EguiRendererDesc {
-    /// The number of in flight frames of the application.
-    pub in_flight_frames: usize,
-
     /// If true enables depth test when rendering.
     pub enable_depth_test: bool,
 
@@ -45,7 +42,6 @@ pub struct EguiRendererDesc {
 impl Default for EguiRendererDesc {
     fn default() -> Self {
         Self {
-            in_flight_frames: 1,
             enable_depth_test: false,
             enable_depth_write: false,
             srgb_framebuffer: false,
@@ -55,9 +51,6 @@ impl Default for EguiRendererDesc {
 
 impl EguiRendererDesc {
     fn validate(&self) -> Result<(), String> {
-        if self.in_flight_frames <= 0 {
-            return Err("in_flight_frames should be at least one".to_string());
-        }
         Ok(())
     }
 }
@@ -72,7 +65,7 @@ pub struct EguiRenderer {
     descriptor_pool: vk::DescriptorPool,
     managed_textures: HashMap<TextureId, Texture>,
     textures: HashMap<TextureId, vk::DescriptorSet>,
-    frames: Option<Frames>,
+    frames: Option<Mesh>,
 
     textures_to_free: Option<Vec<TextureId>>,
 
@@ -84,6 +77,10 @@ pub struct EguiRenderer {
     egui_winit_state: egui_winit::State,
 
     desc: EguiRendererDesc,
+
+    // late init
+    pixels_per_point: Option<f32>,
+    clipped_primitives: Option<Vec<ClippedPrimitive>>,
 }
 
 impl EguiRenderer {
@@ -173,6 +170,9 @@ impl EguiRenderer {
 
             egui_context,
             egui_winit_state,
+
+            pixels_per_point: None,
+            clipped_primitives: None,
         }
     }
 
@@ -317,15 +317,13 @@ impl EguiRenderer {
     }
 
     /// Record commands to render the [`egui::Ui`].
-    ///
-    /// # Arguments
-    ///
-    /// * `command_buffer` - The Vulkan command buffer that command will be recorded to.
-    /// * `extent` - The extent of the surface to render to.
-    /// * `pixel_per_point` - The number of physical pixels per point. See [`egui::FullOutput::pixels_per_point`].
-    /// * `primitives` - The primitives to render. See [`egui::Context::tessellate`].
     fn cmd_draw(
-        &mut self,
+        device: &Device,
+        frames: &mut Option<Mesh>,
+        pipeline: vk::Pipeline,
+        pipeline_layout: vk::PipelineLayout,
+        textures: &mut HashMap<TextureId, vk::DescriptorSet>,
+        allocator: &mut Allocator,
         command_buffer: vk::CommandBuffer,
         extent: vk::Extent2D,
         pixels_per_point: f32,
@@ -335,26 +333,18 @@ impl EguiRenderer {
             return;
         }
 
-        let device = &self.vulkan_context.device;
-
-        if self.frames.is_none() {
-            self.frames.replace(Frames::new(
-                device,
-                &mut self.allocator,
-                primitives,
-                self.desc.in_flight_frames,
-            ));
+        if frames.is_none() {
+            println!("Creating new frames");
+            frames.replace(Mesh::new(device, allocator, primitives));
         }
 
-        let mesh = self.frames.as_mut().unwrap().next();
-        mesh.update(device, &mut self.allocator, primitives);
+        frames
+            .as_mut()
+            .unwrap()
+            .update(device, allocator, primitives);
 
         unsafe {
-            device.cmd_bind_pipeline(
-                command_buffer,
-                vk::PipelineBindPoint::GRAPHICS,
-                self.pipeline,
-            )
+            device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline)
         };
 
         let screen_width = extent.width as f32;
@@ -386,7 +376,7 @@ impl EguiRenderer {
             let push = any_as_u8_slice(&projection);
             device.cmd_push_constants(
                 command_buffer,
-                self.pipeline_layout,
+                pipeline_layout,
                 vk::ShaderStageFlags::VERTEX,
                 0,
                 push,
@@ -394,10 +384,22 @@ impl EguiRenderer {
         };
 
         unsafe {
-            device.cmd_bind_index_buffer(command_buffer, mesh.indices, 0, vk::IndexType::UINT32)
+            device.cmd_bind_index_buffer(
+                command_buffer,
+                frames.as_mut().unwrap().indices,
+                0,
+                vk::IndexType::UINT32,
+            )
         };
 
-        unsafe { device.cmd_bind_vertex_buffers(command_buffer, 0, &[mesh.vertices], &[0]) };
+        unsafe {
+            device.cmd_bind_vertex_buffers(
+                command_buffer,
+                0,
+                &[frames.as_mut().unwrap().vertices],
+                &[0],
+            )
+        };
 
         let mut index_offset = 0u32;
         let mut vertex_offset = 0i32;
@@ -428,13 +430,13 @@ impl EguiRenderer {
                     }
 
                     if Some(m.texture_id) != current_texture_id {
-                        let descriptor_set = *self.textures.get(&m.texture_id).unwrap();
+                        let descriptor_set = *textures.get(&m.texture_id).unwrap();
 
                         unsafe {
                             device.cmd_bind_descriptor_sets(
                                 command_buffer,
                                 vk::PipelineBindPoint::GRAPHICS,
-                                self.pipeline_layout,
+                                pipeline_layout,
                                 0,
                                 &[descriptor_set],
                                 &[],
@@ -465,11 +467,7 @@ impl EguiRenderer {
         }
     }
 
-    pub fn update(
-        &mut self,
-        window: &Window,
-        run_ui: impl FnMut(&egui::Context),
-    ) -> (f32, Vec<ClippedPrimitive>) {
+    pub fn update(&mut self, window: &Window, run_ui: impl FnMut(&egui::Context)) {
         let raw_input = self.egui_winit_state.take_egui_input(window);
 
         // free last frames textures after the previous frame is done rendering
@@ -502,7 +500,8 @@ impl EguiRenderer {
 
         let clipped_primitives = self.egui_context.tessellate(shapes, pixels_per_point);
 
-        (pixels_per_point, clipped_primitives)
+        self.pixels_per_point = Some(pixels_per_point);
+        self.clipped_primitives = Some(clipped_primitives);
     }
 
     pub fn record_command_buffer(
@@ -513,8 +512,6 @@ impl EguiRenderer {
         command_buffer: vk::CommandBuffer,
         image_index: u32,
         render_area: Extent2D,
-        pixels_per_point: f32,
-        clipped_primitives: &[ClippedPrimitive],
     ) {
         unsafe {
             device
@@ -533,11 +530,17 @@ impl EguiRenderer {
 
         swapchain.record_begin_render_pass_cmdbuf(command_buffer, image_index, &render_area);
 
-        self.cmd_draw(
+        Self::cmd_draw(
+            device,
+            &mut self.frames,
+            self.pipeline,
+            self.pipeline_layout,
+            &mut self.textures,
+            &mut self.allocator,
             command_buffer,
             render_area,
-            pixels_per_point,
-            clipped_primitives,
+            self.pixels_per_point.unwrap(),
+            &self.clipped_primitives.as_ref().unwrap(),
         );
 
         unsafe { device.cmd_end_render_pass(command_buffer) };

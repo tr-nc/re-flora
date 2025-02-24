@@ -224,32 +224,29 @@ impl InitializedApp {
 
                 self.vulkan_context.wait_for_fences(&[self.fence]).unwrap();
 
-                let (pixels_per_point, clipped_primitives) =
-                    self.renderer.update(&self.window_state.window(), |ctx| {
-                        let my_frame = egui::containers::Frame {
-                            fill: Color32::from_rgba_premultiplied(50, 0, 10, 128),
-                            ..Default::default()
-                        };
+                self.renderer.update(&self.window_state.window(), |ctx| {
+                    let my_frame = egui::containers::Frame {
+                        fill: Color32::from_rgba_premultiplied(50, 0, 10, 128),
+                        ..Default::default()
+                    };
 
-                        egui::SidePanel::left("left_panel")
-                            .frame(my_frame)
-                            .resizable(true)
-                            .default_width(300.0)
-                            .show(&ctx, |ui| {
-                                ui.vertical_centered(|ui| {
-                                    ui.heading("Re: Flora");
-                                });
-                                egui::ScrollArea::vertical().show(ui, |ui| {
-                                    ui.label(RichText::new(format!(
-                                        "fps: {:.2}",
-                                        self.time_info.display_fps()
-                                    )));
-                                    ui.add(
-                                        Slider::new(&mut self.slider_val, 0.0..=1.0).text("Slider"),
-                                    );
-                                });
+                    egui::SidePanel::left("left_panel")
+                        .frame(my_frame)
+                        .resizable(true)
+                        .default_width(300.0)
+                        .show(&ctx, |ui| {
+                            ui.vertical_centered(|ui| {
+                                ui.heading("Re: Flora");
                             });
-                    });
+                            egui::ScrollArea::vertical().show(ui, |ui| {
+                                ui.label(RichText::new(format!(
+                                    "fps: {:.2}",
+                                    self.time_info.display_fps()
+                                )));
+                                ui.add(Slider::new(&mut self.slider_val, 0.0..=1.0).text("Slider"));
+                            });
+                        });
+                });
 
                 let next_image_result = self
                     .swapchain
@@ -287,8 +284,6 @@ impl InitializedApp {
                     self.cmdbuf,
                     image_index,
                     render_area,
-                    pixels_per_point,
-                    &clipped_primitives,
                 );
 
                 let command_buffers = [self.cmdbuf];

@@ -36,7 +36,7 @@ impl ShaderCompiler {
             compile_options,
         })
     }
-
+    
     pub fn compile_to_bytecode(
         &self,
         code: &str,
