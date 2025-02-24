@@ -8,6 +8,14 @@ pub struct Surface {
     pub surface_khr: vk::SurfaceKHR,
 }
 
+impl Drop for Surface {
+    fn drop(&mut self) {
+        unsafe {
+            self.surface.destroy_surface(self.surface_khr, None);
+        }
+    }
+}
+
 impl Surface {
     pub fn new(entry: &ash::Entry, instance: &Instance, window: &winit::window::Window) -> Self {
         let (surface_khr, surface) = create_surface(entry, instance.as_raw(), window);
