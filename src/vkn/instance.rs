@@ -1,7 +1,7 @@
 use ash::{
     ext::debug_utils,
     vk::{self},
-    Entry, Instance,
+    Entry,
 };
 use std::{
     ffi::{CStr, CString},
@@ -9,11 +9,47 @@ use std::{
 };
 use winit::{raw_window_handle::HasDisplayHandle, window::Window};
 
+pub struct Instance {
+    instance: ash::Instance,
+    debug_utils: debug_utils::Instance,
+    debug_utils_messenger: vk::DebugUtilsMessengerEXT,
+}
+
+impl Drop for Instance {
+    fn drop(&mut self) {
+        unsafe {
+            self.debug_utils
+                .destroy_debug_utils_messenger(self.debug_utils_messenger, None);
+            self.instance.destroy_instance(None);
+        }
+    }
+}
+
+impl Instance {
+    pub fn new(entry: &Entry, window: &Window, title: &str) -> Self {
+        let (instance, debug_utils, debug_utils_messenger) =
+            create_vulkan_instance(entry, window, title);
+        Self {
+            instance,
+            debug_utils,
+            debug_utils_messenger,
+        }
+    }
+
+    pub fn as_raw(&self) -> &ash::Instance {
+        &self.instance
+    }
+}
+
 pub fn create_vulkan_instance(
     entry: &Entry,
     window: &Window,
     title: &str,
-) -> (Instance, debug_utils::Instance, vk::DebugUtilsMessengerEXT) {
+) -> (
+    ash::Instance,
+    debug_utils::Instance,
+    vk::DebugUtilsMessengerEXT,
+) {
     let app_name = CString::new(title).unwrap();
     let app_info = vk::ApplicationInfo::default()
         .application_name(app_name.as_c_str())

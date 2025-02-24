@@ -1,67 +1,40 @@
-use ash::{ext::debug_utils, khr::surface, prelude::VkResult, vk, Device, Entry, Instance};
+use ash::{prelude::VkResult, vk, Entry};
+// use ash::{ext::debug_utils, khr::surface, prelude::VkResult, vk, Device, Entry};
 use winit::window::Window;
 
-use super::context_builder;
+use super::{
+    device::Device, instance::Instance, physical_device::PhysicalDevice, queue::QueueFamilyIndices,
+    surface::Surface,
+};
 
 pub struct VulkanContextDesc {
     pub name: String,
 }
 
-pub struct QueueFamilyIndices {
-    /// Guaranteed to support GRAPHICS + PRESENT + COMPUTE + TRANSFER,
-    /// and should be used for all main tasks
-    pub general: u32,
-    /// Exclusive to transfer operations, may be slower, but enables
-    /// potential parallelism for background transfer operations
-    pub transfer_only: u32,
-}
-
-impl QueueFamilyIndices {
-    pub fn get_all_indices(&self) -> Vec<u32> {
-        vec![self.general, self.transfer_only]
-    }
-}
-
 pub struct VulkanContext {
-    pub instance: Instance,
-    pub physical_device: vk::PhysicalDevice,
     pub device: Device,
-    pub surface: surface::Instance,
-    pub surface_khr: vk::SurfaceKHR,
+    pub surface: Surface,
+    pub instance: Instance,
+
+    pub physical_device: PhysicalDevice,
     pub queue_family_indices: QueueFamilyIndices,
-    debug_utils: debug_utils::Instance,
-    debug_utils_messenger: vk::DebugUtilsMessengerEXT,
 }
 
 impl VulkanContext {
     pub fn new(window: &Window, desc: VulkanContextDesc) -> Self {
         let entry = Entry::linked();
 
-        let (instance, debug_utils, debug_utils_messenger) =
-            context_builder::instance::create_vulkan_instance(&entry, window, &desc.name);
+        let instance = Instance::new(&entry, window, &desc.name);
 
-        let (surface_khr, surface) =
-            context_builder::surface::create_surface(&entry, &instance, window);
+        let surface = Surface::new(&entry, &instance, window);
 
-        let (physical_device, queue_family_indices) =
-            context_builder::physical_device::create_physical_device(
-                &instance,
-                &surface,
-                surface_khr,
-            );
+        let (physical_device, queue_family_indices) = PhysicalDevice::new(&instance, &surface);
 
-        let device = context_builder::device::create_device(
-            &instance,
-            physical_device,
-            &queue_family_indices,
-        );
+        let device = Device::new(&instance, &physical_device, &queue_family_indices);
 
         Self {
             instance,
-            debug_utils,
-            debug_utils_messenger,
             surface,
-            surface_khr,
             physical_device,
             queue_family_indices,
             device,
@@ -71,13 +44,17 @@ impl VulkanContext {
     /// Wait for the device to become idle
     #[allow(dead_code)]
     pub fn wait_device_idle(&self) -> VkResult<()> {
-        unsafe { self.device.device_wait_idle() }
+        unsafe { self.device.as_raw().device_wait_idle() }
     }
 
     /// Wait for all fences without a timeout
     #[allow(dead_code)]
     pub fn wait_for_fences(&self, fences: &[vk::Fence]) -> VkResult<()> {
-        unsafe { self.device.wait_for_fences(fences, true, std::u64::MAX) }
+        unsafe {
+            self.device
+                .as_raw()
+                .wait_for_fences(fences, true, std::u64::MAX)
+        }
     }
 
     /// Obtains the general queue from the device
@@ -85,6 +62,7 @@ impl VulkanContext {
     pub fn get_general_queue(&self) -> vk::Queue {
         unsafe {
             self.device
+                .as_raw()
                 .get_device_queue(self.queue_family_indices.general, 0)
         }
     }
@@ -94,6 +72,7 @@ impl VulkanContext {
     pub fn get_transfer_only_queue(&self) -> vk::Queue {
         unsafe {
             self.device
+                .as_raw()
                 .get_device_queue(self.queue_family_indices.transfer_only, 0)
         }
     }
@@ -102,13 +81,5 @@ impl VulkanContext {
 impl Drop for VulkanContext {
     fn drop(&mut self) {
         log::info!("Destroying Vulkan Context");
-        unsafe {
-            self.device.device_wait_idle().unwrap();
-            self.device.destroy_device(None);
-            self.surface.destroy_surface(self.surface_khr, None);
-            self.debug_utils
-                .destroy_debug_utils_messenger(self.debug_utils_messenger, None);
-            self.instance.destroy_instance(None);
-        }
     }
 }

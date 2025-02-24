@@ -98,9 +98,9 @@ impl EguiRenderer {
 
         let gpu_allocator = {
             let allocator_create_info = AllocatorCreateDesc {
-                instance: vulkan_context.instance.clone(),
-                device: vulkan_context.device.clone(),
-                physical_device: vulkan_context.physical_device,
+                instance: vulkan_context.instance.as_raw().clone(),
+                device: vulkan_context.device.as_raw().clone(),
+                physical_device: vulkan_context.physical_device.as_raw(),
                 debug_settings: Default::default(),
                 buffer_device_address: false,
                 allocation_sizes: Default::default(),
@@ -114,21 +114,21 @@ impl EguiRenderer {
 
         let vertex_shader_loaded = load_from_glsl(
             "src/egui_renderer/shaders/shader.vert",
-            device.clone(),
+            device.as_raw().clone(),
             &compiler,
         )
         .unwrap();
         let fragment_shader_loaded = load_from_glsl(
             "src/egui_renderer/shaders/shader.frag",
-            device.clone(),
+            device.as_raw().clone(),
             &compiler,
         )
         .unwrap();
 
-        let descriptor_set_layout = create_descriptor_set_layout(device);
-        let pipeline_layout = create_pipeline_layout(device, descriptor_set_layout);
+        let descriptor_set_layout = create_descriptor_set_layout(device.as_raw());
+        let pipeline_layout = create_pipeline_layout(device.as_raw(), descriptor_set_layout);
         let pipeline = create_pipeline(
-            device,
+            device.as_raw(),
             vertex_shader_loaded.shader_module,
             fragment_shader_loaded.shader_module,
             pipeline_layout,
@@ -137,7 +137,7 @@ impl EguiRenderer {
         );
 
         // Descriptor pool
-        let descriptor_pool = create_descriptor_pool(device, MAX_TEXTURE_COUNT);
+        let descriptor_pool = create_descriptor_pool(device.as_raw(), MAX_TEXTURE_COUNT);
 
         // Textures
         let managed_textures = HashMap::new();
@@ -187,10 +187,11 @@ impl EguiRenderer {
         unsafe {
             self.vulkan_context
                 .device
+                .as_raw()
                 .destroy_pipeline(self.pipeline, None)
         };
         self.pipeline = create_pipeline(
-            &self.vulkan_context.device,
+            &self.vulkan_context.device.as_raw(),
             self.vert_module,
             self.frag_module,
             self.pipeline_layout,
@@ -234,7 +235,7 @@ impl EguiRenderer {
                 }
             };
 
-            let device = &self.vulkan_context.device;
+            let device = &self.vulkan_context.device.as_raw();
 
             if let Some([offset_x, offset_y]) = delta.pos {
                 let texture = self.managed_textures.get_mut(id).unwrap();
@@ -300,8 +301,7 @@ impl EguiRenderer {
     /// * [`RendererError`] - If any Vulkan error is encountered when free the texture.
     fn free_textures(&mut self, ids: &[TextureId]) {
         log::trace!("Freeing {} textures", ids.len());
-        let device = &self.vulkan_context.device;
-
+        let device = &self.vulkan_context.device.as_raw();
         for id in ids {
             if let Some(texture) = self.managed_textures.remove(id) {
                 texture.destroy(device, &mut self.allocator);
@@ -555,7 +555,7 @@ impl EguiRenderer {
 
 impl Drop for EguiRenderer {
     fn drop(&mut self) {
-        let device = &self.vulkan_context.device;
+        let device = &self.vulkan_context.device.as_raw();
         unsafe {
             if let Some(frames) = self.frames.take() {
                 frames.destroy(device, &mut self.allocator);

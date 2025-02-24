@@ -1,8 +1,13 @@
 pub mod context;
-pub mod context_builder;
 pub mod swapchain;
 
 mod command_buffer;
+mod device;
+mod surface;
+mod instance;
+mod physical_device;
+mod queue;
+
 pub use command_buffer::CommandBuffer;
 
 mod command_pool;

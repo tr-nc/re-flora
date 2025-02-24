@@ -55,15 +55,15 @@ impl InitializedApp {
         );
 
         let (image_available_semaphore, render_finished_semaphore) =
-            Self::create_semaphores(&vulkan_context.device);
+            Self::create_semaphores(&vulkan_context.device.as_raw());
 
-        let fence = Self::create_fence(&vulkan_context.device);
+        let fence = Self::create_fence(&vulkan_context.device.as_raw());
 
         let command_pool = CommandPool::new(
-            &vulkan_context.device,
+            &vulkan_context.device.as_raw(),
             vulkan_context.queue_family_indices.general,
         );
-        let command_buffer = CommandBuffer::new(&vulkan_context.device, &command_pool);
+        let command_buffer = CommandBuffer::new(&vulkan_context.device.as_raw(), &command_pool);
 
         let renderer = EguiRenderer::new(
             &vulkan_context,
@@ -140,12 +140,17 @@ impl InitializedApp {
 
         event_loop.exit();
         unsafe {
-            self.vulkan_context.device.destroy_fence(self.fence, None);
             self.vulkan_context
                 .device
+                .as_raw()
+                .destroy_fence(self.fence, None);
+            self.vulkan_context
+                .device
+                .as_raw()
                 .destroy_semaphore(self.image_available_semaphore, None);
             self.vulkan_context
                 .device
+                .as_raw()
                 .destroy_semaphore(self.render_finished_semaphore, None);
         }
     }
@@ -266,6 +271,7 @@ impl InitializedApp {
                 unsafe {
                     self.vulkan_context
                         .device
+                        .as_raw()
                         .reset_fences(&[self.fence])
                         .expect("Failed to reset fences")
                 };
@@ -280,7 +286,7 @@ impl InitializedApp {
                 };
 
                 self.renderer.record_command_buffer(
-                    &self.vulkan_context.device,
+                    &self.vulkan_context.device.as_raw(),
                     &self.swapchain,
                     self.command_pool.as_raw(),
                     self.command_buffer.as_raw(),
@@ -298,6 +304,7 @@ impl InitializedApp {
                 unsafe {
                     self.vulkan_context
                         .device
+                        .as_raw()
                         .queue_submit(
                             self.vulkan_context.get_general_queue(),
                             &submit_info,
