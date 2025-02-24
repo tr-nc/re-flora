@@ -26,12 +26,11 @@ pub struct VulkanContext {
     pub instance: Instance,
     pub physical_device: vk::PhysicalDevice,
     pub device: Device,
-    pub command_pool: vk::CommandPool,
     pub surface: surface::Instance,
     pub surface_khr: vk::SurfaceKHR,
+    pub queue_family_indices: QueueFamilyIndices,
     debug_utils: debug_utils::Instance,
     debug_utils_messenger: vk::DebugUtilsMessengerEXT,
-    queue_family_indices: QueueFamilyIndices,
 }
 
 impl VulkanContext {
@@ -57,11 +56,6 @@ impl VulkanContext {
             &queue_family_indices,
         );
 
-        let command_pool = context_builder::command_pool::create_command_pool(
-            &device,
-            queue_family_indices.general,
-        );
-
         Self {
             instance,
             debug_utils,
@@ -71,7 +65,6 @@ impl VulkanContext {
             physical_device,
             queue_family_indices,
             device,
-            command_pool,
         }
     }
 
@@ -111,7 +104,6 @@ impl Drop for VulkanContext {
         log::info!("Destroying Vulkan Context");
         unsafe {
             self.device.device_wait_idle().unwrap();
-            self.device.destroy_command_pool(self.command_pool, None);
             self.device.destroy_device(None);
             self.surface.destroy_surface(self.surface_khr, None);
             self.debug_utils

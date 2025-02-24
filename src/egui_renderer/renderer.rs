@@ -467,7 +467,12 @@ impl EguiRenderer {
         }
     }
 
-    pub fn update(&mut self, window: &Window, run_ui: impl FnMut(&egui::Context)) {
+    pub fn update(
+        &mut self,
+        command_pool: vk::CommandPool,
+        window: &Window,
+        run_ui: impl FnMut(&egui::Context),
+    ) {
         let raw_input = self.egui_winit_state.take_egui_input(window);
 
         // free last frames textures after the previous frame is done rendering
@@ -493,7 +498,7 @@ impl EguiRenderer {
         if !textures_delta.set.is_empty() {
             self.set_textures(
                 self.vulkan_context.get_general_queue(),
-                self.vulkan_context.command_pool,
+                command_pool,
                 textures_delta.set.as_slice(),
             );
         }

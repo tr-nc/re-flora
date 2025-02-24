@@ -1,5 +1,6 @@
 use crate::shader_util::ShaderCompiler;
 use crate::util::time_info::TimeInfo;
+use crate::vkn::{CommandBuffer, CommandPool};
 use crate::{
     egui_renderer::EguiRenderer,
     egui_renderer::EguiRendererDesc,
@@ -23,13 +24,14 @@ use winit::{
 
 pub struct InitializedApp {
     vulkan_context: Arc<VulkanContext>,
-    _shader_compiler: ShaderCompiler,
 
     renderer: EguiRenderer,
 
+    command_pool: CommandPool,
+    command_buffer: CommandBuffer,
+
     window_state: WindowState,
     is_resize_pending: bool,
-    cmdbuf: vk::CommandBuffer,
     swapchain: Swapchain,
     image_available_semaphore: vk::Semaphore,
     render_finished_semaphore: vk::Semaphore,
@@ -57,10 +59,11 @@ impl InitializedApp {
 
         let fence = Self::create_fence(&vulkan_context.device);
 
-        // enable for image loading feature of egui
-        // egui_extras::install_image_loaders(&context);
-
-        let cmdbuf = Self::create_cmdbuf(&vulkan_context.device, vulkan_context.command_pool);
+        let command_pool = CommandPool::new(
+            &vulkan_context.device,
+            vulkan_context.queue_family_indices.general,
+        );
+        let command_buffer = CommandBuffer::new(&vulkan_context.device, &command_pool);
 
         let renderer = EguiRenderer::new(
             &vulkan_context,
@@ -75,10 +78,11 @@ impl InitializedApp {
 
         Self {
             vulkan_context,
-            _shader_compiler: shader_compiler,
             renderer,
             window_state,
-            cmdbuf,
+
+            command_pool,
+            command_buffer,
             swapchain,
             image_available_semaphore,
             render_finished_semaphore,
@@ -128,14 +132,6 @@ impl InitializedApp {
     fn create_fence(device: &Device) -> vk::Fence {
         let fence_info = vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED);
         unsafe { device.create_fence(&fence_info, None).unwrap() }
-    }
-
-    fn create_cmdbuf(device: &Device, command_pool: vk::CommandPool) -> vk::CommandBuffer {
-        let allocate_info = vk::CommandBufferAllocateInfo::default()
-            .command_pool(command_pool)
-            .level(vk::CommandBufferLevel::PRIMARY)
-            .command_buffer_count(1);
-        unsafe { device.allocate_command_buffers(&allocate_info).unwrap()[0] }
     }
 
     pub fn on_terminate(&mut self, event_loop: &ActiveEventLoop) {
@@ -224,29 +220,35 @@ impl InitializedApp {
 
                 self.vulkan_context.wait_for_fences(&[self.fence]).unwrap();
 
-                self.renderer.update(&self.window_state.window(), |ctx| {
-                    let my_frame = egui::containers::Frame {
-                        fill: Color32::from_rgba_premultiplied(50, 0, 10, 128),
-                        ..Default::default()
-                    };
+                self.renderer.update(
+                    self.command_pool.as_raw(),
+                    &self.window_state.window(),
+                    |ctx| {
+                        let my_frame = egui::containers::Frame {
+                            fill: Color32::from_rgba_premultiplied(50, 0, 10, 128),
+                            ..Default::default()
+                        };
 
-                    egui::SidePanel::left("left_panel")
-                        .frame(my_frame)
-                        .resizable(true)
-                        .default_width(300.0)
-                        .show(&ctx, |ui| {
-                            ui.vertical_centered(|ui| {
-                                ui.heading("Re: Flora");
+                        egui::SidePanel::left("left_panel")
+                            .frame(my_frame)
+                            .resizable(true)
+                            .default_width(300.0)
+                            .show(&ctx, |ui| {
+                                ui.vertical_centered(|ui| {
+                                    ui.heading("Re: Flora");
+                                });
+                                egui::ScrollArea::vertical().show(ui, |ui| {
+                                    ui.label(RichText::new(format!(
+                                        "fps: {:.2}",
+                                        self.time_info.display_fps()
+                                    )));
+                                    ui.add(
+                                        Slider::new(&mut self.slider_val, 0.0..=1.0).text("Slider"),
+                                    );
+                                });
                             });
-                            egui::ScrollArea::vertical().show(ui, |ui| {
-                                ui.label(RichText::new(format!(
-                                    "fps: {:.2}",
-                                    self.time_info.display_fps()
-                                )));
-                                ui.add(Slider::new(&mut self.slider_val, 0.0..=1.0).text("Slider"));
-                            });
-                        });
-                });
+                    },
+                );
 
                 let next_image_result = self
                     .swapchain
@@ -280,13 +282,13 @@ impl InitializedApp {
                 self.renderer.record_command_buffer(
                     &self.vulkan_context.device,
                     &self.swapchain,
-                    self.vulkan_context.command_pool,
-                    self.cmdbuf,
+                    self.command_pool.as_raw(),
+                    self.command_buffer.as_raw(),
                     image_index,
                     render_area,
                 );
 
-                let command_buffers = [self.cmdbuf];
+                let command_buffers = [self.command_buffer.as_raw()];
                 let submit_info = [vk::SubmitInfo::default()
                     .wait_semaphores(&wait_semaphores)
                     .wait_dst_stage_mask(&wait_stages)
