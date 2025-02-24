@@ -1,10 +1,26 @@
 use ash::{
-    khr::{surface, swapchain},
+    khr::swapchain,
     vk::{self},
 };
 use std::ffi::CStr;
 
-use crate::vkn::context::QueueFamilyIndices;
+use super::{instance::Instance, queue::QueueFamilyIndices, surface::Surface};
+
+pub struct PhysicalDevice {
+    pub device: vk::PhysicalDevice,
+}
+
+impl PhysicalDevice {
+    pub fn new(instance: &Instance, surface: &Surface) -> (Self, QueueFamilyIndices) {
+        let (device, queue_family_indices) =
+            create_physical_device(instance.as_raw(), &surface.surface, surface.surface_khr);
+        (Self { device }, queue_family_indices)
+    }
+
+    pub fn as_raw(&self) -> vk::PhysicalDevice {
+        self.device
+    }
+}
 
 // Example device info for scoring / printing
 #[derive(Debug)]
@@ -164,7 +180,7 @@ impl QueueFamilyIndexCandidates {
 
 fn gather_queue_family_candidates(
     instance: &ash::Instance,
-    surface_loader: &surface::Instance,
+    surface_loader: &ash::khr::surface::Instance,
     surface_khr: vk::SurfaceKHR,
     device: vk::PhysicalDevice,
 ) -> QueueFamilyIndexCandidates {
@@ -293,7 +309,7 @@ fn pick_best_queue_family_indices(
 ///
 pub fn create_physical_device(
     instance: &ash::Instance,
-    surface_loader: &surface::Instance,
+    surface_loader: &ash::khr::surface::Instance,
     surface_khr: vk::SurfaceKHR,
 ) -> (vk::PhysicalDevice, QueueFamilyIndices) {
     let devices = unsafe {

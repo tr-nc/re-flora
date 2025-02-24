@@ -706,6 +706,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "glam"
+version = "0.30.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17fcdf9683c406c2fc4d124afd29c0d595e22210d633cbdb8695ba9935ab1dc6"
+
+[[package]]
 name = "gpu-allocator"
 version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1560,10 +1566,12 @@ dependencies = [
  "egui",
  "egui-winit",
  "egui_demo_lib",
+ "glam",
  "gpu-allocator",
  "log",
  "shaderc",
  "simple_logger",
+ "spirv-reflect",
  "thiserror 2.0.11",
  "time",
  "winit",
@@ -1772,6 +1780,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd538fb6910ac1099850255cf94a94df6551fbdd602454387d0adb2d1ca6dead"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "spirv"
+version = "0.2.0+1.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "246bfa38fe3db3f1dfc8ca5a2cdeb7348c78be2112740cc0ec8ef18b6d94f830"
+dependencies = [
+ "bitflags 1.3.2",
+ "num-traits",
+]
+
+[[package]]
+name = "spirv-reflect"
+version = "0.2.3"
+source = "git+https://github.com/gwihlidal/spirv-reflect-rs.git?rev=97298067e3b1c9ce05633d78f1183c14a3cc6acc#97298067e3b1c9ce05633d78f1183c14a3cc6acc"
+dependencies = [
+ "bitflags 1.3.2",
+ "cc",
+ "num-traits",
+ "serde",
+ "serde_derive",
+ "spirv",
 ]
 
 [[package]]

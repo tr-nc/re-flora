@@ -1,17 +1,18 @@
+use crate::shader_util::ShaderCompiler;
 use crate::util::time_info::TimeInfo;
-use crate::vkn::ShaderCompiler;
+use crate::vkn::{CommandBuffer, CommandPool};
 use crate::{
-    renderer::Renderer,
-    renderer::RendererOptions,
+    egui_renderer::EguiRenderer,
+    egui_renderer::EguiRendererDesc,
     vkn::{
-        context::{ContextCreateInfo, VulkanContext},
+        context::{VulkanContext, VulkanContextDesc},
         swapchain::Swapchain,
     },
     window::{WindowMode, WindowState, WindowStateDesc},
 };
 use ash::vk::Extent2D;
 use ash::{vk, Device};
-use egui::{ClippedPrimitive, Color32, RichText, Slider};
+use egui::{Color32, RichText, Slider};
 use std::sync::Arc;
 use winit::event::DeviceEvent;
 use winit::{
@@ -23,13 +24,14 @@ use winit::{
 
 pub struct InitializedApp {
     vulkan_context: Arc<VulkanContext>,
-    _shader_compiler: ShaderCompiler,
 
-    renderer: Renderer,
+    renderer: EguiRenderer,
+
+    command_pool: CommandPool,
+    command_buffer: CommandBuffer,
 
     window_state: WindowState,
     is_resize_pending: bool,
-    cmdbuf: vk::CommandBuffer,
     swapchain: Swapchain,
     image_available_semaphore: vk::Semaphore,
     render_finished_semaphore: vk::Semaphore,
@@ -53,21 +55,22 @@ impl InitializedApp {
         );
 
         let (image_available_semaphore, render_finished_semaphore) =
-            Self::create_semaphores(&vulkan_context.device);
+            Self::create_semaphores(&vulkan_context.device.as_raw());
 
-        let fence = Self::create_fence(&vulkan_context.device);
+        let fence = Self::create_fence(&vulkan_context.device.as_raw());
 
-        // enable for image loading feature of egui
-        // egui_extras::install_image_loaders(&context);
+        let command_pool = CommandPool::new(
+            &vulkan_context.device.as_raw(),
+            vulkan_context.queue_family_indices.general,
+        );
+        let command_buffer = CommandBuffer::new(&vulkan_context.device.as_raw(), &command_pool);
 
-        let cmdbuf = Self::create_cmdbuf(&vulkan_context.device, vulkan_context.command_pool);
-
-        let renderer = Renderer::new(
+        let renderer = EguiRenderer::new(
             &vulkan_context,
             &window_state.window(),
             &shader_compiler,
             swapchain.get_render_pass(),
-            RendererOptions {
+            EguiRendererDesc {
                 srgb_framebuffer: true,
                 ..Default::default()
             },
@@ -75,10 +78,11 @@ impl InitializedApp {
 
         Self {
             vulkan_context,
-            _shader_compiler: shader_compiler,
             renderer,
             window_state,
-            cmdbuf,
+
+            command_pool,
+            command_buffer,
             swapchain,
             image_available_semaphore,
             render_finished_semaphore,
@@ -92,7 +96,7 @@ impl InitializedApp {
 
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {
         let window_descriptor = WindowStateDesc {
-            title: "Flora".to_owned(),
+            title: "Re: Flora".to_owned(),
             window_mode: WindowMode::Windowed,
             cursor_locked: true,
             cursor_visible: false,
@@ -104,8 +108,8 @@ impl InitializedApp {
     fn create_vulkan_context(window_state: &WindowState) -> VulkanContext {
         VulkanContext::new(
             &window_state.window(),
-            ContextCreateInfo {
-                name: "Flora".into(),
+            VulkanContextDesc {
+                name: "Re: Flora".into(),
             },
         )
     }
@@ -130,26 +134,23 @@ impl InitializedApp {
         unsafe { device.create_fence(&fence_info, None).unwrap() }
     }
 
-    fn create_cmdbuf(device: &Device, command_pool: vk::CommandPool) -> vk::CommandBuffer {
-        let allocate_info = vk::CommandBufferAllocateInfo::default()
-            .command_pool(command_pool)
-            .level(vk::CommandBufferLevel::PRIMARY)
-            .command_buffer_count(1);
-        unsafe { device.allocate_command_buffers(&allocate_info).unwrap()[0] }
-    }
-
     pub fn on_terminate(&mut self, event_loop: &ActiveEventLoop) {
         // ensure all command buffers are done executing before terminating anything
         self.vulkan_context.wait_device_idle().unwrap();
 
         event_loop.exit();
         unsafe {
-            self.vulkan_context.device.destroy_fence(self.fence, None);
             self.vulkan_context
                 .device
+                .as_raw()
+                .destroy_fence(self.fence, None);
+            self.vulkan_context
+                .device
+                .as_raw()
                 .destroy_semaphore(self.image_available_semaphore, None);
             self.vulkan_context
                 .device
+                .as_raw()
                 .destroy_semaphore(self.render_finished_semaphore, None);
         }
     }
@@ -168,7 +169,6 @@ impl InitializedApp {
                 .consumed;
 
             if consumed {
-                println!("Event consumed by egui");
                 return;
             }
         }
@@ -225,8 +225,10 @@ impl InitializedApp {
 
                 self.vulkan_context.wait_for_fences(&[self.fence]).unwrap();
 
-                let (pixels_per_point, clipped_primitives) =
-                    self.renderer.update(&self.window_state.window(), |ctx| {
+                self.renderer.update(
+                    self.command_pool.as_raw(),
+                    &self.window_state.window(),
+                    |ctx| {
                         let my_frame = egui::containers::Frame {
                             fill: Color32::from_rgba_premultiplied(50, 0, 10, 128),
                             ..Default::default()
@@ -250,7 +252,8 @@ impl InitializedApp {
                                     );
                                 });
                             });
-                    });
+                    },
+                );
 
                 let next_image_result = self
                     .swapchain
@@ -268,6 +271,7 @@ impl InitializedApp {
                 unsafe {
                     self.vulkan_context
                         .device
+                        .as_raw()
                         .reset_fences(&[self.fence])
                         .expect("Failed to reset fences")
                 };
@@ -281,27 +285,26 @@ impl InitializedApp {
                     height: self.window_state.window_size()[1],
                 };
 
-                record_command_buffers(
-                    &self.vulkan_context.device,
-                    self.vulkan_context.command_pool,
-                    self.cmdbuf,
+                self.renderer.record_command_buffer(
+                    &self.vulkan_context.device.as_raw(),
                     &self.swapchain,
+                    self.command_pool.as_raw(),
+                    self.command_buffer.as_raw(),
                     image_index,
                     render_area,
-                    pixels_per_point,
-                    &mut self.renderer,
-                    &clipped_primitives,
                 );
 
-                let command_buffers = [self.cmdbuf];
+                let command_buffers = [self.command_buffer.as_raw()];
                 let submit_info = [vk::SubmitInfo::default()
                     .wait_semaphores(&wait_semaphores)
                     .wait_dst_stage_mask(&wait_stages)
                     .command_buffers(&command_buffers)
                     .signal_semaphores(&signal_semaphores)];
+
                 unsafe {
                     self.vulkan_context
                         .device
+                        .as_raw()
                         .queue_submit(
                             self.vulkan_context.get_general_queue(),
                             &submit_info,
@@ -364,45 +367,4 @@ impl InitializedApp {
 
         self.is_resize_pending = false;
     }
-}
-
-fn record_command_buffers(
-    device: &Device,
-    command_pool: vk::CommandPool,
-    command_buffer: vk::CommandBuffer,
-    swapchain: &Swapchain,
-    image_index: u32,
-    render_area: Extent2D,
-    pixels_per_point: f32,
-    renderer: &mut Renderer,
-
-    clipped_primitives: &[ClippedPrimitive],
-) {
-    unsafe {
-        device
-            .reset_command_pool(command_pool, vk::CommandPoolResetFlags::empty())
-            .expect("Failed to reset command pool")
-    };
-
-    let command_buffer_begin_info =
-        vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::SIMULTANEOUS_USE);
-
-    unsafe {
-        device
-            .begin_command_buffer(command_buffer, &command_buffer_begin_info)
-            .expect("Failed to begin command buffer")
-    };
-
-    swapchain.record_begin_render_pass_cmdbuf(command_buffer, image_index, &render_area);
-
-    renderer.cmd_draw(
-        command_buffer,
-        render_area,
-        pixels_per_point,
-        clipped_primitives,
-    );
-
-    unsafe { device.cmd_end_render_pass(command_buffer) };
-
-    unsafe { device.end_command_buffer(command_buffer).unwrap() };
 }

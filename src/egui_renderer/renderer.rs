@@ -1,5 +1,6 @@
-use super::frames::Frames;
+use super::mesh::Mesh;
 use super::{allocator::Allocator, texture::Texture};
+use ash::vk::Extent2D;
 use ash::{vk, Device};
 use egui::ViewportId;
 use egui::{
@@ -12,8 +13,9 @@ use std::{collections::HashMap, ffi::CString, mem};
 use winit::event::WindowEvent;
 use winit::window::Window;
 
+use crate::shader_util::{load_from_glsl, ShaderCompiler};
 use crate::vkn::context::VulkanContext;
-use crate::vkn::ShaderCompiler;
+use crate::vkn::swapchain::Swapchain;
 
 use std::sync::{Arc, Mutex};
 
@@ -21,10 +23,7 @@ const MAX_TEXTURE_COUNT: u32 = 1024;
 
 /// Optional parameters of the renderer.
 #[derive(Debug, Clone, Copy)]
-pub struct RendererOptions {
-    /// The number of in flight frames of the application.
-    pub in_flight_frames: usize,
-
+pub struct EguiRendererDesc {
     /// If true enables depth test when rendering.
     pub enable_depth_test: bool,
 
@@ -40,10 +39,9 @@ pub struct RendererOptions {
     pub srgb_framebuffer: bool,
 }
 
-impl Default for RendererOptions {
+impl Default for EguiRendererDesc {
     fn default() -> Self {
         Self {
-            in_flight_frames: 1,
             enable_depth_test: false,
             enable_depth_write: false,
             srgb_framebuffer: false,
@@ -51,24 +49,14 @@ impl Default for RendererOptions {
     }
 }
 
-impl RendererOptions {
+impl EguiRendererDesc {
     fn validate(&self) -> Result<(), String> {
-        if self.in_flight_frames <= 0 {
-            return Err("in_flight_frames should be at least one".to_string());
-        }
         Ok(())
     }
 }
 
-/// Vulkan renderer for egui.
-///
-/// It records rendering command to the provided command buffer at each call to [`cmd_draw`].
-///
-/// The renderer holds a set of vertex/index buffers per in flight frames. Vertex and index buffers
-/// are resized at each call to [`cmd_draw`] if draw data does not fit.
-///
-/// [`cmd_draw`]: #method.cmd_draw
-pub struct Renderer {
+/// Winit-Egui Renderer implemented for Ash Vulkan.
+pub struct EguiRenderer {
     vulkan_context: Arc<VulkanContext>,
     allocator: Allocator,
     pipeline: vk::Pipeline,
@@ -77,9 +65,7 @@ pub struct Renderer {
     descriptor_pool: vk::DescriptorPool,
     managed_textures: HashMap<TextureId, Texture>,
     textures: HashMap<TextureId, vk::DescriptorSet>,
-    next_user_texture_id: u64,
-    options: RendererOptions,
-    frames: Option<Frames>,
+    frames: Option<Mesh>,
 
     textures_to_free: Option<Vec<TextureId>>,
 
@@ -89,26 +75,32 @@ pub struct Renderer {
 
     egui_context: egui::Context,
     egui_winit_state: egui_winit::State,
+
+    desc: EguiRendererDesc,
+
+    // late init
+    pixels_per_point: Option<f32>,
+    clipped_primitives: Option<Vec<ClippedPrimitive>>,
 }
 
-impl Renderer {
+impl EguiRenderer {
     /// Create a renderer using gpu-allocator.
     ///
     /// At initialization all Vulkan resources are initialized. Vertex and index buffers are not created yet.
     pub fn new(
         vulkan_context: &Arc<VulkanContext>,
         window: &Window,
-        shader_compiler: &ShaderCompiler,
+        compiler: &ShaderCompiler,
         render_pass: vk::RenderPass,
-        options: RendererOptions,
+        desc: EguiRendererDesc,
     ) -> Self {
-        options.validate().expect("Invalid options");
+        desc.validate().expect("Invalid options");
 
         let gpu_allocator = {
             let allocator_create_info = AllocatorCreateDesc {
-                instance: vulkan_context.instance.clone(),
-                device: vulkan_context.device.clone(),
-                physical_device: vulkan_context.physical_device,
+                instance: vulkan_context.instance.as_raw().clone(),
+                device: vulkan_context.device.as_raw().clone(),
+                physical_device: vulkan_context.physical_device.as_raw(),
                 debug_settings: Default::default(),
                 buffer_device_address: false,
                 allocation_sizes: Default::default(),
@@ -120,34 +112,32 @@ impl Renderer {
 
         let device = &vulkan_context.device;
 
-        let vert_module = shader_compiler
-            .compile_from_path(
-                device,
-                "src/renderer/shaders/shader.vert",
-                shaderc::ShaderKind::Vertex,
-            )
-            .unwrap();
-        let frag_module = shader_compiler
-            .compile_from_path(
-                device,
-                "src/renderer/shaders/shader.frag",
-                shaderc::ShaderKind::Fragment,
-            )
-            .unwrap();
+        let vertex_shader_loaded = load_from_glsl(
+            "src/egui_renderer/shaders/shader.vert",
+            device.as_raw().clone(),
+            &compiler,
+        )
+        .unwrap();
+        let fragment_shader_loaded = load_from_glsl(
+            "src/egui_renderer/shaders/shader.frag",
+            device.as_raw().clone(),
+            &compiler,
+        )
+        .unwrap();
 
-        let descriptor_set_layout = create_descriptor_set_layout(device);
-        let pipeline_layout = create_pipeline_layout(device, descriptor_set_layout);
+        let descriptor_set_layout = create_descriptor_set_layout(device.as_raw());
+        let pipeline_layout = create_pipeline_layout(device.as_raw(), descriptor_set_layout);
         let pipeline = create_pipeline(
-            device,
-            vert_module,
-            frag_module,
+            device.as_raw(),
+            vertex_shader_loaded.shader_module,
+            fragment_shader_loaded.shader_module,
             pipeline_layout,
             render_pass,
-            options,
+            desc,
         );
 
         // Descriptor pool
-        let descriptor_pool = create_descriptor_pool(device, MAX_TEXTURE_COUNT);
+        let descriptor_pool = create_descriptor_pool(device.as_raw(), MAX_TEXTURE_COUNT);
 
         // Textures
         let managed_textures = HashMap::new();
@@ -171,16 +161,18 @@ impl Renderer {
             descriptor_set_layout,
             descriptor_pool,
             managed_textures,
-            next_user_texture_id: 0,
             textures,
-            options,
+            desc,
             frames: None,
             textures_to_free: None,
-            vert_module,
-            frag_module,
+            vert_module: vertex_shader_loaded.shader_module,
+            frag_module: fragment_shader_loaded.shader_module,
 
             egui_context,
             egui_winit_state,
+
+            pixels_per_point: None,
+            clipped_primitives: None,
         }
     }
 
@@ -195,15 +187,16 @@ impl Renderer {
         unsafe {
             self.vulkan_context
                 .device
+                .as_raw()
                 .destroy_pipeline(self.pipeline, None)
         };
         self.pipeline = create_pipeline(
-            &self.vulkan_context.device,
+            &self.vulkan_context.device.as_raw(),
             self.vert_module,
             self.frag_module,
             self.pipeline_layout,
             render_pass,
-            self.options,
+            self.desc,
         );
     }
 
@@ -242,7 +235,7 @@ impl Renderer {
                 }
             };
 
-            let device = &self.vulkan_context.device;
+            let device = &self.vulkan_context.device.as_raw();
 
             if let Some([offset_x, offset_y]) = delta.pos {
                 let texture = self.managed_textures.get_mut(id).unwrap();
@@ -308,8 +301,7 @@ impl Renderer {
     /// * [`RendererError`] - If any Vulkan error is encountered when free the texture.
     fn free_textures(&mut self, ids: &[TextureId]) {
         log::trace!("Freeing {} textures", ids.len());
-        let device = &self.vulkan_context.device;
-
+        let device = &self.vulkan_context.device.as_raw();
         for id in ids {
             if let Some(texture) = self.managed_textures.remove(id) {
                 texture.destroy(device, &mut self.allocator);
@@ -324,52 +316,14 @@ impl Renderer {
         }
     }
 
-    /// Add a user managed texture used by egui.
-    ///
-    /// The descriptors set passed in this method are managed by the used and *will not* be freed by the renderer.
-    /// This method will return a [`egui::TextureId`] which can then be used in a [`egui::Image`].
-    ///
-    /// # Arguments
-    ///
-    /// * `set` - The descpritor set referencing the texture to display.
-    ///
-    /// # Caveat
-    ///
-    /// Provided `vk::DescriptorSet`s must be created with a descriptor set layout that is compatible with the one used by the renderer.
-    /// See [Pipeline Layout Compatibility](https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#descriptorsets-compatibility).
-    pub fn add_user_texture(&mut self, set: vk::DescriptorSet) -> TextureId {
-        let id = TextureId::User(self.next_user_texture_id);
-        self.next_user_texture_id += 1;
-        self.textures.insert(id, set);
-
-        id
-    }
-
-    /// Remove a user managed texture.
-    ///
-    /// This *does not* free the resources, it just _forgets_ about the texture.
-    ///
-    /// # Arguments
-    ///
-    /// * `id` - The id of the texture to remove.
-    pub fn remove_user_texture(&mut self, id: TextureId) {
-        self.textures.remove(&id);
-    }
-
     /// Record commands to render the [`egui::Ui`].
-    ///
-    /// # Arguments
-    ///
-    /// * `command_buffer` - The Vulkan command buffer that command will be recorded to.
-    /// * `extent` - The extent of the surface to render to.
-    /// * `pixel_per_point` - The number of physical pixels per point. See [`egui::FullOutput::pixels_per_point`].
-    /// * `primitives` - The primitives to render. See [`egui::Context::tessellate`].
-    ///
-    /// # Errors
-    ///
-    /// * [`RendererError`] - If any Vulkan error is encountered when recording.
-    pub fn cmd_draw(
-        &mut self,
+    fn cmd_draw(
+        device: &Device,
+        frames: &mut Option<Mesh>,
+        pipeline: vk::Pipeline,
+        pipeline_layout: vk::PipelineLayout,
+        textures: &mut HashMap<TextureId, vk::DescriptorSet>,
+        allocator: &mut Allocator,
         command_buffer: vk::CommandBuffer,
         extent: vk::Extent2D,
         pixels_per_point: f32,
@@ -379,26 +333,18 @@ impl Renderer {
             return;
         }
 
-        let device = &self.vulkan_context.device;
-
-        if self.frames.is_none() {
-            self.frames.replace(Frames::new(
-                device,
-                &mut self.allocator,
-                primitives,
-                self.options.in_flight_frames,
-            ));
+        if frames.is_none() {
+            println!("Creating new frames");
+            frames.replace(Mesh::new(device, allocator, primitives));
         }
 
-        let mesh = self.frames.as_mut().unwrap().next();
-        mesh.update(device, &mut self.allocator, primitives);
+        frames
+            .as_mut()
+            .unwrap()
+            .update(device, allocator, primitives);
 
         unsafe {
-            device.cmd_bind_pipeline(
-                command_buffer,
-                vk::PipelineBindPoint::GRAPHICS,
-                self.pipeline,
-            )
+            device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline)
         };
 
         let screen_width = extent.width as f32;
@@ -430,7 +376,7 @@ impl Renderer {
             let push = any_as_u8_slice(&projection);
             device.cmd_push_constants(
                 command_buffer,
-                self.pipeline_layout,
+                pipeline_layout,
                 vk::ShaderStageFlags::VERTEX,
                 0,
                 push,
@@ -438,10 +384,22 @@ impl Renderer {
         };
 
         unsafe {
-            device.cmd_bind_index_buffer(command_buffer, mesh.indices, 0, vk::IndexType::UINT32)
+            device.cmd_bind_index_buffer(
+                command_buffer,
+                frames.as_mut().unwrap().indices,
+                0,
+                vk::IndexType::UINT32,
+            )
         };
 
-        unsafe { device.cmd_bind_vertex_buffers(command_buffer, 0, &[mesh.vertices], &[0]) };
+        unsafe {
+            device.cmd_bind_vertex_buffers(
+                command_buffer,
+                0,
+                &[frames.as_mut().unwrap().vertices],
+                &[0],
+            )
+        };
 
         let mut index_offset = 0u32;
         let mut vertex_offset = 0i32;
@@ -472,13 +430,13 @@ impl Renderer {
                     }
 
                     if Some(m.texture_id) != current_texture_id {
-                        let descriptor_set = *self.textures.get(&m.texture_id).unwrap();
+                        let descriptor_set = *textures.get(&m.texture_id).unwrap();
 
                         unsafe {
                             device.cmd_bind_descriptor_sets(
                                 command_buffer,
                                 vk::PipelineBindPoint::GRAPHICS,
-                                self.pipeline_layout,
+                                pipeline_layout,
                                 0,
                                 &[descriptor_set],
                                 &[],
@@ -511,9 +469,10 @@ impl Renderer {
 
     pub fn update(
         &mut self,
+        command_pool: vk::CommandPool,
         window: &Window,
         run_ui: impl FnMut(&egui::Context),
-    ) -> (f32, Vec<ClippedPrimitive>) {
+    ) {
         let raw_input = self.egui_winit_state.take_egui_input(window);
 
         // free last frames textures after the previous frame is done rendering
@@ -539,20 +498,64 @@ impl Renderer {
         if !textures_delta.set.is_empty() {
             self.set_textures(
                 self.vulkan_context.get_general_queue(),
-                self.vulkan_context.command_pool,
+                command_pool,
                 textures_delta.set.as_slice(),
             );
         }
 
         let clipped_primitives = self.egui_context.tessellate(shapes, pixels_per_point);
 
-        (pixels_per_point, clipped_primitives)
+        self.pixels_per_point = Some(pixels_per_point);
+        self.clipped_primitives = Some(clipped_primitives);
+    }
+
+    pub fn record_command_buffer(
+        &mut self,
+        device: &Device,
+        swapchain: &Swapchain,
+        command_pool: vk::CommandPool,
+        command_buffer: vk::CommandBuffer,
+        image_index: u32,
+        render_area: Extent2D,
+    ) {
+        unsafe {
+            device
+                .reset_command_pool(command_pool, vk::CommandPoolResetFlags::empty())
+                .expect("Failed to reset command pool")
+        };
+
+        let command_buffer_begin_info = vk::CommandBufferBeginInfo::default()
+            .flags(vk::CommandBufferUsageFlags::SIMULTANEOUS_USE);
+
+        unsafe {
+            device
+                .begin_command_buffer(command_buffer, &command_buffer_begin_info)
+                .expect("Failed to begin command buffer")
+        };
+
+        swapchain.record_begin_render_pass_cmdbuf(command_buffer, image_index, &render_area);
+
+        Self::cmd_draw(
+            device,
+            &mut self.frames,
+            self.pipeline,
+            self.pipeline_layout,
+            &mut self.textures,
+            &mut self.allocator,
+            command_buffer,
+            render_area,
+            self.pixels_per_point.unwrap(),
+            &self.clipped_primitives.as_ref().unwrap(),
+        );
+
+        unsafe { device.cmd_end_render_pass(command_buffer) };
+        unsafe { device.end_command_buffer(command_buffer).unwrap() };
     }
 }
 
-impl Drop for Renderer {
+impl Drop for EguiRenderer {
     fn drop(&mut self) {
-        let device = &self.vulkan_context.device;
+        let device = &self.vulkan_context.device.as_raw();
         unsafe {
             if let Some(frames) = self.frames.take() {
                 frames.destroy(device, &mut self.allocator);
@@ -570,8 +573,6 @@ impl Drop for Renderer {
         }
     }
 }
-
-/// TODO: use a crate for this
 
 /// Orthographic projection matrix for use with Vulkan.
 ///
@@ -649,7 +650,7 @@ fn create_pipeline(
     frag_module: vk::ShaderModule,
     pipeline_layout: vk::PipelineLayout,
     render_pass: vk::RenderPass,
-    options: RendererOptions,
+    options: EguiRendererDesc,
 ) -> vk::Pipeline {
     let specialization_entries = [vk::SpecializationMapEntry {
         constant_id: 0,

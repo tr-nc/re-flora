@@ -24,6 +24,7 @@ impl Default for TimeInfo {
 
 impl TimeInfo {
     /// Creates a new TimeInfo with a specified display FPS update interval in milliseconds.
+    #[allow(dead_code)]
     pub fn new(display_interval_ms: u64) -> Self {
         Self {
             time: Instant::now(),
@@ -63,12 +64,14 @@ impl TimeInfo {
     }
 
     /// Returns the delta time (dt) of the last frame.
+    #[allow(dead_code)]
     pub fn delta_time(&self) -> f32 {
         self.dt
     }
 
     /// Returns the instantaneous (raw) frames per second,
     /// calculated as the reciprocal of the last delta time.
+    #[allow(dead_code)]
     pub fn raw_fps(&self) -> f32 {
         if self.dt > 0.0 {
             1.0 / self.dt
@@ -79,6 +82,7 @@ impl TimeInfo {
 
     /// Returns the FPS calculated for display, which is updated
     /// every x milliseconds (as set in the constructor).
+    #[allow(dead_code)]
     pub fn display_fps(&self) -> f32 {
         self.display_fps_value
     }

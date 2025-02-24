@@ -18,13 +18,7 @@ impl Allocator {
         self.allocator.lock().unwrap()
     }
 
-    /// Create a Vulkan buffer.
-    ///
-    /// # Arguments
-    ///
-    /// * `device` - A reference to Vulkan device.
-    /// * `size` - The size in bytes of the buffer.
-    /// * `usage` - The buffer usage flags.
+    /// Creates a Vulkan buffer.
     pub fn create_buffer(
         &mut self,
         device: &Device,

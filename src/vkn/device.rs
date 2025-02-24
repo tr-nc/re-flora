@@ -1,14 +1,46 @@
 use std::collections::HashSet;
 
-use ash::{khr::swapchain, vk, Device, Instance};
+use ash::{khr::swapchain, vk};
 
-use crate::vkn::context::QueueFamilyIndices;
+use super::{instance::Instance, physical_device::PhysicalDevice, queue::QueueFamilyIndices};
+
+pub struct Device {
+    pub device: ash::Device,
+}
+
+impl Device {
+    pub fn new(
+        instance: &Instance,
+        physical_device: &PhysicalDevice,
+        queue_family_indices: &QueueFamilyIndices,
+    ) -> Self {
+        let device = create_device(
+            instance.as_raw(),
+            physical_device.as_raw(),
+            queue_family_indices,
+        );
+        Self { device }
+    }
+
+    pub fn as_raw(&self) -> &ash::Device {
+        &self.device
+    }
+}
+
+impl Drop for Device {
+    fn drop(&mut self) {
+        unsafe {
+            self.device.device_wait_idle().unwrap();
+            self.device.destroy_device(None);
+        }
+    }
+}
 
 pub fn create_device(
-    instance: &Instance,
+    instance: &ash::Instance,
     physical_device: vk::PhysicalDevice,
     queue_family_indices: &QueueFamilyIndices,
-) -> Device {
+) -> ash::Device {
     let queue_priorities = [1.0f32];
     let queue_create_infos = {
         let mut indices = HashSet::new();
