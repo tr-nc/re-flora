@@ -4,6 +4,7 @@ use ash::{khr::swapchain, vk};
 
 use super::{instance::Instance, physical_device::PhysicalDevice, queue::QueueFamilyIndices};
 
+#[derive(Clone)]
 pub struct Device {
     pub device: ash::Device,
 }

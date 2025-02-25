@@ -1,4 +1,4 @@
-use crate::shader_util::ShaderCompiler;
+use crate::util::compiler::ShaderCompiler;
 use crate::util::time_info::TimeInfo;
 use crate::vkn::{CommandBuffer, CommandPool};
 use crate::{

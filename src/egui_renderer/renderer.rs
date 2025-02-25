@@ -13,9 +13,10 @@ use std::{collections::HashMap, ffi::CString, mem};
 use winit::event::WindowEvent;
 use winit::window::Window;
 
-use crate::shader_util::{load_from_glsl, ShaderCompiler};
+use crate::util::compiler::ShaderCompiler;
 use crate::vkn::context::VulkanContext;
 use crate::vkn::swapchain::Swapchain;
+use crate::vkn::ShaderModule;
 
 use std::sync::{Arc, Mutex};
 
@@ -70,8 +71,8 @@ pub struct EguiRenderer {
     textures_to_free: Option<Vec<TextureId>>,
 
     // these shader modules are cached to avoid recompiling them during window scaling
-    vert_module: vk::ShaderModule,
-    frag_module: vk::ShaderModule,
+    vert_module: ShaderModule,
+    frag_module: ShaderModule,
 
     egui_context: egui::Context,
     egui_winit_state: egui_winit::State,
@@ -112,25 +113,20 @@ impl EguiRenderer {
 
         let device = &vulkan_context.device;
 
-        let vertex_shader_loaded = load_from_glsl(
-            "src/egui_renderer/shaders/shader.vert",
-            device.as_raw().clone(),
-            &compiler,
-        )
-        .unwrap();
-        let fragment_shader_loaded = load_from_glsl(
-            "src/egui_renderer/shaders/shader.frag",
-            device.as_raw().clone(),
-            &compiler,
-        )
-        .unwrap();
+        let vertex_shader_loaded =
+            ShaderModule::from_glsl(device, "src/egui_renderer/shaders/shader.vert", &compiler)
+                .unwrap();
+
+        let fragment_shader_loaded =
+            ShaderModule::from_glsl(device, "src/egui_renderer/shaders/shader.frag", &compiler)
+                .unwrap();
 
         let descriptor_set_layout = create_descriptor_set_layout(device.as_raw());
         let pipeline_layout = create_pipeline_layout(device.as_raw(), descriptor_set_layout);
         let pipeline = create_pipeline(
             device.as_raw(),
-            vertex_shader_loaded.shader_module,
-            fragment_shader_loaded.shader_module,
+            vertex_shader_loaded.get_shader_module(),
+            fragment_shader_loaded.get_shader_module(),
             pipeline_layout,
             render_pass,
             desc,
@@ -165,8 +161,8 @@ impl EguiRenderer {
             desc,
             frames: None,
             textures_to_free: None,
-            vert_module: vertex_shader_loaded.shader_module,
-            frag_module: fragment_shader_loaded.shader_module,
+            vert_module: vertex_shader_loaded,
+            frag_module: fragment_shader_loaded,
 
             egui_context,
             egui_winit_state,
@@ -192,8 +188,8 @@ impl EguiRenderer {
         };
         self.pipeline = create_pipeline(
             &self.vulkan_context.device.as_raw(),
-            self.vert_module,
-            self.frag_module,
+            self.vert_module.get_shader_module(),
+            self.frag_module.get_shader_module(),
             self.pipeline_layout,
             render_pass,
             self.desc,
@@ -568,8 +564,6 @@ impl Drop for EguiRenderer {
                 t.destroy(device, &mut self.allocator);
             }
             device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
-            device.destroy_shader_module(self.vert_module, None);
-            device.destroy_shader_module(self.frag_module, None);
         }
     }
 }

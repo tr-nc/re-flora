@@ -3,7 +3,6 @@ mod egui_renderer;
 mod util;
 mod vkn;
 mod window;
-mod shader_util;
 
 use app::App;
 use simple_logger::SimpleLogger;
