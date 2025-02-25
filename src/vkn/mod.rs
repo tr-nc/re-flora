@@ -1,3 +1,6 @@
+pub mod pipeline_layout;
+pub use pipeline_layout::PipelineLayout;
+
 pub mod context;
 pub use {context::VulkanContext, context::VulkanContextDesc};
 
@@ -28,5 +31,5 @@ pub use command_buffer::CommandBuffer;
 mod command_pool;
 pub use command_pool::CommandPool;
 
-// mod compute_pipeline;
-// pub use compute_pipeline::ComputePipeline;
+mod pipeline;
+pub use pipeline::GraphicsPipeline;

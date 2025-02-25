@@ -1,8 +1,6 @@
-use std::collections::HashSet;
-
-use ash::{khr::swapchain, vk};
-
 use super::{instance::Instance, physical_device::PhysicalDevice, queue::QueueFamilyIndices};
+use ash::{khr::swapchain, vk};
+use std::{collections::HashSet, ops::Deref};
 
 #[derive(Clone)]
 pub struct Device {
@@ -34,6 +32,14 @@ impl Drop for Device {
             self.device.device_wait_idle().unwrap();
             self.device.destroy_device(None);
         }
+    }
+}
+
+impl Deref for Device {
+    type Target = ash::Device;
+
+    fn deref(&self) -> &Self::Target {
+        &self.device
     }
 }
 

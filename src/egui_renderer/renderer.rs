@@ -1,7 +1,7 @@
 use super::mesh::Mesh;
 use super::{allocator::Allocator, texture::Texture};
+use ash::vk;
 use ash::vk::Extent2D;
-use ash::{vk, Device};
 use egui::ViewportId;
 use egui::{
     epaint::{ImageDelta, Primitive},
@@ -16,7 +16,7 @@ use winit::window::Window;
 use crate::util::compiler::ShaderCompiler;
 use crate::vkn::context::VulkanContext;
 use crate::vkn::swapchain::Swapchain;
-use crate::vkn::ShaderModule;
+use crate::vkn::{Device, GraphicsPipeline, PipelineLayout, ShaderModule};
 
 use std::sync::{Arc, Mutex};
 
@@ -25,15 +25,6 @@ const MAX_TEXTURE_COUNT: u32 = 1024;
 /// Optional parameters of the renderer.
 #[derive(Debug, Clone, Copy)]
 pub struct EguiRendererDesc {
-    /// If true enables depth test when rendering.
-    pub enable_depth_test: bool,
-
-    /// If true enables depth writes when rendering.
-    ///
-    /// Note that depth writes are always disabled when enable_depth_test is false.
-    /// See <https://www.khronos.org/registry/vulkan/specs/1.2-extensions/man/html/VkPipelineDepthStencilStateCreateInfo.html>
-    pub enable_depth_write: bool,
-
     /// Is the target framebuffer sRGB.
     ///
     /// If not, the fragment shader converts colors to sRGB, otherwise it outputs color in linear space.
@@ -43,16 +34,8 @@ pub struct EguiRendererDesc {
 impl Default for EguiRendererDesc {
     fn default() -> Self {
         Self {
-            enable_depth_test: false,
-            enable_depth_write: false,
             srgb_framebuffer: false,
         }
-    }
-}
-
-impl EguiRendererDesc {
-    fn validate(&self) -> Result<(), String> {
-        Ok(())
     }
 }
 
@@ -60,8 +43,11 @@ impl EguiRendererDesc {
 pub struct EguiRenderer {
     vulkan_context: Arc<VulkanContext>,
     allocator: Allocator,
-    pipeline: vk::Pipeline,
-    pipeline_layout: vk::PipelineLayout,
+    pipeline: GraphicsPipeline,
+    pipeline_layout: PipelineLayout,
+    vert_shader_module: ShaderModule,
+    frag_shader_module: ShaderModule,
+
     descriptor_set_layout: vk::DescriptorSetLayout,
     descriptor_pool: vk::DescriptorPool,
     managed_textures: HashMap<TextureId, Texture>,
@@ -69,10 +55,6 @@ pub struct EguiRenderer {
     frames: Option<Mesh>,
 
     textures_to_free: Option<Vec<TextureId>>,
-
-    // these shader modules are cached to avoid recompiling them during window scaling
-    vert_module: ShaderModule,
-    frag_module: ShaderModule,
 
     egui_context: egui::Context,
     egui_winit_state: egui_winit::State,
@@ -95,8 +77,6 @@ impl EguiRenderer {
         render_pass: vk::RenderPass,
         desc: EguiRendererDesc,
     ) -> Self {
-        desc.validate().expect("Invalid options");
-
         let gpu_allocator = {
             let allocator_create_info = AllocatorCreateDesc {
                 instance: vulkan_context.instance.as_raw().clone(),
@@ -113,27 +93,33 @@ impl EguiRenderer {
 
         let device = &vulkan_context.device;
 
-        let vertex_shader_loaded =
-            ShaderModule::from_glsl(device, "src/egui_renderer/shaders/shader.vert", &compiler)
+        let descriptor_set_layout = create_descriptor_set_layout(device);
+        let push_const_range = create_push_constant_range();
+        let pipeline_layout = PipelineLayout::new(
+            device,
+            Some(&[descriptor_set_layout]),
+            Some(&push_const_range),
+        );
+
+        let vert_shader_module =
+            ShaderModule::from_glsl(device, "src/egui_renderer/shaders/shader.vert", compiler)
                 .unwrap();
 
-        let fragment_shader_loaded =
-            ShaderModule::from_glsl(device, "src/egui_renderer/shaders/shader.frag", &compiler)
+        let frag_shader_module =
+            ShaderModule::from_glsl(device, "src/egui_renderer/shaders/shader.frag", compiler)
                 .unwrap();
 
-        let descriptor_set_layout = create_descriptor_set_layout(device.as_raw());
-        let pipeline_layout = create_pipeline_layout(device.as_raw(), descriptor_set_layout);
         let pipeline = create_pipeline(
-            device.as_raw(),
-            vertex_shader_loaded.get_shader_module(),
-            fragment_shader_loaded.get_shader_module(),
-            pipeline_layout,
+            device,
+            &pipeline_layout,
+            &vert_shader_module,
+            &frag_shader_module,
             render_pass,
             desc,
         );
 
         // Descriptor pool
-        let descriptor_pool = create_descriptor_pool(device.as_raw(), MAX_TEXTURE_COUNT);
+        let descriptor_pool = create_descriptor_pool(device, MAX_TEXTURE_COUNT);
 
         // Textures
         let managed_textures = HashMap::new();
@@ -154,6 +140,8 @@ impl EguiRenderer {
             allocator,
             pipeline,
             pipeline_layout,
+            vert_shader_module,
+            frag_shader_module,
             descriptor_set_layout,
             descriptor_pool,
             managed_textures,
@@ -161,8 +149,6 @@ impl EguiRenderer {
             desc,
             frames: None,
             textures_to_free: None,
-            vert_module: vertex_shader_loaded,
-            frag_module: fragment_shader_loaded,
 
             egui_context,
             egui_winit_state,
@@ -180,17 +166,11 @@ impl EguiRenderer {
     ///
     /// This is an expensive operation.
     pub fn set_render_pass(&mut self, render_pass: vk::RenderPass) {
-        unsafe {
-            self.vulkan_context
-                .device
-                .as_raw()
-                .destroy_pipeline(self.pipeline, None)
-        };
         self.pipeline = create_pipeline(
-            &self.vulkan_context.device.as_raw(),
-            self.vert_module.get_shader_module(),
-            self.frag_module.get_shader_module(),
-            self.pipeline_layout,
+            &self.vulkan_context.device,
+            &self.pipeline_layout,
+            &self.vert_shader_module,
+            &self.frag_shader_module,
             render_pass,
             self.desc,
         );
@@ -231,7 +211,7 @@ impl EguiRenderer {
                 }
             };
 
-            let device = &self.vulkan_context.device.as_raw();
+            let device = &self.vulkan_context.device;
 
             if let Some([offset_x, offset_y]) = delta.pos {
                 let texture = self.managed_textures.get_mut(id).unwrap();
@@ -297,7 +277,7 @@ impl EguiRenderer {
     /// * [`RendererError`] - If any Vulkan error is encountered when free the texture.
     fn free_textures(&mut self, ids: &[TextureId]) {
         log::trace!("Freeing {} textures", ids.len());
-        let device = &self.vulkan_context.device.as_raw();
+        let device = &self.vulkan_context.device;
         for id in ids {
             if let Some(texture) = self.managed_textures.remove(id) {
                 texture.destroy(device, &mut self.allocator);
@@ -316,8 +296,8 @@ impl EguiRenderer {
     fn cmd_draw(
         device: &Device,
         frames: &mut Option<Mesh>,
-        pipeline: vk::Pipeline,
-        pipeline_layout: vk::PipelineLayout,
+        pipeline: &GraphicsPipeline,
+        pipeline_layout: &PipelineLayout,
         textures: &mut HashMap<TextureId, vk::DescriptorSet>,
         allocator: &mut Allocator,
         command_buffer: vk::CommandBuffer,
@@ -340,7 +320,11 @@ impl EguiRenderer {
             .update(device, allocator, primitives);
 
         unsafe {
-            device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline)
+            device.cmd_bind_pipeline(
+                command_buffer,
+                vk::PipelineBindPoint::GRAPHICS,
+                pipeline.as_raw(),
+            )
         };
 
         let screen_width = extent.width as f32;
@@ -372,7 +356,7 @@ impl EguiRenderer {
             let push = any_as_u8_slice(&projection);
             device.cmd_push_constants(
                 command_buffer,
-                pipeline_layout,
+                pipeline_layout.as_raw(),
                 vk::ShaderStageFlags::VERTEX,
                 0,
                 push,
@@ -432,7 +416,7 @@ impl EguiRenderer {
                             device.cmd_bind_descriptor_sets(
                                 command_buffer,
                                 vk::PipelineBindPoint::GRAPHICS,
-                                pipeline_layout,
+                                pipeline_layout.as_raw(),
                                 0,
                                 &[descriptor_set],
                                 &[],
@@ -522,20 +506,18 @@ impl EguiRenderer {
 
         let command_buffer_begin_info = vk::CommandBufferBeginInfo::default()
             .flags(vk::CommandBufferUsageFlags::SIMULTANEOUS_USE);
-
         unsafe {
             device
                 .begin_command_buffer(command_buffer, &command_buffer_begin_info)
                 .expect("Failed to begin command buffer")
         };
-
         swapchain.record_begin_render_pass_cmdbuf(command_buffer, image_index, &render_area);
 
         Self::cmd_draw(
             device,
             &mut self.frames,
-            self.pipeline,
-            self.pipeline_layout,
+            &self.pipeline,
+            &self.pipeline_layout,
             &mut self.textures,
             &mut self.allocator,
             command_buffer,
@@ -544,22 +526,21 @@ impl EguiRenderer {
             &self.clipped_primitives.as_ref().unwrap(),
         );
 
-        unsafe { device.cmd_end_render_pass(command_buffer) };
-        unsafe { device.end_command_buffer(command_buffer).unwrap() };
+        unsafe {
+            device.cmd_end_render_pass(command_buffer);
+            device.end_command_buffer(command_buffer).unwrap()
+        };
     }
 }
 
 impl Drop for EguiRenderer {
     fn drop(&mut self) {
-        let device = &self.vulkan_context.device.as_raw();
+        let device = &self.vulkan_context.device;
         unsafe {
             if let Some(frames) = self.frames.take() {
                 frames.destroy(device, &mut self.allocator);
             }
-            device.destroy_pipeline(self.pipeline, None);
-            device.destroy_pipeline_layout(self.pipeline_layout, None);
             device.destroy_descriptor_pool(self.descriptor_pool, None);
-
             for (_, t) in self.managed_textures.drain() {
                 t.destroy(device, &mut self.allocator);
             }
@@ -590,7 +571,6 @@ fn orthographic_vk(left: f32, right: f32, bottom: f32, top: f32, near: f32, far:
         0.0, 0.0, -1.0 / fmn, 0.0,
         -(rpl / rml), -(tpb / tmb), -(near / fmn), 1.0
     ];
-
     res
 }
 
@@ -618,34 +598,22 @@ fn create_descriptor_set_layout(device: &Device) -> vk::DescriptorSetLayout {
     }
 }
 
-fn create_pipeline_layout(
-    device: &Device,
-    descriptor_set_layout: vk::DescriptorSetLayout,
-) -> vk::PipelineLayout {
-    log::debug!("Creating vulkan pipeline layout");
-    let push_const_range = [vk::PushConstantRange {
+fn create_push_constant_range() -> [vk::PushConstantRange; 1] {
+    [vk::PushConstantRange {
         stage_flags: vk::ShaderStageFlags::VERTEX,
         offset: 0,
         size: mem::size_of::<[f32; 16]>() as u32,
-    }];
-
-    let descriptor_set_layouts = [descriptor_set_layout];
-    let layout_info = vk::PipelineLayoutCreateInfo::default()
-        .set_layouts(&descriptor_set_layouts)
-        .push_constant_ranges(&push_const_range);
-    let pipeline_layout = unsafe { device.create_pipeline_layout(&layout_info, None).unwrap() };
-
-    pipeline_layout
+    }]
 }
 
 fn create_pipeline(
     device: &Device,
-    vert_module: vk::ShaderModule,
-    frag_module: vk::ShaderModule,
-    pipeline_layout: vk::PipelineLayout,
+    pipeline_layout: &PipelineLayout,
+    vert_shader_module: &ShaderModule,
+    frag_shader_module: &ShaderModule,
     render_pass: vk::RenderPass,
     options: EguiRendererDesc,
-) -> vk::Pipeline {
+) -> GraphicsPipeline {
     let specialization_entries = [vk::SpecializationMapEntry {
         constant_id: 0,
         offset: 0,
@@ -661,14 +629,19 @@ fn create_pipeline(
     let shader_states_infos = [
         vk::PipelineShaderStageCreateInfo::default()
             .stage(vk::ShaderStageFlags::VERTEX)
-            .module(vert_module)
+            .module(vert_shader_module.get_shader_module())
             .name(&entry_point_name),
         vk::PipelineShaderStageCreateInfo::default()
             .stage(vk::ShaderStageFlags::FRAGMENT)
-            .module(frag_module)
+            .module(frag_shader_module.get_shader_module())
             .specialization_info(&specialization_info)
             .name(&entry_point_name),
     ];
+
+    let mut pipeline_info = vk::GraphicsPipelineCreateInfo::default()
+        .stages(&shader_states_infos)
+        .render_pass(render_pass)
+        .layout(pipeline_layout.as_raw());
 
     let binding_desc = [vk::VertexInputBindingDescription::default()
         .binding(0)
@@ -746,8 +719,8 @@ fn create_pipeline(
         .blend_constants([0.0, 0.0, 0.0, 0.0]);
 
     let depth_stencil_state_create_info = vk::PipelineDepthStencilStateCreateInfo::default()
-        .depth_test_enable(options.enable_depth_test)
-        .depth_write_enable(options.enable_depth_write)
+        .depth_test_enable(false)
+        .depth_write_enable(false)
         .depth_compare_op(vk::CompareOp::ALWAYS)
         .depth_bounds_test_enable(false)
         .stencil_test_enable(false);
@@ -756,8 +729,7 @@ fn create_pipeline(
     let dynamic_states_info =
         vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
 
-    let pipeline_info = vk::GraphicsPipelineCreateInfo::default()
-        .stages(&shader_states_infos)
+    pipeline_info = pipeline_info
         .vertex_input_state(&vertex_input_info)
         .input_assembly_state(&input_assembly_info)
         .rasterization_state(&rasterizer_info)
@@ -765,22 +737,9 @@ fn create_pipeline(
         .multisample_state(&multisampling_info)
         .color_blend_state(&color_blending_info)
         .depth_stencil_state(&depth_stencil_state_create_info)
-        .dynamic_state(&dynamic_states_info)
-        .layout(pipeline_layout);
+        .dynamic_state(&dynamic_states_info);
 
-    let pipeline_info = pipeline_info.render_pass(render_pass);
-
-    let pipeline = unsafe {
-        device
-            .create_graphics_pipelines(
-                vk::PipelineCache::null(),
-                std::slice::from_ref(&pipeline_info),
-                None,
-            )
-            .map_err(|e| e.1)
-            .unwrap()[0]
-    };
-
+    let pipeline = GraphicsPipeline::new(device, pipeline_info);
     pipeline
 }
 

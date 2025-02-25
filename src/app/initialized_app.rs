@@ -60,7 +60,7 @@ impl InitializedApp {
         let fence = Self::create_fence(&vulkan_context.device.as_raw());
 
         let command_pool = CommandPool::new(
-            &vulkan_context.device.as_raw(),
+            &vulkan_context.device,
             vulkan_context.queue_family_indices.general,
         );
         let command_buffer = CommandBuffer::new(&vulkan_context.device.as_raw(), &command_pool);
@@ -97,7 +97,7 @@ impl InitializedApp {
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {
         let window_descriptor = WindowStateDesc {
             title: "Re: Flora".to_owned(),
-            window_mode: WindowMode::Windowed,
+            window_mode: WindowMode::BorderlessFullscreen,
             cursor_locked: true,
             cursor_visible: false,
             ..Default::default()
@@ -286,7 +286,7 @@ impl InitializedApp {
                 };
 
                 self.renderer.record_command_buffer(
-                    &self.vulkan_context.device.as_raw(),
+                    &self.vulkan_context.device,
                     &self.swapchain,
                     self.command_pool.as_raw(),
                     self.command_buffer.as_raw(),
