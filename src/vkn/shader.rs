@@ -5,18 +5,15 @@ use ash::vk::ShaderModuleCreateInfo;
 use spirv_reflect::ShaderModule as ReflectShaderModule;
 
 pub struct ShaderModule {
+    device: ash::Device,
     shader_module: ash::vk::ShaderModule,
     reflect_shader_module: ReflectShaderModule,
-
-    device: Device,
 }
 
 impl Drop for ShaderModule {
     fn drop(&mut self) {
         unsafe {
-            self.device
-                .as_raw()
-                .destroy_shader_module(self.shader_module, None);
+            self.device.destroy_shader_module(self.shader_module, None);
         }
     }
 }
@@ -51,7 +48,7 @@ impl ShaderModule {
         Ok(Self {
             shader_module,
             reflect_shader_module,
-            device: device.clone(),
+            device: device.as_raw().clone(),
         })
     }
 
@@ -67,7 +64,7 @@ impl ShaderModule {
         Ok(Self {
             shader_module,
             reflect_shader_module,
-            device: device.clone(),
+            device: device.as_raw().clone(),
         })
     }
 }
