@@ -77,20 +77,23 @@ impl InitializedApp {
         );
 
         // compute shader test
-        let compute_shader_module = ShaderModule::from_glsl(
-            &vulkan_context.device,
-            "shader/test.comp",
-            "main",
-            &shader_compiler,
-        )
-        .unwrap();
-        let stage_info = compute_shader_module.get_shader_stage_create_info();
-        let compute_pipeline_layout = PipelineLayout::new(&vulkan_context.device, None, None);
-        let compute_pipeline_create_info = vk::ComputePipelineCreateInfo::default()
-            .stage(stage_info)
-            .layout(compute_pipeline_layout.as_raw());
-        let compute_pipeline =
-            ComputePipeline::new(&vulkan_context.device, compute_pipeline_create_info);
+
+        // let compute_shader_module = ShaderModule::from_glsl(
+        //     &vulkan_context.device,
+        //     &shader_compiler,
+        //     "shader/test.comp",
+        //     "main",
+        // )
+        // .unwrap();
+        // compute_shader_module.print_reflection_info();
+        // let stage_info = compute_shader_module.get_shader_stage_create_info();
+        // // let compute_pipeline_layout = PipelineLayout::new(&vulkan_context.device, None, None);
+        // let compute_pipeline_layout = compute_shader_module.get_pipeline_layout();
+        // let compute_pipeline_create_info = vk::ComputePipelineCreateInfo::default()
+        //     .stage(stage_info)
+        //     .layout(compute_pipeline_layout.as_raw());
+        // let compute_pipeline =
+        //     ComputePipeline::new(&vulkan_context.device, compute_pipeline_create_info);
 
         Self {
             vulkan_context,

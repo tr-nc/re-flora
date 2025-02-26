@@ -5,13 +5,13 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-// layout(set = 0, binding = 0) uniform image2D result_image;
+layout(set = 0, binding = 0) uniform image2D result_image;
 
 void main() {
-    // ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
-    // vec4 color         = vec4(0.0, 0.0, 0.0, 1.0);
-    // if (all(lessThan(pixel_coords, imageSize(result_image)))) {
-    //     color = vec4(pixel_coords.x % 256, pixel_coords.y % 256, 0.0, 1.0) / 255.0;
-    // }
-    // imageStore(result_image, pixel_coords, color);
+    ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
+    vec4 color         = vec4(0.0, 0.0, 0.0, 1.0);
+    if (all(lessThan(pixel_coords, imageSize(result_image)))) {
+        color = vec4(pixel_coords.x % 256, pixel_coords.y % 256, 0.0, 1.0) / 255.0;
+    }
+    imageStore(result_image, pixel_coords, color);
 }

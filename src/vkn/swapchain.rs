@@ -344,7 +344,6 @@ fn create_vulkan_swapchain(
     };
 
     let image_count = capabilities.min_image_count;
-    log::debug!("Swapchain image count: {image_count:?}");
 
     let (swapchain_device, swapchain_khr) = create_swapchain_device_khr(
         context,
@@ -401,7 +400,6 @@ fn create_vulkan_swapchain(
 }
 
 fn create_vulkan_render_pass(device: &ash::Device, format: vk::Format) -> vk::RenderPass {
-    log::debug!("Creating vulkan render pass");
     let attachment_descs = [vk::AttachmentDescription::default()
         .format(format)
         .samples(vk::SampleCountFlags::TYPE_1)
@@ -446,7 +444,6 @@ fn create_vulkan_framebuffers(
     image_views: &[vk::ImageView],
     window_size: &[u32; 2],
 ) -> Vec<vk::Framebuffer> {
-    log::debug!("Creating vulkan framebuffers");
     image_views
         .iter()
         .map(|view| [*view])

@@ -2,7 +2,7 @@ use std::ffi::CString;
 
 use crate::util::compiler::ShaderCompiler;
 
-use super::Device;
+use super::{Device, PipelineLayout};
 use ash::vk::{ShaderModuleCreateInfo, ShaderStageFlags};
 use shaderc::ShaderKind;
 use spirv_reflect::ShaderModule as ReflectShaderModule;
@@ -25,16 +25,15 @@ impl Drop for ShaderModule {
 impl ShaderModule {
     /// Create a new shader module from GLSL code
     ///
-    /// # Arguments
-    ///
     /// * `device` - The device to create the shader module on
-    /// * `file_path` - The path to the GLSL file, from the project root
     /// * `compiler` - The shader compiler to use
+    /// * `file_path` - The path to the GLSL file, from the project root
+    /// * `entry_point_name` - The name of the entry point function in the shader
     pub fn from_glsl(
         device: &Device,
+        compiler: &ShaderCompiler,
         file_path: &str,
         entry_point_name: &str,
-        compiler: &ShaderCompiler,
     ) -> Result<Self, String> {
         let full_path = format!("{}{}", env!("PROJECT_ROOT"), file_path);
         let code = read_code_from_path(&full_path)?;
@@ -93,6 +92,51 @@ impl ShaderModule {
             .module(self.get_shader_module())
             .name(&self.entry_point_name);
         info
+    }
+
+    pub fn get_shader_pipeline_layout(&self, device: &Device) -> PipelineLayout {
+        let reflect_descriptor_sets = self
+            .reflect_shader_module
+            .enumerate_descriptor_sets(None)
+            .unwrap();
+
+        // let descriptor_set_layouts;
+
+        // descriptor_set_layouts = reflect_descriptor_sets
+        //     .iter()
+        //     .map(|descriptor_set| {
+        //         let bindings = descriptor_set
+        //             .bindings
+        //             .iter()
+        //             .map(|binding| binding.descriptor_type)
+        //             .collect::<Vec<_>>();
+        //         let descriptor_set_layout = descriptor_set.create_descriptor_set_layout(&bindings);
+        //         descriptor_set_layout
+        //     })
+        //     .collect::<Vec<_>>();
+
+        PipelineLayout::new(device, None, None)
+    }
+
+    pub fn print_reflection_info(&self) {
+        log::debug!("Shader module reflection:");
+        log::debug!(
+            "  Entry point: {}",
+            self.reflect_shader_module.get_entry_point_name()
+        );
+        log::debug!(
+            "  Shader stage: {:?}",
+            self.reflect_shader_module.get_shader_stage()
+        );
+
+        let descriptor_sets = self
+            .reflect_shader_module
+            .enumerate_descriptor_sets(None)
+            .unwrap();
+        log::debug!("ds count: {}", descriptor_sets.len());
+        for descriptor_set in descriptor_sets {
+            log::debug!("  Descriptor set: {:?}", descriptor_set);
+        }
     }
 
     // preserved for future use

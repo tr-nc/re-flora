@@ -1,7 +1,7 @@
 use super::mesh::Mesh;
 use super::{allocator::Allocator, texture::Texture};
-use ash::vk;
 use ash::vk::Extent2D;
+use ash::vk::{self};
 use egui::ViewportId;
 use egui::{
     epaint::{ImageDelta, Primitive},
@@ -17,8 +17,8 @@ use crate::util::compiler::ShaderCompiler;
 use crate::vkn::context::VulkanContext;
 use crate::vkn::swapchain::Swapchain;
 use crate::vkn::{
-    DescriptorPool, DescriptorPoolBuilder, DescriptorSetLayout, DescriptorSetLayoutBuilder, Device,
-    GraphicsPipeline, PipelineLayout, ShaderModule,
+    DescriptorPool, DescriptorPoolBuilder, DescriptorSetLayout, DescriptorSetLayoutBinding,
+    DescriptorSetLayoutBuilder, Device, GraphicsPipeline, PipelineLayout, ShaderModule,
 };
 
 use std::sync::{Arc, Mutex};
@@ -96,8 +96,20 @@ impl EguiRenderer {
 
         let device = &vulkan_context.device;
 
-        let descriptor_set_layout = create_descriptor_set_layout(device);
-        let push_const_range = create_push_constant_range();
+        let binding = DescriptorSetLayoutBinding {
+            no: 0,
+            descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            descriptor_count: 1,
+            stage_flags: vk::ShaderStageFlags::FRAGMENT,
+        };
+        let builder = DescriptorSetLayoutBuilder::new().add_binding(binding);
+        let descriptor_set_layout = builder.build(device).unwrap();
+
+        let push_const_range = [vk::PushConstantRange {
+            stage_flags: vk::ShaderStageFlags::VERTEX,
+            offset: 0,
+            size: mem::size_of::<[f32; 16]>() as u32,
+        }];
         let pipeline_layout = PipelineLayout::new(
             device,
             Some(&[descriptor_set_layout.as_raw()]),
@@ -106,17 +118,17 @@ impl EguiRenderer {
 
         let vert_shader_module = ShaderModule::from_glsl(
             device,
+            compiler,
             "src/egui_renderer/shaders/shader.vert",
             "main",
-            compiler,
         )
         .unwrap();
 
         let frag_shader_module = ShaderModule::from_glsl(
             device,
+            compiler,
             "src/egui_renderer/shaders/shader.frag",
             "main",
-            compiler,
         )
         .unwrap();
 
@@ -129,12 +141,17 @@ impl EguiRenderer {
             desc,
         );
 
-        let mut descriptor_pool_builder = DescriptorPoolBuilder::new(device);
-        descriptor_pool_builder.append_pool_size(
-            vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-            MAX_TEXTURE_COUNT,
-        );
-        let descriptor_pool = descriptor_pool_builder.build(1, None).unwrap();
+        // let mut descriptor_pool_builder = DescriptorPoolBuilder::new(device);
+        // descriptor_pool_builder.append_pool_size(
+        //     vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+        //     MAX_TEXTURE_COUNT,
+        // );
+        // let descriptor_pool = descriptor_pool_builder.build(1, None).unwrap();
+        let descriptor_pool = DescriptorPool::from_descriptor_set_layouts(
+            device,
+            std::slice::from_ref(&descriptor_set_layout),
+        )
+        .unwrap();
 
         // Textures
         let managed_textures = HashMap::new();
@@ -594,25 +611,6 @@ unsafe fn any_as_u8_slice<T: Sized>(any: &T) -> &[u8] {
     std::slice::from_raw_parts(ptr, std::mem::size_of::<T>())
 }
 
-/// Create a descriptor set layout compatible with the graphics pipeline.
-fn create_descriptor_set_layout(device: &Device) -> DescriptorSetLayout {
-    let builder = DescriptorSetLayoutBuilder::new().add_binding(
-        0,
-        1,
-        vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-        vk::ShaderStageFlags::FRAGMENT,
-    );
-    builder.build(device).unwrap()
-}
-
-fn create_push_constant_range() -> [vk::PushConstantRange; 1] {
-    [vk::PushConstantRange {
-        stage_flags: vk::ShaderStageFlags::VERTEX,
-        offset: 0,
-        size: mem::size_of::<[f32; 16]>() as u32,
-    }]
-}
-
 fn create_pipeline(
     device: &Device,
     pipeline_layout: &PipelineLayout,
@@ -758,7 +756,6 @@ fn create_vulkan_descriptor_set(
         let allocate_info = vk::DescriptorSetAllocateInfo::default()
             .descriptor_pool(descriptor_pool)
             .set_layouts(&set_layouts);
-
         unsafe { device.allocate_descriptor_sets(&allocate_info).unwrap()[0] }
     };
 
