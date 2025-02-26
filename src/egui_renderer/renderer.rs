@@ -9,7 +9,7 @@ use egui::{
 };
 use egui_winit::EventResponse;
 use gpu_allocator::vulkan::AllocatorCreateDesc;
-use std::{collections::HashMap, ffi::CString, mem};
+use std::{collections::HashMap, mem};
 use winit::event::WindowEvent;
 use winit::window::Window;
 
@@ -101,13 +101,21 @@ impl EguiRenderer {
             Some(&push_const_range),
         );
 
-        let vert_shader_module =
-            ShaderModule::from_glsl(device, "src/egui_renderer/shaders/shader.vert", compiler)
-                .unwrap();
+        let vert_shader_module = ShaderModule::from_glsl(
+            device,
+            "src/egui_renderer/shaders/shader.vert",
+            "main",
+            compiler,
+        )
+        .unwrap();
 
-        let frag_shader_module =
-            ShaderModule::from_glsl(device, "src/egui_renderer/shaders/shader.frag", compiler)
-                .unwrap();
+        let frag_shader_module = ShaderModule::from_glsl(
+            device,
+            "src/egui_renderer/shaders/shader.frag",
+            "main",
+            compiler,
+        )
+        .unwrap();
 
         let pipeline = create_pipeline(
             device,
@@ -625,18 +633,11 @@ fn create_pipeline(
         .map_entries(&specialization_entries)
         .data(data_raw);
 
-    let entry_point_name = CString::new("main").unwrap();
-    let shader_states_infos = [
-        vk::PipelineShaderStageCreateInfo::default()
-            .stage(vk::ShaderStageFlags::VERTEX)
-            .module(vert_shader_module.get_shader_module())
-            .name(&entry_point_name),
-        vk::PipelineShaderStageCreateInfo::default()
-            .stage(vk::ShaderStageFlags::FRAGMENT)
-            .module(frag_shader_module.get_shader_module())
-            .specialization_info(&specialization_info)
-            .name(&entry_point_name),
-    ];
+    let vert_state_info = vert_shader_module.get_shader_stage_create_info();
+    let frag_state_info = frag_shader_module
+        .get_shader_stage_create_info()
+        .specialization_info(&specialization_info);
+    let shader_states_infos = [vert_state_info, frag_state_info];
 
     let mut pipeline_info = vk::GraphicsPipelineCreateInfo::default()
         .stages(&shader_states_infos)

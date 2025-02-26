@@ -36,11 +36,12 @@ impl ShaderCompiler {
             compile_options,
         })
     }
-    
+
     pub fn compile_to_bytecode(
         &self,
         code: &str,
         shader_kind: shaderc::ShaderKind,
+        entry_point_name: &str,
         file_name: &str,
     ) -> Result<Vec<u8>, String> {
         let compilation_artifact = self
@@ -49,7 +50,7 @@ impl ShaderCompiler {
                 code,
                 shader_kind,
                 file_name,
-                "main",
+                entry_point_name,
                 Some(&self.compile_options),
             )
             .map_err(|e| e.to_string())?;

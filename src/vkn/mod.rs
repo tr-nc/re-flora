@@ -32,4 +32,4 @@ mod command_pool;
 pub use command_pool::CommandPool;
 
 mod pipeline;
-pub use pipeline::GraphicsPipeline;
+pub use pipeline::{ComputePipeline, GraphicsPipeline};

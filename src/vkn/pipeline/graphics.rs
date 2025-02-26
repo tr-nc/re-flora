@@ -1,7 +1,6 @@
+use crate::vkn::Device;
 use ash::vk;
 use std::ops::Deref;
-
-use super::Device;
 
 pub struct GraphicsPipeline {
     device: ash::Device,

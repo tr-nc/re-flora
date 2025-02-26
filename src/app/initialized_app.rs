@@ -1,6 +1,6 @@
 use crate::util::compiler::ShaderCompiler;
 use crate::util::time_info::TimeInfo;
-use crate::vkn::{CommandBuffer, CommandPool};
+use crate::vkn::{CommandBuffer, CommandPool, ComputePipeline, ShaderModule};
 use crate::{
     egui_renderer::EguiRenderer,
     egui_renderer::EguiRendererDesc,
@@ -75,6 +75,18 @@ impl InitializedApp {
                 ..Default::default()
             },
         );
+
+        // compute shader test
+        let compute_shader_module = ShaderModule::from_glsl(
+            &vulkan_context.device,
+            "shader/test.comp",
+            "main",
+            &shader_compiler,
+        )
+        .unwrap();
+        // let compute_pipeline_create_info = vk::ComputePipelineCreateInfo::default();
+        // let compute_pipeline =
+        //     ComputePipeline::new(&vulkan_context.device, compute_pipeline_create_info);
 
         Self {
             vulkan_context,
