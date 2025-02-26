@@ -17,13 +17,11 @@ use crate::util::compiler::ShaderCompiler;
 use crate::vkn::context::VulkanContext;
 use crate::vkn::swapchain::Swapchain;
 use crate::vkn::{
-    DescriptorPool, DescriptorPoolBuilder, DescriptorSetLayout, DescriptorSetLayoutBinding,
-    DescriptorSetLayoutBuilder, Device, GraphicsPipeline, PipelineLayout, ShaderModule,
+    DescriptorPool, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutBuilder,
+    Device, GraphicsPipeline, PipelineLayout, ShaderModule,
 };
 
 use std::sync::{Arc, Mutex};
-
-const MAX_TEXTURE_COUNT: u32 = 1024;
 
 /// Optional parameters of the renderer.
 #[derive(Debug, Clone, Copy)]
@@ -398,7 +396,7 @@ impl EguiRenderer {
         unsafe {
             device.cmd_bind_index_buffer(
                 command_buffer,
-                frames.as_mut().unwrap().indices,
+                frames.as_mut().unwrap().indices_buffer,
                 0,
                 vk::IndexType::UINT32,
             )
@@ -408,7 +406,7 @@ impl EguiRenderer {
             device.cmd_bind_vertex_buffers(
                 command_buffer,
                 0,
-                &[frames.as_mut().unwrap().vertices],
+                &[frames.as_mut().unwrap().vertices_buffer],
                 &[0],
             )
         };
@@ -568,14 +566,11 @@ impl EguiRenderer {
 impl Drop for EguiRenderer {
     fn drop(&mut self) {
         let device = &self.vulkan_context.device;
-        unsafe {
-            if let Some(frames) = self.frames.take() {
-                frames.destroy(device, &mut self.allocator);
-            }
-            for (_, t) in self.managed_textures.drain() {
-                t.destroy(device, &mut self.allocator);
-            }
-            // device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
+        if let Some(frames) = self.frames.take() {
+            frames.destroy(device, &mut self.allocator);
+        }
+        for (_, t) in self.managed_textures.drain() {
+            t.destroy(device, &mut self.allocator);
         }
     }
 }

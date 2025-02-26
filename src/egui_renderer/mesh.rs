@@ -7,10 +7,10 @@ use std::mem::size_of;
 
 /// Vertex and index buffer resources for one frame in flight.
 pub struct Mesh {
-    pub vertices: vk::Buffer,
+    pub vertices_buffer: vk::Buffer,
+    pub indices_buffer: vk::Buffer,
     vertices_mem: gpu_allocator::vulkan::Allocation,
     vertex_count: usize,
-    pub indices: vk::Buffer,
     indices_mem: gpu_allocator::vulkan::Allocation,
     index_count: usize,
 }
@@ -26,16 +26,14 @@ impl Mesh {
         let indices = create_indices(primitives);
         let index_count = indices.len();
 
-        // Create a vertex buffer
-        let (vertices, vertices_mem) = create_and_fill_buffer(
+        let (vertices_buffer, vertices_mem) = create_and_fill_buffer(
             device,
             allocator,
             &vertices,
             vk::BufferUsageFlags::VERTEX_BUFFER,
         );
 
-        // Create an index buffer
-        let (indices, indices_mem) = create_and_fill_buffer(
+        let (indices_buffer, indices_mem) = create_and_fill_buffer(
             device,
             allocator,
             &indices,
@@ -43,10 +41,10 @@ impl Mesh {
         );
 
         Mesh {
-            vertices,
+            vertices_buffer,
             vertices_mem,
             vertex_count,
-            indices,
+            indices_buffer,
             indices_mem,
             index_count,
         }
@@ -69,8 +67,8 @@ impl Mesh {
 
             self.vertex_count = vertex_count;
 
-            let old_vertices = self.vertices;
-            self.vertices = vertices;
+            let old_vertices = self.vertices_buffer;
+            self.vertices_buffer = vertices;
 
             let old_vertices_mem = std::mem::replace(&mut self.vertices_mem, vertices_mem);
 
@@ -89,8 +87,8 @@ impl Mesh {
 
             self.index_count = index_count;
 
-            let old_indices = self.indices;
-            self.indices = indices;
+            let old_indices = self.indices_buffer;
+            self.indices_buffer = indices;
 
             let old_indices_mem = std::mem::replace(&mut self.indices_mem, indices_mem);
 
@@ -100,8 +98,8 @@ impl Mesh {
     }
 
     pub fn destroy(self, device: &Device, allocator: &mut Allocator) {
-        allocator.destroy_buffer(device, self.vertices, self.vertices_mem);
-        allocator.destroy_buffer(device, self.indices, self.indices_mem);
+        allocator.destroy_buffer(device, self.vertices_buffer, self.vertices_mem);
+        allocator.destroy_buffer(device, self.indices_buffer, self.indices_mem);
     }
 }
 

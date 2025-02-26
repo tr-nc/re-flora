@@ -1,17 +1,8 @@
-pub mod pipeline_layout;
-pub use pipeline_layout::PipelineLayout;
-
 pub mod context;
 pub use {context::VulkanContext, context::VulkanContextDesc};
 
 pub mod swapchain;
 pub use swapchain::Swapchain;
-
-mod device;
-pub use device::Device;
-
-mod shader;
-pub use shader::ShaderModule;
 
 mod instance;
 pub use instance::Instance;
@@ -24,6 +15,15 @@ pub use queue::QueueFamilyIndices;
 
 mod surface;
 pub use surface::Surface;
+
+pub mod pipeline_layout;
+pub use pipeline_layout::PipelineLayout;
+
+mod device;
+pub use device::Device;
+
+mod shader;
+pub use shader::ShaderModule;
 
 mod command_buffer;
 pub use command_buffer::CommandBuffer;
