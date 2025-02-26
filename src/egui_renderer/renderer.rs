@@ -1,5 +1,4 @@
 use super::mesh::Mesh;
-use super::{allocator::Allocator, texture::Texture};
 use ash::vk::Extent2D;
 use ash::vk::{self};
 use egui::ViewportId;
@@ -17,8 +16,8 @@ use crate::util::compiler::ShaderCompiler;
 use crate::vkn::context::VulkanContext;
 use crate::vkn::swapchain::Swapchain;
 use crate::vkn::{
-    DescriptorPool, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutBuilder,
-    Device, GraphicsPipeline, PipelineLayout, ShaderModule,
+    Allocator, DescriptorPool, DescriptorSetLayout, DescriptorSetLayoutBinding,
+    DescriptorSetLayoutBuilder, Device, GraphicsPipeline, PipelineLayout, ShaderModule, Texture,
 };
 
 use std::sync::{Arc, Mutex};
@@ -396,7 +395,7 @@ impl EguiRenderer {
         unsafe {
             device.cmd_bind_index_buffer(
                 command_buffer,
-                frames.as_mut().unwrap().indices_buffer,
+                frames.as_mut().unwrap().indices_buffer.as_raw(),
                 0,
                 vk::IndexType::UINT32,
             )
@@ -406,7 +405,7 @@ impl EguiRenderer {
             device.cmd_bind_vertex_buffers(
                 command_buffer,
                 0,
-                &[frames.as_mut().unwrap().vertices_buffer],
+                &[frames.as_mut().unwrap().vertices_buffer.as_raw()],
                 &[0],
             )
         };
@@ -566,9 +565,6 @@ impl EguiRenderer {
 impl Drop for EguiRenderer {
     fn drop(&mut self) {
         let device = &self.vulkan_context.device;
-        if let Some(frames) = self.frames.take() {
-            frames.destroy(device, &mut self.allocator);
-        }
         for (_, t) in self.managed_textures.drain() {
             t.destroy(device, &mut self.allocator);
         }

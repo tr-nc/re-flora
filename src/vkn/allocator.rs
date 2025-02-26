@@ -5,6 +5,7 @@ use gpu_allocator::{
 };
 use std::sync::{Arc, Mutex, MutexGuard};
 
+#[derive(Clone)]
 pub struct Allocator {
     pub allocator: Arc<Mutex<GpuAllocator>>,
 }

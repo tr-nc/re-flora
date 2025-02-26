@@ -1,77 +1,52 @@
-use ash::{vk, Device};
-use egui_ash_renderer::RendererResult;
-use std::mem;
+use super::{Allocator, Device};
+use ash::vk;
+use std::ops::Deref;
 
-#[allow(dead_code)]
-pub fn create_and_fill_buffer<T: Copy>(
-    data: &[T],
-    device: &Device,
-    usage: vk::BufferUsageFlags,
-    mem_properties: vk::PhysicalDeviceMemoryProperties,
-) -> RendererResult<(vk::Buffer, vk::DeviceMemory)> {
-    let size = data.len() * mem::size_of::<T>();
-    let (buffer, memory) = create_buffer(size, device, usage, mem_properties)?;
-    update_buffer_content(device, memory, data)?;
-    Ok((buffer, memory))
+pub struct Buffer {
+    device: ash::Device,
+    allocator: Allocator,
+    buffer: vk::Buffer,
+    memory: gpu_allocator::vulkan::Allocation,
 }
 
-pub fn create_buffer(
-    size: usize,
-    device: &Device,
-    usage: vk::BufferUsageFlags,
-    mem_properties: vk::PhysicalDeviceMemoryProperties,
-) -> RendererResult<(vk::Buffer, vk::DeviceMemory)> {
-    let buffer_info = vk::BufferCreateInfo::default()
-        .size(size as _)
-        .usage(usage)
-        .sharing_mode(vk::SharingMode::EXCLUSIVE);
-    let buffer = unsafe { device.create_buffer(&buffer_info, None)? };
-
-    let mem_requirements = unsafe { device.get_buffer_memory_requirements(buffer) };
-    let mem_type = find_memory_type(
-        mem_requirements,
-        mem_properties,
-        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-    );
-
-    let alloc_info = vk::MemoryAllocateInfo::default()
-        .allocation_size(mem_requirements.size)
-        .memory_type_index(mem_type);
-    let memory = unsafe { device.allocate_memory(&alloc_info, None)? };
-    unsafe { device.bind_buffer_memory(buffer, memory, 0)? };
-
-    Ok((buffer, memory))
+impl Drop for Buffer {
+    fn drop(&mut self) {
+        let allocation = std::mem::take(&mut self.memory);
+        self.allocator
+            .destroy_buffer(&self.device, self.buffer, allocation);
+    }
 }
 
-pub fn update_buffer_content<T: Copy>(
-    device: &Device,
-    buffer_memory: vk::DeviceMemory,
-    data: &[T],
-) -> RendererResult<()> {
-    unsafe {
-        let size = (data.len() * mem::size_of::<T>()) as _;
+impl Deref for Buffer {
+    type Target = vk::Buffer;
 
-        let data_ptr = device.map_memory(buffer_memory, 0, size, vk::MemoryMapFlags::empty())?;
-        let mut align = ash::util::Align::new(data_ptr, mem::align_of::<T>() as _, size);
-        align.copy_from_slice(&data);
-        device.unmap_memory(buffer_memory);
-    };
-    Ok(())
+    fn deref(&self) -> &Self::Target {
+        &self.buffer
+    }
 }
 
-pub fn find_memory_type(
-    requirements: vk::MemoryRequirements,
-    mem_properties: vk::PhysicalDeviceMemoryProperties,
-    required_properties: vk::MemoryPropertyFlags,
-) -> u32 {
-    for i in 0..mem_properties.memory_type_count {
-        if requirements.memory_type_bits & (1 << i) != 0
-            && mem_properties.memory_types[i as usize]
-                .property_flags
-                .contains(required_properties)
-        {
-            return i;
+impl Buffer {
+    pub fn new_sized(
+        device: &Device,
+        allocator: &mut Allocator,
+        usage: vk::BufferUsageFlags,
+        buffer_size: usize,
+    ) -> Self {
+        let (buffer, memory) = allocator.create_buffer(device, buffer_size, usage);
+        Self {
+            device: device.as_raw().clone(),
+            allocator: allocator.clone(),
+            buffer,
+            memory,
         }
     }
-    panic!("Failed to find suitable memory type.")
+
+    pub fn fill<T: Copy>(&mut self, data: &[T]) {
+        self.allocator
+            .update_buffer(&self.device, &mut self.memory, data);
+    }
+
+    pub fn as_raw(&self) -> vk::Buffer {
+        self.buffer
+    }
 }

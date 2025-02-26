@@ -28,6 +28,15 @@ pub use shader::ShaderModule;
 mod command_buffer;
 pub use command_buffer::CommandBuffer;
 
+mod buffer;
+pub use buffer::Buffer;
+
+mod texture;
+pub use texture::Texture;
+
+mod allocator;
+pub use allocator::Allocator;
+
 mod command_pool;
 pub use command_pool::CommandPool;
 
