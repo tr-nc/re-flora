@@ -16,7 +16,10 @@ use winit::window::Window;
 use crate::util::compiler::ShaderCompiler;
 use crate::vkn::context::VulkanContext;
 use crate::vkn::swapchain::Swapchain;
-use crate::vkn::{Device, GraphicsPipeline, PipelineLayout, ShaderModule};
+use crate::vkn::{
+    DescriptorPool, DescriptorPoolBuilder, DescriptorSetLayout, DescriptorSetLayoutBuilder, Device,
+    GraphicsPipeline, PipelineLayout, ShaderModule,
+};
 
 use std::sync::{Arc, Mutex};
 
@@ -48,8 +51,8 @@ pub struct EguiRenderer {
     vert_shader_module: ShaderModule,
     frag_shader_module: ShaderModule,
 
-    descriptor_set_layout: vk::DescriptorSetLayout,
-    descriptor_pool: vk::DescriptorPool,
+    descriptor_set_layout: DescriptorSetLayout,
+    descriptor_pool: DescriptorPool,
     managed_textures: HashMap<TextureId, Texture>,
     textures: HashMap<TextureId, vk::DescriptorSet>,
     frames: Option<Mesh>,
@@ -97,7 +100,7 @@ impl EguiRenderer {
         let push_const_range = create_push_constant_range();
         let pipeline_layout = PipelineLayout::new(
             device,
-            Some(&[descriptor_set_layout]),
+            Some(&[descriptor_set_layout.as_raw()]),
             Some(&push_const_range),
         );
 
@@ -126,8 +129,12 @@ impl EguiRenderer {
             desc,
         );
 
-        // Descriptor pool
-        let descriptor_pool = create_descriptor_pool(device, MAX_TEXTURE_COUNT);
+        let mut descriptor_pool_builder = DescriptorPoolBuilder::new(device);
+        descriptor_pool_builder.append_pool_size(
+            vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            MAX_TEXTURE_COUNT,
+        );
+        let descriptor_pool = descriptor_pool_builder.build(1, None).unwrap();
 
         // Textures
         let managed_textures = HashMap::new();
@@ -251,8 +258,8 @@ impl EguiRenderer {
 
                 let set = create_vulkan_descriptor_set(
                     device,
-                    self.descriptor_set_layout,
-                    self.descriptor_pool,
+                    self.descriptor_set_layout.as_raw(),
+                    self.descriptor_pool.as_raw(),
                     texture.image_view,
                     texture.sampler,
                 );
@@ -263,7 +270,7 @@ impl EguiRenderer {
                 if let Some(previous) = self.textures.insert(*id, set) {
                     unsafe {
                         device
-                            .free_descriptor_sets(self.descriptor_pool, &[previous])
+                            .free_descriptor_sets(self.descriptor_pool.as_raw(), &[previous])
                             .unwrap();
                     };
                 }
@@ -293,7 +300,7 @@ impl EguiRenderer {
             if let Some(set) = self.textures.remove(id) {
                 unsafe {
                     device
-                        .free_descriptor_sets(self.descriptor_pool, &[set])
+                        .free_descriptor_sets(self.descriptor_pool.as_raw(), &[set])
                         .unwrap();
                 };
             }
@@ -548,11 +555,10 @@ impl Drop for EguiRenderer {
             if let Some(frames) = self.frames.take() {
                 frames.destroy(device, &mut self.allocator);
             }
-            device.destroy_descriptor_pool(self.descriptor_pool, None);
             for (_, t) in self.managed_textures.drain() {
                 t.destroy(device, &mut self.allocator);
             }
-            device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
+            // device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
         }
     }
 }
@@ -589,21 +595,14 @@ unsafe fn any_as_u8_slice<T: Sized>(any: &T) -> &[u8] {
 }
 
 /// Create a descriptor set layout compatible with the graphics pipeline.
-fn create_descriptor_set_layout(device: &Device) -> vk::DescriptorSetLayout {
-    let bindings = [vk::DescriptorSetLayoutBinding::default()
-        .binding(0)
-        .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-        .descriptor_count(1)
-        .stage_flags(vk::ShaderStageFlags::FRAGMENT)];
-
-    let descriptor_set_create_info =
-        vk::DescriptorSetLayoutCreateInfo::default().bindings(&bindings);
-
-    unsafe {
-        device
-            .create_descriptor_set_layout(&descriptor_set_create_info, None)
-            .unwrap()
-    }
+fn create_descriptor_set_layout(device: &Device) -> DescriptorSetLayout {
+    let builder = DescriptorSetLayoutBuilder::new().add_binding(
+        0,
+        1,
+        vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+        vk::ShaderStageFlags::FRAGMENT,
+    );
+    builder.build(device).unwrap()
 }
 
 fn create_push_constant_range() -> [vk::PushConstantRange; 1] {
@@ -742,19 +741,6 @@ fn create_pipeline(
 
     let pipeline = GraphicsPipeline::new(device, pipeline_info);
     pipeline
-}
-
-/// Create a descriptor pool of sets compatible with the graphics pipeline.
-fn create_descriptor_pool(device: &Device, max_sets: u32) -> vk::DescriptorPool {
-    let sizes = [vk::DescriptorPoolSize {
-        ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-        descriptor_count: max_sets,
-    }];
-    let create_info = vk::DescriptorPoolCreateInfo::default()
-        .pool_sizes(&sizes)
-        .max_sets(max_sets)
-        .flags(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET);
-    unsafe { device.create_descriptor_pool(&create_info, None).unwrap() }
 }
 
 /// Create a descriptor set compatible with the graphics pipeline from a texture.

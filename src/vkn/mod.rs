@@ -33,3 +33,9 @@ pub use command_pool::CommandPool;
 
 mod pipeline;
 pub use pipeline::{ComputePipeline, GraphicsPipeline};
+
+mod descriptor_pool;
+pub use descriptor_pool::{DescriptorPool, DescriptorPoolBuilder};
+
+mod descriptor_set_layout;
+pub use descriptor_set_layout::{DescriptorSetLayout, DescriptorSetLayoutBuilder};
