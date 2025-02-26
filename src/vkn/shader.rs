@@ -145,17 +145,6 @@ fn u8_to_u32(byte_code: &[u8]) -> Vec<u32> {
         .collect()
 }
 
-fn load_reflect_shader_module(shader_path: &str) -> Result<ReflectShaderModule, String> {
-    let out_dir = env!("OUT_DIR");
-
-    // load from out_dir/shader.vert.spv
-    let res = ReflectShaderModule::load_u8_data(
-        &std::fs::read(format!("{}/{}", out_dir, shader_path)).unwrap(),
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(res)
-}
-
 fn read_code_from_path(full_shader_path: &str) -> Result<String, String> {
     std::fs::read_to_string(full_shader_path).map_err(|e| e.to_string())
 }

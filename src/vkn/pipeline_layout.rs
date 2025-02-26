@@ -1,7 +1,6 @@
-use ash::vk::{self, DescriptorSetLayout};
-use std::ops::Deref;
-
 use super::Device;
+use ash::vk;
+use std::ops::Deref;
 
 pub struct PipelineLayout {
     device: ash::Device,
@@ -28,7 +27,7 @@ impl Deref for PipelineLayout {
 impl PipelineLayout {
     pub fn new(
         device: &Device,
-        descriptor_set_layouts: Option<&[DescriptorSetLayout]>,
+        descriptor_set_layouts: Option<&[vk::DescriptorSetLayout]>,
         push_constant_ranges: Option<&[vk::PushConstantRange]>,
     ) -> Self {
         let mut pipeline_layout_create_info = vk::PipelineLayoutCreateInfo::default();
