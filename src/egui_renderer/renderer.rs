@@ -41,7 +41,7 @@ impl Default for EguiRendererDesc {
 
 /// Winit-Egui Renderer implemented for Ash Vulkan.
 pub struct EguiRenderer {
-    vulkan_context: Arc<VulkanContext>,
+    vulkan_context: VulkanContext,
     allocator: Allocator,
     pipeline: GraphicsPipeline,
     pipeline_layout: PipelineLayout,
@@ -67,11 +67,8 @@ pub struct EguiRenderer {
 }
 
 impl EguiRenderer {
-    /// Create a renderer using gpu-allocator.
-    ///
-    /// At initialization all Vulkan resources are initialized. Vertex and index buffers are not created yet.
     pub fn new(
-        vulkan_context: &Arc<VulkanContext>,
+        vulkan_context: &VulkanContext,
         window: &Window,
         compiler: &ShaderCompiler,
         render_pass: vk::RenderPass,
@@ -79,9 +76,9 @@ impl EguiRenderer {
     ) -> Self {
         let gpu_allocator = {
             let allocator_create_info = AllocatorCreateDesc {
-                instance: vulkan_context.instance.as_raw().clone(),
-                device: vulkan_context.device.as_raw().clone(),
-                physical_device: vulkan_context.physical_device.as_raw(),
+                instance: vulkan_context.instance().as_raw().clone(),
+                device: vulkan_context.device().as_raw().clone(),
+                physical_device: vulkan_context.physical_device().as_raw(),
                 debug_settings: Default::default(),
                 buffer_device_address: false,
                 allocation_sizes: Default::default(),
@@ -91,7 +88,7 @@ impl EguiRenderer {
         };
         let allocator = Allocator::new(Arc::new(Mutex::new(gpu_allocator)));
 
-        let device = &vulkan_context.device;
+        let device = vulkan_context.device();
 
         let binding = DescriptorSetLayoutBinding {
             no: 0,
@@ -192,7 +189,7 @@ impl EguiRenderer {
     /// This is an expensive operation.
     pub fn set_render_pass(&mut self, render_pass: vk::RenderPass) {
         self.pipeline = create_pipeline(
-            &self.vulkan_context.device,
+            &self.vulkan_context.device(),
             &self.pipeline_layout,
             &self.vert_shader_module,
             &self.frag_shader_module,
@@ -236,7 +233,7 @@ impl EguiRenderer {
                 }
             };
 
-            let device = &self.vulkan_context.device;
+            let device = &self.vulkan_context.device();
 
             if let Some([offset_x, offset_y]) = delta.pos {
                 let texture = self.managed_textures.get_mut(id).unwrap();
@@ -302,7 +299,7 @@ impl EguiRenderer {
     /// * [`RendererError`] - If any Vulkan error is encountered when free the texture.
     fn free_textures(&mut self, ids: &[TextureId]) {
         log::trace!("Freeing {} textures", ids.len());
-        let device = &self.vulkan_context.device;
+        let device = &self.vulkan_context.device();
         for id in ids {
             if let Some(texture) = self.managed_textures.remove(id) {
                 texture.destroy(device, &mut self.allocator);
@@ -560,7 +557,7 @@ impl EguiRenderer {
 
 impl Drop for EguiRenderer {
     fn drop(&mut self) {
-        let device = &self.vulkan_context.device;
+        let device = &self.vulkan_context.device();
         for (_, t) in self.managed_textures.drain() {
             t.destroy(device, &mut self.allocator);
         }

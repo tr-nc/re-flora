@@ -4,16 +4,12 @@ use crate::vkn::{CommandBuffer, CommandPool, ComputePipeline, Device, ShaderModu
 use crate::{
     egui_renderer::EguiRenderer,
     egui_renderer::EguiRendererDesc,
-    vkn::{
-        context::{VulkanContext, VulkanContextDesc},
-        swapchain::Swapchain,
-    },
+    vkn::{Swapchain, VulkanContext, VulkanContextDesc},
     window::{WindowMode, WindowState, WindowStateDesc},
 };
 use ash::vk;
 use ash::vk::Extent2D;
 use egui::{Color32, RichText, Slider};
-use std::sync::Arc;
 use winit::event::DeviceEvent;
 use winit::{
     event::{ElementState, WindowEvent},
@@ -23,7 +19,7 @@ use winit::{
 };
 
 pub struct InitializedApp {
-    vulkan_context: Arc<VulkanContext>,
+    vulkan_context: VulkanContext,
 
     renderer: EguiRenderer,
     command_pool: CommandPool,
@@ -42,7 +38,7 @@ pub struct InitializedApp {
 impl InitializedApp {
     pub fn new(_event_loop: &ActiveEventLoop) -> Self {
         let window_state = Self::create_window_state(_event_loop);
-        let vulkan_context = Arc::new(Self::create_vulkan_context(&window_state));
+        let vulkan_context = Self::create_vulkan_context(&window_state);
 
         let shader_compiler = ShaderCompiler::new(Default::default()).unwrap();
 
@@ -53,15 +49,15 @@ impl InitializedApp {
         );
 
         let (image_available_semaphore, render_finished_semaphore) =
-            Self::create_semaphores(&vulkan_context.device);
+            Self::create_semaphores(vulkan_context.device());
 
-        let fence = Self::create_fence(&vulkan_context.device);
+        let fence = Self::create_fence(vulkan_context.device());
 
         let command_pool = CommandPool::new(
-            &vulkan_context.device,
-            vulkan_context.queue_family_indices.general,
+            vulkan_context.device(),
+            vulkan_context.queue_family_indices().general,
         );
-        let command_buffer = CommandBuffer::new(&vulkan_context.device.as_raw(), &command_pool);
+        let command_buffer = CommandBuffer::new(vulkan_context.device().as_raw(), &command_pool);
 
         let renderer = EguiRenderer::new(
             &vulkan_context,
@@ -76,13 +72,13 @@ impl InitializedApp {
 
         // compute shader test
         let compute_shader_module = ShaderModule::from_glsl(
-            &vulkan_context.device,
+            vulkan_context.device(),
             &shader_compiler,
             "shader/test.comp",
             "main",
         )
         .unwrap();
-        ComputePipeline::from_shader_module(&vulkan_context.device, compute_shader_module);
+        ComputePipeline::from_shader_module(vulkan_context.device(), compute_shader_module);
 
         Self {
             vulkan_context,
@@ -148,15 +144,15 @@ impl InitializedApp {
         event_loop.exit();
         unsafe {
             self.vulkan_context
-                .device
+                .device()
                 .as_raw()
                 .destroy_fence(self.fence, None);
             self.vulkan_context
-                .device
+                .device()
                 .as_raw()
                 .destroy_semaphore(self.image_available_semaphore, None);
             self.vulkan_context
-                .device
+                .device()
                 .as_raw()
                 .destroy_semaphore(self.render_finished_semaphore, None);
         }
@@ -277,7 +273,7 @@ impl InitializedApp {
 
                 unsafe {
                     self.vulkan_context
-                        .device
+                        .device()
                         .as_raw()
                         .reset_fences(&[self.fence])
                         .expect("Failed to reset fences")
@@ -293,7 +289,7 @@ impl InitializedApp {
                 };
 
                 self.renderer.record_command_buffer(
-                    &self.vulkan_context.device,
+                    &self.vulkan_context.device(),
                     &self.swapchain,
                     self.command_pool.as_raw(),
                     self.command_buffer.as_raw(),
@@ -310,7 +306,7 @@ impl InitializedApp {
 
                 unsafe {
                     self.vulkan_context
-                        .device
+                        .device()
                         .as_raw()
                         .queue_submit(
                             self.vulkan_context.get_general_queue(),

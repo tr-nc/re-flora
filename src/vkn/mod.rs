@@ -1,20 +1,13 @@
+mod instance;
+mod physical_device;
+mod queue;
+mod surface;
+
 pub mod context;
 pub use {context::VulkanContext, context::VulkanContextDesc};
 
 pub mod swapchain;
 pub use swapchain::Swapchain;
-
-mod instance;
-pub use instance::Instance;
-
-mod physical_device;
-pub use physical_device::PhysicalDevice;
-
-mod queue;
-pub use queue::QueueFamilyIndices;
-
-mod surface;
-pub use surface::Surface;
 
 pub mod pipeline_layout;
 pub use pipeline_layout::PipelineLayout;

@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use ash::{
     khr::swapchain,
     prelude::VkResult,
@@ -28,7 +26,7 @@ impl Default for SwapchainPreference {
 }
 
 pub struct Swapchain {
-    vulkan_context: Arc<VulkanContext>,
+    vulkan_context: VulkanContext,
 
     render_pass: vk::RenderPass,
     framebuffers: Vec<vk::Framebuffer>,
@@ -48,7 +46,7 @@ impl Drop for Swapchain {
 
 impl Swapchain {
     pub fn new(
-        context: &Arc<VulkanContext>,
+        context: &VulkanContext,
         window_size: &[u32; 2],
         swapchain_preference: SwapchainPreference,
     ) -> Self {
@@ -83,7 +81,7 @@ impl Swapchain {
     pub fn clean_up(&mut self) {
         log::info!("Cleaning up vulkan swapchain");
 
-        let device = &self.vulkan_context.device.as_raw();
+        let device = &self.vulkan_context.device().as_raw();
         unsafe {
             device.device_wait_idle().unwrap();
 
@@ -174,7 +172,7 @@ impl Swapchain {
             }]);
 
         unsafe {
-            self.vulkan_context.device.as_raw().cmd_begin_render_pass(
+            self.vulkan_context.device().as_raw().cmd_begin_render_pass(
                 command_buffer,
                 &render_pass_begin_info,
                 vk::SubpassContents::INLINE,
@@ -212,11 +210,11 @@ fn choose_surface_format(
     let format = {
         let formats = unsafe {
             context
-                .surface
+                .surface()
                 .surface
                 .get_physical_device_surface_formats(
-                    context.physical_device.as_raw(),
-                    context.surface.surface_khr,
+                    context.physical_device().as_raw(),
+                    context.surface().surface_khr,
                 )
                 .unwrap()
         };
@@ -247,11 +245,11 @@ fn choose_present_mode(
     let present_mode = {
         let present_modes = unsafe {
             context
-                .surface
+                .surface()
                 .surface
                 .get_physical_device_surface_present_modes(
-                    context.physical_device.as_raw(),
-                    context.surface.surface_khr,
+                    context.physical_device().as_raw(),
+                    context.surface().surface_khr,
                 )
                 .expect("Failed to get physical device surface present modes")
         };
@@ -276,7 +274,7 @@ fn create_swapchain_device_khr(
 ) -> (swapchain::Device, vk::SwapchainKHR) {
     let create_info = {
         let mut builder = vk::SwapchainCreateInfoKHR::default()
-            .surface(context.surface.surface_khr)
+            .surface(context.surface().surface_khr)
             .min_image_count(image_count)
             .image_format(format.format)
             .image_color_space(format.color_space)
@@ -299,7 +297,7 @@ fn create_swapchain_device_khr(
     };
 
     let swapchain_device =
-        swapchain::Device::new(&context.instance.as_raw(), &context.device.as_raw());
+        swapchain::Device::new(&context.instance().as_raw(), &context.device().as_raw());
     let swapchain_khr = unsafe {
         swapchain_device
             .create_swapchain(&create_info, None)
@@ -310,7 +308,7 @@ fn create_swapchain_device_khr(
 }
 
 fn create_vulkan_swapchain(
-    context: &VulkanContext,
+    vulkan_context: &VulkanContext,
     window_size: &[u32; 2],
     swapchain_preference: &SwapchainPreference,
 ) -> (
@@ -321,11 +319,11 @@ fn create_vulkan_swapchain(
     Vec<vk::Framebuffer>,
 ) {
     let format = choose_surface_format(
-        context,
+        vulkan_context,
         swapchain_preference.format,
         swapchain_preference.color_space,
     );
-    let present_mode = choose_present_mode(context, swapchain_preference.present_mode);
+    let present_mode = choose_present_mode(vulkan_context, swapchain_preference.present_mode);
 
     let extent = Extent2D {
         width: window_size[0],
@@ -333,12 +331,12 @@ fn create_vulkan_swapchain(
     };
 
     let capabilities: SurfaceCapabilitiesKHR = unsafe {
-        context
-            .surface
+        vulkan_context
+            .surface()
             .surface
             .get_physical_device_surface_capabilities(
-                context.physical_device.as_raw(),
-                context.surface.surface_khr,
+                vulkan_context.physical_device().as_raw(),
+                vulkan_context.surface().surface_khr,
             )
             .expect("Failed to get physical device surface capabilities")
     };
@@ -346,7 +344,7 @@ fn create_vulkan_swapchain(
     let image_count = capabilities.min_image_count;
 
     let (swapchain_device, swapchain_khr) = create_swapchain_device_khr(
-        context,
+        vulkan_context,
         image_count,
         format,
         extent,
@@ -376,8 +374,8 @@ fn create_vulkan_swapchain(
                 });
 
             unsafe {
-                context
-                    .device
+                vulkan_context
+                    .device()
                     .as_raw()
                     .create_image_view(&create_info, None)
             }
@@ -385,10 +383,10 @@ fn create_vulkan_swapchain(
         .collect::<VkResult<Vec<vk::ImageView>>>()
         .unwrap();
 
-    let render_pass = create_vulkan_render_pass(&context.device, format.format);
+    let render_pass = create_vulkan_render_pass(vulkan_context.device(), format.format);
 
     let framebuffers =
-        create_vulkan_framebuffers(&context.device, render_pass, &views, window_size);
+        create_vulkan_framebuffers(vulkan_context.device(), render_pass, &views, window_size);
 
     (
         swapchain_device,

@@ -4,9 +4,10 @@ use ash::vk;
 /// Helper struct representing a sampled texture.
 pub struct Texture {
     pub image: vk::Image,
-    image_mem: gpu_allocator::vulkan::Allocation,
     pub image_view: vk::ImageView,
     pub sampler: vk::Sampler,
+
+    image_mem: gpu_allocator::vulkan::Allocation,
 }
 
 impl Texture {
