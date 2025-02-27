@@ -1,6 +1,8 @@
 use crate::vkn::{Allocator, Buffer, Device};
 use ash::vk;
 
+use super::{CommandPool, Queue};
+
 pub struct Texture {
     pub image: vk::Image,
     pub image_view: vk::ImageView,
@@ -12,8 +14,8 @@ pub struct Texture {
 impl Texture {
     pub fn from_rgba8(
         device: &Device,
-        queue: vk::Queue,
-        command_pool: vk::CommandPool,
+        queue: Queue,
+        command_pool: &CommandPool,
         allocator: &mut Allocator,
         width: u32,
         height: u32,
@@ -77,10 +79,8 @@ impl Texture {
             image_view,
             sampler,
         };
-
         let region = vk::Rect2D {
             extent: vk::Extent2D { width, height },
-
             ..Default::default()
         };
         let buffer = texture.cmd_update(device, command_buffer, allocator, region, data);
@@ -91,8 +91,8 @@ impl Texture {
     pub fn update(
         &mut self,
         device: &Device,
-        queue: vk::Queue,
-        command_pool: vk::CommandPool,
+        queue: Queue,
+        command_pool: &CommandPool,
         allocator: &mut Allocator,
         region: vk::Rect2D,
         data: &[u8],
@@ -212,14 +212,14 @@ impl Texture {
 
 fn execute_one_time_commands<R, F: FnOnce(vk::CommandBuffer) -> R>(
     device: &Device,
-    queue: vk::Queue,
-    pool: vk::CommandPool,
+    queue: Queue,
+    pool: &CommandPool,
     executor: F,
 ) -> R {
     let command_buffer = {
         let alloc_info = vk::CommandBufferAllocateInfo::default()
             .level(vk::CommandBufferLevel::PRIMARY)
-            .command_pool(pool)
+            .command_pool(pool.as_raw())
             .command_buffer_count(1);
 
         unsafe { device.allocate_command_buffers(&alloc_info).unwrap()[0] }
@@ -249,14 +249,14 @@ fn execute_one_time_commands<R, F: FnOnce(vk::CommandBuffer) -> R>(
         let submit_infos = [submit_info];
         unsafe {
             device
-                .queue_submit(queue, &submit_infos, vk::Fence::null())
+                .queue_submit(queue.as_raw(), &submit_infos, vk::Fence::null())
                 .unwrap();
-            device.queue_wait_idle(queue).unwrap();
+            device.queue_wait_idle(queue.as_raw()).unwrap();
         };
     }
 
     // Free
-    unsafe { device.free_command_buffers(pool, &command_buffers) };
+    unsafe { device.free_command_buffers(pool.as_raw(), &command_buffers) };
 
     executor_result
 }

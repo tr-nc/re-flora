@@ -4,7 +4,7 @@ use ash::{
     vk::{self, Extent2D, PresentModeKHR, SurfaceCapabilitiesKHR, SurfaceFormatKHR},
 };
 
-use super::{context::VulkanContext, Device, Semaphore};
+use super::{context::VulkanContext, CommandBuffer, Device, Semaphore};
 
 /// The preference for the swapchain.
 ///
@@ -143,8 +143,10 @@ impl Swapchain {
             .image_indices(&image_indices);
 
         unsafe {
-            self.swapchain_device
-                .queue_present(self.vulkan_context.get_general_queue(), &present_info)
+            self.swapchain_device.queue_present(
+                self.vulkan_context.get_general_queue().as_raw(),
+                &present_info,
+            )
         }
     }
 
@@ -154,7 +156,7 @@ impl Swapchain {
 
     pub fn record_begin_render_pass_cmdbuf(
         &self,
-        command_buffer: vk::CommandBuffer,
+        command_buffer: &CommandBuffer,
         image_index: u32,
         render_area: &vk::Extent2D,
     ) {
@@ -173,7 +175,7 @@ impl Swapchain {
 
         unsafe {
             self.vulkan_context.device().cmd_begin_render_pass(
-                command_buffer,
+                command_buffer.as_raw(),
                 &render_pass_begin_info,
                 vk::SubpassContents::INLINE,
             )

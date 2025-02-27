@@ -1,3 +1,4 @@
+use super::Queue;
 use super::{instance::Instance, physical_device::PhysicalDevice, queue::QueueFamilyIndices};
 use ash::{khr::swapchain, vk};
 use std::collections::HashSet;
@@ -43,6 +44,12 @@ impl Device {
 
     pub fn as_raw(&self) -> &ash::Device {
         &self.0.device
+    }
+
+    /// Get a queue from the device, only the first queue is returned in current implementation
+    pub fn get_queue(&self, queue_family_index: u32) -> Queue {
+        let queue = unsafe { self.as_raw().get_device_queue(queue_family_index, 0) };
+        Queue::new(queue)
     }
 }
 

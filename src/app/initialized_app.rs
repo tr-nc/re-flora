@@ -205,10 +205,8 @@ impl InitializedApp {
                     .wait_for_fences(&[self.fence.as_raw()])
                     .unwrap();
 
-                self.renderer.update(
-                    self.command_pool.as_raw(),
-                    &self.window_state.window(),
-                    |ctx| {
+                self.renderer
+                    .update(&self.command_pool, &self.window_state.window(), |ctx| {
                         let my_frame = egui::containers::Frame {
                             fill: Color32::from_rgba_premultiplied(50, 0, 10, 128),
                             ..Default::default()
@@ -232,8 +230,7 @@ impl InitializedApp {
                                     );
                                 });
                             });
-                    },
-                );
+                    });
 
                 let next_image_result = self
                     .swapchain
@@ -264,8 +261,8 @@ impl InitializedApp {
                 self.renderer.record_command_buffer(
                     &self.vulkan_context.device(),
                     &self.swapchain,
-                    self.command_pool.as_raw(),
-                    self.command_buffer.as_raw(),
+                    &self.command_pool,
+                    &self.command_buffer,
                     image_index,
                     render_area,
                 );
@@ -285,7 +282,7 @@ impl InitializedApp {
                         .device()
                         .as_raw()
                         .queue_submit(
-                            self.vulkan_context.get_general_queue(),
+                            self.vulkan_context.get_general_queue().as_raw(),
                             &submit_info,
                             self.fence.as_raw(),
                         )

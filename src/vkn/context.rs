@@ -1,6 +1,6 @@
 use super::{
     device::Device, instance::Instance, physical_device::PhysicalDevice, queue::QueueFamilyIndices,
-    surface::Surface,
+    surface::Surface, Queue,
 };
 use ash::{prelude::VkResult, vk, Entry};
 use std::sync::Arc;
@@ -60,25 +60,19 @@ impl VulkanContext {
         }
     }
 
-    /// Obtains the general queue from the device
-    pub fn get_general_queue(&self) -> vk::Queue {
+    pub fn get_general_queue(&self) -> Queue {
+        self.device().get_queue(self.0.queue_family_indices.general)
+    }
+
+    /// Obtains the transfer-only queue from the device
+    pub fn _get_transfer_only_queue(&self) -> vk::Queue {
         unsafe {
             self.0
                 .device
                 .as_raw()
-                .get_device_queue(self.0.queue_family_indices.general, 0)
+                .get_device_queue(self.0.queue_family_indices.transfer_only, 0)
         }
     }
-
-    /// Obtains the transfer-only queue from the device
-    // pub fn get_transfer_only_queue(&self) -> vk::Queue {
-    //     unsafe {
-    //         self.0
-    //             .device
-    //             .as_raw()
-    //             .get_device_queue(self.0.queue_family_indices.transfer_only, 0)
-    //     }
-    // }
 
     /// Expose references to inner fields if needed
     pub fn device(&self) -> &Device {

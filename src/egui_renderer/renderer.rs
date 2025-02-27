@@ -1,5 +1,8 @@
 use super::mesh::Mesh;
 use crate::util::compiler::ShaderCompiler;
+use crate::vkn::CommandBuffer;
+use crate::vkn::CommandPool;
+use crate::vkn::Queue;
 use crate::vkn::Swapchain;
 use crate::vkn::VulkanContext;
 use crate::vkn::{
@@ -203,8 +206,8 @@ impl EguiRenderer {
     /// This method should be called _before_ the frame starts rendering.
     fn set_textures(
         &mut self,
-        queue: vk::Queue,
-        command_pool: vk::CommandPool,
+        queue: Queue,
+        command_pool: &CommandPool,
         textures_delta: &[(TextureId, ImageDelta)],
     ) {
         for (id, delta) in textures_delta {
@@ -240,7 +243,7 @@ impl EguiRenderer {
                 texture.update(
                     device,
                     queue,
-                    command_pool,
+                    &command_pool,
                     &mut self.allocator,
                     vk::Rect2D {
                         offset: vk::Offset2D {
@@ -255,7 +258,7 @@ impl EguiRenderer {
                 let texture = Texture::from_rgba8(
                     device,
                     queue,
-                    command_pool,
+                    &command_pool,
                     &mut self.allocator,
                     width,
                     height,
@@ -321,7 +324,7 @@ impl EguiRenderer {
         pipeline_layout: &PipelineLayout,
         textures: &mut HashMap<TextureId, vk::DescriptorSet>,
         allocator: &mut Allocator,
-        command_buffer: vk::CommandBuffer,
+        command_buffer: &CommandBuffer,
         extent: vk::Extent2D,
         pixels_per_point: f32,
         primitives: &[ClippedPrimitive],
@@ -342,7 +345,7 @@ impl EguiRenderer {
 
         unsafe {
             device.cmd_bind_pipeline(
-                command_buffer,
+                command_buffer.as_raw(),
                 vk::PipelineBindPoint::GRAPHICS,
                 pipeline.as_raw(),
             )
@@ -353,7 +356,7 @@ impl EguiRenderer {
 
         unsafe {
             device.cmd_set_viewport(
-                command_buffer,
+                command_buffer.as_raw(),
                 0,
                 &[vk::Viewport {
                     width: screen_width,
@@ -376,7 +379,7 @@ impl EguiRenderer {
         unsafe {
             let push = any_as_u8_slice(&projection);
             device.cmd_push_constants(
-                command_buffer,
+                command_buffer.as_raw(),
                 pipeline_layout.as_raw(),
                 vk::ShaderStageFlags::VERTEX,
                 0,
@@ -386,7 +389,7 @@ impl EguiRenderer {
 
         unsafe {
             device.cmd_bind_index_buffer(
-                command_buffer,
+                command_buffer.as_raw(),
                 frames.as_mut().unwrap().indices_buffer.as_raw(),
                 0,
                 vk::IndexType::UINT32,
@@ -395,7 +398,7 @@ impl EguiRenderer {
 
         unsafe {
             device.cmd_bind_vertex_buffers(
-                command_buffer,
+                command_buffer.as_raw(),
                 0,
                 &[frames.as_mut().unwrap().vertices_buffer.as_raw()],
                 &[0],
@@ -427,7 +430,7 @@ impl EguiRenderer {
                     }];
 
                     unsafe {
-                        device.cmd_set_scissor(command_buffer, 0, &scissors);
+                        device.cmd_set_scissor(command_buffer.as_raw(), 0, &scissors);
                     }
 
                     if Some(m.texture_id) != current_texture_id {
@@ -435,7 +438,7 @@ impl EguiRenderer {
 
                         unsafe {
                             device.cmd_bind_descriptor_sets(
-                                command_buffer,
+                                command_buffer.as_raw(),
                                 vk::PipelineBindPoint::GRAPHICS,
                                 pipeline_layout.as_raw(),
                                 0,
@@ -449,7 +452,7 @@ impl EguiRenderer {
                     let index_count = m.indices.len() as u32;
                     unsafe {
                         device.cmd_draw_indexed(
-                            command_buffer,
+                            command_buffer.as_raw(),
                             index_count,
                             1,
                             index_offset,
@@ -470,7 +473,7 @@ impl EguiRenderer {
 
     pub fn update(
         &mut self,
-        command_pool: vk::CommandPool,
+        command_pool: &CommandPool,
         window: &Window,
         run_ui: impl FnMut(&egui::Context),
     ) {
@@ -514,14 +517,14 @@ impl EguiRenderer {
         &mut self,
         device: &Device,
         swapchain: &Swapchain,
-        command_pool: vk::CommandPool,
-        command_buffer: vk::CommandBuffer,
+        command_pool: &CommandPool,
+        command_buffer: &CommandBuffer,
         image_index: u32,
         render_area: Extent2D,
     ) {
         unsafe {
             device
-                .reset_command_pool(command_pool, vk::CommandPoolResetFlags::empty())
+                .reset_command_pool(command_pool.as_raw(), vk::CommandPoolResetFlags::empty())
                 .expect("Failed to reset command pool")
         };
 
@@ -529,7 +532,7 @@ impl EguiRenderer {
             .flags(vk::CommandBufferUsageFlags::SIMULTANEOUS_USE);
         unsafe {
             device
-                .begin_command_buffer(command_buffer, &command_buffer_begin_info)
+                .begin_command_buffer(command_buffer.as_raw(), &command_buffer_begin_info)
                 .expect("Failed to begin command buffer")
         };
         swapchain.record_begin_render_pass_cmdbuf(command_buffer, image_index, &render_area);
@@ -548,8 +551,8 @@ impl EguiRenderer {
         );
 
         unsafe {
-            device.cmd_end_render_pass(command_buffer);
-            device.end_command_buffer(command_buffer).unwrap()
+            device.cmd_end_render_pass(command_buffer.as_raw());
+            device.end_command_buffer(command_buffer.as_raw()).unwrap()
         };
     }
 }

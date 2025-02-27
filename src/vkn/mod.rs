@@ -1,7 +1,9 @@
 mod instance;
 mod physical_device;
-mod queue;
 mod surface;
+
+mod queue;
+pub use queue::{QueueFamilyIndices, Queue};
 
 mod semaphore;
 pub use semaphore::Semaphore;
