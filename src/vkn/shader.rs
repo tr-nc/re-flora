@@ -1,11 +1,13 @@
-use std::ffi::CString;
-
+use super::{
+    DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutBuilder, Device,
+    PipelineLayout,
+};
 use crate::util::compiler::ShaderCompiler;
-
-use super::{Device, PipelineLayout};
-use ash::vk::{ShaderModuleCreateInfo, ShaderStageFlags};
+use ash::vk::{self};
 use shaderc::ShaderKind;
-use spirv_reflect::ShaderModule as ReflectShaderModule;
+use spirv_reflect::{types::ReflectDescriptorType, ShaderModule as ReflectShaderModule};
+use std::ffi::CString;
+use std::fmt::Debug;
 
 pub struct ShaderModule {
     device: ash::Device,
@@ -19,6 +21,37 @@ impl Drop for ShaderModule {
         unsafe {
             self.device.destroy_shader_module(self.shader_module, None);
         }
+    }
+}
+
+impl Debug for ShaderModule {
+    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        log::debug!("Shader module reflection:");
+        log::debug!(
+            "  Entry point: {}",
+            self.reflect_shader_module.get_entry_point_name()
+        );
+        log::debug!(
+            "  Shader stage: {:?}",
+            self.reflect_shader_module.get_shader_stage()
+        );
+
+        let descriptor_sets = self
+            .reflect_shader_module
+            .enumerate_descriptor_sets(None)
+            .unwrap();
+        log::debug!("ds count: {}", descriptor_sets.len());
+
+        for descriptor_set in descriptor_sets {
+            log::debug!("  Descriptor set: {}", descriptor_set.set);
+            for binding in descriptor_set.bindings {
+                log::debug!("    Binding: {}", binding.binding);
+                log::debug!("    Descriptor type: {:?}", binding.descriptor_type);
+                log::debug!("    Descriptor count: {}", binding.count);
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -86,56 +119,77 @@ impl ShaderModule {
 
     pub fn get_shader_stage_create_info(&self) -> ash::vk::PipelineShaderStageCreateInfo {
         let info = ash::vk::PipelineShaderStageCreateInfo::default()
-            .stage(ShaderStageFlags::from_raw(
-                self.reflect_shader_module.get_shader_stage().bits(),
-            ))
+            .stage(self.get_stage())
             .module(self.get_shader_module())
             .name(&self.entry_point_name);
         info
     }
 
     pub fn get_shader_pipeline_layout(&self, device: &Device) -> PipelineLayout {
-        let reflect_descriptor_sets = self
-            .reflect_shader_module
-            .enumerate_descriptor_sets(None)
-            .unwrap();
-
-        // let descriptor_set_layouts;
-
-        // descriptor_set_layouts = reflect_descriptor_sets
-        //     .iter()
-        //     .map(|descriptor_set| {
-        //         let bindings = descriptor_set
-        //             .bindings
-        //             .iter()
-        //             .map(|binding| binding.descriptor_type)
-        //             .collect::<Vec<_>>();
-        //         let descriptor_set_layout = descriptor_set.create_descriptor_set_layout(&bindings);
-        //         descriptor_set_layout
-        //     })
-        //     .collect::<Vec<_>>();
-
-        PipelineLayout::new(device, None, None)
+        let descriptor_set_layouts = self.get_descriptor_set_layouts(device);
+        PipelineLayout::new(device, Some(&descriptor_set_layouts), None)
     }
 
-    pub fn print_reflection_info(&self) {
-        log::debug!("Shader module reflection:");
-        log::debug!(
-            "  Entry point: {}",
-            self.reflect_shader_module.get_entry_point_name()
-        );
-        log::debug!(
-            "  Shader stage: {:?}",
-            self.reflect_shader_module.get_shader_stage()
-        );
+    pub fn get_stage(&self) -> vk::ShaderStageFlags {
+        vk::ShaderStageFlags::from_raw(self.reflect_shader_module.get_shader_stage().bits())
+    }
 
+    fn get_descriptor_set_layouts(&self, device: &Device) -> Vec<DescriptorSetLayout> {
         let descriptor_sets = self
             .reflect_shader_module
             .enumerate_descriptor_sets(None)
             .unwrap();
-        log::debug!("ds count: {}", descriptor_sets.len());
+
+        let mut layouts = Vec::new();
+
         for descriptor_set in descriptor_sets {
-            log::debug!("  Descriptor set: {:?}", descriptor_set);
+            let set_no = descriptor_set.set;
+            log::debug!("building descriptor set layout for set {}", set_no);
+
+            let mut builder = DescriptorSetLayoutBuilder::new();
+
+            for binding in descriptor_set.bindings {
+                let binding_no = binding.binding;
+                let descriptor_type = binding.descriptor_type;
+                let descriptor_count = binding.count;
+                let stage_flags = self.get_stage();
+
+                let b = DescriptorSetLayoutBinding {
+                    no: binding_no,
+                    descriptor_type: Self::reflect_descriptor_type_to_descriptor_type(
+                        descriptor_type,
+                    ),
+                    descriptor_count: descriptor_count,
+                    stage_flags: stage_flags,
+                };
+                builder.add_binding(b);
+            }
+
+            layouts.push(builder.build(device).unwrap());
+        }
+        layouts
+    }
+
+    fn reflect_descriptor_type_to_descriptor_type(
+        reflect_type: ReflectDescriptorType,
+    ) -> vk::DescriptorType {
+        use vk::DescriptorType;
+        match reflect_type {
+            ReflectDescriptorType::Sampler => DescriptorType::SAMPLER,
+            ReflectDescriptorType::CombinedImageSampler => DescriptorType::COMBINED_IMAGE_SAMPLER,
+            ReflectDescriptorType::SampledImage => DescriptorType::SAMPLED_IMAGE,
+            ReflectDescriptorType::StorageImage => DescriptorType::STORAGE_IMAGE,
+            ReflectDescriptorType::UniformTexelBuffer => DescriptorType::UNIFORM_TEXEL_BUFFER,
+            ReflectDescriptorType::StorageTexelBuffer => DescriptorType::STORAGE_TEXEL_BUFFER,
+            ReflectDescriptorType::UniformBuffer => DescriptorType::UNIFORM_BUFFER,
+            ReflectDescriptorType::StorageBuffer => DescriptorType::STORAGE_BUFFER,
+            ReflectDescriptorType::UniformBufferDynamic => DescriptorType::UNIFORM_BUFFER_DYNAMIC,
+            ReflectDescriptorType::StorageBufferDynamic => DescriptorType::STORAGE_BUFFER_DYNAMIC,
+            ReflectDescriptorType::InputAttachment => DescriptorType::INPUT_ATTACHMENT,
+            ReflectDescriptorType::AccelerationStructureKHR => {
+                DescriptorType::ACCELERATION_STRUCTURE_KHR
+            }
+            _ => panic!(),
         }
     }
 
@@ -170,7 +224,8 @@ fn bytecode_to_shader_module(
     shader_byte_code: &[u8],
 ) -> Result<ash::vk::ShaderModule, String> {
     let shader_byte_code_u32 = u8_to_u32(shader_byte_code);
-    let shader_module_create_info = ShaderModuleCreateInfo::default().code(&shader_byte_code_u32);
+    let shader_module_create_info =
+        vk::ShaderModuleCreateInfo::default().code(&shader_byte_code_u32);
     unsafe {
         device
             .create_shader_module(&shader_module_create_info, None)

@@ -92,7 +92,7 @@ impl DescriptorSetLayoutBuilder {
         }
     }
 
-    pub fn add_binding(mut self, binding: DescriptorSetLayoutBinding) -> Self {
+    pub fn add_binding(&mut self, binding: DescriptorSetLayoutBinding) -> &mut Self {
         self.bindings.push(binding);
         self
     }

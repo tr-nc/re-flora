@@ -8,6 +8,7 @@ use egui::{
 };
 use egui_winit::EventResponse;
 use gpu_allocator::vulkan::AllocatorCreateDesc;
+use spirv_reflect::types::descriptor;
 use std::{collections::HashMap, mem};
 use winit::event::WindowEvent;
 use winit::window::Window;
@@ -99,18 +100,21 @@ impl EguiRenderer {
             descriptor_count: 1,
             stage_flags: vk::ShaderStageFlags::FRAGMENT,
         };
-        let builder = DescriptorSetLayoutBuilder::new().add_binding(binding);
+        let mut builder = DescriptorSetLayoutBuilder::new();
+        builder.add_binding(binding);
         let descriptor_set_layout = builder.build(device).unwrap();
 
-        let push_const_range = [vk::PushConstantRange {
+        let push_const_range = vk::PushConstantRange {
             stage_flags: vk::ShaderStageFlags::VERTEX,
             offset: 0,
             size: mem::size_of::<[f32; 16]>() as u32,
-        }];
+        };
+        let descriptor_set_layouts = std::slice::from_ref(&descriptor_set_layout);
+        let push_const_ranges = std::slice::from_ref(&push_const_range);
         let pipeline_layout = PipelineLayout::new(
             device,
-            Some(&[descriptor_set_layout.as_raw()]),
-            Some(&push_const_range),
+            Some(descriptor_set_layouts),
+            Some(push_const_ranges),
         );
 
         let vert_shader_module = ShaderModule::from_glsl(
@@ -138,19 +142,12 @@ impl EguiRenderer {
             desc,
         );
 
-        // let mut descriptor_pool_builder = DescriptorPoolBuilder::new(device);
-        // descriptor_pool_builder.append_pool_size(
-        //     vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-        //     MAX_TEXTURE_COUNT,
-        // );
-        // let descriptor_pool = descriptor_pool_builder.build(1, None).unwrap();
         let descriptor_pool = DescriptorPool::from_descriptor_set_layouts(
             device,
             std::slice::from_ref(&descriptor_set_layout),
         )
         .unwrap();
 
-        // Textures
         let managed_textures = HashMap::new();
         let textures = HashMap::new();
 

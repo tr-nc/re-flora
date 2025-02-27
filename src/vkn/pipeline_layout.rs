@@ -1,4 +1,4 @@
-use super::Device;
+use super::{DescriptorSetLayout, Device};
 use ash::vk;
 use std::ops::Deref;
 
@@ -27,15 +27,19 @@ impl Deref for PipelineLayout {
 impl PipelineLayout {
     pub fn new(
         device: &Device,
-        descriptor_set_layouts: Option<&[vk::DescriptorSetLayout]>,
+        descriptor_set_layouts: Option<&[DescriptorSetLayout]>,
         push_constant_ranges: Option<&[vk::PushConstantRange]>,
     ) -> Self {
         let mut pipeline_layout_create_info = vk::PipelineLayoutCreateInfo::default();
 
+        let mut raw_layouts = Vec::new();
         if let Some(descriptor_set_layouts) = descriptor_set_layouts {
-            pipeline_layout_create_info =
-                pipeline_layout_create_info.set_layouts(descriptor_set_layouts);
+            raw_layouts = descriptor_set_layouts
+                .iter()
+                .map(|layout| layout.as_raw())
+                .collect::<Vec<_>>();
         }
+        pipeline_layout_create_info = pipeline_layout_create_info.set_layouts(&raw_layouts);
 
         if let Some(push_constant_ranges) = push_constant_ranges {
             pipeline_layout_create_info =
