@@ -1,7 +1,6 @@
 use crate::vkn::{Allocator, Buffer, Device};
 use ash::vk;
 
-/// Helper struct representing a sampled texture.
 pub struct Texture {
     pub image: vk::Image,
     pub image_view: vk::ImageView,

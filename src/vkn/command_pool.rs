@@ -1,13 +1,14 @@
 use ash::vk;
+use std::sync::Arc;
 
 use super::Device;
 
-pub struct CommandPool {
+struct CommandPoolInner {
     device: Device,
-    pub command_pool: vk::CommandPool,
+    command_pool: vk::CommandPool,
 }
 
-impl Drop for CommandPool {
+impl Drop for CommandPoolInner {
     fn drop(&mut self) {
         unsafe {
             self.device.destroy_command_pool(self.command_pool, None);
@@ -15,17 +16,27 @@ impl Drop for CommandPool {
     }
 }
 
+#[derive(Clone)]
+pub struct CommandPool(Arc<CommandPoolInner>);
+
+impl std::ops::Deref for CommandPool {
+    type Target = vk::CommandPool;
+    fn deref(&self) -> &Self::Target {
+        &self.0.command_pool
+    }
+}
+
 impl CommandPool {
     pub fn new(device: &Device, queue_family_index: u32) -> Self {
         let command_pool = create_command_pool(device, queue_family_index);
-        Self {
+        Self(Arc::new(CommandPoolInner {
             device: device.clone(),
             command_pool,
-        }
+        }))
     }
 
     pub fn as_raw(&self) -> vk::CommandPool {
-        self.command_pool
+        self.0.command_pool
     }
 }
 

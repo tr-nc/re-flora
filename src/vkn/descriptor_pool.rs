@@ -1,18 +1,29 @@
 use ash::vk;
+use std::sync::Arc;
 
 use super::{DescriptorSetLayout, Device};
 
-pub struct DescriptorPool {
+struct DescriptorPoolInner {
     device: Device,
     descriptor_pool: vk::DescriptorPool,
 }
 
-impl Drop for DescriptorPool {
+impl Drop for DescriptorPoolInner {
     fn drop(&mut self) {
         unsafe {
             self.device
                 .destroy_descriptor_pool(self.descriptor_pool, None);
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct DescriptorPool(Arc<DescriptorPoolInner>);
+
+impl std::ops::Deref for DescriptorPool {
+    type Target = vk::DescriptorPool;
+    fn deref(&self) -> &Self::Target {
+        &self.0.descriptor_pool
     }
 }
 
@@ -25,10 +36,10 @@ impl DescriptorPool {
                 .map_err(|e| e.to_string())?
         };
 
-        Ok(Self {
+        Ok(Self(Arc::new(DescriptorPoolInner {
             device: device.clone(),
             descriptor_pool,
-        })
+        })))
     }
 
     pub fn from_descriptor_set_layouts(
@@ -53,6 +64,6 @@ impl DescriptorPool {
     }
 
     pub fn as_raw(&self) -> vk::DescriptorPool {
-        self.descriptor_pool
+        self.0.descriptor_pool
     }
 }

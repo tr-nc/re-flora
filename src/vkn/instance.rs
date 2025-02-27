@@ -6,16 +6,17 @@ use ash::{
 use std::{
     ffi::{CStr, CString},
     os::raw::{c_char, c_void},
+    sync::Arc,
 };
 use winit::{raw_window_handle::HasDisplayHandle, window::Window};
 
-pub struct Instance {
+struct InstanceInner {
     instance: ash::Instance,
     debug_utils: debug_utils::Instance,
     debug_utils_messenger: vk::DebugUtilsMessengerEXT,
 }
 
-impl Drop for Instance {
+impl Drop for InstanceInner {
     fn drop(&mut self) {
         unsafe {
             self.debug_utils
@@ -25,19 +26,29 @@ impl Drop for Instance {
     }
 }
 
+#[derive(Clone)]
+pub struct Instance(Arc<InstanceInner>);
+
+impl std::ops::Deref for Instance {
+    type Target = ash::Instance;
+    fn deref(&self) -> &Self::Target {
+        &self.0.instance
+    }
+}
+
 impl Instance {
     pub fn new(entry: &Entry, window: &Window, title: &str) -> Self {
         let (instance, debug_utils, debug_utils_messenger) =
             create_vulkan_instance(entry, window, title);
-        Self {
+        Self(Arc::new(InstanceInner {
             instance,
             debug_utils,
             debug_utils_messenger,
-        }
+        }))
     }
 
     pub fn as_raw(&self) -> &ash::Instance {
-        &self.instance
+        &self.0.instance
     }
 }
 

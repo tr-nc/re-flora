@@ -1,13 +1,14 @@
 use ash::vk;
+use std::sync::Arc;
 
 use super::Device;
 
-pub struct Semaphore {
+struct SemaphoreInner {
     device: Device,
-    pub semaphore: vk::Semaphore,
+    semaphore: vk::Semaphore,
 }
 
-impl Drop for Semaphore {
+impl Drop for SemaphoreInner {
     fn drop(&mut self) {
         unsafe {
             self.device.destroy_semaphore(self.semaphore, None);
@@ -15,17 +16,27 @@ impl Drop for Semaphore {
     }
 }
 
+#[derive(Clone)]
+pub struct Semaphore(Arc<SemaphoreInner>);
+
+impl std::ops::Deref for Semaphore {
+    type Target = vk::Semaphore;
+    fn deref(&self) -> &Self::Target {
+        &self.0.semaphore
+    }
+}
+
 impl Semaphore {
     pub fn new(device: &Device) -> Self {
         let semaphore = Self::create_semaphore(device);
-        Self {
+        Self(Arc::new(SemaphoreInner {
             device: device.clone(),
             semaphore,
-        }
+        }))
     }
 
     pub fn as_raw(&self) -> vk::Semaphore {
-        self.semaphore
+        self.0.semaphore
     }
 
     fn create_semaphore(device: &Device) -> vk::Semaphore {

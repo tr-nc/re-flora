@@ -1,4 +1,4 @@
-
+#[derive(Debug, Clone, Copy)]
 pub struct QueueFamilyIndices {
     /// Guaranteed to support GRAPHICS + PRESENT + COMPUTE + TRANSFER,
     /// and should be used for all main tasks

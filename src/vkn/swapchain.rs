@@ -211,10 +211,10 @@ fn choose_surface_format(
         let formats = unsafe {
             context
                 .surface()
-                .surface
+                .surface_instance()
                 .get_physical_device_surface_formats(
                     context.physical_device().as_raw(),
-                    context.surface().surface_khr,
+                    context.surface().surface_khr(),
                 )
                 .unwrap()
         };
@@ -246,10 +246,10 @@ fn choose_present_mode(
         let present_modes = unsafe {
             context
                 .surface()
-                .surface
+                .surface_instance()
                 .get_physical_device_surface_present_modes(
                     context.physical_device().as_raw(),
-                    context.surface().surface_khr,
+                    context.surface().surface_khr(),
                 )
                 .expect("Failed to get physical device surface present modes")
         };
@@ -274,7 +274,7 @@ fn create_swapchain_device_khr(
 ) -> (swapchain::Device, vk::SwapchainKHR) {
     let create_info = {
         let mut builder = vk::SwapchainCreateInfoKHR::default()
-            .surface(context.surface().surface_khr)
+            .surface(context.surface().surface_khr())
             .min_image_count(image_count)
             .image_format(format.format)
             .image_color_space(format.color_space)
@@ -332,10 +332,10 @@ fn create_vulkan_swapchain(
     let capabilities: SurfaceCapabilitiesKHR = unsafe {
         vulkan_context
             .surface()
-            .surface
+            .surface_instance()
             .get_physical_device_surface_capabilities(
                 vulkan_context.physical_device().as_raw(),
-                vulkan_context.surface().surface_khr,
+                vulkan_context.surface().surface_khr(),
             )
             .expect("Failed to get physical device surface capabilities")
     };

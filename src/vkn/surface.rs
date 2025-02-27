@@ -1,14 +1,15 @@
 use ash::{khr::surface, vk};
+use std::sync::Arc;
 use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
 use super::instance::Instance;
 
-pub struct Surface {
-    pub surface: surface::Instance,
-    pub surface_khr: vk::SurfaceKHR,
+struct SurfaceInner {
+    surface: surface::Instance,
+    surface_khr: vk::SurfaceKHR,
 }
 
-impl Drop for Surface {
+impl Drop for SurfaceInner {
     fn drop(&mut self) {
         unsafe {
             self.surface.destroy_surface(self.surface_khr, None);
@@ -16,13 +17,31 @@ impl Drop for Surface {
     }
 }
 
+#[derive(Clone)]
+pub struct Surface(Arc<SurfaceInner>);
+
+impl std::ops::Deref for Surface {
+    type Target = vk::SurfaceKHR;
+    fn deref(&self) -> &Self::Target {
+        &self.0.surface_khr
+    }
+}
+
 impl Surface {
     pub fn new(entry: &ash::Entry, instance: &Instance, window: &winit::window::Window) -> Self {
         let (surface_khr, surface) = create_surface(entry, instance.as_raw(), window);
-        Self {
+        Self(Arc::new(SurfaceInner {
             surface,
             surface_khr,
-        }
+        }))
+    }
+
+    pub fn surface_instance(&self) -> &surface::Instance {
+        &self.0.surface
+    }
+
+    pub fn surface_khr(&self) -> vk::SurfaceKHR {
+        self.0.surface_khr
     }
 }
 

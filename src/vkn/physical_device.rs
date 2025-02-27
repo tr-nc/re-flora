@@ -6,14 +6,18 @@ use std::ffi::CStr;
 
 use super::{instance::Instance, queue::QueueFamilyIndices, surface::Surface};
 
+#[derive(Clone, Copy)]
 pub struct PhysicalDevice {
     pub device: vk::PhysicalDevice,
 }
 
 impl PhysicalDevice {
     pub fn new(instance: &Instance, surface: &Surface) -> (Self, QueueFamilyIndices) {
-        let (device, queue_family_indices) =
-            create_physical_device(instance.as_raw(), &surface.surface, surface.surface_khr);
+        let (device, queue_family_indices) = create_physical_device(
+            instance.as_raw(),
+            &surface.surface_instance(),
+            surface.surface_khr(),
+        );
         (Self { device }, queue_family_indices)
     }
 

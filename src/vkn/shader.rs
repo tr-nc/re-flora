@@ -8,19 +8,30 @@ use shaderc::ShaderKind;
 use spirv_reflect::{types::ReflectDescriptorType, ShaderModule as ReflectShaderModule};
 use std::ffi::CString;
 use std::fmt::Debug;
+use std::sync::Arc;
 
-pub struct ShaderModule {
+struct ShaderModuleInner {
     device: Device,
     entry_point_name: CString,
     shader_module: ash::vk::ShaderModule,
     reflect_shader_module: ReflectShaderModule,
 }
 
-impl Drop for ShaderModule {
+impl Drop for ShaderModuleInner {
     fn drop(&mut self) {
         unsafe {
             self.device.destroy_shader_module(self.shader_module, None);
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct ShaderModule(Arc<ShaderModuleInner>);
+
+impl std::ops::Deref for ShaderModule {
+    type Target = ash::vk::ShaderModule;
+    fn deref(&self) -> &Self::Target {
+        &self.0.shader_module
     }
 }
 
@@ -29,14 +40,15 @@ impl Debug for ShaderModule {
         log::debug!("Shader module reflection:");
         log::debug!(
             "  Entry point: {}",
-            self.reflect_shader_module.get_entry_point_name()
+            self.0.reflect_shader_module.get_entry_point_name()
         );
         log::debug!(
             "  Shader stage: {:?}",
-            self.reflect_shader_module.get_shader_stage()
+            self.0.reflect_shader_module.get_shader_stage()
         );
 
         let descriptor_sets = self
+            .0
             .reflect_shader_module
             .enumerate_descriptor_sets(None)
             .unwrap();
@@ -104,23 +116,23 @@ impl ShaderModule {
             ReflectShaderModule::load_u8_data(&shader_byte_code_u8).map_err(|e| e.to_string())?;
         let shader_module = bytecode_to_shader_module(device, &shader_byte_code_u8)?;
 
-        Ok(Self {
+        Ok(Self(Arc::new(ShaderModuleInner {
             device: device.clone(),
             entry_point_name: CString::new(entry_point_name).unwrap(),
             shader_module,
             reflect_shader_module,
-        })
+        })))
     }
 
     pub fn get_shader_module(&self) -> ash::vk::ShaderModule {
-        self.shader_module
+        self.0.shader_module
     }
 
     pub fn get_shader_stage_create_info(&self) -> ash::vk::PipelineShaderStageCreateInfo {
         let info = ash::vk::PipelineShaderStageCreateInfo::default()
             .stage(self.get_stage())
             .module(self.get_shader_module())
-            .name(&self.entry_point_name);
+            .name(&self.0.entry_point_name);
         info
     }
 
@@ -135,11 +147,12 @@ impl ShaderModule {
     }
 
     pub fn get_stage(&self) -> vk::ShaderStageFlags {
-        vk::ShaderStageFlags::from_raw(self.reflect_shader_module.get_shader_stage().bits())
+        vk::ShaderStageFlags::from_raw(self.0.reflect_shader_module.get_shader_stage().bits())
     }
 
     fn get_push_constant_ranges(&self) -> Option<Vec<PushConstantRange>> {
         let push_constant_ranges = self
+            .0
             .reflect_shader_module
             .enumerate_push_constant_blocks(None)
             .unwrap();
@@ -165,6 +178,7 @@ impl ShaderModule {
 
     fn get_descriptor_set_layouts(&self) -> Option<Vec<DescriptorSetLayout>> {
         let descriptor_sets = self
+            .0
             .reflect_shader_module
             .enumerate_descriptor_sets(None)
             .unwrap();
@@ -192,7 +206,7 @@ impl ShaderModule {
                 builder.add_binding(b);
             }
 
-            layouts.push(builder.build(&self.device).unwrap());
+            layouts.push(builder.build(&self.0.device).unwrap());
         }
 
         if layouts.is_empty() {
