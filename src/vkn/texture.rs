@@ -33,7 +33,7 @@ impl Texture {
         height: u32,
         data: &[u8],
     ) -> (Self, Buffer) {
-        let (image, image_mem) = allocator.create_image(device, width, height);
+        let (image, image_mem) = allocator.create_image(width, height);
 
         let image_view = {
             let create_info = vk::ImageViewCreateInfo::default()
@@ -205,7 +205,7 @@ impl Texture {
         unsafe {
             device.destroy_sampler(self.sampler, None);
             device.destroy_image_view(self.image_view, None);
-            allocator.destroy_image(device, self.image, self.image_mem);
+            allocator.destroy_image(self.image, self.image_mem);
         }
     }
 }

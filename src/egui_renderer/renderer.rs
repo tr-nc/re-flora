@@ -1,17 +1,4 @@
 use super::mesh::Mesh;
-use ash::vk::Extent2D;
-use ash::vk::{self};
-use egui::ViewportId;
-use egui::{
-    epaint::{ImageDelta, Primitive},
-    ClippedPrimitive, ImageData, TextureId,
-};
-use egui_winit::EventResponse;
-use gpu_allocator::vulkan::AllocatorCreateDesc;
-use std::{collections::HashMap, mem};
-use winit::event::WindowEvent;
-use winit::window::Window;
-
 use crate::util::compiler::ShaderCompiler;
 use crate::vkn::Swapchain;
 use crate::vkn::VulkanContext;
@@ -19,8 +6,19 @@ use crate::vkn::{
     Allocator, DescriptorPool, DescriptorSetLayout, DescriptorSetLayoutBinding,
     DescriptorSetLayoutBuilder, Device, GraphicsPipeline, PipelineLayout, ShaderModule, Texture,
 };
-
+use ash::vk;
+use ash::vk::Extent2D;
+use egui::ViewportId;
+use egui::{
+    epaint::{ImageDelta, Primitive},
+    ClippedPrimitive, ImageData, TextureId,
+};
+use egui_winit::EventResponse;
+use gpu_allocator::vulkan::AllocatorCreateDesc;
 use std::sync::{Arc, Mutex};
+use std::{collections::HashMap, mem};
+use winit::event::WindowEvent;
+use winit::window::Window;
 
 /// Optional parameters of the renderer.
 #[derive(Debug, Clone, Copy)]
@@ -86,7 +84,8 @@ impl EguiRenderer {
             gpu_allocator::vulkan::Allocator::new(&allocator_create_info)
                 .expect("Failed to create gpu allocator")
         };
-        let allocator = Allocator::new(Arc::new(Mutex::new(gpu_allocator)));
+        let allocator =
+            Allocator::new(vulkan_context.device(), Arc::new(Mutex::new(gpu_allocator)));
 
         let device = vulkan_context.device();
 

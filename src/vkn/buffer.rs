@@ -3,7 +3,7 @@ use ash::vk;
 use std::ops::Deref;
 
 pub struct Buffer {
-    device: Device,
+    _device: Device,
     allocator: Allocator,
     buffer: vk::Buffer,
     memory: gpu_allocator::vulkan::Allocation,
@@ -12,8 +12,7 @@ pub struct Buffer {
 impl Drop for Buffer {
     fn drop(&mut self) {
         let allocation = std::mem::take(&mut self.memory);
-        self.allocator
-            .destroy_buffer(&self.device, self.buffer, allocation);
+        self.allocator.destroy_buffer(self.buffer, allocation);
     }
 }
 
@@ -32,9 +31,9 @@ impl Buffer {
         usage: vk::BufferUsageFlags,
         buffer_size: usize,
     ) -> Self {
-        let (buffer, memory) = allocator.create_buffer(device, buffer_size, usage);
+        let (buffer, memory) = allocator.create_buffer(buffer_size, usage);
         Self {
-            device: device.clone(),
+            _device: device.clone(),
             allocator: allocator.clone(),
             buffer,
             memory,
@@ -42,8 +41,7 @@ impl Buffer {
     }
 
     pub fn fill<T: Copy>(&mut self, data: &[T]) {
-        self.allocator
-            .update_buffer(&self.device, &mut self.memory, data);
+        self.allocator.update_buffer(&mut self.memory, data);
     }
 
     pub fn as_raw(&self) -> vk::Buffer {

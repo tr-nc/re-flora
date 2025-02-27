@@ -1,4 +1,5 @@
-use ash::{vk, Device};
+use super::Device;
+use ash::vk;
 use gpu_allocator::{
     vulkan::{Allocation, AllocationCreateDesc, AllocationScheme, Allocator as GpuAllocator},
     MemoryLocation,
@@ -7,22 +8,24 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 #[derive(Clone)]
 pub struct Allocator {
+    device: Device,
     pub allocator: Arc<Mutex<GpuAllocator>>,
 }
 
 impl Allocator {
-    pub fn new(allocator: Arc<Mutex<gpu_allocator::vulkan::Allocator>>) -> Self {
-        Self { allocator }
+    pub fn new(device: &Device, allocator: Arc<Mutex<gpu_allocator::vulkan::Allocator>>) -> Self {
+        Self {
+            device: device.clone(),
+            allocator,
+        }
     }
 
     fn get_allocator(&self) -> MutexGuard<GpuAllocator> {
         self.allocator.lock().unwrap()
     }
 
-    /// Creates a Vulkan buffer.
     pub fn create_buffer(
         &mut self,
-        device: &Device,
         size: usize,
         usage: vk::BufferUsageFlags,
     ) -> (vk::Buffer, Allocation) {
@@ -31,8 +34,8 @@ impl Allocator {
             .usage(usage)
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
 
-        let buffer = unsafe { device.create_buffer(&buffer_info, None).unwrap() };
-        let requirements = unsafe { device.get_buffer_memory_requirements(buffer) };
+        let buffer = unsafe { self.device.create_buffer(&buffer_info, None).unwrap() };
+        let requirements = unsafe { self.device.get_buffer_memory_requirements(buffer) };
 
         let mut allocator = self.get_allocator();
 
@@ -47,7 +50,7 @@ impl Allocator {
             .expect("Failed to allocate buffer memory");
 
         unsafe {
-            device
+            self.device
                 .bind_buffer_memory(buffer, allocation.memory(), allocation.offset())
                 .unwrap()
         };
@@ -55,21 +58,7 @@ impl Allocator {
         (buffer, allocation)
     }
 
-    /// Create a Vulkan image.
-    ///
-    /// This creates a 2D RGBA8_SRGB image with TRANSFER_DST and SAMPLED flags.
-    ///
-    /// # Arguments
-    ///
-    /// * `device` - A reference to Vulkan device.
-    /// * `width` - The width of the image to create.
-    /// * `height` - The height of the image to create.
-    pub fn create_image(
-        &mut self,
-        device: &Device,
-        width: u32,
-        height: u32,
-    ) -> (vk::Image, Allocation) {
+    pub fn create_image(&mut self, width: u32, height: u32) -> (vk::Image, Allocation) {
         let extent = vk::Extent3D {
             width,
             height,
@@ -89,8 +78,8 @@ impl Allocator {
             .samples(vk::SampleCountFlags::TYPE_1)
             .flags(vk::ImageCreateFlags::empty());
 
-        let image = unsafe { device.create_image(&image_info, None).unwrap() };
-        let requirements = unsafe { device.get_image_memory_requirements(image) };
+        let image = unsafe { self.device.create_image(&image_info, None).unwrap() };
+        let requirements = unsafe { self.device.get_image_memory_requirements(image) };
 
         let mut allocator = self.get_allocator();
 
@@ -105,7 +94,7 @@ impl Allocator {
             .expect("Failed to allocate image memory");
 
         unsafe {
-            device
+            self.device
                 .bind_image_memory(image, allocation.memory(), allocation.offset())
                 .unwrap()
         };
@@ -113,48 +102,25 @@ impl Allocator {
         (image, allocation)
     }
 
-    /// Destroys a buffer.
-    ///
-    /// # Arguments
-    ///
-    /// * `device` - A reference to Vulkan device.
-    /// * `buffer` - The buffer to destroy.
-    pub fn destroy_buffer(&mut self, device: &Device, buffer: vk::Buffer, allocation: Allocation) {
+    pub fn destroy_buffer(&mut self, buffer: vk::Buffer, allocation: Allocation) {
         let mut allocator = self.get_allocator();
 
         allocator
             .free(allocation)
             .expect("Failed to free buffer memory");
-        unsafe { device.destroy_buffer(buffer, None) };
+        unsafe { self.device.destroy_buffer(buffer, None) };
     }
 
-    /// Destroys an image.
-    ///
-    /// # Arguments
-    ///
-    /// * `device` - A reference to Vulkan device.
-    /// * `image` - The image to destroy.
-    pub fn destroy_image(&mut self, device: &Device, image: vk::Image, allocation: Allocation) {
+    pub fn destroy_image(&mut self, image: vk::Image, allocation: Allocation) {
         let mut allocator = self.get_allocator();
 
         allocator
             .free(allocation)
             .expect("Failed to free image memory");
-        unsafe { device.destroy_image(image, None) };
+        unsafe { self.device.destroy_image(image, None) };
     }
 
-    /// Update buffer data
-    ///
-    /// # Arguments
-    ///
-    /// * `device` - A reference to Vulkan device.
-    /// * `data` - The data to update the buffer with.
-    pub fn update_buffer<T: Copy>(
-        &mut self,
-        _device: &Device,
-        memory: &mut Allocation,
-        data: &[T],
-    ) {
+    pub fn update_buffer<T: Copy>(&mut self, memory: &mut Allocation, data: &[T]) {
         let size = std::mem::size_of_val(data) as _;
         unsafe {
             let data_ptr = memory.mapped_ptr().unwrap().as_ptr();
