@@ -8,7 +8,6 @@ use crate::{
     window::{WindowMode, WindowState, WindowStateDesc},
 };
 use ash::vk;
-use ash::vk::Extent2D;
 use egui::{Color32, RichText, Slider};
 use winit::event::DeviceEvent;
 use winit::{
@@ -57,7 +56,7 @@ impl InitializedApp {
             vulkan_context.device(),
             vulkan_context.queue_family_indices().general,
         );
-        let command_buffer = CommandBuffer::new(vulkan_context.device().as_raw(), &command_pool);
+        let command_buffer = CommandBuffer::new(vulkan_context.device(), &command_pool);
 
         let renderer = EguiRenderer::new(
             &vulkan_context,
@@ -283,7 +282,7 @@ impl InitializedApp {
                 let wait_semaphores = [self.image_available_semaphore];
                 let signal_semaphores = [self.render_finished_semaphore];
 
-                let render_area = Extent2D {
+                let render_area = vk::Extent2D {
                     width: self.window_state.window_size()[0],
                     height: self.window_state.window_size()[1],
                 };

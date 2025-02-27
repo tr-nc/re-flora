@@ -3,13 +3,16 @@ mod physical_device;
 mod queue;
 mod surface;
 
-pub mod context;
+// mod semaphore;
+// pub use semaphore::Semaphore;
+
+mod context;
 pub use {context::VulkanContext, context::VulkanContextDesc};
 
-pub mod swapchain;
+mod swapchain;
 pub use swapchain::Swapchain;
 
-pub mod pipeline_layout;
+mod pipeline_layout;
 pub use pipeline_layout::PipelineLayout;
 
 mod device;

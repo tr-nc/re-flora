@@ -41,9 +41,9 @@ impl ComputePipeline {
         Self::new(device, create_info)
     }
 
-    pub fn as_raw(&self) -> vk::Pipeline {
-        self.pipeline
-    }
+    // pub fn as_raw(&self) -> vk::Pipeline {
+    //     self.pipeline
+    // }
 
     fn create_pipeline(
         device: &Device,

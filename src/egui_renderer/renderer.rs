@@ -13,8 +13,8 @@ use winit::event::WindowEvent;
 use winit::window::Window;
 
 use crate::util::compiler::ShaderCompiler;
-use crate::vkn::context::VulkanContext;
-use crate::vkn::swapchain::Swapchain;
+use crate::vkn::Swapchain;
+use crate::vkn::VulkanContext;
 use crate::vkn::{
     Allocator, DescriptorPool, DescriptorSetLayout, DescriptorSetLayoutBinding,
     DescriptorSetLayoutBuilder, Device, GraphicsPipeline, PipelineLayout, ShaderModule, Texture,

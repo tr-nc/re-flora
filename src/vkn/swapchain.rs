@@ -81,7 +81,7 @@ impl Swapchain {
     pub fn clean_up(&mut self) {
         log::info!("Cleaning up vulkan swapchain");
 
-        let device = &self.vulkan_context.device().as_raw();
+        let device = &self.vulkan_context.device();
         unsafe {
             device.device_wait_idle().unwrap();
 
@@ -172,7 +172,7 @@ impl Swapchain {
             }]);
 
         unsafe {
-            self.vulkan_context.device().as_raw().cmd_begin_render_pass(
+            self.vulkan_context.device().cmd_begin_render_pass(
                 command_buffer,
                 &render_pass_begin_info,
                 vk::SubpassContents::INLINE,
@@ -296,8 +296,7 @@ fn create_swapchain_device_khr(
             .clipped(true)
     };
 
-    let swapchain_device =
-        swapchain::Device::new(&context.instance().as_raw(), &context.device().as_raw());
+    let swapchain_device = swapchain::Device::new(&context.instance().as_raw(), &context.device());
     let swapchain_khr = unsafe {
         swapchain_device
             .create_swapchain(&create_info, None)
