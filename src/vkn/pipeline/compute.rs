@@ -1,5 +1,5 @@
-use crate::vkn::{Device, ShaderModule};
-use ash::vk;
+use crate::vkn::{Device, PipelineLayout, ShaderModule};
+use ash::vk::{self, PipelineShaderStageCreateInfo};
 use std::ops::Deref;
 
 pub struct ComputePipeline {
@@ -24,7 +24,14 @@ impl Deref for ComputePipeline {
 }
 
 impl ComputePipeline {
-    fn new(device: &Device, create_info: vk::ComputePipelineCreateInfo) -> Self {
+    fn new(
+        device: &Device,
+        stage_info: &PipelineShaderStageCreateInfo,
+        pipeline_layout: &PipelineLayout,
+    ) -> Self {
+        let create_info = vk::ComputePipelineCreateInfo::default()
+            .stage(*stage_info)
+            .layout(pipeline_layout.as_raw());
         let pipeline = Self::create_pipeline(device, create_info);
         Self {
             device: device.clone(),
@@ -34,11 +41,8 @@ impl ComputePipeline {
 
     pub fn from_shader_module(device: &Device, shader_module: ShaderModule) -> Self {
         let stage_info = shader_module.get_shader_stage_create_info();
-        let compute_pipeline_layout = shader_module.get_pipeline_layout(&device);
-        let create_info = vk::ComputePipelineCreateInfo::default()
-            .stage(stage_info)
-            .layout(compute_pipeline_layout.as_raw());
-        Self::new(device, create_info)
+        let pipeline_layout = shader_module.get_pipeline_layout(&device);
+        Self::new(device, &stage_info, &pipeline_layout)
     }
 
     // pub fn as_raw(&self) -> vk::Pipeline {
