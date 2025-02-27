@@ -1,13 +1,16 @@
 use super::{DescriptorSetLayout, Device};
 use ash::vk;
-use std::ops::Deref;
+use std::{ops::Deref, sync::Arc};
 
-pub struct PipelineLayout {
+struct PipelineLayoutInner {
     device: Device,
     pipeline_layout: vk::PipelineLayout,
+
+    descriptor_set_layouts: Vec<DescriptorSetLayout>,
+    push_constant_ranges: Vec<vk::PushConstantRange>,
 }
 
-impl Drop for PipelineLayout {
+impl Drop for PipelineLayoutInner {
     fn drop(&mut self) {
         unsafe {
             self.device
@@ -16,11 +19,14 @@ impl Drop for PipelineLayout {
     }
 }
 
+#[derive(Clone)]
+pub struct PipelineLayout(Arc<PipelineLayoutInner>);
+
 impl Deref for PipelineLayout {
     type Target = vk::PipelineLayout;
 
     fn deref(&self) -> &Self::Target {
-        &self.pipeline_layout
+        &self.0.pipeline_layout
     }
 }
 
@@ -53,13 +59,27 @@ impl PipelineLayout {
                 .expect("Failed to create pipeline layout")
         };
 
-        Self {
+        Self(Arc::new(PipelineLayoutInner {
             device: device.clone(),
             pipeline_layout,
-        }
+            descriptor_set_layouts: descriptor_set_layouts
+                .map(|layouts| layouts.to_vec())
+                .unwrap_or_default(),
+            push_constant_ranges: push_constant_ranges
+                .map(|ranges| ranges.to_vec())
+                .unwrap_or_default(),
+        }))
     }
 
     pub fn as_raw(&self) -> vk::PipelineLayout {
-        self.pipeline_layout
+        self.0.pipeline_layout
+    }
+
+    pub fn get_descriptor_set_layouts(&self) -> &[DescriptorSetLayout] {
+        &self.0.descriptor_set_layouts
+    }
+
+    pub fn get_push_constant_ranges(&self) -> &[vk::PushConstantRange] {
+        &self.0.push_constant_ranges
     }
 }

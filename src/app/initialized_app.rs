@@ -1,6 +1,8 @@
 use crate::util::compiler::ShaderCompiler;
 use crate::util::time_info::TimeInfo;
-use crate::vkn::{CommandBuffer, CommandPool, ComputePipeline, Fence, Semaphore, ShaderModule};
+use crate::vkn::{
+    CommandBuffer, CommandPool, ComputePipeline, DescriptorPool, Fence, Semaphore, ShaderModule,
+};
 use crate::{
     egui_renderer::EguiRenderer,
     egui_renderer::EguiRendererDesc,
@@ -30,7 +32,7 @@ pub struct InitializedApp {
     time_info: TimeInfo,
     slider_val: f32,
 
-    // keep it at the end, it has to be destroyed last
+    // note: keep it at the end, it has to be destroyed last
     vulkan_context: VulkanContext,
 }
 
@@ -77,7 +79,15 @@ impl InitializedApp {
             "main",
         )
         .unwrap();
-        ComputePipeline::from_shader_module(vulkan_context.device(), compute_shader_module);
+        let compute_pipeline =
+            ComputePipeline::from_shader_module(vulkan_context.device(), compute_shader_module);
+
+        let descriptor_pool = DescriptorPool::from_descriptor_set_layouts(
+            vulkan_context.device(),
+            &compute_pipeline
+                .get_pipeline_layout()
+                .get_descriptor_set_layouts(),
+        );
 
         Self {
             vulkan_context,

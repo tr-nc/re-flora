@@ -1,23 +1,29 @@
-use std::collections::HashMap;
-
-use ash::vk;
-
 use super::Device;
+use ash::vk;
+use std::{collections::HashMap, sync::Arc};
 
-pub struct DescriptorSetLayout {
+struct DescriptorSetLayoutInner {
     device: Device,
     descriptor_set_layout: vk::DescriptorSetLayout,
-
-    // lut of bindings
     bindings: HashMap<u32, DescriptorSetLayoutBinding>,
 }
 
-impl Drop for DescriptorSetLayout {
+impl Drop for DescriptorSetLayoutInner {
     fn drop(&mut self) {
         unsafe {
             self.device
                 .destroy_descriptor_set_layout(self.descriptor_set_layout, None);
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct DescriptorSetLayout(Arc<DescriptorSetLayoutInner>);
+
+impl std::ops::Deref for DescriptorSetLayout {
+    type Target = vk::DescriptorSetLayout;
+    fn deref(&self) -> &Self::Target {
+        &self.0.descriptor_set_layout
     }
 }
 
@@ -43,19 +49,19 @@ impl DescriptorSetLayout {
             }
         }
 
-        Ok(Self {
+        Ok(Self(Arc::new(DescriptorSetLayoutInner {
             device: device.clone(),
             descriptor_set_layout,
             bindings: bindings_map,
-        })
+        })))
     }
 
     pub fn as_raw(&self) -> vk::DescriptorSetLayout {
-        self.descriptor_set_layout
+        self.0.descriptor_set_layout
     }
 
     pub fn get_bindings(&self) -> Vec<DescriptorSetLayoutBinding> {
-        self.bindings.values().cloned().collect::<Vec<_>>()
+        self.0.bindings.values().cloned().collect::<Vec<_>>()
     }
 }
 
