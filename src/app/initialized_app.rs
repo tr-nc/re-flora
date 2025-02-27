@@ -18,8 +18,6 @@ use winit::{
 };
 
 pub struct InitializedApp {
-    vulkan_context: VulkanContext,
-
     renderer: EguiRenderer,
     command_pool: CommandPool,
     command_buffer: CommandBuffer,
@@ -30,8 +28,10 @@ pub struct InitializedApp {
     render_finished_semaphore: Semaphore,
     fence: Fence,
     time_info: TimeInfo,
-
     slider_val: f32,
+
+    // keep it at the end, it has to be destroyed last
+    vulkan_context: VulkanContext,
 }
 
 impl InitializedApp {
