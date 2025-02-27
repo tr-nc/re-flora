@@ -1,6 +1,6 @@
 use crate::util::compiler::ShaderCompiler;
 use crate::util::time_info::TimeInfo;
-use crate::vkn::{CommandBuffer, CommandPool, ComputePipeline, Device, ShaderModule};
+use crate::vkn::{CommandBuffer, CommandPool, ComputePipeline, Fence, Semaphore, ShaderModule};
 use crate::{
     egui_renderer::EguiRenderer,
     egui_renderer::EguiRendererDesc,
@@ -26,9 +26,9 @@ pub struct InitializedApp {
     window_state: WindowState,
     is_resize_pending: bool,
     swapchain: Swapchain,
-    image_available_semaphore: vk::Semaphore,
-    render_finished_semaphore: vk::Semaphore,
-    fence: vk::Fence,
+    image_available_semaphore: Semaphore,
+    render_finished_semaphore: Semaphore,
+    fence: Fence,
     time_info: TimeInfo,
 
     slider_val: f32,
@@ -47,10 +47,10 @@ impl InitializedApp {
             Default::default(),
         );
 
-        let (image_available_semaphore, render_finished_semaphore) =
-            Self::create_semaphores(vulkan_context.device());
+        let image_available_semaphore = Semaphore::new(vulkan_context.device());
+        let render_finished_semaphore = Semaphore::new(vulkan_context.device());
 
-        let fence = Self::create_fence(vulkan_context.device());
+        let fence = Fence::new(vulkan_context.device(), true);
 
         let command_pool = CommandPool::new(
             vulkan_context.device(),
@@ -117,44 +117,10 @@ impl InitializedApp {
         )
     }
 
-    fn create_semaphores(device: &Device) -> (vk::Semaphore, vk::Semaphore) {
-        let image_available_semaphore = {
-            let semaphore_info = vk::SemaphoreCreateInfo::default();
-            unsafe { device.create_semaphore(&semaphore_info, None).unwrap() }
-        };
-
-        let render_finished_semaphore = {
-            let semaphore_info = vk::SemaphoreCreateInfo::default();
-            unsafe { device.create_semaphore(&semaphore_info, None).unwrap() }
-        };
-
-        (image_available_semaphore, render_finished_semaphore)
-    }
-
-    fn create_fence(device: &Device) -> vk::Fence {
-        let fence_info = vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED);
-        unsafe { device.create_fence(&fence_info, None).unwrap() }
-    }
-
     pub fn on_terminate(&mut self, event_loop: &ActiveEventLoop) {
         // ensure all command buffers are done executing before terminating anything
         self.vulkan_context.wait_device_idle().unwrap();
-
         event_loop.exit();
-        unsafe {
-            self.vulkan_context
-                .device()
-                .as_raw()
-                .destroy_fence(self.fence, None);
-            self.vulkan_context
-                .device()
-                .as_raw()
-                .destroy_semaphore(self.image_available_semaphore, None);
-            self.vulkan_context
-                .device()
-                .as_raw()
-                .destroy_semaphore(self.render_finished_semaphore, None);
-        }
     }
 
     pub fn on_window_event(
@@ -225,7 +191,9 @@ impl InitializedApp {
                 self.time_info.update();
                 // self.camera.update_transform(self.time_info.delta_time());
 
-                self.vulkan_context.wait_for_fences(&[self.fence]).unwrap();
+                self.vulkan_context
+                    .wait_for_fences(&[self.fence.as_raw()])
+                    .unwrap();
 
                 self.renderer.update(
                     self.command_pool.as_raw(),
@@ -274,13 +242,9 @@ impl InitializedApp {
                     self.vulkan_context
                         .device()
                         .as_raw()
-                        .reset_fences(&[self.fence])
+                        .reset_fences(&[self.fence.as_raw()])
                         .expect("Failed to reset fences")
                 };
-
-                let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
-                let wait_semaphores = [self.image_available_semaphore];
-                let signal_semaphores = [self.render_finished_semaphore];
 
                 let render_area = vk::Extent2D {
                     width: self.window_state.window_size()[0],
@@ -296,6 +260,9 @@ impl InitializedApp {
                     render_area,
                 );
 
+                let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
+                let wait_semaphores = [self.image_available_semaphore.as_raw()];
+                let signal_semaphores = [self.render_finished_semaphore.as_raw()];
                 let command_buffers = [self.command_buffer.as_raw()];
                 let submit_info = [vk::SubmitInfo::default()
                     .wait_semaphores(&wait_semaphores)
@@ -310,7 +277,7 @@ impl InitializedApp {
                         .queue_submit(
                             self.vulkan_context.get_general_queue(),
                             &submit_info,
-                            self.fence,
+                            self.fence.as_raw(),
                         )
                         .expect("Failed to submit work to gpu.")
                 };

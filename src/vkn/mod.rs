@@ -3,8 +3,11 @@ mod physical_device;
 mod queue;
 mod surface;
 
-// mod semaphore;
-// pub use semaphore::Semaphore;
+mod semaphore;
+pub use semaphore::Semaphore;
+
+mod fence;
+pub use fence::Fence;
 
 mod context;
 pub use {context::VulkanContext, context::VulkanContextDesc};

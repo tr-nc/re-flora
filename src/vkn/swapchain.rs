@@ -4,7 +4,7 @@ use ash::{
     vk::{self, Extent2D, PresentModeKHR, SurfaceCapabilitiesKHR, SurfaceFormatKHR},
 };
 
-use super::{context::VulkanContext, Device};
+use super::{context::VulkanContext, Device, Semaphore};
 
 /// The preference for the swapchain.
 ///
@@ -114,7 +114,7 @@ impl Swapchain {
 
     pub fn acquire_next_image(
         &mut self,
-        image_available_semaphore: &vk::Semaphore,
+        image_available_semaphore: &Semaphore,
     ) -> VkResult<(u32, bool)> {
         let timeout = u64::MAX;
         let fence = vk::Fence::null();
@@ -122,7 +122,7 @@ impl Swapchain {
             self.swapchain_device.acquire_next_image(
                 self.swapchain_khr,
                 timeout,
-                *image_available_semaphore,
+                image_available_semaphore.as_raw(),
                 fence,
             )
         }
