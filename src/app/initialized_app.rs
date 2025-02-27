@@ -82,7 +82,7 @@ impl InitializedApp {
         let compute_pipeline =
             ComputePipeline::from_shader_module(vulkan_context.device(), compute_shader_module);
 
-        let descriptor_pool = DescriptorPool::from_descriptor_set_layouts(
+        let _descriptor_pool = DescriptorPool::from_descriptor_set_layouts(
             vulkan_context.device(),
             &compute_pipeline
                 .get_pipeline_layout()

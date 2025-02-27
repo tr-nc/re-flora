@@ -7,7 +7,7 @@ struct PipelineLayoutInner {
     pipeline_layout: vk::PipelineLayout,
 
     descriptor_set_layouts: Vec<DescriptorSetLayout>,
-    push_constant_ranges: Vec<vk::PushConstantRange>,
+    _push_constant_ranges: Vec<vk::PushConstantRange>,
 }
 
 impl Drop for PipelineLayoutInner {
@@ -65,7 +65,7 @@ impl PipelineLayout {
             descriptor_set_layouts: descriptor_set_layouts
                 .map(|layouts| layouts.to_vec())
                 .unwrap_or_default(),
-            push_constant_ranges: push_constant_ranges
+            _push_constant_ranges: push_constant_ranges
                 .map(|ranges| ranges.to_vec())
                 .unwrap_or_default(),
         }))
@@ -79,7 +79,7 @@ impl PipelineLayout {
         &self.0.descriptor_set_layouts
     }
 
-    pub fn get_push_constant_ranges(&self) -> &[vk::PushConstantRange] {
-        &self.0.push_constant_ranges
+    pub fn _get_push_constant_ranges(&self) -> &[vk::PushConstantRange] {
+        &self.0._push_constant_ranges
     }
 }
