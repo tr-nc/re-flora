@@ -82,13 +82,7 @@ impl InitializedApp {
             "main",
         )
         .unwrap();
-        let stage_info = compute_shader_module.get_shader_stage_create_info();
-        let compute_pipeline_layout =
-            compute_shader_module.get_shader_pipeline_layout(&vulkan_context.device);
-        let compute_pipeline_create_info = vk::ComputePipelineCreateInfo::default()
-            .stage(stage_info)
-            .layout(compute_pipeline_layout.as_raw());
-        ComputePipeline::new(&vulkan_context.device, compute_pipeline_create_info);
+        ComputePipeline::from_shader_module(&vulkan_context.device, compute_shader_module);
 
         Self {
             vulkan_context,

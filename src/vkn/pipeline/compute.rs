@@ -1,4 +1,4 @@
-use crate::vkn::Device;
+use crate::vkn::{Device, ShaderModule};
 use ash::vk;
 use std::ops::Deref;
 
@@ -24,12 +24,21 @@ impl Deref for ComputePipeline {
 }
 
 impl ComputePipeline {
-    pub fn new(device: &Device, create_info: vk::ComputePipelineCreateInfo) -> Self {
+    fn new(device: &Device, create_info: vk::ComputePipelineCreateInfo) -> Self {
         let pipeline = Self::create_pipeline(device, create_info);
         Self {
             device: device.clone(),
             pipeline,
         }
+    }
+
+    pub fn from_shader_module(device: &Device, shader_module: ShaderModule) -> Self {
+        let stage_info = shader_module.get_shader_stage_create_info();
+        let compute_pipeline_layout = shader_module.get_shader_pipeline_layout(&device);
+        let create_info = vk::ComputePipelineCreateInfo::default()
+            .stage(stage_info)
+            .layout(compute_pipeline_layout.as_raw());
+        Self::new(device, create_info)
     }
 
     pub fn as_raw(&self) -> vk::Pipeline {
