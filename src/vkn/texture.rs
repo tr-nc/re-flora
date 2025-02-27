@@ -1,7 +1,7 @@
 use crate::vkn::{Allocator, Buffer, Device};
 use ash::vk;
 
-use super::{CommandPool, Queue};
+use super::{execute_one_time_commands, CommandBuffer, CommandPool, Queue};
 
 pub struct Texture {
     pub image: vk::Image,
@@ -21,8 +21,8 @@ impl Texture {
         height: u32,
         data: &[u8],
     ) -> Self {
-        let (texture, _buffer) = execute_one_time_commands(device, queue, command_pool, |buffer| {
-            Self::cmd_from_rgba(device, allocator, buffer, width, height, data)
+        let (texture, _buffer) = execute_one_time_commands(device, queue, command_pool, |cmdbuf| {
+            Self::cmd_from_rgba(device, allocator, cmdbuf, width, height, data)
         });
         texture
     }
@@ -30,7 +30,7 @@ impl Texture {
     fn cmd_from_rgba(
         device: &Device,
         allocator: &mut Allocator,
-        command_buffer: vk::CommandBuffer,
+        command_buffer: &CommandBuffer,
         width: u32,
         height: u32,
         data: &[u8],
@@ -83,7 +83,7 @@ impl Texture {
             extent: vk::Extent2D { width, height },
             ..Default::default()
         };
-        let buffer = texture.cmd_update(device, command_buffer, allocator, region, data);
+        let buffer = texture.cmd_update(device, command_buffer.as_raw(), allocator, region, data);
 
         (texture, buffer)
     }
@@ -97,8 +97,8 @@ impl Texture {
         region: vk::Rect2D,
         data: &[u8],
     ) {
-        execute_one_time_commands(device, queue, command_pool, |buffer| {
-            self.cmd_update(device, buffer, allocator, region, data)
+        execute_one_time_commands(device, queue, command_pool, |cmdbuf| {
+            self.cmd_update(device, cmdbuf.as_raw(), allocator, region, data)
         });
     }
 
@@ -208,55 +208,4 @@ impl Texture {
             allocator.destroy_image(self.image, self.image_mem);
         }
     }
-}
-
-fn execute_one_time_commands<R, F: FnOnce(vk::CommandBuffer) -> R>(
-    device: &Device,
-    queue: Queue,
-    pool: &CommandPool,
-    executor: F,
-) -> R {
-    let command_buffer = {
-        let alloc_info = vk::CommandBufferAllocateInfo::default()
-            .level(vk::CommandBufferLevel::PRIMARY)
-            .command_pool(pool.as_raw())
-            .command_buffer_count(1);
-
-        unsafe { device.allocate_command_buffers(&alloc_info).unwrap()[0] }
-    };
-    let command_buffers = [command_buffer];
-
-    // Begin recording
-    {
-        let begin_info = vk::CommandBufferBeginInfo::default()
-            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-        unsafe {
-            device
-                .begin_command_buffer(command_buffer, &begin_info)
-                .unwrap()
-        };
-    }
-
-    // Execute user function
-    let executor_result = executor(command_buffer);
-
-    // End recording
-    unsafe { device.end_command_buffer(command_buffer).unwrap() };
-
-    // Submit and wait
-    {
-        let submit_info = vk::SubmitInfo::default().command_buffers(&command_buffers);
-        let submit_infos = [submit_info];
-        unsafe {
-            device
-                .queue_submit(queue.as_raw(), &submit_infos, vk::Fence::null())
-                .unwrap();
-            device.queue_wait_idle(queue.as_raw()).unwrap();
-        };
-    }
-
-    // Free
-    unsafe { device.free_command_buffers(pool.as_raw(), &command_buffers) };
-
-    executor_result
 }

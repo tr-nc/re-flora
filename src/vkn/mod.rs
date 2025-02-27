@@ -3,7 +3,7 @@ mod physical_device;
 mod surface;
 
 mod queue;
-pub use queue::{QueueFamilyIndices, Queue};
+pub use queue::{Queue, QueueFamilyIndices};
 
 mod semaphore;
 pub use semaphore::Semaphore;
@@ -27,7 +27,7 @@ mod shader;
 pub use shader::ShaderModule;
 
 mod command_buffer;
-pub use command_buffer::CommandBuffer;
+pub use command_buffer::{execute_one_time_commands, CommandBuffer};
 
 mod buffer;
 pub use buffer::Buffer;
