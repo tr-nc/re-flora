@@ -3,7 +3,7 @@ use ash::vk;
 use std::ops::Deref;
 
 pub struct ComputePipeline {
-    device: ash::Device,
+    device: Device,
     pipeline: vk::Pipeline,
 }
 
@@ -27,7 +27,7 @@ impl ComputePipeline {
     pub fn new(device: &Device, create_info: vk::ComputePipelineCreateInfo) -> Self {
         let pipeline = Self::create_pipeline(device, create_info);
         Self {
-            device: device.as_raw().clone(),
+            device: device.clone(),
             pipeline,
         }
     }
@@ -37,7 +37,7 @@ impl ComputePipeline {
     }
 
     fn create_pipeline(
-        device: &ash::Device,
+        device: &Device,
         create_info: vk::ComputePipelineCreateInfo,
     ) -> vk::Pipeline {
         unsafe {

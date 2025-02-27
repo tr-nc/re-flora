@@ -8,7 +8,6 @@ use egui::{
 };
 use egui_winit::EventResponse;
 use gpu_allocator::vulkan::AllocatorCreateDesc;
-use spirv_reflect::types::descriptor;
 use std::{collections::HashMap, mem};
 use winit::event::WindowEvent;
 use winit::window::Window;

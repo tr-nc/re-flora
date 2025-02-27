@@ -3,7 +3,7 @@ use ash::vk;
 use std::ops::Deref;
 
 pub struct PipelineLayout {
-    device: ash::Device,
+    device: Device,
     pipeline_layout: vk::PipelineLayout,
 }
 
@@ -54,7 +54,7 @@ impl PipelineLayout {
         };
 
         Self {
-            device: device.as_raw().clone(),
+            device: device.clone(),
             pipeline_layout,
         }
     }

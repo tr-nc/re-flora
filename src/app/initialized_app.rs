@@ -1,6 +1,6 @@
 use crate::util::compiler::ShaderCompiler;
 use crate::util::time_info::TimeInfo;
-use crate::vkn::{CommandBuffer, CommandPool, ComputePipeline, ShaderModule};
+use crate::vkn::{CommandBuffer, CommandPool, ComputePipeline, Device, ShaderModule};
 use crate::{
     egui_renderer::EguiRenderer,
     egui_renderer::EguiRendererDesc,
@@ -10,8 +10,8 @@ use crate::{
     },
     window::{WindowMode, WindowState, WindowStateDesc},
 };
+use ash::vk;
 use ash::vk::Extent2D;
-use ash::{vk, Device};
 use egui::{Color32, RichText, Slider};
 use std::sync::Arc;
 use winit::event::DeviceEvent;
@@ -26,10 +26,8 @@ pub struct InitializedApp {
     vulkan_context: Arc<VulkanContext>,
 
     renderer: EguiRenderer,
-
     command_pool: CommandPool,
     command_buffer: CommandBuffer,
-
     window_state: WindowState,
     is_resize_pending: bool,
     swapchain: Swapchain,
@@ -55,9 +53,9 @@ impl InitializedApp {
         );
 
         let (image_available_semaphore, render_finished_semaphore) =
-            Self::create_semaphores(&vulkan_context.device.as_raw());
+            Self::create_semaphores(&vulkan_context.device);
 
-        let fence = Self::create_fence(&vulkan_context.device.as_raw());
+        let fence = Self::create_fence(&vulkan_context.device);
 
         let command_pool = CommandPool::new(
             &vulkan_context.device,
@@ -90,8 +88,7 @@ impl InitializedApp {
         let compute_pipeline_create_info = vk::ComputePipelineCreateInfo::default()
             .stage(stage_info)
             .layout(compute_pipeline_layout.as_raw());
-        let compute_pipeline =
-            ComputePipeline::new(&vulkan_context.device, compute_pipeline_create_info);
+        ComputePipeline::new(&vulkan_context.device, compute_pipeline_create_info);
 
         Self {
             vulkan_context,
@@ -131,7 +128,6 @@ impl InitializedApp {
         )
     }
 
-    /// Returns: (image_available_semaphore, render_finished_semaphore)
     fn create_semaphores(device: &Device) -> (vk::Semaphore, vk::Semaphore) {
         let image_available_semaphore = {
             let semaphore_info = vk::SemaphoreCreateInfo::default();

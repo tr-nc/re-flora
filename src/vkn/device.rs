@@ -1,10 +1,30 @@
 use super::{instance::Instance, physical_device::PhysicalDevice, queue::QueueFamilyIndices};
 use ash::{khr::swapchain, vk};
-use std::{collections::HashSet, ops::Deref};
+use std::collections::HashSet;
+
+use std::sync::Arc;
+
+struct DeviceInner {
+    device: ash::Device,
+}
+
+impl Drop for DeviceInner {
+    fn drop(&mut self) {
+        unsafe {
+            self.device.device_wait_idle().unwrap();
+            self.device.destroy_device(None);
+        }
+    }
+}
 
 #[derive(Clone)]
-pub struct Device {
-    pub device: ash::Device,
+pub struct Device(Arc<DeviceInner>);
+
+impl std::ops::Deref for Device {
+    type Target = ash::Device;
+    fn deref(&self) -> &Self::Target {
+        &self.0.device
+    }
 }
 
 impl Device {
@@ -18,32 +38,15 @@ impl Device {
             physical_device.as_raw(),
             queue_family_indices,
         );
-        Self { device }
+        Self(Arc::new(DeviceInner { device }))
     }
 
     pub fn as_raw(&self) -> &ash::Device {
-        &self.device
+        &self.0.device
     }
 }
 
-impl Drop for Device {
-    fn drop(&mut self) {
-        unsafe {
-            self.device.device_wait_idle().unwrap();
-            self.device.destroy_device(None);
-        }
-    }
-}
-
-impl Deref for Device {
-    type Target = ash::Device;
-
-    fn deref(&self) -> &Self::Target {
-        &self.device
-    }
-}
-
-pub fn create_device(
+fn create_device(
     instance: &ash::Instance,
     physical_device: vk::PhysicalDevice,
     queue_family_indices: &QueueFamilyIndices,

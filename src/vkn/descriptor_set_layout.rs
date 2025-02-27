@@ -5,7 +5,7 @@ use ash::vk;
 use super::Device;
 
 pub struct DescriptorSetLayout {
-    device: ash::Device,
+    device: Device,
     descriptor_set_layout: vk::DescriptorSetLayout,
 
     // lut of bindings
@@ -44,7 +44,7 @@ impl DescriptorSetLayout {
         }
 
         Ok(Self {
-            device: device.as_raw().clone(),
+            device: device.clone(),
             descriptor_set_layout,
             bindings: bindings_map,
         })
@@ -52,10 +52,6 @@ impl DescriptorSetLayout {
 
     pub fn as_raw(&self) -> vk::DescriptorSetLayout {
         self.descriptor_set_layout
-    }
-
-    pub fn get_binding(&self, no: u32) -> Option<&DescriptorSetLayoutBinding> {
-        self.bindings.get(&no)
     }
 
     pub fn get_bindings(&self) -> Vec<DescriptorSetLayoutBinding> {

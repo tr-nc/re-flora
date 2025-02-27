@@ -3,7 +3,7 @@ use ash::vk;
 use super::{DescriptorSetLayout, Device};
 
 pub struct DescriptorPool {
-    device: ash::Device,
+    device: Device,
     descriptor_pool: vk::DescriptorPool,
 }
 
@@ -18,10 +18,7 @@ impl Drop for DescriptorPool {
 
 impl DescriptorPool {
     /// Create a new descriptor pool
-    fn new(
-        device: &ash::Device,
-        create_info: vk::DescriptorPoolCreateInfo,
-    ) -> Result<Self, String> {
+    fn new(device: &Device, create_info: vk::DescriptorPoolCreateInfo) -> Result<Self, String> {
         let descriptor_pool = unsafe {
             device
                 .create_descriptor_pool(&create_info, None)
@@ -51,7 +48,7 @@ impl DescriptorPool {
         let create_info = vk::DescriptorPoolCreateInfo::default()
             .pool_sizes(&pool_sizes)
             .max_sets(descriptor_set_layouts.len() as u32);
-        let descriptor_pool = Self::new(&device.as_raw(), create_info)?;
+        let descriptor_pool = Self::new(&device, create_info)?;
         Ok(descriptor_pool)
     }
 

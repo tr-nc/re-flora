@@ -10,7 +10,7 @@ use std::ffi::CString;
 use std::fmt::Debug;
 
 pub struct ShaderModule {
-    device: ash::Device,
+    device: Device,
     entry_point_name: CString,
     shader_module: ash::vk::ShaderModule,
     reflect_shader_module: ReflectShaderModule,
@@ -75,7 +75,7 @@ impl ShaderModule {
             .unwrap();
 
         Self::from_glsl_code(
-            &device.as_raw(),
+            &device,
             &code,
             &Self::get_file_name_from_path(file_path),
             entry_point_name,
@@ -90,7 +90,7 @@ impl ShaderModule {
 
     /// Core code for creating a shader module from GLSL code
     fn from_glsl_code(
-        device: &ash::Device,
+        device: &Device,
         code: &str,
         file_name: &str,
         entry_point_name: &str,
@@ -205,7 +205,7 @@ impl ShaderModule {
     //     Ok(Self {
     //         shader_module,
     //         reflect_shader_module,
-    //         device: device.as_raw().clone(),
+    //         device: device.clone(),
     //     })
     // }
 }
@@ -220,7 +220,7 @@ fn predict_shader_kind(file_path: &str) -> Result<shaderc::ShaderKind, String> {
 }
 
 fn bytecode_to_shader_module(
-    device: &ash::Device,
+    device: &Device,
     shader_byte_code: &[u8],
 ) -> Result<ash::vk::ShaderModule, String> {
     let shader_byte_code_u32 = u8_to_u32(shader_byte_code);

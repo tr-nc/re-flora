@@ -6,7 +6,7 @@ use ash::{
     vk::{self, Extent2D, PresentModeKHR, SurfaceCapabilitiesKHR, SurfaceFormatKHR},
 };
 
-use super::context::VulkanContext;
+use super::{context::VulkanContext, Device};
 
 /// The preference for the swapchain.
 ///
@@ -385,10 +385,10 @@ fn create_vulkan_swapchain(
         .collect::<VkResult<Vec<vk::ImageView>>>()
         .unwrap();
 
-    let render_pass = create_vulkan_render_pass(&context.device.as_raw(), format.format);
+    let render_pass = create_vulkan_render_pass(&context.device, format.format);
 
     let framebuffers =
-        create_vulkan_framebuffers(&context.device.as_raw(), render_pass, &views, window_size);
+        create_vulkan_framebuffers(&context.device, render_pass, &views, window_size);
 
     (
         swapchain_device,
@@ -399,7 +399,7 @@ fn create_vulkan_swapchain(
     )
 }
 
-fn create_vulkan_render_pass(device: &ash::Device, format: vk::Format) -> vk::RenderPass {
+fn create_vulkan_render_pass(device: &Device, format: vk::Format) -> vk::RenderPass {
     let attachment_descs = [vk::AttachmentDescription::default()
         .format(format)
         .samples(vk::SampleCountFlags::TYPE_1)
@@ -439,7 +439,7 @@ fn create_vulkan_render_pass(device: &ash::Device, format: vk::Format) -> vk::Re
 }
 
 fn create_vulkan_framebuffers(
-    device: &ash::Device,
+    device: &Device,
     render_pass: vk::RenderPass,
     image_views: &[vk::ImageView],
     window_size: &[u32; 2],

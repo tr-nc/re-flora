@@ -3,7 +3,7 @@ use ash::vk;
 use std::ops::Deref;
 
 pub struct Buffer {
-    device: ash::Device,
+    device: Device,
     allocator: Allocator,
     buffer: vk::Buffer,
     memory: gpu_allocator::vulkan::Allocation,
@@ -34,7 +34,7 @@ impl Buffer {
     ) -> Self {
         let (buffer, memory) = allocator.create_buffer(device, buffer_size, usage);
         Self {
-            device: device.as_raw().clone(),
+            device: device.clone(),
             allocator: allocator.clone(),
             buffer,
             memory,

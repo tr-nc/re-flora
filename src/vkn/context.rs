@@ -1,11 +1,9 @@
-use ash::{prelude::VkResult, vk, Entry};
-// use ash::{ext::debug_utils, khr::surface, prelude::VkResult, vk, Device, Entry};
-use winit::window::Window;
-
 use super::{
     device::Device, instance::Instance, physical_device::PhysicalDevice, queue::QueueFamilyIndices,
     surface::Surface,
 };
+use ash::{prelude::VkResult, vk, Entry};
+use winit::window::Window;
 
 pub struct VulkanContextDesc {
     pub name: String,
@@ -15,7 +13,6 @@ pub struct VulkanContext {
     pub device: Device,
     pub surface: Surface,
     pub instance: Instance,
-
     pub physical_device: PhysicalDevice,
     pub queue_family_indices: QueueFamilyIndices,
 }

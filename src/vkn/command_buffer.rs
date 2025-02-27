@@ -6,8 +6,7 @@ pub struct CommandBuffer {
     pub command_buffer: vk::CommandBuffer,
 }
 
-// no need to manually drop the command buffer
-// as it is automatically handled by the command pool
+// no need to manually drop as it is handled by the command pool
 
 impl CommandBuffer {
     pub fn new(device: &Device, command_pool: &CommandPool) -> Self {
