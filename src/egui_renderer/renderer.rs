@@ -102,13 +102,13 @@ impl EguiRenderer {
         let mut builder = DescriptorSetLayoutBuilder::new();
         builder.add_binding(binding);
         let descriptor_set_layout = builder.build(device).unwrap();
+        let descriptor_set_layouts = std::slice::from_ref(&descriptor_set_layout);
 
         let push_const_range = vk::PushConstantRange {
             stage_flags: vk::ShaderStageFlags::VERTEX,
             offset: 0,
             size: mem::size_of::<[f32; 16]>() as u32,
         };
-        let descriptor_set_layouts = std::slice::from_ref(&descriptor_set_layout);
         let push_const_ranges = std::slice::from_ref(&push_const_range);
         let pipeline_layout = PipelineLayout::new(
             device,

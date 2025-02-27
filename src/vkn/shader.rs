@@ -3,7 +3,7 @@ use super::{
     PipelineLayout,
 };
 use crate::util::compiler::ShaderCompiler;
-use ash::vk::{self};
+use ash::vk::{self, PushConstantRange};
 use shaderc::ShaderKind;
 use spirv_reflect::{types::ReflectDescriptorType, ShaderModule as ReflectShaderModule};
 use std::ffi::CString;
@@ -88,7 +88,6 @@ impl ShaderModule {
         file_path.split('/').last().unwrap().to_string()
     }
 
-    /// Core code for creating a shader module from GLSL code
     fn from_glsl_code(
         device: &Device,
         code: &str,
@@ -125,16 +124,46 @@ impl ShaderModule {
         info
     }
 
-    pub fn get_shader_pipeline_layout(&self, device: &Device) -> PipelineLayout {
-        let descriptor_set_layouts = self.get_descriptor_set_layouts(device);
-        PipelineLayout::new(device, Some(&descriptor_set_layouts), None)
+    pub fn get_pipeline_layout(&self, device: &Device) -> PipelineLayout {
+        let descriptor_set_layouts = self.get_descriptor_set_layouts();
+        let push_constant_ranges = self.get_push_constant_ranges();
+        PipelineLayout::new(
+            device,
+            descriptor_set_layouts.as_deref(),
+            push_constant_ranges.as_deref(),
+        )
     }
 
     pub fn get_stage(&self) -> vk::ShaderStageFlags {
         vk::ShaderStageFlags::from_raw(self.reflect_shader_module.get_shader_stage().bits())
     }
 
-    fn get_descriptor_set_layouts(&self, device: &Device) -> Vec<DescriptorSetLayout> {
+    fn get_push_constant_ranges(&self) -> Option<Vec<PushConstantRange>> {
+        let push_constant_ranges = self
+            .reflect_shader_module
+            .enumerate_push_constant_blocks(None)
+            .unwrap();
+        let mut ranges = Vec::new();
+
+        for range in push_constant_ranges {
+            let stage_flags = self.get_stage();
+            let offset = range.offset;
+            let size = range.size;
+
+            ranges.push(PushConstantRange {
+                stage_flags,
+                offset,
+                size,
+            });
+        }
+
+        if ranges.is_empty() {
+            return None;
+        }
+        Some(ranges)
+    }
+
+    fn get_descriptor_set_layouts(&self) -> Option<Vec<DescriptorSetLayout>> {
         let descriptor_sets = self
             .reflect_shader_module
             .enumerate_descriptor_sets(None)
@@ -143,9 +172,7 @@ impl ShaderModule {
         let mut layouts = Vec::new();
 
         for descriptor_set in descriptor_sets {
-            let set_no = descriptor_set.set;
-            log::debug!("building descriptor set layout for set {}", set_no);
-
+            // let set_no = descriptor_set.set;
             let mut builder = DescriptorSetLayoutBuilder::new();
 
             for binding in descriptor_set.bindings {
@@ -165,9 +192,13 @@ impl ShaderModule {
                 builder.add_binding(b);
             }
 
-            layouts.push(builder.build(device).unwrap());
+            layouts.push(builder.build(&self.device).unwrap());
         }
-        layouts
+
+        if layouts.is_empty() {
+            return None;
+        }
+        Some(layouts)
     }
 
     fn reflect_descriptor_type_to_descriptor_type(
@@ -192,22 +223,6 @@ impl ShaderModule {
             _ => panic!(),
         }
     }
-
-    // preserved for future use
-    // pub fn from_spv(device: &Device, byte_code: &[u8]) -> Result<Self, String> {
-    //     // Reflect the shader module
-    //     let reflect_shader_module =
-    //         ReflectShaderModule::load_u8_data(byte_code).map_err(|e| e.to_string())?;
-
-    //     // Convert bytecode to shader module
-    //     let shader_module = bytecode_to_shader_module(device.as_raw(), byte_code)?;
-
-    //     Ok(Self {
-    //         shader_module,
-    //         reflect_shader_module,
-    //         device: device.clone(),
-    //     })
-    // }
 }
 
 fn predict_shader_kind(file_path: &str) -> Result<shaderc::ShaderKind, String> {
