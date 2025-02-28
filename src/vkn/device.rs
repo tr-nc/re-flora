@@ -46,6 +46,14 @@ impl Device {
         &self.0.device
     }
 
+    pub fn wait_queue_idle(&self, queue: &Queue) {
+        unsafe { self.as_raw().queue_wait_idle(queue.as_raw()).unwrap() };
+    }
+
+    pub fn wait_idle(&self) {
+        unsafe { self.as_raw().device_wait_idle().unwrap() };
+    }
+
     /// Get a queue from the device, only the first queue is returned in current implementation
     pub fn get_queue(&self, queue_family_index: u32) -> Queue {
         let queue = unsafe { self.as_raw().get_device_queue(queue_family_index, 0) };
