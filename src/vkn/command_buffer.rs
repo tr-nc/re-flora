@@ -1,40 +1,80 @@
+use super::{CommandPool, Device, Fence, Queue};
 use ash::vk;
+use std::sync::Arc;
 
-use super::{CommandPool, Device, Queue};
-
-#[derive(Clone)]
-pub struct CommandBuffer {
+struct CommandBufferInner {
     device: Device,
+    command_pool: CommandPool,
     command_buffer: vk::CommandBuffer,
 }
 
-// no need to manually drop here as it is handled by the command pool
+impl Drop for CommandBufferInner {
+    fn drop(&mut self) {
+        unsafe {
+            self.device
+                .free_command_buffers(self.command_pool.as_raw(), &[self.command_buffer]);
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct CommandBuffer(Arc<CommandBufferInner>);
+
+impl std::ops::Deref for CommandBuffer {
+    type Target = vk::CommandBuffer;
+    fn deref(&self) -> &Self::Target {
+        &self.0.command_buffer
+    }
+}
 
 impl CommandBuffer {
     pub fn new(device: &Device, command_pool: &CommandPool) -> Self {
         let command_buffer = create_cmdbuf(device, command_pool.as_raw());
-        Self {
+        Self(Arc::new(CommandBufferInner {
             device: device.clone(),
+            command_pool: command_pool.clone(),
             command_buffer,
-        }
+        }))
     }
 
     pub fn as_raw(&self) -> vk::CommandBuffer {
-        self.command_buffer
+        self.0.command_buffer
     }
 
     pub fn begin_onetime(&self) {
         let begin_info = vk::CommandBufferBeginInfo::default()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
         unsafe {
-            self.device
-                .begin_command_buffer(self.command_buffer, &begin_info)
+            self.0
+                .device
+                .begin_command_buffer(self.0.command_buffer, &begin_info)
                 .unwrap()
         };
     }
 
     pub fn end(&self) {
-        unsafe { self.device.end_command_buffer(self.command_buffer).unwrap() };
+        unsafe {
+            self.0
+                .device
+                .end_command_buffer(self.0.command_buffer)
+                .unwrap()
+        };
+    }
+
+    pub fn submit(&self, queue: &Queue, fence: Option<&Fence>) {
+        let command_buffers = [self.as_raw()];
+        let submit_info = vk::SubmitInfo::default().command_buffers(&command_buffers);
+
+        let vk_fence = fence
+            .as_ref()
+            .map(|f| f.as_raw())
+            .unwrap_or(vk::Fence::null());
+        unsafe {
+            self.0
+                .device
+                .queue_submit(queue.as_raw(), &[submit_info], vk_fence)
+                .unwrap();
+        }
     }
 }
 
@@ -46,10 +86,10 @@ fn create_cmdbuf(device: &Device, command_pool: vk::CommandPool) -> vk::CommandB
     unsafe { device.allocate_command_buffers(&allocate_info).unwrap()[0] }
 }
 
-pub fn execute_one_time_commands<R, F: FnOnce(&CommandBuffer) -> R>(
+pub fn execute_one_time_command<R, F: FnOnce(&CommandBuffer) -> R>(
     device: &Device,
-    queue: Queue,
     pool: &CommandPool,
+    queue: &Queue,
     executor: F,
 ) -> R {
     let command_buffer = CommandBuffer::new(device, pool);
@@ -58,20 +98,7 @@ pub fn execute_one_time_commands<R, F: FnOnce(&CommandBuffer) -> R>(
     let result = executor(&command_buffer);
     command_buffer.end();
 
-    let command_buffers = [command_buffer.as_raw()];
-    {
-        let submit_info = vk::SubmitInfo::default().command_buffers(&command_buffers);
-        let submit_infos = [submit_info];
-        unsafe {
-            device
-                .queue_submit(queue.as_raw(), &submit_infos, vk::Fence::null())
-                .unwrap();
-            device.wait_queue_idle(&queue);
-        };
-    }
-
-    // Free
-    unsafe { device.free_command_buffers(pool.as_raw(), &command_buffers) };
-
+    command_buffer.submit(queue, None);
+    device.wait_queue_idle(&queue);
     result
 }

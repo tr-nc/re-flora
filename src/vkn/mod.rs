@@ -27,7 +27,7 @@ mod shader;
 pub use shader::ShaderModule;
 
 mod command_buffer;
-pub use command_buffer::{execute_one_time_commands, CommandBuffer};
+pub use command_buffer::{execute_one_time_command, CommandBuffer};
 
 mod buffer;
 pub use buffer::Buffer;

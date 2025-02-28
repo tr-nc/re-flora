@@ -206,7 +206,7 @@ impl EguiRenderer {
     /// This method should be called _before_ the frame starts rendering.
     fn set_textures(
         &mut self,
-        queue: Queue,
+        queue: &Queue,
         command_pool: &CommandPool,
         textures_delta: &[(TextureId, ImageDelta)],
     ) {
@@ -501,7 +501,7 @@ impl EguiRenderer {
 
         if !textures_delta.set.is_empty() {
             self.set_textures(
-                self.vulkan_context.get_general_queue(),
+                &self.vulkan_context.get_general_queue(),
                 command_pool,
                 textures_delta.set.as_slice(),
             );
@@ -528,8 +528,7 @@ impl EguiRenderer {
                 .expect("Failed to reset command pool")
         };
 
-        let command_buffer_begin_info = vk::CommandBufferBeginInfo::default()
-            .flags(vk::CommandBufferUsageFlags::SIMULTANEOUS_USE);
+        let command_buffer_begin_info = vk::CommandBufferBeginInfo::default();
         unsafe {
             device
                 .begin_command_buffer(command_buffer.as_raw(), &command_buffer_begin_info)

@@ -1,7 +1,7 @@
 use crate::vkn::{Allocator, Buffer, Device};
 use ash::vk;
 
-use super::{execute_one_time_commands, CommandBuffer, CommandPool, Queue};
+use super::{execute_one_time_command, CommandBuffer, CommandPool, Queue};
 
 pub struct Texture {
     pub image: vk::Image,
@@ -14,14 +14,14 @@ pub struct Texture {
 impl Texture {
     pub fn from_rgba8(
         device: &Device,
-        queue: Queue,
+        queue: &Queue,
         command_pool: &CommandPool,
         allocator: &mut Allocator,
         width: u32,
         height: u32,
         data: &[u8],
     ) -> Self {
-        let (texture, _buffer) = execute_one_time_commands(device, queue, command_pool, |cmdbuf| {
+        let (texture, _buffer) = execute_one_time_command(device, command_pool, queue, |cmdbuf| {
             Self::cmd_from_rgba(device, allocator, cmdbuf, width, height, data)
         });
         texture
@@ -91,13 +91,13 @@ impl Texture {
     pub fn update(
         &mut self,
         device: &Device,
-        queue: Queue,
+        queue: &Queue,
         command_pool: &CommandPool,
         allocator: &mut Allocator,
         region: vk::Rect2D,
         data: &[u8],
     ) {
-        execute_one_time_commands(device, queue, command_pool, |cmdbuf| {
+        execute_one_time_command(device, command_pool, queue, |cmdbuf| {
             self.cmd_update(device, cmdbuf.as_raw(), allocator, region, data)
         });
     }
