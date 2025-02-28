@@ -149,9 +149,6 @@ impl EguiRenderer {
         )
         .unwrap();
 
-        let managed_textures = HashMap::new();
-        let textures = HashMap::new();
-
         let egui_context = egui::Context::default();
         let egui_winit_state = egui_winit::State::new(
             egui_context.clone(),
@@ -171,8 +168,8 @@ impl EguiRenderer {
             frag_shader_module,
             descriptor_set_layout,
             descriptor_pool,
-            managed_textures,
-            textures,
+            managed_textures: HashMap::new(),
+            textures: HashMap::new(),
             desc,
             frames: None,
             textures_to_free: None,

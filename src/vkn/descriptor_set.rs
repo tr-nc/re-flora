@@ -81,12 +81,12 @@ impl WriteDescriptorSet {
         self
     }
 
-    pub fn add_buffer_info(&mut self, buffer_info: vk::DescriptorBufferInfo) {
-        if self.buffer_info.is_none() {
-            self.buffer_info = Some(Vec::new());
-        }
-        self.buffer_info.as_mut().unwrap().push(buffer_info);
-    }
+    // pub fn add_buffer_info(&mut self, buffer_info: vk::DescriptorBufferInfo) {
+    //     if self.buffer_info.is_none() {
+    //         self.buffer_info = Some(Vec::new());
+    //     }
+    //     self.buffer_info.as_mut().unwrap().push(buffer_info);
+    // }
 
     pub fn make_raw(&self, descriptor_set: &DescriptorSet) -> vk::WriteDescriptorSet {
         let mut write = vk::WriteDescriptorSet::default()
