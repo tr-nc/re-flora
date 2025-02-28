@@ -41,9 +41,14 @@ impl CommandBuffer {
         self.0.command_buffer
     }
 
-    pub fn begin_onetime(&self) {
-        let begin_info = vk::CommandBufferBeginInfo::default()
-            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+    pub fn begin(&self, is_onetime: bool) {
+        let flags = if is_onetime {
+            vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT
+        } else {
+            vk::CommandBufferUsageFlags::empty()
+        };
+
+        let begin_info = vk::CommandBufferBeginInfo::default().flags(flags);
         unsafe {
             self.0
                 .device
@@ -94,7 +99,7 @@ pub fn execute_one_time_command<R, F: FnOnce(&CommandBuffer) -> R>(
 ) -> R {
     let command_buffer = CommandBuffer::new(device, pool);
 
-    command_buffer.begin_onetime();
+    command_buffer.begin(true);
     let result = executor(&command_buffer);
     command_buffer.end();
 

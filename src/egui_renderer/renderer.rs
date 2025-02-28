@@ -2,12 +2,14 @@ use super::mesh::Mesh;
 use crate::util::compiler::ShaderCompiler;
 use crate::vkn::CommandBuffer;
 use crate::vkn::CommandPool;
+use crate::vkn::DescriptorSet;
 use crate::vkn::Queue;
 use crate::vkn::Swapchain;
 use crate::vkn::VulkanContext;
+use crate::vkn::WriteDescriptorSet;
 use crate::vkn::{
     Allocator, DescriptorPool, DescriptorSetLayout, DescriptorSetLayoutBinding,
-    DescriptorSetLayoutBuilder, Device, GraphicsPipeline, PipelineLayout, ShaderModule, Texture,
+    DescriptorSetLayoutBuilder, Device, GraphicsPipeline, Image, PipelineLayout, ShaderModule,
 };
 use ash::vk;
 use ash::vk::Extent2D;
@@ -52,7 +54,7 @@ pub struct EguiRenderer {
 
     descriptor_set_layout: DescriptorSetLayout,
     descriptor_pool: DescriptorPool,
-    managed_textures: HashMap<TextureId, Texture>,
+    managed_textures: HashMap<TextureId, Image>,
     textures: HashMap<TextureId, vk::DescriptorSet>,
     frames: Option<Mesh>,
 
@@ -256,7 +258,7 @@ impl EguiRenderer {
                     data.as_slice(),
                 );
             } else {
-                let texture = Texture::from_rgba8(
+                let image = Image::from_rgba8(
                     device,
                     queue,
                     &command_pool,
@@ -266,18 +268,21 @@ impl EguiRenderer {
                     data.as_slice(),
                 );
 
-                let set = create_vulkan_descriptor_set(
+                let set = DescriptorSet::new(
                     device,
-                    self.descriptor_set_layout.as_raw(),
-                    self.descriptor_pool.as_raw(),
-                    texture.image_view,
-                    texture.sampler,
+                    std::slice::from_ref(&self.descriptor_set_layout),
+                    &self.descriptor_pool,
                 );
 
-                if let Some(previous) = self.managed_textures.insert(*id, texture) {
+                let mut write_ds =
+                    WriteDescriptorSet::new(0, vk::DescriptorType::COMBINED_IMAGE_SAMPLER);
+                write_ds.add_image(&image, vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
+                set.perform_writes(&[write_ds]);
+
+                if let Some(previous) = self.managed_textures.insert(*id, image) {
                     previous.destroy(device, &mut self.allocator);
                 }
-                if let Some(previous) = self.textures.insert(*id, set) {
+                if let Some(previous) = self.textures.insert(*id, set.as_raw()) {
                     unsafe {
                         device
                             .free_descriptor_sets(self.descriptor_pool.as_raw(), &[previous])
@@ -701,39 +706,4 @@ fn create_pipeline(
 
     let pipeline = GraphicsPipeline::new(device, pipeline_info);
     pipeline
-}
-
-/// Create a descriptor set compatible with the graphics pipeline from a texture.
-fn create_vulkan_descriptor_set(
-    device: &Device,
-    set_layout: vk::DescriptorSetLayout,
-    descriptor_pool: vk::DescriptorPool,
-    image_view: vk::ImageView,
-    sampler: vk::Sampler,
-) -> vk::DescriptorSet {
-    log::trace!("Creating vulkan descriptor set");
-
-    let set = {
-        let set_layouts = [set_layout];
-        let allocate_info = vk::DescriptorSetAllocateInfo::default()
-            .descriptor_pool(descriptor_pool)
-            .set_layouts(&set_layouts);
-        unsafe { device.allocate_descriptor_sets(&allocate_info).unwrap()[0] }
-    };
-
-    unsafe {
-        let image_info = [vk::DescriptorImageInfo {
-            sampler,
-            image_view,
-            image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-        }];
-
-        let writes = [vk::WriteDescriptorSet::default()
-            .dst_set(set)
-            .dst_binding(0)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .image_info(&image_info)];
-        device.update_descriptor_sets(&writes, &[])
-    }
-    set
 }

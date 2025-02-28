@@ -3,15 +3,15 @@ use ash::vk;
 
 use super::{execute_one_time_command, CommandBuffer, CommandPool, Queue};
 
-pub struct Texture {
-    pub image: vk::Image,
-    pub image_view: vk::ImageView,
-    pub sampler: vk::Sampler,
+pub struct Image {
+    image: vk::Image,
+    image_view: vk::ImageView,
+    sampler: vk::Sampler,
 
-    image_mem: gpu_allocator::vulkan::Allocation,
+    memory: gpu_allocator::vulkan::Allocation,
 }
 
-impl Texture {
+impl Image {
     pub fn from_rgba8(
         device: &Device,
         queue: &Queue,
@@ -25,6 +25,18 @@ impl Texture {
             Self::cmd_from_rgba(device, allocator, cmdbuf, width, height, data)
         });
         texture
+    }
+
+    pub fn get_raw_image(&self) -> vk::Image {
+        self.image
+    }
+
+    pub fn get_raw_image_view(&self) -> vk::ImageView {
+        self.image_view
+    }
+
+    pub fn get_raw_sampler(&self) -> vk::Sampler {
+        self.sampler
     }
 
     fn cmd_from_rgba(
@@ -75,7 +87,7 @@ impl Texture {
 
         let mut texture = Self {
             image,
-            image_mem,
+            memory: image_mem,
             image_view,
             sampler,
         };
@@ -205,7 +217,7 @@ impl Texture {
         unsafe {
             device.destroy_sampler(self.sampler, None);
             device.destroy_image_view(self.image_view, None);
-            allocator.destroy_image(self.image, self.image_mem);
+            allocator.destroy_image(self.image, self.memory);
         }
     }
 }

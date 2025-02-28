@@ -32,8 +32,8 @@ pub use command_buffer::{execute_one_time_command, CommandBuffer};
 mod buffer;
 pub use buffer::Buffer;
 
-mod texture;
-pub use texture::Texture;
+mod image;
+pub use image::Image;
 
 mod allocator;
 pub use allocator::Allocator;
@@ -51,3 +51,6 @@ mod descriptor_set_layout;
 pub use descriptor_set_layout::{
     DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutBuilder,
 };
+
+mod descriptor_set;
+pub use descriptor_set::{DescriptorSet, WriteDescriptorSet};
