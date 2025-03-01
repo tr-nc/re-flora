@@ -5,11 +5,13 @@ use crate::vkn::CommandPool;
 use crate::vkn::DescriptorSet;
 use crate::vkn::Queue;
 use crate::vkn::Swapchain;
+use crate::vkn::TextureDesc;
+use crate::vkn::TextureUploadRegion;
 use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
 use crate::vkn::{
     Allocator, DescriptorPool, DescriptorSetLayout, DescriptorSetLayoutBinding,
-    DescriptorSetLayoutBuilder, Device, GraphicsPipeline, Image, PipelineLayout, ShaderModule,
+    DescriptorSetLayoutBuilder, Device, GraphicsPipeline, PipelineLayout, ShaderModule, Texture,
 };
 use ash::vk;
 use ash::vk::Extent2D;
@@ -54,7 +56,7 @@ pub struct EguiRenderer {
 
     descriptor_set_layout: DescriptorSetLayout,
     descriptor_pool: DescriptorPool,
-    managed_textures: HashMap<TextureId, Image>,
+    managed_textures: HashMap<TextureId, Texture>,
     textures: HashMap<TextureId, DescriptorSet>,
     frames: Option<Mesh>,
 
@@ -240,28 +242,39 @@ impl EguiRenderer {
             if let Some([offset_x, offset_y]) = delta.pos {
                 let texture = self.managed_textures.get_mut(id).unwrap();
 
-                texture.update(
-                    device,
+                log::debug!("Updating texture with offset: [{}, {}]", offset_x, offset_y);
+                texture.upload_rgba_image(
                     queue,
                     &command_pool,
-                    &mut self.allocator,
-                    vk::Rect2D {
-                        offset: vk::Offset2D {
-                            x: offset_x as _,
-                            y: offset_y as _,
-                        },
-                        extent: vk::Extent2D { width, height },
+                    TextureUploadRegion {
+                        offset: [offset_x as _, offset_y as _],
+                        extent: [width, height],
                     },
                     data.as_slice(),
                 );
             } else {
-                let image = Image::from_rgba8(
+                let mut texture = Texture::new(
                     device,
+                    &mut self.allocator,
+                    TextureDesc {
+                        extent: [width, height, 1],
+                        format: vk::Format::R8G8B8A8_SRGB,
+                        usage: vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST,
+                        initial_layout: vk::ImageLayout::UNDEFINED,
+                        aspect: vk::ImageAspectFlags::COLOR,
+                        ..Default::default()
+                    },
+                    Default::default(),
+                );
+
+                log::debug!("Creating new texture");
+                texture.upload_rgba_image(
                     queue,
                     &command_pool,
-                    &mut self.allocator,
-                    width,
-                    height,
+                    TextureUploadRegion {
+                        offset: [0, 0],
+                        extent: [width, height],
+                    },
                     data.as_slice(),
                 );
 
@@ -273,10 +286,10 @@ impl EguiRenderer {
 
                 let mut write_ds =
                     WriteDescriptorSet::new(0, vk::DescriptorType::COMBINED_IMAGE_SAMPLER);
-                write_ds.add_image(&image, vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
+                write_ds.add_texture(&texture, vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
                 set.perform_writes(&[write_ds]);
 
-                self.managed_textures.insert(*id, image);
+                self.managed_textures.insert(*id, texture);
                 self.textures.insert(*id, set);
             }
         }
@@ -513,7 +526,7 @@ impl EguiRenderer {
 
         unsafe {
             device.cmd_end_render_pass(command_buffer.as_raw());
-            device.end_command_buffer(command_buffer.as_raw()).unwrap()
+            device.end_command_buffer(command_buffer.as_raw()).unwrap();
         };
     }
 }

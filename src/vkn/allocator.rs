@@ -24,6 +24,15 @@ impl Allocator {
         self.allocator.lock().unwrap()
     }
 
+    pub fn allocate_memory(
+        &mut self,
+        create_info: &AllocationCreateDesc,
+    ) -> Result<Allocation, String> {
+        self.get_allocator()
+            .allocate(&create_info)
+            .map_err(|e| e.to_string())
+    }
+
     pub fn create_buffer(
         &mut self,
         size: usize,
@@ -56,50 +65,6 @@ impl Allocator {
         };
 
         (buffer, allocation)
-    }
-
-    pub fn create_image(&mut self, width: u32, height: u32) -> (vk::Image, Allocation) {
-        let extent = vk::Extent3D {
-            width,
-            height,
-            depth: 1,
-        };
-
-        let image_info = vk::ImageCreateInfo::default()
-            .image_type(vk::ImageType::TYPE_2D)
-            .extent(extent)
-            .mip_levels(1)
-            .array_layers(1)
-            .format(vk::Format::R8G8B8A8_SRGB)
-            .tiling(vk::ImageTiling::OPTIMAL)
-            .initial_layout(vk::ImageLayout::UNDEFINED)
-            .usage(vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED)
-            .sharing_mode(vk::SharingMode::EXCLUSIVE)
-            .samples(vk::SampleCountFlags::TYPE_1)
-            .flags(vk::ImageCreateFlags::empty());
-
-        let image = unsafe { self.device.create_image(&image_info, None).unwrap() };
-        let requirements = unsafe { self.device.get_image_memory_requirements(image) };
-
-        let mut allocator = self.get_allocator();
-
-        let allocation = allocator
-            .allocate(&AllocationCreateDesc {
-                name: "",
-                requirements,
-                location: MemoryLocation::GpuOnly,
-                linear: true,
-                allocation_scheme: AllocationScheme::GpuAllocatorManaged,
-            })
-            .expect("Failed to allocate image memory");
-
-        unsafe {
-            self.device
-                .bind_image_memory(image, allocation.memory(), allocation.offset())
-                .unwrap()
-        };
-
-        (image, allocation)
     }
 
     pub fn destroy_buffer(&mut self, buffer: vk::Buffer, allocation: Allocation) {

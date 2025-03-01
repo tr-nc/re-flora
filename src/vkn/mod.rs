@@ -3,7 +3,7 @@ mod physical_device;
 mod surface;
 
 mod queue;
-pub use queue::{Queue, QueueFamilyIndices};
+pub use queue::Queue;
 
 mod semaphore;
 pub use semaphore::Semaphore;
@@ -32,8 +32,8 @@ pub use command_buffer::{execute_one_time_command, CommandBuffer};
 mod buffer;
 pub use buffer::Buffer;
 
-mod image;
-pub use image::Image;
+mod texture;
+pub use texture::{Texture, TextureDesc, TextureUploadRegion};
 
 mod allocator;
 pub use allocator::Allocator;

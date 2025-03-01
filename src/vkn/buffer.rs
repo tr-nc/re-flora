@@ -18,7 +18,6 @@ impl Drop for Buffer {
 
 impl Deref for Buffer {
     type Target = vk::Buffer;
-
     fn deref(&self) -> &Self::Target {
         &self.buffer
     }

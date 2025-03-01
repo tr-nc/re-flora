@@ -2,6 +2,7 @@ use crate::util::compiler::ShaderCompiler;
 use crate::util::time_info::TimeInfo;
 use crate::vkn::{
     CommandBuffer, CommandPool, ComputePipeline, DescriptorPool, Fence, Semaphore, ShaderModule,
+    WriteDescriptorSet,
 };
 use crate::{
     egui_renderer::EguiRenderer,
@@ -82,12 +83,17 @@ impl InitializedApp {
         let compute_pipeline =
             ComputePipeline::from_shader_module(vulkan_context.device(), compute_shader_module);
 
-        let _descriptor_pool = DescriptorPool::from_descriptor_set_layouts(
+        let descriptor_pool = DescriptorPool::from_descriptor_set_layouts(
             vulkan_context.device(),
             &compute_pipeline
                 .get_pipeline_layout()
                 .get_descriptor_set_layouts(),
         );
+
+        // let image = Image::
+        // let mut write_ds = WriteDescriptorSet::new(0, vk::DescriptorType::STORAGE_IMAGE);
+        // write_ds.add_image(&image, vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
+        // set.perform_writes(&[write_ds]);
 
         Self {
             vulkan_context,

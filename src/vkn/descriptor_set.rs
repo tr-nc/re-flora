@@ -1,6 +1,6 @@
 use ash::vk;
 
-use super::{DescriptorPool, DescriptorSetLayout, Device, Image};
+use super::{DescriptorPool, DescriptorSetLayout, Device, Texture};
 
 pub struct DescriptorSet {
     _device: Device,
@@ -68,11 +68,11 @@ impl WriteDescriptorSet {
         }
     }
 
-    pub fn add_image(&mut self, image: &Image, image_layout: vk::ImageLayout) -> &mut Self {
+    pub fn add_texture(&mut self, texture: &Texture, image_layout: vk::ImageLayout) -> &mut Self {
         let image_info = vk::DescriptorImageInfo::default()
             .image_layout(image_layout)
-            .image_view(image.get_raw_image_view())
-            .sampler(image.get_raw_sampler());
+            .image_view(texture.get_image_view().as_raw())
+            .sampler(texture.get_sampler().as_raw());
 
         if self.image_info.is_none() {
             self.image_info = Some(Vec::new());
