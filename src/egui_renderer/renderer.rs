@@ -22,8 +22,6 @@ use egui::{
 };
 use egui_winit::EventResponse;
 use glam::Mat4;
-use gpu_allocator::vulkan::AllocatorCreateDesc;
-use std::sync::{Arc, Mutex};
 use std::{collections::HashMap, mem};
 use winit::event::WindowEvent;
 use winit::window::Window;
@@ -76,25 +74,11 @@ impl EguiRenderer {
     pub fn new(
         vulkan_context: &VulkanContext,
         window: &Window,
+        allocator: &Allocator,
         compiler: &ShaderCompiler,
         render_pass: vk::RenderPass,
         desc: EguiRendererDesc,
     ) -> Self {
-        let gpu_allocator = {
-            let allocator_create_info = AllocatorCreateDesc {
-                instance: vulkan_context.instance().as_raw().clone(),
-                device: vulkan_context.device().as_raw().clone(),
-                physical_device: vulkan_context.physical_device().as_raw(),
-                debug_settings: Default::default(),
-                buffer_device_address: false,
-                allocation_sizes: Default::default(),
-            };
-            gpu_allocator::vulkan::Allocator::new(&allocator_create_info)
-                .expect("Failed to create gpu allocator")
-        };
-        let allocator =
-            Allocator::new(vulkan_context.device(), Arc::new(Mutex::new(gpu_allocator)));
-
         let device = vulkan_context.device();
 
         let binding = DescriptorSetLayoutBinding {
@@ -163,7 +147,7 @@ impl EguiRenderer {
 
         Self {
             vulkan_context: vulkan_context.clone(),
-            allocator,
+            allocator: allocator.clone(),
             pipeline,
             pipeline_layout,
             vert_shader_module,
@@ -242,7 +226,6 @@ impl EguiRenderer {
             if let Some([offset_x, offset_y]) = delta.pos {
                 let texture = self.managed_textures.get_mut(id).unwrap();
 
-                log::debug!("Updating texture with offset: [{}, {}]", offset_x, offset_y);
                 texture.upload_rgba_image(
                     queue,
                     &command_pool,
@@ -267,7 +250,6 @@ impl EguiRenderer {
                     Default::default(),
                 );
 
-                log::debug!("Creating new texture");
                 texture.upload_rgba_image(
                     queue,
                     &command_pool,
@@ -303,7 +285,7 @@ impl EguiRenderer {
         pipeline_layout: &PipelineLayout,
         textures: &mut HashMap<TextureId, DescriptorSet>,
         allocator: &mut Allocator,
-        command_buffer: &CommandBuffer,
+        cmdbuf: &CommandBuffer,
         extent: vk::Extent2D,
         pixels_per_point: f32,
         primitives: &[ClippedPrimitive],
@@ -324,7 +306,7 @@ impl EguiRenderer {
 
         unsafe {
             device.cmd_bind_pipeline(
-                command_buffer.as_raw(),
+                cmdbuf.as_raw(),
                 vk::PipelineBindPoint::GRAPHICS,
                 pipeline.as_raw(),
             )
@@ -335,7 +317,7 @@ impl EguiRenderer {
 
         unsafe {
             device.cmd_set_viewport(
-                command_buffer.as_raw(),
+                cmdbuf.as_raw(),
                 0,
                 &[vk::Viewport {
                     width: screen_width,
@@ -359,7 +341,7 @@ impl EguiRenderer {
         unsafe {
             let push = any_as_u8_slice(&projection);
             device.cmd_push_constants(
-                command_buffer.as_raw(),
+                cmdbuf.as_raw(),
                 pipeline_layout.as_raw(),
                 vk::ShaderStageFlags::VERTEX,
                 0,
@@ -369,7 +351,7 @@ impl EguiRenderer {
 
         unsafe {
             device.cmd_bind_index_buffer(
-                command_buffer.as_raw(),
+                cmdbuf.as_raw(),
                 frames.as_mut().unwrap().indices_buffer.as_raw(),
                 0,
                 vk::IndexType::UINT32,
@@ -378,7 +360,7 @@ impl EguiRenderer {
 
         unsafe {
             device.cmd_bind_vertex_buffers(
-                command_buffer.as_raw(),
+                cmdbuf.as_raw(),
                 0,
                 &[frames.as_mut().unwrap().vertices_buffer.as_raw()],
                 &[0],
@@ -410,7 +392,7 @@ impl EguiRenderer {
                     }];
 
                     unsafe {
-                        device.cmd_set_scissor(command_buffer.as_raw(), 0, &scissors);
+                        device.cmd_set_scissor(cmdbuf.as_raw(), 0, &scissors);
                     }
 
                     if Some(m.texture_id) != current_texture_id {
@@ -418,7 +400,7 @@ impl EguiRenderer {
 
                         unsafe {
                             device.cmd_bind_descriptor_sets(
-                                command_buffer.as_raw(),
+                                cmdbuf.as_raw(),
                                 vk::PipelineBindPoint::GRAPHICS,
                                 pipeline_layout.as_raw(),
                                 0,
@@ -432,7 +414,7 @@ impl EguiRenderer {
                     let index_count = m.indices.len() as u32;
                     unsafe {
                         device.cmd_draw_indexed(
-                            command_buffer.as_raw(),
+                            cmdbuf.as_raw(),
                             index_count,
                             1,
                             index_offset,

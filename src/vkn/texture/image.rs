@@ -1,41 +1,62 @@
 use crate::vkn::{Allocator, Device};
-use ash::vk;
+use ash::vk::{self, ImageLayout};
 use gpu_allocator::{
     vulkan::{Allocation, AllocationCreateDesc, AllocationScheme},
     MemoryLocation,
 };
+use std::sync::{Arc, Mutex};
 
 use super::texture::TextureDesc;
 
-pub struct Image {
+struct ImageInner {
+    device: Device,
     image: vk::Image,
     allocator: Allocator,
-    memory: gpu_allocator::vulkan::Allocation,
+    memory: Mutex<Option<gpu_allocator::vulkan::Allocation>>,
 }
 
-impl Drop for Image {
+impl Drop for ImageInner {
     fn drop(&mut self) {
-        self.allocator
-            .destroy_image(self.image, std::mem::take(&mut self.memory));
+        if let Some(memory) = self.memory.lock().unwrap().take() {
+            self.allocator.destroy_image(self.image, memory);
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct Image(Arc<ImageInner>);
+
+impl std::ops::Deref for Image {
+    type Target = vk::Image;
+    fn deref(&self) -> &Self::Target {
+        &self.0.image
     }
 }
 
 impl Image {
-    pub fn new(device: &Device, allocator: &mut Allocator, desc: &TextureDesc) -> Self {
-        let (image, memory) = create_image(device, allocator, desc);
-        Self {
+    pub fn new(device: &Device, allocator: &Allocator, desc: &TextureDesc) -> Result<Self, String> {
+        let mut cloned_allocator = allocator.clone();
+        let (image, memory) = create_image(device, &mut cloned_allocator, desc)?;
+
+        Ok(Self(Arc::new(ImageInner {
+            device: device.clone(),
             image,
-            allocator: allocator.clone(),
-            memory,
-        }
+            allocator: cloned_allocator,
+            memory: Mutex::new(Some(memory)),
+        })))
+    }
+
+    // TODO:
+    pub fn transition_layout(&self, new_layout: vk::ImageLayout) {
+        // self.0.device.t
     }
 
     pub fn as_raw(&self) -> vk::Image {
-        self.image
+        self.0.image
     }
 
-    pub fn get_allocator_mut(&mut self) -> &mut Allocator {
-        &mut self.allocator
+    pub fn get_allocator(&self) -> &Allocator {
+        &self.0.allocator
     }
 }
 
@@ -43,7 +64,15 @@ pub fn create_image(
     device: &Device,
     allocator: &mut Allocator,
     desc: &TextureDesc,
-) -> (vk::Image, Allocation) {
+) -> Result<(vk::Image, Allocation), String> {
+    // for vulkan spec, initial_layout must be either UNDEFINED or PREINITIALIZED,
+
+    if desc.initial_layout != ImageLayout::UNDEFINED
+        && desc.initial_layout != ImageLayout::PREINITIALIZED
+    {
+        return Err("Initial layout must be UNDEFINED".to_string());
+    }
+
     let image_info = vk::ImageCreateInfo::default()
         .extent(desc.get_extent())
         .image_type(desc.get_image_type())
@@ -51,7 +80,7 @@ pub fn create_image(
         .array_layers(1)
         .format(desc.format)
         .tiling(desc.tilting)
-        .initial_layout(desc.initial_layout)
+        .initial_layout(ImageLayout::UNDEFINED)
         .usage(desc.usage)
         .sharing_mode(vk::SharingMode::EXCLUSIVE)
         .samples(desc.samples)
@@ -76,5 +105,5 @@ pub fn create_image(
             .unwrap()
     };
 
-    (image, memory)
+    Ok((image, memory))
 }

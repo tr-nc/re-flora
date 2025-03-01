@@ -1,4 +1,5 @@
 use ash::vk;
+use std::sync::Arc;
 
 use crate::vkn::Device;
 
@@ -21,16 +22,26 @@ impl Default for ImageViewDesc {
     }
 }
 
-pub struct ImageView {
+struct ImageViewInner {
     device: Device,
     image_view: vk::ImageView,
 }
 
-impl Drop for ImageView {
+impl Drop for ImageViewInner {
     fn drop(&mut self) {
         unsafe {
             self.device.destroy_image_view(self.image_view, None);
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct ImageView(Arc<ImageViewInner>);
+
+impl std::ops::Deref for ImageView {
+    type Target = vk::ImageView;
+    fn deref(&self) -> &Self::Target {
+        &self.0.image_view
     }
 }
 
@@ -50,13 +61,13 @@ impl ImageView {
 
         let image_view = unsafe { device.create_image_view(&create_info, None).unwrap() };
 
-        Self {
+        Self(Arc::new(ImageViewInner {
             device: device.clone(),
             image_view,
-        }
+        }))
     }
 
     pub fn as_raw(&self) -> vk::ImageView {
-        self.image_view
+        self.0.image_view
     }
 }

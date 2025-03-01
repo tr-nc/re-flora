@@ -3,7 +3,7 @@ use crate::vkn::{execute_one_time_command, Allocator, Buffer, CommandPool, Devic
 use ash::vk::{self, ImageType};
 
 /// A texture is a combination of an image, image view, and sampler.
-// TODO: #[derive(Clone)]
+#[derive(Clone)]
 pub struct Texture {
     device: Device,
     image: Image,
@@ -25,15 +25,16 @@ impl Default for TextureUploadRegion {
     }
 }
 
+/// Responsible for the creation of image and image view.
 #[derive(Copy, Clone)]
 pub struct TextureDesc {
     pub extent: [u32; 3],
     pub format: vk::Format,
     pub usage: vk::ImageUsageFlags,
     pub initial_layout: vk::ImageLayout,
+    pub aspect: vk::ImageAspectFlags,
     pub samples: vk::SampleCountFlags,
     pub tilting: vk::ImageTiling,
-    pub aspect: vk::ImageAspectFlags,
 }
 
 impl Default for TextureDesc {
@@ -42,10 +43,10 @@ impl Default for TextureDesc {
             extent: [0, 0, 0],
             format: vk::Format::UNDEFINED,
             usage: vk::ImageUsageFlags::empty(),
-            initial_layout: vk::ImageLayout::GENERAL,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
             samples: vk::SampleCountFlags::TYPE_1,
             tilting: vk::ImageTiling::OPTIMAL,
-            aspect: vk::ImageAspectFlags::COLOR,
         }
     }
 }
@@ -71,11 +72,11 @@ impl TextureDesc {
 impl Texture {
     pub fn new(
         device: &Device,
-        allocator: &mut Allocator,
+        allocator: &Allocator,
         texture_desc: TextureDesc,
         sampler_desc: SamplerDesc,
     ) -> Self {
-        let image = Image::new(device, allocator, &texture_desc);
+        let image = Image::new(device, allocator, &texture_desc).unwrap();
 
         let image_view_desc = ImageViewDesc {
             image: image.as_raw(),
@@ -103,7 +104,7 @@ impl Texture {
     ) -> &mut Self {
         let mut buffer = Buffer::new_sized(
             &self.device,
-            self.image.get_allocator_mut(),
+            &mut self.image.get_allocator().clone(),
             vk::BufferUsageFlags::TRANSFER_SRC,
             data.len(),
         );
@@ -187,6 +188,7 @@ impl Texture {
                 )
             };
         });
+
         self
     }
 

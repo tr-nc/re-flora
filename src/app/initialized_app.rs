@@ -1,7 +1,10 @@
+use std::sync::{Arc, Mutex};
+
 use crate::util::compiler::ShaderCompiler;
 use crate::util::time_info::TimeInfo;
 use crate::vkn::{
-    CommandBuffer, CommandPool, ComputePipeline, DescriptorPool, Fence, Semaphore, ShaderModule,
+    execute_one_time_command, Allocator, CommandBuffer, CommandPool, ComputePipeline,
+    DescriptorPool, DescriptorSet, Fence, Semaphore, ShaderModule, Texture, TextureDesc,
     WriteDescriptorSet,
 };
 use crate::{
@@ -12,6 +15,7 @@ use crate::{
 };
 use ash::vk;
 use egui::{Color32, RichText, Slider};
+use gpu_allocator::vulkan::{self, AllocatorCreateDesc};
 use winit::event::DeviceEvent;
 use winit::{
     event::{ElementState, WindowEvent},
@@ -21,6 +25,7 @@ use winit::{
 };
 
 pub struct InitializedApp {
+    allocator: Allocator,
     renderer: EguiRenderer,
     command_pool: CommandPool,
     command_buffer: CommandBuffer,
@@ -44,6 +49,21 @@ impl InitializedApp {
 
         let shader_compiler = ShaderCompiler::new(Default::default()).unwrap();
 
+        let gpu_allocator = {
+            let allocator_create_info = AllocatorCreateDesc {
+                instance: vulkan_context.instance().as_raw().clone(),
+                device: vulkan_context.device().as_raw().clone(),
+                physical_device: vulkan_context.physical_device().as_raw(),
+                debug_settings: Default::default(),
+                buffer_device_address: false,
+                allocation_sizes: Default::default(),
+            };
+            gpu_allocator::vulkan::Allocator::new(&allocator_create_info)
+                .expect("Failed to create gpu allocator")
+        };
+        let allocator =
+            Allocator::new(vulkan_context.device(), Arc::new(Mutex::new(gpu_allocator)));
+
         let swapchain = Swapchain::new(
             &vulkan_context,
             &window_state.window_size(),
@@ -64,6 +84,7 @@ impl InitializedApp {
         let renderer = EguiRenderer::new(
             &vulkan_context,
             &window_state.window(),
+            &allocator,
             &shader_compiler,
             swapchain.get_render_pass(),
             EguiRendererDesc {
@@ -73,6 +94,7 @@ impl InitializedApp {
         );
 
         // compute shader test
+
         let compute_shader_module = ShaderModule::from_glsl(
             vulkan_context.device(),
             &shader_compiler,
@@ -83,23 +105,71 @@ impl InitializedApp {
         let compute_pipeline =
             ComputePipeline::from_shader_module(vulkan_context.device(), compute_shader_module);
 
+        let pipeline_layout = compute_pipeline.get_pipeline_layout();
+        let descriptor_set_layouts = pipeline_layout.get_descriptor_set_layouts();
         let descriptor_pool = DescriptorPool::from_descriptor_set_layouts(
             vulkan_context.device(),
-            &compute_pipeline
-                .get_pipeline_layout()
-                .get_descriptor_set_layouts(),
+            descriptor_set_layouts,
+        )
+        .unwrap();
+
+        let texture_desc = TextureDesc {
+            extent: [512, 512, 1],
+            format: vk::Format::R8G8B8A8_UNORM,
+            usage: vk::ImageUsageFlags::STORAGE,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        let texture = Texture::new(
+            vulkan_context.device(),
+            &allocator,
+            texture_desc,
+            Default::default(),
         );
 
-        // let image = Image::
-        // let mut write_ds = WriteDescriptorSet::new(0, vk::DescriptorType::STORAGE_IMAGE);
-        // write_ds.add_image(&image, vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
-        // set.perform_writes(&[write_ds]);
+        let set = DescriptorSet::new(
+            &vulkan_context.device(),
+            descriptor_set_layouts,
+            &descriptor_pool,
+        );
+        let mut write_ds = WriteDescriptorSet::new(0, vk::DescriptorType::STORAGE_IMAGE);
+        write_ds.add_texture(&texture, vk::ImageLayout::GENERAL);
+        set.perform_writes(&[write_ds]);
+
+        execute_one_time_command(
+            vulkan_context.device(),
+            &command_pool,
+            &vulkan_context.get_general_queue(),
+            |cmdbuf| {
+                let device = vulkan_context.device();
+                unsafe {
+                    device.cmd_bind_pipeline(
+                        cmdbuf.as_raw(),
+                        vk::PipelineBindPoint::COMPUTE,
+                        compute_pipeline.as_raw(),
+                    );
+                }
+                unsafe {
+                    device.cmd_bind_descriptor_sets(
+                        cmdbuf.as_raw(),
+                        vk::PipelineBindPoint::COMPUTE,
+                        pipeline_layout.as_raw(),
+                        0,
+                        &[set.as_raw()],
+                        &[],
+                    );
+                    device.cmd_dispatch(cmdbuf.as_raw(), 512 / 8, 512 / 8, 1);
+                };
+            },
+        );
 
         Self {
             vulkan_context,
             renderer,
             window_state,
 
+            allocator,
             command_pool,
             command_buffer,
             swapchain,

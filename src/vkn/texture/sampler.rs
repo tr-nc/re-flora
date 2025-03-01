@@ -1,4 +1,5 @@
 use ash::vk;
+use std::sync::Arc;
 
 use crate::vkn::Device;
 
@@ -43,12 +44,12 @@ impl Default for SamplerDesc {
     }
 }
 
-pub struct Sampler {
+struct SamplerInner {
     device: Device,
     sampler: vk::Sampler,
 }
 
-impl Drop for Sampler {
+impl Drop for SamplerInner {
     fn drop(&mut self) {
         unsafe {
             self.device.destroy_sampler(self.sampler, None);
@@ -56,16 +57,27 @@ impl Drop for Sampler {
     }
 }
 
+#[derive(Clone)]
+pub struct Sampler(Arc<SamplerInner>);
+
+impl std::ops::Deref for Sampler {
+    type Target = vk::Sampler;
+    fn deref(&self) -> &Self::Target {
+        &self.0.sampler
+    }
+}
+
 impl Sampler {
     pub fn new(device: &Device, desc: SamplerDesc) -> Self {
-        Self {
+        let sampler = create_sampler(device.as_raw(), &desc);
+        Self(Arc::new(SamplerInner {
             device: device.clone(),
-            sampler: create_sampler(device.as_raw(), &desc),
-        }
+            sampler,
+        }))
     }
 
     pub fn as_raw(&self) -> vk::Sampler {
-        self.sampler
+        self.0.sampler
     }
 }
 
