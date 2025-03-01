@@ -55,7 +55,7 @@ pub struct EguiRenderer {
     descriptor_set_layout: DescriptorSetLayout,
     descriptor_pool: DescriptorPool,
     managed_textures: HashMap<TextureId, Image>,
-    textures: HashMap<TextureId, vk::DescriptorSet>,
+    textures: HashMap<TextureId, DescriptorSet>,
     frames: Option<Mesh>,
 
     textures_to_free: Option<Vec<TextureId>>,
@@ -276,45 +276,8 @@ impl EguiRenderer {
                 write_ds.add_image(&image, vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
                 set.perform_writes(&[write_ds]);
 
-                if let Some(previous) = self.managed_textures.insert(*id, image) {
-                    previous.destroy(device, &mut self.allocator);
-                }
-                if let Some(previous) = self.textures.insert(*id, set.as_raw()) {
-                    unsafe {
-                        device
-                            .free_descriptor_sets(self.descriptor_pool.as_raw(), &[previous])
-                            .unwrap();
-                    };
-                }
-            }
-        }
-    }
-
-    /// Free egui managed textures.
-    ///
-    /// You should pass the list of ids contained in the [`egui::TexturesDelta::free`].
-    /// This method should be called _after_ the frame is done rendering.
-    ///
-    /// # Arguments
-    ///
-    /// * `ids` - The list of ids of textures to free.
-    ///
-    /// # Errors
-    ///
-    /// * [`RendererError`] - If any Vulkan error is encountered when free the texture.
-    fn free_textures(&mut self, ids: &[TextureId]) {
-        log::trace!("Freeing {} textures", ids.len());
-        let device = &self.vulkan_context.device();
-        for id in ids {
-            if let Some(texture) = self.managed_textures.remove(id) {
-                texture.destroy(device, &mut self.allocator);
-            }
-            if let Some(set) = self.textures.remove(id) {
-                unsafe {
-                    device
-                        .free_descriptor_sets(self.descriptor_pool.as_raw(), &[set])
-                        .unwrap();
-                };
+                self.managed_textures.insert(*id, image);
+                self.textures.insert(*id, set);
             }
         }
     }
@@ -325,7 +288,7 @@ impl EguiRenderer {
         frames: &mut Option<Mesh>,
         pipeline: &GraphicsPipeline,
         pipeline_layout: &PipelineLayout,
-        textures: &mut HashMap<TextureId, vk::DescriptorSet>,
+        textures: &mut HashMap<TextureId, DescriptorSet>,
         allocator: &mut Allocator,
         command_buffer: &CommandBuffer,
         extent: vk::Extent2D,
@@ -438,7 +401,7 @@ impl EguiRenderer {
                     }
 
                     if Some(m.texture_id) != current_texture_id {
-                        let descriptor_set = *textures.get(&m.texture_id).unwrap();
+                        let descriptor_set = textures.get(&m.texture_id).unwrap().as_raw();
 
                         unsafe {
                             device.cmd_bind_descriptor_sets(
@@ -482,11 +445,6 @@ impl EguiRenderer {
         run_ui: impl FnMut(&egui::Context),
     ) {
         let raw_input = self.egui_winit_state.take_egui_input(window);
-
-        // free last frames textures after the previous frame is done rendering
-        if let Some(textures) = self.textures_to_free.take() {
-            self.free_textures(&textures);
-        }
 
         let egui::FullOutput {
             platform_output,
@@ -557,15 +515,6 @@ impl EguiRenderer {
             device.cmd_end_render_pass(command_buffer.as_raw());
             device.end_command_buffer(command_buffer.as_raw()).unwrap()
         };
-    }
-}
-
-impl Drop for EguiRenderer {
-    fn drop(&mut self) {
-        let device = &self.vulkan_context.device();
-        for (_, t) in self.managed_textures.drain() {
-            t.destroy(device, &mut self.allocator);
-        }
     }
 }
 

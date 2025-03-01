@@ -4,13 +4,25 @@ use ash::vk;
 use super::{execute_one_time_command, CommandBuffer, CommandPool, Queue};
 
 pub struct Image {
+    device: Device,
     image: vk::Image,
     image_view: vk::ImageView,
     sampler: vk::Sampler,
 
+    allocator: Allocator,
     memory: gpu_allocator::vulkan::Allocation,
 }
 
+impl Drop for Image {
+    fn drop(&mut self) {
+        unsafe {
+            self.device.destroy_sampler(self.sampler, None);
+            self.device.destroy_image_view(self.image_view, None);
+            self.allocator
+                .destroy_image(self.image, std::mem::take(&mut self.memory));
+        }
+    }
+}
 impl Image {
     pub fn from_rgba8(
         device: &Device,
@@ -47,7 +59,7 @@ impl Image {
         height: u32,
         data: &[u8],
     ) -> (Self, Buffer) {
-        let (image, image_mem) = allocator.create_image(width, height);
+        let (image, memory) = allocator.create_image(width, height);
 
         let image_view = {
             let create_info = vk::ImageViewCreateInfo::default()
@@ -86,10 +98,12 @@ impl Image {
         };
 
         let mut texture = Self {
+            device: device.clone(),
             image,
-            memory: image_mem,
             image_view,
             sampler,
+            allocator: allocator.clone(),
+            memory,
         };
         let region = vk::Rect2D {
             extent: vk::Extent2D { width, height },
@@ -210,14 +224,5 @@ impl Image {
         }
 
         buffer
-    }
-
-    /// Free texture's resources.
-    pub fn destroy(self, device: &Device, allocator: &mut Allocator) {
-        unsafe {
-            device.destroy_sampler(self.sampler, None);
-            device.destroy_image_view(self.image_view, None);
-            allocator.destroy_image(self.image, self.memory);
-        }
     }
 }
