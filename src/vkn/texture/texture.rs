@@ -95,10 +95,12 @@ impl Texture {
         }
     }
 
+    /// Uploads an RGBA image to the texture. The image is transitioned to the `dst_image_layout` afterwords.
     pub fn upload_rgba_image(
         &mut self,
         queue: &Queue,
         command_pool: &CommandPool,
+        dst_image_layout: vk::ImageLayout,
         region: TextureUploadRegion,
         data: &[u8],
     ) -> &mut Self {
@@ -111,36 +113,8 @@ impl Texture {
         buffer.fill(data);
 
         execute_one_time_command(&self.device.clone(), command_pool, queue, |cmdbuf| {
-            // Transition the image layout and copy the buffer into the image
-            // and transition the layout again to be readable from fragment shader.
-            let mut barrier = vk::ImageMemoryBarrier::default()
-                .old_layout(vk::ImageLayout::UNDEFINED)
-                .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
-                .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-                .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-                .image(self.image.as_raw())
-                .subresource_range(vk::ImageSubresourceRange {
-                    aspect_mask: vk::ImageAspectFlags::COLOR,
-                    base_mip_level: 0,
-                    level_count: 1,
-                    base_array_layer: 0,
-                    layer_count: 1,
-                })
-                .src_access_mask(vk::AccessFlags::empty())
-                .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE);
-
-            unsafe {
-                self.device.cmd_pipeline_barrier(
-                    cmdbuf.as_raw(),
-                    vk::PipelineStageFlags::TOP_OF_PIPE,
-                    vk::PipelineStageFlags::TRANSFER,
-                    vk::DependencyFlags::empty(),
-                    &[],
-                    &[],
-                    &[barrier],
-                )
-            };
-
+            self.image
+                .record_transition(cmdbuf, vk::ImageLayout::TRANSFER_DST_OPTIMAL);
             let region = vk::BufferImageCopy::default()
                 .buffer_offset(0)
                 .buffer_row_length(0)
@@ -170,26 +144,13 @@ impl Texture {
                     &[region],
                 )
             }
-
-            barrier.old_layout = vk::ImageLayout::TRANSFER_DST_OPTIMAL;
-            barrier.new_layout = vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL;
-            barrier.src_access_mask = vk::AccessFlags::TRANSFER_WRITE;
-            barrier.dst_access_mask = vk::AccessFlags::SHADER_READ;
-
-            unsafe {
-                self.device.cmd_pipeline_barrier(
-                    cmdbuf.as_raw(),
-                    vk::PipelineStageFlags::TRANSFER,
-                    vk::PipelineStageFlags::FRAGMENT_SHADER,
-                    vk::DependencyFlags::empty(),
-                    &[],
-                    &[],
-                    &[barrier],
-                )
-            };
+            self.image.record_transition(cmdbuf, dst_image_layout);
         });
-
         self
+    }
+
+    pub fn get_image(&self) -> &Image {
+        &self.image
     }
 
     pub fn get_image_view(&self) -> &ImageView {

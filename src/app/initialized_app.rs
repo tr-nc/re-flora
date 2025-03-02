@@ -15,7 +15,7 @@ use crate::{
 };
 use ash::vk;
 use egui::{Color32, RichText, Slider};
-use gpu_allocator::vulkan::{self, AllocatorCreateDesc};
+use gpu_allocator::vulkan::AllocatorCreateDesc;
 use winit::event::DeviceEvent;
 use winit::{
     event::{ElementState, WindowEvent},
@@ -143,6 +143,11 @@ impl InitializedApp {
             &vulkan_context.get_general_queue(),
             |cmdbuf| {
                 let device = vulkan_context.device();
+
+                texture
+                    .get_image()
+                    .record_transition(cmdbuf, vk::ImageLayout::GENERAL);
+
                 unsafe {
                     device.cmd_bind_pipeline(
                         cmdbuf.as_raw(),

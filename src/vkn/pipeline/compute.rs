@@ -5,8 +5,6 @@ use std::ops::Deref;
 pub struct ComputePipeline {
     device: Device,
     pipeline: vk::Pipeline,
-
-    // saved for obtaining
     pipeline_layout: PipelineLayout,
 }
 

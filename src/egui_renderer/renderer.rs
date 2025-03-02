@@ -229,6 +229,7 @@ impl EguiRenderer {
                 texture.upload_rgba_image(
                     queue,
                     &command_pool,
+                    vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
                     TextureUploadRegion {
                         offset: [offset_x as _, offset_y as _],
                         extent: [width, height],
@@ -253,6 +254,7 @@ impl EguiRenderer {
                 texture.upload_rgba_image(
                     queue,
                     &command_pool,
+                    vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
                     TextureUploadRegion {
                         offset: [0, 0],
                         extent: [width, height],
