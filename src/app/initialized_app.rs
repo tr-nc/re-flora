@@ -1,5 +1,4 @@
-use std::sync::{Arc, Mutex};
-
+use crate::gameplay::Camera;
 use crate::util::compiler::ShaderCompiler;
 use crate::util::time_info::TimeInfo;
 use crate::vkn::{
@@ -16,6 +15,7 @@ use crate::{
 use ash::vk;
 use egui::{Color32, RichText, Slider};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
+use std::sync::{Arc, Mutex};
 use winit::event::DeviceEvent;
 use winit::{
     event::{ElementState, WindowEvent},
@@ -37,6 +37,8 @@ pub struct InitializedApp {
     fence: Fence,
     time_info: TimeInfo,
     slider_val: f32,
+
+    camera: Camera,
 
     // note: keep it at the end, it has to be destroyed last
     vulkan_context: VulkanContext,
@@ -182,6 +184,7 @@ impl InitializedApp {
             render_finished_semaphore,
             fence,
 
+            camera: Default::default(),
             is_resize_pending: false,
             time_info: TimeInfo::default(),
             slider_val: 0.0,
@@ -263,7 +266,7 @@ impl InitializedApp {
                 }
 
                 if !self.window_state.is_cursor_visible() {
-                    // self.camera.handle_keyboard(&event);
+                    self.camera.handle_keyboard(&event);
                 }
             }
 
@@ -280,7 +283,7 @@ impl InitializedApp {
                 }
 
                 self.time_info.update();
-                // self.camera.update_transform(self.time_info.delta_time());
+                self.camera.update_transform(self.time_info.delta_time());
 
                 self.vulkan_context
                     .wait_for_fences(&[self.fence.as_raw()])
@@ -394,9 +397,9 @@ impl InitializedApp {
         event: winit::event::DeviceEvent,
     ) {
         match event {
-            DeviceEvent::MouseMotion { delta: _delta } => {
+            DeviceEvent::MouseMotion { delta } => {
                 if !self.window_state.is_cursor_visible() {
-                    // self.camera.handle_mouse(&delta);
+                    self.camera.handle_mouse(&delta);
                 }
             }
             _ => (),
