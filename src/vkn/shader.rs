@@ -5,16 +5,20 @@ use super::{
 use crate::util::compiler::ShaderCompiler;
 use ash::vk::{self, PushConstantRange};
 use shaderc::ShaderKind;
-use spirv_reflect::{types::ReflectDescriptorType, ShaderModule as ReflectShaderModule};
-use std::ffi::CString;
-use std::fmt::Debug;
-use std::sync::Arc;
+use spirv_reflect::{
+    types::ReflectDescriptorType, types::ReflectTypeFlags, ShaderModule as ReflectShaderModule,
+};
+use std::{ffi::CString, fmt::Debug, sync::Arc};
 
+/// Internal struct holding the actual Vulkan `ShaderModule` and reflection data.
 struct ShaderModuleInner {
     device: Device,
     entry_point_name: CString,
     shader_module: ash::vk::ShaderModule,
     reflect_shader_module: ReflectShaderModule,
+
+    /// Cached buffer layouts, reflected once. (Uniform buffers, push constants, etc.)
+    buffer_layouts: Vec<BufferLayout>,
 }
 
 impl Drop for ShaderModuleInner {
@@ -25,27 +29,28 @@ impl Drop for ShaderModuleInner {
     }
 }
 
-/// Represents the detailed layout of a uniform buffer or push constant block
+/// Represents the layout of a uniform buffer or push constant block.
 #[derive(Debug, Clone)]
 pub struct BufferLayout {
     pub set: u32,
     pub binding: u32,
+    pub total_size: u32,
     pub name: String,
-    pub size: u32,
     pub members: Vec<BufferMember>,
     pub descriptor_type: ReflectDescriptorType,
 }
 
-/// Represents a single member within a uniform buffer or push constant block
+/// Represents a single member (field) within a uniform buffer or push constant block.
 #[derive(Debug, Clone)]
 pub struct BufferMember {
-    pub name: String,
     pub offset: u32,
     pub size: u32,
-    pub type_name: String,
     pub padded_size: u32,
+    pub type_name: String,
+    pub name: String,
 }
 
+/// Public handle to the `ShaderModule`.
 #[derive(Clone)]
 pub struct ShaderModule(Arc<ShaderModuleInner>);
 
@@ -73,7 +78,7 @@ impl Debug for ShaderModule {
             .reflect_shader_module
             .enumerate_descriptor_sets(None)
             .unwrap();
-        log::debug!("ds count: {}", descriptor_sets.len());
+        log::debug!("Descriptor set count: {}", descriptor_sets.len());
 
         for descriptor_set in descriptor_sets {
             log::debug!("  Descriptor set: {}", descriptor_set.set);
@@ -83,18 +88,153 @@ impl Debug for ShaderModule {
                 log::debug!("    Descriptor count: {}", binding.count);
             }
         }
+        Ok(())
+    }
+}
 
+/// # New API for building CPU-side data buffers matching a reflected uniform layout.
+///
+/// You typically construct a `BufferDataBuilder` by calling:
+/// ```ignore
+/// let builder = BufferDataBuilder::new(&shader_module, set, binding)?;
+/// let data = builder
+///     .push_f32(3.0)?
+///     .push_u32(42)?
+///     .push_mat4(mat4_value)?
+///     .build();
+/// ```
+/// This returns a `Vec<u8>` that you can then upload to your uniform buffer.
+pub struct BufferDataBuilder<'a> {
+    layout: &'a BufferLayout,
+    current_member_index: usize,
+    data: Vec<u8>,
+}
+
+impl<'a> BufferDataBuilder<'a> {
+    /// Creates a new builder for the given set and binding.
+    pub fn new(shader_module: &'a ShaderModule, set: u32, binding: u32) -> Result<Self, String> {
+        let layout = shader_module
+            .0
+            .buffer_layouts
+            .iter()
+            .find(|l| l.set == set && l.binding == binding)
+            .ok_or_else(|| format!("No BufferLayout found for set={}, binding={}", set, binding))?;
+
+        // Pre-allocate the data vector to at least the total size
+        let data = vec![0u8; layout.total_size as usize];
+        Ok(BufferDataBuilder {
+            layout,
+            current_member_index: 0,
+            data,
+        })
+    }
+
+    /// Push a `f32` into the next member if it matches an expected `float`.
+    pub fn push_f32(&mut self, value: f32) -> Result<&mut Self, String> {
+        self.check_and_write(&value.to_ne_bytes(), &["float"])?;
+        Ok(self)
+    }
+
+    /// Push a `u32` into the next member if it matches an expected `uint` or `int` (up to you).
+    pub fn push_u32(&mut self, value: u32) -> Result<&mut Self, String> {
+        // If you want to allow pushing `u32` to "int", add "int" to the list below.
+        self.check_and_write(&value.to_ne_bytes(), &["uint"])?;
+        Ok(self)
+    }
+
+    /// Push a `i32` into the next member if it matches an expected `int`.
+    pub fn push_i32(&mut self, value: i32) -> Result<&mut Self, String> {
+        self.check_and_write(&value.to_ne_bytes(), &["int"])?;
+        Ok(self)
+    }
+
+    /// Push a [f32; 4x4] matrix into the next member if it matches an expected `mat4`.
+    /// (Using `glam::Mat4` or any library that can produce a `[f32; 16]` is typical.)
+    pub fn push_mat4(&mut self, mat: [f32; 16]) -> Result<&mut Self, String> {
+        // Convert to bytes
+        let mut bytes = Vec::with_capacity(16 * 4);
+        for val in mat {
+            bytes.extend_from_slice(&val.to_ne_bytes());
+        }
+        self.check_and_write(&bytes, &["mat4"])?;
+        Ok(self)
+    }
+
+    /// Push a [f32; 2] vector if it matches a `vec2`, etc.
+    pub fn push_vec2(&mut self, v: [f32; 2]) -> Result<&mut Self, String> {
+        // Convert to bytes
+        let mut bytes = Vec::with_capacity(2 * 4);
+        for val in v {
+            bytes.extend_from_slice(&val.to_ne_bytes());
+        }
+        self.check_and_write(&bytes, &["vec2"])?;
+        Ok(self)
+    }
+
+    /// Once all pushes are done, finalize the data vector.
+    pub fn build(self) -> Vec<u8> {
+        self.data
+    }
+
+    // ---- Private helpers ----
+
+    /// Checks the next member’s type matches one of the `allowed_types` (e.g. ["float"]) and
+    /// writes the given bytes to the corresponding offset.
+    fn check_and_write(
+        &mut self,
+        write_bytes: &[u8],
+        allowed_types: &[&str],
+    ) -> Result<(), String> {
+        if self.current_member_index >= self.layout.members.len() {
+            return Err("BufferDataBuilder: no more members left to push.".into());
+        }
+
+        let member = &self.layout.members[self.current_member_index];
+        if !allowed_types.contains(&member.type_name.as_str()) {
+            return Err(format!(
+                "Type mismatch for member {} (index {}): expected {:?}, found {:?}",
+                member.name, self.current_member_index, allowed_types, member.type_name
+            ));
+        }
+
+        // Check sizes
+        if write_bytes.len() > member.size as usize {
+            // Potentially we want to allow partial fill or handle padded sizes differently,
+            // but for demonstration, we just fail if the user’s data doesn’t match exactly.
+            return Err(format!(
+                "write_bytes (len={}) is larger than this member’s size ({})",
+                write_bytes.len(),
+                member.size
+            ));
+        }
+
+        // Write into self.data at the correct offset
+        let start_offset = member.offset as usize;
+        let end_offset = start_offset + write_bytes.len();
+
+        if end_offset > self.data.len() {
+            return Err(format!(
+                "Offset range [{}, {}) is out of bounds for the data array (len = {}).",
+                start_offset,
+                end_offset,
+                self.data.len()
+            ));
+        }
+
+        self.data[start_offset..end_offset].copy_from_slice(write_bytes);
+
+        self.current_member_index += 1;
         Ok(())
     }
 }
 
 impl ShaderModule {
-    /// Create a new shader module from GLSL code
+    /// Create a new shader module from GLSL code, reflect it, and cache relevant layout metadata.
     ///
-    /// * `device` - The device to create the shader module on
-    /// * `compiler` - The shader compiler to use
-    /// * `file_path` - The path to the GLSL file, from the project root
-    /// * `entry_point_name` - The name of the entry point function in the shader
+    /// * `device` - The device to create the shader module on.
+    /// * `compiler` - The shader compiler to use.
+    /// * `file_path` - The path to the GLSL file, from the project root.
+    /// * `entry_point_name` - The name of the entry point function in the shader.
     pub fn from_glsl(
         device: &Device,
         compiler: &ShaderCompiler,
@@ -103,12 +243,10 @@ impl ShaderModule {
     ) -> Result<Self, String> {
         let full_path = format!("{}{}", env!("PROJECT_ROOT"), file_path);
         let code = read_code_from_path(&full_path)?;
-        let shader_kind = predict_shader_kind(file_path)
-            .map_err(|e| e.to_string())
-            .unwrap();
+        let shader_kind = predict_shader_kind(file_path).map_err(|e| e.to_string())?;
 
         Self::from_glsl_code(
-            &device,
+            device,
             &code,
             &Self::get_file_name_from_path(file_path),
             entry_point_name,
@@ -117,7 +255,7 @@ impl ShaderModule {
         )
     }
 
-    /// Debug utility to print all bindings in the shader module
+    /// For debugging: print all descriptor bindings in this shader.
     pub fn print_bindings(&self) {
         let descriptor_bindings = self
             .0
@@ -130,50 +268,13 @@ impl ShaderModule {
         }
     }
 
-    /// Extracts detailed layout information for uniform buffers (or push constant blocks).
-    /// Returns a structured representation of all uniform buffer blocks and their members.
-    ///
-    /// Note: Because SPIR-V reflection does *not* preserve the original variable names,
-    /// each member in the reflected block often comes back with an empty string for its name.
-    /// Consequently, we'll auto-generate fallback names like `member_0`, `member_1`, etc.
-    /// You can adjust this logic as needed for debugging or readability.
-    pub fn extract_buffer_layouts(&self) -> Vec<BufferLayout> {
-        let descriptor_bindings = self
-            .0
-            .reflect_shader_module
-            .enumerate_descriptor_bindings(None)
-            .unwrap();
-
-        let mut result = Vec::new();
-
-        // Loop over every descriptor binding
-        for binding in descriptor_bindings {
-            // We're only interested in `UniformBuffer` descriptor types
-            if binding.descriptor_type == ReflectDescriptorType::UniformBuffer {
-                let block_info = &binding.block;
-
-                // Construct our UniformBufferLayout and parse its members
-                let layout = BufferLayout {
-                    set: binding.set,
-                    binding: binding.binding,
-                    name: if binding.name.is_empty() {
-                        // If the binding name is empty, manufacture a fallback name
-                        format!("ubo_set{}_binding{}", binding.set, binding.binding)
-                    } else {
-                        binding.name.clone()
-                    },
-                    size: block_info.padded_size, // total size of the entire struct
-                    members: parse_block_members(&block_info.members),
-                    descriptor_type: binding.descriptor_type,
-                };
-
-                result.push(layout);
-            }
-        }
-
-        result
+    /// Retrieve the (cached) buffer layouts for uniform buffers/push-constants.
+    /// These were extracted during initialization.
+    pub fn get_buffer_layouts(&self) -> &[BufferLayout] {
+        &self.0.buffer_layouts
     }
 
+    /// Retrieve the workgroup size (for compute shaders).
     pub fn get_workgroup_size(&self) -> Result<[u32; 3], String> {
         let entry_points = self
             .0
@@ -190,6 +291,37 @@ impl ShaderModule {
         Ok([local_size.x, local_size.y, local_size.z])
     }
 
+    /// Constructs the pipeline layout from the descriptor sets and push constants reflected in this shader.
+    pub fn get_pipeline_layout(&self, device: &Device) -> PipelineLayout {
+        let descriptor_set_layouts = self.get_descriptor_set_layouts();
+        let push_constant_ranges = self.get_push_constant_ranges();
+        PipelineLayout::new(
+            device,
+            descriptor_set_layouts.as_deref(),
+            push_constant_ranges.as_deref(),
+        )
+    }
+
+    /// Returns the Vulkan stage flags for this shader.
+    pub fn get_stage(&self) -> vk::ShaderStageFlags {
+        vk::ShaderStageFlags::from_raw(self.0.reflect_shader_module.get_shader_stage().bits())
+    }
+
+    /// Returns the underlying Vulkan `ash::vk::ShaderModule`.
+    pub fn get_shader_module(&self) -> ash::vk::ShaderModule {
+        self.0.shader_module
+    }
+
+    /// Convenience for creating a stage create info (for pipeline creation).
+    pub fn get_shader_stage_create_info(&self) -> ash::vk::PipelineShaderStageCreateInfo {
+        ash::vk::PipelineShaderStageCreateInfo::default()
+            .stage(self.get_stage())
+            .module(self.get_shader_module())
+            .name(&self.0.entry_point_name)
+    }
+
+    // --- Private/Helper Methods ---
+
     fn get_file_name_from_path(file_path: &str) -> String {
         file_path.split('/').last().unwrap().to_string()
     }
@@ -202,70 +334,47 @@ impl ShaderModule {
         compiler: &ShaderCompiler,
         shader_kind: ShaderKind,
     ) -> Result<Self, String> {
+        // Compile to SPIR-V bytecode
         let shader_byte_code_u8 = compiler
-            .compile_to_bytecode(&code, shader_kind, entry_point_name, file_name)
+            .compile_to_bytecode(code, shader_kind, entry_point_name, file_name)
             .map_err(|e| e.to_string())?;
 
+        // Reflect the SPIR-V
         let reflect_shader_module =
             ReflectShaderModule::load_u8_data(&shader_byte_code_u8).map_err(|e| e.to_string())?;
+
+        // Create the Vulkan ShaderModule
         let shader_module = bytecode_to_shader_module(device, &shader_byte_code_u8)?;
+
+        // Extract (and cache) the buffer layouts
+        let buffer_layouts = extract_buffer_layouts(&reflect_shader_module);
 
         Ok(Self(Arc::new(ShaderModuleInner {
             device: device.clone(),
             entry_point_name: CString::new(entry_point_name).unwrap(),
             shader_module,
             reflect_shader_module,
+            buffer_layouts,
         })))
     }
 
-    pub fn get_shader_module(&self) -> ash::vk::ShaderModule {
-        self.0.shader_module
-    }
-
-    pub fn get_shader_stage_create_info(&self) -> ash::vk::PipelineShaderStageCreateInfo {
-        let info = ash::vk::PipelineShaderStageCreateInfo::default()
-            .stage(self.get_stage())
-            .module(self.get_shader_module())
-            .name(&self.0.entry_point_name);
-        info
-    }
-
-    pub fn get_pipeline_layout(&self, device: &Device) -> PipelineLayout {
-        let descriptor_set_layouts = self.get_descriptor_set_layouts();
-        let push_constant_ranges = self.get_push_constant_ranges();
-        PipelineLayout::new(
-            device,
-            descriptor_set_layouts.as_deref(),
-            push_constant_ranges.as_deref(),
-        )
-    }
-
-    pub fn get_stage(&self) -> vk::ShaderStageFlags {
-        vk::ShaderStageFlags::from_raw(self.0.reflect_shader_module.get_shader_stage().bits())
-    }
-
     fn get_push_constant_ranges(&self) -> Option<Vec<PushConstantRange>> {
-        let push_constant_ranges = self
+        let push_constant_blocks = self
             .0
             .reflect_shader_module
             .enumerate_push_constant_blocks(None)
-            .unwrap();
-        let mut ranges = Vec::new();
-
-        for range in push_constant_ranges {
-            let stage_flags = self.get_stage();
-            let offset = range.offset;
-            let size = range.size;
-
-            ranges.push(PushConstantRange {
-                stage_flags,
-                offset,
-                size,
-            });
+            .ok()?;
+        if push_constant_blocks.is_empty() {
+            return None;
         }
 
-        if ranges.is_empty() {
-            return None;
+        let mut ranges = Vec::new();
+        for block in push_constant_blocks {
+            ranges.push(PushConstantRange {
+                stage_flags: self.get_stage(),
+                offset: block.offset,
+                size: block.size,
+            });
         }
         Some(ranges)
     }
@@ -275,64 +384,41 @@ impl ShaderModule {
             .0
             .reflect_shader_module
             .enumerate_descriptor_sets(None)
-            .unwrap();
+            .ok()?;
+        if descriptor_sets.is_empty() {
+            return None;
+        }
 
         let mut layouts = Vec::new();
-
         for descriptor_set in descriptor_sets {
-            // let set_no = descriptor_set.set;
             let mut builder = DescriptorSetLayoutBuilder::new();
-
             for binding in descriptor_set.bindings {
-                let binding_no = binding.binding;
-                let descriptor_type = binding.descriptor_type;
-                let descriptor_count = binding.count;
+                let descriptor_type =
+                    reflect_descriptor_type_to_descriptor_type(binding.descriptor_type);
                 let stage_flags = self.get_stage();
-
-                let b = DescriptorSetLayoutBinding {
-                    no: binding_no,
-                    descriptor_type: Self::reflect_descriptor_type_to_descriptor_type(
-                        descriptor_type,
-                    ),
-                    descriptor_count: descriptor_count,
-                    stage_flags: stage_flags,
-                };
-                builder.add_binding(b);
+                builder.add_binding(DescriptorSetLayoutBinding {
+                    no: binding.binding,
+                    descriptor_type,
+                    descriptor_count: binding.count,
+                    stage_flags,
+                });
             }
-
             layouts.push(builder.build(&self.0.device).unwrap());
         }
 
-        if layouts.is_empty() {
-            return None;
-        }
         Some(layouts)
-    }
-
-    fn reflect_descriptor_type_to_descriptor_type(
-        reflect_type: ReflectDescriptorType,
-    ) -> vk::DescriptorType {
-        use vk::DescriptorType;
-        match reflect_type {
-            ReflectDescriptorType::Sampler => DescriptorType::SAMPLER,
-            ReflectDescriptorType::CombinedImageSampler => DescriptorType::COMBINED_IMAGE_SAMPLER,
-            ReflectDescriptorType::SampledImage => DescriptorType::SAMPLED_IMAGE,
-            ReflectDescriptorType::StorageImage => DescriptorType::STORAGE_IMAGE,
-            ReflectDescriptorType::UniformTexelBuffer => DescriptorType::UNIFORM_TEXEL_BUFFER,
-            ReflectDescriptorType::StorageTexelBuffer => DescriptorType::STORAGE_TEXEL_BUFFER,
-            ReflectDescriptorType::UniformBuffer => DescriptorType::UNIFORM_BUFFER,
-            ReflectDescriptorType::StorageBuffer => DescriptorType::STORAGE_BUFFER,
-            ReflectDescriptorType::UniformBufferDynamic => DescriptorType::UNIFORM_BUFFER_DYNAMIC,
-            ReflectDescriptorType::StorageBufferDynamic => DescriptorType::STORAGE_BUFFER_DYNAMIC,
-            ReflectDescriptorType::InputAttachment => DescriptorType::INPUT_ATTACHMENT,
-            ReflectDescriptorType::AccelerationStructureKHR => {
-                DescriptorType::ACCELERATION_STRUCTURE_KHR
-            }
-            _ => panic!(),
-        }
     }
 }
 
+// ----------------------
+// Free Functions / Helpers
+// ----------------------
+
+fn read_code_from_path(full_shader_path: &str) -> Result<String, String> {
+    std::fs::read_to_string(full_shader_path).map_err(|e| e.to_string())
+}
+
+/// A simple extension-based guess of the shader kind (vert, frag, comp).
 fn predict_shader_kind(file_path: &str) -> Result<shaderc::ShaderKind, String> {
     match file_path.split('.').last() {
         Some("vert") => Ok(shaderc::ShaderKind::Vertex),
@@ -342,6 +428,7 @@ fn predict_shader_kind(file_path: &str) -> Result<shaderc::ShaderKind, String> {
     }
 }
 
+/// Convert our SPIR-V bytecode (u8 Vec) into a Vulkan `ShaderModule`.
 fn bytecode_to_shader_module(
     device: &Device,
     shader_byte_code: &[u8],
@@ -356,6 +443,7 @@ fn bytecode_to_shader_module(
     }
 }
 
+/// Converts a byte slice (SPIR-V) into a `Vec<u32>` for Vulkan.
 fn u8_to_u32(byte_code: &[u8]) -> Vec<u32> {
     byte_code
         .chunks_exact(4)
@@ -367,137 +455,154 @@ fn u8_to_u32(byte_code: &[u8]) -> Vec<u32> {
         .collect()
 }
 
-fn read_code_from_path(full_shader_path: &str) -> Result<String, String> {
-    std::fs::read_to_string(full_shader_path).map_err(|e| e.to_string())
-}
+/// Extract buffer layouts (uniform blocks, push constant blocks) from reflection.
+fn extract_buffer_layouts(reflect_module: &ReflectShaderModule) -> Vec<BufferLayout> {
+    let descriptor_bindings = match reflect_module.enumerate_descriptor_bindings(None) {
+        Ok(db) => db,
+        Err(_) => return Vec::new(),
+    };
 
-//
-
-/// Recursively parse an array of `ReflectBlockVariable` into a vector of `UniformBufferMember`.
-fn parse_block_members(
-    members: &Vec<spirv_reflect::types::ReflectBlockVariable>,
-) -> Vec<BufferMember> {
     let mut result = Vec::new();
 
+    for binding in descriptor_bindings {
+        // We only care about UniformBuffer (and possibly StorageBuffer if desired) for example
+        if binding.descriptor_type == ReflectDescriptorType::UniformBuffer {
+            let block_info = &binding.block;
+
+            // Build our layout
+            let layout = BufferLayout {
+                set: binding.set,
+                binding: binding.binding,
+                name: if binding.name.is_empty() {
+                    format!("ubo_set{}_binding{}", binding.set, binding.binding)
+                } else {
+                    binding.name.clone()
+                },
+                total_size: block_info.padded_size,
+                members: parse_block_members(&block_info.members),
+                descriptor_type: binding.descriptor_type,
+            };
+
+            result.push(layout);
+        }
+    }
+
+    result
+}
+
+/// Given an array of `ReflectBlockVariable`, build a list of our `BufferMember`.
+fn parse_block_members(
+    members: &[spirv_reflect::types::ReflectBlockVariable],
+) -> Vec<BufferMember> {
+    let mut result = Vec::new();
     for (i, member) in members.iter().enumerate() {
-        // If SPIR-V reflection doesn't preserve the name, we fallback to "member_i"
         let member_name = if member.name.is_empty() {
             format!("member_{}", i)
         } else {
             member.name.clone()
         };
 
-        // We'll guess the member's type name by looking at numeric traits, vector size, etc.
         let type_name = guess_type_name(member);
 
-        // Create the UniformBufferMember for this variable
-        let ub_member = BufferMember {
-            name: member_name,
+        result.push(BufferMember {
             offset: member.offset,
             size: member.size,
             padded_size: member.padded_size,
             type_name,
-        };
-
-        result.push(ub_member);
-
-        // If the reflection might contain nested structs, you could recurse further;
-        // for now, we stop here since members in typical GLSL uniform blocks are “flat.”
+            name: member_name,
+        });
     }
-
     result
 }
 
-/// Use the SPIR-V reflection type flags to guess an appropriate GLSL-like type name.
+/// Attempt to guess a GLSL-like type name from SPIR-V reflection metadata.
 fn guess_type_name(member: &spirv_reflect::types::ReflectBlockVariable) -> String {
     if let Some(type_desc) = &member.type_description {
-        // Check if it’s a matrix
-        if type_desc
-            .type_flags
-            .contains(spirv_reflect::types::ReflectTypeFlags::MATRIX)
-        {
-            // Handle typical matrix sizes like mat2, mat3, mat4
-            let cols = type_desc.traits.numeric.matrix.column_count;
-            let rows = type_desc.traits.numeric.matrix.row_count;
+        let flags = &type_desc.type_flags;
+        let numeric = &type_desc.traits.numeric;
+
+        // Matrices
+        if flags.contains(ReflectTypeFlags::MATRIX) {
+            let cols = numeric.matrix.column_count;
+            let rows = numeric.matrix.row_count;
             return match (rows, cols) {
-                (4, 4) => "mat4".to_string(),
-                (3, 3) => "mat3".to_string(),
-                (2, 2) => "mat2".to_string(),
-                // fallback
+                (4, 4) => "mat4".to_owned(),
+                (3, 3) => "mat3".to_owned(),
+                (2, 2) => "mat2".to_owned(),
                 _ => format!("mat{}x{}", rows, cols),
             };
         }
 
-        // Check if it’s a vector
-        if type_desc
-            .type_flags
-            .contains(spirv_reflect::types::ReflectTypeFlags::VECTOR)
-        {
-            let comp_count = type_desc.traits.numeric.vector.component_count;
-
-            // Distinguish float-based vs int-based vs uint-based vectors
-            let is_float = type_desc
-                .type_flags
-                .contains(spirv_reflect::types::ReflectTypeFlags::FLOAT);
-            let is_int = type_desc
-                .type_flags
-                .contains(spirv_reflect::types::ReflectTypeFlags::INT);
-
-            // We'll read `signedness` to guess if it's int vs. uint
-            let numeric = &type_desc.traits.numeric;
+        // Vectors
+        if flags.contains(ReflectTypeFlags::VECTOR) {
+            let comp_count = numeric.vector.component_count;
+            // Distinguish float-based vs int-based vs uint-based
+            let is_float = flags.contains(ReflectTypeFlags::FLOAT);
+            let is_int = flags.contains(ReflectTypeFlags::INT);
             let signedness = numeric.scalar.signedness;
 
             if is_float {
                 return match comp_count {
-                    2 => "vec2".to_string(),
-                    3 => "vec3".to_string(),
-                    4 => "vec4".to_string(),
+                    2 => "vec2".to_owned(),
+                    3 => "vec3".to_owned(),
+                    4 => "vec4".to_owned(),
                     _ => format!("vec{}", comp_count),
                 };
             } else if is_int {
-                // signedness == 1 => ivec, else uvec
+                // signedness == 1 => ivec..., else uvec...
                 if signedness == 1 {
                     return match comp_count {
-                        2 => "ivec2".to_string(),
-                        3 => "ivec3".to_string(),
-                        4 => "ivec4".to_string(),
+                        2 => "ivec2".to_owned(),
+                        3 => "ivec3".to_owned(),
+                        4 => "ivec4".to_owned(),
                         _ => format!("ivec{}", comp_count),
                     };
                 } else {
                     return match comp_count {
-                        2 => "uvec2".to_string(),
-                        3 => "uvec3".to_string(),
-                        4 => "uvec4".to_string(),
+                        2 => "uvec2".to_owned(),
+                        3 => "uvec3".to_owned(),
+                        4 => "uvec4".to_owned(),
                         _ => format!("uvec{}", comp_count),
                     };
                 }
             }
         }
 
-        // If it's a scalar
-        if type_desc
-            .type_flags
-            .contains(spirv_reflect::types::ReflectTypeFlags::FLOAT)
-        {
-            return "float".to_string();
+        // Scalars
+        if flags.contains(ReflectTypeFlags::FLOAT) {
+            return "float".to_owned();
         }
-        if type_desc
-            .type_flags
-            .contains(spirv_reflect::types::ReflectTypeFlags::INT)
-        {
-            // “bool” in GLSL is 32-bit in SPIR-V, usually stored as int.
-            // Without extra clues, we can’t always know if it’s truly a bool or int/uint,
-            // but if you know your own shader code, you can special-case it here.
-            // For demonstration, we’ll guess:
-            let signed = type_desc.traits.numeric.scalar.signedness;
+        if flags.contains(ReflectTypeFlags::INT) {
+            // "bool" in GLSL is 32-bit in SPIR-V, typically stored as int.
+            let signed = numeric.scalar.signedness;
             return if signed == 1 {
-                "int".to_string()
+                "int".to_owned()
             } else {
-                "uint".to_string()
+                "uint".to_owned()
             };
         }
     }
+    "unknown".to_owned()
+}
 
-    // Fallback name if we still don’t recognize it
-    "unknown".to_string()
+fn reflect_descriptor_type_to_descriptor_type(
+    reflect_type: ReflectDescriptorType,
+) -> vk::DescriptorType {
+    match reflect_type {
+        ReflectDescriptorType::Sampler => vk::DescriptorType::SAMPLER,
+        ReflectDescriptorType::CombinedImageSampler => vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+        ReflectDescriptorType::SampledImage => vk::DescriptorType::SAMPLED_IMAGE,
+        ReflectDescriptorType::StorageImage => vk::DescriptorType::STORAGE_IMAGE,
+        ReflectDescriptorType::UniformTexelBuffer => vk::DescriptorType::UNIFORM_TEXEL_BUFFER,
+        ReflectDescriptorType::StorageTexelBuffer => vk::DescriptorType::STORAGE_TEXEL_BUFFER,
+        ReflectDescriptorType::UniformBuffer => vk::DescriptorType::UNIFORM_BUFFER,
+        ReflectDescriptorType::StorageBuffer => vk::DescriptorType::STORAGE_BUFFER,
+        ReflectDescriptorType::UniformBufferDynamic => vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC,
+        ReflectDescriptorType::StorageBufferDynamic => vk::DescriptorType::STORAGE_BUFFER_DYNAMIC,
+        ReflectDescriptorType::InputAttachment => vk::DescriptorType::INPUT_ATTACHMENT,
+        ReflectDescriptorType::AccelerationStructureKHR => {
+            vk::DescriptorType::ACCELERATION_STRUCTURE_KHR
+        }
+        _ => panic!("Unsupported descriptor type in reflection."),
+    }
 }

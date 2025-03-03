@@ -24,7 +24,7 @@ mod device;
 pub use device::Device;
 
 mod shader;
-pub use shader::ShaderModule;
+pub use shader::*;
 
 mod command_buffer;
 pub use command_buffer::{execute_one_time_command, CommandBuffer};

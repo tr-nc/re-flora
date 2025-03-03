@@ -2,9 +2,9 @@ use crate::gameplay::Camera;
 use crate::util::compiler::ShaderCompiler;
 use crate::util::time_info::TimeInfo;
 use crate::vkn::{
-    execute_one_time_command, Allocator, CommandBuffer, CommandPool, ComputePipeline,
-    DescriptorPool, DescriptorSet, Fence, Semaphore, ShaderModule, Texture, TextureDesc,
-    WriteDescriptorSet,
+    execute_one_time_command, Allocator, BufferDataBuilder, CommandBuffer, CommandPool,
+    ComputePipeline, DescriptorPool, DescriptorSet, Fence, Semaphore, ShaderModule, Texture,
+    TextureDesc, WriteDescriptorSet,
 };
 use crate::{
     egui_renderer::EguiRenderer,
@@ -105,8 +105,18 @@ impl InitializedApp {
         )
         .unwrap();
 
-        let extracted = compute_shader_module.extract_buffer_layouts();
-        log::debug!("Extracted buffers: {:?}", extracted);
+        // let extracted = compute_shader_module.extract_buffer_layouts();
+        // log::debug!("Extracted buffers: {:?}", extracted);
+
+        // Now you want to build data for set=0, binding=1
+        let mut builder = BufferDataBuilder::new(&compute_shader_module, 0, 1).unwrap();
+
+        let buffer_data_builder = builder
+            .push_f32(3.0) // e.g. the first member
+            .unwrap()
+            .push_u32(3) // second member
+            .unwrap();
+        // buffer_data_builder.build();
 
         let compute_pipeline =
             ComputePipeline::from_shader_module(vulkan_context.device(), &compute_shader_module);
