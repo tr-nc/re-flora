@@ -25,6 +25,27 @@ impl Drop for ShaderModuleInner {
     }
 }
 
+/// Represents the detailed layout of a uniform buffer or push constant block
+#[derive(Debug, Clone)]
+pub struct BufferLayout {
+    pub set: u32,
+    pub binding: u32,
+    pub name: String,
+    pub size: u32,
+    pub members: Vec<BufferMember>,
+    pub descriptor_type: ReflectDescriptorType,
+}
+
+/// Represents a single member within a uniform buffer or push constant block
+#[derive(Debug, Clone)]
+pub struct BufferMember {
+    pub name: String,
+    pub offset: u32,
+    pub size: u32,
+    pub type_name: String,
+    pub padded_size: u32,
+}
+
 #[derive(Clone)]
 pub struct ShaderModule(Arc<ShaderModuleInner>);
 
@@ -94,6 +115,63 @@ impl ShaderModule {
             compiler,
             shader_kind,
         )
+    }
+
+    /// Debug utility to print all bindings in the shader module
+    pub fn print_bindings(&self) {
+        let descriptor_bindings = self
+            .0
+            .reflect_shader_module
+            .enumerate_descriptor_bindings(None)
+            .unwrap();
+
+        for binding in descriptor_bindings {
+            log::debug!("binding: {:?}", binding);
+        }
+    }
+
+    /// Extracts detailed layout information for uniform buffers (or push constant blocks).
+    /// Returns a structured representation of all uniform buffer blocks and their members.
+    ///
+    /// Note: Because SPIR-V reflection does *not* preserve the original variable names,
+    /// each member in the reflected block often comes back with an empty string for its name.
+    /// Consequently, we'll auto-generate fallback names like `member_0`, `member_1`, etc.
+    /// You can adjust this logic as needed for debugging or readability.
+    pub fn extract_buffer_layouts(&self) -> Vec<BufferLayout> {
+        let descriptor_bindings = self
+            .0
+            .reflect_shader_module
+            .enumerate_descriptor_bindings(None)
+            .unwrap();
+
+        let mut result = Vec::new();
+
+        // Loop over every descriptor binding
+        for binding in descriptor_bindings {
+            // We're only interested in `UniformBuffer` descriptor types
+            if binding.descriptor_type == ReflectDescriptorType::UniformBuffer {
+                let block_info = &binding.block;
+
+                // Construct our UniformBufferLayout and parse its members
+                let layout = BufferLayout {
+                    set: binding.set,
+                    binding: binding.binding,
+                    name: if binding.name.is_empty() {
+                        // If the binding name is empty, manufacture a fallback name
+                        format!("ubo_set{}_binding{}", binding.set, binding.binding)
+                    } else {
+                        binding.name.clone()
+                    },
+                    size: block_info.padded_size, // total size of the entire struct
+                    members: parse_block_members(&block_info.members),
+                    descriptor_type: binding.descriptor_type,
+                };
+
+                result.push(layout);
+            }
+        }
+
+        result
     }
 
     pub fn get_workgroup_size(&self) -> Result<[u32; 3], String> {
@@ -291,4 +369,135 @@ fn u8_to_u32(byte_code: &[u8]) -> Vec<u32> {
 
 fn read_code_from_path(full_shader_path: &str) -> Result<String, String> {
     std::fs::read_to_string(full_shader_path).map_err(|e| e.to_string())
+}
+
+//
+
+/// Recursively parse an array of `ReflectBlockVariable` into a vector of `UniformBufferMember`.
+fn parse_block_members(
+    members: &Vec<spirv_reflect::types::ReflectBlockVariable>,
+) -> Vec<BufferMember> {
+    let mut result = Vec::new();
+
+    for (i, member) in members.iter().enumerate() {
+        // If SPIR-V reflection doesn't preserve the name, we fallback to "member_i"
+        let member_name = if member.name.is_empty() {
+            format!("member_{}", i)
+        } else {
+            member.name.clone()
+        };
+
+        // We'll guess the member's type name by looking at numeric traits, vector size, etc.
+        let type_name = guess_type_name(member);
+
+        // Create the UniformBufferMember for this variable
+        let ub_member = BufferMember {
+            name: member_name,
+            offset: member.offset,
+            size: member.size,
+            padded_size: member.padded_size,
+            type_name,
+        };
+
+        result.push(ub_member);
+
+        // If the reflection might contain nested structs, you could recurse further;
+        // for now, we stop here since members in typical GLSL uniform blocks are “flat.”
+    }
+
+    result
+}
+
+/// Use the SPIR-V reflection type flags to guess an appropriate GLSL-like type name.
+fn guess_type_name(member: &spirv_reflect::types::ReflectBlockVariable) -> String {
+    if let Some(type_desc) = &member.type_description {
+        // Check if it’s a matrix
+        if type_desc
+            .type_flags
+            .contains(spirv_reflect::types::ReflectTypeFlags::MATRIX)
+        {
+            // Handle typical matrix sizes like mat2, mat3, mat4
+            let cols = type_desc.traits.numeric.matrix.column_count;
+            let rows = type_desc.traits.numeric.matrix.row_count;
+            return match (rows, cols) {
+                (4, 4) => "mat4".to_string(),
+                (3, 3) => "mat3".to_string(),
+                (2, 2) => "mat2".to_string(),
+                // fallback
+                _ => format!("mat{}x{}", rows, cols),
+            };
+        }
+
+        // Check if it’s a vector
+        if type_desc
+            .type_flags
+            .contains(spirv_reflect::types::ReflectTypeFlags::VECTOR)
+        {
+            let comp_count = type_desc.traits.numeric.vector.component_count;
+
+            // Distinguish float-based vs int-based vs uint-based vectors
+            let is_float = type_desc
+                .type_flags
+                .contains(spirv_reflect::types::ReflectTypeFlags::FLOAT);
+            let is_int = type_desc
+                .type_flags
+                .contains(spirv_reflect::types::ReflectTypeFlags::INT);
+
+            // We'll read `signedness` to guess if it's int vs. uint
+            let numeric = &type_desc.traits.numeric;
+            let signedness = numeric.scalar.signedness;
+
+            if is_float {
+                return match comp_count {
+                    2 => "vec2".to_string(),
+                    3 => "vec3".to_string(),
+                    4 => "vec4".to_string(),
+                    _ => format!("vec{}", comp_count),
+                };
+            } else if is_int {
+                // signedness == 1 => ivec, else uvec
+                if signedness == 1 {
+                    return match comp_count {
+                        2 => "ivec2".to_string(),
+                        3 => "ivec3".to_string(),
+                        4 => "ivec4".to_string(),
+                        _ => format!("ivec{}", comp_count),
+                    };
+                } else {
+                    return match comp_count {
+                        2 => "uvec2".to_string(),
+                        3 => "uvec3".to_string(),
+                        4 => "uvec4".to_string(),
+                        _ => format!("uvec{}", comp_count),
+                    };
+                }
+            }
+        }
+
+        // If it's a scalar
+        if type_desc
+            .type_flags
+            .contains(spirv_reflect::types::ReflectTypeFlags::FLOAT)
+        {
+            return "float".to_string();
+        }
+        if type_desc
+            .type_flags
+            .contains(spirv_reflect::types::ReflectTypeFlags::INT)
+        {
+            // “bool” in GLSL is 32-bit in SPIR-V, usually stored as int.
+            // Without extra clues, we can’t always know if it’s truly a bool or int/uint,
+            // but if you know your own shader code, you can special-case it here.
+            // For demonstration, we’ll guess:
+            let signed = type_desc.traits.numeric.scalar.signedness;
+            return if signed == 1 {
+                "int".to_string()
+            } else {
+                "uint".to_string()
+            };
+        }
+    }
+
+    // Fallback name if we still don’t recognize it
+    "unknown".to_string()
 }

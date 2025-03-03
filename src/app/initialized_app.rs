@@ -104,6 +104,10 @@ impl InitializedApp {
             "main",
         )
         .unwrap();
+
+        let extracted = compute_shader_module.extract_buffer_layouts();
+        log::debug!("Extracted buffers: {:?}", extracted);
+
         let compute_pipeline =
             ComputePipeline::from_shader_module(vulkan_context.device(), &compute_shader_module);
 
