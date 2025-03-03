@@ -10,6 +10,7 @@ use super::texture::TextureDesc;
 
 struct ImageInner {
     device: Device,
+    desc: TextureDesc,
     image: vk::Image,
     allocator: Allocator,
     memory: Mutex<Option<gpu_allocator::vulkan::Allocation>>,
@@ -80,10 +81,52 @@ impl Image {
         Ok(Self(Arc::new(ImageInner {
             device: device.clone(),
             image,
+            desc: desc.clone(),
             allocator: cloned_allocator,
             memory: Mutex::new(Some(memory)),
             current_layout: Mutex::new(desc.initial_layout),
         })))
+    }
+
+    pub fn record_copy_to(&self, cmdbuf: &CommandBuffer, dst_image: &Image) -> Result<(), String> {
+        self.record_transition(cmdbuf, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
+        dst_image.record_transition(cmdbuf, vk::ImageLayout::TRANSFER_DST_OPTIMAL);
+
+        let extent = self.0.desc.get_extent();
+        if extent != dst_image.0.desc.get_extent() {
+            return Err("Extent mismatch".to_string());
+        }
+
+        let copy_region = vk::ImageCopy {
+            src_subresource: vk::ImageSubresourceLayers {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                mip_level: 0,
+                base_array_layer: 0,
+                layer_count: 1,
+            },
+            src_offset: vk::Offset3D { x: 0, y: 0, z: 0 },
+            dst_subresource: vk::ImageSubresourceLayers {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                mip_level: 0,
+                base_array_layer: 0,
+                layer_count: 1,
+            },
+            dst_offset: vk::Offset3D { x: 0, y: 0, z: 0 },
+            extent: extent,
+        };
+
+        unsafe {
+            self.0.device.cmd_copy_image(
+                cmdbuf.as_raw(),
+                self.0.image,
+                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                dst_image.0.image,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                &[copy_region],
+            );
+        }
+
+        Ok(())
     }
 
     /// Transition the image layout using a barrier.
@@ -110,6 +153,20 @@ impl Image {
         let dst_stage;
 
         match (current_layout, new_layout) {
+            (vk::ImageLayout::UNDEFINED, vk::ImageLayout::TRANSFER_SRC_OPTIMAL) => {
+                barrier.src_access_mask = vk::AccessFlags::empty();
+                barrier.dst_access_mask = vk::AccessFlags::TRANSFER_READ;
+                src_stage = vk::PipelineStageFlags::TOP_OF_PIPE;
+                dst_stage = vk::PipelineStageFlags::TRANSFER;
+            }
+
+            (vk::ImageLayout::GENERAL, vk::ImageLayout::TRANSFER_SRC_OPTIMAL) => {
+                barrier.src_access_mask = vk::AccessFlags::SHADER_WRITE;
+                barrier.dst_access_mask = vk::AccessFlags::TRANSFER_READ;
+                src_stage = vk::PipelineStageFlags::COMPUTE_SHADER;
+                dst_stage = vk::PipelineStageFlags::TRANSFER;
+            }
+
             (vk::ImageLayout::UNDEFINED, vk::ImageLayout::TRANSFER_DST_OPTIMAL) => {
                 barrier.src_access_mask = vk::AccessFlags::empty();
                 barrier.dst_access_mask = vk::AccessFlags::TRANSFER_WRITE;

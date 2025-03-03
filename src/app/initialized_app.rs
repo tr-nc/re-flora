@@ -115,19 +115,32 @@ impl InitializedApp {
         )
         .unwrap();
 
-        let texture = Texture::new(
-            vulkan_context.device(),
-            &allocator,
-            TextureDesc {
-                extent: [512, 512, 1],
-                format: vk::Format::R8G8B8A8_UNORM,
-                usage: vk::ImageUsageFlags::STORAGE,
-                initial_layout: vk::ImageLayout::UNDEFINED,
-                aspect: vk::ImageAspectFlags::COLOR,
-                ..Default::default()
-            },
-            Default::default(),
-        );
+        let screen_extent = window_state.window_size();
+        let screen_extent = [screen_extent[0] as u32, screen_extent[1] as u32, 1];
+        log::info!("Screen extent: {:?}", screen_extent);
+
+        let tex_desc_1 = TextureDesc {
+            extent: screen_extent,
+            format: vk::Format::R8G8B8A8_UNORM,
+            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        let tex_desc_2 = TextureDesc {
+            extent: screen_extent,
+            format: vk::Format::R8G8B8A8_UNORM,
+            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        let sam_desc = Default::default();
+
+        let shader_write_tex =
+            Texture::new(vulkan_context.device(), &allocator, &tex_desc_1, &sam_desc);
+        let test_cpy_dst_tex =
+            Texture::new(vulkan_context.device(), &allocator, &tex_desc_2, &sam_desc);
 
         let set = DescriptorSet::new(
             &vulkan_context.device(),
@@ -135,7 +148,7 @@ impl InitializedApp {
             &descriptor_pool,
         );
         let mut write_ds = WriteDescriptorSet::new(0, vk::DescriptorType::STORAGE_IMAGE);
-        write_ds.add_texture(&texture, vk::ImageLayout::GENERAL);
+        write_ds.add_texture(&shader_write_tex, vk::ImageLayout::GENERAL);
         set.perform_writes(&[write_ds]);
 
         execute_one_time_command(
@@ -145,7 +158,7 @@ impl InitializedApp {
             |cmdbuf| {
                 let device = vulkan_context.device();
 
-                texture
+                shader_write_tex
                     .get_image()
                     .record_transition(cmdbuf, vk::ImageLayout::GENERAL);
 
@@ -160,8 +173,13 @@ impl InitializedApp {
                         &[set.as_raw()],
                         &[],
                     );
-                    compute_pipeline.record_dispatch(cmdbuf, [1024, 1024, 1]);
                 };
+                compute_pipeline.record_dispatch(cmdbuf, screen_extent);
+
+                shader_write_tex
+                .get_image()
+                .record_copy_to(cmdbuf, &test_cpy_dst_tex.get_image())
+                .unwrap();
             },
         );
 

@@ -73,8 +73,8 @@ impl Texture {
     pub fn new(
         device: &Device,
         allocator: &Allocator,
-        texture_desc: TextureDesc,
-        sampler_desc: SamplerDesc,
+        texture_desc: &TextureDesc,
+        sampler_desc: &SamplerDesc,
     ) -> Self {
         let image = Image::new(device, allocator, &texture_desc).unwrap();
 

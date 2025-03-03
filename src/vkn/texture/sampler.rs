@@ -68,7 +68,7 @@ impl std::ops::Deref for Sampler {
 }
 
 impl Sampler {
-    pub fn new(device: &Device, desc: SamplerDesc) -> Self {
+    pub fn new(device: &Device, desc: &SamplerDesc) -> Self {
         let sampler = create_sampler(device.as_raw(), &desc);
         Self(Arc::new(SamplerInner {
             device: device.clone(),

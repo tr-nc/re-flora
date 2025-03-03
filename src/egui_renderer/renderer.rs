@@ -237,19 +237,16 @@ impl EguiRenderer {
                     data.as_slice(),
                 );
             } else {
-                let mut texture = Texture::new(
-                    device,
-                    &mut self.allocator,
-                    TextureDesc {
-                        extent: [width, height, 1],
-                        format: vk::Format::R8G8B8A8_SRGB,
-                        usage: vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST,
-                        initial_layout: vk::ImageLayout::UNDEFINED,
-                        aspect: vk::ImageAspectFlags::COLOR,
-                        ..Default::default()
-                    },
-                    Default::default(),
-                );
+                let tex_desc = TextureDesc {
+                    extent: [width, height, 1],
+                    format: vk::Format::R8G8B8A8_SRGB,
+                    usage: vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST,
+                    initial_layout: vk::ImageLayout::UNDEFINED,
+                    aspect: vk::ImageAspectFlags::COLOR,
+                    ..Default::default()
+                };
+                let sam_desc = Default::default();
+                let mut texture = Texture::new(device, &mut self.allocator, &tex_desc, &sam_desc);
 
                 texture.upload_rgba_image(
                     queue,
