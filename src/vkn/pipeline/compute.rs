@@ -1,4 +1,4 @@
-use crate::vkn::{Device, PipelineLayout, ShaderModule};
+use crate::vkn::{CommandBuffer, Device, PipelineLayout, ShaderModule};
 use ash::vk::{self};
 use std::ops::Deref;
 
@@ -6,6 +6,8 @@ pub struct ComputePipeline {
     device: Device,
     pipeline: vk::Pipeline,
     pipeline_layout: PipelineLayout,
+    // shader_module: ShaderModule,
+    workgroup_size: [u32; 3],
 }
 
 impl Drop for ComputePipeline {
@@ -25,41 +27,23 @@ impl Deref for ComputePipeline {
 }
 
 impl ComputePipeline {
+    pub fn from_shader_module(device: &Device, shader_module: &ShaderModule) -> Self {
+        let stage_info = shader_module.get_shader_stage_create_info();
+        let pipeline_layout = shader_module.get_pipeline_layout(&device);
+        Self::new(device, &stage_info, pipeline_layout, shader_module)
+    }
+
     fn new(
         device: &Device,
         stage_info: &vk::PipelineShaderStageCreateInfo,
         pipeline_layout: PipelineLayout,
+        shader_module: &ShaderModule,
     ) -> Self {
         let create_info = vk::ComputePipelineCreateInfo::default()
             .stage(*stage_info)
             .layout(pipeline_layout.as_raw());
-        let pipeline = Self::create_pipeline(device, create_info);
-        Self {
-            device: device.clone(),
-            pipeline,
-            pipeline_layout,
-        }
-    }
 
-    pub fn from_shader_module(device: &Device, shader_module: ShaderModule) -> Self {
-        let stage_info = shader_module.get_shader_stage_create_info();
-        let pipeline_layout = shader_module.get_pipeline_layout(&device);
-        Self::new(device, &stage_info, pipeline_layout)
-    }
-
-    pub fn get_pipeline_layout(&self) -> &PipelineLayout {
-        &self.pipeline_layout
-    }
-
-    pub fn as_raw(&self) -> vk::Pipeline {
-        self.pipeline
-    }
-
-    fn create_pipeline(
-        device: &Device,
-        create_info: vk::ComputePipelineCreateInfo,
-    ) -> vk::Pipeline {
-        unsafe {
+        let pipeline = unsafe {
             device
                 .create_compute_pipelines(
                     vk::PipelineCache::null(),
@@ -68,6 +52,44 @@ impl ComputePipeline {
                 )
                 .map_err(|e| e.1)
                 .unwrap()[0]
+        };
+
+        let workgroup_size = shader_module
+            .get_workgroup_size()
+            .expect("Failed to get workgroup size");
+
+        Self {
+            device: device.clone(),
+            pipeline,
+            pipeline_layout,
+            workgroup_size,
+        }
+    }
+
+    pub fn get_pipeline_layout(&self) -> &PipelineLayout {
+        &self.pipeline_layout
+    }
+
+    // pub fn as_raw(&self) -> vk::Pipeline {
+    //     self.pipeline
+    // }
+
+    pub fn record_bind(&self, command_buffer: &CommandBuffer) {
+        unsafe {
+            self.device.cmd_bind_pipeline(
+                command_buffer.as_raw(),
+                vk::PipelineBindPoint::COMPUTE,
+                self.pipeline,
+            );
+        }
+    }
+
+    pub fn record_dispatch(&self, command_buffer: &CommandBuffer, dispatch_size: [u32; 3]) {
+        let x = (dispatch_size[0] as f32 / self.workgroup_size[0] as f32).ceil() as u32;
+        let y = (dispatch_size[1] as f32 / self.workgroup_size[1] as f32).ceil() as u32;
+        let z = (dispatch_size[2] as f32 / self.workgroup_size[2] as f32).ceil() as u32;
+        unsafe {
+            self.device.cmd_dispatch(command_buffer.as_raw(), x, y, z);
         }
     }
 }

@@ -96,6 +96,22 @@ impl ShaderModule {
         )
     }
 
+    pub fn get_workgroup_size(&self) -> Result<[u32; 3], String> {
+        let entry_points = self
+            .0
+            .reflect_shader_module
+            .enumerate_entry_points()
+            .unwrap();
+
+        if entry_points.len() != 1 {
+            return Err("Multiple entry points found".to_string());
+        }
+
+        let entry_point = entry_points.first().unwrap();
+        let local_size = entry_point.local_size;
+        Ok([local_size.x, local_size.y, local_size.z])
+    }
+
     fn get_file_name_from_path(file_path: &str) -> String {
         file_path.split('/').last().unwrap().to_string()
     }

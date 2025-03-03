@@ -105,7 +105,7 @@ impl InitializedApp {
         )
         .unwrap();
         let compute_pipeline =
-            ComputePipeline::from_shader_module(vulkan_context.device(), compute_shader_module);
+            ComputePipeline::from_shader_module(vulkan_context.device(), &compute_shader_module);
 
         let pipeline_layout = compute_pipeline.get_pipeline_layout();
         let descriptor_set_layouts = pipeline_layout.get_descriptor_set_layouts();
@@ -115,18 +115,17 @@ impl InitializedApp {
         )
         .unwrap();
 
-        let texture_desc = TextureDesc {
-            extent: [512, 512, 1],
-            format: vk::Format::R8G8B8A8_UNORM,
-            usage: vk::ImageUsageFlags::STORAGE,
-            initial_layout: vk::ImageLayout::UNDEFINED,
-            aspect: vk::ImageAspectFlags::COLOR,
-            ..Default::default()
-        };
         let texture = Texture::new(
             vulkan_context.device(),
             &allocator,
-            texture_desc,
+            TextureDesc {
+                extent: [512, 512, 1],
+                format: vk::Format::R8G8B8A8_UNORM,
+                usage: vk::ImageUsageFlags::STORAGE,
+                initial_layout: vk::ImageLayout::UNDEFINED,
+                aspect: vk::ImageAspectFlags::COLOR,
+                ..Default::default()
+            },
             Default::default(),
         );
 
@@ -150,13 +149,8 @@ impl InitializedApp {
                     .get_image()
                     .record_transition(cmdbuf, vk::ImageLayout::GENERAL);
 
-                unsafe {
-                    device.cmd_bind_pipeline(
-                        cmdbuf.as_raw(),
-                        vk::PipelineBindPoint::COMPUTE,
-                        compute_pipeline.as_raw(),
-                    );
-                }
+                compute_pipeline.record_bind(cmdbuf);
+
                 unsafe {
                     device.cmd_bind_descriptor_sets(
                         cmdbuf.as_raw(),
@@ -166,7 +160,7 @@ impl InitializedApp {
                         &[set.as_raw()],
                         &[],
                     );
-                    device.cmd_dispatch(cmdbuf.as_raw(), 512 / 8, 512 / 8, 1);
+                    compute_pipeline.record_dispatch(cmdbuf, [1024, 1024, 1]);
                 };
             },
         );
