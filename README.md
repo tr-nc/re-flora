@@ -65,11 +65,13 @@ https://crates.io/crates/egui-ash-renderer
 4. **Other Optimization Techniques**:
    [Other Optimization Techs](https://www.youtube.com/watch?v=PYu1iwjAxWM)
 
-# Special Thanks
+# Special Thanks To
 
 https://github.com/adrien-ben/egui-ash-renderer
 
 https://themaister.net/blog/2019/08/14/yet-another-blog-explaining-vulkan-synchronization/
+
+https://github.com/KhronosGroup/Vulkan-Docs/wiki/Synchronization-Examples
 
 ```
 
