@@ -1,4 +1,4 @@
-use crate::vkn::{CommandBuffer, Device, PipelineLayout, ShaderModule};
+use crate::vkn::{CommandBuffer, DescriptorSet, Device, PipelineLayout, ShaderModule};
 use ash::vk::{self};
 use std::ops::Deref;
 
@@ -70,9 +70,28 @@ impl ComputePipeline {
         &self.pipeline_layout
     }
 
-    // pub fn as_raw(&self) -> vk::Pipeline {
-    //     self.pipeline
-    // }
+    pub fn record_bind_descriptor_sets(
+        &self,
+        command_buffer: &CommandBuffer,
+        descriptor_sets: &[DescriptorSet],
+        first_set: u32,
+    ) {
+        let descriptor_sets = descriptor_sets
+            .iter()
+            .map(|s| s.as_raw())
+            .collect::<Vec<_>>();
+
+        unsafe {
+            self.device.cmd_bind_descriptor_sets(
+                command_buffer.as_raw(),
+                vk::PipelineBindPoint::COMPUTE,
+                self.pipeline_layout.as_raw(),
+                first_set,
+                &descriptor_sets,
+                &[],
+            );
+        }
+    }
 
     pub fn record_bind(&self, command_buffer: &CommandBuffer) {
         unsafe {

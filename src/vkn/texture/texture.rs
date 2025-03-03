@@ -114,7 +114,7 @@ impl Texture {
 
         execute_one_time_command(&self.device.clone(), command_pool, queue, |cmdbuf| {
             self.image
-                .record_transition(cmdbuf, vk::ImageLayout::TRANSFER_DST_OPTIMAL);
+                .record_transition_barrier(cmdbuf, vk::ImageLayout::TRANSFER_DST_OPTIMAL);
             let region = vk::BufferImageCopy::default()
                 .buffer_offset(0)
                 .buffer_row_length(0)
@@ -144,7 +144,8 @@ impl Texture {
                     &[region],
                 )
             }
-            self.image.record_transition(cmdbuf, dst_image_layout);
+            self.image
+                .record_transition_barrier(cmdbuf, dst_image_layout);
         });
         self
     }

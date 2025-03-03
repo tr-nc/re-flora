@@ -69,6 +69,8 @@ https://crates.io/crates/egui-ash-renderer
 
 https://github.com/adrien-ben/egui-ash-renderer
 
+https://themaister.net/blog/2019/08/14/yet-another-blog-explaining-vulkan-synchronization/
+
 ```
 
 ```

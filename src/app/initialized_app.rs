@@ -156,30 +156,18 @@ impl InitializedApp {
             &command_pool,
             &vulkan_context.get_general_queue(),
             |cmdbuf| {
-                let device = vulkan_context.device();
-
                 shader_write_tex
                     .get_image()
-                    .record_transition(cmdbuf, vk::ImageLayout::GENERAL);
+                    .record_transition_barrier(cmdbuf, vk::ImageLayout::GENERAL);
 
                 compute_pipeline.record_bind(cmdbuf);
-
-                unsafe {
-                    device.cmd_bind_descriptor_sets(
-                        cmdbuf.as_raw(),
-                        vk::PipelineBindPoint::COMPUTE,
-                        pipeline_layout.as_raw(),
-                        0,
-                        &[set.as_raw()],
-                        &[],
-                    );
-                };
+                compute_pipeline.record_bind_descriptor_sets(cmdbuf, &[set], 0);
                 compute_pipeline.record_dispatch(cmdbuf, screen_extent);
 
                 shader_write_tex
-                .get_image()
-                .record_copy_to(cmdbuf, &test_cpy_dst_tex.get_image())
-                .unwrap();
+                    .get_image()
+                    .record_copy_to(cmdbuf, &test_cpy_dst_tex.get_image())
+                    .unwrap();
             },
         );
 

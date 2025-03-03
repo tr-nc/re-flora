@@ -89,8 +89,8 @@ impl Image {
     }
 
     pub fn record_copy_to(&self, cmdbuf: &CommandBuffer, dst_image: &Image) -> Result<(), String> {
-        self.record_transition(cmdbuf, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
-        dst_image.record_transition(cmdbuf, vk::ImageLayout::TRANSFER_DST_OPTIMAL);
+        self.record_transition_barrier(cmdbuf, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
+        dst_image.record_transition_barrier(cmdbuf, vk::ImageLayout::TRANSFER_DST_OPTIMAL);
 
         let extent = self.0.desc.get_extent();
         if extent != dst_image.0.desc.get_extent() {
@@ -129,13 +129,91 @@ impl Image {
         Ok(())
     }
 
-    /// Transition the image layout using a barrier.
-    pub fn record_transition(&self, cmdbuf: &CommandBuffer, new_layout: vk::ImageLayout) {
+    /// A helper for determining the appropriate source (old layout) access mask
+    /// and pipeline stage.
+    ///
+    /// - SrcStage represents what stage(s) we are waiting for.
+    /// - SrcAccessMask represents which part of writes performed should be made available.
+    ///
+    /// Note that READ access is redundant for SrcAccessMask, as reading never
+    /// requires a cache flush.
+    ///
+    /// See: https://themaister.net/blog/2019/08/14/yet-another-blog-explaining-vulkan-synchronization/
+    fn map_src_stage_access_flags(
+        old_layout: vk::ImageLayout,
+    ) -> (vk::AccessFlags, vk::PipelineStageFlags) {
+        let general_shader_stages: vk::PipelineStageFlags =
+            vk::PipelineStageFlags::COMPUTE_SHADER | vk::PipelineStageFlags::FRAGMENT_SHADER;
+
+        match old_layout {
+            vk::ImageLayout::UNDEFINED => (
+                vk::AccessFlags::empty(),
+                vk::PipelineStageFlags::TOP_OF_PIPE,
+            ),
+            vk::ImageLayout::GENERAL => (vk::AccessFlags::SHADER_WRITE, general_shader_stages),
+            vk::ImageLayout::TRANSFER_SRC_OPTIMAL => {
+                (vk::AccessFlags::empty(), vk::PipelineStageFlags::TRANSFER)
+            }
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL => (
+                vk::AccessFlags::TRANSFER_WRITE,
+                vk::PipelineStageFlags::TRANSFER,
+            ),
+            layout => {
+                panic!("Unsupported old_layout transition from: {:?}", layout);
+            }
+        }
+    }
+
+    /// A helper for determining the appropriate destination (new layout) access mask
+    /// and pipeline stage.
+    ///
+    /// - DstStage represents what stage(s) we are blocking.
+    /// - DstAccessMask represents which part of available memory to be made visible.
+    /// (By invalidating caches)
+    ///
+    /// See: https://themaister.net/blog/2019/08/14/yet-another-blog-explaining-vulkan-synchronization/
+    fn map_dst_stage_access_flags(
+        new_layout: vk::ImageLayout,
+    ) -> (vk::AccessFlags, vk::PipelineStageFlags) {
+        let general_shader_stages: vk::PipelineStageFlags =
+            vk::PipelineStageFlags::COMPUTE_SHADER | vk::PipelineStageFlags::FRAGMENT_SHADER;
+
+        match new_layout {
+            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL => {
+                (vk::AccessFlags::SHADER_READ, general_shader_stages)
+            }
+            vk::ImageLayout::GENERAL => (
+                vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE,
+                general_shader_stages,
+            ),
+            vk::ImageLayout::TRANSFER_SRC_OPTIMAL => (
+                vk::AccessFlags::TRANSFER_READ,
+                vk::PipelineStageFlags::TRANSFER,
+            ),
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL => (
+                vk::AccessFlags::TRANSFER_WRITE,
+                vk::PipelineStageFlags::TRANSFER,
+            ),
+
+            layout => {
+                panic!("Unsupported new_layout transition to: {:?}", layout);
+            }
+        }
+    }
+
+    pub fn record_transition_barrier(&self, cmdbuf: &CommandBuffer, new_layout: vk::ImageLayout) {
         let device = &self.0.device;
         let mut layout_guard = self.0.current_layout.lock().unwrap();
         let current_layout = *layout_guard;
 
-        let mut barrier = vk::ImageMemoryBarrier::default()
+        // Determine source masks/stages from the *old* layout
+        let (src_access_mask, src_stage) = Self::map_src_stage_access_flags(current_layout);
+
+        // Determine destination masks/stages from the *new* layout
+        let (dst_access_mask, dst_stage) = Self::map_dst_stage_access_flags(new_layout);
+
+        // Construct the image memory barrier
+        let barrier = vk::ImageMemoryBarrier::default()
             .old_layout(current_layout)
             .new_layout(new_layout)
             .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
@@ -147,66 +225,11 @@ impl Image {
                 level_count: 1,
                 base_array_layer: 0,
                 layer_count: 1,
-            });
+            })
+            .src_access_mask(src_access_mask)
+            .dst_access_mask(dst_access_mask);
 
-        let src_stage;
-        let dst_stage;
-
-        match (current_layout, new_layout) {
-            (vk::ImageLayout::UNDEFINED, vk::ImageLayout::TRANSFER_SRC_OPTIMAL) => {
-                barrier.src_access_mask = vk::AccessFlags::empty();
-                barrier.dst_access_mask = vk::AccessFlags::TRANSFER_READ;
-                src_stage = vk::PipelineStageFlags::TOP_OF_PIPE;
-                dst_stage = vk::PipelineStageFlags::TRANSFER;
-            }
-
-            (vk::ImageLayout::GENERAL, vk::ImageLayout::TRANSFER_SRC_OPTIMAL) => {
-                barrier.src_access_mask = vk::AccessFlags::SHADER_WRITE;
-                barrier.dst_access_mask = vk::AccessFlags::TRANSFER_READ;
-                src_stage = vk::PipelineStageFlags::COMPUTE_SHADER;
-                dst_stage = vk::PipelineStageFlags::TRANSFER;
-            }
-
-            (vk::ImageLayout::UNDEFINED, vk::ImageLayout::TRANSFER_DST_OPTIMAL) => {
-                barrier.src_access_mask = vk::AccessFlags::empty();
-                barrier.dst_access_mask = vk::AccessFlags::TRANSFER_WRITE;
-                src_stage = vk::PipelineStageFlags::TOP_OF_PIPE;
-                dst_stage = vk::PipelineStageFlags::TRANSFER;
-            }
-
-            (vk::ImageLayout::TRANSFER_DST_OPTIMAL, vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL) => {
-                barrier.src_access_mask = vk::AccessFlags::TRANSFER_WRITE;
-                barrier.dst_access_mask = vk::AccessFlags::SHADER_READ;
-                src_stage = vk::PipelineStageFlags::TRANSFER;
-                dst_stage = vk::PipelineStageFlags::FRAGMENT_SHADER;
-            }
-
-            (vk::ImageLayout::UNDEFINED, layout)
-                if layout == vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL
-                    || layout == vk::ImageLayout::GENERAL =>
-            {
-                barrier.src_access_mask = vk::AccessFlags::empty();
-                barrier.dst_access_mask = vk::AccessFlags::SHADER_WRITE;
-                // or SHADER_READ, depending on how you plan to access it
-                src_stage = vk::PipelineStageFlags::TOP_OF_PIPE;
-                dst_stage = vk::PipelineStageFlags::COMPUTE_SHADER;
-            }
-
-            (vk::ImageLayout::TRANSFER_DST_OPTIMAL, vk::ImageLayout::GENERAL) => {
-                barrier.src_access_mask = vk::AccessFlags::TRANSFER_READ;
-                barrier.dst_access_mask = vk::AccessFlags::SHADER_READ;
-                src_stage = vk::PipelineStageFlags::TRANSFER;
-                dst_stage = vk::PipelineStageFlags::COMPUTE_SHADER;
-            }
-
-            _ => {
-                panic!(
-                    "Unsupported layout transition: {:?} -> {:?}",
-                    layout_guard, new_layout
-                );
-            }
-        }
-
+        // Record the pipeline barrier
         unsafe {
             device.cmd_pipeline_barrier(
                 cmdbuf.as_raw(),
@@ -218,6 +241,8 @@ impl Image {
                 &[barrier],
             )
         }
+
+        // Update the stored layout
         *layout_guard = new_layout;
     }
 
