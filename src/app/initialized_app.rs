@@ -2,9 +2,9 @@ use crate::gameplay::Camera;
 use crate::util::compiler::ShaderCompiler;
 use crate::util::time_info::TimeInfo;
 use crate::vkn::{
-    execute_one_time_command, Allocator, CommandBuffer, CommandPool, ComputePipeline,
-    DescriptorPool, DescriptorSet, Fence, Semaphore, ShaderModule, Texture, TextureDesc,
-    WriteDescriptorSet,
+    execute_one_time_command, Allocator, Buffer, BufferBuilder, CommandBuffer, CommandPool,
+    ComputePipeline, DescriptorPool, DescriptorSet, Fence, Semaphore, ShaderModule, Texture,
+    TextureDesc, WriteDescriptorSet,
 };
 use crate::{
     egui_renderer::EguiRenderer,
@@ -63,7 +63,7 @@ impl InitializedApp {
             gpu_allocator::vulkan::Allocator::new(&allocator_create_info)
                 .expect("Failed to create gpu allocator")
         };
-        let allocator =
+        let mut allocator =
             Allocator::new(vulkan_context.device(), Arc::new(Mutex::new(gpu_allocator)));
 
         let swapchain = Swapchain::new(
@@ -111,13 +111,26 @@ impl InitializedApp {
 
         log::debug!("Test Input Layout: {:?}", test_input_layout);
 
-        // let test_input_data = BufferBuilder::with_layout(test_input_layout).set_float("aaa", 1.0).set_uint("bbb", 222).build();
+        let test_input_data = BufferBuilder::with_layout(test_input_layout)
+            .set_float("aaa", 1.0)
+            .set_uint("bbb", 222)
+            .build();
+        log::debug!("Test Input Data: {:?}", test_input_data);
+
+        let test_input_buffer = Buffer::new_sized(
+            vulkan_context.device(),
+            &mut allocator,
+            vk::BufferUsageFlags::UNIFORM_BUFFER,
+            test_input_data.len(),
+        );
 
         let compute_pipeline =
             ComputePipeline::from_shader_module(vulkan_context.device(), &compute_shader_module);
 
-        let pipeline_layout = compute_pipeline.get_pipeline_layout();
-        let descriptor_set_layouts = pipeline_layout.get_descriptor_set_layouts();
+        let descriptor_set_layouts = compute_pipeline
+            .get_pipeline_layout()
+            .get_descriptor_set_layouts();
+
         let descriptor_pool = DescriptorPool::from_descriptor_set_layouts(
             vulkan_context.device(),
             descriptor_set_layouts,
