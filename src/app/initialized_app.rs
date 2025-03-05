@@ -105,18 +105,13 @@ impl InitializedApp {
         )
         .unwrap();
 
-        // log::debug!("Shader Module Debug: {:?}", compute_shader_module);
-
         let test_input_layout = compute_shader_module
             .get_buffer_layout("TestInput")
             .unwrap();
-        
+
         log::debug!("Test Input Layout: {:?}", test_input_layout);
 
-        // let buffer_data_builder = builder
-        //     .push_f32(3.0) // e.g. the first member
-        //     .unwrap()
-        //     .build();
+        // let test_input_data = BufferBuilder::with_layout(test_input_layout).set_float("aaa", 1.0).set_uint("bbb", 222).build();
 
         let compute_pipeline =
             ComputePipeline::from_shader_module(vulkan_context.device(), &compute_shader_module);

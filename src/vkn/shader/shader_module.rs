@@ -153,7 +153,7 @@ impl ShaderModule {
         )?;
 
         let buffer_layouts =
-            extract_buffer_layouts(&reflect_shader_module).map_err(|e| e.to_string())?;
+            extract_struct_layouts(&reflect_shader_module).map_err(|e| e.to_string())?;
 
         Ok(Self(Arc::new(ShaderModuleInner {
             device: device.clone(),
@@ -304,8 +304,7 @@ fn u8_to_u32(byte_code: &[u8]) -> Vec<u32> {
         .collect()
 }
 
-/// Extract buffer layouts (uniform blocks, push constant blocks) from reflection.
-fn extract_buffer_layouts(
+fn extract_struct_layouts(
     reflect_module: &ReflectShaderModule,
 ) -> Result<HashMap<String, StructLayout>, String> {
     let descriptor_bindings = match reflect_module.enumerate_descriptor_bindings(None) {
@@ -316,7 +315,9 @@ fn extract_buffer_layouts(
     let mut result = HashMap::new();
 
     for binding in descriptor_bindings {
-        if binding.descriptor_type == ReflectDescriptorType::UniformBuffer {
+        if binding.descriptor_type == ReflectDescriptorType::UniformBuffer
+            || binding.descriptor_type == ReflectDescriptorType::StorageBuffer
+        {
             let block_info = &binding.block;
 
             let layout_name = if let Some(ty_description) = binding.type_description.as_ref() {
