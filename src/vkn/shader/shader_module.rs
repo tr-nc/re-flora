@@ -1,14 +1,17 @@
-use super::{
-    DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutBuilder, Device,
-    PipelineLayout,
+use super::struct_layout::{StructLayout, StructMember};
+use crate::{
+    util::compiler::ShaderCompiler,
+    vkn::{
+        DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutBuilder, Device,
+        PipelineLayout,
+    },
 };
-use crate::util::compiler::ShaderCompiler;
 use ash::vk::{self, PushConstantRange};
 use shaderc::ShaderKind;
 use spirv_reflect::{
     types::ReflectDescriptorType, types::ReflectTypeFlags, ShaderModule as ReflectShaderModule,
 };
-use std::{ffi::CString, fmt::Debug, sync::Arc};
+use std::{collections::HashMap, ffi::CString, fmt::Debug, sync::Arc};
 
 /// Internal struct holding the actual Vulkan `ShaderModule` and reflection data.
 struct ShaderModuleInner {
@@ -17,8 +20,7 @@ struct ShaderModuleInner {
     shader_module: ash::vk::ShaderModule,
     reflect_shader_module: ReflectShaderModule,
 
-    /// Cached buffer layouts, reflected once. (Uniform buffers, push constants, etc.)
-    buffer_layouts: Vec<BufferLayout>,
+    struct_layouts: HashMap<String, StructLayout>,
 }
 
 impl Drop for ShaderModuleInner {
@@ -29,28 +31,6 @@ impl Drop for ShaderModuleInner {
     }
 }
 
-/// Represents the layout of a uniform buffer or push constant block.
-#[derive(Debug, Clone)]
-pub struct BufferLayout {
-    pub set: u32,
-    pub binding: u32,
-    pub total_size: u32,
-    pub name: String,
-    pub members: Vec<BufferMember>,
-    pub descriptor_type: ReflectDescriptorType,
-}
-
-/// Represents a single member (field) within a uniform buffer or push constant block.
-#[derive(Debug, Clone)]
-pub struct BufferMember {
-    pub offset: u32,
-    pub size: u32,
-    pub padded_size: u32,
-    pub type_name: String,
-    pub name: String,
-}
-
-/// Public handle to the `ShaderModule`.
 #[derive(Clone)]
 pub struct ShaderModule(Arc<ShaderModuleInner>);
 
@@ -63,167 +43,14 @@ impl std::ops::Deref for ShaderModule {
 
 impl Debug for ShaderModule {
     fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        log::debug!("Shader module reflection:");
-        log::debug!(
-            "  Entry point: {}",
-            self.0.reflect_shader_module.get_entry_point_name()
-        );
-        log::debug!(
-            "  Shader stage: {:?}",
-            self.0.reflect_shader_module.get_shader_stage()
-        );
-
-        let descriptor_sets = self
+        let descriptor_bindings = self
             .0
             .reflect_shader_module
-            .enumerate_descriptor_sets(None)
+            .enumerate_descriptor_bindings(None)
             .unwrap();
-        log::debug!("Descriptor set count: {}", descriptor_sets.len());
-
-        for descriptor_set in descriptor_sets {
-            log::debug!("  Descriptor set: {}", descriptor_set.set);
-            for binding in descriptor_set.bindings {
-                log::debug!("    Binding: {}", binding.binding);
-                log::debug!("    Descriptor type: {:?}", binding.descriptor_type);
-                log::debug!("    Descriptor count: {}", binding.count);
-            }
+        for binding in descriptor_bindings {
+            log::debug!("binding: {:#?}", binding);
         }
-        Ok(())
-    }
-}
-
-/// # New API for building CPU-side data buffers matching a reflected uniform layout.
-///
-/// You typically construct a `BufferDataBuilder` by calling:
-/// ```ignore
-/// let builder = BufferDataBuilder::new(&shader_module, set, binding)?;
-/// let data = builder
-///     .push_f32(3.0)?
-///     .push_u32(42)?
-///     .push_mat4(mat4_value)?
-///     .build();
-/// ```
-/// This returns a `Vec<u8>` that you can then upload to your uniform buffer.
-pub struct BufferDataBuilder<'a> {
-    layout: &'a BufferLayout,
-    current_member_index: usize,
-    data: Vec<u8>,
-}
-
-impl<'a> BufferDataBuilder<'a> {
-    /// Creates a new builder for the given set and binding.
-    pub fn new(shader_module: &'a ShaderModule, set: u32, binding: u32) -> Result<Self, String> {
-        let layout = shader_module
-            .0
-            .buffer_layouts
-            .iter()
-            .find(|l| l.set == set && l.binding == binding)
-            .ok_or_else(|| format!("No BufferLayout found for set={}, binding={}", set, binding))?;
-
-        // Pre-allocate the data vector to at least the total size
-        let data = vec![0u8; layout.total_size as usize];
-        Ok(BufferDataBuilder {
-            layout,
-            current_member_index: 0,
-            data,
-        })
-    }
-
-    /// Push a `f32` into the next member if it matches an expected `float`.
-    pub fn push_f32(&mut self, value: f32) -> Result<&mut Self, String> {
-        self.check_and_write(&value.to_ne_bytes(), &["float"])?;
-        Ok(self)
-    }
-
-    /// Push a `u32` into the next member if it matches an expected `uint` or `int` (up to you).
-    pub fn push_u32(&mut self, value: u32) -> Result<&mut Self, String> {
-        // If you want to allow pushing `u32` to "int", add "int" to the list below.
-        self.check_and_write(&value.to_ne_bytes(), &["uint"])?;
-        Ok(self)
-    }
-
-    /// Push a `i32` into the next member if it matches an expected `int`.
-    pub fn push_i32(&mut self, value: i32) -> Result<&mut Self, String> {
-        self.check_and_write(&value.to_ne_bytes(), &["int"])?;
-        Ok(self)
-    }
-
-    /// Push a [f32; 4x4] matrix into the next member if it matches an expected `mat4`.
-    /// (Using `glam::Mat4` or any library that can produce a `[f32; 16]` is typical.)
-    pub fn push_mat4(&mut self, mat: [f32; 16]) -> Result<&mut Self, String> {
-        // Convert to bytes
-        let mut bytes = Vec::with_capacity(16 * 4);
-        for val in mat {
-            bytes.extend_from_slice(&val.to_ne_bytes());
-        }
-        self.check_and_write(&bytes, &["mat4"])?;
-        Ok(self)
-    }
-
-    /// Push a [f32; 2] vector if it matches a `vec2`, etc.
-    pub fn push_vec2(&mut self, v: [f32; 2]) -> Result<&mut Self, String> {
-        // Convert to bytes
-        let mut bytes = Vec::with_capacity(2 * 4);
-        for val in v {
-            bytes.extend_from_slice(&val.to_ne_bytes());
-        }
-        self.check_and_write(&bytes, &["vec2"])?;
-        Ok(self)
-    }
-
-    /// Once all pushes are done, finalize the data vector.
-    pub fn build(self) -> Vec<u8> {
-        self.data
-    }
-
-    // ---- Private helpers ----
-
-    /// Checks the next member’s type matches one of the `allowed_types` (e.g. ["float"]) and
-    /// writes the given bytes to the corresponding offset.
-    fn check_and_write(
-        &mut self,
-        write_bytes: &[u8],
-        allowed_types: &[&str],
-    ) -> Result<(), String> {
-        if self.current_member_index >= self.layout.members.len() {
-            return Err("BufferDataBuilder: no more members left to push.".into());
-        }
-
-        let member = &self.layout.members[self.current_member_index];
-        if !allowed_types.contains(&member.type_name.as_str()) {
-            return Err(format!(
-                "Type mismatch for member {} (index {}): expected {:?}, found {:?}",
-                member.name, self.current_member_index, allowed_types, member.type_name
-            ));
-        }
-
-        // Check sizes
-        if write_bytes.len() > member.size as usize {
-            // Potentially we want to allow partial fill or handle padded sizes differently,
-            // but for demonstration, we just fail if the user’s data doesn’t match exactly.
-            return Err(format!(
-                "write_bytes (len={}) is larger than this member’s size ({})",
-                write_bytes.len(),
-                member.size
-            ));
-        }
-
-        // Write into self.data at the correct offset
-        let start_offset = member.offset as usize;
-        let end_offset = start_offset + write_bytes.len();
-
-        if end_offset > self.data.len() {
-            return Err(format!(
-                "Offset range [{}, {}) is out of bounds for the data array (len = {}).",
-                start_offset,
-                end_offset,
-                self.data.len()
-            ));
-        }
-
-        self.data[start_offset..end_offset].copy_from_slice(write_bytes);
-
-        self.current_member_index += 1;
         Ok(())
     }
 }
@@ -248,30 +75,15 @@ impl ShaderModule {
         Self::from_glsl_code(
             device,
             &code,
-            &Self::get_file_name_from_path(file_path),
+            &get_file_name_from_path(file_path),
             entry_point_name,
             compiler,
             shader_kind,
         )
     }
 
-    /// For debugging: print all descriptor bindings in this shader.
-    pub fn print_bindings(&self) {
-        let descriptor_bindings = self
-            .0
-            .reflect_shader_module
-            .enumerate_descriptor_bindings(None)
-            .unwrap();
-
-        for binding in descriptor_bindings {
-            log::debug!("binding: {:?}", binding);
-        }
-    }
-
-    /// Retrieve the (cached) buffer layouts for uniform buffers/push-constants.
-    /// These were extracted during initialization.
-    pub fn get_buffer_layouts(&self) -> &[BufferLayout] {
-        &self.0.buffer_layouts
+    pub fn get_buffer_layout(&self, name: &str) -> Option<&StructLayout> {
+        self.0.struct_layouts.get(name)
     }
 
     /// Retrieve the workgroup size (for compute shaders).
@@ -320,12 +132,6 @@ impl ShaderModule {
             .name(&self.0.entry_point_name)
     }
 
-    // --- Private/Helper Methods ---
-
-    fn get_file_name_from_path(file_path: &str) -> String {
-        file_path.split('/').last().unwrap().to_string()
-    }
-
     fn from_glsl_code(
         device: &Device,
         code: &str,
@@ -334,27 +140,27 @@ impl ShaderModule {
         compiler: &ShaderCompiler,
         shader_kind: ShaderKind,
     ) -> Result<Self, String> {
-        // Compile to SPIR-V bytecode
-        let shader_byte_code_u8 = compiler
-            .compile_to_bytecode(code, shader_kind, entry_point_name, file_name)
-            .map_err(|e| e.to_string())?;
-
-        // Reflect the SPIR-V
         let reflect_shader_module =
-            ReflectShaderModule::load_u8_data(&shader_byte_code_u8).map_err(|e| e.to_string())?;
+            create_reflect_shader_module(code, shader_kind, entry_point_name, file_name, compiler)?;
 
-        // Create the Vulkan ShaderModule
-        let shader_module = bytecode_to_shader_module(device, &shader_byte_code_u8)?;
+        let shader_module = create_shader_module(
+            device,
+            code,
+            shader_kind,
+            entry_point_name,
+            file_name,
+            compiler,
+        )?;
 
-        // Extract (and cache) the buffer layouts
-        let buffer_layouts = extract_buffer_layouts(&reflect_shader_module);
+        let buffer_layouts =
+            extract_buffer_layouts(&reflect_shader_module).map_err(|e| e.to_string())?;
 
         Ok(Self(Arc::new(ShaderModuleInner {
             device: device.clone(),
             entry_point_name: CString::new(entry_point_name).unwrap(),
             shader_module,
             reflect_shader_module,
-            buffer_layouts,
+            struct_layouts: buffer_layouts,
         })))
     }
 
@@ -410,9 +216,52 @@ impl ShaderModule {
     }
 }
 
-// ----------------------
-// Free Functions / Helpers
-// ----------------------
+/// With zero optimization, no unused bindings will be removed, and the names of the
+/// variables will be preserved accurately
+fn create_reflect_shader_module(
+    code: &str,
+    shader_kind: ShaderKind,
+    entry_point_name: &str,
+    file_name: &str,
+    compiler: &ShaderCompiler,
+) -> Result<ReflectShaderModule, String> {
+    let shader_byte_code_u8_zero_opti = compiler
+        .compile_to_bytecode(
+            code,
+            shader_kind,
+            entry_point_name,
+            file_name,
+            shaderc::OptimizationLevel::Zero,
+        )
+        .map_err(|e| e.to_string())?;
+    ReflectShaderModule::load_u8_data(&shader_byte_code_u8_zero_opti).map_err(|e| e.to_string())
+}
+
+/// Compile the actual shader module with full optimization.
+fn create_shader_module(
+    device: &Device,
+    code: &str,
+    shader_kind: ShaderKind,
+    entry_point_name: &str,
+    file_name: &str,
+    compiler: &ShaderCompiler,
+) -> Result<ash::vk::ShaderModule, String> {
+    let shader_byte_code_u8_full_opti = compiler
+        .compile_to_bytecode(
+            code,
+            shader_kind,
+            entry_point_name,
+            file_name,
+            shaderc::OptimizationLevel::Performance,
+        )
+        .map_err(|e| e.to_string())?;
+
+    bytecode_to_shader_module(device, &shader_byte_code_u8_full_opti)
+}
+
+fn get_file_name_from_path(file_path: &str) -> String {
+    file_path.split('/').last().unwrap().to_string()
+}
 
 fn read_code_from_path(full_shader_path: &str) -> Result<String, String> {
     std::fs::read_to_string(full_shader_path).map_err(|e| e.to_string())
@@ -456,45 +305,49 @@ fn u8_to_u32(byte_code: &[u8]) -> Vec<u32> {
 }
 
 /// Extract buffer layouts (uniform blocks, push constant blocks) from reflection.
-fn extract_buffer_layouts(reflect_module: &ReflectShaderModule) -> Vec<BufferLayout> {
+fn extract_buffer_layouts(
+    reflect_module: &ReflectShaderModule,
+) -> Result<HashMap<String, StructLayout>, String> {
     let descriptor_bindings = match reflect_module.enumerate_descriptor_bindings(None) {
         Ok(db) => db,
-        Err(_) => return Vec::new(),
+        Err(_) => return Err("Failed to enumerate descriptor bindings".to_string()),
     };
 
-    let mut result = Vec::new();
+    let mut result = HashMap::new();
 
     for binding in descriptor_bindings {
-        // We only care about UniformBuffer (and possibly StorageBuffer if desired) for example
         if binding.descriptor_type == ReflectDescriptorType::UniformBuffer {
             let block_info = &binding.block;
 
-            // Build our layout
-            let layout = BufferLayout {
-                set: binding.set,
-                binding: binding.binding,
-                name: if binding.name.is_empty() {
-                    format!("ubo_set{}_binding{}", binding.set, binding.binding)
-                } else {
-                    binding.name.clone()
-                },
+            let layout_name = if let Some(ty_description) = binding.type_description.as_ref() {
+                ty_description.type_name.clone()
+            } else {
+                return Err("Failed to get layout name".to_string());
+            };
+
+            let members = parse_block_members(&block_info.members);
+
+            let layout = StructLayout {
+                type_name: layout_name,
                 total_size: block_info.padded_size,
-                members: parse_block_members(&block_info.members),
+                members,
                 descriptor_type: binding.descriptor_type,
             };
 
-            result.push(layout);
+            log::debug!("Buffer layout: {:#?}", layout);
+            result.insert(layout.type_name.clone(), layout);
         }
     }
 
-    result
+    Ok(result)
 }
 
 /// Given an array of `ReflectBlockVariable`, build a list of our `BufferMember`.
 fn parse_block_members(
     members: &[spirv_reflect::types::ReflectBlockVariable],
-) -> Vec<BufferMember> {
-    let mut result = Vec::new();
+) -> HashMap<String, StructMember> {
+    let mut result = HashMap::new();
+
     for (i, member) in members.iter().enumerate() {
         let member_name = if member.name.is_empty() {
             format!("member_{}", i)
@@ -504,13 +357,16 @@ fn parse_block_members(
 
         let type_name = guess_type_name(member);
 
-        result.push(BufferMember {
-            offset: member.offset,
-            size: member.size,
-            padded_size: member.padded_size,
-            type_name,
-            name: member_name,
-        });
+        result.insert(
+            member_name.clone(),
+            StructMember {
+                offset: member.offset,
+                size: member.size,
+                padded_size: member.padded_size,
+                type_name,
+                name: member_name,
+            },
+        );
     }
     result
 }
