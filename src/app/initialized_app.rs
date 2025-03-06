@@ -3,8 +3,8 @@ use crate::util::compiler::ShaderCompiler;
 use crate::util::time_info::TimeInfo;
 use crate::vkn::{
     execute_one_time_command, Allocator, Buffer, BufferBuilder, CommandBuffer, CommandPool,
-    ComputePipeline, DescriptorPool, DescriptorSet, Fence, Semaphore, ShaderModule, Texture,
-    TextureDesc, WriteDescriptorSet,
+    ComputePipeline, DescriptorPool, DescriptorSet, DescriptorSetLayout, Device, Fence, Semaphore,
+    ShaderModule, Texture, TextureDesc, WriteDescriptorSet,
 };
 use crate::{
     egui_renderer::EguiRenderer,
@@ -15,6 +15,7 @@ use crate::{
 use ash::vk;
 use egui::{Color32, RichText, Slider};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
+use spirv_reflect::types::descriptor;
 use std::sync::{Arc, Mutex};
 use winit::event::DeviceEvent;
 use winit::{
@@ -37,6 +38,11 @@ pub struct InitializedApp {
     fence: Fence,
     time_info: TimeInfo,
     slider_val: f32,
+
+    compute_pipeline: ComputePipeline,
+    descriptor_pool: DescriptorPool,
+    compute_descriptor_set: DescriptorSet,
+    shader_write_tex: Texture,
 
     camera: Camera,
 
@@ -95,8 +101,6 @@ impl InitializedApp {
             },
         );
 
-        // compute shader test
-
         let compute_shader_module = ShaderModule::from_glsl(
             vulkan_context.device(),
             &shader_compiler,
@@ -117,86 +121,50 @@ impl InitializedApp {
             .build();
         log::debug!("Test Input Data: {:?}", test_input_data);
 
-        let test_input_buffer = Buffer::new_sized(
-            vulkan_context.device(),
-            &mut allocator,
-            vk::BufferUsageFlags::UNIFORM_BUFFER,
-            test_input_data.len(),
-        );
+        // let test_input_buffer = Buffer::new_sized(
+        //     vulkan_context.device(),
+        //     &mut allocator,
+        //     vk::BufferUsageFlags::UNIFORM_BUFFER,
+        //     test_input_data.len(),
+        // );
 
         let compute_pipeline =
             ComputePipeline::from_shader_module(vulkan_context.device(), &compute_shader_module);
 
-        let descriptor_set_layouts = compute_pipeline
-            .get_pipeline_layout()
-            .get_descriptor_set_layouts();
-
         let descriptor_pool = DescriptorPool::from_descriptor_set_layouts(
             vulkan_context.device(),
-            descriptor_set_layouts,
+            compute_pipeline
+                .get_pipeline_layout()
+                .get_descriptor_set_layouts(),
         )
         .unwrap();
 
         let screen_extent = window_state.window_size();
         let screen_extent = [screen_extent[0] as u32, screen_extent[1] as u32, 1];
-        log::info!("Screen extent: {:?}", screen_extent);
-
-        let tex_desc_1 = TextureDesc {
-            extent: screen_extent,
-            format: vk::Format::R8G8B8A8_UNORM,
-            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC,
-            initial_layout: vk::ImageLayout::UNDEFINED,
-            aspect: vk::ImageAspectFlags::COLOR,
-            ..Default::default()
-        };
-        let tex_desc_2 = TextureDesc {
-            extent: screen_extent,
-            format: vk::Format::R8G8B8A8_UNORM,
-            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
-            initial_layout: vk::ImageLayout::UNDEFINED,
-            aspect: vk::ImageAspectFlags::COLOR,
-            ..Default::default()
-        };
-        let sam_desc = Default::default();
 
         let shader_write_tex =
-            Texture::new(vulkan_context.device(), &allocator, &tex_desc_1, &sam_desc);
-        let test_cpy_dst_tex =
-            Texture::new(vulkan_context.device(), &allocator, &tex_desc_2, &sam_desc);
+            Self::create_shader_write_texture(screen_extent, vulkan_context.device(), &allocator);
 
-        let set = DescriptorSet::new(
-            &vulkan_context.device(),
-            descriptor_set_layouts,
-            &descriptor_pool,
-        );
-        let mut write_ds = WriteDescriptorSet::new(0, vk::DescriptorType::STORAGE_IMAGE);
-        write_ds.add_texture(&shader_write_tex, vk::ImageLayout::GENERAL);
-        set.perform_writes(&[write_ds]);
-
-        execute_one_time_command(
+        let compute_descriptor_set = Self::create_compute_ds(
             vulkan_context.device(),
-            &command_pool,
-            &vulkan_context.get_general_queue(),
-            |cmdbuf| {
-                shader_write_tex
-                    .get_image()
-                    .record_transition_barrier(cmdbuf, vk::ImageLayout::GENERAL);
-
-                compute_pipeline.record_bind(cmdbuf);
-                compute_pipeline.record_bind_descriptor_sets(cmdbuf, &[set], 0);
-                compute_pipeline.record_dispatch(cmdbuf, screen_extent);
-
-                shader_write_tex
-                    .get_image()
-                    .record_copy_to(cmdbuf, &test_cpy_dst_tex.get_image())
-                    .unwrap();
-            },
+            compute_pipeline
+                .get_pipeline_layout()
+                .get_descriptor_set_layouts(),
+            &descriptor_pool,
+            &shader_write_tex,
         );
+
+        //
 
         Self {
             vulkan_context,
             renderer,
             window_state,
+
+            compute_pipeline,
+            descriptor_pool,
+            compute_descriptor_set,
+            shader_write_tex,
 
             allocator,
             command_pool,
@@ -211,6 +179,96 @@ impl InitializedApp {
             time_info: TimeInfo::default(),
             slider_val: 0.0,
         }
+    }
+
+    fn create_shader_write_texture(
+        screen_extent: [u32; 3],
+        device: &Device,
+        allocator: &Allocator,
+    ) -> Texture {
+        let tex_desc_1 = TextureDesc {
+            extent: screen_extent,
+            format: vk::Format::R8G8B8A8_UNORM,
+            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        let sam_desc = Default::default();
+        let tex = Texture::new(device, &allocator, &tex_desc_1, &sam_desc);
+
+        tex
+    }
+
+    fn create_compute_ds(
+        device: &Device,
+        descriptor_set_layouts: &[DescriptorSetLayout],
+        descriptor_pool: &DescriptorPool,
+        shader_write_tex: &Texture,
+    ) -> DescriptorSet {
+        let set = DescriptorSet::new(device, descriptor_set_layouts, &descriptor_pool);
+
+        let mut write_ds = WriteDescriptorSet::new(0, vk::DescriptorType::STORAGE_IMAGE);
+        write_ds.add_texture(shader_write_tex, vk::ImageLayout::GENERAL);
+        set.perform_writes(&[write_ds]);
+
+        set
+    }
+
+    fn excecute_compute_pipeline(&self, screen_extent: [u32; 3], image_idx: usize) {
+        execute_one_time_command(
+            self.vulkan_context.device(),
+            &self.command_pool,
+            &self.vulkan_context.get_general_queue(),
+            |cmdbuf| {
+                self.shader_write_tex
+                    .get_image()
+                    .record_transition_barrier(cmdbuf, vk::ImageLayout::GENERAL);
+
+                self.compute_pipeline.record_bind(cmdbuf);
+                self.compute_pipeline.record_bind_descriptor_sets(
+                    cmdbuf,
+                    std::slice::from_ref(&self.compute_descriptor_set),
+                    0,
+                );
+                self.compute_pipeline.record_dispatch(cmdbuf, screen_extent);
+
+                // shader_write_tex
+                //     .get_image()
+                //     .record_copy_to(cmdbuf, &test_cpy_dst_tex.get_image())
+                //     .unwrap();
+
+                let extent = self.shader_write_tex.get_image().get_desc().get_extent();
+                let copy_region = vk::ImageCopy {
+                    src_subresource: vk::ImageSubresourceLayers {
+                        aspect_mask: vk::ImageAspectFlags::COLOR,
+                        mip_level: 0,
+                        base_array_layer: 0,
+                        layer_count: 1,
+                    },
+                    src_offset: vk::Offset3D { x: 0, y: 0, z: 0 },
+                    dst_subresource: vk::ImageSubresourceLayers {
+                        aspect_mask: vk::ImageAspectFlags::COLOR,
+                        mip_level: 0,
+                        base_array_layer: 0,
+                        layer_count: 1,
+                    },
+                    dst_offset: vk::Offset3D { x: 0, y: 0, z: 0 },
+                    extent: extent,
+                };
+
+                unsafe {
+                    self.vulkan_context.device().cmd_copy_image(
+                        cmdbuf.as_raw(),
+                        self.shader_write_tex.get_image().as_raw(),
+                        vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                        self.swapchain.get_image(image_idx),
+                        vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                        &[copy_region],
+                    );
+                }
+            },
+        );
     }
 
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {

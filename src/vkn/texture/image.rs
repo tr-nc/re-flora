@@ -88,6 +88,10 @@ impl Image {
         })))
     }
 
+    pub fn get_desc(&self) -> &TextureDesc {
+        &self.0.desc
+    }
+
     pub fn record_copy_to(&self, cmdbuf: &CommandBuffer, dst_image: &Image) -> Result<(), String> {
         self.record_transition_barrier(cmdbuf, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
         dst_image.record_transition_barrier(cmdbuf, vk::ImageLayout::TRANSFER_DST_OPTIMAL);

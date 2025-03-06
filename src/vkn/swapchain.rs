@@ -78,6 +78,18 @@ impl Swapchain {
         self.image_views = image_views;
     }
 
+    pub fn get_image_view(&self, index: usize) -> vk::ImageView {
+        self.image_views[index]
+    }
+
+    pub fn get_image(&self, index: usize) -> vk::Image {
+        unsafe {
+            self.swapchain_device
+                .get_swapchain_images(self.swapchain_khr)
+                .unwrap()[index]
+        }
+    }
+
     pub fn clean_up(&mut self) {
         log::info!("Cleaning up vulkan swapchain");
 
@@ -100,7 +112,7 @@ impl Swapchain {
                 .for_each(|v| device.destroy_image_view(*v, None));
             self.image_views.clear();
 
-            // images are not destroyed explicitly, because they are owned by the swapchain
+            // images are owned by the swapchain, and are destroyed when the swapchain is destroyed
 
             self.swapchain_device
                 .destroy_swapchain(self.swapchain_khr, None);
@@ -169,7 +181,7 @@ impl Swapchain {
             })
             .clear_values(&[vk::ClearValue {
                 color: vk::ClearColorValue {
-                    float32: [0.007, 0.007, 0.007, 1.0],
+                    float32: [0.0, 0.0, 0.0, 1.0],
                 },
             }]);
 
@@ -359,7 +371,7 @@ fn create_vulkan_swapchain(
             .expect("Failed to get swapchain images")
     };
 
-    let views = images
+    let image_views = images
         .iter()
         .map(|image| {
             let create_info = vk::ImageViewCreateInfo::default()
@@ -386,13 +398,17 @@ fn create_vulkan_swapchain(
 
     let render_pass = create_vulkan_render_pass(vulkan_context.device(), format.format);
 
-    let framebuffers =
-        create_vulkan_framebuffers(vulkan_context.device(), render_pass, &views, window_size);
+    let framebuffers = create_vulkan_framebuffers(
+        vulkan_context.device(),
+        render_pass,
+        &image_views,
+        window_size,
+    );
 
     (
         swapchain_device,
         swapchain_khr,
-        views,
+        image_views,
         render_pass,
         framebuffers,
     )

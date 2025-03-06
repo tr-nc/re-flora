@@ -14,7 +14,7 @@ test_input;
 
 void main() {
     ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
-    vec4 color         = vec4(0.0, 0.0, 0.0, 1.0);
+    vec4 color         = vec4(0.0, 0.0, 1.0, 1.0);
     // color.r            = test_input.bbbb;
     imageStore(result_image, pixel_coords, color);
 }

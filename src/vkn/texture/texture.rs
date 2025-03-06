@@ -2,15 +2,6 @@ use super::{Image, ImageView, ImageViewDesc, Sampler, SamplerDesc};
 use crate::vkn::{execute_one_time_command, Allocator, Buffer, CommandPool, Device, Queue};
 use ash::vk::{self, ImageType};
 
-/// A texture is a combination of an image, image view, and sampler.
-#[derive(Clone)]
-pub struct Texture {
-    device: Device,
-    image: Image,
-    image_view: ImageView,
-    sampler: Sampler,
-}
-
 pub struct TextureUploadRegion {
     pub offset: [i32; 2],
     pub extent: [u32; 2],
@@ -67,6 +58,15 @@ impl TextureDesc {
             _ => vk::ImageType::TYPE_3D,
         }
     }
+}
+
+/// A texture is a combination of an image, image view, and sampler.
+#[derive(Clone)]
+pub struct Texture {
+    device: Device,
+    image: Image,
+    image_view: ImageView,
+    sampler: Sampler,
 }
 
 impl Texture {
