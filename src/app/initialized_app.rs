@@ -216,61 +216,6 @@ impl InitializedApp {
         set
     }
 
-    fn excecute_compute_pipeline(&self, screen_extent: [u32; 3], image_idx: usize) {
-        let device = self.vulkan_context.device();
-        execute_one_time_command(
-            device,
-            &self.command_pool,
-            &self.vulkan_context.get_general_queue(),
-            |cmdbuf| {
-                let src_img = self.shader_write_tex.get_image();
-                let dst_raw_img = self.swapchain.get_image(image_idx);
-
-                src_img.record_transition_barrier(cmdbuf, vk::ImageLayout::GENERAL);
-
-                self.compute_pipeline.record_bind(cmdbuf);
-                self.compute_pipeline.record_bind_descriptor_sets(
-                    cmdbuf,
-                    std::slice::from_ref(&self.compute_descriptor_set),
-                    0,
-                );
-                self.compute_pipeline.record_dispatch(cmdbuf, screen_extent);
-
-                // transition src
-                src_img.record_transition_barrier(cmdbuf, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
-
-                // transition dst (a raw image)
-                image_transition_barrier(
-                    device.as_raw(),
-                    cmdbuf.as_raw(),
-                    vk::ImageLayout::UNDEFINED,
-                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                    dst_raw_img,
-                );
-
-                unsafe {
-                    device.cmd_copy_image(
-                        cmdbuf.as_raw(),
-                        src_img.as_raw(),
-                        vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-                        dst_raw_img,
-                        vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                        &[src_img.get_copy_region()],
-                    );
-                }
-
-                // transition dst (a raw image)
-                image_transition_barrier(
-                    device.as_raw(),
-                    cmdbuf.as_raw(),
-                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                    vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-                    dst_raw_img,
-                );
-            },
-        );
-    }
-
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {
         let window_descriptor = WindowStateDesc {
             title: "Re: Flora".to_owned(),
@@ -396,11 +341,8 @@ impl InitializedApp {
                             });
                     });
 
-                let next_image_result = self
-                    .swapchain
-                    .acquire_next_image(&self.image_available_semaphore);
-
-                let image_index = match next_image_result {
+                let image_index = match self.swapchain.acquire_next(&self.image_available_semaphore)
+                {
                     Ok((image_index, _)) => image_index,
                     Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
                         self.is_resize_pending = true;
@@ -417,10 +359,33 @@ impl InitializedApp {
                         .expect("Failed to reset fences")
                 };
 
+                let cmdbuf = &self.command_buffer;
+
                 let render_area = vk::Extent2D {
                     width: self.window_state.window_size()[0],
                     height: self.window_state.window_size()[1],
                 };
+
+                self.shader_write_tex
+                    .get_image()
+                    .record_transition_barrier(cmdbuf, vk::ImageLayout::GENERAL);
+                self.compute_pipeline.record_bind(cmdbuf);
+                self.compute_pipeline.record_bind_descriptor_sets(
+                    cmdbuf,
+                    std::slice::from_ref(&self.compute_descriptor_set),
+                    0,
+                );
+                self.compute_pipeline.record_dispatch(
+                    cmdbuf,
+                    [
+                        self.window_state.window_size()[0],
+                        self.window_state.window_size()[1],
+                        1,
+                    ],
+                );
+
+                self.swapchain
+                    .record_blit(&self.shader_write_tex.get_image(), cmdbuf, image_index);
 
                 self.renderer.record_command_buffer(
                     &self.vulkan_context.device(),
@@ -431,15 +396,15 @@ impl InitializedApp {
                     render_area,
                 );
 
-                Self::excecute_compute_pipeline(
-                    &self,
-                    [
-                        self.window_state.window_size()[0] as u32,
-                        self.window_state.window_size()[1] as u32,
-                        1,
-                    ],
-                    image_index as usize,
-                );
+                // Self::excecute_compute_pipeline(
+                //     &self,
+                //     [
+                //         self.window_state.window_size()[0] as u32,
+                //         self.window_state.window_size()[1] as u32,
+                //         1,
+                //     ],
+                //     image_index as usize,
+                // );
 
                 let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
                 let wait_semaphores = [self.image_available_semaphore.as_raw()];

@@ -140,6 +140,11 @@ impl Image {
         let mut layout_guard = self.0.current_layout.lock().unwrap();
 
         let current_layout = *layout_guard;
+
+        if current_layout == new_layout {
+            return;
+        }
+
         image_transition_barrier(
             device.as_raw(),
             cmdbuf.as_raw(),

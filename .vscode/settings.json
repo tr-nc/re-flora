@@ -1,8 +1,9 @@
 {
   "command-runner.commands": {
     "cargo run debug": "cargo run",
-    "cargo run release": "cargo run --release --features \"no_validation_layer\""
+    "cargo run release": "cargo run --release --features \"no_validation_layer\"",
+    "git add all": "git add ."
     // "git submodule init": "git submodule update --init --recursive"
   },
-  "glsllint.glslangValidatorArgs": ["-V"],
+  "glsllint.glslangValidatorArgs": ["-V"]
 }

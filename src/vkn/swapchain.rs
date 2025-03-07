@@ -4,18 +4,20 @@ use ash::{
     vk::{self, Extent2D, PresentModeKHR, SurfaceCapabilitiesKHR, SurfaceFormatKHR},
 };
 
-use super::{context::VulkanContext, CommandBuffer, Device, Semaphore};
+use super::{
+    context::VulkanContext, image_transition_barrier, CommandBuffer, Device, Image, Semaphore,
+};
 
 /// The preference for the swapchain.
 ///
 /// Preferences are considered every time the swapchain is (re)created.
-pub struct SwapchainPreference {
+pub struct SwapchainDesc {
     format: vk::Format,
     color_space: vk::ColorSpaceKHR,
     present_mode: vk::PresentModeKHR,
 }
 
-impl Default for SwapchainPreference {
+impl Default for SwapchainDesc {
     fn default() -> Self {
         Self {
             format: vk::Format::R8G8B8A8_SRGB,
@@ -28,14 +30,14 @@ impl Default for SwapchainPreference {
 pub struct Swapchain {
     vulkan_context: VulkanContext,
 
+    swapchain_device: swapchain::Device,
+
     render_pass: vk::RenderPass,
     framebuffers: Vec<vk::Framebuffer>,
     image_views: Vec<vk::ImageView>,
-
     swapchain_khr: vk::SwapchainKHR,
-    swapchain_device: swapchain::Device,
 
-    swapchain_preference: SwapchainPreference,
+    desc: SwapchainDesc,
 }
 
 impl Drop for Swapchain {
@@ -48,7 +50,7 @@ impl Swapchain {
     pub fn new(
         context: &VulkanContext,
         window_size: &[u32; 2],
-        swapchain_preference: SwapchainPreference,
+        swapchain_preference: SwapchainDesc,
     ) -> Self {
         let (swapchain_device, swapchain_khr, image_views, render_pass, framebuffers) =
             create_vulkan_swapchain(&context, window_size, &swapchain_preference);
@@ -60,7 +62,7 @@ impl Swapchain {
             image_views,
             swapchain_khr,
             swapchain_device,
-            swapchain_preference,
+            desc: swapchain_preference,
         }
     }
 
@@ -69,17 +71,13 @@ impl Swapchain {
         self.clean_up();
 
         let (swapchain_device, swapchain_khr, image_views, render_pass, framebuffers) =
-            create_vulkan_swapchain(&context, window_size, &self.swapchain_preference);
+            create_vulkan_swapchain(&context, window_size, &self.desc);
 
         self.swapchain_device = swapchain_device;
         self.swapchain_khr = swapchain_khr;
         self.render_pass = render_pass;
         self.framebuffers = framebuffers;
         self.image_views = image_views;
-    }
-
-    pub fn get_image_view(&self, index: usize) -> vk::ImageView {
-        self.image_views[index]
     }
 
     pub fn get_image(&self, index: usize) -> vk::Image {
@@ -124,10 +122,7 @@ impl Swapchain {
         &self.swapchain_device
     }
 
-    pub fn acquire_next_image(
-        &mut self,
-        image_available_semaphore: &Semaphore,
-    ) -> VkResult<(u32, bool)> {
+    pub fn acquire_next(&mut self, image_available_semaphore: &Semaphore) -> VkResult<(u32, bool)> {
         let timeout = u64::MAX;
         let fence = vk::Fence::null();
         unsafe {
@@ -138,6 +133,44 @@ impl Swapchain {
                 fence,
             )
         }
+    }
+
+    pub fn record_blit(&self, src_img: &Image, cmdbuf: &CommandBuffer, image_idx: u32) {
+        let dst_raw_img = self.get_image(image_idx as usize);
+        let device = self.vulkan_context.device();
+
+        // transition src
+        src_img.record_transition_barrier(cmdbuf, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
+
+        // transition dst (a raw image)
+        // from UNDEFINED, because the image is just being available
+        image_transition_barrier(
+            device.as_raw(),
+            cmdbuf.as_raw(),
+            vk::ImageLayout::UNDEFINED,
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            dst_raw_img,
+        );
+
+        unsafe {
+            device.cmd_copy_image(
+                cmdbuf.as_raw(),
+                src_img.as_raw(),
+                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                dst_raw_img,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                &[src_img.get_copy_region()],
+            );
+        }
+
+        // transition dst (a raw image)
+        image_transition_barrier(
+            device.as_raw(),
+            cmdbuf.as_raw(),
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            dst_raw_img,
+        );
     }
 
     /// Present the image to the swapchain with the given index.
@@ -327,7 +360,7 @@ fn create_swapchain_device_khr(
 fn create_vulkan_swapchain(
     vulkan_context: &VulkanContext,
     window_size: &[u32; 2],
-    swapchain_preference: &SwapchainPreference,
+    swapchain_preference: &SwapchainDesc,
 ) -> (
     swapchain::Device,
     vk::SwapchainKHR,
@@ -424,7 +457,7 @@ fn create_vulkan_render_pass(device: &Device, format: vk::Format) -> vk::RenderP
         .samples(vk::SampleCountFlags::TYPE_1)
         .load_op(vk::AttachmentLoadOp::LOAD)
         .store_op(vk::AttachmentStoreOp::STORE)
-        .initial_layout(vk::ImageLayout::UNDEFINED)
+        .initial_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
         .final_layout(vk::ImageLayout::PRESENT_SRC_KHR)];
 
     let color_attachment_refs = [vk::AttachmentReference::default()
