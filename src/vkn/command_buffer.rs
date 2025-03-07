@@ -41,7 +41,7 @@ impl CommandBuffer {
         self.0.command_buffer
     }
 
-    fn begin(&self, is_onetime: bool) {
+    pub fn begin(&self, is_onetime: bool) {
         let flags = if is_onetime {
             vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT
         } else {
@@ -57,7 +57,7 @@ impl CommandBuffer {
         };
     }
 
-    fn end(&self) {
+    pub fn end(&self) {
         unsafe {
             self.0
                 .device

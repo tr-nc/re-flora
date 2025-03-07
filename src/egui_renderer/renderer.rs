@@ -473,23 +473,10 @@ impl EguiRenderer {
         &mut self,
         device: &Device,
         swapchain: &Swapchain,
-        command_pool: &CommandPool,
         command_buffer: &CommandBuffer,
         image_index: u32,
         render_area: Extent2D,
     ) {
-        unsafe {
-            device
-                .reset_command_pool(command_pool.as_raw(), vk::CommandPoolResetFlags::empty())
-                .expect("Failed to reset command pool")
-        };
-
-        let command_buffer_begin_info = vk::CommandBufferBeginInfo::default();
-        unsafe {
-            device
-                .begin_command_buffer(command_buffer.as_raw(), &command_buffer_begin_info)
-                .expect("Failed to begin command buffer")
-        };
         swapchain.record_begin_render_pass_cmdbuf(command_buffer, image_index, &render_area);
 
         Self::cmd_draw(
@@ -507,7 +494,6 @@ impl EguiRenderer {
 
         unsafe {
             device.cmd_end_render_pass(command_buffer.as_raw());
-            device.end_command_buffer(command_buffer.as_raw()).unwrap();
         };
     }
 }

@@ -359,42 +359,55 @@ impl InitializedApp {
                         .expect("Failed to reset fences")
                 };
 
-                let cmdbuf = &self.command_buffer;
-
                 let render_area = vk::Extent2D {
                     width: self.window_state.window_size()[0],
                     height: self.window_state.window_size()[1],
                 };
 
-                self.shader_write_tex
-                    .get_image()
-                    .record_transition_barrier(cmdbuf, vk::ImageLayout::GENERAL);
-                self.compute_pipeline.record_bind(cmdbuf);
-                self.compute_pipeline.record_bind_descriptor_sets(
-                    cmdbuf,
-                    std::slice::from_ref(&self.compute_descriptor_set),
-                    0,
-                );
-                self.compute_pipeline.record_dispatch(
-                    cmdbuf,
-                    [
-                        self.window_state.window_size()[0],
-                        self.window_state.window_size()[1],
-                        1,
-                    ],
-                );
+                unsafe {
+                    self.vulkan_context
+                        .device()
+                        .reset_command_pool(
+                            self.command_pool.as_raw(),
+                            vk::CommandPoolResetFlags::empty(),
+                        )
+                        .expect("Failed to reset command pool")
+                };
 
-                self.swapchain
-                    .record_blit(&self.shader_write_tex.get_image(), cmdbuf, image_index);
+                let cmdbuf = &self.command_buffer;
+
+                cmdbuf.begin(false);
+
+                // self.shader_write_tex
+                //     .get_image()
+                //     .record_transition_barrier(cmdbuf, vk::ImageLayout::GENERAL);
+                // self.compute_pipeline.record_bind(cmdbuf);
+                // self.compute_pipeline.record_bind_descriptor_sets(
+                //     cmdbuf,
+                //     std::slice::from_ref(&self.compute_descriptor_set),
+                //     0,
+                // );
+                // self.compute_pipeline.record_dispatch(
+                //     cmdbuf,
+                //     [
+                //         self.window_state.window_size()[0],
+                //         self.window_state.window_size()[1],
+                //         1,
+                //     ],
+                // );
+
+                // self.swapchain
+                //     .record_blit(&self.shader_write_tex.get_image(), cmdbuf, image_index);
 
                 self.renderer.record_command_buffer(
                     &self.vulkan_context.device(),
                     &self.swapchain,
-                    &self.command_pool,
-                    &self.command_buffer,
+                    cmdbuf,
                     image_index,
                     render_area,
                 );
+
+                cmdbuf.end();
 
                 // Self::excecute_compute_pipeline(
                 //     &self,
