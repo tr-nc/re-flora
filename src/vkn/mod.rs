@@ -33,7 +33,7 @@ mod buffer;
 pub use buffer::Buffer;
 
 mod texture;
-pub use texture::{Texture, TextureDesc, TextureUploadRegion};
+pub use texture::*;
 
 mod allocator;
 pub use allocator::Allocator;

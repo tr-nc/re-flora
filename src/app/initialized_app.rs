@@ -2,9 +2,10 @@ use crate::gameplay::Camera;
 use crate::util::compiler::ShaderCompiler;
 use crate::util::time_info::TimeInfo;
 use crate::vkn::{
-    execute_one_time_command, Allocator, Buffer, BufferBuilder, CommandBuffer, CommandPool,
-    ComputePipeline, DescriptorPool, DescriptorSet, DescriptorSetLayout, Device, Fence, Semaphore,
-    ShaderModule, Texture, TextureDesc, WriteDescriptorSet,
+    execute_one_time_command, image_transition_barrier, Allocator, Buffer, BufferBuilder,
+    CommandBuffer, CommandPool, ComputePipeline, DescriptorPool, DescriptorSet,
+    DescriptorSetLayout, Device, Fence, Semaphore, ShaderModule, Texture, TextureDesc,
+    WriteDescriptorSet,
 };
 use crate::{
     egui_renderer::EguiRenderer,
@@ -216,14 +217,16 @@ impl InitializedApp {
     }
 
     fn excecute_compute_pipeline(&self, screen_extent: [u32; 3], image_idx: usize) {
+        let device = self.vulkan_context.device();
         execute_one_time_command(
-            self.vulkan_context.device(),
+            device,
             &self.command_pool,
             &self.vulkan_context.get_general_queue(),
             |cmdbuf| {
-                self.shader_write_tex
-                    .get_image()
-                    .record_transition_barrier(cmdbuf, vk::ImageLayout::GENERAL);
+                let src_img = self.shader_write_tex.get_image();
+                let dst_raw_img = self.swapchain.get_image(image_idx);
+
+                src_img.record_transition_barrier(cmdbuf, vk::ImageLayout::GENERAL);
 
                 self.compute_pipeline.record_bind(cmdbuf);
                 self.compute_pipeline.record_bind_descriptor_sets(
@@ -233,40 +236,37 @@ impl InitializedApp {
                 );
                 self.compute_pipeline.record_dispatch(cmdbuf, screen_extent);
 
-                // shader_write_tex
-                //     .get_image()
-                //     .record_copy_to(cmdbuf, &test_cpy_dst_tex.get_image())
-                //     .unwrap();
+                // transition src
+                src_img.record_transition_barrier(cmdbuf, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
 
-                let extent = self.shader_write_tex.get_image().get_desc().get_extent();
-                let copy_region = vk::ImageCopy {
-                    src_subresource: vk::ImageSubresourceLayers {
-                        aspect_mask: vk::ImageAspectFlags::COLOR,
-                        mip_level: 0,
-                        base_array_layer: 0,
-                        layer_count: 1,
-                    },
-                    src_offset: vk::Offset3D { x: 0, y: 0, z: 0 },
-                    dst_subresource: vk::ImageSubresourceLayers {
-                        aspect_mask: vk::ImageAspectFlags::COLOR,
-                        mip_level: 0,
-                        base_array_layer: 0,
-                        layer_count: 1,
-                    },
-                    dst_offset: vk::Offset3D { x: 0, y: 0, z: 0 },
-                    extent: extent,
-                };
+                // transition dst (a raw image)
+                image_transition_barrier(
+                    device.as_raw(),
+                    cmdbuf.as_raw(),
+                    vk::ImageLayout::UNDEFINED,
+                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                    dst_raw_img,
+                );
 
                 unsafe {
-                    self.vulkan_context.device().cmd_copy_image(
+                    device.cmd_copy_image(
                         cmdbuf.as_raw(),
-                        self.shader_write_tex.get_image().as_raw(),
+                        src_img.as_raw(),
                         vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-                        self.swapchain.get_image(image_idx),
+                        dst_raw_img,
                         vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                        &[copy_region],
+                        &[src_img.get_copy_region()],
                     );
                 }
+
+                // transition dst (a raw image)
+                image_transition_barrier(
+                    device.as_raw(),
+                    cmdbuf.as_raw(),
+                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                    vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                    dst_raw_img,
+                );
             },
         );
     }
@@ -429,6 +429,16 @@ impl InitializedApp {
                     &self.command_buffer,
                     image_index,
                     render_area,
+                );
+
+                Self::excecute_compute_pipeline(
+                    &self,
+                    [
+                        self.window_state.window_size()[0] as u32,
+                        self.window_state.window_size()[1] as u32,
+                        1,
+                    ],
+                    image_index as usize,
                 );
 
                 let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];

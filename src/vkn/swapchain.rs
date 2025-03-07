@@ -181,7 +181,7 @@ impl Swapchain {
             })
             .clear_values(&[vk::ClearValue {
                 color: vk::ClearColorValue {
-                    float32: [0.0, 0.0, 0.0, 1.0],
+                    float32: [0.0, 0.0, 0.0, 0.0],
                 },
             }]);
 
@@ -294,7 +294,11 @@ fn create_swapchain_device_khr(
             .image_color_space(format.color_space)
             .image_extent(extent)
             .image_array_layers(1)
-            .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT);
+            .image_usage(
+                vk::ImageUsageFlags::COLOR_ATTACHMENT
+                    | vk::ImageUsageFlags::TRANSFER_SRC
+                    | vk::ImageUsageFlags::TRANSFER_DST,
+            );
 
         // if context.graphics_q_index != context.present_q_index, you may want to use concurrent mode
         // let families_indices = [context.graphics_q_index, context.present_q_index];
@@ -418,7 +422,7 @@ fn create_vulkan_render_pass(device: &Device, format: vk::Format) -> vk::RenderP
     let attachment_descs = [vk::AttachmentDescription::default()
         .format(format)
         .samples(vk::SampleCountFlags::TYPE_1)
-        .load_op(vk::AttachmentLoadOp::CLEAR)
+        .load_op(vk::AttachmentLoadOp::LOAD)
         .store_op(vk::AttachmentStoreOp::STORE)
         .initial_layout(vk::ImageLayout::UNDEFINED)
         .final_layout(vk::ImageLayout::PRESENT_SRC_KHR)];

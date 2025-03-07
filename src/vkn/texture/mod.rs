@@ -1,11 +1,11 @@
 mod image;
-pub use image::Image;
+pub use image::*;
 
 mod image_view;
-pub use image_view::{ImageView, ImageViewDesc};
+pub use image_view::*;
 
 mod sampler;
-pub use sampler::{Sampler, SamplerDesc};
+pub use sampler::*;
 
 mod texture;
-pub use texture::{Texture, TextureDesc, TextureUploadRegion};
+pub use texture::*;
