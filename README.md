@@ -67,11 +67,13 @@ https://crates.io/crates/egui-ash-renderer
 
 # Special Thanks To
 
-https://github.com/adrien-ben/egui-ash-renderer
+[Implementation of ash with egui](https://github.com/adrien-ben/egui-ash-renderer)
 
-https://themaister.net/blog/2019/08/14/yet-another-blog-explaining-vulkan-synchronization/
+[Synchronization Tutorial](https://themaister.net/blog/2019/08/14/yet-another-blog-explaining-vulkan-synchronization/)
 
-https://github.com/KhronosGroup/Vulkan-Docs/wiki/Synchronization-Examples
+[Official Synchronization Examples](https://github.com/KhronosGroup/Vulkan-Docs/wiki/Synchronization-Examples)
+
+[Command Buffer Life Cycle](https://registry.khronos.org/vulkan/specs/latest/html/vkspec.html#commandbuffers-lifecycle)
 
 ```
 

@@ -2,10 +2,9 @@ use crate::gameplay::Camera;
 use crate::util::compiler::ShaderCompiler;
 use crate::util::time_info::TimeInfo;
 use crate::vkn::{
-    execute_one_time_command, record_image_transition_barrier, Allocator, Buffer, BufferBuilder,
-    CommandBuffer, CommandPool, ComputePipeline, DescriptorPool, DescriptorSet,
-    DescriptorSetLayout, Device, Fence, Semaphore, ShaderModule, Texture, TextureDesc,
-    WriteDescriptorSet,
+    Allocator, BufferBuilder, CommandBuffer, CommandPool, ComputePipeline, DescriptorPool,
+    DescriptorSet, DescriptorSetLayout, Device, Fence, Semaphore, ShaderModule, Texture,
+    TextureDesc, WriteDescriptorSet,
 };
 use crate::{
     egui_renderer::EguiRenderer,
@@ -16,7 +15,6 @@ use crate::{
 use ash::vk;
 use egui::{Color32, RichText, Slider};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
-use spirv_reflect::types::descriptor;
 use std::sync::{Arc, Mutex};
 use winit::event::DeviceEvent;
 use winit::{
@@ -27,7 +25,7 @@ use winit::{
 };
 
 pub struct InitializedApp {
-    allocator: Allocator,
+    _allocator: Allocator,
     renderer: EguiRenderer,
     command_pool: CommandPool,
     command_buffer: CommandBuffer,
@@ -41,7 +39,7 @@ pub struct InitializedApp {
     slider_val: f32,
 
     compute_pipeline: ComputePipeline,
-    descriptor_pool: DescriptorPool,
+    _descriptor_pool: DescriptorPool,
     compute_descriptor_set: DescriptorSet,
     shader_write_tex: Texture,
 
@@ -56,7 +54,7 @@ impl InitializedApp {
         let window_state = Self::create_window_state(_event_loop);
         let vulkan_context = Self::create_vulkan_context(&window_state);
 
-        let shader_compiler = ShaderCompiler::new(Default::default()).unwrap();
+        let shader_compiler = ShaderCompiler::new().unwrap();
 
         let gpu_allocator = {
             let allocator_create_info = AllocatorCreateDesc {
@@ -70,7 +68,7 @@ impl InitializedApp {
             gpu_allocator::vulkan::Allocator::new(&allocator_create_info)
                 .expect("Failed to create gpu allocator")
         };
-        let mut allocator =
+        let allocator =
             Allocator::new(vulkan_context.device(), Arc::new(Mutex::new(gpu_allocator)));
 
         let swapchain = Swapchain::new(
@@ -163,11 +161,11 @@ impl InitializedApp {
             window_state,
 
             compute_pipeline,
-            descriptor_pool,
+            _descriptor_pool: descriptor_pool,
             compute_descriptor_set,
             shader_write_tex,
 
-            allocator,
+            _allocator: allocator,
             command_pool,
             command_buffer,
             swapchain,
@@ -341,6 +339,8 @@ impl InitializedApp {
                             });
                     });
 
+                let device = self.vulkan_context.device();
+
                 let image_idx = match self.swapchain.acquire_next(&self.image_available_semaphore) {
                     Ok((image_index, _)) => image_index,
                     Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
@@ -351,57 +351,35 @@ impl InitializedApp {
                 };
 
                 unsafe {
-                    self.vulkan_context
-                        .device()
+                    device
                         .as_raw()
                         .reset_fences(&[self.fence.as_raw()])
                         .expect("Failed to reset fences")
                 };
 
-                unsafe {
-                    self.vulkan_context
-                        .device()
-                        .reset_command_pool(
-                            self.command_pool.as_raw(),
-                            vk::CommandPoolResetFlags::empty(),
-                        )
-                        .expect("Failed to reset command pool")
-                };
-
                 let cmdbuf = &self.command_buffer;
-
                 cmdbuf.begin(false);
 
-                // self.shader_write_tex
-                //     .get_image()
-                //     .record_transition_barrier(cmdbuf, vk::ImageLayout::GENERAL);
-                // self.compute_pipeline.record_bind(cmdbuf);
-                // self.compute_pipeline.record_bind_descriptor_sets(
-                //     cmdbuf,
-                //     std::slice::from_ref(&self.compute_descriptor_set),
-                //     0,
-                // );
-                // self.compute_pipeline.record_dispatch(
-                //     cmdbuf,
-                //     [
-                //         self.window_state.window_size()[0],
-                //         self.window_state.window_size()[1],
-                //         1,
-                //     ],
-                // );
-
-                // self.swapchain
-                //     .record_blit(&self.shader_write_tex.get_image(), cmdbuf, image_index);
-
-                let device = self.vulkan_context.device();
-
-                record_image_transition_barrier(
-                    device,
-                    cmdbuf.as_raw(),
-                    vk::ImageLayout::UNDEFINED,
-                    vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-                    self.swapchain.get_image(image_idx),
+                self.shader_write_tex
+                    .get_image()
+                    .record_transition_barrier(cmdbuf, vk::ImageLayout::GENERAL);
+                self.compute_pipeline.record_bind(cmdbuf);
+                self.compute_pipeline.record_bind_descriptor_sets(
+                    cmdbuf,
+                    std::slice::from_ref(&self.compute_descriptor_set),
+                    0,
                 );
+                self.compute_pipeline.record_dispatch(
+                    cmdbuf,
+                    [
+                        self.window_state.window_size()[0],
+                        self.window_state.window_size()[1],
+                        1,
+                    ],
+                );
+
+                self.swapchain
+                    .record_blit(&self.shader_write_tex.get_image(), cmdbuf, image_idx);
 
                 let render_area = vk::Extent2D {
                     width: self.window_state.window_size()[0],
@@ -419,16 +397,6 @@ impl InitializedApp {
                 };
 
                 cmdbuf.end();
-
-                // Self::excecute_compute_pipeline(
-                //     &self,
-                //     [
-                //         self.window_state.window_size()[0] as u32,
-                //         self.window_state.window_size()[1] as u32,
-                //         1,
-                //     ],
-                //     image_index as usize,
-                // );
 
                 let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
                 let wait_semaphores = [self.image_available_semaphore.as_raw()];

@@ -50,6 +50,7 @@ impl Device {
         unsafe { self.as_raw().queue_wait_idle(queue.as_raw()).unwrap() };
     }
 
+    #[allow(unused)]
     pub fn wait_idle(&self) {
         unsafe { self.as_raw().device_wait_idle().unwrap() };
     }

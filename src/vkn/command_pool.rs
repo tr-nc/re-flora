@@ -43,7 +43,7 @@ impl CommandPool {
 pub fn create_command_pool(device: &Device, queue_family_index: u32) -> vk::CommandPool {
     let command_pool_info = vk::CommandPoolCreateInfo::default()
         .queue_family_index(queue_family_index)
-        .flags(vk::CommandPoolCreateFlags::empty());
+        .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
     unsafe {
         device
             .create_command_pool(&command_pool_info, None)

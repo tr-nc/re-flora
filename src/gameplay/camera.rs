@@ -214,19 +214,23 @@ impl Camera {
         camera
     }
 
+    #[allow(dead_code)]
     pub fn position(&self) -> Vec3 {
         self.position
     }
 
     /// Returns the camera's position as a Vec4 with the w component set to 1.0.
+    #[allow(dead_code)]
     pub fn position_vec4(&self) -> Vec4 {
         Vec4::new(self.position.x, self.position.y, self.position.z, 1.0)
     }
 
+    #[allow(dead_code)]
     pub fn view_matrix(&self) -> Mat4 {
         Mat4::look_at_rh(self.position, self.position + self.front, self.up)
     }
 
+    #[allow(dead_code)]
     pub fn proj_matrix(&self, aspect_ratio: f32, z_near: f32, z_far: f32) -> Mat4 {
         Mat4::perspective_rh(
             self.config.vertical_fov.to_radians(),

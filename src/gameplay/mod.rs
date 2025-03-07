@@ -1,2 +1,2 @@
 mod camera;
-pub use camera::{Camera, CameraBasicConfig, CameraCreateInfo};
+pub use camera::*;

@@ -41,6 +41,7 @@ impl CommandBuffer {
         self.0.command_buffer
     }
 
+    /// Begin recording command buffer, if the command buffer is in not in initial state (being recorded before), begin will reset the command buffer implicitly
     pub fn begin(&self, is_onetime: bool) {
         let flags = if is_onetime {
             vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT

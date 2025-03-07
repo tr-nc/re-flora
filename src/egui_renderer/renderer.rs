@@ -4,7 +4,6 @@ use crate::vkn::CommandBuffer;
 use crate::vkn::CommandPool;
 use crate::vkn::DescriptorSet;
 use crate::vkn::Queue;
-use crate::vkn::Swapchain;
 use crate::vkn::TextureDesc;
 use crate::vkn::TextureUploadRegion;
 use crate::vkn::VulkanContext;
