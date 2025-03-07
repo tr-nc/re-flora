@@ -264,10 +264,12 @@ impl EguiRenderer {
                     &self.descriptor_pool,
                 );
 
-                let mut write_ds =
-                    WriteDescriptorSet::new(0, vk::DescriptorType::COMBINED_IMAGE_SAMPLER);
-                write_ds.add_texture(&texture, vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
-                set.perform_writes(&[write_ds]);
+                set.perform_writes(&[WriteDescriptorSet::new_texture_write(
+                    0,
+                    vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                    &texture,
+                    vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                )]);
 
                 self.managed_textures.insert(*id, texture);
                 self.textures.insert(*id, set);
@@ -293,7 +295,6 @@ impl EguiRenderer {
         }
 
         if frames.is_none() {
-            println!("Creating new frames");
             frames.replace(Mesh::new(device, allocator, primitives));
         }
 

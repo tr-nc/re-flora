@@ -27,17 +27,23 @@ impl Mesh {
             device,
             allocator,
             vk::BufferUsageFlags::VERTEX_BUFFER,
+            gpu_allocator::MemoryLocation::CpuToGpu,
             vertex_count * size_of::<Vertex>(),
         );
-        vertices_buffer.fill(&vertices);
+        vertices_buffer
+            .fill(&vertices)
+            .expect("Failed to fill vertex buffer");
 
         let mut indices_buffer = Buffer::new_sized(
             device,
             allocator,
             vk::BufferUsageFlags::INDEX_BUFFER,
+            gpu_allocator::MemoryLocation::CpuToGpu,
             index_count * size_of::<u32>(),
         );
-        indices_buffer.fill(&indices);
+        indices_buffer
+            .fill(&indices)
+            .expect("Failed to fill index buffer");
 
         Mesh {
             vertices_buffer,
@@ -58,10 +64,17 @@ impl Mesh {
             log::trace!("Resizing vertex buffers");
             self.vertex_count = vertices.len();
             let size = self.vertex_count * size_of::<Vertex>();
-            self.vertices_buffer =
-                Buffer::new_sized(device, allocator, vk::BufferUsageFlags::VERTEX_BUFFER, size);
+            self.vertices_buffer = Buffer::new_sized(
+                device,
+                allocator,
+                vk::BufferUsageFlags::VERTEX_BUFFER,
+                gpu_allocator::MemoryLocation::CpuToGpu,
+                size,
+            );
         }
-        self.vertices_buffer.fill(&vertices);
+        self.vertices_buffer
+            .fill(&vertices)
+            .expect("Failed to fill vertex buffer");
 
         let indices = create_indices(primitives);
         if indices.len() > self.index_count {
@@ -69,10 +82,17 @@ impl Mesh {
 
             self.index_count = indices.len();
             let size = self.index_count * size_of::<u32>();
-            self.indices_buffer =
-                Buffer::new_sized(device, allocator, vk::BufferUsageFlags::INDEX_BUFFER, size);
+            self.indices_buffer = Buffer::new_sized(
+                device,
+                allocator,
+                vk::BufferUsageFlags::INDEX_BUFFER,
+                gpu_allocator::MemoryLocation::CpuToGpu,
+                size,
+            );
         }
-        self.indices_buffer.fill(&indices);
+        self.indices_buffer
+            .fill(&indices)
+            .expect("Failed to fill index buffer");
     }
 }
 

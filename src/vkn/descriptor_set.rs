@@ -1,6 +1,6 @@
 use ash::vk;
 
-use super::{DescriptorPool, DescriptorSetLayout, Device, Texture};
+use super::{Buffer, DescriptorPool, DescriptorSetLayout, Device, Texture};
 
 pub struct DescriptorSet {
     _device: Device,
@@ -54,53 +54,104 @@ fn create_descriptor_set(
 pub struct WriteDescriptorSet {
     binding: u32,
     descriptor_type: vk::DescriptorType,
-    image_info: Option<Vec<vk::DescriptorImageInfo>>,
-    buffer_info: Option<Vec<vk::DescriptorBufferInfo>>,
+    image_infos: Option<Vec<vk::DescriptorImageInfo>>,
+    buffer_infos: Option<Vec<vk::DescriptorBufferInfo>>,
 }
 
 impl WriteDescriptorSet {
-    pub fn new(binding: u32, descriptor_type: vk::DescriptorType) -> Self {
-        Self {
-            binding,
-            descriptor_type,
-            image_info: None,
-            buffer_info: None,
-        }
-    }
+    // pub fn new(binding: u32, descriptor_type: vk::DescriptorType) -> Self {
+    //     Self {
+    //         binding,
+    //         descriptor_type,
+    //         image_infos: None,
+    //         buffer_infos: None,
+    //     }
+    // }
 
-    pub fn add_texture(&mut self, texture: &Texture, image_layout: vk::ImageLayout) -> &mut Self {
+    // pub fn add_texture(&mut self, texture: &Texture, image_layout: vk::ImageLayout) -> &mut Self {
+    //     let image_info = vk::DescriptorImageInfo::default()
+    //         .image_layout(image_layout)
+    //         .image_view(texture.get_image_view().as_raw())
+    //         .sampler(texture.get_sampler().as_raw());
+
+    //     if self.image_infos.is_none() {
+    //         self.image_infos = Some(Vec::new());
+    //     }
+    //     self.image_infos.as_mut().unwrap().push(image_info);
+    //     self
+    // }
+
+    // pub fn add_buffer(&mut self, buffer: &Buffer) -> &mut Self {
+    //     let buffer_info = vk::DescriptorBufferInfo::default()
+    //         .buffer(buffer.as_raw())
+    //         .offset(0)
+    //         .range(buffer.get_size());
+
+    //     if self.buffer_infos.is_none() {
+    //         self.buffer_infos = Some(Vec::new());
+    //     }
+    //     self.buffer_infos.as_mut().unwrap().push(buffer_info);
+    //     self
+    // }
+
+    pub fn new_texture_write(
+        binding: u32,
+        descriptor_type: vk::DescriptorType,
+        texture: &Texture,
+        image_layout: vk::ImageLayout,
+    ) -> Self {
         let image_info = vk::DescriptorImageInfo::default()
             .image_layout(image_layout)
             .image_view(texture.get_image_view().as_raw())
             .sampler(texture.get_sampler().as_raw());
-
-        if self.image_info.is_none() {
-            self.image_info = Some(Vec::new());
+        Self {
+            binding,
+            descriptor_type,
+            image_infos: Some(vec![image_info]),
+            buffer_infos: None,
         }
-        self.image_info.as_mut().unwrap().push(image_info);
-        self
     }
 
-    // pub fn add_buffer_info(&mut self, buffer_info: vk::DescriptorBufferInfo) {
-    //     if self.buffer_info.is_none() {
-    //         self.buffer_info = Some(Vec::new());
-    //     }
-    //     self.buffer_info.as_mut().unwrap().push(buffer_info);
-    // }
+    pub fn new_buffer_write(
+        binding: u32,
+        descriptor_type: vk::DescriptorType,
+        buffer: &Buffer,
+    ) -> Self {
+        let buffer_info = vk::DescriptorBufferInfo::default()
+            .buffer(buffer.as_raw())
+            .offset(0)
+            .range(buffer.get_size());
+
+        Self {
+            binding,
+            descriptor_type,
+            image_infos: None,
+            buffer_infos: Some(vec![buffer_info]),
+        }
+    }
+
+    /// Only one of the following should be Some
+    fn validate(
+        image_infos: &Option<Vec<vk::DescriptorImageInfo>>,
+        buffer_infos: &Option<Vec<vk::DescriptorBufferInfo>>,
+    ) {
+        assert_eq!(image_infos.is_some() ^ buffer_infos.is_some(), true);
+    }
 
     pub fn make_raw(&self, descriptor_set: &DescriptorSet) -> vk::WriteDescriptorSet {
+        Self::validate(&self.image_infos, &self.buffer_infos);
+
         let mut write = vk::WriteDescriptorSet::default()
             .dst_set(descriptor_set.as_raw())
             .dst_binding(self.binding)
             .descriptor_type(self.descriptor_type);
 
-        if let Some(image_info) = &self.image_info {
+        if let Some(image_info) = &self.image_infos {
             write = write.image_info(image_info);
         }
-        if let Some(buffer_info) = &self.buffer_info {
+        if let Some(buffer_info) = &self.buffer_infos {
             write = write.buffer_info(buffer_info);
         }
-
         write
     }
 }

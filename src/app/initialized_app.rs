@@ -2,7 +2,7 @@ use crate::gameplay::Camera;
 use crate::util::compiler::ShaderCompiler;
 use crate::util::time_info::TimeInfo;
 use crate::vkn::{
-    Allocator, BufferBuilder, CommandBuffer, CommandPool, ComputePipeline, DescriptorPool,
+    Allocator, Buffer, BufferBuilder, CommandBuffer, CommandPool, ComputePipeline, DescriptorPool,
     DescriptorSet, DescriptorSetLayout, Device, Fence, Semaphore, ShaderModule, Texture,
     TextureDesc, WriteDescriptorSet,
 };
@@ -42,6 +42,7 @@ pub struct InitializedApp {
     _descriptor_pool: DescriptorPool,
     compute_descriptor_set: DescriptorSet,
     shader_write_tex: Texture,
+    test_input_buffer: Buffer,
 
     camera: Camera,
 
@@ -68,7 +69,7 @@ impl InitializedApp {
             gpu_allocator::vulkan::Allocator::new(&allocator_create_info)
                 .expect("Failed to create gpu allocator")
         };
-        let allocator =
+        let mut allocator =
             Allocator::new(vulkan_context.device(), Arc::new(Mutex::new(gpu_allocator)));
 
         let swapchain = Swapchain::new(
@@ -115,17 +116,18 @@ impl InitializedApp {
         log::debug!("Test Input Layout: {:?}", test_input_layout);
 
         let test_input_data = BufferBuilder::with_layout(test_input_layout)
-            .set_float("aaa", 1.0)
-            .set_uint("bbb", 222)
+            .set_float("aaa", 0.1)
             .build();
         log::debug!("Test Input Data: {:?}", test_input_data);
 
-        // let test_input_buffer = Buffer::new_sized(
-        //     vulkan_context.device(),
-        //     &mut allocator,
-        //     vk::BufferUsageFlags::UNIFORM_BUFFER,
-        //     test_input_data.len(),
-        // );
+        let mut test_input_buffer = Buffer::new_sized(
+            vulkan_context.device(),
+            &mut allocator,
+            vk::BufferUsageFlags::UNIFORM_BUFFER,
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            test_input_data.len(),
+        );
+        test_input_buffer.fill_raw(&test_input_data).unwrap();
 
         let compute_pipeline =
             ComputePipeline::from_shader_module(vulkan_context.device(), &compute_shader_module);
@@ -144,14 +146,27 @@ impl InitializedApp {
         let shader_write_tex =
             Self::create_shader_write_texture(screen_extent, vulkan_context.device(), &allocator);
 
-        let compute_descriptor_set = Self::create_compute_ds(
+        let compute_descriptor_set = DescriptorSet::new(
             vulkan_context.device(),
             compute_pipeline
                 .get_pipeline_layout()
                 .get_descriptor_set_layouts(),
             &descriptor_pool,
-            &shader_write_tex,
         );
+
+        compute_descriptor_set.perform_writes(&[
+            WriteDescriptorSet::new_texture_write(
+                0,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &shader_write_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_buffer_write(
+                1,
+                vk::DescriptorType::UNIFORM_BUFFER,
+                &test_input_buffer,
+            ),
+        ]);
 
         //
 
@@ -164,6 +179,7 @@ impl InitializedApp {
             _descriptor_pool: descriptor_pool,
             compute_descriptor_set,
             shader_write_tex,
+            test_input_buffer,
 
             _allocator: allocator,
             command_pool,
@@ -197,21 +213,6 @@ impl InitializedApp {
         let tex = Texture::new(device, &allocator, &tex_desc_1, &sam_desc);
 
         tex
-    }
-
-    fn create_compute_ds(
-        device: &Device,
-        descriptor_set_layouts: &[DescriptorSetLayout],
-        descriptor_pool: &DescriptorPool,
-        shader_write_tex: &Texture,
-    ) -> DescriptorSet {
-        let set = DescriptorSet::new(device, descriptor_set_layouts, &descriptor_pool);
-
-        let mut write_ds = WriteDescriptorSet::new(0, vk::DescriptorType::STORAGE_IMAGE);
-        write_ds.add_texture(shader_write_tex, vk::ImageLayout::GENERAL);
-        set.perform_writes(&[write_ds]);
-
-        set
     }
 
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {
