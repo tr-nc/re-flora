@@ -2,7 +2,7 @@ use crate::gameplay::Camera;
 use crate::util::compiler::ShaderCompiler;
 use crate::util::time_info::TimeInfo;
 use crate::vkn::{
-    execute_one_time_command, image_transition_barrier, Allocator, Buffer, BufferBuilder,
+    execute_one_time_command, record_image_transition_barrier, Allocator, Buffer, BufferBuilder,
     CommandBuffer, CommandPool, ComputePipeline, DescriptorPool, DescriptorSet,
     DescriptorSetLayout, Device, Fence, Semaphore, ShaderModule, Texture, TextureDesc,
     WriteDescriptorSet,
@@ -341,8 +341,7 @@ impl InitializedApp {
                             });
                     });
 
-                let image_index = match self.swapchain.acquire_next(&self.image_available_semaphore)
-                {
+                let image_idx = match self.swapchain.acquire_next(&self.image_available_semaphore) {
                     Ok((image_index, _)) => image_index,
                     Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
                         self.is_resize_pending = true;
@@ -357,11 +356,6 @@ impl InitializedApp {
                         .as_raw()
                         .reset_fences(&[self.fence.as_raw()])
                         .expect("Failed to reset fences")
-                };
-
-                let render_area = vk::Extent2D {
-                    width: self.window_state.window_size()[0],
-                    height: self.window_state.window_size()[1],
                 };
 
                 unsafe {
@@ -399,13 +393,30 @@ impl InitializedApp {
                 // self.swapchain
                 //     .record_blit(&self.shader_write_tex.get_image(), cmdbuf, image_index);
 
-                self.renderer.record_command_buffer(
-                    &self.vulkan_context.device(),
-                    &self.swapchain,
-                    cmdbuf,
-                    image_index,
-                    render_area,
+                let device = self.vulkan_context.device();
+
+                record_image_transition_barrier(
+                    device,
+                    cmdbuf.as_raw(),
+                    vk::ImageLayout::UNDEFINED,
+                    vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                    self.swapchain.get_image(image_idx),
                 );
+
+                let render_area = vk::Extent2D {
+                    width: self.window_state.window_size()[0],
+                    height: self.window_state.window_size()[1],
+                };
+
+                self.swapchain
+                    .record_begin_render_pass_cmdbuf(cmdbuf, image_idx, &render_area);
+
+                self.renderer
+                    .record_command_buffer(device, cmdbuf, render_area);
+
+                unsafe {
+                    device.cmd_end_render_pass(cmdbuf.as_raw());
+                };
 
                 cmdbuf.end();
 
@@ -441,7 +452,7 @@ impl InitializedApp {
                         .expect("Failed to submit work to gpu.")
                 };
 
-                let present_result = self.swapchain.present(&signal_semaphores, image_index);
+                let present_result = self.swapchain.present(&signal_semaphores, image_idx);
 
                 match present_result {
                     Ok(is_suboptimal) if is_suboptimal => {
@@ -483,8 +494,6 @@ impl InitializedApp {
     }
 
     fn on_resize(&mut self) {
-        // Resize the window here
-
         let window_size = self.window_state.window_size();
 
         self.swapchain.on_resize(&self.vulkan_context, &window_size);

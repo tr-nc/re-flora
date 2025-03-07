@@ -5,7 +5,8 @@ use ash::{
 };
 
 use super::{
-    context::VulkanContext, image_transition_barrier, CommandBuffer, Device, Image, Semaphore,
+    context::VulkanContext, record_image_transition_barrier, CommandBuffer, Device, Image,
+    Semaphore,
 };
 
 /// The preference for the swapchain.
@@ -80,11 +81,11 @@ impl Swapchain {
         self.image_views = image_views;
     }
 
-    pub fn get_image(&self, index: usize) -> vk::Image {
+    pub fn get_image(&self, index: u32) -> vk::Image {
         unsafe {
             self.swapchain_device
                 .get_swapchain_images(self.swapchain_khr)
-                .unwrap()[index]
+                .unwrap()[index as usize]
         }
     }
 
@@ -136,7 +137,7 @@ impl Swapchain {
     }
 
     pub fn record_blit(&self, src_img: &Image, cmdbuf: &CommandBuffer, image_idx: u32) {
-        let dst_raw_img = self.get_image(image_idx as usize);
+        let dst_raw_img = self.get_image(image_idx);
         let device = self.vulkan_context.device();
 
         // transition src
@@ -144,7 +145,7 @@ impl Swapchain {
 
         // transition dst (a raw image)
         // from UNDEFINED, because the image is just being available
-        image_transition_barrier(
+        record_image_transition_barrier(
             device.as_raw(),
             cmdbuf.as_raw(),
             vk::ImageLayout::UNDEFINED,
@@ -164,7 +165,7 @@ impl Swapchain {
         }
 
         // transition dst (a raw image)
-        image_transition_barrier(
+        record_image_transition_barrier(
             device.as_raw(),
             cmdbuf.as_raw(),
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
@@ -201,7 +202,7 @@ impl Swapchain {
 
     pub fn record_begin_render_pass_cmdbuf(
         &self,
-        command_buffer: &CommandBuffer,
+        cmdbuf: &CommandBuffer,
         image_index: u32,
         render_area: &vk::Extent2D,
     ) {
@@ -220,7 +221,7 @@ impl Swapchain {
 
         unsafe {
             self.vulkan_context.device().cmd_begin_render_pass(
-                command_buffer.as_raw(),
+                cmdbuf.as_raw(),
                 &render_pass_begin_info,
                 vk::SubpassContents::INLINE,
             )

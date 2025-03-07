@@ -145,7 +145,7 @@ impl Image {
             return;
         }
 
-        image_transition_barrier(
+        record_image_transition_barrier(
             device.as_raw(),
             cmdbuf.as_raw(),
             current_layout,
@@ -166,7 +166,7 @@ impl Image {
 }
 
 /// Record a transition barrier for an image.
-pub fn image_transition_barrier(
+pub fn record_image_transition_barrier(
     device: &ash::Device,
     cmdbuf: vk::CommandBuffer,
     current_layout: vk::ImageLayout,

@@ -47,7 +47,7 @@ impl Default for EguiRendererDesc {
 pub struct EguiRenderer {
     vulkan_context: VulkanContext,
     allocator: Allocator,
-    pipeline: GraphicsPipeline,
+    gui_pipeline: GraphicsPipeline,
     pipeline_layout: PipelineLayout,
     vert_shader_module: ShaderModule,
     frag_shader_module: ShaderModule,
@@ -120,7 +120,7 @@ impl EguiRenderer {
         )
         .unwrap();
 
-        let pipeline = create_pipeline(
+        let pipeline = create_gui_pipeline(
             device,
             &pipeline_layout,
             &vert_shader_module,
@@ -148,7 +148,7 @@ impl EguiRenderer {
         Self {
             vulkan_context: vulkan_context.clone(),
             allocator: allocator.clone(),
-            pipeline,
+            gui_pipeline: pipeline,
             pipeline_layout,
             vert_shader_module,
             frag_shader_module,
@@ -176,7 +176,7 @@ impl EguiRenderer {
     ///
     /// This is an expensive operation.
     pub fn set_render_pass(&mut self, render_pass: vk::RenderPass) {
-        self.pipeline = create_pipeline(
+        self.gui_pipeline = create_gui_pipeline(
             &self.vulkan_context.device(),
             &self.pipeline_layout,
             &self.vert_shader_module,
@@ -472,29 +472,21 @@ impl EguiRenderer {
     pub fn record_command_buffer(
         &mut self,
         device: &Device,
-        swapchain: &Swapchain,
-        command_buffer: &CommandBuffer,
-        image_index: u32,
+        cmdbuf: &CommandBuffer,
         render_area: Extent2D,
     ) {
-        swapchain.record_begin_render_pass_cmdbuf(command_buffer, image_index, &render_area);
-
         Self::cmd_draw(
             device,
             &mut self.frames,
-            &self.pipeline,
+            &self.gui_pipeline,
             &self.pipeline_layout,
             &mut self.textures,
             &mut self.allocator,
-            command_buffer,
+            cmdbuf,
             render_area,
             self.pixels_per_point.unwrap(),
             &self.clipped_primitives.as_ref().unwrap(),
         );
-
-        unsafe {
-            device.cmd_end_render_pass(command_buffer.as_raw());
-        };
     }
 }
 
@@ -504,7 +496,7 @@ unsafe fn any_as_u8_slice<T: Sized>(any: &T) -> &[u8] {
     std::slice::from_raw_parts(ptr, std::mem::size_of::<T>())
 }
 
-fn create_pipeline(
+fn create_gui_pipeline(
     device: &Device,
     pipeline_layout: &PipelineLayout,
     vert_shader_module: &ShaderModule,
