@@ -3,8 +3,8 @@ use crate::util::compiler::ShaderCompiler;
 use crate::util::time_info::TimeInfo;
 use crate::vkn::{
     Allocator, Buffer, BufferBuilder, CommandBuffer, CommandPool, ComputePipeline, DescriptorPool,
-    DescriptorSet, DescriptorSetLayout, Device, Fence, Semaphore, ShaderModule, Texture,
-    TextureDesc, WriteDescriptorSet,
+    DescriptorSet, Device, Fence, Semaphore, ShaderModule, Texture, TextureDesc,
+    WriteDescriptorSet,
 };
 use crate::{
     egui_renderer::EguiRenderer,
@@ -38,6 +38,7 @@ pub struct InitializedApp {
     time_info: TimeInfo,
     slider_val: f32,
 
+    compute_shader_module: ShaderModule,
     compute_pipeline: ComputePipeline,
     _descriptor_pool: DescriptorPool,
     compute_descriptor_set: DescriptorSet,
@@ -112,22 +113,15 @@ impl InitializedApp {
         let test_input_layout = compute_shader_module
             .get_buffer_layout("TestInput")
             .unwrap();
-
         log::debug!("Test Input Layout: {:?}", test_input_layout);
 
-        let test_input_data = BufferBuilder::with_layout(test_input_layout)
-            .set_float("aaa", 0.1)
-            .build();
-        log::debug!("Test Input Data: {:?}", test_input_data);
-
-        let mut test_input_buffer = Buffer::new_sized(
+        let test_input_buffer = Buffer::new_sized(
             vulkan_context.device(),
             &mut allocator,
             vk::BufferUsageFlags::UNIFORM_BUFFER,
             gpu_allocator::MemoryLocation::CpuToGpu,
-            test_input_data.len(),
+            test_input_layout.get_size() as _,
         );
-        test_input_buffer.fill_raw(&test_input_data).unwrap();
 
         let compute_pipeline =
             ComputePipeline::from_shader_module(vulkan_context.device(), &compute_shader_module);
@@ -153,7 +147,6 @@ impl InitializedApp {
                 .get_descriptor_set_layouts(),
             &descriptor_pool,
         );
-
         compute_descriptor_set.perform_writes(&[
             WriteDescriptorSet::new_texture_write(
                 0,
@@ -168,8 +161,6 @@ impl InitializedApp {
             ),
         ]);
 
-        //
-
         Self {
             vulkan_context,
             renderer,
@@ -180,6 +171,8 @@ impl InitializedApp {
             compute_descriptor_set,
             shader_write_tex,
             test_input_buffer,
+
+            compute_shader_module,
 
             _allocator: allocator,
             command_pool,
@@ -357,6 +350,17 @@ impl InitializedApp {
                         .reset_fences(&[self.fence.as_raw()])
                         .expect("Failed to reset fences")
                 };
+
+                // TODO: wrap this
+                let test_input_layout = self
+                    .compute_shader_module
+                    .get_buffer_layout("TestInput")
+                    .unwrap();
+                let test_input_data = BufferBuilder::from_layout(test_input_layout)
+                    .set_float("aaa", self.slider_val)
+                    .set_float("bbb", 0.2)
+                    .build();
+                self.test_input_buffer.fill_raw(&test_input_data).unwrap();
 
                 let cmdbuf = &self.command_buffer;
                 cmdbuf.begin(false);

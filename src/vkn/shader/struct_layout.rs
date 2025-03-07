@@ -18,6 +18,10 @@ impl StructLayout {
     pub fn get_member(&self, name: &str) -> Option<&StructMember> {
         self.members.get(name)
     }
+
+    pub fn get_size(&self) -> u32 {
+        self.total_size
+    }
 }
 
 /// Represents a single member (field) within a uniform buffer or push constant block.

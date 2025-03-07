@@ -10,7 +10,7 @@ pub struct BufferBuilder<'a> {
 
 impl<'a> BufferBuilder<'a> {
     /// Create a new BufferBuilder from a reflected struct layout
-    pub fn with_layout(layout: &'a StructLayout) -> Self {
+    pub fn from_layout(layout: &'a StructLayout) -> Self {
         Self {
             layout,
             values: HashMap::new(),
@@ -170,20 +170,20 @@ impl<'a> BufferBuilder<'a> {
         let total_size = self.layout.total_size as usize;
         let mut buffer = vec![0u8; total_size];
 
-        // Verify all members are set
+        // verify all members are set
         for (name, _) in &self.layout.members {
             if !self.values.contains_key(name) {
                 log::warn!("Member {} not set in buffer", name);
             }
         }
 
-        // Fill the buffer with values at the correct offsets
+        // fill the buffer with values at the correct offsets
         for (name, bytes) in self.values {
             if let Some(member) = self.layout.get_member(&name) {
                 let offset = member.offset as usize;
                 let size = bytes.len();
 
-                // Ensure we don't write past the padded size
+                // ensure we don't write past the padded size
                 if size > member.padded_size as usize {
                     log::warn!(
                         "Member {} has more data ({} bytes) than padded size ({} bytes)",

@@ -76,6 +76,7 @@ impl Buffer {
         self.size
     }
 
+    /// Fills the buffer with raw data. The data size must match the buffer size.
     pub fn fill_raw(&mut self, data: &[u8]) -> Result<(), String> {
         if data.len() != self.size as usize {
             return Err(format!(

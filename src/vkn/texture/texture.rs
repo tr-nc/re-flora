@@ -109,7 +109,7 @@ impl Texture {
             &mut self.image.get_allocator().clone(),
             vk::BufferUsageFlags::TRANSFER_SRC,
             gpu_allocator::MemoryLocation::CpuToGpu,
-            data.len(),
+            data.len() as _,
         );
         buffer.fill(data);
 
