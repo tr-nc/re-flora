@@ -7,7 +7,7 @@ use gpu_allocator::{
 use std::ops::Deref;
 
 pub struct Buffer {
-    _device: Device,
+    // device: Device,
     allocator: Allocator,
     buffer: vk::Buffer,
     allocated_mem: Allocation,
@@ -30,8 +30,8 @@ impl Deref for Buffer {
 
 impl Buffer {
     pub fn new_sized(
-        device: &Device,
-        allocator: &mut Allocator,
+        device: Device,
+        mut allocator: Allocator,
         usage: vk::BufferUsageFlags,
         location: MemoryLocation,
         buffer_size: usize,
@@ -61,8 +61,8 @@ impl Buffer {
         };
 
         Self {
-            _device: device.clone(),
-            allocator: allocator.clone(),
+            // device,
+            allocator: allocator,
             buffer,
             allocated_mem: memory,
             size: buffer_size as _,

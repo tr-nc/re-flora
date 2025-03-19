@@ -24,8 +24,8 @@ impl Mesh {
         let index_count = indices.len();
 
         let mut vertices_buffer = Buffer::new_sized(
-            device,
-            allocator,
+            device.clone(),
+            allocator.clone(),
             vk::BufferUsageFlags::VERTEX_BUFFER,
             gpu_allocator::MemoryLocation::CpuToGpu,
             vertex_count * size_of::<Vertex>(),
@@ -35,8 +35,8 @@ impl Mesh {
             .expect("Failed to fill vertex buffer");
 
         let mut indices_buffer = Buffer::new_sized(
-            device,
-            allocator,
+            device.clone(),
+            allocator.clone(),
             vk::BufferUsageFlags::INDEX_BUFFER,
             gpu_allocator::MemoryLocation::CpuToGpu,
             index_count * size_of::<u32>(),
@@ -65,8 +65,8 @@ impl Mesh {
             self.vertex_count = vertices.len();
             let size = self.vertex_count * size_of::<Vertex>();
             self.vertices_buffer = Buffer::new_sized(
-                device,
-                allocator,
+                device.clone(),
+                allocator.clone(),
                 vk::BufferUsageFlags::VERTEX_BUFFER,
                 gpu_allocator::MemoryLocation::CpuToGpu,
                 size,
@@ -83,8 +83,8 @@ impl Mesh {
             self.index_count = indices.len();
             let size = self.index_count * size_of::<u32>();
             self.indices_buffer = Buffer::new_sized(
-                device,
-                allocator,
+                device.clone(),
+                allocator.clone(),
                 vk::BufferUsageFlags::INDEX_BUFFER,
                 gpu_allocator::MemoryLocation::CpuToGpu,
                 size,

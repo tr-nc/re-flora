@@ -105,8 +105,8 @@ impl Texture {
         data: &[u8],
     ) -> Result<&mut Self, String> {
         let mut buffer = Buffer::new_sized(
-            &self.device,
-            &mut self.image.get_allocator().clone(),
+            self.device.clone(),
+            self.image.get_allocator().clone(),
             vk::BufferUsageFlags::TRANSFER_SRC,
             gpu_allocator::MemoryLocation::CpuToGpu,
             data.len() as _,

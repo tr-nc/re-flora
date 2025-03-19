@@ -56,6 +56,62 @@ struct RendererResources {
     camera_info_buffer: Buffer,
 }
 
+impl RendererResources {
+    fn create_shader_write_texture(
+        screen_extent: [u32; 3],
+        device: &Device,
+        allocator: &Allocator,
+    ) -> Texture {
+        let tex_desc_1 = TextureDesc {
+            extent: screen_extent,
+            format: vk::Format::R8G8B8A8_UNORM,
+            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        let sam_desc = Default::default();
+        let tex = Texture::new(device, allocator.clone(), &tex_desc_1, &sam_desc);
+        tex
+    }
+
+    fn new(
+        vulkan_context: &VulkanContext,
+        compute_shader_module: &ShaderModule,
+        allocator: Allocator,
+        screen_extent: [u32; 3],
+    ) -> Self {
+        let shader_write_tex =
+            Self::create_shader_write_texture(screen_extent, vulkan_context.device(), &allocator);
+
+        let gui_input_layout = compute_shader_module.get_buffer_layout("GuiInput").unwrap();
+        let gui_input_buffer = Buffer::new_sized(
+            vulkan_context.device().clone(),
+            allocator.clone(),
+            vk::BufferUsageFlags::UNIFORM_BUFFER,
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            gui_input_layout.get_size() as _,
+        );
+
+        let camera_info_layout = compute_shader_module
+            .get_buffer_layout("CameraInfo")
+            .unwrap();
+        let camera_info_buffer = Buffer::new_sized(
+            vulkan_context.device().clone(),
+            allocator.clone(),
+            vk::BufferUsageFlags::UNIFORM_BUFFER,
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            camera_info_layout.get_size() as _,
+        );
+
+        Self {
+            shader_write_tex,
+            gui_input_buffer,
+            camera_info_buffer,
+        }
+    }
+}
+
 impl InitializedApp {
     pub fn new(_event_loop: &ActiveEventLoop) -> Self {
         let window_state = Self::create_window_state(_event_loop);
@@ -75,7 +131,7 @@ impl InitializedApp {
             gpu_allocator::vulkan::Allocator::new(&allocator_create_info)
                 .expect("Failed to create gpu allocator")
         };
-        let mut allocator =
+        let allocator =
             Allocator::new(vulkan_context.device(), Arc::new(Mutex::new(gpu_allocator)));
 
         let swapchain = Swapchain::new(
@@ -129,34 +185,12 @@ impl InitializedApp {
         let screen_extent = window_state.window_size();
         let screen_extent = [screen_extent[0] as u32, screen_extent[1] as u32, 1];
 
-        let shader_write_tex =
-            Self::create_shader_write_texture(screen_extent, vulkan_context.device(), &allocator);
-
-        let gui_input_layout = compute_shader_module.get_buffer_layout("GuiInput").unwrap();
-        let gui_input_buffer = Buffer::new_sized(
-            vulkan_context.device(),
-            &mut allocator,
-            vk::BufferUsageFlags::UNIFORM_BUFFER,
-            gpu_allocator::MemoryLocation::CpuToGpu,
-            gui_input_layout.get_size() as _,
+        let renderer_resources = RendererResources::new(
+            &vulkan_context,
+            &compute_shader_module,
+            allocator.clone(),
+            screen_extent,
         );
-
-        let camera_info_layout = compute_shader_module
-            .get_buffer_layout("CameraInfo")
-            .unwrap();
-        let camera_info_buffer = Buffer::new_sized(
-            vulkan_context.device(),
-            &mut allocator,
-            vk::BufferUsageFlags::UNIFORM_BUFFER,
-            gpu_allocator::MemoryLocation::CpuToGpu,
-            camera_info_layout.get_size() as _,
-        );
-
-        let renderer_resources = RendererResources {
-            shader_write_tex,
-            gui_input_buffer,
-            camera_info_buffer,
-        };
 
         let compute_descriptor_set = Self::create_compute_descriptor_set(
             &vulkan_context,
@@ -224,24 +258,6 @@ impl InitializedApp {
             ),
         ]);
         compute_descriptor_set
-    }
-
-    fn create_shader_write_texture(
-        screen_extent: [u32; 3],
-        device: &Device,
-        allocator: &Allocator,
-    ) -> Texture {
-        let tex_desc_1 = TextureDesc {
-            extent: screen_extent,
-            format: vk::Format::R8G8B8A8_UNORM,
-            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC,
-            initial_layout: vk::ImageLayout::UNDEFINED,
-            aspect: vk::ImageAspectFlags::COLOR,
-            ..Default::default()
-        };
-        let sam_desc = Default::default();
-        let tex = Texture::new(device, allocator.clone(), &tex_desc_1, &sam_desc);
-        tex
     }
 
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {
