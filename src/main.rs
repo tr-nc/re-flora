@@ -1,5 +1,6 @@
 mod app;
 mod egui_renderer;
+mod tracer;
 mod gameplay;
 mod util;
 mod vkn;

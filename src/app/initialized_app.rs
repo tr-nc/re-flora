@@ -1,11 +1,8 @@
 use crate::gameplay::{Camera, CameraDesc};
+use crate::tracer::Tracer;
 use crate::util::compiler::ShaderCompiler;
 use crate::util::time_info::TimeInfo;
-use crate::vkn::{
-    Allocator, Buffer, BufferBuilder, CommandBuffer, CommandPool, ComputePipeline, DescriptorPool,
-    DescriptorSet, Device, Fence, Semaphore, ShaderModule, Texture, TextureDesc,
-    WriteDescriptorSet,
-};
+use crate::vkn::{Allocator, CommandBuffer, CommandPool, Fence, Semaphore};
 use crate::{
     egui_renderer::EguiRenderer,
     egui_renderer::EguiRendererDesc,
@@ -25,7 +22,6 @@ use winit::{
 };
 
 pub struct InitializedApp {
-    allocator: Allocator,
     egui_renderer: EguiRenderer,
     command_pool: CommandPool,
     command_buffer: CommandBuffer,
@@ -38,90 +34,12 @@ pub struct InitializedApp {
     time_info: TimeInfo,
     slider_val: f32,
 
-    compute_shader_module: ShaderModule,
-    compute_pipeline: ComputePipeline,
-    compute_descriptor_set: DescriptorSet,
+    tracer: Tracer,
 
     camera: Camera,
 
-    descriptor_pool: DescriptorPool,
-    renderer_resources: RendererResources,
-
     // note: always keep the context to end, as it has to be destroyed last
     vulkan_context: VulkanContext,
-}
-
-struct RendererResources {
-    shader_write_tex: Texture,
-    gui_input_buffer: Buffer,
-    camera_info_buffer: Buffer,
-}
-
-impl RendererResources {
-    fn create_shader_write_texture(
-        screen_extent: [u32; 3],
-        device: Device,
-        allocator: Allocator,
-    ) -> Texture {
-        let tex_desc = TextureDesc {
-            extent: screen_extent,
-            format: vk::Format::R8G8B8A8_UNORM,
-            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC,
-            initial_layout: vk::ImageLayout::UNDEFINED,
-            aspect: vk::ImageAspectFlags::COLOR,
-            ..Default::default()
-        };
-        let sam_desc = Default::default();
-        let tex = Texture::new(device, allocator, &tex_desc, &sam_desc);
-        tex
-    }
-
-    fn new(
-        device: Device,
-        allocator: Allocator,
-        compute_shader_module: &ShaderModule,
-        screen_extent: &[u32; 2],
-    ) -> Self {
-        let shader_write_tex = Self::create_shader_write_texture(
-            [screen_extent[0], screen_extent[1], 1],
-            device.clone(),
-            allocator.clone(),
-        );
-
-        let gui_input_layout = compute_shader_module.get_buffer_layout("GuiInput").unwrap();
-        let gui_input_buffer = Buffer::new_sized(
-            device.clone(),
-            allocator.clone(),
-            vk::BufferUsageFlags::UNIFORM_BUFFER,
-            gpu_allocator::MemoryLocation::CpuToGpu,
-            gui_input_layout.get_size() as _,
-        );
-
-        let camera_info_layout = compute_shader_module
-            .get_buffer_layout("CameraInfo")
-            .unwrap();
-        let camera_info_buffer = Buffer::new_sized(
-            device.clone(),
-            allocator,
-            vk::BufferUsageFlags::UNIFORM_BUFFER,
-            gpu_allocator::MemoryLocation::CpuToGpu,
-            camera_info_layout.get_size() as _,
-        );
-
-        Self {
-            shader_write_tex,
-            gui_input_buffer,
-            camera_info_buffer,
-        }
-    }
-
-    fn on_resize(&mut self, device: Device, allocator: Allocator, screen_extent: &[u32; 2]) {
-        self.shader_write_tex = Self::create_shader_write_texture(
-            [screen_extent[0], screen_extent[1], 1],
-            device,
-            allocator,
-        );
-    }
 }
 
 impl InitializedApp {
@@ -175,40 +93,7 @@ impl InitializedApp {
             },
         );
 
-        let compute_shader_module = ShaderModule::from_glsl(
-            vulkan_context.device(),
-            &shader_compiler,
-            "shader/test.comp",
-            "main",
-        )
-        .unwrap();
-
-        let compute_pipeline =
-            ComputePipeline::from_shader_module(vulkan_context.device(), &compute_shader_module);
-
-        let descriptor_pool = DescriptorPool::from_descriptor_set_layouts(
-            vulkan_context.device(),
-            compute_pipeline
-                .get_pipeline_layout()
-                .get_descriptor_set_layouts(),
-        )
-        .unwrap();
-
         let screen_extent = window_state.window_size();
-
-        let renderer_resources = RendererResources::new(
-            vulkan_context.device().clone(),
-            allocator.clone(),
-            &compute_shader_module,
-            &screen_extent,
-        );
-
-        let compute_descriptor_set = Self::create_compute_descriptor_set(
-            descriptor_pool.clone(),
-            &vulkan_context,
-            &compute_pipeline,
-            &renderer_resources,
-        );
 
         let camera = Camera::new(
             glam::Vec3::ZERO,
@@ -221,17 +106,18 @@ impl InitializedApp {
             },
         );
 
+        let tracer = Tracer::new(
+            vulkan_context.clone(),
+            allocator.clone(),
+            &shader_compiler,
+            &screen_extent,
+        );
+
         Self {
             vulkan_context,
             egui_renderer: renderer,
             window_state,
 
-            compute_pipeline,
-            compute_descriptor_set,
-
-            compute_shader_module,
-
-            allocator,
             command_pool,
             command_buffer,
             swapchain,
@@ -239,48 +125,12 @@ impl InitializedApp {
             render_finished_semaphore,
             fence,
 
-            descriptor_pool,
-            renderer_resources,
-
+            tracer,
             camera,
             is_resize_pending: false,
             time_info: TimeInfo::default(),
             slider_val: 0.0,
         }
-    }
-
-    fn create_compute_descriptor_set(
-        descriptor_pool: DescriptorPool,
-        vulkan_context: &VulkanContext,
-        compute_pipeline: &ComputePipeline,
-        renderer_resources: &RendererResources,
-    ) -> DescriptorSet {
-        let compute_descriptor_set = DescriptorSet::new(
-            vulkan_context.device().clone(),
-            compute_pipeline
-                .get_pipeline_layout()
-                .get_descriptor_set_layouts(),
-            descriptor_pool,
-        );
-        compute_descriptor_set.perform_writes(&[
-            WriteDescriptorSet::new_texture_write(
-                0,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &renderer_resources.shader_write_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_buffer_write(
-                1,
-                vk::DescriptorType::UNIFORM_BUFFER,
-                &renderer_resources.gui_input_buffer,
-            ),
-            WriteDescriptorSet::new_buffer_write(
-                2,
-                vk::DescriptorType::UNIFORM_BUFFER,
-                &renderer_resources.camera_info_buffer,
-            ),
-        ]);
-        compute_descriptor_set
     }
 
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {
@@ -309,46 +159,6 @@ impl InitializedApp {
         event_loop.exit();
     }
 
-    /// Update the uniform buffers with the latest camera and debug values, called every frame
-    fn update_uniform_buffers(
-        compute_shader_module: &ShaderModule,
-        camera: &Camera,
-        renderer_resources: &mut RendererResources,
-        debug_float: f32,
-    ) {
-        let gui_input_layout = compute_shader_module.get_buffer_layout("GuiInput").unwrap();
-        let gui_input_data = BufferBuilder::from_layout(gui_input_layout)
-            .set_float("debug_float", debug_float)
-            .build();
-        renderer_resources
-            .gui_input_buffer
-            .fill_raw(&gui_input_data)
-            .unwrap();
-
-        let camera_info_layout = compute_shader_module
-            .get_buffer_layout("CameraInfo")
-            .unwrap();
-
-        let view_mat = camera.get_view_mat();
-        let proj_mat = camera.get_proj_mat();
-        let view_proj_mat = proj_mat * view_mat;
-        let camera_info_data = BufferBuilder::from_layout(camera_info_layout)
-            .set_vec4("camera_pos", camera.position_vec4().to_array())
-            .set_mat4("view_mat", view_mat.to_cols_array_2d())
-            .set_mat4("view_mat_inv", view_mat.inverse().to_cols_array_2d())
-            .set_mat4("proj_mat", proj_mat.to_cols_array_2d())
-            .set_mat4("proj_mat_inv", proj_mat.inverse().to_cols_array_2d())
-            .set_mat4("view_proj_mat", view_proj_mat.to_cols_array_2d())
-            .set_mat4(
-                "view_proj_mat_inv",
-                view_proj_mat.inverse().to_cols_array_2d(),
-            )
-            .build();
-        renderer_resources
-            .camera_info_buffer
-            .fill_raw(&camera_info_data)
-            .unwrap();
-    }
     pub fn on_window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
@@ -466,40 +276,17 @@ impl InitializedApp {
                         .expect("Failed to reset fences")
                 };
 
-                Self::update_uniform_buffers(
-                    &self.compute_shader_module,
-                    &self.camera,
-                    &mut self.renderer_resources,
-                    self.slider_val,
-                );
+                self.tracer
+                    .update_uniform_buffers(&self.camera, self.slider_val);
 
                 let cmdbuf = &self.command_buffer;
                 cmdbuf.begin(false);
 
-                self.renderer_resources
-                    .shader_write_tex
-                    .get_image()
-                    .record_transition_barrier(cmdbuf, vk::ImageLayout::GENERAL);
-                self.compute_pipeline.record_bind(cmdbuf);
-                self.compute_pipeline.record_bind_descriptor_sets(
-                    cmdbuf,
-                    std::slice::from_ref(&self.compute_descriptor_set),
-                    0,
-                );
-                self.compute_pipeline.record_dispatch(
-                    cmdbuf,
-                    [
-                        self.window_state.window_size()[0],
-                        self.window_state.window_size()[1],
-                        1,
-                    ],
-                );
+                self.tracer
+                    .record_command_buffer(cmdbuf, &self.window_state.window_size());
 
-                self.swapchain.record_blit(
-                    &self.renderer_resources.shader_write_tex.get_image(),
-                    cmdbuf,
-                    image_idx,
-                );
+                self.swapchain
+                    .record_blit(self.tracer.get_dst_image(), cmdbuf, image_idx);
 
                 let render_area = vk::Extent2D {
                     width: self.window_state.window_size()[0],
@@ -587,20 +374,7 @@ impl InitializedApp {
         let window_size = self.window_state.window_size();
 
         self.camera.on_resize(&window_size);
-
-        self.renderer_resources.on_resize(
-            self.vulkan_context.device().clone(),
-            self.allocator.clone(),
-            &window_size,
-        );
-        self.descriptor_pool.reset().unwrap();
-        self.compute_descriptor_set = Self::create_compute_descriptor_set(
-            self.descriptor_pool.clone(),
-            &self.vulkan_context,
-            &self.compute_pipeline,
-            &self.renderer_resources,
-        );
-
+        self.tracer.on_resize(&window_size);
         self.swapchain.on_resize(&window_size);
 
         // the render pass should be rebuilt when the swapchain is recreated
