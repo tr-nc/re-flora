@@ -67,12 +67,11 @@ impl Swapchain {
         }
     }
 
-    pub fn on_resize(&mut self, context: &VulkanContext, window_size: &[u32; 2]) {
-        log::info!("Recreating vulkan swapchain");
+    pub fn on_resize(&mut self, window_size: &[u32; 2]) {
         self.clean_up();
 
         let (swapchain_device, swapchain_khr, image_views, render_pass, framebuffers) =
-            create_vulkan_swapchain(&context, window_size, &self.desc);
+            create_vulkan_swapchain(&self.vulkan_context, window_size, &self.desc);
 
         self.swapchain_device = swapchain_device;
         self.swapchain_khr = swapchain_khr;

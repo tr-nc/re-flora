@@ -1,4 +1,4 @@
-use crate::gameplay::Camera;
+use crate::gameplay::{Camera, CameraDesc};
 use crate::util::compiler::ShaderCompiler;
 use crate::util::time_info::TimeInfo;
 use crate::vkn::{
@@ -199,6 +199,17 @@ impl InitializedApp {
             &renderer_resources,
         );
 
+        let camera = Camera::new(
+            glam::Vec3::ZERO,
+            180.0,
+            0.0,
+            CameraDesc {
+                movement: Default::default(),
+                projection: Default::default(),
+                aspect_ratio: screen_extent[0] as f32 / screen_extent[1] as f32,
+            },
+        );
+
         Self {
             vulkan_context,
             renderer,
@@ -219,7 +230,7 @@ impl InitializedApp {
 
             renderer_resources,
 
-            camera: Default::default(),
+            camera,
             is_resize_pending: false,
             time_info: TimeInfo::default(),
             slider_val: 0.0,
@@ -263,7 +274,7 @@ impl InitializedApp {
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {
         let window_descriptor = WindowStateDesc {
             title: "Re: Flora".to_owned(),
-            window_mode: WindowMode::BorderlessFullscreen,
+            window_mode: WindowMode::Windowed,
             cursor_locked: true,
             cursor_visible: false,
             ..Default::default()
@@ -286,6 +297,46 @@ impl InitializedApp {
         event_loop.exit();
     }
 
+    /// Update the uniform buffers with the latest camera and debug values, called every frame
+    fn update_uniform_buffers(
+        compute_shader_module: &ShaderModule,
+        camera: &Camera,
+        renderer_resources: &mut RendererResources,
+        debug_float: f32,
+    ) {
+        let gui_input_layout = compute_shader_module.get_buffer_layout("GuiInput").unwrap();
+        let gui_input_data = BufferBuilder::from_layout(gui_input_layout)
+            .set_float("debug_float", debug_float)
+            .build();
+        renderer_resources
+            .gui_input_buffer
+            .fill_raw(&gui_input_data)
+            .unwrap();
+
+        let camera_info_layout = compute_shader_module
+            .get_buffer_layout("CameraInfo")
+            .unwrap();
+
+        let view_mat = camera.get_view_mat();
+        let proj_mat = camera.get_proj_mat();
+        let view_proj_mat = proj_mat * view_mat;
+        let camera_info_data = BufferBuilder::from_layout(camera_info_layout)
+            .set_vec4("camera_pos", camera.position_vec4().to_array())
+            .set_mat4("view_mat", view_mat.to_cols_array_2d())
+            .set_mat4("view_mat_inv", view_mat.inverse().to_cols_array_2d())
+            .set_mat4("proj_mat", proj_mat.to_cols_array_2d())
+            .set_mat4("proj_mat_inv", proj_mat.inverse().to_cols_array_2d())
+            .set_mat4("view_proj_mat", view_proj_mat.to_cols_array_2d())
+            .set_mat4(
+                "view_proj_mat_inv",
+                view_proj_mat.inverse().to_cols_array_2d(),
+            )
+            .build();
+        renderer_resources
+            .camera_info_buffer
+            .fill_raw(&camera_info_data)
+            .unwrap();
+    }
     pub fn on_window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
@@ -403,45 +454,12 @@ impl InitializedApp {
                         .expect("Failed to reset fences")
                 };
 
-                let gui_input_layout = self
-                    .compute_shader_module
-                    .get_buffer_layout("GuiInput")
-                    .unwrap();
-                let gui_input_data = BufferBuilder::from_layout(gui_input_layout)
-                    .set_float("aaa", self.slider_val)
-                    .set_float("bbb", 0.2)
-                    .build();
-                self.renderer_resources
-                    .gui_input_buffer
-                    .fill_raw(&gui_input_data)
-                    .unwrap();
-
-                let camera_info_layout = self
-                    .compute_shader_module
-                    .get_buffer_layout("CameraInfo")
-                    .unwrap();
-
-                let view_mat = self.camera.view_matrix();
-                let proj_mat =
-                    self.camera
-                        .proj_matrix(self.window_state.aspect_ratio(), 0.1, 100000.0);
-                let view_proj_mat = proj_mat * view_mat;
-                let camera_info_data = BufferBuilder::from_layout(camera_info_layout)
-                    .set_vec4("camera_pos", self.camera.position_vec4().to_array())
-                    .set_mat4("view_mat", view_mat.to_cols_array_2d())
-                    .set_mat4("view_mat_inv", view_mat.inverse().to_cols_array_2d())
-                    .set_mat4("proj_mat", proj_mat.to_cols_array_2d())
-                    .set_mat4("proj_mat_inv", proj_mat.inverse().to_cols_array_2d())
-                    .set_mat4("view_proj_mat", view_proj_mat.to_cols_array_2d())
-                    .set_mat4(
-                        "view_proj_mat_inv",
-                        view_proj_mat.inverse().to_cols_array_2d(),
-                    )
-                    .build();
-                self.renderer_resources
-                    .camera_info_buffer
-                    .fill_raw(&camera_info_data)
-                    .unwrap();
+                Self::update_uniform_buffers(
+                    &self.compute_shader_module,
+                    &self.camera,
+                    &mut self.renderer_resources,
+                    self.slider_val,
+                );
 
                 let cmdbuf = &self.command_buffer;
                 cmdbuf.begin(false);
@@ -554,9 +572,10 @@ impl InitializedApp {
     fn on_resize(&mut self) {
         let window_size = self.window_state.window_size();
 
-        self.swapchain.on_resize(&self.vulkan_context, &window_size);
+        self.camera.on_resize(&window_size);
+        self.swapchain.on_resize(&window_size);
 
-        // the render pass is rebuilt when the swapchain is recreated
+        // the render pass should be rebuilt when the swapchain is recreated
         self.renderer
             .set_render_pass(self.swapchain.get_render_pass());
 

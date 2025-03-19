@@ -4,88 +4,7 @@ use winit::{
     keyboard::{KeyCode, PhysicalKey},
 };
 
-/// Configuration for the camera's basic settings.
-#[derive(Debug)]
-pub struct CameraBasicConfig {
-    pub normal_speed: f32,
-    pub boosted_speed_mul: f32,
-    pub mouse_sensitivity: f32,
-    pub vertical_fov: f32,
-}
-
-impl Default for CameraBasicConfig {
-    fn default() -> Self {
-        Self {
-            normal_speed: 2.5,
-            boosted_speed_mul: 6.0,
-            mouse_sensitivity: 1.0,
-            vertical_fov: 60.0,
-        }
-    }
-}
-
-impl CameraBasicConfig {
-    fn validate(&self) -> Result<(), String> {
-        if self.normal_speed <= 0.0 {
-            return Err("normal_speed must be greater than 0".to_string());
-        }
-        if self.boosted_speed_mul <= 0.0 {
-            return Err("boosted_speed_mul must be greater than 0".to_string());
-        }
-        if self.mouse_sensitivity <= 0.0 {
-            return Err("mouse_sensitivity must be greater than 0".to_string());
-        }
-        if self.vertical_fov <= 0.0 || self.vertical_fov >= 180.0 {
-            return Err("v_fov_deg must be in the range (0, 180)".to_string());
-        }
-        Ok(())
-    }
-}
-
-#[derive(Debug)]
-pub struct CameraCreateInfo {
-    /// The initial position of the camera.
-    pub position: Vec3,
-    /// The initial yaw of the camera in degrees.
-    ///
-    /// Yaw is the angle between the yz-plane and the camera's forward vector,
-    /// when the x component of the camera's forward vector is positive, yaw
-    /// ranges from 0 to 180 degrees, otherwise it ranges from 0 to -180 degrees,
-    pub yaw: f32,
-    /// The initial pitch of the camera in degrees.
-    ///
-    /// Pitch is the angle between the xz-plane and the camera's forward vector,
-    /// when the y component of the camera's forward vector is positive, pitch
-    /// ranges from 0 to 90 degrees, otherwise it ranges from 0 to -90 degrees,
-    pub pitch: f32,
-    pub config: CameraBasicConfig,
-}
-
-impl Default for CameraCreateInfo {
-    fn default() -> Self {
-        Self {
-            position: Vec3::ZERO,
-            yaw: 180.0,
-            pitch: 0.0,
-            config: CameraBasicConfig::default(),
-        }
-    }
-}
-
-impl CameraCreateInfo {
-    pub fn validate(&self) -> Result<(), String> {
-        if let Err(msg) = self.config.validate() {
-            return Err(msg);
-        }
-        if self.pitch < -90.0 || self.pitch > 90.0 {
-            return Err("pitch must be in the range (-90, 90)".to_string());
-        }
-        if self.yaw < -180.0 || self.yaw > 180.0 {
-            return Err("yaw must be in the range (-180, 180)".to_string());
-        }
-        Ok(())
-    }
-}
+use super::CameraDesc;
 
 #[derive(Debug)]
 struct AxesState {
@@ -161,57 +80,83 @@ impl MovementState {
     }
 }
 
-pub struct Camera {
-    position: Vec3,
+struct CameraVectors {
     front: Vec3,
     up: Vec3,
     right: Vec3,
+}
+
+impl CameraVectors {
+    const WORLD_UP: Vec3 = Vec3::new(0.0, 1.0, 0.0);
+
+    fn new() -> Self {
+        Self {
+            front: Vec3::ZERO,
+            up: Vec3::ZERO,
+            right: Vec3::ZERO,
+        }
+    }
+
+    /// Updates the camera's front, right, and up vectors based on the current yaw and pitch.
+    fn update(&mut self, yaw: f32, pitch: f32) {
+        self.front = Vec3::new(
+            yaw.sin() * pitch.cos(),
+            pitch.sin(),
+            -yaw.cos() * pitch.cos(),
+        )
+        .normalize();
+        self.right = self.front.cross(Self::WORLD_UP).normalize();
+        self.up = self.right.cross(self.front).normalize();
+    }
+}
+
+pub struct Camera {
+    position: Vec3,
+
     /// The initial yaw of the camera in radians.
     ///
     /// Yaw is the angle between the yz-plane and the camera's forward vector,
     /// when the x component of the camera's forward vector is positive, yaw
     /// ranges from 0 to 180 degrees, otherwise it ranges from 0 to -180 degrees,
-    pub yaw: f32,
+    yaw: f32,
+
     /// The initial pitch of the camera in radians.
     ///
     /// Pitch is the angle between the xz-plane and the camera's forward vector,
     /// when the y component of the camera's forward vector is positive, pitch
     /// ranges from 0 to 90 degrees, otherwise it ranges from 0 to -90 degrees,
-    pub pitch: f32,
-    config: CameraBasicConfig,
+    pitch: f32,
 
+    vectors: CameraVectors,
     movement_state: MovementState,
-}
-
-impl Default for Camera {
-    fn default() -> Self {
-        Camera::new(CameraCreateInfo::default())
-    }
+    desc: CameraDesc,
 }
 
 impl Camera {
-    const WORLD_UP: Vec3 = Vec3::new(0.0, 1.0, 0.0);
-
-    pub fn new(create_info: CameraCreateInfo) -> Self {
-        if let Err(msg) = create_info.validate() {
-            panic!("Failed to create camera: {}", msg);
-        }
-
-        let normal_speed = create_info.config.normal_speed;
-        let boosted_speed_mul = create_info.config.boosted_speed_mul;
-
+    pub fn new(
+        initial_position: Vec3,
+        initial_yaw: f32,
+        initial_pitch: f32,
+        desc: CameraDesc,
+    ) -> Self {
         let mut camera = Self {
-            position: create_info.position,
-            front: Vec3::ZERO,
-            up: Vec3::ZERO,
-            right: Vec3::ZERO,
-            yaw: create_info.yaw.to_radians(),
-            pitch: create_info.pitch.to_radians(),
-            config: create_info.config,
-            movement_state: MovementState::new(normal_speed, boosted_speed_mul),
+            position: initial_position,
+            vectors: CameraVectors::new(),
+            yaw: initial_yaw.to_radians(),
+            pitch: initial_pitch.to_radians(),
+            movement_state: MovementState::new(
+                desc.movement.normal_speed,
+                desc.movement.boosted_speed_mul,
+            ),
+            desc,
         };
-        camera.update_camera_vectors();
+
+        camera.vectors.update(camera.yaw, camera.pitch);
         camera
+    }
+
+    pub fn on_resize(&mut self, screen_extent: &[u32; 2]) {
+        self.desc.aspect_ratio = screen_extent[0] as f32 / screen_extent[1] as f32;
     }
 
     #[allow(dead_code)]
@@ -226,17 +171,21 @@ impl Camera {
     }
 
     #[allow(dead_code)]
-    pub fn view_matrix(&self) -> Mat4 {
-        Mat4::look_at_rh(self.position, self.position + self.front, self.up)
+    pub fn get_view_mat(&self) -> Mat4 {
+        Mat4::look_at_rh(
+            self.position,
+            self.position + self.vectors.front,
+            self.vectors.up,
+        )
     }
 
     #[allow(dead_code)]
-    pub fn proj_matrix(&self, aspect_ratio: f32, z_near: f32, z_far: f32) -> Mat4 {
+    pub fn get_proj_mat(&self) -> Mat4 {
         Mat4::perspective_rh(
-            self.config.vertical_fov.to_radians(),
-            aspect_ratio,
-            z_near,
-            z_far,
+            self.desc.projection.v_fov.to_radians(),
+            self.desc.aspect_ratio,
+            self.desc.projection.z_near,
+            self.desc.projection.z_far,
         )
     }
 
@@ -326,30 +275,22 @@ impl Camera {
         const SENSITIVITY_MULTIPLIER: f32 = 0.001;
         // the delta is positive when moving the mouse to the right / down
         // so we need to invert the pitch delta so that when mouse is going up, pitch increases
-        self.yaw += delta.0 as f32 * self.config.mouse_sensitivity * SENSITIVITY_MULTIPLIER;
-        self.pitch -= delta.1 as f32 * self.config.mouse_sensitivity * SENSITIVITY_MULTIPLIER;
+        self.yaw += delta.0 as f32 * self.desc.movement.mouse_sensitivity * SENSITIVITY_MULTIPLIER;
+        self.pitch -=
+            delta.1 as f32 * self.desc.movement.mouse_sensitivity * SENSITIVITY_MULTIPLIER;
 
         self.limit_yaw();
         self.clamp_pitch();
-        self.update_camera_vectors();
+        // self.update_camera_vectors();
+
+        self.vectors.update(self.yaw, self.pitch);
     }
 
     pub fn update_transform(&mut self, delta_time: f32) {
-        self.position += self
-            .movement_state
-            .get_velocity(self.front, self.right, self.up)
-            * delta_time;
-    }
-
-    /// Updates the camera's front, right, and up vectors based on the current yaw and pitch.
-    fn update_camera_vectors(&mut self) {
-        self.front = Vec3::new(
-            self.yaw.sin() * self.pitch.cos(),
-            self.pitch.sin(),
-            -self.yaw.cos() * self.pitch.cos(),
-        )
-        .normalize();
-        self.right = self.front.cross(Self::WORLD_UP).normalize();
-        self.up = self.right.cross(self.front).normalize();
+        self.position += self.movement_state.get_velocity(
+            self.vectors.front,
+            self.vectors.right,
+            self.vectors.up,
+        ) * delta_time;
     }
 }
