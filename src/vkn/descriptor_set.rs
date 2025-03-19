@@ -3,7 +3,7 @@ use ash::vk;
 use super::{Buffer, DescriptorPool, DescriptorSetLayout, Device, Texture};
 
 pub struct DescriptorSet {
-    _device: Device,
+    device: Device,
     descriptor_set: vk::DescriptorSet,
     _descriptor_set_layouts: Vec<DescriptorSetLayout>,
     _pool: DescriptorPool,
@@ -11,14 +11,14 @@ pub struct DescriptorSet {
 
 impl DescriptorSet {
     pub fn new(
-        device: &Device,
+        device: Device,
         descriptor_set_layouts: &[DescriptorSetLayout],
         descriptor_pool: DescriptorPool,
     ) -> Self {
         let descriptor_set =
-            create_descriptor_set(device, &descriptor_pool, descriptor_set_layouts);
+            create_descriptor_set(&device, &descriptor_pool, descriptor_set_layouts);
         Self {
-            _device: device.clone(),
+            device: device.clone(),
             descriptor_set,
             _descriptor_set_layouts: descriptor_set_layouts.to_vec(),
             _pool: descriptor_pool.clone(),
@@ -31,7 +31,7 @@ impl DescriptorSet {
 
     pub fn perform_writes(&self, writes: &[WriteDescriptorSet]) {
         let writes = writes.iter().map(|w| w.make_raw(self)).collect::<Vec<_>>();
-        unsafe { self._device.update_descriptor_sets(&writes, &[]) }
+        unsafe { self.device.update_descriptor_sets(&writes, &[]) }
     }
 }
 

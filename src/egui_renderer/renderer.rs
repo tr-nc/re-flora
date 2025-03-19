@@ -220,7 +220,7 @@ impl EguiRenderer {
                 }
             };
 
-            let device = &self.vulkan_context.device();
+            let device = self.vulkan_context.device();
 
             if let Some([offset_x, offset_y]) = delta.pos {
                 let texture = self.managed_textures.get_mut(id).unwrap();
@@ -247,8 +247,9 @@ impl EguiRenderer {
                     ..Default::default()
                 };
                 let sam_desc = Default::default();
+
                 let mut texture =
-                    Texture::new(device, self.allocator.clone(), &tex_desc, &sam_desc);
+                    Texture::new(device.clone(), self.allocator.clone(), &tex_desc, &sam_desc);
 
                 texture
                     .upload_rgba_image(
@@ -264,7 +265,7 @@ impl EguiRenderer {
                     .unwrap();
 
                 let set = DescriptorSet::new(
-                    device,
+                    device.clone(),
                     std::slice::from_ref(&self.descriptor_set_layout),
                     self.descriptor_pool.clone(),
                 );

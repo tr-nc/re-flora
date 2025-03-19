@@ -88,13 +88,9 @@ impl Swapchain {
         }
     }
 
-    pub fn clean_up(&mut self) {
-        log::info!("Cleaning up vulkan swapchain");
-
+    fn clean_up(&mut self) {
         let device = &self.vulkan_context.device();
         unsafe {
-            device.device_wait_idle().unwrap();
-
             // renderpass
             device.destroy_render_pass(self.render_pass, None);
 

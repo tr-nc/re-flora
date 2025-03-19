@@ -71,12 +71,12 @@ pub struct Texture {
 
 impl Texture {
     pub fn new(
-        device: &Device,
+        device: Device,
         allocator: Allocator,
         texture_desc: &TextureDesc,
         sampler_desc: &SamplerDesc,
     ) -> Self {
-        let image = Image::new(device, allocator, &texture_desc).unwrap();
+        let image = Image::new(device.clone(), allocator, &texture_desc).unwrap();
 
         let image_view_desc = ImageViewDesc {
             image: image.as_raw(),
@@ -84,11 +84,11 @@ impl Texture {
             image_view_type: image_type_to_image_view_type(texture_desc.get_image_type()).unwrap(),
             aspect: texture_desc.aspect,
         };
-        let image_view = ImageView::new(device, image_view_desc);
-        let sampler = Sampler::new(device, sampler_desc);
+        let image_view = ImageView::new(device.clone(), image_view_desc);
+        let sampler = Sampler::new(device.clone(), sampler_desc);
 
         Self {
-            device: device.clone(),
+            device,
             image,
             image_view,
             sampler,

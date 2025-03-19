@@ -25,8 +25,8 @@ use winit::{
 };
 
 pub struct InitializedApp {
-    _allocator: Allocator,
-    renderer: EguiRenderer,
+    allocator: Allocator,
+    egui_renderer: EguiRenderer,
     command_pool: CommandPool,
     command_buffer: CommandBuffer,
     window_state: WindowState,
@@ -44,9 +44,10 @@ pub struct InitializedApp {
 
     camera: Camera,
 
+    descriptor_pool: DescriptorPool,
     renderer_resources: RendererResources,
 
-    // note: keep it at the end, it has to be destroyed last
+    // note: always keep the context to end, as it has to be destroyed last
     vulkan_context: VulkanContext,
 }
 
@@ -59,10 +60,10 @@ struct RendererResources {
 impl RendererResources {
     fn create_shader_write_texture(
         screen_extent: [u32; 3],
-        device: &Device,
-        allocator: &Allocator,
+        device: Device,
+        allocator: Allocator,
     ) -> Texture {
-        let tex_desc_1 = TextureDesc {
+        let tex_desc = TextureDesc {
             extent: screen_extent,
             format: vk::Format::R8G8B8A8_UNORM,
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC,
@@ -71,22 +72,25 @@ impl RendererResources {
             ..Default::default()
         };
         let sam_desc = Default::default();
-        let tex = Texture::new(device, allocator.clone(), &tex_desc_1, &sam_desc);
+        let tex = Texture::new(device, allocator, &tex_desc, &sam_desc);
         tex
     }
 
     fn new(
-        vulkan_context: &VulkanContext,
-        compute_shader_module: &ShaderModule,
+        device: Device,
         allocator: Allocator,
-        screen_extent: [u32; 3],
+        compute_shader_module: &ShaderModule,
+        screen_extent: &[u32; 2],
     ) -> Self {
-        let shader_write_tex =
-            Self::create_shader_write_texture(screen_extent, vulkan_context.device(), &allocator);
+        let shader_write_tex = Self::create_shader_write_texture(
+            [screen_extent[0], screen_extent[1], 1],
+            device.clone(),
+            allocator.clone(),
+        );
 
         let gui_input_layout = compute_shader_module.get_buffer_layout("GuiInput").unwrap();
         let gui_input_buffer = Buffer::new_sized(
-            vulkan_context.device().clone(),
+            device.clone(),
             allocator.clone(),
             vk::BufferUsageFlags::UNIFORM_BUFFER,
             gpu_allocator::MemoryLocation::CpuToGpu,
@@ -97,8 +101,8 @@ impl RendererResources {
             .get_buffer_layout("CameraInfo")
             .unwrap();
         let camera_info_buffer = Buffer::new_sized(
-            vulkan_context.device().clone(),
-            allocator.clone(),
+            device.clone(),
+            allocator,
             vk::BufferUsageFlags::UNIFORM_BUFFER,
             gpu_allocator::MemoryLocation::CpuToGpu,
             camera_info_layout.get_size() as _,
@@ -109,6 +113,14 @@ impl RendererResources {
             gui_input_buffer,
             camera_info_buffer,
         }
+    }
+
+    fn on_resize(&mut self, device: Device, allocator: Allocator, screen_extent: &[u32; 2]) {
+        self.shader_write_tex = Self::create_shader_write_texture(
+            [screen_extent[0], screen_extent[1], 1],
+            device,
+            allocator,
+        );
     }
 }
 
@@ -183,19 +195,18 @@ impl InitializedApp {
         .unwrap();
 
         let screen_extent = window_state.window_size();
-        let screen_extent = [screen_extent[0] as u32, screen_extent[1] as u32, 1];
 
         let renderer_resources = RendererResources::new(
-            &vulkan_context,
-            &compute_shader_module,
+            vulkan_context.device().clone(),
             allocator.clone(),
-            screen_extent,
+            &compute_shader_module,
+            &screen_extent,
         );
 
         let compute_descriptor_set = Self::create_compute_descriptor_set(
+            descriptor_pool.clone(),
             &vulkan_context,
             &compute_pipeline,
-            descriptor_pool,
             &renderer_resources,
         );
 
@@ -212,7 +223,7 @@ impl InitializedApp {
 
         Self {
             vulkan_context,
-            renderer,
+            egui_renderer: renderer,
             window_state,
 
             compute_pipeline,
@@ -220,7 +231,7 @@ impl InitializedApp {
 
             compute_shader_module,
 
-            _allocator: allocator,
+            allocator,
             command_pool,
             command_buffer,
             swapchain,
@@ -228,6 +239,7 @@ impl InitializedApp {
             render_finished_semaphore,
             fence,
 
+            descriptor_pool,
             renderer_resources,
 
             camera,
@@ -238,13 +250,13 @@ impl InitializedApp {
     }
 
     fn create_compute_descriptor_set(
+        descriptor_pool: DescriptorPool,
         vulkan_context: &VulkanContext,
         compute_pipeline: &ComputePipeline,
-        descriptor_pool: DescriptorPool,
         renderer_resources: &RendererResources,
     ) -> DescriptorSet {
         let compute_descriptor_set = DescriptorSet::new(
-            vulkan_context.device(),
+            vulkan_context.device().clone(),
             compute_pipeline
                 .get_pipeline_layout()
                 .get_descriptor_set_layouts(),
@@ -293,7 +305,7 @@ impl InitializedApp {
 
     pub fn on_terminate(&mut self, event_loop: &ActiveEventLoop) {
         // ensure all command buffers are done executing before terminating anything
-        self.vulkan_context.wait_device_idle().unwrap();
+        self.vulkan_context.device().wait_idle();
         event_loop.exit();
     }
 
@@ -346,7 +358,7 @@ impl InitializedApp {
         // if cursor is visible, feed the event to gui first, if the event is being consumed by gui, no need to handle it again later
         if self.window_state.is_cursor_visible() {
             let consumed = self
-                .renderer
+                .egui_renderer
                 .on_window_event(&self.window_state.window(), &event)
                 .consumed;
 
@@ -409,7 +421,7 @@ impl InitializedApp {
                     .wait_for_fences(&[self.fence.as_raw()])
                     .unwrap();
 
-                self.renderer
+                self.egui_renderer
                     .update(&self.command_pool, &self.window_state.window(), |ctx| {
                         let my_frame = egui::containers::Frame {
                             fill: Color32::from_rgba_premultiplied(50, 0, 10, 128),
@@ -497,7 +509,7 @@ impl InitializedApp {
                 self.swapchain
                     .record_begin_render_pass_cmdbuf(cmdbuf, image_idx, &render_area);
 
-                self.renderer
+                self.egui_renderer
                     .record_command_buffer(device, cmdbuf, render_area);
 
                 unsafe {
@@ -570,13 +582,29 @@ impl InitializedApp {
     }
 
     fn on_resize(&mut self) {
+        self.vulkan_context.device().wait_idle();
+
         let window_size = self.window_state.window_size();
 
         self.camera.on_resize(&window_size);
+
+        self.renderer_resources.on_resize(
+            self.vulkan_context.device().clone(),
+            self.allocator.clone(),
+            &window_size,
+        );
+        self.descriptor_pool.reset().unwrap();
+        self.compute_descriptor_set = Self::create_compute_descriptor_set(
+            self.descriptor_pool.clone(),
+            &self.vulkan_context,
+            &self.compute_pipeline,
+            &self.renderer_resources,
+        );
+
         self.swapchain.on_resize(&window_size);
 
         // the render pass should be rebuilt when the swapchain is recreated
-        self.renderer
+        self.egui_renderer
             .set_render_pass(self.swapchain.get_render_pass());
 
         self.is_resize_pending = false;

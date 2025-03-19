@@ -63,6 +63,19 @@ impl DescriptorPool {
         Ok(descriptor_pool)
     }
 
+    pub fn reset(&self) -> Result<(), String> {
+        unsafe {
+            let res = self.0.device.reset_descriptor_pool(
+                self.0.descriptor_pool,
+                vk::DescriptorPoolResetFlags::empty(),
+            );
+            match res {
+                Ok(()) => Ok(()),
+                Err(e) => Err(e.to_string()),
+            }
+        }
+    }
+
     pub fn as_raw(&self) -> vk::DescriptorPool {
         self.0.descriptor_pool
     }

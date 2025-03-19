@@ -37,7 +37,7 @@ impl std::ops::Deref for Image {
 
 impl Image {
     pub fn new(
-        device: &Device,
+        device: Device,
         mut allocator: Allocator,
         desc: &TextureDesc,
     ) -> Result<Self, String> {

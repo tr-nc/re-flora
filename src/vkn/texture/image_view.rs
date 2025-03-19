@@ -46,7 +46,7 @@ impl std::ops::Deref for ImageView {
 }
 
 impl ImageView {
-    pub fn new(device: &Device, desc: ImageViewDesc) -> Self {
+    pub fn new(device: Device, desc: ImageViewDesc) -> Self {
         let create_info = vk::ImageViewCreateInfo::default()
             .image(desc.image)
             .view_type(desc.image_view_type)
@@ -62,7 +62,7 @@ impl ImageView {
         let image_view = unsafe { device.create_image_view(&create_info, None).unwrap() };
 
         Self(Arc::new(ImageViewInner {
-            device: device.clone(),
+            device: device,
             image_view,
         }))
     }
