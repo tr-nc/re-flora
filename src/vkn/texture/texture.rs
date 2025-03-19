@@ -72,7 +72,7 @@ pub struct Texture {
 impl Texture {
     pub fn new(
         device: &Device,
-        allocator: &Allocator,
+        allocator: Allocator,
         texture_desc: &TextureDesc,
         sampler_desc: &SamplerDesc,
     ) -> Self {
@@ -103,7 +103,7 @@ impl Texture {
         dst_image_layout: vk::ImageLayout,
         region: TextureUploadRegion,
         data: &[u8],
-    ) -> &mut Self {
+    ) -> Result<&mut Self, String> {
         let mut buffer = Buffer::new_sized(
             &self.device,
             &mut self.image.get_allocator().clone(),
@@ -111,7 +111,9 @@ impl Texture {
             gpu_allocator::MemoryLocation::CpuToGpu,
             data.len() as _,
         );
-        buffer.fill(data);
+        buffer
+            .fill(data)
+            .map_err(|e| format!("Failed to fill buffer: {}", e))?;
 
         execute_one_time_command(&self.device.clone(), command_pool, queue, |cmdbuf| {
             self.image
@@ -148,7 +150,8 @@ impl Texture {
             self.image
                 .record_transition_barrier(cmdbuf, dst_image_layout);
         });
-        self
+
+        Ok(self)
     }
 
     pub fn get_image(&self) -> &Image {

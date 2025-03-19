@@ -36,9 +36,11 @@ impl std::ops::Deref for Image {
 }
 
 impl Image {
-    pub fn new(device: &Device, allocator: &Allocator, desc: &TextureDesc) -> Result<Self, String> {
-        let mut cloned_allocator = allocator.clone();
-
+    pub fn new(
+        device: &Device,
+        mut allocator: Allocator,
+        desc: &TextureDesc,
+    ) -> Result<Self, String> {
         // for vulkan spec, initial_layout must be either UNDEFINED or PREINITIALIZED,
         if desc.initial_layout != ImageLayout::UNDEFINED
             && desc.initial_layout != ImageLayout::PREINITIALIZED
@@ -62,7 +64,7 @@ impl Image {
         let image = unsafe { device.create_image(&image_info, None).unwrap() };
         let requirements = unsafe { device.get_image_memory_requirements(image) };
 
-        let memory = cloned_allocator
+        let memory = allocator
             .allocate_memory(&AllocationCreateDesc {
                 name: "",
                 requirements,
@@ -82,7 +84,7 @@ impl Image {
             device: device.clone(),
             image,
             desc: desc.clone(),
-            allocator: cloned_allocator,
+            allocator,
             memory: Mutex::new(Some(memory)),
             current_layout: Mutex::new(desc.initial_layout),
         })))

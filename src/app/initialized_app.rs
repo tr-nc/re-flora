@@ -40,15 +40,20 @@ pub struct InitializedApp {
 
     compute_shader_module: ShaderModule,
     compute_pipeline: ComputePipeline,
-    _descriptor_pool: DescriptorPool,
     compute_descriptor_set: DescriptorSet,
-    shader_write_tex: Texture,
-    test_input_buffer: Buffer,
 
     camera: Camera,
 
+    renderer_resources: RendererResources,
+
     // note: keep it at the end, it has to be destroyed last
     vulkan_context: VulkanContext,
+}
+
+struct RendererResources {
+    shader_write_tex: Texture,
+    gui_input_buffer: Buffer,
+    camera_info_buffer: Buffer,
 }
 
 impl InitializedApp {
@@ -110,19 +115,6 @@ impl InitializedApp {
         )
         .unwrap();
 
-        let test_input_layout = compute_shader_module
-            .get_buffer_layout("TestInput")
-            .unwrap();
-        log::debug!("Test Input Layout: {:?}", test_input_layout);
-
-        let test_input_buffer = Buffer::new_sized(
-            vulkan_context.device(),
-            &mut allocator,
-            vk::BufferUsageFlags::UNIFORM_BUFFER,
-            gpu_allocator::MemoryLocation::CpuToGpu,
-            test_input_layout.get_size() as _,
-        );
-
         let compute_pipeline =
             ComputePipeline::from_shader_module(vulkan_context.device(), &compute_shader_module);
 
@@ -140,26 +132,38 @@ impl InitializedApp {
         let shader_write_tex =
             Self::create_shader_write_texture(screen_extent, vulkan_context.device(), &allocator);
 
-        let compute_descriptor_set = DescriptorSet::new(
+        let gui_input_layout = compute_shader_module.get_buffer_layout("GuiInput").unwrap();
+        let gui_input_buffer = Buffer::new_sized(
             vulkan_context.device(),
-            compute_pipeline
-                .get_pipeline_layout()
-                .get_descriptor_set_layouts(),
-            &descriptor_pool,
+            &mut allocator,
+            vk::BufferUsageFlags::UNIFORM_BUFFER,
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            gui_input_layout.get_size() as _,
         );
-        compute_descriptor_set.perform_writes(&[
-            WriteDescriptorSet::new_texture_write(
-                0,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &shader_write_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_buffer_write(
-                1,
-                vk::DescriptorType::UNIFORM_BUFFER,
-                &test_input_buffer,
-            ),
-        ]);
+
+        let camera_info_layout = compute_shader_module
+            .get_buffer_layout("CameraInfo")
+            .unwrap();
+        let camera_info_buffer = Buffer::new_sized(
+            vulkan_context.device(),
+            &mut allocator,
+            vk::BufferUsageFlags::UNIFORM_BUFFER,
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            camera_info_layout.get_size() as _,
+        );
+
+        let renderer_resources = RendererResources {
+            shader_write_tex,
+            gui_input_buffer,
+            camera_info_buffer,
+        };
+
+        let compute_descriptor_set = Self::create_compute_descriptor_set(
+            &vulkan_context,
+            &compute_pipeline,
+            descriptor_pool,
+            &renderer_resources,
+        );
 
         Self {
             vulkan_context,
@@ -167,10 +171,7 @@ impl InitializedApp {
             window_state,
 
             compute_pipeline,
-            _descriptor_pool: descriptor_pool,
             compute_descriptor_set,
-            shader_write_tex,
-            test_input_buffer,
 
             compute_shader_module,
 
@@ -182,11 +183,47 @@ impl InitializedApp {
             render_finished_semaphore,
             fence,
 
+            renderer_resources,
+
             camera: Default::default(),
             is_resize_pending: false,
             time_info: TimeInfo::default(),
             slider_val: 0.0,
         }
+    }
+
+    fn create_compute_descriptor_set(
+        vulkan_context: &VulkanContext,
+        compute_pipeline: &ComputePipeline,
+        descriptor_pool: DescriptorPool,
+        renderer_resources: &RendererResources,
+    ) -> DescriptorSet {
+        let compute_descriptor_set = DescriptorSet::new(
+            vulkan_context.device(),
+            compute_pipeline
+                .get_pipeline_layout()
+                .get_descriptor_set_layouts(),
+            descriptor_pool,
+        );
+        compute_descriptor_set.perform_writes(&[
+            WriteDescriptorSet::new_texture_write(
+                0,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &renderer_resources.shader_write_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_buffer_write(
+                1,
+                vk::DescriptorType::UNIFORM_BUFFER,
+                &renderer_resources.gui_input_buffer,
+            ),
+            WriteDescriptorSet::new_buffer_write(
+                2,
+                vk::DescriptorType::UNIFORM_BUFFER,
+                &renderer_resources.camera_info_buffer,
+            ),
+        ]);
+        compute_descriptor_set
     }
 
     fn create_shader_write_texture(
@@ -203,8 +240,7 @@ impl InitializedApp {
             ..Default::default()
         };
         let sam_desc = Default::default();
-        let tex = Texture::new(device, &allocator, &tex_desc_1, &sam_desc);
-
+        let tex = Texture::new(device, allocator.clone(), &tex_desc_1, &sam_desc);
         tex
     }
 
@@ -351,21 +387,51 @@ impl InitializedApp {
                         .expect("Failed to reset fences")
                 };
 
-                // TODO: wrap this
-                let test_input_layout = self
+                let gui_input_layout = self
                     .compute_shader_module
-                    .get_buffer_layout("TestInput")
+                    .get_buffer_layout("GuiInput")
                     .unwrap();
-                let test_input_data = BufferBuilder::from_layout(test_input_layout)
+                let gui_input_data = BufferBuilder::from_layout(gui_input_layout)
                     .set_float("aaa", self.slider_val)
                     .set_float("bbb", 0.2)
                     .build();
-                self.test_input_buffer.fill_raw(&test_input_data).unwrap();
+                self.renderer_resources
+                    .gui_input_buffer
+                    .fill_raw(&gui_input_data)
+                    .unwrap();
+
+                let camera_info_layout = self
+                    .compute_shader_module
+                    .get_buffer_layout("CameraInfo")
+                    .unwrap();
+
+                let view_mat = self.camera.view_matrix();
+                let proj_mat =
+                    self.camera
+                        .proj_matrix(self.window_state.aspect_ratio(), 0.1, 100000.0);
+                let view_proj_mat = proj_mat * view_mat;
+                let camera_info_data = BufferBuilder::from_layout(camera_info_layout)
+                    .set_vec4("camera_pos", self.camera.position_vec4().to_array())
+                    .set_mat4("view_mat", view_mat.to_cols_array_2d())
+                    .set_mat4("view_mat_inv", view_mat.inverse().to_cols_array_2d())
+                    .set_mat4("proj_mat", proj_mat.to_cols_array_2d())
+                    .set_mat4("proj_mat_inv", proj_mat.inverse().to_cols_array_2d())
+                    .set_mat4("view_proj_mat", view_proj_mat.to_cols_array_2d())
+                    .set_mat4(
+                        "view_proj_mat_inv",
+                        view_proj_mat.inverse().to_cols_array_2d(),
+                    )
+                    .build();
+                self.renderer_resources
+                    .camera_info_buffer
+                    .fill_raw(&camera_info_data)
+                    .unwrap();
 
                 let cmdbuf = &self.command_buffer;
                 cmdbuf.begin(false);
 
-                self.shader_write_tex
+                self.renderer_resources
+                    .shader_write_tex
                     .get_image()
                     .record_transition_barrier(cmdbuf, vk::ImageLayout::GENERAL);
                 self.compute_pipeline.record_bind(cmdbuf);
@@ -383,8 +449,11 @@ impl InitializedApp {
                     ],
                 );
 
-                self.swapchain
-                    .record_blit(&self.shader_write_tex.get_image(), cmdbuf, image_idx);
+                self.swapchain.record_blit(
+                    &self.renderer_resources.shader_write_tex.get_image(),
+                    cmdbuf,
+                    image_idx,
+                );
 
                 let render_area = vk::Extent2D {
                     width: self.window_state.window_size()[0],

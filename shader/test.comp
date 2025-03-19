@@ -6,16 +6,71 @@
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(set = 0, binding = 0) uniform image2D result_image;
-layout(set = 0, binding = 1) uniform TestInput {
+
+layout(set = 0, binding = 1) uniform GuiInput {
     float aaa;
     float bbb;
 }
 test_input;
 
+layout(set = 0, binding = 2) uniform CameraInfo {
+    vec4 camera_pos; // w is padding.
+    mat4 view_mat;
+    mat4 view_mat_inv;
+    mat4 proj_mat;
+    mat4 proj_mat_inv;
+    mat4 view_proj_mat;
+    mat4 view_proj_mat_inv;
+}
+camera_info;
+
+/// Convert screen uv to clip space far point.
+/// Vulkan screen uv: (0, 0) is top-left, (1, 1) is bottom-right.
+/// We use right-handed coordinate system here, so the z value of clip space
+/// far point is -1.
+vec4 screen_uv_to_clip_far_point(vec2 screen_uv) {
+    screen_uv.y = 1.0 - screen_uv.y;
+    return vec4(screen_uv * 2.0 - 1.0, -1.0, 1.0);
+}
+
+/// Convert clip space position to world space position.
+vec4 clip_to_world(vec4 clip_pos, mat4 view_proj_mat_inv) {
+    vec4 world_pos = view_proj_mat_inv * clip_pos;
+    world_pos /= world_pos.w;
+    return world_pos;
+}
+
+/// Project screen uv to world space camera far point.
+vec3 project_screen_uv_to_world_cam_far_point(vec2 screen_uv) {
+    vec4 clip_far_point  = screen_uv_to_clip_far_point(screen_uv);
+    vec4 world_far_point = clip_to_world(clip_far_point, camera_info.view_proj_mat_inv);
+    return world_far_point.xyz;
+}
+
+struct Ray {
+    vec3 origin;
+    vec3 direction;
+    vec3 inv_direction;
+};
+
+Ray ray_gen(vec3 camera_pos, vec2 screen_uv) {
+    Ray ray;
+    ray.origin        = camera_pos;
+    ray.direction     = normalize(project_screen_uv_to_world_cam_far_point(screen_uv) - camera_pos);
+    ray.inv_direction = 1.0 / ray.direction;
+    return ray;
+}
+
 void main() {
-    ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
-    vec4 color         = vec4(0.0, 0.0, 0.0, 1.0);
-    color.r            = test_input.aaa;
-    color.g            = test_input.bbb;
-    imageStore(result_image, pixel_coords, color);
+    ivec2 uvi      = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 img_size = imageSize(result_image);
+    if (any(greaterThanEqual(uvi, img_size))) {
+        return;
+    }
+
+    vec2 screen_uv = (vec2(gl_GlobalInvocationID.xy) + vec2(0.5)) / vec2(img_size);
+    Ray ray        = ray_gen(camera_info.camera_pos.xyz, screen_uv);
+
+    vec4 color = vec4(ray.direction.xy, 0.0, 1.0);
+    imageStore(result_image, uvi, color);
 }

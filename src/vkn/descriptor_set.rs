@@ -13,9 +13,10 @@ impl DescriptorSet {
     pub fn new(
         device: &Device,
         descriptor_set_layouts: &[DescriptorSetLayout],
-        descriptor_pool: &DescriptorPool,
+        descriptor_pool: DescriptorPool,
     ) -> Self {
-        let descriptor_set = create_descriptor_set(device, descriptor_set_layouts, descriptor_pool);
+        let descriptor_set =
+            create_descriptor_set(device, &descriptor_pool, descriptor_set_layouts);
         Self {
             _device: device.clone(),
             descriptor_set,
@@ -36,8 +37,8 @@ impl DescriptorSet {
 
 fn create_descriptor_set(
     device: &Device,
-    set_layouts: &[DescriptorSetLayout],
     descriptor_pool: &DescriptorPool,
+    set_layouts: &[DescriptorSetLayout],
 ) -> vk::DescriptorSet {
     let set_layouts = set_layouts.iter().map(|l| l.as_raw()).collect::<Vec<_>>();
     let allocate_info = vk::DescriptorSetAllocateInfo::default()

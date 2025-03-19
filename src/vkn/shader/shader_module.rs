@@ -82,8 +82,11 @@ impl ShaderModule {
         )
     }
 
-    pub fn get_buffer_layout(&self, name: &str) -> Option<&StructLayout> {
-        self.0.struct_layouts.get(name)
+    pub fn get_buffer_layout(&self, name: &str) -> Result<&StructLayout, String> {
+        self.0
+            .struct_layouts
+            .get(name)
+            .ok_or_else(|| format!("Buffer layout not found for name: {}", name))
     }
 
     /// Retrieve the workgroup size (for compute shaders).

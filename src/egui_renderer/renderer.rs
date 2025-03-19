@@ -225,16 +225,18 @@ impl EguiRenderer {
             if let Some([offset_x, offset_y]) = delta.pos {
                 let texture = self.managed_textures.get_mut(id).unwrap();
 
-                texture.upload_rgba_image(
-                    queue,
-                    &command_pool,
-                    vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-                    TextureUploadRegion {
-                        offset: [offset_x as _, offset_y as _],
-                        extent: [width, height],
-                    },
-                    data.as_slice(),
-                );
+                texture
+                    .upload_rgba_image(
+                        queue,
+                        &command_pool,
+                        vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                        TextureUploadRegion {
+                            offset: [offset_x as _, offset_y as _],
+                            extent: [width, height],
+                        },
+                        data.as_slice(),
+                    )
+                    .unwrap();
             } else {
                 let tex_desc = TextureDesc {
                     extent: [width, height, 1],
@@ -245,23 +247,26 @@ impl EguiRenderer {
                     ..Default::default()
                 };
                 let sam_desc = Default::default();
-                let mut texture = Texture::new(device, &mut self.allocator, &tex_desc, &sam_desc);
+                let mut texture =
+                    Texture::new(device, self.allocator.clone(), &tex_desc, &sam_desc);
 
-                texture.upload_rgba_image(
-                    queue,
-                    &command_pool,
-                    vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-                    TextureUploadRegion {
-                        offset: [0, 0],
-                        extent: [width, height],
-                    },
-                    data.as_slice(),
-                );
+                texture
+                    .upload_rgba_image(
+                        queue,
+                        &command_pool,
+                        vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                        TextureUploadRegion {
+                            offset: [0, 0],
+                            extent: [width, height],
+                        },
+                        data.as_slice(),
+                    )
+                    .unwrap();
 
                 let set = DescriptorSet::new(
                     device,
                     std::slice::from_ref(&self.descriptor_set_layout),
-                    &self.descriptor_pool,
+                    self.descriptor_pool.clone(),
                 );
 
                 set.perform_writes(&[WriteDescriptorSet::new_texture_write(
