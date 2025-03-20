@@ -21,7 +21,7 @@ pub struct SwapchainDesc {
 impl Default for SwapchainDesc {
     fn default() -> Self {
         Self {
-            format: vk::Format::R8G8B8A8_SRGB,
+            format: vk::Format::B8G8R8A8_SRGB,
             color_space: vk::ColorSpaceKHR::SRGB_NONLINEAR,
             present_mode: vk::PresentModeKHR::MAILBOX,
         }
@@ -149,13 +149,14 @@ impl Swapchain {
         );
 
         unsafe {
-            device.cmd_copy_image(
+            device.cmd_blit_image(
                 cmdbuf.as_raw(),
                 src_img.as_raw(),
                 vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
                 dst_raw_img,
                 vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                &[src_img.get_copy_region()],
+                &[src_img.get_blit_region()],
+                vk::Filter::LINEAR,
             );
         }
 

@@ -8,7 +8,7 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 layout(set = 0, binding = 0) uniform image2D result_image;
 
 layout(set = 0, binding = 1) uniform GuiInput { float debug_float; }
-test_input;
+gui_input;
 
 layout(set = 0, binding = 2) uniform CameraInfo {
     vec4 camera_pos; // w is padding.
@@ -68,6 +68,6 @@ void main() {
     vec2 screen_uv = (vec2(gl_GlobalInvocationID.xy) + vec2(0.5)) / vec2(img_size);
     Ray ray        = ray_gen(camera_info.camera_pos.xyz, screen_uv);
 
-    vec4 color = vec4(ray.direction.xy, 0.0, 1.0);
+    vec4 color = vec4(0.5, 0.0, 0.0, 1.0);
     imageStore(result_image, uvi, color);
 }

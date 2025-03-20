@@ -25,23 +25,6 @@ use std::{collections::HashMap, mem};
 use winit::event::WindowEvent;
 use winit::window::Window;
 
-/// Optional parameters of the renderer.
-#[derive(Debug, Clone, Copy)]
-pub struct EguiRendererDesc {
-    /// Is the target framebuffer sRGB.
-    ///
-    /// If not, the fragment shader converts colors to sRGB, otherwise it outputs color in linear space.
-    pub srgb_framebuffer: bool,
-}
-
-impl Default for EguiRendererDesc {
-    fn default() -> Self {
-        Self {
-            srgb_framebuffer: false,
-        }
-    }
-}
-
 /// Winit-Egui Renderer implemented for Ash Vulkan.
 pub struct EguiRenderer {
     vulkan_context: VulkanContext,
@@ -62,8 +45,6 @@ pub struct EguiRenderer {
     egui_context: egui::Context,
     egui_winit_state: egui_winit::State,
 
-    desc: EguiRendererDesc,
-
     // late init
     pixels_per_point: Option<f32>,
     clipped_primitives: Option<Vec<ClippedPrimitive>>,
@@ -76,7 +57,6 @@ impl EguiRenderer {
         allocator: &Allocator,
         compiler: &ShaderCompiler,
         render_pass: vk::RenderPass,
-        desc: EguiRendererDesc,
     ) -> Self {
         let device = vulkan_context.device();
 
@@ -125,7 +105,6 @@ impl EguiRenderer {
             &vert_shader_module,
             &frag_shader_module,
             render_pass,
-            desc,
         );
 
         let descriptor_pool = DescriptorPool::from_descriptor_set_layouts(
@@ -155,7 +134,6 @@ impl EguiRenderer {
             descriptor_pool,
             managed_textures: HashMap::new(),
             textures: HashMap::new(),
-            desc,
             frames: None,
             textures_to_free: None,
 
@@ -181,7 +159,6 @@ impl EguiRenderer {
             &self.vert_shader_module,
             &self.frag_shader_module,
             render_pass,
-            self.desc,
         );
     }
 
@@ -240,7 +217,7 @@ impl EguiRenderer {
             } else {
                 let tex_desc = TextureDesc {
                     extent: [width, height, 1],
-                    format: vk::Format::R8G8B8A8_SRGB,
+                    format: vk::Format::B8G8R8A8_SRGB,
                     usage: vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST,
                     initial_layout: vk::ImageLayout::UNDEFINED,
                     aspect: vk::ImageAspectFlags::COLOR,
@@ -508,23 +485,10 @@ fn create_gui_pipeline(
     vert_shader_module: &ShaderModule,
     frag_shader_module: &ShaderModule,
     render_pass: vk::RenderPass,
-    options: EguiRendererDesc,
 ) -> GraphicsPipeline {
-    let specialization_entries = [vk::SpecializationMapEntry {
-        constant_id: 0,
-        offset: 0,
-        size: size_of::<vk::Bool32>(),
-    }];
-    let data = [vk::Bool32::from(options.srgb_framebuffer)];
-    let data_raw = unsafe { any_as_u8_slice(&data) };
-    let specialization_info = vk::SpecializationInfo::default()
-        .map_entries(&specialization_entries)
-        .data(data_raw);
-
     let vert_state_info = vert_shader_module.get_shader_stage_create_info();
-    let frag_state_info = frag_shader_module
-        .get_shader_stage_create_info()
-        .specialization_info(&specialization_info);
+    let frag_state_info = frag_shader_module.get_shader_stage_create_info();
+
     let shader_states_infos = [vert_state_info, frag_state_info];
 
     let mut pipeline_info = vk::GraphicsPipelineCreateInfo::default()

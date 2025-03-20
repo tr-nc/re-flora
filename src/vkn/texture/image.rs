@@ -94,29 +94,6 @@ impl Image {
         &self.0.desc
     }
 
-    /// Copy the image to another image. Tracks the layout transitions. And does sufficient validations.
-    pub fn record_copy_to(&self, cmdbuf: &CommandBuffer, dst_image: &Image) -> Result<(), String> {
-        self.record_transition_barrier(cmdbuf, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
-        dst_image.record_transition_barrier(cmdbuf, vk::ImageLayout::TRANSFER_DST_OPTIMAL);
-
-        let extent = self.0.desc.get_extent();
-        if extent != dst_image.0.desc.get_extent() {
-            return Err("Extent mismatch".to_string());
-        }
-
-        unsafe {
-            self.0.device.cmd_copy_image(
-                cmdbuf.as_raw(),
-                self.0.image,
-                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-                dst_image.0.image,
-                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                &[self.get_copy_region()],
-            );
-        }
-        Ok(())
-    }
-
     pub fn get_copy_region(&self) -> vk::ImageCopy {
         vk::ImageCopy {
             src_subresource: vk::ImageSubresourceLayers {
@@ -134,6 +111,33 @@ impl Image {
             },
             dst_offset: vk::Offset3D { x: 0, y: 0, z: 0 },
             extent: self.0.desc.get_extent(),
+        }
+    }
+
+    pub fn get_blit_region(&self) -> vk::ImageBlit {
+        let offset_min = vk::Offset3D { x: 0, y: 0, z: 0 };
+        let offset_max = vk::Offset3D {
+            x: self.0.desc.get_extent().width as i32,
+            y: self.0.desc.get_extent().height as i32,
+            z: 1,
+        };
+        let offsets = [offset_min, offset_max];
+
+        vk::ImageBlit {
+            src_subresource: vk::ImageSubresourceLayers {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                mip_level: 0,
+                base_array_layer: 0,
+                layer_count: 1,
+            },
+            src_offsets: offsets,
+            dst_subresource: vk::ImageSubresourceLayers {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                mip_level: 0,
+                base_array_layer: 0,
+                layer_count: 1,
+            },
+            dst_offsets: offsets,
         }
     }
 

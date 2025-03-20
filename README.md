@@ -75,6 +75,6 @@ https://crates.io/crates/egui-ash-renderer
 
 [Command Buffer Life Cycle](https://registry.khronos.org/vulkan/specs/latest/html/vkspec.html#commandbuffers-lifecycle)
 
-```
+[Gamma Correction](https://www.cambridgeincolour.com/tutorials/gamma-correction.htm)
 
-```
+[Gamma Correction, SRGB color space](https://observablehq.com/@sebastien/srgb-rgb-gamma)

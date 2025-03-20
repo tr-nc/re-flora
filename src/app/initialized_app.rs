@@ -5,7 +5,6 @@ use crate::util::time_info::TimeInfo;
 use crate::vkn::{Allocator, CommandBuffer, CommandPool, Fence, Semaphore};
 use crate::{
     egui_renderer::EguiRenderer,
-    egui_renderer::EguiRendererDesc,
     vkn::{Swapchain, VulkanContext, VulkanContextDesc},
     window::{WindowMode, WindowState, WindowStateDesc},
 };
@@ -34,9 +33,8 @@ pub struct InitializedApp {
     time_info: TimeInfo,
     slider_val: f32,
 
-    tracer: Tracer,
-
     camera: Camera,
+    tracer: Tracer,
 
     // note: always keep the context to end, as it has to be destroyed last
     vulkan_context: VulkanContext,
@@ -87,10 +85,6 @@ impl InitializedApp {
             &allocator,
             &shader_compiler,
             swapchain.get_render_pass(),
-            EguiRendererDesc {
-                srgb_framebuffer: true,
-                ..Default::default()
-            },
         );
 
         let screen_extent = window_state.window_size();
