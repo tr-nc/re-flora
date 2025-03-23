@@ -1,0 +1,14 @@
+//! Wipes out corresponding ranges of octree data to 0.
+#version 450
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+#include "../include/builder_structs.glsl"
+
+layout(set = 1, binding = 0) readonly buffer B_OctreeBuildInfo { OctreeBuildInfo octree_build_info; };
+layout(set = 1, binding = 1) writeonly buffer B_OctreeData { uint octree_data[]; };
+
+void main() {
+  if (gl_GlobalInvocationID.x >= octree_build_info.alloc_num) return;
+  octree_data[gl_GlobalInvocationID.x + octree_build_info.alloc_begin] = 0;
+}

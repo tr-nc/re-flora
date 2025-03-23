@@ -12,7 +12,7 @@ pub struct Tracer {
     vulkan_context: VulkanContext,
 
     allocator: Allocator,
-    tracer_resources: TracerResources,
+    resources: TracerResources,
 
     compute_shader_module: ShaderModule,
     compute_pipeline: ComputePipeline,
@@ -30,18 +30,10 @@ impl Tracer {
         let compute_shader_module = ShaderModule::from_glsl(
             vulkan_context.device(),
             &shader_compiler,
-            "shader/test.comp",
+            "shader/tracer.comp",
             "main",
         )
         .unwrap();
-
-        let tracer_resources = TracerResources::new(
-            vulkan_context.device().clone(),
-            allocator.clone(),
-            &compute_shader_module,
-            screen_extent,
-        );
-
         let compute_pipeline =
             ComputePipeline::from_shader_module(vulkan_context.device(), &compute_shader_module);
 
@@ -53,6 +45,13 @@ impl Tracer {
         )
         .unwrap();
 
+        let tracer_resources = TracerResources::new(
+            vulkan_context.device().clone(),
+            allocator.clone(),
+            &compute_shader_module,
+            screen_extent,
+        );
+
         let compute_descriptor_set = Self::create_compute_descriptor_set(
             descriptor_pool.clone(),
             &vulkan_context,
@@ -63,7 +62,7 @@ impl Tracer {
         Self {
             vulkan_context,
             allocator,
-            tracer_resources,
+            resources: tracer_resources,
             compute_shader_module,
             compute_pipeline,
             compute_descriptor_set,
@@ -72,7 +71,7 @@ impl Tracer {
     }
 
     pub fn on_resize(&mut self, screen_extent: &[u32; 2]) {
-        self.tracer_resources.on_resize(
+        self.resources.on_resize(
             self.vulkan_context.device().clone(),
             self.allocator.clone(),
             &screen_extent,
@@ -83,12 +82,12 @@ impl Tracer {
             self.descriptor_pool.clone(),
             &self.vulkan_context,
             &self.compute_pipeline,
-            &self.tracer_resources,
+            &self.resources,
         );
     }
 
     pub fn record_command_buffer(&mut self, cmdbuf: &CommandBuffer, screen_extent: &[u32; 2]) {
-        self.tracer_resources
+        self.resources
             .shader_write_tex
             .get_image()
             .record_transition_barrier(cmdbuf, vk::ImageLayout::GENERAL);
@@ -103,7 +102,7 @@ impl Tracer {
     }
 
     pub fn get_dst_image(&self) -> &Image {
-        self.tracer_resources.shader_write_tex.get_image()
+        self.resources.shader_write_tex.get_image()
     }
 
     /// Update the uniform buffers with the latest camera and debug values, called every frame
@@ -115,7 +114,7 @@ impl Tracer {
         let gui_input_data = BufferBuilder::from_layout(gui_input_layout)
             .set_float("debug_float", debug_float)
             .build();
-        self.tracer_resources
+        self.resources
             .gui_input_buffer
             .fill_raw(&gui_input_data)
             .unwrap();
@@ -140,7 +139,7 @@ impl Tracer {
                 view_proj_mat.inverse().to_cols_array_2d(),
             )
             .build();
-        self.tracer_resources
+        self.resources
             .camera_info_buffer
             .fill_raw(&camera_info_data)
             .unwrap();

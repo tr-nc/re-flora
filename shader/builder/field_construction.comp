@@ -1,0 +1,35 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+
+layout(set = 0, binding = 0) uniform B_BuildInfo { uint voxel_resolution; };
+layout(set = 1, binding = 0) uniform writeonly uimage3D field_image;
+
+#include "../include/block_type_packer.glsl"
+#include "../include/block_types.glsl"
+
+uint get_block_type(float weight) {
+    if (weight < 0.8) {
+        return BLOCK_TYPE_EMPTY;
+    }
+    return BLOCK_TYPE_DIRT;
+}
+
+void main() {
+    ivec3 uvi = ivec3(gl_GlobalInvocationID);
+    if (any(greaterThanEqual(uvi, ivec3(voxel_resolution)))) {
+        return;
+    }
+
+    // use sphere dropoff
+    float center = voxel_resolution / 2.0;
+    vec3 pos     = vec3(uvi);
+    float weight = length(pos - vec3(center)) / center;
+
+    uint block_type = get_block_type(weight);
+
+    uint packed = pack_block_type_and_weight(block_type, weight);
+
+    imageStore(field_image, uvi, uvec4(packed, 0, 0, 0));
+}

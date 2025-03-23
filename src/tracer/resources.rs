@@ -8,24 +8,6 @@ pub struct TracerResources {
 }
 
 impl TracerResources {
-    fn create_shader_write_texture(
-        screen_extent: [u32; 3],
-        device: Device,
-        allocator: Allocator,
-    ) -> Texture {
-        let tex_desc = TextureDesc {
-            extent: screen_extent,
-            format: vk::Format::R8G8B8A8_UNORM,
-            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC,
-            initial_layout: vk::ImageLayout::UNDEFINED,
-            aspect: vk::ImageAspectFlags::COLOR,
-            ..Default::default()
-        };
-        let sam_desc = Default::default();
-        let tex = Texture::new(device, allocator, &tex_desc, &sam_desc);
-        tex
-    }
-
     pub fn new(
         device: Device,
         allocator: Allocator,
@@ -71,5 +53,23 @@ impl TracerResources {
             device,
             allocator,
         );
+    }
+
+    fn create_shader_write_texture(
+        screen_extent: [u32; 3],
+        device: Device,
+        allocator: Allocator,
+    ) -> Texture {
+        let tex_desc = TextureDesc {
+            extent: screen_extent,
+            format: vk::Format::R8G8B8A8_UNORM,
+            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        let sam_desc = Default::default();
+        let tex = Texture::new(device, allocator, &tex_desc, &sam_desc);
+        tex
     }
 }
