@@ -28,7 +28,7 @@ impl Builder {
         vulkan_context: VulkanContext,
         allocator: Allocator,
         chunk_resolution: u32,
-        no_of_chunks: U16Vec3,
+        no_of_chunks: UVec3,
     ) -> Self {
         Self::validate(chunk_resolution).unwrap();
 

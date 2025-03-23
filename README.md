@@ -1,5 +1,13 @@
 # Re: Flora
 
+## Setup
+
+- Use nightly build for [portable simd](https://github.com/rust-lang/portable-simd)
+
+```shell
+rustup default nightly
+```
+
 ## Future Plans
 
 1. **Water Physics**

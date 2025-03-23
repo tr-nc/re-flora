@@ -1,8 +1,10 @@
 use glam::{IVec3, UVec3};
+use std::simd::Simd;
 
 pub struct Chunk {
     pub resolution: UVec3,
     pub position: IVec3,
+    /// Voxel data stored in a contiguous array. Each `u8` is a voxel type.
     pub data: Vec<u8>,
 }
 
@@ -11,28 +13,62 @@ impl Chunk {
         Self {
             resolution,
             position,
-            data: Self::build_chunk_data(resolution),
+            data: Self::build_chunk_data(resolution, position),
         }
     }
 
-    // TODO: alter this function, so that it utilizes std::simd for better performance, to construct a chunk of data
-    // the data is a 3D array of u8 values, where each value represents a voxel, make changes to the type of `data` for better performance if possible.
-    // (like using a hash table, or whatever you think is best)
-    // this function should be expandable and editable, i.e. for each voxel element, get the absolute position in the world space, 
-    // by using the local ID of the voxel and the position of the chunk in the world space. And a density function is applied to each of the voxels to 
-    // obtain the weight of the voxel, then a function can be applied to the weight to get the type of the voxel, like air, water, dirt, etc.
-    // each type is denoted by a unique u8 value.
-    // for a simple test, just fill the chunk with dirt. add a test for this function in place.
-    fn build_chunk_data(resolution: UVec3) -> Vec<u8> {
-        let mut data = vec![0; (resolution.x * resolution.y * resolution.z) as usize];
-        for x in 0..resolution.x {
-            for y in 0..resolution.y {
-                for z in 0..resolution.z {
-                    let index = (x * resolution.y * resolution.z + y * resolution.z + z) as usize;
-                    data[index] = 1;
-                }
+    /// Construct a chunk of data using SIMD for filling as a simple demonstration.
+    /// This fills the chunk entirely with `1` (e.g., "dirt" voxels) for now.
+    ///
+    /// In the future, you could:
+    /// - Use local voxel IDs plus `position` to compute absolute world positions.
+    /// - Apply a density function to get a "weight" at each voxel.
+    /// - Map that weight to physical types (0 = air, 1 = dirt, 2 = water, etc.).
+    ///
+    /// If the world is sparse, you might consider using a sparse structure (like a hash map)
+    /// instead of a fully dense array, but for a standard dense chunk, a contiguous array is fine.
+    fn build_chunk_data(resolution: UVec3, _position: IVec3) -> Vec<u8> {
+        let total_voxels = resolution.x * resolution.y * resolution.z;
+        let mut data = vec![0_u8; total_voxels as usize];
+
+        // We’ll fill in blocks of 16 voxels at a time (you can adjust this to 8, 32, or another power of 2).
+        const LANES: usize = 16;
+        let fill_val = Simd::from_array([1; LANES]);
+
+        // We’ll stride over our data in steps of LANES and fill simultaneously.
+        // The leftover remainder (if not multiple-of-16 length) will be handled with a simple loop at the end.
+        let simd_chunks = (total_voxels / LANES as u32) as usize;
+        for chunk_idx in 0..simd_chunks {
+            let offset = chunk_idx * LANES;
+            // Write 16 "1" values at once.
+            fill_val.copy_to_slice(&mut data[offset..offset + LANES]);
+        }
+
+        // Fill the remainder
+        let remainder = total_voxels as usize % LANES;
+        if remainder != 0 {
+            let start = simd_chunks * LANES;
+            for i in 0..remainder {
+                data[start + i] = 1;
             }
         }
+
         data
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_chunk_data_all_dirt() {
+        let resolution = UVec3::new(256, 256, 256);
+        let chunk = Chunk::new(resolution, IVec3::new(0, 0, 0));
+
+        // We expect every voxel to be set to 1.
+        for &voxel_type in &chunk.data {
+            assert_eq!(voxel_type, 1);
+        }
     }
 }
