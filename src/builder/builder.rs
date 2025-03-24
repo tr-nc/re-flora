@@ -1,6 +1,3 @@
-use ash::vk;
-use glam::UVec3;
-
 use super::BuilderResources;
 use crate::util::compiler::ShaderCompiler;
 use crate::vkn::Allocator;
@@ -10,6 +7,8 @@ use crate::vkn::DescriptorSet;
 use crate::vkn::ShaderModule;
 use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
+use ash::vk;
+use glam::UVec3;
 
 pub struct Builder {
     vulkan_context: VulkanContext,

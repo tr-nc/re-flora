@@ -1,6 +1,6 @@
 use super::struct_layout::{StructLayout, StructMember};
 use crate::{
-    util::compiler::ShaderCompiler,
+    util::{compiler::ShaderCompiler, full_path_from_relative},
     vkn::{
         DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutBuilder, Device,
         PipelineLayout,
@@ -60,7 +60,7 @@ impl ShaderModule {
     ///
     /// * `device` - The device to create the shader module on.
     /// * `compiler` - The shader compiler to use.
-    /// * `file_path` - The path to the GLSL file, from the project root.
+    /// * `file_path` - The relative path to the GLSL file, from the project root.
     /// * `entry_point_name` - The name of the entry point function in the shader.
     pub fn from_glsl(
         device: &Device,
@@ -68,14 +68,14 @@ impl ShaderModule {
         file_path: &str,
         entry_point_name: &str,
     ) -> Result<Self, String> {
-        let full_path = format!("{}{}", env!("PROJECT_ROOT"), file_path);
+        let full_path = full_path_from_relative(file_path);
         let code = read_code_from_path(&full_path)?;
         let shader_kind = predict_shader_kind(file_path).map_err(|e| e.to_string())?;
 
         Self::from_glsl_code(
             device,
             &code,
-            &get_file_name_from_path(file_path),
+            &full_path,
             entry_point_name,
             compiler,
             shader_kind,
@@ -138,31 +138,35 @@ impl ShaderModule {
     fn from_glsl_code(
         device: &Device,
         code: &str,
-        file_name: &str,
+        full_path_to_shader_file: &str,
         entry_point_name: &str,
         compiler: &ShaderCompiler,
         shader_kind: ShaderKind,
     ) -> Result<Self, String> {
-        let reflect_shader_module =
-            create_reflect_shader_module(code, shader_kind, entry_point_name, file_name, compiler)?;
+        let reflect_sm = create_reflect_shader_module(
+            code,
+            shader_kind,
+            entry_point_name,
+            full_path_to_shader_file,
+            compiler,
+        )?;
 
-        let shader_module = create_shader_module(
+        let sm = create_shader_module(
             device,
             code,
             shader_kind,
             entry_point_name,
-            file_name,
+            full_path_to_shader_file,
             compiler,
         )?;
 
-        let buffer_layouts =
-            extract_struct_layouts(&reflect_shader_module).map_err(|e| e.to_string())?;
+        let buffer_layouts = extract_struct_layouts(&reflect_sm).map_err(|e| e.to_string())?;
 
         Ok(Self(Arc::new(ShaderModuleInner {
             device: device.clone(),
             entry_point_name: CString::new(entry_point_name).unwrap(),
-            shader_module,
-            reflect_shader_module,
+            shader_module: sm,
+            reflect_shader_module: reflect_sm,
             struct_layouts: buffer_layouts,
         })))
     }
@@ -225,7 +229,7 @@ fn create_reflect_shader_module(
     code: &str,
     shader_kind: ShaderKind,
     entry_point_name: &str,
-    file_name: &str,
+    full_path_to_shader_file: &str,
     compiler: &ShaderCompiler,
 ) -> Result<ReflectShaderModule, String> {
     let shader_byte_code_u8_zero_opti = compiler
@@ -233,7 +237,7 @@ fn create_reflect_shader_module(
             code,
             shader_kind,
             entry_point_name,
-            file_name,
+            full_path_to_shader_file,
             shaderc::OptimizationLevel::Zero,
         )
         .map_err(|e| e.to_string())?;
@@ -246,7 +250,7 @@ fn create_shader_module(
     code: &str,
     shader_kind: ShaderKind,
     entry_point_name: &str,
-    file_name: &str,
+    full_path_to_shader_file: &str,
     compiler: &ShaderCompiler,
 ) -> Result<ash::vk::ShaderModule, String> {
     let shader_byte_code_u8_full_opti = compiler
@@ -254,16 +258,12 @@ fn create_shader_module(
             code,
             shader_kind,
             entry_point_name,
-            file_name,
+            full_path_to_shader_file,
             shaderc::OptimizationLevel::Performance,
         )
         .map_err(|e| e.to_string())?;
 
     bytecode_to_shader_module(device, &shader_byte_code_u8_full_opti)
-}
-
-fn get_file_name_from_path(file_path: &str) -> String {
-    file_path.split('/').last().unwrap().to_string()
 }
 
 fn read_code_from_path(full_shader_path: &str) -> Result<String, String> {

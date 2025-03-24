@@ -60,41 +60,6 @@ pub struct WriteDescriptorSet {
 }
 
 impl WriteDescriptorSet {
-    // pub fn new(binding: u32, descriptor_type: vk::DescriptorType) -> Self {
-    //     Self {
-    //         binding,
-    //         descriptor_type,
-    //         image_infos: None,
-    //         buffer_infos: None,
-    //     }
-    // }
-
-    // pub fn add_texture(&mut self, texture: &Texture, image_layout: vk::ImageLayout) -> &mut Self {
-    //     let image_info = vk::DescriptorImageInfo::default()
-    //         .image_layout(image_layout)
-    //         .image_view(texture.get_image_view().as_raw())
-    //         .sampler(texture.get_sampler().as_raw());
-
-    //     if self.image_infos.is_none() {
-    //         self.image_infos = Some(Vec::new());
-    //     }
-    //     self.image_infos.as_mut().unwrap().push(image_info);
-    //     self
-    // }
-
-    // pub fn add_buffer(&mut self, buffer: &Buffer) -> &mut Self {
-    //     let buffer_info = vk::DescriptorBufferInfo::default()
-    //         .buffer(buffer.as_raw())
-    //         .offset(0)
-    //         .range(buffer.get_size());
-
-    //     if self.buffer_infos.is_none() {
-    //         self.buffer_infos = Some(Vec::new());
-    //     }
-    //     self.buffer_infos.as_mut().unwrap().push(buffer_info);
-    //     self
-    // }
-
     pub fn new_texture_write(
         binding: u32,
         descriptor_type: vk::DescriptorType,

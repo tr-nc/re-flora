@@ -114,7 +114,7 @@ impl InitializedApp {
             vulkan_context.clone(),
             allocator.clone(),
             &shader_compiler,
-            UVec3::new(16, 16, 16),
+            UVec3::new(256, 256, 256),
             UVec3::new(1, 1, 1),
         );
 

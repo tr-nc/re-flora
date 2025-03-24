@@ -1,4 +1,5 @@
 use shaderc::{CompileOptions, Compiler, OptimizationLevel};
+use crate::util::get_full_path_to_dir;
 
 #[allow(unused)]
 pub struct ShaderCompiler<'a> {
@@ -12,10 +13,11 @@ fn custom_include_callback(
     _requesting_source: &str,
     _include_depth: usize,
 ) -> Result<shaderc::ResolvedInclude, String> {
-    let path = std::path::Path::new(requested_source);
-    let source = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let full_path_to_dir = get_full_path_to_dir(_requesting_source);
+    let concated_path = full_path_to_dir.to_string() + requested_source;
+    let source = std::fs::read_to_string(concated_path).map_err(|e| e.to_string())?;
     Ok(shaderc::ResolvedInclude {
-        resolved_name: path.to_str().unwrap().to_string(),
+        resolved_name: "tmp_name".to_string(),
         content: source,
     })
 }
@@ -44,7 +46,7 @@ impl<'a> ShaderCompiler<'a> {
         code: &str,
         shader_kind: shaderc::ShaderKind,
         entry_point_name: &str,
-        file_name: &str,
+        full_path_to_shader_file: &str,
         optimization_level: OptimizationLevel,
     ) -> Result<Vec<u8>, String> {
         let mut compile_options = self.default_options.clone().unwrap();
@@ -55,7 +57,7 @@ impl<'a> ShaderCompiler<'a> {
             .compile_into_spirv(
                 code,
                 shader_kind,
-                file_name,
+                full_path_to_shader_file,
                 entry_point_name,
                 Some(&compile_options),
             )
