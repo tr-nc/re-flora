@@ -3,15 +3,15 @@ use ash::vk;
 
 pub struct TracerResources {
     pub shader_write_tex: Texture,
-    pub gui_input_buffer: Buffer,
-    pub camera_info_buffer: Buffer,
+    pub gui_input_buf: Buffer,
+    pub camera_info_buf: Buffer,
 }
 
 impl TracerResources {
     pub fn new(
         device: Device,
         allocator: Allocator,
-        compute_shader_module: &ShaderModule,
+        tracer_sm: &ShaderModule,
         screen_extent: &[u32; 2],
     ) -> Self {
         let shader_write_tex = Self::create_shader_write_texture(
@@ -20,19 +20,17 @@ impl TracerResources {
             allocator.clone(),
         );
 
-        let gui_input_layout = compute_shader_module.get_buffer_layout("GuiInput").unwrap();
-        let gui_input_buffer = Buffer::new_sized(
+        let gui_input_buf_layout = tracer_sm.get_buffer_layout("GuiInput").unwrap();
+        let gui_input_buf = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
             vk::BufferUsageFlags::UNIFORM_BUFFER,
             gpu_allocator::MemoryLocation::CpuToGpu,
-            gui_input_layout.get_size() as _,
+            gui_input_buf_layout.get_size() as _,
         );
 
-        let camera_info_layout = compute_shader_module
-            .get_buffer_layout("CameraInfo")
-            .unwrap();
-        let camera_info_buffer = Buffer::new_sized(
+        let camera_info_layout = tracer_sm.get_buffer_layout("CameraInfo").unwrap();
+        let camera_info_buf = Buffer::new_sized(
             device.clone(),
             allocator,
             vk::BufferUsageFlags::UNIFORM_BUFFER,
@@ -42,8 +40,8 @@ impl TracerResources {
 
         Self {
             shader_write_tex,
-            gui_input_buffer,
-            camera_info_buffer,
+            gui_input_buf,
+            camera_info_buf,
         }
     }
 

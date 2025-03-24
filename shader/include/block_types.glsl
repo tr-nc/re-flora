@@ -2,7 +2,6 @@
 #define BLOCK_TYPE_GLSL
 
 const uint BLOCK_TYPE_EMPTY = 0;
-
 const uint BLOCK_TYPE_DIRT  = 1;
 const uint BLOCK_TYPE_ROCK  = 2;
 const uint BLOCK_TYPE_SAND  = 3;

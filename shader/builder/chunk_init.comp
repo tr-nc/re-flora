@@ -1,0 +1,88 @@
+// this shader accelerates the construction of the noise chunk
+// TODO: benchmark
+
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+
+layout(set = 0, binding = 0) uniform ChunkBuildInfo {
+    uvec3 chunk_res;
+    uvec3 chunk_pos;
+}
+chunk_build_info;
+
+layout(set = 1, binding = 0) writeonly buffer WeightData { uint[] data; }
+weight_data;
+
+#include "../include/block_types.glsl"
+// #include "../include/core/cnoise.glsl"
+#include "../include/core/inoise.glsl"
+
+/// Archived.
+// vec4 compute_noise_with_grad(vec3 p) {
+//     float total       = 0.0;
+//     float amplitude   = 0.5;
+//     float frequency   = 2.0;
+//     float persistence = 0.3;
+//     float lacunarity  = 2.2;
+//     int octaves       = 5;
+
+//     vec3 gradient = vec3(0.0);
+//     for (int i = 0; i < octaves; i++) {
+//         vec4 noise = noised(p * frequency);
+//         total += amplitude * (noise.x + 0.5);
+//         gradient += amplitude * frequency * noise.yzw;
+//         amplitude *= persistence;
+//         frequency *= lacunarity;
+//     }
+//     return vec4(total, gradient);
+// }
+
+float compute_noise(vec3 p) {
+    float total       = 0.0;
+    float amplitude   = 0.5;
+    float frequency   = 2.0;
+    float persistence = 0.3;
+    float lacunarity  = 2.2;
+    int octaves       = 5;
+
+    for (int i = 0; i < octaves; i++) {
+        vec4 noise = noised(p * frequency);
+        total += amplitude * (noise.x + 0.5);
+        amplitude *= persistence;
+        frequency *= lacunarity;
+    }
+    return total;
+}
+
+uint get_block_type(float weight) {
+    if (weight < 0.0) {
+        return BLOCK_TYPE_EMPTY;
+    }
+    return BLOCK_TYPE_DIRT;
+}
+
+uint uvi_to_idx(ivec3 uvi) {
+    return uvi.x + uvi.y * chunk_build_info.chunk_res.x +
+           uvi.z * chunk_build_info.chunk_res.x * chunk_build_info.chunk_res.y;
+}
+
+void main() {
+    ivec3 uvi = ivec3(gl_GlobalInvocationID);
+    if (any(greaterThanEqual(uvi, ivec3(chunk_build_info.chunk_res)))) {
+        return;
+    }
+
+    vec3 local_voxel_pos = (vec3(uvi) - 0.5) / vec3(chunk_build_info.chunk_res);
+    vec3 chunk_pos       = vec3(chunk_build_info.chunk_pos);
+    vec3 world_voxel_pos = local_voxel_pos + chunk_pos;
+
+    float noise  = compute_noise(world_voxel_pos);
+    float weight = noise - world_voxel_pos.y;
+
+    uint block_type = get_block_type(weight);
+
+    uint idx              = uvi_to_idx(uvi);
+    weight_data.data[idx] = block_type;
+}

@@ -14,9 +14,9 @@ pub struct Tracer {
     allocator: Allocator,
     resources: TracerResources,
 
-    compute_shader_module: ShaderModule,
-    compute_pipeline: ComputePipeline,
-    compute_descriptor_set: DescriptorSet,
+    tracer_sm: ShaderModule,
+    tracer_ppl: ComputePipeline,
+    tracer_ds: DescriptorSet,
     descriptor_pool: DescriptorPool,
 }
 
@@ -27,45 +27,44 @@ impl Tracer {
         shader_compiler: &ShaderCompiler,
         screen_extent: &[u32; 2],
     ) -> Self {
-        let compute_shader_module = ShaderModule::from_glsl(
+        let tracer_sm = ShaderModule::from_glsl(
             vulkan_context.device(),
             &shader_compiler,
             "shader/tracer.comp",
             "main",
         )
         .unwrap();
-        let compute_pipeline =
-            ComputePipeline::from_shader_module(vulkan_context.device(), &compute_shader_module);
+        let tracer_ppl = ComputePipeline::from_shader_module(vulkan_context.device(), &tracer_sm);
 
         let descriptor_pool = DescriptorPool::from_descriptor_set_layouts(
             vulkan_context.device(),
-            compute_pipeline
+            tracer_ppl
                 .get_pipeline_layout()
                 .get_descriptor_set_layouts(),
         )
         .unwrap();
 
-        let tracer_resources = TracerResources::new(
+        let resources = TracerResources::new(
             vulkan_context.device().clone(),
             allocator.clone(),
-            &compute_shader_module,
+            &tracer_sm,
             screen_extent,
         );
 
-        let compute_descriptor_set = Self::create_compute_descriptor_set(
+        let tracer_ds = Self::create_compute_descriptor_set(
             descriptor_pool.clone(),
             &vulkan_context,
-            &compute_pipeline,
-            &tracer_resources,
+            &tracer_ppl,
+            &resources,
         );
 
         Self {
             vulkan_context,
             allocator,
-            resources: tracer_resources,
-            compute_shader_module,
-            compute_pipeline,
-            compute_descriptor_set,
+            resources,
+            tracer_sm,
+            tracer_ppl,
+            tracer_ds,
             descriptor_pool,
         }
     }
@@ -78,10 +77,10 @@ impl Tracer {
         );
 
         self.descriptor_pool.reset().unwrap();
-        self.compute_descriptor_set = Self::create_compute_descriptor_set(
+        self.tracer_ds = Self::create_compute_descriptor_set(
             self.descriptor_pool.clone(),
             &self.vulkan_context,
-            &self.compute_pipeline,
+            &self.tracer_ppl,
             &self.resources,
         );
     }
@@ -91,13 +90,13 @@ impl Tracer {
             .shader_write_tex
             .get_image()
             .record_transition_barrier(cmdbuf, vk::ImageLayout::GENERAL);
-        self.compute_pipeline.record_bind(cmdbuf);
-        self.compute_pipeline.record_bind_descriptor_sets(
+        self.tracer_ppl.record_bind(cmdbuf);
+        self.tracer_ppl.record_bind_descriptor_sets(
             cmdbuf,
-            std::slice::from_ref(&self.compute_descriptor_set),
+            std::slice::from_ref(&self.tracer_ds),
             0,
         );
-        self.compute_pipeline
+        self.tracer_ppl
             .record_dispatch(cmdbuf, [screen_extent[0], screen_extent[1], 1]);
     }
 
@@ -107,22 +106,16 @@ impl Tracer {
 
     /// Update the uniform buffers with the latest camera and debug values, called every frame
     pub fn update_uniform_buffers(&mut self, camera: &Camera, debug_float: f32) {
-        let gui_input_layout = self
-            .compute_shader_module
-            .get_buffer_layout("GuiInput")
-            .unwrap();
+        let gui_input_layout = self.tracer_sm.get_buffer_layout("GuiInput").unwrap();
         let gui_input_data = BufferBuilder::from_layout(gui_input_layout)
             .set_float("debug_float", debug_float)
             .build();
         self.resources
-            .gui_input_buffer
+            .gui_input_buf
             .fill_raw(&gui_input_data)
             .unwrap();
 
-        let camera_info_layout = self
-            .compute_shader_module
-            .get_buffer_layout("CameraInfo")
-            .unwrap();
+        let camera_info_layout = self.tracer_sm.get_buffer_layout("CameraInfo").unwrap();
 
         let view_mat = camera.get_view_mat();
         let proj_mat = camera.get_proj_mat();
@@ -140,7 +133,7 @@ impl Tracer {
             )
             .build();
         self.resources
-            .camera_info_buffer
+            .camera_info_buf
             .fill_raw(&camera_info_data)
             .unwrap();
     }
@@ -149,7 +142,7 @@ impl Tracer {
         descriptor_pool: DescriptorPool,
         vulkan_context: &VulkanContext,
         compute_pipeline: &ComputePipeline,
-        renderer_resources: &TracerResources,
+        resources: &TracerResources,
     ) -> DescriptorSet {
         let compute_descriptor_set = DescriptorSet::new(
             vulkan_context.device().clone(),
@@ -162,18 +155,18 @@ impl Tracer {
             WriteDescriptorSet::new_texture_write(
                 0,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &renderer_resources.shader_write_tex,
+                &resources.shader_write_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_buffer_write(
                 1,
                 vk::DescriptorType::UNIFORM_BUFFER,
-                &renderer_resources.gui_input_buffer,
+                &resources.gui_input_buf,
             ),
             WriteDescriptorSet::new_buffer_write(
                 2,
                 vk::DescriptorType::UNIFORM_BUFFER,
-                &renderer_resources.camera_info_buffer,
+                &resources.camera_info_buf,
             ),
         ]);
         compute_descriptor_set

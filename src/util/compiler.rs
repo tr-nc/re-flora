@@ -1,10 +1,23 @@
 use shaderc::{CompileOptions, Compiler, OptimizationLevel};
 
-
 #[allow(unused)]
 pub struct ShaderCompiler<'a> {
     compiler: Compiler,
     default_options: CompileOptions<'a>,
+}
+
+fn custom_include_callback(
+    requested_source: &str,
+    _include_type: shaderc::IncludeType,
+    _requesting_source: &str,
+    _include_depth: usize,
+) -> Result<shaderc::ResolvedInclude, String> {
+    let path = std::path::Path::new(requested_source);
+    let source = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    Ok(shaderc::ResolvedInclude {
+        resolved_name: path.to_str().unwrap().to_string(),
+        content: source,
+    })
 }
 
 #[allow(unused)]
@@ -18,6 +31,7 @@ impl<'a> ShaderCompiler<'a> {
             shaderc::EnvVersion::Vulkan1_3 as u32,
         );
         default_options.set_source_language(shaderc::SourceLanguage::GLSL);
+        default_options.set_include_callback(custom_include_callback);
 
         Ok(Self {
             compiler,

@@ -1,3 +1,4 @@
+use crate::builder::Builder;
 use crate::gameplay::{Camera, CameraDesc};
 use crate::tracer::Tracer;
 use crate::util::compiler::ShaderCompiler;
@@ -10,6 +11,7 @@ use crate::{
 };
 use ash::vk;
 use egui::{Color32, RichText, Slider};
+use glam::UVec3;
 use gpu_allocator::vulkan::AllocatorCreateDesc;
 use std::sync::{Arc, Mutex};
 use winit::event::DeviceEvent;
@@ -35,6 +37,7 @@ pub struct InitializedApp {
 
     camera: Camera,
     tracer: Tracer,
+    builder: Builder,
 
     // note: always keep the context to end, as it has to be destroyed last
     vulkan_context: VulkanContext,
@@ -107,6 +110,14 @@ impl InitializedApp {
             &screen_extent,
         );
 
+        let builder = Builder::new(
+            vulkan_context.clone(),
+            allocator.clone(),
+            &shader_compiler,
+            UVec3::new(16, 16, 16),
+            UVec3::new(1, 1, 1),
+        );
+
         Self {
             vulkan_context,
             egui_renderer: renderer,
@@ -120,6 +131,8 @@ impl InitializedApp {
             fence,
 
             tracer,
+            builder,
+
             camera,
             is_resize_pending: false,
             time_info: TimeInfo::default(),
