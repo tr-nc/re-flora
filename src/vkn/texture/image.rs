@@ -1,7 +1,7 @@
 use crate::vkn::{Allocator, CommandBuffer, Device};
 use ash::vk::{self, ImageLayout};
 use gpu_allocator::{
-    vulkan::{AllocationCreateDesc, AllocationScheme},
+    vulkan::{Allocation, AllocationCreateDesc, AllocationScheme},
     MemoryLocation,
 };
 use std::sync::{Arc, Mutex};
@@ -13,8 +13,10 @@ struct ImageInner {
     desc: TextureDesc,
     image: vk::Image,
     allocator: Allocator,
-    memory: Mutex<Option<gpu_allocator::vulkan::Allocation>>,
+    // TODO: use Allocation simply, like buffer.rs
+    memory: Mutex<Option<Allocation>>,
     current_layout: Mutex<vk::ImageLayout>,
+    size: vk::DeviceSize,
 }
 
 impl Drop for ImageInner {
@@ -64,7 +66,7 @@ impl Image {
         let image = unsafe { device.create_image(&image_info, None).unwrap() };
         let requirements = unsafe { device.get_image_memory_requirements(image) };
 
-        let memory = allocator
+        let allocated_mem = allocator
             .allocate_memory(&AllocationCreateDesc {
                 name: "",
                 requirements,
@@ -76,17 +78,23 @@ impl Image {
 
         unsafe {
             device
-                .bind_image_memory(image, memory.memory(), memory.offset())
+                .bind_image_memory(image, allocated_mem.memory(), allocated_mem.offset())
                 .unwrap()
         };
+
+        let size = desc.extent[0] as vk::DeviceSize
+            * desc.extent[1] as vk::DeviceSize
+            * desc.extent[2] as vk::DeviceSize
+            * desc.get_pixel_size() as vk::DeviceSize;
 
         Ok(Self(Arc::new(ImageInner {
             device: device.clone(),
             image,
             desc: desc.clone(),
             allocator,
-            memory: Mutex::new(Some(memory)),
+            memory: Mutex::new(Some(allocated_mem)),
             current_layout: Mutex::new(desc.initial_layout),
+            size,
         })))
     }
 
@@ -112,6 +120,10 @@ impl Image {
             dst_offset: vk::Offset3D { x: 0, y: 0, z: 0 },
             extent: self.0.desc.get_extent(),
         }
+    }
+
+    pub fn get_size(&self) -> vk::DeviceSize {
+        self.0.size
     }
 
     pub fn get_blit_region(&self) -> vk::ImageBlit {

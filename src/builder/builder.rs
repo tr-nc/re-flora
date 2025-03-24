@@ -125,10 +125,11 @@ impl Builder {
                 vk::DescriptorType::UNIFORM_BUFFER,
                 &resources.chunk_build_info_buf,
             ),
-            WriteDescriptorSet::new_buffer_write(
+            WriteDescriptorSet::new_texture_write(
                 1,
-                vk::DescriptorType::STORAGE_BUFFER,
-                &resources.weight_data_buf,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.weight_tex,
+                vk::ImageLayout::GENERAL,
             ),
         ]);
         compute_descriptor_set
@@ -160,6 +161,11 @@ impl Builder {
             command_pool,
             &self.vulkan_context.get_general_queue(),
             |cmdbuf| {
+                self.resources
+                    .weight_tex
+                    .get_image()
+                    .record_transition_barrier(cmdbuf, vk::ImageLayout::GENERAL);
+
                 self.chunk_init_ppl.record_bind(cmdbuf);
                 self.chunk_init_ppl.record_bind_descriptor_sets(
                     cmdbuf,
@@ -171,9 +177,11 @@ impl Builder {
             },
         );
 
-        self.resources
-            .weight_data_buf
-            .fetch_raw()
-            .expect("Failed to fetch buffer data")
+        // self.resources
+        //     .weight_data_buf
+        //     .fetch_raw()
+        //     .expect("Failed to fetch buffer data")
+
+        vec![]
     }
 }

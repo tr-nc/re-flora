@@ -1,11 +1,11 @@
 #version 450
 
 #extension GL_GOOGLE_include_directive : require
-#extension GL_EXT_shader_image_load_formatted : require
+// #extension GL_EXT_shader_image_load_formatted : require
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout(set = 0, binding = 0) uniform image2D result_image;
+layout(set = 0, binding = 0) writeonly uniform image2D result_image;
 
 layout(set = 0, binding = 1) uniform GuiInput { float debug_float; }
 gui_input;
@@ -68,6 +68,6 @@ void main() {
     vec2 screen_uv = (vec2(gl_GlobalInvocationID.xy) + vec2(0.5)) / vec2(img_size);
     Ray ray        = ray_gen(camera_info.camera_pos.xyz, screen_uv);
 
-    vec4 color = vec4(0.5, 0.0, 0.0, 1.0);
+    vec4 color = vec4(ray.direction, 1.0);
     imageStore(result_image, uvi, color);
 }

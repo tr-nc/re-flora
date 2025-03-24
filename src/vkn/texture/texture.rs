@@ -2,12 +2,12 @@ use super::{Image, ImageView, ImageViewDesc, Sampler, SamplerDesc};
 use crate::vkn::{execute_one_time_command, Allocator, Buffer, CommandPool, Device, Queue};
 use ash::vk::{self, ImageType};
 
-pub struct TextureUploadRegion {
+pub struct TextureRegion {
     pub offset: [i32; 2],
     pub extent: [u32; 2],
 }
 
-impl Default for TextureUploadRegion {
+impl Default for TextureRegion {
     fn default() -> Self {
         Self {
             offset: [0, 0],
@@ -58,6 +58,21 @@ impl TextureDesc {
             _ => vk::ImageType::TYPE_3D,
         }
     }
+
+    pub fn get_pixel_size(&self) -> u32 {
+        match self.format {
+            vk::Format::R8G8B8A8_UNORM => 4,
+            vk::Format::B8G8R8A8_SRGB => 4,
+            vk::Format::R8_UINT => 1,
+            _ => {
+                log::error!(
+                    "Unsupported format: {:?}, consider implement it here",
+                    self.format
+                );
+                0
+            }
+        }
+    }
 }
 
 /// A texture is a combination of an image, image view, and sampler.
@@ -70,6 +85,9 @@ pub struct Texture {
 }
 
 impl Texture {
+    /// Creates a new texture with the given `texture_desc` and `sampler_desc`.
+    ///
+    /// The memory location is always `GpuOnly`, in contrast to the buffer, which can be mapped on the CPU side.
     pub fn new(
         device: Device,
         allocator: Allocator,
@@ -95,16 +113,16 @@ impl Texture {
         }
     }
 
-    /// Uploads an RGBA image to the texture. The image is transitioned to the `dst_image_layout` afterwords.
+    /// Uploads an RGBA image to the texture. The image is transitioned to the `dst_image_layout` afterwards.
     pub fn upload_rgba_image(
-        &mut self,
+        &self,
         queue: &Queue,
         command_pool: &CommandPool,
         dst_image_layout: vk::ImageLayout,
-        region: TextureUploadRegion,
+        region: TextureRegion,
         data: &[u8],
-    ) -> Result<&mut Self, String> {
-        let mut buffer = Buffer::new_sized(
+    ) -> Result<&Self, String> {
+        let buffer = Buffer::new_sized(
             self.device.clone(),
             self.image.get_allocator().clone(),
             vk::BufferUsageFlags::TRANSFER_SRC,
@@ -153,6 +171,55 @@ impl Texture {
 
         Ok(self)
     }
+
+    // TODO: implement for other image formats
+    // pub fn fetch_data(&self, queue: &Queue, command_pool: &CommandPool) -> Result<Vec<u8>, String> {
+    //     let buffer = Buffer::new_sized(
+    //         self.device.clone(),
+    //         self.image.get_allocator().clone(),
+    //         vk::BufferUsageFlags::TRANSFER_DST,
+    //         gpu_allocator::MemoryLocation::GpuToCpu,
+    //         self.image.get_size() as _,
+    //     );
+
+    //     execute_one_time_command(&self.device.clone(), command_pool, queue, |cmdbuf| {
+    //         self.image
+    //             .record_transition_barrier(cmdbuf, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
+    //         let region = vk::BufferImageCopy::default()
+    //             .buffer_offset(0)
+    //             .buffer_row_length(0)
+    //             .buffer_image_height(0)
+    //             .image_subresource(vk::ImageSubresourceLayers {
+    //                 aspect_mask: vk::ImageAspectFlags::COLOR,
+    //                 mip_level: 0,
+    //                 base_array_layer: 0,
+    //                 layer_count: 1,
+    //             })
+    //             .image_offset(vk::Offset3D {
+    //                 x: region.offset[0],
+    //                 y: region.offset[1],
+    //                 z: 0,
+    //             })
+    //             .image_extent(vk::Extent3D {
+    //                 width: region.extent[0],
+    //                 height: region.extent[1],
+    //                 depth: 1,
+    //             });
+    //         unsafe {
+    //             self.device.cmd_copy_image_to_buffer(
+    //                 cmdbuf.as_raw(),
+    //                 self.image.as_raw(),
+    //                 vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+    //                 buffer.as_raw(),
+    //                 &[region],
+    //             )
+    //         }
+    //         self.image
+    //             .record_transition_barrier(cmdbuf, dst_image_layout);
+    //     });
+
+    //     Ok(self)
+    // }
 
     pub fn get_image(&self) -> &Image {
         &self.image

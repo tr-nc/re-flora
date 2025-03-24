@@ -1,8 +1,7 @@
-// this shader accelerates the construction of the noise chunk
-// TODO: benchmark
-
 #version 450
+
 #extension GL_GOOGLE_include_directive : require
+// #extension GL_EXT_shader_image_load_formatted : require
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
@@ -12,32 +11,10 @@ layout(set = 0, binding = 0) uniform ChunkBuildInfo {
 }
 chunk_build_info;
 
-layout(set = 0, binding = 1) writeonly buffer WeightData { uint[] data; }
-weight_data;
+layout(set = 0, binding = 1) writeonly uniform uimage3D weight_image;
 
 #include "../include/block_types.glsl"
-// #include "../include/core/cnoise.glsl"
 #include "../include/core/inoise.glsl"
-
-/// Archived.
-// vec4 compute_noise_with_grad(vec3 p) {
-//     float total       = 0.0;
-//     float amplitude   = 0.5;
-//     float frequency   = 2.0;
-//     float persistence = 0.3;
-//     float lacunarity  = 2.2;
-//     int octaves       = 5;
-
-//     vec3 gradient = vec3(0.0);
-//     for (int i = 0; i < octaves; i++) {
-//         vec4 noise = noised(p * frequency);
-//         total += amplitude * (noise.x + 0.5);
-//         gradient += amplitude * frequency * noise.yzw;
-//         amplitude *= persistence;
-//         frequency *= lacunarity;
-//     }
-//     return vec4(total, gradient);
-// }
 
 float compute_noise(vec3 p) {
     float total       = 0.0;
@@ -82,6 +59,5 @@ void main() {
 
     uint block_type = get_block_type(weight);
 
-    uint idx              = uvi_to_idx(uvi);
-    weight_data.data[idx] = 1;
+    imageStore(weight_image, uvi, uvec4(block_type));
 }

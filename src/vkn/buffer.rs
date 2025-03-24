@@ -8,7 +8,6 @@ use gpu_allocator::{
 use std::ops::Deref;
 
 pub struct Buffer {
-    device: Device,
     allocator: Allocator,
     buffer: vk::Buffer,
     allocated_mem: Allocation,
@@ -45,7 +44,7 @@ impl Buffer {
         let buffer = unsafe { device.create_buffer(&buffer_info, None).unwrap() };
         let requirements = unsafe { device.get_buffer_memory_requirements(buffer) };
 
-        let memory = allocator
+        let allocated_mem = allocator
             .allocate_memory(&AllocationCreateDesc {
                 name: "",
                 requirements,
@@ -57,23 +56,21 @@ impl Buffer {
 
         unsafe {
             device
-                .bind_buffer_memory(buffer, memory.memory(), memory.offset())
+                .bind_buffer_memory(buffer, allocated_mem.memory(), allocated_mem.offset())
                 .unwrap()
         };
 
         Self {
-            device,
             allocator: allocator,
             buffer,
-            allocated_mem: memory,
+            allocated_mem,
             size: buffer_size as _,
         }
     }
 
     pub fn get_size(&self) -> vk::DeviceSize {
-        // this seems to give the wrong result!
-        // self.allocated_mem.size()
-
+        // allocated_mem.size() would give the wrong result here!
+        // the allocated size is allocator-specific, and may overallocate.
         self.size
     }
 

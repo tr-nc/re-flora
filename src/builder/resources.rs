@@ -1,12 +1,11 @@
 use ash::vk;
 use glam::UVec3;
 
-use crate::vkn::{Allocator, Buffer, Device, ShaderModule};
+use crate::vkn::{Allocator, Buffer, Device, ShaderModule, Texture, TextureDesc};
 
 pub struct BuilderResources {
+    pub weight_tex: Texture,
     pub chunk_build_info_buf: Buffer,
-
-    pub weight_data_buf: Buffer,
 }
 
 impl BuilderResources {
@@ -16,6 +15,8 @@ impl BuilderResources {
         chunk_init_sm: &ShaderModule,
         chunk_res: UVec3,
     ) -> Self {
+        let weight_tex = Self::create_weight_tex(device.clone(), allocator.clone(), chunk_res);
+
         let chunk_build_info_buf_layout =
             chunk_init_sm.get_buffer_layout("ChunkBuildInfo").unwrap();
         let chunk_build_info_buf = Buffer::new_sized(
@@ -26,17 +27,23 @@ impl BuilderResources {
             chunk_build_info_buf_layout.get_size() as _,
         );
 
-        let weight_data_buf = Buffer::new_sized(
-            device.clone(),
-            allocator,
-            vk::BufferUsageFlags::STORAGE_BUFFER,
-            gpu_allocator::MemoryLocation::GpuToCpu,
-            (chunk_res.x * chunk_res.y * chunk_res.z) as _,
-        );
-
         Self {
+            weight_tex,
             chunk_build_info_buf,
-            weight_data_buf,
         }
+    }
+
+    fn create_weight_tex(device: Device, allocator: Allocator, chunk_res: UVec3) -> Texture {
+        let tex_desc = TextureDesc {
+            extent: chunk_res.to_array(),
+            format: vk::Format::R8_UINT,
+            usage: vk::ImageUsageFlags::STORAGE,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        let sam_desc = Default::default();
+        let tex = Texture::new(device, allocator, &tex_desc, &sam_desc);
+        tex
     }
 }

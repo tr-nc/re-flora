@@ -14,10 +14,10 @@ impl TracerResources {
         tracer_sm: &ShaderModule,
         screen_extent: &[u32; 2],
     ) -> Self {
-        let shader_write_tex = Self::create_shader_write_texture(
-            [screen_extent[0], screen_extent[1], 1],
+        let shader_write_tex = Self::create_shader_write_tex(
             device.clone(),
             allocator.clone(),
+            [screen_extent[0], screen_extent[1], 1],
         );
 
         let gui_input_buf_layout = tracer_sm.get_buffer_layout("GuiInput").unwrap();
@@ -46,17 +46,17 @@ impl TracerResources {
     }
 
     pub fn on_resize(&mut self, device: Device, allocator: Allocator, screen_extent: &[u32; 2]) {
-        self.shader_write_tex = Self::create_shader_write_texture(
-            [screen_extent[0], screen_extent[1], 1],
+        self.shader_write_tex = Self::create_shader_write_tex(
             device,
             allocator,
+            [screen_extent[0], screen_extent[1], 1],
         );
     }
 
-    fn create_shader_write_texture(
-        screen_extent: [u32; 3],
+    fn create_shader_write_tex(
         device: Device,
         allocator: Allocator,
+        screen_extent: [u32; 3],
     ) -> Texture {
         let tex_desc = TextureDesc {
             extent: screen_extent,

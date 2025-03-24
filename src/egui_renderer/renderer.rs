@@ -5,7 +5,7 @@ use crate::vkn::CommandPool;
 use crate::vkn::DescriptorSet;
 use crate::vkn::Queue;
 use crate::vkn::TextureDesc;
-use crate::vkn::TextureUploadRegion;
+use crate::vkn::TextureRegion;
 use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
 use crate::vkn::{
@@ -207,7 +207,7 @@ impl EguiRenderer {
                         queue,
                         &command_pool,
                         vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-                        TextureUploadRegion {
+                        TextureRegion {
                             offset: [offset_x as _, offset_y as _],
                             extent: [width, height],
                         },
@@ -233,7 +233,7 @@ impl EguiRenderer {
                         queue,
                         &command_pool,
                         vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-                        TextureUploadRegion {
+                        TextureRegion {
                             offset: [0, 0],
                             extent: [width, height],
                         },
