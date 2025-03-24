@@ -1,5 +1,6 @@
 use super::{Allocator, Device};
 use ash::vk;
+use core::slice;
 use gpu_allocator::{
     vulkan::{Allocation, AllocationCreateDesc, AllocationScheme},
     MemoryLocation,
@@ -7,7 +8,7 @@ use gpu_allocator::{
 use std::ops::Deref;
 
 pub struct Buffer {
-    // device: Device,
+    device: Device,
     allocator: Allocator,
     buffer: vk::Buffer,
     allocated_mem: Allocation,
@@ -61,7 +62,7 @@ impl Buffer {
         };
 
         Self {
-            // device,
+            device,
             allocator: allocator,
             buffer,
             allocated_mem: memory,
@@ -76,8 +77,9 @@ impl Buffer {
         self.size
     }
 
-    /// Fills the buffer with raw data. The data size must match the buffer size.
-    pub fn fill_raw(&mut self, data: &[u8]) -> Result<(), String> {
+    /// Fills the buffer with raw data. The data size must match with the buffer size.
+    pub fn fill_raw(&self, data: &[u8]) -> Result<(), String> {
+        // validation: check if data size matches buffer size
         if data.len() != self.size as usize {
             return Err(format!(
                 "Data size {} does not match buffer size {}",
@@ -88,7 +90,11 @@ impl Buffer {
 
         if let Some(ptr) = self.allocated_mem.mapped_ptr() {
             unsafe {
-                let mut align = ash::util::Align::new(ptr.as_ptr(), 1, data.len() as _);
+                let mut align = ash::util::Align::new(
+                    ptr.as_ptr(),
+                    std::mem::align_of::<u8>() as vk::DeviceSize,
+                    data.len() as vk::DeviceSize,
+                );
                 align.copy_from_slice(data);
             };
             Ok(())
@@ -97,17 +103,35 @@ impl Buffer {
         }
     }
 
-    pub fn fill<T: Copy>(&mut self, data: &[T]) -> Result<(), String> {
-        let size = std::mem::size_of_val(data) as _;
+    pub fn fill<T: Copy>(&self, data: &[T]) -> Result<(), String> {
         if let Some(ptr) = self.allocated_mem.mapped_ptr() {
+            let size = std::mem::size_of_val(data);
             unsafe {
-                let mut align =
-                    ash::util::Align::new(ptr.as_ptr(), std::mem::align_of::<T>() as _, size);
+                let mut align = ash::util::Align::new(
+                    ptr.as_ptr(),
+                    std::mem::align_of::<T>() as vk::DeviceSize,
+                    size as vk::DeviceSize,
+                );
                 align.copy_from_slice(data);
             };
             Ok(())
         } else {
             return Err("Failed to map buffer memory".to_string());
+        }
+    }
+
+    pub fn fetch_raw(&self) -> Result<Vec<u8>, String> {
+        if let Some(ptr) = self.allocated_mem.mapped_ptr() {
+            let size = self.size;
+            let mut data: Vec<u8> = vec![0; size as usize];
+            unsafe {
+                let mapped_slice: &mut [u8] =
+                    slice::from_raw_parts_mut(ptr.as_ptr().cast(), size as usize);
+                data.copy_from_slice(mapped_slice);
+            }
+            Ok(data)
+        } else {
+            Err("Failed to map buffer memory".to_string())
         }
     }
 

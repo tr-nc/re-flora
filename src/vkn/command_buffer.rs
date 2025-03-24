@@ -92,6 +92,7 @@ fn create_cmdbuf(device: &Device, command_pool: vk::CommandPool) -> vk::CommandB
     unsafe { device.allocate_command_buffers(&allocate_info).unwrap()[0] }
 }
 
+/// Execute a one-time command buffer, workload is guaranteed to be finished before return.
 pub fn execute_one_time_command<R, F: FnOnce(&CommandBuffer) -> R>(
     device: &Device,
     pool: &CommandPool,

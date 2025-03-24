@@ -1,6 +1,12 @@
+use std::collections::HashMap;
+
 use super::BuilderResources;
+use super::Chunk;
 use crate::util::compiler::ShaderCompiler;
+use crate::vkn::execute_one_time_command;
 use crate::vkn::Allocator;
+use crate::vkn::BufferBuilder;
+use crate::vkn::CommandPool;
 use crate::vkn::ComputePipeline;
 use crate::vkn::DescriptorPool;
 use crate::vkn::DescriptorSet;
@@ -8,6 +14,7 @@ use crate::vkn::ShaderModule;
 use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
 use ash::vk;
+use glam::IVec3;
 use glam::UVec3;
 
 pub struct Builder {
@@ -16,12 +23,13 @@ pub struct Builder {
     allocator: Allocator,
     resources: BuilderResources,
 
-    no_of_chunks: UVec3,
-
     chunk_init_sm: ShaderModule,
     chunk_init_ppl: ComputePipeline,
     chunk_init_ds: DescriptorSet,
     descriptor_pool: DescriptorPool,
+
+    chunk_res: UVec3,
+    chunks: HashMap<IVec3, Chunk>,
 }
 
 impl Builder {
@@ -30,7 +38,6 @@ impl Builder {
         allocator: Allocator,
         shader_compiler: &ShaderCompiler,
         chunk_res: UVec3,
-        no_of_chunks: UVec3,
     ) -> Self {
         if chunk_res.x != chunk_res.y || chunk_res.y != chunk_res.z {
             log::error!("Resolution must be equal in all dimensions");
@@ -76,12 +83,27 @@ impl Builder {
             vulkan_context,
             allocator,
             resources,
-            no_of_chunks,
             chunk_init_sm,
             chunk_init_ppl,
             chunk_init_ds,
             descriptor_pool,
+            chunk_res,
+            chunks: HashMap::new(),
         }
+    }
+
+    pub fn build(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
+        let chunk_data = self.generate_chunk_data_gpu(command_pool, self.chunk_res, chunk_pos);
+
+        // debug the chunkdata
+        log::debug!("Chunk data: {:?}", chunk_data);
+
+        let chunk = Chunk {
+            res: self.chunk_res,
+            pos: chunk_pos,
+            data: chunk_data,
+        };
+        self.chunks.insert(chunk_pos, chunk);
     }
 
     fn create_chunk_init_descriptor_set(
@@ -110,5 +132,48 @@ impl Builder {
             ),
         ]);
         compute_descriptor_set
+    }
+
+    fn generate_chunk_data_gpu(
+        &mut self,
+        command_pool: &CommandPool,
+        resolution: UVec3,
+        chunk_pos: IVec3,
+    ) -> Vec<u8> {
+        // modify the uniform buffer to guide the chunk generation
+        let chunk_build_info_layout = BufferBuilder::from_layout(
+            self.chunk_init_sm
+                .get_buffer_layout("ChunkBuildInfo")
+                .unwrap(),
+        );
+        let chunk_build_info_data = chunk_build_info_layout
+            .set_uvec3("chunk_res", resolution.to_array())
+            .set_ivec3("chunk_pos", chunk_pos.to_array())
+            .build();
+        self.resources
+            .chunk_build_info_buf
+            .fill_raw(&chunk_build_info_data)
+            .expect("Failed to fill buffer data");
+
+        execute_one_time_command(
+            self.vulkan_context.device(),
+            command_pool,
+            &self.vulkan_context.get_general_queue(),
+            |cmdbuf| {
+                self.chunk_init_ppl.record_bind(cmdbuf);
+                self.chunk_init_ppl.record_bind_descriptor_sets(
+                    cmdbuf,
+                    std::slice::from_ref(&self.chunk_init_ds),
+                    0,
+                );
+                self.chunk_init_ppl
+                    .record_dispatch(cmdbuf, resolution.to_array());
+            },
+        );
+
+        self.resources
+            .weight_data_buf
+            .fetch_raw()
+            .expect("Failed to fetch buffer data")
     }
 }

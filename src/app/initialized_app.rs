@@ -11,7 +11,7 @@ use crate::{
 };
 use ash::vk;
 use egui::{Color32, RichText, Slider};
-use glam::UVec3;
+use glam::{IVec3, UVec3};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
 use std::sync::{Arc, Mutex};
 use winit::event::DeviceEvent;
@@ -110,13 +110,14 @@ impl InitializedApp {
             &screen_extent,
         );
 
-        let builder = Builder::new(
+        let mut builder = Builder::new(
             vulkan_context.clone(),
             allocator.clone(),
             &shader_compiler,
-            UVec3::new(256, 256, 256),
-            UVec3::new(1, 1, 1),
+            UVec3::new(8, 8, 8),
         );
+
+        builder.build(&command_pool, IVec3::new(0, 0, 0));
 
         Self {
             vulkan_context,

@@ -30,7 +30,7 @@ impl BuilderResources {
             device.clone(),
             allocator,
             vk::BufferUsageFlags::STORAGE_BUFFER,
-            gpu_allocator::MemoryLocation::GpuOnly,
+            gpu_allocator::MemoryLocation::GpuToCpu,
             (chunk_res.x * chunk_res.y * chunk_res.z) as _,
         );
 

@@ -8,7 +8,7 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
 layout(set = 0, binding = 0) uniform ChunkBuildInfo {
     uvec3 chunk_res;
-    uvec3 chunk_pos;
+    ivec3 chunk_pos;
 }
 chunk_build_info;
 
@@ -75,8 +75,7 @@ void main() {
     }
 
     vec3 local_voxel_pos = (vec3(uvi) - 0.5) / vec3(chunk_build_info.chunk_res);
-    vec3 chunk_pos       = vec3(chunk_build_info.chunk_pos);
-    vec3 world_voxel_pos = local_voxel_pos + chunk_pos;
+    vec3 world_voxel_pos = local_voxel_pos + vec3(chunk_build_info.chunk_pos);
 
     float noise  = compute_noise(world_voxel_pos);
     float weight = noise - world_voxel_pos.y;
@@ -84,5 +83,5 @@ void main() {
     uint block_type = get_block_type(weight);
 
     uint idx              = uvi_to_idx(uvi);
-    weight_data.data[idx] = block_type;
+    weight_data.data[idx] = 1;
 }
