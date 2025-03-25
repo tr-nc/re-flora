@@ -42,6 +42,32 @@ impl DescriptorPool {
         })))
     }
 
+    /// Use this for development stages only. Not recommended for production use.
+    pub fn a_big_one(device: &Device) -> Result<Self, String> {
+        let pool_sizes = [
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::UNIFORM_BUFFER,
+                descriptor_count: 1000,
+            },
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                descriptor_count: 1000,
+            },
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::STORAGE_BUFFER,
+                descriptor_count: 1000,
+            },
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::STORAGE_IMAGE,
+                descriptor_count: 1000,
+            },
+        ];
+        let create_info = vk::DescriptorPoolCreateInfo::default()
+            .pool_sizes(&pool_sizes)
+            .max_sets(100);
+        Self::new(&device, create_info)
+    }
+
     pub fn from_descriptor_set_layouts(
         device: &Device,
         descriptor_set_layouts: &[DescriptorSetLayout],

@@ -146,9 +146,9 @@ impl Tracer {
     ) -> DescriptorSet {
         let compute_descriptor_set = DescriptorSet::new(
             vulkan_context.device().clone(),
-            compute_pipeline
+            &compute_pipeline
                 .get_pipeline_layout()
-                .get_descriptor_set_layouts(),
+                .get_descriptor_set_layouts()[0],
             descriptor_pool,
         );
         compute_descriptor_set.perform_writes(&[

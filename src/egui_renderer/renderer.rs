@@ -225,7 +225,7 @@ impl EguiRenderer {
                 };
                 let sam_desc = Default::default();
 
-                let mut texture =
+                let texture =
                     Texture::new(device.clone(), self.allocator.clone(), &tex_desc, &sam_desc);
 
                 texture
@@ -243,7 +243,7 @@ impl EguiRenderer {
 
                 let set = DescriptorSet::new(
                     device.clone(),
-                    std::slice::from_ref(&self.descriptor_set_layout),
+                    &self.descriptor_set_layout,
                     self.descriptor_pool.clone(),
                 );
 

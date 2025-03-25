@@ -122,10 +122,10 @@ impl InitializedApp {
         let end = std::time::Instant::now();
         log::info!("Init time: {:?}", end - start);
 
-        let start = std::time::Instant::now();
-        builder.cull_chunk(IVec3::new(0, 0, 0));
-        let end = std::time::Instant::now();
-        log::info!("Culling time: {:?}", end - start);
+        // let start = std::time::Instant::now();
+        // builder.cull_chunk(IVec3::new(0, 0, 0));
+        // let end = std::time::Instant::now();
+        // log::info!("Culling time: {:?}", end - start);
 
         Self {
             vulkan_context,

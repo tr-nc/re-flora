@@ -5,22 +5,20 @@ use super::{Buffer, DescriptorPool, DescriptorSetLayout, Device, Texture};
 pub struct DescriptorSet {
     device: Device,
     descriptor_set: vk::DescriptorSet,
-    _descriptor_set_layouts: Vec<DescriptorSetLayout>,
     _pool: DescriptorPool,
 }
 
 impl DescriptorSet {
     pub fn new(
         device: Device,
-        descriptor_set_layouts: &[DescriptorSetLayout],
+        descriptor_set_layout: &DescriptorSetLayout,
         descriptor_pool: DescriptorPool,
     ) -> Self {
         let descriptor_set =
-            create_descriptor_set(&device, &descriptor_pool, descriptor_set_layouts);
+            create_descriptor_set(&device, &descriptor_pool, descriptor_set_layout);
         Self {
             device: device.clone(),
             descriptor_set,
-            _descriptor_set_layouts: descriptor_set_layouts.to_vec(),
             _pool: descriptor_pool.clone(),
         }
     }
@@ -38,13 +36,12 @@ impl DescriptorSet {
 fn create_descriptor_set(
     device: &Device,
     descriptor_pool: &DescriptorPool,
-    set_layouts: &[DescriptorSetLayout],
+    set_layout: &DescriptorSetLayout,
 ) -> vk::DescriptorSet {
-    let set_layouts = set_layouts.iter().map(|l| l.as_raw()).collect::<Vec<_>>();
+    let set_layouts = [set_layout.as_raw()];
     let allocate_info = vk::DescriptorSetAllocateInfo::default()
         .descriptor_pool(descriptor_pool.as_raw())
         .set_layouts(&set_layouts);
-
     unsafe {
         device
             .allocate_descriptor_sets(&allocate_info)
