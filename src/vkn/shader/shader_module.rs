@@ -333,17 +333,24 @@ fn extract_struct_layouts(
 
             let layout = StructLayout {
                 type_name: layout_name,
-                total_size: block_info.padded_size,
+                // the following line leads to incorrect answer when parsing storage buffers
+                // (uniform buffers are ok), therefore a customized function is used
+                // total_size: block_info.padded_size,
+                total_size: get_total_size_from_members(&members),
                 members,
                 descriptor_type: binding.descriptor_type,
             };
 
-            log::debug!("Buffer layout: {:#?}", layout);
+            log::debug!("Extracted buffer layout: {:#?}", layout);
             result.insert(layout.type_name.clone(), layout);
         }
     }
 
     Ok(result)
+}
+
+fn get_total_size_from_members(members: &HashMap<String, StructMember>) -> u32 {
+    members.values().map(|m| m.padded_size).sum()
 }
 
 /// Given an array of `ReflectBlockVariable`, build a list of our `BufferMember`.

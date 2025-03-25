@@ -16,7 +16,6 @@ use crate::vkn::WriteDescriptorSet;
 use ash::vk;
 use glam::IVec3;
 use glam::UVec3;
-use rayon::prelude::*;
 
 pub struct Builder {
     vulkan_context: VulkanContext,
@@ -25,9 +24,15 @@ pub struct Builder {
     resources: BuilderResources,
 
     chunk_init_sm: ShaderModule,
+    frag_list_maker_sm: ShaderModule,
+
     chunk_init_ppl: ComputePipeline,
+    frag_list_maker_ppl: ComputePipeline,
+
     shared_ds: DescriptorSet,
     chunk_init_ds: DescriptorSet,
+    frag_list_maker_ds: DescriptorSet,
+
     descriptor_pool: DescriptorPool,
 
     chunk_res: UVec3,
@@ -58,19 +63,31 @@ impl Builder {
         let chunk_init_ppl =
             ComputePipeline::from_shader_module(vulkan_context.device(), &chunk_init_sm);
 
+        let frag_list_maker_sm = ShaderModule::from_glsl(
+            vulkan_context.device(),
+            &shader_compiler,
+            "shader/builder/frag_list_maker.comp",
+            "main",
+        )
+        .unwrap();
+        let frag_list_maker_ppl =
+            ComputePipeline::from_shader_module(vulkan_context.device(), &frag_list_maker_sm);
+
         let descriptor_pool = DescriptorPool::a_big_one(vulkan_context.device()).unwrap();
 
         let resources = BuilderResources::new(
             vulkan_context.device().clone(),
             allocator.clone(),
             &chunk_init_sm,
+            &frag_list_maker_sm,
             chunk_res,
         );
 
-        let (shared_ds, chunk_init_ds) = Self::create_descriptor_sets(
+        let (shared_ds, chunk_init_ds, frag_list_maker_ds) = Self::create_descriptor_sets(
             descriptor_pool.clone(),
             &vulkan_context,
             &chunk_init_ppl,
+            &frag_list_maker_ppl,
             &resources,
         );
 
@@ -79,9 +96,12 @@ impl Builder {
             allocator,
             resources,
             chunk_init_sm,
+            frag_list_maker_sm,
             chunk_init_ppl,
+            frag_list_maker_ppl,
             shared_ds,
             chunk_init_ds,
+            frag_list_maker_ds,
             descriptor_pool,
             chunk_res,
             chunks: HashMap::new(),
@@ -98,68 +118,68 @@ impl Builder {
         self.chunks.insert(chunk_pos, chunk);
     }
 
-    fn create_shared_descriptor_set(
+    fn create_descriptor_sets(
         descriptor_pool: DescriptorPool,
         vulkan_context: &VulkanContext,
-        compute_pipeline: &ComputePipeline,
+        chunk_init_ppl: &ComputePipeline,
+        frag_list_maker_ppl: &ComputePipeline,
         resources: &BuilderResources,
-    ) -> DescriptorSet {
-        let compute_descriptor_set = DescriptorSet::new(
+    ) -> (DescriptorSet, DescriptorSet, DescriptorSet) {
+        // this set is shared between all pipelines
+        let shared_ds = DescriptorSet::new(
             vulkan_context.device().clone(),
-            &compute_pipeline
+            &chunk_init_ppl
                 .get_pipeline_layout()
                 .get_descriptor_set_layouts()[0],
-            descriptor_pool,
+            descriptor_pool.clone(),
         );
-        compute_descriptor_set.perform_writes(&[WriteDescriptorSet::new_buffer_write(
+        shared_ds.perform_writes(&[WriteDescriptorSet::new_buffer_write(
             0,
             vk::DescriptorType::UNIFORM_BUFFER,
             &resources.chunk_build_info_buf,
         )]);
-        compute_descriptor_set
-    }
 
-    fn create_chunk_init_descriptor_set(
-        descriptor_pool: DescriptorPool,
-        vulkan_context: &VulkanContext,
-        compute_pipeline: &ComputePipeline,
-        resources: &BuilderResources,
-    ) -> DescriptorSet {
-        let compute_descriptor_set = DescriptorSet::new(
+        let chunk_init_ds = DescriptorSet::new(
             vulkan_context.device().clone(),
-            &compute_pipeline
+            &chunk_init_ppl
                 .get_pipeline_layout()
                 .get_descriptor_set_layouts()[1],
-            descriptor_pool,
+            descriptor_pool.clone(),
         );
-        compute_descriptor_set.perform_writes(&[WriteDescriptorSet::new_texture_write(
+        chunk_init_ds.perform_writes(&[WriteDescriptorSet::new_texture_write(
             0,
             vk::DescriptorType::STORAGE_IMAGE,
             &resources.weight_tex,
             vk::ImageLayout::GENERAL,
         )]);
-        compute_descriptor_set
-    }
 
-    fn create_descriptor_sets(
-        descriptor_pool: DescriptorPool,
-        vulkan_context: &VulkanContext,
-        compute_pipeline: &ComputePipeline,
-        resources: &BuilderResources,
-    ) -> (DescriptorSet, DescriptorSet) {
-        let shared_ds = Self::create_shared_descriptor_set(
+        let frag_list_maker_ds = DescriptorSet::new(
+            vulkan_context.device().clone(),
+            &frag_list_maker_ppl
+                .get_pipeline_layout()
+                .get_descriptor_set_layouts()[1],
             descriptor_pool.clone(),
-            vulkan_context,
-            compute_pipeline,
-            resources,
         );
-        let chunk_init_ds = Self::create_chunk_init_descriptor_set(
-            descriptor_pool.clone(),
-            vulkan_context,
-            compute_pipeline,
-            resources,
-        );
-        (shared_ds, chunk_init_ds)
+        frag_list_maker_ds.perform_writes(&[
+            WriteDescriptorSet::new_texture_write(
+                0,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.weight_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_buffer_write(
+                1,
+                vk::DescriptorType::STORAGE_BUFFER,
+                &resources.fragment_list_info_buf,
+            ),
+            WriteDescriptorSet::new_buffer_write(
+                2,
+                vk::DescriptorType::STORAGE_BUFFER,
+                &resources.fragment_list_buf,
+            ),
+        ]);
+
+        (shared_ds, chunk_init_ds, frag_list_maker_ds)
     }
 
     fn generate_chunk_data(
@@ -181,6 +201,20 @@ impl Builder {
         self.resources
             .chunk_build_info_buf
             .fill_raw(&chunk_build_info_data)
+            .expect("Failed to fill buffer data");
+
+        // reset the fragment list info buffer
+        let fragment_list_info_layout = BufferBuilder::from_layout(
+            self.frag_list_maker_sm
+                .get_buffer_layout("FragmentListInfo")
+                .unwrap(),
+        );
+        let fragment_list_info_data = fragment_list_info_layout
+            .set_uint("current_fragment_list_len", 0)
+            .build();
+        self.resources
+            .fragment_list_info_buf
+            .fill_raw(&fragment_list_info_data)
             .expect("Failed to fill buffer data");
 
         let start = std::time::Instant::now();
@@ -212,15 +246,45 @@ impl Builder {
         let end = std::time::Instant::now();
         log::debug!("Chunk generation time: {:?}", end - start);
 
-        let start = std::time::Instant::now();
-        let chunk_data = self
-            .resources
-            .weight_tex
-            .fetch_data(&self.vulkan_context.get_general_queue(), command_pool)
-            .expect("Failed to fetch buffer data");
-        let end = std::time::Instant::now();
-        log::debug!("Chunk data fetch time: {:?}", end - start);
+        // let start = std::time::Instant::now();
+        // let chunk_data = self
+        //     .resources
+        //     .weight_tex
+        //     .fetch_data(&self.vulkan_context.get_general_queue(), command_pool)
+        //     .expect("Failed to fetch buffer data");
+        // let end = std::time::Instant::now();
+        // log::debug!("Chunk data fetch time: {:?}", end - start);
+        // chunk_data
 
-        chunk_data
+        let start = std::time::Instant::now();
+        execute_one_time_command(
+            self.vulkan_context.device(),
+            command_pool,
+            &self.vulkan_context.get_general_queue(),
+            |cmdbuf| {
+                self.resources
+                    .weight_tex
+                    .get_image()
+                    .record_transition_barrier(cmdbuf, vk::ImageLayout::GENERAL);
+
+                self.frag_list_maker_ppl.record_bind(cmdbuf);
+                self.frag_list_maker_ppl.record_bind_descriptor_sets(
+                    cmdbuf,
+                    std::slice::from_ref(&self.shared_ds),
+                    0,
+                );
+                self.frag_list_maker_ppl.record_bind_descriptor_sets(
+                    cmdbuf,
+                    std::slice::from_ref(&self.frag_list_maker_ds),
+                    1,
+                );
+                self.frag_list_maker_ppl
+                    .record_dispatch(cmdbuf, resolution.to_array());
+            },
+        );
+        let end = std::time::Instant::now();
+        log::debug!("Chunk generation time: {:?}", end - start);
+
+        vec![]
     }
 }

@@ -121,10 +121,13 @@ void main() {
         return;
     }
 
-    bool occluded = is_occluded(uvi);
+    // if the block is not solid, we don't need to add it to the fragment list.
+    if (!is_solid(get_block_type(uvi))) {
+        return;
+    }
 
     // if the block is occluded, we don't need to add it to the fragment list.
-    if (occluded) {
+    if (is_occluded(uvi)) {
         return;
     }
 
