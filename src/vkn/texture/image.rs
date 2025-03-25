@@ -1,3 +1,4 @@
+use super::TextureDesc;
 use crate::vkn::{Allocator, CommandBuffer, Device};
 use ash::vk::{self, ImageLayout};
 use gpu_allocator::{
@@ -5,8 +6,6 @@ use gpu_allocator::{
     MemoryLocation,
 };
 use std::sync::{Arc, Mutex};
-
-use super::texture::TextureDesc;
 
 struct ImageInner {
     device: Device,

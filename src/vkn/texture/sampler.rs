@@ -3,46 +3,7 @@ use std::sync::Arc;
 
 use crate::vkn::Device;
 
-#[derive(Copy, Clone)]
-pub struct SamplerDesc {
-    pub mag_filter: vk::Filter,
-    pub min_filter: vk::Filter,
-    pub address_mode_u: vk::SamplerAddressMode,
-    pub address_mode_v: vk::SamplerAddressMode,
-    pub address_mode_w: vk::SamplerAddressMode,
-    pub anisotropy_enable: bool,
-    pub max_anisotropy: f32,
-    pub border_color: vk::BorderColor,
-    pub unnormalized_coordinates: bool,
-    pub compare_enable: bool,
-    pub compare_op: vk::CompareOp,
-    pub mipmap_mode: vk::SamplerMipmapMode,
-    pub mip_lod_bias: f32,
-    pub min_lod: f32,
-    pub max_lod: f32,
-}
-
-impl Default for SamplerDesc {
-    fn default() -> Self {
-        Self {
-            mag_filter: vk::Filter::LINEAR,
-            min_filter: vk::Filter::LINEAR,
-            address_mode_u: vk::SamplerAddressMode::CLAMP_TO_EDGE,
-            address_mode_v: vk::SamplerAddressMode::CLAMP_TO_EDGE,
-            address_mode_w: vk::SamplerAddressMode::CLAMP_TO_EDGE,
-            anisotropy_enable: false,
-            max_anisotropy: 1.0,
-            border_color: vk::BorderColor::INT_OPAQUE_BLACK,
-            unnormalized_coordinates: false,
-            compare_enable: false,
-            compare_op: vk::CompareOp::ALWAYS,
-            mipmap_mode: vk::SamplerMipmapMode::LINEAR,
-            mip_lod_bias: 0.0,
-            min_lod: 0.0,
-            max_lod: 1.0,
-        }
-    }
-}
+use super::SamplerDesc;
 
 struct SamplerInner {
     device: Device,

@@ -9,3 +9,9 @@ pub use sampler::*;
 
 mod texture;
 pub use texture::*;
+
+mod region;
+pub use region::*;
+
+mod desc;
+pub use desc::*;
