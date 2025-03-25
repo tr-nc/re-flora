@@ -92,12 +92,8 @@ impl Builder {
         }
     }
 
-    pub fn build(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
-        let chunk_data = self.generate_chunk_data_gpu(command_pool, self.chunk_res, chunk_pos);
-
-        // debug the chunkdata
-        log::debug!("Chunk data: {:?}", chunk_data);
-
+    pub fn init_chunk(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
+        let chunk_data = self.generate_chunk_data(command_pool, self.chunk_res, chunk_pos);
         let chunk = Chunk {
             res: self.chunk_res,
             pos: chunk_pos,
@@ -135,7 +131,7 @@ impl Builder {
         compute_descriptor_set
     }
 
-    fn generate_chunk_data_gpu(
+    fn generate_chunk_data(
         &mut self,
         command_pool: &CommandPool,
         resolution: UVec3,
@@ -177,11 +173,12 @@ impl Builder {
             },
         );
 
-        // self.resources
-        //     .weight_data_buf
-        //     .fetch_raw()
-        //     .expect("Failed to fetch buffer data")
+        let chunk_data = self
+            .resources
+            .weight_tex
+            .fetch_data(&self.vulkan_context.get_general_queue(), command_pool)
+            .expect("Failed to fetch buffer data");
 
-        vec![]
+        chunk_data
     }
 }

@@ -114,10 +114,10 @@ impl InitializedApp {
             vulkan_context.clone(),
             allocator.clone(),
             &shader_compiler,
-            UVec3::new(8, 8, 8),
+            UVec3::new(256, 256, 256),
         );
 
-        builder.build(&command_pool, IVec3::new(0, 0, 0));
+        builder.init_chunk(&command_pool, IVec3::new(0, 0, 0));
 
         Self {
             vulkan_context,

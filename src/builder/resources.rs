@@ -37,7 +37,7 @@ impl BuilderResources {
         let tex_desc = TextureDesc {
             extent: chunk_res.to_array(),
             format: vk::Format::R8_UINT,
-            usage: vk::ImageUsageFlags::STORAGE,
+            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC,
             initial_layout: vk::ImageLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()

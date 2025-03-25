@@ -40,7 +40,7 @@ impl Texture {
         }
     }
 
-    /// Uploads an RGBA image to the texture. The image is transitioned to the `dst_image_layout` afterwards.
+    /// Uploads an RGBA image to the texture. The image is transitioned into `dst_image_layout` the data upload.
     pub fn upload_rgba_image(
         &self,
         queue: &Queue,
@@ -99,54 +99,50 @@ impl Texture {
         Ok(self)
     }
 
-    // TODO: implement for other image formats
-    // pub fn fetch_data(&self, queue: &Queue, command_pool: &CommandPool) -> Result<Vec<u8>, String> {
-    //     let buffer = Buffer::new_sized(
-    //         self.device.clone(),
-    //         self.image.get_allocator().clone(),
-    //         vk::BufferUsageFlags::TRANSFER_DST,
-    //         gpu_allocator::MemoryLocation::GpuToCpu,
-    //         self.image.get_size() as _,
-    //     );
+    /// Obtain the image data from the texture of the full image region.
+    // TODO: Add support for regions and other formats.
+    pub fn fetch_data(&self, queue: &Queue, command_pool: &CommandPool) -> Result<Vec<u8>, String> {
+        let buffer = Buffer::new_sized(
+            self.device.clone(),
+            self.image.get_allocator().clone(),
+            vk::BufferUsageFlags::TRANSFER_DST,
+            gpu_allocator::MemoryLocation::GpuToCpu,
+            self.image.get_size() as _,
+        );
 
-    //     execute_one_time_command(&self.device.clone(), command_pool, queue, |cmdbuf| {
-    //         self.image
-    //             .record_transition_barrier(cmdbuf, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
-    //         let region = vk::BufferImageCopy::default()
-    //             .buffer_offset(0)
-    //             .buffer_row_length(0)
-    //             .buffer_image_height(0)
-    //             .image_subresource(vk::ImageSubresourceLayers {
-    //                 aspect_mask: vk::ImageAspectFlags::COLOR,
-    //                 mip_level: 0,
-    //                 base_array_layer: 0,
-    //                 layer_count: 1,
-    //             })
-    //             .image_offset(vk::Offset3D {
-    //                 x: region.offset[0],
-    //                 y: region.offset[1],
-    //                 z: 0,
-    //             })
-    //             .image_extent(vk::Extent3D {
-    //                 width: region.extent[0],
-    //                 height: region.extent[1],
-    //                 depth: 1,
-    //             });
-    //         unsafe {
-    //             self.device.cmd_copy_image_to_buffer(
-    //                 cmdbuf.as_raw(),
-    //                 self.image.as_raw(),
-    //                 vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-    //                 buffer.as_raw(),
-    //                 &[region],
-    //             )
-    //         }
-    //         self.image
-    //             .record_transition_barrier(cmdbuf, dst_image_layout);
-    //     });
+        execute_one_time_command(&self.device.clone(), command_pool, queue, |cmdbuf| {
+            self.image
+                .record_transition_barrier(cmdbuf, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
+            let region = vk::BufferImageCopy::default()
+                .buffer_offset(0)
+                .buffer_row_length(0)
+                .buffer_image_height(0)
+                .image_subresource(vk::ImageSubresourceLayers {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    mip_level: 0,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                })
+                .image_offset(vk::Offset3D { x: 0, y: 0, z: 0 })
+                .image_extent(vk::Extent3D {
+                    width: self.image.get_desc().extent[0],
+                    height: self.image.get_desc().extent[1],
+                    depth: self.image.get_desc().extent[2],
+                });
+            unsafe {
+                self.device.cmd_copy_image_to_buffer(
+                    cmdbuf.as_raw(),
+                    self.image.as_raw(),
+                    vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                    buffer.as_raw(),
+                    &[region],
+                )
+            }
+        });
 
-    //     Ok(self)
-    // }
+        let fetched_data = buffer.fetch_raw()?;
+        Ok(fetched_data)
+    }
 
     pub fn get_image(&self) -> &Image {
         &self.image
