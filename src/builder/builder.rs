@@ -109,11 +109,16 @@ impl Builder {
     }
 
     pub fn init_chunk(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
-        let chunk_data = self.generate_chunk_data(command_pool, self.chunk_res, chunk_pos);
+        self.update_chunk_build_info_buffer(self.chunk_res, chunk_pos);
+        self.reset_fragment_list_info_buf();
+
+        self.init_block_tex_by_noise(command_pool, self.chunk_res);
+        self.fill_fragment_list_from_block_tex(command_pool, self.chunk_res);
+
         let chunk = Chunk {
             res: self.chunk_res,
             pos: chunk_pos,
-            data: chunk_data,
+            data: vec![], // the data is not sent to CPU yet
         };
         self.chunks.insert(chunk_pos, chunk);
     }
@@ -149,7 +154,7 @@ impl Builder {
         chunk_init_ds.perform_writes(&[WriteDescriptorSet::new_texture_write(
             0,
             vk::DescriptorType::STORAGE_IMAGE,
-            &resources.weight_tex,
+            &resources.blocks_tex,
             vk::ImageLayout::GENERAL,
         )]);
 
@@ -164,7 +169,7 @@ impl Builder {
             WriteDescriptorSet::new_texture_write(
                 0,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.weight_tex,
+                &resources.blocks_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_buffer_write(
@@ -182,12 +187,7 @@ impl Builder {
         (shared_ds, chunk_init_ds, frag_list_maker_ds)
     }
 
-    fn generate_chunk_data(
-        &mut self,
-        command_pool: &CommandPool,
-        resolution: UVec3,
-        chunk_pos: IVec3,
-    ) -> Vec<u8> {
+    fn update_chunk_build_info_buffer(&mut self, resolution: UVec3, chunk_pos: IVec3) {
         // modify the uniform buffer to guide the chunk generation
         let chunk_build_info_layout = BufferBuilder::from_layout(
             self.chunk_init_sm
@@ -202,7 +202,9 @@ impl Builder {
             .chunk_build_info_buf
             .fill_raw(&chunk_build_info_data)
             .expect("Failed to fill buffer data");
+    }
 
+    fn reset_fragment_list_info_buf(&self) {
         // reset the fragment list info buffer
         let fragment_list_info_layout = BufferBuilder::from_layout(
             self.frag_list_maker_sm
@@ -216,15 +218,17 @@ impl Builder {
             .fragment_list_info_buf
             .fill_raw(&fragment_list_info_data)
             .expect("Failed to fill buffer data");
+    }
 
-        let start = std::time::Instant::now();
+    /// Ask the builder to write the block texture from noise, chunk build info buffer must be ready before calling.
+    fn init_block_tex_by_noise(&mut self, command_pool: &CommandPool, resolution: UVec3) {
         execute_one_time_command(
             self.vulkan_context.device(),
             command_pool,
             &self.vulkan_context.get_general_queue(),
             |cmdbuf| {
                 self.resources
-                    .weight_tex
+                    .blocks_tex
                     .get_image()
                     .record_transition_barrier(cmdbuf, vk::ImageLayout::GENERAL);
 
@@ -243,27 +247,17 @@ impl Builder {
                     .record_dispatch(cmdbuf, resolution.to_array());
             },
         );
-        let end = std::time::Instant::now();
-        log::debug!("Chunk generation time: {:?}", end - start);
+    }
 
-        // let start = std::time::Instant::now();
-        // let chunk_data = self
-        //     .resources
-        //     .weight_tex
-        //     .fetch_data(&self.vulkan_context.get_general_queue(), command_pool)
-        //     .expect("Failed to fetch buffer data");
-        // let end = std::time::Instant::now();
-        // log::debug!("Chunk data fetch time: {:?}", end - start);
-        // chunk_data
-
-        let start = std::time::Instant::now();
+    /// Generate the chunk data and fill the fragment list buffer.
+    fn fill_fragment_list_from_block_tex(&mut self, command_pool: &CommandPool, resolution: UVec3) {
         execute_one_time_command(
             self.vulkan_context.device(),
             command_pool,
             &self.vulkan_context.get_general_queue(),
             |cmdbuf| {
                 self.resources
-                    .weight_tex
+                    .blocks_tex
                     .get_image()
                     .record_transition_barrier(cmdbuf, vk::ImageLayout::GENERAL);
 
@@ -282,9 +276,5 @@ impl Builder {
                     .record_dispatch(cmdbuf, resolution.to_array());
             },
         );
-        let end = std::time::Instant::now();
-        log::debug!("Chunk generation time: {:?}", end - start);
-
-        vec![]
     }
 }

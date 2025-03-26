@@ -4,41 +4,11 @@ use glam::UVec3;
 use crate::vkn::{Allocator, Buffer, Device, ShaderModule, Texture, TextureDesc};
 
 pub struct BuilderResources {
-    pub weight_tex: Texture,
+    pub blocks_tex: Texture,
     pub chunk_build_info_buf: Buffer,
     pub fragment_list_info_buf: Buffer,
     pub fragment_list_buf: Buffer,
 }
-
-// 03:35:41.055Z DEBUG [re_flora::vkn::shader::shader_module] Buffer layout: StructLayout {
-//     type_name: "FragmentListInfo",
-//     total_size: 16,
-//     members: {
-//         "current_fragment_list_len": StructMember {
-//             name: "current_fragment_list_len",
-//             type_name: "uint",
-//             offset: 0,
-//             size: 4,
-//             padded_size: 16,
-//         },
-//     },
-//     descriptor_type: UniformBuffer,
-// }
-
-// 03:36:40.659Z DEBUG [re_flora::vkn::shader::shader_module] Buffer layout: StructLayout {
-//     type_name: "FragmentListInfo",
-//     total_size: 0,
-//     members: {
-//         "current_fragment_list_len": StructMember {
-//             name: "current_fragment_list_len",
-//             type_name: "uint",
-//             offset: 0,
-//             size: 4,
-//             padded_size: 4,
-//         },
-//     },
-//     descriptor_type: StorageBuffer,
-// }
 
 impl BuilderResources {
     pub fn new(
@@ -90,7 +60,7 @@ impl BuilderResources {
         );
 
         Self {
-            weight_tex,
+            blocks_tex: weight_tex,
             chunk_build_info_buf,
             fragment_list_info_buf,
             fragment_list_buf,

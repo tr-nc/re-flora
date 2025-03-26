@@ -11,7 +11,7 @@ layout(set = 0, binding = 0) uniform ChunkBuildInfo {
 }
 chunk_build_info;
 
-layout(set = 1, binding = 0, r8ui) writeonly uniform uimage3D weight_image;
+layout(set = 1, binding = 0, r8ui) writeonly uniform uimage3D blocks_image;
 
 #include "../include/block_types.glsl"
 #include "../include/core/inoise.glsl"
@@ -54,5 +54,5 @@ void main() {
 
     uint block_type = get_block_type(weight);
 
-    imageStore(weight_image, uvi, uvec4(block_type));
+    imageStore(blocks_image, uvi, uvec4(block_type));
 }

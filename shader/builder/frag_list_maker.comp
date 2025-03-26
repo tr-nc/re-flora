@@ -11,7 +11,7 @@ layout(set = 0, binding = 0) uniform ChunkBuildInfo {
 }
 chunk_build_info;
 
-layout(set = 1, binding = 0, r8ui) readonly uniform uimage3D weight_image;
+layout(set = 1, binding = 0, r8ui) readonly uniform uimage3D blocks_image;
 
 layout(set = 1, binding = 1) buffer FragmentListInfo { uint current_fragment_list_len; }
 fragment_list_info;
@@ -24,7 +24,7 @@ fragment_list;
 
 bool is_solid(uint block_type) { return block_type != BLOCK_TYPE_EMPTY; }
 
-uint get_block_type(ivec3 uvi) { return imageLoad(weight_image, uvi).x; }
+uint get_block_type(ivec3 uvi) { return imageLoad(blocks_image, uvi).x; }
 
 /// Check if a block is occluded by its neighbours.
 /// A block is occluded if all of its neighbours are solid.
