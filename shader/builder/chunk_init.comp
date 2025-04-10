@@ -1,3 +1,4 @@
+//! Fill the chunk image with artificial noise. Only for initialization of a certain chunk.
 #version 450
 
 #extension GL_GOOGLE_include_directive : require
@@ -5,12 +6,14 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
-layout(set = 0, binding = 0) uniform ChunkBuildInfo {
+// stores information of the current chunk to build
+layout(set = 0, binding = 0) readonly uniform U_ChunkBuildInfo {
     uvec3 chunk_res;
     ivec3 chunk_pos;
 }
 chunk_build_info;
 
+// the final texture to write block types into
 layout(set = 1, binding = 0, r8ui) writeonly uniform uimage3D blocks_image;
 
 #include "../include/block_types.glsl"

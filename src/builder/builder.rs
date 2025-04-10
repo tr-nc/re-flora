@@ -20,7 +20,6 @@ use glam::UVec3;
 pub struct Builder {
     vulkan_context: VulkanContext,
 
-    allocator: Allocator,
     resources: BuilderResources,
 
     chunk_init_sm: ShaderModule,
@@ -32,8 +31,6 @@ pub struct Builder {
     shared_ds: DescriptorSet,
     chunk_init_ds: DescriptorSet,
     frag_list_maker_ds: DescriptorSet,
-
-    descriptor_pool: DescriptorPool,
 
     chunk_res: UVec3,
     chunks: HashMap<IVec3, Chunk>,
@@ -73,6 +70,56 @@ impl Builder {
         let frag_list_maker_ppl =
             ComputePipeline::from_shader_module(vulkan_context.device(), &frag_list_maker_sm);
 
+        let octree_init_buffers_sm = ShaderModule::from_glsl(
+            vulkan_context.device(),
+            &shader_compiler,
+            "shader/builder/octree_init_buffers.comp",
+            "main",
+        )
+        .unwrap();
+        let octree_init_buffers_ppl =
+            ComputePipeline::from_shader_module(vulkan_context.device(), &octree_init_buffers_sm);
+
+        let octree_init_node_sm = ShaderModule::from_glsl(
+            vulkan_context.device(),
+            &shader_compiler,
+            "shader/builder/octree_init_node.comp",
+            "main",
+        )
+        .unwrap();
+        let octree_init_node_ppl =
+            ComputePipeline::from_shader_module(vulkan_context.device(), &octree_init_node_sm);
+
+        let octree_tag_node_sm = ShaderModule::from_glsl(
+            vulkan_context.device(),
+            &shader_compiler,
+            "shader/builder/octree_tag_node.comp",
+            "main",
+        )
+        .unwrap();
+        let octree_tag_node_ppl =
+            ComputePipeline::from_shader_module(vulkan_context.device(), &octree_tag_node_sm);
+
+        let octree_alloc_node_sm = ShaderModule::from_glsl(
+            vulkan_context.device(),
+            &shader_compiler,
+            "shader/builder/octree_alloc_node.comp",
+            "main",
+        )
+        .unwrap();
+        let octree_alloc_node_ppl =
+            ComputePipeline::from_shader_module(vulkan_context.device(), &octree_alloc_node_sm);
+
+        let octree_modify_args_sm = ShaderModule::from_glsl(
+            vulkan_context.device(),
+            &shader_compiler,
+            "shader/builder/octree_modify_args.comp",
+            "main",
+        )
+        .unwrap();
+        let octree_modify_args_ppl =
+            ComputePipeline::from_shader_module(vulkan_context.device(), &octree_modify_args_sm);
+
         let descriptor_pool = DescriptorPool::a_big_one(vulkan_context.device()).unwrap();
 
         let resources = BuilderResources::new(
@@ -80,6 +127,7 @@ impl Builder {
             allocator.clone(),
             &chunk_init_sm,
             &frag_list_maker_sm,
+            &octree_init_buffers_sm,
             chunk_res,
         );
 
@@ -93,7 +141,6 @@ impl Builder {
 
         Self {
             vulkan_context,
-            allocator,
             resources,
             chunk_init_sm,
             frag_list_maker_sm,
@@ -102,14 +149,13 @@ impl Builder {
             shared_ds,
             chunk_init_ds,
             frag_list_maker_ds,
-            descriptor_pool,
             chunk_res,
             chunks: HashMap::new(),
         }
     }
 
     pub fn init_chunk(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
-        self.update_chunk_build_info_buffer(self.chunk_res, chunk_pos);
+        self.update_chunk_build_info_buf(self.chunk_res, chunk_pos);
         self.reset_fragment_list_info_buf();
 
         self.init_block_tex_by_noise(command_pool, self.chunk_res);
@@ -118,7 +164,7 @@ impl Builder {
         let chunk = Chunk {
             res: self.chunk_res,
             pos: chunk_pos,
-            data: vec![], // the data is not sent to CPU yet
+            data: vec![], // the data is not sent back to CPU for now
         };
         self.chunks.insert(chunk_pos, chunk);
     }
@@ -141,7 +187,7 @@ impl Builder {
         shared_ds.perform_writes(&[WriteDescriptorSet::new_buffer_write(
             0,
             vk::DescriptorType::UNIFORM_BUFFER,
-            &resources.chunk_build_info_buf,
+            &resources.chunk_build_info,
         )]);
 
         let chunk_init_ds = DescriptorSet::new(
@@ -175,23 +221,23 @@ impl Builder {
             WriteDescriptorSet::new_buffer_write(
                 1,
                 vk::DescriptorType::STORAGE_BUFFER,
-                &resources.fragment_list_info_buf,
+                &resources.fragment_list_info,
             ),
             WriteDescriptorSet::new_buffer_write(
                 2,
                 vk::DescriptorType::STORAGE_BUFFER,
-                &resources.fragment_list_buf,
+                &resources.fragment_list,
             ),
         ]);
 
         (shared_ds, chunk_init_ds, frag_list_maker_ds)
     }
 
-    fn update_chunk_build_info_buffer(&mut self, resolution: UVec3, chunk_pos: IVec3) {
+    fn update_chunk_build_info_buf(&mut self, resolution: UVec3, chunk_pos: IVec3) {
         // modify the uniform buffer to guide the chunk generation
         let chunk_build_info_layout = BufferBuilder::from_layout(
             self.chunk_init_sm
-                .get_buffer_layout("ChunkBuildInfo")
+                .get_buffer_layout("U_ChunkBuildInfo")
                 .unwrap(),
         );
         let chunk_build_info_data = chunk_build_info_layout
@@ -199,7 +245,7 @@ impl Builder {
             .set_ivec3("chunk_pos", chunk_pos.to_array())
             .build();
         self.resources
-            .chunk_build_info_buf
+            .chunk_build_info
             .fill_raw(&chunk_build_info_data)
             .expect("Failed to fill buffer data");
     }
@@ -208,14 +254,14 @@ impl Builder {
         // reset the fragment list info buffer
         let fragment_list_info_layout = BufferBuilder::from_layout(
             self.frag_list_maker_sm
-                .get_buffer_layout("FragmentListInfo")
+                .get_buffer_layout("B_FragmentListInfo")
                 .unwrap(),
         );
         let fragment_list_info_data = fragment_list_info_layout
-            .set_uint("current_fragment_list_len", 0)
+            .set_uint("fragment_list_len", 0)
             .build();
         self.resources
-            .fragment_list_info_buf
+            .fragment_list_info
             .fill_raw(&fragment_list_info_data)
             .expect("Failed to fill buffer data");
     }

@@ -11,7 +11,7 @@ layout(local_size_x = GROUP_SIZE, local_size_y = GROUP_SIZE, local_size_z = GROU
 
 #include "../include/block_type_packer.glsl"
 #include "../include/block_types.glsl"
-#include "../include/builder_structs.glsl"
+#include "../include/octree_build_info.glsl"
 
 #include "../include/core/packer.glsl"
 
@@ -21,8 +21,8 @@ layout(set = 1, binding = 0) uniform readonly uimage3D field_image;
 // in the shader that performs atomicAdd, do not use writeonly specifier
 // https://github.com/KhronosGroup/GLSL/issues/174
 layout(set = 1, binding = 1) buffer B_VoxelCount { uint voxel_count; };
-layout(set = 1, binding = 2) writeonly buffer B_PerVoxelBuildInfo {
-  PerVoxelBuildInfo per_voxel_build_infos[];
+layout(set = 1, binding = 2) writeonly buffer B_FragmentListEntry {
+    FragmentListEntry per_voxel_build_infos[];
 };
 
 #define SHARED_SIZE (GROUP_SIZE + 1)
@@ -31,28 +31,28 @@ layout(set = 1, binding = 2) writeonly buffer B_PerVoxelBuildInfo {
 shared uint shared_field_data[SHARED_SIZE][SHARED_SIZE][SHARED_SIZE];
 
 uint compress_normal(vec3 normal) {
-  // scale and bias from [-1, 1] to [0, 127]
-  uvec3 quantized = uvec3(((normal + 1.0) * 0.5) * 127.0);
+    // scale and bias from [-1, 1] to [0, 127]
+    uvec3 quantized = uvec3(((normal + 1.0) * 0.5) * 127.0);
 
-  // pack the 7-bit components into a single uint
-  uint packed = (quantized.r) | (quantized.g << 7) | (quantized.b << 14);
+    // pack the 7-bit components into a single uint
+    uint packed = (quantized.r) | (quantized.g << 7) | (quantized.b << 14);
 
-  return packed;
+    return packed;
 }
 
 void preload() {
-  for (uint linear_idx = gl_LocalInvocationIndex; linear_idx < SHARED_SIZE_3;
-       linear_idx += GROUP_SIZE_3) {
+    for (uint linear_idx = gl_LocalInvocationIndex; linear_idx < SHARED_SIZE_3;
+         linear_idx += GROUP_SIZE_3) {
 
-    uvec3 shared_idx;
-    shared_idx.x = linear_idx % SHARED_SIZE;
-    shared_idx.y = (linear_idx / SHARED_SIZE) % SHARED_SIZE;
-    shared_idx.z = linear_idx / (SHARED_SIZE * SHARED_SIZE);
+        uvec3 shared_idx;
+        shared_idx.x = linear_idx % SHARED_SIZE;
+        shared_idx.y = (linear_idx / SHARED_SIZE) % SHARED_SIZE;
+        shared_idx.z = linear_idx / (SHARED_SIZE * SHARED_SIZE);
 
-    ivec3 group_base = ivec3(gl_WorkGroupID) * GROUP_SIZE;
-    uint val         = imageLoad(field_image, group_base + ivec3(shared_idx)).x;
-    shared_field_data[shared_idx.x][shared_idx.y][shared_idx.z] = val;
-  }
+        ivec3 group_base = ivec3(gl_WorkGroupID) * GROUP_SIZE;
+        uint val         = imageLoad(field_image, group_base + ivec3(shared_idx)).x;
+        shared_field_data[shared_idx.x][shared_idx.y][shared_idx.z] = val;
+    }
 }
 
 const ivec3 lookup_offsets[8] =
@@ -61,72 +61,72 @@ const ivec3 lookup_offsets[8] =
 
 bool at_interface(out uint o_lightest_block_type, out uint o_densiest_block_type,
                   uint[8] block_type_data) {
-  o_densiest_block_type = BLOCK_TYPE_EMPTY;
-  o_lightest_block_type = BLOCK_TYPE_MAX;
+    o_densiest_block_type = BLOCK_TYPE_EMPTY;
+    o_lightest_block_type = BLOCK_TYPE_MAX;
 
-  for (int i = 0; i < 8; i++) {
-    uint block_type = block_type_data[i];
-    if (block_type > o_densiest_block_type) {
-      o_densiest_block_type = block_type;
+    for (int i = 0; i < 8; i++) {
+        uint block_type = block_type_data[i];
+        if (block_type > o_densiest_block_type) {
+            o_densiest_block_type = block_type;
+        }
+        if (block_type < o_lightest_block_type) {
+            o_lightest_block_type = block_type;
+        }
     }
-    if (block_type < o_lightest_block_type) {
-      o_lightest_block_type = block_type;
-    }
-  }
-  return o_lightest_block_type == BLOCK_TYPE_EMPTY && o_densiest_block_type != BLOCK_TYPE_EMPTY;
+    return o_lightest_block_type == BLOCK_TYPE_EMPTY && o_densiest_block_type != BLOCK_TYPE_EMPTY;
 }
 
 vec3 get_normal_by_weight(float[8] weight_data) {
-  vec3 normal;
-  normal.x = ((weight_data[0] + weight_data[2] + weight_data[4] + weight_data[6]) -
-              (weight_data[1] + weight_data[3] + weight_data[5] + weight_data[7])) *
-             0.25;
-  normal.y = ((weight_data[0] + weight_data[1] + weight_data[4] + weight_data[5]) -
-              (weight_data[2] + weight_data[3] + weight_data[6] + weight_data[7])) *
-             0.25;
-  normal.z = ((weight_data[0] + weight_data[1] + weight_data[2] + weight_data[3]) -
-              (weight_data[4] + weight_data[5] + weight_data[6] + weight_data[7])) *
-             0.25;
-  return normalize(normal);
+    vec3 normal;
+    normal.x = ((weight_data[0] + weight_data[2] + weight_data[4] + weight_data[6]) -
+                (weight_data[1] + weight_data[3] + weight_data[5] + weight_data[7])) *
+               0.25;
+    normal.y = ((weight_data[0] + weight_data[1] + weight_data[4] + weight_data[5]) -
+                (weight_data[2] + weight_data[3] + weight_data[6] + weight_data[7])) *
+               0.25;
+    normal.z = ((weight_data[0] + weight_data[1] + weight_data[2] + weight_data[3]) -
+                (weight_data[4] + weight_data[5] + weight_data[6] + weight_data[7])) *
+               0.25;
+    return normalize(normal);
 }
 
 void main() {
-  preload();
-  barrier();
+    preload();
+    barrier();
 
-  ivec3 uvi = ivec3(gl_GlobalInvocationID);
-  if (any(greaterThanEqual(uvi, ivec3(voxel_resolution)))) {
-    return;
-  }
+    ivec3 uvi = ivec3(gl_GlobalInvocationID);
+    if (any(greaterThanEqual(uvi, ivec3(voxel_resolution)))) {
+        return;
+    }
 
-  uint block_type_data[8];
-  float weight_data[8];
-  for (int i = 0; i < 8; i++) {
-    ivec3 p   = ivec3(gl_LocalInvocationID) + lookup_offsets[i];
-    uint data = shared_field_data[p.x][p.y][p.z];
-    unpack_block_type_and_weight(block_type_data[i], weight_data[i], data);
-  }
+    uint block_type_data[8];
+    float weight_data[8];
+    for (int i = 0; i < 8; i++) {
+        ivec3 p   = ivec3(gl_LocalInvocationID) + lookup_offsets[i];
+        uint data = shared_field_data[p.x][p.y][p.z];
+        unpack_block_type_and_weight(block_type_data[i], weight_data[i], data);
+    }
 
-  uint lightest_block_type, densest_block_type;
-  if (!at_interface(lightest_block_type, densest_block_type, block_type_data)) {
-    return;
-  }
+    uint lightest_block_type, densest_block_type;
+    if (!at_interface(lightest_block_type, densest_block_type, block_type_data)) {
+        return;
+    }
 
-  uint fragment_list_cur = atomicAdd(voxel_count, 1);
+    uint fragment_list_cur = atomicAdd(voxel_count, 1);
 
-  // position
-  PerVoxelBuildInfo voxel_info;
-  uint coordinates_data = uvi.x;
-  coordinates_data |= uvi.y << 10;
-  coordinates_data |= uvi.z << 20;
-  voxel_info.coordinates = coordinates_data;
+    // position
+    FragmentListEntry voxel_info;
+    uint coordinates_data = uvi.x;
+    coordinates_data |= uvi.y << 10;
+    coordinates_data |= uvi.z << 20;
+    voxel_info.coordinates = coordinates_data;
 
-  vec3 normal = get_normal_by_weight(weight_data);
+    vec3 normal = get_normal_by_weight(weight_data);
 
-  uint properties_data = 0;
-  properties_data |= densest_block_type & 0xFF;
-  properties_data |= compress_normal(normal) << 8;
-  voxel_info.properties = properties_data;
+    uint properties_data = 0;
+    properties_data |= densest_block_type & 0xFF;
+    properties_data |= compress_normal(normal) << 8;
+    voxel_info.properties = properties_data;
 
-  per_voxel_build_infos[fragment_list_cur] = voxel_info;
+    per_voxel_build_infos[fragment_list_cur] = voxel_info;
 }

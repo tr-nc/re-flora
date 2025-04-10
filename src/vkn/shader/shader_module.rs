@@ -9,7 +9,8 @@ use crate::{
 use ash::vk::{self, PushConstantRange};
 use shaderc::ShaderKind;
 use spirv_reflect::{
-    types::ReflectDescriptorType, types::ReflectTypeFlags, ShaderModule as ReflectShaderModule,
+    types::{ReflectDescriptorSet, ReflectDescriptorType, ReflectTypeFlags},
+    ShaderModule as ReflectShaderModule,
 };
 use std::{collections::HashMap, ffi::CString, fmt::Debug, sync::Arc};
 
@@ -192,29 +193,49 @@ impl ShaderModule {
         Some(ranges)
     }
 
-    fn get_descriptor_set_layouts(&self) -> Option<Vec<DescriptorSetLayout>> {
+    fn get_descriptor_sets(&self) -> Vec<Option<ReflectDescriptorSet>> {
         let descriptor_sets = self
             .0
             .reflect_shader_module
             .enumerate_descriptor_sets(None)
-            .ok()?;
+            .expect("Failed to enumerate descriptor sets");
+
         if descriptor_sets.is_empty() {
-            return None;
+            return vec![];
         }
+
+        let max_set_no = descriptor_sets.iter().map(|set| set.set).max().unwrap_or(0);
+
+        let mut sets: Vec<Option<ReflectDescriptorSet>> = vec![None; (max_set_no + 1) as usize];
+
+        for set in descriptor_sets {
+            let set_no = set.set;
+            sets[set_no as usize] = Some(set);
+        }
+
+        sets
+    }
+
+    fn get_descriptor_set_layouts(&self) -> Option<Vec<DescriptorSetLayout>> {
+        let descriptor_sets = self.get_descriptor_sets();
 
         let mut layouts = Vec::new();
         for descriptor_set in descriptor_sets {
             let mut builder = DescriptorSetLayoutBuilder::new();
-            for binding in descriptor_set.bindings {
-                let descriptor_type =
-                    reflect_descriptor_type_to_descriptor_type(binding.descriptor_type);
-                let stage_flags = self.get_stage();
-                builder.add_binding(DescriptorSetLayoutBinding {
-                    no: binding.binding,
-                    descriptor_type,
-                    descriptor_count: binding.count,
-                    stage_flags,
-                });
+
+            // if the descriptor set is valid, add its bindings to the layout
+            if let Some(descriptor_set) = descriptor_set {
+                for binding in descriptor_set.bindings {
+                    let descriptor_type =
+                        reflect_descriptor_type_to_descriptor_type(binding.descriptor_type);
+                    let stage_flags = self.get_stage();
+                    builder.add_binding(DescriptorSetLayoutBinding {
+                        no: binding.binding,
+                        descriptor_type,
+                        descriptor_count: binding.count,
+                        stage_flags,
+                    });
+                }
             }
             layouts.push(builder.build(&self.0.device).unwrap());
         }

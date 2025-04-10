@@ -1,14 +1,25 @@
 //! Wipes out corresponding ranges of octree data to 0.
 #version 450
 
+#extension GL_GOOGLE_include_directive : require
+
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
-#include "../include/builder_structs.glsl"
+layout(set = 0, binding = 0) readonly uniform B_OctreeBuildInfo {
+    uint chunk_res_xyz;
+    uint fragment_list_len;
+}
+octree_build_info;
+layout(set = 0, binding = 1) readonly buffer B_OctreeAllocInfo {
+    uint alloc_begin;
+    uint alloc_num;
+}
+octree_alloc_info;
 
-layout(set = 1, binding = 0) readonly buffer B_OctreeBuildInfo { OctreeBuildInfo octree_build_info; };
-layout(set = 1, binding = 1) writeonly buffer B_OctreeData { uint octree_data[]; };
+layout(set = 1, binding = 0) writeonly buffer B_OctreeData { uint data[]; }
+octree_data;
 
 void main() {
-  if (gl_GlobalInvocationID.x >= octree_build_info.alloc_num) return;
-  octree_data[gl_GlobalInvocationID.x + octree_build_info.alloc_begin] = 0;
+    if (gl_GlobalInvocationID.x >= octree_alloc_info.alloc_num) return;
+    octree_data.data[gl_GlobalInvocationID.x + octree_alloc_info.alloc_begin] = 0;
 }

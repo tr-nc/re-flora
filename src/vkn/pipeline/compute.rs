@@ -27,12 +27,6 @@ impl Deref for ComputePipeline {
 }
 
 impl ComputePipeline {
-    pub fn from_shader_module(device: &Device, shader_module: &ShaderModule) -> Self {
-        let stage_info = shader_module.get_shader_stage_create_info();
-        let pipeline_layout = shader_module.get_pipeline_layout(&device);
-        Self::new(device, &stage_info, pipeline_layout, shader_module)
-    }
-
     fn new(
         device: &Device,
         stage_info: &vk::PipelineShaderStageCreateInfo,
@@ -64,6 +58,12 @@ impl ComputePipeline {
             pipeline_layout,
             workgroup_size,
         }
+    }
+
+    pub fn from_shader_module(device: &Device, shader_module: &ShaderModule) -> Self {
+        let stage_info = shader_module.get_shader_stage_create_info();
+        let pipeline_layout = shader_module.get_pipeline_layout(&device);
+        Self::new(device, &stage_info, pipeline_layout, shader_module)
     }
 
     pub fn get_pipeline_layout(&self) -> &PipelineLayout {

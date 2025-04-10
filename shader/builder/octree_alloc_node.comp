@@ -1,0 +1,64 @@
+#version 450
+// #extension GL_KHR_shader_subgroup_ballot : enable
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly uniform B_OctreeBuildInfo {
+    uint chunk_res_xyz;
+    uint fragment_list_len;
+}
+octree_build_info;
+layout(set = 0, binding = 1) readonly buffer B_OctreeAllocInfo {
+    uint alloc_begin;
+    uint alloc_num;
+}
+octree_alloc_info;
+
+layout(set = 1, binding = 0) buffer B_OctreeData { uint data[]; }
+octree_data;
+#include "../include/fragment_list_entry.glsl"
+layout(set = 1, binding = 1) readonly buffer B_FragmentList {
+    FragmentListEntry per_voxel_build_infos[];
+}
+fragment_list;
+layout(set = 1, binding = 2) buffer B_Counter { uint data; }
+counter_buffer;
+
+// #define USE_BALLOT true
+
+void main() {
+    if (gl_GlobalInvocationID.x >= octree_alloc_info.alloc_num) return;
+
+    uint idx = octree_alloc_info.alloc_begin + gl_GlobalInvocationID.x;
+
+    // if being tagged
+    if ((octree_data.data[idx] & 0x80000000u) > 0u) {
+        // if (!USE_BALLOT) {
+        octree_data.data[idx] = 0x80000000u | ((atomicAdd(counter_buffer.data, 1u)) << 3u);
+        // } else {
+        //     uvec4 ballot = subgroupBallot(true);
+        //     // the goal here is to reduce the computational stress bringing to GPU
+        //     // syncronization by eliminating the calls of atomicAdd (only 1 / 32 for
+        //     // Nvidia cards)
+
+        //     // the optimization is viable because of the bit flagging of ballot
+        //     uint cur_base;
+        //     if (subgroupElect()) {
+        //         // it returns the value BEFORE the addition
+        //         // after this step, cur_base stores the original active pointer within
+        //         // that buffer to write to, and the active pointer is incremented by the
+        //         // number of active threads within the subgroup
+        //         cur_base = atomicAdd(counterBuffer.data, subgroupBallotBitCount(ballot));
+        //     }
+        //     // sync that active pointer val to all threads within the subgroup
+        //     cur_base = subgroupBroadcastFirst(cur_base);
+
+        //     // get the position to write without any collision
+        //     uint cur = cur_base + subgroupBallotExclusiveBitCount(ballot);
+
+        //     // << 3u is equivalent to * 8u, which is the size of each node
+        //     octreeBuffer.data[idx] = (cur << 3u) | 0x80000000u;
+        // }
+    }
+}
