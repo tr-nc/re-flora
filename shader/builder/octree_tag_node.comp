@@ -9,11 +9,11 @@ layout(set = 0, binding = 0) readonly uniform B_OctreeBuildInfo {
     uint fragment_list_len;
 }
 octree_build_info;
-// layout(set = 0, binding = 1) writeonly buffer B_OctreeAllocInfo {
-//     uint alloc_begin;
-//     uint alloc_num;
-// }
-// octree_alloc_info;
+layout(set = 0, binding = 1) writeonly buffer B_OctreeAllocInfo {
+    uint alloc_begin;
+    uint alloc_num;
+}
+octree_alloc_info;
 
 layout(set = 1, binding = 0) buffer B_OctreeData { uint data[]; }
 octree_data;

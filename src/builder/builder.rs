@@ -565,44 +565,46 @@ impl Builder {
                     self.octree_init_node_ppl
                         .record_dispatch_indirect(cmdbuf, &self.resources.alloc_number_indirect);
 
-                    // shader_access_pipeline_barrier.record_insert(device, cmdbuf);
+                    shader_access_pipeline_barrier.record_insert(device, cmdbuf);
 
-                    // self.octree_tag_node_ppl.record_bind(cmdbuf);
-                    // self.octree_tag_node_ppl.record_bind_descriptor_sets(
-                    //     cmdbuf,
-                    //     std::slice::from_ref(&self.octree_tag_node_ds),
-                    //     1,
-                    // );
-                    // self.octree_tag_node_ppl
-                    //     .record_dispatch_indirect(cmdbuf, &self.resources.fragment_list);
+                    self.octree_tag_node_ppl.record_bind(cmdbuf);
+                    self.octree_tag_node_ppl.record_bind_descriptor_sets(
+                        cmdbuf,
+                        std::slice::from_ref(&self.octree_tag_node_ds),
+                        1,
+                    );
+                    self.octree_tag_node_ppl
+                        .record_dispatch_indirect(cmdbuf, &self.resources.voxel_count_indirect);
 
-                    // // if not last level
-                    // if i != voxel_level_count - 1 {
-                    //     shader_access_pipeline_barrier.record_insert(device, cmdbuf);
+                    // if not last level
+                    if i != voxel_level_count - 1 {
+                        shader_access_pipeline_barrier.record_insert(device, cmdbuf);
 
-                    //     self.octree_alloc_node_ppl.record_bind(cmdbuf);
-                    //     self.octree_alloc_node_ppl.record_bind_descriptor_sets(
-                    //         cmdbuf,
-                    //         std::slice::from_ref(&self.octree_alloc_node_ds),
-                    //         1,
-                    //     );
-                    //     self.octree_alloc_node_ppl
-                    //         .record_dispatch_indirect(cmdbuf, &self.resources.counter);
+                        self.octree_alloc_node_ppl.record_bind(cmdbuf);
+                        self.octree_alloc_node_ppl.record_bind_descriptor_sets(
+                            cmdbuf,
+                            std::slice::from_ref(&self.octree_alloc_node_ds),
+                            1,
+                        );
+                        self.octree_alloc_node_ppl.record_dispatch_indirect(
+                            cmdbuf,
+                            &self.resources.alloc_number_indirect,
+                        );
 
-                    //     shader_access_pipeline_barrier.record_insert(device, cmdbuf);
+                        shader_access_pipeline_barrier.record_insert(device, cmdbuf);
 
-                    //     self.octree_modify_args_ppl.record_bind(cmdbuf);
-                    //     self.octree_modify_args_ppl.record_bind_descriptor_sets(
-                    //         cmdbuf,
-                    //         std::slice::from_ref(&self.octree_modify_args_ds),
-                    //         1,
-                    //     );
-                    //     self.octree_modify_args_ppl
-                    //         .record_dispatch(cmdbuf, [1, 1, 1]);
+                        self.octree_modify_args_ppl.record_bind(cmdbuf);
+                        self.octree_modify_args_ppl.record_bind_descriptor_sets(
+                            cmdbuf,
+                            std::slice::from_ref(&self.octree_modify_args_ds),
+                            1,
+                        );
+                        self.octree_modify_args_ppl
+                            .record_dispatch(cmdbuf, [1, 1, 1]);
 
-                    //     shader_access_pipeline_barrier.record_insert(device, cmdbuf);
-                    //     indirect_access_pipeline_barrier.record_insert(device, cmdbuf);
-                    // }
+                        shader_access_pipeline_barrier.record_insert(device, cmdbuf);
+                        indirect_access_pipeline_barrier.record_insert(device, cmdbuf);
+                    }
                 }
             },
         );
