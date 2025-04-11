@@ -207,7 +207,6 @@ impl Builder {
         );
         shared_ds.perform_writes(&[WriteDescriptorSet::new_buffer_write(
             0,
-            vk::DescriptorType::UNIFORM_BUFFER,
             &resources.chunk_build_info,
         )]);
 
@@ -239,16 +238,8 @@ impl Builder {
                 &resources.blocks_tex,
                 vk::ImageLayout::GENERAL,
             ),
-            WriteDescriptorSet::new_buffer_write(
-                1,
-                vk::DescriptorType::STORAGE_BUFFER,
-                &resources.fragment_list_info,
-            ),
-            WriteDescriptorSet::new_buffer_write(
-                2,
-                vk::DescriptorType::STORAGE_BUFFER,
-                &resources.fragment_list,
-            ),
+            WriteDescriptorSet::new_buffer_write(1, &resources.fragment_list_info),
+            WriteDescriptorSet::new_buffer_write(2, &resources.fragment_list),
         ]);
 
         (shared_ds, chunk_init_ds, frag_list_maker_ds)
@@ -279,16 +270,8 @@ impl Builder {
             descriptor_pool.clone(),
         );
         shared_ds.perform_writes(&[
-            WriteDescriptorSet::new_buffer_write(
-                0,
-                vk::DescriptorType::UNIFORM_BUFFER,
-                &resources.octree_build_info,
-            ),
-            WriteDescriptorSet::new_buffer_write(
-                1,
-                vk::DescriptorType::STORAGE_BUFFER,
-                &resources.octree_alloc_info,
-            ),
+            WriteDescriptorSet::new_buffer_write(0, &resources.octree_build_info),
+            WriteDescriptorSet::new_buffer_write(1, &resources.octree_alloc_info),
         ]);
 
         let init_buffers_ds = DescriptorSet::new(
@@ -299,26 +282,10 @@ impl Builder {
             descriptor_pool.clone(),
         );
         init_buffers_ds.perform_writes(&[
-            WriteDescriptorSet::new_buffer_write(
-                0,
-                vk::DescriptorType::STORAGE_BUFFER,
-                &resources.voxel_count_indirect,
-            ),
-            WriteDescriptorSet::new_buffer_write(
-                1,
-                vk::DescriptorType::STORAGE_BUFFER,
-                &resources.alloc_number_indirect,
-            ),
-            WriteDescriptorSet::new_buffer_write(
-                2,
-                vk::DescriptorType::STORAGE_BUFFER,
-                &resources.counter,
-            ),
-            WriteDescriptorSet::new_buffer_write(
-                3,
-                vk::DescriptorType::STORAGE_BUFFER,
-                &resources.octree_build_result,
-            ),
+            WriteDescriptorSet::new_buffer_write(0, &resources.voxel_count_indirect),
+            WriteDescriptorSet::new_buffer_write(1, &resources.alloc_number_indirect),
+            WriteDescriptorSet::new_buffer_write(2, &resources.counter),
+            WriteDescriptorSet::new_buffer_write(3, &resources.octree_build_result),
         ]);
 
         let init_node_ds = DescriptorSet::new(
@@ -330,7 +297,6 @@ impl Builder {
         );
         init_node_ds.perform_writes(&[WriteDescriptorSet::new_buffer_write(
             0,
-            vk::DescriptorType::STORAGE_BUFFER,
             &resources.octree_data,
         )]);
 
@@ -342,16 +308,8 @@ impl Builder {
             descriptor_pool.clone(),
         );
         tag_node_ds.perform_writes(&[
-            WriteDescriptorSet::new_buffer_write(
-                0,
-                vk::DescriptorType::STORAGE_BUFFER, // TODO: this could be inferred!
-                &resources.octree_data,
-            ),
-            WriteDescriptorSet::new_buffer_write(
-                1,
-                vk::DescriptorType::STORAGE_BUFFER,
-                &resources.fragment_list,
-            ),
+            WriteDescriptorSet::new_buffer_write(0, &resources.octree_data),
+            WriteDescriptorSet::new_buffer_write(1, &resources.fragment_list),
         ]);
 
         let alloc_node_ds = DescriptorSet::new(
@@ -362,21 +320,9 @@ impl Builder {
             descriptor_pool.clone(),
         );
         alloc_node_ds.perform_writes(&[
-            WriteDescriptorSet::new_buffer_write(
-                0,
-                vk::DescriptorType::STORAGE_BUFFER,
-                &resources.octree_data,
-            ),
-            WriteDescriptorSet::new_buffer_write(
-                1,
-                vk::DescriptorType::STORAGE_BUFFER,
-                &resources.fragment_list,
-            ),
-            WriteDescriptorSet::new_buffer_write(
-                2,
-                vk::DescriptorType::STORAGE_BUFFER,
-                &resources.counter,
-            ),
+            WriteDescriptorSet::new_buffer_write(0, &resources.octree_data),
+            WriteDescriptorSet::new_buffer_write(1, &resources.fragment_list),
+            WriteDescriptorSet::new_buffer_write(2, &resources.counter),
         ]);
 
         let modify_args_ds = DescriptorSet::new(
@@ -387,21 +333,9 @@ impl Builder {
             descriptor_pool.clone(),
         );
         modify_args_ds.perform_writes(&[
-            WriteDescriptorSet::new_buffer_write(
-                0,
-                vk::DescriptorType::STORAGE_BUFFER,
-                &resources.counter,
-            ),
-            WriteDescriptorSet::new_buffer_write(
-                1,
-                vk::DescriptorType::STORAGE_BUFFER,
-                &resources.octree_build_result,
-            ),
-            WriteDescriptorSet::new_buffer_write(
-                2,
-                vk::DescriptorType::STORAGE_BUFFER,
-                &resources.alloc_number_indirect,
-            ),
+            WriteDescriptorSet::new_buffer_write(0, &resources.counter),
+            WriteDescriptorSet::new_buffer_write(1, &resources.octree_build_result),
+            WriteDescriptorSet::new_buffer_write(2, &resources.alloc_number_indirect),
         ]);
 
         return (

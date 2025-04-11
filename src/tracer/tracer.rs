@@ -158,16 +158,8 @@ impl Tracer {
                 &resources.shader_write_tex,
                 vk::ImageLayout::GENERAL,
             ),
-            WriteDescriptorSet::new_buffer_write(
-                1,
-                vk::DescriptorType::UNIFORM_BUFFER,
-                &resources.gui_input_buf,
-            ),
-            WriteDescriptorSet::new_buffer_write(
-                2,
-                vk::DescriptorType::UNIFORM_BUFFER,
-                &resources.camera_info_buf,
-            ),
+            WriteDescriptorSet::new_buffer_write(1, &resources.gui_input_buf),
+            WriteDescriptorSet::new_buffer_write(2, &resources.camera_info_buf),
         ]);
         compute_descriptor_set
     }

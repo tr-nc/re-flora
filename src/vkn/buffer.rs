@@ -7,11 +7,17 @@ use gpu_allocator::{
 };
 use std::ops::Deref;
 
+struct BufferDesc {
+    pub usage: vk::BufferUsageFlags,
+    pub location: MemoryLocation,
+    pub size: vk::DeviceSize,
+}
+
 pub struct Buffer {
     allocator: Allocator,
     buffer: vk::Buffer,
     allocated_mem: Allocation,
-    size: vk::DeviceSize,
+    desc: BufferDesc,
 }
 
 impl Drop for Buffer {
@@ -60,28 +66,42 @@ impl Buffer {
                 .unwrap()
         };
 
+        let desc = BufferDesc {
+            usage,
+            location,
+            size: buffer_size as _,
+        };
+
         Self {
             allocator: allocator,
             buffer,
             allocated_mem,
-            size: buffer_size as _,
+            desc,
         }
     }
 
     pub fn get_size(&self) -> vk::DeviceSize {
         // allocated_mem.size() would give the wrong result here!
         // the allocated size is allocator-specific, and may overallocate.
-        self.size
+        self.desc.size
+    }
+
+    pub fn get_usage(&self) -> vk::BufferUsageFlags {
+        self.desc.usage
+    }
+
+    pub fn get_location(&self) -> MemoryLocation {
+        self.desc.location
     }
 
     /// Fills the buffer with raw data. The data size must match with the buffer size.
     pub fn fill_raw(&self, data: &[u8]) -> Result<(), String> {
         // validation: check if data size matches buffer size
-        if data.len() != self.size as usize {
+        if data.len() != self.desc.size as usize {
             return Err(format!(
                 "Data size {} does not match buffer size {}",
                 data.len(),
-                self.size
+                self.desc.size
             ));
         }
 
@@ -119,7 +139,7 @@ impl Buffer {
 
     pub fn fetch_raw(&self) -> Result<Vec<u8>, String> {
         if let Some(ptr) = self.allocated_mem.mapped_ptr() {
-            let size = self.size;
+            let size = self.desc.size;
             let mut data: Vec<u8> = vec![0; size as usize];
             unsafe {
                 let mapped_slice: &mut [u8] =

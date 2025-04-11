@@ -23,7 +23,7 @@ impl Mesh {
         let indices = create_indices(primitives);
         let index_count = indices.len();
 
-        let mut vertices_buffer = Buffer::new_sized(
+        let vertices_buffer = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
             vk::BufferUsageFlags::VERTEX_BUFFER,
@@ -34,7 +34,7 @@ impl Mesh {
             .fill(&vertices)
             .expect("Failed to fill vertex buffer");
 
-        let mut indices_buffer = Buffer::new_sized(
+        let indices_buffer = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
             vk::BufferUsageFlags::INDEX_BUFFER,

@@ -75,11 +75,7 @@ impl WriteDescriptorSet {
         }
     }
 
-    pub fn new_buffer_write(
-        binding: u32,
-        descriptor_type: vk::DescriptorType,
-        buffer: &Buffer,
-    ) -> Self {
+    pub fn new_buffer_write(binding: u32, buffer: &Buffer) -> Self {
         let buffer_info = vk::DescriptorBufferInfo::default()
             .buffer(buffer.as_raw())
             .offset(0)
@@ -87,9 +83,21 @@ impl WriteDescriptorSet {
 
         Self {
             binding,
-            descriptor_type,
+            descriptor_type: Self::get_descriptor_type_from_buffer_usage(buffer.get_usage()),
             image_infos: None,
             buffer_infos: Some(vec![buffer_info]),
+        }
+    }
+
+    fn get_descriptor_type_from_buffer_usage(
+        buffer_usage: vk::BufferUsageFlags,
+    ) -> vk::DescriptorType {
+        if buffer_usage.contains(vk::BufferUsageFlags::STORAGE_BUFFER) {
+            vk::DescriptorType::STORAGE_BUFFER
+        } else if buffer_usage.contains(vk::BufferUsageFlags::UNIFORM_BUFFER) {
+            vk::DescriptorType::UNIFORM_BUFFER
+        } else {
+            panic!("Unsupported buffer usage for descriptor type")
         }
     }
 
