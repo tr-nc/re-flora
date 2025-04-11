@@ -242,9 +242,7 @@ impl Builder {
         // this set is shared between all pipelines
         let shared_ds = DescriptorSet::new(
             device.clone(),
-            &chunk_init_ppl
-                .get_pipeline_layout()
-                .get_descriptor_set_layouts()[0],
+            &chunk_init_ppl.get_layout().get_descriptor_set_layouts()[0],
             descriptor_pool.clone(),
         );
         shared_ds.perform_writes(&[WriteDescriptorSet::new_buffer_write(
@@ -254,9 +252,7 @@ impl Builder {
 
         let chunk_init_ds = DescriptorSet::new(
             device.clone(),
-            &chunk_init_ppl
-                .get_pipeline_layout()
-                .get_descriptor_set_layouts()[1],
+            &chunk_init_ppl.get_layout().get_descriptor_set_layouts()[1],
             descriptor_pool.clone(),
         );
         chunk_init_ds.perform_writes(&[WriteDescriptorSet::new_texture_write(
@@ -269,7 +265,7 @@ impl Builder {
         let frag_list_maker_ds = DescriptorSet::new(
             device.clone(),
             &frag_list_maker_ppl
-                .get_pipeline_layout()
+                .get_layout()
                 .get_descriptor_set_layouts()[1],
             descriptor_pool.clone(),
         );
@@ -307,7 +303,7 @@ impl Builder {
         let shared_ds = DescriptorSet::new(
             device.clone(),
             &octree_init_buffers_ppl
-                .get_pipeline_layout()
+                .get_layout()
                 .get_descriptor_set_layouts()[0],
             descriptor_pool.clone(),
         );
@@ -319,7 +315,7 @@ impl Builder {
         let init_buffers_ds = DescriptorSet::new(
             device.clone(),
             &octree_init_buffers_ppl
-                .get_pipeline_layout()
+                .get_layout()
                 .get_descriptor_set_layouts()[1],
             descriptor_pool.clone(),
         );
@@ -333,7 +329,7 @@ impl Builder {
         let init_node_ds = DescriptorSet::new(
             device.clone(),
             &octree_init_node_ppl
-                .get_pipeline_layout()
+                .get_layout()
                 .get_descriptor_set_layouts()[1],
             descriptor_pool.clone(),
         );
@@ -345,7 +341,7 @@ impl Builder {
         let tag_node_ds = DescriptorSet::new(
             device.clone(),
             &octree_tag_node_ppl
-                .get_pipeline_layout()
+                .get_layout()
                 .get_descriptor_set_layouts()[1],
             descriptor_pool.clone(),
         );
@@ -357,7 +353,7 @@ impl Builder {
         let alloc_node_ds = DescriptorSet::new(
             device.clone(),
             &octree_alloc_node_ppl
-                .get_pipeline_layout()
+                .get_layout()
                 .get_descriptor_set_layouts()[1],
             descriptor_pool.clone(),
         );
@@ -370,7 +366,7 @@ impl Builder {
         let modify_args_ds = DescriptorSet::new(
             device.clone(),
             &octree_modify_args_ppl
-                .get_pipeline_layout()
+                .get_layout()
                 .get_descriptor_set_layouts()[1],
             descriptor_pool.clone(),
         );

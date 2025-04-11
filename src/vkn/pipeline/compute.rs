@@ -62,11 +62,11 @@ impl ComputePipeline {
 
     pub fn from_shader_module(device: &Device, shader_module: &ShaderModule) -> Self {
         let stage_info = shader_module.get_shader_stage_create_info();
-        let pipeline_layout = shader_module.get_pipeline_layout(&device);
+        let pipeline_layout = PipelineLayout::from_shader_module(device, shader_module);
         Self::new(device, &stage_info, pipeline_layout, shader_module)
     }
 
-    pub fn get_pipeline_layout(&self) -> &PipelineLayout {
+    pub fn get_layout(&self) -> &PipelineLayout {
         &self.pipeline_layout
     }
 

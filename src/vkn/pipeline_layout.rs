@@ -1,4 +1,4 @@
-use super::{DescriptorSetLayout, Device};
+use super::{DescriptorSetLayout, Device, ShaderModule};
 use ash::vk;
 use std::{ops::Deref, sync::Arc};
 
@@ -69,6 +69,16 @@ impl PipelineLayout {
                 .map(|ranges| ranges.to_vec())
                 .unwrap_or_default(),
         }))
+    }
+
+    pub fn from_shader_module(device: &Device, shader_module: &ShaderModule) -> Self {
+        let descriptor_set_layouts = shader_module.get_descriptor_set_layouts();
+        let push_constant_ranges = shader_module.get_push_constant_ranges();
+        PipelineLayout::new(
+            device,
+            descriptor_set_layouts.as_deref(),
+            push_constant_ranges.as_deref(),
+        )
     }
 
     pub fn as_raw(&self) -> vk::PipelineLayout {

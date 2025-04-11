@@ -1,10 +1,7 @@
 use super::struct_layout::{StructLayout, StructMember};
 use crate::{
     util::{compiler::ShaderCompiler, full_path_from_relative},
-    vkn::{
-        DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutBuilder, Device,
-        PipelineLayout,
-    },
+    vkn::{DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutBuilder, Device},
 };
 use ash::vk::{self, PushConstantRange};
 use shaderc::ShaderKind;
@@ -107,17 +104,6 @@ impl ShaderModule {
         Ok([local_size.x, local_size.y, local_size.z])
     }
 
-    /// Constructs the pipeline layout from the descriptor sets and push constants reflected in this shader.
-    pub fn get_pipeline_layout(&self, device: &Device) -> PipelineLayout {
-        let descriptor_set_layouts = self.get_descriptor_set_layouts();
-        let push_constant_ranges = self.get_push_constant_ranges();
-        PipelineLayout::new(
-            device,
-            descriptor_set_layouts.as_deref(),
-            push_constant_ranges.as_deref(),
-        )
-    }
-
     /// Returns the Vulkan stage flags for this shader.
     pub fn get_stage(&self) -> vk::ShaderStageFlags {
         vk::ShaderStageFlags::from_raw(self.0.reflect_shader_module.get_shader_stage().bits())
@@ -172,7 +158,7 @@ impl ShaderModule {
         })))
     }
 
-    fn get_push_constant_ranges(&self) -> Option<Vec<PushConstantRange>> {
+    pub fn get_push_constant_ranges(&self) -> Option<Vec<PushConstantRange>> {
         let push_constant_blocks = self
             .0
             .reflect_shader_module
@@ -216,7 +202,7 @@ impl ShaderModule {
         sets
     }
 
-    fn get_descriptor_set_layouts(&self) -> Option<Vec<DescriptorSetLayout>> {
+    pub fn get_descriptor_set_layouts(&self) -> Option<Vec<DescriptorSetLayout>> {
         let descriptor_sets = self.get_descriptor_sets();
 
         let mut layouts = Vec::new();

@@ -39,7 +39,7 @@ impl Tracer {
         let descriptor_pool = DescriptorPool::from_descriptor_set_layouts(
             vulkan_context.device(),
             tracer_ppl
-                .get_pipeline_layout()
+                .get_layout()
                 .get_descriptor_set_layouts(),
         )
         .unwrap();
@@ -147,7 +147,7 @@ impl Tracer {
         let compute_descriptor_set = DescriptorSet::new(
             vulkan_context.device().clone(),
             &compute_pipeline
-                .get_pipeline_layout()
+                .get_layout()
                 .get_descriptor_set_layouts()[0],
             descriptor_pool,
         );
