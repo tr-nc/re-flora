@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::Write;
 
 use super::BuilderResources;
 use super::Chunk;
@@ -10,6 +11,7 @@ use crate::vkn::CommandPool;
 use crate::vkn::ComputePipeline;
 use crate::vkn::DescriptorPool;
 use crate::vkn::DescriptorSet;
+use crate::vkn::Device;
 use crate::vkn::ShaderModule;
 use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
@@ -131,11 +133,30 @@ impl Builder {
             chunk_res,
         );
 
-        let (shared_ds, chunk_init_ds, frag_list_maker_ds) = Self::create_descriptor_sets(
+        let (chunk_shared_ds, chunk_init_ds, frag_list_maker_ds) =
+            Self::create_frag_builder_descriptor_sets(
+                descriptor_pool.clone(),
+                vulkan_context.device().clone(),
+                &chunk_init_ppl,
+                &frag_list_maker_ppl,
+                &resources,
+            );
+
+        let (
+            octree_shared_ds,
+            octree_init_buffers_ds,
+            octree_init_node_ds,
+            octree_tag_node_ds,
+            octree_alloc_node_ds,
+            octree_modify_args_ds,
+        ) = Self::create_octree_builder_descriptor_sets(
             descriptor_pool.clone(),
-            &vulkan_context,
-            &chunk_init_ppl,
-            &frag_list_maker_ppl,
+            vulkan_context.device().clone(),
+            &octree_init_buffers_ppl,
+            &octree_init_node_ppl,
+            &octree_tag_node_ppl,
+            &octree_alloc_node_ppl,
+            &octree_modify_args_ppl,
             &resources,
         );
 
@@ -146,7 +167,7 @@ impl Builder {
             frag_list_maker_sm,
             chunk_init_ppl,
             frag_list_maker_ppl,
-            shared_ds,
+            shared_ds: chunk_shared_ds,
             chunk_init_ds,
             frag_list_maker_ds,
             chunk_res,
@@ -169,16 +190,16 @@ impl Builder {
         self.chunks.insert(chunk_pos, chunk);
     }
 
-    fn create_descriptor_sets(
+    fn create_frag_builder_descriptor_sets(
         descriptor_pool: DescriptorPool,
-        vulkan_context: &VulkanContext,
+        device: Device,
         chunk_init_ppl: &ComputePipeline,
         frag_list_maker_ppl: &ComputePipeline,
         resources: &BuilderResources,
     ) -> (DescriptorSet, DescriptorSet, DescriptorSet) {
         // this set is shared between all pipelines
         let shared_ds = DescriptorSet::new(
-            vulkan_context.device().clone(),
+            device.clone(),
             &chunk_init_ppl
                 .get_pipeline_layout()
                 .get_descriptor_set_layouts()[0],
@@ -191,7 +212,7 @@ impl Builder {
         )]);
 
         let chunk_init_ds = DescriptorSet::new(
-            vulkan_context.device().clone(),
+            device.clone(),
             &chunk_init_ppl
                 .get_pipeline_layout()
                 .get_descriptor_set_layouts()[1],
@@ -205,7 +226,7 @@ impl Builder {
         )]);
 
         let frag_list_maker_ds = DescriptorSet::new(
-            vulkan_context.device().clone(),
+            device.clone(),
             &frag_list_maker_ppl
                 .get_pipeline_layout()
                 .get_descriptor_set_layouts()[1],
@@ -231,6 +252,166 @@ impl Builder {
         ]);
 
         (shared_ds, chunk_init_ds, frag_list_maker_ds)
+    }
+
+    fn create_octree_builder_descriptor_sets(
+        descriptor_pool: DescriptorPool,
+        device: Device,
+        octree_init_buffers_ppl: &ComputePipeline,
+        octree_init_node_ppl: &ComputePipeline,
+        octree_tag_node_ppl: &ComputePipeline,
+        octree_alloc_node_ppl: &ComputePipeline,
+        octree_modify_args_ppl: &ComputePipeline,
+        resources: &BuilderResources,
+    ) -> (
+        DescriptorSet,
+        DescriptorSet,
+        DescriptorSet,
+        DescriptorSet,
+        DescriptorSet,
+        DescriptorSet,
+    ) {
+        let shared_ds = DescriptorSet::new(
+            device.clone(),
+            &octree_init_buffers_ppl
+                .get_pipeline_layout()
+                .get_descriptor_set_layouts()[0],
+            descriptor_pool.clone(),
+        );
+        shared_ds.perform_writes(&[
+            WriteDescriptorSet::new_buffer_write(
+                0,
+                vk::DescriptorType::UNIFORM_BUFFER,
+                &resources.octree_build_info,
+            ),
+            WriteDescriptorSet::new_buffer_write(
+                1,
+                vk::DescriptorType::STORAGE_BUFFER,
+                &resources.octree_alloc_info,
+            ),
+        ]);
+
+        let init_buffers_ds = DescriptorSet::new(
+            device.clone(),
+            &octree_init_buffers_ppl
+                .get_pipeline_layout()
+                .get_descriptor_set_layouts()[1],
+            descriptor_pool.clone(),
+        );
+        init_buffers_ds.perform_writes(&[
+            WriteDescriptorSet::new_buffer_write(
+                0,
+                vk::DescriptorType::STORAGE_BUFFER,
+                &resources.voxel_count_indirect,
+            ),
+            WriteDescriptorSet::new_buffer_write(
+                1,
+                vk::DescriptorType::STORAGE_BUFFER,
+                &resources.alloc_number_indirect,
+            ),
+            WriteDescriptorSet::new_buffer_write(
+                2,
+                vk::DescriptorType::STORAGE_BUFFER,
+                &resources.counter,
+            ),
+            WriteDescriptorSet::new_buffer_write(
+                3,
+                vk::DescriptorType::STORAGE_BUFFER,
+                &resources.octree_build_result,
+            ),
+        ]);
+
+        let init_node_ds = DescriptorSet::new(
+            device.clone(),
+            &octree_init_node_ppl
+                .get_pipeline_layout()
+                .get_descriptor_set_layouts()[1],
+            descriptor_pool.clone(),
+        );
+        init_node_ds.perform_writes(&[WriteDescriptorSet::new_buffer_write(
+            0,
+            vk::DescriptorType::STORAGE_BUFFER,
+            &resources.octree_data,
+        )]);
+
+        let tag_node_ds = DescriptorSet::new(
+            device.clone(),
+            &octree_tag_node_ppl
+                .get_pipeline_layout()
+                .get_descriptor_set_layouts()[1],
+            descriptor_pool.clone(),
+        );
+        tag_node_ds.perform_writes(&[
+            WriteDescriptorSet::new_buffer_write(
+                0,
+                vk::DescriptorType::STORAGE_BUFFER, // TODO: this could be inferred!
+                &resources.octree_data,
+            ),
+            WriteDescriptorSet::new_buffer_write(
+                1,
+                vk::DescriptorType::STORAGE_BUFFER,
+                &resources.fragment_list,
+            ),
+        ]);
+
+        let alloc_node_ds = DescriptorSet::new(
+            device.clone(),
+            &octree_alloc_node_ppl
+                .get_pipeline_layout()
+                .get_descriptor_set_layouts()[1],
+            descriptor_pool.clone(),
+        );
+        alloc_node_ds.perform_writes(&[
+            WriteDescriptorSet::new_buffer_write(
+                0,
+                vk::DescriptorType::STORAGE_BUFFER,
+                &resources.octree_data,
+            ),
+            WriteDescriptorSet::new_buffer_write(
+                1,
+                vk::DescriptorType::STORAGE_BUFFER,
+                &resources.fragment_list,
+            ),
+            WriteDescriptorSet::new_buffer_write(
+                2,
+                vk::DescriptorType::STORAGE_BUFFER,
+                &resources.counter,
+            ),
+        ]);
+
+        let modify_args_ds = DescriptorSet::new(
+            device.clone(),
+            &octree_modify_args_ppl
+                .get_pipeline_layout()
+                .get_descriptor_set_layouts()[1],
+            descriptor_pool.clone(),
+        );
+        modify_args_ds.perform_writes(&[
+            WriteDescriptorSet::new_buffer_write(
+                0,
+                vk::DescriptorType::STORAGE_BUFFER,
+                &resources.counter,
+            ),
+            WriteDescriptorSet::new_buffer_write(
+                1,
+                vk::DescriptorType::STORAGE_BUFFER,
+                &resources.octree_build_result,
+            ),
+            WriteDescriptorSet::new_buffer_write(
+                2,
+                vk::DescriptorType::STORAGE_BUFFER,
+                &resources.alloc_number_indirect,
+            ),
+        ]);
+
+        return (
+            shared_ds,
+            init_buffers_ds,
+            init_node_ds,
+            tag_node_ds,
+            alloc_node_ds,
+            modify_args_ds,
+        );
     }
 
     fn update_chunk_build_info_buf(&mut self, resolution: UVec3, chunk_pos: IVec3) {

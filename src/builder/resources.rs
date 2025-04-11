@@ -9,7 +9,10 @@ pub struct BuilderResources {
     pub octree_build_info: Buffer,
     pub voxel_count_indirect: Buffer,
     pub alloc_number_indirect: Buffer,
+    pub octree_alloc_info: Buffer,
     pub counter: Buffer,
+    pub octree_build_result: Buffer,
+    pub octree_data: Buffer,
     pub fragment_list: Buffer,
 }
 
@@ -50,7 +53,7 @@ impl BuilderResources {
         let octree_build_info = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
-            vk::BufferUsageFlags::STORAGE_BUFFER,
+            vk::BufferUsageFlags::UNIFORM_BUFFER,
             gpu_allocator::MemoryLocation::GpuOnly,
             octree_build_info_layout.get_size() as _,
         );
@@ -88,6 +91,28 @@ impl BuilderResources {
             counter_layout.get_size() as _,
         );
 
+        let octree_alloc_info_layout = octree_init_buffers_sm
+            .get_buffer_layout("B_OctreeAllocInfo")
+            .unwrap();
+        let octree_alloc_info = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            vk::BufferUsageFlags::STORAGE_BUFFER,
+            gpu_allocator::MemoryLocation::GpuOnly,
+            octree_alloc_info_layout.get_size() as _,
+        );
+
+        let octree_build_result_layout = octree_init_buffers_sm
+            .get_buffer_layout("B_OctreeBuildResult")
+            .unwrap();
+        let octree_build_result = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            vk::BufferUsageFlags::STORAGE_BUFFER,
+            gpu_allocator::MemoryLocation::GpuOnly,
+            octree_build_result_layout.get_size() as _,
+        );
+
         let max_possible_voxel_count = chunk_res.x * chunk_res.y * chunk_res.z;
         let fragment_list_buf_layout = frag_list_maker_sm
             .get_buffer_layout("B_FragmentList")
@@ -104,6 +129,19 @@ impl BuilderResources {
             buf_size as _,
         );
 
+        let one_giga = 1 * 1024 * 1024 * 1024;
+        log::debug!(
+            "Octree data buffer size: {} GB",
+            one_giga / 1024 / 1024 / 1024
+        );
+        let octree_data = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            vk::BufferUsageFlags::STORAGE_BUFFER,
+            gpu_allocator::MemoryLocation::GpuOnly,
+            one_giga as _,
+        );
+
         Self {
             blocks_tex,
             chunk_build_info,
@@ -112,6 +150,9 @@ impl BuilderResources {
             voxel_count_indirect,
             alloc_number_indirect,
             counter,
+            octree_alloc_info,
+            octree_build_result,
+            octree_data,
             fragment_list,
         }
     }
