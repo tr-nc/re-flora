@@ -48,6 +48,29 @@ void main() {
     vec2 screen_uv = (vec2(gl_GlobalInvocationID.xy) + vec2(0.5)) / vec2(img_size);
     Ray ray        = ray_gen(camera_info.camera_pos.xyz, screen_uv);
 
-    vec4 color = vec4(ray.direction, 1.0);
-    imageStore(result_image, uvi, color);
+    // vec4 color = vec4(ray.direction, 1.0);
+
+    // bool svo_marching(out float o_t, out uint o_iter, out vec3 o_color, out vec3 o_position,
+    //                   out vec3 o_next_tracing_position, out vec3 o_normal, out uint o_vox_hash,
+    //                   out bool o_light_source_hit, vec3 o, vec3 d, uint chunk_buffer_offset) {
+
+    float t;
+    uint iter;
+    vec3 color;
+    vec3 position;
+    vec3 next_tracing_position;
+    vec3 normal;
+    uint vox_hash;
+    bool light_source_hit;
+
+    bool hit = svo_marching(t, iter, color, position, next_tracing_position, normal, vox_hash,
+                            light_source_hit, ray.origin, ray.direction, 0);
+
+    vec4 out_color = vec4(0.0);
+    if (hit) {
+        out_color = vec4(normal, 1.0);
+    } else {
+        out_color = vec4(0.0, 0.0, 0.0, 1.0);
+    }
+    imageStore(result_image, uvi, out_color);
 }

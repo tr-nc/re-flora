@@ -83,7 +83,7 @@ vec3 calculate_normal(ivec3 uvi) {
             }
         }
     }
-    return normalize(normal);
+    return normalize(-normal);
 }
 
 /// Compress a ivec3 coordinate into a single uint.
