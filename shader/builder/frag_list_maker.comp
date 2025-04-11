@@ -27,6 +27,7 @@ layout(set = 1, binding = 2) writeonly buffer B_FragmentList { FragmentListEntry
 fragment_list;
 
 #include "../include/block_types.glsl"
+#include "../include/core/packer.glsl"
 
 bool is_solid(uint block_type) { return block_type != BLOCK_TYPE_EMPTY; }
 
@@ -85,17 +86,6 @@ vec3 calculate_normal(ivec3 uvi) {
     return normalize(normal);
 }
 
-/// Compress a normal vector into a single uint.
-/// The normal vector is compressed into 3 7-bit components.
-/// Therefore there's additional 32-21=11 bits left for other data.
-uint compress_normal(vec3 normal) {
-    // scale and bias from [-1, 1] to [0, 127]
-    uvec3 quantized = uvec3(((normal + 1) * 0.5) * 127.0);
-    // pack the 7-bit components into a single uint
-    uint packed = (quantized.r) | (quantized.g << 7) | (quantized.b << 14);
-    return packed;
-}
-
 /// Compress a ivec3 coordinate into a single uint.
 /// The coordinate is compressed into 3 10-bit components.
 /// Therefore there's additional 32-30=2 bits left for other data.
@@ -109,7 +99,7 @@ uint compress_coord(ivec3 coord) {
 uint compress_block_type_and_normal(uint block_type, vec3 normal) {
     uint properties_data = 0;
     properties_data |= block_type & 0xFF;
-    properties_data |= compress_normal(normal) << 8;
+    properties_data |= pack_normal_v2(normal) << 8;
     return properties_data;
 }
 

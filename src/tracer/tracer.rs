@@ -30,7 +30,7 @@ impl Tracer {
         let tracer_sm = ShaderModule::from_glsl(
             vulkan_context.device(),
             &shader_compiler,
-            "shader/tracer.comp",
+            "shader/tracer/tracer.comp",
             "main",
         )
         .unwrap();
