@@ -9,7 +9,7 @@ use std::ops::Deref;
 
 struct BufferDesc {
     pub usage: vk::BufferUsageFlags,
-    pub location: MemoryLocation,
+    pub _location: MemoryLocation,
     pub size: vk::DeviceSize,
 }
 
@@ -68,7 +68,7 @@ impl Buffer {
 
         let desc = BufferDesc {
             usage,
-            location,
+            _location: location,
             size: buffer_size as _,
         };
 
@@ -90,8 +90,8 @@ impl Buffer {
         self.desc.usage
     }
 
-    pub fn get_location(&self) -> MemoryLocation {
-        self.desc.location
+    pub fn _get_location(&self) -> MemoryLocation {
+        self.desc._location
     }
 
     /// Fills the buffer with raw data. The data size must match with the buffer size.

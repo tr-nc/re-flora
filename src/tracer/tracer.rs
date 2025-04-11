@@ -2,8 +2,8 @@ use super::TracerResources;
 use crate::gameplay::Camera;
 use crate::util::compiler::ShaderCompiler;
 use crate::vkn::{
-    Allocator, BufferBuilder, ComputePipeline, DescriptorPool, DescriptorSet, Image, ShaderModule,
-    WriteDescriptorSet,
+    Allocator, Buffer, BufferBuilder, ComputePipeline, DescriptorPool, DescriptorSet, Image,
+    ShaderModule, WriteDescriptorSet,
 };
 use crate::vkn::{CommandBuffer, VulkanContext};
 use ash::vk;
@@ -26,6 +26,7 @@ impl Tracer {
         allocator: Allocator,
         shader_compiler: &ShaderCompiler,
         screen_extent: &[u32; 2],
+        octree_data: &Buffer,
     ) -> Self {
         let tracer_sm = ShaderModule::from_glsl(
             vulkan_context.device(),
@@ -54,6 +55,7 @@ impl Tracer {
             &vulkan_context,
             &tracer_ppl,
             &resources,
+            octree_data,
         );
 
         Self {
@@ -67,7 +69,7 @@ impl Tracer {
         }
     }
 
-    pub fn on_resize(&mut self, screen_extent: &[u32; 2]) {
+    pub fn on_resize(&mut self, screen_extent: &[u32; 2], octree_data: &Buffer) {
         self.resources.on_resize(
             self.vulkan_context.device().clone(),
             self.allocator.clone(),
@@ -80,12 +82,13 @@ impl Tracer {
             &self.vulkan_context,
             &self.tracer_ppl,
             &self.resources,
+            octree_data,
         );
     }
 
     pub fn record_command_buffer(&mut self, cmdbuf: &CommandBuffer, screen_extent: &[u32; 2]) {
         self.resources
-            .shader_write_tex
+            .shader_write
             .get_image()
             .record_transition_barrier(cmdbuf, vk::ImageLayout::GENERAL);
         self.tracer_ppl.record_bind(cmdbuf);
@@ -99,7 +102,7 @@ impl Tracer {
     }
 
     pub fn get_dst_image(&self) -> &Image {
-        self.resources.shader_write_tex.get_image()
+        self.resources.shader_write.get_image()
     }
 
     /// Update the uniform buffers with the latest camera and debug values, called every frame
@@ -108,10 +111,7 @@ impl Tracer {
         let gui_input_data = BufferBuilder::from_layout(gui_input_layout)
             .set_float("debug_float", debug_float)
             .to_raw_data();
-        self.resources
-            .gui_input_buf
-            .fill_raw(&gui_input_data)
-            .unwrap();
+        self.resources.gui_input.fill_raw(&gui_input_data).unwrap();
 
         let camera_info_layout = self.tracer_sm.get_buffer_layout("CameraInfo").unwrap();
 
@@ -131,7 +131,7 @@ impl Tracer {
             )
             .to_raw_data();
         self.resources
-            .camera_info_buf
+            .camera_info
             .fill_raw(&camera_info_data)
             .unwrap();
     }
@@ -141,6 +141,7 @@ impl Tracer {
         vulkan_context: &VulkanContext,
         compute_pipeline: &ComputePipeline,
         resources: &TracerResources,
+        octree_data: &Buffer,
     ) -> DescriptorSet {
         let compute_descriptor_set = DescriptorSet::new(
             vulkan_context.device().clone(),
@@ -151,11 +152,12 @@ impl Tracer {
             WriteDescriptorSet::new_texture_write(
                 0,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.shader_write_tex,
+                &resources.shader_write,
                 vk::ImageLayout::GENERAL,
             ),
-            WriteDescriptorSet::new_buffer_write(1, &resources.gui_input_buf),
-            WriteDescriptorSet::new_buffer_write(2, &resources.camera_info_buf),
+            WriteDescriptorSet::new_buffer_write(1, &resources.gui_input),
+            WriteDescriptorSet::new_buffer_write(2, &resources.camera_info),
+            WriteDescriptorSet::new_buffer_write(3, octree_data),
         ]);
         compute_descriptor_set
     }

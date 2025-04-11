@@ -2,9 +2,9 @@ use crate::vkn::{Allocator, Buffer, Device, ShaderModule, Texture, TextureDesc};
 use ash::vk;
 
 pub struct TracerResources {
-    pub shader_write_tex: Texture,
-    pub gui_input_buf: Buffer,
-    pub camera_info_buf: Buffer,
+    pub shader_write: Texture,
+    pub gui_input: Buffer,
+    pub camera_info: Buffer,
 }
 
 impl TracerResources {
@@ -39,14 +39,14 @@ impl TracerResources {
         );
 
         Self {
-            shader_write_tex,
-            gui_input_buf,
-            camera_info_buf,
+            shader_write: shader_write_tex,
+            gui_input: gui_input_buf,
+            camera_info: camera_info_buf,
         }
     }
 
     pub fn on_resize(&mut self, device: Device, allocator: Allocator, screen_extent: &[u32; 2]) {
-        self.shader_write_tex = Self::create_shader_write_tex(
+        self.shader_write = Self::create_shader_write_tex(
             device,
             allocator,
             [screen_extent[0], screen_extent[1], 1],

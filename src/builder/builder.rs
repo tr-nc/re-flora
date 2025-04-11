@@ -3,6 +3,7 @@ use super::Chunk;
 use crate::util::compiler::ShaderCompiler;
 use crate::vkn::execute_one_time_command;
 use crate::vkn::Allocator;
+use crate::vkn::Buffer;
 use crate::vkn::BufferBuilder;
 use crate::vkn::CommandPool;
 use crate::vkn::ComputePipeline;
@@ -235,6 +236,10 @@ impl Builder {
             data: vec![], // the data is not sent back to CPU for now
         };
         self.chunks.insert(chunk_pos, chunk);
+    }
+
+    pub fn get_octree_data(&self) -> &Buffer {
+        &self.resources.octree_data
     }
 
     fn create_frag_builder_descriptor_sets(

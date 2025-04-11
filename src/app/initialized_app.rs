@@ -103,18 +103,19 @@ impl InitializedApp {
             },
         );
 
-        let tracer = Tracer::new(
-            vulkan_context.clone(),
-            allocator.clone(),
-            &shader_compiler,
-            &screen_extent,
-        );
-
         let mut builder = Builder::new(
             vulkan_context.clone(),
             allocator.clone(),
             &shader_compiler,
             UVec3::new(256, 256, 256),
+        );
+
+        let tracer = Tracer::new(
+            vulkan_context.clone(),
+            allocator.clone(),
+            &shader_compiler,
+            &screen_extent,
+            builder.get_octree_data(),
         );
 
         let start = std::time::Instant::now();
@@ -390,7 +391,8 @@ impl InitializedApp {
         let window_size = self.window_state.window_size();
 
         self.camera.on_resize(&window_size);
-        self.tracer.on_resize(&window_size);
+        self.tracer
+            .on_resize(&window_size, self.builder.get_octree_data());
         self.swapchain.on_resize(&window_size);
 
         // the render pass should be rebuilt when the swapchain is recreated
