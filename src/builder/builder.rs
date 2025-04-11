@@ -30,9 +30,28 @@ pub struct Builder {
     chunk_init_ppl: ComputePipeline,
     frag_list_maker_ppl: ComputePipeline,
 
-    shared_ds: DescriptorSet,
+    chunk_shared_ds: DescriptorSet,
     chunk_init_ds: DescriptorSet,
     frag_list_maker_ds: DescriptorSet,
+
+    octree_init_buffers_sm: ShaderModule,
+    octree_init_node_sm: ShaderModule,
+    octree_tag_node_sm: ShaderModule,
+    octree_alloc_node_sm: ShaderModule,
+    octree_modify_args_sm: ShaderModule,
+
+    octree_init_buffers_ppl: ComputePipeline,
+    octree_init_node_ppl: ComputePipeline,
+    octree_tag_node_ppl: ComputePipeline,
+    octree_alloc_node_ppl: ComputePipeline,
+    octree_modify_args_ppl: ComputePipeline,
+
+    octree_shared_ds: DescriptorSet,
+    octree_init_buffers_ds: DescriptorSet,
+    octree_init_node_ds: DescriptorSet,
+    octree_tag_node_ds: DescriptorSet,
+    octree_alloc_node_ds: DescriptorSet,
+    octree_modify_args_ds: DescriptorSet,
 
     chunk_res: UVec3,
     chunks: HashMap<IVec3, Chunk>,
@@ -163,13 +182,36 @@ impl Builder {
         Self {
             vulkan_context,
             resources,
+
             chunk_init_sm,
             frag_list_maker_sm,
+
             chunk_init_ppl,
             frag_list_maker_ppl,
-            shared_ds: chunk_shared_ds,
+
+            chunk_shared_ds,
             chunk_init_ds,
             frag_list_maker_ds,
+
+            octree_init_buffers_sm,
+            octree_init_node_sm,
+            octree_tag_node_sm,
+            octree_alloc_node_sm,
+            octree_modify_args_sm,
+
+            octree_init_buffers_ppl,
+            octree_init_node_ppl,
+            octree_tag_node_ppl,
+            octree_alloc_node_ppl,
+            octree_modify_args_ppl,
+
+            octree_shared_ds,
+            octree_init_buffers_ds,
+            octree_init_node_ds,
+            octree_tag_node_ds,
+            octree_alloc_node_ds,
+            octree_modify_args_ds,
+
             chunk_res,
             chunks: HashMap::new(),
         }
@@ -396,7 +438,7 @@ impl Builder {
                 self.chunk_init_ppl.record_bind(cmdbuf);
                 self.chunk_init_ppl.record_bind_descriptor_sets(
                     cmdbuf,
-                    std::slice::from_ref(&self.shared_ds),
+                    std::slice::from_ref(&self.chunk_shared_ds),
                     0,
                 );
                 self.chunk_init_ppl.record_bind_descriptor_sets(
@@ -425,7 +467,7 @@ impl Builder {
                 self.frag_list_maker_ppl.record_bind(cmdbuf);
                 self.frag_list_maker_ppl.record_bind_descriptor_sets(
                     cmdbuf,
-                    std::slice::from_ref(&self.shared_ds),
+                    std::slice::from_ref(&self.chunk_shared_ds),
                     0,
                 );
                 self.frag_list_maker_ppl.record_bind_descriptor_sets(
