@@ -54,7 +54,7 @@ impl BuilderResources {
             device.clone(),
             allocator.clone(),
             vk::BufferUsageFlags::UNIFORM_BUFFER,
-            gpu_allocator::MemoryLocation::GpuOnly,
+            gpu_allocator::MemoryLocation::CpuToGpu,
             octree_build_info_layout.get_size() as _,
         );
 

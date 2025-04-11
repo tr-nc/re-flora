@@ -1,4 +1,4 @@
-use crate::vkn::{CommandBuffer, DescriptorSet, Device, PipelineLayout, ShaderModule};
+use crate::vkn::{Buffer, CommandBuffer, DescriptorSet, Device, PipelineLayout, ShaderModule};
 use ash::vk::{self};
 use std::ops::Deref;
 
@@ -72,7 +72,7 @@ impl ComputePipeline {
 
     pub fn record_bind_descriptor_sets(
         &self,
-        command_buffer: &CommandBuffer,
+        cmdbuf: &CommandBuffer,
         descriptor_sets: &[DescriptorSet],
         first_set: u32,
     ) {
@@ -83,7 +83,7 @@ impl ComputePipeline {
 
         unsafe {
             self.device.cmd_bind_descriptor_sets(
-                command_buffer.as_raw(),
+                cmdbuf.as_raw(),
                 vk::PipelineBindPoint::COMPUTE,
                 self.pipeline_layout.as_raw(),
                 first_set,
@@ -93,22 +93,29 @@ impl ComputePipeline {
         }
     }
 
-    pub fn record_bind(&self, command_buffer: &CommandBuffer) {
+    pub fn record_bind(&self, cmdbuf: &CommandBuffer) {
         unsafe {
             self.device.cmd_bind_pipeline(
-                command_buffer.as_raw(),
+                cmdbuf.as_raw(),
                 vk::PipelineBindPoint::COMPUTE,
                 self.pipeline,
             );
         }
     }
 
-    pub fn record_dispatch(&self, command_buffer: &CommandBuffer, dispatch_size: [u32; 3]) {
+    pub fn record_dispatch(&self, cmdbuf: &CommandBuffer, dispatch_size: [u32; 3]) {
         let x = (dispatch_size[0] as f32 / self.workgroup_size[0] as f32).ceil() as u32;
         let y = (dispatch_size[1] as f32 / self.workgroup_size[1] as f32).ceil() as u32;
         let z = (dispatch_size[2] as f32 / self.workgroup_size[2] as f32).ceil() as u32;
         unsafe {
-            self.device.cmd_dispatch(command_buffer.as_raw(), x, y, z);
+            self.device.cmd_dispatch(cmdbuf.as_raw(), x, y, z);
+        }
+    }
+
+    pub fn record_dispatch_indirect(&self, cmdbuf: &CommandBuffer, buffer: &Buffer) {
+        unsafe {
+            self.device
+                .cmd_dispatch_indirect(cmdbuf.as_raw(), buffer.as_raw(), 0);
         }
     }
 }

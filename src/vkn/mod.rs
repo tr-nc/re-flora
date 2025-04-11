@@ -2,6 +2,9 @@ mod instance;
 mod physical_device;
 mod surface;
 
+mod barrier;
+pub use barrier::*;
+
 mod queue;
 pub use queue::*;
 

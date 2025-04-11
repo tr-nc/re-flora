@@ -38,9 +38,7 @@ impl Tracer {
 
         let descriptor_pool = DescriptorPool::from_descriptor_set_layouts(
             vulkan_context.device(),
-            tracer_ppl
-                .get_layout()
-                .get_descriptor_set_layouts(),
+            tracer_ppl.get_layout().get_descriptor_set_layouts(),
         )
         .unwrap();
 
@@ -109,7 +107,7 @@ impl Tracer {
         let gui_input_layout = self.tracer_sm.get_buffer_layout("GuiInput").unwrap();
         let gui_input_data = BufferBuilder::from_layout(gui_input_layout)
             .set_float("debug_float", debug_float)
-            .build();
+            .to_raw_data();
         self.resources
             .gui_input_buf
             .fill_raw(&gui_input_data)
@@ -131,7 +129,7 @@ impl Tracer {
                 "view_proj_mat_inv",
                 view_proj_mat.inverse().to_cols_array_2d(),
             )
-            .build();
+            .to_raw_data();
         self.resources
             .camera_info_buf
             .fill_raw(&camera_info_data)
@@ -146,9 +144,7 @@ impl Tracer {
     ) -> DescriptorSet {
         let compute_descriptor_set = DescriptorSet::new(
             vulkan_context.device().clone(),
-            &compute_pipeline
-                .get_layout()
-                .get_descriptor_set_layouts()[0],
+            &compute_pipeline.get_layout().get_descriptor_set_layouts()[0],
             descriptor_pool,
         );
         compute_descriptor_set.perform_writes(&[

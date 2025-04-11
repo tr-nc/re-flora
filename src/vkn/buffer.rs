@@ -122,12 +122,12 @@ impl Buffer {
 
     pub fn fill<T: Copy>(&self, data: &[T]) -> Result<(), String> {
         if let Some(ptr) = self.allocated_mem.mapped_ptr() {
-            let size = std::mem::size_of_val(data);
+            let size_of_slice = std::mem::size_of_val(data) as vk::DeviceSize;
             unsafe {
                 let mut align = ash::util::Align::new(
                     ptr.as_ptr(),
                     std::mem::align_of::<T>() as vk::DeviceSize,
-                    size as vk::DeviceSize,
+                    size_of_slice as vk::DeviceSize,
                 );
                 align.copy_from_slice(data);
             };

@@ -1,6 +1,3 @@
-use std::collections::HashMap;
-use std::fmt::Write;
-
 use super::BuilderResources;
 use super::Chunk;
 use crate::util::compiler::ShaderCompiler;
@@ -12,12 +9,15 @@ use crate::vkn::ComputePipeline;
 use crate::vkn::DescriptorPool;
 use crate::vkn::DescriptorSet;
 use crate::vkn::Device;
+use crate::vkn::MemoryBarrier;
+use crate::vkn::PipelineBarrier;
 use crate::vkn::ShaderModule;
 use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
 use ash::vk;
 use glam::IVec3;
 use glam::UVec3;
+use std::collections::HashMap;
 
 pub struct Builder {
     vulkan_context: VulkanContext,
@@ -221,8 +221,13 @@ impl Builder {
         self.update_chunk_build_info_buf(self.chunk_res, chunk_pos);
         self.reset_fragment_list_info_buf();
 
-        self.init_block_tex_by_noise(command_pool, self.chunk_res);
+        self.write_block_tex_by_noise(command_pool, self.chunk_res);
         self.fill_fragment_list_from_block_tex(command_pool, self.chunk_res);
+
+        let fragment_list_len = self.get_fraglist_length();
+        self.update_octree_build_info_buf(self.chunk_res, fragment_list_len);
+
+        self.make_octree_by_frag_list(command_pool);
 
         let chunk = Chunk {
             res: self.chunk_res,
@@ -396,10 +401,27 @@ impl Builder {
         let chunk_build_info_data = chunk_build_info_layout
             .set_uvec3("chunk_res", resolution.to_array())
             .set_ivec3("chunk_pos", chunk_pos.to_array())
-            .build();
+            .to_raw_data();
         self.resources
             .chunk_build_info
             .fill_raw(&chunk_build_info_data)
+            .expect("Failed to fill buffer data");
+    }
+
+    fn update_octree_build_info_buf(&mut self, resolution: UVec3, fragment_list_length: u32) {
+        let octree_build_info_layout = BufferBuilder::from_layout(
+            self.octree_init_buffers_sm
+                .get_buffer_layout("B_OctreeBuildInfo")
+                .unwrap(),
+        );
+        assert!(resolution.x == resolution.y && resolution.y == resolution.z);
+        let octree_build_info_data = octree_build_info_layout
+            .set_uint("chunk_res_xyz", resolution.x as u32)
+            .set_uint("fragment_list_len", fragment_list_length)
+            .to_raw_data();
+        self.resources
+            .octree_build_info
+            .fill_raw(&octree_build_info_data)
             .expect("Failed to fill buffer data");
     }
 
@@ -412,7 +434,7 @@ impl Builder {
         );
         let fragment_list_info_data = fragment_list_info_layout
             .set_uint("fragment_list_len", 0)
-            .build();
+            .to_raw_data();
         self.resources
             .fragment_list_info
             .fill_raw(&fragment_list_info_data)
@@ -420,7 +442,7 @@ impl Builder {
     }
 
     /// Ask the builder to write the block texture from noise, chunk build info buffer must be ready before calling.
-    fn init_block_tex_by_noise(&mut self, command_pool: &CommandPool, resolution: UVec3) {
+    fn write_block_tex_by_noise(&mut self, command_pool: &CommandPool, resolution: UVec3) {
         execute_one_time_command(
             self.vulkan_context.device(),
             command_pool,
@@ -473,6 +495,115 @@ impl Builder {
                 );
                 self.frag_list_maker_ppl
                     .record_dispatch(cmdbuf, resolution.to_array());
+            },
+        );
+    }
+
+    fn get_fraglist_length(&self) -> u32 {
+        // TODO: can we store buffer layout inside buffer?
+        let raw_data = self.resources.fragment_list_info.fetch_raw().unwrap();
+        let fragment_list_info_layout = self
+            .frag_list_maker_sm
+            .get_buffer_layout("B_FragmentListInfo")
+            .unwrap();
+        let data_to_fetch = BufferBuilder::from_layout(fragment_list_info_layout).set_raw(raw_data);
+        data_to_fetch.get_uint("fragment_list_len").unwrap()
+    }
+
+    fn make_octree_by_frag_list(&mut self, command_pool: &CommandPool) {
+        let device = self.vulkan_context.device();
+
+        let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
+        let indirect_access_memory_barrier = MemoryBarrier::new_indirect_access();
+
+        let shader_access_pipeline_barrier = PipelineBarrier::new(
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vec![shader_access_memory_barrier],
+        );
+        let indirect_access_pipeline_barrier = PipelineBarrier::new(
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vk::PipelineStageFlags::DRAW_INDIRECT | vk::PipelineStageFlags::COMPUTE_SHADER,
+            vec![indirect_access_memory_barrier],
+        );
+
+        fn log2(x: u32) -> u32 {
+            31 - x.leading_zeros()
+        }
+
+        execute_one_time_command(
+            self.vulkan_context.device(),
+            command_pool,
+            &self.vulkan_context.get_general_queue(),
+            |cmdbuf| {
+                self.octree_init_buffers_ppl.record_bind(cmdbuf);
+                self.octree_init_buffers_ppl.record_bind_descriptor_sets(
+                    cmdbuf,
+                    std::slice::from_ref(&self.octree_shared_ds),
+                    0,
+                );
+                self.octree_init_buffers_ppl.record_bind_descriptor_sets(
+                    cmdbuf,
+                    std::slice::from_ref(&self.octree_init_buffers_ds),
+                    1,
+                );
+                self.octree_init_buffers_ppl
+                    .record_dispatch(cmdbuf, [1, 1, 1]);
+                shader_access_pipeline_barrier.record_insert(device, cmdbuf);
+                indirect_access_pipeline_barrier.record_insert(device, cmdbuf);
+
+                let voxel_level_count = log2(self.chunk_res.x);
+                log::debug!("Voxel level count: {}", voxel_level_count);
+
+                for i in 0..voxel_level_count {
+                    self.octree_init_node_ppl.record_bind(cmdbuf);
+                    self.octree_init_node_ppl.record_bind_descriptor_sets(
+                        cmdbuf,
+                        std::slice::from_ref(&self.octree_init_node_ds),
+                        1,
+                    );
+                    self.octree_init_node_ppl
+                        .record_dispatch_indirect(cmdbuf, &self.resources.alloc_number_indirect);
+
+                    // shader_access_pipeline_barrier.record_insert(device, cmdbuf);
+
+                    // self.octree_tag_node_ppl.record_bind(cmdbuf);
+                    // self.octree_tag_node_ppl.record_bind_descriptor_sets(
+                    //     cmdbuf,
+                    //     std::slice::from_ref(&self.octree_tag_node_ds),
+                    //     1,
+                    // );
+                    // self.octree_tag_node_ppl
+                    //     .record_dispatch_indirect(cmdbuf, &self.resources.fragment_list);
+
+                    // // if not last level
+                    // if i != voxel_level_count - 1 {
+                    //     shader_access_pipeline_barrier.record_insert(device, cmdbuf);
+
+                    //     self.octree_alloc_node_ppl.record_bind(cmdbuf);
+                    //     self.octree_alloc_node_ppl.record_bind_descriptor_sets(
+                    //         cmdbuf,
+                    //         std::slice::from_ref(&self.octree_alloc_node_ds),
+                    //         1,
+                    //     );
+                    //     self.octree_alloc_node_ppl
+                    //         .record_dispatch_indirect(cmdbuf, &self.resources.counter);
+
+                    //     shader_access_pipeline_barrier.record_insert(device, cmdbuf);
+
+                    //     self.octree_modify_args_ppl.record_bind(cmdbuf);
+                    //     self.octree_modify_args_ppl.record_bind_descriptor_sets(
+                    //         cmdbuf,
+                    //         std::slice::from_ref(&self.octree_modify_args_ds),
+                    //         1,
+                    //     );
+                    //     self.octree_modify_args_ppl
+                    //         .record_dispatch(cmdbuf, [1, 1, 1]);
+
+                    //     shader_access_pipeline_barrier.record_insert(device, cmdbuf);
+                    //     indirect_access_pipeline_barrier.record_insert(device, cmdbuf);
+                    // }
+                }
             },
         );
     }
