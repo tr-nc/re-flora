@@ -22,13 +22,13 @@ struct StackItem {
 // 1. the position range of the octree is [1, 2], because the POP function need that bit
 // comparison from the floating points ranged from [0, 1]
 // 2. the traversing reduces branching by mirroring the coordinate system
-// 3. all eight childrens are stored if at least one is active, so the parent node masks only need
-// two bits (isLeaf and hasChild), this is different from the paper, which needs 16 bits for
-// that
+// 3. all eight childrens are stored if at least one is active, so the parent node masks only
+// need two bits (isLeaf and hasChild), this is different from the paper, which needs 16 bits
+// for that
 
-bool svo_marching(out float o_t, out uint o_iter, out vec3 o_color, out vec3 o_position,
-                  out vec3 o_next_tracing_position, out vec3 o_normal, out uint o_vox_hash,
-                  out bool o_light_source_hit, vec3 o, vec3 d, uint chunk_buffer_offset) {
+bool _svo_marching(out float o_t, out uint o_iter, out vec3 o_color, out vec3 o_position,
+                   out vec3 o_next_tracing_position, out vec3 o_normal, out uint o_vox_hash,
+                   out bool o_light_source_hit, vec3 o, vec3 d, uint chunk_buffer_offset) {
     uint parent   = 0;
     uint iter     = 0;
     uint vox_hash = 0;
@@ -145,7 +145,8 @@ bool svo_marching(out float o_t, out uint o_iter, out vec3 o_color, out vec3 o_p
             pos.z    = uintBitsToFloat(shz << scale);
             idx      = (shx & 1u) | ((shy & 1u) << 1u) | ((shz & 1u) << 2u);
 
-            // prevent same parent from being stored again and invalidate cached child descriptor
+            // prevent same parent from being stored again and invalidate cached child
+            // descriptor
             h = 0, cur = 0;
         }
     }
@@ -190,6 +191,21 @@ bool svo_marching(out float o_t, out uint o_iter, out vec3 o_color, out vec3 o_p
     o_t        = t_min;
 
     return scale < STACK_SIZE && t_min <= t_max;
+}
+
+bool svo_marching(out float o_t, out uint o_iter, out vec3 o_color, out vec3 o_position,
+                  out vec3 o_next_tracing_position, out vec3 o_normal, out uint o_vox_hash,
+                  out bool o_light_source_hit, vec3 o, vec3 d, uint chunk_buffer_offset) {
+    const vec3 pre_offset = vec3(1);
+    o += pre_offset;
+
+    bool hit = _svo_marching(o_t, o_iter, o_color, o_position, o_next_tracing_position, o_normal,
+                             o_vox_hash, o_light_source_hit, o, d, chunk_buffer_offset);
+
+    o_position -= pre_offset;
+    o_next_tracing_position -= pre_offset;
+
+    return hit;
 }
 
 #endif // SVO_MARCHING_GLSL
