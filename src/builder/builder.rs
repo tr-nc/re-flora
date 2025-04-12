@@ -222,13 +222,23 @@ impl Builder {
         self.update_chunk_build_info_buf(self.chunk_res, chunk_pos);
         self.reset_fragment_list_info_buf();
 
+        let start = std::time::Instant::now();
         self.write_block_tex_by_noise(command_pool, self.chunk_res);
+        let duration = start.elapsed();
+        log::debug!("Chunk init time: {:?}", duration);
+
+        let start = std::time::Instant::now();
         self.fill_fragment_list_from_block_tex(command_pool, self.chunk_res);
+        let duration = start.elapsed();
+        log::debug!("Fragment list time: {:?}", duration);
 
         let fragment_list_len = self.get_fraglist_length();
         self.update_octree_build_info_buf(self.chunk_res, fragment_list_len);
 
+        let start = std::time::Instant::now();
         self.make_octree_by_frag_list(command_pool);
+        let duration = start.elapsed();
+        log::debug!("Octree build time: {:?}", duration);
 
         let chunk = Chunk {
             res: self.chunk_res,

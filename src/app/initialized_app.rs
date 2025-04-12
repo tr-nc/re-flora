@@ -118,10 +118,7 @@ impl InitializedApp {
             builder.get_octree_data(),
         );
 
-        let start = std::time::Instant::now();
         builder.init_chunk(&command_pool, IVec3::new(0, 0, 0));
-        let end = std::time::Instant::now();
-        log::info!("Init time: {:?}", end - start);
 
         // let start = std::time::Instant::now();
         // builder.cull_chunk(IVec3::new(0, 0, 0));
