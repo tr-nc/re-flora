@@ -1,4 +1,4 @@
-use crate::vkn::{Allocator, Buffer, Device};
+use crate::vkn::{Allocator, Buffer, BufferUsage, Device};
 use ash::vk;
 use egui::epaint::{Primitive, Vertex};
 use egui::ClippedPrimitive;
@@ -26,9 +26,9 @@ impl Mesh {
         let vertices_buffer = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
-            vk::BufferUsageFlags::VERTEX_BUFFER,
+            BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
             gpu_allocator::MemoryLocation::CpuToGpu,
-            vertex_count * size_of::<Vertex>(),
+            (vertex_count * size_of::<Vertex>()) as _,
         );
         vertices_buffer
             .fill(&vertices)
@@ -37,9 +37,9 @@ impl Mesh {
         let indices_buffer = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
-            vk::BufferUsageFlags::INDEX_BUFFER,
+            BufferUsage::from_flags(vk::BufferUsageFlags::INDEX_BUFFER),
             gpu_allocator::MemoryLocation::CpuToGpu,
-            index_count * size_of::<u32>(),
+            (index_count * size_of::<u32>()) as _,
         );
         indices_buffer
             .fill(&indices)
@@ -67,9 +67,9 @@ impl Mesh {
             self.vertices_buffer = Buffer::new_sized(
                 device.clone(),
                 allocator.clone(),
-                vk::BufferUsageFlags::VERTEX_BUFFER,
+                BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
                 gpu_allocator::MemoryLocation::CpuToGpu,
-                size,
+                size as _,
             );
         }
         self.vertices_buffer
@@ -85,9 +85,9 @@ impl Mesh {
             self.indices_buffer = Buffer::new_sized(
                 device.clone(),
                 allocator.clone(),
-                vk::BufferUsageFlags::INDEX_BUFFER,
+                BufferUsage::from_flags(vk::BufferUsageFlags::INDEX_BUFFER),
                 gpu_allocator::MemoryLocation::CpuToGpu,
-                size,
+                size as _,
             );
         }
         self.indices_buffer

@@ -83,7 +83,9 @@ impl WriteDescriptorSet {
 
         Self {
             binding,
-            descriptor_type: Self::get_descriptor_type_from_buffer_usage(buffer.get_usage()),
+            descriptor_type: Self::get_descriptor_type_from_buffer_usage(
+                buffer.get_usage().as_raw(),
+            ),
             image_infos: None,
             buffer_infos: Some(vec![buffer_info]),
         }

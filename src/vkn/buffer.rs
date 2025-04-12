@@ -1,4 +1,4 @@
-use super::{Allocator, Device};
+use super::{Allocator, BufferUsage, Device, StructLayout};
 use ash::vk;
 use core::slice;
 use gpu_allocator::{
@@ -8,9 +8,10 @@ use gpu_allocator::{
 use std::ops::Deref;
 
 struct BufferDesc {
-    pub usage: vk::BufferUsageFlags,
+    pub layout: Option<StructLayout>,
+    pub size: Option<vk::DeviceSize>,
+    pub usage: BufferUsage,
     pub _location: MemoryLocation,
-    pub size: vk::DeviceSize,
 }
 
 pub struct Buffer {
@@ -35,16 +36,87 @@ impl Deref for Buffer {
 }
 
 impl Buffer {
+    /// Creates a buffer from a provided struct layout.
+    ///
+    /// This constructor is useful when the buffer will store structured data described
+    /// by a layout. The layout defines the size and memory requirements.
+    ///
+    /// # Parameters
+    /// * `device` - The Vulkan device
+    /// * `allocator` - Memory allocator for buffer allocation
+    /// * `layout` - Structure layout describing the buffer contents
+    /// * `additional_usages` - Any additional buffer usage flags beyond what's inferred from the layout
+    /// * `location` - Memory location (device or host visible memory)
+    pub fn from_struct_layout(
+        device: Device,
+        mut allocator: Allocator,
+        layout: StructLayout,
+        additional_usages: BufferUsage,
+        location: MemoryLocation,
+    ) -> Self {
+        let mut usages = BufferUsage::from_reflect_descriptor_type(layout.descriptor_type);
+        usages.union_with(&additional_usages);
+
+        let buffer_info = vk::BufferCreateInfo::default()
+            .size(layout.get_size() as _)
+            .usage(usages.as_raw())
+            .sharing_mode(vk::SharingMode::EXCLUSIVE);
+
+        let buffer = unsafe { device.create_buffer(&buffer_info, None).unwrap() };
+        let requirements = unsafe { device.get_buffer_memory_requirements(buffer) };
+
+        let allocated_mem = allocator
+            .allocate_memory(&AllocationCreateDesc {
+                name: "",
+                requirements,
+                location: location,
+                linear: true,
+                allocation_scheme: AllocationScheme::GpuAllocatorManaged,
+            })
+            .expect("Failed to allocate buffer memory");
+
+        unsafe {
+            device
+                .bind_buffer_memory(buffer, allocated_mem.memory(), allocated_mem.offset())
+                .unwrap()
+        };
+
+        let desc = BufferDesc {
+            usage: usages,
+            _location: location,
+            layout: Some(layout),
+            size: None,
+        };
+
+        Self {
+            allocator: allocator,
+            buffer,
+            allocated_mem,
+            desc,
+        }
+    }
+
+    /// Creates a buffer with a specific size.
+    ///
+    /// This constructor is useful when the buffer size is known but doesn't
+    /// have a specific structure layout.
+    ///
+    /// # Parameters
+    /// * `device` - The Vulkan device
+    /// * `allocator` - Memory allocator for buffer allocation
+    /// * `usage` - Buffer usage flags
+    /// * `location` - Memory location (device or host visible memory)
+    /// * `size` - The size of the buffer in bytes
     pub fn new_sized(
         device: Device,
         mut allocator: Allocator,
-        usage: vk::BufferUsageFlags,
+        usage: BufferUsage,
         location: MemoryLocation,
-        buffer_size: usize,
+        size: u64,
     ) -> Self {
         let buffer_info = vk::BufferCreateInfo::default()
-            .size(buffer_size as _)
-            .usage(usage)
+            .size(size as _)
+            .usage(usage.as_raw())
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
 
         let buffer = unsafe { device.create_buffer(&buffer_info, None).unwrap() };
@@ -69,7 +141,8 @@ impl Buffer {
         let desc = BufferDesc {
             usage,
             _location: location,
-            size: buffer_size as _,
+            layout: None,
+            size: Some(size as vk::DeviceSize),
         };
 
         Self {
@@ -80,28 +153,55 @@ impl Buffer {
         }
     }
 
+    /// Returns the size of the buffer in bytes.
+    ///
+    /// If the buffer was created with a specific size, returns that size.
+    /// Otherwise, returns the size from the buffer's layout.
     pub fn get_size(&self) -> vk::DeviceSize {
-        // allocated_mem.size() would give the wrong result here!
-        // the allocated size is allocator-specific, and may overallocate.
-        self.desc.size
+        // allocated_mem.size() would give the wrong result because the allocated size
+        // is implementation related, so it may overallocate
+
+        if let Some(size) = self.desc.size {
+            return size;
+        }
+
+        self.desc
+            .layout
+            .as_ref()
+            .expect("Size and Layout fields are both not set!")
+            .get_size() as vk::DeviceSize
     }
 
-    pub fn get_usage(&self) -> vk::BufferUsageFlags {
+    /// Returns the buffer usage flags.
+    pub fn get_usage(&self) -> BufferUsage {
         self.desc.usage
     }
 
+    pub fn get_struct_layout(&self) -> Option<&StructLayout> {
+        self.desc.layout.as_ref()
+    }
+
+    /// Returns the memory location of the buffer.
     pub fn _get_location(&self) -> MemoryLocation {
         self.desc._location
     }
 
-    /// Fills the buffer with raw data. The data size must match with the buffer size.
+    /// Fills the buffer with raw data.
+    ///
+    /// # Parameters
+    /// * `data` - The byte array to copy into the buffer
+    ///
+    /// # Returns
+    /// * `Ok(())` if the operation was successful
+    /// * `Err` with a description if the data size doesn't match the buffer size
+    ///   or if memory mapping failed
     pub fn fill_raw(&self, data: &[u8]) -> Result<(), String> {
         // validation: check if data size matches buffer size
-        if data.len() != self.desc.size as usize {
+        if data.len() != self.get_size() as usize {
             return Err(format!(
                 "Data size {} does not match buffer size {}",
                 data.len(),
-                self.desc.size
+                self.get_size()
             ));
         }
 
@@ -120,6 +220,17 @@ impl Buffer {
         }
     }
 
+    /// Fills the buffer with generic typed data.
+    ///
+    /// # Type Parameters
+    /// * `T` - The type of data to fill the buffer with (must implement Copy)
+    ///
+    /// # Parameters
+    /// * `data` - Slice of data to copy into the buffer
+    ///
+    /// # Returns
+    /// * `Ok(())` if the operation was successful
+    /// * `Err` with a description if memory mapping failed
     pub fn fill<T: Copy>(&self, data: &[T]) -> Result<(), String> {
         if let Some(ptr) = self.allocated_mem.mapped_ptr() {
             let size_of_slice = std::mem::size_of_val(data) as vk::DeviceSize;
@@ -137,13 +248,17 @@ impl Buffer {
         }
     }
 
+    /// Reads raw data from the buffer.
+    ///
+    /// # Returns
+    /// * `Ok(Vec<u8>)` containing the buffer's data if successful
+    /// * `Err` with a description if memory mapping failed
     pub fn fetch_raw(&self) -> Result<Vec<u8>, String> {
         if let Some(ptr) = self.allocated_mem.mapped_ptr() {
-            let size = self.desc.size;
-            let mut data: Vec<u8> = vec![0; size as usize];
+            let size = self.get_size() as usize;
+            let mut data: Vec<u8> = vec![0; size];
             unsafe {
-                let mapped_slice: &mut [u8] =
-                    slice::from_raw_parts_mut(ptr.as_ptr().cast(), size as usize);
+                let mapped_slice: &mut [u8] = slice::from_raw_parts_mut(ptr.as_ptr().cast(), size);
                 data.copy_from_slice(mapped_slice);
             }
             Ok(data)
@@ -152,6 +267,7 @@ impl Buffer {
         }
     }
 
+    /// Returns the raw Vulkan buffer handle.
     pub fn as_raw(&self) -> vk::Buffer {
         self.buffer
     }

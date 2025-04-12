@@ -2,6 +2,8 @@ use log::warn;
 use std::collections::HashMap;
 use std::convert::TryInto;
 
+use crate::vkn::Buffer;
+
 use super::struct_layout::StructLayout;
 
 /// Builder for creating properly aligned buffer data according to a shader's struct layout.
@@ -27,6 +29,16 @@ impl<'a> BufferBuilder<'a> {
             values: HashMap::new(),
             raw_data: None,
         }
+    }
+
+    /// Create a new BufferBuilder from a given buffer.
+    ///
+    /// Notice that this will raise an error when the buffer has no layout. (e.g., a raw buffer).
+    pub fn from_struct_buffer(buffer: &'a Buffer) -> Result<Self, String> {
+        let layout = buffer
+            .get_struct_layout()
+            .ok_or("Buffer {} has no layout. Cannot create BufferBuilder.")?;
+        Ok(Self::from_layout(layout))
     }
 
     /// Internal helper to set a value if the member exists and has the expected type.

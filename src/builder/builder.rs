@@ -25,21 +25,12 @@ pub struct Builder {
 
     resources: BuilderResources,
 
-    chunk_init_sm: ShaderModule,
-    frag_list_maker_sm: ShaderModule,
-
     chunk_init_ppl: ComputePipeline,
     frag_list_maker_ppl: ComputePipeline,
 
     chunk_shared_ds: DescriptorSet,
     chunk_init_ds: DescriptorSet,
     frag_list_maker_ds: DescriptorSet,
-
-    octree_init_buffers_sm: ShaderModule,
-    octree_init_node_sm: ShaderModule,
-    octree_tag_node_sm: ShaderModule,
-    octree_alloc_node_sm: ShaderModule,
-    octree_modify_args_sm: ShaderModule,
 
     octree_init_buffers_ppl: ComputePipeline,
     octree_init_node_ppl: ComputePipeline,
@@ -184,21 +175,12 @@ impl Builder {
             vulkan_context,
             resources,
 
-            chunk_init_sm,
-            frag_list_maker_sm,
-
             chunk_init_ppl,
             frag_list_maker_ppl,
 
             chunk_shared_ds,
             chunk_init_ds,
             frag_list_maker_ds,
-
-            octree_init_buffers_sm,
-            octree_init_node_sm,
-            octree_tag_node_sm,
-            octree_alloc_node_sm,
-            octree_modify_args_sm,
 
             octree_init_buffers_ppl,
             octree_init_node_ppl,
@@ -408,15 +390,12 @@ impl Builder {
 
     fn update_chunk_build_info_buf(&mut self, resolution: UVec3, chunk_pos: IVec3) {
         // modify the uniform buffer to guide the chunk generation
-        let chunk_build_info_layout = BufferBuilder::from_layout(
-            self.chunk_init_sm
-                .get_buffer_layout("U_ChunkBuildInfo")
-                .unwrap(),
-        );
-        let chunk_build_info_data = chunk_build_info_layout
-            .set_uvec3("chunk_res", resolution.to_array())
-            .set_ivec3("chunk_pos", chunk_pos.to_array())
-            .to_raw_data();
+        let chunk_build_info_data =
+            BufferBuilder::from_struct_buffer(&self.resources.chunk_build_info)
+                .unwrap()
+                .set_uvec3("chunk_res", resolution.to_array())
+                .set_ivec3("chunk_pos", chunk_pos.to_array())
+                .to_raw_data();
         self.resources
             .chunk_build_info
             .fill_raw(&chunk_build_info_data)
@@ -424,16 +403,13 @@ impl Builder {
     }
 
     fn update_octree_build_info_buf(&mut self, resolution: UVec3, fragment_list_length: u32) {
-        let octree_build_info_layout = BufferBuilder::from_layout(
-            self.octree_init_buffers_sm
-                .get_buffer_layout("B_OctreeBuildInfo")
-                .unwrap(),
-        );
         assert!(resolution.x == resolution.y && resolution.y == resolution.z);
-        let octree_build_info_data = octree_build_info_layout
-            .set_uint("chunk_res_xyz", resolution.x as u32)
-            .set_uint("fragment_list_len", fragment_list_length)
-            .to_raw_data();
+        let octree_build_info_data =
+            BufferBuilder::from_struct_buffer(&self.resources.octree_build_info)
+                .unwrap()
+                .set_uint("chunk_res_xyz", resolution.x as u32)
+                .set_uint("fragment_list_len", fragment_list_length)
+                .to_raw_data();
         self.resources
             .octree_build_info
             .fill_raw(&octree_build_info_data)
@@ -441,15 +417,11 @@ impl Builder {
     }
 
     fn reset_fragment_list_info_buf(&self) {
-        // reset the fragment list info buffer
-        let fragment_list_info_layout = BufferBuilder::from_layout(
-            self.frag_list_maker_sm
-                .get_buffer_layout("B_FragmentListInfo")
-                .unwrap(),
-        );
-        let fragment_list_info_data = fragment_list_info_layout
-            .set_uint("fragment_list_len", 0)
-            .to_raw_data();
+        let fragment_list_info_data =
+            BufferBuilder::from_struct_buffer(&self.resources.fragment_list_info)
+                .unwrap()
+                .set_uint("fragment_list_len", 0)
+                .to_raw_data();
         self.resources
             .fragment_list_info
             .fill_raw(&fragment_list_info_data)
@@ -515,14 +487,13 @@ impl Builder {
     }
 
     fn get_fraglist_length(&self) -> u32 {
-        // TODO: can we store buffer layout inside buffer?
         let raw_data = self.resources.fragment_list_info.fetch_raw().unwrap();
-        let fragment_list_info_layout = self
-            .frag_list_maker_sm
-            .get_buffer_layout("B_FragmentListInfo")
-            .unwrap();
-        let data_to_fetch = BufferBuilder::from_layout(fragment_list_info_layout).set_raw(raw_data);
-        data_to_fetch.get_uint("fragment_list_len").unwrap()
+
+        BufferBuilder::from_struct_buffer(&self.resources.fragment_list_info)
+            .unwrap()
+            .set_raw(raw_data)
+            .get_uint("fragment_list_len")
+            .unwrap()
     }
 
     fn make_octree_by_frag_list(&mut self, command_pool: &CommandPool) {

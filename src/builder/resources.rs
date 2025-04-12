@@ -1,4 +1,4 @@
-use crate::vkn::{Allocator, Buffer, Device, ShaderModule, Texture, TextureDesc};
+use crate::vkn::{Allocator, Buffer, BufferUsage, Device, ShaderModule, Texture, TextureDesc};
 use ash::vk;
 use glam::UVec3;
 
@@ -28,89 +28,89 @@ impl BuilderResources {
         let blocks_tex = Self::create_weight_tex(device.clone(), allocator.clone(), chunk_res);
 
         let chunk_build_info_layout = chunk_init_sm.get_buffer_layout("U_ChunkBuildInfo").unwrap();
-        let chunk_build_info = Buffer::new_sized(
+        let chunk_build_info = Buffer::from_struct_layout(
             device.clone(),
             allocator.clone(),
-            vk::BufferUsageFlags::UNIFORM_BUFFER,
+            chunk_build_info_layout.clone(),
+            BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
-            chunk_build_info_layout.get_size() as _,
         );
 
         let fragment_list_info_layout = frag_list_maker_sm
             .get_buffer_layout("B_FragmentListInfo")
             .unwrap();
-        let fragment_list_info = Buffer::new_sized(
+        let fragment_list_info = Buffer::from_struct_layout(
             device.clone(),
             allocator.clone(),
-            vk::BufferUsageFlags::STORAGE_BUFFER,
+            fragment_list_info_layout.clone(),
+            BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
-            fragment_list_info_layout.get_size() as _,
         );
 
         let octree_build_info_layout = octree_init_buffers_sm
             .get_buffer_layout("B_OctreeBuildInfo")
             .unwrap();
-        let octree_build_info = Buffer::new_sized(
+        let octree_build_info = Buffer::from_struct_layout(
             device.clone(),
             allocator.clone(),
-            vk::BufferUsageFlags::UNIFORM_BUFFER,
+            octree_build_info_layout.clone(),
+            BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
-            octree_build_info_layout.get_size() as _,
         );
 
         let voxel_count_indirect_layout = octree_init_buffers_sm
             .get_buffer_layout("B_VoxelCountIndirect")
             .unwrap();
-        let voxel_count_indirect = Buffer::new_sized(
+        let voxel_count_indirect = Buffer::from_struct_layout(
             device.clone(),
             allocator.clone(),
-            vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::INDIRECT_BUFFER,
+            voxel_count_indirect_layout.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::INDIRECT_BUFFER),
             gpu_allocator::MemoryLocation::GpuOnly,
-            voxel_count_indirect_layout.get_size() as _,
         );
 
         let alloc_number_indirect_layout = octree_init_buffers_sm
             .get_buffer_layout("B_AllocNumberIndirect")
             .unwrap();
-        let alloc_number_indirect = Buffer::new_sized(
+        let alloc_number_indirect = Buffer::from_struct_layout(
             device.clone(),
             allocator.clone(),
-            vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::INDIRECT_BUFFER,
+            alloc_number_indirect_layout.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::INDIRECT_BUFFER),
             gpu_allocator::MemoryLocation::GpuOnly,
-            alloc_number_indirect_layout.get_size() as _,
         );
 
         let counter_layout = octree_init_buffers_sm
             .get_buffer_layout("B_Counter")
             .unwrap();
-        let counter = Buffer::new_sized(
+        let counter = Buffer::from_struct_layout(
             device.clone(),
             allocator.clone(),
-            vk::BufferUsageFlags::STORAGE_BUFFER,
+            counter_layout.clone(),
+            BufferUsage::empty(),
             gpu_allocator::MemoryLocation::GpuOnly,
-            counter_layout.get_size() as _,
         );
 
         let octree_alloc_info_layout = octree_init_buffers_sm
             .get_buffer_layout("B_OctreeAllocInfo")
             .unwrap();
-        let octree_alloc_info = Buffer::new_sized(
+        let octree_alloc_info = Buffer::from_struct_layout(
             device.clone(),
             allocator.clone(),
-            vk::BufferUsageFlags::STORAGE_BUFFER,
+            octree_alloc_info_layout.clone(),
+            BufferUsage::empty(),
             gpu_allocator::MemoryLocation::GpuOnly,
-            octree_alloc_info_layout.get_size() as _,
         );
 
         let octree_build_result_layout = octree_init_buffers_sm
             .get_buffer_layout("B_OctreeBuildResult")
             .unwrap();
-        let octree_build_result = Buffer::new_sized(
+        let octree_build_result = Buffer::from_struct_layout(
             device.clone(),
             allocator.clone(),
-            vk::BufferUsageFlags::STORAGE_BUFFER,
+            octree_build_result_layout.clone(),
+            BufferUsage::empty(),
             gpu_allocator::MemoryLocation::GpuOnly,
-            octree_build_result_layout.get_size() as _,
         );
 
         let max_possible_voxel_count = chunk_res.x * chunk_res.y * chunk_res.z;
@@ -124,7 +124,7 @@ impl BuilderResources {
         let fragment_list = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
-            vk::BufferUsageFlags::STORAGE_BUFFER,
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
             gpu_allocator::MemoryLocation::GpuOnly,
             buf_size as _,
         );
@@ -137,7 +137,7 @@ impl BuilderResources {
         let octree_data = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
-            vk::BufferUsageFlags::STORAGE_BUFFER,
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
             gpu_allocator::MemoryLocation::GpuOnly,
             one_giga as _,
         );

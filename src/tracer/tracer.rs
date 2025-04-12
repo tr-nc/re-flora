@@ -14,7 +14,6 @@ pub struct Tracer {
     allocator: Allocator,
     resources: TracerResources,
 
-    tracer_sm: ShaderModule,
     tracer_ppl: ComputePipeline,
     tracer_ds: DescriptorSet,
     descriptor_pool: DescriptorPool,
@@ -62,7 +61,6 @@ impl Tracer {
             vulkan_context,
             allocator,
             resources,
-            tracer_sm,
             tracer_ppl,
             tracer_ds,
             descriptor_pool,
@@ -107,18 +105,17 @@ impl Tracer {
 
     /// Update the uniform buffers with the latest camera and debug values, called every frame
     pub fn update_uniform_buffers(&mut self, camera: &Camera, debug_float: f32) {
-        let gui_input_layout = self.tracer_sm.get_buffer_layout("GuiInput").unwrap();
-        let gui_input_data = BufferBuilder::from_layout(gui_input_layout)
+        let gui_input_data = BufferBuilder::from_struct_buffer(&self.resources.gui_input)
+            .unwrap()
             .set_float("debug_float", debug_float)
             .to_raw_data();
         self.resources.gui_input.fill_raw(&gui_input_data).unwrap();
 
-        let camera_info_layout = self.tracer_sm.get_buffer_layout("CameraInfo").unwrap();
-
         let view_mat = camera.get_view_mat();
         let proj_mat = camera.get_proj_mat();
         let view_proj_mat = proj_mat * view_mat;
-        let camera_info_data = BufferBuilder::from_layout(camera_info_layout)
+        let camera_info_data = BufferBuilder::from_struct_buffer(&self.resources.camera_info)
+            .unwrap()
             .set_vec4("camera_pos", camera.position_vec4().to_array())
             .set_mat4("view_mat", view_mat.to_cols_array_2d())
             .set_mat4("view_mat_inv", view_mat.inverse().to_cols_array_2d())

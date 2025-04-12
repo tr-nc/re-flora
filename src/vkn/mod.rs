@@ -2,6 +2,9 @@ mod instance;
 mod physical_device;
 mod surface;
 
+mod buffer_usage;
+pub use buffer_usage::*;
+
 mod barrier;
 pub use barrier::*;
 

@@ -1,5 +1,7 @@
 use super::{Image, ImageView, ImageViewDesc, Sampler, SamplerDesc, TextureDesc, TextureRegion};
-use crate::vkn::{execute_one_time_command, Allocator, Buffer, CommandPool, Device, Queue};
+use crate::vkn::{
+    execute_one_time_command, Allocator, Buffer, BufferUsage, CommandPool, Device, Queue,
+};
 use ash::vk::{self, ImageType};
 
 /// A texture is a combination of an image, image view, and sampler.
@@ -52,7 +54,7 @@ impl Texture {
         let buffer = Buffer::new_sized(
             self.device.clone(),
             self.image.get_allocator().clone(),
-            vk::BufferUsageFlags::TRANSFER_SRC,
+            BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_SRC),
             gpu_allocator::MemoryLocation::CpuToGpu,
             data.len() as _,
         );
@@ -105,7 +107,7 @@ impl Texture {
         let buffer = Buffer::new_sized(
             self.device.clone(),
             self.image.get_allocator().clone(),
-            vk::BufferUsageFlags::TRANSFER_DST,
+            BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
             gpu_allocator::MemoryLocation::GpuToCpu,
             self.image.get_size() as _,
         );

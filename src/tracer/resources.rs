@@ -1,4 +1,4 @@
-use crate::vkn::{Allocator, Buffer, Device, ShaderModule, Texture, TextureDesc};
+use crate::vkn::{Allocator, Buffer, BufferUsage, Device, ShaderModule, Texture, TextureDesc};
 use ash::vk;
 
 pub struct TracerResources {
@@ -21,21 +21,21 @@ impl TracerResources {
         );
 
         let gui_input_buf_layout = tracer_sm.get_buffer_layout("GuiInput").unwrap();
-        let gui_input_buf = Buffer::new_sized(
+        let gui_input_buf = Buffer::from_struct_layout(
             device.clone(),
             allocator.clone(),
-            vk::BufferUsageFlags::UNIFORM_BUFFER,
+            gui_input_buf_layout.clone(),
+            BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
-            gui_input_buf_layout.get_size() as _,
         );
 
         let camera_info_layout = tracer_sm.get_buffer_layout("CameraInfo").unwrap();
-        let camera_info_buf = Buffer::new_sized(
+        let camera_info_buf = Buffer::from_struct_layout(
             device.clone(),
-            allocator,
-            vk::BufferUsageFlags::UNIFORM_BUFFER,
+            allocator.clone(),
+            camera_info_layout.clone(),
+            BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
-            camera_info_layout.get_size() as _,
         );
 
         Self {
