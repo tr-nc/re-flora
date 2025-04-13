@@ -1,4 +1,7 @@
-use super::{Image, ImageView, ImageViewDesc, Sampler, SamplerDesc, TextureDesc, TextureRegion};
+use super::{
+    Image, ImageView, ImageViewDesc, Sampler, SamplerDesc, TextureDesc, TextureRegion2d,
+    TextureRegion3d,
+};
 use crate::vkn::{
     execute_one_time_command, Allocator, Buffer, BufferUsage, CommandPool, Device, Queue,
 };
@@ -42,13 +45,59 @@ impl Texture {
         }
     }
 
+    pub fn copy_image_to_buffer(
+        &self,
+        buffer: &mut Buffer,
+        queue: &Queue,
+        command_pool: &CommandPool,
+        dst_image_layout: vk::ImageLayout,
+        region: TextureRegion3d,
+    ) {
+        execute_one_time_command(&self.device.clone(), command_pool, queue, |cmdbuf| {
+            self.image
+                .record_transition_barrier(cmdbuf, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
+            let region = vk::BufferImageCopy::default()
+                .buffer_offset(0)
+                .buffer_row_length(0)
+                .buffer_image_height(0)
+                .image_subresource(vk::ImageSubresourceLayers {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    mip_level: 0,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                })
+                .image_offset(vk::Offset3D {
+                    x: region.offset[0],
+                    y: region.offset[1],
+                    z: region.offset[2],
+                })
+                .image_extent(vk::Extent3D {
+                    width: region.extent[0],
+                    height: region.extent[1],
+                    depth: region.extent[2],
+                });
+            unsafe {
+                self.device.cmd_copy_image_to_buffer(
+                    cmdbuf.as_raw(),
+                    self.image.as_raw(),
+                    vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                    buffer.as_raw(),
+                    &[region],
+                )
+            }
+            self.image
+                .record_transition_barrier(cmdbuf, dst_image_layout);
+        });
+    }
+
     /// Uploads an RGBA image to the texture. The image is transitioned into `dst_image_layout` the data upload.
+    // TODO: maybe use `TextureRegion3d` instead of `TextureRegion2d` later for genericity.
     pub fn upload_rgba_image(
         &self,
         queue: &Queue,
         command_pool: &CommandPool,
         dst_image_layout: vk::ImageLayout,
-        region: TextureRegion,
+        region: TextureRegion2d,
         data: &[u8],
     ) -> Result<&Self, String> {
         let buffer = Buffer::new_sized(

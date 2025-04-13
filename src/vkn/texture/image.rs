@@ -125,6 +125,8 @@ impl Image {
         self.0.size
     }
 
+    /// Compared to `get_copy_region`, this is a blit region that can take the image color space
+    /// into account.
     pub fn get_blit_region(&self) -> vk::ImageBlit {
         let offset_min = vk::Offset3D { x: 0, y: 0, z: 0 };
         let offset_max = vk::Offset3D {
