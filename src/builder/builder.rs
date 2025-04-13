@@ -205,6 +205,7 @@ impl Builder {
         let total_run_count = 1000;
         let mut chunk_init_total = std::time::Duration::new(0, 0);
         let mut frag_list_total = std::time::Duration::new(0, 0);
+        let mut octree_total = std::time::Duration::new(0, 0);
 
         for i in 0..total_run_count {
             self.update_chunk_build_info_buf(self.chunk_res, chunk_pos);
@@ -217,32 +218,24 @@ impl Builder {
             let start = std::time::Instant::now();
             self.make_frag_list(command_pool, self.chunk_res);
             frag_list_total += start.elapsed();
+
+            let fragment_list_len = self.get_fraglist_length();
+            self.update_octree_build_info_buf(self.chunk_res, fragment_list_len);
+
+            let start = std::time::Instant::now();
+            self.make_octree_by_frag_list(command_pool);
+            octree_total += start.elapsed();
         }
 
         // Calculate averages
         let chunk_init_avg = chunk_init_total / total_run_count as u32;
         let frag_list_avg = frag_list_total / total_run_count as u32;
-
-        // 01:58:27.011Z INFO  [re_flora::builder::builder] Average chunk inittime: 3.847622ms
-        // 01:58:27.011Z INFO  [re_flora::builder::builder] Average raw texture to buffer time: 415.14µs
-        // 01:58:27.012Z INFO  [re_flora::builder::builder] Average fragment list time: 1.085703ms
-
-        // 02:46:40.852Z INFO  [re_flora::builder::builder] Average chunk init time: 3.807538ms
-        // 02:46:40.853Z INFO  [re_flora::builder::builder] Average fragment list time: 1.156836ms
-        // 02:46:40.854Z DEBUG [re_flora::builder::builder] Voxel level count: 8
-        // 02:46:40.855Z DEBUG [re_flora::builder::builder] Octree build time: 2.1362ms
+        let octree_avg = octree_total / total_run_count as u32;
 
         // Print averages
         log::info!("Average chunk init time: {:?}", chunk_init_avg);
         log::info!("Average fragment list time: {:?}", frag_list_avg);
-
-        let fragment_list_len = self.get_fraglist_length();
-        self.update_octree_build_info_buf(self.chunk_res, fragment_list_len);
-
-        let start = std::time::Instant::now();
-        self.make_octree_by_frag_list(command_pool);
-        let duration = start.elapsed();
-        log::debug!("Octree build time: {:?}", duration);
+        log::info!("Average octree time: {:?}", octree_avg);
 
         let chunk = Chunk {
             res: self.chunk_res,
@@ -552,7 +545,6 @@ impl Builder {
                 indirect_access_pipeline_barrier.record_insert(device, cmdbuf);
 
                 let voxel_level_count = log2(self.chunk_res.x);
-                log::debug!("Voxel level count: {}", voxel_level_count);
 
                 for i in 0..voxel_level_count {
                     self.octree_init_node_ppl.record_bind(cmdbuf);

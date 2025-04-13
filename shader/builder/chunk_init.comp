@@ -9,7 +9,6 @@ layout(set = 0, binding = 0) readonly uniform U_ChunkBuildInfo {
 }
 chunk_build_info;
 
-// Instead of writing to an image, we write to a buffer.
 layout(set = 1, binding = 0) writeonly buffer B_RawBlocks { uint data[]; }
 raw_blocks;
 
@@ -41,16 +40,11 @@ uint get_voxel_type(float weight) {
 }
 
 void main() {
-    // Compute the voxel coordinate.
-    // The dispatch dimensions should match the total voxel count.
     ivec3 uvi = ivec3(gl_GlobalInvocationID);
-
-    // Discard out-of-bound invocations.
     if (any(greaterThanEqual(uvi, ivec3(chunk_build_info.chunk_res)))) {
         return;
     }
 
-    // Compute local and world positions.
     vec3 local_voxel_pos = (vec3(uvi) - 0.5) / vec3(chunk_build_info.chunk_res);
     vec3 world_voxel_pos = local_voxel_pos + vec3(chunk_build_info.chunk_pos);
 
