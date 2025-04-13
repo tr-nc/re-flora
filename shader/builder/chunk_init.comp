@@ -1,4 +1,3 @@
-//! Inits the chunk image with artificial noise.
 #version 450
 #extension GL_GOOGLE_include_directive : require
 
@@ -9,7 +8,10 @@ layout(set = 0, binding = 0) readonly uniform U_ChunkBuildInfo {
     ivec3 chunk_pos;
 }
 chunk_build_info;
-layout(set = 1, binding = 0, r8ui) writeonly uniform uimage3D raw_voxels_img;
+
+// Instead of writing to an image, we write to a buffer.
+layout(set = 1, binding = 0) writeonly buffer B_RawBlocks { uint data[]; }
+raw_blocks;
 
 #include "../include/core/inoise.glsl"
 #include "../include/voxel_types.glsl"
@@ -39,18 +41,35 @@ uint get_voxel_type(float weight) {
 }
 
 void main() {
+    // Compute the voxel coordinate.
+    // The dispatch dimensions should match the total voxel count.
     ivec3 uvi = ivec3(gl_GlobalInvocationID);
+
+    // Discard out-of-bound invocations.
     if (any(greaterThanEqual(uvi, ivec3(chunk_build_info.chunk_res)))) {
         return;
     }
 
+    // Compute local and world positions.
     vec3 local_voxel_pos = (vec3(uvi) - 0.5) / vec3(chunk_build_info.chunk_res);
     vec3 world_voxel_pos = local_voxel_pos + vec3(chunk_build_info.chunk_pos);
 
-    float noise  = compute_noise(world_voxel_pos);
-    float weight = noise - world_voxel_pos.y;
-
+    float noise     = compute_noise(world_voxel_pos);
+    float weight    = noise - world_voxel_pos.y;
     uint voxel_type = get_voxel_type(weight);
 
-    imageStore(raw_voxels_img, uvi, uvec4(voxel_type));
+    // Compute the linear voxel index assuming row-major ordering:
+    // linear_index = uvi.z * (chunk_res.x * chunk_res.y) + uvi.y * chunk_res.x + uvi.x
+    uint linear_index =
+        uint(uvi.z) * (chunk_build_info.chunk_res.x * chunk_build_info.chunk_res.y) +
+        uint(uvi.y) * chunk_build_info.chunk_res.x + uint(uvi.x);
+
+    // Determine destination uint index and the byte offset (0, 1, 2, or 3).
+    uint dest_index   = linear_index / 4;
+    uint byte_offset  = linear_index % 4;
+    uint shift_amount = byte_offset * 8u;
+
+    // Shift the voxel value (8-bit) to its position and atomically OR into the destination uint.
+    uint shifted_val = voxel_type << shift_amount;
+    atomicOr(raw_blocks.data[dest_index], shifted_val);
 }

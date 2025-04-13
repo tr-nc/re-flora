@@ -1,9 +1,8 @@
-use crate::vkn::{Allocator, Buffer, BufferUsage, Device, ShaderModule, Texture, TextureDesc};
+use crate::vkn::{Allocator, Buffer, BufferUsage, Device, ShaderModule};
 use ash::vk;
 use glam::UVec3;
 
 pub struct BuilderResources {
-    pub raw_voxels_tex: Texture,
     pub raw_voxels: Buffer,
     pub chunk_build_info: Buffer,
     pub fragment_list_info: Buffer,
@@ -26,8 +25,6 @@ impl BuilderResources {
         octree_init_buffers_sm: &ShaderModule,
         chunk_res: UVec3,
     ) -> Self {
-        let raw_voxels_tex = Self::create_weight_tex(device.clone(), allocator.clone(), chunk_res);
-
         let raw_voxels_size: u64 = chunk_res.x as u64 * chunk_res.y as u64 * chunk_res.z as u64;
         let raw_voxels = Buffer::new_sized(
             device.clone(),
@@ -153,7 +150,6 @@ impl BuilderResources {
         );
 
         Self {
-            raw_voxels_tex,
             raw_voxels,
             chunk_build_info,
             fragment_list_info,
@@ -166,19 +162,5 @@ impl BuilderResources {
             octree_data,
             fragment_list,
         }
-    }
-
-    fn create_weight_tex(device: Device, allocator: Allocator, chunk_res: UVec3) -> Texture {
-        let tex_desc = TextureDesc {
-            extent: chunk_res.to_array(),
-            format: vk::Format::R8_UINT,
-            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC,
-            initial_layout: vk::ImageLayout::UNDEFINED,
-            aspect: vk::ImageAspectFlags::COLOR,
-            ..Default::default()
-        };
-        let sam_desc = Default::default();
-        let tex = Texture::new(device, allocator, &tex_desc, &sam_desc);
-        tex
     }
 }
