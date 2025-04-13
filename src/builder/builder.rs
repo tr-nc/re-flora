@@ -26,10 +26,12 @@ pub struct Builder {
     resources: BuilderResources,
 
     chunk_init_ppl: ComputePipeline,
+    raw_tex_to_buf_ppl: ComputePipeline,
     frag_list_maker_ppl: ComputePipeline,
 
     chunk_shared_ds: DescriptorSet,
     chunk_init_ds: DescriptorSet,
+    raw_tex_to_buf_ds: DescriptorSet,
     frag_list_maker_ds: DescriptorSet,
 
     octree_init_buffers_ppl: ComputePipeline,
@@ -72,6 +74,16 @@ impl Builder {
         .unwrap();
         let chunk_init_ppl =
             ComputePipeline::from_shader_module(vulkan_context.device(), &chunk_init_sm);
+
+        let raw_tex_to_buf_sm = ShaderModule::from_glsl(
+            vulkan_context.device(),
+            &shader_compiler,
+            "shader/builder/raw_tex_to_buf.comp",
+            "main",
+        )
+        .unwrap();
+        let raw_tex_to_buf_ppl =
+            ComputePipeline::from_shader_module(vulkan_context.device(), &raw_tex_to_buf_sm);
 
         let frag_list_maker_sm = ShaderModule::from_glsl(
             vulkan_context.device(),
@@ -144,15 +156,17 @@ impl Builder {
             chunk_res,
         );
 
-        let (chunk_shared_ds, chunk_init_ds, frag_list_maker_ds) =
+        let (chunk_shared_ds, chunk_init_ds, raw_tex_to_buf_ds, frag_list_maker_ds) =
             Self::create_frag_builder_descriptor_sets(
                 descriptor_pool.clone(),
                 vulkan_context.device().clone(),
                 &chunk_init_ppl,
+                &raw_tex_to_buf_ppl,
                 &frag_list_maker_ppl,
                 &resources,
             );
 
+        // TODO: make another struct for this
         let (
             octree_shared_ds,
             octree_init_buffers_ds,
@@ -176,10 +190,12 @@ impl Builder {
             resources,
 
             chunk_init_ppl,
+            raw_tex_to_buf_ppl,
             frag_list_maker_ppl,
 
             chunk_shared_ds,
             chunk_init_ds,
+            raw_tex_to_buf_ds,
             frag_list_maker_ds,
 
             octree_init_buffers_ppl,
@@ -205,12 +221,17 @@ impl Builder {
         self.reset_fragment_list_info_buf();
 
         let start = std::time::Instant::now();
-        self.write_block_tex_by_noise(command_pool, self.chunk_res);
+        self.init_chunk_by_noise(command_pool, self.chunk_res);
         let duration = start.elapsed();
         log::debug!("Chunk init time: {:?}", duration);
 
         let start = std::time::Instant::now();
-        self.fill_fragment_list_from_block_tex(command_pool, self.chunk_res);
+        self.raw_tex_to_buf(command_pool);
+        let duration = start.elapsed();
+        log::debug!("Raw texture to buffer time: {:?}", duration);
+
+        let start = std::time::Instant::now();
+        self.make_frag_list(command_pool, self.chunk_res);
         let duration = start.elapsed();
         log::debug!("Fragment list time: {:?}", duration);
 
@@ -238,9 +259,10 @@ impl Builder {
         descriptor_pool: DescriptorPool,
         device: Device,
         chunk_init_ppl: &ComputePipeline,
+        raw_tex_to_buf_ppl: &ComputePipeline,
         frag_list_maker_ppl: &ComputePipeline,
         resources: &BuilderResources,
-    ) -> (DescriptorSet, DescriptorSet, DescriptorSet) {
+    ) -> (DescriptorSet, DescriptorSet, DescriptorSet, DescriptorSet) {
         // this set is shared between all pipelines
         let shared_ds = DescriptorSet::new(
             device.clone(),
@@ -260,9 +282,24 @@ impl Builder {
         chunk_init_ds.perform_writes(&[WriteDescriptorSet::new_texture_write(
             0,
             vk::DescriptorType::STORAGE_IMAGE,
-            &resources.blocks_tex,
+            &resources.raw_voxels_tex,
             vk::ImageLayout::GENERAL,
         )]);
+
+        let raw_tex_to_buf_ds = DescriptorSet::new(
+            device.clone(),
+            &raw_tex_to_buf_ppl.get_layout().get_descriptor_set_layouts()[1],
+            descriptor_pool.clone(),
+        );
+        raw_tex_to_buf_ds.perform_writes(&[
+            WriteDescriptorSet::new_texture_write(
+                0,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.raw_voxels_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_buffer_write(1, &resources.raw_voxels),
+        ]);
 
         let frag_list_maker_ds = DescriptorSet::new(
             device.clone(),
@@ -272,17 +309,17 @@ impl Builder {
             descriptor_pool.clone(),
         );
         frag_list_maker_ds.perform_writes(&[
-            WriteDescriptorSet::new_texture_write(
-                0,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.blocks_tex,
-                vk::ImageLayout::GENERAL,
-            ),
+            WriteDescriptorSet::new_buffer_write(0, &resources.raw_voxels),
             WriteDescriptorSet::new_buffer_write(1, &resources.fragment_list_info),
             WriteDescriptorSet::new_buffer_write(2, &resources.fragment_list),
         ]);
 
-        (shared_ds, chunk_init_ds, frag_list_maker_ds)
+        (
+            shared_ds,
+            chunk_init_ds,
+            raw_tex_to_buf_ds,
+            frag_list_maker_ds,
+        )
     }
 
     fn create_octree_builder_descriptor_sets(
@@ -428,15 +465,14 @@ impl Builder {
             .expect("Failed to fill buffer data");
     }
 
-    /// Ask the builder to write the block texture from noise, chunk build info buffer must be ready before calling.
-    fn write_block_tex_by_noise(&mut self, command_pool: &CommandPool, resolution: UVec3) {
+    fn init_chunk_by_noise(&mut self, command_pool: &CommandPool, resolution: UVec3) {
         execute_one_time_command(
             self.vulkan_context.device(),
             command_pool,
             &self.vulkan_context.get_general_queue(),
             |cmdbuf| {
                 self.resources
-                    .blocks_tex
+                    .raw_voxels_tex
                     .get_image()
                     .record_transition_barrier(cmdbuf, vk::ImageLayout::GENERAL);
 
@@ -457,15 +493,49 @@ impl Builder {
         );
     }
 
-    /// Generate the chunk data and fill the fragment list buffer.
-    fn fill_fragment_list_from_block_tex(&mut self, command_pool: &CommandPool, resolution: UVec3) {
+    fn raw_tex_to_buf(&mut self, command_pool: &CommandPool) {
         execute_one_time_command(
             self.vulkan_context.device(),
             command_pool,
             &self.vulkan_context.get_general_queue(),
             |cmdbuf| {
                 self.resources
-                    .blocks_tex
+                    .raw_voxels_tex
+                    .get_image()
+                    .record_transition_barrier(cmdbuf, vk::ImageLayout::GENERAL);
+
+                self.raw_tex_to_buf_ppl.record_bind(cmdbuf);
+
+                // TODO: combine these actions and benchmark
+                self.raw_tex_to_buf_ppl.record_bind_descriptor_sets(
+                    cmdbuf,
+                    std::slice::from_ref(&self.chunk_shared_ds),
+                    0,
+                );
+                self.raw_tex_to_buf_ppl.record_bind_descriptor_sets(
+                    cmdbuf,
+                    std::slice::from_ref(&self.raw_tex_to_buf_ds),
+                    1,
+                );
+
+                let total_voxel_size = self.chunk_res.x * self.chunk_res.y * self.chunk_res.z;
+                // buffer is u32, voxel is u8
+                let total_buffer_size = total_voxel_size / 4;
+
+                self.raw_tex_to_buf_ppl
+                    .record_dispatch(cmdbuf, [total_buffer_size, 1, 1]);
+            },
+        );
+    }
+
+    fn make_frag_list(&mut self, command_pool: &CommandPool, resolution: UVec3) {
+        execute_one_time_command(
+            self.vulkan_context.device(),
+            command_pool,
+            &self.vulkan_context.get_general_queue(),
+            |cmdbuf| {
+                self.resources
+                    .raw_voxels_tex
                     .get_image()
                     .record_transition_barrier(cmdbuf, vk::ImageLayout::GENERAL);
 

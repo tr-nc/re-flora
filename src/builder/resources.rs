@@ -3,7 +3,8 @@ use ash::vk;
 use glam::UVec3;
 
 pub struct BuilderResources {
-    pub blocks_tex: Texture,
+    pub raw_voxels_tex: Texture,
+    pub raw_voxels: Buffer,
     pub chunk_build_info: Buffer,
     pub fragment_list_info: Buffer,
     pub octree_build_info: Buffer,
@@ -25,7 +26,16 @@ impl BuilderResources {
         octree_init_buffers_sm: &ShaderModule,
         chunk_res: UVec3,
     ) -> Self {
-        let blocks_tex = Self::create_weight_tex(device.clone(), allocator.clone(), chunk_res);
+        let raw_voxels_tex = Self::create_weight_tex(device.clone(), allocator.clone(), chunk_res);
+
+        let raw_voxels_size: u64 = chunk_res.x as u64 * chunk_res.y as u64 * chunk_res.z as u64;
+        let raw_voxels = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            gpu_allocator::MemoryLocation::GpuOnly,
+            raw_voxels_size,
+        );
 
         let chunk_build_info_layout = chunk_init_sm.get_buffer_layout("U_ChunkBuildInfo").unwrap();
         let chunk_build_info = Buffer::from_struct_layout(
@@ -143,7 +153,8 @@ impl BuilderResources {
         );
 
         Self {
-            blocks_tex,
+            raw_voxels_tex,
+            raw_voxels,
             chunk_build_info,
             fragment_list_info,
             octree_build_info,

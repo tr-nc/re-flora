@@ -11,11 +11,11 @@ layout(set = 0, binding = 0) readonly uniform U_ChunkBuildInfo {
 }
 chunk_build_info;
 
-layout(set = 1, binding = 0, r8ui) readonly uniform uimage3D blocks_image;
+layout(set = 1, binding = 0) readonly buffer B_RawBlocks { uint data[]; }
+raw_blocks;
 
 // fragment_list_len is incremented atomically every time a new fragment is added
 // to the fragment list
-// readwrite
 layout(set = 1, binding = 1) buffer B_FragmentListInfo { uint fragment_list_len; }
 fragment_list_info;
 
@@ -26,12 +26,27 @@ fragment_list_info;
 layout(set = 1, binding = 2) writeonly buffer B_FragmentList { FragmentListEntry data[]; }
 fragment_list;
 
-#include "../include/block_types.glsl"
 #include "../include/core/packer.glsl"
+#include "../include/voxel_types.glsl"
 
-bool is_solid(uint block_type) { return block_type != BLOCK_TYPE_EMPTY; }
+bool is_solid(uint voxel_type) { return voxel_type != VOXEL_TYPE_EMPTY; }
 
-uint get_block_type(ivec3 uvi) { return imageLoad(blocks_image, uvi).x; }
+uint vidx_to_linear(uvec3 idx, uvec3 chunk_res) {
+    return idx.z * chunk_res.x * chunk_res.y + idx.y * chunk_res.x + idx.x;
+}
+
+// helper function
+uint get_voxel_type(ivec3 idx) {
+    uint v           = vidx_to_linear(uvec3(idx), chunk_build_info.chunk_res);
+    uint uint_offset = v / 4u;
+    uint byte_offset = (v % 4u) * 8u;
+
+    uint data = raw_blocks.data[uint_offset];
+    data >>= byte_offset;
+    data &= 0xFF; // mask to get the last 8 bits
+
+    return data;
+}
 
 /// Check if a block is occluded by its neighbours.
 /// A block is occluded if all of its neighbours are solid.
@@ -51,7 +66,7 @@ bool is_occluded(ivec3 uvi) {
             return false;
         }
 
-        if (!is_solid(get_block_type(cur))) {
+        if (!is_solid(get_voxel_type(cur))) {
             return false;
         }
     }
@@ -75,9 +90,9 @@ vec3 calculate_normal(ivec3 uvi) {
         for (int y = min_bound.y; y <= max_bound.y; y++) {
             for (int x = min_bound.x; x <= max_bound.x; x++) {
                 ivec3 cur       = ivec3(x, y, z);
-                uint block_type = get_block_type(cur);
+                uint voxel_type = get_voxel_type(cur);
 
-                if (is_solid(block_type)) {
+                if (is_solid(voxel_type)) {
                     normal += vec3(x, y, z) - uvi_f;
                 }
             }
@@ -96,17 +111,17 @@ uint compress_coord(uvec3 coord) {
     return coord_compressed;
 }
 
-uint compress_block_type_and_normal(uint block_type, vec3 normal) {
+uint compress_voxel_type_and_normal(uint voxel_type, vec3 normal) {
     uint properties_data = 0;
-    properties_data |= block_type & 0xFF;
+    properties_data |= voxel_type & 0xFF;
     properties_data |= pack_normal_v2(normal) << 8;
     return properties_data;
 }
 
-FragmentListEntry make_fragment_list_entry(uvec3 coord, uint block_type, vec3 normal) {
+FragmentListEntry make_fragment_list_entry(uvec3 coord, uint voxel_type, vec3 normal) {
     FragmentListEntry fragment_list_entry;
     fragment_list_entry.coordinates = compress_coord(coord);
-    fragment_list_entry.properties  = compress_block_type_and_normal(block_type, normal);
+    fragment_list_entry.properties  = compress_voxel_type_and_normal(voxel_type, normal);
     return fragment_list_entry;
 }
 
@@ -117,8 +132,8 @@ void main() {
     }
 
     // Cache the block type so we don't perform multiple image loads.
-    uint block_type = get_block_type(uvi);
-    if (!is_solid(block_type)) {
+    uint voxel_type = get_voxel_type(uvi);
+    if (!is_solid(voxel_type)) {
         return;
     }
     if (is_occluded(uvi)) {
@@ -127,8 +142,8 @@ void main() {
 
     uint fragment_list_cursor = atomicAdd(fragment_list_info.fragment_list_len, 1);
 
-    // Pass the cached block_type to the fragment_list entry.
+    // Pass the cached voxel_type to the fragment_list entry.
     FragmentListEntry entry =
-        make_fragment_list_entry(uvec3(uvi), block_type, calculate_normal(uvi));
+        make_fragment_list_entry(uvec3(uvi), voxel_type, calculate_normal(uvi));
     fragment_list.data[fragment_list_cursor] = entry;
 }

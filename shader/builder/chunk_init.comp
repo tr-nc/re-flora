@@ -1,4 +1,4 @@
-//! Fill the chunk image with artificial noise. Only for initialization of a certain chunk.
+//! Inits the chunk image with artificial noise.
 #version 450
 
 #extension GL_GOOGLE_include_directive : require
@@ -6,18 +6,15 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
-// stores information of the current chunk to build
 layout(set = 0, binding = 0) readonly uniform U_ChunkBuildInfo {
     uvec3 chunk_res;
     ivec3 chunk_pos;
 }
 chunk_build_info;
+layout(set = 1, binding = 0, r8ui) writeonly uniform uimage3D raw_voxels_img;
 
-// the final texture to write block types into
-layout(set = 1, binding = 0, r8ui) writeonly uniform uimage3D blocks_image;
-
-#include "../include/block_types.glsl"
 #include "../include/core/inoise.glsl"
+#include "../include/voxel_types.glsl"
 
 float compute_noise(vec3 p) {
     float total       = 0.0;
@@ -36,11 +33,11 @@ float compute_noise(vec3 p) {
     return total;
 }
 
-uint get_block_type(float weight) {
+uint get_voxel_type(float weight) {
     if (weight < 0.0) {
-        return BLOCK_TYPE_EMPTY;
+        return VOXEL_TYPE_EMPTY;
     }
-    return BLOCK_TYPE_DIRT;
+    return VOXEL_TYPE_DIRT;
 }
 
 void main() {
@@ -55,7 +52,7 @@ void main() {
     float noise  = compute_noise(world_voxel_pos);
     float weight = noise - world_voxel_pos.y;
 
-    uint block_type = get_block_type(weight);
+    uint voxel_type = get_voxel_type(weight);
 
-    imageStore(blocks_image, uvi, uvec4(block_type));
+    imageStore(raw_voxels_img, uvi, uvec4(voxel_type));
 }
