@@ -81,7 +81,7 @@ vec3 calculate_normal(ivec3 uvi) {
 
     // TODO: consider neighbouring chunks later.
     min_bound = max(min_bound, ivec3(0));
-    max_bound = min(max_bound, ivec3(chunk_build_info.chunk_res));
+    max_bound = min(max_bound, ivec3(chunk_build_info.chunk_res - 1));
 
     vec3 normal = vec3(0.0);
 
