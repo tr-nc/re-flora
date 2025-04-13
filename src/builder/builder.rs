@@ -217,23 +217,41 @@ impl Builder {
     }
 
     pub fn init_chunk(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
-        self.update_chunk_build_info_buf(self.chunk_res, chunk_pos);
-        self.reset_fragment_list_info_buf();
+        let total_run_count = 1000;
+        let mut chunk_init_total = std::time::Duration::new(0, 0);
+        let mut raw_tex_total = std::time::Duration::new(0, 0);
+        let mut frag_list_total = std::time::Duration::new(0, 0);
 
-        let start = std::time::Instant::now();
-        self.init_chunk_by_noise(command_pool, self.chunk_res);
-        let duration = start.elapsed();
-        log::debug!("Chunk init time: {:?}", duration);
+        for i in 0..total_run_count {
+            self.update_chunk_build_info_buf(self.chunk_res, chunk_pos);
+            self.reset_fragment_list_info_buf();
 
-        let start = std::time::Instant::now();
-        self.raw_tex_to_buf(command_pool);
-        let duration = start.elapsed();
-        log::debug!("Raw texture to buffer time: {:?}", duration);
+            let start = std::time::Instant::now();
+            self.init_chunk_by_noise(command_pool, self.chunk_res);
+            chunk_init_total += start.elapsed();
 
-        let start = std::time::Instant::now();
-        self.make_frag_list(command_pool, self.chunk_res);
-        let duration = start.elapsed();
-        log::debug!("Fragment list time: {:?}", duration);
+            let start = std::time::Instant::now();
+            self.raw_tex_to_buf(command_pool);
+            raw_tex_total += start.elapsed();
+
+            let start = std::time::Instant::now();
+            self.make_frag_list(command_pool, self.chunk_res);
+            frag_list_total += start.elapsed();
+        }
+
+        // Calculate averages
+        let chunk_init_avg = chunk_init_total / total_run_count as u32;
+        let raw_tex_avg = raw_tex_total / total_run_count as u32;
+        let frag_list_avg = frag_list_total / total_run_count as u32;
+
+        // 01:58:27.011Z INFO  [re_flora::builder::builder] Average chunk inittime: 3.847622ms
+        // 01:58:27.011Z INFO  [re_flora::builder::builder] Average raw texture to buffer time: 415.14µs
+        // 01:58:27.012Z INFO  [re_flora::builder::builder] Average fragment list time: 1.085703ms
+
+        // Print averages
+        log::info!("Average chunk init time: {:?}", chunk_init_avg);
+        log::info!("Average raw texture to buffer time: {:?}", raw_tex_avg);
+        log::info!("Average fragment list time: {:?}", frag_list_avg);
 
         let fragment_list_len = self.get_fraglist_length();
         self.update_octree_build_info_buf(self.chunk_res, fragment_list_len);
