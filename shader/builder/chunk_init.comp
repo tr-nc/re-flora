@@ -1,8 +1,6 @@
 //! Inits the chunk image with artificial noise.
 #version 450
-
 #extension GL_GOOGLE_include_directive : require
-// #extension GL_EXT_shader_image_load_formatted : require
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
