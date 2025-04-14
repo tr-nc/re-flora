@@ -12,8 +12,8 @@ chunk_build_info;
 layout(set = 1, binding = 0) writeonly buffer B_RawBlocks { uint data[]; }
 raw_blocks;
 
-#include "../include/core/inoise.glsl"
-#include "../include/voxel_types.glsl"
+#include "../../include/core/inoise.glsl"
+#include "../../include/voxel_types.glsl"
 
 float compute_noise(vec3 p) {
     float total       = 0.0;

@@ -21,12 +21,12 @@ fragment_list_info;
 // fragment list is appended with new fragments that satisfy certain conditions
 // (e.g. not occluded, solid, etc.), and is used to build the octree later
 // the cursor is determined by fragment_list_info.fragment_list_len
-#include "../include/fragment_list_entry.glsl"
+#include "../../include/fragment_list_entry.glsl"
 layout(set = 1, binding = 2) writeonly buffer B_FragmentList { FragmentListEntry data[]; }
 fragment_list;
 
-#include "../include/core/packer.glsl"
-#include "../include/voxel_types.glsl"
+#include "../../include/core/packer.glsl"
+#include "../../include/voxel_types.glsl"
 
 bool is_solid(uint voxel_type) { return voxel_type != VOXEL_TYPE_EMPTY; }
 

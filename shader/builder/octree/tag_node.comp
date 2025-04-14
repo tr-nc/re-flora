@@ -17,7 +17,7 @@ octree_alloc_info;
 
 layout(set = 1, binding = 0) buffer B_OctreeData { uint data[]; }
 octree_data;
-#include "../include/fragment_list_entry.glsl"
+#include "../../include/fragment_list_entry.glsl"
 layout(set = 1, binding = 1) readonly buffer B_FragmentList {
     FragmentListEntry per_voxel_build_infos[];
 }
