@@ -201,41 +201,23 @@ impl Builder {
         }
     }
 
+    // previous benchmark results:
+    // 14:14:38.672Z INFO  [re_flora::builder::builder] Average chunk init time: 3.806937ms
+    // 14:14:38.673Z INFO  [re_flora::builder::builder] Average fragment list time: 1.147109ms
+    // 14:14:38.673Z INFO  [re_flora::builder::builder] Average octree time: 1.006229ms
+
     pub fn init_chunk(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
-        let total_run_count = 1000;
-        let mut chunk_init_total = std::time::Duration::new(0, 0);
-        let mut frag_list_total = std::time::Duration::new(0, 0);
-        let mut octree_total = std::time::Duration::new(0, 0);
+        self.update_chunk_build_info_buf(self.chunk_res, chunk_pos);
+        self.reset_fragment_list_info_buf();
 
-        for i in 0..total_run_count {
-            self.update_chunk_build_info_buf(self.chunk_res, chunk_pos);
-            self.reset_fragment_list_info_buf();
+        self.init_chunk_by_noise(command_pool, self.chunk_res);
 
-            let start = std::time::Instant::now();
-            self.init_chunk_by_noise(command_pool, self.chunk_res);
-            chunk_init_total += start.elapsed();
+        self.make_frag_list(command_pool, self.chunk_res);
 
-            let start = std::time::Instant::now();
-            self.make_frag_list(command_pool, self.chunk_res);
-            frag_list_total += start.elapsed();
+        let fragment_list_len = self.get_fraglist_length();
+        self.update_octree_build_info_buf(self.chunk_res, fragment_list_len);
 
-            let fragment_list_len = self.get_fraglist_length();
-            self.update_octree_build_info_buf(self.chunk_res, fragment_list_len);
-
-            let start = std::time::Instant::now();
-            self.make_octree_by_frag_list(command_pool);
-            octree_total += start.elapsed();
-        }
-
-        // Calculate averages
-        let chunk_init_avg = chunk_init_total / total_run_count as u32;
-        let frag_list_avg = frag_list_total / total_run_count as u32;
-        let octree_avg = octree_total / total_run_count as u32;
-
-        // Print averages
-        log::info!("Average chunk init time: {:?}", chunk_init_avg);
-        log::info!("Average fragment list time: {:?}", frag_list_avg);
-        log::info!("Average octree time: {:?}", octree_avg);
+        self.make_octree_by_frag_list(command_pool);
 
         let chunk = Chunk {
             res: self.chunk_res,
