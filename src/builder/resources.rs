@@ -2,17 +2,19 @@ use crate::vkn::{Allocator, Buffer, BufferUsage, Device, ShaderModule};
 use ash::vk;
 use glam::UVec3;
 
-pub struct ChunkInitResources {
-    pub chunk_build_info: Buffer,
+pub struct InternalSharedResources {
     pub raw_voxels: Buffer,
+    pub chunk_build_info: Buffer,
+    pub fragment_list: Buffer,
 }
 
-impl ChunkInitResources {
-    pub fn new(
+impl InternalSharedResources {
+    fn new(
         device: Device,
         allocator: Allocator,
-        chunk_init_sm: &ShaderModule,
         chunk_res: UVec3,
+        chunk_init_sm: &ShaderModule,
+        frag_list_maker_sm: &ShaderModule,
     ) -> Self {
         let chunk_build_info_layout = chunk_init_sm.get_buffer_layout("U_ChunkBuildInfo").unwrap();
         let chunk_build_info = Buffer::from_struct_layout(
@@ -32,36 +34,6 @@ impl ChunkInitResources {
             raw_voxels_size,
         );
 
-        Self {
-            chunk_build_info,
-            raw_voxels,
-        }
-    }
-}
-
-pub struct FragListResources {
-    pub fragment_list_info: Buffer,
-    pub fragment_list: Buffer,
-}
-
-impl FragListResources {
-    pub fn new(
-        device: Device,
-        allocator: Allocator,
-        frag_list_maker_sm: &ShaderModule,
-        chunk_res: UVec3,
-    ) -> Self {
-        let fragment_list_info_layout = frag_list_maker_sm
-            .get_buffer_layout("B_FragmentListInfo")
-            .unwrap();
-        let fragment_list_info = Buffer::from_struct_layout(
-            device.clone(),
-            allocator.clone(),
-            fragment_list_info_layout.clone(),
-            BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
-        );
-
         let max_possible_voxel_count = chunk_res.x * chunk_res.y * chunk_res.z;
         let fragment_list_buf_layout = frag_list_maker_sm
             .get_buffer_layout("B_FragmentList")
@@ -79,9 +51,62 @@ impl FragListResources {
         );
 
         Self {
-            fragment_list_info,
+            chunk_build_info,
+            raw_voxels,
             fragment_list,
         }
+    }
+}
+
+pub struct ExternalSharedResources {
+    pub octree_data: Buffer,
+}
+
+impl ExternalSharedResources {
+    fn new(device: Device, allocator: Allocator) -> Self {
+        let one_giga = 1 * 1024 * 1024 * 1024;
+        log::debug!(
+            "Octree data buffer size: {} GB",
+            one_giga / 1024 / 1024 / 1024
+        );
+        let octree_data = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            gpu_allocator::MemoryLocation::GpuOnly,
+            one_giga as _,
+        );
+
+        Self { octree_data }
+    }
+}
+
+pub struct ChunkInitResources {}
+
+impl ChunkInitResources {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+pub struct FragListResources {
+    pub fragment_list_info: Buffer,
+}
+
+impl FragListResources {
+    pub fn new(device: Device, allocator: Allocator, frag_list_maker_sm: &ShaderModule) -> Self {
+        let fragment_list_info_layout = frag_list_maker_sm
+            .get_buffer_layout("B_FragmentListInfo")
+            .unwrap();
+        let fragment_list_info = Buffer::from_struct_layout(
+            device.clone(),
+            allocator.clone(),
+            fragment_list_info_layout.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+        );
+
+        Self { fragment_list_info }
     }
 }
 
@@ -92,7 +117,6 @@ pub struct OctreeResources {
     pub octree_alloc_info: Buffer,
     pub counter: Buffer,
     pub octree_build_result: Buffer,
-    pub octree_data: Buffer,
 }
 
 impl OctreeResources {
@@ -167,19 +191,6 @@ impl OctreeResources {
             gpu_allocator::MemoryLocation::GpuOnly,
         );
 
-        let one_giga = 1 * 1024 * 1024 * 1024;
-        log::debug!(
-            "Octree data buffer size: {} GB",
-            one_giga / 1024 / 1024 / 1024
-        );
-        let octree_data = Buffer::new_sized(
-            device.clone(),
-            allocator.clone(),
-            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
-            gpu_allocator::MemoryLocation::GpuOnly,
-            one_giga as _,
-        );
-
         Self {
             octree_build_info,
             voxel_count_indirect,
@@ -187,12 +198,13 @@ impl OctreeResources {
             counter,
             octree_alloc_info,
             octree_build_result,
-            octree_data,
         }
     }
 }
 
 pub struct Resources {
+    pub internal_shared_resources: InternalSharedResources,
+    pub external_shared_resources: ExternalSharedResources,
     pub chunk_init: ChunkInitResources,
     pub frag_list: FragListResources,
     pub octree: OctreeResources,
@@ -230,68 +242,85 @@ impl Resources {
         )
         .unwrap();
 
-        // Create all resource containers
-        let chunk_init =
-            ChunkInitResources::new(device.clone(), allocator.clone(), &chunk_init_sm, chunk_res);
-
-        let frag_list = FragListResources::new(
+        let internal_shared_resources = InternalSharedResources::new(
             device.clone(),
             allocator.clone(),
-            &frag_list_maker_sm,
             chunk_res,
+            &chunk_init_sm,
+            &frag_list_maker_sm,
         );
+
+        let external_shared_resources =
+            ExternalSharedResources::new(device.clone(), allocator.clone());
+
+        let chunk_init = ChunkInitResources::new();
+
+        let frag_list =
+            FragListResources::new(device.clone(), allocator.clone(), &frag_list_maker_sm);
 
         let octree =
             OctreeResources::new(device.clone(), allocator.clone(), &octree_init_buffers_sm);
 
         Self {
+            internal_shared_resources,
+            external_shared_resources,
             chunk_init,
             frag_list,
             octree,
         }
     }
 
-    // Convenience methods to get resources for external access
-    pub fn raw_voxels(&self) -> &Buffer {
-        &self.chunk_init.raw_voxels
-    }
-
+    /// Get a reference to the chunk build info buffer
     pub fn chunk_build_info(&self) -> &Buffer {
-        &self.chunk_init.chunk_build_info
+        &self.internal_shared_resources.chunk_build_info
     }
 
+    /// Get a reference to the raw voxels buffer
+    pub fn raw_voxels(&self) -> &Buffer {
+        &self.internal_shared_resources.raw_voxels
+    }
+
+    /// Get a reference to the fragment list buffer
+    pub fn fragment_list(&self) -> &Buffer {
+        &self.internal_shared_resources.fragment_list
+    }
+
+    /// Get a reference to the octree data buffer
+    pub fn octree_data(&self) -> &Buffer {
+        &self.external_shared_resources.octree_data
+    }
+
+    /// Get a reference to the fragment list info buffer
     pub fn fragment_list_info(&self) -> &Buffer {
         &self.frag_list.fragment_list_info
     }
 
-    pub fn fragment_list(&self) -> &Buffer {
-        &self.frag_list.fragment_list
-    }
-
+    /// Get a reference to the octree build info buffer
     pub fn octree_build_info(&self) -> &Buffer {
         &self.octree.octree_build_info
     }
 
-    pub fn octree_data(&self) -> &Buffer {
-        &self.octree.octree_data
-    }
-
+    /// Get a reference to the voxel count indirect buffer
     pub fn voxel_count_indirect(&self) -> &Buffer {
         &self.octree.voxel_count_indirect
     }
 
+    /// Get a reference to the alloc number indirect buffer
     pub fn alloc_number_indirect(&self) -> &Buffer {
         &self.octree.alloc_number_indirect
     }
 
+    /// Get a reference to the counter buffer
     pub fn counter(&self) -> &Buffer {
         &self.octree.counter
     }
 
+    /// Get a reference to the octree alloc info buffer
     pub fn octree_alloc_info(&self) -> &Buffer {
         &self.octree.octree_alloc_info
     }
 
+    /// Get a reference to the octree build result buffer
     pub fn octree_build_result(&self) -> &Buffer {
         &self.octree.octree_build_result
     }

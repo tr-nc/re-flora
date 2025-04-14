@@ -64,7 +64,6 @@ impl ChunkInitBuilder {
         resolution: UVec3,
         chunk_pos: IVec3,
     ) {
-        // modify the uniform buffer to guide the chunk generation
         let chunk_build_info_data = BufferBuilder::from_struct_buffer(resources.chunk_build_info())
             .unwrap()
             .set_uvec3("chunk_res", resolution.to_array())
@@ -545,8 +544,7 @@ impl Builder {
     // 14:14:38.673Z INFO  [re_flora::builder::builder] Average fragment list time: 1.147109ms
     // 14:14:38.673Z INFO  [re_flora::builder::builder] Average octree time: 1.006229ms
 
-    pub fn init_chunk(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
-        // Chunk initialization
+    fn init_chunk_raw_data(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
         self.chunk_init_builder.update_chunk_build_info_buf(
             &self.resources,
             self.chunk_res,
@@ -557,14 +555,16 @@ impl Builder {
             command_pool,
             self.chunk_res,
         );
+    }
 
-        // Fragment list building
+    fn make_chunk_frag_list_by_raw_data(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
         self.frag_list_builder
             .reset_fragment_list_info_buf(&self.resources);
         self.frag_list_builder
             .make_frag_list(&self.vulkan_context, command_pool, self.chunk_res);
+    }
 
-        // Octree building
+    fn make_octree_by_frag_list(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
         let fragment_list_len = self.frag_list_builder.get_fraglist_length(&self.resources);
         self.octree_builder.update_octree_build_info_buf(
             &self.resources,
@@ -588,5 +588,11 @@ impl Builder {
 
     pub fn get_octree_data(&self) -> &Buffer {
         self.resources.octree_data()
+    }
+
+    pub fn build_chunk(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
+        self.init_chunk_raw_data(command_pool, chunk_pos);
+        self.make_chunk_frag_list_by_raw_data(command_pool, chunk_pos);
+        self.make_octree_by_frag_list(command_pool, chunk_pos);
     }
 }
