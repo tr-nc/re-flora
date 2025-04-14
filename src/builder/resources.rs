@@ -3,8 +3,8 @@ use ash::vk;
 use glam::UVec3;
 
 pub struct ChunkInitResources {
-    pub raw_voxels: Buffer,
     pub chunk_build_info: Buffer,
+    pub raw_voxels: Buffer,
 }
 
 impl ChunkInitResources {
@@ -14,15 +14,6 @@ impl ChunkInitResources {
         chunk_init_sm: &ShaderModule,
         chunk_res: UVec3,
     ) -> Self {
-        let raw_voxels_size: u64 = chunk_res.x as u64 * chunk_res.y as u64 * chunk_res.z as u64;
-        let raw_voxels = Buffer::new_sized(
-            device.clone(),
-            allocator.clone(),
-            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
-            gpu_allocator::MemoryLocation::GpuOnly,
-            raw_voxels_size,
-        );
-
         let chunk_build_info_layout = chunk_init_sm.get_buffer_layout("U_ChunkBuildInfo").unwrap();
         let chunk_build_info = Buffer::from_struct_layout(
             device.clone(),
@@ -32,9 +23,18 @@ impl ChunkInitResources {
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
+        let raw_voxels_size: u64 = chunk_res.x as u64 * chunk_res.y as u64 * chunk_res.z as u64;
+        let raw_voxels = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            gpu_allocator::MemoryLocation::GpuOnly,
+            raw_voxels_size,
+        );
+
         Self {
-            raw_voxels,
             chunk_build_info,
+            raw_voxels,
         }
     }
 }
@@ -192,13 +192,13 @@ impl OctreeResources {
     }
 }
 
-pub struct BuilderResources {
+pub struct Resources {
     pub chunk_init: ChunkInitResources,
     pub frag_list: FragListResources,
     pub octree: OctreeResources,
 }
 
-impl BuilderResources {
+impl Resources {
     pub fn new(
         device: Device,
         allocator: Allocator,

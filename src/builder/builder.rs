@@ -1,5 +1,5 @@
-use super::BuilderResources;
 use super::Chunk;
+use super::Resources;
 use crate::util::compiler::ShaderCompiler;
 use crate::vkn::execute_one_time_command;
 use crate::vkn::Allocator;
@@ -21,7 +21,6 @@ use std::collections::HashMap;
 
 pub struct ChunkInitBuilder {
     chunk_init_ppl: ComputePipeline,
-    chunk_shared_ds: DescriptorSet,
     chunk_init_ds: DescriptorSet,
 }
 
@@ -30,48 +29,38 @@ impl ChunkInitBuilder {
         vulkan_context: &VulkanContext,
         shader_compiler: &ShaderCompiler,
         descriptor_pool: DescriptorPool,
-        resources: &BuilderResources,
+        resources: &Resources,
     ) -> Self {
-        let chunk_init_sm = ShaderModule::from_glsl(
+        let chunk_init_ppl = ComputePipeline::from_shader_module(
             vulkan_context.device(),
-            &shader_compiler,
-            "shader/builder/chunk_init/chunk_init.comp",
-            "main",
-        )
-        .unwrap();
-        let chunk_init_ppl =
-            ComputePipeline::from_shader_module(vulkan_context.device(), &chunk_init_sm);
+            &ShaderModule::from_glsl(
+                vulkan_context.device(),
+                &shader_compiler,
+                "shader/builder/chunk_init/chunk_init.comp",
+                "main",
+            )
+            .unwrap(),
+        );
 
-        let chunk_shared_ds = DescriptorSet::new(
+        let chunk_init_ds = DescriptorSet::new(
             vulkan_context.device().clone(),
             &chunk_init_ppl.get_layout().get_descriptor_set_layouts()[0],
             descriptor_pool.clone(),
         );
-        chunk_shared_ds.perform_writes(&[WriteDescriptorSet::new_buffer_write(
-            0,
-            resources.chunk_build_info(),
-        )]);
-
-        let chunk_init_ds = DescriptorSet::new(
-            vulkan_context.device().clone(),
-            &chunk_init_ppl.get_layout().get_descriptor_set_layouts()[1],
-            descriptor_pool.clone(),
-        );
-        chunk_init_ds.perform_writes(&[WriteDescriptorSet::new_buffer_write(
-            0,
-            resources.raw_voxels(),
-        )]);
+        chunk_init_ds.perform_writes(&[
+            WriteDescriptorSet::new_buffer_write(0, resources.chunk_build_info()),
+            WriteDescriptorSet::new_buffer_write(1, resources.raw_voxels()),
+        ]);
 
         Self {
             chunk_init_ppl,
-            chunk_shared_ds,
             chunk_init_ds,
         }
     }
 
     fn update_chunk_build_info_buf(
         &self,
-        resources: &BuilderResources,
+        resources: &Resources,
         resolution: UVec3,
         chunk_pos: IVec3,
     ) {
@@ -101,13 +90,8 @@ impl ChunkInitBuilder {
                 self.chunk_init_ppl.record_bind(cmdbuf);
                 self.chunk_init_ppl.record_bind_descriptor_sets(
                     cmdbuf,
-                    std::slice::from_ref(&self.chunk_shared_ds),
-                    0,
-                );
-                self.chunk_init_ppl.record_bind_descriptor_sets(
-                    cmdbuf,
                     std::slice::from_ref(&self.chunk_init_ds),
-                    1,
+                    0,
                 );
                 self.chunk_init_ppl
                     .record_dispatch(cmdbuf, resolution.to_array());
@@ -126,7 +110,7 @@ impl FragListBuilder {
         vulkan_context: &VulkanContext,
         shader_compiler: &ShaderCompiler,
         descriptor_pool: DescriptorPool,
-        resources: &BuilderResources,
+        resources: &Resources,
     ) -> Self {
         let frag_list_maker_sm = ShaderModule::from_glsl(
             vulkan_context.device(),
@@ -142,13 +126,14 @@ impl FragListBuilder {
             vulkan_context.device().clone(),
             &frag_list_maker_ppl
                 .get_layout()
-                .get_descriptor_set_layouts()[1],
+                .get_descriptor_set_layouts()[0],
             descriptor_pool.clone(),
         );
         frag_list_maker_ds.perform_writes(&[
-            WriteDescriptorSet::new_buffer_write(0, resources.raw_voxels()),
-            WriteDescriptorSet::new_buffer_write(1, resources.fragment_list_info()),
-            WriteDescriptorSet::new_buffer_write(2, resources.fragment_list()),
+            WriteDescriptorSet::new_buffer_write(0, resources.chunk_build_info()),
+            WriteDescriptorSet::new_buffer_write(1, resources.raw_voxels()),
+            WriteDescriptorSet::new_buffer_write(2, resources.fragment_list_info()),
+            WriteDescriptorSet::new_buffer_write(3, resources.fragment_list()),
         ]);
 
         Self {
@@ -157,7 +142,7 @@ impl FragListBuilder {
         }
     }
 
-    fn reset_fragment_list_info_buf(&self, resources: &BuilderResources) {
+    fn reset_fragment_list_info_buf(&self, resources: &Resources) {
         let fragment_list_info_data =
             BufferBuilder::from_struct_buffer(resources.fragment_list_info())
                 .unwrap()
@@ -173,7 +158,6 @@ impl FragListBuilder {
         &self,
         vulkan_context: &VulkanContext,
         command_pool: &CommandPool,
-        chunk_shared_ds: &DescriptorSet,
         resolution: UVec3,
     ) {
         execute_one_time_command(
@@ -184,13 +168,8 @@ impl FragListBuilder {
                 self.frag_list_maker_ppl.record_bind(cmdbuf);
                 self.frag_list_maker_ppl.record_bind_descriptor_sets(
                     cmdbuf,
-                    std::slice::from_ref(chunk_shared_ds),
-                    0,
-                );
-                self.frag_list_maker_ppl.record_bind_descriptor_sets(
-                    cmdbuf,
                     std::slice::from_ref(&self.frag_list_maker_ds),
-                    1,
+                    0,
                 );
                 self.frag_list_maker_ppl
                     .record_dispatch(cmdbuf, resolution.to_array());
@@ -198,7 +177,7 @@ impl FragListBuilder {
         );
     }
 
-    fn get_fraglist_length(&self, resources: &BuilderResources) -> u32 {
+    fn get_fraglist_length(&self, resources: &Resources) -> u32 {
         let raw_data = resources.fragment_list_info().fetch_raw().unwrap();
 
         BufferBuilder::from_struct_buffer(resources.fragment_list_info())
@@ -229,7 +208,7 @@ impl OctreeBuilder {
         vulkan_context: &VulkanContext,
         shader_compiler: &ShaderCompiler,
         descriptor_pool: DescriptorPool,
-        resources: &BuilderResources,
+        resources: &Resources,
     ) -> Self {
         let octree_init_buffers_sm = ShaderModule::from_glsl(
             vulkan_context.device(),
@@ -374,7 +353,7 @@ impl OctreeBuilder {
 
     fn update_octree_build_info_buf(
         &self,
-        resources: &BuilderResources,
+        resources: &Resources,
         resolution: UVec3,
         fragment_list_length: u32,
     ) {
@@ -395,7 +374,7 @@ impl OctreeBuilder {
         &self,
         vulkan_context: &VulkanContext,
         command_pool: &CommandPool,
-        resources: &BuilderResources,
+        resources: &Resources,
         chunk_res: UVec3,
     ) {
         let device = vulkan_context.device();
@@ -497,7 +476,7 @@ impl OctreeBuilder {
 
 pub struct Builder {
     vulkan_context: VulkanContext,
-    resources: BuilderResources,
+    resources: Resources,
     chunk_res: UVec3,
     chunks: HashMap<IVec3, Chunk>,
 
@@ -522,7 +501,7 @@ impl Builder {
 
         let descriptor_pool = DescriptorPool::a_big_one(vulkan_context.device()).unwrap();
 
-        let resources = BuilderResources::new(
+        let resources = Resources::new(
             vulkan_context.device().clone(),
             allocator.clone(),
             shader_compiler,
@@ -582,12 +561,8 @@ impl Builder {
         // Fragment list building
         self.frag_list_builder
             .reset_fragment_list_info_buf(&self.resources);
-        self.frag_list_builder.make_frag_list(
-            &self.vulkan_context,
-            command_pool,
-            &self.chunk_init_builder.chunk_shared_ds,
-            self.chunk_res,
-        );
+        self.frag_list_builder
+            .make_frag_list(&self.vulkan_context, command_pool, self.chunk_res);
 
         // Octree building
         let fragment_list_len = self.frag_list_builder.get_fraglist_length(&self.resources);

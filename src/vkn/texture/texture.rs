@@ -45,6 +45,7 @@ impl Texture {
         }
     }
 
+    #[allow(dead_code)]
     pub fn copy_image_to_buffer(
         &self,
         buffer: &mut Buffer,
@@ -152,6 +153,7 @@ impl Texture {
 
     /// Obtain the image data from the texture of the full image region.
     // TODO: Add support for regions and other formats.
+    #[allow(dead_code)]
     pub fn fetch_data(&self, queue: &Queue, command_pool: &CommandPool) -> Result<Vec<u8>, String> {
         let buffer = Buffer::new_sized(
             self.device.clone(),

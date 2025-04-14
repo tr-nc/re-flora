@@ -10,19 +10,19 @@ layout(set = 0, binding = 0) readonly uniform U_ChunkBuildInfo {
 }
 chunk_build_info;
 
-layout(set = 1, binding = 0) readonly buffer B_RawBlocks { uint data[]; }
+layout(set = 0, binding = 1) readonly buffer B_RawBlocks { uint data[]; }
 raw_blocks;
 
 // fragment_list_len is incremented atomically every time a new fragment is added
 // to the fragment list
-layout(set = 1, binding = 1) buffer B_FragmentListInfo { uint fragment_list_len; }
+layout(set = 0, binding = 2) buffer B_FragmentListInfo { uint fragment_list_len; }
 fragment_list_info;
 
 // fragment list is appended with new fragments that satisfy certain conditions
 // (e.g. not occluded, solid, etc.), and is used to build the octree later
 // the cursor is determined by fragment_list_info.fragment_list_len
 #include "../../include/fragment_list_entry.glsl"
-layout(set = 1, binding = 2) writeonly buffer B_FragmentList { FragmentListEntry data[]; }
+layout(set = 0, binding = 3) writeonly buffer B_FragmentList { FragmentListEntry data[]; }
 fragment_list;
 
 #include "../../include/core/packer.glsl"
