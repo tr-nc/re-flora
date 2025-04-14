@@ -3,11 +3,12 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
-layout(set = 0, binding = 0) readonly uniform U_ChunkBuildInfo {
+layout(set = 0, binding = 0) readonly uniform U_ChunkInitInfo {
     uvec3 chunk_res;
     ivec3 chunk_pos;
+    uint write_offset;
 }
-chunk_build_info;
+chunk_init_info;
 
 layout(set = 0, binding = 1) writeonly buffer B_RawBlocks { uint data[]; }
 raw_blocks;
@@ -41,12 +42,12 @@ uint get_voxel_type(float weight) {
 
 void main() {
     ivec3 uvi = ivec3(gl_GlobalInvocationID);
-    if (any(greaterThanEqual(uvi, ivec3(chunk_build_info.chunk_res)))) {
+    if (any(greaterThanEqual(uvi, ivec3(chunk_init_info.chunk_res)))) {
         return;
     }
 
-    vec3 local_voxel_pos = (vec3(uvi) - 0.5) / vec3(chunk_build_info.chunk_res);
-    vec3 world_voxel_pos = local_voxel_pos + vec3(chunk_build_info.chunk_pos);
+    vec3 local_voxel_pos = (vec3(uvi) - 0.5) / vec3(chunk_init_info.chunk_res);
+    vec3 world_voxel_pos = local_voxel_pos + vec3(chunk_init_info.chunk_pos);
 
     float noise     = compute_noise(world_voxel_pos);
     float weight    = noise - world_voxel_pos.y;
@@ -54,9 +55,10 @@ void main() {
 
     // Compute the linear voxel index assuming row-major ordering:
     // linear_index = uvi.z * (chunk_res.x * chunk_res.y) + uvi.y * chunk_res.x + uvi.x
-    uint linear_index =
-        uint(uvi.z) * (chunk_build_info.chunk_res.x * chunk_build_info.chunk_res.y) +
-        uint(uvi.y) * chunk_build_info.chunk_res.x + uint(uvi.x);
+    uint linear_index = uint(uvi.z) * (chunk_init_info.chunk_res.x * chunk_init_info.chunk_res.y) +
+                        uint(uvi.y) * chunk_init_info.chunk_res.x + uint(uvi.x);
+
+    linear_index += chunk_init_info.write_offset;
 
     // Determine destination uint index and the byte offset (0, 1, 2, or 3).
     uint dest_index   = linear_index / 4;

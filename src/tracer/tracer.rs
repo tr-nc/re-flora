@@ -109,7 +109,10 @@ impl Tracer {
             .unwrap()
             .set_float("debug_float", debug_float)
             .to_raw_data();
-        self.resources.gui_input.fill_raw(&gui_input_data).unwrap();
+        self.resources
+            .gui_input
+            .fill_with_raw_u8(&gui_input_data)
+            .unwrap();
 
         let view_mat = camera.get_view_mat();
         let proj_mat = camera.get_proj_mat();
@@ -129,7 +132,7 @@ impl Tracer {
             .to_raw_data();
         self.resources
             .camera_info
-            .fill_raw(&camera_info_data)
+            .fill_with_raw_u8(&camera_info_data)
             .unwrap();
     }
 

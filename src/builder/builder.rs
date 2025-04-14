@@ -1,4 +1,3 @@
-use super::Chunk;
 use super::Resources;
 use crate::util::compiler::ShaderCompiler;
 use crate::vkn::execute_one_time_command;
@@ -48,7 +47,7 @@ impl ChunkInitBuilder {
             descriptor_pool.clone(),
         );
         chunk_init_ds.perform_writes(&[
-            WriteDescriptorSet::new_buffer_write(0, resources.chunk_build_info()),
+            WriteDescriptorSet::new_buffer_write(0, resources.chunk_init_info()),
             WriteDescriptorSet::new_buffer_write(1, resources.raw_voxels()),
         ]);
 
@@ -58,20 +57,33 @@ impl ChunkInitBuilder {
         }
     }
 
-    fn update_chunk_build_info_buf(
+    fn update_chunk_init_info_buf(
         &self,
         resources: &Resources,
         resolution: UVec3,
         chunk_pos: IVec3,
+        write_offset: u32,
     ) {
-        let chunk_build_info_data = BufferBuilder::from_struct_buffer(resources.chunk_build_info())
+        let data = BufferBuilder::from_struct_buffer(resources.chunk_init_info())
             .unwrap()
             .set_uvec3("chunk_res", resolution.to_array())
             .set_ivec3("chunk_pos", chunk_pos.to_array())
+            .set_uint("write_offset", write_offset)
             .to_raw_data();
         resources
-            .chunk_build_info()
-            .fill_raw(&chunk_build_info_data)
+            .chunk_init_info()
+            .fill_with_raw_u8(&data)
+            .expect("Failed to fill buffer data");
+    }
+
+    fn update_frag_list_maker_info_buf(&self, resources: &Resources, resolution: UVec3) {
+        let data = BufferBuilder::from_struct_buffer(resources.frag_list_maker_info())
+            .unwrap()
+            .set_uvec3("chunk_res", resolution.to_array())
+            .to_raw_data();
+        resources
+            .frag_list_maker_info()
+            .fill_with_raw_u8(&data)
             .expect("Failed to fill buffer data");
     }
 
@@ -129,10 +141,11 @@ impl FragListBuilder {
             descriptor_pool.clone(),
         );
         frag_list_maker_ds.perform_writes(&[
-            WriteDescriptorSet::new_buffer_write(0, resources.chunk_build_info()),
-            WriteDescriptorSet::new_buffer_write(1, resources.raw_voxels()),
-            WriteDescriptorSet::new_buffer_write(2, resources.fragment_list_info()),
-            WriteDescriptorSet::new_buffer_write(3, resources.fragment_list()),
+            WriteDescriptorSet::new_buffer_write(0, resources.frag_list_maker_info()),
+            WriteDescriptorSet::new_buffer_write(1, resources.neighbor_info()),
+            WriteDescriptorSet::new_buffer_write(2, resources.raw_voxels()),
+            WriteDescriptorSet::new_buffer_write(3, resources.fragment_list_info()),
+            WriteDescriptorSet::new_buffer_write(4, resources.fragment_list()),
         ]);
 
         Self {
@@ -149,7 +162,7 @@ impl FragListBuilder {
                 .to_raw_data();
         resources
             .fragment_list_info()
-            .fill_raw(&fragment_list_info_data)
+            .fill_with_raw_u8(&fragment_list_info_data)
             .expect("Failed to fill buffer data");
     }
 
@@ -365,7 +378,7 @@ impl OctreeBuilder {
                 .to_raw_data();
         resources
             .octree_build_info()
-            .fill_raw(&octree_build_info_data)
+            .fill_with_raw_u8(&octree_build_info_data)
             .expect("Failed to fill buffer data");
     }
 
@@ -477,7 +490,12 @@ pub struct Builder {
     vulkan_context: VulkanContext,
     resources: Resources,
     chunk_res: UVec3,
-    chunks: HashMap<IVec3, Chunk>,
+
+    chunk_with_offsets: HashMap<IVec3, u32>,
+    /// Notice here's a limitation of total 4 GB addressing space because of u32,
+    /// it should be enough, it's just raw data!
+    /// TODO: use u32 offset so that it can address up to 16 GB of data
+    offset_cursor: u32,
 
     chunk_init_builder: ChunkInitBuilder,
     frag_list_builder: FragListBuilder,
@@ -505,6 +523,8 @@ impl Builder {
             allocator.clone(),
             shader_compiler,
             chunk_res,
+            4 * 4 * 4,
+            1 * 1024 * 1024 * 1024,
         );
 
         let chunk_init_builder = ChunkInitBuilder::new(
@@ -532,10 +552,12 @@ impl Builder {
             vulkan_context,
             resources,
             chunk_res,
-            chunks: HashMap::new(),
             chunk_init_builder,
             frag_list_builder,
             octree_builder,
+
+            chunk_with_offsets: HashMap::new(),
+            offset_cursor: 0,
         }
     }
 
@@ -544,27 +566,79 @@ impl Builder {
     // 14:14:38.673Z INFO  [re_flora::builder::builder] Average fragment list time: 1.147109ms
     // 14:14:38.673Z INFO  [re_flora::builder::builder] Average octree time: 1.006229ms
 
+    pub fn build_chunks(&mut self, command_pool: &CommandPool) {
+        for i in -1..=1 {
+            for j in -1..=1 {
+                for k in -1..=1 {
+                    let chunk_pos = IVec3::new(i as i32, j as i32, k as i32);
+                    log::info!("Initing chunk at {:?}", chunk_pos);
+                    self.init_chunk_raw_data(command_pool, chunk_pos);
+                }
+            }
+        }
+
+        // only build the center one
+        self.make_chunk_frag_list_by_raw_data(command_pool, IVec3::ZERO);
+        self.make_octree_by_frag_list(command_pool);
+    }
+
     fn init_chunk_raw_data(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
-        self.chunk_init_builder.update_chunk_build_info_buf(
+        self.chunk_init_builder.update_chunk_init_info_buf(
             &self.resources,
             self.chunk_res,
             chunk_pos,
+            self.offset_cursor,
         );
         self.chunk_init_builder.init_chunk_by_noise(
             &self.vulkan_context,
             command_pool,
             self.chunk_res,
         );
+        self.chunk_with_offsets
+            .insert(chunk_pos, self.offset_cursor);
+        self.offset_cursor += self.chunk_res.x * self.chunk_res.y * self.chunk_res.z;
     }
 
     fn make_chunk_frag_list_by_raw_data(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
+        self.chunk_init_builder
+            .update_frag_list_maker_info_buf(&self.resources, self.chunk_res);
+
+        /// idx ranges from 0-3 in three dimensions
+        fn serialize(idx: UVec3) -> u32 {
+            return idx.x + idx.y * 3 + idx.z * 9;
+        }
+
+        const NEIGHBOR_COUNT: usize = 3 * 3 * 3;
+        let mut offsets: [u32; NEIGHBOR_COUNT] = [0; NEIGHBOR_COUNT];
+        for i in -1..=1 {
+            for j in -1..=1 {
+                for k in -1..=1 {
+                    let neighbor_pos = chunk_pos + IVec3::new(i, j, k);
+                    let mut offset: u32 = 0xFFFFFFFF; // initialize to maximum offset
+                    if self.chunk_with_offsets.contains_key(&neighbor_pos) {
+                        offset = self.chunk_with_offsets[&neighbor_pos];
+                    }
+                    let serialized_idx =
+                        serialize(UVec3::new((i + 1) as u32, (j + 1) as u32, (k + 1) as u32));
+                    offsets[serialized_idx as usize] = offset;
+                }
+            }
+        }
+
+        log::debug!("Offsets: {:?}", offsets);
+
+        self.resources
+            .neighbor_info()
+            .fill_with_raw_u32(&offsets)
+            .unwrap();
+
         self.frag_list_builder
             .reset_fragment_list_info_buf(&self.resources);
         self.frag_list_builder
             .make_frag_list(&self.vulkan_context, command_pool, self.chunk_res);
     }
 
-    fn make_octree_by_frag_list(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
+    fn make_octree_by_frag_list(&mut self, command_pool: &CommandPool) {
         let fragment_list_len = self.frag_list_builder.get_fraglist_length(&self.resources);
         self.octree_builder.update_octree_build_info_buf(
             &self.resources,
@@ -577,22 +651,9 @@ impl Builder {
             &self.resources,
             self.chunk_res,
         );
-
-        let chunk = Chunk {
-            res: self.chunk_res,
-            pos: chunk_pos,
-            data: vec![], // the data is not sent back to CPU for now
-        };
-        self.chunks.insert(chunk_pos, chunk);
     }
 
     pub fn get_octree_data(&self) -> &Buffer {
         self.resources.octree_data()
-    }
-
-    pub fn build_chunk(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
-        self.init_chunk_raw_data(command_pool, chunk_pos);
-        self.make_chunk_frag_list_by_raw_data(command_pool, chunk_pos);
-        self.make_octree_by_frag_list(command_pool, chunk_pos);
     }
 }

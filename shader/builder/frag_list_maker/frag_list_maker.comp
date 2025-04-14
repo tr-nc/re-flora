@@ -4,29 +4,60 @@
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
 // stores information of the current chunk to build
-layout(set = 0, binding = 0) readonly uniform U_ChunkBuildInfo {
-    uvec3 chunk_res;
-    ivec3 chunk_pos;
-}
-chunk_build_info;
+layout(set = 0, binding = 0) readonly uniform U_FragListMakerInfo { uvec3 chunk_res; }
+frag_list_maker_info;
 
-layout(set = 0, binding = 1) readonly buffer B_RawBlocks { uint data[]; }
+layout(set = 0, binding = 1) readonly buffer U_NeighborInfo { uint data[]; }
+neighbor_info;
+
+layout(set = 0, binding = 2) readonly buffer B_RawBlocks { uint data[]; }
 raw_blocks;
 
 // fragment_list_len is incremented atomically every time a new fragment is added
 // to the fragment list
-layout(set = 0, binding = 2) buffer B_FragmentListInfo { uint fragment_list_len; }
+layout(set = 0, binding = 3) buffer B_FragmentListInfo { uint fragment_list_len; }
 fragment_list_info;
 
 // fragment list is appended with new fragments that satisfy certain conditions
 // (e.g. not occluded, solid, etc.), and is used to build the octree later
 // the cursor is determined by fragment_list_info.fragment_list_len
 #include "../../include/fragment_list_entry.glsl"
-layout(set = 0, binding = 3) writeonly buffer B_FragmentList { FragmentListEntry data[]; }
+layout(set = 0, binding = 4) writeonly buffer B_FragmentList { FragmentListEntry data[]; }
 fragment_list;
 
 #include "../../include/core/packer.glsl"
 #include "../../include/voxel_types.glsl"
+
+// Deserialize a number back to 3D coordinates
+// Input: serialized value from 0-26
+// Output: 3D coordinates where each component ranges from 0-2
+// uvec3 deserialize(uint serialized) {
+//     uint z         = serialized / 9; // Integer division for z component
+//     uint remainder = serialized % 9;
+//     uint y         = remainder / 3; // Integer division for y component
+//     uint x         = remainder % 3; // Remainder for x component
+
+//     return uvec3(x, y, z);
+// }
+
+// Serialize 3D coordinates into a single uint value
+// Input: 3D coordinates where each component ranges from 0-2
+// Output: serialized value from 0-26
+uint serialize(uvec3 idx) { return idx.x + idx.y * 3 + idx.z * 9; }
+
+/// idx ranges from -1 to 1 in each axis
+bool get_neighbor_offset(out uint o_offset, ivec3 idx) {
+    uvec3 idx_u = uvec3(idx + 1);
+
+    uint serialized = serialize(idx_u);
+
+    // read idx protection, can be deleted
+    if (serialized > 26) {
+        return false;
+    }
+
+    o_offset = neighbor_info.data[serialized];
+}
 
 bool is_solid(uint voxel_type) { return voxel_type != VOXEL_TYPE_EMPTY; }
 
@@ -34,9 +65,26 @@ uint vidx_to_linear(uvec3 idx, uvec3 chunk_res) {
     return idx.z * chunk_res.x * chunk_res.y + idx.y * chunk_res.x + idx.x;
 }
 
-// helper function
-uint get_voxel_type(ivec3 idx) {
-    uint v           = vidx_to_linear(uvec3(idx), chunk_build_info.chunk_res);
+ivec3 determine_neighbor_idx(ivec3 idx) {
+    ivec3 neighbor_idx = ivec3(0);
+    if (idx.x < 0) {
+        neighbor_idx.x = -1;
+    } else if (idx.x > frag_list_maker_info.chunk_res.x) {
+        neighbor_idx.x = 1;
+    } else if (idx.y < 0) {
+        neighbor_idx.y = -1;
+    } else if (idx.y > frag_list_maker_info.chunk_res.y) {
+        neighbor_idx.y = 1;
+    } else if (idx.z < 0) {
+        neighbor_idx.z = -1;
+    } else if (idx.z > frag_list_maker_info.chunk_res.z) {
+        neighbor_idx.z = 1;
+    }
+    return neighbor_idx;
+}
+
+uint get_voxel_type(uint read_offset, ivec3 idx) {
+    uint v           = vidx_to_linear(uvec3(idx), frag_list_maker_info.chunk_res) + read_offset;
     uint uint_offset = v / 4u;
     uint byte_offset = (v % 4u) * 8u;
 
@@ -58,14 +106,39 @@ bool is_occluded(ivec3 uvi) {
     for (int i = 0; i < 6; i++) {
         ivec3 cur = uvi + neighbours_to_check[i];
 
-        // TODO: check neighbouring chunks later.
-        // for now, just say that it is not occluded.
         if (any(lessThan(cur, ivec3(0))) ||
-            any(greaterThanEqual(cur, ivec3(chunk_build_info.chunk_res)))) {
+            any(greaterThanEqual(cur, ivec3(frag_list_maker_info.chunk_res)))) {
             return false;
         }
 
-        if (!is_solid(get_voxel_type(cur))) {
+        // ivec3 neighbor_idx = determine_neighbor_idx(cur);
+
+        // uint offset;
+        // bool is_present = get_neighbor_offset(offset, neighbor_idx);
+        // if (!is_present) {
+        //     continue;
+        // }
+
+        // if (cur.x < 0) {
+        //     cur.x += int(frag_list_maker_info.chunk_res.x);
+        // }
+        // if (cur.y < 0) {
+        //     cur.y += int(frag_list_maker_info.chunk_res.y);
+        // }
+        // if (cur.z < 0) {
+        //     cur.z += int(frag_list_maker_info.chunk_res.z);
+        // }
+        // if (cur.x >= frag_list_maker_info.chunk_res.x) {
+        //     cur.x -= int(frag_list_maker_info.chunk_res.x);
+        // }
+        // if (cur.y >= frag_list_maker_info.chunk_res.y) {
+        //     cur.y -= int(frag_list_maker_info.chunk_res.y);
+        // }
+        // if (cur.z >= frag_list_maker_info.chunk_res.z) {
+        //     cur.z -= int(frag_list_maker_info.chunk_res.z);
+        // }
+
+        if (!is_solid(get_voxel_type(218103808, cur))) {
             return false;
         }
     }
@@ -79,17 +152,44 @@ vec3 calculate_normal(ivec3 uvi) {
     ivec3 min_bound = uvi - 2;
     ivec3 max_bound = uvi + 2;
 
-    // TODO: consider neighbouring chunks later.
     min_bound = max(min_bound, ivec3(0));
-    max_bound = min(max_bound, ivec3(chunk_build_info.chunk_res - 1));
+    max_bound = min(max_bound, ivec3(frag_list_maker_info.chunk_res - 1));
 
     vec3 normal = vec3(0.0);
 
     for (int z = min_bound.z; z <= max_bound.z; z++) {
         for (int y = min_bound.y; y <= max_bound.y; y++) {
             for (int x = min_bound.x; x <= max_bound.x; x++) {
-                ivec3 cur       = ivec3(x, y, z);
-                uint voxel_type = get_voxel_type(cur);
+                ivec3 cur = ivec3(x, y, z);
+
+                // ivec3 neighbor_idx = determine_neighbor_idx(cur);
+
+                // uint offset;
+                // bool is_present = get_neighbor_offset(offset, neighbor_idx);
+                // if (!is_present) {
+                //     continue;
+                // }
+
+                // if (cur.x < 0) {
+                //     cur.x += int(frag_list_maker_info.chunk_res.x);
+                // }
+                // if (cur.y < 0) {
+                //     cur.y += int(frag_list_maker_info.chunk_res.y);
+                // }
+                // if (cur.z < 0) {
+                //     cur.z += int(frag_list_maker_info.chunk_res.z);
+                // }
+                // if (cur.x >= frag_list_maker_info.chunk_res.x) {
+                //     cur.x -= int(frag_list_maker_info.chunk_res.x);
+                // }
+                // if (cur.y >= frag_list_maker_info.chunk_res.y) {
+                //     cur.y -= int(frag_list_maker_info.chunk_res.y);
+                // }
+                // if (cur.z >= frag_list_maker_info.chunk_res.z) {
+                //     cur.z -= int(frag_list_maker_info.chunk_res.z);
+                // }
+
+                uint voxel_type = get_voxel_type(218103808, cur);
 
                 if (is_solid(voxel_type)) {
                     normal += vec3(x, y, z) - uvi_f;
@@ -126,12 +226,12 @@ FragmentListEntry make_fragment_list_entry(uvec3 coord, uint voxel_type, vec3 no
 
 void main() {
     ivec3 uvi = ivec3(gl_GlobalInvocationID);
-    if (any(greaterThanEqual(uvi, ivec3(chunk_build_info.chunk_res)))) {
+    if (any(greaterThanEqual(uvi, ivec3(frag_list_maker_info.chunk_res)))) {
         return;
     }
 
     // Cache the block type so we don't perform multiple image loads.
-    uint voxel_type = get_voxel_type(uvi);
+    uint voxel_type = get_voxel_type(218103808, uvi);
     if (!is_solid(voxel_type)) {
         return;
     }
@@ -144,5 +244,6 @@ void main() {
     // Pass the cached voxel_type to the fragment_list entry.
     FragmentListEntry entry =
         make_fragment_list_entry(uvec3(uvi), voxel_type, calculate_normal(uvi));
+
     fragment_list.data[fragment_list_cursor] = entry;
 }

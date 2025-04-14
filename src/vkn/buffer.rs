@@ -186,16 +186,16 @@ impl Buffer {
         self.desc._location
     }
 
-    /// Fills the buffer with raw data.
+    /// Fills the buffer with raw u8 data.
     ///
     /// # Parameters
-    /// * `data` - The byte array to copy into the buffer
+    /// * `data` - The u8 array to copy into the buffer
     ///
     /// # Returns
     /// * `Ok(())` if the operation was successful
     /// * `Err` with a description if the data size doesn't match the buffer size
     ///   or if memory mapping failed
-    pub fn fill_raw(&self, data: &[u8]) -> Result<(), String> {
+    pub fn fill_with_raw_u8(&self, data: &[u8]) -> Result<(), String> {
         // validation: check if data size matches buffer size
         if data.len() != self.get_size() as usize {
             return Err(format!(
@@ -218,6 +218,23 @@ impl Buffer {
         } else {
             return Err("Failed to map buffer memory".to_string());
         }
+    }
+
+    /// Fills the buffer with raw u32 data.
+    ///
+    /// # Parameters
+    /// * `data` - The u32 array to copy into the buffer
+    ///
+    /// # Returns
+    /// * `Ok(())` if the operation was successful
+    /// * `Err` with a description if the data size doesn't match the buffer size
+    ///  or if memory mapping failed
+    pub fn fill_with_raw_u32(&self, data: &[u32]) -> Result<(), String> {
+        let data_u8: &[u8] = unsafe {
+            std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * size_of::<u32>())
+        };
+        self.fill_with_raw_u8(data_u8)?;
+        Ok(())
     }
 
     /// Fills the buffer with generic typed data.
