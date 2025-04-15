@@ -1,5 +1,6 @@
 use super::Resources;
 use crate::util::compiler::ShaderCompiler;
+use crate::util::Timer;
 use crate::vkn::execute_one_time_command;
 use crate::vkn::Allocator;
 use crate::vkn::Buffer;
@@ -578,7 +579,15 @@ impl Builder {
         }
 
         // only build the center one
-        self.make_chunk_frag_list_by_raw_data(command_pool, IVec3::ZERO);
+        let test_times = 1000;
+        let timer = Timer::new();
+        for i in 0..test_times {
+            self.make_chunk_frag_list_by_raw_data(command_pool, IVec3::ZERO);
+        }
+        log::info!(
+            "Average fragment list time: {:?}",
+            timer.elapsed() / test_times
+        );
         self.make_octree_by_frag_list(command_pool);
     }
 
@@ -624,8 +633,6 @@ impl Builder {
                 }
             }
         }
-
-        log::debug!("Offsets: {:?}", offsets);
 
         self.resources
             .neighbor_info()
