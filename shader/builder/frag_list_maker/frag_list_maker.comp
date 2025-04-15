@@ -77,28 +77,11 @@ uint get_voxel_type(uint read_offset, uvec3 idx) {
     return data;
 }
 
-/// Wraps the coordinates to be within the chunk resolution.
-uvec3 wrap_coord(ivec3 uvi, uvec3 chunk_res) {
-    const ivec3 chunk_res_i = ivec3(chunk_res);
-    if (uvi.x < 0) {
-        uvi.x += chunk_res_i.x;
-    }
-    if (uvi.y < 0) {
-        uvi.y += chunk_res_i.y;
-    }
-    if (uvi.z < 0) {
-        uvi.z += chunk_res_i.z;
-    }
-    if (uvi.x >= chunk_res_i.x) {
-        uvi.x -= chunk_res_i.x;
-    }
-    if (uvi.y >= chunk_res_i.y) {
-        uvi.y -= chunk_res_i.y;
-    }
-    if (uvi.z >= chunk_res_i.z) {
-        uvi.z -= chunk_res_i.z;
-    }
-    return uvec3(uvi);
+uvec3 wrap_coord(ivec3 coord, uvec3 res) {
+    ivec3 res_i = ivec3(res);
+    coord += res_i;
+    coord %= res_i;
+    return uvec3(coord);
 }
 
 /// Check if a block is occluded by its neighbours.
@@ -130,31 +113,35 @@ bool is_occluded(ivec3 uvi) {
 
 // https://www.youtube.com/watch?v=YTZBFz3Et40
 vec3 calculate_normal(ivec3 uvi) {
-    vec3 uvi_f = vec3(uvi);
-
-    ivec3 min_bound = uvi - 2;
-    ivec3 max_bound = uvi + 2;
+    const ivec3 min_bound = ivec3(-2);
+    const ivec3 max_bound = ivec3(2);
 
     vec3 normal = vec3(0.0);
-
     for (int z = min_bound.z; z <= max_bound.z; z++) {
         for (int y = min_bound.y; y <= max_bound.y; y++) {
             for (int x = min_bound.x; x <= max_bound.x; x++) {
-                ivec3 cur = ivec3(x, y, z);
+                ivec3 offset = ivec3(x, y, z);
 
+                // MARK: center voxel is not skipped for performance reasons
+                // if (all(equal(offset, ivec3(0)))) {
+                //     continue;
+                // }
+
+                ivec3 cur          = uvi + offset;
                 ivec3 neighbor_idx = determine_neighbor_idx(cur);
 
-                uint offset;
-                bool is_present = get_neighbor_offset(offset, neighbor_idx);
+                uint neighbor_offset;
+                bool is_present = get_neighbor_offset(neighbor_offset, neighbor_idx);
                 if (!is_present) {
                     continue;
                 }
 
                 uvec3 wrapped   = wrap_coord(cur, frag_list_maker_info.chunk_res);
-                uint voxel_type = get_voxel_type(offset, wrapped);
+                uint voxel_type = get_voxel_type(neighbor_offset, wrapped);
 
+                // MARK: no weighting is applied for the normal calculation
                 if (is_solid(voxel_type)) {
-                    normal += vec3(x, y, z) - uvi_f;
+                    normal += vec3(offset);
                 }
             }
         }
