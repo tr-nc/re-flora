@@ -64,6 +64,7 @@ impl<'a> ShaderCompiler<'a> {
             shaderc::TargetEnv::Vulkan,
             shaderc::EnvVersion::Vulkan1_3 as u32,
         );
+        default_options.set_target_spirv(shaderc::SpirvVersion::V1_6);
         default_options.set_source_language(shaderc::SourceLanguage::GLSL);
         default_options.set_include_callback(custom_include_callback);
 
