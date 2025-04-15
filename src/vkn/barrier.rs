@@ -9,6 +9,7 @@ pub struct MemoryBarrier {
 }
 
 impl MemoryBarrier {
+    #[allow(dead_code)]
     pub fn new(src_access_mask: vk::AccessFlags, dst_access_mask: vk::AccessFlags) -> Self {
         Self {
             src_access_mask,

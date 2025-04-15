@@ -23,7 +23,6 @@ fn custom_include_callback(
             .lock()
             .map_err(|_| "Mutex poisoned".to_string())?;
         *cache = Some(requesting_source.to_string());
-        log::debug!("Caching requesting source: {}", requesting_source);
     }
     // when include_depth > 1, try to override the requesting source using the cached value
     else if include_depth > 1 {
@@ -31,7 +30,6 @@ fn custom_include_callback(
             .lock()
             .map_err(|_| "Mutex poisoned".to_string())?;
         if let Some(ref cached_source) = *cache {
-            log::debug!("Using cached requesting source: {}", cached_source);
             let full_path_to_dir = get_full_path_to_dir(cached_source);
             let concated_path = full_path_to_dir.to_string() + requested_source;
             let source = std::fs::read_to_string(&concated_path).map_err(|e| e.to_string())?;
@@ -40,8 +38,8 @@ fn custom_include_callback(
                 content: source,
             });
         } else {
-            log::debug!(
-                "No cached requesting source available for depth > 1; using current requesting source."
+            log::error!(
+                "No cached requesting source available for depth > 1, using current requesting source."
             );
         }
     }

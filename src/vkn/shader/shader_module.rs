@@ -348,7 +348,6 @@ fn extract_struct_layouts(
                 descriptor_type: binding.descriptor_type,
             };
 
-            log::debug!("Extracted buffer layout: {:#?}", layout);
             result.insert(layout.type_name.clone(), layout);
         }
     }

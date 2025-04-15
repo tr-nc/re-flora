@@ -101,6 +101,7 @@ impl Image {
         &self.0.desc
     }
 
+    #[allow(dead_code)]
     pub fn get_copy_region(&self) -> vk::ImageCopy {
         vk::ImageCopy {
             src_subresource: vk::ImageSubresourceLayers {

@@ -27,9 +27,11 @@ impl StructLayout {
 /// Represents a single member (field) within a uniform buffer or push constant block.
 #[derive(Debug, Clone)]
 pub struct StructMember {
+    #[allow(dead_code)]
     pub name: String,
     pub type_name: String,
     pub offset: u32,
+    #[allow(dead_code)]
     pub size: u32,
     pub padded_size: u32,
 }

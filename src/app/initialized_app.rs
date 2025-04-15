@@ -11,7 +11,7 @@ use crate::{
 };
 use ash::vk;
 use egui::{Color32, RichText, Slider};
-use glam::{IVec3, UVec3};
+use glam::UVec3;
 use gpu_allocator::vulkan::AllocatorCreateDesc;
 use std::sync::{Arc, Mutex};
 use winit::event::DeviceEvent;
