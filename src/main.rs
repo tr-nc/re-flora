@@ -1,5 +1,3 @@
-#![feature(portable_simd)]
-
 mod app;
 mod builder;
 mod egui_renderer;

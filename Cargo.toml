@@ -30,8 +30,6 @@ glam = "0.30.0"
 # the last release is from 2019, so we use the git version for support of the latest spirv-reflect
 spirv-reflect = { git = "https://github.com/gwihlidal/spirv-reflect-rs.git", rev = "97298067e3b1c9ce05633d78f1183c14a3cc6acc" }
 noise = "0.9.0"
-rayon = "1.10.0"
-
 
 [features]
 default = []
