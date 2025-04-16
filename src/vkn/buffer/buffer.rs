@@ -1,4 +1,6 @@
-use super::{Allocator, BufferUsage, Device, StructLayout};
+use crate::vkn::{Allocator, Device, StructLayout};
+
+use super::BufferUsage;
 use ash::vk;
 use core::slice;
 use gpu_allocator::{

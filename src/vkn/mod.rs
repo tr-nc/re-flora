@@ -2,8 +2,8 @@ mod instance;
 mod physical_device;
 mod surface;
 
-mod buffer_usage;
-pub use buffer_usage::*;
+mod buffer;
+pub use buffer::*;
 
 mod barrier;
 pub use barrier::*;
@@ -34,9 +34,6 @@ pub use shader::*;
 
 mod command_buffer;
 pub use command_buffer::*;
-
-mod buffer;
-pub use buffer::*;
 
 mod texture;
 pub use texture::*;
