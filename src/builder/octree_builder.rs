@@ -1,4 +1,8 @@
+use std::collections::HashMap;
+
 use super::Resources;
+use crate::util::AllocationStrategy;
+use crate::util::FirstFitAllocator;
 use crate::util::ShaderCompiler;
 use crate::vkn::execute_one_time_command;
 use crate::vkn::BufferBuilder;
@@ -12,6 +16,7 @@ use crate::vkn::ShaderModule;
 use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
 use ash::vk;
+use glam::IVec3;
 use glam::UVec3;
 
 pub struct OctreeBuilder {
@@ -27,6 +32,9 @@ pub struct OctreeBuilder {
     octree_tag_node_ds: DescriptorSet,
     octree_alloc_node_ds: DescriptorSet,
     octree_modify_args_ds: DescriptorSet,
+
+    offset_table: HashMap<IVec3, u32>,
+    octree_buffer_allocator: FirstFitAllocator,
 }
 
 impl OctreeBuilder {
@@ -35,6 +43,7 @@ impl OctreeBuilder {
         shader_compiler: &ShaderCompiler,
         descriptor_pool: DescriptorPool,
         resources: &Resources,
+        octree_buffer_size: u64,
     ) -> Self {
         let octree_init_buffers_sm = ShaderModule::from_glsl(
             vulkan_context.device(),
@@ -121,7 +130,7 @@ impl OctreeBuilder {
         );
         init_node_ds.perform_writes(&[WriteDescriptorSet::new_buffer_write(
             0,
-            resources.octree_data(),
+            resources.octree_data_single(),
         )]);
 
         let tag_node_ds = DescriptorSet::new(
@@ -132,7 +141,7 @@ impl OctreeBuilder {
             descriptor_pool.clone(),
         );
         tag_node_ds.perform_writes(&[
-            WriteDescriptorSet::new_buffer_write(0, resources.octree_data()),
+            WriteDescriptorSet::new_buffer_write(0, resources.octree_data_single()),
             WriteDescriptorSet::new_buffer_write(1, resources.fragment_list()),
         ]);
 
@@ -144,7 +153,7 @@ impl OctreeBuilder {
             descriptor_pool.clone(),
         );
         alloc_node_ds.perform_writes(&[
-            WriteDescriptorSet::new_buffer_write(0, resources.octree_data()),
+            WriteDescriptorSet::new_buffer_write(0, resources.octree_data_single()),
             WriteDescriptorSet::new_buffer_write(1, resources.fragment_list()),
             WriteDescriptorSet::new_buffer_write(2, resources.counter()),
         ]);
@@ -162,6 +171,8 @@ impl OctreeBuilder {
             WriteDescriptorSet::new_buffer_write(2, resources.alloc_number_indirect()),
         ]);
 
+        let octree_buffer_allocator = FirstFitAllocator::new(octree_buffer_size);
+
         Self {
             octree_init_buffers_ppl,
             octree_init_node_ppl,
@@ -174,21 +185,36 @@ impl OctreeBuilder {
             octree_tag_node_ds: tag_node_ds,
             octree_alloc_node_ds: alloc_node_ds,
             octree_modify_args_ds: modify_args_ds,
+
+            offset_table: HashMap::new(),
+            octree_buffer_allocator,
         }
     }
 
-    pub fn update_octree_build_info_buf(
-        &self,
+    pub fn get_octree_data_size_in_bytes(&self, resources: &Resources) -> u32 {
+        let raw_data = resources.octree_build_result().fetch_raw().unwrap();
+        BufferBuilder::from_struct_buffer(resources.octree_build_result())
+            .unwrap()
+            .set_raw(raw_data)
+            .get_uint("size")
+            .unwrap()
+            * 4 // 4 bytes per u32
+    }
+
+    pub fn update_uniforms(
+        &mut self,
         resources: &Resources,
         dimension: UVec3,
-        fragment_list_length: u32,
+        fragment_list_len: u32,
     ) {
+        // here's octree's limitation
         assert!(dimension.x == dimension.y && dimension.y == dimension.z);
+
         let octree_build_info_data =
             BufferBuilder::from_struct_buffer(resources.octree_build_info())
                 .unwrap()
                 .set_uint("voxel_dim_xyz", dimension.x as u32)
-                .set_uint("fragment_list_len", fragment_list_length)
+                .set_uint("fragment_list_len", fragment_list_len)
                 .to_raw_data();
         resources
             .octree_build_info()
@@ -196,11 +222,36 @@ impl OctreeBuilder {
             .expect("Failed to fill buffer data");
     }
 
-    pub fn make_octree_by_frag_list(
+    fn copy_octree_data_single_to_octree_data(
         &self,
         vulkan_context: &VulkanContext,
         command_pool: &CommandPool,
         resources: &Resources,
+        write_offset: u64,
+        size: u64,
+    ) {
+        execute_one_time_command(
+            vulkan_context.device(),
+            command_pool,
+            &vulkan_context.get_general_queue(),
+            |cmdbuf| {
+                resources.octree_data_single().record_copy_to_buffer(
+                    cmdbuf,
+                    resources.octree_data(),
+                    size,
+                    0,
+                    write_offset,
+                );
+            },
+        );
+    }
+
+    pub fn make_octree_by_frag_list(
+        &mut self,
+        vulkan_context: &VulkanContext,
+        command_pool: &CommandPool,
+        resources: &Resources,
+        chunk_pos: IVec3,
         voxel_dim: UVec3,
     ) {
         let device = vulkan_context.device();
@@ -297,5 +348,26 @@ impl OctreeBuilder {
                 }
             },
         );
+
+        let octree_size = self.get_octree_data_size_in_bytes(resources);
+
+        let write_offset = self.allocate_chunk(octree_size as u64, chunk_pos);
+        self.copy_octree_data_single_to_octree_data(
+            &vulkan_context,
+            command_pool,
+            resources,
+            write_offset,
+            octree_size as u64,
+        );
+    }
+
+    fn allocate_chunk(&mut self, chunk_buffer_size: u64, chunk_pos: IVec3) -> u64 {
+        let allocation = self
+            .octree_buffer_allocator
+            .allocate(chunk_buffer_size)
+            .unwrap();
+        self.offset_table
+            .insert(chunk_pos, allocation.offset as u32);
+        allocation.offset
     }
 }

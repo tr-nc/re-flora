@@ -17,7 +17,7 @@ pub struct ChunkDataBuilder {
     chunk_init_ppl: ComputePipeline,
     chunk_init_ds: DescriptorSet,
 
-    read_offset_table: HashMap<IVec3, u32>,
+    offset_table: HashMap<IVec3, u32>,
     /// Notice here's a limitation of total 4 GB addressing space because of u32,
     /// it should be enough, it's just raw data!
     /// TODO: use u32 offset so that it can address up to 16 GB of data
@@ -56,7 +56,7 @@ impl ChunkDataBuilder {
             chunk_init_ppl,
             chunk_init_ds,
 
-            read_offset_table: HashMap::new(),
+            offset_table: HashMap::new(),
             write_offset: 0,
         }
     }
@@ -73,7 +73,7 @@ impl ChunkDataBuilder {
             .fill_with_raw_u8(&data)
             .expect("Failed to fill buffer data");
 
-        self.read_offset_table.insert(chunk_pos, self.write_offset);
+        self.offset_table.insert(chunk_pos, self.write_offset);
         self.write_offset += voxel_dim.x * voxel_dim.y * voxel_dim.z;
     }
 
@@ -112,7 +112,7 @@ impl ChunkDataBuilder {
     }
 
     pub fn get_chunk_offset(&self, chunk_pos: IVec3) -> Option<u32> {
-        if let Some(offset) = self.read_offset_table.get(&chunk_pos) {
+        if let Some(offset) = self.offset_table.get(&chunk_pos) {
             Some(*offset)
         } else {
             None

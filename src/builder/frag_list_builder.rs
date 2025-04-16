@@ -91,7 +91,6 @@ impl FragListBuilder {
 
     pub fn get_fraglist_length(&self, resources: &Resources) -> u32 {
         let raw_data = resources.fragment_list_info().fetch_raw().unwrap();
-
         BufferBuilder::from_struct_buffer(resources.fragment_list_info())
             .unwrap()
             .set_raw(raw_data)

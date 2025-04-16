@@ -57,7 +57,9 @@ impl ExternalSharedResources {
         let octree_data = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
-            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            BufferUsage::from_flags(
+                vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
+            ),
             gpu_allocator::MemoryLocation::GpuOnly,
             octree_buffer_size,
         );
@@ -138,6 +140,8 @@ pub struct OctreeResources {
     pub octree_alloc_info: Buffer,
     pub counter: Buffer,
     pub octree_build_result: Buffer,
+
+    pub octree_data_single: Buffer,
 }
 
 impl OctreeResources {
@@ -209,7 +213,18 @@ impl OctreeResources {
             allocator.clone(),
             octree_build_result_layout.clone(),
             BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::GpuToCpu,
+        );
+
+        let single_octree_buffer_size = 50 * 1024 * 1024; // 50 MB
+        let octree_data_single = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(
+                vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_SRC,
+            ),
             gpu_allocator::MemoryLocation::GpuOnly,
+            single_octree_buffer_size as _,
         );
 
         Self {
@@ -219,6 +234,8 @@ impl OctreeResources {
             counter,
             octree_alloc_info,
             octree_build_result,
+
+            octree_data_single,
         }
     }
 }
@@ -311,6 +328,10 @@ impl Resources {
 
     pub fn neighbor_info(&self) -> &Buffer {
         &self.frag_list.neighbor_info
+    }
+
+    pub fn octree_data_single(&self) -> &Buffer {
+        &self.octree.octree_data_single
     }
 
     pub fn octree_data(&self) -> &Buffer {

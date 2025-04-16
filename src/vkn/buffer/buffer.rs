@@ -1,4 +1,4 @@
-use crate::vkn::{Allocator, Device, StructLayout};
+use crate::vkn::{Allocator, CommandBuffer, Device, StructLayout};
 
 use super::BufferUsage;
 use ash::vk;
@@ -17,6 +17,7 @@ struct BufferDesc {
 }
 
 pub struct Buffer {
+    device: Device,
     allocator: Allocator,
     buffer: vk::Buffer,
     allocated_mem: Allocation,
@@ -91,7 +92,8 @@ impl Buffer {
         };
 
         Self {
-            allocator: allocator,
+            device,
+            allocator,
             buffer,
             allocated_mem,
             desc,
@@ -148,7 +150,8 @@ impl Buffer {
         };
 
         Self {
-            allocator: allocator,
+            device,
+            allocator,
             buffer,
             allocated_mem,
             desc,
@@ -283,6 +286,29 @@ impl Buffer {
             Ok(data)
         } else {
             Err("Failed to map buffer memory".to_string())
+        }
+    }
+
+    pub fn record_copy_to_buffer(
+        &self,
+        cmdbuf: &CommandBuffer,
+        dst_buffer: &Buffer,
+        size: u64,
+        src_offset: u64,
+        dst_offset: u64,
+    ) {
+        let copy_region = vk::BufferCopy::default()
+            .src_offset(src_offset)
+            .dst_offset(dst_offset)
+            .size(size);
+
+        unsafe {
+            self.device.cmd_copy_buffer(
+                cmdbuf.as_raw(),
+                self.as_raw(),
+                dst_buffer.as_raw(),
+                &[copy_region],
+            );
         }
     }
 

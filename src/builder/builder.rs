@@ -2,7 +2,6 @@ use super::chunk_data_builder::ChunkDataBuilder;
 use super::frag_list_builder::FragListBuilder;
 use super::octree_builder::OctreeBuilder;
 use super::Resources;
-use crate::util::FirstFitAllocator;
 use crate::util::ShaderCompiler;
 use crate::vkn::Allocator;
 use crate::vkn::Buffer;
@@ -22,8 +21,6 @@ pub struct Builder {
     chunk_data_builder: ChunkDataBuilder,
     frag_list_builder: FragListBuilder,
     octree_builder: OctreeBuilder,
-
-    first_fit_allocator: FirstFitAllocator,
 }
 
 impl Builder {
@@ -72,9 +69,8 @@ impl Builder {
             shader_compiler,
             descriptor_pool.clone(),
             &resources,
+            octree_buffer_size,
         );
-
-        let first_fit_allocator = FirstFitAllocator::new(octree_buffer_size);
 
         Self {
             vulkan_context,
@@ -84,7 +80,6 @@ impl Builder {
             chunk_data_builder,
             frag_list_builder,
             octree_builder,
-            first_fit_allocator,
         }
     }
 
@@ -131,8 +126,13 @@ impl Builder {
         let fragment_list_size = self.frag_list_builder.get_fraglist_length(&self.resources);
         if fragment_list_size == 0 {
             return;
+        } else {
+            log::info!(
+                "Fragment list size in MB: {}",
+                fragment_list_size as f32 / 1024.0 / 1024.0
+            );
         }
-        self.make_octree_by_frag_list(command_pool, fragment_list_size);
+        self.make_octree_by_frag_list(command_pool, chunk_pos, fragment_list_size);
     }
 
     fn make_chunk_frag_list_by_raw_data(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
@@ -177,21 +177,25 @@ impl Builder {
             .make_frag_list(&self.vulkan_context, command_pool, self.voxel_dim);
     }
 
-    fn make_octree_by_frag_list(&mut self, command_pool: &CommandPool, frag_list_size: u32) {
-        if frag_list_size == 0 {
+    fn make_octree_by_frag_list(
+        &mut self,
+        command_pool: &CommandPool,
+        chunk_pos: IVec3,
+        fragment_list_len: u32,
+    ) {
+        if fragment_list_len == 0 {
             log::error!("Fragment list size is 0, and should be skipped");
             return;
         }
 
-        self.octree_builder.update_octree_build_info_buf(
-            &self.resources,
-            self.voxel_dim,
-            frag_list_size,
-        );
+        self.octree_builder
+            .update_uniforms(&self.resources, self.voxel_dim, fragment_list_len);
+
         self.octree_builder.make_octree_by_frag_list(
             &self.vulkan_context,
             command_pool,
             &self.resources,
+            chunk_pos,
             self.voxel_dim,
         );
     }
