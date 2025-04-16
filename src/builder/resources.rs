@@ -53,13 +53,13 @@ pub struct ExternalSharedResources {
 }
 
 impl ExternalSharedResources {
-    fn new(device: Device, allocator: Allocator, max_octrees_data_size: u64) -> Self {
+    fn new(device: Device, allocator: Allocator, octree_buffer_size: u64) -> Self {
         let octree_data = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
             gpu_allocator::MemoryLocation::GpuOnly,
-            max_octrees_data_size,
+            octree_buffer_size,
         );
         Self { octree_data }
     }
@@ -238,7 +238,7 @@ impl Resources {
         shader_compiler: &crate::util::ShaderCompiler,
         voxel_dim: UVec3,
         max_raw_chunks: u32,
-        max_octrees_data_size: u64,
+        octree_buffer_size: u64,
     ) -> Self {
         // Load all needed shader modules for buffer layouts
         let chunk_init_sm = ShaderModule::from_glsl(
@@ -274,7 +274,7 @@ impl Resources {
         );
 
         let external_shared_resources =
-            ExternalSharedResources::new(device.clone(), allocator.clone(), max_octrees_data_size);
+            ExternalSharedResources::new(device.clone(), allocator.clone(), octree_buffer_size);
 
         let chunk_init = ChunkInitResources::new(device.clone(), allocator.clone(), &chunk_init_sm);
 

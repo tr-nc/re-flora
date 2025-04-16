@@ -109,6 +109,7 @@ impl InitializedApp {
             &shader_compiler,
             UVec3::new(256, 256, 256),
             UVec3::new(3, 3, 3), // 2GB of Raw Data inside GPU is roughly 5^3 chunks of 256^3 voxels
+            2 * 1024 * 1024 * 1024, // 2GB of octree buffer size
         );
 
         let tracer = Tracer::new(
@@ -119,12 +120,7 @@ impl InitializedApp {
             builder.get_octree_data(),
         );
 
-        builder.build_chunks(&command_pool);
-
-        // let start = std::time::Instant::now();
-        // builder.cull_chunk(IVec3::new(0, 0, 0));
-        // let end = std::time::Instant::now();
-        // log::info!("Culling time: {:?}", end - start);
+        builder.init_chunks(&command_pool);
 
         Self {
             vulkan_context,

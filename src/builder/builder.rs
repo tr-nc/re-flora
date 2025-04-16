@@ -2,6 +2,7 @@ use super::chunk_data_builder::ChunkDataBuilder;
 use super::frag_list_builder::FragListBuilder;
 use super::octree_builder::OctreeBuilder;
 use super::Resources;
+use crate::util::FirstFitAllocator;
 use crate::util::ShaderCompiler;
 use crate::vkn::Allocator;
 use crate::vkn::Buffer;
@@ -21,6 +22,8 @@ pub struct Builder {
     chunk_data_builder: ChunkDataBuilder,
     frag_list_builder: FragListBuilder,
     octree_builder: OctreeBuilder,
+
+    first_fit_allocator: FirstFitAllocator,
 }
 
 impl Builder {
@@ -30,6 +33,7 @@ impl Builder {
         shader_compiler: &ShaderCompiler,
         voxel_dim: UVec3,
         chunk_dim: UVec3,
+        octree_buffer_size: u64,
     ) -> Self {
         if voxel_dim.x != voxel_dim.y || voxel_dim.y != voxel_dim.z {
             log::error!("Dimension must be equal in all dimensions");
@@ -46,10 +50,10 @@ impl Builder {
             shader_compiler,
             voxel_dim,
             chunk_dim.x * chunk_dim.y * chunk_dim.z,
-            1 * 1024 * 1024 * 1024,
+            octree_buffer_size,
         );
 
-        let chunk_raw_data_builder = ChunkDataBuilder::new(
+        let chunk_data_builder = ChunkDataBuilder::new(
             &vulkan_context,
             shader_compiler,
             descriptor_pool.clone(),
@@ -70,14 +74,17 @@ impl Builder {
             &resources,
         );
 
+        let first_fit_allocator = FirstFitAllocator::new(octree_buffer_size);
+
         Self {
             vulkan_context,
             resources,
             voxel_dim,
             chunk_dim,
-            chunk_data_builder: chunk_raw_data_builder,
+            chunk_data_builder,
             frag_list_builder,
             octree_builder,
+            first_fit_allocator,
         }
     }
 
@@ -86,22 +93,29 @@ impl Builder {
     // 14:14:38.673Z INFO  [re_flora::builder::builder] Average fragment list time: 951.318µs
     // 14:14:38.673Z INFO  [re_flora::builder::builder] Average octree time: 1.006229ms
 
-    pub fn build_chunks(&mut self, command_pool: &CommandPool) {
+    pub fn init_chunks(&mut self, command_pool: &CommandPool) {
+        // first init raw chunk data
         for i in 0..self.chunk_dim.x {
             for j in 0..self.chunk_dim.y {
                 for k in 0..self.chunk_dim.z {
                     let chunk_pos = IVec3::new(i as i32, j as i32, k as i32);
-                    log::info!("Initing chunk at {:?}", chunk_pos);
-                    self.init_chunk_raw_data(command_pool, chunk_pos);
+                    self.init_chunk_data(command_pool, chunk_pos);
                 }
             }
         }
 
-        self.make_chunk_frag_list_by_raw_data(command_pool, IVec3::ZERO);
-        self.make_octree_by_frag_list(command_pool);
+        // then init fragment list and octree
+        for i in 0..self.chunk_dim.x {
+            for j in 0..self.chunk_dim.y {
+                for k in 0..self.chunk_dim.z {
+                    let chunk_pos = IVec3::new(i as i32, j as i32, k as i32);
+                    self.make_octree(command_pool, chunk_pos);
+                }
+            }
+        }
     }
 
-    fn init_chunk_raw_data(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
+    fn init_chunk_data(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
         self.chunk_data_builder
             .update_uniforms(&self.resources, self.voxel_dim, chunk_pos);
         self.chunk_data_builder.init_chunk_by_noise(
@@ -109,6 +123,16 @@ impl Builder {
             command_pool,
             self.voxel_dim,
         );
+    }
+
+    fn make_octree(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
+        self.make_chunk_frag_list_by_raw_data(command_pool, chunk_pos);
+
+        let fragment_list_size = self.frag_list_builder.get_fraglist_length(&self.resources);
+        if fragment_list_size == 0 {
+            return;
+        }
+        self.make_octree_by_frag_list(command_pool, fragment_list_size);
     }
 
     fn make_chunk_frag_list_by_raw_data(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
@@ -153,12 +177,16 @@ impl Builder {
             .make_frag_list(&self.vulkan_context, command_pool, self.voxel_dim);
     }
 
-    fn make_octree_by_frag_list(&mut self, command_pool: &CommandPool) {
-        let fragment_list_len = self.frag_list_builder.get_fraglist_length(&self.resources);
+    fn make_octree_by_frag_list(&mut self, command_pool: &CommandPool, frag_list_size: u32) {
+        if frag_list_size == 0 {
+            log::error!("Fragment list size is 0, and should be skipped");
+            return;
+        }
+
         self.octree_builder.update_octree_build_info_buf(
             &self.resources,
             self.voxel_dim,
-            fragment_list_len,
+            frag_list_size,
         );
         self.octree_builder.make_octree_by_frag_list(
             &self.vulkan_context,

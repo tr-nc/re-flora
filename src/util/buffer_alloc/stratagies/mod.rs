@@ -7,7 +7,7 @@ pub trait AllocationStrategy {
     /// Allocates a continuous block of memory of `req_size` bytes.
     ///
     /// Returns the allocation record if successful.
-    fn allocate(&mut self, req_size: usize) -> Result<Allocation, String>;
+    fn allocate(&mut self, req_size: u64) -> Result<Allocation, String>;
 
     /// Looks up an allocation by its unique id.
     fn lookup(&self, id: u64) -> Option<Allocation>;

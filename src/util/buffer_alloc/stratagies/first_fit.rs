@@ -5,7 +5,7 @@ use std::{collections::HashMap, fmt::Formatter};
 
 #[derive(Clone)]
 pub struct FirstFitAllocator {
-    total_size: usize,
+    total_size: u64,
     allocated: HashMap<u64, Allocation>,
     free_list: Vec<FreeBlock>,
     next_id: u64,
@@ -25,7 +25,7 @@ impl Debug for FirstFitAllocator {
 
 impl FirstFitAllocator {
     /// Creates a new first-fit allocator with the given total size (in bytes).
-    pub fn new(total_size: usize) -> Self {
+    pub fn new(total_size: u64) -> Self {
         let free_list = vec![FreeBlock {
             offset: 0,
             size: total_size,
@@ -58,7 +58,7 @@ impl FirstFitAllocator {
 }
 
 impl AllocationStrategy for FirstFitAllocator {
-    fn allocate(&mut self, req_size: usize) -> Result<Allocation, String> {
+    fn allocate(&mut self, req_size: u64) -> Result<Allocation, String> {
         // First-fit: find the first free block that is large enough.
         for i in 0..self.free_list.len() {
             if self.free_list[i].size >= req_size {

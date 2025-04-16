@@ -1,14 +1,14 @@
 #[derive(Debug, Clone)]
 pub struct Allocation {
     pub id: u64,
-    pub offset: usize,
-    pub size: usize,
+    pub offset: u64,
+    pub size: u64,
 }
 
 #[derive(Debug, Clone)]
 pub struct FreeBlock {
-    pub offset: usize,
-    pub size: usize,
+    pub offset: u64,
+    pub size: u64,
 }
 
 mod stratagies;
@@ -84,11 +84,11 @@ mod tests {
     #[test]
     fn benchmark_allocation_strategies() {
         // Configurable parameters:
-        let pool_size: usize = 4 * 1024 * 1024 * 1024; // 4GB pool size
+        let pool_size: u64 = 4 * 1024 * 1024 * 1024; // 4GB pool size
         let initial_allocations: usize = 1000;
-        let iterations: usize = 1_000_000;
-        let min_alloc_size: usize = 2 * 1024 * 1024; // 2MB
-        let max_alloc_size: usize = 5 * 1024 * 1024; // 15MB
+        let iterations: u64 = 1_000_000;
+        let min_alloc_size: u64 = 2 * 1024 * 1024; // 2MB
+        let max_alloc_size: u64 = 5 * 1024 * 1024; // 15MB
 
         {
             let mut allocator = FirstFitAllocator::new(pool_size);
