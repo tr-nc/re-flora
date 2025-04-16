@@ -43,30 +43,24 @@ bool get_neighbor_offset(out uint o_offset, ivec3 idx) {
 
 bool is_solid(uint voxel_type) { return voxel_type != VOXEL_TYPE_EMPTY; }
 
-uint vidx_to_linear(uvec3 idx, uvec3 chunk_res) {
+uint vidx_to_linear(uvec3 idx, ivec3 chunk_res) {
     return idx.z * chunk_res.x * chunk_res.y + idx.y * chunk_res.x + idx.x;
 }
 
-ivec3 determine_neighbor_idx(ivec3 idx) {
+ivec3 determine_neighbor_idx(ivec3 idx, ivec3 chunk_res) {
     ivec3 neighbor_idx = ivec3(0);
-    if (idx.x < 0) {
-        neighbor_idx.x = -1;
-    } else if (idx.x >= frag_list_maker_info.chunk_res.x) {
-        neighbor_idx.x = 1;
-    } else if (idx.y < 0) {
-        neighbor_idx.y = -1;
-    } else if (idx.y >= frag_list_maker_info.chunk_res.y) {
-        neighbor_idx.y = 1;
-    } else if (idx.z < 0) {
-        neighbor_idx.z = -1;
-    } else if (idx.z >= frag_list_maker_info.chunk_res.z) {
-        neighbor_idx.z = 1;
-    }
+
+    bvec3 below_mask = lessThan(idx, ivec3(0));
+    bvec3 above_mask = greaterThanEqual(idx, chunk_res);
+
+    neighbor_idx -= ivec3(below_mask);
+    neighbor_idx += ivec3(above_mask);
+
     return neighbor_idx;
 }
 
-uint get_voxel_type(uint read_offset, uvec3 idx) {
-    uint v           = vidx_to_linear(idx, frag_list_maker_info.chunk_res) + read_offset;
+uint get_voxel_type(uint read_offset, uvec3 idx, ivec3 chunk_res) {
+    uint v           = vidx_to_linear(idx, chunk_res) + read_offset;
     uint uint_offset = v / 4u;
     uint byte_offset = (v % 4u) * 8u;
 
@@ -77,16 +71,15 @@ uint get_voxel_type(uint read_offset, uvec3 idx) {
     return data;
 }
 
-uvec3 wrap_coord(ivec3 coord, uvec3 res) {
-    ivec3 res_i = ivec3(res);
-    coord += res_i;
-    coord %= res_i;
+uvec3 wrap_coord(ivec3 coord, ivec3 chunk_res) {
+    coord += chunk_res;
+    coord %= chunk_res;
     return uvec3(coord);
 }
 
 /// Check if a block is occluded by its neighbours.
 /// A block is occluded if all of its neighbours are solid.
-bool is_occluded(ivec3 uvi) {
+bool is_occluded(ivec3 uvi, ivec3 chunk_res) {
     ivec3 neighbours_to_check[6] = {
         ivec3(1, 0, 0),  ivec3(-1, 0, 0), ivec3(0, 1, 0),
         ivec3(0, -1, 0), ivec3(0, 0, 1),  ivec3(0, 0, -1),
@@ -96,13 +89,13 @@ bool is_occluded(ivec3 uvi) {
         ivec3 cur = uvi + neighbours_to_check[i];
 
         uint offset;
-        bool is_present = get_neighbor_offset(offset, determine_neighbor_idx(cur));
+        bool is_present = get_neighbor_offset(offset, determine_neighbor_idx(cur, chunk_res));
         if (!is_present) {
             continue;
         }
 
-        uvec3 wrapped   = wrap_coord(cur, frag_list_maker_info.chunk_res);
-        uint voxel_type = get_voxel_type(offset, wrapped);
+        uvec3 wrapped   = wrap_coord(cur, chunk_res);
+        uint voxel_type = get_voxel_type(offset, wrapped, chunk_res);
 
         if (!is_solid(voxel_type)) {
             return false;
@@ -112,7 +105,7 @@ bool is_occluded(ivec3 uvi) {
 }
 
 // https://www.youtube.com/watch?v=YTZBFz3Et40
-vec3 calculate_normal(ivec3 uvi) {
+vec3 calculate_normal(ivec3 uvi, ivec3 chunk_res) {
     const ivec3 min_bound = ivec3(-2);
     const ivec3 max_bound = ivec3(2);
 
@@ -128,7 +121,7 @@ vec3 calculate_normal(ivec3 uvi) {
                 // }
 
                 ivec3 cur          = uvi + offset;
-                ivec3 neighbor_idx = determine_neighbor_idx(cur);
+                ivec3 neighbor_idx = determine_neighbor_idx(cur, chunk_res);
 
                 uint neighbor_offset;
                 bool is_present = get_neighbor_offset(neighbor_offset, neighbor_idx);
@@ -136,8 +129,8 @@ vec3 calculate_normal(ivec3 uvi) {
                     continue;
                 }
 
-                uvec3 wrapped   = wrap_coord(cur, frag_list_maker_info.chunk_res);
-                uint voxel_type = get_voxel_type(neighbor_offset, wrapped);
+                uvec3 wrapped   = wrap_coord(cur, chunk_res);
+                uint voxel_type = get_voxel_type(neighbor_offset, wrapped, chunk_res);
 
                 // MARK: no weighting is applied for the normal calculation
                 if (is_solid(voxel_type)) {
@@ -174,24 +167,25 @@ FragmentListEntry make_fragment_list_entry(uvec3 coord, uint voxel_type, vec3 no
 }
 
 void main() {
-    ivec3 uvi = ivec3(gl_GlobalInvocationID);
-    if (any(greaterThanEqual(uvi, ivec3(frag_list_maker_info.chunk_res)))) {
+    ivec3 uvi       = ivec3(gl_GlobalInvocationID);
+    ivec3 chunk_res = ivec3(frag_list_maker_info.chunk_res);
+    if (any(greaterThanEqual(uvi, chunk_res))) {
         return;
     }
 
     // Cache the block type so we don't perform multiple image loads.
-    uint voxel_type = get_voxel_type(218103808, uvi);
+    uint voxel_type = get_voxel_type(218103808, uvi, chunk_res);
     if (!is_solid(voxel_type)) {
         return;
     }
-    if (is_occluded(uvi)) {
+    if (is_occluded(uvi, chunk_res)) {
         return;
     }
 
     uint fragment_list_cursor = atomicAdd(fragment_list_info.fragment_list_len, 1);
 
     FragmentListEntry entry =
-        make_fragment_list_entry(uvec3(uvi), voxel_type, calculate_normal(uvi));
+        make_fragment_list_entry(uvec3(uvi), voxel_type, calculate_normal(uvi, chunk_res));
 
     fragment_list.data[fragment_list_cursor] = entry;
 }
