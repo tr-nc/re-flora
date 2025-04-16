@@ -16,6 +16,7 @@ pub struct Builder {
     resources: Resources,
 
     voxel_dim: UVec3,
+    chunk_dim: UVec3,
 
     chunk_data_builder: ChunkDataBuilder,
     frag_list_builder: FragListBuilder,
@@ -28,6 +29,7 @@ impl Builder {
         allocator: Allocator,
         shader_compiler: &ShaderCompiler,
         voxel_dim: UVec3,
+        chunk_dim: UVec3,
     ) -> Self {
         if voxel_dim.x != voxel_dim.y || voxel_dim.y != voxel_dim.z {
             log::error!("Dimension must be equal in all dimensions");
@@ -43,7 +45,7 @@ impl Builder {
             allocator.clone(),
             shader_compiler,
             voxel_dim,
-            5 * 5 * 5, // can fit in 2GB of VRAM
+            chunk_dim.x * chunk_dim.y * chunk_dim.z,
             1 * 1024 * 1024 * 1024,
         );
 
@@ -72,6 +74,7 @@ impl Builder {
             vulkan_context,
             resources,
             voxel_dim,
+            chunk_dim,
             chunk_data_builder: chunk_raw_data_builder,
             frag_list_builder,
             octree_builder,
@@ -84,9 +87,9 @@ impl Builder {
     // 14:14:38.673Z INFO  [re_flora::builder::builder] Average octree time: 1.006229ms
 
     pub fn build_chunks(&mut self, command_pool: &CommandPool) {
-        for i in -1..=1 {
-            for j in -1..=1 {
-                for k in -1..=1 {
+        for i in 0..self.chunk_dim.x {
+            for j in 0..self.chunk_dim.y {
+                for k in 0..self.chunk_dim.z {
                     let chunk_pos = IVec3::new(i as i32, j as i32, k as i32);
                     log::info!("Initing chunk at {:?}", chunk_pos);
                     self.init_chunk_raw_data(command_pool, chunk_pos);

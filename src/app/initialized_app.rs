@@ -108,6 +108,7 @@ impl InitializedApp {
             allocator.clone(),
             &shader_compiler,
             UVec3::new(256, 256, 256),
+            UVec3::new(3, 3, 3), // 2GB of Raw Data inside GPU is roughly 5^3 chunks of 256^3 voxels
         );
 
         let tracer = Tracer::new(
