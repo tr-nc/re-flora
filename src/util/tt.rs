@@ -150,127 +150,6 @@ impl AllocationStrategy for FirstFitAllocator {
     }
 }
 
-/// A best-fit allocator implementation which chooses the smallest free block
-/// that fits the requested size.
-pub struct BestFitAllocator {
-    total_size: usize,
-    allocated: HashMap<u64, Allocation>,
-    free_list: Vec<FreeBlock>,
-    next_id: u64,
-}
-
-impl BestFitAllocator {
-    /// Creates a new best-fit allocator with the given total size (in bytes).
-    pub fn new(total_size: usize) -> Self {
-        let free_list = vec![FreeBlock {
-            offset: 0,
-            size: total_size,
-        }];
-        BestFitAllocator {
-            total_size,
-            allocated: HashMap::new(),
-            free_list,
-            next_id: 1,
-        }
-    }
-
-    /// Helper function to merge adjacent free blocks.
-    fn coalesce_free_list(&mut self) {
-        self.free_list.sort_by_key(|block| block.offset);
-        let mut merged: Vec<FreeBlock> = Vec::new();
-        for block in self.free_list.drain(..) {
-            if let Some(last) = merged.last_mut() {
-                if last.offset + last.size == block.offset {
-                    last.size += block.size;
-                } else {
-                    merged.push(block);
-                }
-            } else {
-                merged.push(block);
-            }
-        }
-        self.free_list = merged;
-    }
-}
-
-impl AllocationStrategy for BestFitAllocator {
-    fn allocate(&mut self, req_size: usize) -> Result<Allocation, String> {
-        // Best-fit: choose the smallest free block that fits the request.
-        let mut best_index: Option<usize> = None;
-        let mut best_size = usize::MAX;
-        for (i, block) in self.free_list.iter().enumerate() {
-            if block.size >= req_size && block.size < best_size {
-                best_index = Some(i);
-                best_size = block.size;
-            }
-        }
-
-        if let Some(i) = best_index {
-            let alloc_offset = self.free_list[i].offset;
-            if self.free_list[i].size == req_size {
-                self.free_list.remove(i);
-            } else {
-                self.free_list[i].offset += req_size;
-                self.free_list[i].size -= req_size;
-            }
-            let id = self.next_id;
-            self.next_id += 1;
-            let allocation = Allocation {
-                id,
-                offset: alloc_offset,
-                size: req_size,
-            };
-            self.allocated.insert(id, allocation.clone());
-            return Ok(allocation);
-        }
-        Err("Not enough free memory".to_string())
-    }
-
-    fn lookup(&self, id: u64) -> Option<Allocation> {
-        self.allocated.get(&id).cloned()
-    }
-
-    fn deallocate(&mut self, id: u64) -> Result<(), String> {
-        if let Some(allocation) = self.allocated.remove(&id) {
-            self.free_list.push(FreeBlock {
-                offset: allocation.offset,
-                size: allocation.size,
-            });
-            self.coalesce_free_list();
-            Ok(())
-        } else {
-            Err("Allocation id not found".to_string())
-        }
-    }
-
-    fn cleanup(&mut self) {
-        let mut allocations: Vec<&mut Allocation> = self.allocated.values_mut().collect();
-        allocations.sort_by_key(|alloc| alloc.offset);
-        let mut current_offset = 0;
-        for alloc in allocations.iter_mut() {
-            alloc.offset = current_offset;
-            current_offset += alloc.size;
-        }
-        self.free_list.clear();
-        if current_offset < self.total_size {
-            self.free_list.push(FreeBlock {
-                offset: current_offset,
-                size: self.total_size - current_offset,
-            });
-        }
-    }
-
-    fn reset(&mut self) {
-        self.allocated.clear();
-        self.free_list.clear();
-        self.free_list.push(FreeBlock {
-            offset: 0,
-            size: self.total_size,
-        });
-        self.next_id = 1;
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -280,7 +159,7 @@ mod tests {
 
     #[test]
     fn test_first_fit_allocator() {
-        let total_size = 1000;
+        let total_size = 100000;
         let mut allocator = FirstFitAllocator::new(total_size);
         // Allocate 200 bytes.
         let alloc1 = allocator.allocate(200).unwrap();
@@ -308,35 +187,6 @@ mod tests {
         assert_eq!(alloc4.offset, 200);
 
         // Reset the allocator.
-        allocator.reset();
-        assert!(allocator.lookup(alloc1.id).is_none());
-        let alloc_reset = allocator.allocate(100).unwrap();
-        assert_eq!(alloc_reset.offset, 0);
-    }
-
-    #[test]
-    fn test_best_fit_allocator() {
-        let total_size = 1000;
-        let mut allocator = BestFitAllocator::new(total_size);
-        // Test similar to first-fit.
-        let alloc1 = allocator.allocate(200).unwrap();
-        assert_eq!(alloc1.size, 200);
-        assert_eq!(alloc1.offset, 0);
-
-        let alloc2 = allocator.allocate(300).unwrap();
-        assert_eq!(alloc2.offset, 200);
-
-        let alloc3 = allocator.allocate(100).unwrap();
-        assert_eq!(alloc3.offset, 500);
-
-        let lookup2 = allocator.lookup(alloc2.id).unwrap();
-        assert_eq!(lookup2.size, 300);
-        assert_eq!(lookup2.offset, alloc2.offset);
-
-        allocator.deallocate(alloc2.id).unwrap();
-        let alloc4 = allocator.allocate(250).unwrap();
-        assert_eq!(alloc4.offset, 200);
-
         allocator.reset();
         assert!(allocator.lookup(alloc1.id).is_none());
         let alloc_reset = allocator.allocate(100).unwrap();
@@ -421,51 +271,6 @@ mod tests {
             println!(
                 "First-Fit Benchmark Avg Time: {:?}",
                 duration_ff / iterations as u32
-            );
-            println!("Free List size: {}", allocator.free_list.len());
-        }
-
-        // --- Benchmark Best-Fit Allocator ---
-        {
-            let mut allocator = BestFitAllocator::new(pool_size);
-            let mut allocations: Vec<Allocation> = Vec::with_capacity(initial_allocations);
-            let mut rng = rand::rng();
-
-            // Initial allocations.
-            for _ in 0..initial_allocations {
-                let alloc_size = rng.random_range(min_alloc_size..=max_alloc_size);
-                let alloc = allocator.allocate(alloc_size).unwrap();
-                allocations.push(alloc);
-            }
-
-            let start_bf = Instant::now();
-
-            for _ in 0..iterations {
-                let num_to_remove = rng.random_range(1..=8);
-                if allocations.len() < num_to_remove {
-                    break;
-                }
-                let mut indices: Vec<usize> = (0..allocations.len()).collect();
-                indices.shuffle(&mut rng);
-                let mut dealloc_indices: Vec<usize> =
-                    indices.into_iter().take(num_to_remove).collect();
-                dealloc_indices.sort_by(|a, b| b.cmp(a));
-
-                for i in dealloc_indices.iter() {
-                    let alloc = allocations.remove(*i);
-                    allocator.deallocate(alloc.id).unwrap();
-                }
-
-                for _ in 0..num_to_remove {
-                    let alloc_size = rng.random_range(min_alloc_size..=max_alloc_size);
-                    let alloc = allocator.allocate(alloc_size).unwrap();
-                    allocations.push(alloc);
-                }
-            }
-            let duration_bf = start_bf.elapsed();
-            println!(
-                "Best-Fit Benchmark Avg Time: {:?}",
-                duration_bf / iterations as u32
             );
             println!("Free List size: {}", allocator.free_list.len());
         }
