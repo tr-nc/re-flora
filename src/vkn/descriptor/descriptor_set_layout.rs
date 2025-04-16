@@ -1,4 +1,4 @@
-use super::Device;
+use crate::vkn::Device;
 use ash::vk;
 use std::{collections::HashMap, sync::Arc};
 

@@ -1,6 +1,6 @@
 use ash::vk;
 
-use super::{CommandBuffer, Device};
+use crate::vkn::{CommandBuffer, Device};
 
 #[derive(Clone, Copy)]
 pub struct MemoryBarrier {

@@ -1,7 +1,6 @@
 use ash::vk;
 use std::sync::Arc;
-
-use super::Device;
+use crate::vkn::Device;
 
 struct SemaphoreInner {
     device: Device,

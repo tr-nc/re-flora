@@ -1,6 +1,7 @@
-use super::{DescriptorSetLayout, Device, ShaderModule};
 use ash::vk;
 use std::{ops::Deref, sync::Arc};
+
+use crate::vkn::{DescriptorSetLayout, Device, ShaderModule};
 
 struct PipelineLayoutInner {
     device: Device,

@@ -1,7 +1,7 @@
+use super::DescriptorSetLayout;
+use crate::vkn::Device;
 use ash::vk;
 use std::sync::Arc;
-
-use super::{DescriptorSetLayout, Device};
 
 struct DescriptorPoolInner {
     device: Device,

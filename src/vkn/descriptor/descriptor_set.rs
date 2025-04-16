@@ -1,6 +1,6 @@
+use super::{DescriptorPool, DescriptorSetLayout};
+use crate::vkn::{Buffer, Device, Texture};
 use ash::vk;
-
-use super::{Buffer, DescriptorPool, DescriptorSetLayout, Device, Texture};
 
 pub struct DescriptorSet {
     device: Device,

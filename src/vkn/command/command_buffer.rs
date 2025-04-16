@@ -1,4 +1,5 @@
-use super::{CommandPool, Device, Fence, Queue};
+use super::CommandPool;
+use crate::vkn::{Device, Fence, Queue};
 use ash::vk;
 use std::sync::Arc;
 
