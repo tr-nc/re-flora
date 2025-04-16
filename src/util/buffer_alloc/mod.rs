@@ -90,7 +90,6 @@ mod tests {
         let min_alloc_size: usize = 2 * 1024 * 1024; // 2MB
         let max_alloc_size: usize = 5 * 1024 * 1024; // 15MB
 
-        // --- Benchmark First-Fit Allocator ---
         {
             let mut allocator = FirstFitAllocator::new(pool_size);
             let mut allocations: Vec<Allocation> = Vec::with_capacity(initial_allocations);
