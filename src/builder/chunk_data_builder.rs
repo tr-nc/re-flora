@@ -61,7 +61,45 @@ impl ChunkDataBuilder {
         }
     }
 
-    pub fn update_uniforms(&mut self, resources: &Resources, voxel_dim: UVec3, chunk_pos: IVec3) {
+    pub fn update_frag_list_maker_info_buf(&self, resources: &Resources, dimension: UVec3) {
+        let data = BufferBuilder::from_struct_buffer(resources.frag_list_maker_info())
+            .unwrap()
+            .set_uvec3("voxel_dim", dimension.to_array())
+            .to_raw_data();
+        resources
+            .frag_list_maker_info()
+            .fill_with_raw_u8(&data)
+            .expect("Failed to fill buffer data");
+    }
+
+    pub fn init_chunk_by_noise(
+        &mut self,
+        vulkan_context: &VulkanContext,
+        command_pool: &CommandPool,
+        resources: &Resources,
+        voxel_dim: UVec3,
+        chunk_pos: IVec3,
+    ) {
+        self.update_uniforms(resources, voxel_dim, chunk_pos);
+
+        execute_one_time_command(
+            vulkan_context.device(),
+            command_pool,
+            &vulkan_context.get_general_queue(),
+            |cmdbuf| {
+                self.chunk_init_ppl.record_bind(cmdbuf);
+                self.chunk_init_ppl.record_bind_descriptor_sets(
+                    cmdbuf,
+                    std::slice::from_ref(&self.chunk_init_ds),
+                    0,
+                );
+                self.chunk_init_ppl
+                    .record_dispatch(cmdbuf, voxel_dim.to_array());
+            },
+        );
+    }
+
+    fn update_uniforms(&mut self, resources: &Resources, voxel_dim: UVec3, chunk_pos: IVec3) {
         let data = BufferBuilder::from_struct_buffer(resources.chunk_init_info())
             .unwrap()
             .set_uvec3("voxel_dim", voxel_dim.to_array())
@@ -75,40 +113,6 @@ impl ChunkDataBuilder {
 
         self.offset_table.insert(chunk_pos, self.write_offset);
         self.write_offset += voxel_dim.x * voxel_dim.y * voxel_dim.z;
-    }
-
-    pub fn update_frag_list_maker_info_buf(&self, resources: &Resources, dimension: UVec3) {
-        let data = BufferBuilder::from_struct_buffer(resources.frag_list_maker_info())
-            .unwrap()
-            .set_uvec3("voxel_dim", dimension.to_array())
-            .to_raw_data();
-        resources
-            .frag_list_maker_info()
-            .fill_with_raw_u8(&data)
-            .expect("Failed to fill buffer data");
-    }
-
-    pub fn init_chunk_by_noise(
-        &self,
-        vulkan_context: &VulkanContext,
-        command_pool: &CommandPool,
-        dimension: UVec3,
-    ) {
-        execute_one_time_command(
-            vulkan_context.device(),
-            command_pool,
-            &vulkan_context.get_general_queue(),
-            |cmdbuf| {
-                self.chunk_init_ppl.record_bind(cmdbuf);
-                self.chunk_init_ppl.record_bind_descriptor_sets(
-                    cmdbuf,
-                    std::slice::from_ref(&self.chunk_init_ds),
-                    0,
-                );
-                self.chunk_init_ppl
-                    .record_dispatch(cmdbuf, dimension.to_array());
-            },
-        );
     }
 
     pub fn get_chunk_offset(&self, chunk_pos: IVec3) -> Option<u32> {

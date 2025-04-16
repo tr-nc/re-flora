@@ -94,7 +94,13 @@ impl Builder {
             for j in 0..self.chunk_dim.y {
                 for k in 0..self.chunk_dim.z {
                     let chunk_pos = IVec3::new(i as i32, j as i32, k as i32);
-                    self.init_chunk_data(command_pool, chunk_pos);
+                    self.chunk_data_builder.init_chunk_by_noise(
+                        &self.vulkan_context,
+                        command_pool,
+                        &self.resources,
+                        self.voxel_dim,
+                        chunk_pos,
+                    );
                 }
             }
         }
@@ -110,15 +116,14 @@ impl Builder {
         }
     }
 
-    fn init_chunk_data(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
-        self.chunk_data_builder
-            .update_uniforms(&self.resources, self.voxel_dim, chunk_pos);
-        self.chunk_data_builder.init_chunk_by_noise(
-            &self.vulkan_context,
-            command_pool,
-            self.voxel_dim,
-        );
-    }
+    // fn init_chunk_data(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
+
+    //     self.chunk_data_builder.init_chunk_by_noise(
+    //         &self.vulkan_context,
+    //         command_pool,
+    //         self.voxel_dim,
+    //     );
+    // }
 
     fn make_octree(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
         self.make_chunk_frag_list_by_raw_data(command_pool, chunk_pos);
