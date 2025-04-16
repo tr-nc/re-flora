@@ -19,12 +19,18 @@ use glam::IVec3;
 use glam::UVec3;
 use std::collections::HashMap;
 
-pub struct ChunkInitBuilder {
+pub struct ChunkRawDataBuilder {
     chunk_init_ppl: ComputePipeline,
     chunk_init_ds: DescriptorSet,
+
+    raw_chunk_data_offset_table: HashMap<IVec3, u32>,
+    /// Notice here's a limitation of total 4 GB addressing space because of u32,
+    /// it should be enough, it's just raw data!
+    /// TODO: use u32 offset so that it can address up to 16 GB of data
+    raw_chunk_data_offset: u32,
 }
 
-impl ChunkInitBuilder {
+impl ChunkRawDataBuilder {
     fn new(
         vulkan_context: &VulkanContext,
         shader_compiler: &ShaderCompiler,
@@ -55,26 +61,32 @@ impl ChunkInitBuilder {
         Self {
             chunk_init_ppl,
             chunk_init_ds,
+
+            raw_chunk_data_offset_table: HashMap::new(),
+            raw_chunk_data_offset: 0,
         }
     }
 
     fn update_chunk_init_info_buf(
-        &self,
+        &mut self,
         resources: &Resources,
-        resolution: UVec3,
+        chunk_res: UVec3,
         chunk_pos: IVec3,
-        write_offset: u32,
     ) {
         let data = BufferBuilder::from_struct_buffer(resources.chunk_init_info())
             .unwrap()
-            .set_uvec3("chunk_res", resolution.to_array())
+            .set_uvec3("chunk_res", chunk_res.to_array())
             .set_ivec3("chunk_pos", chunk_pos.to_array())
-            .set_uint("write_offset", write_offset)
+            .set_uint("write_offset", self.raw_chunk_data_offset)
             .to_raw_data();
         resources
             .chunk_init_info()
             .fill_with_raw_u8(&data)
             .expect("Failed to fill buffer data");
+
+        self.raw_chunk_data_offset_table
+            .insert(chunk_pos, self.raw_chunk_data_offset);
+        self.raw_chunk_data_offset += chunk_res.x * chunk_res.y * chunk_res.z;
     }
 
     fn update_frag_list_maker_info_buf(&self, resources: &Resources, resolution: UVec3) {
@@ -109,6 +121,14 @@ impl ChunkInitBuilder {
                     .record_dispatch(cmdbuf, resolution.to_array());
             },
         );
+    }
+
+    fn get_chunk_offset(&self, chunk_pos: IVec3) -> Option<u32> {
+        if let Some(offset) = self.raw_chunk_data_offset_table.get(&chunk_pos) {
+            Some(*offset)
+        } else {
+            None
+        }
     }
 }
 
@@ -492,13 +512,7 @@ pub struct Builder {
     resources: Resources,
     chunk_res: UVec3,
 
-    chunk_with_offsets: HashMap<IVec3, u32>,
-    /// Notice here's a limitation of total 4 GB addressing space because of u32,
-    /// it should be enough, it's just raw data!
-    /// TODO: use u32 offset so that it can address up to 16 GB of data
-    offset_cursor: u32,
-
-    chunk_init_builder: ChunkInitBuilder,
+    chunk_raw_data_builder: ChunkRawDataBuilder,
     frag_list_builder: FragListBuilder,
     octree_builder: OctreeBuilder,
 }
@@ -528,7 +542,7 @@ impl Builder {
             1 * 1024 * 1024 * 1024,
         );
 
-        let chunk_init_builder = ChunkInitBuilder::new(
+        let chunk_raw_data_builder = ChunkRawDataBuilder::new(
             &vulkan_context,
             shader_compiler,
             descriptor_pool.clone(),
@@ -553,18 +567,15 @@ impl Builder {
             vulkan_context,
             resources,
             chunk_res,
-            chunk_init_builder,
+            chunk_raw_data_builder,
             frag_list_builder,
             octree_builder,
-
-            chunk_with_offsets: HashMap::new(),
-            offset_cursor: 0,
         }
     }
 
-    // previous benchmark results:
+    // current benchmark results:
     // 14:14:38.672Z INFO  [re_flora::builder::builder] Average chunk init time: 3.806937ms
-    // 14:14:38.673Z INFO  [re_flora::builder::builder] Average fragment list time: 1.147109ms
+    // 14:14:38.673Z INFO  [re_flora::builder::builder] Average fragment list time: 951.318µs
     // 14:14:38.673Z INFO  [re_flora::builder::builder] Average octree time: 1.006229ms
 
     pub fn build_chunks(&mut self, command_pool: &CommandPool) {
@@ -578,38 +589,25 @@ impl Builder {
             }
         }
 
-        // only build the center one
-        let test_times = 1000;
-        let timer = Timer::new();
-        for i in 0..test_times {
-            self.make_chunk_frag_list_by_raw_data(command_pool, IVec3::ZERO);
-        }
-        log::info!(
-            "Average fragment list time: {:?}",
-            timer.elapsed() / test_times
-        );
+        self.make_chunk_frag_list_by_raw_data(command_pool, IVec3::ZERO);
         self.make_octree_by_frag_list(command_pool);
     }
 
     fn init_chunk_raw_data(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
-        self.chunk_init_builder.update_chunk_init_info_buf(
+        self.chunk_raw_data_builder.update_chunk_init_info_buf(
             &self.resources,
             self.chunk_res,
             chunk_pos,
-            self.offset_cursor,
         );
-        self.chunk_init_builder.init_chunk_by_noise(
+        self.chunk_raw_data_builder.init_chunk_by_noise(
             &self.vulkan_context,
             command_pool,
             self.chunk_res,
         );
-        self.chunk_with_offsets
-            .insert(chunk_pos, self.offset_cursor);
-        self.offset_cursor += self.chunk_res.x * self.chunk_res.y * self.chunk_res.z;
     }
 
     fn make_chunk_frag_list_by_raw_data(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
-        self.chunk_init_builder
+        self.chunk_raw_data_builder
             .update_frag_list_maker_info_buf(&self.resources, self.chunk_res);
 
         /// idx ranges from 0-3 in three dimensions
@@ -623,10 +621,15 @@ impl Builder {
             for j in -1..=1 {
                 for k in -1..=1 {
                     let neighbor_pos = chunk_pos + IVec3::new(i, j, k);
-                    let mut offset: u32 = 0xFFFFFFFF; // initialize to maximum offset
-                    if self.chunk_with_offsets.contains_key(&neighbor_pos) {
-                        offset = self.chunk_with_offsets[&neighbor_pos];
-                    }
+
+                    let offset = if let Some(offset) =
+                        self.chunk_raw_data_builder.get_chunk_offset(neighbor_pos)
+                    {
+                        offset
+                    } else {
+                        0xFFFFFFFF
+                    };
+
                     let serialized_idx =
                         serialize(UVec3::new((i + 1) as u32, (j + 1) as u32, (k + 1) as u32));
                     offsets[serialized_idx as usize] = offset;

@@ -37,7 +37,7 @@ uint serialize(ivec3 idx) { return idx.x + idx.y * 3 + idx.z * 9; }
 bool get_neighbor_offset(out uint o_offset, ivec3 idx) {
     uint serialized = serialize(idx + 1);
     o_offset        = neighbor_info.data[serialized];
-    return true;
+    return o_offset != 0xFFFFFFFF;
 }
 
 bool is_solid(uint voxel_type) { return voxel_type != VOXEL_TYPE_EMPTY; }
@@ -88,8 +88,7 @@ bool is_occluded(ivec3 uvi, ivec3 chunk_res) {
         ivec3 cur = uvi + neighbours_to_check[i];
 
         uint offset;
-        bool is_present = get_neighbor_offset(offset, determine_neighbor_idx(cur, chunk_res));
-        if (!is_present) {
+        if (!get_neighbor_offset(offset, determine_neighbor_idx(cur, chunk_res))) {
             continue;
         }
 
@@ -123,8 +122,7 @@ vec3 calculate_normal(ivec3 uvi, ivec3 chunk_res) {
                 ivec3 neighbor_idx = determine_neighbor_idx(cur, chunk_res);
 
                 uint neighbor_offset;
-                bool is_present = get_neighbor_offset(neighbor_offset, neighbor_idx);
-                if (!is_present) {
+                if (!get_neighbor_offset(neighbor_offset, neighbor_idx)) {
                     continue;
                 }
 
