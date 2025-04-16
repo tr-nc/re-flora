@@ -1,6 +1,5 @@
 use super::Resources;
 use crate::util::compiler::ShaderCompiler;
-use crate::util::Timer;
 use crate::vkn::execute_one_time_command;
 use crate::vkn::Allocator;
 use crate::vkn::Buffer;

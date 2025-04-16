@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 #[derive(Debug, Clone)]
 pub struct Allocation {
     pub id: u64,
@@ -13,142 +11,8 @@ pub struct FreeBlock {
     pub size: usize,
 }
 
-/// The trait that abstracts allocation strategies.
-pub trait AllocationStrategy {
-    /// Allocates a continuous block of memory of `req_size` bytes.
-    ///
-    /// Returns the allocation record if successful.
-    fn allocate(&mut self, req_size: usize) -> Result<Allocation, String>;
-
-    /// Looks up an allocation by its unique id.
-    fn lookup(&self, id: u64) -> Option<Allocation>;
-
-    /// Deallocates the allocation with the given identifier.
-    fn deallocate(&mut self, id: u64) -> Result<(), String>;
-
-    /// Cleans up the pool by compacting allocations.
-    ///
-    /// After cleanup all allocated blocks will be contiguous.
-    fn cleanup(&mut self);
-
-    /// Resets the allocator, clearing all allocations.
-    fn reset(&mut self);
-}
-
-/// A first-fit allocator that manages free memory regions using a free list.
-pub struct FirstFitAllocator {
-    total_size: usize,
-    allocated: HashMap<u64, Allocation>,
-    free_list: Vec<FreeBlock>,
-    next_id: u64,
-}
-
-impl FirstFitAllocator {
-    /// Creates a new first-fit allocator with the given total size (in bytes).
-    /// Note: This does not allocate the actual memory.
-    pub fn new(total_size: usize) -> Self {
-        let free_list = vec![FreeBlock {
-            offset: 0,
-            size: total_size,
-        }];
-        FirstFitAllocator {
-            total_size,
-            allocated: HashMap::new(),
-            free_list,
-            next_id: 1,
-        }
-    }
-
-    /// Helper function to merge adjacent free blocks.
-    fn coalesce_free_list(&mut self) {
-        self.free_list.sort_by_key(|block| block.offset);
-        let mut merged: Vec<FreeBlock> = Vec::new();
-        for block in self.free_list.drain(..) {
-            if let Some(last) = merged.last_mut() {
-                if last.offset + last.size == block.offset {
-                    last.size += block.size;
-                } else {
-                    merged.push(block);
-                }
-            } else {
-                merged.push(block);
-            }
-        }
-        self.free_list = merged;
-    }
-}
-
-impl AllocationStrategy for FirstFitAllocator {
-    fn allocate(&mut self, req_size: usize) -> Result<Allocation, String> {
-        // First-fit: find the first free block that is large enough.
-        for i in 0..self.free_list.len() {
-            if self.free_list[i].size >= req_size {
-                let alloc_offset = self.free_list[i].offset;
-                if self.free_list[i].size == req_size {
-                    self.free_list.remove(i);
-                } else {
-                    self.free_list[i].offset += req_size;
-                    self.free_list[i].size -= req_size;
-                }
-                let id = self.next_id;
-                self.next_id += 1;
-                let allocation = Allocation {
-                    id,
-                    offset: alloc_offset,
-                    size: req_size,
-                };
-                self.allocated.insert(id, allocation.clone());
-                return Ok(allocation);
-            }
-        }
-        Err("Not enough free memory".to_string())
-    }
-
-    fn lookup(&self, id: u64) -> Option<Allocation> {
-        self.allocated.get(&id).cloned()
-    }
-
-    fn deallocate(&mut self, id: u64) -> Result<(), String> {
-        if let Some(allocation) = self.allocated.remove(&id) {
-            self.free_list.push(FreeBlock {
-                offset: allocation.offset,
-                size: allocation.size,
-            });
-            self.coalesce_free_list();
-            Ok(())
-        } else {
-            Err("Allocation id not found".to_string())
-        }
-    }
-
-    fn cleanup(&mut self) {
-        // Repack all allocated blocks so that they become contiguous.
-        let mut allocations: Vec<&mut Allocation> = self.allocated.values_mut().collect();
-        allocations.sort_by_key(|alloc| alloc.offset);
-        let mut current_offset = 0;
-        for alloc in allocations.iter_mut() {
-            alloc.offset = current_offset;
-            current_offset += alloc.size;
-        }
-        self.free_list.clear();
-        if current_offset < self.total_size {
-            self.free_list.push(FreeBlock {
-                offset: current_offset,
-                size: self.total_size - current_offset,
-            });
-        }
-    }
-
-    fn reset(&mut self) {
-        self.allocated.clear();
-        self.free_list.clear();
-        self.free_list.push(FreeBlock {
-            offset: 0,
-            size: self.total_size,
-        });
-        self.next_id = 1;
-    }
-}
+mod stratagies;
+pub use stratagies::*;
 
 #[cfg(test)]
 mod tests {
@@ -222,7 +86,7 @@ mod tests {
         // Configurable parameters:
         let pool_size: usize = 4 * 1024 * 1024 * 1024; // 4GB pool size
         let initial_allocations: usize = 1000;
-        let iterations: usize = 100;
+        let iterations: usize = 1_000_000;
         let min_alloc_size: usize = 2 * 1024 * 1024; // 2MB
         let max_alloc_size: usize = 5 * 1024 * 1024; // 15MB
 
@@ -272,7 +136,7 @@ mod tests {
                 "First-Fit Benchmark Avg Time: {:?}",
                 duration_ff / iterations as u32
             );
-            println!("Free List size: {}", allocator.free_list.len());
+            println!("{:?}", allocator);
         }
     }
 }

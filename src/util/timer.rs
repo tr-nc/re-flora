@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub struct Timer {
     start: std::time::Instant,
 }
