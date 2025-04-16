@@ -70,7 +70,7 @@ impl FragListBuilder {
         &self,
         vulkan_context: &VulkanContext,
         command_pool: &CommandPool,
-        resolution: UVec3,
+        dimension: UVec3,
     ) {
         execute_one_time_command(
             vulkan_context.device(),
@@ -84,7 +84,7 @@ impl FragListBuilder {
                     0,
                 );
                 self.frag_list_maker_ppl
-                    .record_dispatch(cmdbuf, resolution.to_array());
+                    .record_dispatch(cmdbuf, dimension.to_array());
             },
         );
     }

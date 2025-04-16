@@ -4,7 +4,7 @@
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
 layout(set = 0, binding = 0) readonly uniform U_ChunkInitInfo {
-    uvec3 chunk_res;
+    uvec3 voxel_dim;
     ivec3 chunk_pos;
     uint write_offset;
 }
@@ -42,11 +42,11 @@ uint get_voxel_type(float weight) {
 
 void main() {
     ivec3 uvi = ivec3(gl_GlobalInvocationID);
-    if (any(greaterThanEqual(uvi, ivec3(chunk_init_info.chunk_res)))) {
+    if (any(greaterThanEqual(uvi, ivec3(chunk_init_info.voxel_dim)))) {
         return;
     }
 
-    vec3 local_voxel_pos = (vec3(uvi) - 0.5) / vec3(chunk_init_info.chunk_res);
+    vec3 local_voxel_pos = (vec3(uvi) - 0.5) / vec3(chunk_init_info.voxel_dim);
     vec3 world_voxel_pos = local_voxel_pos + vec3(chunk_init_info.chunk_pos);
 
     float noise     = compute_noise(world_voxel_pos);
@@ -54,9 +54,9 @@ void main() {
     uint voxel_type = get_voxel_type(weight);
 
     // Compute the linear voxel index assuming row-major ordering:
-    // linear_index = uvi.z * (chunk_res.x * chunk_res.y) + uvi.y * chunk_res.x + uvi.x
-    uint linear_index = uint(uvi.z) * (chunk_init_info.chunk_res.x * chunk_init_info.chunk_res.y) +
-                        uint(uvi.y) * chunk_init_info.chunk_res.x + uint(uvi.x);
+    // linear_index = uvi.z * (voxel_dim.x * voxel_dim.y) + uvi.y * voxel_dim.x + uvi.x
+    uint linear_index = uint(uvi.z) * (chunk_init_info.voxel_dim.x * chunk_init_info.voxel_dim.y) +
+                        uint(uvi.y) * chunk_init_info.voxel_dim.x + uint(uvi.x);
 
     linear_index += chunk_init_info.write_offset;
 

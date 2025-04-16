@@ -180,14 +180,14 @@ impl OctreeBuilder {
     pub fn update_octree_build_info_buf(
         &self,
         resources: &Resources,
-        resolution: UVec3,
+        dimension: UVec3,
         fragment_list_length: u32,
     ) {
-        assert!(resolution.x == resolution.y && resolution.y == resolution.z);
+        assert!(dimension.x == dimension.y && dimension.y == dimension.z);
         let octree_build_info_data =
             BufferBuilder::from_struct_buffer(resources.octree_build_info())
                 .unwrap()
-                .set_uint("chunk_res_xyz", resolution.x as u32)
+                .set_uint("voxel_dim_xyz", dimension.x as u32)
                 .set_uint("fragment_list_len", fragment_list_length)
                 .to_raw_data();
         resources
@@ -201,7 +201,7 @@ impl OctreeBuilder {
         vulkan_context: &VulkanContext,
         command_pool: &CommandPool,
         resources: &Resources,
-        chunk_res: UVec3,
+        voxel_dim: UVec3,
     ) {
         let device = vulkan_context.device();
 
@@ -244,7 +244,7 @@ impl OctreeBuilder {
                 shader_access_pipeline_barrier.record_insert(device, cmdbuf);
                 indirect_access_pipeline_barrier.record_insert(device, cmdbuf);
 
-                let voxel_level_count = log2(chunk_res.x);
+                let voxel_level_count = log2(voxel_dim.x);
 
                 for i in 0..voxel_level_count {
                     self.octree_init_node_ppl.record_bind(cmdbuf);

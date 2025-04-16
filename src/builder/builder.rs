@@ -15,9 +15,8 @@ pub struct Builder {
     vulkan_context: VulkanContext,
     resources: Resources,
 
-    /// Voxel dimension within a chunk
-    chunk_res: UVec3,
-    
+    voxel_dim: UVec3,
+
     chunk_data_builder: ChunkDataBuilder,
     frag_list_builder: FragListBuilder,
     octree_builder: OctreeBuilder,
@@ -28,13 +27,13 @@ impl Builder {
         vulkan_context: VulkanContext,
         allocator: Allocator,
         shader_compiler: &ShaderCompiler,
-        chunk_res: UVec3,
+        voxel_dim: UVec3,
     ) -> Self {
-        if chunk_res.x != chunk_res.y || chunk_res.y != chunk_res.z {
-            log::error!("Resolution must be equal in all dimensions");
+        if voxel_dim.x != voxel_dim.y || voxel_dim.y != voxel_dim.z {
+            log::error!("Dimension must be equal in all dimensions");
         }
-        if chunk_res.x & (chunk_res.x - 1) != 0 {
-            log::error!("Resolution must be a power of 2");
+        if voxel_dim.x & (voxel_dim.x - 1) != 0 {
+            log::error!("Dimension must be a power of 2");
         }
 
         let descriptor_pool = DescriptorPool::a_big_one(vulkan_context.device()).unwrap();
@@ -43,7 +42,7 @@ impl Builder {
             vulkan_context.device().clone(),
             allocator.clone(),
             shader_compiler,
-            chunk_res,
+            voxel_dim,
             5 * 5 * 5, // can fit in 2GB of VRAM
             1 * 1024 * 1024 * 1024,
         );
@@ -72,7 +71,7 @@ impl Builder {
         Self {
             vulkan_context,
             resources,
-            chunk_res,
+            voxel_dim,
             chunk_data_builder: chunk_raw_data_builder,
             frag_list_builder,
             octree_builder,
@@ -101,17 +100,17 @@ impl Builder {
 
     fn init_chunk_raw_data(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
         self.chunk_data_builder
-            .update_uniforms(&self.resources, self.chunk_res, chunk_pos);
+            .update_uniforms(&self.resources, self.voxel_dim, chunk_pos);
         self.chunk_data_builder.init_chunk_by_noise(
             &self.vulkan_context,
             command_pool,
-            self.chunk_res,
+            self.voxel_dim,
         );
     }
 
     fn make_chunk_frag_list_by_raw_data(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
         self.chunk_data_builder
-            .update_frag_list_maker_info_buf(&self.resources, self.chunk_res);
+            .update_frag_list_maker_info_buf(&self.resources, self.voxel_dim);
 
         /// idx ranges from 0-3 in three dimensions
         fn serialize(idx: UVec3) -> u32 {
@@ -148,21 +147,21 @@ impl Builder {
         self.frag_list_builder
             .reset_fragment_list_info_buf(&self.resources);
         self.frag_list_builder
-            .make_frag_list(&self.vulkan_context, command_pool, self.chunk_res);
+            .make_frag_list(&self.vulkan_context, command_pool, self.voxel_dim);
     }
 
     fn make_octree_by_frag_list(&mut self, command_pool: &CommandPool) {
         let fragment_list_len = self.frag_list_builder.get_fraglist_length(&self.resources);
         self.octree_builder.update_octree_build_info_buf(
             &self.resources,
-            self.chunk_res,
+            self.voxel_dim,
             fragment_list_len,
         );
         self.octree_builder.make_octree_by_frag_list(
             &self.vulkan_context,
             command_pool,
             &self.resources,
-            self.chunk_res,
+            self.voxel_dim,
         );
     }
 

@@ -11,12 +11,12 @@ impl InternalSharedResources {
     fn new(
         device: Device,
         allocator: Allocator,
-        chunk_res: UVec3,
+        voxel_dim: UVec3,
         max_raw_chunks: u32,
         frag_list_maker_sm: &ShaderModule,
     ) -> Self {
         let raw_voxels_size: u64 =
-            chunk_res.x as u64 * chunk_res.y as u64 * chunk_res.z as u64 * max_raw_chunks as u64;
+            voxel_dim.x as u64 * voxel_dim.y as u64 * voxel_dim.z as u64 * max_raw_chunks as u64;
         let raw_voxels = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
@@ -25,7 +25,7 @@ impl InternalSharedResources {
             raw_voxels_size,
         );
 
-        let max_possible_voxel_count = chunk_res.x * chunk_res.y * chunk_res.z;
+        let max_possible_voxel_count = voxel_dim.x * voxel_dim.y * voxel_dim.z;
         let fragment_list_buf_layout = frag_list_maker_sm
             .get_buffer_layout("B_FragmentList")
             .unwrap();
@@ -236,7 +236,7 @@ impl Resources {
         device: Device,
         allocator: Allocator,
         shader_compiler: &crate::util::ShaderCompiler,
-        chunk_res: UVec3,
+        voxel_dim: UVec3,
         max_raw_chunks: u32,
         max_octrees_data_size: u64,
     ) -> Self {
@@ -268,7 +268,7 @@ impl Resources {
         let internal_shared_resources = InternalSharedResources::new(
             device.clone(),
             allocator.clone(),
-            chunk_res,
+            voxel_dim,
             max_raw_chunks,
             &frag_list_maker_sm,
         );

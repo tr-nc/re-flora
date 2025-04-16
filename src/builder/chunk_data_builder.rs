@@ -61,10 +61,10 @@ impl ChunkDataBuilder {
         }
     }
 
-    pub fn update_uniforms(&mut self, resources: &Resources, chunk_res: UVec3, chunk_pos: IVec3) {
+    pub fn update_uniforms(&mut self, resources: &Resources, voxel_dim: UVec3, chunk_pos: IVec3) {
         let data = BufferBuilder::from_struct_buffer(resources.chunk_init_info())
             .unwrap()
-            .set_uvec3("chunk_res", chunk_res.to_array())
+            .set_uvec3("voxel_dim", voxel_dim.to_array())
             .set_ivec3("chunk_pos", chunk_pos.to_array())
             .set_uint("write_offset", self.write_offset)
             .to_raw_data();
@@ -74,13 +74,13 @@ impl ChunkDataBuilder {
             .expect("Failed to fill buffer data");
 
         self.read_offset_table.insert(chunk_pos, self.write_offset);
-        self.write_offset += chunk_res.x * chunk_res.y * chunk_res.z;
+        self.write_offset += voxel_dim.x * voxel_dim.y * voxel_dim.z;
     }
 
-    pub fn update_frag_list_maker_info_buf(&self, resources: &Resources, resolution: UVec3) {
+    pub fn update_frag_list_maker_info_buf(&self, resources: &Resources, dimension: UVec3) {
         let data = BufferBuilder::from_struct_buffer(resources.frag_list_maker_info())
             .unwrap()
-            .set_uvec3("chunk_res", resolution.to_array())
+            .set_uvec3("voxel_dim", dimension.to_array())
             .to_raw_data();
         resources
             .frag_list_maker_info()
@@ -92,7 +92,7 @@ impl ChunkDataBuilder {
         &self,
         vulkan_context: &VulkanContext,
         command_pool: &CommandPool,
-        resolution: UVec3,
+        dimension: UVec3,
     ) {
         execute_one_time_command(
             vulkan_context.device(),
@@ -106,7 +106,7 @@ impl ChunkDataBuilder {
                     0,
                 );
                 self.chunk_init_ppl
-                    .record_dispatch(cmdbuf, resolution.to_array());
+                    .record_dispatch(cmdbuf, dimension.to_array());
             },
         );
     }

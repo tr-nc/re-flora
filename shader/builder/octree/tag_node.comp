@@ -5,7 +5,7 @@
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 layout(set = 0, binding = 0) readonly uniform B_OctreeBuildInfo {
-    uint chunk_res_xyz;
+    uint voxel_dim_xyz;
     uint fragment_list_len;
 }
 octree_build_info;
@@ -34,7 +34,7 @@ uint uvec4_to_leaf(uvec4 vec) {
 // returns the index of the node to be tagged (it has just been initialized to
 // 0)
 uint traverse_octree(in const uvec3 voxel_pos, out bool is_leaf) {
-    uint level_dim  = octree_build_info.chunk_res_xyz;
+    uint level_dim  = octree_build_info.voxel_dim_xyz;
     uvec3 level_pos = voxel_pos;
 
     uint idx = 0u, cur = 0u;
