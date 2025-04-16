@@ -201,12 +201,7 @@ impl OctreeBuilder {
             * 4 // 4 bytes per u32
     }
 
-    pub fn update_uniforms(
-        &mut self,
-        resources: &Resources,
-        dimension: UVec3,
-        fragment_list_len: u32,
-    ) {
+    fn update_uniforms(&mut self, resources: &Resources, dimension: UVec3, fragment_list_len: u32) {
         // here's octree's limitation
         assert!(dimension.x == dimension.y && dimension.y == dimension.z);
 
@@ -246,14 +241,17 @@ impl OctreeBuilder {
         );
     }
 
-    pub fn make_octree_by_frag_list(
+    pub fn frag_list_to_octree_data(
         &mut self,
         vulkan_context: &VulkanContext,
         command_pool: &CommandPool,
         resources: &Resources,
+        fragment_list_len: u32,
         chunk_pos: IVec3,
         voxel_dim: UVec3,
     ) {
+        self.update_uniforms(resources, voxel_dim, fragment_list_len);
+
         let device = vulkan_context.device();
 
         let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
@@ -352,6 +350,7 @@ impl OctreeBuilder {
         let octree_size = self.get_octree_data_size_in_bytes(resources);
 
         let write_offset = self.allocate_chunk(octree_size as u64, chunk_pos);
+
         self.copy_octree_data_single_to_octree_data(
             &vulkan_context,
             command_pool,

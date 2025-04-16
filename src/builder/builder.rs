@@ -188,13 +188,11 @@ impl Builder {
             return;
         }
 
-        self.octree_builder
-            .update_uniforms(&self.resources, self.voxel_dim, fragment_list_len);
-
-        self.octree_builder.make_octree_by_frag_list(
+        self.octree_builder.frag_list_to_octree_data(
             &self.vulkan_context,
             command_pool,
             &self.resources,
+            fragment_list_len,
             chunk_pos,
             self.voxel_dim,
         );
