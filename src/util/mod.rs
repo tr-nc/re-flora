@@ -1,5 +1,8 @@
-pub mod compiler;
-pub mod time_info;
+mod compiler;
+pub use compiler::*;
+
+mod time_info;
+pub use time_info::*;
 
 mod path;
 pub use path::*;

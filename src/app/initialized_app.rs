@@ -1,8 +1,8 @@
 use crate::builder::Builder;
 use crate::gameplay::{Camera, CameraDesc};
 use crate::tracer::Tracer;
-use crate::util::compiler::ShaderCompiler;
-use crate::util::time_info::TimeInfo;
+use crate::util::ShaderCompiler;
+use crate::util::TimeInfo;
 use crate::vkn::{Allocator, CommandBuffer, CommandPool, Fence, Semaphore};
 use crate::{
     egui_renderer::EguiRenderer,

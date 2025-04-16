@@ -2,7 +2,7 @@ use super::chunk_data_builder::ChunkDataBuilder;
 use super::frag_list_builder::FragListBuilder;
 use super::octree_builder::OctreeBuilder;
 use super::Resources;
-use crate::util::compiler::ShaderCompiler;
+use crate::util::ShaderCompiler;
 use crate::vkn::Allocator;
 use crate::vkn::Buffer;
 use crate::vkn::CommandPool;

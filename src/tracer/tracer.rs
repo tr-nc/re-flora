@@ -1,6 +1,6 @@
 use super::TracerResources;
 use crate::gameplay::Camera;
-use crate::util::compiler::ShaderCompiler;
+use crate::util::ShaderCompiler;
 use crate::vkn::{
     Allocator, Buffer, BufferBuilder, ComputePipeline, DescriptorPool, DescriptorSet, Image,
     ShaderModule, WriteDescriptorSet,

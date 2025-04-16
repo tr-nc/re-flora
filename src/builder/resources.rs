@@ -235,7 +235,7 @@ impl Resources {
     pub fn new(
         device: Device,
         allocator: Allocator,
-        shader_compiler: &crate::util::compiler::ShaderCompiler,
+        shader_compiler: &crate::util::ShaderCompiler,
         chunk_res: UVec3,
         max_raw_chunks: u32,
         max_octrees_data_size: u64,

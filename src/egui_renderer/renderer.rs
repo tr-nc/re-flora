@@ -1,5 +1,5 @@
 use super::mesh::Mesh;
-use crate::util::compiler::ShaderCompiler;
+use crate::util::ShaderCompiler;
 use crate::vkn::CommandBuffer;
 use crate::vkn::CommandPool;
 use crate::vkn::DescriptorSet;

@@ -1,6 +1,6 @@
 use super::struct_layout::{StructLayout, StructMember};
 use crate::{
-    util::{compiler::ShaderCompiler, full_path_from_relative},
+    util::{full_path_from_relative, ShaderCompiler},
     vkn::{DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutBuilder, Device},
 };
 use ash::vk::{self, PushConstantRange};
