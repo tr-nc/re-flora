@@ -196,9 +196,9 @@ impl OctreeBuilder {
         BufferBuilder::from_struct_buffer(resources.octree_build_result())
             .unwrap()
             .set_raw(raw_data)
-            .get_uint("size")
+            .get_uint("size_u32")
             .unwrap()
-            * 4 // 4 bytes per u32
+            * std::mem::size_of::<u32>() as u32
     }
 
     fn update_uniforms(&mut self, resources: &Resources, dimension: UVec3, fragment_list_len: u32) {

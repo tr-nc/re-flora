@@ -30,7 +30,7 @@ layout(set = 1, binding = 1) writeonly buffer B_AllocNumberIndirect {
 alloc_number_indirect;
 layout(set = 1, binding = 2) writeonly buffer B_Counter { uint data; }
 counter;
-layout(set = 1, binding = 3) writeonly buffer B_OctreeBuildResult { uint size; }
+layout(set = 1, binding = 3) writeonly buffer B_OctreeBuildResult { uint size_u32; }
 octree_build_result;
 
 uint group_x_64(uint x) { return uint(ceil(float(x) / 64.0)); }
@@ -49,5 +49,6 @@ void main() {
 
     counter.data = 1;
 
-    octree_build_result.size = 0;
+    // the first 8 are not calculated, so pre-allocate them
+    octree_build_result.size_u32 = 8;
 }

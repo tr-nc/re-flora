@@ -16,7 +16,7 @@ octree_alloc_info;
 
 layout(set = 1, binding = 0) readonly buffer B_Counter { uint data; }
 counter;
-layout(set = 1, binding = 1) writeonly buffer B_OctreeBuildResult { uint size; }
+layout(set = 1, binding = 1) writeonly buffer B_OctreeBuildResult { uint size_u32; }
 octree_build_result;
 layout(set = 1, binding = 2) writeonly buffer B_AllocNumberIndirect {
     uint dispatch_x;
@@ -31,6 +31,6 @@ void main() {
     octree_alloc_info.alloc_begin += octree_alloc_info.alloc_num;
     // counter stores accumulated tagged node count
     octree_alloc_info.alloc_num = (counter.data << 3u) - octree_alloc_info.alloc_begin;
-    octree_build_result.size += octree_alloc_info.alloc_num;
+    octree_build_result.size_u32 += octree_alloc_info.alloc_num;
     alloc_number_indirect.dispatch_x = group_x_64(octree_alloc_info.alloc_num);
 }
