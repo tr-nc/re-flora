@@ -14,8 +14,10 @@ use glam::UVec3;
 pub struct Builder {
     vulkan_context: VulkanContext,
     resources: Resources,
-    chunk_res: UVec3,
 
+    /// Voxel dimension within a chunk
+    chunk_res: UVec3,
+    
     chunk_data_builder: ChunkDataBuilder,
     frag_list_builder: FragListBuilder,
     octree_builder: OctreeBuilder,
@@ -42,7 +44,7 @@ impl Builder {
             allocator.clone(),
             shader_compiler,
             chunk_res,
-            4 * 4 * 4,
+            5 * 5 * 5, // can fit in 2GB of VRAM
             1 * 1024 * 1024 * 1024,
         );
 
