@@ -81,13 +81,13 @@ bool is_occluded(ivec3 uvi, ivec3 voxel_dim) {
     for (int i = 0; i < 6; i++) {
         ivec3 cur = uvi + neighbours_to_check[i];
 
-        uint offset;
-        if (!get_chunk_offset_by_idx(offset, determine_neighbor_idx(cur, voxel_dim))) {
+        uint read_offset;
+        if (!get_chunk_offset_by_idx(read_offset, determine_neighbor_idx(cur, voxel_dim))) {
             continue;
         }
 
         ivec3 wrapped   = wrap_coord(cur, voxel_dim);
-        uint voxel_type = get_voxel_type(offset, wrapped, voxel_dim);
+        uint voxel_type = get_voxel_type(read_offset, wrapped, voxel_dim);
 
         if (!is_solid(voxel_type)) {
             return false;
@@ -107,10 +107,7 @@ vec3 calculate_normal(ivec3 uvi, ivec3 voxel_dim) {
             for (int x = min_bound.x; x <= max_bound.x; x++) {
                 ivec3 offset = ivec3(x, y, z);
 
-                // MARK: center voxel is not skipped for performance reasons
-                // if (all(equal(offset, ivec3(0)))) {
-                //     continue;
-                // }
+                // center voxel is not skipped for performance reasons
 
                 ivec3 cur          = uvi + offset;
                 ivec3 neighbor_idx = determine_neighbor_idx(cur, voxel_dim);
@@ -123,7 +120,7 @@ vec3 calculate_normal(ivec3 uvi, ivec3 voxel_dim) {
                 ivec3 wrapped   = wrap_coord(cur, voxel_dim);
                 uint voxel_type = get_voxel_type(read_offset, wrapped, voxel_dim);
 
-                // MARK: no weighting is applied for the normal calculation
+                // no weighting is applied for the normal calculation
                 if (is_solid(voxel_type)) {
                     normal += vec3(offset);
                 }
