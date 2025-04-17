@@ -1,0 +1,6 @@
+#ifndef DISPATCH_GROUPER_GLSL
+#define DISPATCH_GROUPER_GLSL
+
+uint group_x_64(uint x) { return uint(ceil(float(x) / 64.0)); }
+
+#endif // DISPATCH_GROUPER_GLSL

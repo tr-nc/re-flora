@@ -25,7 +25,7 @@ layout(set = 1, binding = 2) writeonly buffer B_AllocNumberIndirect {
 }
 alloc_number_indirect;
 
-uint group_x_64(uint x) { return uint(ceil(float(x) / 64.0)); }
+#include "../../include/core/dispatch_grouper.glsl"
 
 void main() {
     octree_alloc_info.alloc_begin += octree_alloc_info.alloc_num;
