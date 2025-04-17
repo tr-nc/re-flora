@@ -110,86 +110,24 @@ impl Builder {
             for j in 0..self.chunk_dim.y {
                 for k in 0..self.chunk_dim.z {
                     let chunk_pos = IVec3::new(i as i32, j as i32, k as i32);
-                    self.make_octree(command_pool, chunk_pos);
+                    self.build_octree(command_pool, chunk_pos);
                 }
             }
         }
     }
 
-    // fn init_chunk_data(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
+    fn build_octree(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
+        self.frag_list_builder.build(
+            &self.vulkan_context,
+            command_pool,
+            &self.resources,
+            self.voxel_dim,
+            chunk_pos,
+            self.chunk_data_builder.get_offset_table(),
+        );
 
-    //     self.chunk_data_builder.init_chunk_by_noise(
-    //         &self.vulkan_context,
-    //         command_pool,
-    //         self.voxel_dim,
-    //     );
-    // }
-
-    fn make_octree(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
-        self.make_chunk_frag_list_by_raw_data(command_pool, chunk_pos);
-
-        let fragment_list_size = self.frag_list_builder.get_fraglist_length(&self.resources);
-        if fragment_list_size == 0 {
-            return;
-        } else {
-            log::info!(
-                "Fragment list size in MB: {}",
-                fragment_list_size as f32 / 1024.0 / 1024.0
-            );
-        }
-        self.make_octree_by_frag_list(command_pool, chunk_pos, fragment_list_size);
-    }
-
-    fn make_chunk_frag_list_by_raw_data(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
-        self.chunk_data_builder
-            .update_frag_list_maker_info_buf(&self.resources, self.voxel_dim);
-
-        /// idx ranges from 0-3 in three dimensions
-        fn serialize(idx: UVec3) -> u32 {
-            return idx.x + idx.y * 3 + idx.z * 9;
-        }
-
-        const NEIGHBOR_COUNT: usize = 3 * 3 * 3;
-        let mut offsets: [u32; NEIGHBOR_COUNT] = [0; NEIGHBOR_COUNT];
-        for i in -1..=1 {
-            for j in -1..=1 {
-                for k in -1..=1 {
-                    let neighbor_pos = chunk_pos + IVec3::new(i, j, k);
-
-                    let offset = if let Some(offset) =
-                        self.chunk_data_builder.get_chunk_offset(neighbor_pos)
-                    {
-                        offset
-                    } else {
-                        0xFFFFFFFF
-                    };
-
-                    let serialized_idx =
-                        serialize(UVec3::new((i + 1) as u32, (j + 1) as u32, (k + 1) as u32));
-                    offsets[serialized_idx as usize] = offset;
-                }
-            }
-        }
-
-        self.resources
-            .neighbor_info()
-            .fill_with_raw_u32(&offsets)
-            .unwrap();
-
-        self.frag_list_builder
-            .reset_fragment_list_info_buf(&self.resources);
-        self.frag_list_builder
-            .make_frag_list(&self.vulkan_context, command_pool, self.voxel_dim);
-    }
-
-    fn make_octree_by_frag_list(
-        &mut self,
-        command_pool: &CommandPool,
-        chunk_pos: IVec3,
-        fragment_list_len: u32,
-    ) {
+        let fragment_list_len = self.frag_list_builder.get_fraglist_length(&self.resources);
         if fragment_list_len == 0 {
-            log::error!("Fragment list size is 0, and should be skipped");
             return;
         }
 

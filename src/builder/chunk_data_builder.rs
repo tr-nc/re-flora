@@ -61,17 +61,6 @@ impl ChunkDataBuilder {
         }
     }
 
-    pub fn update_frag_list_maker_info_buf(&self, resources: &Resources, dimension: UVec3) {
-        let data = BufferBuilder::from_struct_buffer(resources.frag_list_maker_info())
-            .unwrap()
-            .set_uvec3("voxel_dim", dimension.to_array())
-            .to_raw_data();
-        resources
-            .frag_list_maker_info()
-            .fill_with_raw_u8(&data)
-            .expect("Failed to fill buffer data");
-    }
-
     pub fn init_chunk_by_noise(
         &mut self,
         vulkan_context: &VulkanContext,
@@ -115,11 +104,7 @@ impl ChunkDataBuilder {
         self.write_offset += voxel_dim.x * voxel_dim.y * voxel_dim.z;
     }
 
-    pub fn get_chunk_offset(&self, chunk_pos: IVec3) -> Option<u32> {
-        if let Some(offset) = self.offset_table.get(&chunk_pos) {
-            Some(*offset)
-        } else {
-            None
-        }
+    pub fn get_offset_table(&self) -> &HashMap<IVec3, u32> {
+        &self.offset_table
     }
 }
