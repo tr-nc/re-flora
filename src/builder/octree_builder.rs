@@ -6,6 +6,7 @@ use crate::util::FirstFitAllocator;
 use crate::util::ShaderCompiler;
 use crate::vkn::execute_one_time_command;
 use crate::vkn::BufferBuilder;
+use crate::vkn::CommandBuffer;
 use crate::vkn::CommandPool;
 use crate::vkn::ComputePipeline;
 use crate::vkn::DescriptorPool;
@@ -35,6 +36,8 @@ pub struct OctreeBuilder {
 
     offset_table: HashMap<IVec3, u32>,
     octree_buffer_allocator: FirstFitAllocator,
+
+    cmdbuf_table: HashMap<u32, CommandBuffer>,
 }
 
 impl OctreeBuilder {
@@ -188,6 +191,8 @@ impl OctreeBuilder {
 
             offset_table: HashMap::new(),
             octree_buffer_allocator,
+
+            cmdbuf_table: HashMap::new(),
         }
     }
 
@@ -199,22 +204,6 @@ impl OctreeBuilder {
             .get_uint("size_u32")
             .unwrap()
             * std::mem::size_of::<u32>() as u32
-    }
-
-    fn update_uniforms(&mut self, resources: &Resources, dimension: UVec3, fragment_list_len: u32) {
-        // here's octree's limitation
-        assert!(dimension.x == dimension.y && dimension.y == dimension.z);
-
-        let octree_build_info_data =
-            BufferBuilder::from_struct_buffer(resources.octree_build_info())
-                .unwrap()
-                .set_uint("voxel_dim_xyz", dimension.x as u32)
-                .set_uint("fragment_list_len", fragment_list_len)
-                .to_raw_data();
-        resources
-            .octree_build_info()
-            .fill_with_raw_u8(&octree_build_info_data)
-            .expect("Failed to fill buffer data");
     }
 
     fn copy_octree_data_single_to_octree_data(
@@ -241,19 +230,13 @@ impl OctreeBuilder {
         );
     }
 
-    pub fn build(
-        &mut self,
+    fn build_cmdbuf_for_level(
+        &self,
         vulkan_context: &VulkanContext,
         command_pool: &CommandPool,
         resources: &Resources,
-        fragment_list_len: u32,
-        chunk_pos: IVec3,
-        voxel_dim: UVec3,
-    ) {
-        self.update_uniforms(resources, voxel_dim, fragment_list_len);
-
-        let device = vulkan_context.device();
-
+        voxel_level: u32,
+    ) -> CommandBuffer {
         let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
         let indirect_access_memory_barrier = MemoryBarrier::new_indirect_access();
 
@@ -268,86 +251,122 @@ impl OctreeBuilder {
             vec![indirect_access_memory_barrier],
         );
 
+        //
+
+        let cmdbuf = CommandBuffer::new(vulkan_context.device(), &command_pool);
+        cmdbuf.begin(false);
+
+        let device = vulkan_context.device();
+
+        self.octree_init_buffers_ppl.record_bind(&cmdbuf);
+        self.octree_init_buffers_ppl.record_bind_descriptor_sets(
+            &cmdbuf,
+            std::slice::from_ref(&self.octree_shared_ds),
+            0,
+        );
+        self.octree_init_buffers_ppl.record_bind_descriptor_sets(
+            &cmdbuf,
+            std::slice::from_ref(&self.octree_init_buffers_ds),
+            1,
+        );
+        self.octree_init_buffers_ppl
+            .record_dispatch(&cmdbuf, [1, 1, 1]);
+        shader_access_pipeline_barrier.record_insert(device, &cmdbuf);
+        indirect_access_pipeline_barrier.record_insert(device, &cmdbuf);
+
+        for i in 0..voxel_level {
+            self.octree_init_node_ppl.record_bind(&cmdbuf);
+            self.octree_init_node_ppl.record_bind_descriptor_sets(
+                &cmdbuf,
+                std::slice::from_ref(&self.octree_init_node_ds),
+                1,
+            );
+            self.octree_init_node_ppl
+                .record_dispatch_indirect(&cmdbuf, resources.alloc_number_indirect());
+
+            shader_access_pipeline_barrier.record_insert(device, &cmdbuf);
+
+            self.octree_tag_node_ppl.record_bind(&cmdbuf);
+            self.octree_tag_node_ppl.record_bind_descriptor_sets(
+                &cmdbuf,
+                std::slice::from_ref(&self.octree_tag_node_ds),
+                1,
+            );
+            self.octree_tag_node_ppl
+                .record_dispatch_indirect(&cmdbuf, resources.voxel_count_indirect());
+
+            // if not last level
+            if i != voxel_level - 1 {
+                shader_access_pipeline_barrier.record_insert(device, &cmdbuf);
+
+                self.octree_alloc_node_ppl.record_bind(&cmdbuf);
+                self.octree_alloc_node_ppl.record_bind_descriptor_sets(
+                    &cmdbuf,
+                    std::slice::from_ref(&self.octree_alloc_node_ds),
+                    1,
+                );
+                self.octree_alloc_node_ppl
+                    .record_dispatch_indirect(&cmdbuf, resources.alloc_number_indirect());
+
+                shader_access_pipeline_barrier.record_insert(device, &cmdbuf);
+
+                self.octree_modify_args_ppl.record_bind(&cmdbuf);
+                self.octree_modify_args_ppl.record_bind_descriptor_sets(
+                    &cmdbuf,
+                    std::slice::from_ref(&self.octree_modify_args_ds),
+                    1,
+                );
+                self.octree_modify_args_ppl
+                    .record_dispatch(&cmdbuf, [1, 1, 1]);
+
+                shader_access_pipeline_barrier.record_insert(device, &cmdbuf);
+                indirect_access_pipeline_barrier.record_insert(device, &cmdbuf);
+            }
+        }
+        cmdbuf.end();
+
+        cmdbuf
+    }
+
+    fn get_level(&self, voxel_dim: UVec3) -> u32 {
+        assert!(voxel_dim.x == voxel_dim.y && voxel_dim.y == voxel_dim.z);
+        assert!(voxel_dim.x.is_power_of_two());
+
+        return log2(voxel_dim.x);
+
         fn log2(x: u32) -> u32 {
             31 - x.leading_zeros()
         }
+    }
 
-        execute_one_time_command(
-            vulkan_context.device(),
-            command_pool,
-            &vulkan_context.get_general_queue(),
-            |cmdbuf| {
-                self.octree_init_buffers_ppl.record_bind(cmdbuf);
-                self.octree_init_buffers_ppl.record_bind_descriptor_sets(
-                    cmdbuf,
-                    std::slice::from_ref(&self.octree_shared_ds),
-                    0,
-                );
-                self.octree_init_buffers_ppl.record_bind_descriptor_sets(
-                    cmdbuf,
-                    std::slice::from_ref(&self.octree_init_buffers_ds),
-                    1,
-                );
-                self.octree_init_buffers_ppl
-                    .record_dispatch(cmdbuf, [1, 1, 1]);
-                shader_access_pipeline_barrier.record_insert(device, cmdbuf);
-                indirect_access_pipeline_barrier.record_insert(device, cmdbuf);
+    pub fn build(
+        &mut self,
+        vulkan_context: &VulkanContext,
+        command_pool: &CommandPool,
+        resources: &Resources,
+        fragment_list_len: u32,
+        chunk_pos: IVec3,
+        voxel_dim: UVec3,
+    ) {
+        update_uniforms(resources, voxel_dim, fragment_list_len);
 
-                let voxel_level_count = log2(voxel_dim.x);
+        let device = vulkan_context.device();
 
-                for i in 0..voxel_level_count {
-                    self.octree_init_node_ppl.record_bind(cmdbuf);
-                    self.octree_init_node_ppl.record_bind_descriptor_sets(
-                        cmdbuf,
-                        std::slice::from_ref(&self.octree_init_node_ds),
-                        1,
-                    );
-                    self.octree_init_node_ppl
-                        .record_dispatch_indirect(cmdbuf, resources.alloc_number_indirect());
+        let level = self.get_level(voxel_dim);
+        let cmdbuf = if let Some(cmdbuf) = self.cmdbuf_table.get(&level) {
+            cmdbuf.clone()
+        } else {
+            let newly_created =
+                self.build_cmdbuf_for_level(vulkan_context, command_pool, resources, level);
+            self.cmdbuf_table.insert(level, newly_created.clone());
+            newly_created
+        };
 
-                    shader_access_pipeline_barrier.record_insert(device, cmdbuf);
-
-                    self.octree_tag_node_ppl.record_bind(cmdbuf);
-                    self.octree_tag_node_ppl.record_bind_descriptor_sets(
-                        cmdbuf,
-                        std::slice::from_ref(&self.octree_tag_node_ds),
-                        1,
-                    );
-                    self.octree_tag_node_ppl
-                        .record_dispatch_indirect(cmdbuf, resources.voxel_count_indirect());
-
-                    // if not last level
-                    if i != voxel_level_count - 1 {
-                        shader_access_pipeline_barrier.record_insert(device, cmdbuf);
-
-                        self.octree_alloc_node_ppl.record_bind(cmdbuf);
-                        self.octree_alloc_node_ppl.record_bind_descriptor_sets(
-                            cmdbuf,
-                            std::slice::from_ref(&self.octree_alloc_node_ds),
-                            1,
-                        );
-                        self.octree_alloc_node_ppl
-                            .record_dispatch_indirect(cmdbuf, resources.alloc_number_indirect());
-
-                        shader_access_pipeline_barrier.record_insert(device, cmdbuf);
-
-                        self.octree_modify_args_ppl.record_bind(cmdbuf);
-                        self.octree_modify_args_ppl.record_bind_descriptor_sets(
-                            cmdbuf,
-                            std::slice::from_ref(&self.octree_modify_args_ds),
-                            1,
-                        );
-                        self.octree_modify_args_ppl
-                            .record_dispatch(cmdbuf, [1, 1, 1]);
-
-                        shader_access_pipeline_barrier.record_insert(device, cmdbuf);
-                        indirect_access_pipeline_barrier.record_insert(device, cmdbuf);
-                    }
-                }
-            },
-        );
+        cmdbuf.submit(&vulkan_context.get_general_queue(), None);
+        device.wait_queue_idle(&vulkan_context.get_general_queue());
 
         let octree_size = self.get_octree_data_size_in_bytes(resources);
+        assert!(octree_size > 0);
 
         let write_offset = self.allocate_chunk(octree_size as u64, chunk_pos);
 
@@ -358,6 +377,22 @@ impl OctreeBuilder {
             write_offset,
             octree_size as u64,
         );
+
+        fn update_uniforms(resources: &Resources, voxel_dim: UVec3, fragment_list_len: u32) {
+            // here's octree's limitation
+            assert!(voxel_dim.x == voxel_dim.y && voxel_dim.y == voxel_dim.z);
+
+            let octree_build_info_data =
+                BufferBuilder::from_struct_buffer(resources.octree_build_info())
+                    .unwrap()
+                    .set_uint("voxel_dim_xyz", voxel_dim.x as u32)
+                    .set_uint("fragment_list_len", fragment_list_len)
+                    .to_raw_data();
+            resources
+                .octree_build_info()
+                .fill_with_raw_u8(&octree_build_info_data)
+                .expect("Failed to fill buffer data");
+        }
     }
 
     fn allocate_chunk(&mut self, chunk_buffer_size: u64, chunk_pos: IVec3) -> u64 {

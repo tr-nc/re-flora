@@ -7,8 +7,9 @@ pub use time_info::*;
 mod path;
 pub use path::*;
 
-mod timer;
-pub use timer::*;
-
 mod buffer_alloc;
 pub use buffer_alloc::*;
+
+mod timer;
+#[allow(unused_imports)]
+pub use timer::*;

@@ -25,7 +25,7 @@ use winit::{
 pub struct InitializedApp {
     egui_renderer: EguiRenderer,
     command_pool: CommandPool,
-    command_buffer: CommandBuffer,
+    cmdbuf: CommandBuffer,
     window_state: WindowState,
     is_resize_pending: bool,
     swapchain: Swapchain,
@@ -80,7 +80,7 @@ impl InitializedApp {
             vulkan_context.device(),
             vulkan_context.queue_family_indices().general,
         );
-        let command_buffer = CommandBuffer::new(vulkan_context.device(), &command_pool);
+        let cmdbuf = CommandBuffer::new(vulkan_context.device(), &command_pool);
 
         let renderer = EguiRenderer::new(
             &vulkan_context,
@@ -128,7 +128,7 @@ impl InitializedApp {
             window_state,
 
             command_pool,
-            command_buffer,
+            cmdbuf,
             swapchain,
             image_available_semaphore,
             render_finished_semaphore,
@@ -290,7 +290,7 @@ impl InitializedApp {
                 self.tracer
                     .update_uniform_buffers(&self.camera, self.slider_val);
 
-                let cmdbuf = &self.command_buffer;
+                let cmdbuf = &self.cmdbuf;
                 cmdbuf.begin(false);
 
                 self.tracer
@@ -319,7 +319,7 @@ impl InitializedApp {
                 let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
                 let wait_semaphores = [self.image_available_semaphore.as_raw()];
                 let signal_semaphores = [self.render_finished_semaphore.as_raw()];
-                let command_buffers = [self.command_buffer.as_raw()];
+                let command_buffers = [self.cmdbuf.as_raw()];
                 let submit_info = [vk::SubmitInfo::default()
                     .wait_semaphores(&wait_semaphores)
                     .wait_dst_stage_mask(&wait_stages)
