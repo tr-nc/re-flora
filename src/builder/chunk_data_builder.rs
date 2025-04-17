@@ -69,7 +69,7 @@ impl ChunkDataBuilder {
         voxel_dim: UVec3,
         chunk_pos: IVec3,
     ) {
-        update_uniforms(resources, self.write_offset, voxel_dim, chunk_pos);
+        update_uniforms(resources, self.write_offset, chunk_pos);
 
         self.offset_table.insert(chunk_pos, self.write_offset);
         self.write_offset += voxel_dim.x * voxel_dim.y * voxel_dim.z;
@@ -90,15 +90,9 @@ impl ChunkDataBuilder {
             },
         );
 
-        fn update_uniforms(
-            resources: &Resources,
-            write_offset: u32,
-            voxel_dim: UVec3,
-            chunk_pos: IVec3,
-        ) {
+        fn update_uniforms(resources: &Resources, write_offset: u32, chunk_pos: IVec3) {
             let data = BufferBuilder::from_struct_buffer(resources.chunk_init_info())
                 .unwrap()
-                .set_uvec3("voxel_dim", voxel_dim.to_array())
                 .set_ivec3("chunk_pos", chunk_pos.to_array())
                 .set_uint("write_offset", write_offset)
                 .to_raw_data();

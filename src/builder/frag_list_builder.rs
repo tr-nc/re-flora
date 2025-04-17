@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use super::Resources;
 use crate::util::ShaderCompiler;
-use crate::vkn::execute_one_time_command;
 use crate::vkn::BufferBuilder;
 use crate::vkn::CommandBuffer;
 use crate::vkn::CommandPool;
@@ -17,13 +16,16 @@ use crate::vkn::WriteDescriptorSet;
 use ash::vk;
 use glam::IVec3;
 use glam::UVec3;
-use gpu_allocator::vulkan;
 
 pub struct FragListBuilder {
+    #[allow(dead_code)]
     init_buffers_ppl: ComputePipeline,
+    #[allow(dead_code)]
     frag_list_maker_ppl: ComputePipeline,
 
+    #[allow(dead_code)]
     init_buffers_ds: DescriptorSet,
+    #[allow(dead_code)]
     frag_list_maker_ds: DescriptorSet,
 
     cmdbuf: CommandBuffer,
@@ -52,9 +54,8 @@ impl FragListBuilder {
             descriptor_pool.clone(),
         );
         init_buffers_ds.perform_writes(&[
-            WriteDescriptorSet::new_buffer_write(0, resources.frag_list_maker_info()),
-            WriteDescriptorSet::new_buffer_write(1, resources.voxel_dim_indirect()),
-            WriteDescriptorSet::new_buffer_write(2, resources.frag_list_build_result()),
+            WriteDescriptorSet::new_buffer_write(0, resources.voxel_dim_indirect()),
+            WriteDescriptorSet::new_buffer_write(1, resources.frag_list_build_result()),
         ]);
 
         let frag_list_maker_sm = ShaderModule::from_glsl(
@@ -74,11 +75,10 @@ impl FragListBuilder {
             descriptor_pool.clone(),
         );
         frag_list_maker_ds.perform_writes(&[
-            WriteDescriptorSet::new_buffer_write(0, resources.frag_list_maker_info()),
-            WriteDescriptorSet::new_buffer_write(1, resources.neighbor_info()),
-            WriteDescriptorSet::new_buffer_write(2, resources.raw_voxels()),
-            WriteDescriptorSet::new_buffer_write(3, resources.frag_list_build_result()),
-            WriteDescriptorSet::new_buffer_write(4, resources.fragment_list()),
+            WriteDescriptorSet::new_buffer_write(0, resources.neighbor_info()),
+            WriteDescriptorSet::new_buffer_write(1, resources.raw_voxels()),
+            WriteDescriptorSet::new_buffer_write(2, resources.frag_list_build_result()),
+            WriteDescriptorSet::new_buffer_write(3, resources.fragment_list()),
         ]);
 
         let cmdbuf = Self::create_cmdbuf(
@@ -157,29 +157,16 @@ impl FragListBuilder {
         &self,
         vulkan_context: &VulkanContext,
         resources: &Resources,
-        voxel_dim: UVec3,
         chunk_pos: IVec3,
         data_offset_table: &HashMap<IVec3, u32>,
     ) {
         let device = vulkan_context.device();
 
-        update_uniforms(resources, voxel_dim);
         update_neighbor_buffer(resources, chunk_pos, data_offset_table);
 
         self.cmdbuf
             .submit(&vulkan_context.get_general_queue(), None);
         device.wait_queue_idle(&vulkan_context.get_general_queue());
-
-        fn update_uniforms(resources: &Resources, voxel_dim: UVec3) {
-            let data = BufferBuilder::from_struct_buffer(resources.frag_list_maker_info())
-                .unwrap()
-                .set_uvec3("voxel_dim", voxel_dim.to_array())
-                .to_raw_data();
-            resources
-                .frag_list_maker_info()
-                .fill_with_raw_u8(&data)
-                .expect("Failed to fill buffer data");
-        }
 
         fn update_neighbor_buffer(
             resources: &Resources,

@@ -344,12 +344,11 @@ impl OctreeBuilder {
         command_pool: &CommandPool,
         resources: &Resources,
         fragment_list_len: u32,
-        chunk_pos: IVec3,
         voxel_dim: UVec3,
     ) {
         let device = vulkan_context.device();
 
-        update_uniforms(resources, voxel_dim, fragment_list_len);
+        update_uniforms(resources, fragment_list_len);
 
         let level = self.get_level(voxel_dim);
         let cmdbuf = if let Some(cmdbuf) = self.cmdbuf_table.get(&level) {
@@ -378,14 +377,10 @@ impl OctreeBuilder {
             octree_size as u64,
         );
 
-        fn update_uniforms(resources: &Resources, voxel_dim: UVec3, fragment_list_len: u32) {
-            // here's octree's limitation
-            assert!(voxel_dim.x == voxel_dim.y && voxel_dim.y == voxel_dim.z);
-
+        fn update_uniforms(resources: &Resources, fragment_list_len: u32) {
             let octree_build_info_data =
                 BufferBuilder::from_struct_buffer(resources.octree_build_info())
                     .unwrap()
-                    .set_uint("voxel_dim_xyz", voxel_dim.x as u32)
                     .set_uint("fragment_list_len", fragment_list_len)
                     .to_raw_data();
             resources

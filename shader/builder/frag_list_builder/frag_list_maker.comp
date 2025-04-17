@@ -3,27 +3,25 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
-layout(set = 0, binding = 0) readonly uniform U_FragListMakerInfo { uvec3 voxel_dim; }
-frag_list_maker_info;
-
-layout(set = 0, binding = 1) readonly buffer U_NeighborInfo { uint data[]; }
+layout(set = 0, binding = 0) readonly buffer U_NeighborInfo { uint data[]; }
 neighbor_info;
 
-layout(set = 0, binding = 2) readonly buffer B_RawBlocks { uint data[]; }
+layout(set = 0, binding = 1) readonly buffer B_RawBlocks { uint data[]; }
 raw_blocks;
 
 // fragment_list_len is incremented atomically every time a new fragment is added
 // to the fragment list
-layout(set = 0, binding = 3) buffer B_FragListBuildResult { uint fragment_list_len; }
+layout(set = 0, binding = 2) buffer B_FragListBuildResult { uint fragment_list_len; }
 frag_list_build_result;
 
 // fragment list is appended with new fragments that satisfy certain conditions
 // (e.g. not occluded, solid, etc.), and is used to build the octree later
 // the cursor is determined by fragment_list_info.fragment_list_len
 #include "../../include/fragment_list_entry.glsl"
-layout(set = 0, binding = 4) writeonly buffer B_FragmentList { FragmentListEntry data[]; }
+layout(set = 0, binding = 3) writeonly buffer B_FragmentList { FragmentListEntry data[]; }
 fragment_list;
 
+#include "../../include/config.glsl"
 #include "../../include/core/packer.glsl"
 #include "../../include/voxel_types.glsl"
 
@@ -41,8 +39,8 @@ bool get_chunk_offset_by_idx(out uint o_offset, ivec3 idx) {
 
 bool is_solid(uint voxel_type) { return voxel_type != VOXEL_TYPE_EMPTY; }
 
-uint vidx_to_linear(ivec3 idx, ivec3 voxel_dim) {
-    return idx.z * voxel_dim.x * voxel_dim.y + idx.y * voxel_dim.x + idx.x;
+uint vidx_to_linear(ivec3 p, ivec3 dim) {
+    return uint(p.x) + uint(p.y) * uint(dim.x) + uint(p.z) * uint(dim.x * dim.y);
 }
 
 ivec3 determine_neighbor_idx(ivec3 idx, ivec3 voxel_dim) {
@@ -69,11 +67,8 @@ uint get_voxel_type(uint read_offset, ivec3 idx, ivec3 voxel_dim) {
     return data;
 }
 
-ivec3 wrap_coord(ivec3 coord, ivec3 voxel_dim) {
-    coord += voxel_dim;
-    coord %= voxel_dim;
-    return coord;
-}
+/// Wrap coord into 0…dim-1
+ivec3 wrap_coord(ivec3 c, ivec3 dim) { return (c + dim) % dim; }
 
 /// Check if a block is occluded by its neighbours.
 /// A block is occluded if all of its neighbours are solid.
@@ -164,7 +159,7 @@ FragmentListEntry make_fragment_list_entry(ivec3 coord, uint voxel_type, vec3 no
 
 void main() {
     ivec3 uvi       = ivec3(gl_GlobalInvocationID);
-    ivec3 voxel_dim = ivec3(frag_list_maker_info.voxel_dim);
+    ivec3 voxel_dim = ivec3(VOXEL_DIM);
     if (any(greaterThanEqual(uvi, voxel_dim))) {
         return;
     }
@@ -181,10 +176,9 @@ void main() {
         return;
     }
 
-    uint fragment_list_cursor = atomicAdd(frag_list_build_result.fragment_list_len, 1);
-
     FragmentListEntry entry =
         make_fragment_list_entry(uvi, voxel_type, calculate_normal(uvi, voxel_dim));
 
+    uint fragment_list_cursor = atomicAdd(frag_list_build_result.fragment_list_len, 1);
     fragment_list.data[fragment_list_cursor] = entry;
 }

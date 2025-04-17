@@ -1,16 +1,15 @@
 use crate::vkn::{Buffer, CommandBuffer, DescriptorSet, Device, PipelineLayout, ShaderModule};
 use ash::vk::{self};
-use std::ops::Deref;
+use std::{ops::Deref, sync::Arc};
 
-pub struct ComputePipeline {
+struct ComputePipelineInner {
     device: Device,
     pipeline: vk::Pipeline,
     pipeline_layout: PipelineLayout,
-    // shader_module: ShaderModule,
     workgroup_size: [u32; 3],
 }
 
-impl Drop for ComputePipeline {
+impl Drop for ComputePipelineInner {
     fn drop(&mut self) {
         unsafe {
             self.device.destroy_pipeline(self.pipeline, None);
@@ -18,11 +17,14 @@ impl Drop for ComputePipeline {
     }
 }
 
+#[derive(Clone)]
+pub struct ComputePipeline(Arc<ComputePipelineInner>);
+
 impl Deref for ComputePipeline {
     type Target = vk::Pipeline;
 
     fn deref(&self) -> &Self::Target {
-        &self.pipeline
+        &self.0.pipeline
     }
 }
 
@@ -52,12 +54,12 @@ impl ComputePipeline {
             .get_workgroup_size()
             .expect("Failed to get workgroup size");
 
-        Self {
+        Self(Arc::new(ComputePipelineInner {
             device: device.clone(),
             pipeline,
             pipeline_layout,
             workgroup_size,
-        }
+        }))
     }
 
     pub fn from_shader_module(device: &Device, shader_module: &ShaderModule) -> Self {
@@ -67,7 +69,7 @@ impl ComputePipeline {
     }
 
     pub fn get_layout(&self) -> &PipelineLayout {
-        &self.pipeline_layout
+        &self.0.pipeline_layout
     }
 
     pub fn record_bind_descriptor_sets(
@@ -82,10 +84,10 @@ impl ComputePipeline {
             .collect::<Vec<_>>();
 
         unsafe {
-            self.device.cmd_bind_descriptor_sets(
+            self.0.device.cmd_bind_descriptor_sets(
                 cmdbuf.as_raw(),
                 vk::PipelineBindPoint::COMPUTE,
-                self.pipeline_layout.as_raw(),
+                self.0.pipeline_layout.as_raw(),
                 first_set,
                 &descriptor_sets,
                 &[],
@@ -95,27 +97,32 @@ impl ComputePipeline {
 
     pub fn record_bind(&self, cmdbuf: &CommandBuffer) {
         unsafe {
-            self.device.cmd_bind_pipeline(
+            self.0.device.cmd_bind_pipeline(
                 cmdbuf.as_raw(),
                 vk::PipelineBindPoint::COMPUTE,
-                self.pipeline,
+                self.0.pipeline,
             );
         }
     }
 
     pub fn record_dispatch(&self, cmdbuf: &CommandBuffer, dispatch_size: [u32; 3]) {
-        let x = (dispatch_size[0] as f32 / self.workgroup_size[0] as f32).ceil() as u32;
-        let y = (dispatch_size[1] as f32 / self.workgroup_size[1] as f32).ceil() as u32;
-        let z = (dispatch_size[2] as f32 / self.workgroup_size[2] as f32).ceil() as u32;
+        let x = (dispatch_size[0] as f32 / self.0.workgroup_size[0] as f32).ceil() as u32;
+        let y = (dispatch_size[1] as f32 / self.0.workgroup_size[1] as f32).ceil() as u32;
+        let z = (dispatch_size[2] as f32 / self.0.workgroup_size[2] as f32).ceil() as u32;
         unsafe {
-            self.device.cmd_dispatch(cmdbuf.as_raw(), x, y, z);
+            self.0.device.cmd_dispatch(cmdbuf.as_raw(), x, y, z);
         }
     }
 
     pub fn record_dispatch_indirect(&self, cmdbuf: &CommandBuffer, buffer: &Buffer) {
         unsafe {
-            self.device
+            self.0
+                .device
                 .cmd_dispatch_indirect(cmdbuf.as_raw(), buffer.as_raw(), 0);
         }
+    }
+
+    pub fn as_raw(&self) -> vk::Pipeline {
+        self.0.pipeline
     }
 }

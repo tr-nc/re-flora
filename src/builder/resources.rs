@@ -87,7 +87,6 @@ impl ChunkInitResources {
 }
 
 pub struct FragListResources {
-    pub frag_list_maker_info: Buffer,
     pub voxel_dim_indirect: Buffer,
     pub neighbor_info: Buffer,
     pub frag_list_build_result: Buffer,
@@ -95,17 +94,6 @@ pub struct FragListResources {
 
 impl FragListResources {
     pub fn new(device: Device, allocator: Allocator, frag_init_buffers_sm: &ShaderModule) -> Self {
-        let frag_list_maker_info_layout = frag_init_buffers_sm
-            .get_buffer_layout("U_FragListMakerInfo")
-            .unwrap();
-        let frag_list_maker_info = Buffer::from_struct_layout(
-            device.clone(),
-            allocator.clone(),
-            frag_list_maker_info_layout.clone(),
-            BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
-        );
-
         let voxel_dim_indirect_layout = frag_init_buffers_sm
             .get_buffer_layout("B_VoxelDimIndirect")
             .unwrap();
@@ -138,7 +126,6 @@ impl FragListResources {
         );
 
         Self {
-            frag_list_maker_info,
             voxel_dim_indirect,
             neighbor_info,
             frag_list_build_result,
@@ -333,10 +320,6 @@ impl Resources {
 
     pub fn chunk_init_info(&self) -> &Buffer {
         &self.chunk_init.chunk_init_info
-    }
-
-    pub fn frag_list_maker_info(&self) -> &Buffer {
-        &self.frag_list.frag_list_maker_info
     }
 
     pub fn voxel_dim_indirect(&self) -> &Buffer {

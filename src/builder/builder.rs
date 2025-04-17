@@ -126,7 +126,6 @@ impl Builder {
             self.frag_list_builder.build(
                 &self.vulkan_context,
                 &self.resources,
-                self.voxel_dim,
                 benchmark_chunk_pos,
                 self.chunk_data_builder.get_offset_table(),
             );
@@ -143,7 +142,6 @@ impl Builder {
         self.frag_list_builder.build(
             &self.vulkan_context,
             &self.resources,
-            self.voxel_dim,
             chunk_pos,
             self.chunk_data_builder.get_offset_table(),
         );
@@ -165,7 +163,6 @@ impl Builder {
             command_pool,
             &self.resources,
             fragment_list_len,
-            chunk_pos,
             self.voxel_dim,
         );
     }
