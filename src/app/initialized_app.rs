@@ -107,7 +107,7 @@ impl InitializedApp {
             &command_pool,
             &shader_compiler,
             UVec3::new(256, 256, 256),
-            UVec3::new(1, 1, 1), // 2GB of Raw Data inside GPU is roughly 5^3 chunks of 256^3 voxels
+            UVec3::new(3, 3, 3), // 2GB of Raw Data inside GPU is roughly 5^3 chunks of 256^3 voxels
             2 * 1024 * 1024 * 1024, // 2GB of octree buffer size
         );
 

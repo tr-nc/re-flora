@@ -147,7 +147,14 @@ impl Builder {
 
         let fragment_list_len = self.frag_list_builder.get_fraglist_length(&self.resources);
         if fragment_list_len == 0 {
+            log::debug!("Fragment list for chunk {:?} is empty", chunk_pos);
             return;
+        } else {
+            log::debug!(
+                "Fragment list for chunk {:?} has {} fragments",
+                chunk_pos,
+                fragment_list_len
+            );
         }
 
         self.octree_builder.build(
