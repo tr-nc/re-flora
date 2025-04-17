@@ -3,6 +3,7 @@ use super::frag_list_builder::FragListBuilder;
 use super::octree_builder::OctreeBuilder;
 use super::Resources;
 use crate::util::ShaderCompiler;
+use crate::util::Timer;
 use crate::vkn::Allocator;
 use crate::vkn::Buffer;
 use crate::vkn::CommandPool;
@@ -27,6 +28,7 @@ impl Builder {
     pub fn new(
         vulkan_context: VulkanContext,
         allocator: Allocator,
+        command_pool: &CommandPool,
         shader_compiler: &ShaderCompiler,
         voxel_dim: UVec3,
         chunk_dim: UVec3,
@@ -59,6 +61,7 @@ impl Builder {
 
         let frag_list_builder = FragListBuilder::new(
             &vulkan_context,
+            command_pool,
             shader_compiler,
             descriptor_pool.clone(),
             &resources,
@@ -114,12 +117,28 @@ impl Builder {
                 }
             }
         }
+
+        // benchmark
+        let timer = Timer::new();
+        const BUILD_TIMES: u32 = 1000;
+        for i in 0..BUILD_TIMES {
+            self.frag_list_builder.build(
+                &self.vulkan_context,
+                &self.resources,
+                self.voxel_dim,
+                IVec3::ZERO,
+                self.chunk_data_builder.get_offset_table(),
+            );
+        }
+        log::debug!(
+            "Average fragment list time: {:?}",
+            timer.elapsed() / BUILD_TIMES
+        );
     }
 
     fn build_octree(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
         self.frag_list_builder.build(
             &self.vulkan_context,
-            command_pool,
             &self.resources,
             self.voxel_dim,
             chunk_pos,

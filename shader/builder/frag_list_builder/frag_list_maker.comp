@@ -3,7 +3,6 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
-// stores information of the current chunk to build
 layout(set = 0, binding = 0) readonly uniform U_FragListMakerInfo { uvec3 voxel_dim; }
 frag_list_maker_info;
 
@@ -15,8 +14,8 @@ raw_blocks;
 
 // fragment_list_len is incremented atomically every time a new fragment is added
 // to the fragment list
-layout(set = 0, binding = 3) buffer B_FragmentListInfo { uint fragment_list_len; }
-fragment_list_info;
+layout(set = 0, binding = 3) buffer B_FragListBuildResult { uint fragment_list_len; }
+frag_list_build_result;
 
 // fragment list is appended with new fragments that satisfy certain conditions
 // (e.g. not occluded, solid, etc.), and is used to build the octree later
@@ -182,7 +181,7 @@ void main() {
         return;
     }
 
-    uint fragment_list_cursor = atomicAdd(fragment_list_info.fragment_list_len, 1);
+    uint fragment_list_cursor = atomicAdd(frag_list_build_result.fragment_list_len, 1);
 
     FragmentListEntry entry =
         make_fragment_list_entry(uvi, voxel_type, calculate_normal(uvi, voxel_dim));

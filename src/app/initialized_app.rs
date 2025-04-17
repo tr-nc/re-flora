@@ -50,10 +50,12 @@ impl InitializedApp {
 
         let shader_compiler = ShaderCompiler::new().unwrap();
 
+        let device = vulkan_context.device();
+
         let gpu_allocator = {
             let allocator_create_info = AllocatorCreateDesc {
                 instance: vulkan_context.instance().as_raw().clone(),
-                device: vulkan_context.device().as_raw().clone(),
+                device: device.as_raw().clone(),
                 physical_device: vulkan_context.physical_device().as_raw(),
                 debug_settings: Default::default(),
                 buffer_device_address: false,
@@ -62,8 +64,7 @@ impl InitializedApp {
             gpu_allocator::vulkan::Allocator::new(&allocator_create_info)
                 .expect("Failed to create gpu allocator")
         };
-        let allocator =
-            Allocator::new(vulkan_context.device(), Arc::new(Mutex::new(gpu_allocator)));
+        let allocator = Allocator::new(device, Arc::new(Mutex::new(gpu_allocator)));
 
         let swapchain = Swapchain::new(
             &vulkan_context,
@@ -71,16 +72,13 @@ impl InitializedApp {
             Default::default(),
         );
 
-        let image_available_semaphore = Semaphore::new(vulkan_context.device());
-        let render_finished_semaphore = Semaphore::new(vulkan_context.device());
+        let image_available_semaphore = Semaphore::new(device);
+        let render_finished_semaphore = Semaphore::new(device);
 
-        let fence = Fence::new(vulkan_context.device(), true);
+        let fence = Fence::new(device, true);
 
-        let command_pool = CommandPool::new(
-            vulkan_context.device(),
-            vulkan_context.queue_family_indices().general,
-        );
-        let cmdbuf = CommandBuffer::new(vulkan_context.device(), &command_pool);
+        let command_pool = CommandPool::new(device, vulkan_context.queue_family_indices().general);
+        let cmdbuf = CommandBuffer::new(device, &command_pool);
 
         let renderer = EguiRenderer::new(
             &vulkan_context,
@@ -106,9 +104,10 @@ impl InitializedApp {
         let mut builder = Builder::new(
             vulkan_context.clone(),
             allocator.clone(),
+            &command_pool,
             &shader_compiler,
             UVec3::new(256, 256, 256),
-            UVec3::new(3, 3, 3), // 2GB of Raw Data inside GPU is roughly 5^3 chunks of 256^3 voxels
+            UVec3::new(1, 1, 1), // 2GB of Raw Data inside GPU is roughly 5^3 chunks of 256^3 voxels
             2 * 1024 * 1024 * 1024, // 2GB of octree buffer size
         );
 

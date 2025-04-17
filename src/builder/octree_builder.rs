@@ -253,10 +253,10 @@ impl OctreeBuilder {
 
         //
 
-        let cmdbuf = CommandBuffer::new(vulkan_context.device(), &command_pool);
-        cmdbuf.begin(false);
-
         let device = vulkan_context.device();
+
+        let cmdbuf = CommandBuffer::new(device, &command_pool);
+        cmdbuf.begin(false);
 
         self.octree_init_buffers_ppl.record_bind(&cmdbuf);
         self.octree_init_buffers_ppl.record_bind_descriptor_sets(
@@ -324,7 +324,6 @@ impl OctreeBuilder {
             }
         }
         cmdbuf.end();
-
         cmdbuf
     }
 
@@ -348,9 +347,9 @@ impl OctreeBuilder {
         chunk_pos: IVec3,
         voxel_dim: UVec3,
     ) {
-        update_uniforms(resources, voxel_dim, fragment_list_len);
-
         let device = vulkan_context.device();
+
+        update_uniforms(resources, voxel_dim, fragment_list_len);
 
         let level = self.get_level(voxel_dim);
         let cmdbuf = if let Some(cmdbuf) = self.cmdbuf_table.get(&level) {
@@ -368,7 +367,8 @@ impl OctreeBuilder {
         let octree_size = self.get_octree_data_size_in_bytes(resources);
         assert!(octree_size > 0);
 
-        let write_offset = self.allocate_chunk(octree_size as u64, chunk_pos);
+        // let write_offset = self.allocate_chunk(octree_size as u64, chunk_pos);
+        let write_offset = 0;
 
         self.copy_octree_data_single_to_octree_data(
             &vulkan_context,

@@ -88,13 +88,14 @@ impl ChunkInitResources {
 
 pub struct FragListResources {
     pub frag_list_maker_info: Buffer,
+    pub voxel_dim_indirect: Buffer,
     pub neighbor_info: Buffer,
-    pub fragment_list_info: Buffer,
+    pub frag_list_build_result: Buffer,
 }
 
 impl FragListResources {
-    pub fn new(device: Device, allocator: Allocator, frag_list_maker_sm: &ShaderModule) -> Self {
-        let frag_list_maker_info_layout = frag_list_maker_sm
+    pub fn new(device: Device, allocator: Allocator, frag_init_buffers_sm: &ShaderModule) -> Self {
+        let frag_list_maker_info_layout = frag_init_buffers_sm
             .get_buffer_layout("U_FragListMakerInfo")
             .unwrap();
         let frag_list_maker_info = Buffer::from_struct_layout(
@@ -103,6 +104,17 @@ impl FragListResources {
             frag_list_maker_info_layout.clone(),
             BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
+        );
+
+        let voxel_dim_indirect_layout = frag_init_buffers_sm
+            .get_buffer_layout("B_VoxelDimIndirect")
+            .unwrap();
+        let voxel_dim_indirect = Buffer::from_struct_layout(
+            device.clone(),
+            allocator.clone(),
+            voxel_dim_indirect_layout.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::INDIRECT_BUFFER),
+            gpu_allocator::MemoryLocation::GpuOnly,
         );
 
         const NEIGHBOR_SIZE: u64 = 3 * 3 * 3 * std::mem::size_of::<u32>() as u64;
@@ -114,21 +126,22 @@ impl FragListResources {
             NEIGHBOR_SIZE,
         );
 
-        let fragment_list_info_layout = frag_list_maker_sm
-            .get_buffer_layout("B_FragmentListInfo")
+        let frag_list_build_result = frag_init_buffers_sm
+            .get_buffer_layout("B_FragListBuildResult")
             .unwrap();
-        let fragment_list_info = Buffer::from_struct_layout(
+        let frag_list_build_result = Buffer::from_struct_layout(
             device.clone(),
             allocator.clone(),
-            fragment_list_info_layout.clone(),
+            frag_list_build_result.clone(),
             BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
         Self {
             frag_list_maker_info,
+            voxel_dim_indirect,
             neighbor_info,
-            fragment_list_info,
+            frag_list_build_result,
         }
     }
 }
@@ -266,10 +279,18 @@ impl Resources {
         )
         .unwrap();
 
+        let frag_init_buffers_sm = ShaderModule::from_glsl(
+            &device,
+            shader_compiler,
+            "shader/builder/frag_list_builder/init_buffers.comp",
+            "main",
+        )
+        .unwrap();
+
         let frag_list_maker_sm = ShaderModule::from_glsl(
             &device,
             shader_compiler,
-            "shader/builder/frag_list_maker/frag_list_maker.comp",
+            "shader/builder/frag_list_builder/frag_list_maker.comp",
             "main",
         )
         .unwrap();
@@ -296,7 +317,7 @@ impl Resources {
         let chunk_init = ChunkInitResources::new(device.clone(), allocator.clone(), &chunk_init_sm);
 
         let frag_list =
-            FragListResources::new(device.clone(), allocator.clone(), &frag_list_maker_sm);
+            FragListResources::new(device.clone(), allocator.clone(), &frag_init_buffers_sm);
 
         let octree =
             OctreeResources::new(device.clone(), allocator.clone(), &octree_init_buffers_sm);
@@ -316,6 +337,10 @@ impl Resources {
 
     pub fn frag_list_maker_info(&self) -> &Buffer {
         &self.frag_list.frag_list_maker_info
+    }
+
+    pub fn voxel_dim_indirect(&self) -> &Buffer {
+        &self.frag_list.voxel_dim_indirect
     }
 
     pub fn raw_voxels(&self) -> &Buffer {
@@ -338,8 +363,8 @@ impl Resources {
         &self.external_shared_resources.octree_data
     }
 
-    pub fn fragment_list_info(&self) -> &Buffer {
-        &self.frag_list.fragment_list_info
+    pub fn frag_list_build_result(&self) -> &Buffer {
+        &self.frag_list.frag_list_build_result
     }
 
     pub fn octree_build_info(&self) -> &Buffer {
