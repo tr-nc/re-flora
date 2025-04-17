@@ -344,6 +344,7 @@ impl OctreeBuilder {
         command_pool: &CommandPool,
         resources: &Resources,
         fragment_list_len: u32,
+        chunk_pos: IVec3,
         voxel_dim: UVec3,
     ) {
         let device = vulkan_context.device();
@@ -366,8 +367,8 @@ impl OctreeBuilder {
         let octree_size = self.get_octree_data_size_in_bytes(resources);
         assert!(octree_size > 0);
 
-        // let write_offset = self.allocate_chunk(octree_size as u64, chunk_pos);
-        let write_offset = 0;
+        let write_offset = self.allocate_chunk(octree_size as u64, chunk_pos);
+        // let write_offset = 0;
 
         self.copy_octree_data_single_to_octree_data(
             &vulkan_context,
