@@ -241,7 +241,7 @@ impl OctreeBuilder {
         );
     }
 
-    pub fn frag_list_to_octree_data(
+    pub fn build(
         &mut self,
         vulkan_context: &VulkanContext,
         command_pool: &CommandPool,

@@ -131,7 +131,7 @@ impl Builder {
             return;
         }
 
-        self.octree_builder.frag_list_to_octree_data(
+        self.octree_builder.build(
             &self.vulkan_context,
             command_pool,
             &self.resources,
