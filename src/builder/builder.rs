@@ -94,7 +94,7 @@ impl Builder {
             for j in 0..self.chunk_dim.y {
                 for k in 0..self.chunk_dim.z {
                     let chunk_pos = IVec3::new(i as i32, j as i32, k as i32);
-                    self.chunk_data_builder.init_chunk_by_noise(
+                    self.chunk_data_builder.build(
                         &self.vulkan_context,
                         command_pool,
                         &self.resources,

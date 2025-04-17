@@ -61,7 +61,7 @@ impl ChunkDataBuilder {
         }
     }
 
-    pub fn init_chunk_by_noise(
+    pub fn build(
         &mut self,
         vulkan_context: &VulkanContext,
         command_pool: &CommandPool,
@@ -69,7 +69,10 @@ impl ChunkDataBuilder {
         voxel_dim: UVec3,
         chunk_pos: IVec3,
     ) {
-        self.update_uniforms(resources, voxel_dim, chunk_pos);
+        update_uniforms(resources, self.write_offset, voxel_dim, chunk_pos);
+
+        self.offset_table.insert(chunk_pos, self.write_offset);
+        self.write_offset += voxel_dim.x * voxel_dim.y * voxel_dim.z;
 
         execute_one_time_command(
             vulkan_context.device(),
@@ -86,22 +89,24 @@ impl ChunkDataBuilder {
                     .record_dispatch(cmdbuf, voxel_dim.to_array());
             },
         );
-    }
 
-    fn update_uniforms(&mut self, resources: &Resources, voxel_dim: UVec3, chunk_pos: IVec3) {
-        let data = BufferBuilder::from_struct_buffer(resources.chunk_init_info())
-            .unwrap()
-            .set_uvec3("voxel_dim", voxel_dim.to_array())
-            .set_ivec3("chunk_pos", chunk_pos.to_array())
-            .set_uint("write_offset", self.write_offset)
-            .to_raw_data();
-        resources
-            .chunk_init_info()
-            .fill_with_raw_u8(&data)
-            .expect("Failed to fill buffer data");
-
-        self.offset_table.insert(chunk_pos, self.write_offset);
-        self.write_offset += voxel_dim.x * voxel_dim.y * voxel_dim.z;
+        fn update_uniforms(
+            resources: &Resources,
+            write_offset: u32,
+            voxel_dim: UVec3,
+            chunk_pos: IVec3,
+        ) {
+            let data = BufferBuilder::from_struct_buffer(resources.chunk_init_info())
+                .unwrap()
+                .set_uvec3("voxel_dim", voxel_dim.to_array())
+                .set_ivec3("chunk_pos", chunk_pos.to_array())
+                .set_uint("write_offset", write_offset)
+                .to_raw_data();
+            resources
+                .chunk_init_info()
+                .fill_with_raw_u8(&data)
+                .expect("Failed to fill buffer data");
+        }
     }
 
     pub fn get_offset_table(&self) -> &HashMap<IVec3, u32> {
