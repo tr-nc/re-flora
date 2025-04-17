@@ -119,6 +119,7 @@ impl Builder {
         }
 
         // benchmark
+        let benchmark_chunk_pos = IVec3::new(1, 0, 1);
         let timer = Timer::new();
         const BUILD_TIMES: u32 = 1000;
         for i in 0..BUILD_TIMES {
@@ -126,7 +127,7 @@ impl Builder {
                 &self.vulkan_context,
                 &self.resources,
                 self.voxel_dim,
-                IVec3::ZERO,
+                benchmark_chunk_pos,
                 self.chunk_data_builder.get_offset_table(),
             );
         }
@@ -134,6 +135,8 @@ impl Builder {
             "Average fragment list time: {:?}",
             timer.elapsed() / BUILD_TIMES
         );
+
+        self.build_octree(command_pool, benchmark_chunk_pos);
     }
 
     fn build_octree(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
