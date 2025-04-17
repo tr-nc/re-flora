@@ -60,7 +60,8 @@ impl VulkanContext {
     }
 
     /// Obtains the transfer-only queue from the device
-    pub fn _get_transfer_only_queue(&self) -> vk::Queue {
+    #[allow(dead_code)]
+    pub fn get_transfer_only_queue(&self) -> vk::Queue {
         unsafe {
             self.0
                 .device
