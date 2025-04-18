@@ -155,8 +155,14 @@ impl Image {
         }
     }
 
-    pub fn record_clear(&self, cmdbuf: &CommandBuffer) {
-        self.record_transition_barrier(cmdbuf, vk::ImageLayout::GENERAL);
+    pub fn record_clear(
+        &self,
+        cmdbuf: &CommandBuffer,
+        layout_after_clear: Option<vk::ImageLayout>,
+    ) {
+        let final_layout = layout_after_clear.unwrap_or(self.get_current_layout());
+        const LAYOUT_USED_TO_CLEAR: vk::ImageLayout = vk::ImageLayout::GENERAL;
+        self.record_transition_barrier(cmdbuf, LAYOUT_USED_TO_CLEAR);
 
         let clear_value = vk::ClearColorValue {
             float32: [0.0, 0.0, 0.0, 0.0],
@@ -167,7 +173,7 @@ impl Image {
             self.0.device.cmd_clear_color_image(
                 cmdbuf.as_raw(),
                 self.0.image,
-                vk::ImageLayout::GENERAL,
+                LAYOUT_USED_TO_CLEAR,
                 &clear_value,
                 &[vk::ImageSubresourceRange {
                     aspect_mask: vk::ImageAspectFlags::COLOR,
@@ -178,15 +184,20 @@ impl Image {
                 }],
             );
         }
+        self.record_transition_barrier(cmdbuf, final_layout);
     }
 
-    pub fn record_transition_barrier(&self, cmdbuf: &CommandBuffer, new_layout: vk::ImageLayout) {
+    pub fn record_transition_barrier(
+        &self,
+        cmdbuf: &CommandBuffer,
+        target_layout: vk::ImageLayout,
+    ) {
         let device = &self.0.device;
         let mut layout_guard = self.0.current_layout.lock().unwrap();
 
         let current_layout = *layout_guard;
 
-        if current_layout == new_layout {
+        if current_layout == target_layout {
             return;
         }
 
@@ -194,11 +205,15 @@ impl Image {
             device.as_raw(),
             cmdbuf.as_raw(),
             current_layout,
-            new_layout,
+            target_layout,
             self.0.image,
         );
 
-        *layout_guard = new_layout;
+        *layout_guard = target_layout;
+    }
+
+    pub fn get_current_layout(&self) -> vk::ImageLayout {
+        *self.0.current_layout.lock().unwrap()
     }
 
     pub fn as_raw(&self) -> vk::Image {

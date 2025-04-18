@@ -2,7 +2,6 @@ use super::Resources;
 use crate::util::ShaderCompiler;
 use crate::vkn::execute_one_time_command;
 use crate::vkn::BufferBuilder;
-use crate::vkn::CommandBuffer;
 use crate::vkn::CommandPool;
 use crate::vkn::ComputePipeline;
 use crate::vkn::DescriptorPool;
@@ -67,7 +66,10 @@ impl ChunkDataBuilder {
             command_pool,
             &vulkan_context.get_general_queue(),
             |cmdbuf| {
-                resources.raw_atlas_tex().get_image().record_clear(cmdbuf);
+                resources
+                    .raw_atlas_tex()
+                    .get_image()
+                    .record_clear(cmdbuf, Some(vk::ImageLayout::TRANSFER_DST_OPTIMAL));
             },
         );
     }
