@@ -160,7 +160,7 @@ impl Image {
         cmdbuf: &CommandBuffer,
         layout_after_clear: Option<vk::ImageLayout>,
     ) {
-        let target_layout = layout_after_clear.unwrap_or(self.get_current_layout());
+        let target_layout = layout_after_clear.unwrap_or(self.get_layout());
         const LAYOUT_USED_TO_CLEAR: vk::ImageLayout = vk::ImageLayout::GENERAL;
         self.record_transition_barrier(cmdbuf, LAYOUT_USED_TO_CLEAR);
 
@@ -212,7 +212,7 @@ impl Image {
         *layout_guard = target_layout;
     }
 
-    pub fn get_current_layout(&self) -> vk::ImageLayout {
+    pub fn get_layout(&self) -> vk::ImageLayout {
         *self.0.current_layout.lock().unwrap()
     }
 
