@@ -1,7 +1,9 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 
-layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+#define GROUP_SIZE 8
+#define GROUP_SIZE_3 (GROUP_SIZE * GROUP_SIZE * GROUP_SIZE)
+layout(local_size_x = GROUP_SIZE, local_size_y = GROUP_SIZE, local_size_z = GROUP_SIZE) in;
 
 layout(set = 0, binding = 0) readonly uniform U_FragListMakerInfo { uvec3 chunk_pos; }
 frag_list_maker_info;
@@ -24,23 +26,58 @@ layout(set = 0, binding = 3, r8ui) readonly uniform uimage3D raw_atlas;
 #include "../../include/core/packer.glsl"
 #include "../../include/voxel_types.glsl"
 
-// Serialize 3D coordinates into a single uint value
-// Input: 3D coordinates where each component ranges from 0-2
-// Output: serialized value from 0-26
-uint serialize(ivec3 idx) { return idx.x + idx.y * 3 + idx.z * 9; }
+#define SHARED_SIZE (GROUP_SIZE + 4) // 4 for halo
+#define SHARED_SIZE_3 (SHARED_SIZE * SHARED_SIZE * SHARED_SIZE)
+shared uint shared_data[SHARED_SIZE][SHARED_SIZE][SHARED_SIZE];
+
+ivec3 shared_idx_to_atlas_idx(ivec3 shared_idx) {
+    const ivec3 chunk_base = ivec3(frag_list_maker_info.chunk_pos) * VOXEL_DIM;
+    const ivec3 group_base = ivec3(gl_WorkGroupID) * GROUP_SIZE - 2; // include halo
+    ivec3 atlas_idx        = shared_idx + group_base + chunk_base;
+    return atlas_idx;
+}
+
+ivec3 atlas_idx_to_shared_idx(ivec3 atlas_idx) {
+    const ivec3 chunk_base = ivec3(frag_list_maker_info.chunk_pos) * VOXEL_DIM;
+    const ivec3 group_base = ivec3(gl_WorkGroupID) * GROUP_SIZE - 2; // include halo
+    ivec3 shared_idx       = atlas_idx - group_base - chunk_base;
+    return shared_idx;
+}
+
+ivec3 local_idx_to_atlas_idx(ivec3 local_idx) {
+    const ivec3 chunk_base = ivec3(frag_list_maker_info.chunk_pos) * VOXEL_DIM;
+    return local_idx + chunk_base;
+}
+
+ivec3 local_idx_to_shared_idx(ivec3 local_idx) {
+    const ivec3 group_base = ivec3(gl_WorkGroupID) * GROUP_SIZE - 2; // include halo
+    return local_idx - group_base;
+}
+
+void preload() {
+    // load operations from any texel that is outside of the boundaries of the bound image will
+    // return all zeros
+    for (uint linear_idx = gl_LocalInvocationIndex; linear_idx < SHARED_SIZE_3;
+         linear_idx += GROUP_SIZE_3) {
+
+        uvec3 shared_idx;
+        shared_idx.x = linear_idx % SHARED_SIZE;
+        shared_idx.y = (linear_idx / SHARED_SIZE) % SHARED_SIZE;
+        shared_idx.z = linear_idx / (SHARED_SIZE * SHARED_SIZE);
+
+        ivec3 atlas_idx = shared_idx_to_atlas_idx(ivec3(shared_idx));
+        uint val        = imageLoad(raw_atlas, atlas_idx).r;
+
+        shared_data[shared_idx.x][shared_idx.y][shared_idx.z] = val;
+    }
+}
 
 bool is_solid(uint voxel_type) { return voxel_type != VOXEL_TYPE_EMPTY; }
 
-uint get_voxel_type(ivec3 idx_in_atlas) {
-    // https://www.khronos.org/opengl/wiki/Image_Load_Store
-    // load operations from any texel that is outside of the boundaries of the bound image will
-    // return all zeros.
-    uint data = imageLoad(raw_atlas, idx_in_atlas).r;
-    return data;
+uint voxel_at_local_idx(ivec3 local_idx) {
+    ivec3 shared_idx = local_idx_to_shared_idx(local_idx);
+    return shared_data[shared_idx.x][shared_idx.y][shared_idx.z];
 }
-
-/// Wrap coord into 0…dim-1
-ivec3 wrap_coord(ivec3 c, ivec3 dim) { return (c + dim) % dim; }
 
 /// Check if a block is occluded by its neighbours.
 /// A block is occluded if all of its neighbours are solid.
@@ -53,8 +90,7 @@ bool is_occluded(ivec3 uvi) {
     for (int i = 0; i < 6; i++) {
         ivec3 cur = uvi + neighbours_to_check[i];
 
-        ivec3 idx_in_atlas = cur + ivec3(frag_list_maker_info.chunk_pos) * VOXEL_DIM;
-        uint voxel_type    = get_voxel_type(idx_in_atlas);
+        uint voxel_type = voxel_at_local_idx(cur);
 
         if (!is_solid(voxel_type)) {
             return false;
@@ -76,10 +112,8 @@ vec3 calculate_normal(ivec3 uvi, ivec3 voxel_dim) {
 
                 // center voxel is not skipped for performance reasons
 
-                ivec3 cur = uvi + offset;
-
-                ivec3 idx_in_atlas = cur + ivec3(frag_list_maker_info.chunk_pos) * VOXEL_DIM;
-                uint voxel_type    = get_voxel_type(idx_in_atlas);
+                ivec3 cur       = uvi + offset;
+                uint voxel_type = voxel_at_local_idx(cur);
 
                 // no weighting is applied for the normal calculation
 
@@ -117,18 +151,21 @@ FragmentListEntry make_fragment_list_entry(ivec3 coord, uint voxel_type, vec3 no
 }
 
 void main() {
+    preload();
+    barrier();
+
     ivec3 uvi       = ivec3(gl_GlobalInvocationID);
     ivec3 voxel_dim = ivec3(VOXEL_DIM);
     if (any(greaterThanEqual(uvi, voxel_dim))) {
         return;
     }
 
-    ivec3 idx_in_atlas = uvi + ivec3(frag_list_maker_info.chunk_pos) * VOXEL_DIM;
-    uint voxel_type    = get_voxel_type(idx_in_atlas);
-    if (!is_solid(voxel_type)) {
+    if (is_occluded(uvi)) {
         return;
     }
-    if (is_occluded(uvi)) {
+
+    uint voxel_type = voxel_at_local_idx(uvi);
+    if (!is_solid(voxel_type)) {
         return;
     }
 
