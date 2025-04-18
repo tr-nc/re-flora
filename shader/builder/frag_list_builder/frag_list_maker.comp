@@ -189,12 +189,12 @@ void main() {
         return;
     }
 
-    if (is_occluded(uvi)) {
+    uint voxel_type = voxel_at_local_idx(uvi);
+    if (!is_solid(voxel_type)) {
         return;
     }
 
-    uint voxel_type = voxel_at_local_idx(uvi);
-    if (!is_solid(voxel_type)) {
+    if (is_occluded(uvi)) {
         return;
     }
 
