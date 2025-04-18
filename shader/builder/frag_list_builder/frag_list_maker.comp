@@ -81,13 +81,16 @@ bool is_occluded(ivec3 uvi, ivec3 voxel_dim) {
     for (int i = 0; i < 6; i++) {
         ivec3 cur = uvi + neighbours_to_check[i];
 
-        uint read_offset;
-        if (!get_chunk_offset_by_idx(read_offset, determine_neighbor_idx(cur, voxel_dim))) {
-            continue;
-        }
+        ivec3 neighbor_idx = determine_neighbor_idx(cur, voxel_dim);
 
-        ivec3 wrapped   = wrap_coord(cur, voxel_dim);
-        uint voxel_type = get_voxel_type(read_offset, wrapped, voxel_dim);
+        uint read_offset;
+        uint voxel_type = 0;
+        if (!get_chunk_offset_by_idx(read_offset, neighbor_idx)) {
+            voxel_type = VOXEL_TYPE_EMPTY;
+        } else {
+            ivec3 wrapped = wrap_coord(cur, voxel_dim);
+            voxel_type    = get_voxel_type(read_offset, wrapped, voxel_dim);
+        }
 
         if (!is_solid(voxel_type)) {
             return false;
@@ -113,12 +116,13 @@ vec3 calculate_normal(ivec3 uvi, ivec3 voxel_dim) {
                 ivec3 neighbor_idx = determine_neighbor_idx(cur, voxel_dim);
 
                 uint read_offset;
+                uint voxel_type = 0;
                 if (!get_chunk_offset_by_idx(read_offset, neighbor_idx)) {
-                    continue;
+                    voxel_type = VOXEL_TYPE_EMPTY;
+                } else {
+                    ivec3 wrapped = wrap_coord(cur, voxel_dim);
+                    voxel_type    = get_voxel_type(read_offset, wrapped, voxel_dim);
                 }
-
-                ivec3 wrapped   = wrap_coord(cur, voxel_dim);
-                uint voxel_type = get_voxel_type(read_offset, wrapped, voxel_dim);
 
                 // no weighting is applied for the normal calculation
                 if (is_solid(voxel_type)) {
