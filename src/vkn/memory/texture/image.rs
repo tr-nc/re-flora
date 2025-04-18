@@ -70,7 +70,7 @@ impl Image {
                 name: "",
                 requirements,
                 location: MemoryLocation::GpuOnly,
-                linear: true,
+                linear: false,
                 allocation_scheme: AllocationScheme::GpuAllocatorManaged,
             })
             .expect("Failed to allocate image memory");
