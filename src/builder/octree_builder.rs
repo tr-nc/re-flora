@@ -419,7 +419,7 @@ impl OctreeBuilder {
         allocation.offset
     }
 
-    fn update_octree_offset_atlas(
+    pub fn update_octree_offset_atlas(
         &mut self,
         vulkan_context: &VulkanContext,
         command_pool: &CommandPool,
@@ -457,7 +457,8 @@ impl OctreeBuilder {
                 TextureRegion::from_image(&resources.octree_offset_atlas_tex().get_image()),
                 &offset_data,
                 None,
-            );
+            )
+            .unwrap();
 
         fn to_linear_index(chunk_pos: UVec3, dim: UVec3) -> u32 {
             chunk_pos.x + chunk_pos.y * dim.x + chunk_pos.z * dim.x * dim.y

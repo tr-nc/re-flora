@@ -17,6 +17,7 @@ pub struct Builder {
 
     voxel_dim: UVec3,
     chunk_dim: UVec3,
+    visible_chunk_dim: UVec3,
 
     chunk_data_builder: ChunkDataBuilder,
     frag_list_builder: FragListBuilder,
@@ -83,6 +84,7 @@ impl Builder {
             resources,
             voxel_dim,
             chunk_dim,
+            visible_chunk_dim,
             chunk_data_builder,
             frag_list_builder,
             octree_builder,
@@ -130,6 +132,13 @@ impl Builder {
         log::debug!(
             "Average octree time: {:?}",
             timer.elapsed() / (self.chunk_dim.x * self.chunk_dim.y * self.chunk_dim.z)
+        );
+
+        self.octree_builder.update_octree_offset_atlas(
+            &self.vulkan_context,
+            command_pool,
+            &self.resources,
+            self.visible_chunk_dim,
         );
     }
 
