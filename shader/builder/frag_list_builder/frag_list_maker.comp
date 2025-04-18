@@ -3,23 +3,22 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
-layout(set = 0, binding = 0) readonly buffer U_NeighborInfo { uint data[]; }
-neighbor_info;
-
-layout(set = 0, binding = 1) readonly buffer B_RawBlocks { uint data[]; }
-raw_blocks;
+layout(set = 0, binding = 0) readonly uniform U_FragListMakerInfo { uvec3 chunk_pos; }
+frag_list_maker_info;
 
 // fragment_list_len is incremented atomically every time a new fragment is added
 // to the fragment list
-layout(set = 0, binding = 2) buffer B_FragListBuildResult { uint fragment_list_len; }
+layout(set = 0, binding = 1) buffer B_FragListBuildResult { uint fragment_list_len; }
 frag_list_build_result;
 
 // fragment list is appended with new fragments that satisfy certain conditions
 // (e.g. not occluded, solid, etc.), and is used to build the octree later
 // the cursor is determined by fragment_list_info.fragment_list_len
 #include "../../include/fragment_list_entry.glsl"
-layout(set = 0, binding = 3) writeonly buffer B_FragmentList { FragmentListEntry data[]; }
+layout(set = 0, binding = 2) writeonly buffer B_FragmentList { FragmentListEntry data[]; }
 fragment_list;
+
+layout(set = 0, binding = 3, r8ui) readonly uniform uimage3D raw_atlas;
 
 #include "../../include/config.glsl"
 #include "../../include/core/packer.glsl"
@@ -30,40 +29,14 @@ fragment_list;
 // Output: serialized value from 0-26
 uint serialize(ivec3 idx) { return idx.x + idx.y * 3 + idx.z * 9; }
 
-/// idx ranges from -1 to 1 in each axis
-bool get_chunk_offset_by_idx(out uint o_offset, ivec3 idx) {
-    uint serialized = serialize(idx + 1);
-    o_offset        = neighbor_info.data[serialized];
-    return o_offset != 0xFFFFFFFF;
-}
-
 bool is_solid(uint voxel_type) { return voxel_type != VOXEL_TYPE_EMPTY; }
 
-uint vidx_to_linear(ivec3 p, ivec3 dim) {
-    return uint(p.x) + uint(p.y) * uint(dim.x) + uint(p.z) * uint(dim.x * dim.y);
-}
-
-ivec3 determine_neighbor_idx(ivec3 idx, ivec3 voxel_dim) {
-    ivec3 neighbor_idx = ivec3(0);
-
-    bvec3 below_mask = lessThan(idx, ivec3(0));
-    bvec3 above_mask = greaterThanEqual(idx, voxel_dim);
-
-    neighbor_idx -= ivec3(below_mask);
-    neighbor_idx += ivec3(above_mask);
-
-    return neighbor_idx;
-}
-
-uint get_voxel_type(uint read_offset, ivec3 idx, ivec3 voxel_dim) {
-    uint v           = vidx_to_linear(idx, voxel_dim) + read_offset;
-    uint uint_offset = v / 4u;
-    uint byte_offset = (v % 4u) * 8u;
-
-    uint data = raw_blocks.data[uint_offset];
-    data >>= byte_offset;
-    data &= 0xFF; // mask to get the last 8 bits
-
+uint get_voxel_type(ivec3 idx_in_atlas) {
+    if (any(lessThan(idx_in_atlas, ivec3(0))) ||
+        any(greaterThanEqual(idx_in_atlas, imageSize(raw_atlas)))) {
+        return VOXEL_TYPE_EMPTY;
+    }
+    uint data = imageLoad(raw_atlas, idx_in_atlas).r;
     return data;
 }
 
@@ -72,7 +45,7 @@ ivec3 wrap_coord(ivec3 c, ivec3 dim) { return (c + dim) % dim; }
 
 /// Check if a block is occluded by its neighbours.
 /// A block is occluded if all of its neighbours are solid.
-bool is_occluded(ivec3 uvi, ivec3 voxel_dim) {
+bool is_occluded(ivec3 uvi) {
     ivec3 neighbours_to_check[6] = {
         ivec3(1, 0, 0),  ivec3(-1, 0, 0), ivec3(0, 1, 0),
         ivec3(0, -1, 0), ivec3(0, 0, 1),  ivec3(0, 0, -1),
@@ -81,13 +54,8 @@ bool is_occluded(ivec3 uvi, ivec3 voxel_dim) {
     for (int i = 0; i < 6; i++) {
         ivec3 cur = uvi + neighbours_to_check[i];
 
-        uint read_offset;
-        if (!get_chunk_offset_by_idx(read_offset, determine_neighbor_idx(cur, voxel_dim))) {
-            continue;
-        }
-
-        ivec3 wrapped   = wrap_coord(cur, voxel_dim);
-        uint voxel_type = get_voxel_type(read_offset, wrapped, voxel_dim);
+        ivec3 idx_in_atlas = cur + ivec3(frag_list_maker_info.chunk_pos) * VOXEL_DIM;
+        uint voxel_type    = get_voxel_type(idx_in_atlas);
 
         if (!is_solid(voxel_type)) {
             return false;
@@ -109,16 +77,19 @@ vec3 calculate_normal(ivec3 uvi, ivec3 voxel_dim) {
 
                 // center voxel is not skipped for performance reasons
 
-                ivec3 cur          = uvi + offset;
-                ivec3 neighbor_idx = determine_neighbor_idx(cur, voxel_dim);
+                ivec3 cur = uvi + offset;
+                // ivec3 neighbor_idx = determine_neighbor_idx(cur, voxel_dim);
 
-                uint read_offset;
-                if (!get_chunk_offset_by_idx(read_offset, neighbor_idx)) {
-                    continue;
-                }
+                // uint read_offset;
+                // if (!get_chunk_offset_by_idx(read_offset, neighbor_idx)) {
+                //     continue;
+                // }
 
-                ivec3 wrapped   = wrap_coord(cur, voxel_dim);
-                uint voxel_type = get_voxel_type(read_offset, wrapped, voxel_dim);
+                // ivec3 wrapped   = wrap_coord(cur, voxel_dim);
+                // uint voxel_type = get_voxel_type(read_offset, wrapped, voxel_dim);
+
+                ivec3 idx_in_atlas = cur + ivec3(frag_list_maker_info.chunk_pos) * VOXEL_DIM;
+                uint voxel_type    = get_voxel_type(idx_in_atlas);
 
                 // no weighting is applied for the normal calculation
                 if (is_solid(voxel_type)) {
@@ -161,15 +132,12 @@ void main() {
         return;
     }
 
-    // Cache the block type so we don't perform multiple image loads.
-    uint read_offset;
-    // this won't fail because we are asking for the current chunk's offset
-    get_chunk_offset_by_idx(read_offset, ivec3(0));
-    uint voxel_type = get_voxel_type(read_offset, uvi, voxel_dim);
+    ivec3 idx_in_atlas = uvi + ivec3(frag_list_maker_info.chunk_pos) * VOXEL_DIM;
+    uint voxel_type    = get_voxel_type(idx_in_atlas);
     if (!is_solid(voxel_type)) {
         return;
     }
-    if (is_occluded(uvi, voxel_dim)) {
+    if (is_occluded(uvi)) {
         return;
     }
 
