@@ -5,9 +5,6 @@
 #define GROUP_SIZE_3 (GROUP_SIZE * GROUP_SIZE * GROUP_SIZE)
 layout(local_size_x = GROUP_SIZE, local_size_y = GROUP_SIZE, local_size_z = GROUP_SIZE) in;
 
-layout(set = 0, binding = 4) readonly uniform U_FragListMakerInfo { uvec3 chunk_pos; }
-frag_list_maker_info;
-
 layout(set = 0, binding = 0) readonly buffer U_NeighborInfo { uint data[]; }
 neighbor_info;
 
@@ -39,25 +36,6 @@ uint serialize(ivec3 idx) { return idx.x + idx.y * 3 + idx.z * 9; }
 #define SHARED_SIZE_3 (SHARED_SIZE * SHARED_SIZE * SHARED_SIZE)
 shared uint shared_data[SHARED_SIZE][SHARED_SIZE][SHARED_SIZE];
 
-ivec3 shared_idx_to_atlas_idx(ivec3 shared_idx) {
-    const ivec3 chunk_base = ivec3(frag_list_maker_info.chunk_pos) * VOXEL_DIM;
-    const ivec3 group_base = ivec3(gl_WorkGroupID) * GROUP_SIZE - 2; // include halo
-    ivec3 atlas_idx        = shared_idx + group_base + chunk_base;
-    return atlas_idx;
-}
-
-ivec3 atlas_idx_to_shared_idx(ivec3 atlas_idx) {
-    const ivec3 chunk_base = ivec3(frag_list_maker_info.chunk_pos) * VOXEL_DIM;
-    const ivec3 group_base = ivec3(gl_WorkGroupID) * GROUP_SIZE - 2; // include halo
-    ivec3 shared_idx       = atlas_idx - group_base - chunk_base;
-    return shared_idx;
-}
-
-ivec3 local_idx_to_atlas_idx(ivec3 local_idx) {
-    const ivec3 chunk_base = ivec3(frag_list_maker_info.chunk_pos) * VOXEL_DIM;
-    return local_idx + chunk_base;
-}
-
 ivec3 local_idx_to_shared_idx(ivec3 local_idx) {
     const ivec3 group_base = ivec3(gl_WorkGroupID) * GROUP_SIZE - 2; // include halo
     return local_idx - group_base;
@@ -69,11 +47,7 @@ ivec3 shared_idx_to_local_idx(ivec3 shared_idx) {
 }
 
 /// idx ranges from -1 to 1 in each axis
-bool get_chunk_offset_by_idx(out uint o_offset, ivec3 idx) {
-    uint serialized = serialize(idx + 1);
-    o_offset        = neighbor_info.data[serialized];
-    return o_offset != 0xFFFFFFFF;
-}
+uint get_chunk_offset_by_idx(ivec3 idx) { return neighbor_info.data[serialize(idx + 1)]; }
 
 ivec3 determine_neighbor_idx(ivec3 local_idx) {
     ivec3 neighbor_idx = ivec3(0);
@@ -119,17 +93,11 @@ void preload() {
 
         ivec3 local_idx = shared_idx_to_local_idx(ivec3(shared_idx));
 
-        ivec3 neighbor_idx = determine_neighbor_idx(local_idx);
-        uint read_offset;
-        uint val = 0;
-        if (!get_chunk_offset_by_idx(read_offset, neighbor_idx)) {
-            val = VOXEL_TYPE_EMPTY;
-        } else {
-            ivec3 wrapped = wrap_coord(local_idx);
-            val           = get_voxel_type(read_offset, wrapped);
-        }
+        uint read_offset = get_chunk_offset_by_idx(determine_neighbor_idx(local_idx));
+        ivec3 wrapped    = wrap_coord(local_idx);
 
-        shared_data[shared_idx.x][shared_idx.y][shared_idx.z] = val;
+        shared_data[shared_idx.x][shared_idx.y][shared_idx.z] =
+            get_voxel_type(read_offset, wrapped);
     }
 }
 

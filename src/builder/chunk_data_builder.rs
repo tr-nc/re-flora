@@ -57,7 +57,7 @@ impl ChunkDataBuilder {
             chunk_init_ds,
 
             offset_table: HashMap::new(),
-            write_offset: 0,
+            write_offset: 256 * 256 * 256, // TODO: pass
         }
     }
 

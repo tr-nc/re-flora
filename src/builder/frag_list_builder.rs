@@ -184,7 +184,7 @@ impl FragListBuilder {
                         {
                             *offset
                         } else {
-                            0xFFFFFFFF
+                            0
                         };
 
                         let serialized_idx =
