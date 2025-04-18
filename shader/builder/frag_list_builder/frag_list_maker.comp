@@ -32,10 +32,9 @@ uint serialize(ivec3 idx) { return idx.x + idx.y * 3 + idx.z * 9; }
 bool is_solid(uint voxel_type) { return voxel_type != VOXEL_TYPE_EMPTY; }
 
 uint get_voxel_type(ivec3 idx_in_atlas) {
-    if (any(lessThan(idx_in_atlas, ivec3(0))) ||
-        any(greaterThanEqual(idx_in_atlas, imageSize(raw_atlas)))) {
-        return VOXEL_TYPE_EMPTY;
-    }
+    // https://www.khronos.org/opengl/wiki/Image_Load_Store
+    // load operations from any texel that is outside of the boundaries of the bound image will
+    // return all zeros.
     uint data = imageLoad(raw_atlas, idx_in_atlas).r;
     return data;
 }
@@ -78,20 +77,12 @@ vec3 calculate_normal(ivec3 uvi, ivec3 voxel_dim) {
                 // center voxel is not skipped for performance reasons
 
                 ivec3 cur = uvi + offset;
-                // ivec3 neighbor_idx = determine_neighbor_idx(cur, voxel_dim);
-
-                // uint read_offset;
-                // if (!get_chunk_offset_by_idx(read_offset, neighbor_idx)) {
-                //     continue;
-                // }
-
-                // ivec3 wrapped   = wrap_coord(cur, voxel_dim);
-                // uint voxel_type = get_voxel_type(read_offset, wrapped, voxel_dim);
 
                 ivec3 idx_in_atlas = cur + ivec3(frag_list_maker_info.chunk_pos) * VOXEL_DIM;
                 uint voxel_type    = get_voxel_type(idx_in_atlas);
 
                 // no weighting is applied for the normal calculation
+
                 if (is_solid(voxel_type)) {
                     normal += vec3(offset);
                 }
