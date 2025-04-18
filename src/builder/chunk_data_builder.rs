@@ -9,19 +9,12 @@ use crate::vkn::DescriptorSet;
 use crate::vkn::ShaderModule;
 use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
-use glam::IVec3;
+use ash::vk;
 use glam::UVec3;
-use std::collections::HashMap;
 
 pub struct ChunkDataBuilder {
     chunk_init_ppl: ComputePipeline,
     chunk_init_ds: DescriptorSet,
-
-    offset_table: HashMap<IVec3, u32>,
-    /// Notice here's a limitation of total 4 GB addressing space because of u32,
-    /// it should be enough, it's just raw data!
-    /// TODO: use u32 offset so that it can address up to 16 GB of data
-    write_offset: u32,
 }
 
 impl ChunkDataBuilder {
@@ -49,15 +42,17 @@ impl ChunkDataBuilder {
         );
         chunk_init_ds.perform_writes(&[
             WriteDescriptorSet::new_buffer_write(0, resources.chunk_init_info()),
-            WriteDescriptorSet::new_buffer_write(1, resources.raw_voxels()),
+            WriteDescriptorSet::new_texture_write(
+                1,
+                vk::DescriptorType::STORAGE_IMAGE,
+                resources.raw_atlas_tex(),
+                vk::ImageLayout::GENERAL,
+            ),
         ]);
 
         Self {
             chunk_init_ppl,
             chunk_init_ds,
-
-            offset_table: HashMap::new(),
-            write_offset: 256 * 256 * 256, // TODO: pass
         }
     }
 
@@ -67,18 +62,20 @@ impl ChunkDataBuilder {
         command_pool: &CommandPool,
         resources: &Resources,
         voxel_dim: UVec3,
-        chunk_pos: IVec3,
+        chunk_pos: UVec3,
     ) {
-        update_uniforms(resources, self.write_offset, chunk_pos);
-
-        self.offset_table.insert(chunk_pos, self.write_offset);
-        self.write_offset += voxel_dim.x * voxel_dim.y * voxel_dim.z;
+        update_uniforms(resources, chunk_pos);
 
         execute_one_time_command(
             vulkan_context.device(),
             command_pool,
             &vulkan_context.get_general_queue(),
             |cmdbuf| {
+                resources
+                    .raw_atlas_tex()
+                    .get_image()
+                    .record_transition_barrier(cmdbuf, vk::ImageLayout::GENERAL);
+
                 self.chunk_init_ppl.record_bind(cmdbuf);
                 self.chunk_init_ppl.record_bind_descriptor_sets(
                     cmdbuf,
@@ -90,20 +87,15 @@ impl ChunkDataBuilder {
             },
         );
 
-        fn update_uniforms(resources: &Resources, write_offset: u32, chunk_pos: IVec3) {
+        fn update_uniforms(resources: &Resources, chunk_pos: UVec3) {
             let data = BufferBuilder::from_struct_buffer(resources.chunk_init_info())
                 .unwrap()
-                .set_ivec3("chunk_pos", chunk_pos.to_array())
-                .set_uint("write_offset", write_offset)
+                .set_uvec3("chunk_pos", chunk_pos.to_array())
                 .to_raw_data();
             resources
                 .chunk_init_info()
                 .fill_with_raw_u8(&data)
                 .expect("Failed to fill buffer data");
         }
-    }
-
-    pub fn get_offset_table(&self) -> &HashMap<IVec3, u32> {
-        &self.offset_table
     }
 }

@@ -96,7 +96,7 @@ impl Builder {
             for i in 0..self.chunk_dim.x {
                 for j in 0..self.chunk_dim.y {
                     for k in 0..self.chunk_dim.z {
-                        positions.push(IVec3::new(i as i32, j as i32, k as i32));
+                        positions.push(UVec3::new(i, j, k));
                     }
                 }
             }
@@ -130,13 +130,9 @@ impl Builder {
         );
     }
 
-    fn build_octree(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {
-        self.frag_list_builder.build(
-            &self.vulkan_context,
-            &self.resources,
-            chunk_pos,
-            self.chunk_data_builder.get_offset_table(),
-        );
+    fn build_octree(&mut self, command_pool: &CommandPool, chunk_pos: UVec3) {
+        self.frag_list_builder
+            .build(&self.vulkan_context, &self.resources, chunk_pos);
 
         let fragment_list_len = self.frag_list_builder.get_fraglist_length(&self.resources);
         if fragment_list_len == 0 {

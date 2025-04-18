@@ -3,14 +3,10 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
-layout(set = 0, binding = 0) readonly uniform U_ChunkInitInfo {
-    ivec3 chunk_pos;
-    uint write_offset;
-}
+layout(set = 0, binding = 0) readonly uniform U_ChunkInitInfo { uvec3 chunk_pos; }
 chunk_init_info;
 
-layout(set = 0, binding = 1) writeonly buffer B_RawBlocks { uint data[]; }
-raw_blocks;
+layout(set = 0, binding = 1, r8ui) writeonly uniform uimage3D raw_atlas;
 
 #include "../../include/config.glsl"
 #include "../../include/core/inoise.glsl"
@@ -53,17 +49,20 @@ void main() {
     float weight    = noise - world_voxel_pos.y;
     uint voxel_type = get_voxel_type(weight);
 
-    uint linear_index =
-        uint(uvi.z) * (VOXEL_DIM * VOXEL_DIM) + uint(uvi.y) * VOXEL_DIM + uint(uvi.x);
+    // uint linear_index =
+    //     uint(uvi.z) * (VOXEL_DIM * VOXEL_DIM) + uint(uvi.y) * VOXEL_DIM + uint(uvi.x);
 
-    linear_index += chunk_init_info.write_offset;
+    // linear_index += chunk_init_info.write_offset;
 
-    // Determine destination uint index and the byte offset (0, 1, 2, or 3).
-    uint dest_index   = linear_index / 4;
-    uint byte_offset  = linear_index % 4;
-    uint shift_amount = byte_offset * 8u;
+    // // Determine destination uint index and the byte offset (0, 1, 2, or 3).
+    // uint dest_index   = linear_index / 4;
+    // uint byte_offset  = linear_index % 4;
+    // uint shift_amount = byte_offset * 8u;
 
-    // Shift the voxel value (8-bit) to its position and atomically OR into the destination uint.
-    uint shifted_val = voxel_type << shift_amount;
-    atomicOr(raw_blocks.data[dest_index], shifted_val);
+    // // Shift the voxel value (8-bit) to its position and atomically OR into the destination uint.
+    // uint shifted_val = voxel_type << shift_amount;
+    // atomicOr(raw_blocks.data[dest_index], shifted_val);
+
+    ivec3 atlas_base_offset = ivec3(chunk_init_info.chunk_pos) * VOXEL_DIM;
+    imageStore(raw_atlas, atlas_base_offset + uvi, uvec4(voxel_type, 0, 0, 0));
 }

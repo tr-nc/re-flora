@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use super::Resources;
 use crate::util::ShaderCompiler;
 use crate::vkn::BufferBuilder;
@@ -14,7 +12,6 @@ use crate::vkn::ShaderModule;
 use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
 use ash::vk;
-use glam::IVec3;
 use glam::UVec3;
 
 pub struct FragListBuilder {
@@ -75,10 +72,15 @@ impl FragListBuilder {
             descriptor_pool.clone(),
         );
         frag_list_maker_ds.perform_writes(&[
-            WriteDescriptorSet::new_buffer_write(0, resources.neighbor_info()),
-            WriteDescriptorSet::new_buffer_write(1, resources.raw_voxels()),
-            WriteDescriptorSet::new_buffer_write(2, resources.frag_list_build_result()),
-            WriteDescriptorSet::new_buffer_write(3, resources.fragment_list()),
+            WriteDescriptorSet::new_buffer_write(0, resources.frag_list_maker_info()),
+            WriteDescriptorSet::new_buffer_write(1, resources.frag_list_build_result()),
+            WriteDescriptorSet::new_buffer_write(2, resources.fragment_list()),
+            WriteDescriptorSet::new_texture_write(
+                3,
+                vk::DescriptorType::STORAGE_IMAGE,
+                resources.raw_atlas_tex(),
+                vk::ImageLayout::GENERAL,
+            ),
         ]);
 
         let cmdbuf = Self::create_cmdbuf(
@@ -153,57 +155,25 @@ impl FragListBuilder {
         cmdbuf
     }
 
-    pub fn build(
-        &self,
-        vulkan_context: &VulkanContext,
-        resources: &Resources,
-        chunk_pos: IVec3,
-        data_offset_table: &HashMap<IVec3, u32>,
-    ) {
+    pub fn build(&self, vulkan_context: &VulkanContext, resources: &Resources, chunk_pos: UVec3) {
         let device = vulkan_context.device();
 
-        update_neighbor_buffer(resources, chunk_pos, data_offset_table);
+        Self::update_uniforms(resources, chunk_pos);
 
         self.cmdbuf
             .submit(&vulkan_context.get_general_queue(), None);
         device.wait_queue_idle(&vulkan_context.get_general_queue());
+    }
 
-        fn update_neighbor_buffer(
-            resources: &Resources,
-            chunk_pos: IVec3,
-            data_offset_table: &HashMap<IVec3, u32>,
-        ) {
-            const NEIGHBOR_COUNT: usize = 3 * 3 * 3;
-            let mut neighbor_offsets: [u32; NEIGHBOR_COUNT] = [0; NEIGHBOR_COUNT];
-            for i in -1..=1 {
-                for j in -1..=1 {
-                    for k in -1..=1 {
-                        let neighbor_pos = chunk_pos + IVec3::new(i, j, k);
-
-                        let offset: u32 = if let Some(offset) = data_offset_table.get(&neighbor_pos)
-                        {
-                            *offset
-                        } else {
-                            0
-                        };
-
-                        let serialized_idx =
-                            serialize(UVec3::new((i + 1) as u32, (j + 1) as u32, (k + 1) as u32));
-                        neighbor_offsets[serialized_idx as usize] = offset;
-                    }
-                }
-            }
-
-            resources
-                .neighbor_info()
-                .fill_with_raw_u32(&neighbor_offsets)
-                .unwrap();
-
-            /// idx ranges from 0-3 in three dimensions
-            fn serialize(idx: UVec3) -> u32 {
-                return idx.x + idx.y * 3 + idx.z * 9;
-            }
-        }
+    fn update_uniforms(resources: &Resources, chunk_pos: UVec3) {
+        let data = BufferBuilder::from_struct_buffer(resources.frag_list_maker_info())
+            .unwrap()
+            .set_uvec3("chunk_pos", chunk_pos.to_array())
+            .to_raw_data();
+        resources
+            .frag_list_maker_info()
+            .fill_with_raw_u8(&data)
+            .expect("Failed to fill buffer data");
     }
 
     pub fn get_fraglist_length(&self, resources: &Resources) -> u32 {
