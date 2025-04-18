@@ -48,7 +48,7 @@ impl Builder {
             allocator.clone(),
             shader_compiler,
             voxel_dim,
-            chunk_dim.x * chunk_dim.y * chunk_dim.z,
+            chunk_dim,
             octree_buffer_size,
         );
 
@@ -91,21 +91,28 @@ impl Builder {
     // 14:14:38.673Z INFO  [re_flora::builder::builder] Average fragment + octree time: 1.551188ms
 
     pub fn init_chunks(&mut self, command_pool: &CommandPool) {
-        // first init raw chunk data
-        let timer = Timer::new();
-        for i in 0..self.chunk_dim.x {
-            for j in 0..self.chunk_dim.y {
-                for k in 0..self.chunk_dim.z {
-                    let chunk_pos = IVec3::new(i as i32, j as i32, k as i32);
-                    self.chunk_data_builder.build(
-                        &self.vulkan_context,
-                        command_pool,
-                        &self.resources,
-                        self.voxel_dim,
-                        chunk_pos,
-                    );
+        let chunk_positions = {
+            let mut positions = Vec::new();
+            for i in 0..self.chunk_dim.x {
+                for j in 0..self.chunk_dim.y {
+                    for k in 0..self.chunk_dim.z {
+                        positions.push(IVec3::new(i as i32, j as i32, k as i32));
+                    }
                 }
             }
+            positions
+        };
+
+        // first init raw chunk data
+        let timer = Timer::new();
+        for chunk_pos in chunk_positions.iter() {
+            self.chunk_data_builder.build(
+                &self.vulkan_context,
+                command_pool,
+                &self.resources,
+                self.voxel_dim,
+                *chunk_pos,
+            );
         }
         log::debug!(
             "Average chunk init time: {:?}",
@@ -114,37 +121,13 @@ impl Builder {
 
         // then init fragment list and octree
         let timer = Timer::new();
-        for i in 0..self.chunk_dim.x {
-            for j in 0..self.chunk_dim.y {
-                for k in 0..self.chunk_dim.z {
-                    let chunk_pos = IVec3::new(i as i32, j as i32, k as i32);
-                    self.build_octree(command_pool, chunk_pos);
-                }
-            }
+        for chunk_pos in chunk_positions.iter() {
+            self.build_octree(command_pool, *chunk_pos);
         }
         log::debug!(
             "Average octree time: {:?}",
             timer.elapsed() / (self.chunk_dim.x * self.chunk_dim.y * self.chunk_dim.z)
         );
-
-        // // benchmark
-        // let benchmark_chunk_pos = IVec3::new(1, 0, 1);
-        // let timer = Timer::new();
-        // const BUILD_TIMES: u32 = 1000;
-        // for i in 0..BUILD_TIMES {
-        //     self.frag_list_builder.build(
-        //         &self.vulkan_context,
-        //         &self.resources,
-        //         benchmark_chunk_pos,
-        //         self.chunk_data_builder.get_offset_table(),
-        //     );
-        // }
-        // log::debug!(
-        //     "Average fragment list time: {:?}",
-        //     timer.elapsed() / BUILD_TIMES
-        // );
-
-        // self.build_octree(command_pool, benchmark_chunk_pos);
     }
 
     fn build_octree(&mut self, command_pool: &CommandPool, chunk_pos: IVec3) {

@@ -12,11 +12,15 @@ impl InternalSharedResources {
         device: Device,
         allocator: Allocator,
         voxel_dim: UVec3,
-        max_raw_chunks: u32,
+        chunk_dim: UVec3,
         frag_list_maker_sm: &ShaderModule,
     ) -> Self {
-        let raw_voxels_size: u64 =
-            voxel_dim.x as u64 * voxel_dim.y as u64 * voxel_dim.z as u64 * max_raw_chunks as u64;
+        let raw_voxels_size: u64 = voxel_dim.x as u64
+            * voxel_dim.y as u64
+            * voxel_dim.z as u64
+            * chunk_dim.x as u64
+            * chunk_dim.y as u64
+            * chunk_dim.z as u64;
         let raw_voxels = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
@@ -254,7 +258,7 @@ impl Resources {
         allocator: Allocator,
         shader_compiler: &crate::util::ShaderCompiler,
         voxel_dim: UVec3,
-        max_raw_chunks: u32,
+        chunk_dim: UVec3,
         octree_buffer_size: u64,
     ) -> Self {
         // Load all needed shader modules for buffer layouts
@@ -294,7 +298,7 @@ impl Resources {
             device.clone(),
             allocator.clone(),
             voxel_dim,
-            max_raw_chunks,
+            chunk_dim,
             &frag_list_maker_sm,
         );
 

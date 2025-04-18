@@ -253,6 +253,9 @@ fn map_src_stage_access_flags(
             vk::AccessFlags::TRANSFER_WRITE,
             vk::PipelineStageFlags::TRANSFER,
         ),
+        vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL => {
+            (vk::AccessFlags::SHADER_READ, general_shader_stages)
+        }
         layout => {
             panic!("Unsupported old_layout transition from: {:?}", layout);
         }
