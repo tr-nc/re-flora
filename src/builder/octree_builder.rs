@@ -14,6 +14,7 @@ use crate::vkn::DescriptorSet;
 use crate::vkn::MemoryBarrier;
 use crate::vkn::PipelineBarrier;
 use crate::vkn::ShaderModule;
+use crate::vkn::TextureRegion;
 use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
 use ash::vk;
@@ -33,7 +34,7 @@ pub struct OctreeBuilder {
     octree_alloc_node_ds: DescriptorSet,
     octree_modify_args_ds: DescriptorSet,
 
-    offset_table: HashMap<UVec3, u32>,
+    offset_table: HashMap<UVec3, u64>,
     octree_buffer_allocator: FirstFitAllocator,
 
     cmdbuf_table: HashMap<u32, CommandBuffer>,
@@ -44,6 +45,7 @@ impl OctreeBuilder {
         vulkan_context: &VulkanContext,
         shader_compiler: &ShaderCompiler,
         descriptor_pool: DescriptorPool,
+        command_pool: &CommandPool,
         resources: &Resources,
         octree_buffer_size: u64,
     ) -> Self {
@@ -174,6 +176,25 @@ impl OctreeBuilder {
         ]);
 
         let octree_buffer_allocator = FirstFitAllocator::new(octree_buffer_size);
+
+        init_atlas(vulkan_context, command_pool, resources);
+        fn init_atlas(
+            vulkan_context: &VulkanContext,
+            command_pool: &CommandPool,
+            resources: &Resources,
+        ) {
+            execute_one_time_command(
+                vulkan_context.device(),
+                command_pool,
+                &vulkan_context.get_general_queue(),
+                |cmdbuf| {
+                    resources
+                        .octree_offset_atlas_tex()
+                        .get_image()
+                        .record_clear(cmdbuf, Some(vk::ImageLayout::GENERAL));
+                },
+            );
+        }
 
         Self {
             octree_init_buffers_ppl,
@@ -367,7 +388,6 @@ impl OctreeBuilder {
         assert!(octree_size > 0);
 
         let write_offset = self.allocate_chunk(octree_size as u64, chunk_pos);
-        // let write_offset = 0;
 
         self.copy_octree_data_single_to_octree_data(
             &vulkan_context,
@@ -395,8 +415,56 @@ impl OctreeBuilder {
             .octree_buffer_allocator
             .allocate(chunk_buffer_size)
             .unwrap();
-        self.offset_table
-            .insert(chunk_pos, allocation.offset as u32);
+        self.offset_table.insert(chunk_pos, allocation.offset);
         allocation.offset
+    }
+
+    fn update_octree_offset_atlas(
+        &mut self,
+        vulkan_context: &VulkanContext,
+        command_pool: &CommandPool,
+        resources: &Resources,
+        visible_chunk_dim: UVec3,
+    ) {
+        let mut offset_table = vec![];
+        for (chunk_pos, offset) in self.offset_table.iter() {
+            offset_table.push((*chunk_pos, *offset));
+        }
+
+        // TODO: implement further
+        // for now, just a simple logic, to fit all chunk offsets stored inside the table into a fixed size buffer.
+        let mut offset_data: Vec<u32> = vec![
+            0;
+            visible_chunk_dim.x as usize
+                * visible_chunk_dim.y as usize
+                * visible_chunk_dim.z as usize
+        ];
+
+        // update offset_data accordingly
+        for (chunk_pos, offset) in offset_table.iter() {
+            assert!(in_bounds(*chunk_pos, visible_chunk_dim));
+            let linear_index = to_linear_index(*chunk_pos, visible_chunk_dim);
+            offset_data[linear_index as usize] = *offset as u32;
+        }
+
+        // fill the texture
+        resources
+            .octree_offset_atlas_tex()
+            .get_image()
+            .fill_with_raw_u32(
+                &vulkan_context.get_general_queue(),
+                command_pool,
+                TextureRegion::from_image(&resources.octree_offset_atlas_tex().get_image()),
+                &offset_data,
+                None,
+            );
+
+        fn to_linear_index(chunk_pos: UVec3, dim: UVec3) -> u32 {
+            chunk_pos.x + chunk_pos.y * dim.x + chunk_pos.z * dim.x * dim.y
+        }
+
+        fn in_bounds(chunk_pos: UVec3, dim: UVec3) -> bool {
+            chunk_pos.x < dim.x && chunk_pos.y < dim.y && chunk_pos.z < dim.z
+        }
     }
 }

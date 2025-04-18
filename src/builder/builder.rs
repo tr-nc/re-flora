@@ -31,6 +31,7 @@ impl Builder {
         shader_compiler: &ShaderCompiler,
         voxel_dim: UVec3,
         chunk_dim: UVec3,
+        visible_chunk_dim: UVec3,
         octree_buffer_size: u64,
     ) -> Self {
         if voxel_dim.x != voxel_dim.y || voxel_dim.y != voxel_dim.z {
@@ -48,12 +49,14 @@ impl Builder {
             shader_compiler,
             voxel_dim,
             chunk_dim,
+            visible_chunk_dim,
             octree_buffer_size,
         );
 
         let chunk_data_builder = ChunkDataBuilder::new(
             &vulkan_context,
             shader_compiler,
+            command_pool,
             descriptor_pool.clone(),
             &resources,
         );
@@ -70,6 +73,7 @@ impl Builder {
             &vulkan_context,
             shader_compiler,
             descriptor_pool.clone(),
+            command_pool,
             &resources,
             octree_buffer_size,
         );
@@ -101,8 +105,6 @@ impl Builder {
             }
             positions
         };
-
-        ChunkDataBuilder::clear_atlas(&self.vulkan_context, command_pool, &self.resources);
 
         // first init raw chunk data
         let timer = Timer::new();

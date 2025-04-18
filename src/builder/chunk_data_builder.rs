@@ -21,6 +21,7 @@ impl ChunkDataBuilder {
     pub fn new(
         vulkan_context: &VulkanContext,
         shader_compiler: &ShaderCompiler,
+        command_pool: &CommandPool,
         descriptor_pool: DescriptorPool,
         resources: &Resources,
     ) -> Self {
@@ -50,28 +51,29 @@ impl ChunkDataBuilder {
             ),
         ]);
 
+        init_atlas(vulkan_context, command_pool, resources);
+        fn init_atlas(
+            vulkan_context: &VulkanContext,
+            command_pool: &CommandPool,
+            resources: &Resources,
+        ) {
+            execute_one_time_command(
+                vulkan_context.device(),
+                command_pool,
+                &vulkan_context.get_general_queue(),
+                |cmdbuf| {
+                    resources
+                        .raw_atlas_tex()
+                        .get_image()
+                        .record_clear(cmdbuf, Some(vk::ImageLayout::GENERAL));
+                },
+            );
+        }
+
         Self {
             chunk_init_ppl,
             chunk_init_ds,
         }
-    }
-
-    pub fn clear_atlas(
-        vulkan_context: &VulkanContext,
-        command_pool: &CommandPool,
-        resources: &Resources,
-    ) {
-        execute_one_time_command(
-            vulkan_context.device(),
-            command_pool,
-            &vulkan_context.get_general_queue(),
-            |cmdbuf| {
-                resources
-                    .raw_atlas_tex()
-                    .get_image()
-                    .record_clear(cmdbuf, Some(vk::ImageLayout::TRANSFER_DST_OPTIMAL));
-            },
-        );
     }
 
     pub fn build(

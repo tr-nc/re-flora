@@ -52,10 +52,16 @@ impl InternalSharedResources {
 
 pub struct ExternalSharedResources {
     pub octree_data: Buffer,
+    pub octree_offset_atlas_tex: Texture,
 }
 
 impl ExternalSharedResources {
-    fn new(device: Device, allocator: Allocator, octree_buffer_size: u64) -> Self {
+    fn new(
+        device: Device,
+        allocator: Allocator,
+        octree_buffer_size: u64,
+        visible_chunk_dim: UVec3,
+    ) -> Self {
         let octree_data = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
@@ -65,7 +71,26 @@ impl ExternalSharedResources {
             gpu_allocator::MemoryLocation::GpuOnly,
             octree_buffer_size,
         );
-        Self { octree_data }
+
+        let octree_offset_atlas_tex_desc = TextureDesc {
+            extent: visible_chunk_dim.to_array(),
+            format: vk::Format::R32_UINT, // TODO: maybe extend this into 64 bit later for more octree data
+            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        let octree_offset_atlas_tex = Texture::new(
+            device.clone(),
+            allocator.clone(),
+            &octree_offset_atlas_tex_desc,
+            &Default::default(),
+        );
+
+        Self {
+            octree_data,
+            octree_offset_atlas_tex,
+        }
     }
 }
 
@@ -264,6 +289,7 @@ impl Resources {
         shader_compiler: &crate::util::ShaderCompiler,
         voxel_dim: UVec3,
         chunk_dim: UVec3,
+        visible_chunk_dim: UVec3,
         octree_buffer_size: u64,
     ) -> Self {
         // Load all needed shader modules for buffer layouts
@@ -307,8 +333,12 @@ impl Resources {
             &frag_list_maker_sm,
         );
 
-        let external_shared_resources =
-            ExternalSharedResources::new(device.clone(), allocator.clone(), octree_buffer_size);
+        let external_shared_resources = ExternalSharedResources::new(
+            device.clone(),
+            allocator.clone(),
+            octree_buffer_size,
+            visible_chunk_dim,
+        );
 
         let chunk_init = ChunkInitResources::new(device.clone(), allocator.clone(), &chunk_init_sm);
 
@@ -385,5 +415,9 @@ impl Resources {
 
     pub fn octree_build_result(&self) -> &Buffer {
         &self.octree.octree_build_result
+    }
+
+    pub fn octree_offset_atlas_tex(&self) -> &Texture {
+        &self.external_shared_resources.octree_offset_atlas_tex
     }
 }

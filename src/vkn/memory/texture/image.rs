@@ -1,5 +1,8 @@
-use super::TextureDesc;
-use crate::vkn::{Allocator, CommandBuffer, Device};
+use super::{TextureDesc, TextureRegion};
+use crate::vkn::{
+    execute_one_time_command, Allocator, Buffer, BufferUsage, CommandBuffer, CommandPool, Device,
+    Queue,
+};
 use ash::vk::{self, ImageLayout};
 use gpu_allocator::{
     vulkan::{Allocation, AllocationCreateDesc, AllocationScheme},
@@ -210,6 +213,129 @@ impl Image {
         );
 
         *layout_guard = target_layout;
+    }
+
+    pub fn fill_with_raw_u32(
+        &self,
+        queue: &Queue,
+        command_pool: &CommandPool,
+        region: TextureRegion,
+        data: &[u32],
+        dst_image_layout: Option<vk::ImageLayout>,
+    ) -> Result<(), String> {
+        let data_u8: &[u8] = unsafe {
+            std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * size_of::<u32>())
+        };
+        self.fill_with_raw_u8(queue, command_pool, region, data_u8, dst_image_layout)
+    }
+
+    /// Uploads an RGBA image to the texture. The image is transitioned into `dst_image_layout` after the copy.
+    ///
+    /// If `dst_image_layout` is `None`, the image is transitioned back to where it was before the copy.
+    pub fn fill_with_raw_u8(
+        &self,
+        queue: &Queue,
+        command_pool: &CommandPool,
+        region: TextureRegion,
+        data: &[u8],
+        dst_image_layout: Option<vk::ImageLayout>,
+    ) -> Result<(), String> {
+        let device = &self.0.device;
+
+        let buffer = Buffer::new_sized(
+            device.clone(),
+            self.get_allocator().clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_SRC),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            data.len() as _,
+        );
+        buffer
+            .fill(data)
+            .map_err(|e| format!("Failed to fill buffer: {}", e))?;
+
+        let target_layout = dst_image_layout.unwrap_or(self.get_layout());
+
+        execute_one_time_command(device, command_pool, queue, |cmdbuf| {
+            self.record_transition_barrier(cmdbuf, vk::ImageLayout::TRANSFER_DST_OPTIMAL);
+            let region = vk::BufferImageCopy::default()
+                .buffer_offset(0)
+                .buffer_row_length(0)
+                .buffer_image_height(0)
+                .image_subresource(vk::ImageSubresourceLayers {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    mip_level: 0,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                })
+                .image_offset(vk::Offset3D {
+                    x: region.offset[0],
+                    y: region.offset[1],
+                    z: region.offset[2],
+                })
+                .image_extent(vk::Extent3D {
+                    width: region.extent[0],
+                    height: region.extent[1],
+                    depth: region.extent[2],
+                });
+            unsafe {
+                device.cmd_copy_buffer_to_image(
+                    cmdbuf.as_raw(),
+                    buffer.as_raw(),
+                    self.as_raw(),
+                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                    &[region],
+                )
+            }
+            self.record_transition_barrier(cmdbuf, target_layout);
+        });
+        Ok(())
+    }
+
+    /// Obtain the image data from the texture of the full image region.
+    // TODO: Add support for regions and other formats.
+    #[allow(dead_code)]
+    pub fn fetch_data(&self, queue: &Queue, command_pool: &CommandPool) -> Result<Vec<u8>, String> {
+        let device = &self.0.device;
+
+        let buffer = Buffer::new_sized(
+            device.clone(),
+            self.get_allocator().clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
+            gpu_allocator::MemoryLocation::GpuToCpu,
+            self.get_size() as _,
+        );
+
+        execute_one_time_command(device, command_pool, queue, |cmdbuf| {
+            self.record_transition_barrier(cmdbuf, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
+            let region = vk::BufferImageCopy::default()
+                .buffer_offset(0)
+                .buffer_row_length(0)
+                .buffer_image_height(0)
+                .image_subresource(vk::ImageSubresourceLayers {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    mip_level: 0,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                })
+                .image_offset(vk::Offset3D { x: 0, y: 0, z: 0 })
+                .image_extent(vk::Extent3D {
+                    width: self.get_desc().extent[0],
+                    height: self.get_desc().extent[1],
+                    depth: self.get_desc().extent[2],
+                });
+            unsafe {
+                device.cmd_copy_image_to_buffer(
+                    cmdbuf.as_raw(),
+                    self.as_raw(),
+                    vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                    buffer.as_raw(),
+                    &[region],
+                )
+            }
+        });
+
+        let fetched_data = buffer.fetch_raw()?;
+        Ok(fetched_data)
     }
 
     pub fn get_layout(&self) -> vk::ImageLayout {

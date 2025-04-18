@@ -239,8 +239,7 @@ impl Buffer {
         let data_u8: &[u8] = unsafe {
             std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * size_of::<u32>())
         };
-        self.fill_with_raw_u8(data_u8)?;
-        Ok(())
+        self.fill_with_raw_u8(data_u8)
     }
 
     /// Fills the buffer with generic typed data.

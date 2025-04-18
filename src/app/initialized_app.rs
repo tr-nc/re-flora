@@ -101,13 +101,15 @@ impl InitializedApp {
             },
         );
 
+        let chunk_dim = UVec3::new(5, 1, 5); // 2GB of Raw Data inside GPU is roughly 5^3 chunks of 256^3 voxels
         let mut builder = Builder::new(
             vulkan_context.clone(),
             allocator.clone(),
             &command_pool,
             &shader_compiler,
             UVec3::new(256, 256, 256),
-            UVec3::new(5, 1, 5), // 2GB of Raw Data inside GPU is roughly 5^3 chunks of 256^3 voxels
+            chunk_dim,
+            chunk_dim,
             2 * 1024 * 1024 * 1024, // 2GB of octree buffer size
         );
 
@@ -146,7 +148,7 @@ impl InitializedApp {
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {
         let window_descriptor = WindowStateDesc {
             title: "Re: Flora".to_owned(),
-            window_mode: WindowMode::Windowed,
+            window_mode: WindowMode::BorderlessFullscreen,
             cursor_locked: true,
             cursor_visible: false,
             ..Default::default()

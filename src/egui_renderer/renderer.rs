@@ -5,7 +5,7 @@ use crate::vkn::CommandPool;
 use crate::vkn::DescriptorSet;
 use crate::vkn::Queue;
 use crate::vkn::TextureDesc;
-use crate::vkn::TextureRegion2d;
+use crate::vkn::TextureRegion;
 use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
 use crate::vkn::{
@@ -202,16 +202,19 @@ impl EguiRenderer {
             if let Some([offset_x, offset_y]) = delta.pos {
                 let texture = self.managed_textures.get_mut(id).unwrap();
 
+                let region = TextureRegion {
+                    offset: [offset_x as _, offset_y as _, 0],
+                    extent: [width, height, 1],
+                };
+
                 texture
-                    .upload_rgba_image(
+                    .get_image()
+                    .fill_with_raw_u8(
                         queue,
                         &command_pool,
-                        vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-                        TextureRegion2d {
-                            offset: [offset_x as _, offset_y as _],
-                            extent: [width, height],
-                        },
+                        region,
                         data.as_slice(),
+                        Some(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL),
                     )
                     .unwrap();
             } else {
@@ -229,15 +232,13 @@ impl EguiRenderer {
                     Texture::new(device.clone(), self.allocator.clone(), &tex_desc, &sam_desc);
 
                 texture
-                    .upload_rgba_image(
+                    .get_image()
+                    .fill_with_raw_u8(
                         queue,
                         &command_pool,
-                        vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-                        TextureRegion2d {
-                            offset: [0, 0],
-                            extent: [width, height],
-                        },
+                        TextureRegion::from_image(&texture.get_image()),
                         data.as_slice(),
+                        Some(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL),
                     )
                     .unwrap();
 
