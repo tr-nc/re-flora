@@ -160,7 +160,7 @@ impl Image {
         cmdbuf: &CommandBuffer,
         layout_after_clear: Option<vk::ImageLayout>,
     ) {
-        let final_layout = layout_after_clear.unwrap_or(self.get_current_layout());
+        let target_layout = layout_after_clear.unwrap_or(self.get_current_layout());
         const LAYOUT_USED_TO_CLEAR: vk::ImageLayout = vk::ImageLayout::GENERAL;
         self.record_transition_barrier(cmdbuf, LAYOUT_USED_TO_CLEAR);
 
@@ -184,7 +184,7 @@ impl Image {
                 }],
             );
         }
-        self.record_transition_barrier(cmdbuf, final_layout);
+        self.record_transition_barrier(cmdbuf, target_layout);
     }
 
     pub fn record_transition_barrier(
@@ -230,15 +230,15 @@ pub fn record_image_transition_barrier(
     device: &ash::Device,
     cmdbuf: vk::CommandBuffer,
     current_layout: vk::ImageLayout,
-    new_layout: vk::ImageLayout,
+    target_layout: vk::ImageLayout,
     image: vk::Image,
 ) {
     let (src_access_mask, src_stage) = map_src_stage_access_flags(current_layout);
-    let (dst_access_mask, dst_stage) = map_dst_stage_access_flags(new_layout);
+    let (dst_access_mask, dst_stage) = map_dst_stage_access_flags(target_layout);
 
     let barrier = vk::ImageMemoryBarrier::default()
         .old_layout(current_layout)
-        .new_layout(new_layout)
+        .new_layout(target_layout)
         .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
         .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
         .image(image)
