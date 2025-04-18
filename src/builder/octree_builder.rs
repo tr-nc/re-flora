@@ -17,6 +17,7 @@ use crate::vkn::ShaderModule;
 use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
 use ash::vk;
+use glam::IVec3;
 use glam::UVec3;
 
 pub struct OctreeBuilder {
@@ -33,7 +34,7 @@ pub struct OctreeBuilder {
     octree_alloc_node_ds: DescriptorSet,
     octree_modify_args_ds: DescriptorSet,
 
-    offset_table: HashMap<UVec3, u32>,
+    offset_table: HashMap<IVec3, u32>,
     octree_buffer_allocator: FirstFitAllocator,
 
     cmdbuf_table: HashMap<u32, CommandBuffer>,
@@ -343,7 +344,7 @@ impl OctreeBuilder {
         command_pool: &CommandPool,
         resources: &Resources,
         fragment_list_len: u32,
-        chunk_pos: UVec3,
+        chunk_pos: IVec3,
         voxel_dim: UVec3,
     ) {
         let device = vulkan_context.device();
@@ -390,7 +391,7 @@ impl OctreeBuilder {
         }
     }
 
-    fn allocate_chunk(&mut self, chunk_buffer_size: u64, chunk_pos: UVec3) -> u64 {
+    fn allocate_chunk(&mut self, chunk_buffer_size: u64, chunk_pos: IVec3) -> u64 {
         let allocation = self
             .octree_buffer_allocator
             .allocate(chunk_buffer_size)

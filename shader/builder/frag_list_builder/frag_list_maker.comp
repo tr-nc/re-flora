@@ -5,53 +5,79 @@
 #define GROUP_SIZE_3 (GROUP_SIZE * GROUP_SIZE * GROUP_SIZE)
 layout(local_size_x = GROUP_SIZE, local_size_y = GROUP_SIZE, local_size_z = GROUP_SIZE) in;
 
-layout(set = 0, binding = 0) readonly uniform U_FragListMakerInfo { uvec3 chunk_pos; }
-frag_list_maker_info;
+layout(set = 0, binding = 0) readonly buffer U_NeighborInfo { uint data[]; }
+neighbor_info;
+
+layout(set = 0, binding = 1) readonly buffer B_RawBlocks { uint data[]; }
+raw_blocks;
 
 // fragment_list_len is incremented atomically every time a new fragment is added
 // to the fragment list
-layout(set = 0, binding = 1) buffer B_FragListBuildResult { uint fragment_list_len; }
+layout(set = 0, binding = 2) buffer B_FragListBuildResult { uint fragment_list_len; }
 frag_list_build_result;
 
 // fragment list is appended with new fragments that satisfy certain conditions
 // (e.g. not occluded, solid, etc.), and is used to build the octree later
 // the cursor is determined by fragment_list_info.fragment_list_len
 #include "../../include/fragment_list_entry.glsl"
-layout(set = 0, binding = 2) writeonly buffer B_FragmentList { FragmentListEntry data[]; }
+layout(set = 0, binding = 3) writeonly buffer B_FragmentList { FragmentListEntry data[]; }
 fragment_list;
-
-layout(set = 0, binding = 3, r8ui) readonly uniform uimage3D raw_atlas;
 
 #include "../../include/config.glsl"
 #include "../../include/core/packer.glsl"
 #include "../../include/voxel_types.glsl"
 
+// Serialize 3D coordinates into a single uint value
+// Input: 3D coordinates where each component ranges from 0-2
+// Output: serialized value from 0-26
+uint serialize(ivec3 idx) { return idx.x + idx.y * 3 + idx.z * 9; }
+
 #define SHARED_SIZE (GROUP_SIZE + 4) // 4 for halo
 #define SHARED_SIZE_3 (SHARED_SIZE * SHARED_SIZE * SHARED_SIZE)
 shared uint shared_data[SHARED_SIZE][SHARED_SIZE][SHARED_SIZE];
 
-ivec3 shared_idx_to_atlas_idx(ivec3 shared_idx) {
-    const ivec3 chunk_base = ivec3(frag_list_maker_info.chunk_pos) * VOXEL_DIM;
-    const ivec3 group_base = ivec3(gl_WorkGroupID) * GROUP_SIZE - 2; // include halo
-    ivec3 atlas_idx        = shared_idx + group_base + chunk_base;
-    return atlas_idx;
-}
-
-ivec3 atlas_idx_to_shared_idx(ivec3 atlas_idx) {
-    const ivec3 chunk_base = ivec3(frag_list_maker_info.chunk_pos) * VOXEL_DIM;
-    const ivec3 group_base = ivec3(gl_WorkGroupID) * GROUP_SIZE - 2; // include halo
-    ivec3 shared_idx       = atlas_idx - group_base - chunk_base;
-    return shared_idx;
-}
-
-ivec3 local_idx_to_atlas_idx(ivec3 local_idx) {
-    const ivec3 chunk_base = ivec3(frag_list_maker_info.chunk_pos) * VOXEL_DIM;
-    return local_idx + chunk_base;
-}
-
 ivec3 local_idx_to_shared_idx(ivec3 local_idx) {
     const ivec3 group_base = ivec3(gl_WorkGroupID) * GROUP_SIZE - 2; // include halo
     return local_idx - group_base;
+}
+
+ivec3 shared_idx_to_local_idx(ivec3 shared_idx) {
+    const ivec3 group_base = ivec3(gl_WorkGroupID) * GROUP_SIZE - 2; // include halo
+    return shared_idx + group_base;
+}
+
+/// idx ranges from -1 to 1 in each axis
+uint get_chunk_offset_by_idx(ivec3 idx) { return neighbor_info.data[serialize(idx + 1)]; }
+
+ivec3 determine_neighbor_idx(ivec3 local_idx) {
+    ivec3 neighbor_idx = ivec3(0);
+
+    bvec3 below_mask = lessThan(local_idx, ivec3(0));
+    bvec3 above_mask = greaterThanEqual(local_idx, ivec3(VOXEL_DIM));
+
+    neighbor_idx -= ivec3(below_mask);
+    neighbor_idx += ivec3(above_mask);
+
+    return neighbor_idx;
+}
+
+/// Wrap coord into 0…dim-1
+ivec3 wrap_coord(ivec3 c) { return (c + VOXEL_DIM) % VOXEL_DIM; }
+
+uint vidx_to_linear(ivec3 p) {
+    return uint(p.x) + uint(p.y) * VOXEL_DIM + uint(p.z) * VOXEL_DIM * VOXEL_DIM;
+}
+
+uint get_voxel_type(uint read_offset, ivec3 idx) {
+    uint v           = vidx_to_linear(idx) + read_offset;
+    uint uint_offset = v / 4u;
+    uint byte_offset = (v % 4u) * 8u;
+
+    uint data = raw_blocks.data[uint_offset];
+    data >>= byte_offset;
+    data &= 0xFF; // mask to get the last 8 bits
+
+    return data;
 }
 
 void preload() {
@@ -65,10 +91,13 @@ void preload() {
         shared_idx.y = (linear_idx / SHARED_SIZE) % SHARED_SIZE;
         shared_idx.z = linear_idx / (SHARED_SIZE * SHARED_SIZE);
 
-        ivec3 atlas_idx = shared_idx_to_atlas_idx(ivec3(shared_idx));
-        uint val        = imageLoad(raw_atlas, atlas_idx).r;
+        ivec3 local_idx = shared_idx_to_local_idx(ivec3(shared_idx));
 
-        shared_data[shared_idx.x][shared_idx.y][shared_idx.z] = val;
+        uint read_offset = get_chunk_offset_by_idx(determine_neighbor_idx(local_idx));
+        ivec3 wrapped    = wrap_coord(local_idx);
+
+        shared_data[shared_idx.x][shared_idx.y][shared_idx.z] =
+            get_voxel_type(read_offset, wrapped);
     }
 }
 
@@ -160,12 +189,12 @@ void main() {
         return;
     }
 
-    if (is_occluded(uvi)) {
+    uint voxel_type = voxel_at_local_idx(uvi);
+    if (!is_solid(voxel_type)) {
         return;
     }
 
-    uint voxel_type = voxel_at_local_idx(uvi);
-    if (!is_solid(voxel_type)) {
+    if (is_occluded(uvi)) {
         return;
     }
 

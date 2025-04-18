@@ -1,9 +1,9 @@
-use crate::vkn::{Allocator, Buffer, BufferUsage, Device, ShaderModule, Texture, TextureDesc};
+use crate::vkn::{Allocator, Buffer, BufferUsage, Device, ShaderModule};
 use ash::vk;
 use glam::UVec3;
 
 pub struct InternalSharedResources {
-    pub raw_atlas_tex: Texture,
+    pub raw_voxels: Buffer,
     pub fragment_list: Buffer,
 }
 
@@ -15,17 +15,19 @@ impl InternalSharedResources {
         chunk_dim: UVec3,
         frag_list_maker_sm: &ShaderModule,
     ) -> Self {
-        let raw_atlas_dim: UVec3 = voxel_dim * chunk_dim;
-        let tex_desc = TextureDesc {
-            extent: raw_atlas_dim.to_array(),
-            format: vk::Format::R8_UINT,
-            usage: vk::ImageUsageFlags::STORAGE,
-            initial_layout: vk::ImageLayout::UNDEFINED,
-            aspect: vk::ImageAspectFlags::COLOR,
-            ..Default::default()
-        };
-        let sam_desc = Default::default();
-        let raw_atlas_tex = Texture::new(device.clone(), allocator.clone(), &tex_desc, &sam_desc);
+        let raw_voxels_size: u64 = voxel_dim.x as u64
+            * voxel_dim.y as u64
+            * voxel_dim.z as u64
+            * chunk_dim.x as u64
+            * chunk_dim.y as u64
+            * chunk_dim.z as u64;
+        let raw_voxels = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            gpu_allocator::MemoryLocation::GpuOnly,
+            raw_voxels_size,
+        );
 
         let max_possible_voxel_count = voxel_dim.x * voxel_dim.y * voxel_dim.z;
         let fragment_list_buf_layout = frag_list_maker_sm
@@ -44,7 +46,7 @@ impl InternalSharedResources {
         );
 
         Self {
-            raw_atlas_tex,
+            raw_voxels,
             fragment_list,
         }
     }
@@ -90,17 +92,12 @@ impl ChunkInitResources {
 
 pub struct FragListResources {
     pub voxel_dim_indirect: Buffer,
-    pub frag_list_maker_info: Buffer,
+    pub neighbor_info: Buffer,
     pub frag_list_build_result: Buffer,
 }
 
 impl FragListResources {
-    pub fn new(
-        device: Device,
-        allocator: Allocator,
-        frag_init_buffers_sm: &ShaderModule,
-        frag_list_maker_sm: &ShaderModule,
-    ) -> Self {
+    pub fn new(device: Device, allocator: Allocator, frag_init_buffers_sm: &ShaderModule) -> Self {
         let voxel_dim_indirect_layout = frag_init_buffers_sm
             .get_buffer_layout("B_VoxelDimIndirect")
             .unwrap();
@@ -112,15 +109,13 @@ impl FragListResources {
             gpu_allocator::MemoryLocation::GpuOnly,
         );
 
-        let frag_list_maker_info_layout = frag_list_maker_sm
-            .get_buffer_layout("U_FragListMakerInfo")
-            .unwrap();
-        let frag_list_maker_info = Buffer::from_struct_layout(
+        const NEIGHBOR_SIZE: u64 = 3 * 3 * 3 * std::mem::size_of::<u32>() as u64;
+        let neighbor_info = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
-            frag_list_maker_info_layout.clone(),
-            BufferUsage::empty(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
             gpu_allocator::MemoryLocation::CpuToGpu,
+            NEIGHBOR_SIZE,
         );
 
         let frag_list_build_result = frag_init_buffers_sm
@@ -136,7 +131,7 @@ impl FragListResources {
 
         Self {
             voxel_dim_indirect,
-            frag_list_maker_info,
+            neighbor_info,
             frag_list_build_result,
         }
     }
@@ -312,12 +307,8 @@ impl Resources {
 
         let chunk_init = ChunkInitResources::new(device.clone(), allocator.clone(), &chunk_init_sm);
 
-        let frag_list = FragListResources::new(
-            device.clone(),
-            allocator.clone(),
-            &frag_init_buffers_sm,
-            &frag_list_maker_sm,
-        );
+        let frag_list =
+            FragListResources::new(device.clone(), allocator.clone(), &frag_init_buffers_sm);
 
         let octree =
             OctreeResources::new(device.clone(), allocator.clone(), &octree_init_buffers_sm);
@@ -339,16 +330,16 @@ impl Resources {
         &self.frag_list.voxel_dim_indirect
     }
 
-    pub fn raw_atlas_tex(&self) -> &Texture {
-        &self.internal_shared_resources.raw_atlas_tex
+    pub fn raw_voxels(&self) -> &Buffer {
+        &self.internal_shared_resources.raw_voxels
     }
 
     pub fn fragment_list(&self) -> &Buffer {
         &self.internal_shared_resources.fragment_list
     }
 
-    pub fn frag_list_maker_info(&self) -> &Buffer {
-        &self.frag_list.frag_list_maker_info
+    pub fn neighbor_info(&self) -> &Buffer {
+        &self.frag_list.neighbor_info
     }
 
     pub fn octree_data_single(&self) -> &Buffer {
