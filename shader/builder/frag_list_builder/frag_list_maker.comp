@@ -1,7 +1,12 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 
-layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+#define GROUP_SIZE 8
+#define GROUP_SIZE_3 (GROUP_SIZE * GROUP_SIZE * GROUP_SIZE)
+layout(local_size_x = GROUP_SIZE, local_size_y = GROUP_SIZE, local_size_z = GROUP_SIZE) in;
+
+layout(set = 0, binding = 4) readonly uniform U_FragListMakerInfo { uvec3 chunk_pos; }
+frag_list_maker_info;
 
 layout(set = 0, binding = 0) readonly buffer U_NeighborInfo { uint data[]; }
 neighbor_info;
@@ -30,6 +35,39 @@ fragment_list;
 // Output: serialized value from 0-26
 uint serialize(ivec3 idx) { return idx.x + idx.y * 3 + idx.z * 9; }
 
+#define SHARED_SIZE (GROUP_SIZE + 4) // 4 for halo
+#define SHARED_SIZE_3 (SHARED_SIZE * SHARED_SIZE * SHARED_SIZE)
+shared uint shared_data[SHARED_SIZE][SHARED_SIZE][SHARED_SIZE];
+
+ivec3 shared_idx_to_atlas_idx(ivec3 shared_idx) {
+    const ivec3 chunk_base = ivec3(frag_list_maker_info.chunk_pos) * VOXEL_DIM;
+    const ivec3 group_base = ivec3(gl_WorkGroupID) * GROUP_SIZE - 2; // include halo
+    ivec3 atlas_idx        = shared_idx + group_base + chunk_base;
+    return atlas_idx;
+}
+
+ivec3 atlas_idx_to_shared_idx(ivec3 atlas_idx) {
+    const ivec3 chunk_base = ivec3(frag_list_maker_info.chunk_pos) * VOXEL_DIM;
+    const ivec3 group_base = ivec3(gl_WorkGroupID) * GROUP_SIZE - 2; // include halo
+    ivec3 shared_idx       = atlas_idx - group_base - chunk_base;
+    return shared_idx;
+}
+
+ivec3 local_idx_to_atlas_idx(ivec3 local_idx) {
+    const ivec3 chunk_base = ivec3(frag_list_maker_info.chunk_pos) * VOXEL_DIM;
+    return local_idx + chunk_base;
+}
+
+ivec3 local_idx_to_shared_idx(ivec3 local_idx) {
+    const ivec3 group_base = ivec3(gl_WorkGroupID) * GROUP_SIZE - 2; // include halo
+    return local_idx - group_base;
+}
+
+ivec3 shared_idx_to_local_idx(ivec3 shared_idx) {
+    const ivec3 group_base = ivec3(gl_WorkGroupID) * GROUP_SIZE - 2; // include halo
+    return shared_idx + group_base;
+}
+
 /// idx ranges from -1 to 1 in each axis
 bool get_chunk_offset_by_idx(out uint o_offset, ivec3 idx) {
     uint serialized = serialize(idx + 1);
@@ -37,17 +75,11 @@ bool get_chunk_offset_by_idx(out uint o_offset, ivec3 idx) {
     return o_offset != 0xFFFFFFFF;
 }
 
-bool is_solid(uint voxel_type) { return voxel_type != VOXEL_TYPE_EMPTY; }
-
-uint vidx_to_linear(ivec3 p, ivec3 dim) {
-    return uint(p.x) + uint(p.y) * uint(dim.x) + uint(p.z) * uint(dim.x * dim.y);
-}
-
-ivec3 determine_neighbor_idx(ivec3 idx, ivec3 voxel_dim) {
+ivec3 determine_neighbor_idx(ivec3 local_idx) {
     ivec3 neighbor_idx = ivec3(0);
 
-    bvec3 below_mask = lessThan(idx, ivec3(0));
-    bvec3 above_mask = greaterThanEqual(idx, voxel_dim);
+    bvec3 below_mask = lessThan(local_idx, ivec3(0));
+    bvec3 above_mask = greaterThanEqual(local_idx, ivec3(VOXEL_DIM));
 
     neighbor_idx -= ivec3(below_mask);
     neighbor_idx += ivec3(above_mask);
@@ -55,8 +87,15 @@ ivec3 determine_neighbor_idx(ivec3 idx, ivec3 voxel_dim) {
     return neighbor_idx;
 }
 
-uint get_voxel_type(uint read_offset, ivec3 idx, ivec3 voxel_dim) {
-    uint v           = vidx_to_linear(idx, voxel_dim) + read_offset;
+/// Wrap coord into 0…dim-1
+ivec3 wrap_coord(ivec3 c) { return (c + VOXEL_DIM) % VOXEL_DIM; }
+
+uint vidx_to_linear(ivec3 p) {
+    return uint(p.x) + uint(p.y) * VOXEL_DIM + uint(p.z) * VOXEL_DIM * VOXEL_DIM;
+}
+
+uint get_voxel_type(uint read_offset, ivec3 idx) {
+    uint v           = vidx_to_linear(idx) + read_offset;
     uint uint_offset = v / 4u;
     uint byte_offset = (v % 4u) * 8u;
 
@@ -67,12 +106,43 @@ uint get_voxel_type(uint read_offset, ivec3 idx, ivec3 voxel_dim) {
     return data;
 }
 
-/// Wrap coord into 0…dim-1
-ivec3 wrap_coord(ivec3 c, ivec3 dim) { return (c + dim) % dim; }
+void preload() {
+    // load operations from any texel that is outside of the boundaries of the bound image will
+    // return all zeros
+    for (uint linear_idx = gl_LocalInvocationIndex; linear_idx < SHARED_SIZE_3;
+         linear_idx += GROUP_SIZE_3) {
+
+        uvec3 shared_idx;
+        shared_idx.x = linear_idx % SHARED_SIZE;
+        shared_idx.y = (linear_idx / SHARED_SIZE) % SHARED_SIZE;
+        shared_idx.z = linear_idx / (SHARED_SIZE * SHARED_SIZE);
+
+        ivec3 local_idx = shared_idx_to_local_idx(ivec3(shared_idx));
+
+        ivec3 neighbor_idx = determine_neighbor_idx(local_idx);
+        uint read_offset;
+        uint val = 0;
+        if (!get_chunk_offset_by_idx(read_offset, neighbor_idx)) {
+            val = VOXEL_TYPE_EMPTY;
+        } else {
+            ivec3 wrapped = wrap_coord(local_idx);
+            val           = get_voxel_type(read_offset, wrapped);
+        }
+
+        shared_data[shared_idx.x][shared_idx.y][shared_idx.z] = val;
+    }
+}
+
+bool is_solid(uint voxel_type) { return voxel_type != VOXEL_TYPE_EMPTY; }
+
+uint voxel_at_local_idx(ivec3 local_idx) {
+    ivec3 shared_idx = local_idx_to_shared_idx(local_idx);
+    return shared_data[shared_idx.x][shared_idx.y][shared_idx.z];
+}
 
 /// Check if a block is occluded by its neighbours.
 /// A block is occluded if all of its neighbours are solid.
-bool is_occluded(ivec3 uvi, ivec3 voxel_dim) {
+bool is_occluded(ivec3 uvi) {
     ivec3 neighbours_to_check[6] = {
         ivec3(1, 0, 0),  ivec3(-1, 0, 0), ivec3(0, 1, 0),
         ivec3(0, -1, 0), ivec3(0, 0, 1),  ivec3(0, 0, -1),
@@ -81,16 +151,7 @@ bool is_occluded(ivec3 uvi, ivec3 voxel_dim) {
     for (int i = 0; i < 6; i++) {
         ivec3 cur = uvi + neighbours_to_check[i];
 
-        ivec3 neighbor_idx = determine_neighbor_idx(cur, voxel_dim);
-
-        uint read_offset;
-        uint voxel_type = 0;
-        if (!get_chunk_offset_by_idx(read_offset, neighbor_idx)) {
-            voxel_type = VOXEL_TYPE_EMPTY;
-        } else {
-            ivec3 wrapped = wrap_coord(cur, voxel_dim);
-            voxel_type    = get_voxel_type(read_offset, wrapped, voxel_dim);
-        }
+        uint voxel_type = voxel_at_local_idx(cur);
 
         if (!is_solid(voxel_type)) {
             return false;
@@ -112,19 +173,11 @@ vec3 calculate_normal(ivec3 uvi, ivec3 voxel_dim) {
 
                 // center voxel is not skipped for performance reasons
 
-                ivec3 cur          = uvi + offset;
-                ivec3 neighbor_idx = determine_neighbor_idx(cur, voxel_dim);
-
-                uint read_offset;
-                uint voxel_type = 0;
-                if (!get_chunk_offset_by_idx(read_offset, neighbor_idx)) {
-                    voxel_type = VOXEL_TYPE_EMPTY;
-                } else {
-                    ivec3 wrapped = wrap_coord(cur, voxel_dim);
-                    voxel_type    = get_voxel_type(read_offset, wrapped, voxel_dim);
-                }
+                ivec3 cur       = uvi + offset;
+                uint voxel_type = voxel_at_local_idx(cur);
 
                 // no weighting is applied for the normal calculation
+
                 if (is_solid(voxel_type)) {
                     normal += vec3(offset);
                 }
@@ -159,21 +212,21 @@ FragmentListEntry make_fragment_list_entry(ivec3 coord, uint voxel_type, vec3 no
 }
 
 void main() {
+    preload();
+    barrier();
+
     ivec3 uvi       = ivec3(gl_GlobalInvocationID);
     ivec3 voxel_dim = ivec3(VOXEL_DIM);
     if (any(greaterThanEqual(uvi, voxel_dim))) {
         return;
     }
 
-    // Cache the block type so we don't perform multiple image loads.
-    uint read_offset;
-    // this won't fail because we are asking for the current chunk's offset
-    get_chunk_offset_by_idx(read_offset, ivec3(0));
-    uint voxel_type = get_voxel_type(read_offset, uvi, voxel_dim);
-    if (!is_solid(voxel_type)) {
+    if (is_occluded(uvi)) {
         return;
     }
-    if (is_occluded(uvi, voxel_dim)) {
+
+    uint voxel_type = voxel_at_local_idx(uvi);
+    if (!is_solid(voxel_type)) {
         return;
     }
 
