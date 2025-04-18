@@ -15,16 +15,6 @@ impl InternalSharedResources {
         chunk_dim: UVec3,
         frag_list_maker_sm: &ShaderModule,
     ) -> Self {
-        // let raw_voxels_size: u64 =
-        //     voxel_dim.x as u64 * voxel_dim.y as u64 * voxel_dim.z as u64 * max_raw_chunks as u64;
-        // let raw_voxels = Buffer::new_sized(
-        //     device.clone(),
-        //     allocator.clone(),
-        //     BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
-        //     gpu_allocator::MemoryLocation::GpuOnly,
-        //     raw_voxels_size,
-        // );
-
         let raw_atlas_dim: UVec3 = voxel_dim * chunk_dim;
         let tex_desc = TextureDesc {
             extent: raw_atlas_dim.to_array(),
