@@ -87,8 +87,8 @@ impl Builder {
     }
 
     // current benchmark results:
-    // 14:14:38.672Z INFO  [re_flora::builder::builder] Average chunk init time: 5.045212ms
-    // 14:14:38.673Z INFO  [re_flora::builder::builder] Average fragment + octree time: 1.49676ms
+    // 14:14:38.672Z INFO  [re_flora::builder::builder] Average chunk init time: 4.794448ms
+    // 14:14:38.673Z INFO  [re_flora::builder::builder] Average fragment + octree time: 1.551188ms
 
     pub fn init_chunks(&mut self, command_pool: &CommandPool) {
         // first init raw chunk data
