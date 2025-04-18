@@ -234,6 +234,7 @@ impl Buffer {
     /// * `Ok(())` if the operation was successful
     /// * `Err` with a description if the data size doesn't match the buffer size
     ///  or if memory mapping failed
+    #[allow(dead_code)]
     pub fn fill_with_raw_u32(&self, data: &[u32]) -> Result<(), String> {
         let data_u8: &[u8] = unsafe {
             std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * size_of::<u32>())

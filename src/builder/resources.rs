@@ -19,7 +19,7 @@ impl InternalSharedResources {
         let tex_desc = TextureDesc {
             extent: raw_atlas_dim.to_array(),
             format: vk::Format::R8_UINT,
-            usage: vk::ImageUsageFlags::STORAGE,
+            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
             initial_layout: vk::ImageLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()

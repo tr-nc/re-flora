@@ -155,6 +155,31 @@ impl Image {
         }
     }
 
+    pub fn record_clear(&self, cmdbuf: &CommandBuffer) {
+        self.record_transition_barrier(cmdbuf, vk::ImageLayout::GENERAL);
+
+        let clear_value = vk::ClearColorValue {
+            float32: [0.0, 0.0, 0.0, 0.0],
+        };
+        // imageLayout specifies the current layout of the image subresource ranges to be cleared,
+        // and must be VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR, VK_IMAGE_LAYOUT_GENERAL or VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL.
+        unsafe {
+            self.0.device.cmd_clear_color_image(
+                cmdbuf.as_raw(),
+                self.0.image,
+                vk::ImageLayout::GENERAL,
+                &clear_value,
+                &[vk::ImageSubresourceRange {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    base_mip_level: 0,
+                    level_count: 1,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                }],
+            );
+        }
+    }
+
     pub fn record_transition_barrier(&self, cmdbuf: &CommandBuffer, new_layout: vk::ImageLayout) {
         let device = &self.0.device;
         let mut layout_guard = self.0.current_layout.lock().unwrap();

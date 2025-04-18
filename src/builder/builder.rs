@@ -2,6 +2,7 @@ use super::chunk_data_builder::ChunkDataBuilder;
 use super::frag_list_builder::FragListBuilder;
 use super::octree_builder::OctreeBuilder;
 use super::Resources;
+use crate::builder::chunk_data_builder;
 use crate::util::ShaderCompiler;
 use crate::util::Timer;
 use crate::vkn::Allocator;
@@ -9,7 +10,6 @@ use crate::vkn::Buffer;
 use crate::vkn::CommandPool;
 use crate::vkn::DescriptorPool;
 use crate::vkn::VulkanContext;
-use glam::IVec3;
 use glam::UVec3;
 
 pub struct Builder {
@@ -102,6 +102,8 @@ impl Builder {
             }
             positions
         };
+
+        ChunkDataBuilder::clear_atlas(&self.vulkan_context, command_pool, &self.resources);
 
         // first init raw chunk data
         let timer = Timer::new();
