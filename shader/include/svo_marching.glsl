@@ -1,3 +1,6 @@
+
+//! Input: uint data[] inside a buffer named octree_data
+
 #ifndef SVO_MARCHING_GLSL
 #define SVO_MARCHING_GLSL
 
@@ -26,12 +29,11 @@ struct StackItem {
 // need two bits (isLeaf and hasChild), this is different from the paper, which needs 16 bits
 // for that
 
-bool _svo_marching(out float o_t, out uint o_iter, out vec3 o_color, out vec3 o_position,
-                   out vec3 o_next_tracing_position, out vec3 o_normal, out uint o_vox_hash,
-                   out bool o_light_source_hit, vec3 o, vec3 d, uint chunk_buffer_offset) {
-    uint parent   = 0;
-    uint iter     = 0;
-    uint vox_hash = 0;
+bool _svo_marching(out float o_t, out uint o_iter, out uint o_voxel_type, out vec3 o_hit_pos,
+                   out vec3 o_next_ray_start_pos, out vec3 o_normal, out uint o_voxel_hash, vec3 o,
+                   vec3 d, uint octree_buffer_offset) {
+    uint parent = 0;
+    o_iter      = 0;
 
     vec3 t_coef = 1 / -abs(d);
     vec3 t_bias = t_coef * o;
@@ -65,11 +67,13 @@ bool _svo_marching(out float o_t, out uint o_iter, out vec3 o_color, out vec3 o_
     float scale_exp2 = 0.5;
 
     while (scale < STACK_SIZE) {
-        ++iter;
+        ++o_iter;
 
         // parent pointer is the address of first largest sub-octree (8 in total) of the parent
-        vox_hash = parent + (idx ^ oct_mask);
-        if (cur == 0u) cur = octree_data.data[vox_hash + chunk_buffer_offset];
+        o_voxel_hash = parent + (idx ^ oct_mask) + octree_buffer_offset;
+        if (cur == 0u) {
+            cur = octree_data.data[o_voxel_hash];
+        }
 
         vec3 t_corner = pos * t_coef - t_bias;
         float tc_max  = min(min(t_corner.x, t_corner.y), t_corner.z);
@@ -166,46 +170,47 @@ bool _svo_marching(out float o_t, out uint o_iter, out vec3 o_color, out vec3 o_
     if ((oct_mask & 4u) != 0u) pos.z = 3 - scale_exp2 - pos.z;
 
     // output results
-    o_position = clamp(o + t_min * d, pos, pos + scale_exp2);
-    if (norm.x != 0) o_position.x = norm.x > 0 ? pos.x + scale_exp2 + EPSILON : pos.x - EPSILON;
-    if (norm.y != 0) o_position.y = norm.y > 0 ? pos.y + scale_exp2 + EPSILON : pos.y - EPSILON;
-    if (norm.z != 0) o_position.z = norm.z > 0 ? pos.z + scale_exp2 + EPSILON : pos.z - EPSILON;
+    o_hit_pos = clamp(o + t_min * d, pos, pos + scale_exp2);
+    if (norm.x != 0) o_hit_pos.x = norm.x > 0 ? pos.x + scale_exp2 + EPSILON : pos.x - EPSILON;
+    if (norm.y != 0) o_hit_pos.y = norm.y > 0 ? pos.y + scale_exp2 + EPSILON : pos.y - EPSILON;
+    if (norm.z != 0) o_hit_pos.z = norm.z > 0 ? pos.z + scale_exp2 + EPSILON : pos.z - EPSILON;
     // o_normal = norm;
 
     // scale_exp2 is the length of the edges of the voxel
     o_normal = unpack_normal_v2((cur & 0x1FFFFF00u) >> 8);
 
-    o_next_tracing_position = pos + scale_exp2 * 0.5 + 0.87 * scale_exp2 * o_normal;
-    // o_next_tracing_position = o_position + 1e-7 * norm;
+    o_next_ray_start_pos = pos + scale_exp2 * 0.5 + 0.87 * scale_exp2 * o_normal;
+    // o_next_ray_start_pos = o_hit_pos + 1e-7 * norm;
 
-    o_light_source_hit = false;
-
-    uint block_type = cur & 0xFF;
-
-    // o_color = getBlockColor(block_type);
-    // o_color = o_normal * 0.5 + 0.5;
-    o_color = vec3(0.5, 0.5, 0.5);
-
-    o_iter     = iter;
-    o_vox_hash = vox_hash;
-    o_t        = t_min;
+    o_voxel_type = cur & 0xFF;
+    o_t          = t_min;
 
     return scale < STACK_SIZE && t_min <= t_max;
 }
 
-bool svo_marching(out float o_t, out uint o_iter, out vec3 o_color, out vec3 o_position,
-                  out vec3 o_next_tracing_position, out vec3 o_normal, out uint o_vox_hash,
-                  out bool o_light_source_hit, vec3 o, vec3 d, uint chunk_buffer_offset) {
+struct SvoMarchingResult {
+    bool hit;
+    float t;
+    uint iter;
+    uint voxel_type;
+    vec3 hit_pos;
+    vec3 next_ray_start_pos;
+    vec3 normal;
+    uint voxel_hash;
+};
+
+SvoMarchingResult svo_marching(vec3 o, vec3 d, uint octree_buffer_offset) {
     const vec3 pre_offset = vec3(1);
     o += pre_offset;
 
-    bool hit = _svo_marching(o_t, o_iter, o_color, o_position, o_next_tracing_position, o_normal,
-                             o_vox_hash, o_light_source_hit, o, d, chunk_buffer_offset);
+    SvoMarchingResult result;
+    result.hit = _svo_marching(result.t, result.iter, result.voxel_type, result.hit_pos,
+                               result.next_ray_start_pos, result.normal, result.voxel_hash, o, d,
+                               octree_buffer_offset);
+    result.hit_pos -= pre_offset;
+    result.next_ray_start_pos -= pre_offset;
 
-    o_position -= pre_offset;
-    o_next_tracing_position -= pre_offset;
-
-    return hit;
+    return result;
 }
 
 #endif // SVO_MARCHING_GLSL
