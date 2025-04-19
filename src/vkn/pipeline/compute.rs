@@ -121,8 +121,4 @@ impl ComputePipeline {
                 .cmd_dispatch_indirect(cmdbuf.as_raw(), buffer.as_raw(), 0);
         }
     }
-
-    pub fn as_raw(&self) -> vk::Pipeline {
-        self.0.pipeline
-    }
 }

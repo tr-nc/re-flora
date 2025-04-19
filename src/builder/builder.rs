@@ -6,7 +6,6 @@ use super::Resources;
 use crate::util::ShaderCompiler;
 use crate::util::Timer;
 use crate::vkn::Allocator;
-use crate::vkn::Buffer;
 use crate::vkn::CommandPool;
 use crate::vkn::DescriptorPool;
 use crate::vkn::VulkanContext;
@@ -169,15 +168,7 @@ impl Builder {
         );
     }
 
-    pub fn get_octree_data(&self) -> &Buffer {
-        self.resources.octree_data()
-    }
-
     pub fn get_external_shared_resources(&self) -> &ExternalSharedResources {
         &self.resources.external_shared_resources
     }
-
-    // pub fn get_visible_chunk_dim(&self) -> UVec3 {
-    //     self.visible_chunk_dim
-    // }
 }

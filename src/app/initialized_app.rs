@@ -3,7 +3,7 @@ use crate::gameplay::{Camera, CameraDesc};
 use crate::tracer::Tracer;
 use crate::util::ShaderCompiler;
 use crate::util::TimeInfo;
-use crate::vkn::{Allocator, CommandBuffer, CommandPool, Fence, Semaphore};
+use crate::vkn::{Allocator, CommandBuffer, CommandPool, Fence, Semaphore, SwapchainDesc};
 use crate::{
     egui_renderer::EguiRenderer,
     vkn::{Swapchain, VulkanContext, VulkanContextDesc},
@@ -69,7 +69,10 @@ impl InitializedApp {
         let swapchain = Swapchain::new(
             &vulkan_context,
             &window_state.window_size(),
-            Default::default(),
+            SwapchainDesc {
+                present_mode: vk::PresentModeKHR::FIFO,
+                ..Default::default()
+            },
         );
 
         let image_available_semaphore = Semaphore::new(device);

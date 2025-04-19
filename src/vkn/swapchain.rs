@@ -13,9 +13,9 @@ use super::{
 ///
 /// Preferences are considered every time the swapchain is (re)created.
 pub struct SwapchainDesc {
-    format: vk::Format,
-    color_space: vk::ColorSpaceKHR,
-    present_mode: vk::PresentModeKHR,
+    pub format: vk::Format,
+    pub color_space: vk::ColorSpaceKHR,
+    pub present_mode: vk::PresentModeKHR,
 }
 
 impl Default for SwapchainDesc {
@@ -48,13 +48,9 @@ impl Drop for Swapchain {
 }
 
 impl Swapchain {
-    pub fn new(
-        context: &VulkanContext,
-        window_size: &[u32; 2],
-        swapchain_preference: SwapchainDesc,
-    ) -> Self {
+    pub fn new(context: &VulkanContext, window_size: &[u32; 2], desc: SwapchainDesc) -> Self {
         let (swapchain_device, swapchain_khr, image_views, render_pass, framebuffers) =
-            create_vulkan_swapchain(&context, window_size, &swapchain_preference);
+            create_vulkan_swapchain(&context, window_size, &desc);
 
         Self {
             vulkan_context: context.clone(),
@@ -63,7 +59,7 @@ impl Swapchain {
             image_views,
             swapchain_khr,
             swapchain_device,
-            desc: swapchain_preference,
+            desc,
         }
     }
 
