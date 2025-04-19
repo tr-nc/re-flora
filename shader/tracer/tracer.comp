@@ -54,7 +54,7 @@ void main() {
     // vec3 voxel_color = normal;
 
     vec4 out_color = vec4(0.0);
-    if (res.hit) {
+    if (res.is_hit) {
         out_color = vec4(voxel_color, 1.0);
     } else {
         out_color = vec4(0.0, 0.0, 0.0, 1.0);
