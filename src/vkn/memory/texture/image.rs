@@ -29,6 +29,13 @@ impl Drop for ImageInner {
     }
 }
 
+#[allow(dead_code)]
+pub enum ClearValue {
+    UInt([u32; 4]),
+    Float([f32; 4]),
+    Int([i32; 4]),
+}
+
 #[derive(Clone)]
 pub struct Image(Arc<ImageInner>);
 
@@ -162,14 +169,18 @@ impl Image {
         &self,
         cmdbuf: &CommandBuffer,
         layout_after_clear: Option<vk::ImageLayout>,
+        clear_value: ClearValue,
     ) {
         let target_layout = layout_after_clear.unwrap_or(self.get_layout());
         const LAYOUT_USED_TO_CLEAR: vk::ImageLayout = vk::ImageLayout::GENERAL;
         self.record_transition_barrier(cmdbuf, LAYOUT_USED_TO_CLEAR);
 
-        let clear_value = vk::ClearColorValue {
-            float32: [0.0, 0.0, 0.0, 0.0],
+        let clear_value = match clear_value {
+            ClearValue::UInt(v) => vk::ClearColorValue { uint32: v },
+            ClearValue::Float(v) => vk::ClearColorValue { float32: v },
+            ClearValue::Int(v) => vk::ClearColorValue { int32: v },
         };
+
         // imageLayout specifies the current layout of the image subresource ranges to be cleared,
         // and must be VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR, VK_IMAGE_LAYOUT_GENERAL or VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL.
         unsafe {

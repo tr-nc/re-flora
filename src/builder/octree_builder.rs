@@ -6,6 +6,7 @@ use crate::util::FirstFitAllocator;
 use crate::util::ShaderCompiler;
 use crate::vkn::execute_one_time_command;
 use crate::vkn::BufferBuilder;
+use crate::vkn::ClearValue;
 use crate::vkn::CommandBuffer;
 use crate::vkn::CommandPool;
 use crate::vkn::ComputePipeline;
@@ -191,7 +192,11 @@ impl OctreeBuilder {
                     resources
                         .octree_offset_atlas_tex()
                         .get_image()
-                        .record_clear(cmdbuf, Some(vk::ImageLayout::GENERAL));
+                        .record_clear(
+                            cmdbuf,
+                            Some(vk::ImageLayout::GENERAL),
+                            ClearValue::UInt([0, 0, 0, 0]),
+                        );
                 },
             );
         }
