@@ -8,11 +8,7 @@ bool _in_chunk_range(ivec3 pos, ivec3 visible_chunk_dim) {
     return all(greaterThanEqual(pos, ivec3(0))) && all(lessThan(pos, visible_chunk_dim));
 }
 
-uint _read_octree_offset(ivec3 chunk_idx) {
-    return imageLoad(octree_offset_atlas_tex, chunk_idx).x;
-}
-
-bool _has_chunk(ivec3 chunk_idx) { return _read_octree_offset(chunk_idx) != 0; }
+bool _has_chunk(ivec3 chunk_idx) { return imageLoad(octree_offset_atlas_tex, chunk_idx).x != 0; }
 
 // this function if used for continuous raymarching, where we need to save the last hit chunk
 bool dda_marching_with_save(out ivec3 o_chunk_idx, inout ivec3 map_pos, inout vec3 side_dist,

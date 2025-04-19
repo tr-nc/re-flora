@@ -204,8 +204,8 @@ SvoMarchingResult svo_marching(vec3 o, vec3 d, uint octree_buffer_offset) {
 
     SvoMarchingResult result;
     result.is_hit = _svo_marching(result.t, result.iter, result.voxel_type, result.hit_pos,
-                               result.next_ray_start_pos, result.normal, result.voxel_hash,
-                               o + pre_offset, d, octree_buffer_offset);
+                                  result.next_ray_start_pos, result.normal, result.voxel_hash,
+                                  o + pre_offset, d, octree_buffer_offset);
     result.hit_pos -= pre_offset;
     result.next_ray_start_pos -= pre_offset;
 
