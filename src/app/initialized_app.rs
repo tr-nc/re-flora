@@ -70,7 +70,7 @@ impl InitializedApp {
             &vulkan_context,
             &window_state.window_size(),
             SwapchainDesc {
-                present_mode: vk::PresentModeKHR::FIFO,
+                present_mode: vk::PresentModeKHR::MAILBOX,
                 ..Default::default()
             },
         );
