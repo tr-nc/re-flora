@@ -118,7 +118,8 @@ impl InitializedApp {
             allocator.clone(),
             &shader_compiler,
             &screen_extent,
-            builder.get_octree_data(),
+            chunk_dim,
+            builder.get_external_shared_resources(),
         );
 
         builder.init_chunks(&command_pool);
@@ -288,8 +289,7 @@ impl InitializedApp {
                         .expect("Failed to reset fences")
                 };
 
-                self.tracer
-                    .update_uniform_buffers(&self.camera, self.slider_val);
+                self.tracer.update_uniforms(&self.camera, self.slider_val);
 
                 let cmdbuf = &self.cmdbuf;
                 cmdbuf.begin(false);
@@ -387,7 +387,7 @@ impl InitializedApp {
 
         self.camera.on_resize(&window_size);
         self.tracer
-            .on_resize(&window_size, self.builder.get_octree_data());
+            .on_resize(&window_size, self.builder.get_external_shared_resources());
         self.swapchain.on_resize(&window_size);
 
         // the render pass should be rebuilt when the swapchain is recreated

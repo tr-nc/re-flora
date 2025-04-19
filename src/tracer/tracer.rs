@@ -1,12 +1,14 @@
 use super::TracerResources;
+use crate::builder::ExternalSharedResources;
 use crate::gameplay::Camera;
 use crate::util::ShaderCompiler;
 use crate::vkn::{
-    Allocator, Buffer, BufferBuilder, ComputePipeline, DescriptorPool, DescriptorSet, Image,
-    ShaderModule, WriteDescriptorSet,
+    Allocator, BufferBuilder, ComputePipeline, DescriptorPool, DescriptorSet, Image, ShaderModule,
+    WriteDescriptorSet,
 };
 use crate::vkn::{CommandBuffer, VulkanContext};
 use ash::vk;
+use glam::UVec3;
 
 pub struct Tracer {
     vulkan_context: VulkanContext,
@@ -25,7 +27,8 @@ impl Tracer {
         allocator: Allocator,
         shader_compiler: &ShaderCompiler,
         screen_extent: &[u32; 2],
-        octree_data: &Buffer,
+        visible_chunk_dim: UVec3,
+        builder_shared_resources: &ExternalSharedResources,
     ) -> Self {
         let tracer_sm = ShaderModule::from_glsl(
             vulkan_context.device(),
@@ -54,20 +57,28 @@ impl Tracer {
             &vulkan_context,
             &tracer_ppl,
             &resources,
-            octree_data,
+            &builder_shared_resources,
         );
 
-        Self {
+        let this_self = Self {
             vulkan_context,
             allocator,
             resources,
             tracer_ppl,
             tracer_ds,
             descriptor_pool,
-        }
+        };
+
+        this_self.initialize_uniforms(visible_chunk_dim);
+
+        this_self
     }
 
-    pub fn on_resize(&mut self, screen_extent: &[u32; 2], octree_data: &Buffer) {
+    pub fn on_resize(
+        &mut self,
+        screen_extent: &[u32; 2],
+        builder_shared_resources: &ExternalSharedResources,
+    ) {
         self.resources.on_resize(
             self.vulkan_context.device().clone(),
             self.allocator.clone(),
@@ -80,13 +91,13 @@ impl Tracer {
             &self.vulkan_context,
             &self.tracer_ppl,
             &self.resources,
-            octree_data,
+            &builder_shared_resources,
         );
     }
 
     pub fn record_command_buffer(&mut self, cmdbuf: &CommandBuffer, screen_extent: &[u32; 2]) {
         self.resources
-            .shader_write
+            .shader_write_tex
             .get_image()
             .record_transition_barrier(cmdbuf, vk::ImageLayout::GENERAL);
         self.tracer_ppl.record_bind(cmdbuf);
@@ -100,11 +111,22 @@ impl Tracer {
     }
 
     pub fn get_dst_image(&self) -> &Image {
-        self.resources.shader_write.get_image()
+        self.resources.shader_write_tex.get_image()
+    }
+
+    fn initialize_uniforms(&self, visible_chunk_dim: UVec3) {
+        let scene_info_data = BufferBuilder::from_struct_buffer(&self.resources.scene_info)
+            .unwrap()
+            .set_uvec3("visible_chunk_dim", visible_chunk_dim.to_array())
+            .to_raw_data();
+        self.resources
+            .scene_info
+            .fill_with_raw_u8(&scene_info_data)
+            .unwrap();
     }
 
     /// Update the uniform buffers with the latest camera and debug values, called every frame
-    pub fn update_uniform_buffers(&mut self, camera: &Camera, debug_float: f32) {
+    pub fn update_uniforms(&mut self, camera: &Camera, debug_float: f32) {
         let gui_input_data = BufferBuilder::from_struct_buffer(&self.resources.gui_input)
             .unwrap()
             .set_float("debug_float", debug_float)
@@ -141,7 +163,7 @@ impl Tracer {
         vulkan_context: &VulkanContext,
         compute_pipeline: &ComputePipeline,
         resources: &TracerResources,
-        octree_data: &Buffer,
+        builder_shared_resources: &ExternalSharedResources,
     ) -> DescriptorSet {
         let compute_descriptor_set = DescriptorSet::new(
             vulkan_context.device().clone(),
@@ -149,15 +171,22 @@ impl Tracer {
             descriptor_pool,
         );
         compute_descriptor_set.perform_writes(&[
+            WriteDescriptorSet::new_buffer_write(0, &resources.gui_input),
+            WriteDescriptorSet::new_buffer_write(1, &resources.camera_info),
+            WriteDescriptorSet::new_buffer_write(2, &resources.scene_info),
+            WriteDescriptorSet::new_buffer_write(3, &builder_shared_resources.octree_data),
             WriteDescriptorSet::new_texture_write(
-                0,
+                4,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.shader_write,
+                &resources.shader_write_tex,
                 vk::ImageLayout::GENERAL,
             ),
-            WriteDescriptorSet::new_buffer_write(1, &resources.gui_input),
-            WriteDescriptorSet::new_buffer_write(2, &resources.camera_info),
-            WriteDescriptorSet::new_buffer_write(3, octree_data),
+            WriteDescriptorSet::new_texture_write(
+                5,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &builder_shared_resources.octree_offset_atlas_tex,
+                vk::ImageLayout::GENERAL,
+            ),
         ]);
         compute_descriptor_set
     }

@@ -2,9 +2,11 @@ use crate::vkn::{Allocator, Buffer, BufferUsage, Device, ShaderModule, Texture, 
 use ash::vk;
 
 pub struct TracerResources {
-    pub shader_write: Texture,
     pub gui_input: Buffer,
     pub camera_info: Buffer,
+    pub scene_info: Buffer,
+
+    pub shader_write_tex: Texture,
 }
 
 impl TracerResources {
@@ -20,17 +22,17 @@ impl TracerResources {
             [screen_extent[0], screen_extent[1], 1],
         );
 
-        let gui_input_buf_layout = tracer_sm.get_buffer_layout("GuiInput").unwrap();
-        let gui_input_buf = Buffer::from_struct_layout(
+        let gui_input_layout = tracer_sm.get_buffer_layout("U_GuiInput").unwrap();
+        let gui_input = Buffer::from_struct_layout(
             device.clone(),
             allocator.clone(),
-            gui_input_buf_layout.clone(),
+            gui_input_layout.clone(),
             BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
-        let camera_info_layout = tracer_sm.get_buffer_layout("CameraInfo").unwrap();
-        let camera_info_buf = Buffer::from_struct_layout(
+        let camera_info_layout = tracer_sm.get_buffer_layout("U_CameraInfo").unwrap();
+        let camera_info = Buffer::from_struct_layout(
             device.clone(),
             allocator.clone(),
             camera_info_layout.clone(),
@@ -38,15 +40,25 @@ impl TracerResources {
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
+        let scene_info_layout = tracer_sm.get_buffer_layout("U_SceneInfo").unwrap();
+        let scene_info = Buffer::from_struct_layout(
+            device.clone(),
+            allocator.clone(),
+            scene_info_layout.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+        );
+
         Self {
-            shader_write: shader_write_tex,
-            gui_input: gui_input_buf,
-            camera_info: camera_info_buf,
+            gui_input,
+            camera_info,
+            scene_info,
+            shader_write_tex,
         }
     }
 
     pub fn on_resize(&mut self, device: Device, allocator: Allocator, screen_extent: &[u32; 2]) {
-        self.shader_write = Self::create_shader_write_tex(
+        self.shader_write_tex = Self::create_shader_write_tex(
             device,
             allocator,
             [screen_extent[0], screen_extent[1], 1],

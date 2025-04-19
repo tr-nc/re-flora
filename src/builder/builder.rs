@@ -1,6 +1,7 @@
 use super::chunk_data_builder::ChunkDataBuilder;
 use super::frag_list_builder::FragListBuilder;
 use super::octree_builder::OctreeBuilder;
+use super::ExternalSharedResources;
 use super::Resources;
 use crate::util::ShaderCompiler;
 use crate::util::Timer;
@@ -171,4 +172,12 @@ impl Builder {
     pub fn get_octree_data(&self) -> &Buffer {
         self.resources.octree_data()
     }
+
+    pub fn get_external_shared_resources(&self) -> &ExternalSharedResources {
+        &self.resources.external_shared_resources
+    }
+
+    // pub fn get_visible_chunk_dim(&self) -> UVec3 {
+    //     self.visible_chunk_dim
+    // }
 }

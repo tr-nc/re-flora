@@ -5,10 +5,9 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout(set = 0, binding = 0) writeonly uniform image2D result_image;
-layout(set = 0, binding = 1) uniform GuiInput { float debug_float; }
+layout(set = 0, binding = 0) uniform U_GuiInput { float debug_float; }
 gui_input;
-layout(set = 0, binding = 2) uniform CameraInfo {
+layout(set = 0, binding = 1) uniform U_CameraInfo {
     vec4 camera_pos; // w is padding.
     mat4 view_mat;
     mat4 view_mat_inv;
@@ -18,9 +17,12 @@ layout(set = 0, binding = 2) uniform CameraInfo {
     mat4 view_proj_mat_inv;
 }
 camera_info;
+layout(set = 0, binding = 2) uniform U_SceneInfo { uvec3 visible_chunk_dim; }
+scene_info;
 layout(set = 0, binding = 3) buffer B_OctreeData { uint data[]; }
 octree_data;
-layout(set = 0, binding = 4, r8ui) readonly uniform uimage3D octree_offset_atlas_tex;
+layout(set = 0, binding = 4) writeonly uniform image2D result_image;
+layout(set = 0, binding = 5, r8ui) readonly uniform uimage3D octree_offset_atlas_tex;
 
 #include "../include/core/projection.glsl"
 #include "../include/svo_marching.glsl"
