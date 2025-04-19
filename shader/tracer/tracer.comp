@@ -24,8 +24,9 @@ octree_data;
 layout(set = 0, binding = 4) writeonly uniform image2D result_image;
 layout(set = 0, binding = 5, r8ui) readonly uniform uimage3D octree_offset_atlas_tex;
 
+#include "../include/cascaded_marching.glsl"
 #include "../include/core/projection.glsl"
-#include "../include/svo_marching.glsl"
+
 
 struct Ray {
     vec3 origin;
@@ -51,11 +52,14 @@ void main() {
     vec2 screen_uv = (vec2(gl_GlobalInvocationID.xy) + vec2(0.5)) / vec2(img_size);
     Ray ray        = ray_gen(camera_info.camera_pos.xyz, screen_uv);
 
-    SvoMarchingResult res = svo_marching(ray.origin, ray.direction, 0);
+    // SvoMarchingResult res = svo_marching(ray.origin, ray.direction, 0);
+    CascadedMarchingResult res =
+        cascaded_marching(ivec3(scene_info.visible_chunk_dim), ray.origin, ray.direction);
 
     vec3 voxel_color = vec3(0.0);
     if (res.is_hit) {
-        voxel_color = res.normal * 0.5 + 0.5;
+        voxel_color = res.last_hit_svo_result.normal * 0.5 + 0.5;
+        // voxel_color = vec3(1.0);
     }
 
     vec4 out_color = vec4(0.0);

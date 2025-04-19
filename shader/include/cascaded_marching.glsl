@@ -50,6 +50,7 @@ CascadedMarchingResult cascaded_marching(ivec3 visible_chunk_dim, vec3 o, vec3 d
 
         if (svo_result.is_hit) {
             cas_result.is_hit = true;
+            cas_result.last_hit_svo_result = svo_result;
             return cas_result;
         }
     }

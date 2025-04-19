@@ -35,7 +35,7 @@ pub struct OctreeBuilder {
     octree_alloc_node_ds: DescriptorSet,
     octree_modify_args_ds: DescriptorSet,
 
-    offset_table: HashMap<UVec3, u64>,
+    offset_allocation_table: HashMap<UVec3, u64>,
     octree_buffer_allocator: FirstFitAllocator,
 
     cmdbuf_table: HashMap<u32, CommandBuffer>,
@@ -214,7 +214,7 @@ impl OctreeBuilder {
             octree_alloc_node_ds: alloc_node_ds,
             octree_modify_args_ds: modify_args_ds,
 
-            offset_table: HashMap::new(),
+            offset_allocation_table: HashMap::new(),
             octree_buffer_allocator,
 
             cmdbuf_table: HashMap::new(),
@@ -420,7 +420,8 @@ impl OctreeBuilder {
             .octree_buffer_allocator
             .allocate(chunk_buffer_size)
             .unwrap();
-        self.offset_table.insert(chunk_pos, allocation.offset);
+        self.offset_allocation_table
+            .insert(chunk_pos, allocation.id);
         allocation.offset
     }
 
@@ -432,8 +433,11 @@ impl OctreeBuilder {
         visible_chunk_dim: UVec3,
     ) {
         let mut offset_table = vec![];
-        for (chunk_pos, offset) in self.offset_table.iter() {
-            offset_table.push((*chunk_pos, *offset));
+        for (chunk_pos, allocation_id) in self.offset_allocation_table.iter() {
+            let allocation = self.octree_buffer_allocator.lookup(*allocation_id).unwrap();
+            let offset_in_bytes = allocation.offset;
+            let offset_in_u32 = offset_in_bytes / std::mem::size_of::<u32>() as u64;
+            offset_table.push((*chunk_pos, offset_in_u32));
         }
 
         // TODO: implement further
@@ -446,10 +450,11 @@ impl OctreeBuilder {
         ];
 
         // update offset_data accordingly
-        for (chunk_pos, offset) in offset_table.iter() {
+        for (chunk_pos, offset_in_u32) in offset_table.iter() {
             assert!(in_bounds(*chunk_pos, visible_chunk_dim));
             let linear_index = to_linear_index(*chunk_pos, visible_chunk_dim);
-            offset_data[linear_index as usize] = *offset as u32;
+            // write with an offset of 1, because 0 is reserved for empty chunk
+            offset_data[linear_index as usize] = (*offset_in_u32 + 1) as u32;
         }
 
         // fill the texture
