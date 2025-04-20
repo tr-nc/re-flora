@@ -103,35 +103,37 @@ impl Builder {
             positions
         };
 
-        // first init raw chunk data
         let timer = Timer::new();
         for chunk_pos in chunk_positions.iter() {
-            self.chunk_data_builder.build(
-                &self.vulkan_context,
-                &self.resources,
-                self.voxel_dim,
-                *chunk_pos,
-            );
+            self.build_chunk_data(*chunk_pos);
         }
         log::debug!(
             "Average chunk init time: {:?}",
-            timer.elapsed() / (self.chunk_dim.x * self.chunk_dim.y * self.chunk_dim.z)
+            timer.elapsed() / chunk_positions.len() as u32
         );
 
-        // then init fragment list and octree
         let timer = Timer::new();
         for chunk_pos in chunk_positions.iter() {
             self.build_octree(*chunk_pos);
         }
         log::debug!(
             "Average octree time: {:?}",
-            timer.elapsed() / (self.chunk_dim.x * self.chunk_dim.y * self.chunk_dim.z)
+            timer.elapsed() / chunk_positions.len() as u32
         );
 
         self.octree_builder.update_octree_offset_atlas(
             &self.vulkan_context,
             &self.resources,
             self.visible_chunk_dim,
+        );
+    }
+
+    fn build_chunk_data(&mut self, chunk_pos: UVec3) {
+        self.chunk_data_builder.build(
+            &self.vulkan_context,
+            &self.resources,
+            self.voxel_dim,
+            chunk_pos,
         );
     }
 
