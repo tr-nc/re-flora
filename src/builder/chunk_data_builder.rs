@@ -29,7 +29,7 @@ impl ChunkDataBuilder {
             &ShaderModule::from_glsl(
                 vulkan_context.device(),
                 &shader_compiler,
-                "shader/builder/chunk_init/chunk_init.comp",
+                "shader/builder/chunk_data_builder/chunk_init.comp",
                 "main",
             )
             .unwrap(),

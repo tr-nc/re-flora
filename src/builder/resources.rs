@@ -296,7 +296,7 @@ impl Resources {
         let chunk_init_sm = ShaderModule::from_glsl(
             &device,
             shader_compiler,
-            "shader/builder/chunk_init/chunk_init.comp",
+            "shader/builder/chunk_data_builder/chunk_init.comp",
             "main",
         )
         .unwrap();
@@ -320,7 +320,7 @@ impl Resources {
         let octree_init_buffers_sm = ShaderModule::from_glsl(
             &device,
             shader_compiler,
-            "shader/builder/octree/init_buffers.comp",
+            "shader/builder/octree_builder/init_buffers.comp",
             "main",
         )
         .unwrap();

@@ -51,7 +51,7 @@ impl OctreeBuilder {
         let octree_init_buffers_sm = ShaderModule::from_glsl(
             vulkan_context.device(),
             &shader_compiler,
-            "shader/builder/octree/init_buffers.comp",
+            "shader/builder/octree_builder/init_buffers.comp",
             "main",
         )
         .unwrap();
@@ -61,7 +61,7 @@ impl OctreeBuilder {
         let octree_init_node_sm = ShaderModule::from_glsl(
             vulkan_context.device(),
             &shader_compiler,
-            "shader/builder/octree/init_node.comp",
+            "shader/builder/octree_builder/init_node.comp",
             "main",
         )
         .unwrap();
@@ -71,7 +71,7 @@ impl OctreeBuilder {
         let octree_tag_node_sm = ShaderModule::from_glsl(
             vulkan_context.device(),
             &shader_compiler,
-            "shader/builder/octree/tag_node.comp",
+            "shader/builder/octree_builder/tag_node.comp",
             "main",
         )
         .unwrap();
@@ -81,7 +81,7 @@ impl OctreeBuilder {
         let octree_alloc_node_sm = ShaderModule::from_glsl(
             vulkan_context.device(),
             &shader_compiler,
-            "shader/builder/octree/alloc_node.comp",
+            "shader/builder/octree_builder/alloc_node.comp",
             "main",
         )
         .unwrap();
@@ -91,7 +91,7 @@ impl OctreeBuilder {
         let octree_modify_args_sm = ShaderModule::from_glsl(
             vulkan_context.device(),
             &shader_compiler,
-            "shader/builder/octree/modify_args.comp",
+            "shader/builder/octree_builder/modify_args.comp",
             "main",
         )
         .unwrap();
