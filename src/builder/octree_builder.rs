@@ -404,7 +404,17 @@ impl OctreeBuilder {
         }
     }
 
+    /// Allocate a chunk of octree data and store the allocation id in the offset_allocation_table.
+    ///
+    /// If the chunk already exists, deallocate it first.
     fn allocate_chunk(&mut self, chunk_buffer_size: u64, chunk_pos: UVec3) -> u64 {
+        if self.offset_allocation_table.contains_key(&chunk_pos) {
+            let allocation_id = self.offset_allocation_table.remove(&chunk_pos).unwrap();
+            self.octree_buffer_allocator
+                .deallocate(allocation_id)
+                .unwrap();
+        }
+
         let allocation = self
             .octree_buffer_allocator
             .allocate(chunk_buffer_size)

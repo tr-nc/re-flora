@@ -124,8 +124,6 @@ impl InitializedApp {
 
         builder.init_chunks();
 
-        builder.fill_region_with_type(UVec3::new(0, 0, 0), UVec3::new(255, 255, 255), 1);
-
         Self {
             vulkan_context,
             egui_renderer: renderer,
@@ -150,7 +148,7 @@ impl InitializedApp {
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {
         let window_descriptor = WindowStateDesc {
             title: "Re: Flora".to_owned(),
-            window_mode: WindowMode::BorderlessFullscreen,
+            window_mode: WindowMode::Windowed,
             cursor_locked: true,
             cursor_visible: false,
             ..Default::default()
@@ -223,6 +221,14 @@ impl InitializedApp {
 
                 if !self.window_state.is_cursor_visible() {
                     self.camera.handle_keyboard(&event);
+                }
+
+                if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyF {
+                    self.builder.fill_region_with_type(
+                        UVec3::new(0, 0, 0),
+                        UVec3::new(500, 125, 500),
+                        1,
+                    );
                 }
             }
 
