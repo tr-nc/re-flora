@@ -414,7 +414,7 @@ impl OctreeBuilder {
         allocation.offset
     }
 
-    pub fn update_octree_offset_atlas(
+    pub fn update_octree_offset_atlas_tex(
         &mut self,
         vulkan_context: &VulkanContext,
         resources: &Resources,

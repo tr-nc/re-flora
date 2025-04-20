@@ -87,8 +87,8 @@ impl Builder {
     }
 
     // current benchmark results:
-    // 14:14:38.672Z INFO  [re_flora::builder::builder] Average chunk init time: 4.794448ms
-    // 14:14:38.673Z INFO  [re_flora::builder::builder] Average fragment + octree time: 1.551188ms
+    // [re_flora::builder::builder] Average chunk init time: 4.3815ms
+    // [re_flora::builder::builder] Average fragment + octree time: 1.351508ms
 
     pub fn init_chunks(&mut self) {
         let chunk_positions = {
@@ -121,7 +121,7 @@ impl Builder {
             timer.elapsed() / chunk_positions.len() as u32
         );
 
-        self.octree_builder.update_octree_offset_atlas(
+        self.octree_builder.update_octree_offset_atlas_tex(
             &self.vulkan_context,
             &self.resources,
             self.visible_chunk_dim,
