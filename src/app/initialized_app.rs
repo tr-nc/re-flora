@@ -124,6 +124,8 @@ impl InitializedApp {
 
         builder.init_chunks();
 
+        builder.fill_region_with_type(UVec3::new(0, 0, 0), UVec3::new(255, 255, 255), 1);
+
         Self {
             vulkan_context,
             egui_renderer: renderer,

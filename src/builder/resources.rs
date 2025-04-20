@@ -96,10 +96,16 @@ impl ExternalSharedResources {
 
 pub struct ChunkInitResources {
     pub chunk_init_info: Buffer,
+    pub chunk_modify_info: Buffer,
 }
 
 impl ChunkInitResources {
-    pub fn new(device: Device, allocator: Allocator, chunk_init_sm: &ShaderModule) -> Self {
+    pub fn new(
+        device: Device,
+        allocator: Allocator,
+        chunk_init_sm: &ShaderModule,
+        chunk_modify_sm: &ShaderModule,
+    ) -> Self {
         let chunk_init_info_layout = chunk_init_sm.get_buffer_layout("U_ChunkInitInfo").unwrap();
         let chunk_init_info = Buffer::from_struct_layout(
             device.clone(),
@@ -109,7 +115,21 @@ impl ChunkInitResources {
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
-        Self { chunk_init_info }
+        let chunk_modify_info_layout = chunk_modify_sm
+            .get_buffer_layout("U_ChunkModifyInfo")
+            .unwrap();
+        let chunk_modify_info = Buffer::from_struct_layout(
+            device.clone(),
+            allocator.clone(),
+            chunk_modify_info_layout.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+        );
+
+        Self {
+            chunk_init_info,
+            chunk_modify_info,
+        }
     }
 }
 
@@ -301,6 +321,14 @@ impl Resources {
         )
         .unwrap();
 
+        let chunk_modify_sm = ShaderModule::from_glsl(
+            &device,
+            shader_compiler,
+            "shader/builder/chunk_data_builder/chunk_modify.comp",
+            "main",
+        )
+        .unwrap();
+
         let frag_init_buffers_sm = ShaderModule::from_glsl(
             &device,
             shader_compiler,
@@ -340,7 +368,12 @@ impl Resources {
             visible_chunk_dim,
         );
 
-        let chunk_init = ChunkInitResources::new(device.clone(), allocator.clone(), &chunk_init_sm);
+        let chunk_init = ChunkInitResources::new(
+            device.clone(),
+            allocator.clone(),
+            &chunk_init_sm,
+            &chunk_modify_sm,
+        );
 
         let frag_list = FragListResources::new(
             device.clone(),
@@ -363,6 +396,10 @@ impl Resources {
 
     pub fn chunk_init_info(&self) -> &Buffer {
         &self.chunk_init.chunk_init_info
+    }
+
+    pub fn chunk_modify_info(&self) -> &Buffer {
+        &self.chunk_init.chunk_modify_info
     }
 
     pub fn voxel_dim_indirect(&self) -> &Buffer {

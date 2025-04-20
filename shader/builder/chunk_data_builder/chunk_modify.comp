@@ -1,0 +1,35 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+
+layout(set = 0, binding = 0) readonly uniform U_ChunkModifyInfo {
+    uvec3 chunk_pos;
+    uvec3 rect_min;
+    uvec3 rect_max;
+    uint fill_voxel_type;
+}
+chunk_modify_info;
+
+layout(set = 0, binding = 1, r8ui) writeonly uniform uimage3D raw_atlas;
+
+#include "../../include/config.glsl"
+#include "../../include/voxel_types.glsl"
+
+void main() {
+    ivec3 uvi = ivec3(gl_GlobalInvocationID);
+    if (any(greaterThanEqual(uvi, ivec3(VOXEL_DIM)))) {
+        return;
+    }
+
+    const ivec3 atlas_base_offset = ivec3(chunk_modify_info.chunk_pos) * VOXEL_DIM;
+    const ivec3 world_voxel_pos   = uvi + atlas_base_offset;
+
+    // if the voxel is outside the rect, return
+    if (any(lessThan(world_voxel_pos, chunk_modify_info.rect_min)) ||
+        any(greaterThan(world_voxel_pos, chunk_modify_info.rect_max))) {
+        return;
+    }
+
+    imageStore(raw_atlas, world_voxel_pos, uvec4(chunk_modify_info.fill_voxel_type, 0, 0, 0));
+}
