@@ -6,7 +6,6 @@ use super::Resources;
 use crate::util::ShaderCompiler;
 use crate::util::Timer;
 use crate::vkn::Allocator;
-use crate::vkn::CommandPool;
 use crate::vkn::DescriptorPool;
 use crate::vkn::VulkanContext;
 use glam::UVec3;
@@ -28,7 +27,6 @@ impl Builder {
     pub fn new(
         vulkan_context: VulkanContext,
         allocator: Allocator,
-        command_pool: &CommandPool,
         shader_compiler: &ShaderCompiler,
         voxel_dim: UVec3,
         chunk_dim: UVec3,
@@ -57,14 +55,12 @@ impl Builder {
         let chunk_data_builder = ChunkDataBuilder::new(
             &vulkan_context,
             shader_compiler,
-            command_pool,
             descriptor_pool.clone(),
             &resources,
         );
 
         let frag_list_builder = FragListBuilder::new(
             &vulkan_context,
-            command_pool,
             shader_compiler,
             descriptor_pool.clone(),
             &resources,
@@ -74,7 +70,6 @@ impl Builder {
             &vulkan_context,
             shader_compiler,
             descriptor_pool.clone(),
-            command_pool,
             &resources,
             octree_buffer_size,
         );
@@ -95,7 +90,7 @@ impl Builder {
     // 14:14:38.672Z INFO  [re_flora::builder::builder] Average chunk init time: 4.794448ms
     // 14:14:38.673Z INFO  [re_flora::builder::builder] Average fragment + octree time: 1.551188ms
 
-    pub fn init_chunks(&mut self, command_pool: &CommandPool) {
+    pub fn init_chunks(&mut self) {
         let chunk_positions = {
             let mut positions = Vec::new();
             for i in 0..self.chunk_dim.x {
@@ -113,7 +108,6 @@ impl Builder {
         for chunk_pos in chunk_positions.iter() {
             self.chunk_data_builder.build(
                 &self.vulkan_context,
-                command_pool,
                 &self.resources,
                 self.voxel_dim,
                 *chunk_pos,
@@ -127,7 +121,7 @@ impl Builder {
         // then init fragment list and octree
         let timer = Timer::new();
         for chunk_pos in chunk_positions.iter() {
-            self.build_octree(command_pool, *chunk_pos);
+            self.build_octree(*chunk_pos);
         }
         log::debug!(
             "Average octree time: {:?}",
@@ -136,13 +130,12 @@ impl Builder {
 
         self.octree_builder.update_octree_offset_atlas(
             &self.vulkan_context,
-            command_pool,
             &self.resources,
             self.visible_chunk_dim,
         );
     }
 
-    fn build_octree(&mut self, command_pool: &CommandPool, chunk_pos: UVec3) {
+    fn build_octree(&mut self, chunk_pos: UVec3) {
         self.frag_list_builder
             .build(&self.vulkan_context, &self.resources, chunk_pos);
 
@@ -160,7 +153,6 @@ impl Builder {
 
         self.octree_builder.build(
             &self.vulkan_context,
-            command_pool,
             &self.resources,
             fragment_list_len,
             chunk_pos,

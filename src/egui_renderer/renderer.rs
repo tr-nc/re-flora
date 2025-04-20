@@ -1,9 +1,7 @@
 use super::mesh::Mesh;
 use crate::util::ShaderCompiler;
 use crate::vkn::CommandBuffer;
-use crate::vkn::CommandPool;
 use crate::vkn::DescriptorSet;
-use crate::vkn::Queue;
 use crate::vkn::TextureDesc;
 use crate::vkn::TextureRegion;
 use crate::vkn::VulkanContext;
@@ -166,12 +164,7 @@ impl EguiRenderer {
     ///
     /// You should pass the list of textures detla contained in the [`egui::TexturesDelta::set`].
     /// This method should be called _before_ the frame starts rendering.
-    fn set_textures(
-        &mut self,
-        queue: &Queue,
-        command_pool: &CommandPool,
-        textures_delta: &[(TextureId, ImageDelta)],
-    ) {
+    fn set_textures(&mut self, textures_delta: &[(TextureId, ImageDelta)]) {
         for (id, delta) in textures_delta {
             let (width, height, data) = match &delta.image {
                 ImageData::Font(font) => {
@@ -210,8 +203,8 @@ impl EguiRenderer {
                 texture
                     .get_image()
                     .fill_with_raw_u8(
-                        queue,
-                        &command_pool,
+                        &self.vulkan_context.get_general_queue(),
+                        self.vulkan_context.command_pool(),
                         region,
                         data.as_slice(),
                         Some(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL),
@@ -234,8 +227,8 @@ impl EguiRenderer {
                 texture
                     .get_image()
                     .fill_with_raw_u8(
-                        queue,
-                        &command_pool,
+                        &self.vulkan_context.get_general_queue(),
+                        self.vulkan_context.command_pool(),
                         TextureRegion::from_image(&texture.get_image()),
                         data.as_slice(),
                         Some(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL),
@@ -416,12 +409,7 @@ impl EguiRenderer {
         }
     }
 
-    pub fn update(
-        &mut self,
-        command_pool: &CommandPool,
-        window: &Window,
-        run_ui: impl FnMut(&egui::Context),
-    ) {
+    pub fn update(&mut self, window: &Window, run_ui: impl FnMut(&egui::Context)) {
         let raw_input = self.egui_winit_state.take_egui_input(window);
 
         let egui::FullOutput {
@@ -440,11 +428,7 @@ impl EguiRenderer {
         }
 
         if !textures_delta.set.is_empty() {
-            self.set_textures(
-                &self.vulkan_context.get_general_queue(),
-                command_pool,
-                textures_delta.set.as_slice(),
-            );
+            self.set_textures(textures_delta.set.as_slice());
         }
 
         let clipped_primitives = self.egui_context.tessellate(shapes, pixels_per_point);

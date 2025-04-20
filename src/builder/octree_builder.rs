@@ -8,7 +8,6 @@ use crate::vkn::execute_one_time_command;
 use crate::vkn::BufferBuilder;
 use crate::vkn::ClearValue;
 use crate::vkn::CommandBuffer;
-use crate::vkn::CommandPool;
 use crate::vkn::ComputePipeline;
 use crate::vkn::DescriptorPool;
 use crate::vkn::DescriptorSet;
@@ -46,7 +45,6 @@ impl OctreeBuilder {
         vulkan_context: &VulkanContext,
         shader_compiler: &ShaderCompiler,
         descriptor_pool: DescriptorPool,
-        command_pool: &CommandPool,
         resources: &Resources,
         octree_buffer_size: u64,
     ) -> Self {
@@ -178,15 +176,11 @@ impl OctreeBuilder {
 
         let octree_buffer_allocator = FirstFitAllocator::new(octree_buffer_size);
 
-        init_atlas(vulkan_context, command_pool, resources);
-        fn init_atlas(
-            vulkan_context: &VulkanContext,
-            command_pool: &CommandPool,
-            resources: &Resources,
-        ) {
+        init_atlas(vulkan_context, resources);
+        fn init_atlas(vulkan_context: &VulkanContext, resources: &Resources) {
             execute_one_time_command(
                 vulkan_context.device(),
-                command_pool,
+                vulkan_context.command_pool(),
                 &vulkan_context.get_general_queue(),
                 |cmdbuf| {
                     resources
@@ -234,14 +228,13 @@ impl OctreeBuilder {
     fn copy_octree_data_single_to_octree_data(
         &self,
         vulkan_context: &VulkanContext,
-        command_pool: &CommandPool,
         resources: &Resources,
         write_offset: u64,
         size: u64,
     ) {
         execute_one_time_command(
             vulkan_context.device(),
-            command_pool,
+            vulkan_context.command_pool(),
             &vulkan_context.get_general_queue(),
             |cmdbuf| {
                 resources.octree_data_single().record_copy_to_buffer(
@@ -258,7 +251,6 @@ impl OctreeBuilder {
     fn build_cmdbuf_for_level(
         &self,
         vulkan_context: &VulkanContext,
-        command_pool: &CommandPool,
         resources: &Resources,
         voxel_level: u32,
     ) -> CommandBuffer {
@@ -280,7 +272,7 @@ impl OctreeBuilder {
 
         let device = vulkan_context.device();
 
-        let cmdbuf = CommandBuffer::new(device, &command_pool);
+        let cmdbuf = CommandBuffer::new(device, vulkan_context.command_pool());
         cmdbuf.begin(false);
 
         self.octree_init_buffers_ppl.record_bind(&cmdbuf);
@@ -366,7 +358,6 @@ impl OctreeBuilder {
     pub fn build(
         &mut self,
         vulkan_context: &VulkanContext,
-        command_pool: &CommandPool,
         resources: &Resources,
         fragment_list_len: u32,
         chunk_pos: UVec3,
@@ -380,8 +371,7 @@ impl OctreeBuilder {
         let cmdbuf = if let Some(cmdbuf) = self.cmdbuf_table.get(&level) {
             cmdbuf.clone()
         } else {
-            let newly_created =
-                self.build_cmdbuf_for_level(vulkan_context, command_pool, resources, level);
+            let newly_created = self.build_cmdbuf_for_level(vulkan_context, resources, level);
             self.cmdbuf_table.insert(level, newly_created.clone());
             newly_created
         };
@@ -396,7 +386,6 @@ impl OctreeBuilder {
 
         self.copy_octree_data_single_to_octree_data(
             &vulkan_context,
-            command_pool,
             resources,
             write_offset,
             octree_size as u64,
@@ -428,7 +417,6 @@ impl OctreeBuilder {
     pub fn update_octree_offset_atlas(
         &mut self,
         vulkan_context: &VulkanContext,
-        command_pool: &CommandPool,
         resources: &Resources,
         visible_chunk_dim: UVec3,
     ) {
@@ -463,7 +451,7 @@ impl OctreeBuilder {
             .get_image()
             .fill_with_raw_u32(
                 &vulkan_context.get_general_queue(),
-                command_pool,
+                vulkan_context.command_pool(),
                 TextureRegion::from_image(&resources.octree_offset_atlas_tex().get_image()),
                 &offset_data,
                 None,

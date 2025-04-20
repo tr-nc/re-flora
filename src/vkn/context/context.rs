@@ -1,3 +1,5 @@
+use crate::vkn::CommandPool;
+
 use super::{
     device::Device, instance::Instance, physical_device::PhysicalDevice, queue::QueueFamilyIndices,
     surface::Surface, Queue,
@@ -11,6 +13,9 @@ pub struct VulkanContextDesc {
 }
 
 struct VulkanContextInner {
+    // notice: the order matters
+    fast_access_items: FastAccessItems,
+
     device: Device,
     surface: Surface,
     instance: Instance,
@@ -21,6 +26,17 @@ struct VulkanContextInner {
 impl Drop for VulkanContextInner {
     fn drop(&mut self) {
         log::info!("Destroying Vulkan Context");
+    }
+}
+
+struct FastAccessItems {
+    command_pool: CommandPool,
+}
+
+impl FastAccessItems {
+    pub fn new(device: &Device, queue_family_indices: &QueueFamilyIndices) -> Self {
+        let command_pool = CommandPool::new(device, queue_family_indices.general);
+        Self { command_pool }
     }
 }
 
@@ -36,7 +52,11 @@ impl VulkanContext {
         let (physical_device, queue_family_indices) = PhysicalDevice::new(&instance, &surface);
         let device = Device::new(&instance, &physical_device, &queue_family_indices);
 
+        let fast_access_items = FastAccessItems::new(&device, &queue_family_indices);
+
         Self(Arc::new(VulkanContextInner {
+            fast_access_items,
+
             device,
             surface,
             instance,
@@ -87,7 +107,7 @@ impl VulkanContext {
         &self.0.physical_device
     }
 
-    pub fn queue_family_indices(&self) -> &QueueFamilyIndices {
-        &self.0.queue_family_indices
+    pub fn command_pool(&self) -> &CommandPool {
+        &self.0.fast_access_items.command_pool
     }
 }

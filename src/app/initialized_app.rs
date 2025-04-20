@@ -3,7 +3,7 @@ use crate::gameplay::{Camera, CameraDesc};
 use crate::tracer::Tracer;
 use crate::util::ShaderCompiler;
 use crate::util::TimeInfo;
-use crate::vkn::{Allocator, CommandBuffer, CommandPool, Fence, Semaphore, SwapchainDesc};
+use crate::vkn::{Allocator, CommandBuffer, Fence, Semaphore, SwapchainDesc};
 use crate::{
     egui_renderer::EguiRenderer,
     vkn::{Swapchain, VulkanContext, VulkanContextDesc},
@@ -24,7 +24,6 @@ use winit::{
 
 pub struct InitializedApp {
     egui_renderer: EguiRenderer,
-    command_pool: CommandPool,
     cmdbuf: CommandBuffer,
     window_state: WindowState,
     is_resize_pending: bool,
@@ -80,8 +79,7 @@ impl InitializedApp {
 
         let fence = Fence::new(device, true);
 
-        let command_pool = CommandPool::new(device, vulkan_context.queue_family_indices().general);
-        let cmdbuf = CommandBuffer::new(device, &command_pool);
+        let cmdbuf = CommandBuffer::new(device, vulkan_context.command_pool());
 
         let renderer = EguiRenderer::new(
             &vulkan_context,
@@ -108,7 +106,6 @@ impl InitializedApp {
         let mut builder = Builder::new(
             vulkan_context.clone(),
             allocator.clone(),
-            &command_pool,
             &shader_compiler,
             UVec3::new(256, 256, 256),
             chunk_dim,
@@ -125,14 +122,13 @@ impl InitializedApp {
             builder.get_external_shared_resources(),
         );
 
-        builder.init_chunks(&command_pool);
+        builder.init_chunks();
 
         Self {
             vulkan_context,
             egui_renderer: renderer,
             window_state,
 
-            command_pool,
             cmdbuf,
             swapchain,
             image_available_semaphore,
@@ -248,7 +244,7 @@ impl InitializedApp {
                     .unwrap();
 
                 self.egui_renderer
-                    .update(&self.command_pool, &self.window_state.window(), |ctx| {
+                    .update(&self.window_state.window(), |ctx| {
                         let my_frame = egui::containers::Frame {
                             fill: Color32::from_rgba_premultiplied(50, 0, 10, 128),
                             ..Default::default()

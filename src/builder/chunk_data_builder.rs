@@ -3,7 +3,6 @@ use crate::util::ShaderCompiler;
 use crate::vkn::execute_one_time_command;
 use crate::vkn::BufferBuilder;
 use crate::vkn::ClearValue;
-use crate::vkn::CommandPool;
 use crate::vkn::ComputePipeline;
 use crate::vkn::DescriptorPool;
 use crate::vkn::DescriptorSet;
@@ -22,7 +21,6 @@ impl ChunkDataBuilder {
     pub fn new(
         vulkan_context: &VulkanContext,
         shader_compiler: &ShaderCompiler,
-        command_pool: &CommandPool,
         descriptor_pool: DescriptorPool,
         resources: &Resources,
     ) -> Self {
@@ -52,15 +50,11 @@ impl ChunkDataBuilder {
             ),
         ]);
 
-        init_atlas(vulkan_context, command_pool, resources);
-        fn init_atlas(
-            vulkan_context: &VulkanContext,
-            command_pool: &CommandPool,
-            resources: &Resources,
-        ) {
+        init_atlas(vulkan_context, resources);
+        fn init_atlas(vulkan_context: &VulkanContext, resources: &Resources) {
             execute_one_time_command(
                 vulkan_context.device(),
-                command_pool,
+                vulkan_context.command_pool(),
                 &vulkan_context.get_general_queue(),
                 |cmdbuf| {
                     resources.raw_atlas_tex().get_image().record_clear(
@@ -81,7 +75,6 @@ impl ChunkDataBuilder {
     pub fn build(
         &mut self,
         vulkan_context: &VulkanContext,
-        command_pool: &CommandPool,
         resources: &Resources,
         voxel_dim: UVec3,
         chunk_pos: UVec3,
@@ -90,7 +83,7 @@ impl ChunkDataBuilder {
 
         execute_one_time_command(
             vulkan_context.device(),
-            command_pool,
+            vulkan_context.command_pool(),
             &vulkan_context.get_general_queue(),
             |cmdbuf| {
                 resources

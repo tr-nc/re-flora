@@ -2,7 +2,6 @@ use super::Resources;
 use crate::util::ShaderCompiler;
 use crate::vkn::BufferBuilder;
 use crate::vkn::CommandBuffer;
-use crate::vkn::CommandPool;
 use crate::vkn::ComputePipeline;
 use crate::vkn::DescriptorPool;
 use crate::vkn::DescriptorSet;
@@ -31,7 +30,6 @@ pub struct FragListBuilder {
 impl FragListBuilder {
     pub fn new(
         vulkan_context: &VulkanContext,
-        command_pool: &CommandPool,
         shader_compiler: &ShaderCompiler,
         descriptor_pool: DescriptorPool,
         resources: &Resources,
@@ -85,7 +83,6 @@ impl FragListBuilder {
 
         let cmdbuf = Self::create_cmdbuf(
             vulkan_context,
-            command_pool,
             resources,
             &init_buffers_ppl,
             &frag_list_maker_ppl,
@@ -104,7 +101,6 @@ impl FragListBuilder {
 
     fn create_cmdbuf(
         vulkan_context: &VulkanContext,
-        command_pool: &CommandPool,
         resources: &Resources,
         init_buffers_ppl: &ComputePipeline,
         frag_list_maker_ppl: &ComputePipeline,
@@ -129,7 +125,7 @@ impl FragListBuilder {
 
         let device = vulkan_context.device();
 
-        let cmdbuf = CommandBuffer::new(device, &command_pool);
+        let cmdbuf = CommandBuffer::new(device, vulkan_context.command_pool());
         cmdbuf.begin(false);
 
         init_buffers_ppl.record_bind(&cmdbuf);
