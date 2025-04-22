@@ -6,6 +6,7 @@ mod tracer;
 mod util;
 mod vkn;
 mod window;
+mod tree_gen;
 
 use app::App;
 use simple_logger::SimpleLogger;
