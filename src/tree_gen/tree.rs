@@ -21,7 +21,7 @@ pub struct TreeDesc {
 impl Default for TreeDesc {
     fn default() -> Self {
         TreeDesc {
-            size: 1.6,
+            size: 3.0,
             trunkthickness: 1.0,
             spread: 0.5,
             twisted: 0.5,
@@ -37,10 +37,10 @@ impl Default for TreeDesc {
 /// A round cone connecting two spheres, approximating a branch segment.
 #[derive(Debug, Clone)]
 pub struct RoundCone {
-    pub a_radius: f32,
-    pub a_center: Vec3,
-    pub b_radius: f32,
-    pub b_center: Vec3,
+    pub radius_a: f32,
+    pub center_a: Vec3,
+    pub radius_b: f32,
+    pub center_b: Vec3,
 }
 
 /// The generated tree, containing branch primitives and leaf spawn positions.
@@ -78,6 +78,22 @@ impl Tree {
         let branch_len_end = size * desc.wide;
         let trunk_thickness = desc.trunkthickness * desc.size * 6.0;
 
+        // Start recursion from the origin, growing along +Z
+        recurse(
+            Vec3::ZERO,
+            Vec3::Y,
+            0,
+            desc,
+            branch_len_start,
+            branch_len_end,
+            trunk_thickness,
+            &mut trunks,
+            &mut leaves,
+            &mut rng,
+        );
+
+        return (trunks, leaves);
+
         // Recursive branch generation
         fn recurse(
             pos: Vec3,
@@ -103,10 +119,10 @@ impl Tree {
 
             // Record this branch segment as a round cone
             trunks.push(RoundCone {
-                a_radius: thickness_start,
-                b_radius: thickness_end,
-                a_center: pos,
-                b_center: end,
+                radius_a: thickness_start,
+                radius_b: thickness_end,
+                center_a: pos,
+                center_b: end,
             });
 
             if i < desc.iterations - 1 {
@@ -141,22 +157,6 @@ impl Tree {
                 leaves.push((pos + end) * 0.5);
             }
         }
-
-        // Start recursion from the origin, growing along +Z
-        recurse(
-            Vec3::ZERO,
-            Vec3::Z,
-            0,
-            desc,
-            branch_len_start,
-            branch_len_end,
-            trunk_thickness,
-            &mut trunks,
-            &mut leaves,
-            &mut rng,
-        );
-
-        (trunks, leaves)
     }
 }
 

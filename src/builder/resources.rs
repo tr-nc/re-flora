@@ -134,7 +134,7 @@ impl ChunkInitResources {
             round_cones_layout.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
             gpu_allocator::MemoryLocation::CpuToGpu,
-            100,
+            1000,
         );
 
         Self {

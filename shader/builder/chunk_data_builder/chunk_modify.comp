@@ -13,6 +13,7 @@ struct RoundCone {
 layout(set = 0, binding = 0) readonly uniform U_ChunkModifyInfo {
     uvec3 chunk_pos;
     uint fill_voxel_type;
+    uint round_cone_len;
 }
 chunk_modify_info;
 
@@ -38,11 +39,14 @@ void main() {
 
     vec3 world_voxel_pos_f = center_position_of_voxel(world_voxel_pos);
 
-    float dst =
-        sd_round_cone(world_voxel_pos_f, round_cones.data[0].center_a, round_cones.data[0].center_b,
-                      round_cones.data[0].radius_a, round_cones.data[0].radius_b);
-
-    if (dst < 0.0) {
-        imageStore(raw_atlas, world_voxel_pos, uvec4(chunk_modify_info.fill_voxel_type, 0, 0, 0));
+    for (int i = 0; i < chunk_modify_info.round_cone_len; i++) {
+        float dst = sd_round_cone(world_voxel_pos_f, round_cones.data[i].center_a,
+                                  round_cones.data[i].center_b, round_cones.data[i].radius_a,
+                                  round_cones.data[i].radius_b);
+        if (dst < 0.0) {
+            imageStore(raw_atlas, world_voxel_pos,
+                       uvec4(chunk_modify_info.fill_voxel_type, 0, 0, 0));
+            return;
+        }
     }
 }

@@ -134,14 +134,13 @@ impl Builder {
         );
     }
 
-    fn add_tree_to_chunk(&mut self, chunk_pos: UVec3, tree: &Tree, tree_pos: UVec3) {
+    fn add_tree_to_chunk(&mut self, chunk_pos: UVec3, tree: &Tree) {
         self.chunk_data_builder.chunk_modify(
             &self.vulkan_context,
             &self.resources,
             self.voxel_dim,
             chunk_pos,
             tree,
-            tree_pos,
         );
     }
 
@@ -153,7 +152,7 @@ impl Builder {
         );
     }
 
-    pub fn add_tree(&mut self, tree: &Tree, tree_pos: UVec3) {
+    pub fn add_tree(&mut self, tree: &Tree) {
         // let total_dim = self.chunk_dim * self.voxel_dim;
 
         // let affacted_chunk_positions =
@@ -173,7 +172,7 @@ impl Builder {
         let affacted_chunk_positions = vec![UVec3::new(0, 0, 0)];
 
         for chunk_pos in affacted_chunk_positions.iter() {
-            self.add_tree_to_chunk(*chunk_pos, tree, tree_pos);
+            self.add_tree_to_chunk(*chunk_pos, tree);
         }
 
         for chunk_pos in affacted_chunk_positions.iter() {

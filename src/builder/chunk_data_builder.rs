@@ -1,7 +1,7 @@
 use super::Resources;
+use crate::tree_gen::RoundCone;
 use crate::tree_gen::Tree;
 use crate::util::ShaderCompiler;
-use crate::util::Timer;
 use crate::vkn::execute_one_time_command;
 use crate::vkn::ClearValue;
 use crate::vkn::ComputePipeline;
@@ -156,9 +156,8 @@ impl ChunkDataBuilder {
         voxel_dim: UVec3,
         chunk_pos: UVec3,
         tree: &Tree,
-        tree_pos: UVec3,
     ) {
-        update_buffers(resources, chunk_pos, tree, tree_pos);
+        update_buffers(resources, chunk_pos, tree);
 
         execute_one_time_command(
             vulkan_context.device(),
@@ -176,11 +175,10 @@ impl ChunkDataBuilder {
             },
         );
 
-        fn update_buffers(resources: &Resources, chunk_pos: UVec3, tree: &Tree, tree_pos: UVec3) {
-            let center_a = Vec3::new(40.0, 80.0, 40.0);
-            let center_b = Vec3::new(40.0, 180.0, 90.0);
-            let radius_a = 10.0;
-            let radius_b = 1.0;
+        fn update_buffers(resources: &Resources, chunk_pos: UVec3, tree: &Tree) {
+            let mut tree_trunks = tree.get_trunks().to_vec();
+            const TREE_OFFSET: Vec3 = Vec3::new(128.0, 0.0, 128.0);
+            offset_round_cones(&mut tree_trunks, TREE_OFFSET);
 
             let data = StructMemberDataBuilder::from_buffer(resources.chunk_modify_info())
                 .set_field(
@@ -193,36 +191,55 @@ impl ChunkDataBuilder {
                     PlainMemberTypeWithData::UInt(1), // TODO: pass it
                 )
                 .unwrap()
+                .set_field(
+                    "round_cone_len",
+                    PlainMemberTypeWithData::UInt(tree_trunks.len() as u32),
+                )
+                .unwrap()
                 .get_data_u8();
+
             resources
                 .chunk_modify_info()
                 .fill_with_raw_u8(&data)
                 .unwrap();
 
-            // debug
-            let layout = resources.round_cones().get_layout();
-            log::debug!("round_cone layout: {:#?}", layout);
+            for i in 0..tree_trunks.len() {
+                let round_cone = &tree_trunks[i];
 
-            let data = StructMemberDataBuilder::from_buffer(resources.round_cones())
-                .set_field(
-                    "data.center_a",
-                    PlainMemberTypeWithData::Vec3(center_a.to_array()),
-                )
-                .unwrap()
-                .set_field(
-                    "data.center_b",
-                    PlainMemberTypeWithData::Vec3(center_b.to_array()),
-                )
-                .unwrap()
-                .set_field("data.radius_a", PlainMemberTypeWithData::Float(radius_a))
-                .unwrap()
-                .set_field("data.radius_b", PlainMemberTypeWithData::Float(radius_b))
-                .unwrap()
-                .get_data_u8();
-            resources
-                .round_cones()
-                .fill_element_with_raw_u8(&data, 0)
-                .unwrap();
+                let data = StructMemberDataBuilder::from_buffer(resources.round_cones())
+                    .set_field(
+                        "data.center_a",
+                        PlainMemberTypeWithData::Vec3(round_cone.center_a.to_array()),
+                    )
+                    .unwrap()
+                    .set_field(
+                        "data.center_b",
+                        PlainMemberTypeWithData::Vec3(round_cone.center_b.to_array()),
+                    )
+                    .unwrap()
+                    .set_field(
+                        "data.radius_a",
+                        PlainMemberTypeWithData::Float(round_cone.radius_a),
+                    )
+                    .unwrap()
+                    .set_field(
+                        "data.radius_b",
+                        PlainMemberTypeWithData::Float(round_cone.radius_b),
+                    )
+                    .unwrap()
+                    .get_data_u8();
+                resources
+                    .round_cones()
+                    .fill_element_with_raw_u8(&data, i as u64)
+                    .unwrap();
+            }
+
+            fn offset_round_cones(round_cones: &mut [RoundCone], offset: Vec3) {
+                for round_cone in round_cones.iter_mut() {
+                    round_cone.center_a += offset;
+                    round_cone.center_b += offset;
+                }
+            }
         }
     }
 }

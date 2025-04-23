@@ -226,7 +226,7 @@ impl InitializedApp {
 
                 if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyF {
                     let new_tree = Tree::new(Default::default());
-                    self.builder.add_tree(&new_tree, UVec3::new(128, 0, 128));
+                    self.builder.add_tree(&new_tree);
                 }
             }
 
