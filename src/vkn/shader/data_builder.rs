@@ -143,7 +143,7 @@ pub struct StructMemberDataBuilder<'a> {
 }
 
 impl<'a> StructMemberDataBuilder<'a> {
-    pub fn from_struct_buffer(buffer: &'a Buffer) -> Self {
+    pub fn from_buffer(buffer: &'a Buffer) -> Self {
         let layout = &buffer
             .get_layout()
             .expect("The buffer doesn't have a layout")

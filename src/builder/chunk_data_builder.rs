@@ -138,7 +138,7 @@ impl ChunkDataBuilder {
         );
 
         fn update_buffers(resources: &Resources, chunk_pos: UVec3) {
-            let data = StructMemberDataBuilder::from_struct_buffer(&resources.chunk_init_info())
+            let data = StructMemberDataBuilder::from_buffer(&resources.chunk_init_info())
                 .set_field(
                     "chunk_pos",
                     PlainMemberTypeWithData::UVec3(chunk_pos.to_array()),
@@ -182,7 +182,7 @@ impl ChunkDataBuilder {
             let radius_a = 10.0;
             let radius_b = 1.0;
 
-            let data = StructMemberDataBuilder::from_struct_buffer(resources.chunk_modify_info())
+            let data = StructMemberDataBuilder::from_buffer(resources.chunk_modify_info())
                 .set_field(
                     "chunk_pos",
                     PlainMemberTypeWithData::UVec3(chunk_pos.to_array()),
@@ -203,7 +203,7 @@ impl ChunkDataBuilder {
             let layout = resources.round_cones().get_layout();
             log::debug!("round_cone layout: {:#?}", layout);
 
-            let data = StructMemberDataBuilder::from_struct_buffer(resources.round_cones())
+            let data = StructMemberDataBuilder::from_buffer(resources.round_cones())
                 .set_field(
                     "data.center_a",
                     PlainMemberTypeWithData::Vec3(center_a.to_array()),

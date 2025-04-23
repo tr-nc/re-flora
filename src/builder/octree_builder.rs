@@ -400,7 +400,7 @@ impl OctreeBuilder {
         );
 
         fn update_buffers(resources: &Resources, fragment_list_len: u32) {
-            let data = StructMemberDataBuilder::from_struct_buffer(resources.octree_build_info())
+            let data = StructMemberDataBuilder::from_buffer(resources.octree_build_info())
                 .set_field(
                     "fragment_list_len",
                     PlainMemberTypeWithData::UInt(fragment_list_len),

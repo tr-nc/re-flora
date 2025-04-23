@@ -164,7 +164,7 @@ impl FragListBuilder {
 
         fn update_buffers(resources: &Resources, chunk_pos: UVec3) {
             let data =
-                StructMemberDataBuilder::from_struct_buffer(resources.frag_list_maker_info())
+                StructMemberDataBuilder::from_buffer(resources.frag_list_maker_info())
                     .set_field(
                         "chunk_pos",
                         PlainMemberTypeWithData::UVec3(chunk_pos.to_array()),

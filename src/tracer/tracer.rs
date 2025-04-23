@@ -72,7 +72,7 @@ impl Tracer {
         };
 
         fn initialize_buffers(resources: &TracerResources, visible_chunk_dim: UVec3) {
-            let data = StructMemberDataBuilder::from_struct_buffer(&resources.scene_info)
+            let data = StructMemberDataBuilder::from_buffer(&resources.scene_info)
                 .set_field(
                     "visible_chunk_dim",
                     PlainMemberTypeWithData::UVec3(visible_chunk_dim.to_array()),
@@ -124,7 +124,7 @@ impl Tracer {
     }
 
     pub fn update_buffers(&mut self, camera: &Camera, debug_float: f32) {
-        let data = StructMemberDataBuilder::from_struct_buffer(&self.resources.gui_input)
+        let data = StructMemberDataBuilder::from_buffer(&self.resources.gui_input)
             .set_field("debug_float", PlainMemberTypeWithData::Float(debug_float))
             .unwrap()
             .get_data_u8();
@@ -133,7 +133,7 @@ impl Tracer {
         let view_mat = camera.get_view_mat();
         let proj_mat = camera.get_proj_mat();
         let view_proj_mat = proj_mat * view_mat;
-        let data = StructMemberDataBuilder::from_struct_buffer(&self.resources.camera_info)
+        let data = StructMemberDataBuilder::from_buffer(&self.resources.camera_info)
             .set_field(
                 "camera_pos",
                 PlainMemberTypeWithData::Vec4(camera.position_vec4().to_array()),
