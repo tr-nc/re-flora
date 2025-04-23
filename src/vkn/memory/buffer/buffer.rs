@@ -1,4 +1,4 @@
-use crate::vkn::{Allocator, CommandBuffer, Device, StructLayout};
+use crate::vkn::{Allocator, BufferLayout, CommandBuffer, Device};
 
 use super::BufferUsage;
 use ash::vk;
@@ -10,7 +10,7 @@ use gpu_allocator::{
 use std::ops::Deref;
 
 struct BufferDesc {
-    pub layout: Option<StructLayout>,
+    pub layout: Option<BufferLayout>,
     pub size: Option<vk::DeviceSize>,
     pub usage: BufferUsage,
     pub _location: MemoryLocation,
@@ -50,10 +50,10 @@ impl Buffer {
     /// * `layout` - Structure layout describing the buffer contents
     /// * `additional_usages` - Any additional buffer usage flags beyond what's inferred from the layout
     /// * `location` - Memory location (device or host visible memory)
-    pub fn from_struct_layout(
+    pub fn from_buffer_layout(
         device: Device,
         mut allocator: Allocator,
-        layout: StructLayout,
+        layout: BufferLayout,
         additional_usages: BufferUsage,
         location: MemoryLocation,
     ) -> Self {
@@ -182,7 +182,7 @@ impl Buffer {
         self.desc.usage
     }
 
-    pub fn get_struct_layout(&self) -> Option<&StructLayout> {
+    pub fn get_buffer_layout(&self) -> Option<&BufferLayout> {
         self.desc.layout.as_ref()
     }
 

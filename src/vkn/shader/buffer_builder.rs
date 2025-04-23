@@ -5,7 +5,7 @@ use std::convert::TryInto;
 
 use crate::vkn::Buffer;
 
-use super::struct_layout::StructLayout;
+use super::BufferLayout;
 
 /// Builder for creating properly aligned buffer data according to a shader's struct layout.
 ///
@@ -15,7 +15,7 @@ use super::struct_layout::StructLayout;
 /// - **Read Mode:** After fetching the raw data from a GPU buffer (using, e.g., `fetch_raw()`),
 ///   call `set_raw` and use the getter methods (e.g. `get_vec4`) to query individual field values.
 pub struct BufferBuilder<'a> {
-    layout: &'a StructLayout,
+    layout: &'a BufferLayout,
     /// Map of member names to their corresponding bytes (write mode)
     values: HashMap<String, Vec<u8>>,
     /// Raw buffer data, used in read mode
@@ -24,7 +24,7 @@ pub struct BufferBuilder<'a> {
 
 impl<'a> BufferBuilder<'a> {
     /// Create a new BufferBuilder from a given struct layout.
-    pub fn from_layout(layout: &'a StructLayout) -> Self {
+    pub fn from_layout(layout: &'a BufferLayout) -> Self {
         Self {
             layout,
             values: HashMap::new(),
@@ -37,7 +37,7 @@ impl<'a> BufferBuilder<'a> {
     /// Notice that this will raise an error when the buffer has no layout. (e.g., a raw buffer).
     pub fn from_struct_buffer(buffer: &'a Buffer) -> Result<Self, String> {
         let layout = buffer
-            .get_struct_layout()
+            .get_buffer_layout()
             .ok_or("Buffer {} has no layout. Cannot create BufferBuilder.")?;
         Ok(Self::from_layout(layout))
     }

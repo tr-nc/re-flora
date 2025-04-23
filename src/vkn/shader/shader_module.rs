@@ -1,12 +1,17 @@
-use super::struct_layout::{StructLayout, StructMember};
+use super::struct_layout::*;
 use crate::{
     util::{full_path_from_relative, ShaderCompiler},
-    vkn::{DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutBuilder, Device},
+    vkn::{
+        Buffer, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutBuilder, Device,
+    },
 };
 use ash::vk::{self, PushConstantRange};
 use shaderc::ShaderKind;
 use spirv_reflect::{
-    types::{ReflectDescriptorSet, ReflectDescriptorType, ReflectTypeFlags},
+    types::{
+        ReflectDescriptorSet, ReflectDescriptorType, ReflectTypeDescription,
+        ReflectTypeDescriptionTraits, ReflectTypeFlags,
+    },
     ShaderModule as ReflectShaderModule,
 };
 use std::{collections::HashMap, ffi::CString, fmt::Debug, sync::Arc};
@@ -18,7 +23,7 @@ struct ShaderModuleInner {
     shader_module: ash::vk::ShaderModule,
     reflect_shader_module: ReflectShaderModule,
 
-    struct_layouts: HashMap<String, StructLayout>,
+    buffer_layouts: HashMap<String, BufferLayout>, // type_name - the buffer layout
 }
 
 impl Drop for ShaderModuleInner {
@@ -80,9 +85,9 @@ impl ShaderModule {
         )
     }
 
-    pub fn get_buffer_layout(&self, name: &str) -> Result<&StructLayout, String> {
+    pub fn get_buffer_layout(&self, name: &str) -> Result<&BufferLayout, String> {
         self.0
-            .struct_layouts
+            .buffer_layouts
             .get(name)
             .ok_or_else(|| format!("Buffer layout not found for name: {}", name))
     }
@@ -147,14 +152,14 @@ impl ShaderModule {
             compiler,
         )?;
 
-        let buffer_layouts = extract_struct_layouts(&reflect_sm).map_err(|e| e.to_string())?;
+        let buffer_layouts = extract_buffer_layouts(&reflect_sm).map_err(|e| e.to_string())?;
 
         Ok(Self(Arc::new(ShaderModuleInner {
             device: device.clone(),
             entry_point_name: CString::new(entry_point_name).unwrap(),
             shader_module: sm,
             reflect_shader_module: reflect_sm,
-            struct_layouts: buffer_layouts,
+            buffer_layouts,
         })))
     }
 
@@ -314,148 +319,165 @@ fn u8_to_u32(byte_code: &[u8]) -> Vec<u32> {
         .collect()
 }
 
-fn extract_struct_layouts(
+fn extract_buffer_layouts(
     reflect_module: &ReflectShaderModule,
-) -> Result<HashMap<String, StructLayout>, String> {
-    let descriptor_bindings = match reflect_module.enumerate_descriptor_bindings(None) {
-        Ok(db) => db,
+) -> Result<HashMap<String, BufferLayout>, String> {
+    let bindings = match reflect_module.enumerate_descriptor_bindings(None) {
+        Ok(binding) => binding,
         Err(_) => return Err("Failed to enumerate descriptor bindings".to_string()),
     };
 
     let mut result = HashMap::new();
 
-    for binding in descriptor_bindings {
-        if binding.descriptor_type == ReflectDescriptorType::UniformBuffer
-            || binding.descriptor_type == ReflectDescriptorType::StorageBuffer
-        {
-            let block_info = &binding.block;
-
-            let layout_name = if let Some(ty_description) = binding.type_description.as_ref() {
-                ty_description.type_name.clone()
-            } else {
-                return Err("Failed to get layout name".to_string());
-            };
-
-            let members = parse_block_members(&block_info.members);
-
-            let layout = StructLayout {
-                type_name: layout_name,
-                // the following line leads to incorrect answer when parsing storage buffers
-                // (uniform buffers are ok), therefore a customized function is used
-                // total_size: block_info.padded_size,
-                total_size: get_total_size_from_members(&members),
-                members,
-                descriptor_type: binding.descriptor_type,
-            };
-
-            result.insert(layout.type_name.clone(), layout);
+    for binding in bindings {
+        if !is_buffer_type(binding.descriptor_type) {
+            continue;
         }
-    }
 
-    Ok(result)
-}
+        let type_description = &binding.type_description.unwrap();
+        let ty = type_description.type_name.clone();
+        let descriptor_type = binding.descriptor_type;
+        let members = parse_members_recursive(&binding.block.members);
 
-fn get_total_size_from_members(members: &HashMap<String, StructMember>) -> u32 {
-    members.values().map(|m| m.padded_size).sum()
-}
-
-/// Given an array of `ReflectBlockVariable`, build a list of our `BufferMember`.
-fn parse_block_members(
-    members: &[spirv_reflect::types::ReflectBlockVariable],
-) -> HashMap<String, StructMember> {
-    let mut result = HashMap::new();
-
-    for (i, member) in members.iter().enumerate() {
-        let member_name = if member.name.is_empty() {
-            format!("member_{}", i)
-        } else {
-            member.name.clone()
+        let layout = BufferLayout {
+            ty: ty.clone(),
+            descriptor_type,
+            members,
         };
 
-        let type_name = guess_type_name(member);
-
-        result.insert(
-            member_name.clone(),
-            StructMember {
-                offset: member.offset,
-                size: member.size,
-                padded_size: member.padded_size,
-                type_name,
-                name: member_name,
-            },
-        );
+        result.insert(ty, layout);
     }
-    result
-}
 
-/// Attempt to guess a GLSL-like type name from SPIR-V reflection metadata.
-fn guess_type_name(member: &spirv_reflect::types::ReflectBlockVariable) -> String {
-    if let Some(type_desc) = &member.type_description {
-        let flags = &type_desc.type_flags;
-        let numeric = &type_desc.traits.numeric;
+    return Ok(result);
 
-        // Matrices
-        if flags.contains(ReflectTypeFlags::MATRIX) {
-            let cols = numeric.matrix.column_count;
-            let rows = numeric.matrix.row_count;
-            return match (rows, cols) {
-                (4, 4) => "mat4".to_owned(),
-                (3, 3) => "mat3".to_owned(),
-                (2, 2) => "mat2".to_owned(),
-                _ => format!("mat{}x{}", rows, cols),
-            };
-        }
+    fn is_buffer_type(ty: ReflectDescriptorType) -> bool {
+        ty == ReflectDescriptorType::UniformBuffer || ty == ReflectDescriptorType::StorageBuffer
+    }
 
-        // Vectors
-        if flags.contains(ReflectTypeFlags::VECTOR) {
-            let comp_count = numeric.vector.component_count;
-            // Distinguish float-based vs int-based vs uint-based
-            let is_float = flags.contains(ReflectTypeFlags::FLOAT);
-            let is_int = flags.contains(ReflectTypeFlags::INT);
-            let signedness = numeric.scalar.signedness;
+    fn parse_members_recursive(
+        reflect_members: &[spirv_reflect::types::ReflectBlockVariable],
+    ) -> HashMap<String, Member> {
+        let mut result = HashMap::new();
+        for (_, reflect_member) in reflect_members.iter().enumerate() {
+            let member_name = reflect_member.name.clone();
+            let type_description = reflect_member.type_description.as_ref().unwrap();
+            let type_flags = &type_description.type_flags;
+            let member_type = get_general_member_type(type_flags);
 
-            if is_float {
-                return match comp_count {
-                    2 => "vec2".to_owned(),
-                    3 => "vec3".to_owned(),
-                    4 => "vec4".to_owned(),
-                    _ => format!("vec{}", comp_count),
-                };
-            } else if is_int {
-                // signedness == 1 => ivec..., else uvec...
-                if signedness == 1 {
-                    return match comp_count {
-                        2 => "ivec2".to_owned(),
-                        3 => "ivec3".to_owned(),
-                        4 => "ivec4".to_owned(),
-                        _ => format!("ivec{}", comp_count),
-                    };
-                } else {
-                    return match comp_count {
-                        2 => "uvec2".to_owned(),
-                        3 => "uvec3".to_owned(),
-                        4 => "uvec4".to_owned(),
-                        _ => format!("uvec{}", comp_count),
-                    };
+            let member: Member = match member_type {
+                GeneralMemberType::Plain => {
+                    let ty = get_plain_member_type(type_flags, &type_description.traits).unwrap();
+                    let offset = reflect_member.offset;
+                    let size = reflect_member.size;
+                    let padded_size = reflect_member.padded_size;
+                    let empty_data = vec![0u8; padded_size as usize];
+                    Member::Plain(PlainMember {
+                        ty,
+                        offset,
+                        size,
+                        padded_size,
+                        data: empty_data,
+                    })
                 }
+                GeneralMemberType::Struct => {
+                    let ty = type_description.type_name.clone();
+                    let members = parse_members_recursive(&reflect_member.members);
+                    Member::Struct(StructMember { ty, members })
+                }
+                GeneralMemberType::Array => {
+                    todo!();
+                }
+            };
+            result.insert(member_name.clone(), member);
+        }
+        return result;
+
+        fn get_general_member_type(type_flags: &ReflectTypeFlags) -> GeneralMemberType {
+            if type_flags.contains(ReflectTypeFlags::STRUCT) {
+                GeneralMemberType::Struct
+            } else if type_flags.contains(ReflectTypeFlags::ARRAY) {
+                GeneralMemberType::Array
+            } else {
+                GeneralMemberType::Plain
             }
         }
 
-        // Scalars
-        if flags.contains(ReflectTypeFlags::FLOAT) {
-            return "float".to_owned();
-        }
-        if flags.contains(ReflectTypeFlags::INT) {
-            // "bool" in GLSL is 32-bit in SPIR-V, typically stored as int.
-            let signed = numeric.scalar.signedness;
-            return if signed == 1 {
-                "int".to_owned()
-            } else {
-                "uint".to_owned()
-            };
+        fn get_plain_member_type(
+            type_flags: &ReflectTypeFlags,
+            traits: &ReflectTypeDescriptionTraits,
+        ) -> Result<PlainMemberType, String> {
+            assert!(
+                get_general_member_type(type_flags) == GeneralMemberType::Plain,
+                "Expected plain member type",
+            );
+
+            let numeric = &traits.numeric;
+
+            // Matrices
+            if type_flags.contains(ReflectTypeFlags::MATRIX) {
+                let cols = numeric.matrix.column_count;
+                let rows = numeric.matrix.row_count;
+                return match (rows, cols) {
+                    (4, 4) => Ok(PlainMemberType::Mat4),
+                    (3, 3) => Ok(PlainMemberType::Mat3),
+                    (2, 2) => Ok(PlainMemberType::Mat2),
+                    _ => Err("Unsupported matrix size".to_string()),
+                };
+            }
+
+            // Vectors
+            if type_flags.contains(ReflectTypeFlags::VECTOR) {
+                let comp_count = numeric.vector.component_count;
+                // Distinguish float-based vs int-based vs uint-based
+                let is_float = type_flags.contains(ReflectTypeFlags::FLOAT);
+                let is_int = type_flags.contains(ReflectTypeFlags::INT);
+                let signedness = numeric.scalar.signedness;
+
+                if is_float {
+                    return match comp_count {
+                        2 => Ok(PlainMemberType::Vec2),
+                        3 => Ok(PlainMemberType::Vec3),
+                        4 => Ok(PlainMemberType::Vec4),
+                        _ => Err("Unsupported vector size".to_string()),
+                    };
+                } else if is_int {
+                    // signedness == 1 => ivec..., else uvec...
+                    if signedness == 1 {
+                        return match comp_count {
+                            2 => Ok(PlainMemberType::IVec2),
+                            3 => Ok(PlainMemberType::IVec3),
+                            4 => Ok(PlainMemberType::IVec4),
+                            _ => Err("Unsupported vector size".to_string()),
+                        };
+                    } else {
+                        return match comp_count {
+                            2 => Ok(PlainMemberType::UVec2),
+                            3 => Ok(PlainMemberType::UVec3),
+                            4 => Ok(PlainMemberType::UVec4),
+                            _ => Err("Unsupported vector size".to_string()),
+                        };
+                    }
+                }
+            }
+
+            // Scalars
+            if type_flags.contains(ReflectTypeFlags::FLOAT) {
+                return Ok(PlainMemberType::Float);
+            }
+
+            if type_flags.contains(ReflectTypeFlags::INT) {
+                // "bool" in GLSL is 32-bit in SPIR-V, typically stored as int.
+                let signed = numeric.scalar.signedness;
+                return if signed == 1 {
+                    Ok(PlainMemberType::Int)
+                } else {
+                    Ok(PlainMemberType::UInt)
+                };
+            }
+
+            return Err("Unsupported plain member type".to_string());
         }
     }
-    "unknown".to_owned()
 }
 
 fn reflect_descriptor_type_to_descriptor_type(

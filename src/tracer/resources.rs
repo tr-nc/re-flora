@@ -23,7 +23,7 @@ impl TracerResources {
         );
 
         let gui_input_layout = tracer_sm.get_buffer_layout("U_GuiInput").unwrap();
-        let gui_input = Buffer::from_struct_layout(
+        let gui_input = Buffer::from_buffer_layout(
             device.clone(),
             allocator.clone(),
             gui_input_layout.clone(),
@@ -32,7 +32,7 @@ impl TracerResources {
         );
 
         let camera_info_layout = tracer_sm.get_buffer_layout("U_CameraInfo").unwrap();
-        let camera_info = Buffer::from_struct_layout(
+        let camera_info = Buffer::from_buffer_layout(
             device.clone(),
             allocator.clone(),
             camera_info_layout.clone(),
@@ -41,7 +41,7 @@ impl TracerResources {
         );
 
         let scene_info_layout = tracer_sm.get_buffer_layout("U_SceneInfo").unwrap();
-        let scene_info = Buffer::from_struct_layout(
+        let scene_info = Buffer::from_buffer_layout(
             device.clone(),
             allocator.clone(),
             scene_info_layout.clone(),

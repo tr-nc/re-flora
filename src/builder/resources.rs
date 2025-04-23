@@ -108,7 +108,7 @@ impl ChunkInitResources {
         chunk_modify_sm: &ShaderModule,
     ) -> Self {
         let chunk_init_info_layout = chunk_init_sm.get_buffer_layout("U_ChunkInitInfo").unwrap();
-        let chunk_init_info = Buffer::from_struct_layout(
+        let chunk_init_info = Buffer::from_buffer_layout(
             device.clone(),
             allocator.clone(),
             chunk_init_info_layout.clone(),
@@ -119,7 +119,7 @@ impl ChunkInitResources {
         let chunk_modify_info_layout = chunk_modify_sm
             .get_buffer_layout("U_ChunkModifyInfo")
             .unwrap();
-        let chunk_modify_info = Buffer::from_struct_layout(
+        let chunk_modify_info = Buffer::from_buffer_layout(
             device.clone(),
             allocator.clone(),
             chunk_modify_info_layout.clone(),
@@ -162,7 +162,7 @@ impl FragListResources {
         let voxel_dim_indirect_layout = frag_init_buffers_sm
             .get_buffer_layout("B_VoxelDimIndirect")
             .unwrap();
-        let voxel_dim_indirect = Buffer::from_struct_layout(
+        let voxel_dim_indirect = Buffer::from_buffer_layout(
             device.clone(),
             allocator.clone(),
             voxel_dim_indirect_layout.clone(),
@@ -173,7 +173,7 @@ impl FragListResources {
         let frag_list_maker_info_layout = frag_list_maker_sm
             .get_buffer_layout("U_FragListMakerInfo")
             .unwrap();
-        let frag_list_maker_info = Buffer::from_struct_layout(
+        let frag_list_maker_info = Buffer::from_buffer_layout(
             device.clone(),
             allocator.clone(),
             frag_list_maker_info_layout.clone(),
@@ -184,7 +184,7 @@ impl FragListResources {
         let frag_list_build_result = frag_init_buffers_sm
             .get_buffer_layout("B_FragListBuildResult")
             .unwrap();
-        let frag_list_build_result = Buffer::from_struct_layout(
+        let frag_list_build_result = Buffer::from_buffer_layout(
             device.clone(),
             allocator.clone(),
             frag_list_build_result.clone(),
@@ -220,7 +220,7 @@ impl OctreeResources {
         let octree_build_info_layout = octree_init_buffers_sm
             .get_buffer_layout("B_OctreeBuildInfo")
             .unwrap();
-        let octree_build_info = Buffer::from_struct_layout(
+        let octree_build_info = Buffer::from_buffer_layout(
             device.clone(),
             allocator.clone(),
             octree_build_info_layout.clone(),
@@ -231,7 +231,7 @@ impl OctreeResources {
         let voxel_count_indirect_layout = octree_init_buffers_sm
             .get_buffer_layout("B_VoxelCountIndirect")
             .unwrap();
-        let voxel_count_indirect = Buffer::from_struct_layout(
+        let voxel_count_indirect = Buffer::from_buffer_layout(
             device.clone(),
             allocator.clone(),
             voxel_count_indirect_layout.clone(),
@@ -242,7 +242,7 @@ impl OctreeResources {
         let alloc_number_indirect_layout = octree_init_buffers_sm
             .get_buffer_layout("B_AllocNumberIndirect")
             .unwrap();
-        let alloc_number_indirect = Buffer::from_struct_layout(
+        let alloc_number_indirect = Buffer::from_buffer_layout(
             device.clone(),
             allocator.clone(),
             alloc_number_indirect_layout.clone(),
@@ -253,7 +253,7 @@ impl OctreeResources {
         let counter_layout = octree_init_buffers_sm
             .get_buffer_layout("B_Counter")
             .unwrap();
-        let counter = Buffer::from_struct_layout(
+        let counter = Buffer::from_buffer_layout(
             device.clone(),
             allocator.clone(),
             counter_layout.clone(),
@@ -264,7 +264,7 @@ impl OctreeResources {
         let octree_alloc_info_layout = octree_init_buffers_sm
             .get_buffer_layout("B_OctreeAllocInfo")
             .unwrap();
-        let octree_alloc_info = Buffer::from_struct_layout(
+        let octree_alloc_info = Buffer::from_buffer_layout(
             device.clone(),
             allocator.clone(),
             octree_alloc_info_layout.clone(),
@@ -275,7 +275,7 @@ impl OctreeResources {
         let octree_build_result_layout = octree_init_buffers_sm
             .get_buffer_layout("B_OctreeBuildResult")
             .unwrap();
-        let octree_build_result = Buffer::from_struct_layout(
+        let octree_build_result = Buffer::from_buffer_layout(
             device.clone(),
             allocator.clone(),
             octree_build_result_layout.clone(),
