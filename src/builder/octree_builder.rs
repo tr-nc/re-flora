@@ -5,7 +5,6 @@ use crate::util::AllocationStrategy;
 use crate::util::FirstFitAllocator;
 use crate::util::ShaderCompiler;
 use crate::vkn::execute_one_time_command;
-use crate::vkn::BufferBuilder;
 use crate::vkn::ClearValue;
 use crate::vkn::CommandBuffer;
 use crate::vkn::ComputePipeline;
@@ -13,6 +12,7 @@ use crate::vkn::DescriptorPool;
 use crate::vkn::DescriptorSet;
 use crate::vkn::MemoryBarrier;
 use crate::vkn::PipelineBarrier;
+use crate::vkn::PlainMemberDataBuilder;
 use crate::vkn::ShaderModule;
 use crate::vkn::TextureRegion;
 use crate::vkn::VulkanContext;
@@ -217,7 +217,7 @@ impl OctreeBuilder {
 
     pub fn get_octree_data_size_in_bytes(&self, resources: &Resources) -> u32 {
         let raw_data = resources.octree_build_result().fetch_raw().unwrap();
-        BufferBuilder::from_struct_buffer(resources.octree_build_result())
+        PlainMemberDataBuilder::from_struct_buffer(resources.octree_build_result())
             .unwrap()
             .set_raw(raw_data)
             .get_uint("size_u32")
@@ -393,7 +393,7 @@ impl OctreeBuilder {
 
         fn update_uniforms(resources: &Resources, fragment_list_len: u32) {
             let octree_build_info_data =
-                BufferBuilder::from_struct_buffer(resources.octree_build_info())
+                PlainMemberDataBuilder::from_struct_buffer(resources.octree_build_info())
                     .unwrap()
                     .set_uint("fragment_list_len", fragment_list_len)
                     .to_raw_data();

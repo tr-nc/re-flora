@@ -1,16 +1,13 @@
 use super::struct_layout::*;
 use crate::{
     util::{full_path_from_relative, ShaderCompiler},
-    vkn::{
-        Buffer, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutBuilder, Device,
-    },
+    vkn::{DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutBuilder, Device},
 };
 use ash::vk::{self, PushConstantRange};
 use shaderc::ShaderKind;
 use spirv_reflect::{
     types::{
-        ReflectDescriptorSet, ReflectDescriptorType, ReflectTypeDescription,
-        ReflectTypeDescriptionTraits, ReflectTypeFlags,
+        ReflectDescriptorSet, ReflectDescriptorType, ReflectTypeDescriptionTraits, ReflectTypeFlags,
     },
     ShaderModule as ReflectShaderModule,
 };
@@ -336,14 +333,23 @@ fn extract_buffer_layouts(
 
         let type_description = &binding.type_description.unwrap();
         let ty = type_description.type_name.clone();
+        let name = binding.name.clone();
         let descriptor_type = binding.descriptor_type;
-        let members = parse_members_recursive(&binding.block.members);
+        let block = binding.block;
+        let members = parse_members_recursive(&block.members);
+
+        let root_member = StructMemberLayout {
+            name,
+            ty: ty.clone(),
+            name_member_table: members,
+        };
 
         let layout = BufferLayout {
-            ty: ty.clone(),
+            root_member,
             descriptor_type,
-            members,
         };
+
+        log::debug!("Buffer layout: {:#?}", layout);
 
         result.insert(ty, layout);
     }
@@ -356,36 +362,38 @@ fn extract_buffer_layouts(
 
     fn parse_members_recursive(
         reflect_members: &[spirv_reflect::types::ReflectBlockVariable],
-    ) -> HashMap<String, Member> {
+    ) -> HashMap<String, MemberLayout> {
         let mut result = HashMap::new();
         for (_, reflect_member) in reflect_members.iter().enumerate() {
+            // log::debug!("{:?}", reflect_member);
+
             let member_name = reflect_member.name.clone();
             let type_description = reflect_member.type_description.as_ref().unwrap();
             let type_flags = &type_description.type_flags;
             let member_type = get_general_member_type(type_flags);
 
-            let member: Member = match member_type {
-                GeneralMemberType::Plain => {
+            let member: MemberLayout = match member_type {
+                GeneralMemberType::Array | GeneralMemberType::Plain => {
                     let ty = get_plain_member_type(type_flags, &type_description.traits).unwrap();
                     let offset = reflect_member.offset;
                     let size = reflect_member.size;
                     let padded_size = reflect_member.padded_size;
-                    let empty_data = vec![0u8; padded_size as usize];
-                    Member::Plain(PlainMember {
+                    MemberLayout::Plain(PlainMemberLayout {
+                        name: member_name.clone(),
                         ty,
                         offset,
                         size,
                         padded_size,
-                        data: empty_data,
                     })
                 }
                 GeneralMemberType::Struct => {
                     let ty = type_description.type_name.clone();
                     let members = parse_members_recursive(&reflect_member.members);
-                    Member::Struct(StructMember { ty, members })
-                }
-                GeneralMemberType::Array => {
-                    todo!();
+                    MemberLayout::Struct(StructMemberLayout {
+                        name: member_name.clone(),
+                        ty,
+                        name_member_table: members,
+                    })
                 }
             };
             result.insert(member_name.clone(), member);
@@ -395,10 +403,9 @@ fn extract_buffer_layouts(
         fn get_general_member_type(type_flags: &ReflectTypeFlags) -> GeneralMemberType {
             if type_flags.contains(ReflectTypeFlags::STRUCT) {
                 GeneralMemberType::Struct
-            } else if type_flags.contains(ReflectTypeFlags::ARRAY) {
-                GeneralMemberType::Array
             } else {
                 GeneralMemberType::Plain
+                // notice: Array type is not supported yet, and is counted as plain type
             }
         }
 

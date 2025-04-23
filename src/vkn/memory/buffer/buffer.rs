@@ -182,7 +182,7 @@ impl Buffer {
         self.desc.usage
     }
 
-    pub fn get_buffer_layout(&self) -> Option<&BufferLayout> {
+    pub fn get_layout(&self) -> Option<&BufferLayout> {
         self.desc.layout.as_ref()
     }
 

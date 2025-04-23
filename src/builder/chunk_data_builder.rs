@@ -2,12 +2,14 @@ use super::Resources;
 use crate::tree_gen::Tree;
 use crate::util::ShaderCompiler;
 use crate::vkn::execute_one_time_command;
-use crate::vkn::BufferBuilder;
 use crate::vkn::ClearValue;
 use crate::vkn::ComputePipeline;
 use crate::vkn::DescriptorPool;
 use crate::vkn::DescriptorSet;
+use crate::vkn::PlainMemberDataBuilder;
+use crate::vkn::PlainMemberTypeWithData;
 use crate::vkn::ShaderModule;
+use crate::vkn::StructMemberDataBuilder;
 use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
 use ash::vk;
@@ -111,7 +113,7 @@ impl ChunkDataBuilder {
         voxel_dim: UVec3,
         chunk_pos: UVec3,
     ) {
-        update_uniforms(resources, chunk_pos);
+        update_buffers(resources, chunk_pos);
 
         execute_one_time_command(
             vulkan_context.device(),
@@ -134,11 +136,15 @@ impl ChunkDataBuilder {
             },
         );
 
-        fn update_uniforms(resources: &Resources, chunk_pos: UVec3) {
-            let data = BufferBuilder::from_struct_buffer(resources.chunk_init_info())
+        fn update_buffers(resources: &Resources, chunk_pos: UVec3) {
+            let mut bd = StructMemberDataBuilder::from_struct_buffer(&resources.chunk_init_info());
+            let data = bd
+                .set_field(
+                    "chunk_pos",
+                    PlainMemberTypeWithData::UVec3(chunk_pos.to_array()),
+                )
                 .unwrap()
-                .set_uvec3("chunk_pos", chunk_pos.to_array())
-                .to_raw_data();
+                .get_data_u8();
             resources
                 .chunk_init_info()
                 .fill_with_raw_u8(&data)
@@ -155,34 +161,44 @@ impl ChunkDataBuilder {
         tree: &Tree,
         tree_pos: UVec3,
     ) {
-        update_buffers(resources, chunk_pos, tree, tree_pos);
+        // update_buffers(resources, chunk_pos, tree, tree_pos);
 
-        execute_one_time_command(
-            vulkan_context.device(),
-            vulkan_context.command_pool(),
-            &vulkan_context.get_general_queue(),
-            |cmdbuf| {
-                self.chunk_modify_ppl.record_bind(cmdbuf);
-                self.chunk_modify_ppl.record_bind_descriptor_sets(
-                    cmdbuf,
-                    std::slice::from_ref(&self.chunk_modify_ds),
-                    0,
-                );
-                self.chunk_modify_ppl
-                    .record_dispatch(cmdbuf, voxel_dim.to_array());
-            },
-        );
+        // execute_one_time_command(
+        //     vulkan_context.device(),
+        //     vulkan_context.command_pool(),
+        //     &vulkan_context.get_general_queue(),
+        //     |cmdbuf| {
+        //         self.chunk_modify_ppl.record_bind(cmdbuf);
+        //         self.chunk_modify_ppl.record_bind_descriptor_sets(
+        //             cmdbuf,
+        //             std::slice::from_ref(&self.chunk_modify_ds),
+        //             0,
+        //         );
+        //         self.chunk_modify_ppl
+        //             .record_dispatch(cmdbuf, voxel_dim.to_array());
+        //     },
+        // );
 
-        fn update_buffers(resources: &Resources, chunk_pos: UVec3, tree: &Tree, tree_pos: UVec3) {
-            let data = BufferBuilder::from_struct_buffer(resources.chunk_modify_info())
-                .unwrap()
-                .set_uvec3("chunk_pos", chunk_pos.to_array())
-                .set_uint("fill_voxel_type", 1) // TODO: pass it or remove it
-                .to_raw_data();
-            resources
-                .chunk_modify_info()
-                .fill_with_raw_u8(&data)
-                .expect("Failed to fill buffer data");
-        }
+        // fn update_buffers(resources: &Resources, chunk_pos: UVec3, tree: &Tree, tree_pos: UVec3) {
+        //     // let data = PlainMemberDataBuilder::from_struct_buffer(resources.chunk_modify_info())
+        //     //     .unwrap()
+        //     //     .set_uvec3("chunk_pos", chunk_pos.to_array())
+        //     //     .set_uint("fill_voxel_type", 1) // TODO: pass it or remove it
+        //     //     .to_raw_data();
+        //     // resources
+        //     //     .chunk_modify_info()
+        //     //     .fill_with_raw_u8(&data)
+        //     //     .expect("Failed to fill buffer data");
+
+        //     let mut struct_member_data_builder =
+        //         StructMemberDataBuilder::from_struct_buffer(&resources.chunk_modify_info());
+        //     let data_made = struct_member_data_builder
+        //         .set_field(
+        //             "chunk_pos",
+        //             PlainMemberTypeWithData::UVec3(chunk_pos.to_array()),
+        //         )
+        //         .unwrap()
+
+        // }
     }
 }

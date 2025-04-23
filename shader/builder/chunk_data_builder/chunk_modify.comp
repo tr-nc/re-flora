@@ -16,7 +16,7 @@ layout(set = 0, binding = 0) readonly uniform U_ChunkModifyInfo {
 }
 chunk_modify_info;
 
-layout(set = 0, binding = 1) readonly buffer B_RoundCones { RoundCone round_cones[]; }
+layout(set = 0, binding = 1) readonly buffer B_RoundCones { RoundCone round_cones; }
 round_cones;
 
 layout(set = 0, binding = 2, r8ui) writeonly uniform uimage3D raw_atlas;

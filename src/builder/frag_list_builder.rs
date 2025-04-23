@@ -1,13 +1,15 @@
 use super::Resources;
 use crate::util::ShaderCompiler;
-use crate::vkn::BufferBuilder;
 use crate::vkn::CommandBuffer;
 use crate::vkn::ComputePipeline;
 use crate::vkn::DescriptorPool;
 use crate::vkn::DescriptorSet;
 use crate::vkn::MemoryBarrier;
 use crate::vkn::PipelineBarrier;
+use crate::vkn::PlainMemberDataBuilder;
+use crate::vkn::PlainMemberTypeWithData;
 use crate::vkn::ShaderModule;
+use crate::vkn::StructMemberDataBuilder;
 use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
 use ash::vk;
@@ -154,30 +156,39 @@ impl FragListBuilder {
     pub fn build(&self, vulkan_context: &VulkanContext, resources: &Resources, chunk_pos: UVec3) {
         let device = vulkan_context.device();
 
-        Self::update_uniforms(resources, chunk_pos);
+        Self::update_buffers(resources, chunk_pos);
 
         self.cmdbuf
             .submit(&vulkan_context.get_general_queue(), None);
         device.wait_queue_idle(&vulkan_context.get_general_queue());
     }
 
-    fn update_uniforms(resources: &Resources, chunk_pos: UVec3) {
-        let data = BufferBuilder::from_struct_buffer(resources.frag_list_maker_info())
+    fn update_buffers(resources: &Resources, chunk_pos: UVec3) {
+        let mut struct_member_data_builder =
+            StructMemberDataBuilder::from_struct_buffer(resources.frag_list_maker_info());
+        let data_made = struct_member_data_builder
+            .set_field(
+                "chunk_pos",
+                PlainMemberTypeWithData::UVec3(chunk_pos.to_array()),
+            )
             .unwrap()
-            .set_uvec3("chunk_pos", chunk_pos.to_array())
-            .to_raw_data();
+            .get_data_u8();
+        log::debug!("data_made: {:?}", data_made);
+
         resources
             .frag_list_maker_info()
-            .fill_with_raw_u8(&data)
+            .fill_with_raw_u8(&data_made)
             .expect("Failed to fill buffer data");
     }
 
     pub fn get_fraglist_length(&self, resources: &Resources) -> u32 {
-        let raw_data = resources.frag_list_build_result().fetch_raw().unwrap();
-        BufferBuilder::from_struct_buffer(resources.frag_list_build_result())
-            .unwrap()
-            .set_raw(raw_data)
-            .get_uint("fragment_list_len")
-            .unwrap()
+        // let raw_data = resources.frag_list_build_result().fetch_raw().unwrap();
+        // PlainMemberDataBuilder::from_struct_buffer(resources.frag_list_build_result())
+        //     .unwrap()
+        //     .set_raw(raw_data)
+        //     .get_uint("fragment_list_len")
+        //     .unwrap()
+
+        todo!();
     }
 }
