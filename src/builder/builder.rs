@@ -3,6 +3,7 @@ use super::frag_list_builder::FragListBuilder;
 use super::octree_builder::OctreeBuilder;
 use super::ExternalSharedResources;
 use super::Resources;
+use crate::tree_gen::Tree;
 use crate::util::ShaderCompiler;
 use crate::util::Timer;
 use crate::vkn::Allocator;
@@ -133,21 +134,14 @@ impl Builder {
         );
     }
 
-    fn modify_chunk_data(
-        &mut self,
-        chunk_pos: UVec3,
-        rect_min: UVec3,
-        rect_max: UVec3,
-        fill_voxel_type: u32,
-    ) {
+    fn add_tree_to_chunk(&mut self, chunk_pos: UVec3, tree: &Tree, tree_pos: UVec3) {
         self.chunk_data_builder.chunk_modify(
             &self.vulkan_context,
             &self.resources,
             self.voxel_dim,
             chunk_pos,
-            rect_min,
-            rect_max,
-            fill_voxel_type,
+            tree,
+            tree_pos,
         );
     }
 
@@ -159,32 +153,27 @@ impl Builder {
         );
     }
 
-    pub fn fill_region_with_type(
-        &mut self,
-        rect_min: UVec3,
-        rect_max: UVec3,
-        fill_voxel_type: u32,
-    ) {
-        let total_dim = self.chunk_dim * self.voxel_dim;
-        assert!(is_point_in_bound(rect_min, total_dim));
-        assert!(is_point_in_bound(rect_max, total_dim));
+    pub fn add_tree(&mut self, tree: &Tree, tree_pos: UVec3) {
+        // let total_dim = self.chunk_dim * self.voxel_dim;
 
-        let affacted_chunk_positions =
-            determine_relative_chunk_positions(self.voxel_dim, rect_min, rect_max);
+        // let affacted_chunk_positions =
+        //     determine_relative_chunk_positions(self.voxel_dim, rect_min, rect_max);
 
-        log::debug!(
-            "Filling region {:?} to {:?} with type {}",
-            rect_min,
-            rect_max,
-            fill_voxel_type
-        );
-        log::debug!(
-            "Chunk positions: {:?}",
-            affacted_chunk_positions.iter().collect::<Vec<_>>()
-        );
+        // log::debug!(
+        //     "Filling region {:?} to {:?} with type {}",
+        //     rect_min,
+        //     rect_max,
+        //     fill_voxel_type
+        // );
+        // log::debug!(
+        //     "Chunk positions: {:?}",
+        //     affacted_chunk_positions.iter().collect::<Vec<_>>()
+        // );
+
+        let affacted_chunk_positions = vec![UVec3::new(0, 0, 0)];
 
         for chunk_pos in affacted_chunk_positions.iter() {
-            self.modify_chunk_data(*chunk_pos, rect_min, rect_max, fill_voxel_type);
+            self.add_tree_to_chunk(*chunk_pos, tree, tree_pos);
         }
 
         for chunk_pos in affacted_chunk_positions.iter() {

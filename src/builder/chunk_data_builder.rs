@@ -1,4 +1,5 @@
 use super::Resources;
+use crate::tree_gen::Tree;
 use crate::util::ShaderCompiler;
 use crate::vkn::execute_one_time_command;
 use crate::vkn::BufferBuilder;
@@ -70,8 +71,9 @@ impl ChunkDataBuilder {
         );
         chunk_modify_ds.perform_writes(&[
             WriteDescriptorSet::new_buffer_write(0, resources.chunk_modify_info()),
+            WriteDescriptorSet::new_buffer_write(1, resources.round_cones()),
             WriteDescriptorSet::new_texture_write(
-                1,
+                2,
                 vk::DescriptorType::STORAGE_IMAGE,
                 resources.raw_atlas_tex(),
                 vk::ImageLayout::GENERAL,
@@ -150,11 +152,10 @@ impl ChunkDataBuilder {
         resources: &Resources,
         voxel_dim: UVec3,
         chunk_pos: UVec3,
-        rect_min: UVec3,
-        rect_max: UVec3,
-        fill_voxel_type: u32,
+        tree: &Tree,
+        tree_pos: UVec3,
     ) {
-        update_uniforms(resources, chunk_pos, rect_min, rect_max, fill_voxel_type);
+        update_buffers(resources, chunk_pos, tree, tree_pos);
 
         execute_one_time_command(
             vulkan_context.device(),
@@ -172,19 +173,11 @@ impl ChunkDataBuilder {
             },
         );
 
-        fn update_uniforms(
-            resources: &Resources,
-            chunk_pos: UVec3,
-            rect_min: UVec3,
-            rect_max: UVec3,
-            fill_voxel_type: u32,
-        ) {
+        fn update_buffers(resources: &Resources, chunk_pos: UVec3, tree: &Tree, tree_pos: UVec3) {
             let data = BufferBuilder::from_struct_buffer(resources.chunk_modify_info())
                 .unwrap()
                 .set_uvec3("chunk_pos", chunk_pos.to_array())
-                .set_uvec3("rect_min", rect_min.to_array())
-                .set_uvec3("rect_max", rect_max.to_array())
-                .set_uint("fill_voxel_type", fill_voxel_type)
+                .set_uint("fill_voxel_type", 1) // TODO: pass it or remove it
                 .to_raw_data();
             resources
                 .chunk_modify_info()

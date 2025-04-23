@@ -1,6 +1,7 @@
 use crate::builder::Builder;
 use crate::gameplay::{Camera, CameraDesc};
 use crate::tracer::Tracer;
+use crate::tree_gen::Tree;
 use crate::util::ShaderCompiler;
 use crate::util::TimeInfo;
 use crate::vkn::{Allocator, CommandBuffer, Fence, Semaphore, SwapchainDesc};
@@ -224,11 +225,8 @@ impl InitializedApp {
                 }
 
                 if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyF {
-                    self.builder.fill_region_with_type(
-                        UVec3::new(0, 0, 0),
-                        UVec3::new(500, 125, 500),
-                        1,
-                    );
+                    let new_tree = Tree::new(Default::default());
+                    self.builder.add_tree(&new_tree, UVec3::new(128, 0, 128));
                 }
             }
 

@@ -3,15 +3,23 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
+struct RoundCone {
+    float radius_a;
+    vec3 center_a;
+    float radius_b;
+    vec3 center_b;
+};
+
 layout(set = 0, binding = 0) readonly uniform U_ChunkModifyInfo {
     uvec3 chunk_pos;
-    uvec3 rect_min;
-    uvec3 rect_max;
     uint fill_voxel_type;
 }
 chunk_modify_info;
 
-layout(set = 0, binding = 1, r8ui) writeonly uniform uimage3D raw_atlas;
+layout(set = 0, binding = 1) readonly buffer U_RoundCones { RoundCone round_cones[]; }
+round_cones;
+
+layout(set = 0, binding = 2, r8ui) writeonly uniform uimage3D raw_atlas;
 
 #include "../../include/config.glsl"
 #include "../../include/core/sdf.glsl"
@@ -32,7 +40,7 @@ void main() {
 
     float dst =
         sd_round_cone(world_voxel_pos_f, vec3(40.0, 80.0, 40.0), vec3(40.0, 180.0, 90.0), 10, 1);
-    
+
     if (dst < 0.0) {
         imageStore(raw_atlas, world_voxel_pos, uvec4(chunk_modify_info.fill_voxel_type, 0, 0, 0));
     }

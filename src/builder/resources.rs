@@ -97,6 +97,7 @@ impl ExternalSharedResources {
 pub struct ChunkInitResources {
     pub chunk_init_info: Buffer,
     pub chunk_modify_info: Buffer,
+    pub round_cones: Buffer,
 }
 
 impl ChunkInitResources {
@@ -126,9 +127,21 @@ impl ChunkInitResources {
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
+        let round_cones = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            100 * 1024 * 1024,
+        ); // 100 MB
+
+        // debug
+        // let round_cone_layout = chunk_modify_sm.get_buffer_layout("RoundCone").unwrap();
+
         Self {
             chunk_init_info,
             chunk_modify_info,
+            round_cones,
         }
     }
 }
@@ -400,6 +413,10 @@ impl Resources {
 
     pub fn chunk_modify_info(&self) -> &Buffer {
         &self.chunk_init.chunk_modify_info
+    }
+
+    pub fn round_cones(&self) -> &Buffer {
+        &self.chunk_init.round_cones
     }
 
     pub fn voxel_dim_indirect(&self) -> &Buffer {
