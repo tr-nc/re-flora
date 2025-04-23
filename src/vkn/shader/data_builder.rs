@@ -236,7 +236,7 @@ impl<'a> StructMemberDataBuilder<'a> {
                 let end = offset + bytes.len();
                 data[offset..end].copy_from_slice(&bytes);
             } else {
-                log::error!(
+                log::warn!(
                     "Plain field `{}` was never set, leaving zeros",
                     plain_builder.layout.name
                 );
