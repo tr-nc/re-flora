@@ -3,8 +3,8 @@ use crate::builder::ExternalSharedResources;
 use crate::gameplay::Camera;
 use crate::util::ShaderCompiler;
 use crate::vkn::{
-    Allocator, ComputePipeline, DescriptorPool, DescriptorSet, Image, PlainMemberDataBuilder,
-    ShaderModule, WriteDescriptorSet,
+    Allocator, ComputePipeline, DescriptorPool, DescriptorSet, Image, PlainMemberTypeWithData,
+    ShaderModule, StructMemberDataBuilder, WriteDescriptorSet,
 };
 use crate::vkn::{CommandBuffer, VulkanContext};
 use ash::vk;
@@ -60,7 +60,9 @@ impl Tracer {
             &builder_shared_resources,
         );
 
-        let this_self = Self {
+        initialize_buffers(&resources, visible_chunk_dim);
+
+        return Self {
             vulkan_context,
             allocator,
             resources,
@@ -69,9 +71,16 @@ impl Tracer {
             descriptor_pool,
         };
 
-        this_self.initialize_buffers(visible_chunk_dim);
-
-        this_self
+        fn initialize_buffers(resources: &TracerResources, visible_chunk_dim: UVec3) {
+            let data = StructMemberDataBuilder::from_struct_buffer(&resources.scene_info)
+                .set_field(
+                    "visible_chunk_dim",
+                    PlainMemberTypeWithData::UVec3(visible_chunk_dim.to_array()),
+                )
+                .unwrap()
+                .get_data_u8();
+            resources.scene_info.fill_with_raw_u8(&data).unwrap();
+        }
     }
 
     pub fn on_resize(
@@ -114,50 +123,54 @@ impl Tracer {
         self.resources.shader_write_tex.get_image()
     }
 
-    fn initialize_buffers(&self, visible_chunk_dim: UVec3) {
-        // let scene_info_data =
-        //     PlainMemberDataBuilder::from_struct_buffer(&self.resources.scene_info)
-        //         .unwrap()
-        //         .set_uvec3("visible_chunk_dim", visible_chunk_dim.to_array())
-        //         .to_raw_data();
-        // self.resources
-        //     .scene_info
-        //     .fill_with_raw_u8(&scene_info_data)
-        //     .unwrap();
-    }
+    pub fn update_buffers(&mut self, camera: &Camera, debug_float: f32) {
+        let data = StructMemberDataBuilder::from_struct_buffer(&self.resources.gui_input)
+            .set_field("debug_float", PlainMemberTypeWithData::Float(debug_float))
+            .unwrap()
+            .get_data_u8();
+        self.resources.gui_input.fill_with_raw_u8(&data).unwrap();
 
-    /// Update the uniform buffers with the latest camera and debug values, called every frame
-    pub fn update_uniforms(&mut self, camera: &Camera, debug_float: f32) {
-        // let gui_input_data = PlainMemberDataBuilder::from_struct_buffer(&self.resources.gui_input)
-        //     .unwrap()
-        //     .set_float("debug_float", debug_float)
-        //     .to_raw_data();
-        // self.resources
-        //     .gui_input
-        //     .fill_with_raw_u8(&gui_input_data)
-        //     .unwrap();
-
-        // let view_mat = camera.get_view_mat();
-        // let proj_mat = camera.get_proj_mat();
-        // let view_proj_mat = proj_mat * view_mat;
-        // let camera_info_data =
-        //     PlainMemberDataBuilder::from_struct_buffer(&self.resources.camera_info)
-        //         .unwrap()
-        //         .set_vec4("camera_pos", camera.position_vec4().to_array())
-        //         .set_mat4("view_mat", view_mat.to_cols_array_2d())
-        //         .set_mat4("view_mat_inv", view_mat.inverse().to_cols_array_2d())
-        //         .set_mat4("proj_mat", proj_mat.to_cols_array_2d())
-        //         .set_mat4("proj_mat_inv", proj_mat.inverse().to_cols_array_2d())
-        //         .set_mat4("view_proj_mat", view_proj_mat.to_cols_array_2d())
-        //         .set_mat4(
-        //             "view_proj_mat_inv",
-        //             view_proj_mat.inverse().to_cols_array_2d(),
-        //         )
-        //         .to_raw_data();
-        // self.resources
-        //     .camera_info
-        //     .fill_with_raw_u8(&camera_info_data)
-        //     .unwrap();
+        let view_mat = camera.get_view_mat();
+        let proj_mat = camera.get_proj_mat();
+        let view_proj_mat = proj_mat * view_mat;
+        let data = StructMemberDataBuilder::from_struct_buffer(&self.resources.camera_info)
+            .set_field(
+                "camera_pos",
+                PlainMemberTypeWithData::Vec4(camera.position_vec4().to_array()),
+            )
+            .unwrap()
+            .set_field(
+                "view_mat",
+                PlainMemberTypeWithData::Mat4(view_mat.to_cols_array_2d()),
+            )
+            .unwrap()
+            .set_field(
+                "view_mat_inv",
+                PlainMemberTypeWithData::Mat4(view_mat.inverse().to_cols_array_2d()),
+            )
+            .unwrap()
+            .set_field(
+                "proj_mat",
+                PlainMemberTypeWithData::Mat4(proj_mat.to_cols_array_2d()),
+            )
+            .unwrap()
+            .set_field(
+                "proj_mat_inv",
+                PlainMemberTypeWithData::Mat4(proj_mat.inverse().to_cols_array_2d()),
+            )
+            .unwrap()
+            .set_field(
+                "view_proj_mat",
+                PlainMemberTypeWithData::Mat4(view_proj_mat.to_cols_array_2d()),
+            )
+            .unwrap()
+            .set_field(
+                "view_proj_mat_inv",
+                PlainMemberTypeWithData::Mat4(view_proj_mat.inverse().to_cols_array_2d()),
+            )
+            .unwrap()
+            .get_data_u8();
+        self.resources.camera_info.fill_with_raw_u8(&data).unwrap();
     }
 
     fn create_compute_descriptor_set(

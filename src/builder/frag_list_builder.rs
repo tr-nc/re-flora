@@ -6,10 +6,10 @@ use crate::vkn::DescriptorPool;
 use crate::vkn::DescriptorSet;
 use crate::vkn::MemoryBarrier;
 use crate::vkn::PipelineBarrier;
-use crate::vkn::PlainMemberDataBuilder;
 use crate::vkn::PlainMemberTypeWithData;
 use crate::vkn::ShaderModule;
 use crate::vkn::StructMemberDataBuilder;
+use crate::vkn::StructMemberDataReader;
 use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
 use ash::vk;
@@ -156,39 +156,41 @@ impl FragListBuilder {
     pub fn build(&self, vulkan_context: &VulkanContext, resources: &Resources, chunk_pos: UVec3) {
         let device = vulkan_context.device();
 
-        Self::update_buffers(resources, chunk_pos);
+        update_buffers(resources, chunk_pos);
 
         self.cmdbuf
             .submit(&vulkan_context.get_general_queue(), None);
         device.wait_queue_idle(&vulkan_context.get_general_queue());
-    }
 
-    fn update_buffers(resources: &Resources, chunk_pos: UVec3) {
-        let mut struct_member_data_builder =
-            StructMemberDataBuilder::from_struct_buffer(resources.frag_list_maker_info());
-        let data_made = struct_member_data_builder
-            .set_field(
-                "chunk_pos",
-                PlainMemberTypeWithData::UVec3(chunk_pos.to_array()),
-            )
-            .unwrap()
-            .get_data_u8();
-        log::debug!("data_made: {:?}", data_made);
-
-        resources
-            .frag_list_maker_info()
-            .fill_with_raw_u8(&data_made)
-            .expect("Failed to fill buffer data");
+        fn update_buffers(resources: &Resources, chunk_pos: UVec3) {
+            let data =
+                StructMemberDataBuilder::from_struct_buffer(resources.frag_list_maker_info())
+                    .set_field(
+                        "chunk_pos",
+                        PlainMemberTypeWithData::UVec3(chunk_pos.to_array()),
+                    )
+                    .unwrap()
+                    .get_data_u8();
+            resources
+                .frag_list_maker_info()
+                .fill_with_raw_u8(&data)
+                .unwrap();
+        }
     }
 
     pub fn get_fraglist_length(&self, resources: &Resources) -> u32 {
-        // let raw_data = resources.frag_list_build_result().fetch_raw().unwrap();
-        // PlainMemberDataBuilder::from_struct_buffer(resources.frag_list_build_result())
-        //     .unwrap()
-        //     .set_raw(raw_data)
-        //     .get_uint("fragment_list_len")
-        //     .unwrap()
-
-        todo!();
+        let layout = &resources
+            .frag_list_build_result()
+            .get_layout()
+            .unwrap()
+            .root_member;
+        let raw_data = resources.frag_list_build_result().fetch_raw().unwrap();
+        let reader = StructMemberDataReader::new(layout, &raw_data);
+        let field_val = reader.get_field("fragment_list_len").unwrap();
+        if let PlainMemberTypeWithData::UInt(val) = field_val {
+            val
+        } else {
+            panic!("Expected UInt type for fragment_list_len")
+        }
     }
 }

@@ -294,7 +294,7 @@ impl InitializedApp {
                         .expect("Failed to reset fences")
                 };
 
-                self.tracer.update_uniforms(&self.camera, self.slider_val);
+                self.tracer.update_buffers(&self.camera, self.slider_val);
 
                 let cmdbuf = &self.cmdbuf;
                 cmdbuf.begin(false);

@@ -1,6 +1,6 @@
 use super::chunk_data_builder::ChunkDataBuilder;
 use super::frag_list_builder::FragListBuilder;
-// use super::octree_builder::OctreeBuilder;
+use super::octree_builder::OctreeBuilder;
 use super::ExternalSharedResources;
 use super::Resources;
 use crate::tree_gen::Tree;
@@ -21,7 +21,7 @@ pub struct Builder {
 
     chunk_data_builder: ChunkDataBuilder,
     frag_list_builder: FragListBuilder,
-    // octree_builder: OctreeBuilder,
+    octree_builder: OctreeBuilder,
 }
 
 impl Builder {
@@ -67,13 +67,13 @@ impl Builder {
             &resources,
         );
 
-        // let octree_builder = OctreeBuilder::new(
-        //     &vulkan_context,
-        //     shader_compiler,
-        //     descriptor_pool.clone(),
-        //     &resources,
-        //     octree_buffer_size,
-        // );
+        let octree_builder = OctreeBuilder::new(
+            &vulkan_context,
+            shader_compiler,
+            descriptor_pool.clone(),
+            &resources,
+            octree_buffer_size,
+        );
 
         Self {
             vulkan_context,
@@ -83,7 +83,7 @@ impl Builder {
             visible_chunk_dim,
             chunk_data_builder,
             frag_list_builder,
-            // octree_builder,
+            octree_builder,
         }
     }
 
@@ -146,11 +146,11 @@ impl Builder {
     }
 
     fn update_octree_offset_atlas_tex(&mut self) {
-        // self.octree_builder.update_octree_offset_atlas_tex(
-        //     &self.vulkan_context,
-        //     &self.resources,
-        //     self.visible_chunk_dim,
-        // );
+        self.octree_builder.update_octree_offset_atlas_tex(
+            &self.vulkan_context,
+            &self.resources,
+            self.visible_chunk_dim,
+        );
     }
 
     pub fn add_tree(&mut self, tree: &Tree, tree_pos: UVec3) {
@@ -231,13 +231,13 @@ impl Builder {
             );
         }
 
-        // self.octree_builder.build(
-        //     &self.vulkan_context,
-        //     &self.resources,
-        //     fragment_list_len,
-        //     chunk_pos,
-        //     self.voxel_dim,
-        // );
+        self.octree_builder.build(
+            &self.vulkan_context,
+            &self.resources,
+            fragment_list_len,
+            chunk_pos,
+            self.voxel_dim,
+        );
     }
 
     pub fn get_external_shared_resources(&self) -> &ExternalSharedResources {

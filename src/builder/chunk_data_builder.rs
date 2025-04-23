@@ -6,7 +6,6 @@ use crate::vkn::ClearValue;
 use crate::vkn::ComputePipeline;
 use crate::vkn::DescriptorPool;
 use crate::vkn::DescriptorSet;
-use crate::vkn::PlainMemberDataBuilder;
 use crate::vkn::PlainMemberTypeWithData;
 use crate::vkn::ShaderModule;
 use crate::vkn::StructMemberDataBuilder;
@@ -137,18 +136,14 @@ impl ChunkDataBuilder {
         );
 
         fn update_buffers(resources: &Resources, chunk_pos: UVec3) {
-            let mut bd = StructMemberDataBuilder::from_struct_buffer(&resources.chunk_init_info());
-            let data = bd
+            let data = StructMemberDataBuilder::from_struct_buffer(&resources.chunk_init_info())
                 .set_field(
                     "chunk_pos",
                     PlainMemberTypeWithData::UVec3(chunk_pos.to_array()),
                 )
                 .unwrap()
                 .get_data_u8();
-            resources
-                .chunk_init_info()
-                .fill_with_raw_u8(&data)
-                .expect("Failed to fill buffer data");
+            resources.chunk_init_info().fill_with_raw_u8(&data).unwrap();
         }
     }
 

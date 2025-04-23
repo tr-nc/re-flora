@@ -4,9 +4,9 @@ use crate::vkn::{Buffer, MemberLayout};
 
 use super::{PlainMemberLayout, PlainMemberTypeWithData, StructMemberLayout};
 
-pub struct PlainMemberDataBuilder<'a> {
-    pub layout: &'a PlainMemberLayout,
-    pub data: Option<PlainMemberTypeWithData>,
+struct PlainMemberDataBuilder<'a> {
+    layout: &'a PlainMemberLayout,
+    data: Option<PlainMemberTypeWithData>,
 }
 
 impl<'a> PlainMemberDataBuilder<'a> {
@@ -24,10 +24,6 @@ impl<'a> PlainMemberDataBuilder<'a> {
 
         self.data = Some(plain_type_with_data);
         return Ok(());
-    }
-
-    pub fn get_val(&self) -> Option<PlainMemberTypeWithData> {
-        self.data.clone()
     }
 
     pub fn get_data_u8(&self) -> Option<Vec<u8>> {
@@ -141,15 +137,15 @@ impl<'a> PlainMemberDataBuilder<'a> {
 }
 
 pub struct StructMemberDataBuilder<'a> {
-    pub layout: &'a StructMemberLayout,
-    pub plain_member_builders: HashMap<String, PlainMemberDataBuilder<'a>>,
-    pub struct_member_builders: HashMap<String, StructMemberDataBuilder<'a>>,
+    layout: &'a StructMemberLayout,
+    plain_member_builders: HashMap<String, PlainMemberDataBuilder<'a>>,
+    struct_member_builders: HashMap<String, StructMemberDataBuilder<'a>>,
 }
 
 impl<'a> StructMemberDataBuilder<'a> {
     pub fn from_struct_buffer(buffer: &'a Buffer) -> Self {
         let layout = &buffer.get_layout().unwrap().root_member;
-        return Self::from_layout(layout);
+        Self::from_layout(layout)
     }
 
     pub fn from_layout(layout: &'a StructMemberLayout) -> Self {
@@ -158,60 +154,98 @@ impl<'a> StructMemberDataBuilder<'a> {
 
         for (_, member) in layout.name_member_table.iter() {
             match member {
-                MemberLayout::Plain(plain_member) => {
-                    let pdb = PlainMemberDataBuilder::from_layout(&plain_member);
-                    plain_member_builders.insert(plain_member.name.clone(), pdb);
+                MemberLayout::Plain(plain_layout) => {
+                    let pdb = PlainMemberDataBuilder::from_layout(plain_layout);
+                    plain_member_builders.insert(plain_layout.name.clone(), pdb);
                 }
-                MemberLayout::Struct(struct_member) => {
-                    let sdb = StructMemberDataBuilder::from_layout(&struct_member);
-                    struct_member_builders.insert(struct_member.name.clone(), sdb);
+                MemberLayout::Struct(struct_layout) => {
+                    let sdb = StructMemberDataBuilder::from_layout(struct_layout);
+                    struct_member_builders.insert(struct_layout.name.clone(), sdb);
                 }
-            };
+            }
         }
 
-        Self {
+        StructMemberDataBuilder {
             layout,
             plain_member_builders,
             struct_member_builders,
         }
     }
 
+    /// Set a plain‐typed field by a path like `"foo.bar.baz"`.
+    /// Will descend into nested struct builders as needed.
     pub fn set_field(
         &mut self,
-        field_name: &str,
+        field_path: &str,
         value: PlainMemberTypeWithData,
     ) -> Result<&mut Self, String> {
-        if let Some(field) = self.plain_member_builders.get_mut(field_name) {
-            field.set_val(value)?;
-            return Ok(self);
-        } else {
-            return Err(format!(
-                "Field {} not found in struct {}",
-                field_name, self.layout.name
-            ));
+        // split on dots into vector of &str
+        let parts: Vec<&str> = field_path.split('.').collect();
+        self.set_field_recursive(&parts, value)?;
+        Ok(self)
+    }
+
+    /// internal recursive helper
+    fn set_field_recursive(
+        &mut self,
+        parts: &[&str],
+        value: PlainMemberTypeWithData,
+    ) -> Result<(), String> {
+        match parts {
+            // leaf: try to set a plain member here
+            [field_name] => {
+                if let Some(plain) = self.plain_member_builders.get_mut(*field_name) {
+                    plain.set_val(value)?;
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "Field `{}` not found in struct `{}`",
+                        field_name, self.layout.name
+                    ))
+                }
+            }
+            // more parts: descend into a nested struct builder
+            [first, rest @ ..] => {
+                if let Some(nested) = self.struct_member_builders.get_mut(*first) {
+                    nested.set_field_recursive(rest, value)
+                } else {
+                    Err(format!(
+                        "Struct field `{}` not found in struct `{}`",
+                        first, self.layout.name
+                    ))
+                }
+            }
+            [] => unreachable!("`parts` should never be empty"),
         }
     }
 
+    /// Produce one flat Vec<u8> for the entire (sub‑)struct,
+    /// recursively writing every plain member at its offset.
     pub fn get_data_u8(&self) -> Vec<u8> {
-        let mut data: Vec<u8> = vec![0; self.layout.get_size() as usize];
+        let mut data = vec![0u8; self.layout.get_size() as usize];
+        self.write_all_fields(&mut data);
+        data
+    }
 
-        for (_, data_builder) in self.plain_member_builders.iter() {
-            let bytes = data_builder.get_data_u8();
-            if bytes.is_none() {
-                log::error!("Member {} is None", data_builder.layout.name);
-                // continue leaves the data as 0
-                continue;
-            }
-            let bytes = bytes.unwrap();
-
-            // let padded_size = data_builder.layout.padded_size as usize;
-            let offset = data_builder.layout.offset as usize;
-
-            // Copy the bytes into the correct position in the data vector
-            for i in 0..bytes.len() {
-                data[offset + i] = bytes[i];
+    /// internal helper: write this struct’s plains, then recurse into sub‑structs
+    fn write_all_fields(&self, data: &mut [u8]) {
+        // 1) write immediate plain fields
+        for plain_builder in self.plain_member_builders.values() {
+            if let Some(bytes) = plain_builder.get_data_u8() {
+                let offset = plain_builder.layout.offset as usize;
+                let end = offset + bytes.len();
+                data[offset..end].copy_from_slice(&bytes);
+            } else {
+                log::error!(
+                    "Plain field `{}` was never set, leaving zeros",
+                    plain_builder.layout.name
+                );
             }
         }
-        return data;
+
+        // 2) recurse into each nested struct
+        for nested in self.struct_member_builders.values() {
+            nested.write_all_fields(data);
+        }
     }
 }

@@ -12,8 +12,10 @@ use crate::vkn::DescriptorPool;
 use crate::vkn::DescriptorSet;
 use crate::vkn::MemoryBarrier;
 use crate::vkn::PipelineBarrier;
-use crate::vkn::PlainMemberDataBuilder;
+use crate::vkn::PlainMemberTypeWithData;
 use crate::vkn::ShaderModule;
+use crate::vkn::StructMemberDataBuilder;
+use crate::vkn::StructMemberDataReader;
 use crate::vkn::TextureRegion;
 use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
@@ -216,13 +218,19 @@ impl OctreeBuilder {
     }
 
     pub fn get_octree_data_size_in_bytes(&self, resources: &Resources) -> u32 {
+        let layout = &resources
+            .octree_build_result()
+            .get_layout()
+            .unwrap()
+            .root_member;
         let raw_data = resources.octree_build_result().fetch_raw().unwrap();
-        PlainMemberDataBuilder::from_struct_buffer(resources.octree_build_result())
-            .unwrap()
-            .set_raw(raw_data)
-            .get_uint("size_u32")
-            .unwrap()
-            * std::mem::size_of::<u32>() as u32
+        let reader = StructMemberDataReader::new(layout, &raw_data);
+        let field_val = reader.get_field("size_u32").unwrap();
+        if let PlainMemberTypeWithData::UInt(val) = field_val {
+            return val * std::mem::size_of::<u32>() as u32;
+        } else {
+            panic!("Failed to get size_u32 from octree_build_result");
+        }
     }
 
     fn copy_octree_data_single_to_octree_data(
@@ -365,7 +373,7 @@ impl OctreeBuilder {
     ) {
         let device = vulkan_context.device();
 
-        update_uniforms(resources, fragment_list_len);
+        update_buffers(resources, fragment_list_len);
 
         let level = self.get_level(voxel_dim);
         let cmdbuf = if let Some(cmdbuf) = self.cmdbuf_table.get(&level) {
@@ -391,16 +399,18 @@ impl OctreeBuilder {
             octree_size as u64,
         );
 
-        fn update_uniforms(resources: &Resources, fragment_list_len: u32) {
-            let octree_build_info_data =
-                PlainMemberDataBuilder::from_struct_buffer(resources.octree_build_info())
-                    .unwrap()
-                    .set_uint("fragment_list_len", fragment_list_len)
-                    .to_raw_data();
+        fn update_buffers(resources: &Resources, fragment_list_len: u32) {
+            let data = StructMemberDataBuilder::from_struct_buffer(resources.octree_build_info())
+                .set_field(
+                    "fragment_list_len",
+                    PlainMemberTypeWithData::UInt(fragment_list_len),
+                )
+                .unwrap()
+                .get_data_u8();
             resources
                 .octree_build_info()
-                .fill_with_raw_u8(&octree_build_info_data)
-                .expect("Failed to fill buffer data");
+                .fill_with_raw_u8(&data)
+                .unwrap();
         }
     }
 
