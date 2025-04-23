@@ -17,8 +17,8 @@ pub struct BufferLayout {
 }
 
 impl BufferLayout {
-    pub fn get_size(&self) -> u32 {
-        self.root_member.get_size()
+    pub fn get_size_bytes(&self) -> u64 {
+        self.root_member.get_size_bytes()
     }
 
     pub fn get_member(&self, name: &str) -> Option<&MemberLayout> {
@@ -108,9 +108,9 @@ impl PlainMemberTypeWithData {
 pub struct PlainMemberLayout {
     pub name: String,
     pub ty: PlainMemberType,
-    pub offset: u32,
-    pub size: u32,
-    pub padded_size: u32,
+    pub offset: u64,
+    pub size: u64,
+    pub padded_size: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -121,12 +121,12 @@ pub struct StructMemberLayout {
 }
 
 impl StructMemberLayout {
-    pub fn get_size(&self) -> u32 {
+    pub fn get_size_bytes(&self) -> u64 {
         let mut size = 0;
         for member in self.name_member_table.values() {
             match member {
                 MemberLayout::Plain(plain_member) => size += plain_member.padded_size,
-                MemberLayout::Struct(struct_member) => size += struct_member.get_size(),
+                MemberLayout::Struct(struct_member) => size += struct_member.get_size_bytes(),
             }
         }
         size

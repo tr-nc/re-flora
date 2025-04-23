@@ -1,6 +1,7 @@
 use super::Resources;
 use crate::tree_gen::Tree;
 use crate::util::ShaderCompiler;
+use crate::util::Timer;
 use crate::vkn::execute_one_time_command;
 use crate::vkn::ClearValue;
 use crate::vkn::ComputePipeline;
@@ -198,29 +199,30 @@ impl ChunkDataBuilder {
                 .fill_with_raw_u8(&data)
                 .unwrap();
 
+            // debug
+            let layout = resources.round_cones().get_layout();
+            log::debug!("round_cone layout: {:#?}", layout);
+
             let data = StructMemberDataBuilder::from_struct_buffer(resources.round_cones())
                 .set_field(
-                    "round_cone.center_a",
+                    "data.center_a",
                     PlainMemberTypeWithData::Vec3(center_a.to_array()),
                 )
                 .unwrap()
                 .set_field(
-                    "round_cone.center_b",
+                    "data.center_b",
                     PlainMemberTypeWithData::Vec3(center_b.to_array()),
                 )
                 .unwrap()
-                .set_field(
-                    "round_cone.radius_a",
-                    PlainMemberTypeWithData::Float(radius_a),
-                )
+                .set_field("data.radius_a", PlainMemberTypeWithData::Float(radius_a))
                 .unwrap()
-                .set_field(
-                    "round_cone.radius_b",
-                    PlainMemberTypeWithData::Float(radius_b),
-                )
+                .set_field("data.radius_b", PlainMemberTypeWithData::Float(radius_b))
                 .unwrap()
                 .get_data_u8();
-            resources.round_cones().fill_with_raw_u8(&data).unwrap();
+            resources
+                .round_cones()
+                .fill_element_with_raw_u8(&data, 0)
+                .unwrap();
         }
     }
 }

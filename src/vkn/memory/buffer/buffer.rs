@@ -12,6 +12,7 @@ use std::ops::Deref;
 struct BufferDesc {
     pub layout: Option<BufferLayout>,
     pub size: Option<vk::DeviceSize>,
+    pub element_length: u64, // array of length elements
     pub usage: BufferUsage,
     pub _location: MemoryLocation,
 }
@@ -39,29 +40,54 @@ impl Deref for Buffer {
 }
 
 impl Buffer {
-    /// Creates a buffer from a provided struct layout.
-    ///
-    /// This constructor is useful when the buffer will store structured data described
-    /// by a layout. The layout defines the size and memory requirements.
-    ///
-    /// # Parameters
-    /// * `device` - The Vulkan device
-    /// * `allocator` - Memory allocator for buffer allocation
-    /// * `layout` - Structure layout describing the buffer contents
-    /// * `additional_usages` - Any additional buffer usage flags beyond what's inferred from the layout
-    /// * `location` - Memory location (device or host visible memory)
     pub fn from_buffer_layout(
+        device: Device,
+        allocator: Allocator,
+        layout: BufferLayout,
+        additional_usages: BufferUsage,
+        location: MemoryLocation,
+    ) -> Self {
+        return Self::create_buffer_with_layout(
+            device,
+            allocator,
+            layout,
+            additional_usages,
+            location,
+            1,
+        );
+    }
+
+    pub fn from_buffer_layout_arraylike(
+        device: Device,
+        allocator: Allocator,
+        layout: BufferLayout,
+        additional_usages: BufferUsage,
+        location: MemoryLocation,
+        element_length: u64,
+    ) -> Self {
+        return Self::create_buffer_with_layout(
+            device,
+            allocator,
+            layout,
+            additional_usages,
+            location,
+            element_length,
+        );
+    }
+
+    fn create_buffer_with_layout(
         device: Device,
         mut allocator: Allocator,
         layout: BufferLayout,
         additional_usages: BufferUsage,
         location: MemoryLocation,
+        element_length: u64,
     ) -> Self {
         let mut usages = BufferUsage::from_reflect_descriptor_type(layout.descriptor_type);
         usages.union_with(&additional_usages);
 
         let buffer_info = vk::BufferCreateInfo::default()
-            .size(layout.get_size() as _)
+            .size(layout.get_size_bytes() * element_length)
             .usage(usages.as_raw())
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
 
@@ -87,6 +113,7 @@ impl Buffer {
         let desc = BufferDesc {
             usage: usages,
             _location: location,
+            element_length,
             layout: Some(layout),
             size: None,
         };
@@ -100,17 +127,7 @@ impl Buffer {
         }
     }
 
-    /// Creates a buffer with a specific size.
-    ///
-    /// This constructor is useful when the buffer size is known but doesn't
-    /// have a specific structure layout.
-    ///
-    /// # Parameters
-    /// * `device` - The Vulkan device
-    /// * `allocator` - Memory allocator for buffer allocation
-    /// * `usage` - Buffer usage flags
-    /// * `location` - Memory location (device or host visible memory)
-    /// * `size` - The size of the buffer in bytes
+    // TODO: deprecate this one?
     pub fn new_sized(
         device: Device,
         mut allocator: Allocator,
@@ -147,6 +164,7 @@ impl Buffer {
             _location: location,
             layout: None,
             size: Some(size as vk::DeviceSize),
+            element_length: 1, // TODO: or?
         };
 
         Self {
@@ -158,23 +176,22 @@ impl Buffer {
         }
     }
 
-    /// Returns the size of the buffer in bytes.
-    ///
-    /// If the buffer was created with a specific size, returns that size.
-    /// Otherwise, returns the size from the buffer's layout.
-    pub fn get_size(&self) -> vk::DeviceSize {
-        // allocated_mem.size() would give the wrong result because the allocated size
-        // is implementation related, so it may overallocate
-
+    pub fn get_element_size_bytes(&self) -> u64 {
         if let Some(size) = self.desc.size {
             return size;
         }
 
-        self.desc
-            .layout
-            .as_ref()
-            .expect("Size and Layout fields are both not set!")
-            .get_size() as vk::DeviceSize
+        if let Some(layout) = self.desc.layout.as_ref() {
+            return layout.get_size_bytes();
+        }
+
+        unreachable!("Buffer has no layout or size set!");
+    }
+
+    pub fn get_size_bytes(&self) -> u64 {
+        // allocated_mem.size() would give the wrong result because the allocated size
+        // is implementation related, so it may overallocate
+        self.get_element_size_bytes() * self.desc.element_length
     }
 
     /// Returns the buffer usage flags.
@@ -191,49 +208,57 @@ impl Buffer {
         self.desc._location
     }
 
-    /// Fills the buffer with raw u8 data.
-    ///
-    /// # Parameters
-    /// * `data` - The u8 array to copy into the buffer
-    ///
-    /// # Returns
-    /// * `Ok(())` if the operation was successful
-    /// * `Err` with a description if the data size doesn't match the buffer size
-    ///   or if memory mapping failed
-    pub fn fill_with_raw_u8(&self, data: &[u8]) -> Result<(), String> {
-        // validation: check if data size matches buffer size
-        if data.len() != self.get_size() as usize {
-            return Err(format!(
-                "Data size {} does not match buffer size {}",
-                data.len(),
-                self.get_size()
-            ));
-        }
-
+    fn map_buffer_mem_and_write(&self, data: &[u8], byte_offset: u64) -> Result<(), String> {
+        // Try to get the raw mapped pointer
         if let Some(ptr) = self.allocated_mem.mapped_ptr() {
             unsafe {
+                let base_ptr = ptr.as_ptr();
+                let target_ptr = base_ptr.add(byte_offset as usize);
                 let mut align = ash::util::Align::new(
-                    ptr.as_ptr(),
-                    std::mem::align_of::<u8>() as vk::DeviceSize,
+                    target_ptr,
+                    std::mem::align_of::<u8>() as vk::DeviceSize, // u8 has alignment 1
                     data.len() as vk::DeviceSize,
                 );
                 align.copy_from_slice(data);
-            };
+            }
             Ok(())
         } else {
-            return Err("Failed to map buffer memory".to_string());
+            Err("Failed to map buffer memory".into())
         }
     }
 
-    /// Fills the buffer with raw u32 data.
-    ///
-    /// # Parameters
-    /// * `data` - The u32 array to copy into the buffer
-    ///
-    /// # Returns
-    /// * `Ok(())` if the operation was successful
-    /// * `Err` with a description if the data size doesn't match the buffer size
-    ///  or if memory mapping failed
+    pub fn fill_element_with_raw_u8(&self, data: &[u8], element_idx: u64) -> Result<(), String> {
+        if data.len() != self.get_element_size_bytes() as usize {
+            return Err(format!(
+                "Data size {} does not match element size {}",
+                data.len(),
+                self.get_element_size_bytes()
+            ));
+        }
+
+        if element_idx >= self.desc.element_length {
+            return Err(format!(
+                "Element index {} out of bounds for element length {}",
+                element_idx, self.desc.element_length
+            ));
+        }
+
+        let offset = element_idx * self.get_element_size_bytes();
+        self.map_buffer_mem_and_write(data, offset)
+    }
+
+    pub fn fill_with_raw_u8(&self, data: &[u8]) -> Result<(), String> {
+        // validation: check if data size matches buffer size
+        if data.len() != self.get_size_bytes() as usize {
+            return Err(format!(
+                "Data size {} does not match buffer size {}",
+                data.len(),
+                self.get_size_bytes()
+            ));
+        }
+        self.map_buffer_mem_and_write(data, 0)
+    }
+
     #[allow(dead_code)]
     pub fn fill_with_raw_u32(&self, data: &[u32]) -> Result<(), String> {
         let data_u8: &[u8] = unsafe {
@@ -277,7 +302,7 @@ impl Buffer {
     /// * `Err` with a description if memory mapping failed
     pub fn fetch_raw(&self) -> Result<Vec<u8>, String> {
         if let Some(ptr) = self.allocated_mem.mapped_ptr() {
-            let size = self.get_size() as usize;
+            let size = self.get_size_bytes() as usize;
             let mut data: Vec<u8> = vec![0; size];
             unsafe {
                 let mapped_slice: &mut [u8] = slice::from_raw_parts_mut(ptr.as_ptr().cast(), size);

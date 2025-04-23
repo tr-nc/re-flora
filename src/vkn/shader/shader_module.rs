@@ -365,8 +365,6 @@ fn extract_buffer_layouts(
     ) -> HashMap<String, MemberLayout> {
         let mut result = HashMap::new();
         for (_, reflect_member) in reflect_members.iter().enumerate() {
-            // log::debug!("{:?}", reflect_member);
-
             let member_name = reflect_member.name.clone();
             let type_description = reflect_member.type_description.as_ref().unwrap();
             let type_flags = &type_description.type_flags;
@@ -375,9 +373,10 @@ fn extract_buffer_layouts(
             let member: MemberLayout = match member_type {
                 GeneralMemberType::Array | GeneralMemberType::Plain => {
                     let ty = get_plain_member_type(type_flags, &type_description.traits).unwrap();
-                    let offset = reflect_member.offset;
-                    let size = reflect_member.size;
-                    let padded_size = reflect_member.padded_size;
+                    // notice: u64 is not supported yet in the reflect lib, but we use u64 in our code for the best extensibility
+                    let offset = reflect_member.offset as u64;
+                    let size = reflect_member.size as u64;
+                    let padded_size = reflect_member.padded_size as u64;
                     MemberLayout::Plain(PlainMemberLayout {
                         name: member_name.clone(),
                         ty,

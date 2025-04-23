@@ -27,11 +27,11 @@ impl InternalSharedResources {
         let sam_desc = Default::default();
         let raw_atlas_tex = Texture::new(device.clone(), allocator.clone(), &tex_desc, &sam_desc);
 
-        let max_possible_voxel_count = voxel_dim.x * voxel_dim.y * voxel_dim.z;
+        let max_possible_voxel_count = (voxel_dim.x * voxel_dim.y * voxel_dim.z) as u64;
         let fragment_list_buf_layout = frag_list_maker_sm
             .get_buffer_layout("B_FragmentList")
             .unwrap();
-        let buf_size = fragment_list_buf_layout.get_size() * max_possible_voxel_count;
+        let buf_size = fragment_list_buf_layout.get_size_bytes() * max_possible_voxel_count;
         log::debug!("Fragment list buffer size: {} MB", buf_size / 1024 / 1024);
 
         // uninitialized for now, but is guaranteed to be filled by shader before use
@@ -128,16 +128,14 @@ impl ChunkInitResources {
         );
 
         let round_cones_layout = chunk_modify_sm.get_buffer_layout("B_RoundCones").unwrap();
-        let round_cones = Buffer::from_buffer_layout(
+        let round_cones = Buffer::from_buffer_layout_arraylike(
             device.clone(),
             allocator.clone(),
             round_cones_layout.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
             gpu_allocator::MemoryLocation::CpuToGpu,
+            100,
         );
-
-        // debug
-        // let round_cone_layout = chunk_modify_sm.get_buffer_layout("RoundCone").unwrap();
 
         Self {
             chunk_init_info,

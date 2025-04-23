@@ -79,7 +79,7 @@ impl WriteDescriptorSet {
         let buffer_info = vk::DescriptorBufferInfo::default()
             .buffer(buffer.as_raw())
             .offset(0)
-            .range(buffer.get_size());
+            .range(buffer.get_size_bytes());
 
         Self {
             binding,
