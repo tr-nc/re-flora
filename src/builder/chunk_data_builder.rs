@@ -13,6 +13,7 @@ use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
 use ash::vk;
 use glam::UVec3;
+use glam::Vec3;
 
 pub struct ChunkDataBuilder {
     chunk_init_ppl: ComputePipeline,
@@ -156,44 +157,70 @@ impl ChunkDataBuilder {
         tree: &Tree,
         tree_pos: UVec3,
     ) {
-        // update_buffers(resources, chunk_pos, tree, tree_pos);
+        update_buffers(resources, chunk_pos, tree, tree_pos);
 
-        // execute_one_time_command(
-        //     vulkan_context.device(),
-        //     vulkan_context.command_pool(),
-        //     &vulkan_context.get_general_queue(),
-        //     |cmdbuf| {
-        //         self.chunk_modify_ppl.record_bind(cmdbuf);
-        //         self.chunk_modify_ppl.record_bind_descriptor_sets(
-        //             cmdbuf,
-        //             std::slice::from_ref(&self.chunk_modify_ds),
-        //             0,
-        //         );
-        //         self.chunk_modify_ppl
-        //             .record_dispatch(cmdbuf, voxel_dim.to_array());
-        //     },
-        // );
+        execute_one_time_command(
+            vulkan_context.device(),
+            vulkan_context.command_pool(),
+            &vulkan_context.get_general_queue(),
+            |cmdbuf| {
+                self.chunk_modify_ppl.record_bind(cmdbuf);
+                self.chunk_modify_ppl.record_bind_descriptor_sets(
+                    cmdbuf,
+                    std::slice::from_ref(&self.chunk_modify_ds),
+                    0,
+                );
+                self.chunk_modify_ppl
+                    .record_dispatch(cmdbuf, voxel_dim.to_array());
+            },
+        );
 
-        // fn update_buffers(resources: &Resources, chunk_pos: UVec3, tree: &Tree, tree_pos: UVec3) {
-        //     // let data = PlainMemberDataBuilder::from_struct_buffer(resources.chunk_modify_info())
-        //     //     .unwrap()
-        //     //     .set_uvec3("chunk_pos", chunk_pos.to_array())
-        //     //     .set_uint("fill_voxel_type", 1) // TODO: pass it or remove it
-        //     //     .to_raw_data();
-        //     // resources
-        //     //     .chunk_modify_info()
-        //     //     .fill_with_raw_u8(&data)
-        //     //     .expect("Failed to fill buffer data");
+        fn update_buffers(resources: &Resources, chunk_pos: UVec3, tree: &Tree, tree_pos: UVec3) {
+            let center_a = Vec3::new(40.0, 80.0, 40.0);
+            let center_b = Vec3::new(40.0, 180.0, 90.0);
+            let radius_a = 10.0;
+            let radius_b = 1.0;
 
-        //     let mut struct_member_data_builder =
-        //         StructMemberDataBuilder::from_struct_buffer(&resources.chunk_modify_info());
-        //     let data_made = struct_member_data_builder
-        //         .set_field(
-        //             "chunk_pos",
-        //             PlainMemberTypeWithData::UVec3(chunk_pos.to_array()),
-        //         )
-        //         .unwrap()
+            let data = StructMemberDataBuilder::from_struct_buffer(resources.chunk_modify_info())
+                .set_field(
+                    "chunk_pos",
+                    PlainMemberTypeWithData::UVec3(chunk_pos.to_array()),
+                )
+                .unwrap()
+                .set_field(
+                    "fill_voxel_type",
+                    PlainMemberTypeWithData::UInt(1), // TODO: pass it
+                )
+                .unwrap()
+                .get_data_u8();
+            resources
+                .chunk_modify_info()
+                .fill_with_raw_u8(&data)
+                .unwrap();
 
-        // }
+            let data = StructMemberDataBuilder::from_struct_buffer(resources.round_cones())
+                .set_field(
+                    "round_cone.center_a",
+                    PlainMemberTypeWithData::Vec3(center_a.to_array()),
+                )
+                .unwrap()
+                .set_field(
+                    "round_cone.center_b",
+                    PlainMemberTypeWithData::Vec3(center_b.to_array()),
+                )
+                .unwrap()
+                .set_field(
+                    "round_cone.radius_a",
+                    PlainMemberTypeWithData::Float(radius_a),
+                )
+                .unwrap()
+                .set_field(
+                    "round_cone.radius_b",
+                    PlainMemberTypeWithData::Float(radius_b),
+                )
+                .unwrap()
+                .get_data_u8();
+            resources.round_cones().fill_with_raw_u8(&data).unwrap();
+        }
     }
 }

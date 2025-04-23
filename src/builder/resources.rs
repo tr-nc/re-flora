@@ -127,13 +127,14 @@ impl ChunkInitResources {
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
-        let round_cones = Buffer::new_sized(
+        let round_cones_layout = chunk_modify_sm.get_buffer_layout("B_RoundCones").unwrap();
+        let round_cones = Buffer::from_buffer_layout(
             device.clone(),
             allocator.clone(),
+            round_cones_layout.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
             gpu_allocator::MemoryLocation::CpuToGpu,
-            100 * 1024 * 1024,
-        ); // 100 MB
+        );
 
         // debug
         // let round_cone_layout = chunk_modify_sm.get_buffer_layout("RoundCone").unwrap();

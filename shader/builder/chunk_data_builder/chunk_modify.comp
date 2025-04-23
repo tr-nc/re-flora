@@ -16,7 +16,7 @@ layout(set = 0, binding = 0) readonly uniform U_ChunkModifyInfo {
 }
 chunk_modify_info;
 
-layout(set = 0, binding = 1) readonly buffer B_RoundCones { RoundCone round_cones; }
+layout(set = 0, binding = 1) readonly buffer B_RoundCones { RoundCone round_cone; }
 round_cones;
 
 layout(set = 0, binding = 2, r8ui) writeonly uniform uimage3D raw_atlas;
@@ -38,8 +38,9 @@ void main() {
 
     vec3 world_voxel_pos_f = center_position_of_voxel(world_voxel_pos);
 
-    float dst =
-        sd_round_cone(world_voxel_pos_f, vec3(40.0, 80.0, 40.0), vec3(40.0, 180.0, 90.0), 10, 1);
+    float dst = sd_round_cone(world_voxel_pos_f, round_cones.round_cone.center_a,
+                              round_cones.round_cone.center_b, round_cones.round_cone.radius_a,
+                              round_cones.round_cone.radius_b);
 
     if (dst < 0.0) {
         imageStore(raw_atlas, world_voxel_pos, uvec4(chunk_modify_info.fill_voxel_type, 0, 0, 0));

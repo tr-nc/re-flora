@@ -144,7 +144,10 @@ pub struct StructMemberDataBuilder<'a> {
 
 impl<'a> StructMemberDataBuilder<'a> {
     pub fn from_struct_buffer(buffer: &'a Buffer) -> Self {
-        let layout = &buffer.get_layout().unwrap().root_member;
+        let layout = &buffer
+            .get_layout()
+            .expect("The buffer doesn't have a layout")
+            .root_member;
         Self::from_layout(layout)
     }
 
