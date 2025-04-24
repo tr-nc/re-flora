@@ -1404,6 +1404,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ordered-float"
+version = "5.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e2c1f9f56e534ac6a9b8a4600bdf0f530fb393b5f393e7b4d03489c3cf0c3f01"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "owned_ttf_parser"
 version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1662,6 +1671,7 @@ dependencies = [
  "gpu-allocator",
  "log",
  "noise",
+ "ordered-float",
  "rand 0.9.0",
  "shaderc",
  "simple_logger",

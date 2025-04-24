@@ -3,6 +3,10 @@ use super::frag_list_builder::FragListBuilder;
 use super::octree_builder::OctreeBuilder;
 use super::ExternalSharedResources;
 use super::Resources;
+use crate::geom::build_bvh;
+use crate::geom::Aabb;
+use crate::geom::BvhNode;
+use crate::geom::RoundCone;
 use crate::tree_gen::Tree;
 use crate::util::ShaderCompiler;
 use crate::util::Timer;
@@ -10,6 +14,7 @@ use crate::vkn::Allocator;
 use crate::vkn::DescriptorPool;
 use crate::vkn::VulkanContext;
 use glam::UVec3;
+use glam::Vec3;
 
 pub struct Builder {
     vulkan_context: VulkanContext,
@@ -134,13 +139,14 @@ impl Builder {
         );
     }
 
-    fn add_tree_to_chunk(&mut self, chunk_pos: UVec3, tree: &Tree) {
+    fn modify_chunk(&mut self, chunk_pos: UVec3, bvh_nodes: &[BvhNode], round_cones: &[RoundCone]) {
         self.chunk_data_builder.chunk_modify(
             &self.vulkan_context,
             &self.resources,
             self.voxel_dim,
             chunk_pos,
-            tree,
+            bvh_nodes,
+            round_cones,
         );
     }
 
@@ -153,26 +159,31 @@ impl Builder {
     }
 
     pub fn add_tree(&mut self, tree: &Tree) {
-        // let total_dim = self.chunk_dim * self.voxel_dim;
+        let mut round_cones = tree.get_trunks().to_vec();
+        const TREE_OFFSET: Vec3 = Vec3::new(128.0, 0.0, 128.0);
+        for round_cone in &mut round_cones {
+            round_cone.transform(TREE_OFFSET);
+        }
 
-        // let affacted_chunk_positions =
-        //     determine_relative_chunk_positions(self.voxel_dim, rect_min, rect_max);
+        let mut trunk_aabbs = Vec::new();
+        for round_cone in &round_cones {
+            trunk_aabbs.push(round_cone.get_aabb());
+        }
 
-        // log::debug!(
-        //     "Filling region {:?} to {:?} with type {}",
-        //     rect_min,
-        //     rect_max,
-        //     fill_voxel_type
-        // );
-        // log::debug!(
-        //     "Chunk positions: {:?}",
-        //     affacted_chunk_positions.iter().collect::<Vec<_>>()
-        // );
+        let bvh_nodes = build_bvh(&trunk_aabbs);
+        log::debug!("bvh_nodes built: {:#?}", bvh_nodes);
+        let bounding_box = &bvh_nodes[0].aabb; // the root node of the BVH
 
-        let affacted_chunk_positions = vec![UVec3::new(0, 0, 0)];
+        let affacted_chunk_positions =
+            determine_relative_chunk_positions(self.voxel_dim, bounding_box).unwrap();
+
+        log::debug!(
+            "Chunk positions: {:?}",
+            affacted_chunk_positions.iter().collect::<Vec<_>>()
+        );
 
         for chunk_pos in affacted_chunk_positions.iter() {
-            self.add_tree_to_chunk(*chunk_pos, tree);
+            self.modify_chunk(*chunk_pos, &bvh_nodes, &round_cones);
         }
 
         for chunk_pos in affacted_chunk_positions.iter() {
@@ -189,18 +200,24 @@ impl Builder {
             }
         }
 
-        fn world_voxel_pos_to_chunk_pos(voxel_dim: UVec3, world_pos: UVec3) -> UVec3 {
-            let chunk_pos = world_pos / voxel_dim;
-            chunk_pos
-        }
-
         fn determine_relative_chunk_positions(
             voxel_dim: UVec3,
-            rect_min: UVec3,
-            rect_max: UVec3,
-        ) -> Vec<UVec3> {
-            let min_chunk_pos = world_voxel_pos_to_chunk_pos(voxel_dim, rect_min);
-            let max_chunk_pos = world_voxel_pos_to_chunk_pos(voxel_dim, rect_max);
+            aabb: &Aabb,
+        ) -> Result<Vec<UVec3>, String> {
+            let rect_min = aabb.min().floor();
+            let rect_max = aabb.max().ceil();
+
+            if rect_min.x < 0.0 || rect_min.y < 0.0 || rect_min.z < 0.0 {
+                return Err("AABB min is out of bounds".to_string());
+            }
+            if rect_max.x < 0.0 || rect_max.y < 0.0 || rect_max.z < 0.0 {
+                return Err("AABB max is out of bounds".to_string());
+            }
+
+            let rect_min_u = rect_min.as_uvec3();
+            let rect_max_u = rect_max.as_uvec3();
+            let min_chunk_pos = world_voxel_pos_to_chunk_pos(voxel_dim, rect_min_u);
+            let max_chunk_pos = world_voxel_pos_to_chunk_pos(voxel_dim, rect_max_u);
 
             let mut positions = Vec::new();
             for i in min_chunk_pos.x..=max_chunk_pos.x {
@@ -210,7 +227,12 @@ impl Builder {
                     }
                 }
             }
-            positions
+            return Ok(positions);
+
+            fn world_voxel_pos_to_chunk_pos(voxel_dim: UVec3, world_pos: UVec3) -> UVec3 {
+                let chunk_pos = world_pos / voxel_dim;
+                chunk_pos
+            }
         }
     }
 

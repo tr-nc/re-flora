@@ -10,6 +10,13 @@ struct RoundCone {
     float radius_b;
 };
 
+struct BvhNode {
+    vec3 aabb_min;
+    vec3 aabb_max;
+    uint left_child;
+    uint right_child;
+};
+
 layout(set = 0, binding = 0) readonly uniform U_ChunkModifyInfo {
     uvec3 chunk_pos;
     uint fill_voxel_type;
@@ -17,10 +24,13 @@ layout(set = 0, binding = 0) readonly uniform U_ChunkModifyInfo {
 }
 chunk_modify_info;
 
-layout(set = 0, binding = 1) readonly buffer B_RoundCones { RoundCone data[]; }
+layout(set = 0, binding = 1) readonly buffer B_BvhNodes { BvhNode data[]; }
+bvh_nodes;
+
+layout(set = 0, binding = 2) readonly buffer B_RoundCones { RoundCone data[]; }
 round_cones;
 
-layout(set = 0, binding = 2, r8ui) writeonly uniform uimage3D raw_atlas;
+layout(set = 0, binding = 3, r8ui) writeonly uniform uimage3D raw_atlas;
 
 #include "../../include/config.glsl"
 #include "../../include/core/sdf.glsl"

@@ -98,6 +98,7 @@ pub struct ChunkInitResources {
     pub chunk_init_info: Buffer,
     pub chunk_modify_info: Buffer,
     pub round_cones: Buffer,
+    pub bvh_nodes: Buffer,
 }
 
 impl ChunkInitResources {
@@ -137,10 +138,21 @@ impl ChunkInitResources {
             1000,
         );
 
+        let bvh_nodes_layout = chunk_modify_sm.get_buffer_layout("B_BvhNodes").unwrap();
+        let bvh_nodes = Buffer::from_buffer_layout_arraylike(
+            device.clone(),
+            allocator.clone(),
+            bvh_nodes_layout.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            1000,
+        );
+
         Self {
             chunk_init_info,
             chunk_modify_info,
             round_cones,
+            bvh_nodes,
         }
     }
 }
@@ -416,6 +428,10 @@ impl Resources {
 
     pub fn round_cones(&self) -> &Buffer {
         &self.chunk_init.round_cones
+    }
+
+    pub fn bvh_nodes(&self) -> &Buffer {
+        &self.chunk_init.bvh_nodes
     }
 
     pub fn voxel_dim_indirect(&self) -> &Buffer {

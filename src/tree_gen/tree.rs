@@ -4,6 +4,8 @@ use glam::Vec3;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
+use crate::geom::RoundCone;
+
 /// Descriptor matching the parameters from the Python version.
 #[derive(Debug, Clone)]
 pub struct TreeDesc {
@@ -32,15 +34,6 @@ impl Default for TreeDesc {
             seed: 42,
         }
     }
-}
-
-/// A round cone connecting two spheres, approximating a branch segment.
-#[derive(Debug, Clone)]
-pub struct RoundCone {
-    pub radius_a: f32,
-    pub center_a: Vec3,
-    pub radius_b: f32,
-    pub center_b: Vec3,
 }
 
 /// The generated tree, containing branch primitives and leaf spawn positions.
@@ -118,12 +111,7 @@ impl Tree {
             let end = pos + dir * branch_len;
 
             // Record this branch segment as a round cone
-            trunks.push(RoundCone {
-                radius_a: thickness_start,
-                radius_b: thickness_end,
-                center_a: pos,
-                center_b: end,
-            });
+            trunks.push(RoundCone::new(thickness_start, pos, thickness_end, end));
 
             if i < desc.iterations - 1 {
                 // Decide branching

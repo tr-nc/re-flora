@@ -2,11 +2,12 @@ mod app;
 mod builder;
 mod egui_renderer;
 mod gameplay;
+mod geom;
 mod tracer;
+mod tree_gen;
 mod util;
 mod vkn;
 mod window;
-mod tree_gen;
 
 use app::App;
 use simple_logger::SimpleLogger;
