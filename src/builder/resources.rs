@@ -135,8 +135,8 @@ impl ChunkInitResources {
             round_cones_layout.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
             gpu_allocator::MemoryLocation::CpuToGpu,
-            1000,
-        );
+            10000,
+        ); // less than 1 MB though, don't worry about it
 
         let bvh_nodes_layout = chunk_modify_sm.get_buffer_layout("B_BvhNodes").unwrap();
         let bvh_nodes = Buffer::from_buffer_layout_arraylike(
@@ -145,8 +145,8 @@ impl ChunkInitResources {
             bvh_nodes_layout.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
             gpu_allocator::MemoryLocation::CpuToGpu,
-            1000,
-        );
+            10000,
+        ); // less than 1 MB though, don't worry about it
 
         Self {
             chunk_init_info,

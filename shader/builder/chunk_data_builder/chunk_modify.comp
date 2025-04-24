@@ -21,7 +21,6 @@ struct BvhNode {
 layout(set = 0, binding = 0) readonly uniform U_ChunkModifyInfo {
     uvec3 chunk_pos;
     uint fill_voxel_type;
-    uint round_cone_len;
 }
 chunk_modify_info;
 

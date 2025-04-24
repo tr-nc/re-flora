@@ -158,33 +158,11 @@ impl Builder {
         );
     }
 
-    pub fn add_tree(&mut self, tree: &Tree) {
+    pub fn add_tree(&mut self, tree: &Tree, tree_pos: Vec3) {
         let mut round_cones = tree.get_trunks().to_vec();
-        const TREE_OFFSET: Vec3 = Vec3::new(128.0, 50.0, 128.0);
         for round_cone in &mut round_cones {
-            round_cone.transform(TREE_OFFSET);
+            round_cone.transform(tree_pos);
         }
-
-        // for debug:
-        // let mut round_cones = Vec::new();
-        // round_cones.push(RoundCone::new(
-        //     10.0,
-        //     Vec3::new(128.0, 100.0, 128.0),
-        //     60.0,
-        //     Vec3::new(128.0, 190.0, 150.0),
-        // ));
-        // round_cones.push(RoundCone::new(
-        //     10.0,
-        //     Vec3::new(18.0, 100.0, 18.0),
-        //     20.0,
-        //     Vec3::new(60.0, 180.0, 60.0),
-        // ));
-        // round_cones.push(RoundCone::new(
-        //     5.0,
-        //     Vec3::new(8.0, 100.0, 18.0),
-        //     5.0,
-        //     Vec3::new(60.0, 18.0, 60.0),
-        // ));
 
         let mut trunk_aabbs = Vec::new();
         for round_cone in &round_cones {
@@ -212,14 +190,6 @@ impl Builder {
         }
 
         self.update_octree_offset_atlas_tex();
-
-        fn is_point_in_bound(point: UVec3, bound: UVec3) -> bool {
-            if point.x >= bound.x || point.y >= bound.y || point.z >= bound.z {
-                return false;
-            } else {
-                return true;
-            }
-        }
 
         fn determine_relative_chunk_positions(
             voxel_dim: UVec3,

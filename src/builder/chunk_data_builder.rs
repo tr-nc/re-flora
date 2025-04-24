@@ -182,7 +182,7 @@ impl ChunkDataBuilder {
             round_cones: &[RoundCone],
             bvh_nodes: &[BvhNode],
         ) {
-            update_chunk_modify_info(resources, chunk_pos, 1, round_cones.len() as _);
+            update_chunk_modify_info(resources, chunk_pos, 1);
             update_round_cones(resources, round_cones);
             update_bvh_nodes(resources, bvh_nodes);
 
@@ -190,7 +190,6 @@ impl ChunkDataBuilder {
                 resources: &Resources,
                 chunk_pos: UVec3,
                 fill_voxel_type: u32,
-                round_cone_len: u32,
             ) {
                 let data = StructMemberDataBuilder::from_buffer(resources.chunk_modify_info())
                     .set_field(
@@ -201,11 +200,6 @@ impl ChunkDataBuilder {
                     .set_field(
                         "fill_voxel_type",
                         PlainMemberTypeWithData::UInt(fill_voxel_type),
-                    )
-                    .unwrap()
-                    .set_field(
-                        "round_cone_len",
-                        PlainMemberTypeWithData::UInt(round_cone_len),
                     )
                     .unwrap()
                     .get_data_u8();

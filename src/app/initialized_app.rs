@@ -1,7 +1,7 @@
 use crate::builder::Builder;
 use crate::gameplay::{Camera, CameraDesc};
 use crate::tracer::Tracer;
-use crate::tree_gen::Tree;
+use crate::tree_gen::{Tree, TreeDesc};
 use crate::util::ShaderCompiler;
 use crate::util::TimeInfo;
 use crate::vkn::{Allocator, CommandBuffer, Fence, Semaphore, SwapchainDesc};
@@ -12,7 +12,7 @@ use crate::{
 };
 use ash::vk;
 use egui::{Color32, RichText, Slider};
-use glam::UVec3;
+use glam::{UVec3, Vec3};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
 use std::sync::{Arc, Mutex};
 use winit::event::DeviceEvent;
@@ -225,8 +225,23 @@ impl InitializedApp {
                 }
 
                 if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyF {
-                    let new_tree = Tree::new(Default::default());
-                    self.builder.add_tree(&new_tree);
+                    let new_tree = Tree::new(TreeDesc {
+                        seed: rand::random::<u64>(),
+                        ..Default::default()
+                    });
+                    // const TREE_OFFSET: Vec3 = Vec3::new(128.0, 50.0, 128.0);
+                    let new_tree_pos = generate_random_pos_in_map(
+                        Vec3::new(256.0, 30.0, 256.0),
+                        Vec3::new(256.0 + 3.0 * 256.0, 50.0, 256.0 + 3.0 * 256.0),
+                    );
+                    self.builder.add_tree(&new_tree, new_tree_pos);
+
+                    fn generate_random_pos_in_map(min: Vec3, max: Vec3) -> Vec3 {
+                        let x = rand::random::<f32>() * (max.x - min.x) + min.x;
+                        let y = rand::random::<f32>() * (max.y - min.y) + min.y;
+                        let z = rand::random::<f32>() * (max.z - min.z) + min.z;
+                        Vec3::new(x, y, z)
+                    }
                 }
             }
 
