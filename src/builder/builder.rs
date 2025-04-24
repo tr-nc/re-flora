@@ -159,11 +159,32 @@ impl Builder {
     }
 
     pub fn add_tree(&mut self, tree: &Tree) {
-        let mut round_cones = tree.get_trunks().to_vec();
-        const TREE_OFFSET: Vec3 = Vec3::new(128.0, 0.0, 128.0);
-        for round_cone in &mut round_cones {
-            round_cone.transform(TREE_OFFSET);
-        }
+        // let mut round_cones = tree.get_trunks().to_vec();
+        // const TREE_OFFSET: Vec3 = Vec3::new(128.0, 50.0, 128.0);
+        // for round_cone in &mut round_cones {
+        //     round_cone.transform(TREE_OFFSET);
+        // }
+
+        // debug:
+        let mut round_cones = Vec::new();
+        round_cones.push(RoundCone::new(
+            10.0,
+            Vec3::new(128.0, 100.0, 128.0),
+            60.0,
+            Vec3::new(128.0, 190.0, 150.0),
+        ));
+        round_cones.push(RoundCone::new(
+            10.0,
+            Vec3::new(18.0, 100.0, 18.0),
+            20.0,
+            Vec3::new(60.0, 180.0, 60.0),
+        ));
+        round_cones.push(RoundCone::new(
+            5.0,
+            Vec3::new(8.0, 100.0, 18.0),
+            5.0,
+            Vec3::new(60.0, 18.0, 60.0),
+        ));
 
         let mut trunk_aabbs = Vec::new();
         for round_cone in &round_cones {
@@ -172,13 +193,14 @@ impl Builder {
 
         let bvh_nodes = build_bvh(&trunk_aabbs);
         log::debug!("bvh_nodes built: {:#?}", bvh_nodes);
+
         let bounding_box = &bvh_nodes[0].aabb; // the root node of the BVH
 
         let affacted_chunk_positions =
             determine_relative_chunk_positions(self.voxel_dim, bounding_box).unwrap();
 
         log::debug!(
-            "Chunk positions: {:?}",
+            "Affacted chunk positions: {:?}",
             affacted_chunk_positions.iter().collect::<Vec<_>>()
         );
 

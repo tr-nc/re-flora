@@ -209,7 +209,6 @@ impl ChunkDataBuilder {
                     )
                     .unwrap()
                     .get_data_u8();
-
                 resources
                     .chunk_modify_info()
                     .fill_with_raw_u8(&data)
@@ -251,22 +250,33 @@ impl ChunkDataBuilder {
             fn update_bvh_nodes(resources: &Resources, bvh_nodes: &[BvhNode]) {
                 for i in 0..bvh_nodes.len() {
                     let bvh_node = &bvh_nodes[i];
+
+                    let combined_offset: u32 = if bvh_node.is_leaf {
+                        let primitive_idx = bvh_node.data_offset;
+                        0x8000_0000 | primitive_idx
+                    } else {
+                        bvh_node.left
+                    };
+
                     let data = StructMemberDataBuilder::from_buffer(resources.bvh_nodes())
                         .set_field(
-                            "aabb_min",
+                            "data.aabb_min",
                             PlainMemberTypeWithData::Vec3(bvh_node.aabb.min().to_array()),
                         )
                         .unwrap()
                         .set_field(
-                            "aabb_max",
+                            "data.aabb_max",
                             PlainMemberTypeWithData::Vec3(bvh_node.aabb.max().to_array()),
                         )
                         .unwrap()
-                        .set_field("left", PlainMemberTypeWithData::UInt(bvh_node.left))
-                        .unwrap()
-                        .set_field("right", PlainMemberTypeWithData::UInt(bvh_node.right))
+                        .set_field(
+                            "data.offset",
+                            PlainMemberTypeWithData::UInt(combined_offset),
+                        )
                         .unwrap()
                         .get_data_u8();
+
+                    log::debug!("packed bvh node: {:?}", data);
                     resources
                         .bvh_nodes()
                         .fill_element_with_raw_u8(&data, i as u64)

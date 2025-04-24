@@ -13,8 +13,9 @@ struct RoundCone {
 struct BvhNode {
     vec3 aabb_min;
     vec3 aabb_max;
-    uint left_child;
-    uint right_child;
+    /// If the leftmost bit is 0 ⇒ internal, `offset` = left_child_index
+    /// If the leftmost bit is 1 ⇒ leaf,     `offset` = (1<<31) | primitive_index
+    uint offset;
 };
 
 layout(set = 0, binding = 0) readonly uniform U_ChunkModifyInfo {
@@ -26,10 +27,8 @@ chunk_modify_info;
 
 layout(set = 0, binding = 1) readonly buffer B_BvhNodes { BvhNode data[]; }
 bvh_nodes;
-
 layout(set = 0, binding = 2) readonly buffer B_RoundCones { RoundCone data[]; }
 round_cones;
-
 layout(set = 0, binding = 3, r8ui) writeonly uniform uimage3D raw_atlas;
 
 #include "../../include/config.glsl"
@@ -46,17 +45,44 @@ void main() {
 
     const ivec3 atlas_base_offset = ivec3(chunk_modify_info.chunk_pos) * VOXEL_DIM;
     const ivec3 world_voxel_pos   = uvi + atlas_base_offset;
+    vec3 world_voxel_pos_f        = center_position_of_voxel(world_voxel_pos);
 
-    vec3 world_voxel_pos_f = center_position_of_voxel(world_voxel_pos);
+    // --- BVH traversal stack ------------------------------------------------
+    const int MAX_STACK = 64;
+    uint stack[MAX_STACK];
+    int sp = 0;
 
-    for (int i = 0; i < chunk_modify_info.round_cone_len; i++) {
-        float dst = sd_round_cone(world_voxel_pos_f, round_cones.data[i].center_a,
-                                  round_cones.data[i].center_b, round_cones.data[i].radius_a,
-                                  round_cones.data[i].radius_b);
-        if (dst < 0.0) {
-            imageStore(raw_atlas, world_voxel_pos,
-                       uvec4(chunk_modify_info.fill_voxel_type, 0, 0, 0));
-            return;
+    // push root
+    stack[sp++] = 0u;
+
+    while (sp > 0) {
+        uint node_idx = stack[--sp];
+        BvhNode node  = bvh_nodes.data[node_idx];
+
+        // AABB‐test
+        // if (any(lessThan(world_voxel_pos_f, node.aabb_min)) ||
+        //     any(greaterThan(world_voxel_pos_f, node.aabb_max))) {
+        //     continue;
+        // }
+
+        // decode leaf vs internal
+        bool is_leaf = (node.offset & 0x80000000u) != 0u;
+        uint udata   = node.offset & 0x7FFFFFFFu;
+
+        if (is_leaf) {
+            uint ci      = udata;
+            RoundCone rc = round_cones.data[ci];
+            float dst    = sd_round_cone(world_voxel_pos_f, rc.center_a, rc.center_b, rc.radius_a,
+                                         rc.radius_b);
+            if (dst < 0.0) {
+                imageStore(raw_atlas, world_voxel_pos,
+                           uvec4(chunk_modify_info.fill_voxel_type, 0, 0, 0));
+                return;
+            }
+        } else {
+            stack[sp++] = udata + 1u;
+            stack[sp++] = udata;
         }
     }
+    // no hit ⇒ leave voxel alone
 }

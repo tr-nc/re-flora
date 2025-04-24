@@ -121,14 +121,28 @@ pub struct StructMemberLayout {
 }
 
 impl StructMemberLayout {
-    pub fn get_size_bytes(&self) -> u64 {
-        let mut size = 0;
+    fn get_last_offset_with_size_info(&self, last_offset: &mut u64, size: &mut u64) {
         for member in self.name_member_table.values() {
             match member {
-                MemberLayout::Plain(plain_member) => size += plain_member.padded_size,
-                MemberLayout::Struct(struct_member) => size += struct_member.get_size_bytes(),
+                MemberLayout::Plain(plain_member) => {
+                    let this_offset = plain_member.offset;
+                    let this_size = plain_member.padded_size;
+                    if *last_offset <= this_offset {
+                        *last_offset = this_offset;
+                        *size = *last_offset + this_size;
+                    }
+                }
+                MemberLayout::Struct(struct_member) => {
+                    struct_member.get_last_offset_with_size_info(last_offset, size);
+                }
             }
         }
+    }
+
+    pub fn get_size_bytes(&self) -> u64 {
+        let mut last_offset = 0;
+        let mut size = 0;
+        self.get_last_offset_with_size_info(&mut last_offset, &mut size);
         size
     }
 
