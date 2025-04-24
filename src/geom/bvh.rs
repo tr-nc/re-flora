@@ -1,74 +1,90 @@
 use super::Aabb;
 use ordered_float::OrderedFloat;
-use std::collections::VecDeque;
 
 /// The final, flattened BVH node.
-/// `data_offset != 0` ⇒ leaf, and stores the original AABB index.
-/// `data_offset  == 0` ⇒ internal node, and
-///   - `left` is the index of the left child,
-///   - right child is implicitly `left + 1`.
+///
+/// • `left` – index of the left-hand child in the returned vector  
+/// • right-hand child is implicitly `left + 1`
 #[derive(Debug, Clone)]
 pub struct BvhNode {
     pub aabb: Aabb,
-    /// If leaf: original AABB index.
-    /// If internal: ignored.
+    /// Leaf: index of the original AABB.  
+    /// Internal: ignored.
     pub data_offset: u32,
-    /// If internal: index of left child; right child is `left + 1`.
-    /// If leaf: ignored.
+    /// Internal: index of the left child (right = left + 1).  
+    /// Leaf: ignored.
     pub left: u32,
     pub is_leaf: bool,
 }
 
-/// An intermediate tree node used during construction.
-struct TreeNode {
-    aabb: Aabb,
-    /// `Some(idx)` ⇒ leaf, holds `idx` from the input slice.
-    /// `None` ⇒ internal node.
-    data_offset: Option<u32>,
-    left: Option<Box<TreeNode>>,
-    right: Option<Box<TreeNode>>,
-}
+/* ------------------------------------------------------------------------- */
 
-/// Public entry point: build the tree and then flatten breadth‐first.
+/// Build a BVH from a slice of AABBs.
+/// The root node is always at index `0`.
 pub fn build_bvh(aabbs: &[Aabb]) -> Vec<BvhNode> {
-    // 1) Build the recursive TreeNode structure
-    let mut chunks: Vec<(Aabb, u32)> = aabbs
+    // An empty input ⇒ an empty BVH.
+    if aabbs.is_empty() {
+        return Vec::new();
+    }
+
+    // Pair every AABB with its original index.
+    let mut items: Vec<(Aabb, u32)> = aabbs
         .iter()
         .cloned()
         .enumerate()
-        .map(|(i, aabb)| (aabb, i as u32))
+        .map(|(i, a)| (a, i as u32))
         .collect();
 
-    let chunks_len = chunks.len();
-    let tree = build_tree(&mut chunks, 0, chunks_len);
+    // Allocate a vector of nodes.
+    // The very first element is a dummy root that will be overwritten later.
+    let mut nodes = Vec::new();
+    nodes.push(dummy_node(&items[0].0)); // index 0 == root
 
-    // 2) Flatten breadth‐first
-    flatten_bvh(&*tree)
+    // Fill the whole tree in-place, starting at that root.
+    let len = items.len();
+    build_bvh_recursive_in_place(&mut items, &mut nodes, 0, 0, len);
+
+    nodes
 }
 
-/// Recursively build the TreeNode structure.
-fn build_tree(aabb_idx_pair: &mut [(Aabb, u32)], start: usize, end: usize) -> Box<TreeNode> {
+/* ------------------------------------------------------------------------- */
+
+/// Recursively builds the BVH and **writes** each node *in place*.
+///
+/// `node_index` – position in `nodes` that has to be filled  
+/// `start..end`  – range inside `aabb_idx_pair` that this node covers
+fn build_bvh_recursive_in_place(
+    aabb_idx_pair: &mut [(Aabb, u32)],
+    nodes: &mut Vec<BvhNode>,
+    node_index: usize,
+    start: usize,
+    end: usize,
+) {
     let count = end - start;
 
-    // 1) Compute union AABB
-    let mut unioned = aabb_idx_pair[start].0.clone();
+    /* ------------------------------------------------- 1) union AABB ----- */
+
+    let mut union = aabb_idx_pair[start].0.clone();
     for i in (start + 1)..end {
-        unioned = unioned.union(&aabb_idx_pair[i].0);
+        union = union.union(&aabb_idx_pair[i].0);
     }
 
-    // 2) Leaf?
-    if count <= 1 {
-        let idx = aabb_idx_pair[start].1;
-        return Box::new(TreeNode {
-            aabb: unioned,
-            data_offset: Some(idx),
-            left: None,
-            right: None,
-        });
+    /* ------------------------------------------------- leaf -------------- */
+
+    if count == 1 {
+        nodes[node_index] = BvhNode {
+            aabb: union,
+            data_offset: aabb_idx_pair[start].1,
+            left: 0,
+            is_leaf: true,
+        };
+        return;
     }
 
-    // 3) Pick axis
-    let dims = unioned.dimensions();
+    /* ------------------------------------------------- internal ---------- */
+
+    // 2) choose longest axis
+    let dims = union.dimensions();
     let axis = if dims.x >= dims.y && dims.x >= dims.z {
         0
     } else if dims.y >= dims.x && dims.y >= dims.z {
@@ -77,66 +93,47 @@ fn build_tree(aabb_idx_pair: &mut [(Aabb, u32)], start: usize, end: usize) -> Bo
         2
     };
 
-    // 4) Sort by center on that axis
-    aabb_idx_pair[start..end].sort_by_key(|(aabb, _idx)| {
+    // 3) sort the current slice on that axis
+    aabb_idx_pair[start..end].sort_by_key(|(aabb, _)| {
         let c = aabb.center();
         let k = match axis {
             0 => c.x,
             1 => c.y,
-            2 => c.z,
-            _ => unreachable!(),
+            _ => c.z,
         };
         OrderedFloat(k)
     });
 
-    // 5) Split in half and recurse
+    // 4) split in the middle
     let mid = start + count / 2;
-    let left = build_tree(aabb_idx_pair, start, mid);
-    let right = build_tree(aabb_idx_pair, mid, end);
 
-    // 6) Return this internal node
-    Box::new(TreeNode {
-        aabb: unioned,
-        data_offset: None,
-        left: Some(left),
-        right: Some(right),
-    })
+    // 5) allocate *two consecutive* children
+    let left_index = nodes.len();
+    nodes.push(dummy_node(&union)); // left
+    nodes.push(dummy_node(&union)); // right   ( => left + 1 )
+
+    // 6) fill the current parent
+    nodes[node_index] = BvhNode {
+        aabb: union,
+        data_offset: 0,
+        left: left_index as u32,
+        is_leaf: false,
+    };
+
+    // 7) recurse
+    build_bvh_recursive_in_place(aabb_idx_pair, nodes, left_index, start, mid);
+    build_bvh_recursive_in_place(aabb_idx_pair, nodes, left_index + 1, mid, end);
 }
 
-/// Flatten the `TreeNode` into a `Vec<BvhNode>` in breadth‐first order.
-fn flatten_bvh(root: &TreeNode) -> Vec<BvhNode> {
-    let mut out = Vec::new();
-    let mut queue = VecDeque::new();
-    queue.push_back(root);
+/* ------------------------------------------------------------------------- */
 
-    while let Some(node) = queue.pop_front() {
-        let idx = out.len() as u32;
-        let is_leaf = node.data_offset.is_some();
-
-        // Compute `left` only for internals; for leaves we can store 0.
-        let left_child_index = if !is_leaf {
-            // In a level‐order (heap) layout of a full binary tree,
-            // children of node `idx` live at 2*idx+1 and 2*idx+2.
-            2 * idx + 1
-        } else {
-            0
-        };
-
-        out.push(BvhNode {
-            aabb: node.aabb.clone(),
-            data_offset: node.data_offset.unwrap_or(0),
-            left: left_child_index,
-            is_leaf,
-        });
-
-        if !is_leaf {
-            // Enqueue children in order
-            let l = node.left.as_ref().unwrap();
-            let r = node.right.as_ref().unwrap();
-            queue.push_back(l);
-            queue.push_back(r);
-        }
+/// Creates a throw-away node –  the fields will be overwritten later.
+#[inline(always)]
+fn dummy_node(aabb: &Aabb) -> BvhNode {
+    BvhNode {
+        aabb: aabb.clone(),
+        data_offset: 0,
+        left: 0,
+        is_leaf: false,
     }
-
-    out
 }

@@ -60,10 +60,10 @@ void main() {
         BvhNode node  = bvh_nodes.data[node_idx];
 
         // AABB‐test
-        // if (any(lessThan(world_voxel_pos_f, node.aabb_min)) ||
-        //     any(greaterThan(world_voxel_pos_f, node.aabb_max))) {
-        //     continue;
-        // }
+        if (any(lessThan(world_voxel_pos_f, node.aabb_min)) ||
+            any(greaterThan(world_voxel_pos_f, node.aabb_max))) {
+            continue;
+        }
 
         // decode leaf vs internal
         bool is_leaf = (node.offset & 0x80000000u) != 0u;

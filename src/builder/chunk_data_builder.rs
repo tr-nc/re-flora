@@ -275,8 +275,6 @@ impl ChunkDataBuilder {
                         )
                         .unwrap()
                         .get_data_u8();
-
-                    log::debug!("packed bvh node: {:?}", data);
                     resources
                         .bvh_nodes()
                         .fill_element_with_raw_u8(&data, i as u64)
