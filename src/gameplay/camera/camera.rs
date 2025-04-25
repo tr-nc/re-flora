@@ -271,7 +271,7 @@ impl Camera {
         }
     }
 
-    pub fn handle_mouse(&mut self, delta: &(f64, f64)) {
+    pub fn handle_mouse(&mut self, delta: &(f64, f64), frame_delta_time: f32) {
         const SENSITIVITY_MULTIPLIER: f32 = 0.001;
         // the delta is positive when moving the mouse to the right / down
         // so we need to invert the pitch delta so that when mouse is going up, pitch increases
@@ -286,11 +286,11 @@ impl Camera {
         self.vectors.update(self.yaw, self.pitch);
     }
 
-    pub fn update_transform(&mut self, delta_time: f32) {
+    pub fn update_transform(&mut self, frame_delta_time: f32) {
         self.position += self.movement_state.get_velocity(
             self.vectors.front,
             self.vectors.right,
             self.vectors.up,
-        ) * delta_time;
+        ) * frame_delta_time;
     }
 }

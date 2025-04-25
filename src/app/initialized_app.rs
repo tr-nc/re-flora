@@ -34,6 +34,7 @@ pub struct InitializedApp {
     fence: Fence,
     time_info: TimeInfo,
     slider_val: f32,
+    pending_mouse_delta: (f64, f64),
 
     camera: Camera,
     tracer: Tracer,
@@ -129,6 +130,8 @@ impl InitializedApp {
             vulkan_context,
             egui_renderer: renderer,
             window_state,
+
+            pending_mouse_delta: (0.0, 0.0),
 
             cmdbuf,
             swapchain,
@@ -257,8 +260,20 @@ impl InitializedApp {
                     self.on_resize();
                 }
 
+                let frame_delta_time = self.time_info.delta_time();
+
+                if self.pending_mouse_delta != (0.0, 0.0) {
+                    log::debug!("mouse delta: {:?}", self.pending_mouse_delta);
+
+                    self.camera
+                        .handle_mouse(&self.pending_mouse_delta, frame_delta_time);
+                    self.pending_mouse_delta = (0.0, 0.0);
+                } else {
+                    log::debug!("no mouse delta");
+                }
+
                 self.time_info.update();
-                self.camera.update_transform(self.time_info.delta_time());
+                self.camera.update_transform(frame_delta_time);
 
                 self.vulkan_context
                     .wait_for_fences(&[self.fence.as_raw()])
@@ -382,15 +397,20 @@ impl InitializedApp {
         _device_id: winit::event::DeviceId,
         event: winit::event::DeviceEvent,
     ) {
-        match event {
-            DeviceEvent::MouseMotion { delta } => {
-                if !self.window_state.is_cursor_visible() {
-                    self.camera.handle_mouse(&delta);
-                }
-            }
-            _ => (),
-        }
+        if let DeviceEvent::MouseMotion { delta } = event {
+            log::debug!("mouse delta: {:?}", delta);
 
+            if !self.window_state.is_cursor_visible() {
+                // just accumulate
+                self.pending_mouse_delta.0 += delta.0;
+                self.pending_mouse_delta.1 += delta.1;
+            } else {
+                // remove the delta from the event
+                // TODO: check if this is wanted
+                self.pending_mouse_delta.0 = 0.0;
+                self.pending_mouse_delta.1 = 0.0;
+            }
+        }
         // Handle device events here
     }
 
