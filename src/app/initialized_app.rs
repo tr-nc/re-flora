@@ -270,7 +270,7 @@ impl InitializedApp {
                     let mouse_delta = self.accumulated_mouse_delta;
                     self.accumulated_mouse_delta = glam::Vec2::ZERO;
 
-                    let alpha = 0.6; // 0 = no smoothing, 1 = infinite smoothing
+                    let alpha = 0.4; // mouse smoothing factor: 0 = no smoothing, 1 = infinite smoothing
                     self.smoothed_mouse_delta =
                         self.smoothed_mouse_delta * alpha + mouse_delta * (1.0 - alpha);
 
