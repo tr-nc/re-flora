@@ -12,7 +12,7 @@ use crate::{
 };
 use ash::vk;
 use egui::{Color32, RichText, Slider};
-use glam::{UVec3, Vec3};
+use glam::{UVec3, Vec2, Vec3};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
 use std::sync::{Arc, Mutex};
 use winit::event::DeviceEvent;
@@ -34,7 +34,8 @@ pub struct InitializedApp {
     fence: Fence,
     time_info: TimeInfo,
     slider_val: f32,
-    pending_mouse_delta: (f64, f64),
+    accumulated_mouse_delta: Vec2,
+    smoothed_mouse_delta: Vec2,
 
     camera: Camera,
     tracer: Tracer,
@@ -131,7 +132,8 @@ impl InitializedApp {
             egui_renderer: renderer,
             window_state,
 
-            pending_mouse_delta: (0.0, 0.0),
+            accumulated_mouse_delta: glam::Vec2::ZERO,
+            smoothed_mouse_delta: glam::Vec2::ZERO,
 
             cmdbuf,
             swapchain,
@@ -260,19 +262,21 @@ impl InitializedApp {
                     self.on_resize();
                 }
 
+                self.time_info.update();
                 let frame_delta_time = self.time_info.delta_time();
 
-                if self.pending_mouse_delta != (0.0, 0.0) {
-                    log::debug!("mouse delta: {:?}", self.pending_mouse_delta);
+                if !self.window_state.is_cursor_visible() {
+                    // grab the value and immediately reset the accumulator
+                    let mouse_delta = self.accumulated_mouse_delta;
+                    self.accumulated_mouse_delta = glam::Vec2::ZERO;
 
-                    self.camera
-                        .handle_mouse(&self.pending_mouse_delta, frame_delta_time);
-                    self.pending_mouse_delta = (0.0, 0.0);
-                } else {
-                    log::debug!("no mouse delta");
+                    let alpha = 0.6; // 0 = no smoothing, 1 = infinite smoothing
+                    self.smoothed_mouse_delta =
+                        self.smoothed_mouse_delta * alpha + mouse_delta * (1.0 - alpha);
+
+                    self.camera.handle_mouse(self.smoothed_mouse_delta);
                 }
 
-                self.time_info.update();
                 self.camera.update_transform(frame_delta_time);
 
                 self.vulkan_context
@@ -401,14 +405,9 @@ impl InitializedApp {
             log::debug!("mouse delta: {:?}", delta);
 
             if !self.window_state.is_cursor_visible() {
-                // just accumulate
-                self.pending_mouse_delta.0 += delta.0;
-                self.pending_mouse_delta.1 += delta.1;
+                self.accumulated_mouse_delta += Vec2::new(delta.0 as f32, delta.1 as f32);
             } else {
-                // remove the delta from the event
-                // TODO: check if this is wanted
-                self.pending_mouse_delta.0 = 0.0;
-                self.pending_mouse_delta.1 = 0.0;
+                // self.accumulated_mouse_delta = Vec2::ZERO;
             }
         }
         // Handle device events here

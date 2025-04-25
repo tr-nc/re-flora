@@ -1,4 +1,4 @@
-use glam::{Mat4, Vec3, Vec4};
+use glam::{Mat4, Vec2, Vec3, Vec4};
 use winit::{
     event::{ElementState, KeyEvent},
     keyboard::{KeyCode, PhysicalKey},
@@ -271,13 +271,13 @@ impl Camera {
         }
     }
 
-    pub fn handle_mouse(&mut self, delta: &(f64, f64), frame_delta_time: f32) {
+    pub fn handle_mouse(&mut self, delta: Vec2) {
         const SENSITIVITY_MULTIPLIER: f32 = 0.001;
         // the delta is positive when moving the mouse to the right / down
         // so we need to invert the pitch delta so that when mouse is going up, pitch increases
-        self.yaw += delta.0 as f32 * self.desc.movement.mouse_sensitivity * SENSITIVITY_MULTIPLIER;
+        self.yaw += delta.x as f32 * self.desc.movement.mouse_sensitivity * SENSITIVITY_MULTIPLIER;
         self.pitch -=
-            delta.1 as f32 * self.desc.movement.mouse_sensitivity * SENSITIVITY_MULTIPLIER;
+            delta.y as f32 * self.desc.movement.mouse_sensitivity * SENSITIVITY_MULTIPLIER;
 
         self.limit_yaw();
         self.clamp_pitch();
