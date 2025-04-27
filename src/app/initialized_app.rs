@@ -11,7 +11,7 @@ use crate::{
     window::{WindowMode, WindowState, WindowStateDesc},
 };
 use ash::vk;
-use egui::{Color32, RichText, Slider};
+use egui::{Color32, RichText};
 use glam::{UVec3, Vec2, Vec3};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
 use std::sync::{Arc, Mutex};
@@ -33,13 +33,16 @@ pub struct InitializedApp {
     render_finished_semaphore: Semaphore,
     fence: Fence,
     time_info: TimeInfo,
-    slider_val: f32,
     accumulated_mouse_delta: Vec2,
     smoothed_mouse_delta: Vec2,
 
     camera: Camera,
     tracer: Tracer,
     builder: Builder,
+
+    // gui adjustables
+    tree_pos: Vec3,
+    tree_desc: TreeDesc,
 
     // note: always keep the context to end, as it has to be destroyed last
     vulkan_context: VulkanContext,
@@ -125,7 +128,9 @@ impl InitializedApp {
             builder.get_external_shared_resources(),
         );
 
-        builder.init_chunks();
+        builder.init_chunks().unwrap();
+
+        let tree_desc = TreeDesc::default();
 
         Self {
             vulkan_context,
@@ -147,7 +152,9 @@ impl InitializedApp {
             camera,
             is_resize_pending: false,
             time_info: TimeInfo::default(),
-            slider_val: 0.0,
+
+            tree_pos: Vec3::new(128.0, 30.0, 128.0),
+            tree_desc,
         }
     }
 
@@ -230,22 +237,10 @@ impl InitializedApp {
                 }
 
                 if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyF {
-                    let new_tree = Tree::new(TreeDesc {
-                        seed: rand::random::<u64>(),
-                        ..Default::default()
-                    });
-                    // const TREE_OFFSET: Vec3 = Vec3::new(128.0, 50.0, 128.0);
-                    let new_tree_pos = generate_random_pos_in_map(
-                        Vec3::new(256.0, 30.0, 256.0),
-                        Vec3::new(256.0 + 3.0 * 256.0, 50.0, 256.0 + 3.0 * 256.0),
-                    );
-                    self.builder.add_tree(&new_tree, new_tree_pos);
-
-                    fn generate_random_pos_in_map(min: Vec3, max: Vec3) -> Vec3 {
-                        let x = rand::random::<f32>() * (max.x - min.x) + min.x;
-                        let y = rand::random::<f32>() * (max.y - min.y) + min.y;
-                        let z = rand::random::<f32>() * (max.z - min.z) + min.z;
-                        Vec3::new(x, y, z)
+                    let tree = Tree::new(self.tree_desc.clone());
+                    let result = self.builder.add_tree(&tree, self.tree_pos);
+                    if let Err(err) = result {
+                        println!("Failed to add tree: {}", err);
                     }
                 }
             }
@@ -303,8 +298,66 @@ impl InitializedApp {
                                         "fps: {:.2}",
                                         self.time_info.display_fps()
                                     )));
+
+                                    ui.add(egui::Label::new("Tree config"));
+
+                                    ui.horizontal(|ui| {
+                                        ui.label("Tree position");
+                                        ui.add(
+                                            egui::DragValue::new(&mut self.tree_pos.x)
+                                                .speed(1)
+                                                .prefix("x: "),
+                                        );
+                                        ui.add(
+                                            egui::DragValue::new(&mut self.tree_pos.y)
+                                                .speed(1)
+                                                .prefix("y: "),
+                                        );
+                                        ui.add(
+                                            egui::DragValue::new(&mut self.tree_pos.z)
+                                                .speed(1)
+                                                .prefix("z: "),
+                                        );
+                                    });
+
                                     ui.add(
-                                        Slider::new(&mut self.slider_val, 0.0..=1.0).text("Slider"),
+                                        egui::Slider::new(&mut self.tree_desc.size, 0.0..=5.0)
+                                            .text("Size"),
+                                    );
+                                    ui.add(
+                                        egui::Slider::new(
+                                            &mut self.tree_desc.trunk_thickness,
+                                            0.0..=4.0,
+                                        )
+                                        .text("Trunk Thickness"),
+                                    );
+                                    ui.add(
+                                        egui::Slider::new(&mut self.tree_desc.spread, 0.0..=1.0)
+                                            .text("Spread"),
+                                    );
+                                    ui.add(
+                                        egui::Slider::new(&mut self.tree_desc.twisted, 0.0..=1.0)
+                                            .text("Twisted"),
+                                    );
+                                    ui.add(
+                                        egui::Slider::new(&mut self.tree_desc.leaves, 0.0..=1.0)
+                                            .text("Leaves"),
+                                    );
+                                    ui.add(
+                                        egui::Slider::new(&mut self.tree_desc.gravity, 0.0..=1.0)
+                                            .text("Gravity"),
+                                    );
+                                    ui.add(
+                                        egui::Slider::new(&mut self.tree_desc.iterations, 0..=30)
+                                            .text("Iterations"),
+                                    );
+                                    ui.add(
+                                        egui::Slider::new(&mut self.tree_desc.wide, 0.0..=1.0)
+                                            .text("Wide"),
+                                    );
+                                    ui.add(
+                                        egui::Slider::new(&mut self.tree_desc.seed, 0..=100)
+                                            .text("Seed"),
                                     );
                                 });
                             });
@@ -328,7 +381,7 @@ impl InitializedApp {
                         .expect("Failed to reset fences")
                 };
 
-                self.tracer.update_buffers(&self.camera, self.slider_val);
+                self.tracer.update_buffers(&self.camera);
 
                 let cmdbuf = &self.cmdbuf;
                 cmdbuf.begin(false);

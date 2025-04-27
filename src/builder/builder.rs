@@ -96,7 +96,7 @@ impl Builder {
     // [re_flora::builder::builder] Average chunk init time: 4.3815ms
     // [re_flora::builder::builder] Average fragment + octree time: 1.351508ms
 
-    pub fn init_chunks(&mut self) {
+    pub fn init_chunks(&mut self) -> Result<(), String> {
         let chunk_positions = {
             let mut positions = Vec::new();
             for i in 0..self.chunk_dim.x {
@@ -111,7 +111,7 @@ impl Builder {
 
         let timer = Timer::new();
         for chunk_pos in chunk_positions.iter() {
-            self.build_chunk_data(*chunk_pos);
+            self.build_chunk_data(*chunk_pos)?;
         }
         log::debug!(
             "Average chunk init time: {:?}",
@@ -120,7 +120,7 @@ impl Builder {
 
         let timer = Timer::new();
         for chunk_pos in chunk_positions.iter() {
-            self.build_octree(*chunk_pos);
+            self.build_octree(*chunk_pos)?;
         }
         log::debug!(
             "Average octree time: {:?}",
@@ -128,18 +128,37 @@ impl Builder {
         );
 
         self.update_octree_offset_atlas_tex();
+        return Ok(());
     }
 
-    fn build_chunk_data(&mut self, chunk_pos: UVec3) {
+    fn build_chunk_data(&mut self, chunk_pos: UVec3) -> Result<(), String> {
+        self.check_chunk_pos(chunk_pos)?;
         self.chunk_data_builder.chunk_init(
             &self.vulkan_context,
             &self.resources,
             self.voxel_dim,
             chunk_pos,
         );
+        return Ok(());
     }
 
-    fn modify_chunk(&mut self, chunk_pos: UVec3, bvh_nodes: &[BvhNode], round_cones: &[RoundCone]) {
+    fn check_chunk_pos(&self, chunk_pos: UVec3) -> Result<(), String> {
+        if chunk_pos.x >= self.chunk_dim.x
+            || chunk_pos.y >= self.chunk_dim.y
+            || chunk_pos.z >= self.chunk_dim.z
+        {
+            return Err(format!("Chunk position out of bounds: {:?}", chunk_pos));
+        }
+        Ok(())
+    }
+
+    fn modify_chunk(
+        &mut self,
+        chunk_pos: UVec3,
+        bvh_nodes: &[BvhNode],
+        round_cones: &[RoundCone],
+    ) -> Result<(), String> {
+        self.check_chunk_pos(chunk_pos)?;
         self.chunk_data_builder.chunk_modify(
             &self.vulkan_context,
             &self.resources,
@@ -148,6 +167,8 @@ impl Builder {
             bvh_nodes,
             round_cones,
         );
+
+        return Ok(());
     }
 
     fn update_octree_offset_atlas_tex(&mut self) {
@@ -158,7 +179,7 @@ impl Builder {
         );
     }
 
-    pub fn add_tree(&mut self, tree: &Tree, tree_pos: Vec3) {
+    pub fn add_tree(&mut self, tree: &Tree, tree_pos: Vec3) -> Result<(), String> {
         let mut round_cones = tree.get_trunks().to_vec();
         for round_cone in &mut round_cones {
             round_cone.transform(tree_pos);
@@ -182,14 +203,17 @@ impl Builder {
         );
 
         for chunk_pos in affacted_chunk_positions.iter() {
-            self.modify_chunk(*chunk_pos, &bvh_nodes, &round_cones);
+            self.build_chunk_data(*chunk_pos)?; // this allows the tree to be built in place, with removal of the old tree on the same chunk
+            self.modify_chunk(*chunk_pos, &bvh_nodes, &round_cones)?;
         }
 
         for chunk_pos in affacted_chunk_positions.iter() {
-            self.build_octree(*chunk_pos);
+            self.build_octree(*chunk_pos)?;
         }
 
         self.update_octree_offset_atlas_tex();
+
+        return Ok(());
 
         fn determine_relative_chunk_positions(
             voxel_dim: UVec3,
@@ -198,12 +222,8 @@ impl Builder {
             let rect_min = aabb.min().floor();
             let rect_max = aabb.max().ceil();
 
-            if rect_min.x < 0.0 || rect_min.y < 0.0 || rect_min.z < 0.0 {
-                return Err("AABB min is out of bounds".to_string());
-            }
-            if rect_max.x < 0.0 || rect_max.y < 0.0 || rect_max.z < 0.0 {
-                return Err("AABB max is out of bounds".to_string());
-            }
+            clamp_to_zero(rect_min);
+            clamp_to_zero(rect_max);
 
             let rect_min_u = rect_min.as_uvec3();
             let rect_max_u = rect_max.as_uvec3();
@@ -220,6 +240,11 @@ impl Builder {
             }
             return Ok(positions);
 
+            fn clamp_to_zero(input: Vec3) -> Vec3 {
+                let res = input.max(Vec3::ZERO);
+                res
+            }
+
             fn world_voxel_pos_to_chunk_pos(voxel_dim: UVec3, world_pos: UVec3) -> UVec3 {
                 let chunk_pos = world_pos / voxel_dim;
                 chunk_pos
@@ -227,14 +252,15 @@ impl Builder {
         }
     }
 
-    fn build_octree(&mut self, chunk_pos: UVec3) {
+    fn build_octree(&mut self, chunk_pos: UVec3) -> Result<(), String> {
+        self.check_chunk_pos(chunk_pos)?;
         self.frag_list_builder
             .build(&self.vulkan_context, &self.resources, chunk_pos);
 
         let fragment_list_len = self.frag_list_builder.get_fraglist_length(&self.resources);
         if fragment_list_len == 0 {
             log::debug!("Fragment list for chunk {:?} is empty", chunk_pos);
-            return;
+            return Ok(());
         } else {
             log::debug!(
                 "Fragment list for chunk {:?} has {} fragments",
@@ -250,6 +276,7 @@ impl Builder {
             chunk_pos,
             self.voxel_dim,
         );
+        return Ok(());
     }
 
     pub fn get_external_shared_resources(&self) -> &ExternalSharedResources {

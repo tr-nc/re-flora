@@ -123,12 +123,12 @@ impl Tracer {
         self.resources.shader_write_tex.get_image()
     }
 
-    pub fn update_buffers(&mut self, camera: &Camera, debug_float: f32) {
-        let data = StructMemberDataBuilder::from_buffer(&self.resources.gui_input)
-            .set_field("debug_float", PlainMemberTypeWithData::Float(debug_float))
-            .unwrap()
-            .get_data_u8();
-        self.resources.gui_input.fill_with_raw_u8(&data).unwrap();
+    pub fn update_buffers(&mut self, camera: &Camera) {
+        // let data = StructMemberDataBuilder::from_buffer(&self.resources.gui_input)
+        //     .set_field("debug_float", PlainMemberTypeWithData::Float(debug_float))
+        //     .unwrap()
+        //     .get_data_u8();
+        // self.resources.gui_input.fill_with_raw_u8(&data).unwrap();
 
         let view_mat = camera.get_view_mat();
         let proj_mat = camera.get_proj_mat();

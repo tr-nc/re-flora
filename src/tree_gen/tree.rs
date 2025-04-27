@@ -7,7 +7,7 @@ use crate::geom::RoundCone;
 #[derive(Debug, Clone)]
 pub struct TreeDesc {
     pub size: f32,
-    pub trunkthickness: f32,
+    pub trunk_thickness: f32,
     pub spread: f32,
     pub twisted: f32,
     pub leaves: f32,
@@ -21,7 +21,7 @@ impl Default for TreeDesc {
     fn default() -> Self {
         TreeDesc {
             size: 3.0,
-            trunkthickness: 1.0,
+            trunk_thickness: 1.0,
             spread: 0.5,
             twisted: 0.5,
             leaves: 1.0,
@@ -64,7 +64,7 @@ impl Tree {
         let size = 150.0 * desc.size / desc.iterations as f32;
         let branch_len_start = size * (1.0 - desc.wide);
         let branch_len_end = size * desc.wide;
-        let trunk_thickness = desc.trunkthickness * desc.size * 6.0;
+        let trunk_thickness = desc.trunk_thickness * desc.size * 6.0;
 
         // Start recursion from the origin, growing along +Z
         recurse(
