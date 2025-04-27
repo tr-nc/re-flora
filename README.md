@@ -1,6 +1,110 @@
 # Re: Flora
 
-## Setup
+_Voxel Garden Island is currently in early development. Features and timelines are subject to change as the project evolves._
+
+# Voxel Garden Island
+
+A meditative voxel-based gardening experience where players cultivate their own island ecosystem.
+
+## Project Overview
+
+Voxel Garden Island is an experimental relaxation game that allows players to design and nurture their own island paradise. Using vibrant voxel rendering, players can cultivate a diverse ecosystem of plants, shape terrain, and create a personal sanctuary. The game emphasizes creativity and tranquility with no failure states, focusing instead on the joy of watching your garden evolve.
+
+## Core Features
+
+- **Intuitive Planting System**: Easily select, place, and nurture various plant species
+- **Dynamic Ecosystem**: Watch plants grow, spread, and interact based on environmental conditions
+- **Day/Night & Seasonal Cycles**: Experience visual changes and different growth patterns
+- **Relaxing Atmosphere**: Meditative audio, gentle animations, and a stress-free experience
+
+## Visual Style
+
+The game features a distinctive voxel aesthetic with:
+
+- Vibrant color contrasts (bright reds, lush greens)
+- Multi-layered voxel elements creating rich textures
+- Subtle animations like swaying plants and flowing water
+- Dynamic lighting that changes with time of day and weather
+
+## Development Roadmap
+
+### Phase 1: Core Mechanics (Q3 2025)
+
+- [x] Basic island generation
+- [ ] Fundamental planting system
+- [ ] Simple plant growth cycles
+- [ ] Day/night cycle implementation
+- [ ] Basic camera controls and UI
+
+### Phase 2: Ecosystem Expansion (Q4 2025)
+
+- [ ] Advanced plant behaviors and interactions
+- [ ] Weather systems and effects
+- [ ] Wildlife introduction (butterflies, birds)
+- [ ] Expanded plant variety (20+ species)
+- [ ] Basic photo mode
+
+### Phase 3: Player Creativity Tools (Q1 2026)
+
+- [ ] Terrain modification tools
+- [ ] Garden decoration items
+- [ ] Path creation system
+- [ ] Water feature placement
+- [ ] Enhanced photo and sharing capabilities
+
+### Phase 4: Advanced Features (Q2 2026)
+
+- [ ] Seasonal events and special plants
+- [ ] Plant hybridization system
+- [ ] Community challenges and sharing
+- [ ] Ecosystem achievements and collections
+- [ ] Enhanced audio landscape
+
+## Botanical Reality
+
+We're integrating elements of real-world botany, including:
+
+- Realistic growth cycles (accelerated but proportional)
+- Environmental preferences (light, soil, water needs)
+- Seasonal behaviors and adaptations
+- Educational elements about plant varieties
+
+## Mini-Objectives
+
+While Voxel Garden Island has no mandatory goals, players can engage with optional objectives:
+
+- Themed garden challenges
+- Botanical collection completion
+- Ecosystem balance achievements
+- Seasonal photography contests
+
+## Technical Implementation
+
+The project is being developed using:
+
+- [Game Engine of Choice] with custom voxel rendering
+- Optimized instancing for performance with dense vegetation
+- LOD system for distance rendering
+- Procedural generation with player customization
+
+## Inspiration
+
+This project draws inspiration from:
+
+- The meditative aspects of gardening
+- Voxel art aesthetics and capabilities
+- Games focused on creativity and expression
+- The natural world's beauty and complexity
+
+## Get Involved
+
+We welcome feedback and suggestions! If you're interested in contributing or testing:
+
+- Join our Discord: [Discord Link]
+- Follow development updates: [Dev Blog/Twitter]
+- Wishlist on Steam: [Steam Page Link when available]
+
+## Setup (deprecated)
 
 - Use nightly build for [portable simd](https://github.com/rust-lang/portable-simd)
 
@@ -14,16 +118,7 @@ rustup default nightly
 
 - Ocean Rendering: Implement approximate methods instead of full simulation to maintain performance.
 
-2. **Plantation System**
-
-- Simulate plant growth.
-- Add plant animations.
-
-3. **Terrain Generation**
-
-- Focus on creating visually appealing terrain.
-
-4. **Rendering Pipeline Enhancements**
+2. **Rendering Pipeline Enhancements**
 
 - Add support for dynamic lighting.
 - Optimize performance.
