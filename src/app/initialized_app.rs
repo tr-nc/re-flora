@@ -154,7 +154,7 @@ impl InitializedApp {
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {
         let window_descriptor = WindowStateDesc {
             title: "Re: Flora".to_owned(),
-            window_mode: WindowMode::Windowed,
+            window_mode: WindowMode::BorderlessFullscreen,
             cursor_locked: true,
             cursor_visible: false,
             ..Default::default()
@@ -402,15 +402,10 @@ impl InitializedApp {
         event: winit::event::DeviceEvent,
     ) {
         if let DeviceEvent::MouseMotion { delta } = event {
-            log::debug!("mouse delta: {:?}", delta);
-
             if !self.window_state.is_cursor_visible() {
                 self.accumulated_mouse_delta += Vec2::new(delta.0 as f32, delta.1 as f32);
-            } else {
-                // self.accumulated_mouse_delta = Vec2::ZERO;
             }
         }
-        // Handle device events here
     }
 
     pub fn on_about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
