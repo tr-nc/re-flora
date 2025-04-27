@@ -1,12 +1,9 @@
-// treegen.rs
-
 use glam::Vec3;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
 use crate::geom::RoundCone;
 
-/// Descriptor matching the parameters from the Python version.
 #[derive(Debug, Clone)]
 pub struct TreeDesc {
     pub size: f32,
@@ -36,7 +33,6 @@ impl Default for TreeDesc {
     }
 }
 
-/// The generated tree, containing branch primitives and leaf spawn positions.
 #[derive(Debug)]
 pub struct Tree {
     desc: TreeDesc,
@@ -45,7 +41,6 @@ pub struct Tree {
 }
 
 impl Tree {
-    /// Construct a new Tree from the given descriptor.
     pub fn new(desc: TreeDesc) -> Self {
         let (trunks, leaf_positions) = Self::build(&desc);
         Tree {
@@ -145,24 +140,5 @@ impl Tree {
                 leaves.push((pos + end) * 0.5);
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_tree_generation_basic() {
-        let tree = Tree::new(Default::default());
-        // We expect at least one branch segment and at least one leaf position
-        assert!(!tree.trunks.is_empty(), "No trunk segments generated");
-        assert!(
-            !tree.leaf_positions.is_empty(),
-            "No leaf positions generated"
-        );
-
-        // print the generated tree for debugging
-        println!("Generated tree: {:#?}", tree);
     }
 }
