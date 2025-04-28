@@ -92,11 +92,6 @@ vec3 traverse_bvh(Ray ray) {
         uint node_index    = cur_info.node_index;
         uint node_depth    = cur_info.depth; // debug: you now have the depth info here
 
-        // terminate if node_depth > some_threshold
-        // if (node_depth > gui_input.slider_val * 10.0) {
-        //     break;
-        // }
-
         BvhNode node = bvh_nodes.data[node_index];
 
         float t_near, t_far;

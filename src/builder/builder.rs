@@ -136,17 +136,17 @@ impl Builder {
 
     /// Debug only function
     pub fn create_scene_bvh(&mut self, tree: &Tree, tree_pos: Vec3) {
-        let mut round_cones = tree.get_trunks().to_vec();
+        let mut leaves = tree.leaves().to_vec();
 
-        for round_cone in &mut round_cones {
-            round_cone.transform(tree_pos);
+        for leaf in &mut leaves {
+            leaf.transform(tree_pos);
         }
-        for round_cone in &mut round_cones {
-            round_cone.scale(Vec3::new(1.0 / 256.0, 1.0 / 256.0, 1.0 / 256.0));
+        for leaf in &mut leaves {
+            leaf.scale(Vec3::new(1.0 / 256.0, 1.0 / 256.0, 1.0 / 256.0));
         }
         let mut trunk_aabbs = Vec::new();
-        for round_cone in &round_cones {
-            trunk_aabbs.push(round_cone.get_aabb());
+        for leaf in &leaves {
+            trunk_aabbs.push(leaf.aabb());
         }
 
         let bvh_nodes = build_bvh(&trunk_aabbs);
@@ -237,14 +237,14 @@ impl Builder {
     }
 
     pub fn add_tree(&mut self, tree: &Tree, tree_pos: Vec3) -> Result<(), String> {
-        let mut round_cones = tree.get_trunks().to_vec();
-        for round_cone in &mut round_cones {
-            round_cone.transform(tree_pos);
+        let mut trunks = tree.trunks().to_vec();
+        for trunk in &mut trunks {
+            trunk.transform(tree_pos);
         }
 
         let mut trunk_aabbs = Vec::new();
-        for round_cone in &round_cones {
-            trunk_aabbs.push(round_cone.get_aabb());
+        for trunk in &trunks {
+            trunk_aabbs.push(trunk.aabb());
         }
 
         let bvh_nodes = build_bvh(&trunk_aabbs);
@@ -258,7 +258,7 @@ impl Builder {
 
         for chunk_pos in in_bound_chunk_positions.iter() {
             self.build_chunk_data(*chunk_pos)?; // this allows the tree to be built in place, with removal of the old tree on the same chunk
-            self.modify_chunk(*chunk_pos, &bvh_nodes, &round_cones)?;
+            self.modify_chunk(*chunk_pos, &bvh_nodes, &trunks)?;
         }
 
         for chunk_pos in in_bound_chunk_positions.iter() {

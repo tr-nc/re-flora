@@ -2,7 +2,7 @@ use glam::Vec3;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
-use crate::geom::RoundCone;
+use crate::geom::{Cuboid, RoundCone};
 
 #[derive(Debug, Clone)]
 pub struct TreeDesc {
@@ -10,7 +10,7 @@ pub struct TreeDesc {
     pub trunk_thickness: f32,
     pub spread: f32,
     pub twisted: f32,
-    pub leaves: f32,
+    pub leaves_size: f32,
     pub gravity: f32,
     pub iterations: u32,
     pub wide: f32,
@@ -24,7 +24,7 @@ impl Default for TreeDesc {
             trunk_thickness: 1.0,
             spread: 0.5,
             twisted: 0.5,
-            leaves: 1.0,
+            leaves_size: 4.0,
             gravity: 0.0,
             iterations: 12,
             wide: 0.5,
@@ -50,8 +50,18 @@ impl Tree {
         }
     }
 
-    pub fn get_trunks(&self) -> &[RoundCone] {
+    pub fn trunks(&self) -> &[RoundCone] {
         &self.trunks
+    }
+
+    pub fn leaves(&self) -> Vec<Cuboid> {
+        let leaf_size = self.desc.leaves_size * self.desc.size;
+        let mut leaves = Vec::new();
+        for pos in &self.leaf_positions {
+            let half_size = Vec3::splat(leaf_size * 0.5);
+            leaves.push(Cuboid::new(*pos, half_size));
+        }
+        leaves
     }
 
     /// Build the tree: generate branch primitives and leaf positions.

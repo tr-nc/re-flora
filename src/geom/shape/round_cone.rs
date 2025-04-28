@@ -49,7 +49,7 @@ impl RoundCone {
         self.center_b *= scale;
     }
 
-    pub fn get_aabb(&self) -> Aabb {
+    pub fn aabb(&self) -> Aabb {
         // since the cone/ramp between them never “sticks out” past the larger of the two spherical caps,
         // the union of the two sphere bounds is sufficient.
 

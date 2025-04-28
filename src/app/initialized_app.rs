@@ -362,10 +362,10 @@ impl InitializedApp {
                                     tree_desc_changed |= ui
                                         .add(
                                             egui::Slider::new(
-                                                &mut self.tree_desc.leaves,
-                                                0.0..=1.0,
+                                                &mut self.tree_desc.leaves_size,
+                                                0.0..=10.0,
                                             )
-                                            .text("Leaves"),
+                                            .text("Leaves size"),
                                         )
                                         .changed();
                                     tree_desc_changed |= ui
