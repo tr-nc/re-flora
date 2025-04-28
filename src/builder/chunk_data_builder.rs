@@ -73,7 +73,7 @@ impl ChunkDataBuilder {
         );
         chunk_modify_ds.perform_writes(&[
             WriteDescriptorSet::new_buffer_write(0, resources.chunk_modify_info()),
-            WriteDescriptorSet::new_buffer_write(1, resources.bvh_nodes()),
+            WriteDescriptorSet::new_buffer_write(1, resources.trunk_bvh_nodes()),
             WriteDescriptorSet::new_buffer_write(2, resources.round_cones()),
             WriteDescriptorSet::new_texture_write(
                 3,
@@ -184,7 +184,7 @@ impl ChunkDataBuilder {
         ) {
             update_chunk_modify_info(resources, chunk_pos, 1);
             update_round_cones(resources, round_cones);
-            update_bvh_nodes(resources, bvh_nodes);
+            update_trunk_bvh_nodes(resources, bvh_nodes);
 
             fn update_chunk_modify_info(
                 resources: &Resources,
@@ -241,7 +241,7 @@ impl ChunkDataBuilder {
                 }
             }
 
-            fn update_bvh_nodes(resources: &Resources, bvh_nodes: &[BvhNode]) {
+            fn update_trunk_bvh_nodes(resources: &Resources, bvh_nodes: &[BvhNode]) {
                 for i in 0..bvh_nodes.len() {
                     let bvh_node = &bvh_nodes[i];
 
@@ -251,8 +251,7 @@ impl ChunkDataBuilder {
                     } else {
                         bvh_node.left
                     };
-
-                    let data = StructMemberDataBuilder::from_buffer(resources.bvh_nodes())
+                    let data = StructMemberDataBuilder::from_buffer(resources.trunk_bvh_nodes())
                         .set_field(
                             "data.aabb_min",
                             PlainMemberTypeWithData::Vec3(bvh_node.aabb.min().to_array()),
@@ -270,7 +269,7 @@ impl ChunkDataBuilder {
                         .unwrap()
                         .get_data_u8();
                     resources
-                        .bvh_nodes()
+                        .trunk_bvh_nodes()
                         .fill_element_with_raw_u8(&data, i as u64)
                         .unwrap();
                 }

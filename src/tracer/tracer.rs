@@ -52,7 +52,7 @@ impl Tracer {
             screen_extent,
         );
 
-        let tracer_ds = Self::create_compute_descriptor_set(
+        let tracer_ds = Self::create_tradcer_ds(
             descriptor_pool.clone(),
             &vulkan_context,
             &tracer_ppl,
@@ -95,7 +95,7 @@ impl Tracer {
         );
 
         self.descriptor_pool.reset().unwrap();
-        self.tracer_ds = Self::create_compute_descriptor_set(
+        self.tracer_ds = Self::create_tradcer_ds(
             self.descriptor_pool.clone(),
             &self.vulkan_context,
             &self.tracer_ppl,
@@ -173,7 +173,7 @@ impl Tracer {
         self.resources.camera_info.fill_with_raw_u8(&data).unwrap();
     }
 
-    fn create_compute_descriptor_set(
+    fn create_tradcer_ds(
         descriptor_pool: DescriptorPool,
         vulkan_context: &VulkanContext,
         compute_pipeline: &ComputePipeline,
@@ -190,6 +190,7 @@ impl Tracer {
             WriteDescriptorSet::new_buffer_write(1, &resources.camera_info),
             WriteDescriptorSet::new_buffer_write(2, &resources.scene_info),
             WriteDescriptorSet::new_buffer_write(3, &builder_shared_resources.octree_data),
+            WriteDescriptorSet::new_buffer_write(6, &builder_shared_resources.scene_bvh_nodes),
             WriteDescriptorSet::new_texture_write(
                 4,
                 vk::DescriptorType::STORAGE_IMAGE,

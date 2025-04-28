@@ -12,6 +12,8 @@ use crate::util::ShaderCompiler;
 use crate::util::Timer;
 use crate::vkn::Allocator;
 use crate::vkn::DescriptorPool;
+use crate::vkn::PlainMemberTypeWithData;
+use crate::vkn::StructMemberDataBuilder;
 use crate::vkn::VulkanContext;
 use glam::IVec3;
 use glam::UVec3;
@@ -130,6 +132,60 @@ impl Builder {
 
         self.update_octree_offset_atlas_tex();
         return Ok(());
+    }
+
+    /// Debug only function
+    pub fn create_scene_bvh(&mut self, tree: &Tree, tree_pos: Vec3) {
+        let mut round_cones = tree.get_trunks().to_vec();
+
+        for round_cone in &mut round_cones {
+            round_cone.transform(tree_pos);
+        }
+        for round_cone in &mut round_cones {
+            round_cone.scale(Vec3::new(1.0 / 256.0, 1.0 / 256.0, 1.0 / 256.0));
+        }
+        let mut trunk_aabbs = Vec::new();
+        for round_cone in &round_cones {
+            trunk_aabbs.push(round_cone.get_aabb());
+        }
+
+        let bvh_nodes = build_bvh(&trunk_aabbs);
+
+        update_scene_bvh_nodes(&self.resources, &bvh_nodes);
+
+        fn update_scene_bvh_nodes(resources: &Resources, bvh_nodes: &[BvhNode]) {
+            for i in 0..bvh_nodes.len() {
+                let bvh_node = &bvh_nodes[i];
+
+                let combined_offset: u32 = if bvh_node.is_leaf {
+                    let primitive_idx = bvh_node.data_offset;
+                    0x8000_0000 | primitive_idx
+                } else {
+                    bvh_node.left
+                };
+                let data = StructMemberDataBuilder::from_buffer(resources.scene_bvh_nodes())
+                    .set_field(
+                        "data.aabb_min",
+                        PlainMemberTypeWithData::Vec3(bvh_node.aabb.min().to_array()),
+                    )
+                    .unwrap()
+                    .set_field(
+                        "data.aabb_max",
+                        PlainMemberTypeWithData::Vec3(bvh_node.aabb.max().to_array()),
+                    )
+                    .unwrap()
+                    .set_field(
+                        "data.offset",
+                        PlainMemberTypeWithData::UInt(combined_offset),
+                    )
+                    .unwrap()
+                    .get_data_u8();
+                resources
+                    .scene_bvh_nodes()
+                    .fill_element_with_raw_u8(&data, i as u64)
+                    .unwrap();
+            }
+        }
     }
 
     fn build_chunk_data(&mut self, chunk_pos: UVec3) -> Result<(), String> {

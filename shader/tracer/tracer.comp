@@ -21,12 +21,16 @@ layout(set = 0, binding = 2) uniform U_SceneInfo { uvec3 visible_chunk_dim; }
 scene_info;
 layout(set = 0, binding = 3) buffer B_OctreeData { uint data[]; }
 octree_data;
+#include "../include/bvh.glsl"
+layout(set = 0, binding = 6) readonly buffer B_BvhNodes { BvhNode data[]; }
+bvh_nodes;
 layout(set = 0, binding = 4) writeonly uniform image2D result_image;
 layout(set = 0, binding = 5, r8ui) readonly uniform uimage3D octree_offset_atlas_tex;
 
 #include "../include/cascaded_marching.glsl"
 #include "../include/core/projection.glsl"
 
+#include "../include/core/intersect.glsl"
 
 struct Ray {
     vec3 origin;
@@ -42,6 +46,130 @@ Ray ray_gen(vec3 camera_pos, vec2 screen_uv) {
     return ray;
 }
 
+///
+
+struct InnerTestResult {
+    float hit_depth; // The depth value (t) at which the inner test hit.
+    bool did_hit;    // Indicates whether the inner test produced a hit.
+    vec3 color;      // The color resulting from the inner test.
+};
+
+// Dummy inner test function.
+// In an actual implementation, this would perform your object-level test inside
+// the leaf AABB. For now it simply changes the ray's color and always returns
+// no hit.
+InnerTestResult inner_test(Ray ray) {
+    InnerTestResult result;
+    result.did_hit   = false;
+    result.hit_depth = 1e30;
+    result.color     = vec3(0.1, 0.1, 0.1);
+    return result;
+}
+
+struct StackInfo {
+    uint node_index;
+    uint depth;
+};
+
+/// Traverses the BVH tree to find the closest intersection of the ray.
+vec3 traverse_bvh(Ray ray) {
+    // best_hit_depth holds the current closest inner test hit (if any).
+    float best_hit_depth = 1e30;
+    vec3 final_color     = vec3(0.0);
+    // a fixed-size stack storing node index and its corresponding depth in the
+    // tree
+    const uint STACK_SIZE = 100;
+    StackInfo stack[STACK_SIZE];
+    uint stack_ptr = 0;
+
+    // push the root node with depth 0
+    stack[stack_ptr++] = StackInfo(0, 0);
+
+    while (stack_ptr > 0) {
+        // pop a node from the stack
+        stack_ptr--;
+        StackInfo cur_info = stack[stack_ptr];
+        uint node_index    = cur_info.node_index;
+        uint node_depth    = cur_info.depth; // debug: you now have the depth info here
+
+        // terminate if node_depth > some_threshold
+        // if (node_depth > gui_input.slider_val * 10.0) {
+        //     break;
+        // }
+
+        BvhNode node = bvh_nodes.data[node_index];
+
+        float t_near, t_far;
+        // if the ray does not hit this node's AABB, skip it
+        if (!intersect_aabb(t_near, t_far, ray.origin, ray.inv_direction, node.aabb_min,
+                            node.aabb_max)) {
+            continue;
+        }
+
+        // early-out: skip if the node is farther than an already found hit
+        if (t_near > best_hit_depth) {
+            continue;
+        }
+
+        // perform inner test at leaf nodes
+        if (is_leaf(node)) {
+            final_color = vec3(1.0, 0.0, 0.0);
+            // final_color += vec3(0.5, 0.5, 0.0);
+            InnerTestResult res = inner_test(ray);
+            if (res.did_hit && res.hit_depth < best_hit_depth) {
+                best_hit_depth = res.hit_depth;
+                // final_color    = vec3(1.0, 0.0, 0.0);
+                break;
+            }
+            // break;
+            continue;
+        }
+        final_color += vec3(0.0, 0.0, 0.1);
+
+        // process internal nodes by testing left and right children
+        float t_near_left  = 1e30;
+        float t_near_right = 1e30;
+        bool hit_left      = false;
+        bool hit_right     = false;
+        float dummy_far;
+
+        hit_left  = intersect_aabb(t_near_left, dummy_far, ray.origin, ray.inv_direction,
+                                   bvh_nodes.data[node.offset].aabb_min,
+                                   bvh_nodes.data[node.offset].aabb_max);
+        hit_right = intersect_aabb(t_near_right, dummy_far, ray.origin, ray.inv_direction,
+                                   bvh_nodes.data[node.offset + 1].aabb_min,
+                                   bvh_nodes.data[node.offset + 1].aabb_max);
+
+        // push the children in order from farthest to nearest so that the nearest
+        // is processed first (LIFO)
+        if (hit_left && hit_right) {
+            bool left_first  = t_near_left < t_near_right; // determine which intersection is closer
+            float first_near = left_first ? t_near_left : t_near_right;
+            float second_near = left_first ? t_near_right : t_near_left;
+            uint first_child  = left_first ? node.offset : (node.offset + 1);
+            uint second_child = left_first ? (node.offset + 1) : node.offset;
+
+            if (second_near < best_hit_depth)
+                stack[stack_ptr++] = StackInfo(second_child, node_depth + 1);
+            if (first_near < best_hit_depth)
+                stack[stack_ptr++] = StackInfo(first_child, node_depth + 1);
+
+            continue;
+        }
+        if (hit_left && t_near_left < best_hit_depth) {
+            stack[stack_ptr++] = StackInfo(node.offset, node_depth + 1);
+            continue;
+        }
+        if (hit_right && t_near_right < best_hit_depth) {
+            stack[stack_ptr++] = StackInfo(node.offset + 1, node_depth + 1);
+            continue;
+        }
+    }
+    return final_color;
+}
+
+///
+
 void main() {
     ivec2 uvi      = ivec2(gl_GlobalInvocationID.xy);
     ivec2 img_size = imageSize(result_image);
@@ -52,7 +180,6 @@ void main() {
     vec2 screen_uv = (vec2(gl_GlobalInvocationID.xy) + vec2(0.5)) / vec2(img_size);
     Ray ray        = ray_gen(camera_info.camera_pos.xyz, screen_uv);
 
-    // SvoMarchingResult res = svo_marching(ray.origin, ray.direction, 0);
     CascadedMarchingResult res =
         cascaded_marching(ivec3(scene_info.visible_chunk_dim), ray.origin, ray.direction);
 
@@ -61,6 +188,8 @@ void main() {
         voxel_color = res.last_hit_svo_result.normal * 0.5 + 0.5;
         // voxel_color = vec3(1.0);
     }
+
+    voxel_color += traverse_bvh(ray);
 
     vec4 out_color = vec4(0.0);
     out_color      = vec4(voxel_color, 1.0);

@@ -132,7 +132,7 @@ impl InitializedApp {
 
         let tree_desc = TreeDesc::default();
 
-        Self {
+        let mut this = Self {
             vulkan_context,
             egui_renderer: renderer,
             window_state,
@@ -155,7 +155,13 @@ impl InitializedApp {
 
             tree_pos: Vec3::new(128.0, 30.0, 128.0),
             tree_desc,
-        }
+        };
+        this.init();
+        return this;
+    }
+
+    fn init(&mut self) {
+        self.add_tree();
     }
 
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {
@@ -400,11 +406,7 @@ impl InitializedApp {
                     });
 
                 if tree_desc_changed {
-                    let tree = Tree::new(self.tree_desc.clone());
-                    let result = self.builder.add_tree(&tree, self.tree_pos);
-                    if let Err(err) = result {
-                        println!("Failed to add tree: {}", err);
-                    }
+                    self.add_tree();
                 }
 
                 let device = self.vulkan_context.device();
@@ -489,6 +491,16 @@ impl InitializedApp {
                 }
             }
             _ => (),
+        }
+    }
+
+    /// Add a tree to the scene using the current tree description and position.
+    fn add_tree(&mut self) {
+        let tree = Tree::new(self.tree_desc.clone());
+        let result = self.builder.add_tree(&tree, self.tree_pos);
+        self.builder.create_scene_bvh(&tree, self.tree_pos);
+        if let Err(err) = result {
+            println!("Failed to add tree: {}", err);
         }
     }
 

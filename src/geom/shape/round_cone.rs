@@ -42,6 +42,13 @@ impl RoundCone {
         self.center_b += offset;
     }
 
+    pub fn scale(&mut self, scale: Vec3) {
+        self.radius_a *= scale.x;
+        self.radius_b *= scale.y;
+        self.center_a *= scale;
+        self.center_b *= scale;
+    }
+
     pub fn get_aabb(&self) -> Aabb {
         // since the cone/ramp between them never “sticks out” past the larger of the two spherical caps,
         // the union of the two sphere bounds is sufficient.

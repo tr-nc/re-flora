@@ -10,20 +10,13 @@ struct RoundCone {
     float radius_b;
 };
 
-struct BvhNode {
-    vec3 aabb_min;
-    vec3 aabb_max;
-    /// If the leftmost bit is 0 ⇒ internal, `offset` = left_child_index
-    /// If the leftmost bit is 1 ⇒ leaf,     `offset` = (1<<31) | primitive_index
-    uint offset;
-};
-
 layout(set = 0, binding = 0) readonly uniform U_ChunkModifyInfo {
     uvec3 chunk_pos;
     uint fill_voxel_type;
 }
 chunk_modify_info;
 
+#include "../../include/bvh.glsl"
 layout(set = 0, binding = 1) readonly buffer B_BvhNodes { BvhNode data[]; }
 bvh_nodes;
 layout(set = 0, binding = 2) readonly buffer B_RoundCones { RoundCone data[]; }
@@ -64,11 +57,9 @@ void main() {
             continue;
         }
 
-        // decode leaf vs internal
-        bool is_leaf = (node.offset & 0x80000000u) != 0u;
-        uint udata   = node.offset & 0x7FFFFFFFu;
+        uint udata = node.offset & 0x7FFFFFFFu;
 
-        if (is_leaf) {
+        if (is_leaf(node)) {
             uint ci      = udata;
             RoundCone rc = round_cones.data[ci];
             float dst    = sd_round_cone(world_voxel_pos_f, rc.center_a, rc.center_b, rc.radius_a,

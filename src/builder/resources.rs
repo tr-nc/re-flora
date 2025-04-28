@@ -53,6 +53,7 @@ impl InternalSharedResources {
 pub struct ExternalSharedResources {
     pub octree_data: Buffer,
     pub octree_offset_atlas_tex: Texture,
+    pub scene_bvh_nodes: Buffer,
 }
 
 impl ExternalSharedResources {
@@ -61,6 +62,7 @@ impl ExternalSharedResources {
         allocator: Allocator,
         octree_buffer_size: u64,
         visible_chunk_dim: UVec3,
+        tracer_sm: &ShaderModule,
     ) -> Self {
         let octree_data = Buffer::new_sized(
             device.clone(),
@@ -87,9 +89,20 @@ impl ExternalSharedResources {
             &Default::default(),
         );
 
+        let scene_bvh_nodes_layout = tracer_sm.get_buffer_layout("B_BvhNodes").unwrap();
+        let scene_bvh_nodes = Buffer::from_buffer_layout_arraylike(
+            device.clone(),
+            allocator.clone(),
+            scene_bvh_nodes_layout.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            10000,
+        ); // less than 1 MB though, don't worry about the size
+
         Self {
             octree_data,
             octree_offset_atlas_tex,
+            scene_bvh_nodes,
         }
     }
 }
@@ -98,7 +111,7 @@ pub struct ChunkInitResources {
     pub chunk_init_info: Buffer,
     pub chunk_modify_info: Buffer,
     pub round_cones: Buffer,
-    pub bvh_nodes: Buffer,
+    pub trunk_bvh_nodes: Buffer,
 }
 
 impl ChunkInitResources {
@@ -136,23 +149,23 @@ impl ChunkInitResources {
             BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
             gpu_allocator::MemoryLocation::CpuToGpu,
             10000,
-        ); // less than 1 MB though, don't worry about it
+        ); // less than 1 MB though, don't worry about the size
 
-        let bvh_nodes_layout = chunk_modify_sm.get_buffer_layout("B_BvhNodes").unwrap();
-        let bvh_nodes = Buffer::from_buffer_layout_arraylike(
+        let trunk_bvh_nodes_layout = chunk_modify_sm.get_buffer_layout("B_BvhNodes").unwrap();
+        let trunk_bvh_nodes = Buffer::from_buffer_layout_arraylike(
             device.clone(),
             allocator.clone(),
-            bvh_nodes_layout.clone(),
+            trunk_bvh_nodes_layout.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
             gpu_allocator::MemoryLocation::CpuToGpu,
             10000,
-        ); // less than 1 MB though, don't worry about it
+        ); // less than 1 MB though, don't worry about the size
 
         Self {
             chunk_init_info,
             chunk_modify_info,
             round_cones,
-            bvh_nodes,
+            trunk_bvh_nodes,
         }
     }
 }
@@ -377,6 +390,14 @@ impl Resources {
         )
         .unwrap();
 
+        let tracer_sm = ShaderModule::from_glsl(
+            &device,
+            shader_compiler,
+            "shader/tracer/tracer.comp",
+            "main",
+        )
+        .unwrap();
+
         let internal_shared_resources = InternalSharedResources::new(
             device.clone(),
             allocator.clone(),
@@ -390,6 +411,7 @@ impl Resources {
             allocator.clone(),
             octree_buffer_size,
             visible_chunk_dim,
+            &tracer_sm,
         );
 
         let chunk_init = ChunkInitResources::new(
@@ -430,8 +452,8 @@ impl Resources {
         &self.chunk_init.round_cones
     }
 
-    pub fn bvh_nodes(&self) -> &Buffer {
-        &self.chunk_init.bvh_nodes
+    pub fn trunk_bvh_nodes(&self) -> &Buffer {
+        &self.chunk_init.trunk_bvh_nodes
     }
 
     pub fn voxel_dim_indirect(&self) -> &Buffer {
@@ -456,6 +478,10 @@ impl Resources {
 
     pub fn octree_data(&self) -> &Buffer {
         &self.external_shared_resources.octree_data
+    }
+
+    pub fn scene_bvh_nodes(&self) -> &Buffer {
+        &self.external_shared_resources.scene_bvh_nodes
     }
 
     pub fn frag_list_build_result(&self) -> &Buffer {
