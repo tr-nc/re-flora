@@ -41,6 +41,7 @@ pub struct InitializedApp {
     builder: Builder,
 
     // gui adjustables
+    debug_float: f32,
     tree_pos: Vec3,
     tree_desc: TreeDesc,
 
@@ -153,6 +154,7 @@ impl InitializedApp {
             is_resize_pending: false,
             time_info: TimeInfo::default(),
 
+            debug_float: 0.0,
             tree_pos: Vec3::new(128.0, 30.0, 128.0),
             tree_desc,
         };
@@ -281,6 +283,7 @@ impl InitializedApp {
                     .update(&self.window_state.window(), |ctx| {
                         let my_frame = egui::containers::Frame {
                             fill: Color32::from_rgba_premultiplied(50, 0, 10, 128),
+                            inner_margin: egui::Margin::same(10),
                             ..Default::default()
                         };
 
@@ -290,13 +293,18 @@ impl InitializedApp {
                             .default_width(300.0)
                             .show(&ctx, |ui| {
                                 ui.vertical_centered(|ui| {
-                                    ui.heading("Re: Flora");
+                                    ui.heading("Config Panel");
                                 });
                                 egui::ScrollArea::vertical().show(ui, |ui| {
                                     ui.label(RichText::new(format!(
                                         "fps: {:.2}",
                                         self.time_info.display_fps()
                                     )));
+
+                                    ui.add(
+                                        egui::Slider::new(&mut self.debug_float, 0.0..=1.0)
+                                            .text("Debug Float"),
+                                    );
 
                                     ui.add(egui::Label::new("Tree config"));
 
@@ -427,7 +435,9 @@ impl InitializedApp {
                         .expect("Failed to reset fences")
                 };
 
-                self.tracer.update_buffers(&self.camera);
+                self.tracer
+                    .update_buffers(self.debug_float, &self.camera, 0)
+                    .unwrap();
 
                 let cmdbuf = &self.cmdbuf;
                 cmdbuf.begin(false);

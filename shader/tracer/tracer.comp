@@ -1,7 +1,6 @@
 #version 450
 
 #extension GL_GOOGLE_include_directive : require
-// #extension GL_EXT_shader_image_load_formatted : require
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -19,6 +18,8 @@ layout(set = 0, binding = 1) uniform U_CameraInfo {
 camera_info;
 layout(set = 0, binding = 2) uniform U_SceneInfo { uvec3 visible_chunk_dim; }
 scene_info;
+layout(set = 0, binding = 7) uniform U_EnvInfo { uint time_stamp; }
+env_info;
 layout(set = 0, binding = 3) buffer B_OctreeData { uint data[]; }
 octree_data;
 #include "../include/bvh.glsl"
@@ -28,9 +29,8 @@ layout(set = 0, binding = 4) writeonly uniform image2D result_image;
 layout(set = 0, binding = 5, r8ui) readonly uniform uimage3D octree_offset_atlas_tex;
 
 #include "../include/cascaded_marching.glsl"
-#include "../include/core/projection.glsl"
-
 #include "../include/core/intersect.glsl"
+#include "../include/core/projection.glsl"
 
 struct Ray {
     vec3 origin;

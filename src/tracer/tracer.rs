@@ -123,54 +123,79 @@ impl Tracer {
         self.resources.shader_write_tex.get_image()
     }
 
-    pub fn update_buffers(&mut self, camera: &Camera) {
-        // let data = StructMemberDataBuilder::from_buffer(&self.resources.gui_input)
-        //     .set_field("debug_float", PlainMemberTypeWithData::Float(debug_float))
-        //     .unwrap()
-        //     .get_data_u8();
-        // self.resources.gui_input.fill_with_raw_u8(&data).unwrap();
+    pub fn update_buffers(
+        &mut self,
+        debug_float: f32,
+        camera: &Camera,
+        time_stamp: u32,
+    ) -> Result<(), String> {
+        update_gui_input(&self.resources, debug_float)?;
+        update_cam_info(&self.resources, camera)?;
+        update_env_info(&self.resources, time_stamp)?;
+        return Ok(());
 
-        let view_mat = camera.get_view_mat();
-        let proj_mat = camera.get_proj_mat();
-        let view_proj_mat = proj_mat * view_mat;
-        let data = StructMemberDataBuilder::from_buffer(&self.resources.camera_info)
-            .set_field(
-                "camera_pos",
-                PlainMemberTypeWithData::Vec4(camera.position_vec4().to_array()),
-            )
-            .unwrap()
-            .set_field(
-                "view_mat",
-                PlainMemberTypeWithData::Mat4(view_mat.to_cols_array_2d()),
-            )
-            .unwrap()
-            .set_field(
-                "view_mat_inv",
-                PlainMemberTypeWithData::Mat4(view_mat.inverse().to_cols_array_2d()),
-            )
-            .unwrap()
-            .set_field(
-                "proj_mat",
-                PlainMemberTypeWithData::Mat4(proj_mat.to_cols_array_2d()),
-            )
-            .unwrap()
-            .set_field(
-                "proj_mat_inv",
-                PlainMemberTypeWithData::Mat4(proj_mat.inverse().to_cols_array_2d()),
-            )
-            .unwrap()
-            .set_field(
-                "view_proj_mat",
-                PlainMemberTypeWithData::Mat4(view_proj_mat.to_cols_array_2d()),
-            )
-            .unwrap()
-            .set_field(
-                "view_proj_mat_inv",
-                PlainMemberTypeWithData::Mat4(view_proj_mat.inverse().to_cols_array_2d()),
-            )
-            .unwrap()
-            .get_data_u8();
-        self.resources.camera_info.fill_with_raw_u8(&data).unwrap();
+        fn update_gui_input(resources: &TracerResources, debug_float: f32) -> Result<(), String> {
+            let data = StructMemberDataBuilder::from_buffer(&resources.gui_input)
+                .set_field("debug_float", PlainMemberTypeWithData::Float(debug_float))
+                .unwrap()
+                .get_data_u8();
+            resources.gui_input.fill_with_raw_u8(&data)?;
+            return Ok(());
+        }
+
+        fn update_cam_info(resources: &TracerResources, camera: &Camera) -> Result<(), String> {
+            let view_mat = camera.get_view_mat();
+            let proj_mat = camera.get_proj_mat();
+            let view_proj_mat = proj_mat * view_mat;
+            let data = StructMemberDataBuilder::from_buffer(&resources.camera_info)
+                .set_field(
+                    "camera_pos",
+                    PlainMemberTypeWithData::Vec4(camera.position_vec4().to_array()),
+                )
+                .unwrap()
+                .set_field(
+                    "view_mat",
+                    PlainMemberTypeWithData::Mat4(view_mat.to_cols_array_2d()),
+                )
+                .unwrap()
+                .set_field(
+                    "view_mat_inv",
+                    PlainMemberTypeWithData::Mat4(view_mat.inverse().to_cols_array_2d()),
+                )
+                .unwrap()
+                .set_field(
+                    "proj_mat",
+                    PlainMemberTypeWithData::Mat4(proj_mat.to_cols_array_2d()),
+                )
+                .unwrap()
+                .set_field(
+                    "proj_mat_inv",
+                    PlainMemberTypeWithData::Mat4(proj_mat.inverse().to_cols_array_2d()),
+                )
+                .unwrap()
+                .set_field(
+                    "view_proj_mat",
+                    PlainMemberTypeWithData::Mat4(view_proj_mat.to_cols_array_2d()),
+                )
+                .unwrap()
+                .set_field(
+                    "view_proj_mat_inv",
+                    PlainMemberTypeWithData::Mat4(view_proj_mat.inverse().to_cols_array_2d()),
+                )
+                .unwrap()
+                .get_data_u8();
+            resources.camera_info.fill_with_raw_u8(&data)?;
+            Ok(())
+        }
+
+        fn update_env_info(resources: &TracerResources, time_stamp: u32) -> Result<(), String> {
+            let data = StructMemberDataBuilder::from_buffer(&resources.env_info)
+                .set_field("time_stamp", PlainMemberTypeWithData::UInt(time_stamp))
+                .unwrap()
+                .get_data_u8();
+            resources.env_info.fill_with_raw_u8(&data)?;
+            Ok(())
+        }
     }
 
     fn create_tradcer_ds(
@@ -189,6 +214,7 @@ impl Tracer {
             WriteDescriptorSet::new_buffer_write(0, &resources.gui_input),
             WriteDescriptorSet::new_buffer_write(1, &resources.camera_info),
             WriteDescriptorSet::new_buffer_write(2, &resources.scene_info),
+            WriteDescriptorSet::new_buffer_write(7, &resources.env_info),
             WriteDescriptorSet::new_buffer_write(3, &builder_shared_resources.octree_data),
             WriteDescriptorSet::new_buffer_write(6, &builder_shared_resources.scene_bvh_nodes),
             WriteDescriptorSet::new_texture_write(
