@@ -13,6 +13,7 @@ use crate::util::Timer;
 use crate::vkn::Allocator;
 use crate::vkn::DescriptorPool;
 use crate::vkn::VulkanContext;
+use glam::IVec3;
 use glam::UVec3;
 use glam::Vec3;
 
@@ -196,18 +197,15 @@ impl Builder {
 
         let affacted_chunk_positions =
             determine_relative_chunk_positions(self.voxel_dim, bounding_box).unwrap();
+        let in_bound_chunk_positions =
+            select_only_in_bound_chunk_positions(affacted_chunk_positions, self.chunk_dim);
 
-        log::debug!(
-            "Affacted chunk positions: {:?}",
-            affacted_chunk_positions.iter().collect::<Vec<_>>()
-        );
-
-        for chunk_pos in affacted_chunk_positions.iter() {
+        for chunk_pos in in_bound_chunk_positions.iter() {
             self.build_chunk_data(*chunk_pos)?; // this allows the tree to be built in place, with removal of the old tree on the same chunk
             self.modify_chunk(*chunk_pos, &bvh_nodes, &round_cones)?;
         }
 
-        for chunk_pos in affacted_chunk_positions.iter() {
+        for chunk_pos in in_bound_chunk_positions.iter() {
             self.build_octree(*chunk_pos)?;
         }
 
@@ -218,37 +216,48 @@ impl Builder {
         fn determine_relative_chunk_positions(
             voxel_dim: UVec3,
             aabb: &Aabb,
-        ) -> Result<Vec<UVec3>, String> {
+        ) -> Result<Vec<IVec3>, String> {
             let rect_min = aabb.min().floor();
             let rect_max = aabb.max().ceil();
 
-            clamp_to_zero(rect_min);
-            clamp_to_zero(rect_max);
-
-            let rect_min_u = rect_min.as_uvec3();
-            let rect_max_u = rect_max.as_uvec3();
-            let min_chunk_pos = world_voxel_pos_to_chunk_pos(voxel_dim, rect_min_u);
-            let max_chunk_pos = world_voxel_pos_to_chunk_pos(voxel_dim, rect_max_u);
+            let rect_min_i = rect_min.as_ivec3();
+            let rect_max_i = rect_max.as_ivec3();
+            let min_chunk_pos = world_voxel_pos_to_chunk_pos(voxel_dim, rect_min_i);
+            let max_chunk_pos = world_voxel_pos_to_chunk_pos(voxel_dim, rect_max_i);
 
             let mut positions = Vec::new();
             for i in min_chunk_pos.x..=max_chunk_pos.x {
                 for j in min_chunk_pos.y..=max_chunk_pos.y {
                     for k in min_chunk_pos.z..=max_chunk_pos.z {
-                        positions.push(UVec3::new(i, j, k));
+                        positions.push(IVec3::new(i, j, k));
                     }
                 }
             }
             return Ok(positions);
 
-            fn clamp_to_zero(input: Vec3) -> Vec3 {
-                let res = input.max(Vec3::ZERO);
-                res
-            }
-
-            fn world_voxel_pos_to_chunk_pos(voxel_dim: UVec3, world_pos: UVec3) -> UVec3 {
-                let chunk_pos = world_pos / voxel_dim;
+            fn world_voxel_pos_to_chunk_pos(voxel_dim: UVec3, world_pos: IVec3) -> IVec3 {
+                let chunk_pos = world_pos / voxel_dim.as_ivec3();
                 chunk_pos
             }
+        }
+
+        fn select_only_in_bound_chunk_positions(
+            all_chunk_positions: Vec<IVec3>,
+            chunk_dim: UVec3,
+        ) -> Vec<UVec3> {
+            let mut selected_chunk_positions = Vec::new();
+            for chunk_pos in all_chunk_positions.iter() {
+                if chunk_pos.x >= 0
+                    && chunk_pos.y >= 0
+                    && chunk_pos.z >= 0
+                    && chunk_pos.x < chunk_dim.x as i32
+                    && chunk_pos.y < chunk_dim.y as i32
+                    && chunk_pos.z < chunk_dim.z as i32
+                {
+                    selected_chunk_positions.push(chunk_pos.as_uvec3());
+                }
+            }
+            return selected_chunk_positions;
         }
     }
 
