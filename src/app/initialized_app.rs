@@ -108,7 +108,7 @@ impl InitializedApp {
             },
         );
 
-        let chunk_dim = UVec3::new(5, 1, 5); // 2GB of Raw Data inside GPU is roughly 5^3 chunks of 256^3 voxels
+        let chunk_dim = UVec3::new(3, 2, 3); // 2GB of Raw Data inside GPU is roughly 5^3 chunks of 256^3 voxels
         let mut builder = Builder::new(
             vulkan_context.clone(),
             allocator.clone(),
@@ -161,7 +161,7 @@ impl InitializedApp {
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {
         let window_descriptor = WindowStateDesc {
             title: "Re: Flora".to_owned(),
-            window_mode: WindowMode::BorderlessFullscreen,
+            window_mode: WindowMode::Windowed,
             cursor_locked: true,
             cursor_visible: false,
             ..Default::default()
@@ -235,14 +235,6 @@ impl InitializedApp {
                 if !self.window_state.is_cursor_visible() {
                     self.camera.handle_keyboard(&event);
                 }
-
-                if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyF {
-                    let tree = Tree::new(self.tree_desc.clone());
-                    let result = self.builder.add_tree(&tree, self.tree_pos);
-                    if let Err(err) = result {
-                        println!("Failed to add tree: {}", err);
-                    }
-                }
             }
 
             // redraw the window
@@ -278,6 +270,7 @@ impl InitializedApp {
                     .wait_for_fences(&[self.fence.as_raw()])
                     .unwrap();
 
+                let mut tree_desc_changed = false;
                 self.egui_renderer
                     .update(&self.window_state.window(), |ctx| {
                         let my_frame = egui::containers::Frame {
@@ -303,65 +296,116 @@ impl InitializedApp {
 
                                     ui.horizontal(|ui| {
                                         ui.label("Tree position");
-                                        ui.add(
-                                            egui::DragValue::new(&mut self.tree_pos.x)
-                                                .speed(1)
-                                                .prefix("x: "),
-                                        );
-                                        ui.add(
-                                            egui::DragValue::new(&mut self.tree_pos.y)
-                                                .speed(1)
-                                                .prefix("y: "),
-                                        );
-                                        ui.add(
-                                            egui::DragValue::new(&mut self.tree_pos.z)
-                                                .speed(1)
-                                                .prefix("z: "),
-                                        );
+                                        tree_desc_changed |= ui
+                                            .add(
+                                                egui::DragValue::new(&mut self.tree_pos.x)
+                                                    .speed(1)
+                                                    .prefix("x: "),
+                                            )
+                                            .changed();
+                                        tree_desc_changed |= ui
+                                            .add(
+                                                egui::DragValue::new(&mut self.tree_pos.y)
+                                                    .speed(1)
+                                                    .prefix("y: "),
+                                            )
+                                            .changed();
+                                        tree_desc_changed |= ui
+                                            .add(
+                                                egui::DragValue::new(&mut self.tree_pos.z)
+                                                    .speed(1)
+                                                    .prefix("z: "),
+                                            )
+                                            .changed();
                                     });
 
-                                    ui.add(
-                                        egui::Slider::new(&mut self.tree_desc.size, 0.0..=5.0)
-                                            .text("Size"),
-                                    );
-                                    ui.add(
-                                        egui::Slider::new(
-                                            &mut self.tree_desc.trunk_thickness,
-                                            0.0..=4.0,
+                                    tree_desc_changed |= ui
+                                        .add(
+                                            egui::Slider::new(&mut self.tree_desc.size, 0.0..=5.0)
+                                                .text("Size"),
                                         )
-                                        .text("Trunk Thickness"),
-                                    );
-                                    ui.add(
-                                        egui::Slider::new(&mut self.tree_desc.spread, 0.0..=1.0)
+                                        .changed();
+
+                                    tree_desc_changed |= ui
+                                        .add(
+                                            egui::Slider::new(
+                                                &mut self.tree_desc.trunk_thickness,
+                                                0.0..=4.0,
+                                            )
+                                            .text("Trunk Thickness"),
+                                        )
+                                        .changed();
+                                    tree_desc_changed |= ui
+                                        .add(
+                                            egui::Slider::new(
+                                                &mut self.tree_desc.spread,
+                                                0.0..=1.0,
+                                            )
                                             .text("Spread"),
-                                    );
-                                    ui.add(
-                                        egui::Slider::new(&mut self.tree_desc.twisted, 0.0..=1.0)
+                                        )
+                                        .changed();
+                                    tree_desc_changed |= ui
+                                        .add(
+                                            egui::Slider::new(
+                                                &mut self.tree_desc.twisted,
+                                                0.0..=1.0,
+                                            )
                                             .text("Twisted"),
-                                    );
-                                    ui.add(
-                                        egui::Slider::new(&mut self.tree_desc.leaves, 0.0..=1.0)
+                                        )
+                                        .changed();
+                                    tree_desc_changed |= ui
+                                        .add(
+                                            egui::Slider::new(
+                                                &mut self.tree_desc.leaves,
+                                                0.0..=1.0,
+                                            )
                                             .text("Leaves"),
-                                    );
-                                    ui.add(
-                                        egui::Slider::new(&mut self.tree_desc.gravity, 0.0..=1.0)
+                                        )
+                                        .changed();
+                                    tree_desc_changed |= ui
+                                        .add(
+                                            egui::Slider::new(
+                                                &mut self.tree_desc.gravity,
+                                                0.0..=1.0,
+                                            )
                                             .text("Gravity"),
-                                    );
-                                    ui.add(
-                                        egui::Slider::new(&mut self.tree_desc.iterations, 0..=30)
+                                        )
+                                        .changed();
+                                    tree_desc_changed |= ui
+                                        .add(
+                                            egui::Slider::new(
+                                                &mut self.tree_desc.iterations,
+                                                1..=20,
+                                            )
                                             .text("Iterations"),
-                                    );
-                                    ui.add(
-                                        egui::Slider::new(&mut self.tree_desc.wide, 0.0..=1.0)
-                                            .text("Wide"),
-                                    );
-                                    ui.add(
-                                        egui::Slider::new(&mut self.tree_desc.seed, 0..=100)
-                                            .text("Seed"),
-                                    );
+                                        )
+                                        .changed();
+                                    tree_desc_changed |= ui
+                                        .add(
+                                            egui::Slider::new(&mut self.tree_desc.wide, 0.0..=1.0)
+                                                .text("Wide"),
+                                        )
+                                        .changed();
+                                    tree_desc_changed |= ui
+                                        .add(
+                                            egui::Slider::new(&mut self.tree_desc.seed, 0..=100)
+                                                .text("Seed"),
+                                        )
+                                        .changed();
+
+                                    tree_desc_changed |=
+                                        ui.add(egui::Button::new("Instantiate!")).clicked()
                                 });
                             });
                     });
+
+                if tree_desc_changed {
+                    let tree = Tree::new(self.tree_desc.clone());
+                    let result = self.builder.add_tree(&tree, self.tree_pos);
+                    if let Err(err) = result {
+                        println!("Failed to add tree: {}", err);
+                    }
+                }
 
                 let device = self.vulkan_context.device();
 
