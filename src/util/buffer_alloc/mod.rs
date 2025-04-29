@@ -1,5 +1,5 @@
 #[derive(Debug, Clone)]
-pub struct Allocation {
+pub struct BufferAllocation {
     pub id: u64,
     pub offset: u64,
     pub size: u64,
@@ -92,7 +92,7 @@ mod tests {
 
         {
             let mut allocator = FirstFitAllocator::new(pool_size);
-            let mut allocations: Vec<Allocation> = Vec::with_capacity(initial_allocations);
+            let mut allocations: Vec<BufferAllocation> = Vec::with_capacity(initial_allocations);
             let mut rng = rand::rng();
 
             // Initial allocations.

@@ -3,7 +3,8 @@ use ash::vk;
 use glam::UVec3;
 
 pub struct InternalSharedResources {
-    pub raw_atlas_tex: Texture,
+    pub regular_chunks_altas: Texture,
+    pub free_atlas: Texture,
     pub fragment_list: Buffer,
 }
 
@@ -25,7 +26,24 @@ impl InternalSharedResources {
             ..Default::default()
         };
         let sam_desc = Default::default();
-        let raw_atlas_tex = Texture::new(device.clone(), allocator.clone(), &tex_desc, &sam_desc);
+        let regular_chunks_altas =
+            Texture::new(device.clone(), allocator.clone(), &tex_desc, &sam_desc);
+
+        let free_atlas_dim = 256; // TODO: make this configurable
+        let free_atlas_tex_desc = TextureDesc {
+            extent: [free_atlas_dim, free_atlas_dim, free_atlas_dim],
+            format: vk::Format::R8_UINT,
+            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        let free_atlas = Texture::new(
+            device.clone(),
+            allocator.clone(),
+            &free_atlas_tex_desc,
+            &Default::default(),
+        );
 
         let max_possible_voxel_count = (voxel_dim.x * voxel_dim.y * voxel_dim.z) as u64;
         let fragment_list_buf_layout = frag_list_maker_sm
@@ -44,7 +62,8 @@ impl InternalSharedResources {
         );
 
         Self {
-            raw_atlas_tex,
+            regular_chunks_altas,
+            free_atlas,
             fragment_list,
         }
     }
@@ -107,19 +126,21 @@ impl ExternalSharedResources {
     }
 }
 
-pub struct ChunkInitResources {
+pub struct ChunkWriteResources {
     pub chunk_init_info: Buffer,
     pub chunk_modify_info: Buffer,
+    pub leaf_write_info: Buffer,
     pub round_cones: Buffer,
     pub trunk_bvh_nodes: Buffer,
 }
 
-impl ChunkInitResources {
+impl ChunkWriteResources {
     pub fn new(
         device: Device,
         allocator: Allocator,
         chunk_init_sm: &ShaderModule,
         chunk_modify_sm: &ShaderModule,
+        leaf_write_sm: &ShaderModule,
     ) -> Self {
         let chunk_init_info_layout = chunk_init_sm.get_buffer_layout("U_ChunkInitInfo").unwrap();
         let chunk_init_info = Buffer::from_buffer_layout(
@@ -137,6 +158,15 @@ impl ChunkInitResources {
             device.clone(),
             allocator.clone(),
             chunk_modify_info_layout.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+        );
+
+        let leaf_write_info_layout = leaf_write_sm.get_buffer_layout("U_LeafWriteInfo").unwrap();
+        let leaf_write_info = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            leaf_write_info_layout.clone(),
             BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
@@ -164,6 +194,7 @@ impl ChunkInitResources {
         Self {
             chunk_init_info,
             chunk_modify_info,
+            leaf_write_info,
             round_cones,
             trunk_bvh_nodes,
         }
@@ -335,7 +366,7 @@ pub struct Resources {
     pub internal_shared_resources: InternalSharedResources,
     pub external_shared_resources: ExternalSharedResources,
     pub frag_list: FragListResources,
-    pub chunk_init: ChunkInitResources,
+    pub chunk_init: ChunkWriteResources,
     pub octree: OctreeResources,
 }
 
@@ -353,7 +384,7 @@ impl Resources {
         let chunk_init_sm = ShaderModule::from_glsl(
             &device,
             shader_compiler,
-            "shader/builder/chunk_data_builder/chunk_init.comp",
+            "shader/builder/chunk_writer/chunk_init.comp",
             "main",
         )
         .unwrap();
@@ -361,7 +392,15 @@ impl Resources {
         let chunk_modify_sm = ShaderModule::from_glsl(
             &device,
             shader_compiler,
-            "shader/builder/chunk_data_builder/chunk_modify.comp",
+            "shader/builder/chunk_writer/chunk_modify.comp",
+            "main",
+        )
+        .unwrap();
+
+        let leaf_write_sm = ShaderModule::from_glsl(
+            &device,
+            shader_compiler,
+            "shader/builder/chunk_writer/leaf_write.comp",
             "main",
         )
         .unwrap();
@@ -414,11 +453,12 @@ impl Resources {
             &tracer_sm,
         );
 
-        let chunk_init = ChunkInitResources::new(
+        let chunk_init = ChunkWriteResources::new(
             device.clone(),
             allocator.clone(),
             &chunk_init_sm,
             &chunk_modify_sm,
+            &leaf_write_sm,
         );
 
         let frag_list = FragListResources::new(
@@ -461,7 +501,7 @@ impl Resources {
     }
 
     pub fn raw_atlas_tex(&self) -> &Texture {
-        &self.internal_shared_resources.raw_atlas_tex
+        &self.internal_shared_resources.regular_chunks_altas
     }
 
     pub fn fragment_list(&self) -> &Buffer {

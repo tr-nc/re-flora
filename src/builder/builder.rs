@@ -1,4 +1,4 @@
-use super::chunk_data_builder::ChunkDataBuilder;
+use super::chunk_writer::ChunkDataBuilder;
 use super::frag_list_builder::FragListBuilder;
 use super::octree_builder::OctreeBuilder;
 use super::ExternalSharedResources;

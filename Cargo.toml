@@ -41,4 +41,4 @@ no_validation_layer = []
 shaderc = "0.8.3"
 
 [profile.test]
-inherits = "release"
+# inherits = "release"

@@ -1,12 +1,12 @@
 use super::AllocationStrategy;
-use crate::util::{Allocation, FreeBlock};
+use crate::util::{BufferAllocation, FreeBlock};
 use std::fmt::Debug;
 use std::{collections::HashMap, fmt::Formatter};
 
 #[derive(Clone)]
 pub struct FirstFitAllocator {
     total_size: u64,
-    allocated: HashMap<u64, Allocation>,
+    allocated: HashMap<u64, BufferAllocation>,
     free_list: Vec<FreeBlock>,
     next_id: u64,
 }
@@ -58,7 +58,7 @@ impl FirstFitAllocator {
 }
 
 impl AllocationStrategy for FirstFitAllocator {
-    fn allocate(&mut self, req_size: u64) -> Result<Allocation, String> {
+    fn allocate(&mut self, req_size: u64) -> Result<BufferAllocation, String> {
         // First-fit: find the first free block that is large enough.
         for i in 0..self.free_list.len() {
             if self.free_list[i].size >= req_size {
@@ -71,7 +71,7 @@ impl AllocationStrategy for FirstFitAllocator {
                 }
                 let id = self.next_id;
                 self.next_id += 1;
-                let allocation = Allocation {
+                let allocation = BufferAllocation {
                     id,
                     offset: alloc_offset,
                     size: req_size,
@@ -83,7 +83,7 @@ impl AllocationStrategy for FirstFitAllocator {
         Err("Not enough free memory".to_string())
     }
 
-    fn lookup(&self, id: u64) -> Option<Allocation> {
+    fn lookup(&self, id: u64) -> Option<BufferAllocation> {
         self.allocated.get(&id).cloned()
     }
 
@@ -102,7 +102,7 @@ impl AllocationStrategy for FirstFitAllocator {
 
     fn cleanup(&mut self) {
         // Repack all allocated blocks so that they become contiguous.
-        let mut allocations: Vec<&mut Allocation> = self.allocated.values_mut().collect();
+        let mut allocations: Vec<&mut BufferAllocation> = self.allocated.values_mut().collect();
         allocations.sort_by_key(|alloc| alloc.offset);
         let mut current_offset = 0;
         for alloc in allocations.iter_mut() {

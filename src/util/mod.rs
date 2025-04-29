@@ -10,6 +10,9 @@ pub use path::*;
 mod buffer_alloc;
 pub use buffer_alloc::*;
 
+mod atlas_alloc;
+pub use atlas_alloc::*;
+
 mod timer;
 #[allow(unused_imports)]
 pub use timer::*;
