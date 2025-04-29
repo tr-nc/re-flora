@@ -349,18 +349,30 @@ impl Builder {
         atlas_offset: UVec3,
         atlas_dim: UVec3,
     ) -> Result<(), String> {
+        let is_crossing_boundary = match build_type {
+            FragListBuildType::ChunkAtlas => true,
+            FragListBuildType::FreeAtlas => false, // each are independent
+        };
+
         self.frag_list_builder.build(
             build_type,
             &self.vulkan_context,
             &self.resources,
             atlas_offset,
             atlas_dim,
-            true,
+            is_crossing_boundary,
         );
 
         let fragment_list_len = self.frag_list_builder.get_fraglist_length(&self.resources);
         if fragment_list_len == 0 {
+            log::debug!("Fragment list is empty with build_type: {:?}", build_type);
             return Ok(());
+        } else {
+            log::debug!(
+                "Fragment list length: {:?} with build_type: {:?}",
+                fragment_list_len,
+                build_type
+            );
         }
 
         self.octree_builder.build(
