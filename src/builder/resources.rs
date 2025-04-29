@@ -3,7 +3,7 @@ use ash::vk;
 use glam::UVec3;
 
 pub struct InternalSharedResources {
-    pub regular_chunks_altas: Texture,
+    pub chunk_atlas: Texture,
     pub free_atlas: Texture,
     pub fragment_list: Buffer,
 }
@@ -15,6 +15,7 @@ impl InternalSharedResources {
         voxel_dim: UVec3,
         chunk_dim: UVec3,
         frag_list_maker_sm: &ShaderModule,
+        free_atlas_dim: UVec3,
     ) -> Self {
         let raw_atlas_dim: UVec3 = voxel_dim * chunk_dim;
         let tex_desc = TextureDesc {
@@ -29,9 +30,8 @@ impl InternalSharedResources {
         let regular_chunks_altas =
             Texture::new(device.clone(), allocator.clone(), &tex_desc, &sam_desc);
 
-        let free_atlas_dim = 256; // TODO: make this configurable
         let free_atlas_tex_desc = TextureDesc {
-            extent: [free_atlas_dim, free_atlas_dim, free_atlas_dim],
+            extent: free_atlas_dim.to_array(),
             format: vk::Format::R8_UINT,
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
             initial_layout: vk::ImageLayout::UNDEFINED,
@@ -62,7 +62,7 @@ impl InternalSharedResources {
         );
 
         Self {
-            regular_chunks_altas,
+            chunk_atlas: regular_chunks_altas,
             free_atlas,
             fragment_list,
         }
@@ -379,6 +379,7 @@ impl Resources {
         chunk_dim: UVec3,
         visible_chunk_dim: UVec3,
         octree_buffer_size: u64,
+        free_atlas_dim: UVec3,
     ) -> Self {
         // Load all needed shader modules for buffer layouts
         let chunk_init_sm = ShaderModule::from_glsl(
@@ -443,6 +444,7 @@ impl Resources {
             voxel_dim,
             chunk_dim,
             &frag_list_maker_sm,
+            free_atlas_dim,
         );
 
         let external_shared_resources = ExternalSharedResources::new(
@@ -488,6 +490,10 @@ impl Resources {
         &self.chunk_init.chunk_modify_info
     }
 
+    pub fn leaf_write_info(&self) -> &Buffer {
+        &self.chunk_init.leaf_write_info
+    }
+
     pub fn round_cones(&self) -> &Buffer {
         &self.chunk_init.round_cones
     }
@@ -500,8 +506,12 @@ impl Resources {
         &self.frag_list.voxel_dim_indirect
     }
 
-    pub fn raw_atlas_tex(&self) -> &Texture {
-        &self.internal_shared_resources.regular_chunks_altas
+    pub fn chunk_atlas(&self) -> &Texture {
+        &self.internal_shared_resources.chunk_atlas
+    }
+
+    pub fn free_atlas(&self) -> &Texture {
+        &self.internal_shared_resources.free_atlas
     }
 
     pub fn fragment_list(&self) -> &Buffer {

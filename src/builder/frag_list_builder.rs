@@ -15,18 +15,23 @@ use crate::vkn::WriteDescriptorSet;
 use ash::vk;
 use glam::UVec3;
 
+#[derive(Debug, Copy, Clone)]
+pub enum FragListBuildType {
+    ChunkAtlas,
+    FreeAtlas,
+}
+
+#[allow(dead_code)]
 pub struct FragListBuilder {
-    #[allow(dead_code)]
     init_buffers_ppl: ComputePipeline,
-    #[allow(dead_code)]
     frag_list_maker_ppl: ComputePipeline,
 
-    #[allow(dead_code)]
     init_buffers_ds: DescriptorSet,
-    #[allow(dead_code)]
-    frag_list_maker_ds: DescriptorSet,
+    frag_list_maker_chunk_atlas_ds: DescriptorSet,
+    frag_list_maker_free_atlas_ds: DescriptorSet,
 
-    cmdbuf: CommandBuffer,
+    cmdbuf_chunk_atlas: CommandBuffer,
+    cmdbuf_free_atlas: CommandBuffer,
 }
 
 impl FragListBuilder {
@@ -64,40 +69,71 @@ impl FragListBuilder {
         .unwrap();
         let frag_list_maker_ppl =
             ComputePipeline::from_shader_module(vulkan_context.device(), &frag_list_maker_sm);
-        let frag_list_maker_ds = DescriptorSet::new(
+        let frag_list_maker_chunk_atlas_ds = DescriptorSet::new(
             vulkan_context.device().clone(),
             &frag_list_maker_ppl
                 .get_layout()
                 .get_descriptor_set_layouts()[0],
             descriptor_pool.clone(),
         );
-        frag_list_maker_ds.perform_writes(&[
+        frag_list_maker_chunk_atlas_ds.perform_writes(&[
             WriteDescriptorSet::new_buffer_write(0, resources.frag_list_maker_info()),
             WriteDescriptorSet::new_buffer_write(1, resources.frag_list_build_result()),
             WriteDescriptorSet::new_buffer_write(2, resources.fragment_list()),
             WriteDescriptorSet::new_texture_write(
                 3,
                 vk::DescriptorType::STORAGE_IMAGE,
-                resources.raw_atlas_tex(),
+                resources.chunk_atlas(),
+                vk::ImageLayout::GENERAL,
+            ),
+        ]);
+        //
+        let frag_list_maker_free_atlas_ds = DescriptorSet::new(
+            vulkan_context.device().clone(),
+            &frag_list_maker_ppl
+                .get_layout()
+                .get_descriptor_set_layouts()[0],
+            descriptor_pool.clone(),
+        );
+        frag_list_maker_free_atlas_ds.perform_writes(&[
+            WriteDescriptorSet::new_buffer_write(0, resources.frag_list_maker_info()),
+            WriteDescriptorSet::new_buffer_write(1, resources.frag_list_build_result()),
+            WriteDescriptorSet::new_buffer_write(2, resources.fragment_list()),
+            WriteDescriptorSet::new_texture_write(
+                3,
+                vk::DescriptorType::STORAGE_IMAGE,
+                resources.free_atlas(),
                 vk::ImageLayout::GENERAL,
             ),
         ]);
 
-        let cmdbuf = Self::create_cmdbuf(
+        let cmdbuf_chunk_atlas = Self::create_cmdbuf(
             vulkan_context,
             resources,
             &init_buffers_ppl,
             &frag_list_maker_ppl,
             &init_buffers_ds,
-            &frag_list_maker_ds,
+            &frag_list_maker_chunk_atlas_ds,
+        );
+
+        let cmdbuf_free_atlas = Self::create_cmdbuf(
+            vulkan_context,
+            resources,
+            &init_buffers_ppl,
+            &frag_list_maker_ppl,
+            &init_buffers_ds,
+            &frag_list_maker_free_atlas_ds,
         );
 
         Self {
-            cmdbuf,
             init_buffers_ppl,
             frag_list_maker_ppl,
             init_buffers_ds,
-            frag_list_maker_ds,
+            frag_list_maker_chunk_atlas_ds,
+            frag_list_maker_free_atlas_ds,
+
+            cmdbuf_chunk_atlas,
+            cmdbuf_free_atlas,
         }
     }
 
@@ -155,6 +191,7 @@ impl FragListBuilder {
 
     pub fn build(
         &self,
+        build_type: FragListBuildType,
         vulkan_context: &VulkanContext,
         resources: &Resources,
         atlas_read_offset: UVec3,
@@ -170,8 +207,11 @@ impl FragListBuilder {
             is_crossing_boundary,
         );
 
-        self.cmdbuf
-            .submit(&vulkan_context.get_general_queue(), None);
+        let cmdbuf = match build_type {
+            FragListBuildType::ChunkAtlas => &self.cmdbuf_chunk_atlas,
+            FragListBuildType::FreeAtlas => &self.cmdbuf_free_atlas,
+        };
+        cmdbuf.submit(&vulkan_context.get_general_queue(), None);
         device.wait_queue_idle(&vulkan_context.get_general_queue());
 
         fn update_buffers(

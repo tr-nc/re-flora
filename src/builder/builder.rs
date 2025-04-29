@@ -1,4 +1,5 @@
-use super::chunk_writer::ChunkDataBuilder;
+use super::chunk_writer::ChunkWriter;
+use super::frag_list_builder::FragListBuildType;
 use super::frag_list_builder::FragListBuilder;
 use super::octree_builder::OctreeBuilder;
 use super::ExternalSharedResources;
@@ -27,7 +28,7 @@ pub struct Builder {
     chunk_dim: UVec3,
     visible_chunk_dim: UVec3,
 
-    chunk_data_builder: ChunkDataBuilder,
+    chunk_writer: ChunkWriter,
     frag_list_builder: FragListBuilder,
     octree_builder: OctreeBuilder,
 }
@@ -41,6 +42,7 @@ impl Builder {
         chunk_dim: UVec3,
         visible_chunk_dim: UVec3,
         octree_buffer_size: u64,
+        free_atlas_dim: UVec3,
     ) -> Self {
         if voxel_dim.x != voxel_dim.y || voxel_dim.y != voxel_dim.z {
             log::error!("Dimension must be equal in all dimensions");
@@ -59,13 +61,15 @@ impl Builder {
             chunk_dim,
             visible_chunk_dim,
             octree_buffer_size,
+            free_atlas_dim,
         );
 
-        let chunk_data_builder = ChunkDataBuilder::new(
+        let chunk_writer = ChunkWriter::new(
             &vulkan_context,
             shader_compiler,
             descriptor_pool.clone(),
             &resources,
+            free_atlas_dim,
         );
 
         let frag_list_builder = FragListBuilder::new(
@@ -89,7 +93,7 @@ impl Builder {
             voxel_dim,
             chunk_dim,
             visible_chunk_dim,
-            chunk_data_builder,
+            chunk_writer,
             frag_list_builder,
             octree_builder,
         }
@@ -123,7 +127,13 @@ impl Builder {
 
         let timer = Timer::new();
         for chunk_pos in chunk_positions.iter() {
-            self.build_octree(*chunk_pos)?;
+            let atlas_offset = *chunk_pos * self.voxel_dim;
+            let atlas_dim = self.voxel_dim;
+            self.build_octree(
+                FragListBuildType::ChunkAtlas,
+                atlas_offset,
+                atlas_dim,
+            )?;
         }
         log::debug!(
             "Average octree time: {:?}",
@@ -190,7 +200,7 @@ impl Builder {
 
     fn build_chunk_data(&mut self, chunk_pos: UVec3) -> Result<(), String> {
         self.check_chunk_pos(chunk_pos)?;
-        self.chunk_data_builder.chunk_init(
+        self.chunk_writer.chunk_init(
             &self.vulkan_context,
             &self.resources,
             self.voxel_dim,
@@ -216,7 +226,7 @@ impl Builder {
         round_cones: &[RoundCone],
     ) -> Result<(), String> {
         self.check_chunk_pos(chunk_pos)?;
-        self.chunk_data_builder.chunk_modify(
+        self.chunk_writer.chunk_modify(
             &self.vulkan_context,
             &self.resources,
             self.voxel_dim,
@@ -232,7 +242,17 @@ impl Builder {
         self.octree_builder.update_octree_offset_atlas_tex(
             &self.vulkan_context,
             &self.resources,
+            self.voxel_dim,
             self.visible_chunk_dim,
+        );
+    }
+
+    pub fn create_leaf(&mut self, leaf_color: Vec3, leaf_chunk_dim: UVec3) {
+        self.chunk_writer.create_leaf(
+            &self.vulkan_context,
+            &self.resources,
+            leaf_color,
+            leaf_chunk_dim,
         );
     }
 
@@ -262,7 +282,9 @@ impl Builder {
         }
 
         for chunk_pos in in_bound_chunk_positions.iter() {
-            self.build_octree(*chunk_pos)?;
+            let atlas_offset = chunk_pos * self.voxel_dim;
+            let atlas_dim = self.voxel_dim;
+            self.build_octree(FragListBuildType::ChunkAtlas, atlas_offset, atlas_dim)?;
         }
 
         self.update_octree_offset_atlas_tex();
@@ -317,34 +339,34 @@ impl Builder {
         }
     }
 
-    fn build_octree(&mut self, chunk_pos: UVec3) -> Result<(), String> {
-        self.check_chunk_pos(chunk_pos)?;
+    fn build_octree(
+        &mut self,
+        build_type: FragListBuildType,
+        atlas_offset: UVec3,
+        atlas_dim: UVec3,
+    ) -> Result<(), String> {
+        // self.check_chunk_pos(chunk_pos)?;
         self.frag_list_builder.build(
+            build_type,
             &self.vulkan_context,
             &self.resources,
-            chunk_pos * self.voxel_dim,
-            self.voxel_dim,
+            atlas_offset,
+            atlas_dim,
             true,
         );
 
         let fragment_list_len = self.frag_list_builder.get_fraglist_length(&self.resources);
         if fragment_list_len == 0 {
-            log::debug!("Fragment list for chunk {:?} is empty", chunk_pos);
             return Ok(());
-        } else {
-            log::debug!(
-                "Fragment list for chunk {:?} has {} fragments",
-                chunk_pos,
-                fragment_list_len
-            );
         }
 
         self.octree_builder.build(
+            build_type,
             &self.vulkan_context,
             &self.resources,
             fragment_list_len,
-            chunk_pos,
-            self.voxel_dim,
+            atlas_offset,
+            atlas_dim,
         );
         return Ok(());
     }

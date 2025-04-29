@@ -1,6 +1,7 @@
 use super::Resources;
 use crate::geom::BvhNode;
 use crate::geom::RoundCone;
+use crate::util::AtlasAllocator;
 use crate::util::ShaderCompiler;
 use crate::vkn::execute_one_time_command;
 use crate::vkn::ClearValue;
@@ -14,21 +15,27 @@ use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
 use ash::vk;
 use glam::UVec3;
+use glam::Vec3;
 
-pub struct ChunkDataBuilder {
+pub struct ChunkWriter {
     chunk_init_ppl: ComputePipeline,
     chunk_modify_ppl: ComputePipeline,
+    leaf_write_ppl: ComputePipeline,
 
     chunk_init_ds: DescriptorSet,
     chunk_modify_ds: DescriptorSet,
+    leaf_write_ds: DescriptorSet,
+
+    free_atlas_allocator: AtlasAllocator,
 }
 
-impl ChunkDataBuilder {
+impl ChunkWriter {
     pub fn new(
         vulkan_context: &VulkanContext,
         shader_compiler: &ShaderCompiler,
         descriptor_pool: DescriptorPool,
         resources: &Resources,
+        free_atlas_dim: UVec3,
     ) -> Self {
         let chunk_init_ppl = ComputePipeline::from_shader_module(
             vulkan_context.device(),
@@ -51,7 +58,7 @@ impl ChunkDataBuilder {
             WriteDescriptorSet::new_texture_write(
                 1,
                 vk::DescriptorType::STORAGE_IMAGE,
-                resources.raw_atlas_tex(),
+                resources.chunk_atlas(),
                 vk::ImageLayout::GENERAL,
             ),
         ]);
@@ -78,7 +85,32 @@ impl ChunkDataBuilder {
             WriteDescriptorSet::new_texture_write(
                 3,
                 vk::DescriptorType::STORAGE_IMAGE,
-                resources.raw_atlas_tex(),
+                resources.chunk_atlas(),
+                vk::ImageLayout::GENERAL,
+            ),
+        ]);
+
+        let leaf_write_ppl = ComputePipeline::from_shader_module(
+            vulkan_context.device(),
+            &ShaderModule::from_glsl(
+                vulkan_context.device(),
+                &shader_compiler,
+                "shader/builder/chunk_writer/leaf_write.comp",
+                "main",
+            )
+            .unwrap(),
+        );
+        let leaf_write_ds = DescriptorSet::new(
+            vulkan_context.device().clone(),
+            &leaf_write_ppl.get_layout().get_descriptor_set_layouts()[0],
+            descriptor_pool.clone(),
+        );
+        leaf_write_ds.perform_writes(&[
+            WriteDescriptorSet::new_buffer_write(0, resources.leaf_write_info()),
+            WriteDescriptorSet::new_texture_write(
+                1,
+                vk::DescriptorType::STORAGE_IMAGE,
+                resources.free_atlas(),
                 vk::ImageLayout::GENERAL,
             ),
         ]);
@@ -90,7 +122,12 @@ impl ChunkDataBuilder {
                 vulkan_context.command_pool(),
                 &vulkan_context.get_general_queue(),
                 |cmdbuf| {
-                    resources.raw_atlas_tex().get_image().record_clear(
+                    resources.chunk_atlas().get_image().record_clear(
+                        cmdbuf,
+                        Some(vk::ImageLayout::GENERAL),
+                        ClearValue::UInt([0, 0, 0, 0]),
+                    );
+                    resources.free_atlas().get_image().record_clear(
                         cmdbuf,
                         Some(vk::ImageLayout::GENERAL),
                         ClearValue::UInt([0, 0, 0, 0]),
@@ -99,11 +136,18 @@ impl ChunkDataBuilder {
             );
         }
 
+        let free_atlas_allocator = AtlasAllocator::new(free_atlas_dim);
+
         Self {
             chunk_init_ppl,
             chunk_modify_ppl,
+            leaf_write_ppl,
+
             chunk_init_ds,
             chunk_modify_ds,
+            leaf_write_ds,
+
+            free_atlas_allocator,
         }
     }
 
@@ -122,7 +166,7 @@ impl ChunkDataBuilder {
             &vulkan_context.get_general_queue(),
             |cmdbuf| {
                 resources
-                    .raw_atlas_tex()
+                    .chunk_atlas()
                     .get_image()
                     .record_transition_barrier(cmdbuf, vk::ImageLayout::GENERAL);
 
@@ -146,6 +190,64 @@ impl ChunkDataBuilder {
                 .unwrap()
                 .get_data_u8();
             resources.chunk_init_info().fill_with_raw_u8(&data).unwrap();
+        }
+    }
+
+    pub fn create_leaf(
+        &mut self,
+        vulkan_context: &VulkanContext,
+        resources: &Resources,
+        leaf_color: Vec3,
+        leaf_chunk_dim: UVec3,
+    ) {
+        let allocation = self.free_atlas_allocator.allocate(leaf_chunk_dim).unwrap();
+        log::debug!("Leaf allocation: {:?}", allocation);
+        log::debug!("leaf chunk dim: {:?}", leaf_chunk_dim);
+
+        let _id = allocation.id; // TODO: maybe store this later to modify
+
+        update_buffers(resources, leaf_color, allocation.offset, allocation.dim);
+
+        execute_one_time_command(
+            vulkan_context.device(),
+            vulkan_context.command_pool(),
+            &vulkan_context.get_general_queue(),
+            |cmdbuf| {
+                self.leaf_write_ppl.record_bind(cmdbuf);
+                self.leaf_write_ppl.record_bind_descriptor_sets(
+                    cmdbuf,
+                    std::slice::from_ref(&self.leaf_write_ds),
+                    0,
+                );
+                self.leaf_write_ppl
+                    .record_dispatch(cmdbuf, leaf_chunk_dim.to_array());
+            },
+        );
+
+        fn update_buffers(
+            resources: &Resources,
+            leaf_color: Vec3,
+            atlas_write_offset: UVec3,
+            atlas_write_dim: UVec3,
+        ) {
+            let data = StructMemberDataBuilder::from_buffer(&resources.leaf_write_info())
+                .set_field(
+                    "leaf_color",
+                    PlainMemberTypeWithData::Vec3(leaf_color.to_array()),
+                )
+                .unwrap()
+                .set_field(
+                    "atlas_write_offset",
+                    PlainMemberTypeWithData::UVec3(atlas_write_offset.to_array()),
+                )
+                .unwrap()
+                .set_field(
+                    "atlas_write_dim",
+                    PlainMemberTypeWithData::UVec3(atlas_write_dim.to_array()),
+                )
+                .unwrap()
+                .get_data_u8();
+            resources.leaf_write_info().fill_with_raw_u8(&data).unwrap();
         }
     }
 

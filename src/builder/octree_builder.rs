@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use super::frag_list_builder::FragListBuildType;
 use super::Resources;
 use crate::util::AllocationStrategy;
 use crate::util::FirstFitAllocator;
@@ -36,7 +37,8 @@ pub struct OctreeBuilder {
     octree_alloc_node_ds: DescriptorSet,
     octree_modify_args_ds: DescriptorSet,
 
-    offset_allocation_table: HashMap<UVec3, u64>,
+    chunk_offset_allocation_table: HashMap<UVec3, u64>,
+    free_offset_allocation_table: HashMap<UVec3, u64>,
     octree_buffer_allocator: FirstFitAllocator,
 
     cmdbuf_table: HashMap<u32, CommandBuffer>,
@@ -210,7 +212,8 @@ impl OctreeBuilder {
             octree_alloc_node_ds: alloc_node_ds,
             octree_modify_args_ds: modify_args_ds,
 
-            offset_allocation_table: HashMap::new(),
+            chunk_offset_allocation_table: HashMap::new(),
+            free_offset_allocation_table: HashMap::new(),
             octree_buffer_allocator,
 
             cmdbuf_table: HashMap::new(),
@@ -365,17 +368,18 @@ impl OctreeBuilder {
 
     pub fn build(
         &mut self,
+        build_type: FragListBuildType,
         vulkan_context: &VulkanContext,
         resources: &Resources,
         fragment_list_len: u32,
-        chunk_pos: UVec3,
-        voxel_dim: UVec3,
+        atlas_offset: UVec3,
+        atlas_dim: UVec3,
     ) {
         let device = vulkan_context.device();
 
         update_buffers(resources, fragment_list_len);
 
-        let level = self.get_level(voxel_dim);
+        let level = self.get_level(atlas_dim);
         let cmdbuf = if let Some(cmdbuf) = self.cmdbuf_table.get(&level) {
             cmdbuf.clone()
         } else {
@@ -390,7 +394,7 @@ impl OctreeBuilder {
         let octree_size = self.get_octree_data_size_in_bytes(resources);
         assert!(octree_size > 0);
 
-        let write_offset = self.allocate_chunk(octree_size as u64, chunk_pos);
+        let write_offset = self.allocate_chunk(octree_size as u64, build_type, atlas_offset);
 
         self.copy_octree_data_single_to_octree_data(
             &vulkan_context,
@@ -417,20 +421,33 @@ impl OctreeBuilder {
     /// Allocate a chunk of octree data and store the allocation id in the offset_allocation_table.
     ///
     /// If the chunk already exists, deallocate it first.
-    fn allocate_chunk(&mut self, chunk_buffer_size: u64, chunk_pos: UVec3) -> u64 {
-        if self.offset_allocation_table.contains_key(&chunk_pos) {
-            let allocation_id = self.offset_allocation_table.remove(&chunk_pos).unwrap();
+    fn allocate_chunk(
+        &mut self,
+        buffer_size: u64,
+        build_type: FragListBuildType,
+        atlas_offset: UVec3,
+    ) -> u64 {
+        let table = match build_type {
+            FragListBuildType::ChunkAtlas => &mut self.chunk_offset_allocation_table,
+            FragListBuildType::FreeAtlas => &mut self.free_offset_allocation_table,
+        };
+
+        if table.contains_key(&atlas_offset) {
+            let allocation_id = table.remove(&atlas_offset).unwrap();
             self.octree_buffer_allocator
                 .deallocate(allocation_id)
                 .unwrap();
         }
+        let allocation = self.octree_buffer_allocator.allocate(buffer_size).unwrap();
+        table.insert(atlas_offset, allocation.id);
+        allocation.offset
+    }
 
-        let allocation = self
-            .octree_buffer_allocator
-            .allocate(chunk_buffer_size)
-            .unwrap();
-        self.offset_allocation_table
-            .insert(chunk_pos, allocation.id);
+    /// A simple allocation for a given buffe size
+    ///
+    /// TODO: deallocation must be implemented later
+    fn allocate_free(&mut self, buffer_size: u64) -> u64 {
+        let allocation = self.octree_buffer_allocator.allocate(buffer_size).unwrap();
         allocation.offset
     }
 
@@ -438,10 +455,11 @@ impl OctreeBuilder {
         &mut self,
         vulkan_context: &VulkanContext,
         resources: &Resources,
+        voxel_dim: UVec3,
         visible_chunk_dim: UVec3,
     ) {
         let mut offset_table = vec![];
-        for (chunk_pos, allocation_id) in self.offset_allocation_table.iter() {
+        for (chunk_pos, allocation_id) in self.chunk_offset_allocation_table.iter() {
             let allocation = self.octree_buffer_allocator.lookup(*allocation_id).unwrap();
             let offset_in_bytes = allocation.offset;
             let offset_in_u32 = offset_in_bytes / std::mem::size_of::<u32>() as u64;
@@ -458,11 +476,23 @@ impl OctreeBuilder {
         ];
 
         // update offset_data accordingly
-        for (chunk_pos, offset_in_u32) in offset_table.iter() {
-            assert!(in_bounds(*chunk_pos, visible_chunk_dim));
-            let linear_index = to_linear_index(*chunk_pos, visible_chunk_dim);
+        for (atlas_offset, offset_in_u32) in offset_table.iter() {
+            let chunk_offset = atlas_offset_to_chunk_offset(*atlas_offset, voxel_dim);
+
+            assert!(in_bounds(chunk_offset, visible_chunk_dim));
+            let linear_index = to_linear_index(chunk_offset, visible_chunk_dim);
             // write with an offset of 1, because 0 is reserved for empty chunk
             offset_data[linear_index as usize] = (*offset_in_u32 + 1) as u32;
+
+            fn atlas_offset_to_chunk_offset(atlas_offset: UVec3, voxel_dim: UVec3) -> UVec3 {
+                atlas_offset / voxel_dim
+            }
+            fn in_bounds(chunk_pos: UVec3, dim: UVec3) -> bool {
+                chunk_pos.x < dim.x && chunk_pos.y < dim.y && chunk_pos.z < dim.z
+            }
+            fn to_linear_index(chunk_pos: UVec3, dim: UVec3) -> u32 {
+                chunk_pos.x + chunk_pos.y * dim.x + chunk_pos.z * dim.x * dim.y
+            }
         }
 
         // fill the texture
@@ -477,13 +507,5 @@ impl OctreeBuilder {
                 None,
             )
             .unwrap();
-
-        fn to_linear_index(chunk_pos: UVec3, dim: UVec3) -> u32 {
-            chunk_pos.x + chunk_pos.y * dim.x + chunk_pos.z * dim.x * dim.y
-        }
-
-        fn in_bounds(chunk_pos: UVec3, dim: UVec3) -> bool {
-            chunk_pos.x < dim.x && chunk_pos.y < dim.y && chunk_pos.z < dim.z
-        }
     }
 }

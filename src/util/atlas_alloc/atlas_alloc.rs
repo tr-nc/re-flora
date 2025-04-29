@@ -7,12 +7,12 @@ use std::collections::HashMap;
 pub struct AtlasAllocation {
     pub id: u64,
     pub offset: UVec3,
-    pub size: UVec3,
+    pub dim: UVec3,
 }
 
 /// Simple shelf-based 3-D texture-atlas allocator.
 pub struct AtlasAllocator {
-    atlas_size: UVec3,
+    atlas_dim: UVec3,
 
     // Where the next allocation *could* be placed.
     cursor: Cell<UVec3>,
@@ -26,9 +26,9 @@ pub struct AtlasAllocator {
 
 impl AtlasAllocator {
     /// Create an empty allocator that can fill a texture of `atlas_size`.
-    pub fn new(atlas_size: UVec3) -> Self {
+    pub fn new(atlas_dim: UVec3) -> Self {
         Self {
-            atlas_size,
+            atlas_dim,
             cursor: Cell::new(UVec3::ZERO),
             row_height: Cell::new(0),
             next_id: Cell::new(0),
@@ -37,23 +37,23 @@ impl AtlasAllocator {
     }
 
     /// Try to allocate `size` in the atlas.  Returns an `Allocation` on success.
-    pub fn allocate(&self, size: UVec3) -> Result<AtlasAllocation, String> {
-        if size.x == 0 || size.y == 0 || size.z == 0 {
+    pub fn allocate(&self, dim: UVec3) -> Result<AtlasAllocation, String> {
+        if dim.x == 0 || dim.y == 0 || dim.z == 0 {
             return Err("size must be non-zero in every dimension".into());
         }
-        if any_gt(size, self.atlas_size) {
+        if any_gt(dim, self.atlas_dim) {
             return Err("requested block is larger than the whole atlas".into());
         }
 
         // Try to place it.  `place()` updates internal cursors on success.
         let offset = self
-            .place(size)
+            .place(dim)
             .ok_or_else(|| "atlas is full – no place could be found".to_string())?;
 
         let id = self.next_id.get();
         self.next_id.set(id + 1);
 
-        let alloc = AtlasAllocation { id, offset, size };
+        let alloc = AtlasAllocation { id, offset, dim };
         self.allocations.borrow_mut().insert(id, alloc.clone());
         Ok(alloc)
     }
@@ -91,7 +91,7 @@ impl AtlasAllocator {
             // `place_no_record` cannot fail because the atlas was big enough
             // for exactly these items before.
             a.offset = self
-                .place_no_record(a.size)
+                .place_no_record(a.dim)
                 .expect("re-packing failed – this is a bug");
             map.insert(a.id, a);
         }
@@ -109,12 +109,12 @@ impl AtlasAllocator {
     /* --------------------------------------------------------------------- */
 
     /// Same algorithm that `allocate()` uses but *without* writing to the map.
-    fn place_no_record(&self, size: UVec3) -> Option<UVec3> {
+    fn place_no_record(&self, dim: UVec3) -> Option<UVec3> {
         // Temporarily remember old cursor in case we have to roll back.
         let saved_cursor = self.cursor.get();
         let saved_row_height = self.row_height.get();
 
-        let res = self.place(size);
+        let res = self.place(dim);
 
         if res.is_none() {
             // Rollback
@@ -128,26 +128,26 @@ impl AtlasAllocator {
     /// 1. If it does not fit in the current row, start a new row.
     /// 2. If it does not fit in this z-slice, start a new slice.
     /// Updates `cursor` and `row_height` on success.
-    fn place(&self, size: UVec3) -> Option<UVec3> {
+    fn place(&self, dim: UVec3) -> Option<UVec3> {
         let mut cur = self.cursor.get();
         let mut row_h = self.row_height.get();
-        let atlas_size = self.atlas_size;
+        let atlas_size = self.atlas_dim;
 
         // Helper that checks whether `size` fits starting at `cur`.
         let fits = |cur: UVec3| {
-            cur.x + size.x <= atlas_size.x
-                && cur.y + size.y <= atlas_size.y
-                && cur.z + size.z <= atlas_size.z
+            cur.x + dim.x <= atlas_size.x
+                && cur.y + dim.y <= atlas_size.y
+                && cur.z + dim.z <= atlas_size.z
         };
 
         // Start a new row if X overflow.
-        if cur.x + size.x > atlas_size.x {
+        if cur.x + dim.x > atlas_size.x {
             cur.x = 0;
             cur.y += row_h;
             row_h = 0;
         }
         // Start a new slice if Y overflow.
-        if cur.y + size.y > atlas_size.y {
+        if cur.y + dim.y > atlas_size.y {
             cur.x = 0;
             cur.y = 0;
             row_h = 0;
@@ -160,8 +160,8 @@ impl AtlasAllocator {
 
         // Success – record new cursor and row height.
         let offset = cur;
-        cur.x += size.x;
-        row_h = row_h.max(size.y);
+        cur.x += dim.x;
+        row_h = row_h.max(dim.y);
 
         self.cursor.set(cur);
         self.row_height.set(row_h);
@@ -215,7 +215,7 @@ mod tests {
             .allocations
             .borrow()
             .values()
-            .find(|al| al.size == UVec3::new(8, 4, 1))
+            .find(|al| al.dim == UVec3::new(8, 4, 1))
             .cloned()
             .unwrap();
         assert_eq!(c2.offset, UVec3::new(8, 0, 0));

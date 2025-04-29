@@ -117,7 +117,8 @@ impl InitializedApp {
             UVec3::new(256, 256, 256),
             chunk_dim,
             chunk_dim,
-            2 * 1024 * 1024 * 1024, // 2GB of octree buffer size
+            2 * 1024 * 1024 * 1024,    // 2GB of octree buffer size
+            UVec3::new(256, 256, 256), // free atlas size
         );
 
         let tracer = Tracer::new(
@@ -164,6 +165,9 @@ impl InitializedApp {
 
     fn init(&mut self) {
         self.add_tree();
+
+        self.builder
+            .create_leaf(Vec3::new(1.0, 0.2, 0.0), UVec3::new(32, 32, 32));
     }
 
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {
