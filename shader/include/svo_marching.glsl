@@ -30,8 +30,8 @@ struct StackItem {
 // for that
 
 bool _svo_marching(out float o_t, out uint o_iter, out uint o_voxel_type, out vec3 o_hit_pos,
-                   out vec3 o_next_ray_start_pos, out vec3 o_normal, out uint o_voxel_hash, vec3 o,
-                   vec3 d, uint octree_buffer_offset) {
+                   out vec3 o_next_ray_start_pos, out vec3 o_normal, out bool o_is_normal_valid,
+                   out uint o_voxel_hash, vec3 o, vec3 d, uint octree_buffer_offset) {
     uint parent = 0;
     o_iter      = 0;
 
@@ -177,7 +177,8 @@ bool _svo_marching(out float o_t, out uint o_iter, out uint o_voxel_type, out ve
     // o_normal = norm;
 
     // scale_exp2 is the length of the edges of the voxel
-    o_normal = unpack_normal_v2((cur & 0x1FFFFF00u) >> 8);
+    o_normal          = unpack_normal_v2((cur & 0x1FFFFF00u) >> 8);
+    o_is_normal_valid = (cur & 0x20000000u) != 0;
 
     o_next_ray_start_pos = pos + scale_exp2 * 0.5 + 0.87 * scale_exp2 * o_normal;
     // o_next_ray_start_pos = o_hit_pos + 1e-7 * norm;
@@ -190,6 +191,7 @@ bool _svo_marching(out float o_t, out uint o_iter, out uint o_voxel_type, out ve
 
 struct SvoMarchingResult {
     bool is_hit;
+    bool is_normal_valid;
     float t;
     uint iter;
     uint voxel_type;
@@ -204,8 +206,8 @@ SvoMarchingResult svo_marching(vec3 o, vec3 d, uint octree_buffer_offset) {
 
     SvoMarchingResult result;
     result.is_hit = _svo_marching(result.t, result.iter, result.voxel_type, result.hit_pos,
-                                  result.next_ray_start_pos, result.normal, result.voxel_hash,
-                                  o + pre_offset, d, octree_buffer_offset);
+                                  result.next_ray_start_pos, result.normal, result.is_normal_valid,
+                                  result.voxel_hash, o + pre_offset, d, octree_buffer_offset);
     result.hit_pos -= pre_offset;
     result.next_ray_start_pos -= pre_offset;
 

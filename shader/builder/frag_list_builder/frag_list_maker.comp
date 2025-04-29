@@ -20,9 +20,10 @@ frag_list_build_result;
 layout(set = 0, binding = 2) writeonly buffer B_FragmentList { FragmentListEntry data[]; }
 fragment_list;
 
-layout(set = 0, binding = 3, r8ui) readonly uniform uimage3D raw_atlas;
+layout(set = 0, binding = 3, r8ui) readonly uniform uimage3D atlas;
 
 #include "../../include/config.glsl"
+#include "../../include/core/definitions.glsl"
 #include "../../include/core/packer.glsl"
 #include "../../include/voxel_types.glsl"
 
@@ -37,22 +38,22 @@ ivec3 shared_idx_to_atlas_idx(ivec3 shared_idx) {
     return atlas_idx;
 }
 
-ivec3 atlas_idx_to_shared_idx(ivec3 atlas_idx) {
-    const ivec3 chunk_base = ivec3(frag_list_maker_info.chunk_pos) * VOXEL_DIM;
-    const ivec3 group_base = ivec3(gl_WorkGroupID) * GROUP_SIZE - 2; // include halo
-    ivec3 shared_idx       = atlas_idx - group_base - chunk_base;
-    return shared_idx;
-}
-
-ivec3 local_idx_to_atlas_idx(ivec3 local_idx) {
-    const ivec3 chunk_base = ivec3(frag_list_maker_info.chunk_pos) * VOXEL_DIM;
-    return local_idx + chunk_base;
-}
-
 ivec3 local_idx_to_shared_idx(ivec3 local_idx) {
     const ivec3 group_base = ivec3(gl_WorkGroupID) * GROUP_SIZE - 2; // include halo
     return local_idx - group_base;
 }
+
+// ivec3 atlas_idx_to_shared_idx(ivec3 atlas_idx) {
+//     const ivec3 chunk_base = ivec3(frag_list_maker_info.chunk_pos) * VOXEL_DIM;
+//     const ivec3 group_base = ivec3(gl_WorkGroupID) * GROUP_SIZE - 2; // include halo
+//     ivec3 shared_idx       = atlas_idx - group_base - chunk_base;
+//     return shared_idx;
+// }
+
+// ivec3 local_idx_to_atlas_idx(ivec3 local_idx) {
+//     const ivec3 chunk_base = ivec3(frag_list_maker_info.chunk_pos) * VOXEL_DIM;
+//     return local_idx + chunk_base;
+// }
 
 void preload() {
     // load operations from any texel that is outside of the boundaries of the bound image will
@@ -66,7 +67,7 @@ void preload() {
         shared_idx.z = linear_idx / (SHARED_SIZE * SHARED_SIZE);
 
         ivec3 atlas_idx = shared_idx_to_atlas_idx(ivec3(shared_idx));
-        uint val        = imageLoad(raw_atlas, atlas_idx).r;
+        uint val        = imageLoad(atlas, atlas_idx).r;
 
         shared_data[shared_idx.x][shared_idx.y][shared_idx.z] = val;
     }
@@ -100,7 +101,7 @@ bool is_occluded(ivec3 uvi) {
 }
 
 // https://www.youtube.com/watch?v=YTZBFz3Et40
-vec3 calculate_normal(ivec3 uvi, ivec3 voxel_dim) {
+void calculate_normal(out vec3 o_normal, out bool o_is_normal_valid, ivec3 uvi, ivec3 voxel_dim) {
     const ivec3 min_bound = ivec3(-2);
     const ivec3 max_bound = ivec3(2);
 
@@ -123,12 +124,15 @@ vec3 calculate_normal(ivec3 uvi, ivec3 voxel_dim) {
             }
         }
     }
-    return normalize(-normal);
+    o_is_normal_valid = length(normal) > EPSILON;
+    if (o_is_normal_valid) {
+        o_normal = normalize(-normal);
+    }
 }
 
 /// Compress a coordinate into a single uint.
 /// The coordinate is compressed into 3 10-bit components.
-/// Therefore there's additional 32-30=2 bits left for other data.
+/// Total occupied bits: 10 * 3 = 30 bits.
 uint compress_coord(ivec3 coord) {
     uint coord_compressed = coord.x;
     coord_compressed |= coord.y << 10;
@@ -136,17 +140,24 @@ uint compress_coord(ivec3 coord) {
     return coord_compressed;
 }
 
-uint compress_voxel_type_and_normal(uint voxel_type, vec3 normal) {
+/// Compress a voxel type and normal vector into a single uint.
+/// The voxel type is compressed into 8 bits, the normal vector is compressed into 3 7-bit
+/// components, and the is_normal_valid flag is compressed into 1 bit.
+/// Total occupied bits: 8 + 21 + 1 = 30 bits.
+uint compress_voxel_type_and_normal(uint voxel_type, vec3 normal, bool is_normal_valid) {
     uint properties_data = 0;
     properties_data |= voxel_type & 0xFF;
-    properties_data |= pack_normal_v2(normal) << 8;
+    properties_data |= pack_normal_v2(normal) << 8; // 7 bits for each component -> total 21 bits
+    properties_data |= (is_normal_valid ? 1 : 0) << 29; // 1 bit for is_normal_valid
     return properties_data;
 }
 
-FragmentListEntry make_fragment_list_entry(ivec3 coord, uint voxel_type, vec3 normal) {
+FragmentListEntry make_fragment_list_entry(ivec3 coord, uint voxel_type, vec3 normal,
+                                           bool is_normal_valid) {
     FragmentListEntry fragment_list_entry;
     fragment_list_entry.coordinates = compress_coord(coord);
-    fragment_list_entry.properties  = compress_voxel_type_and_normal(voxel_type, normal);
+    fragment_list_entry.properties =
+        compress_voxel_type_and_normal(voxel_type, normal, is_normal_valid);
     return fragment_list_entry;
 }
 
@@ -169,8 +180,10 @@ void main() {
         return;
     }
 
-    FragmentListEntry entry =
-        make_fragment_list_entry(uvi, voxel_type, calculate_normal(uvi, voxel_dim));
+    vec3 normal;
+    bool is_normal_valid;
+    calculate_normal(normal, is_normal_valid, uvi, voxel_dim);
+    FragmentListEntry entry = make_fragment_list_entry(uvi, voxel_type, normal, is_normal_valid);
 
     uint fragment_list_cursor = atomicAdd(frag_list_build_result.fragment_list_len, 1);
     fragment_list.data[fragment_list_cursor] = entry;
