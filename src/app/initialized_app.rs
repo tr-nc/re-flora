@@ -167,7 +167,8 @@ impl InitializedApp {
         self.add_tree();
 
         self.builder
-            .create_leaf(Vec3::new(1.0, 0.2, 0.0), UVec3::new(32, 32, 32));
+            .create_leaf(Vec3::new(1.0, 0.2, 0.0), UVec3::new(32, 32, 32))
+            .unwrap();
     }
 
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {

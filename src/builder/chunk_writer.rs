@@ -199,11 +199,8 @@ impl ChunkWriter {
         resources: &Resources,
         leaf_color: Vec3,
         leaf_chunk_dim: UVec3,
-    ) {
+    ) -> UVec3 {
         let allocation = self.free_atlas_allocator.allocate(leaf_chunk_dim).unwrap();
-        log::debug!("Leaf allocation: {:?}", allocation);
-        log::debug!("leaf chunk dim: {:?}", leaf_chunk_dim);
-
         let _id = allocation.id; // TODO: maybe store this later to modify
 
         update_buffers(resources, leaf_color, allocation.offset, allocation.dim);
@@ -223,6 +220,8 @@ impl ChunkWriter {
                     .record_dispatch(cmdbuf, leaf_chunk_dim.to_array());
             },
         );
+
+        return allocation.offset;
 
         fn update_buffers(
             resources: &Resources,

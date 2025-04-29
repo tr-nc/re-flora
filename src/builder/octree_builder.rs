@@ -440,15 +440,8 @@ impl OctreeBuilder {
         }
         let allocation = self.octree_buffer_allocator.allocate(buffer_size).unwrap();
         table.insert(atlas_offset, allocation.id);
-        allocation.offset
-    }
 
-    /// A simple allocation for a given buffe size
-    ///
-    /// TODO: deallocation must be implemented later
-    fn allocate_free(&mut self, buffer_size: u64) -> u64 {
-        let allocation = self.octree_buffer_allocator.allocate(buffer_size).unwrap();
-        allocation.offset
+        return allocation.offset;
     }
 
     pub fn update_octree_offset_atlas_tex(

@@ -127,13 +127,10 @@ impl Builder {
 
         let timer = Timer::new();
         for chunk_pos in chunk_positions.iter() {
+            self.check_chunk_pos(*chunk_pos)?;
             let atlas_offset = *chunk_pos * self.voxel_dim;
             let atlas_dim = self.voxel_dim;
-            self.build_octree(
-                FragListBuildType::ChunkAtlas,
-                atlas_offset,
-                atlas_dim,
-            )?;
+            self.build_octree(FragListBuildType::ChunkAtlas, atlas_offset, atlas_dim)?;
         }
         log::debug!(
             "Average octree time: {:?}",
@@ -247,13 +244,19 @@ impl Builder {
         );
     }
 
-    pub fn create_leaf(&mut self, leaf_color: Vec3, leaf_chunk_dim: UVec3) {
-        self.chunk_writer.create_leaf(
+    pub fn create_leaf(&mut self, leaf_color: Vec3, leaf_chunk_dim: UVec3) -> Result<(), String> {
+        let allocated_offset = self.chunk_writer.create_leaf(
             &self.vulkan_context,
             &self.resources,
             leaf_color,
             leaf_chunk_dim,
         );
+        self.build_octree(
+            FragListBuildType::FreeAtlas,
+            allocated_offset,
+            leaf_chunk_dim,
+        )?;
+        Ok(())
     }
 
     pub fn add_tree(&mut self, tree: &Tree, tree_pos: Vec3) -> Result<(), String> {
@@ -282,6 +285,7 @@ impl Builder {
         }
 
         for chunk_pos in in_bound_chunk_positions.iter() {
+            self.check_chunk_pos(*chunk_pos)?;
             let atlas_offset = chunk_pos * self.voxel_dim;
             let atlas_dim = self.voxel_dim;
             self.build_octree(FragListBuildType::ChunkAtlas, atlas_offset, atlas_dim)?;
@@ -345,7 +349,6 @@ impl Builder {
         atlas_offset: UVec3,
         atlas_dim: UVec3,
     ) -> Result<(), String> {
-        // self.check_chunk_pos(chunk_pos)?;
         self.frag_list_builder.build(
             build_type,
             &self.vulkan_context,

@@ -15,7 +15,7 @@ use crate::vkn::WriteDescriptorSet;
 use ash::vk;
 use glam::UVec3;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum FragListBuildType {
     ChunkAtlas,
     FreeAtlas,
