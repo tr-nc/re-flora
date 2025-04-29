@@ -319,8 +319,13 @@ impl Builder {
 
     fn build_octree(&mut self, chunk_pos: UVec3) -> Result<(), String> {
         self.check_chunk_pos(chunk_pos)?;
-        self.frag_list_builder
-            .build(&self.vulkan_context, &self.resources, chunk_pos);
+        self.frag_list_builder.build(
+            &self.vulkan_context,
+            &self.resources,
+            chunk_pos * self.voxel_dim,
+            self.voxel_dim,
+            true,
+        );
 
         let fragment_list_len = self.frag_list_builder.get_fraglist_length(&self.resources);
         if fragment_list_len == 0 {

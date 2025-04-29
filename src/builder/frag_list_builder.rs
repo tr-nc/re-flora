@@ -153,24 +153,50 @@ impl FragListBuilder {
         cmdbuf
     }
 
-    pub fn build(&self, vulkan_context: &VulkanContext, resources: &Resources, chunk_pos: UVec3) {
+    pub fn build(
+        &self,
+        vulkan_context: &VulkanContext,
+        resources: &Resources,
+        atlas_read_offset: UVec3,
+        atlas_read_dim: UVec3,
+        is_crossing_boundary: bool,
+    ) {
         let device = vulkan_context.device();
 
-        update_buffers(resources, chunk_pos);
+        update_buffers(
+            resources,
+            atlas_read_offset,
+            atlas_read_dim,
+            is_crossing_boundary,
+        );
 
         self.cmdbuf
             .submit(&vulkan_context.get_general_queue(), None);
         device.wait_queue_idle(&vulkan_context.get_general_queue());
 
-        fn update_buffers(resources: &Resources, chunk_pos: UVec3) {
-            let data =
-                StructMemberDataBuilder::from_buffer(resources.frag_list_maker_info())
-                    .set_field(
-                        "chunk_pos",
-                        PlainMemberTypeWithData::UVec3(chunk_pos.to_array()),
-                    )
-                    .unwrap()
-                    .get_data_u8();
+        fn update_buffers(
+            resources: &Resources,
+            atlas_read_offset: UVec3,
+            atlas_read_dim: UVec3,
+            is_crossing_boundary: bool,
+        ) {
+            let data = StructMemberDataBuilder::from_buffer(resources.frag_list_maker_info())
+                .set_field(
+                    "atlas_read_offset",
+                    PlainMemberTypeWithData::UVec3(atlas_read_offset.to_array()),
+                )
+                .unwrap()
+                .set_field(
+                    "atlas_read_dim",
+                    PlainMemberTypeWithData::UVec3(atlas_read_dim.to_array()),
+                )
+                .unwrap()
+                .set_field(
+                    "is_crossing_boundary",
+                    PlainMemberTypeWithData::UInt(if is_crossing_boundary { 1 } else { 0 }),
+                )
+                .unwrap()
+                .get_data_u8();
             resources
                 .frag_list_maker_info()
                 .fill_with_raw_u8(&data)

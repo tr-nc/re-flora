@@ -5,7 +5,11 @@
 #define GROUP_SIZE_3 (GROUP_SIZE * GROUP_SIZE * GROUP_SIZE)
 layout(local_size_x = GROUP_SIZE, local_size_y = GROUP_SIZE, local_size_z = GROUP_SIZE) in;
 
-layout(set = 0, binding = 0) readonly uniform U_FragListMakerInfo { uvec3 chunk_pos; }
+layout(set = 0, binding = 0) readonly uniform U_FragListMakerInfo {
+    uvec3 atlas_read_offset;
+    uvec3 atlas_read_dim;
+    uint is_crossing_boundary; // bool
+}
 frag_list_maker_info;
 
 // fragment_list_len is incremented atomically every time a new fragment is added
@@ -31,8 +35,7 @@ layout(set = 0, binding = 3, r8ui) readonly uniform uimage3D atlas;
 #define SHARED_SIZE_3 (SHARED_SIZE * SHARED_SIZE * SHARED_SIZE)
 shared uint shared_data[SHARED_SIZE][SHARED_SIZE][SHARED_SIZE];
 
-ivec3 shared_idx_to_atlas_idx(ivec3 shared_idx) {
-    const ivec3 chunk_base = ivec3(frag_list_maker_info.chunk_pos) * VOXEL_DIM;
+ivec3 shared_idx_to_atlas_idx(ivec3 chunk_base, ivec3 shared_idx) {
     const ivec3 group_base = ivec3(gl_WorkGroupID) * GROUP_SIZE - 2; // include halo
     ivec3 atlas_idx        = shared_idx + group_base + chunk_base;
     return atlas_idx;
@@ -43,17 +46,18 @@ ivec3 local_idx_to_shared_idx(ivec3 local_idx) {
     return local_idx - group_base;
 }
 
-// ivec3 atlas_idx_to_shared_idx(ivec3 atlas_idx) {
-//     const ivec3 chunk_base = ivec3(frag_list_maker_info.chunk_pos) * VOXEL_DIM;
-//     const ivec3 group_base = ivec3(gl_WorkGroupID) * GROUP_SIZE - 2; // include halo
-//     ivec3 shared_idx       = atlas_idx - group_base - chunk_base;
-//     return shared_idx;
-// }
-
-// ivec3 local_idx_to_atlas_idx(ivec3 local_idx) {
-//     const ivec3 chunk_base = ivec3(frag_list_maker_info.chunk_pos) * VOXEL_DIM;
-//     return local_idx + chunk_base;
-// }
+uint load_atlas(ivec3 atlas_idx, ivec3 atlas_read_offset, ivec3 atlas_read_dim,
+                bool is_crossing_boundary) {
+    if (is_crossing_boundary) {
+        return imageLoad(atlas, atlas_idx).r;
+    } else {
+        if (any(lessThan(atlas_idx, atlas_read_offset)) ||
+            any(greaterThanEqual(atlas_idx, atlas_read_offset + atlas_read_dim))) {
+            return 0;
+        }
+        return imageLoad(atlas, atlas_idx).r;
+    }
+}
 
 void preload() {
     // load operations from any texel that is outside of the boundaries of the bound image will
@@ -66,8 +70,11 @@ void preload() {
         shared_idx.y = (linear_idx / SHARED_SIZE) % SHARED_SIZE;
         shared_idx.z = linear_idx / (SHARED_SIZE * SHARED_SIZE);
 
-        ivec3 atlas_idx = shared_idx_to_atlas_idx(ivec3(shared_idx));
-        uint val        = imageLoad(atlas, atlas_idx).r;
+        ivec3 atlas_idx = shared_idx_to_atlas_idx(ivec3(frag_list_maker_info.atlas_read_offset),
+                                                  ivec3(shared_idx));
+        uint val        = load_atlas(atlas_idx, ivec3(frag_list_maker_info.atlas_read_offset),
+                                     ivec3(frag_list_maker_info.atlas_read_dim),
+                                     frag_list_maker_info.is_crossing_boundary != 0);
 
         shared_data[shared_idx.x][shared_idx.y][shared_idx.z] = val;
     }
@@ -101,7 +108,7 @@ bool is_occluded(ivec3 uvi) {
 }
 
 // https://www.youtube.com/watch?v=YTZBFz3Et40
-void calculate_normal(out vec3 o_normal, out bool o_is_normal_valid, ivec3 uvi, ivec3 voxel_dim) {
+void calculate_normal(out vec3 o_normal, out bool o_is_normal_valid, ivec3 uvi) {
     const ivec3 min_bound = ivec3(-2);
     const ivec3 max_bound = ivec3(2);
 
@@ -165,9 +172,8 @@ void main() {
     preload();
     barrier();
 
-    ivec3 uvi       = ivec3(gl_GlobalInvocationID);
-    ivec3 voxel_dim = ivec3(VOXEL_DIM);
-    if (any(greaterThanEqual(uvi, voxel_dim))) {
+    ivec3 uvi = ivec3(gl_GlobalInvocationID);
+    if (any(greaterThanEqual(uvi, ivec3(frag_list_maker_info.atlas_read_dim)))) {
         return;
     }
 
@@ -182,7 +188,7 @@ void main() {
 
     vec3 normal;
     bool is_normal_valid;
-    calculate_normal(normal, is_normal_valid, uvi, voxel_dim);
+    calculate_normal(normal, is_normal_valid, uvi);
     FragmentListEntry entry = make_fragment_list_entry(uvi, voxel_type, normal, is_normal_valid);
 
     uint fragment_list_cursor = atomicAdd(frag_list_build_result.fragment_list_len, 1);
