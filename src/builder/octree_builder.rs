@@ -363,7 +363,7 @@ impl OctreeBuilder {
         fragment_list_len: u32,
         atlas_offset: UVec3,
         atlas_dim: UVec3,
-    ) -> Result<(), String> {
+    ) -> Result<u64, String> {
         check_dim(atlas_dim)?;
 
         let device = vulkan_context.device();
@@ -394,7 +394,7 @@ impl OctreeBuilder {
             octree_size as u64,
         );
 
-        return Ok(());
+        return Ok(write_offset);
 
         fn check_dim(voxel_dim: UVec3) -> Result<(), String> {
             if voxel_dim.x != voxel_dim.y || voxel_dim.y != voxel_dim.z {

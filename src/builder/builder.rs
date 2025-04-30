@@ -310,14 +310,20 @@ impl Builder {
             Vec3::new(1.0, 0.2, 0.0), // TODO:
             leaf_chunk_dim,
         );
-        self.build_and_alloc_octree(
+        let octree_offset = self.build_and_alloc_octree(
             FragListBuildType::FreeAtlas,
             allocated_offset,
             leaf_chunk_dim,
         )?;
 
+        if let Some(octree_offset) = octree_offset {
+            log::debug!("Octree offset: {:?}", octree_offset);
+        } else {
+            return Err("Octree offset is None, this is not allowed for leaves data!".to_string());
+        }
+
         let leaves = get_leaves(tree, tree_pos, self.voxel_dim);
-        let bvh_nodes = get_leaves_bvh(&leaves)?;
+        let bvh_nodes = get_leaves_bvh(&leaves, octree_offset.unwrap())?;
 
         update_buffers(&self.resources, &bvh_nodes);
 
@@ -333,12 +339,12 @@ impl Builder {
             return leaves;
         }
 
-        fn get_leaves_bvh(leaves: &[Cuboid]) -> Result<Vec<BvhNode>, String> {
+        fn get_leaves_bvh(leaves: &[Cuboid], octree_offset: u64) -> Result<Vec<BvhNode>, String> {
             let mut leaf_aabbs = Vec::new();
             for leaf in leaves {
                 leaf_aabbs.push(leaf.aabb());
             }
-            let leaves_data: Vec<u32> = vec![0; leaf_aabbs.len()]; // TODO:
+            let leaves_data: Vec<u32> = vec![octree_offset as u32; leaf_aabbs.len()]; // TODO:
             let bvh_nodes = build_bvh(&leaf_aabbs, &leaves_data)?;
             return Ok(bvh_nodes);
         }
@@ -383,7 +389,7 @@ impl Builder {
         build_type: FragListBuildType,
         atlas_offset: UVec3,
         atlas_dim: UVec3,
-    ) -> Result<(), String> {
+    ) -> Result<Option<u64>, String> {
         let is_crossing_boundary = match build_type {
             FragListBuildType::ChunkAtlas => true,
             FragListBuildType::FreeAtlas => false, // each are independent
@@ -401,7 +407,7 @@ impl Builder {
         let fragment_list_len = self.frag_list_builder.get_fraglist_length(&self.resources);
         if fragment_list_len == 0 {
             log::debug!("Fragment list is empty with build_type: {:?}", build_type);
-            return Ok(());
+            return Ok(None);
         } else {
             log::debug!(
                 "Fragment list length: {:?} with build_type: {:?}",
@@ -410,7 +416,7 @@ impl Builder {
             );
         }
 
-        self.octree_builder.build_and_alloc(
+        let octree_offset = self.octree_builder.build_and_alloc(
             build_type,
             &self.vulkan_context,
             &self.resources,
@@ -419,7 +425,7 @@ impl Builder {
             atlas_dim,
         )?;
 
-        return Ok(());
+        return Ok(Some(octree_offset));
     }
 
     pub fn get_external_shared_resources(&self) -> &ExternalSharedResources {
