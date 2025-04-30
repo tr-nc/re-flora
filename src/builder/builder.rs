@@ -149,7 +149,7 @@ impl Builder {
             leaf.transform(tree_pos);
         }
         for leaf in &mut leaves {
-            leaf.scale(Vec3::new(1.0 / 256.0, 1.0 / 256.0, 1.0 / 256.0));
+            leaf.scale(1.0 / self.voxel_dim.as_vec3());
         }
         let mut trunk_aabbs = Vec::new();
         for leaf in &leaves {
@@ -382,7 +382,8 @@ impl Builder {
             fragment_list_len,
             atlas_offset,
             atlas_dim,
-        );
+        )?;
+
         return Ok(());
     }
 

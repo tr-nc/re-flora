@@ -93,15 +93,18 @@ BvhSvoMarchingResult traverse_bvh(Ray ray) {
 
         // perform inner test at leaf nodes
         if (is_leaf(node)) {
-            uint octree_buffer_offset = fetch_data(node);
+            // uint octree_buffer_offset = fetch_data(node);
+            uint octree_buffer_offset = 0u; // debug only
 
-            // TODO: apply scaling too
+            vec3 offset  = node.aabb_min;
+            vec3 scaling = node.aabb_max - node.aabb_min;
             SvoMarchingResult svo_marching_result =
-                svo_marching(ray.origin, ray.direction, node.aabb_min, octree_buffer_offset);
+                svo_marching(ray.origin, ray.direction, offset, scaling, octree_buffer_offset);
             res.total_iter += svo_marching_result.iter;
             if (svo_marching_result.is_hit && svo_marching_result.t < best_hit_depth) {
-                // TODO: see if further operation is needed
-                best_hit_depth = svo_marching_result.t;
+                res.is_hit         = true;
+                res.hit_svo_result = svo_marching_result;
+                best_hit_depth     = svo_marching_result.t;
                 break;
             }
             continue;
@@ -169,13 +172,20 @@ void main() {
     vec3 voxel_color = vec3(0.0);
     if (dda_svo_marching_result.is_hit) {
         voxel_color = dda_svo_marching_result.hit_svo_result.normal * 0.5 + 0.5;
+        // therefore the bad voxels can be visualized clearly
         voxel_color *= 0.2;
         voxel_color = dda_svo_marching_result.hit_svo_result.is_normal_valid ? voxel_color
                                                                              : vec3(1.0, 1.0, 1.0);
     }
 
     BvhSvoMarchingResult bvh_svo_marching_result = traverse_bvh(ray);
-    voxel_color += vec3(float(bvh_svo_marching_result.total_iter)) * 0.1;
+    if (bvh_svo_marching_result.is_hit) {
+        if (bvh_svo_marching_result.hit_svo_result.is_normal_valid) {
+            voxel_color = bvh_svo_marching_result.hit_svo_result.normal * 0.5 + 0.5;
+        } else {
+            voxel_color = vec3(1.0, 1.0, 1.0);
+        }
+    }
 
     vec4 out_color = vec4(0.0);
     out_color      = vec4(voxel_color, 1.0);

@@ -33,9 +33,9 @@ float compute_noise(vec3 p) {
 }
 
 uint get_voxel_type(float weight) {
-    if (weight < 0.5) {
-        return VOXEL_TYPE_EMPTY;
-    }
+    // if (weight < 0.5) {
+    //     return VOXEL_TYPE_EMPTY;
+    // }
     return VOXEL_TYPE_LEAF;
 }
 

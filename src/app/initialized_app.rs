@@ -165,7 +165,6 @@ impl InitializedApp {
 
     fn init(&mut self) {
         self.add_tree();
-
         self.builder
             .create_leaf(Vec3::new(1.0, 0.2, 0.0), UVec3::new(32, 32, 32))
             .unwrap();

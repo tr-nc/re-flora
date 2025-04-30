@@ -201,15 +201,44 @@ struct SvoMarchingResult {
     uint voxel_hash;
 };
 
-SvoMarchingResult svo_marching(vec3 o, vec3 d, vec3 chunk_position, uint octree_buffer_offset) {
-    const vec3 pre_offset = 1 - chunk_position;
+SvoMarchingResult svo_marching(vec3 o,              // world-space ray origin
+                               vec3 d,              // world-space ray direction
+                               vec3 chunk_position, // world-space min corner of the chunk
+                               vec3 chunk_scaling,  // size of the chunk along each axis
+                               uint octree_buffer_offset) {
+    /* -------------------------------------------------------------------- *
+     * 1.  Bring the ray into the octree’s LOCAL space.                      *
+     *     The octree traversal expects coordinates inside the range [1,2]. *
+     *                                                                      *
+     *     world -> local :  p_local = (p_world - chunk_min) / scale + 1    *
+     *     d_local        =  d_world / scale  (component-wise division)     *
+     *                                                                      *
+     *     With this parameterisation the ray parameter 𝑡 is preserved even *
+     *     for non-uniform scaling, because                                 *
+     *        p_world = (p_local - 1)*scale + chunk_min                     *
+     * -------------------------------------------------------------------- */
+    vec3 local_o = (o - chunk_position) / chunk_scaling + 1.0;
+    vec3 local_d = d / chunk_scaling;
 
+    /* -------------------------------------------------------------------- *
+     * 2.  Traverse the octree in local space.                               *
+     * -------------------------------------------------------------------- */
     SvoMarchingResult result;
     result.is_hit = _svo_marching(result.t, result.iter, result.voxel_type, result.hit_pos,
                                   result.next_ray_start_pos, result.normal, result.is_normal_valid,
-                                  result.voxel_hash, o + pre_offset, d, octree_buffer_offset);
-    result.hit_pos -= pre_offset;
-    result.next_ray_start_pos -= pre_offset;
+                                  result.voxel_hash, local_o, local_d, octree_buffer_offset);
+
+    /* -------------------------------------------------------------------- *
+     * 3.  Transform the returned positions back to world space.             *
+     *     local -> world :  p_world = (p_local - 1)*scale + chunk_min       *
+     * -------------------------------------------------------------------- */
+    result.hit_pos            = (result.hit_pos - 1.0) * chunk_scaling + chunk_position;
+    result.next_ray_start_pos = (result.next_ray_start_pos - 1.0) * chunk_scaling + chunk_position;
+
+    /* 4.  (Optional) If you need true world-space normals for non-uniform
+          scaling, multiply by the inverse-transpose of the scaling matrix
+          and re-normalise.  For now we keep the normal in local space,
+          matching the previous behaviour when scale == 1.                   */
 
     return result;
 }

@@ -39,7 +39,7 @@ DdaSvoMarchingResult dda_svo_marching(ivec3 visible_chunk_dim, vec3 o, vec3 d) {
         uint chunk_buffer_offset = imageLoad(octree_offset_atlas_tex, chunk_idx).x - 1;
 
         SvoMarchingResult svo_marching_result;
-        svo_marching_result = svo_marching(o, d, vec3(chunk_idx), chunk_buffer_offset);
+        svo_marching_result = svo_marching(o, d, vec3(chunk_idx), vec3(1.0), chunk_buffer_offset);
         cas_result.total_iter += svo_marching_result.iter;
         cas_result.chunk_traversed++;
 
