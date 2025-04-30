@@ -4,7 +4,10 @@
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
-layout(set = 0, binding = 0) readonly uniform B_OctreeBuildInfo { uint fragment_list_len; }
+layout(set = 0, binding = 0) readonly uniform B_OctreeBuildInfo {
+    uint fragment_list_len;
+    uint voxel_dim_xyz;
+}
 octree_build_info;
 layout(set = 0, binding = 1) writeonly buffer B_OctreeAllocInfo {
     uint alloc_begin;
@@ -32,13 +35,12 @@ uint uvec4_to_leaf(uvec4 vec) {
 
 // returns the index of the node to be tagged (it has just been initialized to
 // 0)
-uint traverse_octree(in const uvec3 voxel_pos, out bool is_leaf) {
-    uint level_dim  = VOXEL_DIM;
+uint traverse_octree(out bool is_leaf, uvec3 voxel_pos, uint level_dim) {
     uvec3 level_pos = voxel_pos;
 
     uint idx = 0u, cur = 0u;
     do {
-        // fast division by 2, level_dim is guaranteed to be 2^n, n >= 0
+        // fast division by 2, level_dim must be 2^n, where n >= 0
         bvec3 cmp = greaterThanEqual(level_pos, uvec3(level_dim >>= 1));
         idx       = cur | uint(cmp.x) | (uint(cmp.y) << 1) | (uint(cmp.z) << 2);
         cur       = octree_data.data[idx] & 0x3FFFFFFF; // read node pointer
@@ -49,7 +51,9 @@ uint traverse_octree(in const uvec3 voxel_pos, out bool is_leaf) {
 }
 
 void main() {
-    if (gl_GlobalInvocationID.x >= octree_build_info.fragment_list_len) return;
+    if (gl_GlobalInvocationID.x >= octree_build_info.fragment_list_len) {
+        return;
+    }
     FragmentListEntry ufragment = fragment_list.per_voxel_build_infos[gl_GlobalInvocationID.x];
 
     uint coordinates = ufragment.coordinates;
@@ -58,7 +62,7 @@ void main() {
 
     bool is_leaf;
     // is_leaf is only true when the leaf node is allocated
-    uint idx = traverse_octree(voxel_pos, is_leaf);
+    uint idx = traverse_octree(is_leaf, voxel_pos, octree_build_info.voxel_dim_xyz);
 
     if (is_leaf) {
         uint properties       = ufragment.properties;

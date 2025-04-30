@@ -5,9 +5,10 @@
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
-// TODO: this is not used in this shader, but removing this will cause a compilation error, check
-// out why
-layout(set = 0, binding = 0) readonly uniform B_OctreeBuildInfo { uint fragment_list_len; }
+layout(set = 0, binding = 0) readonly uniform B_OctreeBuildInfo {
+    uint fragment_list_len;
+    uint voxel_dim_xyz;
+}
 octree_build_info;
 layout(set = 0, binding = 1) readonly buffer B_OctreeAllocInfo {
     uint alloc_begin;

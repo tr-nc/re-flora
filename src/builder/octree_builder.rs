@@ -355,17 +355,6 @@ impl OctreeBuilder {
         cmdbuf
     }
 
-    fn get_level(&self, voxel_dim: UVec3) -> u32 {
-        assert!(voxel_dim.x == voxel_dim.y && voxel_dim.y == voxel_dim.z);
-        assert!(voxel_dim.x.is_power_of_two());
-
-        return log2(voxel_dim.x);
-
-        fn log2(x: u32) -> u32 {
-            31 - x.leading_zeros()
-        }
-    }
-
     pub fn build(
         &mut self,
         build_type: FragListBuildType,
@@ -374,12 +363,14 @@ impl OctreeBuilder {
         fragment_list_len: u32,
         atlas_offset: UVec3,
         atlas_dim: UVec3,
-    ) {
+    ) -> Result<(), String> {
+        check_dim(atlas_dim)?;
+
         let device = vulkan_context.device();
 
-        update_buffers(resources, fragment_list_len);
+        update_buffers(resources, fragment_list_len, atlas_dim.x);
 
-        let level = self.get_level(atlas_dim);
+        let level = get_level(atlas_dim);
         let cmdbuf = if let Some(cmdbuf) = self.cmdbuf_table.get(&level) {
             cmdbuf.clone()
         } else {
@@ -403,11 +394,44 @@ impl OctreeBuilder {
             octree_size as u64,
         );
 
-        fn update_buffers(resources: &Resources, fragment_list_len: u32) {
+        return Ok(());
+
+        fn check_dim(voxel_dim: UVec3) -> Result<(), String> {
+            if voxel_dim.x != voxel_dim.y || voxel_dim.y != voxel_dim.z {
+                return Err(format!(
+                    "Voxel dimension must be equal in all dimensions, but got: {}",
+                    voxel_dim
+                ));
+            }
+
+            if voxel_dim.x.is_power_of_two() == false {
+                return Err(format!(
+                    "Voxel dimension must be a power of two, but got: {}",
+                    voxel_dim
+                ));
+            }
+
+            return Ok(());
+        }
+
+        fn get_level(voxel_dim: UVec3) -> u32 {
+            return log2(voxel_dim.x);
+
+            fn log2(x: u32) -> u32 {
+                31 - x.leading_zeros()
+            }
+        }
+
+        fn update_buffers(resources: &Resources, fragment_list_len: u32, voxel_dim_xyz: u32) {
             let data = StructMemberDataBuilder::from_buffer(resources.octree_build_info())
                 .set_field(
                     "fragment_list_len",
                     PlainMemberTypeWithData::UInt(fragment_list_len),
+                )
+                .unwrap()
+                .set_field(
+                    "voxel_dim_xyz",
+                    PlainMemberTypeWithData::UInt(voxel_dim_xyz),
                 )
                 .unwrap()
                 .get_data_u8();

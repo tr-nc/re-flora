@@ -1,28 +1,33 @@
-//! Initializes the indirect buffers for the octree builder.
+//! Initializes buffers for octree builder.
 #version 450
 
 #extension GL_GOOGLE_include_directive : require
 
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
-layout(set = 0, binding = 0) writeonly buffer B_VoxelDimIndirect {
+layout(set = 0, binding = 0) readonly uniform U_FragListMakerInfo {
+    uvec3 atlas_read_offset;
+    uvec3 atlas_read_dim;
+    uint is_crossing_boundary; // bool
+}
+frag_list_maker_info;
+
+layout(set = 0, binding = 1) writeonly buffer B_VoxelDimIndirect {
     uint dispatch_x;
     uint dispatch_y;
     uint dispatch_z;
 }
 voxel_dim_indirect;
 
-layout(set = 0, binding = 1) buffer B_FragListBuildResult { uint fragment_list_len; }
+layout(set = 0, binding = 2) buffer B_FragListBuildResult { uint fragment_list_len; }
 frag_list_build_result;
 
 #include "../../include/config.glsl"
 #include "../../include/core/dispatch_grouper.glsl"
 
 void main() {
-    uint voxel_dim_for_dispatch   = group_x_8(VOXEL_DIM);
-    voxel_dim_indirect.dispatch_x = voxel_dim_for_dispatch;
-    voxel_dim_indirect.dispatch_y = voxel_dim_for_dispatch;
-    voxel_dim_indirect.dispatch_z = voxel_dim_for_dispatch;
-
+    voxel_dim_indirect.dispatch_x            = group_x_8(frag_list_maker_info.atlas_read_dim.x);
+    voxel_dim_indirect.dispatch_y            = group_x_8(frag_list_maker_info.atlas_read_dim.y);
+    voxel_dim_indirect.dispatch_z            = group_x_8(frag_list_maker_info.atlas_read_dim.z);
     frag_list_build_result.fragment_list_len = 0;
 }

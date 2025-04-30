@@ -56,8 +56,9 @@ impl FragListBuilder {
             descriptor_pool.clone(),
         );
         init_buffers_ds.perform_writes(&[
-            WriteDescriptorSet::new_buffer_write(0, resources.voxel_dim_indirect()),
-            WriteDescriptorSet::new_buffer_write(1, resources.frag_list_build_result()),
+            WriteDescriptorSet::new_buffer_write(0, resources.frag_list_maker_info()),
+            WriteDescriptorSet::new_buffer_write(1, resources.voxel_dim_indirect()),
+            WriteDescriptorSet::new_buffer_write(2, resources.frag_list_build_result()),
         ]);
 
         let frag_list_maker_sm = ShaderModule::from_glsl(
