@@ -191,14 +191,9 @@ impl Builder {
         );
     }
 
-    pub fn add_tree(
-        &mut self,
-        tree: &Tree,
-        tree_pos: Vec3,
-        leaf_chunk_dim: UVec3,
-    ) -> Result<(), String> {
+    pub fn add_tree(&mut self, tree: &Tree, tree_pos: Vec3) -> Result<(), String> {
         self.add_tree_trunks(tree, tree_pos)?;
-        self.add_tree_leaves(tree, tree_pos, leaf_chunk_dim)?;
+        self.add_tree_leaves(tree, tree_pos)?;
         return Ok(());
     }
 
@@ -298,12 +293,8 @@ impl Builder {
         return Ok(());
     }
 
-    fn add_tree_leaves(
-        &mut self,
-        tree: &Tree,
-        tree_pos: Vec3,
-        leaf_chunk_dim: UVec3,
-    ) -> Result<(), String> {
+    fn add_tree_leaves(&mut self, tree: &Tree, tree_pos: Vec3) -> Result<(), String> {
+        let leaf_chunk_dim = UVec3::splat(2_u32.pow(tree.desc().leaves_size_level));
         let allocated_offset = self.chunk_writer.create_leaf(
             &self.vulkan_context,
             &self.resources,
@@ -324,6 +315,7 @@ impl Builder {
 
         let leaves = get_leaves(tree, tree_pos, self.voxel_dim);
         let bvh_nodes = get_leaves_bvh(&leaves, octree_offset.unwrap())?;
+        log::debug!("bvh_nodes: {:#?}", bvh_nodes);
 
         update_buffers(&self.resources, &bvh_nodes);
 

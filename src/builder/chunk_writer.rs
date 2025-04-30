@@ -200,10 +200,14 @@ impl ChunkWriter {
         leaf_color: Vec3,
         leaf_chunk_dim: UVec3,
     ) -> UVec3 {
-        let allocation = self.free_atlas_allocator.allocate(leaf_chunk_dim).unwrap();
-        let _id = allocation.id; // TODO: maybe store this later to modify
+        // TODO: debug:
+        let offset = UVec3::new(0, 0, 0);
+        let dimension = leaf_chunk_dim;
+        update_buffers(resources, leaf_color, offset, dimension);
 
-        update_buffers(resources, leaf_color, allocation.offset, allocation.dim);
+        // let allocation = self.free_atlas_allocator.allocate(leaf_chunk_dim).unwrap();
+        // let _id = allocation.id; // TODO: maybe store this later to modify
+        // update_buffers(resources, leaf_color, allocation.offset, allocation.dim);
 
         execute_one_time_command(
             vulkan_context.device(),
@@ -221,7 +225,7 @@ impl ChunkWriter {
             },
         );
 
-        return allocation.offset;
+        return offset;
 
         fn update_buffers(
             resources: &Resources,

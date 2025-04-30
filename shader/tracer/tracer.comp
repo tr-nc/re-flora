@@ -77,22 +77,23 @@ BvhSvoMarchingResult traverse_bvh(Ray ray) {
         // ---- AABB test ------------------------------------------------------
         BvhNode node = bvh_nodes.data[nodeIdx];
 
-        float tNear, tFar;
-        if (!intersect_aabb(tNear, tFar, ray.origin, ray.inv_direction, node.aabb_min,
+        float t_near, t_far;
+        if (!intersect_aabb(t_near, t_far, ray.origin, ray.inv_direction, node.aabb_min,
                             node.aabb_max))
             continue; // completely miss → skip
 
         // no need to look farther than a hit we already have
-        if (tNear > best_hit_depth) continue;
+        if (t_near > best_hit_depth) continue;
 
         // ---- Leaf -----------------------------------------------------------
         if (is_leaf(node)) {
-            uint octOffset = fetch_data(node);
+            uint octree_offset = fetch_data(node);
 
             vec3 offset = node.aabb_min;
             vec3 scale  = node.aabb_max - node.aabb_min;
 
-            SvoMarchingResult r = svo_marching(ray.origin, ray.direction, offset, scale, octOffset);
+            SvoMarchingResult r =
+                svo_marching(ray.origin, ray.direction, offset, scale, octree_offset);
 
             res.total_iter += r.iter;
 
@@ -111,29 +112,29 @@ BvhSvoMarchingResult traverse_bvh(Ray ray) {
         uint rightChild = node.offset + 1u;
 
         // We still want to visit the nearer child first.
-        float tNearL = 1e30, tNearR = 1e30, dummyFar;
+        float t_near_l = 1e30, t_near_r = 1e30, dummy_far;
         bool hitL =
-            intersect_aabb(tNearL, dummyFar, ray.origin, ray.inv_direction,
+            intersect_aabb(t_near_l, dummy_far, ray.origin, ray.inv_direction,
                            bvh_nodes.data[leftChild].aabb_min, bvh_nodes.data[leftChild].aabb_max);
 
-        bool hitR = intersect_aabb(tNearR, dummyFar, ray.origin, ray.inv_direction,
+        bool hitR = intersect_aabb(t_near_r, dummy_far, ray.origin, ray.inv_direction,
                                    bvh_nodes.data[rightChild].aabb_min,
                                    bvh_nodes.data[rightChild].aabb_max);
 
         // push the far child first (LIFO → near processed first)
         if (hitL && hitR) {
-            uint first    = (tNearL < tNearR) ? leftChild : rightChild;
-            uint second   = (tNearL < tNearR) ? rightChild : leftChild;
-            float tFirst  = min(tNearL, tNearR);
-            float tSecond = max(tNearL, tNearR);
+            uint first    = (t_near_l < t_near_r) ? leftChild : rightChild;
+            uint second   = (t_near_l < t_near_r) ? rightChild : leftChild;
+            float tFirst  = min(t_near_l, t_near_r);
+            float tSecond = max(t_near_l, t_near_r);
 
             if (tSecond < best_hit_depth && sp < STACK_SIZE)
                 stack[sp++] = StackInfo(second, si.depth + 1u);
             if (tFirst < best_hit_depth && sp < STACK_SIZE)
                 stack[sp++] = StackInfo(first, si.depth + 1u);
-        } else if (hitL && tNearL < best_hit_depth && sp < STACK_SIZE) {
+        } else if (hitL && t_near_l < best_hit_depth && sp < STACK_SIZE) {
             stack[sp++] = StackInfo(leftChild, si.depth + 1u);
-        } else if (hitR && tNearR < best_hit_depth && sp < STACK_SIZE) {
+        } else if (hitR && t_near_r < best_hit_depth && sp < STACK_SIZE) {
             stack[sp++] = StackInfo(rightChild, si.depth + 1u);
         }
     }

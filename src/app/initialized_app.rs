@@ -118,7 +118,7 @@ impl InitializedApp {
             chunk_dim,
             chunk_dim,
             2 * 1024 * 1024 * 1024,    // 2GB of octree buffer size
-            UVec3::new(256, 256, 256), // free atlas size
+            UVec3::new(512, 512, 512), // free atlas size
         );
 
         let tracer = Tracer::new(
@@ -382,10 +382,10 @@ impl InitializedApp {
                                     tree_desc_changed |= ui
                                         .add(
                                             egui::Slider::new(
-                                                &mut self.tree_desc.leaves_size,
-                                                0..=20,
+                                                &mut self.tree_desc.leaves_size_level,
+                                                0..=10,
                                             )
-                                            .text("Leaves size"),
+                                            .text("Leaves size level"),
                                         )
                                         .changed();
                                     tree_desc_changed |= ui
@@ -519,9 +519,7 @@ impl InitializedApp {
     /// Add a tree to the scene using the current tree description and position.
     fn add_tree(&mut self) {
         let tree = Tree::new(self.tree_desc.clone());
-        let result = self
-            .builder
-            .add_tree(&tree, self.tree_pos, UVec3::new(32, 32, 32));
+        let result = self.builder.add_tree(&tree, self.tree_pos);
         if let Err(err) = result {
             println!("Failed to add tree: {}", err);
         }
