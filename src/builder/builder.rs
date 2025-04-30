@@ -156,7 +156,8 @@ impl Builder {
             trunk_aabbs.push(leaf.aabb());
         }
 
-        let bvh_nodes = build_bvh(&trunk_aabbs);
+        let leaves_data: Vec<u32> = vec![0; trunk_aabbs.len()]; // TODO:
+        let bvh_nodes = build_bvh(&trunk_aabbs, &leaves_data).unwrap();
 
         update_scene_bvh_nodes(&self.resources, &bvh_nodes);
 
@@ -270,7 +271,8 @@ impl Builder {
             trunk_aabbs.push(trunk.aabb());
         }
 
-        let bvh_nodes = build_bvh(&trunk_aabbs);
+        let leaves_data: Vec<u32> = (0..trunk_aabbs.len() as u32).collect();
+        let bvh_nodes = build_bvh(&trunk_aabbs, &leaves_data).unwrap();
 
         let bounding_box = &bvh_nodes[0].aabb; // the root node of the BVH
 

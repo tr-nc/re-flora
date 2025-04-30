@@ -93,8 +93,7 @@ BvhSvoMarchingResult traverse_bvh(Ray ray) {
 
         // perform inner test at leaf nodes
         if (is_leaf(node)) {
-            // uint octree_buffer_offset = fetch_data(node);
-            uint octree_buffer_offset = 0u; // debug only
+            uint octree_buffer_offset = fetch_data(node);
 
             vec3 offset  = node.aabb_min;
             vec3 scaling = node.aabb_max - node.aabb_min;

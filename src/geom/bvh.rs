@@ -21,19 +21,24 @@ pub struct BvhNode {
 
 /// Build a BVH from a slice of AABBs.
 /// The root node is always at index `0`.
-pub fn build_bvh(aabbs: &[Aabb]) -> Vec<BvhNode> {
-    // An empty input ⇒ an empty BVH.
-    if aabbs.is_empty() {
-        return Vec::new();
+pub fn build_bvh(aabbs: &[Aabb], leaves_data: &[u32]) -> Result<Vec<BvhNode>, String> {
+    if aabbs.len() != leaves_data.len() {
+        return Err(format!(
+            "AABBs and leaves data must have the same length. Got {} and {}.",
+            aabbs.len(),
+            leaves_data.len()
+        ));
     }
 
-    // Pair every AABB with its original index.
-    let mut items: Vec<(Aabb, u32)> = aabbs
-        .iter()
-        .cloned()
-        .enumerate()
-        .map(|(i, a)| (a, i as u32))
-        .collect();
+    // An empty input ⇒ an empty BVH.
+    if aabbs.is_empty() {
+        return Err("Cannot build a BVH from an empty slice.".to_string());
+    }
+
+    let mut items = Vec::with_capacity(aabbs.len());
+    for (i, aabb) in aabbs.iter().cloned().enumerate() {
+        items.push((aabb, leaves_data[i]));
+    }
 
     // Allocate a vector of nodes.
     // The very first element is a dummy root that will be overwritten later.
@@ -44,7 +49,7 @@ pub fn build_bvh(aabbs: &[Aabb]) -> Vec<BvhNode> {
     let len = items.len();
     build_bvh_recursive_in_place(&mut items, &mut nodes, 0, 0, len);
 
-    nodes
+    return Ok(nodes);
 }
 
 /* ------------------------------------------------------------------------- */
