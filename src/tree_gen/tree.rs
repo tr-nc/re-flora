@@ -23,16 +23,16 @@ impl Default for TreeDesc {
     fn default() -> Self {
         TreeDesc {
             size: 3.0,
-            trunk_thickness: 1.0,
+            trunk_thickness: 1.45,
             // tested to be the minimum thickness of the trunk, otherwise normal calculation has probability to fail
             trunk_thickness_min: 1.05,
-            spread: 0.5,
-            twisted: 0.5,
-            leaves_size_level: 4,
+            spread: 0.47,
+            twisted: 0.08,
+            leaves_size_level: 5,
             gravity: 0.0,
             iterations: 12,
             wide: 0.5,
-            seed: 42,
+            seed: 30,
         }
     }
 }

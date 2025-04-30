@@ -12,19 +12,24 @@ leaf_write_info;
 
 layout(set = 0, binding = 1, r8ui) writeonly uniform uimage3D atlas;
 
-#include "../../include/core/inoise.glsl"
+#include "../../include/core/hash.glsl"
 #include "../../include/voxel_types.glsl"
 
-float compute_noise(vec3 p) {
+float random_float_01(vec3 p) {
     // if all three are integer values, the noise is fixed to zero
-    return noised(p * 0.9).x;
+    return construct_float_01(murmur_hash_13(floatBitsToUint(p)));
 }
 
-uint get_voxel_type(float weight) {
-    if (weight < 0.5) {
+/// density ranges from 0 to 1
+uint get_voxel_type(float density, float radius_cutoff, float current_r, float weight) {
+    if (current_r > radius_cutoff) {
         return VOXEL_TYPE_EMPTY;
     }
-    return VOXEL_TYPE_LEAF;
+
+    if (weight < density) {
+        return VOXEL_TYPE_LEAF;
+    }
+    return VOXEL_TYPE_EMPTY;
 }
 
 void main() {
@@ -33,9 +38,13 @@ void main() {
         return;
     }
 
-    float noise = compute_noise(vec3(uvi));
-    // float noise     = noised(vec3(uvi)).x + 0.5;
-    uint voxel_type = get_voxel_type(noise);
+    const float noise         = random_float_01(vec3(uvi));
+    const float density       = 0.004;
+    const float radius_cutoff = 0.6;
+    float current_r           = length(vec3(uvi) - vec3(leaf_write_info.atlas_write_dim) * 0.5);
+    current_r /= length(vec3(leaf_write_info.atlas_write_dim) * 0.5); // normalize to [0, 1]
+
+    uint voxel_type = get_voxel_type(density, radius_cutoff, current_r, noise);
 
     ivec3 atlas_base_offset = ivec3(leaf_write_info.atlas_write_offset);
     imageStore(atlas, atlas_base_offset + uvi, uvec4(voxel_type, 0, 0, 0));
