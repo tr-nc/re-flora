@@ -1,5 +1,5 @@
-#ifndef INTERSECT_GLSL
-#define INTERSECT_GLSL
+#ifndef AABB_GLSL
+#define AABB_GLSL
 
 /// Returns true if the ray intersects the AABB.
 ///
@@ -17,4 +17,8 @@ bool intersect_aabb(out float o_dst_near, out float o_dst_far, vec3 ray_origin,
     return (o_dst_near <= o_dst_far) && (o_dst_far > 0.);
 }
 
-#endif // INTERSECT_GLSL
+bool in_aabb(vec3 point, vec3 box_min, vec3 box_max) {
+    return all(greaterThanEqual(point, box_min)) && all(lessThan(point, box_max));
+}
+
+#endif // AABB_GLSL

@@ -4,11 +4,13 @@
 struct BvhNode {
     vec3 aabb_min;
     vec3 aabb_max;
-    /// If the leftmost bit is 0 ⇒ internal, `offset` = left_child_index
-    /// If the leftmost bit is 1 ⇒ leaf,     `offset` = (1<<31) | primitive_index
     uint offset;
 };
 
 bool is_leaf(BvhNode node) { return (node.offset & 0x80000000u) != 0u; }
+
+// if is leaf: the data is the left pointer to the child bvh node, the right pointer is data + 1
+// if not leaf: the data is arbitary data for the leaf
+uint fetch_data(BvhNode node) { return node.offset & 0x7FFFFFFFu; }
 
 #endif // BVH_GLSL

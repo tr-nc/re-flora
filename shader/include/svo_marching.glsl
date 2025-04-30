@@ -201,8 +201,8 @@ struct SvoMarchingResult {
     uint voxel_hash;
 };
 
-SvoMarchingResult svo_marching(vec3 o, vec3 d, uint octree_buffer_offset) {
-    const vec3 pre_offset = vec3(1);
+SvoMarchingResult svo_marching(vec3 o, vec3 d, vec3 chunk_position, uint octree_buffer_offset) {
+    const vec3 pre_offset = 1 - chunk_position;
 
     SvoMarchingResult result;
     result.is_hit = _svo_marching(result.t, result.iter, result.voxel_type, result.hit_pos,

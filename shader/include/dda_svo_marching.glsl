@@ -1,23 +1,23 @@
 
 //! Input: octree_offset_atlas_tex
 //! Input: uint data[] inside a buffer named octree_data
-#ifndef CASCADED_MARCHING_GLSL
-#define CASCADED_MARCHING_GLSL
+#ifndef DDA_SVO_MARCHING_GLSL
+#define DDA_SVO_MARCHING_GLSL
 
 #include "../include/core/definitions.glsl"
 #include "../include/dda_marching.glsl"
 #include "../include/svo_marching.glsl"
 
-struct CascadedMarchingResult {
+struct DdaSvoMarchingResult {
     bool is_hit;
     uint total_iter; // all iterations for all svos
     uint chunk_traversed;
-    SvoMarchingResult last_hit_svo_result;
+    SvoMarchingResult hit_svo_result;
 };
 
 // this marching algorithm fetches leaf properties
-CascadedMarchingResult cascaded_marching(ivec3 visible_chunk_dim, vec3 o, vec3 d) {
-    CascadedMarchingResult cas_result;
+DdaSvoMarchingResult dda_svo_marching(ivec3 visible_chunk_dim, vec3 o, vec3 d) {
+    DdaSvoMarchingResult cas_result;
     cas_result.is_hit          = false;
     cas_result.total_iter      = 0;
     cas_result.chunk_traversed = 0;
@@ -38,23 +38,18 @@ CascadedMarchingResult cascaded_marching(ivec3 visible_chunk_dim, vec3 o, vec3 d
         // [1, 2]
         uint chunk_buffer_offset = imageLoad(octree_offset_atlas_tex, chunk_idx).x - 1;
 
-        const vec3 pre_offset = -chunk_idx;
-
-        SvoMarchingResult svo_result;
-        svo_result = svo_marching(o + pre_offset, d, chunk_buffer_offset);
-        svo_result.hit_pos -= pre_offset;
-        svo_result.next_ray_start_pos -= pre_offset;
-
-        cas_result.total_iter += svo_result.iter;
+        SvoMarchingResult svo_marching_result;
+        svo_marching_result = svo_marching(o, d, vec3(chunk_idx), chunk_buffer_offset);
+        cas_result.total_iter += svo_marching_result.iter;
         cas_result.chunk_traversed++;
 
-        if (svo_result.is_hit) {
-            cas_result.is_hit = true;
-            cas_result.last_hit_svo_result = svo_result;
+        if (svo_marching_result.is_hit) {
+            cas_result.is_hit         = true;
+            cas_result.hit_svo_result = svo_marching_result;
             return cas_result;
         }
     }
     return cas_result;
 }
 
-#endif // CASCADED_MARCHING_GLSL
+#endif // DDA_SVO_MARCHING_GLSL

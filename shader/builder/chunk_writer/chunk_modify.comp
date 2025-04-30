@@ -24,6 +24,7 @@ round_cones;
 layout(set = 0, binding = 3, r8ui) writeonly uniform uimage3D raw_atlas;
 
 #include "../../include/config.glsl"
+#include "../../include/core/aabb.glsl"
 #include "../../include/core/sdf.glsl"
 #include "../../include/voxel_types.glsl"
 
@@ -51,13 +52,12 @@ void main() {
         uint node_idx = stack[--sp];
         BvhNode node  = bvh_nodes.data[node_idx];
 
-        // AABB‐test
-        if (any(lessThan(world_voxel_pos_f, node.aabb_min)) ||
-            any(greaterThan(world_voxel_pos_f, node.aabb_max))) {
+        if (!in_aabb(world_voxel_pos_f, node.aabb_min, node.aabb_max)) {
             continue;
         }
 
-        uint udata = node.offset & 0x7FFFFFFFu;
+        // here the leaf data is the index of the round cone in the round_cones buffer
+        uint udata = fetch_data(node);
 
         if (is_leaf(node)) {
             uint ci      = udata;
