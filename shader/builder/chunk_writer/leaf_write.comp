@@ -16,26 +16,14 @@ layout(set = 0, binding = 1, r8ui) writeonly uniform uimage3D atlas;
 #include "../../include/voxel_types.glsl"
 
 float compute_noise(vec3 p) {
-    float total       = 0.0;
-    float amplitude   = 0.5;
-    float frequency   = 2.0;
-    float persistence = 0.3;
-    float lacunarity  = 2.2;
-    int octaves       = 5;
-
-    for (int i = 0; i < octaves; i++) {
-        vec4 noise = noised(p * frequency);
-        total += amplitude * (noise.x + 0.5);
-        amplitude *= persistence;
-        frequency *= lacunarity;
-    }
-    return total;
+    // if all three are integer values, the noise is fixed to zero
+    return noised(p * 0.9).x;
 }
 
 uint get_voxel_type(float weight) {
-    // if (weight < 0.5) {
-    //     return VOXEL_TYPE_EMPTY;
-    // }
+    if (weight < 0.5) {
+        return VOXEL_TYPE_EMPTY;
+    }
     return VOXEL_TYPE_LEAF;
 }
 
@@ -45,15 +33,9 @@ void main() {
         return;
     }
 
-    // float noise     = compute_noise(vec3(uvi) / 256.0);
-    // uint voxel_type = get_voxel_type(noise);
-
-    // debug use checkerboard pattern
-    uint voxel_type = VOXEL_TYPE_LEAF;
-    if (mod(uvi.x + uvi.y + uvi.z, 2) == 0) {
-        voxel_type = VOXEL_TYPE_EMPTY;
-        return;
-    }
+    float noise = compute_noise(vec3(uvi));
+    // float noise     = noised(vec3(uvi)).x + 0.5;
+    uint voxel_type = get_voxel_type(noise);
 
     ivec3 atlas_base_offset = ivec3(leaf_write_info.atlas_write_offset);
     imageStore(atlas, atlas_base_offset + uvi, uvec4(voxel_type, 0, 0, 0));

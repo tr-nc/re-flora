@@ -21,8 +21,8 @@ float compute_noise(vec3 p) {
     int octaves       = 5;
 
     for (int i = 0; i < octaves; i++) {
-        vec4 noise = noised(p * frequency);
-        total += amplitude * (noise.x + 0.5);
+        float noise = noised(p * frequency).x;
+        total += amplitude * (noise + 0.5);
         amplitude *= persistence;
         frequency *= lacunarity;
     }
