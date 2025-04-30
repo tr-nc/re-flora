@@ -165,9 +165,6 @@ impl InitializedApp {
 
     fn init(&mut self) {
         self.add_tree();
-        self.builder
-            .create_leaf(Vec3::new(1.0, 0.2, 0.0), UVec3::new(32, 32, 32))
-            .unwrap();
     }
 
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {
@@ -522,8 +519,9 @@ impl InitializedApp {
     /// Add a tree to the scene using the current tree description and position.
     fn add_tree(&mut self) {
         let tree = Tree::new(self.tree_desc.clone());
-        let result = self.builder.add_tree(&tree, self.tree_pos);
-        self.builder.create_scene_bvh(&tree, self.tree_pos);
+        let result = self
+            .builder
+            .add_tree(&tree, self.tree_pos, UVec3::new(32, 32, 32));
         if let Err(err) = result {
             println!("Failed to add tree: {}", err);
         }

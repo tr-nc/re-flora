@@ -355,7 +355,7 @@ impl OctreeBuilder {
         cmdbuf
     }
 
-    pub fn build(
+    pub fn build_and_alloc(
         &mut self,
         build_type: FragListBuildType,
         vulkan_context: &VulkanContext,

@@ -7,6 +7,7 @@ use super::Resources;
 use crate::geom::build_bvh;
 use crate::geom::Aabb;
 use crate::geom::BvhNode;
+use crate::geom::Cuboid;
 use crate::geom::RoundCone;
 use crate::tree_gen::Tree;
 use crate::util::ShaderCompiler;
@@ -127,10 +128,10 @@ impl Builder {
 
         let timer = Timer::new();
         for chunk_pos in chunk_positions.iter() {
-            self.check_chunk_pos(*chunk_pos)?;
+            self.is_chunk_in_bound(*chunk_pos)?;
             let atlas_offset = *chunk_pos * self.voxel_dim;
             let atlas_dim = self.voxel_dim;
-            self.build_octree(FragListBuildType::ChunkAtlas, atlas_offset, atlas_dim)?;
+            self.build_and_alloc_octree(FragListBuildType::ChunkAtlas, atlas_offset, atlas_dim)?;
         }
         log::debug!(
             "Average octree time: {:?}",
@@ -141,63 +142,8 @@ impl Builder {
         return Ok(());
     }
 
-    /// Debug only function
-    pub fn create_scene_bvh(&mut self, tree: &Tree, tree_pos: Vec3) {
-        let mut leaves = tree.leaves().to_vec();
-
-        for leaf in &mut leaves {
-            leaf.transform(tree_pos);
-        }
-        for leaf in &mut leaves {
-            leaf.scale(1.0 / self.voxel_dim.as_vec3());
-        }
-        let mut trunk_aabbs = Vec::new();
-        for leaf in &leaves {
-            trunk_aabbs.push(leaf.aabb());
-        }
-
-        let leaves_data: Vec<u32> = vec![0; trunk_aabbs.len()]; // TODO:
-        let bvh_nodes = build_bvh(&trunk_aabbs, &leaves_data).unwrap();
-
-        update_scene_bvh_nodes(&self.resources, &bvh_nodes);
-
-        fn update_scene_bvh_nodes(resources: &Resources, bvh_nodes: &[BvhNode]) {
-            for i in 0..bvh_nodes.len() {
-                let bvh_node = &bvh_nodes[i];
-
-                let combined_offset: u32 = if bvh_node.is_leaf {
-                    let primitive_idx = bvh_node.data_offset;
-                    0x8000_0000 | primitive_idx
-                } else {
-                    bvh_node.left
-                };
-                let data = StructMemberDataBuilder::from_buffer(resources.scene_bvh_nodes())
-                    .set_field(
-                        "data.aabb_min",
-                        PlainMemberTypeWithData::Vec3(bvh_node.aabb.min().to_array()),
-                    )
-                    .unwrap()
-                    .set_field(
-                        "data.aabb_max",
-                        PlainMemberTypeWithData::Vec3(bvh_node.aabb.max().to_array()),
-                    )
-                    .unwrap()
-                    .set_field(
-                        "data.offset",
-                        PlainMemberTypeWithData::UInt(combined_offset),
-                    )
-                    .unwrap()
-                    .get_data_u8();
-                resources
-                    .scene_bvh_nodes()
-                    .fill_element_with_raw_u8(&data, i as u64)
-                    .unwrap();
-            }
-        }
-    }
-
     fn build_chunk_data(&mut self, chunk_pos: UVec3) -> Result<(), String> {
-        self.check_chunk_pos(chunk_pos)?;
+        self.is_chunk_in_bound(chunk_pos)?;
         self.chunk_writer.chunk_init(
             &self.vulkan_context,
             &self.resources,
@@ -207,7 +153,7 @@ impl Builder {
         return Ok(());
     }
 
-    fn check_chunk_pos(&self, chunk_pos: UVec3) -> Result<(), String> {
+    fn is_chunk_in_bound(&self, chunk_pos: UVec3) -> Result<(), String> {
         if chunk_pos.x >= self.chunk_dim.x
             || chunk_pos.y >= self.chunk_dim.y
             || chunk_pos.z >= self.chunk_dim.z
@@ -223,7 +169,7 @@ impl Builder {
         bvh_nodes: &[BvhNode],
         round_cones: &[RoundCone],
     ) -> Result<(), String> {
-        self.check_chunk_pos(chunk_pos)?;
+        self.is_chunk_in_bound(chunk_pos)?;
         self.chunk_writer.chunk_modify(
             &self.vulkan_context,
             &self.resources,
@@ -245,57 +191,62 @@ impl Builder {
         );
     }
 
-    pub fn create_leaf(&mut self, leaf_color: Vec3, leaf_chunk_dim: UVec3) -> Result<(), String> {
-        let allocated_offset = self.chunk_writer.create_leaf(
-            &self.vulkan_context,
-            &self.resources,
-            leaf_color,
-            leaf_chunk_dim,
-        );
-        self.build_octree(
-            FragListBuildType::FreeAtlas,
-            allocated_offset,
-            leaf_chunk_dim,
-        )?;
-        Ok(())
+    pub fn add_tree(
+        &mut self,
+        tree: &Tree,
+        tree_pos: Vec3,
+        leaf_chunk_dim: UVec3,
+    ) -> Result<(), String> {
+        self.add_tree_trunks(tree, tree_pos)?;
+        self.add_tree_leaves(tree, tree_pos, leaf_chunk_dim)?;
+        return Ok(());
     }
 
-    pub fn add_tree(&mut self, tree: &Tree, tree_pos: Vec3) -> Result<(), String> {
-        let mut trunks = tree.trunks().to_vec();
-        for trunk in &mut trunks {
-            trunk.transform(tree_pos);
-        }
-
-        let mut trunk_aabbs = Vec::new();
-        for trunk in &trunks {
-            trunk_aabbs.push(trunk.aabb());
-        }
-
-        let leaves_data: Vec<u32> = (0..trunk_aabbs.len() as u32).collect();
-        let bvh_nodes = build_bvh(&trunk_aabbs, &leaves_data).unwrap();
+    fn add_tree_trunks(&mut self, tree: &Tree, tree_pos: Vec3) -> Result<(), String> {
+        let trunks = get_trunks(tree, tree_pos);
+        let bvh_nodes = get_trunks_bvh(&trunks)?;
 
         let bounding_box = &bvh_nodes[0].aabb; // the root node of the BVH
 
         let affacted_chunk_positions =
-            determine_relative_chunk_positions(self.voxel_dim, bounding_box).unwrap();
+            determine_relative_chunk_positions(self.voxel_dim, bounding_box)?;
         let in_bound_chunk_positions =
             select_only_in_bound_chunk_positions(affacted_chunk_positions, self.chunk_dim);
 
+        // modify affacted chunks
         for chunk_pos in in_bound_chunk_positions.iter() {
-            self.build_chunk_data(*chunk_pos)?; // this allows the tree to be built in place, with removal of the old tree on the same chunk
+            self.is_chunk_in_bound(*chunk_pos)?;
+            // this allows the tree to be built in place, with removal of the old tree on the same chunk
+            self.build_chunk_data(*chunk_pos)?;
             self.modify_chunk(*chunk_pos, &bvh_nodes, &trunks)?;
         }
 
+        // build octree for each chunk, this step must be after all chunks are modified
         for chunk_pos in in_bound_chunk_positions.iter() {
-            self.check_chunk_pos(*chunk_pos)?;
             let atlas_offset = chunk_pos * self.voxel_dim;
             let atlas_dim = self.voxel_dim;
-            self.build_octree(FragListBuildType::ChunkAtlas, atlas_offset, atlas_dim)?;
+            self.build_and_alloc_octree(FragListBuildType::ChunkAtlas, atlas_offset, atlas_dim)?;
         }
 
         self.update_octree_offset_atlas_tex();
 
-        return Ok(());
+        fn get_trunks(tree: &Tree, tree_pos: Vec3) -> Vec<RoundCone> {
+            let mut trunks = tree.trunks().to_vec();
+            for trunk in &mut trunks {
+                trunk.transform(tree_pos);
+            }
+            return trunks;
+        }
+
+        fn get_trunks_bvh(trunks: &[RoundCone]) -> Result<Vec<BvhNode>, String> {
+            let mut trunk_aabbs = Vec::new();
+            for trunk in trunks {
+                trunk_aabbs.push(trunk.aabb());
+            }
+            let leaves_data: Vec<u32> = (0..trunk_aabbs.len() as u32).collect();
+            let bvh_nodes = build_bvh(&trunk_aabbs, &leaves_data)?;
+            return Ok(bvh_nodes);
+        }
 
         fn determine_relative_chunk_positions(
             voxel_dim: UVec3,
@@ -343,9 +294,91 @@ impl Builder {
             }
             return selected_chunk_positions;
         }
+
+        return Ok(());
     }
 
-    fn build_octree(
+    fn add_tree_leaves(
+        &mut self,
+        tree: &Tree,
+        tree_pos: Vec3,
+        leaf_chunk_dim: UVec3,
+    ) -> Result<(), String> {
+        let allocated_offset = self.chunk_writer.create_leaf(
+            &self.vulkan_context,
+            &self.resources,
+            Vec3::new(1.0, 0.2, 0.0), // TODO:
+            leaf_chunk_dim,
+        );
+        self.build_and_alloc_octree(
+            FragListBuildType::FreeAtlas,
+            allocated_offset,
+            leaf_chunk_dim,
+        )?;
+
+        let leaves = get_leaves(tree, tree_pos, self.voxel_dim);
+        let bvh_nodes = get_leaves_bvh(&leaves)?;
+
+        update_buffers(&self.resources, &bvh_nodes);
+
+        return Ok(());
+        fn get_leaves(tree: &Tree, tree_pos: Vec3, voxel_dim: UVec3) -> Vec<Cuboid> {
+            let mut leaves = tree.leaves().to_vec();
+            for leaf in &mut leaves {
+                leaf.transform(tree_pos);
+            }
+            for leaf in &mut leaves {
+                leaf.scale(1.0 / voxel_dim.as_vec3());
+            }
+            return leaves;
+        }
+
+        fn get_leaves_bvh(leaves: &[Cuboid]) -> Result<Vec<BvhNode>, String> {
+            let mut leaf_aabbs = Vec::new();
+            for leaf in leaves {
+                leaf_aabbs.push(leaf.aabb());
+            }
+            let leaves_data: Vec<u32> = vec![0; leaf_aabbs.len()]; // TODO:
+            let bvh_nodes = build_bvh(&leaf_aabbs, &leaves_data)?;
+            return Ok(bvh_nodes);
+        }
+
+        fn update_buffers(resources: &Resources, bvh_nodes: &[BvhNode]) {
+            for i in 0..bvh_nodes.len() {
+                let bvh_node = &bvh_nodes[i];
+
+                let combined_offset: u32 = if bvh_node.is_leaf {
+                    let primitive_idx = bvh_node.data_offset;
+                    0x8000_0000 | primitive_idx
+                } else {
+                    bvh_node.left
+                };
+                let data = StructMemberDataBuilder::from_buffer(resources.scene_bvh_nodes())
+                    .set_field(
+                        "data.aabb_min",
+                        PlainMemberTypeWithData::Vec3(bvh_node.aabb.min().to_array()),
+                    )
+                    .unwrap()
+                    .set_field(
+                        "data.aabb_max",
+                        PlainMemberTypeWithData::Vec3(bvh_node.aabb.max().to_array()),
+                    )
+                    .unwrap()
+                    .set_field(
+                        "data.offset",
+                        PlainMemberTypeWithData::UInt(combined_offset),
+                    )
+                    .unwrap()
+                    .get_data_u8();
+                resources
+                    .scene_bvh_nodes()
+                    .fill_element_with_raw_u8(&data, i as u64)
+                    .unwrap();
+            }
+        }
+    }
+
+    fn build_and_alloc_octree(
         &mut self,
         build_type: FragListBuildType,
         atlas_offset: UVec3,
@@ -377,7 +410,7 @@ impl Builder {
             );
         }
 
-        self.octree_builder.build(
+        self.octree_builder.build_and_alloc(
             build_type,
             &self.vulkan_context,
             &self.resources,
