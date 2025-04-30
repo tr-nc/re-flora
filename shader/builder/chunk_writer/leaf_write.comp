@@ -45,8 +45,15 @@ void main() {
         return;
     }
 
-    float noise     = compute_noise(vec3(uvi) / 256.0);
-    uint voxel_type = get_voxel_type(noise);
+    // float noise     = compute_noise(vec3(uvi) / 256.0);
+    // uint voxel_type = get_voxel_type(noise);
+
+    // debug use checkerboard pattern
+    uint voxel_type = VOXEL_TYPE_LEAF;
+    if (mod(uvi.x + uvi.y + uvi.z, 2) == 0) {
+        voxel_type = VOXEL_TYPE_EMPTY;
+        return;
+    }
 
     ivec3 atlas_base_offset = ivec3(leaf_write_info.atlas_write_offset);
     imageStore(atlas, atlas_base_offset + uvi, uvec4(voxel_type, 0, 0, 0));

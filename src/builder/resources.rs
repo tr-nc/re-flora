@@ -338,7 +338,7 @@ impl OctreeResources {
             gpu_allocator::MemoryLocation::GpuToCpu,
         );
 
-        let single_octree_buffer_size = 50 * 1024 * 1024; // 50 MB
+        let single_octree_buffer_size = 100 * 1024 * 1024; // 100 MB
         let octree_data_single = Buffer::new_sized(
             device.clone(),
             allocator.clone(),

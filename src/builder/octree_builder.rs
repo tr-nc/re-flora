@@ -461,14 +461,9 @@ impl OctreeBuilder {
             self.octree_buffer_allocator
                 .deallocate(allocation_id)
                 .unwrap();
-
-            if build_type == FragListBuildType::FreeAtlas {
-                log::debug!("Freed atlas allocation: {:?}", atlas_offset);
-            }
         }
         let allocation = self.octree_buffer_allocator.allocate(buffer_size).unwrap();
         table.insert(atlas_offset, allocation.id);
-
         return allocation.offset;
     }
 

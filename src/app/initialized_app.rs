@@ -383,7 +383,7 @@ impl InitializedApp {
                                         .add(
                                             egui::Slider::new(
                                                 &mut self.tree_desc.leaves_size_level,
-                                                0..=10,
+                                                1..=8,
                                             )
                                             .text("Leaves size level"),
                                         )

@@ -301,21 +301,21 @@ impl Builder {
             Vec3::new(1.0, 0.2, 0.0), // TODO:
             leaf_chunk_dim,
         );
-        let octree_offset = self.build_and_alloc_octree(
+        let octree_offset_in_bytes = self.build_and_alloc_octree(
             FragListBuildType::FreeAtlas,
             allocated_offset,
             leaf_chunk_dim,
         )?;
 
-        if let Some(octree_offset) = octree_offset {
-            log::debug!("Octree offset: {:?}", octree_offset);
+        if let Some(octree_offset_in_bytes) = octree_offset_in_bytes {
+            log::debug!("Octree offset: {:?}", octree_offset_in_bytes);
         } else {
             return Err("Octree offset is None, this is not allowed for leaves data!".to_string());
         }
+        let offset_in_u32 = octree_offset_in_bytes.unwrap() / std::mem::size_of::<u32>() as u64;
 
         let leaves = get_leaves(tree, tree_pos, self.voxel_dim);
-        let bvh_nodes = get_leaves_bvh(&leaves, octree_offset.unwrap())?;
-        log::debug!("bvh_nodes: {:#?}", bvh_nodes);
+        let bvh_nodes = get_leaves_bvh(&leaves, offset_in_u32)?;
 
         update_buffers(&self.resources, &bvh_nodes);
 
