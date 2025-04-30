@@ -354,6 +354,17 @@ impl InitializedApp {
                                             .text("Trunk Thickness"),
                                         )
                                         .changed();
+
+                                    tree_desc_changed |= ui
+                                        .add(
+                                            egui::Slider::new(
+                                                &mut self.tree_desc.trunk_thickness_min,
+                                                1.05..=2.0,
+                                            )
+                                            .text("Trunk Thickness Min"),
+                                        )
+                                        .changed();
+
                                     tree_desc_changed |= ui
                                         .add(
                                             egui::Slider::new(

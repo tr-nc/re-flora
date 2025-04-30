@@ -8,6 +8,7 @@ use crate::geom::{Cuboid, RoundCone};
 pub struct TreeDesc {
     pub size: f32,
     pub trunk_thickness: f32,
+    pub trunk_thickness_min: f32,
     pub spread: f32,
     pub twisted: f32,
     pub leaves_size: u32,
@@ -22,6 +23,8 @@ impl Default for TreeDesc {
         TreeDesc {
             size: 3.0,
             trunk_thickness: 1.0,
+            // tested to be the minimum thickness of the trunk, otherwise normal calculation has probability to fail
+            trunk_thickness_min: 1.05,
             spread: 0.5,
             twisted: 0.5,
             leaves_size: 12,
@@ -108,9 +111,12 @@ impl Tree {
             let t = ((i as f32) / iter_f).sqrt();
             let branch_len = branch_len_start + t * (branch_len_end - branch_len_start);
 
-            let thickness_start = (1.0 - t) * trunk_thickness;
             let t_next = (((i + 1) as f32) / iter_f).sqrt();
-            let thickness_end = (1.0 - t_next) * trunk_thickness;
+            let mut thickness_start = (1.0 - t) * trunk_thickness;
+            let mut thickness_end = (1.0 - t_next) * trunk_thickness;
+
+            thickness_start = thickness_start.max(desc.trunk_thickness_min);
+            thickness_end = thickness_end.max(desc.trunk_thickness_min);
 
             let end = pos + dir * branch_len;
 

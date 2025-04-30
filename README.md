@@ -91,6 +91,8 @@ https://rust-unofficial.github.io/patterns/patterns/structural/small-crates.html
 
 [Exploring an Infinite Voxel Forest](https://www.youtube.com/watch?v=1wufuXY3l1o)
 
+[Animated Voxel Trees - Detail Enhancement Preview](https://www.youtube.com/watch?v=BObFTsNeeGc)
+
 [Voxel Water Physics](https://www.youtube.com/watch?v=1R5WFZk86kE)
 
 [Ray tracing Sound in a voxel world](https://www.youtube.com/watch?v=of3HwxfAoQU)
