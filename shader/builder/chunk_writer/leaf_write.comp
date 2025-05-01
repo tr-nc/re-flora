@@ -21,12 +21,20 @@ float random_float_01(vec3 p) {
 }
 
 /// density ranges from 0 to 1
-uint get_voxel_type(float density, float radius_cutoff, float current_r, float weight) {
+uint get_voxel_type(float density, ivec3 uvi, float radius_cutoff, float solid_leaf_radius) {
+    float current_r = length(vec3(uvi) - vec3(leaf_write_info.atlas_write_dim) * 0.5);
+    current_r /= length(vec3(leaf_write_info.atlas_write_dim) * 0.5); // normalize to [0, 1]
+
     if (current_r > radius_cutoff) {
         return VOXEL_TYPE_EMPTY;
     }
 
-    if (weight < density) {
+    if (current_r < solid_leaf_radius) {
+        return VOXEL_TYPE_EMPTY;
+    }
+
+    const float noise = random_float_01(vec3(uvi));
+    if (noise < density) {
         return VOXEL_TYPE_LEAF;
     }
     return VOXEL_TYPE_EMPTY;
@@ -38,13 +46,11 @@ void main() {
         return;
     }
 
-    const float noise         = random_float_01(vec3(uvi));
-    const float density       = 0.004;
-    const float radius_cutoff = 0.6;
-    float current_r           = length(vec3(uvi) - vec3(leaf_write_info.atlas_write_dim) * 0.5);
-    current_r /= length(vec3(leaf_write_info.atlas_write_dim) * 0.5); // normalize to [0, 1]
+    const float density           = 0.02;
+    const float radius_cutoff     = 0.56;
+    const float solid_leaf_radius = 0.45;
 
-    uint voxel_type = get_voxel_type(density, radius_cutoff, current_r, noise);
+    uint voxel_type = get_voxel_type(density, uvi, radius_cutoff, solid_leaf_radius);
 
     ivec3 atlas_base_offset = ivec3(leaf_write_info.atlas_write_offset);
     imageStore(atlas, atlas_base_offset + uvi, uvec4(voxel_type, 0, 0, 0));

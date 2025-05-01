@@ -156,7 +156,7 @@ impl InitializedApp {
             time_info: TimeInfo::default(),
 
             debug_float: 0.0,
-            tree_pos: Vec3::new(128.0, 30.0, 128.0),
+            tree_pos: Vec3::new(216.0, 97.0, 128.0),
             tree_desc,
         };
         this.init();

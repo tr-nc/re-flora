@@ -22,8 +22,8 @@ pub struct TreeDesc {
 impl Default for TreeDesc {
     fn default() -> Self {
         TreeDesc {
-            size: 3.0,
-            trunk_thickness: 1.45,
+            size: 2.5,
+            trunk_thickness: 0.8,
             // tested to be the minimum thickness of the trunk, otherwise normal calculation has probability to fail
             trunk_thickness_min: 1.05,
             spread: 0.47,

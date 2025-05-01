@@ -55,7 +55,7 @@ void main() {
         vec3 normal_color;
         if (dda_svo_marching_result.hit_svo_result.is_normal_valid) {
             normal_color = dda_svo_marching_result.hit_svo_result.normal * 0.5 + 0.5;
-            normal_color *= 0.2;
+            normal_color *= 0.1;
         } else {
             normal_color = vec3(1.0, 1.0, 1.0);
         }

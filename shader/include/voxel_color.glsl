@@ -4,7 +4,7 @@
 #include "./core/color.glsl"
 #include "./voxel_type.glsl"
 
-// https://colorhunt.co/palette/5b913b77b254ffe8b6d99d81
+// https://colorhunt.co/
 // all color pickers are in sRGB space for human preservation, but lighting calculations are done in
 // linear space
 vec3 voxel_color_by_type_srgb(uint voxel_type) {
@@ -13,7 +13,7 @@ vec3 voxel_color_by_type_srgb(uint voxel_type) {
     } else if (voxel_type == VOXEL_TYPE_LEAF) {
         return vec3(0.95, 0.78, 0.14);
     } else if (voxel_type == VOXEL_TYPE_CHUNK) {
-        return vec3(0.65, 0.4, 0.27);
+        return vec3(0.39, 0.29, 0.03);
     }
     // empty voxel shouldn't be rendered at all
     return vec3(0.0);
