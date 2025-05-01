@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use glam::UVec3;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;

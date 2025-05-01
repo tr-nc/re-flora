@@ -35,15 +35,4 @@ impl Aabb {
     pub fn dimensions(&self) -> Vec3 {
         self.max() - self.min()
     }
-
-    // utilities:
-    
-    /// Compute the union (bounding box) of the chunks in the range [start, end)
-    pub fn get_union_aabb(aabbs: &[Aabb], start: usize, end: usize) -> Aabb {
-        let mut aabb = aabbs[start].clone();
-        for i in start + 1..end {
-            aabb = aabb.union(&aabbs[i]);
-        }
-        aabb
-    }
 }

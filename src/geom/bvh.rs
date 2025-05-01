@@ -69,16 +69,16 @@ fn build_bvh_recursive_in_place(
 
     /* ------------------------------------------------- 1) union AABB ----- */
 
-    let mut union = aabb_idx_pair[start].0.clone();
+    let mut unioned = aabb_idx_pair[start].0.clone();
     for i in (start + 1)..end {
-        union = union.union(&aabb_idx_pair[i].0);
+        unioned = unioned.union(&aabb_idx_pair[i].0);
     }
 
     /* ------------------------------------------------- leaf -------------- */
 
     if count == 1 {
         nodes[node_index] = BvhNode {
-            aabb: union,
+            aabb: unioned,
             data_offset: aabb_idx_pair[start].1,
             left: 0,
             is_leaf: true,
@@ -89,7 +89,7 @@ fn build_bvh_recursive_in_place(
     /* ------------------------------------------------- internal ---------- */
 
     // 2) choose longest axis
-    let dims = union.dimensions();
+    let dims = unioned.dimensions();
     let axis = if dims.x >= dims.y && dims.x >= dims.z {
         0
     } else if dims.y >= dims.x && dims.y >= dims.z {
@@ -114,12 +114,12 @@ fn build_bvh_recursive_in_place(
 
     // 5) allocate *two consecutive* children
     let left_index = nodes.len();
-    nodes.push(dummy_node(&union)); // left
-    nodes.push(dummy_node(&union)); // right   ( => left + 1 )
+    nodes.push(dummy_node(&unioned)); // left
+    nodes.push(dummy_node(&unioned)); // right   ( => left + 1 )
 
     // 6) fill the current parent
     nodes[node_index] = BvhNode {
-        aabb: union,
+        aabb: unioned,
         data_offset: 0,
         left: left_index as u32,
         is_leaf: false,

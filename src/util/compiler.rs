@@ -1,4 +1,3 @@
-use crate::util::get_project_root;
 use shaderc::{CompileOptions, Compiler, OptimizationLevel};
 use std::path::{Path, PathBuf};
 
