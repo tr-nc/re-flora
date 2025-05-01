@@ -162,6 +162,8 @@ void main() {
         dda_svo_marching(ivec3(scene_info.visible_chunk_dim), ray.origin, ray.direction);
 
     vec3 ray_color = vec3(0.0);
+    float depth    = 1e30; // +INF : nothing hit yet
+
     if (dda_svo_marching_result.is_hit) {
         vec3 normal_color;
         if (dda_svo_marching_result.hit_svo_result.is_normal_valid) {
@@ -175,15 +177,17 @@ void main() {
             voxel_srgb_color_by_type(dda_svo_marching_result.hit_svo_result.voxel_type));
 
         ray_color = mix(voxel_color, normal_color, 0.5);
+        depth     = dda_svo_marching_result.hit_svo_result.t;
     }
 
     BvhSvoMarchingResult bvh_svo_marching_result = traverse_bvh(ray);
-    if (bvh_svo_marching_result.is_hit) {
+    if (bvh_svo_marching_result.is_hit && depth > bvh_svo_marching_result.hit_svo_result.t) {
         if (bvh_svo_marching_result.hit_svo_result.is_normal_valid) {
             ray_color = bvh_svo_marching_result.hit_svo_result.normal * 0.5 + 0.5;
         } else {
             ray_color = vec3(1.0, 1.0, 1.0);
         }
+        depth = bvh_svo_marching_result.hit_svo_result.t;
     }
 
     imageStore(result_image, uvi, vec4(ray_color, 1.0));
