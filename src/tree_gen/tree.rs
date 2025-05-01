@@ -38,19 +38,23 @@ impl Default for TreeDesc {
 }
 
 #[derive(Debug)]
+struct BuiltObjects {
+    trunks: Vec<RoundCone>,
+    leaves: Vec<Cuboid>,
+}
+
+#[derive(Debug)]
 pub struct Tree {
     desc: TreeDesc,
-    trunks: Vec<RoundCone>,
-    leaf_positions: Vec<Vec3>,
+    built_objects: BuiltObjects,
 }
 
 impl Tree {
     pub fn new(desc: TreeDesc) -> Self {
-        let (trunks, leaf_positions) = Self::build(&desc);
+        let built_objects = Self::build(&desc);
         Tree {
             desc,
-            trunks,
-            leaf_positions,
+            built_objects,
         }
     }
 
@@ -59,23 +63,18 @@ impl Tree {
     }
 
     pub fn trunks(&self) -> &[RoundCone] {
-        &self.trunks
+        &self.built_objects.trunks
     }
 
-    pub fn leaves(&self) -> Vec<Cuboid> {
-        let mut leaves = Vec::new();
-        for pos in &self.leaf_positions {
-            let half_size = Vec3::splat(2_u32.pow(self.desc.leaves_size_level) as f32 * 0.5);
-            leaves.push(Cuboid::new(*pos, half_size));
-        }
-        leaves
+    pub fn leaves(&self) -> &[Cuboid] {
+        &self.built_objects.leaves
     }
 
     /// Build the tree: generate branch primitives and leaf positions.
-    fn build(desc: &TreeDesc) -> (Vec<RoundCone>, Vec<Vec3>) {
+    fn build(desc: &TreeDesc) -> BuiltObjects {
         let mut rng = StdRng::seed_from_u64(desc.seed);
         let mut trunks = Vec::new();
-        let mut leaves = Vec::new();
+        let mut leaves_positions = Vec::new();
 
         // Precompute branch length parameters and trunk thickness
         let size = 150.0 * desc.size / desc.iterations as f32;
@@ -93,11 +92,13 @@ impl Tree {
             branch_len_end,
             trunk_thickness,
             &mut trunks,
-            &mut leaves,
+            &mut leaves_positions,
             &mut rng,
         );
 
-        return (trunks, leaves);
+        let leaves = make_leaves(&leaves_positions, desc.leaves_size_level);
+
+        return BuiltObjects { trunks, leaves };
 
         // Recursive branch generation
         fn recurse(
@@ -159,6 +160,15 @@ impl Tree {
                 // Leaf spawn point at the midpoint of the last segment
                 leaves.push((pos + end) * 0.5);
             }
+        }
+
+        fn make_leaves(leaves_positions: &[Vec3], leaves_size_level: u32) -> Vec<Cuboid> {
+            let mut leaves = Vec::new();
+            for pos in leaves_positions {
+                let half_size = Vec3::splat(2_u32.pow(leaves_size_level) as f32 * 0.5);
+                leaves.push(Cuboid::new(*pos, half_size));
+            }
+            leaves
         }
     }
 }

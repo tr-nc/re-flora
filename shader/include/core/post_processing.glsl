@@ -1,7 +1,7 @@
 #ifndef POST_PROCESSING_GLSL
 #define POST_PROCESSING_GLSL
 
-#include "../include/core/color.glsl"
+#include "./color.glsl"
 
 // tunemap operators
 // taken from: https://64.github.io/tonemapping

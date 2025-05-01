@@ -1,12 +1,8 @@
-#ifndef VOXEL_TYPE_GLSL
-#define VOXEL_TYPE_GLSL
+#ifndef VOXEL_COLOR_GLSL
+#define VOXEL_COLOR_GLSL
 
-#include "../include/core/color.glsl"
-
-const uint VOXEL_TYPE_EMPTY      = 0;
-const uint VOXEL_TYPE_GRASS_LAND = 1;
-const uint VOXEL_TYPE_LEAF       = 2;
-const uint VOXEL_TYPE_CHUNK      = 3;
+#include "./core/color.glsl"
+#include "./voxel_type.glsl"
 
 // https://colorhunt.co/palette/5b913b77b254ffe8b6d99d81
 // all color pickers are in sRGB space for human preservation, but lighting calculations are done in
@@ -27,4 +23,4 @@ vec3 voxel_color_by_type_unorm(uint voxel_type) {
     return srgb_to_linear(voxel_color_by_type_srgb(voxel_type));
 }
 
-#endif // VOXEL_TYPE_GLSL
+#endif // VOXEL_COLOR_GLSL

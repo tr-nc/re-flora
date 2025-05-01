@@ -10,7 +10,7 @@ layout(set = 0, binding = 1, r8ui) writeonly uniform uimage3D raw_atlas;
 
 #include "../../include/config.glsl"
 #include "../../include/core/inoise.glsl"
-#include "../../include/voxel_types.glsl"
+#include "../../include/voxel_type.glsl"
 
 float compute_noise(vec3 p) {
     float total       = 0.0;

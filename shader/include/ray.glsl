@@ -1,7 +1,7 @@
 #ifndef RAY_GLSL
 #define RAY_GLSL
 
-#include "../include/core/projection.glsl"
+#include "./core/projection.glsl"
 
 struct Ray {
     vec3 origin;

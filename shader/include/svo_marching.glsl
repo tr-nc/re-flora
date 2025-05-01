@@ -4,8 +4,8 @@
 #ifndef SVO_MARCHING_GLSL
 #define SVO_MARCHING_GLSL
 
-#include "../include/core/definitions.glsl"
-#include "../include/core/packer.glsl"
+#include "./core/definitions.glsl"
+#include "./core/packer.glsl"
 
 const uint STACK_SIZE = 23;
 

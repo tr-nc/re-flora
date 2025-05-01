@@ -4,9 +4,9 @@
 #ifndef DDA_SVO_MARCHING_GLSL
 #define DDA_SVO_MARCHING_GLSL
 
-#include "../include/core/definitions.glsl"
-#include "../include/dda_marching.glsl"
-#include "../include/svo_marching.glsl"
+#include "./core/definitions.glsl"
+#include "./dda_marching.glsl"
+#include "./svo_marching.glsl"
 
 struct DdaSvoMarchingResult {
     bool is_hit;

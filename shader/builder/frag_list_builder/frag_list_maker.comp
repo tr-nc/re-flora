@@ -29,7 +29,7 @@ layout(set = 0, binding = 3, r8ui) readonly uniform uimage3D atlas;
 #include "../../include/config.glsl"
 #include "../../include/core/definitions.glsl"
 #include "../../include/core/packer.glsl"
-#include "../../include/voxel_types.glsl"
+#include "../../include/voxel_type.glsl"
 
 #define SHARED_SIZE (GROUP_SIZE + 4) // 4 for halo
 #define SHARED_SIZE_3 (SHARED_SIZE * SHARED_SIZE * SHARED_SIZE)

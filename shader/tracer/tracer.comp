@@ -28,124 +28,12 @@ bvh_nodes;
 layout(set = 0, binding = 4) writeonly uniform image2D result_image;
 layout(set = 0, binding = 5, r8ui) readonly uniform uimage3D octree_offset_atlas_tex;
 
+#include "../include/bvh_svo_marching.glsl"
 #include "../include/core/aabb.glsl"
 #include "../include/dda_svo_marching.glsl"
 #include "../include/ray.glsl"
-#include "../include/voxel_types.glsl"
-
-///
-
-#ifndef BVH_SVO_MARCHING_GLSL
-#define BVH_SVO_MARCHING_GLSL
-
-#include "../include/bvh.glsl"
-#include "../include/core/aabb.glsl"
-#include "../include/svo_marching.glsl"
-
-struct BvhSvoMarchingResult {
-    bool is_hit;
-    uint total_iter; // all iterations for all svos
-    SvoMarchingResult hit_svo_result;
-};
-
-struct StackInfo {
-    uint node_index;
-    uint depth;
-};
-
-// -----------------------------------------------------------------------------
-// BVH traversal that returns the NEAREST real surface hit.
-// -----------------------------------------------------------------------------
-BvhSvoMarchingResult traverse_bvh(Ray ray) {
-    BvhSvoMarchingResult res;
-    res.is_hit     = false;
-    res.total_iter = 0u; // keep a running total for statistics only
-
-    float best_hit_depth = 1e30; // +INF : nothing hit yet
-
-    // Small explicit stack ----------------------------------------------------
-    const uint STACK_SIZE = 100u;
-    StackInfo stack[STACK_SIZE];
-    uint sp = 0u;
-
-    stack[sp++] = StackInfo(0u, 0u); // push root
-
-    while (sp > 0u) {
-        // pop
-        StackInfo si = stack[--sp];
-        uint nodeIdx = si.node_index;
-
-        // ---- AABB test ------------------------------------------------------
-        BvhNode node = bvh_nodes.data[nodeIdx];
-
-        float t_near, t_far;
-        if (!intersect_aabb(t_near, t_far, ray.origin, ray.inv_direction, node.aabb_min,
-                            node.aabb_max))
-            continue; // completely miss → skip
-
-        // no need to look farther than a hit we already have
-        if (t_near > best_hit_depth) continue;
-
-        // ---- Leaf -----------------------------------------------------------
-        if (is_leaf(node)) {
-            uint octree_offset = fetch_data(node);
-
-            vec3 offset = node.aabb_min;
-            vec3 scale  = node.aabb_max - node.aabb_min;
-
-            SvoMarchingResult r =
-                svo_marching(ray.origin, ray.direction, offset, scale, octree_offset);
-
-            res.total_iter += r.iter;
-
-            // keep the *nearest* real hit
-            if (r.is_hit && r.t < best_hit_depth) {
-                res.is_hit         = true;
-                res.hit_svo_result = r;
-                best_hit_depth     = r.t;
-            }
-            continue;
-        }
-
-        // ---- Internal node --------------------------------------------------
-        // children are stored *consecutively*: left = node.left, right = left+1
-        uint leftChild  = node.offset;
-        uint rightChild = node.offset + 1u;
-
-        // We still want to visit the nearer child first.
-        float t_near_l = 1e30, t_near_r = 1e30, dummy_far;
-        bool hitL =
-            intersect_aabb(t_near_l, dummy_far, ray.origin, ray.inv_direction,
-                           bvh_nodes.data[leftChild].aabb_min, bvh_nodes.data[leftChild].aabb_max);
-
-        bool hitR = intersect_aabb(t_near_r, dummy_far, ray.origin, ray.inv_direction,
-                                   bvh_nodes.data[rightChild].aabb_min,
-                                   bvh_nodes.data[rightChild].aabb_max);
-
-        // push the far child first (LIFO → near processed first)
-        if (hitL && hitR) {
-            uint first    = (t_near_l < t_near_r) ? leftChild : rightChild;
-            uint second   = (t_near_l < t_near_r) ? rightChild : leftChild;
-            float tFirst  = min(t_near_l, t_near_r);
-            float tSecond = max(t_near_l, t_near_r);
-
-            if (tSecond < best_hit_depth && sp < STACK_SIZE)
-                stack[sp++] = StackInfo(second, si.depth + 1u);
-            if (tFirst < best_hit_depth && sp < STACK_SIZE)
-                stack[sp++] = StackInfo(first, si.depth + 1u);
-        } else if (hitL && t_near_l < best_hit_depth && sp < STACK_SIZE) {
-            stack[sp++] = StackInfo(leftChild, si.depth + 1u);
-        } else if (hitR && t_near_r < best_hit_depth && sp < STACK_SIZE) {
-            stack[sp++] = StackInfo(rightChild, si.depth + 1u);
-        }
-    }
-
-    return res;
-}
-
-#endif // BVH_SVO_MARCHING_GLSL
-
-///
+#include "../include/voxel_color.glsl"
+#include "../include/voxel_type.glsl"
 
 void main() {
     ivec2 uvi      = ivec2(gl_GlobalInvocationID.xy);
@@ -179,14 +67,14 @@ void main() {
         depth     = dda_svo_marching_result.hit_svo_result.t;
     }
 
-    BvhSvoMarchingResult bvh_svo_marching_result = traverse_bvh(ray);
+    BvhSvoMarchingResult bvh_svo_marching_result =
+        traverse_bvh(ray.origin, ray.direction, ray.inv_direction);
+
     if (bvh_svo_marching_result.is_hit && depth > bvh_svo_marching_result.hit_svo_result.t) {
-        if (bvh_svo_marching_result.hit_svo_result.is_normal_valid) {
-            ray_color = bvh_svo_marching_result.hit_svo_result.normal * 0.5 + 0.5;
-        } else {
-            ray_color = vec3(1.0, 1.0, 1.0);
-        }
-        depth = bvh_svo_marching_result.hit_svo_result.t;
+        vec3 voxel_color =
+            voxel_color_by_type_unorm(bvh_svo_marching_result.hit_svo_result.voxel_type);
+        ray_color = voxel_color;
+        depth     = bvh_svo_marching_result.hit_svo_result.t;
     }
 
     imageStore(result_image, uvi, vec4(ray_color, 1.0));

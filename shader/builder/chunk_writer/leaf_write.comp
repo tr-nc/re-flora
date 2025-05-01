@@ -4,7 +4,7 @@
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
 layout(set = 0, binding = 0) readonly uniform U_LeafWriteInfo {
-    vec3 leaf_color;
+    vec3 leaf_color; // TODO: remove this
     uvec3 atlas_write_offset;
     uvec3 atlas_write_dim;
 }
@@ -13,7 +13,7 @@ leaf_write_info;
 layout(set = 0, binding = 1, r8ui) writeonly uniform uimage3D atlas;
 
 #include "../../include/core/hash.glsl"
-#include "../../include/voxel_types.glsl"
+#include "../../include/voxel_type.glsl"
 
 float random_float_01(vec3 p) {
     // if all three are integer values, the noise is fixed to zero
