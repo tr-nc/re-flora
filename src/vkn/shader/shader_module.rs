@@ -349,8 +349,6 @@ fn extract_buffer_layouts(
             descriptor_type,
         };
 
-        log::debug!("Buffer layout: {:#?}", layout);
-
         result.insert(ty, layout);
     }
 

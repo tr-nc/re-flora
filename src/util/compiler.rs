@@ -1,9 +1,6 @@
-use crate::util::get_full_path_to_dir;
+use crate::util::get_project_root;
 use shaderc::{CompileOptions, Compiler, OptimizationLevel};
-use std::sync::Mutex;
-
-/// Global cache to store the requesting source when include_depth is 1.
-static REQUESTING_SOURCE_CACHE: Mutex<Option<String>> = Mutex::new(None);
+use std::path::{Path, PathBuf};
 
 #[allow(unused)]
 pub struct ShaderCompiler<'a> {
@@ -13,45 +10,40 @@ pub struct ShaderCompiler<'a> {
 
 fn custom_include_callback(
     requested_source: &str,
-    _include_type: shaderc::IncludeType,
+    include_type: shaderc::IncludeType,
     requesting_source: &str,
-    include_depth: usize,
+    _include_depth: usize,
 ) -> Result<shaderc::ResolvedInclude, String> {
-    // when include_depth is 1, cache the requesting source
-    if include_depth == 1 {
-        let mut cache = REQUESTING_SOURCE_CACHE
-            .lock()
-            .map_err(|_| "Mutex poisoned".to_string())?;
-        *cache = Some(requesting_source.to_string());
-    }
-    // when include_depth > 1, try to override the requesting source using the cached value
-    else if include_depth > 1 {
-        let cache = REQUESTING_SOURCE_CACHE
-            .lock()
-            .map_err(|_| "Mutex poisoned".to_string())?;
-        if let Some(ref cached_source) = *cache {
-            let full_path_to_dir = get_full_path_to_dir(cached_source);
-            let concated_path = full_path_to_dir.to_string() + requested_source;
-            let source = std::fs::read_to_string(&concated_path).map_err(|e| e.to_string())?;
-            return Ok(shaderc::ResolvedInclude {
-                resolved_name: requested_source.to_string(),
-                content: source,
-            });
-        } else {
-            log::error!(
-                "No cached requesting source available for depth > 1, using current requesting source."
-            );
-        }
-    }
+    let base_dir = get_base_dir(include_type, requesting_source)?;
 
-    // fallback: use the provided requesting_source if no cached source is available
-    let full_path_to_dir = get_full_path_to_dir(requesting_source);
-    let concated_path = full_path_to_dir.to_string() + requested_source;
-    let source = std::fs::read_to_string(&concated_path).map_err(|e| e.to_string())?;
-    Ok(shaderc::ResolvedInclude {
-        resolved_name: requested_source.to_string(),
-        content: source,
-    })
+    // create absolute path and normalise "..", ".", symlinks, …
+    let full_path = base_dir
+        .join(requested_source)
+        .canonicalize() // -> absolute, OS-native separators
+        .map_err(|e| format!("{}: {}", requested_source, e))?;
+
+    let content = std::fs::read_to_string(&full_path)
+        .map_err(|e| format!("{}: {}", full_path.display(), e))?;
+
+    return Ok(shaderc::ResolvedInclude {
+        resolved_name: full_path.to_string_lossy().into_owned(),
+        content,
+    });
+
+    fn get_base_dir(
+        include_type: shaderc::IncludeType,
+        requesting_source: &str,
+    ) -> Result<PathBuf, String> {
+        return match include_type {
+            shaderc::IncludeType::Relative => Ok(Path::new(requesting_source)
+                .parent()
+                .ok_or_else(|| format!("`{requesting_source}` has no parent directory"))?
+                .to_owned()),
+            shaderc::IncludeType::Standard => {
+                Err(format!("Standard include not supported for now",))
+            }
+        };
+    }
 }
 
 #[allow(unused)]
