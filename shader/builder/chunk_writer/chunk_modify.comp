@@ -65,8 +65,7 @@ void main() {
             float dst    = sd_round_cone(world_voxel_pos_f, rc.center_a, rc.center_b, rc.radius_a,
                                          rc.radius_b);
             if (dst < 0.0) {
-                imageStore(raw_atlas, world_voxel_pos,
-                           uvec4(chunk_modify_info.fill_voxel_type, 0, 0, 0));
+                imageStore(raw_atlas, world_voxel_pos, uvec4(VOXEL_TYPE_CHUNK, 0, 0, 0));
                 return;
             }
         } else {
