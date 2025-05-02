@@ -106,6 +106,10 @@ https://rust-unofficial.github.io/patterns/patterns/structural/small-crates.html
 
   [Animated Voxel Grass](https://www.youtube.com/watch?v=dGZDXaEXTOI)
 
+### Ray Tracing
+
+[Ray Tracing Pipeline vs Ray Query](https://tellusim.com/rt-perf/)
+
 # Special Thanks To
 
 [Implementation of ash with egui](https://github.com/adrien-ben/egui-ash-renderer)

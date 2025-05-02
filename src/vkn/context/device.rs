@@ -1,6 +1,10 @@
 use super::Queue;
 use super::{instance::Instance, physical_device::PhysicalDevice, queue::QueueFamilyIndices};
-use ash::{khr::swapchain, vk};
+use ash::vk::{
+    self, KHR_DEFERRED_HOST_OPERATIONS_NAME, KHR_PIPELINE_LIBRARY_NAME, KHR_RAY_QUERY_NAME,
+    KHR_RAY_TRACING_PIPELINE_NAME,
+};
+use ash::vk::{KHR_ACCELERATION_STRUCTURE_NAME, KHR_SWAPCHAIN_NAME};
 use std::collections::HashSet;
 
 use std::sync::Arc;
@@ -83,7 +87,14 @@ fn create_device(
             .collect::<Vec<_>>()
     };
 
-    let device_extensions_ptrs = [swapchain::NAME.as_ptr()];
+    let device_extensions_ptrs = [
+        KHR_SWAPCHAIN_NAME.as_ptr(),
+        KHR_ACCELERATION_STRUCTURE_NAME.as_ptr(),
+        KHR_DEFERRED_HOST_OPERATIONS_NAME.as_ptr(), // must be coupled with ACCLERATION_STRUCTURE
+        KHR_RAY_TRACING_PIPELINE_NAME.as_ptr(),
+        KHR_RAY_QUERY_NAME.as_ptr(),
+        KHR_PIPELINE_LIBRARY_NAME.as_ptr(),
+    ];
 
     let device_create_info = vk::DeviceCreateInfo::default()
         .queue_create_infos(&queue_create_infos)
