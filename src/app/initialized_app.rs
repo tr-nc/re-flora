@@ -73,7 +73,7 @@ impl InitializedApp {
         let allocator = Allocator::new(device, Arc::new(Mutex::new(gpu_allocator)));
 
         let swapchain = Swapchain::new(
-            &vulkan_context,
+            vulkan_context.clone(),
             &window_state.window_size(),
             SwapchainDesc {
                 present_mode: vk::PresentModeKHR::MAILBOX,

@@ -48,12 +48,12 @@ impl Drop for Swapchain {
 }
 
 impl Swapchain {
-    pub fn new(context: &VulkanContext, window_size: &[u32; 2], desc: SwapchainDesc) -> Self {
+    pub fn new(context: VulkanContext, window_size: &[u32; 2], desc: SwapchainDesc) -> Self {
         let (swapchain_device, swapchain_khr, image_views, render_pass, framebuffers) =
             create_vulkan_swapchain(&context, window_size, &desc);
 
         Self {
-            vulkan_context: context.clone(),
+            vulkan_context: context,
             render_pass,
             framebuffers,
             image_views,
