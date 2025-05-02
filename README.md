@@ -110,6 +110,10 @@ https://rust-unofficial.github.io/patterns/patterns/structural/small-crates.html
 
 [Ray Tracing Pipeline vs Ray Query](https://tellusim.com/rt-perf/)
 
+[Best Practices 1](https://developer.nvidia.com/blog/rtx-best-practices/)
+
+[Best Practices 2](https://developer.nvidia.com/blog/best-practices-using-nvidia-rtx-ray-tracing/)
+
 # Special Thanks To
 
 [Implementation of ash with egui](https://github.com/adrien-ben/egui-ash-renderer)

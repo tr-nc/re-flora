@@ -75,6 +75,20 @@ impl Buffer {
         );
     }
 
+    pub fn device_address(&self) -> vk::DeviceAddress {
+        let res;
+        unsafe {
+            res = self
+                .device
+                .get_buffer_device_address(&vk::BufferDeviceAddressInfo {
+                    buffer: self.buffer,
+                    ..Default::default()
+                });
+        }
+        log::debug!("Buffer device address: {:#x}", res);
+        return res;
+    }
+
     fn create_buffer_with_layout(
         device: Device,
         mut allocator: Allocator,

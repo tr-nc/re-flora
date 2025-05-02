@@ -1,8 +1,8 @@
 use super::Queue;
 use super::{instance::Instance, physical_device::PhysicalDevice, queue::QueueFamilyIndices};
 use ash::vk::{
-    self, KHR_DEFERRED_HOST_OPERATIONS_NAME, KHR_PIPELINE_LIBRARY_NAME, KHR_RAY_QUERY_NAME,
-    KHR_RAY_TRACING_PIPELINE_NAME,
+    self, KHR_BUFFER_DEVICE_ADDRESS_NAME, KHR_DEFERRED_HOST_OPERATIONS_NAME,
+    KHR_PIPELINE_LIBRARY_NAME, KHR_RAY_QUERY_NAME, KHR_RAY_TRACING_PIPELINE_NAME,
 };
 use ash::vk::{KHR_ACCELERATION_STRUCTURE_NAME, KHR_SWAPCHAIN_NAME};
 use std::collections::HashSet;
@@ -94,11 +94,25 @@ fn create_device(
         KHR_RAY_TRACING_PIPELINE_NAME.as_ptr(),
         KHR_RAY_QUERY_NAME.as_ptr(),
         KHR_PIPELINE_LIBRARY_NAME.as_ptr(),
+        KHR_BUFFER_DEVICE_ADDRESS_NAME.as_ptr(),
     ];
+
+    let mut buffer_device_address_features = vk::PhysicalDeviceBufferDeviceAddressFeatures {
+        buffer_device_address: vk::TRUE,
+        ..Default::default()
+    };
+
+    let mut physical_device_acceleration_structure_features_khr =
+        vk::PhysicalDeviceAccelerationStructureFeaturesKHR {
+            acceleration_structure: vk::TRUE,
+            ..Default::default()
+        };
 
     let device_create_info = vk::DeviceCreateInfo::default()
         .queue_create_infos(&queue_create_infos)
-        .enabled_extension_names(&device_extensions_ptrs);
+        .enabled_extension_names(&device_extensions_ptrs)
+        .push_next(&mut buffer_device_address_features)
+        .push_next(&mut physical_device_acceleration_structure_features_khr);
 
     let device = unsafe {
         instance

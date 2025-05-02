@@ -4,7 +4,9 @@ use crate::tracer::Tracer;
 use crate::tree_gen::{Tree, TreeDesc};
 use crate::util::ShaderCompiler;
 use crate::util::TimeInfo;
-use crate::vkn::{Allocator, CommandBuffer, Fence, Semaphore, SwapchainDesc};
+use crate::vkn::{
+    AccelerationStructure, Allocator, CommandBuffer, Fence, Semaphore, SwapchainDesc,
+};
 use crate::{
     egui_renderer::EguiRenderer,
     vkn::{Swapchain, VulkanContext, VulkanContextDesc},
@@ -40,6 +42,8 @@ pub struct InitializedApp {
     tracer: Tracer,
     builder: Builder,
 
+    acc_structure: AccelerationStructure,
+
     // gui adjustables
     debug_float: f32,
     tree_pos: Vec3,
@@ -64,7 +68,7 @@ impl InitializedApp {
                 device: device.as_raw().clone(),
                 physical_device: vulkan_context.physical_device().as_raw(),
                 debug_settings: Default::default(),
-                buffer_device_address: false,
+                buffer_device_address: true,
                 allocation_sizes: Default::default(),
             };
             gpu_allocator::vulkan::Allocator::new(&allocator_create_info)
@@ -134,6 +138,11 @@ impl InitializedApp {
 
         let tree_desc = TreeDesc::default();
 
+        //
+
+        let acc_structure =
+            AccelerationStructure::new(&vulkan_context, allocator.clone(), &shader_compiler);
+
         let mut this = Self {
             vulkan_context,
             egui_renderer: renderer,
@@ -147,6 +156,8 @@ impl InitializedApp {
             image_available_semaphore,
             render_finished_semaphore,
             fence,
+
+            acc_structure,
 
             tracer,
             builder,
