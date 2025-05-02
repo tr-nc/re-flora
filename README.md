@@ -101,6 +101,11 @@ https://rust-unofficial.github.io/patterns/patterns/structural/small-crates.html
 
 [Other Optimization Techs](https://www.youtube.com/watch?v=PYu1iwjAxWM)
 
+- Grass
+  [How I added particles!](https://www.youtube.com/watch?v=rf9Piwp91pE)
+
+  [Animated Voxel Grass](https://www.youtube.com/watch?v=dGZDXaEXTOI)
+
 # Special Thanks To
 
 [Implementation of ash with egui](https://github.com/adrien-ben/egui-ash-renderer)
