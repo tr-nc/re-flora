@@ -83,11 +83,7 @@ fn create_device(
             .collect::<Vec<_>>()
     };
 
-    let device_extensions_ptrs = [
-        swapchain::NAME.as_ptr(),
-        #[cfg(any(target_os = "macos", target_os = "ios"))]
-        ash::khr::portability_subset::NAME.as_ptr(),
-    ];
+    let device_extensions_ptrs = [swapchain::NAME.as_ptr()];
 
     let device_create_info = vk::DeviceCreateInfo::default()
         .queue_create_infos(&queue_create_infos)
