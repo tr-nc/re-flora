@@ -1,26 +1,44 @@
-use super::resources::AccResources;
+use super::resources::Resources;
 use crate::{
     util::ShaderCompiler,
     vkn::{
-        execute_one_time_command, Allocator, Buffer, BufferUsage, Device, ShaderModule,
-        VulkanContext,
+        rtx::acceleration_structure::utils::{build_acc, query_properties},
+        Allocator, Buffer, BufferUsage, CommandBuffer, ComputePipeline, DescriptorPool,
+        DescriptorSet, Device, ShaderModule, VulkanContext, WriteDescriptorSet,
     },
 };
-use ash::{khr, vk};
+use ash::{
+    khr,
+    vk::{self},
+};
 
 pub struct Blas {
+    acc_device: khr::acceleration_structure::Device,
+    vert_maker_ppl: ComputePipeline,
+
     blas: vk::AccelerationStructureKHR,
-    resources: AccResources,
+    resources: Resources,
+}
+
+// TODO: refactor this after testing
+impl Drop for Blas {
+    fn drop(&mut self) {
+        unsafe {
+            self.acc_device
+                .destroy_acceleration_structure(self.blas, None);
+        }
+    }
 }
 
 impl Blas {
     pub fn new(
-        context: &VulkanContext,
+        vulkan_ctx: &VulkanContext,
         allocator: Allocator,
-        acc_device: &khr::acceleration_structure::Device,
+        descriptor_pool: DescriptorPool,
+        acc_device: khr::acceleration_structure::Device,
         shader_compiler: &ShaderCompiler,
     ) -> Self {
-        let device = context.device();
+        let device = vulkan_ctx.device();
 
         let vert_maker_sm = ShaderModule::from_glsl(
             device,
@@ -30,22 +48,86 @@ impl Blas {
         )
         .unwrap();
 
-        let resources = AccResources::new(device.clone(), allocator.clone(), &vert_maker_sm);
+        let resources = Resources::new(device.clone(), allocator.clone(), &vert_maker_sm);
+
+        let vert_maker_ppl = ComputePipeline::from_shader_module(device, &vert_maker_sm);
+        let vert_maker_ds = DescriptorSet::new(
+            vulkan_ctx.device().clone(),
+            &vert_maker_ppl.get_layout().get_descriptor_set_layouts()[0],
+            descriptor_pool.clone(),
+        );
+        vert_maker_ds.perform_writes(&[
+            WriteDescriptorSet::new_buffer_write(0, &resources.vertices),
+            WriteDescriptorSet::new_buffer_write(1, &resources.indices),
+        ]);
+
+        // TODO: maybe cache this later
+        let vert_maker_cmdbuf =
+            create_vert_maker_cmdbuf(vulkan_ctx, &vert_maker_ppl, &vert_maker_ds);
+
+        vert_maker_cmdbuf.submit(&vulkan_ctx.get_general_queue(), None);
+        device.wait_queue_idle(&vulkan_ctx.get_general_queue());
 
         let geom = make_geom(&resources);
 
         const PRIMITIVE_COUNT: u32 = 12; // TODO: this should be read back later
 
-        let (acceleration_structure_size, scratch_buf_size) =
-            query_properties(acc_device, geom, &[PRIMITIVE_COUNT]);
+        let (blas_size, scratch_buf_size) = query_properties(
+            &acc_device,
+            geom,
+            &[PRIMITIVE_COUNT],
+            vk::AccelerationStructureTypeKHR::BOTTOM_LEVEL,
+            vk::BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE,
+            vk::BuildAccelerationStructureModeKHR::BUILD,
+            1,
+        );
 
-        let blas = create_blas(device, &allocator, acc_device, acceleration_structure_size);
+        let blas = create_blas(device, &allocator, &acc_device, blas_size);
 
-        build_blas(context, allocator, scratch_buf_size, geom, acc_device, blas);
+        build_acc(
+            vulkan_ctx,
+            allocator,
+            scratch_buf_size,
+            geom,
+            &acc_device,
+            blas,
+            vk::AccelerationStructureTypeKHR::BOTTOM_LEVEL,
+            vk::BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE,
+            vk::BuildAccelerationStructureModeKHR::BUILD,
+            1,
+            PRIMITIVE_COUNT,
+        );
 
-        return Self { blas, resources };
+        return Self {
+            acc_device,
+            vert_maker_ppl,
+            blas,
+            resources,
+        };
 
-        fn make_geom(resources: &AccResources) -> vk::AccelerationStructureGeometryKHR {
+        fn create_vert_maker_cmdbuf(
+            vulkan_ctx: &VulkanContext,
+            vert_maker_ppl: &ComputePipeline,
+            vert_maker_ds: &DescriptorSet,
+        ) -> CommandBuffer {
+            let device = vulkan_ctx.device();
+
+            let cmdbuf = CommandBuffer::new(device, vulkan_ctx.command_pool());
+            cmdbuf.begin(true);
+
+            vert_maker_ppl.record_bind(&cmdbuf);
+            vert_maker_ppl.record_bind_descriptor_sets(
+                &cmdbuf,
+                std::slice::from_ref(vert_maker_ds),
+                0,
+            );
+            vert_maker_ppl.record_dispatch(&cmdbuf, [1, 1, 1]);
+
+            cmdbuf.end();
+            return cmdbuf;
+        }
+
+        fn make_geom(resources: &Resources) -> vk::AccelerationStructureGeometryKHR {
             let triangles_data = vk::AccelerationStructureGeometryTrianglesDataKHR {
                 vertex_format: vk::Format::R32G32B32_SFLOAT,
                 vertex_data: vk::DeviceOrHostAddressConstKHR {
@@ -69,39 +151,6 @@ impl Blas {
                 flags: vk::GeometryFlagsKHR::OPAQUE,
                 ..Default::default()
             };
-        }
-
-        /// Returns: (acceleration_structure_size, scratch_buf_size)
-        fn query_properties<'a>(
-            acc_device: &khr::acceleration_structure::Device,
-            geom: vk::AccelerationStructureGeometryKHR<'a>,
-            max_primitive_counts: &[u32],
-        ) -> (u64, u64) {
-            let build_info_for_query = vk::AccelerationStructureBuildGeometryInfoKHR {
-                ty: vk::AccelerationStructureTypeKHR::BOTTOM_LEVEL,
-                flags: vk::BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE,
-                mode: vk::BuildAccelerationStructureModeKHR::BUILD,
-                geometry_count: 1,
-                p_geometries: &geom,
-                ..Default::default()
-            };
-            let mut size_info_to_query = vk::AccelerationStructureBuildSizesInfoKHR::default();
-            unsafe {
-                acc_device.get_acceleration_structure_build_sizes(
-                    vk::AccelerationStructureBuildTypeKHR::DEVICE,
-                    &build_info_for_query,
-                    max_primitive_counts,
-                    &mut size_info_to_query,
-                );
-            };
-
-            let acceleration_structure_size = size_info_to_query.acceleration_structure_size;
-            // exactly one of update_scratch_size and build_scratch_size should be 0
-            let scratch_buf_size = size_info_to_query
-                .update_scratch_size
-                .max(size_info_to_query.build_scratch_size);
-
-            (acceleration_structure_size, scratch_buf_size)
         }
 
         fn create_blas(
@@ -134,57 +183,6 @@ impl Blas {
             };
 
             return blas;
-        }
-
-        fn build_blas(
-            context: &VulkanContext,
-            allocator: Allocator,
-            scratch_buf_size: u64,
-            geom: vk::AccelerationStructureGeometryKHR,
-            acc_device: &khr::acceleration_structure::Device,
-            blas: vk::AccelerationStructureKHR,
-        ) {
-            let scratch_buf = Buffer::new_sized(
-                context.device().clone(),
-                allocator.clone(),
-                BufferUsage::from_flags(
-                    vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS
-                        | vk::BufferUsageFlags::STORAGE_BUFFER,
-                ),
-                gpu_allocator::MemoryLocation::GpuOnly,
-                scratch_buf_size,
-            );
-
-            let build_info = vk::AccelerationStructureBuildGeometryInfoKHR {
-                ty: vk::AccelerationStructureTypeKHR::BOTTOM_LEVEL,
-                flags: vk::BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE,
-                mode: vk::BuildAccelerationStructureModeKHR::BUILD,
-                geometry_count: 1,
-                p_geometries: &geom,
-                dst_acceleration_structure: blas,
-                scratch_data: vk::DeviceOrHostAddressKHR {
-                    device_address: scratch_buf.device_address(),
-                },
-                ..Default::default()
-            };
-
-            let range_info = vk::AccelerationStructureBuildRangeInfoKHR {
-                primitive_count: PRIMITIVE_COUNT,
-                ..Default::default()
-            };
-
-            execute_one_time_command(
-                context.device(),
-                context.command_pool(),
-                &context.get_general_queue(),
-                |cmdbuf| unsafe {
-                    acc_device.cmd_build_acceleration_structures(
-                        cmdbuf.as_raw(),
-                        &[build_info],
-                        &[&[range_info]],
-                    );
-                },
-            );
         }
     }
 }

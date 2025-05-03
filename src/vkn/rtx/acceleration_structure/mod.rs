@@ -1,14 +1,19 @@
 mod resources;
-// pub use resources::*;
+
+mod utils;
 
 mod blas;
-pub use blas::*;
+use blas::*;
+
+mod tlas;
+use tlas::*;
 
 use ash::vk;
+use gpu_allocator::vulkan;
 
 use crate::{
     util::ShaderCompiler,
-    vkn::{allocator, Allocator, Device, VulkanContext},
+    vkn::{allocator, Allocator, DescriptorPool, Device, VulkanContext},
 };
 
 pub struct AccelerationStructure {
@@ -17,14 +22,24 @@ pub struct AccelerationStructure {
 
 impl AccelerationStructure {
     pub fn new(
-        context: &VulkanContext,
+        vulkan_ctx: &VulkanContext,
         allocator: Allocator,
         shader_compiler: &ShaderCompiler,
     ) -> Self {
-        let acc_device =
-            ash::khr::acceleration_structure::Device::new(&context.instance(), &context.device());
+        let acc_device = ash::khr::acceleration_structure::Device::new(
+            &vulkan_ctx.instance(),
+            &vulkan_ctx.device(),
+        );
 
-        let blas = Blas::new(context, allocator, &acc_device, shader_compiler);
+        let descriptor_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
+
+        let blas = Blas::new(
+            vulkan_ctx,
+            allocator,
+            descriptor_pool,
+            acc_device.clone(),
+            shader_compiler,
+        );
 
         Self { acc_device }
     }

@@ -36,22 +36,22 @@ pub struct FragListBuilder {
 
 impl FragListBuilder {
     pub fn new(
-        vulkan_context: &VulkanContext,
+        vulkan_ctx: &VulkanContext,
         shader_compiler: &ShaderCompiler,
         descriptor_pool: DescriptorPool,
         resources: &Resources,
     ) -> Self {
         let init_buffers_sm = ShaderModule::from_glsl(
-            vulkan_context.device(),
+            vulkan_ctx.device(),
             &shader_compiler,
             "shader/builder/frag_list_builder/init_buffers.comp",
             "main",
         )
         .unwrap();
         let init_buffers_ppl =
-            ComputePipeline::from_shader_module(vulkan_context.device(), &init_buffers_sm);
+            ComputePipeline::from_shader_module(vulkan_ctx.device(), &init_buffers_sm);
         let init_buffers_ds = DescriptorSet::new(
-            vulkan_context.device().clone(),
+            vulkan_ctx.device().clone(),
             &init_buffers_ppl.get_layout().get_descriptor_set_layouts()[0],
             descriptor_pool.clone(),
         );
@@ -62,16 +62,16 @@ impl FragListBuilder {
         ]);
 
         let frag_list_maker_sm = ShaderModule::from_glsl(
-            vulkan_context.device(),
+            vulkan_ctx.device(),
             &shader_compiler,
             "shader/builder/frag_list_builder/frag_list_maker.comp",
             "main",
         )
         .unwrap();
         let frag_list_maker_ppl =
-            ComputePipeline::from_shader_module(vulkan_context.device(), &frag_list_maker_sm);
+            ComputePipeline::from_shader_module(vulkan_ctx.device(), &frag_list_maker_sm);
         let frag_list_maker_chunk_atlas_ds = DescriptorSet::new(
-            vulkan_context.device().clone(),
+            vulkan_ctx.device().clone(),
             &frag_list_maker_ppl
                 .get_layout()
                 .get_descriptor_set_layouts()[0],
@@ -90,7 +90,7 @@ impl FragListBuilder {
         ]);
         //
         let frag_list_maker_free_atlas_ds = DescriptorSet::new(
-            vulkan_context.device().clone(),
+            vulkan_ctx.device().clone(),
             &frag_list_maker_ppl
                 .get_layout()
                 .get_descriptor_set_layouts()[0],
@@ -109,7 +109,7 @@ impl FragListBuilder {
         ]);
 
         let cmdbuf_chunk_atlas = Self::create_cmdbuf(
-            vulkan_context,
+            vulkan_ctx,
             resources,
             &init_buffers_ppl,
             &frag_list_maker_ppl,
@@ -118,7 +118,7 @@ impl FragListBuilder {
         );
 
         let cmdbuf_free_atlas = Self::create_cmdbuf(
-            vulkan_context,
+            vulkan_ctx,
             resources,
             &init_buffers_ppl,
             &frag_list_maker_ppl,
@@ -139,7 +139,7 @@ impl FragListBuilder {
     }
 
     fn create_cmdbuf(
-        vulkan_context: &VulkanContext,
+        vulkan_ctx: &VulkanContext,
         resources: &Resources,
         init_buffers_ppl: &ComputePipeline,
         frag_list_maker_ppl: &ComputePipeline,
@@ -162,9 +162,9 @@ impl FragListBuilder {
 
         //
 
-        let device = vulkan_context.device();
+        let device = vulkan_ctx.device();
 
-        let cmdbuf = CommandBuffer::new(device, vulkan_context.command_pool());
+        let cmdbuf = CommandBuffer::new(device, vulkan_ctx.command_pool());
         cmdbuf.begin(false);
 
         init_buffers_ppl.record_bind(&cmdbuf);
@@ -175,8 +175,8 @@ impl FragListBuilder {
         );
         init_buffers_ppl.record_dispatch(&cmdbuf, [1, 1, 1]);
 
-        shader_access_pipeline_barrier.record_insert(vulkan_context.device(), &cmdbuf);
-        indirect_access_pipeline_barrier.record_insert(vulkan_context.device(), &cmdbuf);
+        shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
+        indirect_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
 
         frag_list_maker_ppl.record_bind(&cmdbuf);
         frag_list_maker_ppl.record_bind_descriptor_sets(
@@ -187,19 +187,19 @@ impl FragListBuilder {
         frag_list_maker_ppl.record_dispatch_indirect(&cmdbuf, resources.voxel_dim_indirect());
 
         cmdbuf.end();
-        cmdbuf
+        return cmdbuf;
     }
 
     pub fn build(
         &self,
         build_type: FragListBuildType,
-        vulkan_context: &VulkanContext,
+        vulkan_ctx: &VulkanContext,
         resources: &Resources,
         atlas_read_offset: UVec3,
         atlas_read_dim: UVec3,
         is_crossing_boundary: bool,
     ) {
-        let device = vulkan_context.device();
+        let device = vulkan_ctx.device();
 
         update_buffers(
             resources,
@@ -212,8 +212,8 @@ impl FragListBuilder {
             FragListBuildType::ChunkAtlas => &self.cmdbuf_chunk_atlas,
             FragListBuildType::FreeAtlas => &self.cmdbuf_free_atlas,
         };
-        cmdbuf.submit(&vulkan_context.get_general_queue(), None);
-        device.wait_queue_idle(&vulkan_context.get_general_queue());
+        cmdbuf.submit(&vulkan_ctx.get_general_queue(), None);
+        device.wait_queue_idle(&vulkan_ctx.get_general_queue());
 
         fn update_buffers(
             resources: &Resources,

@@ -2,12 +2,12 @@ use ash::vk;
 
 use crate::vkn::{Allocator, Buffer, BufferUsage, Device, ShaderModule};
 
-pub struct AccResources {
+pub struct Resources {
     pub vertices: Buffer,
     pub indices: Buffer,
 }
 
-impl AccResources {
+impl Resources {
     pub fn new(device: Device, allocator: Allocator, vert_maker_sm: &ShaderModule) -> Self {
         let vertices_layout = vert_maker_sm.get_buffer_layout("B_Vertices").unwrap();
         let vertices = Buffer::from_buffer_layout_arraylike(
