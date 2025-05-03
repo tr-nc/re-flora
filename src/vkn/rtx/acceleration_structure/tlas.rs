@@ -128,4 +128,8 @@ impl Tlas {
             instance_buffer,
         }
     }
+
+    pub fn as_raw(&self) -> vk::AccelerationStructureKHR {
+        self.tlas
+    }
 }

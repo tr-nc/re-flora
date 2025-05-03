@@ -210,7 +210,7 @@ impl Tracer {
             &compute_pipeline.get_layout().get_descriptor_set_layouts()[0],
             descriptor_pool,
         );
-        compute_descriptor_set.perform_writes(&[
+        compute_descriptor_set.perform_writes(&mut[
             WriteDescriptorSet::new_buffer_write(0, &resources.gui_input),
             WriteDescriptorSet::new_buffer_write(1, &resources.camera_info),
             WriteDescriptorSet::new_buffer_write(2, &resources.scene_info),

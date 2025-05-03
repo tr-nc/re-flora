@@ -53,7 +53,7 @@ impl ChunkWriter {
             &chunk_init_ppl.get_layout().get_descriptor_set_layouts()[0],
             descriptor_pool.clone(),
         );
-        chunk_init_ds.perform_writes(&[
+        chunk_init_ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, resources.chunk_init_info()),
             WriteDescriptorSet::new_texture_write(
                 1,
@@ -78,7 +78,7 @@ impl ChunkWriter {
             &chunk_modify_ppl.get_layout().get_descriptor_set_layouts()[0],
             descriptor_pool.clone(),
         );
-        chunk_modify_ds.perform_writes(&[
+        chunk_modify_ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, resources.chunk_modify_info()),
             WriteDescriptorSet::new_buffer_write(1, resources.trunk_bvh_nodes()),
             WriteDescriptorSet::new_buffer_write(2, resources.round_cones()),
@@ -105,7 +105,7 @@ impl ChunkWriter {
             &leaf_write_ppl.get_layout().get_descriptor_set_layouts()[0],
             descriptor_pool.clone(),
         );
-        leaf_write_ds.perform_writes(&[
+        leaf_write_ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, resources.leaf_write_info()),
             WriteDescriptorSet::new_texture_write(
                 1,

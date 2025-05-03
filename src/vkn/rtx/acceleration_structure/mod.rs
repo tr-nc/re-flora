@@ -1,12 +1,11 @@
 mod resources;
-
 mod utils;
 
 mod blas;
 use blas::*;
 
 mod tlas;
-use tlas::*;
+pub use tlas::*;
 
 use crate::{
     util::ShaderCompiler,

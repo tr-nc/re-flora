@@ -56,7 +56,7 @@ impl Blas {
             &vert_maker_ppl.get_layout().get_descriptor_set_layouts()[0],
             descriptor_pool.clone(),
         );
-        vert_maker_ds.perform_writes(&[
+        vert_maker_ds.perform_writes(&mut[
             WriteDescriptorSet::new_buffer_write(0, &resources.vertices),
             WriteDescriptorSet::new_buffer_write(1, &resources.indices),
         ]);

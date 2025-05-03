@@ -109,7 +109,7 @@ impl OctreeBuilder {
                 .get_descriptor_set_layouts()[0],
             descriptor_pool.clone(),
         );
-        shared_ds.perform_writes(&[
+        shared_ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, resources.octree_build_info()),
             WriteDescriptorSet::new_buffer_write(1, resources.octree_alloc_info()),
         ]);
@@ -121,7 +121,7 @@ impl OctreeBuilder {
                 .get_descriptor_set_layouts()[1],
             descriptor_pool.clone(),
         );
-        init_buffers_ds.perform_writes(&[
+        init_buffers_ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, resources.voxel_count_indirect()),
             WriteDescriptorSet::new_buffer_write(1, resources.alloc_number_indirect()),
             WriteDescriptorSet::new_buffer_write(2, resources.counter()),
@@ -135,7 +135,7 @@ impl OctreeBuilder {
                 .get_descriptor_set_layouts()[1],
             descriptor_pool.clone(),
         );
-        init_node_ds.perform_writes(&[WriteDescriptorSet::new_buffer_write(
+        init_node_ds.perform_writes(&mut [WriteDescriptorSet::new_buffer_write(
             0,
             resources.octree_data_single(),
         )]);
@@ -147,7 +147,7 @@ impl OctreeBuilder {
                 .get_descriptor_set_layouts()[1],
             descriptor_pool.clone(),
         );
-        tag_node_ds.perform_writes(&[
+        tag_node_ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, resources.octree_data_single()),
             WriteDescriptorSet::new_buffer_write(1, resources.fragment_list()),
         ]);
@@ -159,7 +159,7 @@ impl OctreeBuilder {
                 .get_descriptor_set_layouts()[1],
             descriptor_pool.clone(),
         );
-        alloc_node_ds.perform_writes(&[
+        alloc_node_ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, resources.octree_data_single()),
             WriteDescriptorSet::new_buffer_write(1, resources.fragment_list()),
             WriteDescriptorSet::new_buffer_write(2, resources.counter()),
@@ -172,7 +172,7 @@ impl OctreeBuilder {
                 .get_descriptor_set_layouts()[1],
             descriptor_pool.clone(),
         );
-        modify_args_ds.perform_writes(&[
+        modify_args_ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, resources.counter()),
             WriteDescriptorSet::new_buffer_write(1, resources.octree_build_result()),
             WriteDescriptorSet::new_buffer_write(2, resources.alloc_number_indirect()),

@@ -55,7 +55,7 @@ impl FragListBuilder {
             &init_buffers_ppl.get_layout().get_descriptor_set_layouts()[0],
             descriptor_pool.clone(),
         );
-        init_buffers_ds.perform_writes(&[
+        init_buffers_ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, resources.frag_list_maker_info()),
             WriteDescriptorSet::new_buffer_write(1, resources.voxel_dim_indirect()),
             WriteDescriptorSet::new_buffer_write(2, resources.frag_list_build_result()),
@@ -77,7 +77,7 @@ impl FragListBuilder {
                 .get_descriptor_set_layouts()[0],
             descriptor_pool.clone(),
         );
-        frag_list_maker_chunk_atlas_ds.perform_writes(&[
+        frag_list_maker_chunk_atlas_ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, resources.frag_list_maker_info()),
             WriteDescriptorSet::new_buffer_write(1, resources.frag_list_build_result()),
             WriteDescriptorSet::new_buffer_write(2, resources.fragment_list()),
@@ -96,7 +96,7 @@ impl FragListBuilder {
                 .get_descriptor_set_layouts()[0],
             descriptor_pool.clone(),
         );
-        frag_list_maker_free_atlas_ds.perform_writes(&[
+        frag_list_maker_free_atlas_ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, resources.frag_list_maker_info()),
             WriteDescriptorSet::new_buffer_write(1, resources.frag_list_build_result()),
             WriteDescriptorSet::new_buffer_write(2, resources.fragment_list()),
