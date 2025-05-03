@@ -101,18 +101,22 @@ fn create_device(
         buffer_device_address: vk::TRUE,
         ..Default::default()
     };
-
     let mut physical_device_acceleration_structure_features_khr =
         vk::PhysicalDeviceAccelerationStructureFeaturesKHR {
             acceleration_structure: vk::TRUE,
             ..Default::default()
         };
+    let mut physical_device_ray_query_features_khr = vk::PhysicalDeviceRayQueryFeaturesKHR {
+        ray_query: vk::TRUE,
+        ..Default::default()
+    };
 
     let device_create_info = vk::DeviceCreateInfo::default()
         .queue_create_infos(&queue_create_infos)
         .enabled_extension_names(&device_extensions_ptrs)
         .push_next(&mut buffer_device_address_features)
-        .push_next(&mut physical_device_acceleration_structure_features_khr);
+        .push_next(&mut physical_device_acceleration_structure_features_khr)
+        .push_next(&mut physical_device_ray_query_features_khr);
 
     let device = unsafe {
         instance

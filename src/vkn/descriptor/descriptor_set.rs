@@ -145,10 +145,9 @@ impl<'a> WriteDescriptorSet<'a> {
             write = write.buffer_info(buffer_info);
         }
 
-        // 5) chain acceleration‐structure infos (if any)
         if let Some(accel_infos) = &mut self.acceleration_structure_infos {
             let len = accel_infos.len();
-            // borrow the first element as `&mut T`
+            log::debug!("Acceleration structure write: {:?}", accel_infos);
             write = write
                 .push_next(&mut accel_infos[0])
                 .descriptor_count(len as u32);

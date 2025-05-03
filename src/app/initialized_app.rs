@@ -4,9 +4,7 @@ use crate::tracer::Tracer;
 use crate::tree_gen::{Tree, TreeDesc};
 use crate::util::ShaderCompiler;
 use crate::util::TimeInfo;
-use crate::vkn::{
-    AccelerationStructure, Allocator, CommandBuffer, Fence, Semaphore, SwapchainDesc,
-};
+use crate::vkn::{Allocator, CommandBuffer, Fence, Semaphore, SwapchainDesc};
 use crate::{
     egui_renderer::EguiRenderer,
     vkn::{Swapchain, VulkanContext, VulkanContextDesc},
@@ -42,15 +40,13 @@ pub struct InitializedApp {
     tracer: Tracer,
     builder: Builder,
 
-    acc_structure: AccelerationStructure,
-
     // gui adjustables
     debug_float: f32,
     tree_pos: Vec3,
     tree_desc: TreeDesc,
 
     // note: always keep the context to end, as it has to be destroyed last
-    vulkan_context: VulkanContext,
+    vulkan_ctx: VulkanContext,
 }
 
 impl InitializedApp {
@@ -138,13 +134,8 @@ impl InitializedApp {
 
         let tree_desc = TreeDesc::default();
 
-        //
-
-        let acc_structure =
-            AccelerationStructure::new(&vulkan_context, allocator.clone(), &shader_compiler);
-
         let mut this = Self {
-            vulkan_context,
+            vulkan_ctx: vulkan_context,
             egui_renderer: renderer,
             window_state,
 
@@ -156,8 +147,6 @@ impl InitializedApp {
             image_available_semaphore,
             render_finished_semaphore,
             fence,
-
-            acc_structure,
 
             tracer,
             builder,
@@ -200,7 +189,7 @@ impl InitializedApp {
 
     pub fn on_terminate(&mut self, event_loop: &ActiveEventLoop) {
         // ensure all command buffers are done executing before terminating anything
-        self.vulkan_context.device().wait_idle();
+        self.vulkan_ctx.device().wait_idle();
         event_loop.exit();
     }
 
@@ -286,7 +275,7 @@ impl InitializedApp {
 
                 self.camera.update_transform(frame_delta_time);
 
-                self.vulkan_context
+                self.vulkan_ctx
                     .wait_for_fences(&[self.fence.as_raw()])
                     .unwrap();
 
@@ -440,7 +429,7 @@ impl InitializedApp {
                     self.add_tree();
                 }
 
-                let device = self.vulkan_context.device();
+                let device = self.vulkan_ctx.device();
 
                 let image_idx = match self.swapchain.acquire_next(&self.image_available_semaphore) {
                     Ok((image_index, _)) => image_index,
@@ -499,11 +488,11 @@ impl InitializedApp {
                     .signal_semaphores(&signal_semaphores)];
 
                 unsafe {
-                    self.vulkan_context
+                    self.vulkan_ctx
                         .device()
                         .as_raw()
                         .queue_submit(
-                            self.vulkan_context.get_general_queue().as_raw(),
+                            self.vulkan_ctx.get_general_queue().as_raw(),
                             &submit_info,
                             self.fence.as_raw(),
                         )
@@ -556,7 +545,7 @@ impl InitializedApp {
     }
 
     fn on_resize(&mut self) {
-        self.vulkan_context.device().wait_idle();
+        self.vulkan_ctx.device().wait_idle();
 
         let window_size = self.window_state.window_size();
 
