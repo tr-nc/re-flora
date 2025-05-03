@@ -8,16 +8,15 @@ use blas::*;
 mod tlas;
 use tlas::*;
 
-use ash::vk;
-use gpu_allocator::vulkan;
-
 use crate::{
     util::ShaderCompiler,
-    vkn::{allocator, Allocator, DescriptorPool, Device, VulkanContext},
+    vkn::{Allocator, DescriptorPool, VulkanContext},
 };
 
 pub struct AccelerationStructure {
     pub acc_device: ash::khr::acceleration_structure::Device,
+    pub blas: Blas,
+    pub tlas: Tlas,
 }
 
 impl AccelerationStructure {
@@ -35,12 +34,31 @@ impl AccelerationStructure {
 
         let blas = Blas::new(
             vulkan_ctx,
-            allocator,
+            allocator.clone(),
             descriptor_pool,
             acc_device.clone(),
             shader_compiler,
         );
 
-        Self { acc_device }
+        let tlas = Tlas::new(
+            vulkan_ctx,
+            allocator.clone(),
+            acc_device.clone(),
+            blas.as_raw(),
+        );
+
+        Self {
+            acc_device,
+            blas,
+            tlas,
+        }
+    }
+
+    pub fn blas(&self) -> &Blas {
+        &self.blas
+    }
+
+    pub fn tlas(&self) -> &Tlas {
+        &self.tlas
     }
 }

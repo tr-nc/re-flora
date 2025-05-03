@@ -1,6 +1,6 @@
 use ash::{khr, vk};
 
-use crate::vkn::{execute_one_time_command, Allocator, Buffer, BufferUsage, VulkanContext};
+use crate::vkn::{execute_one_time_command, Allocator, Buffer, BufferUsage, Device, VulkanContext};
 
 /// Returns: (acceleration_structure_size, scratch_buf_size)
 pub fn query_properties<'a>(
@@ -37,6 +37,48 @@ pub fn query_properties<'a>(
         .max(size_info_to_query.build_scratch_size);
 
     (acceleration_structure_size, scratch_buf_size)
+}
+
+pub fn create_acc(
+    device: &Device,
+    allocator: &Allocator,
+    acc_device: &khr::acceleration_structure::Device,
+    acceleration_structure_size: u64,
+    acc_type: vk::AccelerationStructureTypeKHR,
+) -> vk::AccelerationStructureKHR {
+    // TODO: maybe move this to resources
+    let mut buf_usage_flags =
+        BufferUsage::from_flags(vk::BufferUsageFlags::ACCELERATION_STRUCTURE_STORAGE_KHR);
+    if acc_type == vk::AccelerationStructureTypeKHR::BOTTOM_LEVEL {
+        // this is because building TLAS requires the BLAS to be addressable
+        buf_usage_flags.union_with(&BufferUsage::from_flags(
+            vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
+        ));
+    }
+
+    let acc_buf = Buffer::new_sized(
+        device.clone(),
+        allocator.clone(),
+        buf_usage_flags,
+        gpu_allocator::MemoryLocation::GpuOnly,
+        acceleration_structure_size,
+    );
+
+    let acc_create_info = vk::AccelerationStructureCreateInfoKHR {
+        ty: acc_type,
+        buffer: acc_buf.as_raw(),
+        size: acceleration_structure_size,
+        offset: 0,
+        ..Default::default()
+    };
+
+    let blas = unsafe {
+        acc_device
+            .create_acceleration_structure(&acc_create_info, None)
+            .expect("Failed to create BLAS")
+    };
+
+    return blas;
 }
 
 pub fn build_acc(

@@ -2,9 +2,9 @@ use super::resources::Resources;
 use crate::{
     util::ShaderCompiler,
     vkn::{
-        rtx::acceleration_structure::utils::{build_acc, query_properties},
-        Allocator, Buffer, BufferUsage, CommandBuffer, ComputePipeline, DescriptorPool,
-        DescriptorSet, Device, ShaderModule, VulkanContext, WriteDescriptorSet,
+        rtx::acceleration_structure::utils::{build_acc, create_acc, query_properties},
+        Allocator, CommandBuffer, ComputePipeline, DescriptorPool, DescriptorSet, ShaderModule,
+        VulkanContext, WriteDescriptorSet,
     },
 };
 use ash::{
@@ -82,7 +82,13 @@ impl Blas {
             1,
         );
 
-        let blas = create_blas(device, &allocator, &acc_device, blas_size);
+        let blas = create_acc(
+            device,
+            &allocator,
+            &acc_device,
+            blas_size,
+            vk::AccelerationStructureTypeKHR::BOTTOM_LEVEL,
+        );
 
         build_acc(
             vulkan_ctx,
@@ -152,37 +158,9 @@ impl Blas {
                 ..Default::default()
             };
         }
+    }
 
-        fn create_blas(
-            device: &Device,
-            allocator: &Allocator,
-            acc_device: &khr::acceleration_structure::Device,
-            acceleration_structure_size: u64,
-        ) -> vk::AccelerationStructureKHR {
-            // TODO: maybe move this to resources
-            let acc_buf = Buffer::new_sized(
-                device.clone(),
-                allocator.clone(),
-                BufferUsage::from_flags(vk::BufferUsageFlags::ACCELERATION_STRUCTURE_STORAGE_KHR),
-                gpu_allocator::MemoryLocation::GpuOnly,
-                acceleration_structure_size,
-            );
-
-            let acc_create_info = vk::AccelerationStructureCreateInfoKHR {
-                ty: vk::AccelerationStructureTypeKHR::BOTTOM_LEVEL,
-                buffer: acc_buf.as_raw(),
-                size: acceleration_structure_size,
-                offset: 0,
-                ..Default::default()
-            };
-
-            let blas = unsafe {
-                acc_device
-                    .create_acceleration_structure(&acc_create_info, None)
-                    .expect("Failed to create BLAS")
-            };
-
-            return blas;
-        }
+    pub fn as_raw(&self) -> vk::AccelerationStructureKHR {
+        self.blas
     }
 }

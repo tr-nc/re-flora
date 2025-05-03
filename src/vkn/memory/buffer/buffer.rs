@@ -85,7 +85,6 @@ impl Buffer {
                     ..Default::default()
                 });
         }
-        log::debug!("Buffer device address: {:#x}", res);
         return res;
     }
 

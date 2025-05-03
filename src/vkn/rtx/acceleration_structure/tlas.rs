@@ -5,6 +5,8 @@ use crate::vkn::{
 use ash::{khr, vk};
 use std::mem::size_of;
 
+use super::utils::create_acc;
+
 pub struct Tlas {
     acc_device: khr::acceleration_structure::Device,
 
@@ -32,7 +34,6 @@ impl Tlas {
     ) -> Self {
         let device = context.device();
 
-        // 1. Query the device‐address of the BLAS
         let blas_addr = unsafe {
             acc_device.get_acceleration_structure_device_address(
                 &vk::AccelerationStructureDeviceAddressInfoKHR {
@@ -42,9 +43,6 @@ impl Tlas {
             )
         };
 
-        log::debug!("BLAS device address: {:#X}", blas_addr);
-
-        // 2. Fill out one vk::AccelerationStructureInstanceKHR with identity transform
         let instance = vk::AccelerationStructureInstanceKHR {
             transform: vk::TransformMatrixKHR {
                 // matrix is a 3x4 row-major affine transformation matrix
@@ -71,14 +69,6 @@ impl Tlas {
             gpu_allocator::MemoryLocation::CpuToGpu,
             instance_data_size,
         );
-
-        // Map & copy the instance struct in
-        // unsafe {
-        //     let mapped = instance_buffer.map().expect("map failed");
-        //     let dst = mapped.as_ptr() as *mut vk::AccelerationStructureInstanceKHR;
-        //     dst.copy_from_nonoverlapping(&instance, 1);
-        //     instance_buffer.unmap();
-        // }
 
         instance_buffer
             .fill(&[instance])
@@ -110,26 +100,13 @@ impl Tlas {
             1, // one instance
         );
 
-        // 5. Allocate the TLAS buffer
-        let tlas_buf = Buffer::new_sized(
-            device.clone(),
-            allocator.clone(),
-            BufferUsage::from_flags(vk::BufferUsageFlags::ACCELERATION_STRUCTURE_STORAGE_KHR),
-            gpu_allocator::MemoryLocation::GpuOnly,
+        let tlas = create_acc(
+            context.device(),
+            &allocator,
+            &acc_device,
             tlas_size,
+            vk::AccelerationStructureTypeKHR::TOP_LEVEL,
         );
-        let tlas_create_info = vk::AccelerationStructureCreateInfoKHR {
-            ty: vk::AccelerationStructureTypeKHR::TOP_LEVEL,
-            buffer: tlas_buf.as_raw(),
-            size: tlas_size,
-            offset: 0,
-            ..Default::default()
-        };
-        let tlas = unsafe {
-            acc_device
-                .create_acceleration_structure(&tlas_create_info, None)
-                .expect("Failed to create TLAS")
-        };
 
         build_acc(
             context,
