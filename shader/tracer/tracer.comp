@@ -49,35 +49,41 @@ void main() {
     Ray ray        = ray_gen(camera_info.camera_pos.xyz, screen_uv);
 
     rayQueryEXT rayQuery;
-    rayQueryInitializeEXT(rayQuery, tlas, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, ray.origin, 1e-1,
-                          ray.direction, 1e5);
+    rayQueryInitializeEXT(rayQuery, tlas, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, vec3(-10, 0, 0), 0.001,
+                          vec3(1, 0, 0), 10000);
 
     vec3 ray_color = vec3(0.0);
 
-    // rayQueryProceedEXT(rayQuery);
+    // while (rayQueryProceedEXT(rayQuery)) {
+    //     uint type = rayQueryGetIntersectionTypeEXT(rayQuery,
+    //                                                false // true: committed, false: candidate
+    //     );
 
-    // if (rayQueryGetIntersectionTypeEXT(rayQuery, true) == gl_RayQueryCommittedIntersectionNoneEXT) {
-        // Not in shadow
-    // }
-
-    // uint type = rayQueryGetIntersectionTypeEXT(rayQuery,
-    //                                            false // true: committed, false: candidate
-    // );
-    // if (type == gl_RayQueryCandidateIntersectionTriangleEXT) {
-    //     bool opaqueHit = true;
-    //     // TODO: Determine if an opaque triangle hit occurred, but how?
-    //     if (opaqueHit) {
-    //         rayQueryConfirmIntersectionEXT(rayQuery);
-    //         // now the query will terminate on first hit
-    //         break;
+    //     ray_color = vec3(1.0, 0.0, 0.0); // red
+    //     if (type == gl_RayQueryCandidateIntersectionTriangleEXT) {
+    //         bool opaqueHit = true;
+    //         // TODO: Determine if an opaque triangle hit occurred, but how?
+    //         if (opaqueHit) {
+    //             rayQueryConfirmIntersectionEXT(rayQuery);
+    //             // now the query will terminate on first hit
+    //             // ray_color = vec3(1.0, 0.0, 0.0); // red
+    //         }
     //     }
-    // } else if (rayQueryGetIntersectionTypeEXT(rayQuery, false) ==
-    //            gl_RayQueryCandidateIntersectionAABBEXT) {
-    //     // ... Determine if an opaque hit occurred in an AABB
-    //     // if (opaqueHit) {
-    //     rayQueryGenerateIntersectionEXT(rayQuery, ...);
+    //     // else if (rayQueryGetIntersectionTypeEXT(rayQuery, false) ==
+    //     //            gl_RayQueryCandidateIntersectionAABBEXT) {
+    //     //     // ... Determine if an opaque hit occurred in an AABB
+    //     //     // if (opaqueHit) {
+    //     //     rayQueryGenerateIntersectionEXT(rayQuery, ...);
+    //     //     // }
     //     // }
     // }
 
-    imageStore(result_image, uvi, vec4(ray.direction, 1.0));
+    if (rayQueryProceedEXT(rayQuery)) {
+        ray_color = vec3(1.0, 0.0, 0.0); // red
+    } else {
+        ray_color = vec3(0.0, 0.0, 1.0); // blue
+    }
+
+    // ray_color = mix(ray_color, ray.direction, 0.5);
+    imageStore(result_image, uvi, vec4(ray_color, 1.0));
 }

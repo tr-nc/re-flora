@@ -10,7 +10,8 @@ pub struct Tlas {
     acc_device: khr::acceleration_structure::Device,
 
     tlas: vk::AccelerationStructureKHR,
-    buffer: Buffer,
+    // must be kept alive until the TLAS is destroyed
+    _buffer: Buffer,
 }
 
 // TODO: refactor this after testing
@@ -31,8 +32,6 @@ impl Tlas {
         acc_device: khr::acceleration_structure::Device,
         geom: vk::AccelerationStructureGeometryKHR,
     ) -> Self {
-        const PRIMITIVE_COUNT: u32 = 12; // TODO: this should be read back later
-
         let (tlas_size, scratch_buf_size) = query_properties(
             &acc_device,
             geom,
@@ -70,7 +69,7 @@ impl Tlas {
         Tlas {
             acc_device,
             tlas,
-            buffer,
+            _buffer: buffer,
         }
     }
 

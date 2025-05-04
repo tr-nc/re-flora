@@ -10,8 +10,9 @@ use ash::{
 pub struct Blas {
     acc_device: khr::acceleration_structure::Device,
 
-    buffer: Buffer,
     blas: vk::AccelerationStructureKHR,
+    // must be kept alive until the BLAS is destroyed
+    _buffer: Buffer,
 }
 
 // TODO: refactor this after testing
@@ -69,7 +70,7 @@ impl Blas {
         return Self {
             acc_device,
             blas,
-            buffer,
+            _buffer: buffer,
         };
     }
 
