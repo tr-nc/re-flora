@@ -45,16 +45,11 @@ pub fn create_acc(
     acc_device: &khr::acceleration_structure::Device,
     acceleration_structure_size: u64,
     acc_type: vk::AccelerationStructureTypeKHR,
-) -> vk::AccelerationStructureKHR {
-    // TODO: maybe move this to resources
-    let mut buf_usage_flags =
-        BufferUsage::from_flags(vk::BufferUsageFlags::ACCELERATION_STRUCTURE_STORAGE_KHR);
-    if acc_type == vk::AccelerationStructureTypeKHR::BOTTOM_LEVEL {
-        // this is because building TLAS requires the BLAS to be addressable
-        buf_usage_flags.union_with(&BufferUsage::from_flags(
-            vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
-        ));
-    }
+) -> (vk::AccelerationStructureKHR, Buffer) {
+    let buf_usage_flags = BufferUsage::from_flags(
+        vk::BufferUsageFlags::ACCELERATION_STRUCTURE_STORAGE_KHR
+            | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
+    );
 
     let acc_buf = Buffer::new_sized(
         device.clone(),
@@ -78,7 +73,7 @@ pub fn create_acc(
             .expect("Failed to create BLAS")
     };
 
-    return blas;
+    return (blas, acc_buf);
 }
 
 pub fn build_acc(
@@ -132,6 +127,7 @@ pub fn build_acc(
         allocator: Allocator,
         scratch_buf_size: u64,
     ) -> Buffer {
+        log::debug!("Scratch buffer size: {}", scratch_buf_size);
         Buffer::new_sized(
             vulkan_ctx.device().clone(),
             allocator.clone(),

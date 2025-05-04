@@ -110,6 +110,8 @@ https://rust-unofficial.github.io/patterns/patterns/structural/small-crates.html
 
 [Guide](https://www.khronos.org/blog/ray-tracing-in-vulkan/)
 
+[Shading doc](https://github.com/KhronosGroup/GLSL/blob/main/extensions/ext/GLSL_EXT_ray_query.txt/)
+
 [Ray Tracing Pipeline vs Ray Query](https://tellusim.com/rt-perf/)
 
 [Best Practices 1](https://developer.nvidia.com/blog/rtx-best-practices/)

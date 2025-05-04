@@ -5,6 +5,7 @@ use crate::vkn::{Allocator, Buffer, BufferUsage, Device, ShaderModule};
 pub struct Resources {
     pub vertices: Buffer,
     pub indices: Buffer,
+    pub tlas_instance_buffer: Buffer,
 }
 
 impl Resources {
@@ -37,6 +38,25 @@ impl Resources {
             10000,
         );
 
-        Self { vertices, indices }
+        let instance_data_size = size_of::<vk::AccelerationStructureInstanceKHR>() as u64;
+        log::debug!("Instance data size: {}", instance_data_size);
+        let tlas_instance_buffer = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(
+                vk::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR
+                    | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
+            ),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            instance_data_size,
+        );
+
+        log::debug!("TLAS instance buffer: {:?}", tlas_instance_buffer.as_raw());
+
+        Self {
+            vertices,
+            indices,
+            tlas_instance_buffer,
+        }
     }
 }

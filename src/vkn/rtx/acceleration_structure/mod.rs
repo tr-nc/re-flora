@@ -2,19 +2,27 @@ mod resources;
 mod utils;
 
 mod blas;
+use ash::vk;
 use blas::*;
 
 mod tlas;
+use resources::Resources;
 pub use tlas::*;
 
 use crate::{
     util::ShaderCompiler,
-    vkn::{Allocator, DescriptorPool, VulkanContext},
+    vkn::{
+        Allocator, Buffer, CommandBuffer, ComputePipeline, DescriptorPool, DescriptorSet,
+        ShaderModule, VulkanContext, WriteDescriptorSet,
+    },
 };
 
 pub struct AccelerationStructure {
-    pub acc_device: ash::khr::acceleration_structure::Device,
-    pub blas: Blas,
+    vert_maker_ppl: ComputePipeline,
+    acc_device: ash::khr::acceleration_structure::Device,
+    blas: Blas,
+
+    resources: Resources,
     pub tlas: Tlas,
 }
 
@@ -31,30 +39,143 @@ impl AccelerationStructure {
 
         let descriptor_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
 
-        let blas = Blas::new(
-            vulkan_ctx,
-            allocator.clone(),
-            descriptor_pool,
-            acc_device.clone(),
+        //
+
+        let device = vulkan_ctx.device();
+        let vert_maker_sm = ShaderModule::from_glsl(
+            device,
             shader_compiler,
-        );
+            "shader/acc_struct/vert_maker.comp",
+            "main",
+        )
+        .unwrap();
 
-        let tlas = Tlas::new(
-            vulkan_ctx,
-            allocator.clone(),
-            acc_device.clone(),
-            blas.as_raw(),
-        );
+        let resources = Resources::new(device.clone(), allocator.clone(), &vert_maker_sm);
 
-        Self {
+        let vert_maker_ppl = ComputePipeline::from_shader_module(device, &vert_maker_sm);
+        let vert_maker_ds = DescriptorSet::new(
+            vulkan_ctx.device().clone(),
+            &vert_maker_ppl.get_layout().get_descriptor_set_layouts()[0],
+            descriptor_pool.clone(),
+        );
+        vert_maker_ds.perform_writes(&mut [
+            WriteDescriptorSet::new_buffer_write(0, &resources.vertices),
+            WriteDescriptorSet::new_buffer_write(1, &resources.indices),
+        ]);
+
+        // TODO: maybe cache this later
+        let vert_maker_cmdbuf =
+            create_vert_maker_cmdbuf(vulkan_ctx, &vert_maker_ppl, &vert_maker_ds);
+
+        vert_maker_cmdbuf.submit(&vulkan_ctx.get_general_queue(), None);
+        device.wait_queue_idle(&vulkan_ctx.get_general_queue());
+
+        let blas_geom = make_blas_geom(&resources);
+        let blas = Blas::new(vulkan_ctx, allocator.clone(), acc_device.clone(), blas_geom);
+
+        let tlas_geom = make_tlas_geom(&blas, &resources.tlas_instance_buffer);
+
+        let tlas = Tlas::new(vulkan_ctx, allocator.clone(), acc_device.clone(), tlas_geom);
+        
+        log::debug!("blas address: {}", blas.get_device_address());
+        log::debug!("tlas address: {}", tlas.get_device_address());
+
+        return Self {
+            vert_maker_ppl,
             acc_device,
             blas,
             tlas,
-        }
-    }
+            resources,
+        };
 
-    pub fn blas(&self) -> &Blas {
-        &self.blas
+        fn create_vert_maker_cmdbuf(
+            vulkan_ctx: &VulkanContext,
+            vert_maker_ppl: &ComputePipeline,
+            vert_maker_ds: &DescriptorSet,
+        ) -> CommandBuffer {
+            let device = vulkan_ctx.device();
+
+            let cmdbuf = CommandBuffer::new(device, vulkan_ctx.command_pool());
+            cmdbuf.begin(true);
+
+            vert_maker_ppl.record_bind(&cmdbuf);
+            vert_maker_ppl.record_bind_descriptor_sets(
+                &cmdbuf,
+                std::slice::from_ref(vert_maker_ds),
+                0,
+            );
+            vert_maker_ppl.record_dispatch(&cmdbuf, [1, 1, 1]);
+
+            cmdbuf.end();
+            return cmdbuf;
+        }
+
+        fn make_blas_geom(resources: &Resources) -> vk::AccelerationStructureGeometryKHR {
+            let triangles_data = vk::AccelerationStructureGeometryTrianglesDataKHR {
+                vertex_format: vk::Format::R32G32B32_SFLOAT,
+                vertex_data: vk::DeviceOrHostAddressConstKHR {
+                    device_address: resources.vertices.device_address(),
+                },
+                vertex_stride: 4 * 4, // 3x4 is wrong, maybe because of alignment (vec3 is padded to vec4)
+                max_vertex: 7, // maxVertex is the number of vertices in vertexData minus one.
+                index_type: vk::IndexType::UINT32,
+                index_data: vk::DeviceOrHostAddressConstKHR {
+                    device_address: resources.indices.device_address(),
+                },
+                transform_data: vk::DeviceOrHostAddressConstKHR { device_address: 0 },
+                ..Default::default()
+            };
+
+            return vk::AccelerationStructureGeometryKHR {
+                geometry_type: vk::GeometryTypeKHR::TRIANGLES,
+                geometry: vk::AccelerationStructureGeometryDataKHR {
+                    triangles: triangles_data,
+                },
+                flags: vk::GeometryFlagsKHR::OPAQUE,
+                ..Default::default()
+            };
+        }
+
+        fn make_tlas_geom<'a>(
+            blas: &'a Blas,
+            instance_buffer: &'a Buffer,
+        ) -> vk::AccelerationStructureGeometryKHR<'a> {
+            let instance = vk::AccelerationStructureInstanceKHR {
+                transform: vk::TransformMatrixKHR {
+                    // matrix is a 3x4 row-major affine transformation matrix
+                    matrix: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+                },
+                // instanceCustomIndex is a 24-bit application-specified index value accessible to ray shaders in the InstanceCustomIndexKHR built-in
+                // mask is an 8-bit visibility mask for the geometry. The instance may only be hit if Cull Mask & instance.mask != 0
+                instance_custom_index_and_mask: vk::Packed24_8::new(0, 0xFF),
+                instance_shader_binding_table_record_offset_and_flags: vk::Packed24_8::new(
+                    0,
+                    vk::GeometryInstanceFlagsKHR::TRIANGLE_FACING_CULL_DISABLE.as_raw() as u8,
+                ),
+                acceleration_structure_reference: vk::AccelerationStructureReferenceKHR {
+                    device_handle: blas.get_device_address(),
+                },
+            };
+
+            instance_buffer
+                .fill(&[instance])
+                .expect("Failed to fill instance buffer");
+
+            return vk::AccelerationStructureGeometryKHR {
+                geometry_type: vk::GeometryTypeKHR::INSTANCES,
+                flags: vk::GeometryFlagsKHR::OPAQUE,
+                geometry: vk::AccelerationStructureGeometryDataKHR {
+                    instances: vk::AccelerationStructureGeometryInstancesDataKHR {
+                        array_of_pointers: vk::FALSE,
+                        data: vk::DeviceOrHostAddressConstKHR {
+                            device_address: instance_buffer.device_address(),
+                        },
+                        ..Default::default()
+                    },
+                },
+                ..Default::default()
+            };
+        }
     }
 
     pub fn tlas(&self) -> &Tlas {

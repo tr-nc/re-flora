@@ -302,10 +302,9 @@ impl Buffer {
                 );
                 align.copy_from_slice(data);
             };
-            Ok(())
-        } else {
-            return Err("Failed to map buffer memory".to_string());
+            return Ok(());
         }
+        return Err("Failed to map buffer memory".to_string());
     }
 
     /// Reads raw data from the buffer.

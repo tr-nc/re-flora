@@ -55,9 +55,13 @@ fn create_descriptor_set(
 pub struct WriteDescriptorSet<'a> {
     binding: u32,
     descriptor_type: vk::DescriptorType,
+
     image_infos: Option<Vec<vk::DescriptorImageInfo>>,
     buffer_infos: Option<Vec<vk::DescriptorBufferInfo>>,
-    acceleration_structure_infos: Option<Vec<vk::WriteDescriptorSetAccelerationStructureKHR<'a>>>,
+    accel_struct_infos: Option<Vec<vk::WriteDescriptorSetAccelerationStructureKHR<'a>>>,
+
+    // for avoiding dangling pointer
+    _accel_handles: Option<Vec<vk::AccelerationStructureKHR>>,
 }
 
 impl<'a> WriteDescriptorSet<'a> {
@@ -71,12 +75,16 @@ impl<'a> WriteDescriptorSet<'a> {
             .image_layout(image_layout)
             .image_view(texture.get_image_view().as_raw())
             .sampler(texture.get_sampler().as_raw());
+
         Self {
             binding,
             descriptor_type,
+
             image_infos: Some(vec![image_info]),
             buffer_infos: None,
-            acceleration_structure_infos: None,
+            accel_struct_infos: None,
+
+            _accel_handles: None,
         }
     }
 
@@ -91,25 +99,38 @@ impl<'a> WriteDescriptorSet<'a> {
             descriptor_type: Self::get_descriptor_type_from_buffer_usage(
                 buffer.get_usage().as_raw(),
             ),
+
             image_infos: None,
             buffer_infos: Some(vec![buffer_info]),
-            acceleration_structure_infos: None,
+            accel_struct_infos: None,
+
+            _accel_handles: None,
         }
     }
 
     pub fn new_acceleration_structure_write(binding: u32, tlas: &Tlas) -> Self {
-        let acceleration_structure_info = vk::WriteDescriptorSetAccelerationStructureKHR {
-            acceleration_structure_count: 1,
-            p_acceleration_structures: &tlas.as_raw() as *const _,
+        let handles = vec![tlas.as_raw()];
+
+        // take caution of this pitfall:
+        // let tmp: vk::AccelerationStructureKHR = tlas.as_raw(); // copy out the u64 handle
+        // let ptr: *const vk::AccelerationStructureKHR = &tmp; // take address of that local `tmp`
+        // p_acceleration_structures = ptr;
+
+        let as_info = vk::WriteDescriptorSetAccelerationStructureKHR {
+            acceleration_structure_count: handles.len() as u32,
+            p_acceleration_structures: handles.as_ptr(),
             ..Default::default()
         };
 
         Self {
             binding,
             descriptor_type: vk::DescriptorType::ACCELERATION_STRUCTURE_KHR,
+
             image_infos: None,
             buffer_infos: None,
-            acceleration_structure_infos: Some(vec![acceleration_structure_info]),
+            accel_struct_infos: Some(vec![as_info]),
+
+            _accel_handles: Some(handles),
         }
     }
 
@@ -130,7 +151,7 @@ impl<'a> WriteDescriptorSet<'a> {
         assert!(
             self.image_infos.is_some()
                 ^ self.buffer_infos.is_some()
-                ^ self.acceleration_structure_infos.is_some()
+                ^ self.accel_struct_infos.is_some()
         );
 
         let mut write = vk::WriteDescriptorSet::default()
@@ -145,9 +166,8 @@ impl<'a> WriteDescriptorSet<'a> {
             write = write.buffer_info(buffer_info);
         }
 
-        if let Some(accel_infos) = &mut self.acceleration_structure_infos {
+        if let Some(accel_infos) = &mut self.accel_struct_infos {
             let len = accel_infos.len();
-            log::debug!("Acceleration structure write: {:?}", accel_infos);
             write = write
                 .push_next(&mut accel_infos[0])
                 .descriptor_count(len as u32);
