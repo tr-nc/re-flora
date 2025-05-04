@@ -56,7 +56,7 @@ void main() {
                           0.001, // bias off your surface
                           ray.direction, 10000.0);
 
-    // march through *every* candidate
+    // notice: do not change the content of this loop, this is not shader logic at all.
     while (rayQueryProceedEXT(rayQuery)) {
         if (rayQueryGetIntersectionTypeEXT(rayQuery, false) ==
             gl_RayQueryCandidateIntersectionTriangleEXT) {
