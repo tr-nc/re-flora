@@ -91,10 +91,10 @@ fn create_device(
         KHR_SWAPCHAIN_NAME.as_ptr(),
         KHR_ACCELERATION_STRUCTURE_NAME.as_ptr(),
         KHR_DEFERRED_HOST_OPERATIONS_NAME.as_ptr(), // must be coupled with ACCLERATION_STRUCTURE
-        KHR_RAY_TRACING_PIPELINE_NAME.as_ptr(),
+        // KHR_RAY_TRACING_PIPELINE_NAME.as_ptr(),
         KHR_RAY_QUERY_NAME.as_ptr(),
-        KHR_PIPELINE_LIBRARY_NAME.as_ptr(),
-        KHR_BUFFER_DEVICE_ADDRESS_NAME.as_ptr(),
+        // KHR_PIPELINE_LIBRARY_NAME.as_ptr(),
+        // KHR_BUFFER_DEVICE_ADDRESS_NAME.as_ptr(),
     ];
 
     let mut buffer_device_address_features = vk::PhysicalDeviceBufferDeviceAddressFeatures {

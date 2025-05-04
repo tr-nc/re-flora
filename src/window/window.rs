@@ -94,8 +94,8 @@ impl Default for WindowStateDesc {
     fn default() -> Self {
         WindowStateDesc {
             title: "Default Window".to_string(),
-            width: 128.0,
-            height: 72.0,
+            width: 1280.0,
+            height: 720.0,
             position: None,
             resizable: true,
             decorations: true,
