@@ -17,23 +17,11 @@ layout(set = 0, binding = 1) uniform U_CameraInfo {
     mat4 view_proj_mat_inv;
 }
 camera_info;
-layout(set = 0, binding = 2) uniform U_SceneInfo { uvec3 visible_chunk_dim; }
-scene_info;
-layout(set = 0, binding = 7) uniform U_EnvInfo { uint time_stamp; }
+layout(set = 0, binding = 2) uniform U_EnvInfo { uint time_stamp; }
 env_info;
-layout(set = 0, binding = 3) buffer B_OctreeData { uint data[]; }
-octree_data;
-#include "../include/bvh.glsl"
-layout(set = 0, binding = 6) readonly buffer B_BvhNodes { BvhNode data[]; }
-bvh_nodes;
+layout(set = 0, binding = 3) uniform accelerationStructureEXT tlas;
 layout(set = 0, binding = 4) writeonly uniform image2D result_image;
-layout(set = 0, binding = 5, r8ui) readonly uniform uimage3D octree_offset_atlas_tex;
 
-layout(set = 0, binding = 8) uniform accelerationStructureEXT tlas;
-
-#include "../include/bvh_svo_marching.glsl"
-#include "../include/core/aabb.glsl"
-#include "../include/dda_svo_marching.glsl"
 #include "../include/ray.glsl"
 #include "../include/voxel_color.glsl"
 #include "../include/voxel_type.glsl"

@@ -1,5 +1,6 @@
-use super::Resources;
+use crate::builder::plain::Resources as PlainResources;
 use crate::util::ShaderCompiler;
+use crate::vkn::Allocator;
 use crate::vkn::CommandBuffer;
 use crate::vkn::ComputePipeline;
 use crate::vkn::DescriptorPool;
@@ -14,6 +15,8 @@ use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
 use ash::vk;
 use glam::UVec3;
+
+use super::Resources;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum FragListBuildType {
@@ -39,7 +42,11 @@ impl FragListBuilder {
         vulkan_ctx: &VulkanContext,
         shader_compiler: &ShaderCompiler,
         descriptor_pool: DescriptorPool,
-        resources: &Resources,
+        plain_resources: &PlainResources,
+        allocator: &Allocator,
+        voxel_dim: UVec3,
+        visible_chunk_dim: UVec3,
+        octree_buffer_size: u64,
     ) -> Self {
         let init_buffers_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
@@ -48,6 +55,40 @@ impl FragListBuilder {
             "main",
         )
         .unwrap();
+        let frag_list_maker_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            &shader_compiler,
+            "shader/builder/frag_list_builder/frag_list_maker.comp",
+            "main",
+        )
+        .unwrap();
+        let octree_init_buffers_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            &shader_compiler,
+            "shader/builder/frag_list_builder/octree_init_buffers.comp",
+            "main",
+        )
+        .unwrap();
+        let tracer_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            &shader_compiler,
+            "shader/builder/frag_list_builder/tracer.comp",
+            "main",
+        )
+        .unwrap();
+
+        let resources = Resources::new(
+            vulkan_ctx.device().clone(),
+            allocator.clone(),
+            voxel_dim,
+            visible_chunk_dim,
+            octree_buffer_size,
+            &init_buffers_sm,
+            &frag_list_maker_sm,
+            &octree_init_buffers_sm,
+            &tracer_sm,
+        );
+
         let init_buffers_ppl =
             ComputePipeline::from_shader_module(vulkan_ctx.device(), &init_buffers_sm);
         let init_buffers_ds = DescriptorSet::new(
@@ -56,18 +97,11 @@ impl FragListBuilder {
             descriptor_pool.clone(),
         );
         init_buffers_ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, resources.frag_list_maker_info()),
-            WriteDescriptorSet::new_buffer_write(1, resources.voxel_dim_indirect()),
-            WriteDescriptorSet::new_buffer_write(2, resources.frag_list_build_result()),
+            WriteDescriptorSet::new_buffer_write(0, &resources.frag_list_maker_info),
+            WriteDescriptorSet::new_buffer_write(1, &resources.voxel_dim_indirect),
+            WriteDescriptorSet::new_buffer_write(2, &resources.frag_list_build_result),
         ]);
 
-        let frag_list_maker_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            &shader_compiler,
-            "shader/builder/frag_list_builder/frag_list_maker.comp",
-            "main",
-        )
-        .unwrap();
         let frag_list_maker_ppl =
             ComputePipeline::from_shader_module(vulkan_ctx.device(), &frag_list_maker_sm);
         let frag_list_maker_chunk_atlas_ds = DescriptorSet::new(
@@ -78,13 +112,13 @@ impl FragListBuilder {
             descriptor_pool.clone(),
         );
         frag_list_maker_chunk_atlas_ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, resources.frag_list_maker_info()),
-            WriteDescriptorSet::new_buffer_write(1, resources.frag_list_build_result()),
-            WriteDescriptorSet::new_buffer_write(2, resources.fragment_list()),
+            WriteDescriptorSet::new_buffer_write(0, &resources.frag_list_maker_info),
+            WriteDescriptorSet::new_buffer_write(1, &resources.frag_list_build_result),
+            WriteDescriptorSet::new_buffer_write(2, &resources.fragment_list),
             WriteDescriptorSet::new_texture_write(
                 3,
                 vk::DescriptorType::STORAGE_IMAGE,
-                resources.chunk_atlas(),
+                &plain_resources.chunk_atlas,
                 vk::ImageLayout::GENERAL,
             ),
         ]);
@@ -97,20 +131,20 @@ impl FragListBuilder {
             descriptor_pool.clone(),
         );
         frag_list_maker_free_atlas_ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, resources.frag_list_maker_info()),
-            WriteDescriptorSet::new_buffer_write(1, resources.frag_list_build_result()),
-            WriteDescriptorSet::new_buffer_write(2, resources.fragment_list()),
+            WriteDescriptorSet::new_buffer_write(0, &resources.frag_list_maker_info),
+            WriteDescriptorSet::new_buffer_write(1, &resources.frag_list_build_result),
+            WriteDescriptorSet::new_buffer_write(2, &resources.fragment_list),
             WriteDescriptorSet::new_texture_write(
                 3,
                 vk::DescriptorType::STORAGE_IMAGE,
-                resources.free_atlas(),
+                &plain_resources.free_atlas,
                 vk::ImageLayout::GENERAL,
             ),
         ]);
 
         let cmdbuf_chunk_atlas = Self::create_cmdbuf(
             vulkan_ctx,
-            resources,
+            &resources,
             &init_buffers_ppl,
             &frag_list_maker_ppl,
             &init_buffers_ds,
@@ -119,7 +153,7 @@ impl FragListBuilder {
 
         let cmdbuf_free_atlas = Self::create_cmdbuf(
             vulkan_ctx,
-            resources,
+            &resources,
             &init_buffers_ppl,
             &frag_list_maker_ppl,
             &init_buffers_ds,
@@ -184,7 +218,7 @@ impl FragListBuilder {
             std::slice::from_ref(frag_list_maker_ds),
             0,
         );
-        frag_list_maker_ppl.record_dispatch_indirect(&cmdbuf, resources.voxel_dim_indirect());
+        frag_list_maker_ppl.record_dispatch_indirect(&cmdbuf, &resources.voxel_dim_indirect);
 
         cmdbuf.end();
         return cmdbuf;
@@ -221,7 +255,7 @@ impl FragListBuilder {
             atlas_read_dim: UVec3,
             is_crossing_boundary: bool,
         ) {
-            let data = StructMemberDataBuilder::from_buffer(resources.frag_list_maker_info())
+            let data = StructMemberDataBuilder::from_buffer(&resources.frag_list_maker_info)
                 .set_field(
                     "atlas_read_offset",
                     PlainMemberTypeWithData::UVec3(atlas_read_offset.to_array()),
@@ -239,7 +273,7 @@ impl FragListBuilder {
                 .unwrap()
                 .get_data_u8();
             resources
-                .frag_list_maker_info()
+                .frag_list_maker_info
                 .fill_with_raw_u8(&data)
                 .unwrap();
         }
@@ -247,11 +281,11 @@ impl FragListBuilder {
 
     pub fn get_fraglist_length(&self, resources: &Resources) -> u32 {
         let layout = &resources
-            .frag_list_build_result()
+            .frag_list_build_result
             .get_layout()
             .unwrap()
             .root_member;
-        let raw_data = resources.frag_list_build_result().fetch_raw().unwrap();
+        let raw_data = resources.frag_list_build_result.fetch_raw().unwrap();
         let reader = StructMemberDataReader::new(layout, &raw_data);
         let field_val = reader.get_field("fragment_list_len").unwrap();
         if let PlainMemberTypeWithData::UInt(val) = field_val {

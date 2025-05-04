@@ -1,5 +1,4 @@
 use super::TracerResources;
-use crate::builder::ExternalSharedResources;
 use crate::gameplay::Camera;
 use crate::util::ShaderCompiler;
 use crate::vkn::{
@@ -8,7 +7,6 @@ use crate::vkn::{
 };
 use crate::vkn::{CommandBuffer, VulkanContext};
 use ash::vk;
-use glam::UVec3;
 
 pub struct Tracer {
     vulkan_context: VulkanContext,
@@ -27,8 +25,6 @@ impl Tracer {
         allocator: Allocator,
         shader_compiler: &ShaderCompiler,
         screen_extent: &[u32; 2],
-        visible_chunk_dim: UVec3,
-        builder_shared_resources: &ExternalSharedResources,
     ) -> Self {
         let tracer_sm = ShaderModule::from_glsl(
             vulkan_context.device(),
@@ -58,10 +54,7 @@ impl Tracer {
             &vulkan_context,
             &tracer_ppl,
             &resources,
-            &builder_shared_resources,
         );
-
-        initialize_buffers(&resources, visible_chunk_dim);
 
         return Self {
             vulkan_context,
@@ -71,24 +64,9 @@ impl Tracer {
             tracer_ds,
             descriptor_pool,
         };
-
-        fn initialize_buffers(resources: &TracerResources, visible_chunk_dim: UVec3) {
-            let data = StructMemberDataBuilder::from_buffer(&resources.scene_info)
-                .set_field(
-                    "visible_chunk_dim",
-                    PlainMemberTypeWithData::UVec3(visible_chunk_dim.to_array()),
-                )
-                .unwrap()
-                .get_data_u8();
-            resources.scene_info.fill_with_raw_u8(&data).unwrap();
-        }
     }
 
-    pub fn on_resize(
-        &mut self,
-        screen_extent: &[u32; 2],
-        builder_shared_resources: &ExternalSharedResources,
-    ) {
+    pub fn on_resize(&mut self, screen_extent: &[u32; 2]) {
         self.resources.on_resize(
             self.vulkan_context.device().clone(),
             self.allocator.clone(),
@@ -101,7 +79,6 @@ impl Tracer {
             &self.vulkan_context,
             &self.tracer_ppl,
             &self.resources,
-            &builder_shared_resources,
         );
     }
 
@@ -204,7 +181,6 @@ impl Tracer {
         vulkan_context: &VulkanContext,
         compute_pipeline: &ComputePipeline,
         resources: &TracerResources,
-        builder_shared_resources: &ExternalSharedResources,
     ) -> DescriptorSet {
         let compute_descriptor_set = DescriptorSet::new(
             vulkan_context.device().clone(),
@@ -214,23 +190,14 @@ impl Tracer {
         compute_descriptor_set.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.gui_input),
             WriteDescriptorSet::new_buffer_write(1, &resources.camera_info),
-            WriteDescriptorSet::new_buffer_write(2, &resources.scene_info),
-            WriteDescriptorSet::new_buffer_write(7, &resources.env_info),
-            WriteDescriptorSet::new_buffer_write(3, &builder_shared_resources.octree_data),
-            WriteDescriptorSet::new_buffer_write(6, &builder_shared_resources.scene_bvh_nodes),
+            WriteDescriptorSet::new_buffer_write(2, &resources.env_info),
+            WriteDescriptorSet::new_acceleration_structure_write(3, resources.acc_structure.tlas()),
             WriteDescriptorSet::new_texture_write(
                 4,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &resources.shader_write_tex,
                 vk::ImageLayout::GENERAL,
             ),
-            WriteDescriptorSet::new_texture_write(
-                5,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &builder_shared_resources.octree_offset_atlas_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_acceleration_structure_write(8, resources.acc_structure.tlas()),
         ]);
         compute_descriptor_set
     }

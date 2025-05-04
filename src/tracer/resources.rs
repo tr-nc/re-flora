@@ -10,11 +10,8 @@ use ash::vk;
 pub struct TracerResources {
     pub gui_input: Buffer,
     pub camera_info: Buffer,
-    pub scene_info: Buffer,
     pub env_info: Buffer,
-
     pub shader_write_tex: Texture,
-
     pub acc_structure: AccelerationStructure,
 }
 
@@ -52,15 +49,6 @@ impl TracerResources {
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
-        let scene_info_layout = tracer_sm.get_buffer_layout("U_SceneInfo").unwrap();
-        let scene_info = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            scene_info_layout.clone(),
-            BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
-        );
-
         let env_info_layout = tracer_sm.get_buffer_layout("U_EnvInfo").unwrap();
         let env_info = Buffer::from_buffer_layout(
             device.clone(),
@@ -76,7 +64,6 @@ impl TracerResources {
         Self {
             gui_input,
             camera_info,
-            scene_info,
             env_info,
             shader_write_tex,
             acc_structure,
