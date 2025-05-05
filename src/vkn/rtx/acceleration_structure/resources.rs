@@ -5,6 +5,7 @@ use crate::vkn::{Allocator, Buffer, BufferUsage, Device, ShaderModule};
 pub struct Resources {
     pub vertices: Buffer,
     pub indices: Buffer,
+    pub vert_maker_result: Buffer,
     pub tlas_instance_buffer: Buffer,
 }
 
@@ -51,11 +52,21 @@ impl Resources {
             instance_data_size,
         );
 
-        log::debug!("TLAS instance buffer: {:?}", tlas_instance_buffer.as_raw());
+        let vert_maker_result = vert_maker_sm
+            .get_buffer_layout("B_VertMakerResult")
+            .unwrap();
+        let vert_maker_result = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            vert_maker_result.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+        );
 
         Self {
             vertices,
             indices,
+            vert_maker_result,
             tlas_instance_buffer,
         }
     }

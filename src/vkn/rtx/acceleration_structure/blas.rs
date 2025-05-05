@@ -1,3 +1,5 @@
+use std::primitive;
+
 use crate::vkn::{
     rtx::acceleration_structure::utils::{build_acc, create_acc, query_properties},
     Allocator, Buffer, VulkanContext,
@@ -31,15 +33,14 @@ impl Blas {
         allocator: Allocator,
         acc_device: khr::acceleration_structure::Device,
         geom: vk::AccelerationStructureGeometryKHR,
+        primitive_count: u32,
     ) -> Self {
         let device = vulkan_ctx.device();
-
-        const PRIMITIVE_COUNT: u32 = 12; // TODO: this should be read back later
 
         let (blas_size, scratch_buf_size) = query_properties(
             &acc_device,
             geom,
-            &[PRIMITIVE_COUNT],
+            &[primitive_count],
             vk::AccelerationStructureTypeKHR::BOTTOM_LEVEL,
             vk::BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE,
             vk::BuildAccelerationStructureModeKHR::BUILD,
@@ -65,7 +66,7 @@ impl Blas {
             vk::BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE,
             vk::BuildAccelerationStructureModeKHR::BUILD,
             1,
-            PRIMITIVE_COUNT,
+            primitive_count,
         );
         return Self {
             acc_device,

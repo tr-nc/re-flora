@@ -285,7 +285,7 @@ impl FragListBuilder {
             .get_layout()
             .unwrap()
             .root_member;
-        let raw_data = resources.frag_list_build_result.fetch_raw().unwrap();
+        let raw_data = resources.frag_list_build_result.read_back().unwrap();
         let reader = StructMemberDataReader::new(layout, &raw_data);
         let field_val = reader.get_field("fragment_list_len").unwrap();
         if let PlainMemberTypeWithData::UInt(val) = field_val {

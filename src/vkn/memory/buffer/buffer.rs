@@ -312,7 +312,7 @@ impl Buffer {
     /// # Returns
     /// * `Ok(Vec<u8>)` containing the buffer's data if successful
     /// * `Err` with a description if memory mapping failed
-    pub fn fetch_raw(&self) -> Result<Vec<u8>, String> {
+    pub fn read_back(&self) -> Result<Vec<u8>, String> {
         if let Some(ptr) = self.allocated_mem.mapped_ptr() {
             let size = self.get_size_bytes() as usize;
             let mut data: Vec<u8> = vec![0; size];

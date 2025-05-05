@@ -13,7 +13,8 @@ use crate::{
     util::ShaderCompiler,
     vkn::{
         Allocator, Buffer, CommandBuffer, ComputePipeline, DescriptorPool, DescriptorSet,
-        ShaderModule, VulkanContext, WriteDescriptorSet,
+        PlainMemberTypeWithData, ShaderModule, StructMemberDataReader, VulkanContext,
+        WriteDescriptorSet,
     },
 };
 
@@ -61,6 +62,7 @@ impl AccelerationStructure {
         vert_maker_ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.vertices),
             WriteDescriptorSet::new_buffer_write(1, &resources.indices),
+            WriteDescriptorSet::new_buffer_write(2, &resources.vert_maker_result),
         ]);
 
         // TODO: maybe cache this later
@@ -70,13 +72,25 @@ impl AccelerationStructure {
         vert_maker_cmdbuf.submit(&vulkan_ctx.get_general_queue(), None);
         device.wait_queue_idle(&vulkan_ctx.get_general_queue());
 
+        let valid_voxel_count = read_back_valid_voxel_count(&resources);
+        log::debug!("Valid voxel count: {}", valid_voxel_count);
+
         let blas_geom = make_blas_geom(&resources);
-        let blas = Blas::new(vulkan_ctx, allocator.clone(), acc_device.clone(), blas_geom);
+
+        const PRIMITIVE_COUNT_PER_VOXEL: u32 = 12;
+        let primitive_count = valid_voxel_count * PRIMITIVE_COUNT_PER_VOXEL;
+        let blas = Blas::new(
+            vulkan_ctx,
+            allocator.clone(),
+            acc_device.clone(),
+            blas_geom,
+            primitive_count,
+        );
 
         let tlas_geom = make_tlas_geom(&blas, &resources.tlas_instance_buffer);
 
         let tlas = Tlas::new(vulkan_ctx, allocator.clone(), acc_device.clone(), tlas_geom);
-        
+
         log::debug!("blas address: {}", blas.get_device_address());
         log::debug!("tlas address: {}", tlas.get_device_address());
 
@@ -87,6 +101,23 @@ impl AccelerationStructure {
             tlas,
             resources,
         };
+
+        fn read_back_valid_voxel_count(resources: &Resources) -> u32 {
+            // read the reslt back
+            let layout = &resources
+                .vert_maker_result
+                .get_layout()
+                .unwrap()
+                .root_member;
+            let raw_data = resources.vert_maker_result.read_back().unwrap();
+            let reader = StructMemberDataReader::new(layout, &raw_data);
+            let field_val = reader.get_field("valid_voxel_count").unwrap();
+            if let PlainMemberTypeWithData::UInt(val) = field_val {
+                return val;
+            } else {
+                panic!("Invalid type for valid_voxel_count");
+            }
+        }
 
         fn create_vert_maker_cmdbuf(
             vulkan_ctx: &VulkanContext,
@@ -104,7 +135,7 @@ impl AccelerationStructure {
                 std::slice::from_ref(vert_maker_ds),
                 0,
             );
-            vert_maker_ppl.record_dispatch(&cmdbuf, [1, 1, 1]);
+            vert_maker_ppl.record_dispatch(&cmdbuf, [4, 4, 4]);
 
             cmdbuf.end();
             return cmdbuf;
