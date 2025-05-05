@@ -22,9 +22,31 @@ env_info;
 layout(set = 0, binding = 3) uniform accelerationStructureEXT tlas;
 layout(set = 0, binding = 4) writeonly uniform image2D result_image;
 
+#include "../include/vertex_index_attribute.glsl"
+layout(set = 0, binding = 5) readonly buffer B_Vertices { Vertex data[]; }
+vertices;
+layout(set = 0, binding = 6) readonly buffer B_Indices { Index data[]; }
+indices;
+
+#include "../include/core/packer.glsl"
 #include "../include/ray.glsl"
 #include "../include/voxel_color.glsl"
 #include "../include/voxel_type.glsl"
+
+// uint compress_voxel_type_and_normal(uint voxel_type, vec3 normal, bool is_normal_valid) {
+//     uint properties_data = 0;
+//     properties_data |= voxel_type & 0xFF;
+//     properties_data |= pack_normal_v2(normal) << 8; // 7 bits for each component -> total 21 bits
+//     properties_data |= (is_normal_valid ? 1 : 0) << 29; // 1 bit for is_normal_valid
+//     return properties_data;
+// }
+
+void get_voxel_type_normal(out uint o_voxel_type, out vec3 o_normal, out bool o_is_normal_valid,
+                           uint compressed_voxel_type_and_normal) {
+    o_voxel_type      = compressed_voxel_type_and_normal & 0xFF;
+    o_normal          = unpack_normal_v2((compressed_voxel_type_and_normal & 0x1FFFFF00u) >> 8);
+    o_is_normal_valid = (compressed_voxel_type_and_normal & 0x20000000u) != 0;
+}
 
 void main() {
     ivec2 uvi      = ivec2(gl_GlobalInvocationID.xy);
@@ -58,6 +80,19 @@ void main() {
     bool hit = (rayQueryGetIntersectionTypeEXT(rayQuery, true) ==
                 gl_RayQueryCommittedIntersectionTriangleEXT);
 
-    vec3 ray_color = hit ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+    vec3 ray_color = vec3(0.0);
+    if (hit) {
+        // the triangle index
+        int primitive_index = rayQueryGetIntersectionPrimitiveIndexEXT(rayQuery, true);
+        // ray_color = vec3(float(idx) / 1000.0);
+        uint vert_index = indices.data[primitive_index * 3].index;
+        Vertex vert     = vertices.data[vert_index];
+        vec3 normal;
+        bool is_normal_valid;
+        uint voxel_type;
+        get_voxel_type_normal(voxel_type, normal, is_normal_valid,
+                              vert.compressed_voxel_type_and_normal);
+        ray_color = normal * 0.5 + 0.5;
+    }
     imageStore(result_image, uvi, vec4(ray_color, 1.0));
 }

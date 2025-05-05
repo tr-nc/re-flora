@@ -19,11 +19,10 @@ use crate::{
 };
 
 pub struct AccelerationStructure {
+    pub resources: Resources,
     vert_maker_ppl: ComputePipeline,
     acc_device: ash::khr::acceleration_structure::Device,
     blas: Blas,
-
-    resources: Resources,
     pub tlas: Tlas,
 }
 

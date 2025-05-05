@@ -198,6 +198,8 @@ impl Tracer {
                 &resources.shader_write_tex,
                 vk::ImageLayout::GENERAL,
             ),
+            WriteDescriptorSet::new_buffer_write(5, &resources.acc_structure.resources.vertices),
+            WriteDescriptorSet::new_buffer_write(6, &resources.acc_structure.resources.indices),
         ]);
         compute_descriptor_set
     }
