@@ -34,7 +34,7 @@ pub struct FragListBuilder {
     frag_list_maker_free_atlas_ds: DescriptorSet,
 
     cmdbuf_chunk_atlas: CommandBuffer,
-    cmdbuf_free_atlas: CommandBuffer,
+    free_atlas_cmdbuf: CommandBuffer,
 }
 
 impl FragListBuilder {
@@ -142,7 +142,7 @@ impl FragListBuilder {
             ),
         ]);
 
-        let cmdbuf_chunk_atlas = Self::create_cmdbuf(
+        let cmdbuf_chunk_atlas = Self::record_cmdbuf(
             vulkan_ctx,
             &resources,
             &init_buffers_ppl,
@@ -151,7 +151,7 @@ impl FragListBuilder {
             &frag_list_maker_chunk_atlas_ds,
         );
 
-        let cmdbuf_free_atlas = Self::create_cmdbuf(
+        let free_atlas_cmdbuf = Self::record_cmdbuf(
             vulkan_ctx,
             &resources,
             &init_buffers_ppl,
@@ -168,11 +168,11 @@ impl FragListBuilder {
             frag_list_maker_free_atlas_ds,
 
             cmdbuf_chunk_atlas,
-            cmdbuf_free_atlas,
+            free_atlas_cmdbuf,
         }
     }
 
-    fn create_cmdbuf(
+    fn record_cmdbuf(
         vulkan_ctx: &VulkanContext,
         resources: &Resources,
         init_buffers_ppl: &ComputePipeline,
@@ -193,8 +193,6 @@ impl FragListBuilder {
             vk::PipelineStageFlags::DRAW_INDIRECT | vk::PipelineStageFlags::COMPUTE_SHADER,
             vec![indirect_access_memory_barrier],
         );
-
-        //
 
         let device = vulkan_ctx.device();
 
@@ -244,7 +242,7 @@ impl FragListBuilder {
 
         let cmdbuf = match build_type {
             FragListBuildType::ChunkAtlas => &self.cmdbuf_chunk_atlas,
-            FragListBuildType::FreeAtlas => &self.cmdbuf_free_atlas,
+            FragListBuildType::FreeAtlas => &self.free_atlas_cmdbuf,
         };
         cmdbuf.submit(&vulkan_ctx.get_general_queue(), None);
         device.wait_queue_idle(&vulkan_ctx.get_general_queue());

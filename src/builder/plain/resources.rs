@@ -3,7 +3,7 @@ use glam::UVec3;
 
 use crate::vkn::{Allocator, Buffer, BufferUsage, Device, ShaderModule, Texture, TextureDesc};
 
-pub struct Resources {
+pub struct PlainBuilderResources {
     pub chunk_atlas: Texture,
     pub free_atlas: Texture,
 
@@ -14,7 +14,7 @@ pub struct Resources {
     pub trunk_bvh_nodes: Buffer,
 }
 
-impl Resources {
+impl PlainBuilderResources {
     pub fn new(
         device: &Device,
         allocator: Allocator,

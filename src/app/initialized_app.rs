@@ -109,17 +109,19 @@ impl InitializedApp {
             },
         );
 
-        let plain_builder = PlainBuilder::new(
-            &vulkan_ctx,
+        let mut plain_builder = PlainBuilder::new(
+            vulkan_ctx.clone(),
             &shader_compiler,
             allocator.clone(),
             UVec3::new(256, 256, 256) * UVec3::new(1, 1, 1),
             UVec3::new(512, 512, 512), // free atlas size
+            UVec3::new(256, 256, 256),
         );
+        plain_builder.chunk_init(UVec3::new(0, 0, 0));
 
         let mut accel_struct_builder =
             AccelStructBuilder::new(vulkan_ctx.clone(), allocator.clone(), &shader_compiler);
-        accel_struct_builder.build();
+        accel_struct_builder.build(plain_builder.resources());
 
         let tracer = Tracer::new(
             vulkan_ctx.clone(),

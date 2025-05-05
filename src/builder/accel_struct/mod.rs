@@ -10,6 +10,8 @@ use crate::{
     },
 };
 
+use super::PlainBuilderResources;
+
 pub struct AccelStructBuilder {
     vulkan_ctx: VulkanContext,
     resources: AccelStructResources,
@@ -93,7 +95,7 @@ impl AccelStructBuilder {
         }
     }
 
-    pub fn build(&mut self) {
+    pub fn build(&mut self, plain_builder_resources: &PlainBuilderResources) {
         self.vert_maker_cmdbuf
             .submit(&self.vulkan_ctx.get_general_queue(), None);
         self.vulkan_ctx
