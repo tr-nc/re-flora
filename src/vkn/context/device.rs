@@ -1,12 +1,7 @@
 use super::Queue;
 use super::{instance::Instance, physical_device::PhysicalDevice, queue::QueueFamilyIndices};
-use ash::vk::{
-    self, KHR_BUFFER_DEVICE_ADDRESS_NAME, KHR_DEFERRED_HOST_OPERATIONS_NAME,
-    KHR_PIPELINE_LIBRARY_NAME, KHR_RAY_QUERY_NAME, KHR_RAY_TRACING_PIPELINE_NAME,
-};
-use ash::vk::{KHR_ACCELERATION_STRUCTURE_NAME, KHR_SWAPCHAIN_NAME};
+use ash::vk;
 use std::collections::HashSet;
-
 use std::sync::Arc;
 
 struct DeviceInner {
@@ -88,13 +83,13 @@ fn create_device(
     };
 
     let device_extensions_ptrs = [
-        KHR_SWAPCHAIN_NAME.as_ptr(),
-        KHR_ACCELERATION_STRUCTURE_NAME.as_ptr(),
-        KHR_DEFERRED_HOST_OPERATIONS_NAME.as_ptr(), // must be coupled with ACCLERATION_STRUCTURE
-        // KHR_RAY_TRACING_PIPELINE_NAME.as_ptr(),
-        KHR_RAY_QUERY_NAME.as_ptr(),
-        // KHR_PIPELINE_LIBRARY_NAME.as_ptr(),
-        // KHR_BUFFER_DEVICE_ADDRESS_NAME.as_ptr(),
+        vk::KHR_SWAPCHAIN_NAME.as_ptr(),
+        vk::KHR_ACCELERATION_STRUCTURE_NAME.as_ptr(),
+        vk::KHR_DEFERRED_HOST_OPERATIONS_NAME.as_ptr(), // must be coupled with ACCLERATION_STRUCTURE
+        vk::KHR_RAY_QUERY_NAME.as_ptr(),
+        // vk::KHR_RAY_TRACING_PIPELINE_NAME.as_ptr(),
+        // vk::KHR_PIPELINE_LIBRARY_NAME.as_ptr(),
+        // vk::KHR_BUFFER_DEVICE_ADDRESS_NAME.as_ptr(),
     ];
 
     let mut buffer_device_address_features = vk::PhysicalDeviceBufferDeviceAddressFeatures {
