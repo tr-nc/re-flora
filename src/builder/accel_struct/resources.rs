@@ -38,6 +38,8 @@ impl AccelStructResources {
             gpu_allocator::MemoryLocation::GpuOnly,
             vertices_buffer_max_len,
         );
+        log::debug!("vertices buffer max len: {}", vertices_buffer_max_len);
+        log::debug!("vertices buffer size: {}", vertices.get_size_bytes());
 
         let indices_layout = vert_maker_sm.get_buffer_layout("B_Indices").unwrap();
         let indices = Buffer::from_buffer_layout_arraylike(
@@ -52,6 +54,8 @@ impl AccelStructResources {
             gpu_allocator::MemoryLocation::GpuOnly,
             indices_buffer_max_len,
         );
+        log::debug!("indices buffer max len: {}", indices_buffer_max_len);
+        log::debug!("indices buffer size: {}", indices.get_size_bytes());
 
         let vert_maker_result = vert_maker_sm
             .get_buffer_layout("B_VertMakerResult")

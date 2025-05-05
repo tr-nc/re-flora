@@ -119,8 +119,13 @@ impl InitializedApp {
         );
         plain_builder.chunk_init(UVec3::new(0, 0, 0));
 
-        let mut accel_struct_builder =
-            AccelStructBuilder::new(vulkan_ctx.clone(), allocator.clone(), &shader_compiler);
+        let mut accel_struct_builder = AccelStructBuilder::new(
+            vulkan_ctx.clone(),
+            allocator.clone(),
+            &shader_compiler,
+            UVec3::new(4, 4, 4),
+            10_000_000,
+        );
         accel_struct_builder.build(plain_builder.resources());
 
         let tracer = Tracer::new(
