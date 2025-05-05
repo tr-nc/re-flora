@@ -65,6 +65,11 @@ impl AccelerationStructure {
             WriteDescriptorSet::new_buffer_write(2, &resources.vert_maker_result),
         ]);
 
+        // 6 faces, 2 triangles per face, no sharing because we store voxel data inside the vertices
+        const PRIMITIVE_COUNT_PER_VOXEL: u32 = 12;
+        // 8 vertices per voxel
+        const VERTICES_COUNT_PER_VOXEL: u32 = 8;
+
         // TODO: maybe cache this later
         let vert_maker_cmdbuf =
             create_vert_maker_cmdbuf(vulkan_ctx, &vert_maker_ppl, &vert_maker_ds);
@@ -75,9 +80,20 @@ impl AccelerationStructure {
         let valid_voxel_count = read_back_valid_voxel_count(&resources);
         log::debug!("Valid voxel count: {}", valid_voxel_count);
 
-        let blas_geom = make_blas_geom(&resources);
+        if valid_voxel_count == 0 {
+            // TODO: handle this case properly
+            panic!("No valid voxels found!");
+        }
 
-        const PRIMITIVE_COUNT_PER_VOXEL: u32 = 12;
+        let vertex_stride = get_vertex_stride(&resources);
+        log::debug!("Vertex stride: {}", vertex_stride);
+
+        let blas_geom = make_blas_geom(
+            &resources,
+            vertex_stride,
+            VERTICES_COUNT_PER_VOXEL * valid_voxel_count - 1,
+        );
+
         let primitive_count = valid_voxel_count * PRIMITIVE_COUNT_PER_VOXEL;
         let blas = Blas::new(
             vulkan_ctx,
@@ -119,6 +135,11 @@ impl AccelerationStructure {
             }
         }
 
+        fn get_vertex_stride(resources: &Resources) -> u64 {
+            let layout = &resources.vertices.get_layout().unwrap().root_member;
+            layout.get_size_bytes()
+        }
+
         fn create_vert_maker_cmdbuf(
             vulkan_ctx: &VulkanContext,
             vert_maker_ppl: &ComputePipeline,
@@ -141,14 +162,18 @@ impl AccelerationStructure {
             return cmdbuf;
         }
 
-        fn make_blas_geom(resources: &Resources) -> vk::AccelerationStructureGeometryKHR {
+        fn make_blas_geom(
+            resources: &Resources,
+            vertex_stride: u64,
+            max_vertex: u32,
+        ) -> vk::AccelerationStructureGeometryKHR {
             let triangles_data = vk::AccelerationStructureGeometryTrianglesDataKHR {
                 vertex_format: vk::Format::R32G32B32_SFLOAT,
                 vertex_data: vk::DeviceOrHostAddressConstKHR {
                     device_address: resources.vertices.device_address(),
                 },
-                vertex_stride: 4 * 4, // 3x4 is wrong, maybe because of alignment (vec3 is padded to vec4)
-                max_vertex: 7, // maxVertex is the number of vertices in vertexData minus one.
+                vertex_stride: vertex_stride, // the stride in bytes between each vertex
+                max_vertex: max_vertex,       // the number of vertices in vertex_data minus one
                 index_type: vk::IndexType::UINT32,
                 index_data: vk::DeviceOrHostAddressConstKHR {
                     device_address: resources.indices.device_address(),

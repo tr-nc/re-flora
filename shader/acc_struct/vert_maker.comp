@@ -11,7 +11,9 @@ layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 
 struct Vertex {
     vec3 position;
-    // vec3 normal;
+    uint padding;
+    vec3 normal;
+    uint normal_valid;
 };
 struct Index {
     uint index;
@@ -32,9 +34,9 @@ uint dummy_chunk[] = uint[](
     // z=0
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
     // z=1
-    0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
     // z=2
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
     // z=3
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
@@ -71,7 +73,6 @@ void calculate_normal(out vec3 o_normal, out bool o_is_valid, ivec3 c) {
             }
         }
     }
-
     float L    = length(n);
     o_is_valid = (L > 1e-5);
     o_normal   = o_is_valid ? normalize(-n) : vec3(0, 1, 0);
@@ -113,9 +114,11 @@ void main() {
 
     // write 8 verts + bake the *same* normal into all of them
     for (uint i = 0; i < NUM_CORNERS; i++) {
-        uint out_idx                    = slot * NUM_CORNERS + i;
-        vertices.data[out_idx].position = vec3(uvi) + cube_corners[i];
-        // vertices.data[out_idx].normal   = normal;
+        uint out_idx                        = slot * NUM_CORNERS + i;
+        vertices.data[out_idx].position     = vec3(uvi) + cube_corners[i];
+        vertices.data[out_idx].normal       = normal;
+        vertices.data[out_idx].normal_valid = valid ? 1 : 0;
+        // TODO: store normal validity too
     }
 
     // write 36 indices (offset into this slot’s 8 verts)
