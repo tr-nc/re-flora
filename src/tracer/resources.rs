@@ -1,9 +1,5 @@
-use crate::{
-    util::ShaderCompiler,
-    vkn::{
-        AccelerationStructure, Allocator, Buffer, BufferUsage, Device, ShaderModule, Texture,
-        TextureDesc, VulkanContext,
-    },
+use crate::vkn::{
+    Allocator, Buffer, BufferUsage, Device, ShaderModule, Texture, TextureDesc, VulkanContext,
 };
 use ash::vk;
 
@@ -12,7 +8,6 @@ pub struct TracerResources {
     pub camera_info: Buffer,
     pub env_info: Buffer,
     pub shader_write_tex: Texture,
-    pub acc_structure: AccelerationStructure,
 }
 
 impl TracerResources {
@@ -20,7 +15,6 @@ impl TracerResources {
         vulkan_ctx: &VulkanContext,
         allocator: Allocator,
         tracer_sm: &ShaderModule,
-        shader_compiler: &ShaderCompiler,
         screen_extent: &[u32; 2],
     ) -> Self {
         let device = vulkan_ctx.device();
@@ -58,15 +52,11 @@ impl TracerResources {
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
-        let acc_structure =
-            AccelerationStructure::new(&vulkan_ctx, allocator.clone(), &shader_compiler);
-
         Self {
             gui_input,
             camera_info,
             env_info,
             shader_write_tex,
-            acc_structure,
         }
     }
 

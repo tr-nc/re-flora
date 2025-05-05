@@ -1,15 +1,17 @@
 use ash::vk;
 
-use crate::vkn::{Allocator, Buffer, BufferUsage, Device, ShaderModule};
+use crate::vkn::{Allocator, Blas, Buffer, BufferUsage, Device, ShaderModule, Tlas};
 
-pub struct Resources {
+pub struct AccelStructResources {
     pub vertices: Buffer,
     pub indices: Buffer,
     pub vert_maker_result: Buffer,
     pub tlas_instance_buffer: Buffer,
+    pub blas: Option<Blas>,
+    pub tlas: Option<Tlas>,
 }
 
-impl Resources {
+impl AccelStructResources {
     pub fn new(device: Device, allocator: Allocator, vert_maker_sm: &ShaderModule) -> Self {
         let vertices_layout = vert_maker_sm.get_buffer_layout("B_Vertices").unwrap();
         let vertices = Buffer::from_buffer_layout_arraylike(
@@ -68,6 +70,8 @@ impl Resources {
             indices,
             vert_maker_result,
             tlas_instance_buffer,
+            tlas: None,
+            blas: None,
         }
     }
 }

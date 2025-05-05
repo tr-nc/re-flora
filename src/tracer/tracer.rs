@@ -1,4 +1,5 @@
 use super::TracerResources;
+use crate::builder::AccelStructResources;
 use crate::gameplay::Camera;
 use crate::util::ShaderCompiler;
 use crate::vkn::{
@@ -25,6 +26,7 @@ impl Tracer {
         allocator: Allocator,
         shader_compiler: &ShaderCompiler,
         screen_extent: &[u32; 2],
+        accel_struct_resources: &AccelStructResources,
     ) -> Self {
         let tracer_sm = ShaderModule::from_glsl(
             vulkan_context.device(),
@@ -45,7 +47,6 @@ impl Tracer {
             &vulkan_context,
             allocator.clone(),
             &tracer_sm,
-            shader_compiler,
             screen_extent,
         );
 
@@ -54,6 +55,7 @@ impl Tracer {
             &vulkan_context,
             &tracer_ppl,
             &resources,
+            accel_struct_resources,
         );
 
         return Self {
@@ -66,7 +68,11 @@ impl Tracer {
         };
     }
 
-    pub fn on_resize(&mut self, screen_extent: &[u32; 2]) {
+    pub fn on_resize(
+        &mut self,
+        screen_extent: &[u32; 2],
+        accel_struct_resources: &AccelStructResources,
+    ) {
         self.resources.on_resize(
             self.vulkan_context.device().clone(),
             self.allocator.clone(),
@@ -79,6 +85,7 @@ impl Tracer {
             &self.vulkan_context,
             &self.tracer_ppl,
             &self.resources,
+            accel_struct_resources,
         );
     }
 
@@ -181,6 +188,7 @@ impl Tracer {
         vulkan_context: &VulkanContext,
         compute_pipeline: &ComputePipeline,
         resources: &TracerResources,
+        accel_struct_resources: &AccelStructResources,
     ) -> DescriptorSet {
         let compute_descriptor_set = DescriptorSet::new(
             vulkan_context.device().clone(),
@@ -191,15 +199,18 @@ impl Tracer {
             WriteDescriptorSet::new_buffer_write(0, &resources.gui_input),
             WriteDescriptorSet::new_buffer_write(1, &resources.camera_info),
             WriteDescriptorSet::new_buffer_write(2, &resources.env_info),
-            WriteDescriptorSet::new_acceleration_structure_write(3, resources.acc_structure.tlas()),
+            WriteDescriptorSet::new_acceleration_structure_write(
+                3,
+                accel_struct_resources.tlas.as_ref().unwrap(),
+            ),
             WriteDescriptorSet::new_texture_write(
                 4,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &resources.shader_write_tex,
                 vk::ImageLayout::GENERAL,
             ),
-            WriteDescriptorSet::new_buffer_write(5, &resources.acc_structure.resources.vertices),
-            WriteDescriptorSet::new_buffer_write(6, &resources.acc_structure.resources.indices),
+            WriteDescriptorSet::new_buffer_write(5, &accel_struct_resources.vertices),
+            WriteDescriptorSet::new_buffer_write(6, &accel_struct_resources.indices),
         ]);
         compute_descriptor_set
     }

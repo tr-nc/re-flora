@@ -1,4 +1,4 @@
-use crate::builder::ChunkWriter;
+use crate::builder::{AccelStructBuilder, PlainBuilder};
 use crate::gameplay::{Camera, CameraDesc};
 use crate::tracer::Tracer;
 use crate::util::ShaderCompiler;
@@ -39,8 +39,8 @@ pub struct InitializedApp {
     tracer: Tracer,
 
     // builders
-    #[allow(dead_code)]
-    chunk_writer: ChunkWriter,
+    _plain_builder: PlainBuilder,
+    _accel_struct_builder: AccelStructBuilder,
 
     // gui adjustables
     debug_float: f32,
@@ -109,7 +109,7 @@ impl InitializedApp {
             },
         );
 
-        let chunk_writer = ChunkWriter::new(
+        let plain_builder = PlainBuilder::new(
             &vulkan_ctx,
             &shader_compiler,
             allocator.clone(),
@@ -117,11 +117,15 @@ impl InitializedApp {
             UVec3::new(512, 512, 512), // free atlas size
         );
 
+        let accel_struct_builder =
+            AccelStructBuilder::new(&vulkan_ctx, allocator.clone(), &shader_compiler);
+
         let tracer = Tracer::new(
             vulkan_ctx.clone(),
             allocator.clone(),
             &shader_compiler,
             &screen_extent,
+            accel_struct_builder.get_resources(),
         );
 
         let mut this = Self {
@@ -140,7 +144,8 @@ impl InitializedApp {
 
             tracer,
 
-            chunk_writer,
+            _plain_builder: plain_builder,
+            _accel_struct_builder: accel_struct_builder,
 
             camera,
             is_resize_pending: false,
@@ -408,7 +413,7 @@ impl InitializedApp {
         let window_size = self.window_state.window_size();
 
         self.camera.on_resize(&window_size);
-        self.tracer.on_resize(&window_size);
+        self.tracer.on_resize(&window_size, self._accel_struct_builder.get_resources());
         self.swapchain.on_resize(&window_size);
 
         // the render pass should be rebuilt when the swapchain is recreated
