@@ -33,14 +33,6 @@ indices;
 #include "../include/voxel_color.glsl"
 #include "../include/voxel_type.glsl"
 
-// uint compress_voxel_type_and_normal(uint voxel_type, vec3 normal, bool is_normal_valid) {
-//     uint properties_data = 0;
-//     properties_data |= voxel_type & 0xFF;
-//     properties_data |= pack_normal_v2(normal) << 8; // 7 bits for each component -> total 21 bits
-//     properties_data |= (is_normal_valid ? 1 : 0) << 29; // 1 bit for is_normal_valid
-//     return properties_data;
-// }
-
 void get_voxel_type_normal(out uint o_voxel_type, out vec3 o_normal, out bool o_is_normal_valid,
                            uint compressed_voxel_type_and_normal) {
     o_voxel_type      = compressed_voxel_type_and_normal & 0xFF;

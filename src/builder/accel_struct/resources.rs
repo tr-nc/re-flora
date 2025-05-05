@@ -1,18 +1,30 @@
 use ash::vk;
 
-use crate::vkn::{Allocator, Blas, Buffer, BufferUsage, Device, ShaderModule, Tlas};
+use crate::vkn::{Allocator, Blas, Buffer, BufferUsage, ShaderModule, Tlas, VulkanContext};
 
 pub struct AccelStructResources {
     pub vertices: Buffer,
     pub indices: Buffer,
     pub vert_maker_result: Buffer,
-    pub tlas_instance_buffer: Buffer,
-    pub blas: Option<Blas>,
-    pub tlas: Option<Tlas>,
+    pub blas: Blas,
+    pub tlas: Tlas,
 }
 
 impl AccelStructResources {
-    pub fn new(device: Device, allocator: Allocator, vert_maker_sm: &ShaderModule) -> Self {
+    pub fn new(
+        vulkan_ctx: VulkanContext,
+        allocator: Allocator,
+        vert_maker_sm: &ShaderModule,
+        vertices_buffer_max_len: u64,
+        indices_buffer_max_len: u64,
+    ) -> Self {
+        let device = vulkan_ctx.device();
+
+        let accel_struct_device = ash::khr::acceleration_structure::Device::new(
+            &vulkan_ctx.instance(),
+            &vulkan_ctx.device(),
+        );
+
         let vertices_layout = vert_maker_sm.get_buffer_layout("B_Vertices").unwrap();
         let vertices = Buffer::from_buffer_layout_arraylike(
             device.clone(),
@@ -24,7 +36,7 @@ impl AccelStructResources {
                     | vk::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR,
             ),
             gpu_allocator::MemoryLocation::GpuOnly,
-            10000,
+            vertices_buffer_max_len,
         );
 
         let indices_layout = vert_maker_sm.get_buffer_layout("B_Indices").unwrap();
@@ -38,20 +50,7 @@ impl AccelStructResources {
                     | vk::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR,
             ),
             gpu_allocator::MemoryLocation::GpuOnly,
-            10000,
-        );
-
-        let instance_data_size = size_of::<vk::AccelerationStructureInstanceKHR>() as u64;
-        log::debug!("Instance data size: {}", instance_data_size);
-        let tlas_instance_buffer = Buffer::new_sized(
-            device.clone(),
-            allocator.clone(),
-            BufferUsage::from_flags(
-                vk::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR
-                    | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
-            ),
-            gpu_allocator::MemoryLocation::CpuToGpu,
-            instance_data_size,
+            indices_buffer_max_len,
         );
 
         let vert_maker_result = vert_maker_sm
@@ -65,13 +64,24 @@ impl AccelStructResources {
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
+        let blas = Blas::new(
+            vulkan_ctx.clone(),
+            allocator.clone(),
+            accel_struct_device.clone(),
+        );
+
+        let tlas = Tlas::new(
+            vulkan_ctx.clone(),
+            allocator.clone(),
+            accel_struct_device.clone(),
+        );
+
         Self {
             vertices,
             indices,
             vert_maker_result,
-            tlas_instance_buffer,
-            tlas: None,
-            blas: None,
+            blas,
+            tlas,
         }
     }
 }

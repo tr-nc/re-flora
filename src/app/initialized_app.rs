@@ -117,8 +117,9 @@ impl InitializedApp {
             UVec3::new(512, 512, 512), // free atlas size
         );
 
-        let accel_struct_builder =
-            AccelStructBuilder::new(&vulkan_ctx, allocator.clone(), &shader_compiler);
+        let mut accel_struct_builder =
+            AccelStructBuilder::new(vulkan_ctx.clone(), allocator.clone(), &shader_compiler);
+        accel_struct_builder.build();
 
         let tracer = Tracer::new(
             vulkan_ctx.clone(),
@@ -413,7 +414,8 @@ impl InitializedApp {
         let window_size = self.window_state.window_size();
 
         self.camera.on_resize(&window_size);
-        self.tracer.on_resize(&window_size, self._accel_struct_builder.get_resources());
+        self.tracer
+            .on_resize(&window_size, self._accel_struct_builder.get_resources());
         self.swapchain.on_resize(&window_size);
 
         // the render pass should be rebuilt when the swapchain is recreated

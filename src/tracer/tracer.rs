@@ -199,10 +199,7 @@ impl Tracer {
             WriteDescriptorSet::new_buffer_write(0, &resources.gui_input),
             WriteDescriptorSet::new_buffer_write(1, &resources.camera_info),
             WriteDescriptorSet::new_buffer_write(2, &resources.env_info),
-            WriteDescriptorSet::new_acceleration_structure_write(
-                3,
-                accel_struct_resources.tlas.as_ref().unwrap(),
-            ),
+            WriteDescriptorSet::new_acceleration_structure_write(3, &accel_struct_resources.tlas),
             WriteDescriptorSet::new_texture_write(
                 4,
                 vk::DescriptorType::STORAGE_IMAGE,
