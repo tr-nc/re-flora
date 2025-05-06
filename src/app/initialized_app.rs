@@ -127,7 +127,7 @@ impl InitializedApp {
             10_000_000,
         );
 
-        accel_struct_builder.build();
+        accel_struct_builder.build_unit_cube();
 
         let octree_builder = OctreeBuilder::new(
             vulkan_ctx.clone(),

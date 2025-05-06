@@ -1,6 +1,6 @@
 use crate::vkn::{
     rtx::acceleration_structure::utils::{build_acc, query_properties},
-    Allocator, Blas, Buffer, BufferUsage, VulkanContext,
+    Allocator, Buffer, BufferUsage, VulkanContext,
 };
 use ash::{khr, vk};
 
@@ -15,8 +15,6 @@ pub struct Tlas {
     tlas: Option<vk::AccelerationStructureKHR>,
     // must be kept alive until the TLAS is destroyed
     _buffer: Option<Buffer>,
-
-    instance_buf: Buffer,
 }
 
 impl Drop for Tlas {
@@ -35,51 +33,38 @@ impl Tlas {
         allocator: Allocator,
         acc_device: khr::acceleration_structure::Device,
     ) -> Self {
-        let instance_data_size = size_of::<vk::AccelerationStructureInstanceKHR>() as u64;
-        let instance_buf = Buffer::new_sized(
-            vulkan_ctx.device().clone(),
-            allocator.clone(),
-            BufferUsage::from_flags(
-                vk::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR
-                    | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
-            ),
-            gpu_allocator::MemoryLocation::CpuToGpu,
-            instance_data_size,
-        );
-
         Tlas {
             vulkan_ctx,
             allocator,
             acc_device,
-            instance_buf,
             tlas: None,
             _buffer: None,
         }
     }
 
-    pub fn build(&mut self, blas: &Blas) {
-        let instance = vk::AccelerationStructureInstanceKHR {
-            transform: vk::TransformMatrixKHR {
-                // matrix is a 3x4 row-major affine transformation matrix
-                matrix: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
-            },
-            // instanceCustomIndex is a 24-bit application-specified index value accessible to ray shaders in the InstanceCustomIndexKHR built-in
-            // mask is an 8-bit visibility mask for the geometry. The instance may only be hit if Cull Mask & instance.mask != 0
-            instance_custom_index_and_mask: vk::Packed24_8::new(0, 0xFF),
-            instance_shader_binding_table_record_offset_and_flags: vk::Packed24_8::new(
-                0,
-                vk::GeometryInstanceFlagsKHR::TRIANGLE_FACING_CULL_DISABLE.as_raw() as u8,
-            ),
-            acceleration_structure_reference: vk::AccelerationStructureReferenceKHR {
-                device_handle: blas.get_device_address().unwrap(),
-            },
-        };
+    pub fn build(&mut self, instances_buf: &Buffer) {
+        // let instance = vk::AccelerationStructureInstanceKHR {
+        //     transform: vk::TransformMatrixKHR {
+        //         // matrix is a 3x4 row-major affine transformation matrix
+        //         matrix: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+        //     },
+        //     // instanceCustomIndex is a 24-bit application-specified index value accessible to ray shaders in the InstanceCustomIndexKHR built-in
+        //     // mask is an 8-bit visibility mask for the geometry. The instance may only be hit if Cull Mask & instance.mask != 0
+        //     instance_custom_index_and_mask: vk::Packed24_8::new(0, 0xFF),
+        //     instance_shader_binding_table_record_offset_and_flags: vk::Packed24_8::new(
+        //         0,
+        //         vk::GeometryInstanceFlagsKHR::TRIANGLE_FACING_CULL_DISABLE.as_raw() as u8,
+        //     ),
+        //     acceleration_structure_reference: vk::AccelerationStructureReferenceKHR {
+        //         device_handle: blas.get_device_address().unwrap(),
+        //     },
+        // };
 
-        self.instance_buf
-            .fill(&[instance])
-            .expect("Failed to fill instance buffer");
+        // self.instance_buf
+        //     .fill(&[instance])
+        //     .expect("Failed to fill instance buffer");
 
-        let geom = make_tlas_geom(&self.instance_buf);
+        let geom = make_tlas_geom(&instances_buf);
 
         // TODO: maybe reuse the scratch buffer / tlas handle later
         let (tlas_size, scratch_buf_size) = query_properties(

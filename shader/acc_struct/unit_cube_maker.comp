@@ -4,11 +4,6 @@
 // one work‐group = one 4×4×4 chunk
 layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 
-#define BLAS_DIM 4
-#define BLAS_DIM_2 (BLAS_DIM * BLAS_DIM)
-#define NUM_CORNERS 8
-#define NUM_INDICES 36
-
 #include "../include/vertex_index_attribute.glsl"
 layout(set = 0, binding = 0) writeonly buffer B_Vertices { Vertex data[]; }
 vertices;
@@ -16,9 +11,9 @@ layout(set = 0, binding = 1) writeonly buffer B_Indices { Index data[]; }
 indices;
 
 void main() {
-    vec3 vertices_data[] =
-        vec3[](vec3(0.0, 0.0, 0.0), vec3(1.0, 0.0, 0.0), vec3(1.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0),
-               vec3(0.0, 0.0, 1.0), vec3(1.0, 0.0, 1.0), vec3(1.0, 1.0, 1.0), vec3(0.0, 1.0, 1.0));
+    vec3 vertices_data[] = vec3[](
+        vec3(-0.5, -0.5, -0.5), vec3(0.5, -0.5, -0.5), vec3(0.5, 0.5, -0.5), vec3(-0.5, 0.5, -0.5),
+        vec3(-0.5, -0.5, 0.5), vec3(0.5, -0.5, 0.5), vec3(0.5, 0.5, 0.5), vec3(-0.5, 0.5, 0.5));
 
     uint indices_data[] = uint[](
         // -Z face
