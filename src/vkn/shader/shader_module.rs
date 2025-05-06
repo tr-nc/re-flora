@@ -425,7 +425,8 @@ fn extract_buffer_layouts(
                     (4, 4) => Ok(PlainMemberType::Mat4),
                     (3, 3) => Ok(PlainMemberType::Mat3),
                     (2, 2) => Ok(PlainMemberType::Mat2),
-                    _ => Err("Unsupported matrix size".to_string()),
+                    (4, 3) => Ok(PlainMemberType::Mat3x4),
+                    _ => Err(format!("Unsupported matrix size: {}x{}", rows, cols)),
                 };
             }
 

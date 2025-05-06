@@ -108,7 +108,7 @@ impl AccelStructResources {
                     | vk::BufferUsageFlags::STORAGE_BUFFER
                     | vk::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR,
             ),
-            gpu_allocator::MemoryLocation::GpuOnly,
+            gpu_allocator::MemoryLocation::CpuToGpu,
             tlas_instance_cap,
         );
 

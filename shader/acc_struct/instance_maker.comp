@@ -10,9 +10,7 @@ struct InstanceDescriptor {
 };
 
 struct AccelStructInstance {
-    vec4 transform_row_1;
-    vec4 transform_row_2;
-    vec4 transform_row_3;
+    mat3x4 transform;
     uint instance_custom_index_and_mask;
     uint instance_shader_binding_table_record_offset_and_flags;
     uvec2 blas_device_address;
@@ -32,11 +30,11 @@ instance;
 
 void main() {
     uint id = gl_GlobalInvocationID.x;
-    // if (id >= instance_info.instance_count) {
-    //     return;
-    // }
+    if (id >= instance_info.instance_count) {
+        return;
+    }
 
-    // // 1) load
+    // 1) load
     // InstanceDescriptor desc = instance_descriptor.data[id];
 
     // we just fake one at first
@@ -45,34 +43,35 @@ void main() {
     desc.rotation = vec3(0.0, 0.0, 0.0);
     desc.scale    = vec3(1.0, 1.0, 1.0);
 
-    vec3 P = desc.position;
-    vec3 R = desc.rotation;
-    vec3 S = desc.scale;
+    // build R from Euler XYZ
+    vec3 s = sin(desc.rotation);
+    vec3 c = cos(desc.rotation);
 
-    // 2) build rotation matrices (XYZ Euler)
-    vec3 s = sin(R), c = cos(R);
-    mat3 Rx = mat3(1.0, 0.0, 0.0, 0.0, c.x, -s.x, 0.0, s.x, c.x);
-    mat3 Ry = mat3(c.y, 0.0, s.y, 0.0, 1.0, 0.0, -s.y, 0.0, c.y);
-    mat3 Rz = mat3(c.z, -s.z, 0.0, s.z, c.z, 0.0, 0.0, 0.0, 1.0);
-    mat3 M  = Rz * Ry * Rx;
+    mat3 r_x = mat3(1, 0, 0, 0, c.x, -s.x, 0, s.x, c.x);
+    mat3 r_y = mat3(c.y, 0, s.y, 0, 1, 0, -s.y, 0, c.y);
+    mat3 r_z = mat3(c.z, -s.z, 0, s.z, c.z, 0, 0, 0, 1);
 
-    // 3) apply scale
-    M[0] *= S.x;
-    M[1] *= S.y;
-    M[2] *= S.z;
+    // combined rotation & scale
+    mat3 M = r_z * r_y * r_x;
+    M[0] *= desc.scale.x; // scale X‐column
+    M[1] *= desc.scale.y; // scale Y‐column
+    M[2] *= desc.scale.z; // scale Z‐column
 
     // 4) write out row-major 3×4
     AccelStructInstance outInst;
-    outInst.transform_row_1 = vec4(M[0][0], M[1][0], M[2][0], P.x);
-    outInst.transform_row_2 = vec4(M[0][1], M[1][1], M[2][1], P.y);
-    outInst.transform_row_3 = vec4(M[0][2], M[1][2], M[2][2], P.z);
+    outInst.transform = mat3x4(vec4(M[0], desc.position.x), vec4(M[1], desc.position.y),
+                               vec4(M[2], desc.position.z));
 
-    // 5) pack 24-bit customIndex and 8-bit mask (here mask=0xFF)
-    outInst.instance_custom_index_and_mask = (id << 8) | 0xFFu;
+    // 5) pack 24-bit customIndex and 8-bit mask (mask = 0xFF)
+    outInst.instance_custom_index_and_mask = (id & 0x00FFFFFFu) // customIndex in bits 0–23
+                                             | (0xFFu << 24);   // mask      in bits 24–31
 
-    // 6) pack 24-bit SBT-record offset (here 0) and 8-bit flags
-    //    VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR == 0x1
-    outInst.instance_shader_binding_table_record_offset_and_flags = (0u << 8) | 0x0u;
+    // 6) pack 24-bit sbt-record-offset and 8-bit flags
+    //    VK_GEOMETr_y_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR == 0x1
+    uint flags = 0x1u;
+    outInst.instance_shader_binding_table_record_offset_and_flags =
+        (0u & 0x00FFFFFFu) // sbt offset in bits 0–23
+        | (flags << 24);   // flags      in bits 24–31
 
     // 7) BLAS device address
     outInst.blas_device_address = instance_info.blas_device_address;

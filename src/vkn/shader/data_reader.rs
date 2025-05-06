@@ -151,6 +151,16 @@ impl<'a> PlainMemberDataReader<'a> {
                 }
                 D::Mat4(m)
             }
+            Mat3x4 => {
+                let mut m = [[0.0f32; 4]; 3];
+                for r in 0..3 {
+                    for c in 0..4 {
+                        let idx = (r * 4 + c) * 4;
+                        m[r][c] = f32::from_ne_bytes(self.bytes[idx..idx + 4].try_into().unwrap());
+                    }
+                }
+                D::Mat3x4(m)
+            }
         }
     }
 }

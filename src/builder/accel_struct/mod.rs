@@ -1,4 +1,5 @@
 mod resources;
+use ash::vk;
 use glam::UVec3;
 pub use resources::*;
 
@@ -107,7 +108,7 @@ impl AccelStructBuilder {
         let chunk_instance_maker_cmdbuf =
             create_instance_maker_cmdbuf(&vulkan_ctx, &instance_maker_ppl, &instance_maker_ds);
 
-        return Self {
+        let mut this = Self {
             vulkan_ctx,
             resources,
 
@@ -122,6 +123,8 @@ impl AccelStructBuilder {
 
             voxel_dim_per_chunk,
         };
+        this.init();
+        return this;
 
         fn create_unit_cube_maker_cmdbuf(
             vulkan_ctx: &VulkanContext,
@@ -169,7 +172,11 @@ impl AccelStructBuilder {
         }
     }
 
-    pub fn build_unit_cube(&mut self) {
+    fn init(&mut self) {
+        self.build_cube_blas();
+    }
+
+    fn build_cube_blas(&mut self) {
         self.unit_cube_maker_cmdbuf
             .submit(&self.vulkan_ctx.get_general_queue(), None);
         self.vulkan_ctx
@@ -179,7 +186,9 @@ impl AccelStructBuilder {
         self.resources
             .blas
             .build(&self.resources.vertices, &self.resources.indices);
+    }
 
+    pub fn build_chunks_tlas(&mut self) {
         self.build_chunk_instances(
             1, // TODO:
             self.resources.blas.get_device_address().unwrap(),
@@ -202,8 +211,8 @@ impl AccelStructBuilder {
             instance_count: u32,
             blas_device_address: u64,
         ) {
-            let blas_device_address_upper = (blas_device_address >> 32) as u32;
-            let blas_device_address_lower = (blas_device_address & 0xFFFFFFFF) as u32;
+            let lower = (blas_device_address & 0xFFFF_FFFF) as u32;
+            let upper = (blas_device_address >> 32) as u32;
 
             // blas_device_address
             let data = StructMemberDataBuilder::from_buffer(&resources.instance_info)
@@ -214,10 +223,7 @@ impl AccelStructBuilder {
                 .unwrap()
                 .set_field(
                     "blas_device_address",
-                    PlainMemberTypeWithData::UVec2([
-                        blas_device_address_upper,
-                        blas_device_address_lower,
-                    ]),
+                    PlainMemberTypeWithData::UVec2([lower, upper]),
                 )
                 .unwrap()
                 .get_data_u8();

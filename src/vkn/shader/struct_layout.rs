@@ -60,6 +60,7 @@ pub enum PlainMemberType {
     Mat2,
     Mat3,
     Mat4,
+    Mat3x4,
 }
 
 #[derive(Debug, Clone)]
@@ -79,6 +80,7 @@ pub enum PlainMemberTypeWithData {
     Mat2([[f32; 2]; 2]),
     Mat3([[f32; 3]; 3]),
     Mat4([[f32; 4]; 4]),
+    Mat3x4([[f32; 4]; 3]),
 }
 
 impl PlainMemberTypeWithData {

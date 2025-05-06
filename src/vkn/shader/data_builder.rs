@@ -122,6 +122,13 @@ impl<'a> PlainMemberDataBuilder<'a> {
                     }
                     b
                 }
+                PlainMemberTypeWithData::Mat3x4(m) => {
+                    let mut b = Vec::with_capacity(3 * 4 * 4);
+                    for row in m.iter().flat_map(|r| r.iter()) {
+                        b.extend_from_slice(&row.to_ne_bytes());
+                    }
+                    b
+                }
             };
 
             // 2) pad with zeros or truncate to exactly padded_size
