@@ -119,13 +119,15 @@ impl InitializedApp {
             UVec3::new(256, 256, 256), // voxel dim per chunk
         );
 
-        let accel_struct_builder = AccelStructBuilder::new(
+        let mut accel_struct_builder = AccelStructBuilder::new(
             vulkan_ctx.clone(),
             allocator.clone(),
             &shader_compiler,
             UVec3::new(4, 4, 4),
             10_000_000,
         );
+
+        accel_struct_builder.build();
 
         let octree_builder = OctreeBuilder::new(
             vulkan_ctx.clone(),
@@ -176,8 +178,7 @@ impl InitializedApp {
 
     fn init(&mut self) {
         self.plain_builder.chunk_init(UVec3::new(0, 0, 0));
-        self.accel_struct_builder
-            .build(self.plain_builder.resources());
+
         self.octree_builder
             .build_and_alloc(UVec3::new(0, 0, 0), UVec3::new(256, 256, 256))
             .unwrap();

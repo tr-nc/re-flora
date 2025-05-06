@@ -41,20 +41,22 @@ impl Blas {
     }
 
     /// Build the bottom‐level acceleration structure from the given geometry.
-    pub fn build(&mut self, vertices_buf: &Buffer, indices_buf: &Buffer, valid_voxel_count: u32) {
+    pub fn build(&mut self, vertices_buf: &Buffer, indices_buf: &Buffer) {
         // 6 faces, 2 triangles per face, no sharing because we store voxel data inside the vertices
         const PRIMITIVE_COUNT_PER_VOXEL: u32 = 12;
         // 8 vertices per voxel
         const VERTICES_COUNT_PER_VOXEL: u32 = 8;
 
+        const VOXEL_COUNT: u32 = 1;
+
         let geom = make_blas_geom(
             vertices_buf,
             indices_buf,
             get_vertex_stride(vertices_buf),
-            VERTICES_COUNT_PER_VOXEL * valid_voxel_count - 1,
+            VERTICES_COUNT_PER_VOXEL * VOXEL_COUNT - 1,
         );
 
-        let primitive_count = valid_voxel_count * PRIMITIVE_COUNT_PER_VOXEL;
+        let primitive_count = VOXEL_COUNT * PRIMITIVE_COUNT_PER_VOXEL;
         let device = self.vulkan_ctx.device();
 
         // Query the sizes we need for BLAS and scratch

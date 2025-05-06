@@ -3,15 +3,12 @@ use glam::UVec3;
 pub use resources::*;
 
 use crate::{
-    util::{ShaderCompiler, Timer},
+    util::ShaderCompiler,
     vkn::{
-        Allocator, CommandBuffer, ComputePipeline, DescriptorPool, DescriptorSet,
-        PlainMemberTypeWithData, ShaderModule, StructMemberDataReader, VulkanContext,
-        WriteDescriptorSet,
+        Allocator, CommandBuffer, ComputePipeline, DescriptorPool, DescriptorSet, ShaderModule,
+        VulkanContext, WriteDescriptorSet,
     },
 };
-
-use super::PlainBuilderResources;
 
 pub struct AccelStructBuilder {
     vulkan_ctx: VulkanContext,
@@ -67,7 +64,6 @@ impl AccelStructBuilder {
         vert_maker_ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.vertices),
             WriteDescriptorSet::new_buffer_write(1, &resources.indices),
-            WriteDescriptorSet::new_buffer_write(2, &resources.vert_maker_result),
         ]);
 
         // TODO: maybe cache this later
@@ -111,64 +107,18 @@ impl AccelStructBuilder {
         }
     }
 
-    pub fn build(&mut self, plain_builder_resources: &PlainBuilderResources) {
-        let chunk_atlas_extent = plain_builder_resources
-            .chunk_atlas
-            .get_image()
-            .get_desc()
-            .extent;
-        let chunk_atlas_extent = UVec3::from(chunk_atlas_extent);
+    pub fn build(&mut self) {
+        self.vert_maker_cmdbuf
+            .submit(&self.vulkan_ctx.get_general_queue(), None);
+        self.vulkan_ctx
+            .device()
+            .wait_queue_idle(&self.vulkan_ctx.get_general_queue());
 
-        // let build_dimension = chunk_atlas_extent / self.voxel_dim_per_chunk;
-        let build_dimension = UVec3::new(1, 1, 1);
+        self.resources
+            .blas
+            .build(&self.resources.vertices, &self.resources.indices);
 
-        let timer = Timer::new();
-        for x in 0..build_dimension.x {
-            for y in 0..build_dimension.y {
-                for z in 0..build_dimension.z {
-                    // let offset = UVec3::new(x, y, z) * self.voxel_dim_per_chunk;
-
-                    self.vert_maker_cmdbuf
-                        .submit(&self.vulkan_ctx.get_general_queue(), None);
-                    self.vulkan_ctx
-                        .device()
-                        .wait_queue_idle(&self.vulkan_ctx.get_general_queue());
-                }
-            }
-        }
-        log::debug!("Voxel maker time: {:?}", timer.elapsed());
-
-        let valid_voxel_count = read_back_valid_voxel_count(&self.resources);
-        log::debug!("Valid voxel count: {}", valid_voxel_count);
-
-        if valid_voxel_count == 0 {
-            // TODO: handle this case properly
-            panic!("No valid voxels found!");
-        }
-
-        self.resources.blas.build(
-            &self.resources.vertices,
-            &self.resources.indices,
-            valid_voxel_count,
-        );
         self.resources.tlas.build(&self.resources.blas);
-
-        fn read_back_valid_voxel_count(resources: &AccelStructResources) -> u32 {
-            // read the reslt back
-            let layout = &resources
-                .vert_maker_result
-                .get_layout()
-                .unwrap()
-                .root_member;
-            let raw_data = resources.vert_maker_result.read_back().unwrap();
-            let reader = StructMemberDataReader::new(layout, &raw_data);
-            let field_val = reader.get_field("valid_voxel_count").unwrap();
-            if let PlainMemberTypeWithData::UInt(val) = field_val {
-                return val;
-            } else {
-                panic!("Invalid type for valid_voxel_count");
-            }
-        }
     }
 
     pub fn get_resources(&self) -> &AccelStructResources {

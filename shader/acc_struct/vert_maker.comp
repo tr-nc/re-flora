@@ -15,120 +15,30 @@ vertices;
 layout(set = 0, binding = 1) writeonly buffer B_Indices { Index data[]; }
 indices;
 
-// atomic counter + readback
-layout(set = 0, binding = 2) buffer B_VertMakerResult { uint valid_voxel_count; }
-vert_maker_result;
-
-#include "../include/core/packer.glsl"
-
-// your “dummy_chunk” 4×4×4 voxel types
-uint dummy_chunk[] = uint[](
-    // z=0
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    // z=1
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    // z=2
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    // z=3
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-
-// safe fetch (0 outside)
-uint get_voxel_type(ivec3 c) {
-    if (any(lessThan(c, ivec3(0))) || any(greaterThanEqual(c, ivec3(BLAS_DIM)))) {
-        return 0;
-    }
-    return dummy_chunk[c.x + c.y * BLAS_DIM_2 + c.z * BLAS_DIM];
-}
-
-// fully‐occluded iff all 6 neighbors are solid
-bool is_occluded(ivec3 c) {
-    ivec3 offs[6] = ivec3[](ivec3(1, 0, 0), ivec3(-1, 0, 0), ivec3(0, 1, 0), ivec3(0, -1, 0),
-                            ivec3(0, 0, 1), ivec3(0, 0, -1));
-    for (int i = 0; i < 6; i++) {
-        if (get_voxel_type(c + offs[i]) == 0) {
-            return false;
-        }
-    }
-    return true;
-}
-
-// from https://www.youtube.com/watch?v=YTZBFz3Et40
-void calculate_normal(out vec3 o_normal, out bool o_is_valid, ivec3 c) {
-    const int R = 2;
-    vec3 n      = vec3(0.0);
-    for (int z = -R; z <= R; z++) {
-        for (int y = -R; y <= R; y++) {
-            for (int x = -R; x <= R; x++) {
-                if (get_voxel_type(c + ivec3(x, y, z)) != 0) {
-                    n += vec3(x, y, z);
-                }
-            }
-        }
-    }
-    float L    = length(n);
-    o_is_valid = (L > 1e-5);
-    o_normal   = o_is_valid ? normalize(-n) : vec3(0, 1, 0);
-}
-
-/// Compress a voxel type and normal vector into a single uint.
-/// The voxel type is compressed into 8 bits, the normal vector is compressed into 3 7-bit
-/// components, and the is_normal_valid flag is compressed into 1 bit.
-/// Total occupied bits: 8 + 21 + 1 = 30 bits.
-uint compress_voxel_type_and_normal(uint voxel_type, vec3 normal, bool is_normal_valid) {
-    uint properties_data = 0;
-    properties_data |= voxel_type & 0xFF;
-    properties_data |= pack_normal_v2(normal) << 8; // 7 bits for each component -> total 21 bits
-    properties_data |= (is_normal_valid ? 1 : 0) << 29; // 1 bit for is_normal_valid
-    return properties_data;
-}
-
-// 1×1×1 cube centered at (0,0,0)
-const vec3 cube_corners[NUM_CORNERS] = vec3[](
-    vec3(-0.5, -0.5, -0.5), vec3(0.5, -0.5, -0.5), vec3(0.5, 0.5, -0.5), vec3(-0.5, 0.5, -0.5),
-    vec3(-0.5, -0.5, 0.5), vec3(0.5, -0.5, 0.5), vec3(0.5, 0.5, 0.5), vec3(-0.5, 0.5, 0.5));
-// two‐triangles‐per‐face
-const uint cube_indices[NUM_INDICES] = uint[](0, 1, 2, 2, 3, 0, 4, 6, 5, 6, 4, 7, 0, 3, 7, 7, 4, 0,
-                                              1, 5, 6, 6, 2, 1, 0, 4, 5, 5, 1, 0, 3, 2, 6, 6, 7, 3);
-
 void main() {
-    ivec3 uvi = ivec3(gl_GlobalInvocationID);
-    if (any(lessThan(uvi, ivec3(0))) || any(greaterThanEqual(uvi, ivec3(BLAS_DIM)))) {
-        return;
+    vec3 vertices_data[] =
+        vec3[](vec3(0.0, 0.0, 0.0), vec3(1.0, 0.0, 0.0), vec3(1.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0),
+               vec3(0.0, 0.0, 1.0), vec3(1.0, 0.0, 1.0), vec3(1.0, 1.0, 1.0), vec3(0.0, 1.0, 1.0));
+
+    uint indices_data[] = uint[](
+        // -Z face
+        0, 1, 2, 2, 3, 0,
+        // +Z face
+        4, 6, 5, 6, 4, 7,
+        // -X face
+        0, 3, 7, 7, 4, 0,
+        // +X face
+        1, 5, 6, 6, 2, 1,
+        // -Y face
+        0, 4, 5, 5, 1, 0,
+        // +Y face
+        3, 2, 6, 6, 7, 3);
+
+    for (uint i = 0; i < 8; i++) {
+        vertices.data[i].position = vertices_data[i];
     }
 
-    uint voxel_type = get_voxel_type(uvi);
-
-    // empty
-    if (voxel_type == 0) {
-        return;
-    }
-
-    // fully hidden
-    if (is_occluded(uvi)) {
-        return;
-    }
-
-    // compute per‐voxel normal
-    vec3 normal;
-    bool valid;
-    calculate_normal(normal, valid, uvi);
-
-    uint compressed_voxel_type_and_normal =
-        compress_voxel_type_and_normal(voxel_type, normal, valid);
-
-    // reserve one “voxel slot”
-    uint slot = atomicAdd(vert_maker_result.valid_voxel_count, 1);
-
-    // write 8 verts + bake the *same* normal into all of them
-    for (uint i = 0; i < NUM_CORNERS; i++) {
-        uint out_idx                                            = slot * NUM_CORNERS + i;
-        vertices.data[out_idx].position                         = vec3(uvi) + cube_corners[i];
-        vertices.data[out_idx].compressed_voxel_type_and_normal = compressed_voxel_type_and_normal;
-    }
-
-    // write 36 indices (offset into this slot’s 8 verts)
-    for (uint i = 0; i < NUM_INDICES; i++) {
-        uint out_idx                = slot * NUM_INDICES + i;
-        indices.data[out_idx].index = slot * NUM_CORNERS + cube_indices[i];
+    for (uint i = 0; i < 36; i++) {
+        indices.data[i].index = indices_data[i];
     }
 }

@@ -5,7 +5,6 @@ use crate::vkn::{Allocator, Blas, Buffer, BufferUsage, ShaderModule, Tlas, Vulka
 pub struct AccelStructResources {
     pub vertices: Buffer,
     pub indices: Buffer,
-    pub vert_maker_result: Buffer,
     pub blas: Blas,
     pub tlas: Tlas,
 }
@@ -57,17 +56,6 @@ impl AccelStructResources {
         log::debug!("indices buffer max len: {}", indices_buffer_max_len);
         log::debug!("indices buffer size: {}", indices.get_size_bytes());
 
-        let vert_maker_result = vert_maker_sm
-            .get_buffer_layout("B_VertMakerResult")
-            .unwrap();
-        let vert_maker_result = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            vert_maker_result.clone(),
-            BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
-        );
-
         let blas = Blas::new(
             vulkan_ctx.clone(),
             allocator.clone(),
@@ -83,7 +71,6 @@ impl AccelStructResources {
         Self {
             vertices,
             indices,
-            vert_maker_result,
             blas,
             tlas,
         }

@@ -58,7 +58,28 @@ impl Tlas {
     }
 
     pub fn build(&mut self, blas: &Blas) {
-        let geom = make_tlas_geom(blas, &self.instance_buf);
+        let instance = vk::AccelerationStructureInstanceKHR {
+            transform: vk::TransformMatrixKHR {
+                // matrix is a 3x4 row-major affine transformation matrix
+                matrix: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+            },
+            // instanceCustomIndex is a 24-bit application-specified index value accessible to ray shaders in the InstanceCustomIndexKHR built-in
+            // mask is an 8-bit visibility mask for the geometry. The instance may only be hit if Cull Mask & instance.mask != 0
+            instance_custom_index_and_mask: vk::Packed24_8::new(0, 0xFF),
+            instance_shader_binding_table_record_offset_and_flags: vk::Packed24_8::new(
+                0,
+                vk::GeometryInstanceFlagsKHR::TRIANGLE_FACING_CULL_DISABLE.as_raw() as u8,
+            ),
+            acceleration_structure_reference: vk::AccelerationStructureReferenceKHR {
+                device_handle: blas.get_device_address().unwrap(),
+            },
+        };
+
+        self.instance_buf
+            .fill(&[instance])
+            .expect("Failed to fill instance buffer");
+
+        let geom = make_tlas_geom(&self.instance_buf);
 
         // TODO: maybe reuse the scratch buffer / tlas handle later
         let (tlas_size, scratch_buf_size) = query_properties(
@@ -97,30 +118,8 @@ impl Tlas {
         self._buffer = Some(buffer);
 
         fn make_tlas_geom<'a>(
-            blas: &'a Blas,
             instance_buffer: &'a Buffer,
         ) -> vk::AccelerationStructureGeometryKHR<'a> {
-            let instance = vk::AccelerationStructureInstanceKHR {
-                transform: vk::TransformMatrixKHR {
-                    // matrix is a 3x4 row-major affine transformation matrix
-                    matrix: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
-                },
-                // instanceCustomIndex is a 24-bit application-specified index value accessible to ray shaders in the InstanceCustomIndexKHR built-in
-                // mask is an 8-bit visibility mask for the geometry. The instance may only be hit if Cull Mask & instance.mask != 0
-                instance_custom_index_and_mask: vk::Packed24_8::new(0, 0xFF),
-                instance_shader_binding_table_record_offset_and_flags: vk::Packed24_8::new(
-                    0,
-                    vk::GeometryInstanceFlagsKHR::TRIANGLE_FACING_CULL_DISABLE.as_raw() as u8,
-                ),
-                acceleration_structure_reference: vk::AccelerationStructureReferenceKHR {
-                    device_handle: blas.get_device_address().unwrap(),
-                },
-            };
-
-            instance_buffer
-                .fill(&[instance])
-                .expect("Failed to fill instance buffer");
-
             return vk::AccelerationStructureGeometryKHR {
                 geometry_type: vk::GeometryTypeKHR::INSTANCES,
                 flags: vk::GeometryFlagsKHR::OPAQUE,
