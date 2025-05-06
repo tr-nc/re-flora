@@ -5,7 +5,7 @@
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 layout(set = 0, binding = 0) readonly uniform B_OctreeBuildInfo {
-    uint fragment_list_len;
+    uint frag_list_len;
     uint voxel_dim_xyz;
 }
 octree_build_info;
@@ -17,11 +17,11 @@ octree_alloc_info;
 
 layout(set = 1, binding = 0) buffer B_OctreeData { uint data[]; }
 octree_data;
-#include "../../include/fragment_list_entry.glsl"
+#include "../../include/frag_list_entry.glsl"
 layout(set = 1, binding = 1) readonly buffer B_FragmentList {
     FragmentListEntry per_voxel_build_infos[];
 }
-fragment_list;
+frag_list;
 layout(set = 1, binding = 2) buffer B_Counter { uint data; }
 counter_buffer;
 

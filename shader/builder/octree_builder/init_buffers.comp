@@ -6,7 +6,7 @@
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
 layout(set = 0, binding = 0) readonly uniform B_OctreeBuildInfo {
-    uint fragment_list_len;
+    uint frag_list_len;
     uint voxel_dim_xyz;
 }
 octree_build_info;
@@ -39,7 +39,7 @@ void main() {
     octree_alloc_info.alloc_begin = 0;
     octree_alloc_info.alloc_num   = 8;
 
-    voxel_count_indirect.dispatch_x = group_x_64(octree_build_info.fragment_list_len);
+    voxel_count_indirect.dispatch_x = group_x_64(octree_build_info.frag_list_len);
     voxel_count_indirect.dispatch_y = 1;
     voxel_count_indirect.dispatch_z = 1;
 

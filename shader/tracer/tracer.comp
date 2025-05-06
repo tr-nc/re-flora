@@ -74,6 +74,8 @@ void main() {
 
     vec3 ray_color = vec3(0.0);
     if (hit) {
+        float t = rayQueryGetIntersectionTEXT(rayQuery, true);
+
         // the triangle index
         int primitive_index = rayQueryGetIntersectionPrimitiveIndexEXT(rayQuery, true);
         // ray_color = vec3(float(idx) / 1000.0);
@@ -85,6 +87,8 @@ void main() {
         get_voxel_type_normal(voxel_type, normal, is_normal_valid,
                               vert.compressed_voxel_type_and_normal);
         ray_color = normal * 0.5 + 0.5;
+
+        ray_color = vec3(t);
     }
     imageStore(result_image, uvi, vec4(ray_color, 1.0));
 }

@@ -1,4 +1,4 @@
-use crate::builder::{AccelStructBuilder, PlainBuilder};
+use crate::builder::{AccelStructBuilder, OctreeBuilder, PlainBuilder};
 use crate::gameplay::{Camera, CameraDesc};
 use crate::tracer::Tracer;
 use crate::util::ShaderCompiler;
@@ -115,7 +115,7 @@ impl InitializedApp {
             allocator.clone(),
             UVec3::new(256, 256, 256) * UVec3::new(1, 1, 1),
             UVec3::new(512, 512, 512), // free atlas size
-            UVec3::new(256, 256, 256),
+            UVec3::new(256, 256, 256), // voxel dim per chunk
         );
         plain_builder.chunk_init(UVec3::new(0, 0, 0));
 
@@ -127,6 +127,19 @@ impl InitializedApp {
             10_000_000,
         );
         accel_struct_builder.build(plain_builder.resources());
+
+        let mut octree_builder = OctreeBuilder::new(
+            vulkan_ctx.clone(),
+            allocator.clone(),
+            &shader_compiler,
+            plain_builder.resources(),
+            UVec3::new(256, 256, 256), // max voxel dim per chunk
+            10_000_000,                // octree buffer pool size
+        );
+
+        octree_builder
+            .build_and_alloc(UVec3::new(0, 0, 0), UVec3::new(256, 256, 256))
+            .unwrap();
 
         let tracer = Tracer::new(
             vulkan_ctx.clone(),

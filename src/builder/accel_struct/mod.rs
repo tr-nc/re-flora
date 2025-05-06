@@ -120,7 +120,7 @@ impl AccelStructBuilder {
         let chunk_atlas_extent = UVec3::from(chunk_atlas_extent);
 
         // let build_dimension = chunk_atlas_extent / self.voxel_dim_per_chunk;
-        let build_dimension = UVec3::new(10, 10, 10);
+        let build_dimension = UVec3::new(1, 1, 1);
 
         let timer = Timer::new();
         for x in 0..build_dimension.x {

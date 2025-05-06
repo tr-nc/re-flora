@@ -1,14 +1,11 @@
-use crate::vkn::{Allocator, Buffer, BufferUsage, Device, ShaderModule, Texture, TextureDesc};
+use crate::vkn::{Allocator, Buffer, BufferUsage, Device, ShaderModule};
 use ash::vk;
 use glam::UVec3;
 
-pub struct Resources {
-    pub fragment_list: Buffer,
+pub struct OctreeBuilderResources {
+    pub frag_list: Buffer,
 
     pub octree_data: Buffer,
-    pub octree_offset_atlas_tex: Texture,
-    pub scene_bvh_nodes: Buffer,
-
     pub voxel_dim_indirect: Buffer,
     pub frag_list_maker_info: Buffer,
     pub frag_list_build_result: Buffer,
@@ -23,27 +20,27 @@ pub struct Resources {
     pub octree_data_single: Buffer,
 }
 
-impl Resources {
+impl OctreeBuilderResources {
     pub fn new(
         device: Device,
         allocator: Allocator,
-        voxel_dim: UVec3,
-        visible_chunk_dim: UVec3,
-        octree_buffer_size: u64,
-        frag_init_buffers_sm: &ShaderModule,
+        max_voxel_dim_per_chunk: UVec3,
+        octree_buffer_pool_size: u64,
+        frag_list_init_buffers_sm: &ShaderModule,
         frag_list_maker_sm: &ShaderModule,
         octree_init_buffers_sm: &ShaderModule,
-        tracer_sm: &ShaderModule,
     ) -> Self {
-        let max_possible_voxel_count = (voxel_dim.x * voxel_dim.y * voxel_dim.z) as u64;
-        let fragment_list_buf_layout = frag_list_maker_sm
+        let max_possible_voxel_count = (max_voxel_dim_per_chunk.x
+            * max_voxel_dim_per_chunk.y
+            * max_voxel_dim_per_chunk.z) as u64;
+        let frag_list_buf_layout = frag_list_maker_sm
             .get_buffer_layout("B_FragmentList")
             .unwrap();
-        let buf_size = fragment_list_buf_layout.get_size_bytes() * max_possible_voxel_count;
+        let buf_size = frag_list_buf_layout.get_size_bytes() * max_possible_voxel_count;
         log::debug!("Fragment list buffer size: {} MB", buf_size / 1024 / 1024);
 
         // uninitialized for now, but is guaranteed to be filled by shader before use
-        let fragment_list = Buffer::new_sized(
+        let frag_list = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
@@ -58,35 +55,10 @@ impl Resources {
                 vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
             ),
             gpu_allocator::MemoryLocation::GpuOnly,
-            octree_buffer_size,
+            octree_buffer_pool_size,
         );
 
-        let octree_offset_atlas_tex_desc = TextureDesc {
-            extent: visible_chunk_dim.to_array(),
-            format: vk::Format::R32_UINT, // TODO: maybe extend this into 64 bit later for more octree data
-            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
-            initial_layout: vk::ImageLayout::UNDEFINED,
-            aspect: vk::ImageAspectFlags::COLOR,
-            ..Default::default()
-        };
-        let octree_offset_atlas_tex = Texture::new(
-            device.clone(),
-            allocator.clone(),
-            &octree_offset_atlas_tex_desc,
-            &Default::default(),
-        );
-
-        let scene_bvh_nodes_layout = tracer_sm.get_buffer_layout("B_BvhNodes").unwrap();
-        let scene_bvh_nodes = Buffer::from_buffer_layout_arraylike(
-            device.clone(),
-            allocator.clone(),
-            scene_bvh_nodes_layout.clone(),
-            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
-            gpu_allocator::MemoryLocation::CpuToGpu,
-            10000,
-        ); // less than 1 MB though, don't worry about the size
-
-        let voxel_dim_indirect_layout = frag_init_buffers_sm
+        let voxel_dim_indirect_layout = frag_list_init_buffers_sm
             .get_buffer_layout("B_VoxelDimIndirect")
             .unwrap();
         let voxel_dim_indirect = Buffer::from_buffer_layout(
@@ -108,7 +80,7 @@ impl Resources {
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
-        let frag_list_build_result = frag_init_buffers_sm
+        let frag_list_build_result = frag_list_init_buffers_sm
             .get_buffer_layout("B_FragListBuildResult")
             .unwrap();
         let frag_list_build_result = Buffer::from_buffer_layout(
@@ -199,11 +171,9 @@ impl Resources {
         );
 
         Self {
-            fragment_list,
+            frag_list,
 
             octree_data,
-            octree_offset_atlas_tex,
-            scene_bvh_nodes,
 
             voxel_dim_indirect,
             frag_list_maker_info,
