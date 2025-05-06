@@ -39,8 +39,9 @@ pub struct InitializedApp {
     tracer: Tracer,
 
     // builders
-    _plain_builder: PlainBuilder,
-    _accel_struct_builder: AccelStructBuilder,
+    plain_builder: PlainBuilder,
+    accel_struct_builder: AccelStructBuilder,
+    octree_builder: OctreeBuilder,
 
     // gui adjustables
     debug_float: f32,
@@ -109,7 +110,7 @@ impl InitializedApp {
             },
         );
 
-        let mut plain_builder = PlainBuilder::new(
+        let plain_builder = PlainBuilder::new(
             vulkan_ctx.clone(),
             &shader_compiler,
             allocator.clone(),
@@ -117,18 +118,16 @@ impl InitializedApp {
             UVec3::new(512, 512, 512), // free atlas size
             UVec3::new(256, 256, 256), // voxel dim per chunk
         );
-        plain_builder.chunk_init(UVec3::new(0, 0, 0));
 
-        let mut accel_struct_builder = AccelStructBuilder::new(
+        let accel_struct_builder = AccelStructBuilder::new(
             vulkan_ctx.clone(),
             allocator.clone(),
             &shader_compiler,
             UVec3::new(4, 4, 4),
             10_000_000,
         );
-        accel_struct_builder.build(plain_builder.resources());
 
-        let mut octree_builder = OctreeBuilder::new(
+        let octree_builder = OctreeBuilder::new(
             vulkan_ctx.clone(),
             allocator.clone(),
             &shader_compiler,
@@ -136,10 +135,6 @@ impl InitializedApp {
             UVec3::new(256, 256, 256), // max voxel dim per chunk
             10_000_000,                // octree buffer pool size
         );
-
-        octree_builder
-            .build_and_alloc(UVec3::new(0, 0, 0), UVec3::new(256, 256, 256))
-            .unwrap();
 
         let tracer = Tracer::new(
             vulkan_ctx.clone(),
@@ -165,8 +160,9 @@ impl InitializedApp {
 
             tracer,
 
-            _plain_builder: plain_builder,
-            _accel_struct_builder: accel_struct_builder,
+            plain_builder,
+            accel_struct_builder,
+            octree_builder,
 
             camera,
             is_resize_pending: false,
@@ -178,7 +174,14 @@ impl InitializedApp {
         return this;
     }
 
-    fn init(&mut self) {}
+    fn init(&mut self) {
+        self.plain_builder.chunk_init(UVec3::new(0, 0, 0));
+        self.accel_struct_builder
+            .build(self.plain_builder.resources());
+        self.octree_builder
+            .build_and_alloc(UVec3::new(0, 0, 0), UVec3::new(256, 256, 256))
+            .unwrap();
+    }
 
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {
         let window_descriptor = WindowStateDesc {
@@ -435,7 +438,7 @@ impl InitializedApp {
 
         self.camera.on_resize(&window_size);
         self.tracer
-            .on_resize(&window_size, self._accel_struct_builder.get_resources());
+            .on_resize(&window_size, self.accel_struct_builder.get_resources());
         self.swapchain.on_resize(&window_size);
 
         // the render pass should be rebuilt when the swapchain is recreated
