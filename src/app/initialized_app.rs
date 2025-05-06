@@ -1,7 +1,7 @@
 use crate::builder::{AccelStructBuilder, OctreeBuilder, PlainBuilder};
 use crate::gameplay::{Camera, CameraDesc};
 use crate::tracer::Tracer;
-use crate::util::ShaderCompiler;
+use crate::util::{ShaderCompiler, Timer};
 use crate::util::TimeInfo;
 use crate::vkn::{Allocator, CommandBuffer, Fence, Semaphore, SwapchainDesc};
 use crate::{
@@ -13,6 +13,7 @@ use ash::vk;
 use egui::{Color32, RichText};
 use glam::{UVec3, Vec2};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use winit::event::DeviceEvent;
 use winit::{
@@ -124,10 +125,28 @@ impl InitializedApp {
             allocator.clone(),
             &shader_compiler,
             UVec3::new(4, 4, 4),
-            10_000_000,
+            20 * 20 * 20, // tlas instance cap
         );
 
-        accel_struct_builder.build_chunks_tlas();
+        let mut test_map = HashMap::new();
+        // test_map.insert(UVec3::new(0, 0, 0), 0);
+        // test_map.insert(UVec3::new(1, 0, 0), 1);
+
+        for i in 0..16 {
+            for j in 0..16 {
+                for k in 0..16 {
+                    // a random change that it won't insert
+                    let mut rand = i + j + k;
+                    if rand % 2 == 0 {
+                        continue;
+                    }
+                    test_map.insert(UVec3::new(i, j, k), i * 100 + j * 10 + k);
+                }
+            }
+        }
+        let timer = Timer::new();
+        accel_struct_builder.build_chunks_tlas(test_map);
+        log::debug!("Tlas build time: {:?}", timer.elapsed());
 
         let octree_builder = OctreeBuilder::new(
             vulkan_ctx.clone(),

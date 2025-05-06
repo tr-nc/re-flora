@@ -90,8 +90,8 @@ impl Blas {
             vk::AccelerationStructureTypeKHR::BOTTOM_LEVEL,
             vk::BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE,
             vk::BuildAccelerationStructureModeKHR::BUILD,
-            1,               // one build
             primitive_count, // number of primitives
+            1,               // one build
         );
 
         self.blas = Some(blas);

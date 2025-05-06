@@ -209,8 +209,10 @@ impl<'a> StructMemberDataBuilder<'a> {
                     Ok(())
                 } else {
                     Err(format!(
-                        "Field `{}` not found in struct `{}`",
-                        field_name, self.layout.name
+                        "Field `{}` not found in struct `{}`, all fields: {:?}",
+                        field_name,
+                        self.layout.name,
+                        self.plain_member_builders.keys()
                     ))
                 }
             }

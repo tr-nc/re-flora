@@ -12,6 +12,7 @@ pub struct AccelStructResources {
     pub instance_info: Buffer,
     pub instance_descriptor: Buffer,
     pub tlas_instances: Buffer,
+    // pub instance_maker_indirect: Buffer,
 }
 
 impl AccelStructResources {
@@ -92,7 +93,7 @@ impl AccelStructResources {
             allocator.clone(),
             instance_descriptor_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::GpuOnly,
+            gpu_allocator::MemoryLocation::CpuToGpu,
             tlas_instance_cap,
         );
 

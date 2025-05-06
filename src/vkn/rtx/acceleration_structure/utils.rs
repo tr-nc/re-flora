@@ -86,8 +86,8 @@ pub fn build_acc(
     acc_type: vk::AccelerationStructureTypeKHR,
     acc_flags: vk::BuildAccelerationStructureFlagsKHR,
     acc_mode: vk::BuildAccelerationStructureModeKHR,
-    geom_count: u32,
     primitive_count: u32,
+    geom_count: u32,
 ) {
     let scratch_buf = make_scratch_buf(vulkan_ctx, allocator, scratch_buf_size);
 

@@ -86,7 +86,7 @@ impl PlainBuilderResources {
             device.clone(),
             allocator.clone(),
             round_cones_layout.clone(),
-            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
             10000,
         ); // less than 1 MB though, don't worry about the size
@@ -96,7 +96,7 @@ impl PlainBuilderResources {
             device.clone(),
             allocator.clone(),
             trunk_bvh_nodes_layout.clone(),
-            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
             10000,
         ); // less than 1 MB though, don't worry about the size

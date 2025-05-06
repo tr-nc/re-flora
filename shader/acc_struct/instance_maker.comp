@@ -7,6 +7,7 @@ struct InstanceDescriptor {
     vec3 position;
     vec3 rotation; // Euler angles in radians: (pitch, yaw, roll)
     vec3 scale;
+    uint custom_idx; // 24-bit custom index (bits 0–23)
 };
 
 struct AccelStructInstance {
@@ -34,14 +35,13 @@ void main() {
         return;
     }
 
-    // 1) load
-    // InstanceDescriptor desc = instance_descriptor.data[id];
+    InstanceDescriptor desc = instance_descriptor.data[id];
 
-    // we just fake one at first
-    InstanceDescriptor desc;
-    desc.position = vec3(0.0, 0.0, 0.0);
-    desc.rotation = vec3(0.0, 0.0, 0.0);
-    desc.scale    = vec3(1.0, 1.0, 1.0);
+    // InstanceDescriptor desc;
+    // desc.position = vec3(0.0, 0.0, 0.0);
+    // desc.rotation = vec3(0.0, 0.0, 0.0);
+    // desc.scale    = vec3(1.0, 1.0, 1.0);
+    // desc.custom_index = 0x123456; // 24-bit custom index
 
     // build R from Euler XYZ
     vec3 s = sin(desc.rotation);
@@ -63,8 +63,9 @@ void main() {
                                vec4(M[2], desc.position.z));
 
     // 5) pack 24-bit customIndex and 8-bit mask (mask = 0xFF)
-    outInst.instance_custom_index_and_mask = (id & 0x00FFFFFFu) // customIndex in bits 0–23
-                                             | (0xFFu << 24);   // mask      in bits 24–31
+    outInst.instance_custom_index_and_mask =
+        (desc.custom_idx & 0x00FFFFFFu) // customIndex in bits 0–23
+        | (0xFFu << 24);                // mask      in bits 24–31
 
     // 6) pack 24-bit sbt-record-offset and 8-bit flags
     //    VK_GEOMETr_y_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR == 0x1

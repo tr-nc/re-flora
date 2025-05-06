@@ -42,14 +42,14 @@ impl Tlas {
         }
     }
 
-    pub fn build(&mut self, instances_buf: &Buffer) {
+    pub fn build(&mut self, instances_buf: &Buffer, instance_count: u32) {
         let geom = make_tlas_geom(&instances_buf);
 
         // TODO: maybe reuse the scratch buffer / tlas handle later
         let (tlas_size, scratch_buf_size) = query_properties(
             &self.acc_device,
             geom,
-            &[1], // one instance
+            &[instance_count],
             vk::AccelerationStructureTypeKHR::TOP_LEVEL,
             vk::BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE,
             vk::BuildAccelerationStructureModeKHR::BUILD,
@@ -74,7 +74,7 @@ impl Tlas {
             vk::AccelerationStructureTypeKHR::TOP_LEVEL,
             vk::BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE,
             vk::BuildAccelerationStructureModeKHR::BUILD,
-            1, // one instance
+            instance_count,
             1, // one instance
         );
 
