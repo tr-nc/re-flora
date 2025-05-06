@@ -241,7 +241,7 @@ impl EguiRenderer {
                     self.descriptor_pool.clone(),
                 );
 
-                set.perform_writes(&[WriteDescriptorSet::new_texture_write(
+                set.perform_writes(&mut[WriteDescriptorSet::new_texture_write(
                     0,
                     vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
                     &texture,

@@ -1,5 +1,5 @@
 use super::{DescriptorPool, DescriptorSetLayout};
-use crate::vkn::{Buffer, Device, Texture};
+use crate::vkn::{Buffer, Device, Texture, Tlas};
 use ash::vk;
 
 pub struct DescriptorSet {
@@ -27,8 +27,11 @@ impl DescriptorSet {
         self.descriptor_set
     }
 
-    pub fn perform_writes(&self, writes: &[WriteDescriptorSet]) {
-        let writes = writes.iter().map(|w| w.make_raw(self)).collect::<Vec<_>>();
+    pub fn perform_writes(&self, writes: &mut [WriteDescriptorSet]) {
+        let writes = writes
+            .iter_mut()
+            .map(|w| w.make_raw(self))
+            .collect::<Vec<_>>();
         unsafe { self.device.update_descriptor_sets(&writes, &[]) }
     }
 }
@@ -49,14 +52,19 @@ fn create_descriptor_set(
     }
 }
 
-pub struct WriteDescriptorSet {
+pub struct WriteDescriptorSet<'a> {
     binding: u32,
     descriptor_type: vk::DescriptorType,
+
     image_infos: Option<Vec<vk::DescriptorImageInfo>>,
     buffer_infos: Option<Vec<vk::DescriptorBufferInfo>>,
+    accel_struct_infos: Option<Vec<vk::WriteDescriptorSetAccelerationStructureKHR<'a>>>,
+
+    // for avoiding dangling pointer
+    _accel_handles: Option<Vec<vk::AccelerationStructureKHR>>,
 }
 
-impl WriteDescriptorSet {
+impl<'a> WriteDescriptorSet<'a> {
     pub fn new_texture_write(
         binding: u32,
         descriptor_type: vk::DescriptorType,
@@ -67,11 +75,16 @@ impl WriteDescriptorSet {
             .image_layout(image_layout)
             .image_view(texture.get_image_view().as_raw())
             .sampler(texture.get_sampler().as_raw());
+
         Self {
             binding,
             descriptor_type,
+
             image_infos: Some(vec![image_info]),
             buffer_infos: None,
+            accel_struct_infos: None,
+
+            _accel_handles: None,
         }
     }
 
@@ -86,8 +99,38 @@ impl WriteDescriptorSet {
             descriptor_type: Self::get_descriptor_type_from_buffer_usage(
                 buffer.get_usage().as_raw(),
             ),
+
             image_infos: None,
             buffer_infos: Some(vec![buffer_info]),
+            accel_struct_infos: None,
+
+            _accel_handles: None,
+        }
+    }
+
+    pub fn new_acceleration_structure_write(binding: u32, tlas: &Tlas) -> Self {
+        let handles = vec![tlas.as_raw()];
+
+        // take caution of this pitfall:
+        // let tmp: vk::AccelerationStructureKHR = tlas.as_raw(); // copy out the u64 handle
+        // let ptr: *const vk::AccelerationStructureKHR = &tmp; // take address of that local `tmp`
+        // p_acceleration_structures = ptr;
+
+        let as_info = vk::WriteDescriptorSetAccelerationStructureKHR {
+            acceleration_structure_count: handles.len() as u32,
+            p_acceleration_structures: handles.as_ptr(),
+            ..Default::default()
+        };
+
+        Self {
+            binding,
+            descriptor_type: vk::DescriptorType::ACCELERATION_STRUCTURE_KHR,
+
+            image_infos: None,
+            buffer_infos: None,
+            accel_struct_infos: Some(vec![as_info]),
+
+            _accel_handles: Some(handles),
         }
     }
 
@@ -103,16 +146,13 @@ impl WriteDescriptorSet {
         }
     }
 
-    /// Only one of the following should be Some
-    fn validate(
-        image_infos: &Option<Vec<vk::DescriptorImageInfo>>,
-        buffer_infos: &Option<Vec<vk::DescriptorBufferInfo>>,
-    ) {
-        assert_eq!(image_infos.is_some() ^ buffer_infos.is_some(), true);
-    }
-
-    pub fn make_raw(&self, descriptor_set: &DescriptorSet) -> vk::WriteDescriptorSet {
-        Self::validate(&self.image_infos, &self.buffer_infos);
+    pub fn make_raw(&mut self, descriptor_set: &DescriptorSet) -> vk::WriteDescriptorSet {
+        // we can only have one of these at a time
+        assert!(
+            self.image_infos.is_some()
+                ^ self.buffer_infos.is_some()
+                ^ self.accel_struct_infos.is_some()
+        );
 
         let mut write = vk::WriteDescriptorSet::default()
             .dst_set(descriptor_set.as_raw())
@@ -125,6 +165,14 @@ impl WriteDescriptorSet {
         if let Some(buffer_info) = &self.buffer_infos {
             write = write.buffer_info(buffer_info);
         }
+
+        if let Some(accel_infos) = &mut self.accel_struct_infos {
+            let len = accel_infos.len();
+            write = write
+                .push_next(&mut accel_infos[0])
+                .descriptor_count(len as u32);
+        }
+
         write
     }
 }

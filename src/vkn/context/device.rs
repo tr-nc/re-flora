@@ -1,8 +1,7 @@
 use super::Queue;
 use super::{instance::Instance, physical_device::PhysicalDevice, queue::QueueFamilyIndices};
-use ash::{khr::swapchain, vk};
+use ash::vk;
 use std::collections::HashSet;
-
 use std::sync::Arc;
 
 struct DeviceInner {
@@ -84,14 +83,35 @@ fn create_device(
     };
 
     let device_extensions_ptrs = [
-        swapchain::NAME.as_ptr(),
-        #[cfg(any(target_os = "macos", target_os = "ios"))]
-        ash::khr::portability_subset::NAME.as_ptr(),
+        vk::KHR_SWAPCHAIN_NAME.as_ptr(),
+        vk::KHR_ACCELERATION_STRUCTURE_NAME.as_ptr(),
+        vk::KHR_DEFERRED_HOST_OPERATIONS_NAME.as_ptr(), // must be coupled with ACCLERATION_STRUCTURE
+        vk::KHR_RAY_QUERY_NAME.as_ptr(),
+        // vk::KHR_RAY_TRACING_PIPELINE_NAME.as_ptr(),
+        // vk::KHR_PIPELINE_LIBRARY_NAME.as_ptr(),
+        // vk::KHR_BUFFER_DEVICE_ADDRESS_NAME.as_ptr(),
     ];
+
+    let mut buffer_device_address_features = vk::PhysicalDeviceBufferDeviceAddressFeatures {
+        buffer_device_address: vk::TRUE,
+        ..Default::default()
+    };
+    let mut physical_device_acceleration_structure_features_khr =
+        vk::PhysicalDeviceAccelerationStructureFeaturesKHR {
+            acceleration_structure: vk::TRUE,
+            ..Default::default()
+        };
+    let mut physical_device_ray_query_features_khr = vk::PhysicalDeviceRayQueryFeaturesKHR {
+        ray_query: vk::TRUE,
+        ..Default::default()
+    };
 
     let device_create_info = vk::DeviceCreateInfo::default()
         .queue_create_infos(&queue_create_infos)
-        .enabled_extension_names(&device_extensions_ptrs);
+        .enabled_extension_names(&device_extensions_ptrs)
+        .push_next(&mut buffer_device_address_features)
+        .push_next(&mut physical_device_acceleration_structure_features_khr)
+        .push_next(&mut physical_device_ray_query_features_khr);
 
     let device = unsafe {
         instance

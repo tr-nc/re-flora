@@ -106,6 +106,18 @@ https://rust-unofficial.github.io/patterns/patterns/structural/small-crates.html
 
   [Animated Voxel Grass](https://www.youtube.com/watch?v=dGZDXaEXTOI)
 
+### Ray Tracing
+
+[Guide](https://www.khronos.org/blog/ray-tracing-in-vulkan/)
+
+[Shading doc](https://github.com/KhronosGroup/GLSL/blob/main/extensions/ext/GLSL_EXT_ray_query.txt/)
+
+[Ray Tracing Pipeline vs Ray Query](https://tellusim.com/rt-perf/)
+
+[Best Practices 1](https://developer.nvidia.com/blog/rtx-best-practices/)
+
+[Best Practices 2](https://developer.nvidia.com/blog/best-practices-using-nvidia-rtx-ray-tracing/)
+
 # Special Thanks To
 
 [Implementation of ash with egui](https://github.com/adrien-ben/egui-ash-renderer)

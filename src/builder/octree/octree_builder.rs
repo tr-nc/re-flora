@@ -109,9 +109,9 @@ impl OctreeBuilder {
                 .get_descriptor_set_layouts()[0],
             descriptor_pool.clone(),
         );
-        shared_ds.perform_writes(&[
-            WriteDescriptorSet::new_buffer_write(0, resources.octree_build_info()),
-            WriteDescriptorSet::new_buffer_write(1, resources.octree_alloc_info()),
+        shared_ds.perform_writes(&mut [
+            WriteDescriptorSet::new_buffer_write(0, &resources.octree_build_info),
+            WriteDescriptorSet::new_buffer_write(1, &resources.octree_alloc_info),
         ]);
 
         let init_buffers_ds = DescriptorSet::new(
@@ -121,11 +121,11 @@ impl OctreeBuilder {
                 .get_descriptor_set_layouts()[1],
             descriptor_pool.clone(),
         );
-        init_buffers_ds.perform_writes(&[
-            WriteDescriptorSet::new_buffer_write(0, resources.voxel_count_indirect()),
-            WriteDescriptorSet::new_buffer_write(1, resources.alloc_number_indirect()),
-            WriteDescriptorSet::new_buffer_write(2, resources.counter()),
-            WriteDescriptorSet::new_buffer_write(3, resources.octree_build_result()),
+        init_buffers_ds.perform_writes(&mut [
+            WriteDescriptorSet::new_buffer_write(0, &resources.voxel_count_indirect),
+            WriteDescriptorSet::new_buffer_write(1, &resources.alloc_number_indirect),
+            WriteDescriptorSet::new_buffer_write(2, &resources.counter),
+            WriteDescriptorSet::new_buffer_write(3, &resources.octree_build_result),
         ]);
 
         let init_node_ds = DescriptorSet::new(
@@ -135,9 +135,9 @@ impl OctreeBuilder {
                 .get_descriptor_set_layouts()[1],
             descriptor_pool.clone(),
         );
-        init_node_ds.perform_writes(&[WriteDescriptorSet::new_buffer_write(
+        init_node_ds.perform_writes(&mut [WriteDescriptorSet::new_buffer_write(
             0,
-            resources.octree_data_single(),
+            &resources.octree_data_single,
         )]);
 
         let tag_node_ds = DescriptorSet::new(
@@ -147,9 +147,9 @@ impl OctreeBuilder {
                 .get_descriptor_set_layouts()[1],
             descriptor_pool.clone(),
         );
-        tag_node_ds.perform_writes(&[
-            WriteDescriptorSet::new_buffer_write(0, resources.octree_data_single()),
-            WriteDescriptorSet::new_buffer_write(1, resources.fragment_list()),
+        tag_node_ds.perform_writes(&mut [
+            WriteDescriptorSet::new_buffer_write(0, &resources.octree_data_single),
+            WriteDescriptorSet::new_buffer_write(1, &resources.fragment_list),
         ]);
 
         let alloc_node_ds = DescriptorSet::new(
@@ -159,10 +159,10 @@ impl OctreeBuilder {
                 .get_descriptor_set_layouts()[1],
             descriptor_pool.clone(),
         );
-        alloc_node_ds.perform_writes(&[
-            WriteDescriptorSet::new_buffer_write(0, resources.octree_data_single()),
-            WriteDescriptorSet::new_buffer_write(1, resources.fragment_list()),
-            WriteDescriptorSet::new_buffer_write(2, resources.counter()),
+        alloc_node_ds.perform_writes(&mut [
+            WriteDescriptorSet::new_buffer_write(0, &resources.octree_data_single),
+            WriteDescriptorSet::new_buffer_write(1, &resources.fragment_list),
+            WriteDescriptorSet::new_buffer_write(2, &resources.counter),
         ]);
 
         let modify_args_ds = DescriptorSet::new(
@@ -172,10 +172,10 @@ impl OctreeBuilder {
                 .get_descriptor_set_layouts()[1],
             descriptor_pool.clone(),
         );
-        modify_args_ds.perform_writes(&[
-            WriteDescriptorSet::new_buffer_write(0, resources.counter()),
-            WriteDescriptorSet::new_buffer_write(1, resources.octree_build_result()),
-            WriteDescriptorSet::new_buffer_write(2, resources.alloc_number_indirect()),
+        modify_args_ds.perform_writes(&mut [
+            WriteDescriptorSet::new_buffer_write(0, &resources.counter),
+            WriteDescriptorSet::new_buffer_write(1, &resources.octree_build_result),
+            WriteDescriptorSet::new_buffer_write(2, &resources.alloc_number_indirect),
         ]);
 
         let octree_buffer_allocator = FirstFitAllocator::new(octree_buffer_size);
@@ -187,14 +187,11 @@ impl OctreeBuilder {
                 vulkan_context.command_pool(),
                 &vulkan_context.get_general_queue(),
                 |cmdbuf| {
-                    resources
-                        .octree_offset_atlas_tex()
-                        .get_image()
-                        .record_clear(
-                            cmdbuf,
-                            Some(vk::ImageLayout::GENERAL),
-                            ClearValue::UInt([0, 0, 0, 0]),
-                        );
+                    resources.octree_offset_atlas_tex.get_image().record_clear(
+                        cmdbuf,
+                        Some(vk::ImageLayout::GENERAL),
+                        ClearValue::UInt([0, 0, 0, 0]),
+                    );
                 },
             );
         }
@@ -222,11 +219,11 @@ impl OctreeBuilder {
 
     pub fn get_octree_data_size_in_bytes(&self, resources: &Resources) -> u32 {
         let layout = &resources
-            .octree_build_result()
+            .octree_build_result
             .get_layout()
             .unwrap()
             .root_member;
-        let raw_data = resources.octree_build_result().fetch_raw().unwrap();
+        let raw_data = resources.octree_build_result.read_back().unwrap();
         let reader = StructMemberDataReader::new(layout, &raw_data);
         let field_val = reader.get_field("size_u32").unwrap();
         if let PlainMemberTypeWithData::UInt(val) = field_val {
@@ -248,9 +245,9 @@ impl OctreeBuilder {
             vulkan_context.command_pool(),
             &vulkan_context.get_general_queue(),
             |cmdbuf| {
-                resources.octree_data_single().record_copy_to_buffer(
+                resources.octree_data_single.record_copy_to_buffer(
                     cmdbuf,
-                    resources.octree_data(),
+                    &resources.octree_data,
                     size,
                     0,
                     write_offset,
@@ -310,7 +307,7 @@ impl OctreeBuilder {
                 1,
             );
             self.octree_init_node_ppl
-                .record_dispatch_indirect(&cmdbuf, resources.alloc_number_indirect());
+                .record_dispatch_indirect(&cmdbuf, &resources.alloc_number_indirect);
 
             shader_access_pipeline_barrier.record_insert(device, &cmdbuf);
 
@@ -321,7 +318,7 @@ impl OctreeBuilder {
                 1,
             );
             self.octree_tag_node_ppl
-                .record_dispatch_indirect(&cmdbuf, resources.voxel_count_indirect());
+                .record_dispatch_indirect(&cmdbuf, &resources.voxel_count_indirect);
 
             // if not last level
             if i != voxel_level - 1 {
@@ -334,7 +331,7 @@ impl OctreeBuilder {
                     1,
                 );
                 self.octree_alloc_node_ppl
-                    .record_dispatch_indirect(&cmdbuf, resources.alloc_number_indirect());
+                    .record_dispatch_indirect(&cmdbuf, &resources.alloc_number_indirect);
 
                 shader_access_pipeline_barrier.record_insert(device, &cmdbuf);
 
@@ -423,7 +420,7 @@ impl OctreeBuilder {
         }
 
         fn update_buffers(resources: &Resources, fragment_list_len: u32, voxel_dim_xyz: u32) {
-            let data = StructMemberDataBuilder::from_buffer(resources.octree_build_info())
+            let data = StructMemberDataBuilder::from_buffer(&resources.octree_build_info)
                 .set_field(
                     "fragment_list_len",
                     PlainMemberTypeWithData::UInt(fragment_list_len),
@@ -435,10 +432,7 @@ impl OctreeBuilder {
                 )
                 .unwrap()
                 .get_data_u8();
-            resources
-                .octree_build_info()
-                .fill_with_raw_u8(&data)
-                .unwrap();
+            resources.octree_build_info.fill_with_raw_u8(&data).unwrap();
         }
     }
 
@@ -513,12 +507,12 @@ impl OctreeBuilder {
 
         // fill the texture
         resources
-            .octree_offset_atlas_tex()
+            .octree_offset_atlas_tex
             .get_image()
             .fill_with_raw_u32(
                 &vulkan_context.get_general_queue(),
                 vulkan_context.command_pool(),
-                TextureRegion::from_image(&resources.octree_offset_atlas_tex().get_image()),
+                TextureRegion::from_image(&resources.octree_offset_atlas_tex.get_image()),
                 &offset_data,
                 None,
             )

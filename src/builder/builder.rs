@@ -36,7 +36,7 @@ pub struct Builder {
 
 impl Builder {
     pub fn new(
-        vulkan_context: VulkanContext,
+        vulkan_ctx: VulkanContext,
         allocator: Allocator,
         shader_compiler: &ShaderCompiler,
         voxel_dim: UVec3,
@@ -52,10 +52,10 @@ impl Builder {
             log::error!("Dimension must be a power of 2");
         }
 
-        let descriptor_pool = DescriptorPool::a_big_one(vulkan_context.device()).unwrap();
+        let descriptor_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
 
         let resources = Resources::new(
-            vulkan_context.device().clone(),
+            vulkan_ctx.device().clone(),
             allocator.clone(),
             shader_compiler,
             voxel_dim,
@@ -66,7 +66,7 @@ impl Builder {
         );
 
         let chunk_writer = ChunkWriter::new(
-            &vulkan_context,
+            &vulkan_ctx,
             shader_compiler,
             descriptor_pool.clone(),
             &resources,
@@ -74,14 +74,14 @@ impl Builder {
         );
 
         let frag_list_builder = FragListBuilder::new(
-            &vulkan_context,
+            &vulkan_ctx,
             shader_compiler,
             descriptor_pool.clone(),
             &resources,
         );
 
         let octree_builder = OctreeBuilder::new(
-            &vulkan_context,
+            &vulkan_ctx,
             shader_compiler,
             descriptor_pool.clone(),
             &resources,
@@ -89,7 +89,7 @@ impl Builder {
         );
 
         Self {
-            vulkan_context,
+            vulkan_context: vulkan_ctx,
             resources,
             voxel_dim,
             chunk_dim,

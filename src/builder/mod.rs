@@ -1,9 +1,8 @@
-mod resources;
-pub use resources::*;
+// mod octree;
+// pub use octree::*;
 
-mod builder;
-pub use builder::*;
+mod plain;
+pub use plain::*;
 
-mod chunk_writer;
-mod frag_list_builder;
-mod octree_builder;
+mod accel_struct;
+pub use accel_struct::*;

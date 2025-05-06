@@ -1,6 +1,7 @@
-#version 450
+#version 460
 
 #extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_ray_query : enable
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -16,24 +17,28 @@ layout(set = 0, binding = 1) uniform U_CameraInfo {
     mat4 view_proj_mat_inv;
 }
 camera_info;
-layout(set = 0, binding = 2) uniform U_SceneInfo { uvec3 visible_chunk_dim; }
-scene_info;
-layout(set = 0, binding = 7) uniform U_EnvInfo { uint time_stamp; }
+layout(set = 0, binding = 2) uniform U_EnvInfo { uint time_stamp; }
 env_info;
-layout(set = 0, binding = 3) buffer B_OctreeData { uint data[]; }
-octree_data;
-#include "../include/bvh.glsl"
-layout(set = 0, binding = 6) readonly buffer B_BvhNodes { BvhNode data[]; }
-bvh_nodes;
+layout(set = 0, binding = 3) uniform accelerationStructureEXT tlas;
 layout(set = 0, binding = 4) writeonly uniform image2D result_image;
-layout(set = 0, binding = 5, r8ui) readonly uniform uimage3D octree_offset_atlas_tex;
 
-#include "../include/bvh_svo_marching.glsl"
-#include "../include/core/aabb.glsl"
-#include "../include/dda_svo_marching.glsl"
+#include "../include/vertex_index_attribute.glsl"
+layout(set = 0, binding = 5) readonly buffer B_Vertices { Vertex data[]; }
+vertices;
+layout(set = 0, binding = 6) readonly buffer B_Indices { Index data[]; }
+indices;
+
+#include "../include/core/packer.glsl"
 #include "../include/ray.glsl"
 #include "../include/voxel_color.glsl"
 #include "../include/voxel_type.glsl"
+
+void get_voxel_type_normal(out uint o_voxel_type, out vec3 o_normal, out bool o_is_normal_valid,
+                           uint compressed_voxel_type_and_normal) {
+    o_voxel_type      = compressed_voxel_type_and_normal & 0xFF;
+    o_normal          = unpack_normal_v2((compressed_voxel_type_and_normal & 0x1FFFFF00u) >> 8);
+    o_is_normal_valid = (compressed_voxel_type_and_normal & 0x20000000u) != 0;
+}
 
 void main() {
     ivec2 uvi      = ivec2(gl_GlobalInvocationID.xy);
@@ -45,37 +50,41 @@ void main() {
     vec2 screen_uv = (vec2(gl_GlobalInvocationID.xy) + vec2(0.5)) / vec2(img_size);
     Ray ray        = ray_gen(camera_info.camera_pos.xyz, screen_uv);
 
-    DdaSvoMarchingResult dda_svo_marching_result =
-        dda_svo_marching(ivec3(scene_info.visible_chunk_dim), ray.origin, ray.direction);
+    rayQueryEXT rayQuery;
+    rayQueryInitializeEXT(rayQuery, tlas,
+                          gl_RayFlagsOpaqueEXT, // skip “transparent” triangles
+                          0xFF,                 // instance mask
+                          ray.origin,
+                          0.001, // bias off your surface
+                          ray.direction, 10000.0);
+
+    // notice: do not change the content of this loop, this is not shader logic at all.
+    while (rayQueryProceedEXT(rayQuery)) {
+        if (rayQueryGetIntersectionTypeEXT(rayQuery, false) ==
+            gl_RayQueryCandidateIntersectionTriangleEXT) {
+            // “commit” it; this tells the driver “yes, I want
+            // you to consider this for the nearest‐hit test”
+            rayQueryConfirmIntersectionEXT(rayQuery);
+        }
+    }
+
+    // after traversal, ask whether we actually committed a hit
+    bool hit = (rayQueryGetIntersectionTypeEXT(rayQuery, true) ==
+                gl_RayQueryCommittedIntersectionTriangleEXT);
 
     vec3 ray_color = vec3(0.0);
-    float depth    = 1e30; // +INF : nothing hit yet
-
-    if (dda_svo_marching_result.is_hit) {
-        vec3 normal_color;
-        if (dda_svo_marching_result.hit_svo_result.is_normal_valid) {
-            normal_color = dda_svo_marching_result.hit_svo_result.normal * 0.5 + 0.5;
-            normal_color *= 0.1;
-        } else {
-            normal_color = vec3(1.0, 1.0, 1.0);
-        }
-
-        vec3 voxel_color =
-            voxel_color_by_type_unorm(dda_svo_marching_result.hit_svo_result.voxel_type);
-
-        ray_color = mix(voxel_color, normal_color, 0.5);
-        depth     = dda_svo_marching_result.hit_svo_result.t;
+    if (hit) {
+        // the triangle index
+        int primitive_index = rayQueryGetIntersectionPrimitiveIndexEXT(rayQuery, true);
+        // ray_color = vec3(float(idx) / 1000.0);
+        uint vert_index = indices.data[primitive_index * 3].index;
+        Vertex vert     = vertices.data[vert_index];
+        vec3 normal;
+        bool is_normal_valid;
+        uint voxel_type;
+        get_voxel_type_normal(voxel_type, normal, is_normal_valid,
+                              vert.compressed_voxel_type_and_normal);
+        ray_color = normal * 0.5 + 0.5;
     }
-
-    BvhSvoMarchingResult bvh_svo_marching_result =
-        traverse_bvh(ray.origin, ray.direction, ray.inv_direction);
-
-    if (bvh_svo_marching_result.is_hit && depth > bvh_svo_marching_result.hit_svo_result.t) {
-        vec3 voxel_color =
-            voxel_color_by_type_unorm(bvh_svo_marching_result.hit_svo_result.voxel_type);
-        ray_color = voxel_color;
-        depth     = bvh_svo_marching_result.hit_svo_result.t;
-    }
-
     imageStore(result_image, uvi, vec4(ray_color, 1.0));
 }

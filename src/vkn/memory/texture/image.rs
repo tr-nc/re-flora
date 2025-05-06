@@ -345,7 +345,7 @@ impl Image {
             }
         });
 
-        let fetched_data = buffer.fetch_raw()?;
+        let fetched_data = buffer.read_back()?;
         Ok(fetched_data)
     }
 

@@ -271,19 +271,11 @@ impl WindowState {
         dims[0] as f32 / dims[1] as f32
     }
 
-    /// Returns the cursor
-    /// grab mode that should
-    /// be used for the
-    /// current platform.
+    /// Returns the cursor grab mode that should be used for the current platform.
     fn get_cursor_grab_mode(locked: bool) -> CursorGrabMode {
         if !locked {
             return CursorGrabMode::None;
         }
-        // windows: confined, macos:
-        // locked
-        #[cfg(target_os = "windows")]
         return CursorGrabMode::Confined;
-        #[cfg(target_os = "macos")]
-        return CursorGrabMode::Locked;
     }
 }

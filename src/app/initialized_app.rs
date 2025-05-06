@@ -1,7 +1,6 @@
-use crate::builder::Builder;
+use crate::builder::{AccelStructBuilder, PlainBuilder};
 use crate::gameplay::{Camera, CameraDesc};
 use crate::tracer::Tracer;
-use crate::tree_gen::{Tree, TreeDesc};
 use crate::util::ShaderCompiler;
 use crate::util::TimeInfo;
 use crate::vkn::{Allocator, CommandBuffer, Fence, Semaphore, SwapchainDesc};
@@ -12,7 +11,7 @@ use crate::{
 };
 use ash::vk;
 use egui::{Color32, RichText};
-use glam::{UVec3, Vec2, Vec3};
+use glam::{UVec3, Vec2};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
 use std::sync::{Arc, Mutex};
 use winit::event::DeviceEvent;
@@ -38,33 +37,34 @@ pub struct InitializedApp {
 
     camera: Camera,
     tracer: Tracer,
-    builder: Builder,
+
+    // builders
+    _plain_builder: PlainBuilder,
+    _accel_struct_builder: AccelStructBuilder,
 
     // gui adjustables
     debug_float: f32,
-    tree_pos: Vec3,
-    tree_desc: TreeDesc,
 
     // note: always keep the context to end, as it has to be destroyed last
-    vulkan_context: VulkanContext,
+    vulkan_ctx: VulkanContext,
 }
 
 impl InitializedApp {
     pub fn new(_event_loop: &ActiveEventLoop) -> Self {
         let window_state = Self::create_window_state(_event_loop);
-        let vulkan_context = Self::create_vulkan_context(&window_state);
+        let vulkan_ctx = Self::create_vulkan_context(&window_state);
 
         let shader_compiler = ShaderCompiler::new().unwrap();
 
-        let device = vulkan_context.device();
+        let device = vulkan_ctx.device();
 
         let gpu_allocator = {
             let allocator_create_info = AllocatorCreateDesc {
-                instance: vulkan_context.instance().as_raw().clone(),
+                instance: vulkan_ctx.instance().as_raw().clone(),
                 device: device.as_raw().clone(),
-                physical_device: vulkan_context.physical_device().as_raw(),
+                physical_device: vulkan_ctx.physical_device().as_raw(),
                 debug_settings: Default::default(),
-                buffer_device_address: false,
+                buffer_device_address: true,
                 allocation_sizes: Default::default(),
             };
             gpu_allocator::vulkan::Allocator::new(&allocator_create_info)
@@ -73,7 +73,7 @@ impl InitializedApp {
         let allocator = Allocator::new(device, Arc::new(Mutex::new(gpu_allocator)));
 
         let swapchain = Swapchain::new(
-            &vulkan_context,
+            vulkan_ctx.clone(),
             &window_state.window_size(),
             SwapchainDesc {
                 present_mode: vk::PresentModeKHR::MAILBOX,
@@ -86,10 +86,10 @@ impl InitializedApp {
 
         let fence = Fence::new(device, true);
 
-        let cmdbuf = CommandBuffer::new(device, vulkan_context.command_pool());
+        let cmdbuf = CommandBuffer::new(device, vulkan_ctx.command_pool());
 
         let renderer = EguiRenderer::new(
-            &vulkan_context,
+            &vulkan_ctx,
             &window_state.window(),
             &allocator,
             &shader_compiler,
@@ -109,33 +109,35 @@ impl InitializedApp {
             },
         );
 
-        let chunk_dim = UVec3::new(3, 2, 3); // 2GB of Raw Data inside GPU is roughly 5^3 chunks of 256^3 voxels
-        let mut builder = Builder::new(
-            vulkan_context.clone(),
+        let mut plain_builder = PlainBuilder::new(
+            vulkan_ctx.clone(),
+            &shader_compiler,
+            allocator.clone(),
+            UVec3::new(256, 256, 256) * UVec3::new(1, 1, 1),
+            UVec3::new(512, 512, 512), // free atlas size
+            UVec3::new(256, 256, 256),
+        );
+        plain_builder.chunk_init(UVec3::new(0, 0, 0));
+
+        let mut accel_struct_builder = AccelStructBuilder::new(
+            vulkan_ctx.clone(),
             allocator.clone(),
             &shader_compiler,
-            UVec3::new(256, 256, 256),
-            chunk_dim,
-            chunk_dim,
-            2 * 1024 * 1024 * 1024,    // 2GB of octree buffer size
-            UVec3::new(512, 512, 512), // free atlas size
+            UVec3::new(4, 4, 4),
+            10_000_000,
         );
+        accel_struct_builder.build(plain_builder.resources());
 
         let tracer = Tracer::new(
-            vulkan_context.clone(),
+            vulkan_ctx.clone(),
             allocator.clone(),
             &shader_compiler,
             &screen_extent,
-            chunk_dim,
-            builder.get_external_shared_resources(),
+            accel_struct_builder.get_resources(),
         );
 
-        builder.init_chunks().unwrap();
-
-        let tree_desc = TreeDesc::default();
-
         let mut this = Self {
-            vulkan_context,
+            vulkan_ctx,
             egui_renderer: renderer,
             window_state,
 
@@ -149,23 +151,21 @@ impl InitializedApp {
             fence,
 
             tracer,
-            builder,
+
+            _plain_builder: plain_builder,
+            _accel_struct_builder: accel_struct_builder,
 
             camera,
             is_resize_pending: false,
             time_info: TimeInfo::default(),
 
             debug_float: 0.0,
-            tree_pos: Vec3::new(216.0, 97.0, 128.0),
-            tree_desc,
         };
         this.init();
         return this;
     }
 
-    fn init(&mut self) {
-        self.add_tree();
-    }
+    fn init(&mut self) {}
 
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {
         let window_descriptor = WindowStateDesc {
@@ -189,7 +189,7 @@ impl InitializedApp {
 
     pub fn on_terminate(&mut self, event_loop: &ActiveEventLoop) {
         // ensure all command buffers are done executing before terminating anything
-        self.vulkan_context.device().wait_idle();
+        self.vulkan_ctx.device().wait_idle();
         event_loop.exit();
     }
 
@@ -275,11 +275,10 @@ impl InitializedApp {
 
                 self.camera.update_transform(frame_delta_time);
 
-                self.vulkan_context
+                self.vulkan_ctx
                     .wait_for_fences(&[self.fence.as_raw()])
                     .unwrap();
 
-                let mut tree_desc_changed = false;
                 self.egui_renderer
                     .update(&self.window_state.window(), |ctx| {
                         let my_frame = egui::containers::Frame {
@@ -306,130 +305,11 @@ impl InitializedApp {
                                         egui::Slider::new(&mut self.debug_float, 0.0..=1.0)
                                             .text("Debug Float"),
                                     );
-
-                                    ui.add(egui::Label::new("Tree config"));
-
-                                    ui.horizontal(|ui| {
-                                        ui.label("Tree position");
-                                        tree_desc_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut self.tree_pos.x)
-                                                    .speed(1)
-                                                    .prefix("x: "),
-                                            )
-                                            .changed();
-                                        tree_desc_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut self.tree_pos.y)
-                                                    .speed(1)
-                                                    .prefix("y: "),
-                                            )
-                                            .changed();
-                                        tree_desc_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut self.tree_pos.z)
-                                                    .speed(1)
-                                                    .prefix("z: "),
-                                            )
-                                            .changed();
-                                    });
-
-                                    tree_desc_changed |= ui
-                                        .add(
-                                            egui::Slider::new(&mut self.tree_desc.size, 0.0..=5.0)
-                                                .text("Size"),
-                                        )
-                                        .changed();
-
-                                    tree_desc_changed |= ui
-                                        .add(
-                                            egui::Slider::new(
-                                                &mut self.tree_desc.trunk_thickness,
-                                                0.0..=4.0,
-                                            )
-                                            .text("Trunk Thickness"),
-                                        )
-                                        .changed();
-
-                                    tree_desc_changed |= ui
-                                        .add(
-                                            egui::Slider::new(
-                                                &mut self.tree_desc.trunk_thickness_min,
-                                                1.05..=2.0,
-                                            )
-                                            .text("Trunk Thickness Min"),
-                                        )
-                                        .changed();
-
-                                    tree_desc_changed |= ui
-                                        .add(
-                                            egui::Slider::new(
-                                                &mut self.tree_desc.spread,
-                                                0.0..=1.0,
-                                            )
-                                            .text("Spread"),
-                                        )
-                                        .changed();
-                                    tree_desc_changed |= ui
-                                        .add(
-                                            egui::Slider::new(
-                                                &mut self.tree_desc.twisted,
-                                                0.0..=1.0,
-                                            )
-                                            .text("Twisted"),
-                                        )
-                                        .changed();
-                                    tree_desc_changed |= ui
-                                        .add(
-                                            egui::Slider::new(
-                                                &mut self.tree_desc.leaves_size_level,
-                                                1..=8,
-                                            )
-                                            .text("Leaves size level"),
-                                        )
-                                        .changed();
-                                    tree_desc_changed |= ui
-                                        .add(
-                                            egui::Slider::new(
-                                                &mut self.tree_desc.gravity,
-                                                0.0..=1.0,
-                                            )
-                                            .text("Gravity"),
-                                        )
-                                        .changed();
-                                    tree_desc_changed |= ui
-                                        .add(
-                                            egui::Slider::new(
-                                                &mut self.tree_desc.iterations,
-                                                1..=20,
-                                            )
-                                            .text("Iterations"),
-                                        )
-                                        .changed();
-                                    tree_desc_changed |= ui
-                                        .add(
-                                            egui::Slider::new(&mut self.tree_desc.wide, 0.0..=1.0)
-                                                .text("Wide"),
-                                        )
-                                        .changed();
-                                    tree_desc_changed |= ui
-                                        .add(
-                                            egui::Slider::new(&mut self.tree_desc.seed, 0..=100)
-                                                .text("Seed"),
-                                        )
-                                        .changed();
-
-                                    tree_desc_changed |=
-                                        ui.add(egui::Button::new("Instantiate!")).clicked()
                                 });
                             });
                     });
 
-                if tree_desc_changed {
-                    self.add_tree();
-                }
-
-                let device = self.vulkan_context.device();
+                let device = self.vulkan_ctx.device();
 
                 let image_idx = match self.swapchain.acquire_next(&self.image_available_semaphore) {
                     Ok((image_index, _)) => image_index,
@@ -488,11 +368,11 @@ impl InitializedApp {
                     .signal_semaphores(&signal_semaphores)];
 
                 unsafe {
-                    self.vulkan_context
+                    self.vulkan_ctx
                         .device()
                         .as_raw()
                         .queue_submit(
-                            self.vulkan_context.get_general_queue().as_raw(),
+                            self.vulkan_ctx.get_general_queue().as_raw(),
                             &submit_info,
                             self.fence.as_raw(),
                         )
@@ -516,15 +396,6 @@ impl InitializedApp {
         }
     }
 
-    /// Add a tree to the scene using the current tree description and position.
-    fn add_tree(&mut self) {
-        let tree = Tree::new(self.tree_desc.clone());
-        let result = self.builder.add_tree(&tree, self.tree_pos);
-        if let Err(err) = result {
-            println!("Failed to add tree: {}", err);
-        }
-    }
-
     pub fn on_device_event(
         &mut self,
         _event_loop: &ActiveEventLoop,
@@ -545,13 +416,13 @@ impl InitializedApp {
     }
 
     fn on_resize(&mut self) {
-        self.vulkan_context.device().wait_idle();
+        self.vulkan_ctx.device().wait_idle();
 
         let window_size = self.window_state.window_size();
 
         self.camera.on_resize(&window_size);
         self.tracer
-            .on_resize(&window_size, self.builder.get_external_shared_resources());
+            .on_resize(&window_size, self._accel_struct_builder.get_resources());
         self.swapchain.on_resize(&window_size);
 
         // the render pass should be rebuilt when the swapchain is recreated
