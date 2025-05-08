@@ -6,7 +6,7 @@ use glam::{UVec3, Vec3};
 pub use resources::*;
 
 use crate::{
-    util::{ShaderCompiler, Timer},
+    util::ShaderCompiler,
     vkn::{
         execute_one_time_command, Allocator, Buffer, CommandBuffer, ComputePipeline,
         DescriptorPool, DescriptorSet, PlainMemberTypeWithData, ShaderModule,
@@ -55,10 +55,6 @@ impl AccelStructBuilder {
             "main",
         )
         .unwrap();
-
-        // 227 for full cube
-        // 390 for half cube
-        // 500 for a single blas
 
         let resources = AccelStructResources::new(
             vulkan_ctx.clone(),
@@ -257,7 +253,7 @@ impl AccelStructBuilder {
                 chunk_pos_custom_idx_table: &HashMap<UVec3, u32>,
                 instance_descriptor_buf: &Buffer,
             ) {
-                const SCALE: f32 = 0.25;
+                const SCALE: f32 = 1.0;
                 for i in 0..chunk_pos_custom_idx_table.len() {
                     let (chunk_pos, custom_idx) = chunk_pos_custom_idx_table.iter().nth(i).unwrap();
 
@@ -291,7 +287,7 @@ impl AccelStructBuilder {
                 }
 
                 fn chunk_position_to_position(chunk_pos: &UVec3, scale: f32) -> Vec3 {
-                    let base_offset: Vec3 = Vec3::new(0.5, 0.5, 0.5) * scale;
+                    let base_offset: Vec3 = Vec3::ZERO * scale;
                     let chunk_pos = chunk_pos.as_vec3() * scale;
                     return chunk_pos + base_offset;
                 }

@@ -101,7 +101,7 @@ impl InitializedApp {
         let screen_extent = window_state.window_size();
 
         let camera = Camera::new(
-            Vec3::new(-1.0, 0.5, -1.0),
+            Vec3::new(-4.6, 2.5, -4.6),
             135.0,
             10.0,
             CameraDesc {
