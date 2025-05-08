@@ -31,6 +31,8 @@ layout(set = 0, binding = 4) writeonly uniform image2D result_image;
 #include "../include/voxel_color.glsl"
 #include "../include/voxel_type.glsl"
 
+// https://dubiousconst282.github.io/2024/10/03/voxel-ray-tracing/
+
 // intersects if: t_min < t_max && t_max > 0.0
 // t_min is the first intersection point, t_max is the last intersection point
 // t_min might be negative, which means the ray starts inside the box
@@ -47,6 +49,10 @@ vec2 slabs(vec3 p0, vec3 p1, vec3 o, vec3 inv_d) {
     return vec2(t_min, t_max);
 }
 
+bool _in_chunk_range(ivec3 pos, ivec3 visible_chunk_dim) {
+    return all(greaterThanEqual(pos, ivec3(0))) && all(lessThan(pos, visible_chunk_dim));
+}
+
 void get_voxel_type_normal(out uint o_voxel_type, out vec3 o_normal, out bool o_is_normal_valid,
                            uint compressed_voxel_type_and_normal) {
     o_voxel_type      = compressed_voxel_type_and_normal & 0xFF;
@@ -59,30 +65,29 @@ uint dda_svo_marching(ivec3 visible_chunk_dim, vec3 o, vec3 d, vec3 inv_d) {
     vec3 min_bound = vec3(0.0);
     vec3 max_bound = vec3(visible_chunk_dim);
 
+    d = max(abs(d), vec3(EPSILON)) * (step(0.0, d) * 2.0 - 1.0);
+
     vec2 t = slabs(min_bound, max_bound, o, inv_d);
     if (t.x > t.y || t.y < 0.0) {
         return 0;
     }
 
     float march_extent = max(t.x, 0.0) + EPSILON;
-    vec3 pos           = o + march_extent * d;
+    o += march_extent * d;
 
-    float t_max     = 0;
+    ivec3 map_pos   = ivec3(floor(o));
+    vec3 delta_dist = 1.0 / abs(d);
+    ivec3 ray_step  = ivec3(sign(d));
+    vec3 side_dist  = (((sign(d) * 0.5) + 0.5) + sign(d) * (vec3(map_pos) - o)) * delta_dist;
+
     uint iter_count = 0;
     while (iter_count++ < 10000) {
-        vec3 cell_min  = floor(pos);
-        vec3 cell_size = vec3(1.0);
-
-        vec3 side_pos  = cell_min + step(0.0, d) * cell_size;
-        vec3 side_dist = (side_pos - o) * inv_d;
-
-        t_max = min(min(side_dist.x, side_dist.y), side_dist.z) + EPSILON;
-
-        pos = o + t_max * d;
-
-        if (t_max > t.y) {
+        bvec3 mask = lessThanEqual(side_dist, min(side_dist.yzx, side_dist.zxy));
+        side_dist += vec3(mask) * delta_dist;
+        if (!_in_chunk_range(map_pos, visible_chunk_dim)) {
             break;
         }
+        map_pos += ivec3(vec3(mask)) * ray_step;
     }
     return iter_count;
 }
