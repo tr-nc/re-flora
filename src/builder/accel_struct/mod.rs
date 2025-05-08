@@ -1,11 +1,12 @@
 mod resources;
 use std::collections::HashMap;
 
+use ash::vk;
 use glam::{UVec3, Vec3};
 pub use resources::*;
 
 use crate::{
-    util::ShaderCompiler,
+    util::{ShaderCompiler, Timer},
     vkn::{
         execute_one_time_command, Allocator, Buffer, CommandBuffer, ComputePipeline,
         DescriptorPool, DescriptorSet, PlainMemberTypeWithData, ShaderModule,
@@ -162,19 +163,26 @@ impl AccelStructBuilder {
             .device()
             .wait_queue_idle(&self.vulkan_ctx.get_general_queue());
 
-        self.resources
-            .blas
-            .build(&self.resources.vertices, &self.resources.indices);
+        self.resources.blas.build(
+            &self.resources.vertices,
+            &self.resources.indices,
+            // this controls the culling mode, it can be overwritten by gl_RayFlagsNoneEXT in rayQuery
+            vk::GeometryFlagsKHR::empty(),
+        );
     }
 
     pub fn build_chunks_tlas(&mut self, chunk_pos_custom_idx_table: HashMap<UVec3, u32>) {
+        // build the buffer first
+        // this step takes 90% of the time! optimize it later
         self.build_tlas_instances(
             &chunk_pos_custom_idx_table,
             self.resources.blas.get_device_address().unwrap(),
         );
+        // then build the tlas using the buffer
         self.resources.tlas.build(
             &self.resources.tlas_instances,
             chunk_pos_custom_idx_table.len() as u32,
+            vk::GeometryFlagsKHR::empty(),
         );
     }
 
@@ -253,6 +261,7 @@ impl AccelStructBuilder {
                 chunk_pos_custom_idx_table: &HashMap<UVec3, u32>,
                 instance_descriptor_buf: &Buffer,
             ) {
+                const SCALE: f32 = 0.5;
                 for i in 0..chunk_pos_custom_idx_table.len() {
                     let (chunk_pos, custom_idx) = chunk_pos_custom_idx_table.iter().nth(i).unwrap();
 
@@ -260,7 +269,7 @@ impl AccelStructBuilder {
                         .set_field(
                             "data.position",
                             PlainMemberTypeWithData::Vec3(
-                                chunk_position_to_position(chunk_pos).to_array(),
+                                chunk_position_to_position(chunk_pos, SCALE).to_array(),
                             ),
                         )
                         .unwrap()
@@ -269,7 +278,10 @@ impl AccelStructBuilder {
                             PlainMemberTypeWithData::Vec3([0.0, 0.0, 0.0]),
                         )
                         .unwrap()
-                        .set_field("data.scale", PlainMemberTypeWithData::Vec3([1.0, 1.0, 1.0]))
+                        .set_field(
+                            "data.scale",
+                            PlainMemberTypeWithData::Vec3([SCALE, SCALE, SCALE]),
+                        )
                         .unwrap()
                         .set_field(
                             "data.custom_idx",
@@ -282,13 +294,10 @@ impl AccelStructBuilder {
                         .unwrap();
                 }
 
-                fn chunk_position_to_position(chunk_pos: &UVec3) -> Vec3 {
-                    const BASE_OFFSET: Vec3 = Vec3::new(0.5, 0.5, 0.5);
-                    return Vec3::new(
-                        chunk_pos.x as f32 + BASE_OFFSET.x,
-                        chunk_pos.y as f32 + BASE_OFFSET.y,
-                        chunk_pos.z as f32 + BASE_OFFSET.z,
-                    );
+                fn chunk_position_to_position(chunk_pos: &UVec3, scale: f32) -> Vec3 {
+                    let base_offset: Vec3 = Vec3::new(0.5, 0.5, 0.5) * scale;
+                    let chunk_pos = chunk_pos.as_vec3() * scale;
+                    return chunk_pos + base_offset;
                 }
             }
         }

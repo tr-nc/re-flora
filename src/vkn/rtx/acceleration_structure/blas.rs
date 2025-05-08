@@ -41,7 +41,12 @@ impl Blas {
     }
 
     /// Build the bottom‐level acceleration structure from the given geometry.
-    pub fn build(&mut self, vertices_buf: &Buffer, indices_buf: &Buffer) {
+    pub fn build(
+        &mut self,
+        vertices_buf: &Buffer,
+        indices_buf: &Buffer,
+        geom_flags: vk::GeometryFlagsKHR,
+    ) {
         // 6 faces, 2 triangles per face, no sharing because we store voxel data inside the vertices
         const PRIMITIVE_COUNT_PER_VOXEL: u32 = 12;
         // 8 vertices per voxel
@@ -54,6 +59,7 @@ impl Blas {
             indices_buf,
             get_vertex_stride(vertices_buf),
             VERTICES_COUNT_PER_VOXEL * VOXEL_COUNT - 1,
+            geom_flags,
         );
 
         let primitive_count = VOXEL_COUNT * PRIMITIVE_COUNT_PER_VOXEL;
@@ -107,6 +113,7 @@ impl Blas {
             indices_buf: &'a Buffer,
             vertex_stride: u64,
             max_vertex: u32,
+            geom_flags: vk::GeometryFlagsKHR,
         ) -> vk::AccelerationStructureGeometryKHR<'a> {
             let triangles_data = vk::AccelerationStructureGeometryTrianglesDataKHR {
                 vertex_format: vk::Format::R32G32B32_SFLOAT,
@@ -128,7 +135,7 @@ impl Blas {
                 geometry: vk::AccelerationStructureGeometryDataKHR {
                     triangles: triangles_data,
                 },
-                flags: vk::GeometryFlagsKHR::OPAQUE,
+                flags: geom_flags,
                 ..Default::default()
             };
         }

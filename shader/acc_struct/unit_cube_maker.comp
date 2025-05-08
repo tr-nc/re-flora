@@ -1,8 +1,7 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 
-// one work‐group = one 4×4×4 chunk
-layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
 #include "../include/vertex_index_attribute.glsl"
 layout(set = 0, binding = 0) writeonly buffer B_Vertices { Vertex data[]; }

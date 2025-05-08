@@ -2,6 +2,7 @@
 
 #extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_ray_query : enable
+#extension GL_EXT_ray_flags_primitive_culling : enable
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -47,49 +48,34 @@ void main() {
         return;
     }
 
+    // Generate ray as before
     vec2 screen_uv = (vec2(gl_GlobalInvocationID.xy) + vec2(0.5)) / vec2(img_size);
     Ray ray        = ray_gen(camera_info.camera_pos.xyz, screen_uv);
 
-    rayQueryEXT rayQuery;
-    rayQueryInitializeEXT(rayQuery, tlas,
-                          gl_RayFlagsOpaqueEXT, // skip “transparent” triangles
-                          0xFF,                 // instance mask
-                          ray.origin,
-                          0.001, // bias off your surface
-                          ray.direction, 10000.0);
+    // 2) init the ray‐query with SKIP_CLOSEST_HIT_SHADER so
+    //    we never run any hit‐shaders, but we can still
+    //    confirm each intersection to march along the ray.
+    rayQueryEXT rq;
+    rayQueryInitializeEXT(rq, tlas, gl_RayFlagsNoneEXT, 0xFF, ray.origin, 0.001, ray.direction,
+                          1e4);
 
-    // notice: do not change the content of this loop, this is not shader logic at all.
-    while (rayQueryProceedEXT(rayQuery)) {
-        if (rayQueryGetIntersectionTypeEXT(rayQuery, false) ==
+    // 3) walk through *all* intersections, sorted in t, by
+    //    confirming each candidate → commits it → t_max = t_hit
+    uint hit_count = 0;
+    while (rayQueryProceedEXT(rq)) {
+        if (rayQueryGetIntersectionTypeEXT(rq, /*committed=*/false) ==
             gl_RayQueryCandidateIntersectionTriangleEXT) {
-            // “commit” it; this tells the driver “yes, I want
-            // you to consider this for the nearest‐hit test”
-            rayQueryConfirmIntersectionEXT(rayQuery);
+            hit_count++;
         }
     }
 
     // after traversal, ask whether we actually committed a hit
-    bool hit = (rayQueryGetIntersectionTypeEXT(rayQuery, true) ==
-                gl_RayQueryCommittedIntersectionTriangleEXT);
+    bool hit =
+        (rayQueryGetIntersectionTypeEXT(rq, true) == gl_RayQueryCommittedIntersectionTriangleEXT);
 
-    vec3 ray_color = vec3(0.0);
-    if (hit) {
-        float t = rayQueryGetIntersectionTEXT(rayQuery, true);
-        vec3 insect_pos = ray.origin + ray.direction * t;
+    // vec3 col = hit ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+    vec3 col = vec3(1.0 - exp(-float(hit_count) * 0.1), 0.0, 0.0);
 
-        // the triangle index
-        int primitive_index = rayQueryGetIntersectionPrimitiveIndexEXT(rayQuery, true);
-        // ray_color = vec3(float(idx) / 1000.0);
-        uint vert_index = indices.data[primitive_index * 3].index;
-        Vertex vert     = vertices.data[vert_index];
-        vec3 normal;
-        bool is_normal_valid;
-        uint voxel_type;
-        get_voxel_type_normal(voxel_type, normal, is_normal_valid,
-                              vert.compressed_voxel_type_and_normal);
-        ray_color = normal * 0.5 + 0.5;
-
-        ray_color = vec3(insect_pos);
-    }
-    imageStore(result_image, uvi, vec4(ray_color, 1.0));
+    // float c = hit ? 1.0 : 0.0;
+    imageStore(result_image, uvi, vec4(col, 1.0));
 }

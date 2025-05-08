@@ -42,8 +42,13 @@ impl Tlas {
         }
     }
 
-    pub fn build(&mut self, instances_buf: &Buffer, instance_count: u32) {
-        let geom = make_tlas_geom(&instances_buf);
+    pub fn build(
+        &mut self,
+        instances_buf: &Buffer,
+        instance_count: u32,
+        geom_flags: vk::GeometryFlagsKHR,
+    ) {
+        let geom = make_tlas_geom(&instances_buf, geom_flags);
 
         // TODO: maybe reuse the scratch buffer / tlas handle later
         let (tlas_size, scratch_buf_size) = query_properties(
@@ -83,10 +88,11 @@ impl Tlas {
 
         fn make_tlas_geom<'a>(
             instance_buffer: &'a Buffer,
+            geom_flags: vk::GeometryFlagsKHR,
         ) -> vk::AccelerationStructureGeometryKHR<'a> {
             return vk::AccelerationStructureGeometryKHR {
                 geometry_type: vk::GeometryTypeKHR::INSTANCES,
-                flags: vk::GeometryFlagsKHR::OPAQUE,
+                flags: geom_flags,
                 geometry: vk::AccelerationStructureGeometryDataKHR {
                     instances: vk::AccelerationStructureGeometryInstancesDataKHR {
                         array_of_pointers: vk::FALSE,

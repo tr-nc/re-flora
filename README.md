@@ -118,6 +118,12 @@ https://rust-unofficial.github.io/patterns/patterns/structural/small-crates.html
 
 [Best Practices 2](https://developer.nvidia.com/blog/best-practices-using-nvidia-rtx-ray-tracing/)
 
+[Another View on the Classic Ray-AABB Intersection Algorithm for BVH Traversal](https://medium.com/@bromanz/another-view-on-the-classic-ray-aabb-intersection-algorithm-for-bvh-traversal-41125138b525)
+
+[A guide to fast voxel ray tracing using sparse 64-trees](https://dubiousconst282.github.io/2024/10/03/voxel-ray-tracing/)
+
+[Voxel RT different voxel format benchmark](https://github.com/dubiousconst282/VoxelRT)
+
 # Special Thanks To
 
 [Implementation of ash with egui](https://github.com/adrien-ben/egui-ash-renderer)

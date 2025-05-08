@@ -1,8 +1,8 @@
 use crate::builder::{AccelStructBuilder, OctreeBuilder, PlainBuilder};
 use crate::gameplay::{Camera, CameraDesc};
 use crate::tracer::Tracer;
-use crate::util::{ShaderCompiler, Timer};
 use crate::util::TimeInfo;
+use crate::util::{ShaderCompiler, Timer};
 use crate::vkn::{Allocator, CommandBuffer, Fence, Semaphore, SwapchainDesc};
 use crate::{
     egui_renderer::EguiRenderer,
@@ -129,17 +129,9 @@ impl InitializedApp {
         );
 
         let mut test_map = HashMap::new();
-        // test_map.insert(UVec3::new(0, 0, 0), 0);
-        // test_map.insert(UVec3::new(1, 0, 0), 1);
-
-        for i in 0..16 {
-            for j in 0..16 {
-                for k in 0..16 {
-                    // a random change that it won't insert
-                    let mut rand = i + j + k;
-                    if rand % 2 == 0 {
-                        continue;
-                    }
+        for i in 0..1 {
+            for j in 0..1 {
+                for k in 0..1 {
                     test_map.insert(UVec3::new(i, j, k), i * 100 + j * 10 + k);
                 }
             }
