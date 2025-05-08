@@ -4,6 +4,15 @@
 
 #define MAX_DDA_ITERATION 50
 
+// taken from:
+// https://medium.com/@bromanz/another-view-on-the-classic-ray-aabb-intersection-algorithm-for-bvh-traversal-41125138b525
+// bool slabs(vec3 p0, vec3 p1, vec3 rayOrigin, vec3 invRaydir) {
+//     vec3 t0   = (p0 - rayOrigin) * invRaydir;
+//     vec3 t1   = (p1 - rayOrigin) * invRaydir;
+//     vec3 tmin = min(t0, t1), tmax = max(t0, t1);
+//     return max_component(tmin) <= min_component(tmax);
+// }
+
 bool _in_chunk_range(ivec3 pos, ivec3 visible_chunk_dim) {
     return all(greaterThanEqual(pos, ivec3(0))) && all(lessThan(pos, visible_chunk_dim));
 }

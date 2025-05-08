@@ -11,7 +11,7 @@ use crate::{
 };
 use ash::vk;
 use egui::{Color32, RichText};
-use glam::{UVec3, Vec2};
+use glam::{UVec3, Vec2, Vec3};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -101,9 +101,9 @@ impl InitializedApp {
         let screen_extent = window_state.window_size();
 
         let camera = Camera::new(
-            glam::Vec3::ZERO,
-            180.0,
-            0.0,
+            Vec3::new(-1.0, 0.5, -1.0),
+            135.0,
+            10.0,
             CameraDesc {
                 movement: Default::default(),
                 projection: Default::default(),
@@ -128,10 +128,11 @@ impl InitializedApp {
             20 * 20 * 20, // tlas instance cap
         );
 
+        // 64^3 chunk, a total scene size of 1024 * 512 * 1024
         let mut test_map = HashMap::new();
-        for i in 0..1 {
-            for j in 0..1 {
-                for k in 0..1 {
+        for i in 0..16 {
+            for j in 0..8 {
+                for k in 0..16 {
                     test_map.insert(UVec3::new(i, j, k), i * 100 + j * 10 + k);
                 }
             }

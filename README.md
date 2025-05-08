@@ -106,6 +106,8 @@ https://rust-unofficial.github.io/patterns/patterns/structural/small-crates.html
 
   [Animated Voxel Grass](https://www.youtube.com/watch?v=dGZDXaEXTOI)
 
+[CG tutorials](https://www.scratchapixel.com/)
+
 ### Ray Tracing
 
 [Guide](https://www.khronos.org/blog/ray-tracing-in-vulkan/)

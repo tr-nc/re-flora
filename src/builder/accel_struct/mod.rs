@@ -58,8 +58,11 @@ impl AccelStructBuilder {
 
         const VOXELS_CAP: u64 = 1; // only a single voxel is needed for the only BLAS, then we can instantiate it more than once
 
-        const VERTICES_COUNT_PER_VOXEL: u64 = 8;
-        const PRIMITIVE_COUNT_PER_VOXEL: u64 = 12;
+        // 227 for full cube
+        // 390 for half cube
+
+        const VERTICES_COUNT_PER_VOXEL: u64 = 7;
+        const PRIMITIVE_COUNT_PER_VOXEL: u64 = 6;
         const INDICES_COUNT_PER_PRIMITIVE: u64 = 3;
 
         let vertices_buffer_max_len = VOXELS_CAP * VERTICES_COUNT_PER_VOXEL;
@@ -261,7 +264,7 @@ impl AccelStructBuilder {
                 chunk_pos_custom_idx_table: &HashMap<UVec3, u32>,
                 instance_descriptor_buf: &Buffer,
             ) {
-                const SCALE: f32 = 0.5;
+                const SCALE: f32 = 0.25;
                 for i in 0..chunk_pos_custom_idx_table.len() {
                     let (chunk_pos, custom_idx) = chunk_pos_custom_idx_table.iter().nth(i).unwrap();
 
