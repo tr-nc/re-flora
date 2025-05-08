@@ -130,9 +130,9 @@ impl InitializedApp {
 
         // 64^3 chunk, a total scene size of 1024 * 512 * 1024
         let mut test_map = HashMap::new();
-        for i in 0..16 {
-            for j in 0..8 {
-                for k in 0..16 {
+        for i in 0..1 {
+            for j in 0..1 {
+                for k in 0..1 {
                     test_map.insert(UVec3::new(i, j, k), i * 100 + j * 10 + k);
                 }
             }

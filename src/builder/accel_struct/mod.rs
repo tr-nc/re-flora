@@ -56,26 +56,17 @@ impl AccelStructBuilder {
         )
         .unwrap();
 
-        const VOXELS_CAP: u64 = 1; // only a single voxel is needed for the only BLAS, then we can instantiate it more than once
-
         // 227 for full cube
         // 390 for half cube
-
-        const VERTICES_COUNT_PER_VOXEL: u64 = 7;
-        const PRIMITIVE_COUNT_PER_VOXEL: u64 = 6;
-        const INDICES_COUNT_PER_PRIMITIVE: u64 = 3;
-
-        let vertices_buffer_max_len = VOXELS_CAP * VERTICES_COUNT_PER_VOXEL;
-        let indices_buffer_max_len =
-            VOXELS_CAP * PRIMITIVE_COUNT_PER_VOXEL as u64 * INDICES_COUNT_PER_PRIMITIVE as u64;
+        // 500 for a single blas
 
         let resources = AccelStructResources::new(
             vulkan_ctx.clone(),
             allocator.clone(),
             &unit_cube_maker_sm,
             &instance_maker_sm,
-            vertices_buffer_max_len,
-            indices_buffer_max_len,
+            2000,
+            2000 * 3,
             tlas_instance_cap,
         );
 
@@ -171,6 +162,8 @@ impl AccelStructBuilder {
             &self.resources.indices,
             // this controls the culling mode, it can be overwritten by gl_RayFlagsNoneEXT in rayQuery
             vk::GeometryFlagsKHR::empty(),
+            86,
+            171,
         );
     }
 

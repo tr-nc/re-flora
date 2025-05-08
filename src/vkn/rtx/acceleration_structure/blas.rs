@@ -46,23 +46,17 @@ impl Blas {
         vertices_buf: &Buffer,
         indices_buf: &Buffer,
         geom_flags: vk::GeometryFlagsKHR,
+        primitive_count: u32,
+        vertices_count: u32,
     ) {
-        // 6 faces, 2 triangles per face, no sharing because we store voxel data inside the vertices
-        const PRIMITIVE_COUNT_PER_VOXEL: u32 = 12;
-        // 8 vertices per voxel
-        const VERTICES_COUNT_PER_VOXEL: u32 = 8;
-
-        const VOXEL_COUNT: u32 = 1;
-
         let geom = make_blas_geom(
             vertices_buf,
             indices_buf,
             get_vertex_stride(vertices_buf),
-            VERTICES_COUNT_PER_VOXEL * VOXEL_COUNT - 1,
+            vertices_count,
             geom_flags,
         );
 
-        let primitive_count = VOXEL_COUNT * PRIMITIVE_COUNT_PER_VOXEL;
         let device = self.vulkan_ctx.device();
 
         // Query the sizes we need for BLAS and scratch
@@ -96,8 +90,8 @@ impl Blas {
             vk::AccelerationStructureTypeKHR::BOTTOM_LEVEL,
             vk::BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE,
             vk::BuildAccelerationStructureModeKHR::BUILD,
-            primitive_count, // number of primitives
-            1,               // one build
+            primitive_count,
+            1,
         );
 
         self.blas = Some(blas);
