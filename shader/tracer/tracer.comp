@@ -31,7 +31,9 @@ layout(set = 0, binding = 4) writeonly uniform image2D result_image;
 #include "../include/voxel_color.glsl"
 #include "../include/voxel_type.glsl"
 
-// intersects if: tmin < tmax && tmax > 0.0
+// intersects if: t_min < t_max && t_max > 0.0
+// t_min is the first intersection point, t_max is the last intersection point
+// t_min might be negative, which means the ray starts inside the box
 vec2 slabs(vec3 p0, vec3 p1, vec3 o, vec3 inv_d) {
     vec3 t0 = (p0 - o) * inv_d;
     vec3 t1 = (p1 - o) * inv_d;
@@ -39,10 +41,10 @@ vec2 slabs(vec3 p0, vec3 p1, vec3 o, vec3 inv_d) {
     vec3 temp = t0;
     t0 = min(temp, t1), t1 = max(temp, t1);
 
-    float tmin = max(max(t0.x, t0.y), t0.z);
-    float tmax = min(min(t1.x, t1.y), t1.z);
+    float t_min = max(max(t0.x, t0.y), t0.z);
+    float t_max = min(min(t1.x, t1.y), t1.z);
 
-    return vec2(tmin, tmax);
+    return vec2(t_min, t_max);
 }
 
 void get_voxel_type_normal(out uint o_voxel_type, out vec3 o_normal, out bool o_is_normal_valid,
@@ -52,38 +54,7 @@ void get_voxel_type_normal(out uint o_voxel_type, out vec3 o_normal, out bool o_
     o_is_normal_valid = (compressed_voxel_type_and_normal & 0x20000000u) != 0;
 }
 
-bool _in_chunk_range(ivec3 pos, ivec3 visible_chunk_dim) {
-    return all(greaterThanEqual(pos, ivec3(0))) && all(lessThan(pos, visible_chunk_dim));
-}
-
-bool _has_chunk(ivec3 chunk_idx) { return true; }
-
-// this function if used for continuous raymarching, where we need to save the last hit chunk
-bool dda_marching_with_save(out ivec3 o_chunk_idx, inout ivec3 map_pos, inout vec3 side_dist,
-                            inout bool entered_visible_region, inout uint it,
-                            ivec3 visible_chunk_dim, vec3 delta_dist, ivec3 ray_step) {
-    bvec3 mask;
-    while (it++ < 1024) {
-        mask = lessThanEqual(side_dist.xyz, min(side_dist.yzx, side_dist.zxy));
-        side_dist += vec3(mask) * delta_dist;
-
-        o_chunk_idx = map_pos;
-        map_pos += ivec3(vec3(mask)) * ray_step;
-
-        if (_in_chunk_range(o_chunk_idx, visible_chunk_dim)) {
-            entered_visible_region = true;
-            if (_has_chunk(o_chunk_idx)) {
-                return true;
-            }
-        }
-        // went outside the outer bounding box
-        else if (entered_visible_region) {
-            return false;
-        }
-    }
-    return false;
-}
-
+const float EPSILON = 1e-4;
 uint dda_svo_marching(ivec3 visible_chunk_dim, vec3 o, vec3 d, vec3 inv_d) {
     vec3 min_bound = vec3(0.0);
     vec3 max_bound = vec3(visible_chunk_dim);
@@ -93,18 +64,19 @@ uint dda_svo_marching(ivec3 visible_chunk_dim, vec3 o, vec3 d, vec3 inv_d) {
         return 0;
     }
 
-    vec3 pos = o + (t.x + 1e-4) * d;
+    float march_extent = max(t.x, 0.0) + EPSILON;
+    vec3 pos           = o + march_extent * d;
 
     float t_max     = 0;
     uint iter_count = 0;
-    while (iter_count++ < 256) {
+    while (iter_count++ < 10000) {
         vec3 cell_min  = floor(pos);
         vec3 cell_size = vec3(1.0);
 
         vec3 side_pos  = cell_min + step(0.0, d) * cell_size;
         vec3 side_dist = (side_pos - o) * inv_d;
 
-        t_max = min(min(side_dist.x, side_dist.y), side_dist.z) + 1e-4;
+        t_max = min(min(side_dist.x, side_dist.y), side_dist.z) + EPSILON;
 
         pos = o + t_max * d;
 
@@ -127,34 +99,8 @@ void main() {
 
     uint hit_count = 0;
 
-    // in benchmark, dda is much faster than hardware rtx:
-    // 227 fps for full cube
-    // 390 fps for half cube
-    // 500 fps for a single blas
-    // 3000 fps for dda slab
-
-    // dda experiments
-    // 1750 fps for 200x8x200
-    // 1850 fps when beam opti
-    // 3000 fps
-
-    // hardware rtx
-    // rayQueryEXT rq;
-    // rayQueryInitializeEXT(rq, tlas, gl_RayFlagsNoneEXT, 0xFF, ray.origin, 0.001, ray.direction,
-    //                       1e4);
-    // while (rayQueryProceedEXT(rq)) {
-    //     if (rayQueryGetIntersectionTypeEXT(rq, /*committed=*/false) ==
-    //         gl_RayQueryCandidateIntersectionTriangleEXT) {
-    //         hit_count++;
-    //     }
-    // }
-
     uvec2 start_time = get_current_time();
-
-    // slab dda
     hit_count = dda_svo_marching(ivec3(200, 8, 200), ray.origin, ray.direction, ray.inv_direction);
-    // hit_count = dda_svo_marching(ivec3(4, 4, 4), ray.origin, ray.direction, ray.inv_direction);
-
     uvec2 end_time = get_current_time();
 
     float delta_time = get_delta_time(start_time, end_time);
