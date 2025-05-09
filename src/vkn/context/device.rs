@@ -93,6 +93,11 @@ fn create_device(
         // vk::KHR_BUFFER_DEVICE_ADDRESS_NAME.as_ptr(),
     ];
 
+    let physical_device_features = vk::PhysicalDeviceFeatures {
+        shader_int64: vk::TRUE,
+        ..Default::default()
+    };
+
     let mut buffer_device_address_features = vk::PhysicalDeviceBufferDeviceAddressFeatures {
         buffer_device_address: vk::TRUE,
         ..Default::default()
@@ -108,13 +113,13 @@ fn create_device(
     };
     let mut physical_device_shader_clock_features_khr = vk::PhysicalDeviceShaderClockFeaturesKHR {
         shader_subgroup_clock: vk::TRUE,
-        // shader_device_clock: vk::TRUE,
         ..Default::default()
     };
 
     let device_create_info = vk::DeviceCreateInfo::default()
         .queue_create_infos(&queue_create_infos)
         .enabled_extension_names(&device_extensions_ptrs)
+        .enabled_features(&physical_device_features)
         .push_next(&mut buffer_device_address_features)
         .push_next(&mut physical_device_acceleration_structure_features_khr)
         .push_next(&mut physical_device_ray_query_features_khr)
