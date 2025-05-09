@@ -155,7 +155,7 @@ impl InitializedApp {
             allocator.clone(),
             &shader_compiler,
             &screen_extent,
-            accel_struct_builder.get_resources(),
+            octree_builder.get_resources(),
         );
 
         let mut this = Self {
@@ -451,7 +451,7 @@ impl InitializedApp {
 
         self.camera.on_resize(&window_size);
         self.tracer
-            .on_resize(&window_size, self.accel_struct_builder.get_resources());
+            .on_resize(&window_size, self.octree_builder.get_resources());
         self.swapchain.on_resize(&window_size);
 
         // the render pass should be rebuilt when the swapchain is recreated

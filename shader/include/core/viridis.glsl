@@ -1,5 +1,6 @@
 //! For better visualization during development
 //! Taken from: https://www.shadertoy.com/view/XtGGzG
+//! Resources: https://cran.r-project.org/web/packages/viridis/vignettes/intro-to-viridis.html
 #ifndef VIRIDIS_GLSL
 #define VIRIDIS_GLSL
 

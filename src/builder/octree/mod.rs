@@ -558,6 +558,10 @@ impl OctreeBuilder {
         }
     }
 
+    pub fn get_resources(&self) -> &OctreeBuilderResources {
+        &self.resources
+    }
+
     pub fn build_and_alloc(
         &mut self,
         atlas_offset: UVec3,

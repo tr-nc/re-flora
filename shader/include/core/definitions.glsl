@@ -1,7 +1,8 @@
 #ifndef DEFINITIONS_GLSL
 #define DEFINITIONS_GLSL
 
-const float EPSILON      = 3.552713678800501e-15;
+// const float EPSILON      = 3.552713678800501e-15;
+const float EPSILON      = 1e-4;
 const float DEG_TO_RAD   = 0.0174532925;
 const float GOLDEN_RATIO = 1.6180339887498948482;
 

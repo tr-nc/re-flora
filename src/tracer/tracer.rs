@@ -1,5 +1,5 @@
 use super::TracerResources;
-use crate::builder::AccelStructResources;
+use crate::builder::{AccelStructResources, OctreeBuilderResources};
 use crate::gameplay::Camera;
 use crate::util::ShaderCompiler;
 use crate::vkn::{
@@ -26,7 +26,7 @@ impl Tracer {
         allocator: Allocator,
         shader_compiler: &ShaderCompiler,
         screen_extent: &[u32; 2],
-        accel_struct_resources: &AccelStructResources,
+        octree_builder_resources: &OctreeBuilderResources,
     ) -> Self {
         let tracer_sm = ShaderModule::from_glsl(
             vulkan_context.device(),
@@ -55,7 +55,7 @@ impl Tracer {
             &vulkan_context,
             &tracer_ppl,
             &resources,
-            accel_struct_resources,
+            octree_builder_resources,
         );
 
         return Self {
@@ -71,7 +71,7 @@ impl Tracer {
     pub fn on_resize(
         &mut self,
         screen_extent: &[u32; 2],
-        accel_struct_resources: &AccelStructResources,
+        octree_builder_resources: &OctreeBuilderResources,
     ) {
         self.resources.on_resize(
             self.vulkan_context.device().clone(),
@@ -85,7 +85,7 @@ impl Tracer {
             &self.vulkan_context,
             &self.tracer_ppl,
             &self.resources,
-            accel_struct_resources,
+            octree_builder_resources,
         );
     }
 
@@ -188,7 +188,7 @@ impl Tracer {
         vulkan_context: &VulkanContext,
         compute_pipeline: &ComputePipeline,
         resources: &TracerResources,
-        accel_struct_resources: &AccelStructResources,
+        octree_builder_resources: &OctreeBuilderResources,
     ) -> DescriptorSet {
         let compute_descriptor_set = DescriptorSet::new(
             vulkan_context.device().clone(),
@@ -199,7 +199,7 @@ impl Tracer {
             WriteDescriptorSet::new_buffer_write(0, &resources.gui_input),
             WriteDescriptorSet::new_buffer_write(1, &resources.camera_info),
             WriteDescriptorSet::new_buffer_write(2, &resources.env_info),
-            WriteDescriptorSet::new_acceleration_structure_write(3, &accel_struct_resources.tlas),
+            WriteDescriptorSet::new_buffer_write(3, &octree_builder_resources.octree_data),
             WriteDescriptorSet::new_texture_write(
                 4,
                 vk::DescriptorType::STORAGE_IMAGE,
