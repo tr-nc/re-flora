@@ -1,0 +1,27 @@
+#version 450
+
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly uniform U_RegionInfo {
+    uvec3 offset;
+    uvec3 dim;
+}
+region_info;
+
+layout(set = 0, binding = 1) writeonly buffer B_RegionIndirect {
+    uint dispatch_x;
+    uint dispatch_y;
+    uint dispatch_z;
+}
+region_indirect;
+
+#include "../../include/config.glsl"
+#include "../../include/core/dispatch_grouper.glsl"
+
+void main() {
+    region_indirect.dispatch_x = group_x_4(region_info.dim.x);
+    region_indirect.dispatch_y = group_x_4(region_info.dim.y);
+    region_indirect.dispatch_z = group_x_4(region_info.dim.z);
+}

@@ -1,10 +1,13 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 
-layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 
-layout(set = 0, binding = 0) readonly uniform U_ChunkInitInfo { uvec3 chunk_pos; }
-chunk_init_info;
+layout(set = 0, binding = 0) readonly uniform U_RegionInfo {
+    uvec3 offset;
+    uvec3 dim;
+}
+region_info;
 
 layout(set = 0, binding = 1, r8ui) writeonly uniform uimage3D raw_atlas;
 
@@ -38,17 +41,17 @@ uint get_voxel_type(float weight) {
 
 void main() {
     ivec3 uvi = ivec3(gl_GlobalInvocationID);
-    if (any(greaterThanEqual(uvi, ivec3(VOXEL_DIM)))) {
+    if (any(greaterThanEqual(uvi, ivec3(region_info.dim)))) {
         return;
     }
 
-    vec3 local_voxel_pos = (vec3(uvi) - 0.5) / vec3(VOXEL_DIM);
-    vec3 world_voxel_pos = local_voxel_pos + vec3(chunk_init_info.chunk_pos);
+    ivec3 atlas_uvi         = ivec3(region_info.offset + uvi);
+    const float VOXEL_SCALE = 1.0 / 256.0;
+    vec3 world_voxel_pos    = (vec3(atlas_uvi) + 0.5) * VOXEL_SCALE;
 
     float noise     = compute_noise(world_voxel_pos);
     float weight    = noise - world_voxel_pos.y;
     uint voxel_type = get_voxel_type(weight);
 
-    ivec3 atlas_base_offset = ivec3(chunk_init_info.chunk_pos) * VOXEL_DIM;
-    imageStore(raw_atlas, atlas_base_offset + uvi, uvec4(voxel_type, 0, 0, 0));
+    imageStore(raw_atlas, atlas_uvi, uvec4(voxel_type, 0, 0, 0));
 }

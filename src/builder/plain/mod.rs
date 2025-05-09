@@ -4,11 +4,14 @@ pub use resources::*;
 use crate::util::ShaderCompiler;
 use crate::vkn::execute_one_time_command;
 use crate::vkn::Allocator;
+use crate::vkn::Buffer;
 use crate::vkn::ClearValue;
 use crate::vkn::CommandBuffer;
 use crate::vkn::ComputePipeline;
 use crate::vkn::DescriptorPool;
 use crate::vkn::DescriptorSet;
+use crate::vkn::MemoryBarrier;
+use crate::vkn::PipelineBarrier;
 use crate::vkn::PlainMemberTypeWithData;
 use crate::vkn::ShaderModule;
 use crate::vkn::StructMemberDataBuilder;
@@ -23,10 +26,12 @@ pub struct PlainBuilder {
 
     resources: PlainBuilderResources,
 
+    _buffer_setup_ppl: ComputePipeline,
     _chunk_init_ppl: ComputePipeline,
     _chunk_modify_ppl: ComputePipeline,
     _leaf_write_ppl: ComputePipeline,
 
+    _buffer_setup_ds: DescriptorSet,
     _chunk_init_ds: DescriptorSet,
     _chunk_modify_ds: DescriptorSet,
     _leaf_write_ds: DescriptorSet,
@@ -42,10 +47,17 @@ impl PlainBuilder {
         allocator: Allocator,
         plain_atlas_dim: UVec3,
         free_atlas_dim: UVec3,
-        voxel_dim_per_chunk: UVec3,
     ) -> Self {
         // we create a local one
         let descriptor_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
+
+        let buffer_setup_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            &shader_compiler,
+            "shader/builder/chunk_writer/buffer_setup.comp",
+            "main",
+        )
+        .unwrap();
 
         let chunk_init_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
@@ -76,11 +88,13 @@ impl PlainBuilder {
             allocator.clone(),
             plain_atlas_dim,
             free_atlas_dim,
-            &chunk_init_sm,
+            &buffer_setup_sm,
             &chunk_modify_sm,
             &leaf_write_sm,
         );
 
+        let buffer_setup_ppl =
+            ComputePipeline::from_shader_module(vulkan_ctx.device(), &buffer_setup_sm);
         let chunk_init_ppl =
             ComputePipeline::from_shader_module(vulkan_ctx.device(), &chunk_init_sm);
         let chunk_modify_ppl =
@@ -88,13 +102,22 @@ impl PlainBuilder {
         let leaf_write_ppl =
             ComputePipeline::from_shader_module(vulkan_ctx.device(), &leaf_write_sm);
 
+        let buffer_setup_ds = DescriptorSet::new(
+            vulkan_ctx.device().clone(),
+            &buffer_setup_ppl.get_layout().get_descriptor_set_layouts()[0],
+            descriptor_pool.clone(),
+        );
+        buffer_setup_ds.perform_writes(&mut [
+            WriteDescriptorSet::new_buffer_write(0, &resources.region_info),
+            WriteDescriptorSet::new_buffer_write(1, &resources.region_indirect),
+        ]);
         let chunk_init_ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),
             &chunk_init_ppl.get_layout().get_descriptor_set_layouts()[0],
             descriptor_pool.clone(),
         );
         chunk_init_ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.chunk_init_info),
+            WriteDescriptorSet::new_buffer_write(0, &resources.region_info),
             WriteDescriptorSet::new_texture_write(
                 1,
                 vk::DescriptorType::STORAGE_IMAGE,
@@ -138,19 +161,23 @@ impl PlainBuilder {
         let build_cmdbuf = record_build_cmdbuf(
             &vulkan_ctx,
             &resources.chunk_atlas,
+            &resources.region_indirect,
+            &buffer_setup_ppl,
             &chunk_init_ppl,
+            &buffer_setup_ds,
             &chunk_init_ds,
-            voxel_dim_per_chunk,
         );
 
         return Self {
             vulkan_ctx,
             resources,
 
+            _buffer_setup_ppl: buffer_setup_ppl,
             _chunk_init_ppl: chunk_init_ppl,
             _chunk_modify_ppl: chunk_modify_ppl,
             _leaf_write_ppl: leaf_write_ppl,
 
+            _buffer_setup_ds: buffer_setup_ds,
             _chunk_init_ds: chunk_init_ds,
             _chunk_modify_ds: chunk_modify_ds,
             _leaf_write_ds: leaf_write_ds,
@@ -182,10 +209,26 @@ impl PlainBuilder {
         fn record_build_cmdbuf(
             vulkan_ctx: &VulkanContext,
             chunk_atlas: &Texture,
+            region_indirect: &Buffer,
+            buffer_setup_ppl: &ComputePipeline,
             chunk_init_ppl: &ComputePipeline,
+            buffer_setup_ds: &DescriptorSet,
             chunk_init_ds: &DescriptorSet,
-            voxel_dim_per_chunk: UVec3,
         ) -> CommandBuffer {
+            let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
+            let indirect_access_memory_barrier = MemoryBarrier::new_indirect_access();
+
+            let shader_access_pipeline_barrier = PipelineBarrier::new(
+                vk::PipelineStageFlags::COMPUTE_SHADER,
+                vk::PipelineStageFlags::COMPUTE_SHADER,
+                vec![shader_access_memory_barrier],
+            );
+            let indirect_access_pipeline_barrier = PipelineBarrier::new(
+                vk::PipelineStageFlags::COMPUTE_SHADER,
+                vk::PipelineStageFlags::DRAW_INDIRECT | vk::PipelineStageFlags::COMPUTE_SHADER,
+                vec![indirect_access_memory_barrier],
+            );
+
             let cmdbuf = CommandBuffer::new(vulkan_ctx.device(), vulkan_ctx.command_pool());
             cmdbuf.begin(false);
 
@@ -193,13 +236,24 @@ impl PlainBuilder {
                 .get_image()
                 .record_transition_barrier(&cmdbuf, vk::ImageLayout::GENERAL);
 
+            buffer_setup_ppl.record_bind(&cmdbuf);
+            buffer_setup_ppl.record_bind_descriptor_sets(
+                &cmdbuf,
+                std::slice::from_ref(&buffer_setup_ds),
+                0,
+            );
+            buffer_setup_ppl.record_dispatch(&cmdbuf, [1, 1, 1]);
+
+            shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
+            indirect_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
+
             chunk_init_ppl.record_bind(&cmdbuf);
             chunk_init_ppl.record_bind_descriptor_sets(
                 &cmdbuf,
                 std::slice::from_ref(&chunk_init_ds),
                 0,
             );
-            chunk_init_ppl.record_dispatch(&cmdbuf, voxel_dim_per_chunk.to_array());
+            chunk_init_ppl.record_dispatch_indirect(&cmdbuf, region_indirect);
 
             cmdbuf.end();
             return cmdbuf;
@@ -210,8 +264,8 @@ impl PlainBuilder {
         &self.resources
     }
 
-    pub fn chunk_init(&mut self, chunk_pos: UVec3) {
-        update_buffers(&self.resources, chunk_pos);
+    pub fn chunk_init(&mut self, atlas_offset: UVec3, atlas_dim: UVec3) {
+        update_buffers(&self.resources, atlas_offset, atlas_dim);
 
         self.build_cmdbuf
             .submit(&self.vulkan_ctx.get_general_queue(), None);
@@ -219,15 +273,14 @@ impl PlainBuilder {
             .device()
             .wait_queue_idle(&self.vulkan_ctx.get_general_queue());
 
-        fn update_buffers(resources: &PlainBuilderResources, chunk_pos: UVec3) {
-            let data = StructMemberDataBuilder::from_buffer(&resources.chunk_init_info)
-                .set_field(
-                    "chunk_pos",
-                    PlainMemberTypeWithData::UVec3(chunk_pos.to_array()),
-                )
+        fn update_buffers(resources: &PlainBuilderResources, offset: UVec3, dim: UVec3) {
+            let data = StructMemberDataBuilder::from_buffer(&resources.region_info)
+                .set_field("offset", PlainMemberTypeWithData::UVec3(offset.to_array()))
+                .unwrap()
+                .set_field("dim", PlainMemberTypeWithData::UVec3(dim.to_array()))
                 .unwrap()
                 .get_data_u8();
-            resources.chunk_init_info.fill_with_raw_u8(&data).unwrap();
+            resources.region_info.fill_with_raw_u8(&data).unwrap();
         }
     }
 

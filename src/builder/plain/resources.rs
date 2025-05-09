@@ -7,7 +7,8 @@ pub struct PlainBuilderResources {
     pub chunk_atlas: Texture,
     pub free_atlas: Texture,
 
-    pub chunk_init_info: Buffer,
+    pub region_info: Buffer,
+    pub region_indirect: Buffer,
     pub chunk_modify_info: Buffer,
     pub leaf_write_info: Buffer,
     pub round_cones: Buffer,
@@ -20,7 +21,7 @@ impl PlainBuilderResources {
         allocator: Allocator,
         plain_atlas_dim: UVec3,
         free_atlas_dim: UVec3,
-        chunk_init_sm: &ShaderModule,
+        buffer_setup_sm: &ShaderModule,
         chunk_modify_sm: &ShaderModule,
         leaf_write_sm: &ShaderModule,
     ) -> Self {
@@ -48,17 +49,6 @@ impl PlainBuilderResources {
             allocator.clone(),
             &free_atlas_tex_desc,
             &Default::default(),
-        );
-
-        //
-
-        let chunk_init_info_layout = chunk_init_sm.get_buffer_layout("U_ChunkInitInfo").unwrap();
-        let chunk_init_info = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            chunk_init_info_layout.clone(),
-            BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
         let chunk_modify_info_layout = chunk_modify_sm
@@ -101,14 +91,35 @@ impl PlainBuilderResources {
             10000,
         ); // less than 1 MB though, don't worry about the size
 
+        let region_info_layout = buffer_setup_sm.get_buffer_layout("U_RegionInfo").unwrap();
+        let region_info = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            region_info_layout.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+        );
+
+        let region_indirect_layout = buffer_setup_sm
+            .get_buffer_layout("B_RegionIndirect")
+            .unwrap();
+        let region_indirect = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            region_indirect_layout.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::INDIRECT_BUFFER),
+            gpu_allocator::MemoryLocation::GpuOnly,
+        );
+
         return Self {
             chunk_atlas,
             free_atlas,
-            chunk_init_info,
             chunk_modify_info,
             leaf_write_info,
             round_cones,
             trunk_bvh_nodes,
+            region_info,
+            region_indirect,
         };
     }
 }

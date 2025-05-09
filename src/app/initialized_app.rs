@@ -101,9 +101,9 @@ impl InitializedApp {
         let screen_extent = window_state.window_size();
 
         let camera = Camera::new(
-            Vec3::new(-4.6, 2.5, -4.6),
+            Vec3::new(-0.5, 0.6, -0.5),
             135.0,
-            10.0,
+            -5.0,
             CameraDesc {
                 movement: Default::default(),
                 projection: Default::default(),
@@ -115,9 +115,8 @@ impl InitializedApp {
             vulkan_ctx.clone(),
             &shader_compiler,
             allocator.clone(),
-            UVec3::new(256, 256, 256) * UVec3::new(1, 1, 1),
-            UVec3::new(512, 512, 512), // free atlas size
-            UVec3::new(256, 256, 256), // voxel dim per chunk
+            UVec3::new(256, 256, 256) * UVec3::new(5, 5, 5), // plain atlas dim
+            UVec3::new(512, 512, 512),                       // free atlas dim
         );
 
         let mut accel_struct_builder = AccelStructBuilder::new(
@@ -189,11 +188,28 @@ impl InitializedApp {
     }
 
     fn init(&mut self) {
-        self.plain_builder.chunk_init(UVec3::new(0, 0, 0));
+        // Chunk avg init time: 28.55ms for 512^3 chunk
+        // Chunk avg init time: 3.8ms for 256^3 chunk
+        // Chunk avg init time: 0.65ms for 128^3 chunk
+        // Chunk avg init time: 0.183ms for 64^3 chunk
+        // use bigger chunk size, for smaller overhead
+        // use workgroup size of 4^3 works better than 8^3
+        let timer = Timer::new();
+        let test_times = 1;
+        for _ in 0..test_times {
+            self.plain_builder
+                .chunk_init(UVec3::new(0, 0, 0), UVec3::new(256, 256, 256));
+        }
+        log::debug!("Plain avg init time: {:?}", timer.elapsed() / test_times);
 
+        // Oct avg init time: 6.55ms for 512^3 chunk
+        // Oct avg init time: 1.33ms for 256^3 chunk
+        // Oct avg init time: 0.55ms for 128^3 chunk
+        // Oct avg init time: 0.41ms for 64^3 chunk
         self.octree_builder
             .build_and_alloc(UVec3::new(0, 0, 0), UVec3::new(256, 256, 256))
             .unwrap();
+        // log::debug!("Oct avg init time: {:?}", timer.elapsed() / test_times);
     }
 
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {

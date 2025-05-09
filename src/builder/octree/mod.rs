@@ -28,19 +28,19 @@ pub struct OctreeBuilder {
     vulkan_ctx: VulkanContext,
     resources: OctreeBuilderResources,
 
-    frag_list_init_buffers_ppl: ComputePipeline,
+    frag_list_buffer_setup_ppl: ComputePipeline,
     frag_list_maker_ppl: ComputePipeline,
-    octree_init_buffers_ppl: ComputePipeline,
+    octree_buffer_setup_ppl: ComputePipeline,
     octree_init_node_ppl: ComputePipeline,
     octree_tag_node_ppl: ComputePipeline,
     octree_alloc_node_ppl: ComputePipeline,
     octree_modify_args_ppl: ComputePipeline,
 
-    frag_list_init_buffers_ds: DescriptorSet,
+    frag_list_buffer_setup_ds: DescriptorSet,
     frag_list_maker_ds: DescriptorSet,
     // frag_list_maker_free_atlas_ds: DescriptorSet,
     octree_shared_ds: DescriptorSet,
-    octree_init_buffers_ds: DescriptorSet,
+    octree_buffer_setup_ds: DescriptorSet,
     octree_init_node_ds: DescriptorSet,
     octree_tag_node_ds: DescriptorSet,
     octree_alloc_node_ds: DescriptorSet,
@@ -65,10 +65,10 @@ impl OctreeBuilder {
     ) -> Self {
         let descriptor_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
 
-        let frag_list_init_buffers_sm = ShaderModule::from_glsl(
+        let frag_list_buffer_setup_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             &shader_compiler,
-            "shader/builder/frag_list_builder/init_buffers.comp",
+            "shader/builder/frag_list_builder/buffer_setup.comp",
             "main",
         )
         .unwrap();
@@ -79,10 +79,10 @@ impl OctreeBuilder {
             "main",
         )
         .unwrap();
-        let octree_init_buffers_sm = ShaderModule::from_glsl(
+        let octree_buffer_setup_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             &shader_compiler,
-            "shader/builder/octree_builder/init_buffers.comp",
+            "shader/builder/octree_builder/buffer_setup.comp",
             "main",
         )
         .unwrap();
@@ -120,17 +120,17 @@ impl OctreeBuilder {
             allocator.clone(),
             max_voxel_dim_per_chunk,
             octree_buffer_pool_size,
-            &frag_list_init_buffers_sm,
+            &frag_list_buffer_setup_sm,
             &frag_list_maker_sm,
-            &octree_init_buffers_sm,
+            &octree_buffer_setup_sm,
         );
 
-        let frag_list_init_buffers_ppl =
-            ComputePipeline::from_shader_module(vulkan_ctx.device(), &frag_list_init_buffers_sm);
+        let frag_list_buffer_setup_ppl =
+            ComputePipeline::from_shader_module(vulkan_ctx.device(), &frag_list_buffer_setup_sm);
         let frag_list_maker_ppl =
             ComputePipeline::from_shader_module(vulkan_ctx.device(), &frag_list_maker_sm);
-        let octree_init_buffers_ppl =
-            ComputePipeline::from_shader_module(vulkan_ctx.device(), &octree_init_buffers_sm);
+        let octree_buffer_setup_ppl =
+            ComputePipeline::from_shader_module(vulkan_ctx.device(), &octree_buffer_setup_sm);
         let octree_init_node_ppl =
             ComputePipeline::from_shader_module(vulkan_ctx.device(), &octree_init_node_sm);
         let octree_tag_node_ppl =
@@ -140,14 +140,14 @@ impl OctreeBuilder {
         let octree_modify_args_ppl =
             ComputePipeline::from_shader_module(vulkan_ctx.device(), &octree_modify_args_sm);
 
-        let frag_list_init_buffers_ds = DescriptorSet::new(
+        let frag_list_buffer_setup_ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),
-            &frag_list_init_buffers_ppl
+            &frag_list_buffer_setup_ppl
                 .get_layout()
                 .get_descriptor_set_layouts()[0],
             descriptor_pool.clone(),
         );
-        frag_list_init_buffers_ds.perform_writes(&mut [
+        frag_list_buffer_setup_ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.frag_list_maker_info),
             WriteDescriptorSet::new_buffer_write(1, &resources.voxel_dim_indirect),
             WriteDescriptorSet::new_buffer_write(2, &resources.frag_list_build_result),
@@ -192,7 +192,7 @@ impl OctreeBuilder {
 
         let octree_shared_ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),
-            &octree_init_buffers_ppl
+            &octree_buffer_setup_ppl
                 .get_layout()
                 .get_descriptor_set_layouts()[0],
             descriptor_pool.clone(),
@@ -202,14 +202,14 @@ impl OctreeBuilder {
             WriteDescriptorSet::new_buffer_write(1, &resources.octree_alloc_info),
         ]);
 
-        let octree_init_buffers_ds = DescriptorSet::new(
+        let octree_buffer_setup_ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),
-            &octree_init_buffers_ppl
+            &octree_buffer_setup_ppl
                 .get_layout()
                 .get_descriptor_set_layouts()[1],
             descriptor_pool.clone(),
         );
-        octree_init_buffers_ds.perform_writes(&mut [
+        octree_buffer_setup_ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.voxel_count_indirect),
             WriteDescriptorSet::new_buffer_write(1, &resources.alloc_number_indirect),
             WriteDescriptorSet::new_buffer_write(2, &resources.counter),
@@ -271,28 +271,28 @@ impl OctreeBuilder {
         let frag_list_cmdbuf = record_frag_list_cmdbuf(
             &vulkan_ctx,
             &resources,
-            &frag_list_init_buffers_ppl,
+            &frag_list_buffer_setup_ppl,
             &frag_list_maker_ppl,
-            &frag_list_init_buffers_ds,
-            &frag_list_maker_free_atlas_ds,
+            &frag_list_buffer_setup_ds,
+            &frag_list_maker_ds,
         );
 
         return Self {
             vulkan_ctx,
             resources,
 
-            frag_list_init_buffers_ppl,
+            frag_list_buffer_setup_ppl,
             frag_list_maker_ppl,
-            octree_init_buffers_ppl,
+            octree_buffer_setup_ppl,
             octree_init_node_ppl,
             octree_tag_node_ppl,
             octree_alloc_node_ppl,
             octree_modify_args_ppl,
 
-            frag_list_init_buffers_ds,
+            frag_list_buffer_setup_ds,
             frag_list_maker_ds,
             octree_shared_ds,
-            octree_init_buffers_ds,
+            octree_buffer_setup_ds,
             octree_init_node_ds,
             octree_tag_node_ds,
             octree_alloc_node_ds,
@@ -309,9 +309,9 @@ impl OctreeBuilder {
         fn record_frag_list_cmdbuf(
             vulkan_ctx: &VulkanContext,
             resources: &OctreeBuilderResources,
-            init_buffers_ppl: &ComputePipeline,
+            buffer_setup_ppl: &ComputePipeline,
             frag_list_maker_ppl: &ComputePipeline,
-            init_buffers_ds: &DescriptorSet,
+            buffer_setup_ds: &DescriptorSet,
             frag_list_maker_ds: &DescriptorSet,
         ) -> CommandBuffer {
             let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
@@ -333,13 +333,13 @@ impl OctreeBuilder {
             let cmdbuf = CommandBuffer::new(device, vulkan_ctx.command_pool());
             cmdbuf.begin(false);
 
-            init_buffers_ppl.record_bind(&cmdbuf);
-            init_buffers_ppl.record_bind_descriptor_sets(
+            buffer_setup_ppl.record_bind(&cmdbuf);
+            buffer_setup_ppl.record_bind_descriptor_sets(
                 &cmdbuf,
-                std::slice::from_ref(init_buffers_ds),
+                std::slice::from_ref(buffer_setup_ds),
                 0,
             );
-            init_buffers_ppl.record_dispatch(&cmdbuf, [1, 1, 1]);
+            buffer_setup_ppl.record_dispatch(&cmdbuf, [1, 1, 1]);
 
             shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
             indirect_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
@@ -423,18 +423,18 @@ impl OctreeBuilder {
         let cmdbuf = CommandBuffer::new(device, vulkan_context.command_pool());
         cmdbuf.begin(false);
 
-        self.octree_init_buffers_ppl.record_bind(&cmdbuf);
-        self.octree_init_buffers_ppl.record_bind_descriptor_sets(
+        self.octree_buffer_setup_ppl.record_bind(&cmdbuf);
+        self.octree_buffer_setup_ppl.record_bind_descriptor_sets(
             &cmdbuf,
             std::slice::from_ref(&self.octree_shared_ds),
             0,
         );
-        self.octree_init_buffers_ppl.record_bind_descriptor_sets(
+        self.octree_buffer_setup_ppl.record_bind_descriptor_sets(
             &cmdbuf,
-            std::slice::from_ref(&self.octree_init_buffers_ds),
+            std::slice::from_ref(&self.octree_buffer_setup_ds),
             1,
         );
-        self.octree_init_buffers_ppl
+        self.octree_buffer_setup_ppl
             .record_dispatch(&cmdbuf, [1, 1, 1]);
         shader_access_pipeline_barrier.record_insert(device, &cmdbuf);
         indirect_access_pipeline_barrier.record_insert(device, &cmdbuf);
@@ -574,6 +574,7 @@ impl OctreeBuilder {
 
         let frag_list_len = self.get_fraglist_length();
         if frag_list_len == 0 {
+            log::debug!("No fragments found, skipping octree build.");
             return Ok(None);
         }
 
