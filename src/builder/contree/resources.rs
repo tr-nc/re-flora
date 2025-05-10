@@ -10,6 +10,9 @@ pub struct ContreeBuilderResources {
     pub frag_img_maker_info: Buffer,
     pub frag_img_build_result: Buffer,
 
+    pub contree_build_info: Buffer,
+    pub level_dispatch_indirect: Buffer,
+
     pub contree_data_single: Buffer,
 }
 
@@ -21,6 +24,8 @@ impl ContreeBuilderResources {
         contree_buffer_pool_size: u64,
         frag_img_init_buffers_sm: &ShaderModule,
         frag_img_maker_sm: &ShaderModule,
+        buffer_setup_sm: &ShaderModule,
+        leaf_write_sm: &ShaderModule,
     ) -> Self {
         let frag_img_desc = TextureDesc {
             extent: voxel_dim_per_chunk.to_array(),
@@ -87,6 +92,28 @@ impl ContreeBuilderResources {
             single_contree_buffer_size as _,
         );
 
+        let level_dispatch_indirect_layout = buffer_setup_sm
+            .get_buffer_layout("B_LevelDispatchIndirect")
+            .unwrap();
+        let level_dispatch_indirect = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            level_dispatch_indirect_layout.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::INDIRECT_BUFFER),
+            gpu_allocator::MemoryLocation::GpuOnly,
+        );
+
+        let contree_build_info_layout = leaf_write_sm
+            .get_buffer_layout("U_ContreeBuildInfo")
+            .unwrap();
+        let contree_build_info = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            contree_build_info_layout.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+        );
+
         Self {
             frag_img,
 
@@ -97,6 +124,9 @@ impl ContreeBuilderResources {
             frag_img_build_result,
 
             contree_data_single,
+
+            contree_build_info,
+            level_dispatch_indirect,
         }
     }
 }

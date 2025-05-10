@@ -1,0 +1,37 @@
+#version 450
+
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer B_ContreeBuildState {
+    uint prev_dim;
+    uint curr_dim;
+    uint level;
+}
+contree_build_state;
+
+layout(set = 0, binding = 1) writeonly buffer B_LevelDispatchIndirect {
+    uint dispatch_x;
+    uint dispatch_y;
+    uint dispatch_z;
+}
+level_dispatch_indirect;
+
+#include "../../include/config.glsl"
+#include "../../include/core/dispatch_grouper.glsl"
+#include "../../include/core/math.glsl"
+
+void main() {
+    uint prev_dim = contree_build_state.curr_dim;
+    uint curr_dim = prev_dim / 4;
+
+    contree_build_state.prev_dim = prev_dim;
+    contree_build_state.curr_dim = curr_dim;
+    contree_build_state.level    = log_4(curr_dim);
+
+    uint dispatch_count                = group_x_4(curr_dim);
+    level_dispatch_indirect.dispatch_x = dispatch_count;
+    level_dispatch_indirect.dispatch_y = dispatch_count;
+    level_dispatch_indirect.dispatch_z = dispatch_count;
+}

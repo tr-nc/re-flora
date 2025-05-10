@@ -126,6 +126,8 @@ https://rust-unofficial.github.io/patterns/patterns/structural/small-crates.html
 
 [Voxel RT different voxel format benchmark](https://github.com/dubiousconst282/VoxelRT)
 
+[Reddit discussion](https://www.reddit.com/r/VoxelGameDev/comments/1fzimke/a_guide_to_fast_voxel_ray_tracing_using_sparse/)
+
 # Special Thanks To
 
 [Implementation of ash with egui](https://github.com/adrien-ben/egui-ash-renderer)

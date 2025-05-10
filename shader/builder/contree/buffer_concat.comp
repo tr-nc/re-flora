@@ -1,0 +1,58 @@
+//! The last pass that is used to make the actual contree structure
+#version 450
+
+#extension GL_GOOGLE_include_directive : require
+
+layout(set = 0, binding = 0) readonly buffer B_DenseNodesOffsets { uint offset_for_levels[]; }
+dense_nodes_offsets;
+
+#include "../../include/contree_node.glsl"
+layout(set = 0, binding = 1) readonly buffer B_DenseNodes { ContreeNode data[]; }
+dense_nodes;
+
+layout(set = 0, binding = 3) readonly buffer B_Counters { uint counters_for_levels[]; }
+counters;
+
+layout(set = 0, binding = 4) writeonly buffer B_ContreeData { ContreeNode data[]; }
+contree_data;
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+#include "../../include/core/bits.glsl"
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+
+    // uint total_len = get_total_contree_len();
+
+    const uint counter_len = 10;
+
+    uint prefix_sums[counter_len];
+    prefix_sums[0] = counters.counters_for_levels[0]; // it should be 1
+    for (uint i = 1; i < counter_len; i++) {
+        prefix_sums[i] = prefix_sums[i - 1] + counters.counters_for_levels[i];
+    }
+    uint total_len = prefix_sums[counter_len - 1]; // just an alias
+
+    if (idx >= total_len) {
+        return;
+    }
+
+    for (uint i = 0; i < counter_len; i++) {
+        if (idx < prefix_sums[i]) {
+            uint offset    = dense_nodes_offsets.offset_for_levels[i];
+            uint local_idx = idx - (i == 0 ? 0 : prefix_sums[i - 1]);
+
+            ContreeNode fetched  = dense_nodes.data[offset + local_idx];
+            uint relative_offset = fetched.packed_0 >> 1;
+            uint abs_offset      = relative_offset + prefix_sums[i];
+
+            ContreeNode cn;
+            cn.packed_0   = (fetched.packed_0 & 1u) | (abs_offset << 1);
+            cn.child_mask = fetched.child_mask;
+
+            contree_data.data[idx] = cn;
+            break;
+        }
+    }
+}

@@ -21,7 +21,6 @@ use crate::vkn::PipelineBarrier;
 use crate::vkn::PlainMemberTypeWithData;
 use crate::vkn::ShaderModule;
 use crate::vkn::StructMemberDataBuilder;
-use crate::vkn::StructMemberDataReader;
 use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
 use ash::vk;
