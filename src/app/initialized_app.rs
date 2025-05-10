@@ -1,8 +1,8 @@
 use crate::builder::{AccelStructBuilder, OctreeBuilder, PlainBuilder};
 use crate::gameplay::{Camera, CameraDesc};
 use crate::tracer::Tracer;
-use crate::util::TimeInfo;
 use crate::util::{ShaderCompiler, Timer};
+use crate::util::{TimeInfo, BENCH};
 use crate::vkn::{Allocator, CommandBuffer, Fence, Semaphore, SwapchainDesc};
 use crate::{
     egui_renderer::EguiRenderer,
@@ -197,14 +197,27 @@ impl InitializedApp {
         self.plain_builder
             .chunk_init(UVec3::new(0, 0, 0), UVec3::new(256, 256, 256));
 
-        // Oct avg init time: 6.55ms for 512^3 chunk
-        // Oct avg init time: 1.33ms for 256^3 chunk
-        // Oct avg init time: 0.55ms for 128^3 chunk
-        // Oct avg init time: 0.41ms for 64^3 chunk
-        self.octree_builder
-            .build_and_alloc(UVec3::new(0, 0, 0), UVec3::new(256, 256, 256))
-            .unwrap();
-        // log::debug!("Oct avg init time: {:?}", timer.elapsed() / test_times);
+        // 256^3
+        // +-----------------------+------------+---------------+---------------+-------+
+        // | Name                  | Avg        | Min@Idx       | Max@Idx       | Count |
+        // +============================================================================+
+        // | build_frag_list       | 870.7µs    | 775.5µs@317   | 2.1775ms@9420 | 10000 |
+        // |-----------------------+------------+---------------+---------------+-------|
+        // | build_octree          | 306.127µs  | 227.8µs@2303  | 7.3473ms@1976 | 10000 |
+        // |-----------------------+------------+---------------+---------------+-------|
+        // | copy_octree_data      | 132.24µs   | 65.4µs@2294   | 1.56ms@9535   | 10000 |
+        // |-----------------------+------------+---------------+---------------+-------|
+        // | build_and_alloc_total | 1.314262ms | 1.0749ms@1663 | 9.1839ms@1976 | 10000 |
+        // +-----------------------+------------+---------------+---------------+-------+
+        // run the test many times
+        for _ in 0..10_000 {
+            self.octree_builder
+                .build_and_alloc(UVec3::new(0, 0, 0), UVec3::new(256, 256, 256))
+                .unwrap();
+        }
+
+        // dump bench results
+        BENCH.lock().unwrap().summary();
     }
 
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {

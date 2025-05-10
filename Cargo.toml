@@ -32,6 +32,8 @@ spirv-reflect = { git = "https://github.com/gwihlidal/spirv-reflect-rs.git", rev
 noise = "0.9.0"
 rand = "0.9.0"
 ordered-float = "5.0.0"
+once_cell = "1.21.3"
+indexmap = "2.9.0"
 
 [features]
 default = []

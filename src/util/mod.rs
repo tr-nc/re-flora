@@ -11,8 +11,14 @@ mod buffer_alloc;
 pub use buffer_alloc::*;
 
 mod atlas_alloc;
+#[allow(unused_imports)]
 pub use atlas_alloc::*;
 
 mod timer;
 #[allow(unused_imports)]
 pub use timer::*;
+
+mod bench;  
+#[allow(unused_imports)]
+pub use bench::*;
+

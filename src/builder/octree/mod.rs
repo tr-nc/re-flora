@@ -2,11 +2,14 @@ mod resources;
 pub use resources::*;
 
 use std::collections::HashMap;
+use std::time::Instant;
 
 use crate::builder::PlainBuilderResources;
 use crate::util::AllocationStrategy;
 use crate::util::FirstFitAllocator;
 use crate::util::ShaderCompiler;
+use crate::util::Timer;
+use crate::util::BENCH;
 use crate::vkn::execute_one_time_command;
 use crate::vkn::Allocator;
 use crate::vkn::CommandBuffer;
@@ -614,32 +617,62 @@ impl OctreeBuilder {
         atlas_offset: UVec3,
         atlas_dim: UVec3,
     ) -> Result<Option<u64>, String> {
+        let t_start = Instant::now();
+
+        // check_dim is trivial, but you can time it too if you want
         check_dim(atlas_dim)?;
 
+        // 1) build_frag_list
+        let t1 = Instant::now();
         self.build_frag_list(&self.resources, atlas_offset, atlas_dim);
+        BENCH
+            .lock()
+            .unwrap()
+            .record("build_frag_list", t1.elapsed());
 
+        // if nothing to do early-exit
         let frag_list_len = self.get_fraglist_length();
         if frag_list_len == 0 {
             log::debug!("No fragments found, skipping octree build.");
+            // record total so far
+            BENCH
+                .lock()
+                .unwrap()
+                .record("build_and_alloc_total", t_start.elapsed());
             return Ok(None);
         }
 
+        // 2) build_octree
+        let t2 = Instant::now();
         self.build_octree(frag_list_len, atlas_dim);
+        BENCH.lock().unwrap().record("build_octree", t2.elapsed());
 
+        // 3) allocate & copy
         let octree_size = self.get_octree_data_size_in_bytes(&self.resources);
         assert!(octree_size > 0);
-
         let write_offset = self.allocate_chunk(octree_size as u64, atlas_offset);
 
+        let t3 = Instant::now();
         self.copy_octree_data_single_to_octree_data(
             &self.vulkan_ctx,
             &self.resources,
             write_offset,
             octree_size as u64,
         );
+        BENCH
+            .lock()
+            .unwrap()
+            .record("copy_octree_data", t3.elapsed());
+
+        // total for this call
+        BENCH
+            .lock()
+            .unwrap()
+            .record("build_and_alloc_total", t_start.elapsed());
 
         return Ok(Some(write_offset));
 
+        // ───────── helper ─────────
         fn check_dim(voxel_dim: UVec3) -> Result<(), String> {
             if voxel_dim.x != voxel_dim.y || voxel_dim.y != voxel_dim.z {
                 return Err(format!(
@@ -647,18 +680,15 @@ impl OctreeBuilder {
                     voxel_dim
                 ));
             }
-
-            if voxel_dim.x.is_power_of_two() == false {
+            if !voxel_dim.x.is_power_of_two() {
                 return Err(format!(
                     "Voxel dimension must be a power of two, but got: {}",
                     voxel_dim
                 ));
             }
-
-            return Ok(());
+            Ok(())
         }
     }
-
     /// Allocate a chunk of octree data and store the allocation id in the offset_allocation_table.
     ///
     /// If the chunk already exists, deallocate it first.
