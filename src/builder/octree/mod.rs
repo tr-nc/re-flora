@@ -562,22 +562,7 @@ impl OctreeBuilder {
         &self.resources
     }
 
-    pub fn build_and_alloc(
-        &mut self,
-        atlas_offset: UVec3,
-        atlas_dim: UVec3,
-    ) -> Result<Option<u64>, String> {
-        check_dim(atlas_dim)?;
-
-        // TODO: use a barrier instead of a halt.
-        self.build_frag_list(&self.resources, atlas_offset, atlas_dim);
-
-        let frag_list_len = self.get_fraglist_length();
-        if frag_list_len == 0 {
-            log::debug!("No fragments found, skipping octree build.");
-            return Ok(None);
-        }
-
+    fn build_octree(&mut self, frag_list_len: u32, atlas_dim: UVec3) {
         let device = self.vulkan_ctx.device();
 
         update_buffers(&self.resources, frag_list_len, atlas_dim.x);
@@ -594,6 +579,52 @@ impl OctreeBuilder {
 
         cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), None);
         device.wait_queue_idle(&self.vulkan_ctx.get_general_queue());
+
+        fn get_level(voxel_dim: UVec3) -> u32 {
+            return log2(voxel_dim.x);
+
+            fn log2(x: u32) -> u32 {
+                31 - x.leading_zeros()
+            }
+        }
+
+        fn update_buffers(
+            resources: &OctreeBuilderResources,
+            frag_list_len: u32,
+            voxel_dim_xyz: u32,
+        ) {
+            let data = StructMemberDataBuilder::from_buffer(&resources.octree_build_info)
+                .set_field(
+                    "frag_list_len",
+                    PlainMemberTypeWithData::UInt(frag_list_len),
+                )
+                .unwrap()
+                .set_field(
+                    "voxel_dim_xyz",
+                    PlainMemberTypeWithData::UInt(voxel_dim_xyz),
+                )
+                .unwrap()
+                .get_data_u8();
+            resources.octree_build_info.fill_with_raw_u8(&data).unwrap();
+        }
+    }
+
+    pub fn build_and_alloc(
+        &mut self,
+        atlas_offset: UVec3,
+        atlas_dim: UVec3,
+    ) -> Result<Option<u64>, String> {
+        check_dim(atlas_dim)?;
+
+        self.build_frag_list(&self.resources, atlas_offset, atlas_dim);
+
+        let frag_list_len = self.get_fraglist_length();
+        if frag_list_len == 0 {
+            log::debug!("No fragments found, skipping octree build.");
+            return Ok(None);
+        }
+
+        self.build_octree(frag_list_len, atlas_dim);
 
         let octree_size = self.get_octree_data_size_in_bytes(&self.resources);
         assert!(octree_size > 0);
@@ -625,34 +656,6 @@ impl OctreeBuilder {
             }
 
             return Ok(());
-        }
-
-        fn get_level(voxel_dim: UVec3) -> u32 {
-            return log2(voxel_dim.x);
-
-            fn log2(x: u32) -> u32 {
-                31 - x.leading_zeros()
-            }
-        }
-
-        fn update_buffers(
-            resources: &OctreeBuilderResources,
-            frag_list_len: u32,
-            voxel_dim_xyz: u32,
-        ) {
-            let data = StructMemberDataBuilder::from_buffer(&resources.octree_build_info)
-                .set_field(
-                    "frag_list_len",
-                    PlainMemberTypeWithData::UInt(frag_list_len),
-                )
-                .unwrap()
-                .set_field(
-                    "voxel_dim_xyz",
-                    PlainMemberTypeWithData::UInt(voxel_dim_xyz),
-                )
-                .unwrap()
-                .get_data_u8();
-            resources.octree_build_info.fill_with_raw_u8(&data).unwrap();
         }
     }
 

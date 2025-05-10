@@ -194,13 +194,8 @@ impl InitializedApp {
         // Chunk avg init time: 0.183ms for 64^3 chunk
         // use bigger chunk size, for smaller overhead
         // use workgroup size of 4^3 works better than 8^3
-        let timer = Timer::new();
-        let test_times = 1;
-        for _ in 0..test_times {
-            self.plain_builder
-                .chunk_init(UVec3::new(0, 0, 0), UVec3::new(256, 256, 256));
-        }
-        log::debug!("Plain avg init time: {:?}", timer.elapsed() / test_times);
+        self.plain_builder
+            .chunk_init(UVec3::new(0, 0, 0), UVec3::new(256, 256, 256));
 
         // Oct avg init time: 6.55ms for 512^3 chunk
         // Oct avg init time: 1.33ms for 256^3 chunk
