@@ -8,7 +8,6 @@ use crate::builder::PlainBuilderResources;
 use crate::util::AllocationStrategy;
 use crate::util::FirstFitAllocator;
 use crate::util::ShaderCompiler;
-use crate::util::Timer;
 use crate::util::BENCH;
 use crate::vkn::execute_one_time_command;
 use crate::vkn::Allocator;

@@ -1,6 +1,9 @@
 mod octree;
 pub use octree::*;
 
+mod contree;
+pub use contree::*;
+
 mod plain;
 pub use plain::*;
 

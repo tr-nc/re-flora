@@ -1,4 +1,4 @@
-use crate::builder::{AccelStructBuilder, OctreeBuilder, PlainBuilder};
+use crate::builder::{AccelStructBuilder, ContreeBuilder, OctreeBuilder, PlainBuilder};
 use crate::gameplay::{Camera, CameraDesc};
 use crate::tracer::Tracer;
 use crate::util::{ShaderCompiler, Timer};
@@ -43,6 +43,7 @@ pub struct InitializedApp {
     plain_builder: PlainBuilder,
     accel_struct_builder: AccelStructBuilder,
     octree_builder: OctreeBuilder,
+    contree_builder: ContreeBuilder,
 
     // gui adjustables
     debug_float: f32,
@@ -149,6 +150,15 @@ impl InitializedApp {
             10_000_000,                // octree buffer pool size
         );
 
+        let contree_builder = ContreeBuilder::new(
+            vulkan_ctx.clone(),
+            allocator.clone(),
+            &shader_compiler,
+            plain_builder.resources(),
+            UVec3::new(256, 256, 256), // max voxel dim per chunk
+            10_000_000,                // octree buffer pool size
+        );
+
         let tracer = Tracer::new(
             vulkan_ctx.clone(),
             allocator.clone(),
@@ -176,6 +186,7 @@ impl InitializedApp {
             plain_builder,
             accel_struct_builder,
             octree_builder,
+            contree_builder,
 
             camera,
             is_resize_pending: false,
@@ -198,20 +209,23 @@ impl InitializedApp {
             .chunk_init(UVec3::new(0, 0, 0), UVec3::new(256, 256, 256));
 
         // 256^3
-        // +-----------------------+------------+---------------+---------------+-------+
-        // | Name                  | Avg        | Min@Idx       | Max@Idx       | Count |
-        // +============================================================================+
-        // | build_frag_list       | 870.7µs    | 775.5µs@317   | 2.1775ms@9420 | 10000 |
-        // |-----------------------+------------+---------------+---------------+-------|
-        // | build_octree          | 306.127µs  | 227.8µs@2303  | 7.3473ms@1976 | 10000 |
-        // |-----------------------+------------+---------------+---------------+-------|
-        // | copy_octree_data      | 132.24µs   | 65.4µs@2294   | 1.56ms@9535   | 10000 |
-        // |-----------------------+------------+---------------+---------------+-------|
-        // | build_and_alloc_total | 1.314262ms | 1.0749ms@1663 | 9.1839ms@1976 | 10000 |
-        // +-----------------------+------------+---------------+---------------+-------+
-        // run the test many times
-        for _ in 0..10_000 {
-            self.octree_builder
+        // +-----------------------+------------+--------------+--------------+-------+
+        // | Name                  | Avg        | Min@Idx      | Max@Idx      | Count |
+        // +==========================================================================+
+        // | build_frag_list       | 889.214µs  | 779.7µs@31   | 2.1797ms@29  | 1000  |
+        // |-----------------------+------------+--------------+--------------+-------|
+        // | build_octree          | 331.725µs  | 234.4µs@31   | 1.7493ms@73  | 1000  |
+        // |-----------------------+------------+--------------+--------------+-------|
+        // | copy_octree_data      | 156.737µs  | 71.6µs@770   | 1.4085ms@761 | 1000  |
+        // |-----------------------+------------+--------------+--------------+-------|
+        // | build_and_alloc_total | 1.384039ms | 1.1007ms@718 | 3.0928ms@73  | 1000  |
+        // +-----------------------+------------+--------------+--------------+-------+
+        self.octree_builder
+            .build_and_alloc(UVec3::new(0, 0, 0), UVec3::new(256, 256, 256))
+            .unwrap();
+
+        for _ in 0..1000 {
+            self.contree_builder
                 .build_and_alloc(UVec3::new(0, 0, 0), UVec3::new(256, 256, 256))
                 .unwrap();
         }
