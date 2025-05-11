@@ -3,18 +3,21 @@
 
 #extension GL_GOOGLE_include_directive : require
 
-layout(set = 0, binding = 0) readonly buffer B_DenseNodesOffsets { uint offset_for_levels[]; }
-dense_nodes_offsets;
+layout(set = 0, binding = 0) readonly buffer B_NodeOffsetForLevels { uint data[]; }
+node_offset_for_levels;
 
 #include "../../include/contree_node.glsl"
 layout(set = 0, binding = 1) readonly buffer B_DenseNodes { ContreeNode data[]; }
 dense_nodes;
 
-layout(set = 0, binding = 3) readonly buffer B_Counters { uint counters_for_levels[]; }
-counters;
+layout(set = 0, binding = 2) readonly buffer B_CounterForLevels { uint data[]; }
+counter_for_levels;
 
-layout(set = 0, binding = 4) writeonly buffer B_ContreeData { ContreeNode data[]; }
+layout(set = 0, binding = 3) writeonly buffer B_ContreeData { ContreeNode data[]; }
 contree_data;
+
+layout(set = 0, binding = 4) writeonly buffer B_ContreeBuildResult { uint len; }
+contree_build_result;
 
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
@@ -23,14 +26,12 @@ layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 void main() {
     uint idx = gl_GlobalInvocationID.x;
 
-    // uint total_len = get_total_contree_len();
-
     const uint counter_len = 10;
 
     uint prefix_sums[counter_len];
-    prefix_sums[0] = counters.counters_for_levels[0]; // it should be 1
+    prefix_sums[0] = counter_for_levels.data[0]; // it should be 1
     for (uint i = 1; i < counter_len; i++) {
-        prefix_sums[i] = prefix_sums[i - 1] + counters.counters_for_levels[i];
+        prefix_sums[i] = prefix_sums[i - 1] + counter_for_levels.data[i];
     }
     uint total_len = prefix_sums[counter_len - 1]; // just an alias
 
@@ -38,9 +39,14 @@ void main() {
         return;
     }
 
+    // only write result when idx == 0
+    if (idx == 0) {
+        contree_build_result.len = total_len;
+    }
+
     for (uint i = 0; i < counter_len; i++) {
         if (idx < prefix_sums[i]) {
-            uint offset    = dense_nodes_offsets.offset_for_levels[i];
+            uint offset    = node_offset_for_levels.data[i];
             uint local_idx = idx - (i == 0 ? 0 : prefix_sums[i - 1]);
 
             ContreeNode fetched  = dense_nodes.data[offset + local_idx];

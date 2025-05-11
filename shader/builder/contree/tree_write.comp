@@ -3,9 +3,6 @@
 
 #extension GL_GOOGLE_include_directive : require
 
-layout(set = 0, binding = 5) readonly buffer B_DenseNodesOffsets { uint offsets_for_levels[]; }
-dense_nodes_offsets;
-
 layout(set = 0, binding = 0) readonly buffer B_ContreeBuildState {
     uint prev_dim;
     uint curr_dim;
@@ -13,18 +10,18 @@ layout(set = 0, binding = 0) readonly buffer B_ContreeBuildState {
 }
 contree_build_state;
 
+layout(set = 0, binding = 1) readonly buffer B_NodeOffsetForLevels { uint data[]; }
+node_offset_for_levels;
+
 #include "../../include/contree_node.glsl"
-layout(set = 0, binding = 1) readonly buffer B_NodesPrev { ContreeNode data[]; }
-nodes_prev;
+layout(set = 0, binding = 2) buffer B_SparseNodes { ContreeNode data[]; }
+sparse_nodes;
 
-layout(set = 0, binding = 2) writeonly buffer B_NodesCur { ContreeNode data[]; }
-nodes_cur;
-
-layout(set = 0, binding = 2) writeonly buffer B_DenseNodes { ContreeNode data[]; }
+layout(set = 0, binding = 3) writeonly buffer B_DenseNodes { ContreeNode data[]; }
 dense_nodes;
 
-layout(set = 0, binding = 3) buffer B_Counters { uint counters_for_levels[]; }
-counters;
+layout(set = 0, binding = 4) buffer B_CounterForLevels { uint data[]; }
+counter_for_levels;
 
 layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 
@@ -45,10 +42,14 @@ void main() {
                 uint i = xi + zi * 4 + yi * 16;
 
                 uvec3 vpos = uvec3(uvi) * 4 + uvec3(xi, yi, zi);
+
+                uint prev_sparse_node_read_offset =
+                    node_offset_for_levels.data[contree_build_state.level + 1];
                 uint prev_idx =
                     uint(vpos.x) + uint(vpos.z) * contree_build_state.prev_dim +
                     uint(vpos.y) * contree_build_state.prev_dim * contree_build_state.prev_dim;
-                ContreeNode cn = nodes_prev.data[prev_idx];
+                prev_idx += prev_sparse_node_read_offset;
+                ContreeNode cn = sparse_nodes.data[prev_idx];
                 temp[i]        = cn;
 
                 // the node is valid if non-leaf, or child_mask != 0
@@ -60,25 +61,27 @@ void main() {
 
     uint cnt = bit_count_u64(child_mask);
 
-    uint brick_idx = uint(uvi.x) + uint(uvi.z) * contree_build_state.curr_dim +
+    uint sparse_node_write_offset = node_offset_for_levels.data[contree_build_state.level];
+    uint brick_idx                = uint(uvi.x) + uint(uvi.z) * contree_build_state.curr_dim +
                      uint(uvi.y) * contree_build_state.curr_dim * contree_build_state.curr_dim;
+    brick_idx += sparse_node_write_offset;
 
     // early out: if no voxels are presented in this brick
     if (cnt == 0) {
-        nodes_cur.data[brick_idx].packed_0   = 0;
-        nodes_cur.data[brick_idx].child_mask = 0ul;
+        sparse_nodes.data[brick_idx].packed_0   = 0;
+        sparse_nodes.data[brick_idx].child_mask = 0ul;
 
-        // replicate
-        if (contree_build_state.level == 0) {
-            dense_nodes.data[0].packed_0   = 0;
-            dense_nodes.data[0].child_mask = 0ul;
-        }
+        // // replicate
+        // if (contree_build_state.level == 0) {
+        //     dense_nodes.data[0].packed_0   = 0;
+        //     dense_nodes.data[0].child_mask = 0ul;
+        // }
         return;
     }
 
     // allocate a region for the leaf data to be written
-    uint base   = atomicAdd(counters.counters_for_levels[contree_build_state.level], cnt);
-    uint offset = dense_nodes_offsets.offsets_for_levels[contree_build_state.level];
+    uint base   = atomicAdd(counter_for_levels.data[contree_build_state.level], cnt);
+    uint offset = node_offset_for_levels.data[contree_build_state.level];
     uint w      = 0;
     for (uint i = 0; i < 64; i++) {
         if ((child_mask & (1 << i)) != 0) {
@@ -92,12 +95,12 @@ void main() {
     // 1290^3 = 2146689000, 2^31 = 2147483648, so we are safe
     // so the maximum available voxel dim limit is 1024^3, to match the 4^n dimension need of
     // contree
-    nodes_cur.data[brick_idx].packed_0   = (0u) | (base << 1);
-    nodes_cur.data[brick_idx].child_mask = child_mask;
+    sparse_nodes.data[brick_idx].packed_0   = (0u) | (base << 1);
+    sparse_nodes.data[brick_idx].child_mask = child_mask;
 
-    // replicate
-    if (contree_build_state.level == 0) {
-        dense_nodes.data[0].packed_0   = (0u) | (base << 1);
-        dense_nodes.data[0].child_mask = child_mask;
-    }
+    // // replicate
+    // if (contree_build_state.level == 0) {
+    //     dense_nodes.data[0].packed_0   = (0u) | (base << 1);
+    //     dense_nodes.data[0].child_mask = child_mask;
+    // }
 }

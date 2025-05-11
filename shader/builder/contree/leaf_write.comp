@@ -14,15 +14,18 @@ contree_build_state;
 
 layout(set = 0, binding = 1, r32ui) readonly uniform uimage3D frag_img;
 
-#include "../../include/contree_node.glsl"
-layout(set = 0, binding = 2) writeonly buffer B_NodesPass0 { ContreeNode data[]; }
-nodes_pass_0;
+layout(set = 0, binding = 2) readonly buffer B_NodeOffsetForLevels { uint data[]; }
+node_offset_for_levels;
 
-layout(set = 0, binding = 3) writeonly buffer B_LeafData { uint data[]; }
+#include "../../include/contree_node.glsl"
+layout(set = 0, binding = 3) writeonly buffer B_SparseNodes { ContreeNode data[]; }
+sparse_nodes;
+
+layout(set = 0, binding = 4) writeonly buffer B_LeafData { uint data[]; }
 leaf_data;
 
-layout(set = 0, binding = 4) buffer B_Counters { uint counters_for_levels[]; }
-counters;
+layout(set = 0, binding = 5) buffer B_CounterForLevels { uint data[]; }
+counter_for_levels;
 
 #include "../../include/core/bits.glsl"
 
@@ -53,18 +56,20 @@ void main() {
 
     uint cnt = bit_count_u64(child_mask);
 
-    uint brick_idx = uint(uvi.x) + uint(uvi.z) * contree_build_state.curr_dim +
+    uint sparse_node_write_offset = node_offset_for_levels.data[contree_build_state.level];
+    uint brick_idx                = uint(uvi.x) + uint(uvi.z) * contree_build_state.curr_dim +
                      uint(uvi.y) * contree_build_state.curr_dim * contree_build_state.curr_dim;
+    brick_idx += sparse_node_write_offset;
 
     // early out: if no voxels are presented in this brick
     if (cnt == 0) {
-        nodes_pass_0.data[brick_idx].packed_0   = 0;
-        nodes_pass_0.data[brick_idx].child_mask = 0ul;
+        sparse_nodes.data[brick_idx].packed_0   = 0;
+        sparse_nodes.data[brick_idx].child_mask = 0ul;
         return;
     }
 
     // allocate a region for the leaf data to be written
-    uint base = atomicAdd(counters.counters_for_levels[contree_build_state.level], cnt);
+    uint base = atomicAdd(counter_for_levels.data[contree_build_state.level], cnt);
     uint w    = 0;
     for (uint i = 0; i < 64; i++) {
         if ((child_mask & (1 << i)) != 0) {
@@ -78,6 +83,6 @@ void main() {
     // 1290^3 = 2146689000, 2^31 = 2147483648, so we are safe
     // so the maximum available voxel dim limit is 1024^3, to match the 4^n dimension need of
     // contree
-    nodes_pass_0.data[brick_idx].packed_0   = (1u) | (base << 1);
-    nodes_pass_0.data[brick_idx].child_mask = child_mask;
+    sparse_nodes.data[brick_idx].packed_0   = (1u) | (base << 1);
+    sparse_nodes.data[brick_idx].child_mask = child_mask;
 }
