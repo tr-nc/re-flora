@@ -11,6 +11,7 @@ pub struct ContreeBuilderResources {
     pub contree_build_info: Buffer,
     pub contree_build_state: Buffer,
     pub level_dispatch_indirect: Buffer,
+    pub concat_dispatch_indirect: Buffer,
     pub counter_for_levels: Buffer,
     pub node_offset_for_levels: Buffer,
     pub sparse_nodes: Buffer,
@@ -31,6 +32,7 @@ impl ContreeBuilderResources {
         contree_buffer_setup_sm: &ShaderModule,
         leaf_write_sm: &ShaderModule,
         tree_write_sm: &ShaderModule,
+        last_buffer_update_sm: &ShaderModule,
         buffer_concat: &ShaderModule,
     ) -> Self {
         let voxel_dim_indirect_layout = frag_img_buffer_setup_sm
@@ -138,6 +140,17 @@ impl ContreeBuilderResources {
             gpu_allocator::MemoryLocation::GpuOnly,
         );
 
+        let concat_dispatch_indirect_layout = last_buffer_update_sm
+            .get_buffer_layout("B_ConcatDispatchIndirect")
+            .unwrap();
+        let concat_dispatch_indirect = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            concat_dispatch_indirect_layout.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::INDIRECT_BUFFER),
+            gpu_allocator::MemoryLocation::GpuOnly,
+        );
+
         let counter_for_levels = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
@@ -165,7 +178,6 @@ impl ContreeBuilderResources {
         );
 
         let dense_nodes_layout = tree_write_sm.get_buffer_layout("B_DenseNodes").unwrap();
-        log::debug!("dense_nodes_layout: {:#?}", dense_nodes_layout);
         let dense_nodes = Buffer::from_buffer_layout_arraylike(
             device.clone(),
             allocator.clone(),
@@ -182,8 +194,6 @@ impl ContreeBuilderResources {
             gpu_allocator::MemoryLocation::GpuOnly,
             leaf_len_max as u64 * std::mem::size_of::<u32>() as u64,
         );
-
-        log::debug!("4");
 
         let contree_data_layout = buffer_concat.get_buffer_layout("B_ContreeData").unwrap();
         let contree_data = Buffer::from_buffer_layout_arraylike(
@@ -215,6 +225,7 @@ impl ContreeBuilderResources {
             contree_build_info,
             contree_build_state,
             level_dispatch_indirect,
+            concat_dispatch_indirect,
             counter_for_levels,
             node_offset_for_levels,
             sparse_nodes,

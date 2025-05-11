@@ -4,7 +4,6 @@ pub use resources::*;
 use std::collections::HashMap;
 use std::time::Instant;
 
-use crate::builder::contree;
 use crate::builder::PlainBuilderResources;
 use crate::util::AllocationStrategy;
 use crate::util::FirstFitAllocator;
@@ -12,6 +11,7 @@ use crate::util::ShaderCompiler;
 use crate::util::BENCH;
 use crate::vkn::execute_one_time_command;
 use crate::vkn::Allocator;
+use crate::vkn::Buffer;
 use crate::vkn::ClearValue;
 use crate::vkn::CommandBuffer;
 use crate::vkn::ComputePipeline;
@@ -37,6 +37,7 @@ pub struct ContreeBuilder {
     contree_leaf_write_ppl: ComputePipeline,
     contree_tree_write_ppl: ComputePipeline,
     contree_buffer_update_ppl: ComputePipeline,
+    contree_last_buffer_update_ppl: ComputePipeline,
     contree_concat_ppl: ComputePipeline,
 
     frag_img_buffer_setup_ds: DescriptorSet,
@@ -45,6 +46,7 @@ pub struct ContreeBuilder {
     contree_leaf_write_ds: DescriptorSet,
     contree_tree_write_ds: DescriptorSet,
     contree_buffer_update_ds: DescriptorSet,
+    contree_last_buffer_update_ds: DescriptorSet,
     contree_concat_ds: DescriptorSet,
 
     chunk_offset_allocation_table: HashMap<UVec3, u64>,
@@ -52,7 +54,7 @@ pub struct ContreeBuilder {
 
     // cmdbuf_table: HashMap<u32, CommandBuffer>,
     frag_img_cmdbuf: CommandBuffer,
-    // contree_cmdbuf: CommandBuffer,
+    contree_cmdbuf: CommandBuffer,
 }
 
 impl ContreeBuilder {
@@ -108,6 +110,13 @@ impl ContreeBuilder {
             "main",
         )
         .unwrap();
+        let contree_last_buffer_update_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            &shader_compiler,
+            "shader/builder/contree/last_buffer_update.comp",
+            "main",
+        )
+        .unwrap();
         let contree_concat_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             &shader_compiler,
@@ -125,6 +134,7 @@ impl ContreeBuilder {
             &contree_buffer_setup_sm,
             &contree_leaf_write_sm,
             &contree_tree_write_sm,
+            &contree_last_buffer_update_sm,
             &contree_concat_sm,
         );
 
@@ -140,6 +150,10 @@ impl ContreeBuilder {
             ComputePipeline::from_shader_module(vulkan_ctx.device(), &contree_tree_write_sm);
         let contree_buffer_update_ppl =
             ComputePipeline::from_shader_module(vulkan_ctx.device(), &contree_buffer_update_sm);
+        let contree_last_buffer_update_ppl = ComputePipeline::from_shader_module(
+            vulkan_ctx.device(),
+            &contree_last_buffer_update_sm,
+        );
         let contree_concat_ppl =
             ComputePipeline::from_shader_module(vulkan_ctx.device(), &contree_concat_sm);
 
@@ -224,6 +238,7 @@ impl ContreeBuilder {
             WriteDescriptorSet::new_buffer_write(2, &resources.sparse_nodes),
             WriteDescriptorSet::new_buffer_write(3, &resources.dense_nodes),
             WriteDescriptorSet::new_buffer_write(4, &resources.counter_for_levels),
+            WriteDescriptorSet::new_buffer_write(5, &resources.contree_build_result),
         ]);
         let contree_buffer_update_ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),
@@ -235,6 +250,17 @@ impl ContreeBuilder {
         contree_buffer_update_ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.contree_build_state),
             WriteDescriptorSet::new_buffer_write(1, &resources.level_dispatch_indirect),
+        ]);
+        let contree_last_buffer_update_ds = DescriptorSet::new(
+            vulkan_ctx.device().clone(),
+            &contree_last_buffer_update_ppl
+                .get_layout()
+                .get_descriptor_set_layouts()[0],
+            descriptor_pool.clone(),
+        );
+        contree_last_buffer_update_ds.perform_writes(&mut [
+            WriteDescriptorSet::new_buffer_write(0, &resources.contree_build_result),
+            WriteDescriptorSet::new_buffer_write(1, &resources.concat_dispatch_indirect),
         ]);
         let contree_concat_ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),
@@ -260,6 +286,24 @@ impl ContreeBuilder {
             &frag_img_maker_ds,
         );
 
+        let contree_cmdbuf = record_contree_cmdbuf(
+            &vulkan_ctx,
+            &resources,
+            Self::get_level(voxel_dim_per_chunk),
+            &contree_buffer_setup_ppl,
+            &contree_leaf_write_ppl,
+            &contree_tree_write_ppl,
+            &contree_buffer_update_ppl,
+            &contree_last_buffer_update_ppl,
+            &contree_concat_ppl,
+            &contree_buffer_setup_ds,
+            &contree_leaf_write_ds,
+            &contree_tree_write_ds,
+            &contree_buffer_update_ds,
+            &contree_last_buffer_update_ds,
+            &contree_concat_ds,
+        );
+
         init_atlas_images(&vulkan_ctx, &resources);
 
         return Self {
@@ -272,6 +316,7 @@ impl ContreeBuilder {
             contree_leaf_write_ppl,
             contree_tree_write_ppl,
             contree_buffer_update_ppl,
+            contree_last_buffer_update_ppl,
             contree_concat_ppl,
 
             frag_img_buffer_setup_ds,
@@ -280,12 +325,14 @@ impl ContreeBuilder {
             contree_leaf_write_ds,
             contree_tree_write_ds,
             contree_buffer_update_ds,
+            contree_last_buffer_update_ds,
             contree_concat_ds,
 
             chunk_offset_allocation_table: HashMap::new(),
             contree_buffer_allocator,
 
             frag_img_cmdbuf,
+            contree_cmdbuf,
         };
 
         fn init_atlas_images(vulkan_context: &VulkanContext, resources: &ContreeBuilderResources) {
@@ -348,6 +395,123 @@ impl ContreeBuilder {
                 0,
             );
             frag_img_maker_ppl.record_dispatch_indirect(&cmdbuf, &resources.voxel_dim_indirect);
+
+            cmdbuf.end();
+            return cmdbuf;
+        }
+
+        fn record_contree_cmdbuf(
+            vulkan_ctx: &VulkanContext,
+            resources: &ContreeBuilderResources,
+            total_levels: u32,
+            contree_buffer_setup_ppl: &ComputePipeline,
+            contree_leaf_write_ppl: &ComputePipeline,
+            contree_tree_write_ppl: &ComputePipeline,
+            contree_buffer_update_ppl: &ComputePipeline,
+            contree_last_buffer_update_ppl: &ComputePipeline,
+            contree_concat_ppl: &ComputePipeline,
+            contree_buffer_setup_ds: &DescriptorSet,
+            contree_leaf_write_ds: &DescriptorSet,
+            contree_tree_write_ds: &DescriptorSet,
+            contree_buffer_update_ds: &DescriptorSet,
+            contree_last_buffer_update_ds: &DescriptorSet,
+            contree_concat_ds: &DescriptorSet,
+        ) -> CommandBuffer {
+            let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
+            let indirect_access_memory_barrier = MemoryBarrier::new_indirect_access();
+
+            let shader_access_pipeline_barrier = PipelineBarrier::new(
+                vk::PipelineStageFlags::COMPUTE_SHADER,
+                vk::PipelineStageFlags::COMPUTE_SHADER,
+                vec![shader_access_memory_barrier],
+            );
+            let indirect_access_pipeline_barrier = PipelineBarrier::new(
+                vk::PipelineStageFlags::COMPUTE_SHADER,
+                vk::PipelineStageFlags::DRAW_INDIRECT | vk::PipelineStageFlags::COMPUTE_SHADER,
+                vec![indirect_access_memory_barrier],
+            );
+
+            let device = vulkan_ctx.device();
+
+            let cmdbuf = CommandBuffer::new(device, vulkan_ctx.command_pool());
+            cmdbuf.begin(false);
+
+            contree_buffer_setup_ppl.record_bind(&cmdbuf);
+            contree_buffer_setup_ppl.record_bind_descriptor_sets(
+                &cmdbuf,
+                std::slice::from_ref(contree_buffer_setup_ds),
+                0,
+            );
+            contree_buffer_setup_ppl.record_dispatch(&cmdbuf, [1, 1, 1]);
+
+            shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
+            indirect_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
+
+            contree_leaf_write_ppl.record_bind(&cmdbuf);
+            contree_leaf_write_ppl.record_bind_descriptor_sets(
+                &cmdbuf,
+                std::slice::from_ref(contree_leaf_write_ds),
+                0,
+            );
+            contree_leaf_write_ppl
+                .record_dispatch_indirect(&cmdbuf, &resources.level_dispatch_indirect);
+
+            shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
+
+            contree_buffer_update_ppl.record_bind(&cmdbuf);
+            contree_buffer_update_ppl.record_bind_descriptor_sets(
+                &cmdbuf,
+                std::slice::from_ref(contree_buffer_update_ds),
+                0,
+            );
+            contree_buffer_update_ppl.record_dispatch(&cmdbuf, [1, 1, 1]);
+
+            shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
+            indirect_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
+
+            for i in 0..(total_levels - 2) {
+                contree_tree_write_ppl.record_bind(&cmdbuf);
+                contree_tree_write_ppl.record_bind_descriptor_sets(
+                    &cmdbuf,
+                    std::slice::from_ref(contree_tree_write_ds),
+                    0,
+                );
+                contree_tree_write_ppl
+                    .record_dispatch_indirect(&cmdbuf, &resources.level_dispatch_indirect);
+
+                shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
+
+                // not the last one
+                if i != total_levels - 3 {
+                    contree_buffer_update_ppl.record_bind(&cmdbuf);
+                    contree_buffer_update_ppl.record_bind_descriptor_sets(
+                        &cmdbuf,
+                        std::slice::from_ref(contree_buffer_update_ds),
+                        0,
+                    );
+                    contree_buffer_update_ppl.record_dispatch(&cmdbuf, [1, 1, 1]);
+                } else {
+                    contree_last_buffer_update_ppl.record_bind(&cmdbuf);
+                    contree_last_buffer_update_ppl.record_bind_descriptor_sets(
+                        &cmdbuf,
+                        std::slice::from_ref(contree_last_buffer_update_ds),
+                        0,
+                    );
+                    contree_last_buffer_update_ppl.record_dispatch(&cmdbuf, [1, 1, 1]);
+                }
+
+                shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
+                indirect_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
+            }
+
+            contree_concat_ppl.record_bind(&cmdbuf);
+            contree_concat_ppl.record_bind_descriptor_sets(
+                &cmdbuf,
+                std::slice::from_ref(contree_concat_ds),
+                0,
+            );
+            contree_concat_ppl
+                .record_dispatch_indirect(&cmdbuf, &resources.concat_dispatch_indirect);
 
             cmdbuf.end();
             return cmdbuf;
@@ -499,56 +663,55 @@ impl ContreeBuilder {
         &self.resources
     }
 
-    fn build_contree(&mut self, frag_img_len: u32, atlas_dim: UVec3) {
-        todo!();
+    fn get_level(contree_dim: UVec3) -> u32 {
+        assert!(
+            contree_dim.x == contree_dim.y && contree_dim.x == contree_dim.z,
+            "ContreeBuilderResources: contree_dim must be a cube"
+        );
+        assert!(is_power_of_four(contree_dim.x));
+        let level = log_4(contree_dim.x) + 1;
+        return level;
 
-        // let device = self.vulkan_ctx.device();
+        /// Returns true if `n` is a power of four (1, 4, 16, 64, …).
+        ///
+        /// Uses two bit-tricks:
+        /// 1. `n & (n - 1) == 0` ensures `n` is a power of two (only one bit set).
+        /// 2. `0x5555_5555` has 1s in all even bit positions (0,2,4,…).
+        ///    Masking with it ensures the single bit of `n` is in an even position.
+        fn is_power_of_four(n: u32) -> bool {
+            n != 0
+        && (n & (n - 1)) == 0         // power of two?
+        && (n & 0x5555_5555) != 0 // bit in an even position?
+        }
 
-        // update_buffers(&self.resources, frag_img_len, atlas_dim.x);
+        fn log_4(n: u32) -> u32 {
+            // trailing_zeros gives 2*k, so divide by 2:
+            n.trailing_zeros() / 2
+        }
+    }
 
-        // let level = get_level(atlas_dim);
-        // let cmdbuf = if let Some(cmdbuf) = self.cmdbuf_table.get(&level) {
-        //     cmdbuf.clone()
-        // } else {
-        //     let newly_created =
-        //         self.build_cmdbuf_for_level(&self.vulkan_ctx, &self.resources, level);
-        //     self.cmdbuf_table.insert(level, newly_created.clone());
-        //     newly_created
-        // };
+    fn build_contree(&mut self, contree_dim: UVec3) {
+        let device = self.vulkan_ctx.device();
 
-        // cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), None);
-        // device.wait_queue_idle(&self.vulkan_ctx.get_general_queue());
+        update_buffers(
+            &self.resources.contree_build_info,
+            contree_dim,
+            Self::get_level(contree_dim),
+        );
 
-        // fn get_level(voxel_dim: UVec3) -> u32 {
-        //     return log2(voxel_dim.x);
+        let cmdbuf = self.contree_cmdbuf.clone();
+        cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), None);
+        device.wait_queue_idle(&self.vulkan_ctx.get_general_queue());
 
-        //     fn log2(x: u32) -> u32 {
-        //         31 - x.leading_zeros()
-        //     }
-        // }
-
-        // fn update_buffers(
-        //     resources: &ContreeBuilderResources,
-        //     frag_img_len: u32,
-        //     voxel_dim_xyz: u32,
-        // ) {
-        //     let data = StructMemberDataBuilder::from_buffer(&resources.contree_build_info)
-        //         .set_field(
-        //             "frag_img_len",
-        //             PlainMemberTypeWithData::UInt(frag_img_len),
-        //         )
-        //         .unwrap()
-        //         .set_field(
-        //             "voxel_dim_xyz",
-        //             PlainMemberTypeWithData::UInt(voxel_dim_xyz),
-        //         )
-        //         .unwrap()
-        //         .get_data_u8();
-        //     resources
-        //         .contree_build_info
-        //         .fill_with_raw_u8(&data)
-        //         .unwrap();
-        // }
+        fn update_buffers(contree_build_info: &Buffer, contree_dim: UVec3, max_level: u32) {
+            let data = StructMemberDataBuilder::from_buffer(contree_build_info)
+                .set_field("dim", PlainMemberTypeWithData::UInt(contree_dim.x))
+                .unwrap()
+                .set_field("max_level", PlainMemberTypeWithData::UInt(max_level))
+                .unwrap()
+                .get_data_u8();
+            contree_build_info.fill_with_raw_u8(&data).unwrap();
+        }
     }
 
     pub fn build_and_alloc(
@@ -556,15 +719,15 @@ impl ContreeBuilder {
         atlas_offset: UVec3,
         atlas_dim: UVec3,
     ) -> Result<Option<u64>, String> {
-        let t_start = Instant::now();
-
-        // check_dim is trivial, but you can time it too if you want
         check_dim(atlas_dim)?;
 
-        // 1) build_frag_img
         let t1 = Instant::now();
         self.build_frag_img(&self.resources, atlas_offset, atlas_dim);
         BENCH.lock().unwrap().record("build_frag_img", t1.elapsed());
+
+        let t2 = Instant::now();
+        self.build_contree(atlas_dim);
+        BENCH.lock().unwrap().record("build_contree", t2.elapsed());
 
         // if nothing to do early-exit
         // let frag_img_len = self.get_fraglist_length();

@@ -23,6 +23,9 @@ dense_nodes;
 layout(set = 0, binding = 4) buffer B_CounterForLevels { uint data[]; }
 counter_for_levels;
 
+layout(set = 0, binding = 5) buffer B_ContreeBuildResult { uint len; }
+contree_build_result;
+
 layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 
 #include "../../include/core/bits.glsl"
@@ -79,6 +82,9 @@ void main() {
         return;
     }
 
+    // summarize it to the overall valid node count buffer, this is useful for guiding the concat
+    // pass
+    atomicAdd(contree_build_result.len, cnt);
     // allocate a region for the leaf data to be written
     uint base   = atomicAdd(counter_for_levels.data[contree_build_state.level], cnt);
     uint offset = node_offset_for_levels.data[contree_build_state.level];

@@ -220,9 +220,9 @@ impl InitializedApp {
         // |-----------------------+------------+--------------+--------------+-------|
         // | build_and_alloc_total | 1.384039ms | 1.1007ms@718 | 3.0928ms@73  | 1000  |
         // +-----------------------+------------+--------------+--------------+-------+
-        self.octree_builder
-            .build_and_alloc(UVec3::new(0, 0, 0), UVec3::new(256, 256, 256))
-            .unwrap();
+        // self.octree_builder
+        //     .build_and_alloc(UVec3::new(0, 0, 0), UVec3::new(256, 256, 256))
+        //     .unwrap();
 
         for _ in 0..1 {
             self.contree_builder

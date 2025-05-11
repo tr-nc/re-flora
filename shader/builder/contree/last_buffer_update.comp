@@ -1,0 +1,24 @@
+#version 450
+
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer B_ContreeBuildResult { uint len; }
+contree_build_result;
+
+layout(set = 0, binding = 1) writeonly buffer B_ConcatDispatchIndirect {
+    uint dispatch_x;
+    uint dispatch_y;
+    uint dispatch_z;
+}
+concat_dispatch_indirect;
+
+#include "../../include/core/dispatch_grouper.glsl"
+
+void main() {
+    uint dispatch_count                 = group_x_256(contree_build_result.len);
+    concat_dispatch_indirect.dispatch_x = dispatch_count;
+    concat_dispatch_indirect.dispatch_y = 1;
+    concat_dispatch_indirect.dispatch_z = 1;
+}
