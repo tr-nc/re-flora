@@ -44,6 +44,14 @@ impl<'a> PlainMemberDataReader<'a> {
                 let v = u32::from_ne_bytes(self.bytes.try_into().unwrap());
                 D::UInt(v)
             }
+            Int64 => {
+                let v = i64::from_ne_bytes(self.bytes.try_into().unwrap());
+                D::Int64(v)
+            }
+            UInt64 => {
+                let v = u64::from_ne_bytes(self.bytes.try_into().unwrap());
+                D::UInt64(v)
+            }
             Float => {
                 let v = f32::from_ne_bytes(self.bytes.try_into().unwrap());
                 D::Float(v)
@@ -160,6 +168,9 @@ impl<'a> PlainMemberDataReader<'a> {
                     }
                 }
                 D::Mat3x4(m)
+            }
+            Array => {
+                panic!("Array is currently not supported in PlainMemberDataReader");
             }
         }
     }

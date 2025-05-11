@@ -47,6 +47,8 @@ impl MemberLayout {
 pub enum PlainMemberType {
     Int,
     UInt,
+    Int64,
+    UInt64,
     Float,
     Vec2,
     Vec3,
@@ -61,12 +63,15 @@ pub enum PlainMemberType {
     Mat3,
     Mat4,
     Mat3x4,
+    Array, // TODO: maybe remove this later
 }
 
 #[derive(Debug, Clone)]
 pub enum PlainMemberTypeWithData {
     Int(i32),
     UInt(u32),
+    Int64(i64),
+    UInt64(u64),
     Float(f32),
     Vec2([f32; 2]),
     Vec3([f32; 3]),
@@ -88,6 +93,8 @@ impl PlainMemberTypeWithData {
         match (self, ty) {
             (PlainMemberTypeWithData::Int(_), PlainMemberType::Int) => true,
             (PlainMemberTypeWithData::UInt(_), PlainMemberType::UInt) => true,
+            (PlainMemberTypeWithData::Int64(_), PlainMemberType::Int64) => true,
+            (PlainMemberTypeWithData::UInt64(_), PlainMemberType::UInt64) => true,
             (PlainMemberTypeWithData::Float(_), PlainMemberType::Float) => true,
             (PlainMemberTypeWithData::Vec2(_), PlainMemberType::Vec2) => true,
             (PlainMemberTypeWithData::Vec3(_), PlainMemberType::Vec3) => true,
@@ -101,7 +108,8 @@ impl PlainMemberTypeWithData {
             (PlainMemberTypeWithData::Mat2(_), PlainMemberType::Mat2) => true,
             (PlainMemberTypeWithData::Mat3(_), PlainMemberType::Mat3) => true,
             (PlainMemberTypeWithData::Mat4(_), PlainMemberType::Mat4) => true,
-            _ => false,
+            (PlainMemberTypeWithData::Mat3x4(_), PlainMemberType::Mat3x4) => true,
+            _ => false, // false conditions contains Array types, and any other mismatches
         }
     }
 }

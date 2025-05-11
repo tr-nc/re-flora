@@ -370,11 +370,13 @@ fn extract_buffer_layouts(
 
             let member: MemberLayout = match member_type {
                 GeneralMemberType::Array | GeneralMemberType::Plain => {
-                    let ty = get_plain_member_type(type_flags, &type_description.traits).unwrap();
+                    let size = reflect_member.size as u64;
                     // notice: u64 is not supported yet in the reflect lib, but we use u64 in our code for the best extensibility
                     let offset = reflect_member.offset as u64;
-                    let size = reflect_member.size as u64;
                     let padded_size = reflect_member.padded_size as u64;
+
+                    let ty =
+                        get_plain_member_type(type_flags, &type_description.traits, size).unwrap();
                     MemberLayout::Plain(PlainMemberLayout {
                         name: member_name.clone(),
                         ty,
@@ -409,6 +411,7 @@ fn extract_buffer_layouts(
         fn get_plain_member_type(
             type_flags: &ReflectTypeFlags,
             traits: &ReflectTypeDescriptionTraits,
+            size: u64,
         ) -> Result<PlainMemberType, String> {
             assert!(
                 get_general_member_type(type_flags) == GeneralMemberType::Plain,
@@ -416,6 +419,10 @@ fn extract_buffer_layouts(
             );
 
             let numeric = &traits.numeric;
+
+            if type_flags.contains(ReflectTypeFlags::ARRAY) {
+                return Ok(PlainMemberType::Array);
+            }
 
             // Matrices
             if type_flags.contains(ReflectTypeFlags::MATRIX) {
@@ -473,11 +480,20 @@ fn extract_buffer_layouts(
             if type_flags.contains(ReflectTypeFlags::INT) {
                 // "bool" in GLSL is 32-bit in SPIR-V, typically stored as int.
                 let signed = numeric.scalar.signedness;
-                return if signed == 1 {
-                    Ok(PlainMemberType::Int)
-                } else {
-                    Ok(PlainMemberType::UInt)
-                };
+                if size == 4 {
+                    return if signed == 1 {
+                        Ok(PlainMemberType::Int)
+                    } else {
+                        Ok(PlainMemberType::UInt)
+                    };
+                }
+                if size == 8 {
+                    return if signed == 1 {
+                        Ok(PlainMemberType::Int64)
+                    } else {
+                        Ok(PlainMemberType::UInt64)
+                    };
+                }
             }
 
             return Err("Unsupported plain member type".to_string());

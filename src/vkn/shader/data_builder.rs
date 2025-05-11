@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::vkn::{Buffer, MemberLayout};
 
-use super::{PlainMemberLayout, PlainMemberTypeWithData, StructMemberLayout};
+use super::{PlainMemberLayout, PlainMemberType, PlainMemberTypeWithData, StructMemberLayout};
 
 struct PlainMemberDataBuilder<'a> {
     layout: &'a PlainMemberLayout,
@@ -33,6 +33,8 @@ impl<'a> PlainMemberDataBuilder<'a> {
             let mut bytes = match value {
                 PlainMemberTypeWithData::Int(v) => v.to_ne_bytes().to_vec(),
                 PlainMemberTypeWithData::UInt(v) => v.to_ne_bytes().to_vec(),
+                PlainMemberTypeWithData::Int64(v) => v.to_ne_bytes().to_vec(),
+                PlainMemberTypeWithData::UInt64(v) => v.to_ne_bytes().to_vec(),
                 PlainMemberTypeWithData::Float(v) => v.to_ne_bytes().to_vec(),
 
                 PlainMemberTypeWithData::Vec2(v) => {
