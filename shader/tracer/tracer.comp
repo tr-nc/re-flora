@@ -5,7 +5,7 @@
 
 #extension GL_GOOGLE_include_directive : require
 
-layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(set = 0, binding = 0) uniform U_GuiInput { float debug_float; }
 gui_input;
@@ -21,21 +21,167 @@ layout(set = 0, binding = 1) uniform U_CameraInfo {
 camera_info;
 layout(set = 0, binding = 2) uniform U_EnvInfo { uint time_stamp; }
 env_info;
-layout(set = 0, binding = 3) readonly buffer B_SceneData { uint data[]; }
-scene_data;
-layout(set = 0, binding = 4) writeonly uniform image2D result_image;
+layout(set = 0, binding = 3) readonly buffer B_OctreeData { uint data[]; }
+octree_data;
+#include "../include/contree_node.glsl"
+layout(set = 0, binding = 4) readonly buffer B_ContreeNodeData { ContreeNode data[]; }
+contree_node_data;
+layout(set = 0, binding = 5) readonly buffer B_ContreeLeafData { uint data[]; }
+contree_leaf_data;
+layout(set = 0, binding = 6) writeonly uniform image2D result_image;
 
 #include "../include/core/shader_clock.glsl"
 #include "../include/core/viridis.glsl"
 #include "../include/ray.glsl"
 #include "../include/svo_marching.glsl"
 
-void get_voxel_type_normal(out uint o_voxel_type, out vec3 o_normal, out bool o_is_normal_valid,
-                           uint compressed_voxel_type_and_normal) {
-    o_voxel_type      = compressed_voxel_type_and_normal & 0xFF;
-    o_normal          = unpack_normal_v2((compressed_voxel_type_and_normal & 0x1FFFFF00u) >> 8);
-    o_is_normal_valid = (compressed_voxel_type_and_normal & 0x20000000u) != 0;
+///
+
+// Shared stack per work-group invocation
+shared uint gs_stack[64][11];
+
+#include "../include/contree_node.glsl"
+#include "../include/core/bits.glsl"
+
+struct HitInfo {
+    uint material_id;
+    vec3 pos;
+    vec3 normal;
+};
+
+// Reverses pos from [1.0,2.0) to (2.0,1.0] if dir>0
+vec3 get_mirrored_pos(vec3 pos, vec3 dir, bool range_check) {
+    // flip mantissa bits
+    uvec3 pu      = floatBitsToUint(pos);
+    uvec3 flipped = pu ^ uvec3(0x7FFFFFu);
+    vec3 mirrored = uintBitsToFloat(flipped);
+
+    // fallback if outside [1,2)
+    if (range_check) {
+        if (any(lessThan(pos, vec3(1.0))) || any(greaterThanEqual(pos, vec3(2.0)))) {
+            mirrored = vec3(3.0) - pos;
+        }
+    }
+    // select per‐component
+    return mix(pos, mirrored, greaterThan(dir, vec3(0.0)));
 }
+
+// Compute child index [0..26) from bits of pos at this scale
+int get_node_cell_index(vec3 pos, int scale_exp) {
+    uvec3 pu      = floatBitsToUint(pos);
+    uvec3 cellpos = (pu >> uint(scale_exp)) & 3u;
+    return int(cellpos.x + cellpos.z * 4u + cellpos.y * 16u);
+}
+
+// floor(pos / scale) * scale by zeroing low bits of float bitpattern
+vec3 floor_scale(vec3 pos, int scale_exp) {
+    uint mask = ~0u << uint(scale_exp);
+    uvec3 pu  = floatBitsToUint(pos);
+    uvec3 r   = pu & uvec3(mask);
+    return uintBitsToFloat(r);
+}
+
+// Main traversal
+HitInfo ray_cast(vec3 origin, vec3 dir, bool coarse) {
+    uint group_id    = gl_LocalInvocationIndex;
+    int scale_exp    = 21; // start at finest level 2⁻²¹ ≈ 0.25
+    uint node_idx    = 0u;
+    ContreeNode node = contree_node_data.data[node_idx];
+
+    // Build mirror mask based on ray octant
+    uint mirror_mask = 0u;
+    if (dir.x > 0.0) mirror_mask |= 3u << 0;
+    if (dir.y > 0.0) mirror_mask |= 3u << 4;
+    if (dir.z > 0.0) mirror_mask |= 3u << 2;
+
+    origin         = get_mirrored_pos(origin, dir, true);
+    vec3 pos       = clamp(origin, 1.0, 1.9999999);
+    vec3 inv_dir   = 1.0 / -abs(dir);
+    vec3 side_dist = vec3(0.0);
+
+    for (int i = 0; i < 256; ++i) {
+        // optional early‐out for coarse rays
+        if (coarse && i > 20 && (node.packed_0 & 1u) != 0u) {
+            break;
+        }
+
+        uint child_idx = uint(get_node_cell_index(pos, scale_exp)) ^ mirror_mask;
+
+        // Descend as far as possible
+        while (((node.child_mask >> child_idx) & 1u) != 0u && (node.packed_0 & 1u) == 0u) {
+            uint stk_idx                = uint(scale_exp >> 1);
+            gs_stack[group_id][stk_idx] = node_idx;
+
+            uint bits = bit_count_u64_var(node.child_mask, child_idx);
+            node_idx  = (node.packed_0 >> 1u) + bits;
+            node      = contree_node_data.data[node_idx];
+
+            scale_exp -= 2;
+            child_idx = uint(get_node_cell_index(pos, scale_exp)) ^ mirror_mask;
+        }
+
+        // if leaf has that child, stop
+        if (((node.child_mask >> child_idx) & 1u) != 0u && (node.packed_0 & 1u) != 0u) {
+            break;
+        }
+
+        // Figure out how far to step (advance exponent by 1 if no cross‐child)
+        int adv_scale_exp = scale_exp;
+        if (((node.child_mask >> (child_idx & 0x2Au)) & 0x00330033u) == 0u) {
+            adv_scale_exp++;
+        }
+
+        // Intersect ray with current cell face
+        vec3 cell_min = floor_scale(pos, adv_scale_exp);
+        side_dist     = (cell_min - origin) * inv_dir;
+        float tmax    = min(min(side_dist.x, side_dist.y), side_dist.z);
+
+        // Compute the neighboring cell coordinate
+        bvec3 side_mask    = bvec3(tmax >= side_dist.x, tmax >= side_dist.y, tmax >= side_dist.z);
+        ivec3 base         = ivec3(floatBitsToInt(cell_min));
+        ivec3 off          = ivec3((1 << adv_scale_exp) - 1);
+        ivec3 neighbor_max = base + mix(off, ivec3(-1), side_mask);
+
+        // Move to the next cell
+        pos = min(origin - abs(dir) * tmax, vec3(neighbor_max));
+
+        // If we crossed more than one ancestor level, pop the stack
+        uvec3 diff_pos = floatBitsToUint(pos) ^ floatBitsToUint(cell_min);
+        uint combined  = (diff_pos.x | diff_pos.y | diff_pos.z) & 0xFFAAAAAAu;
+        int diff_exp   = findMSB(int(combined));
+        if (diff_exp > scale_exp) {
+            scale_exp = diff_exp;
+            if (diff_exp > 21) break; // outside root?
+            uint stk_idx = uint(scale_exp >> 1);
+            node_idx     = gs_stack[group_id][stk_idx];
+            node         = contree_node_data.data[node_idx];
+        }
+    }
+
+    // Prepare output
+    HitInfo hit;
+    hit.material_id = 0u;
+    hit.pos         = vec3(0.0);
+    hit.normal      = vec3(0.0);
+
+    // If we ended in a leaf, fetch material & normal
+    if ((node.packed_0 & 1u) != 0u && scale_exp <= 21) {
+        pos             = get_mirrored_pos(pos, dir, false);
+        uint child_idx  = uint(get_node_cell_index(pos, scale_exp));
+        uint bits       = bit_count_u64_var(node.child_mask, child_idx);
+        hit.material_id = contree_leaf_data.data[(node.packed_0 >> 1u) + bits];
+        hit.pos         = pos;
+
+        float tmax       = min(min(side_dist.x, side_dist.y), side_dist.z);
+        bvec3 side_mask2 = bvec3(tmax >= side_dist.x, tmax >= side_dist.y, tmax >= side_dist.z);
+        hit.normal = vec3(side_mask2.x ? -sign(dir.x) : 0.0, side_mask2.y ? -sign(dir.y) : 0.0,
+                          side_mask2.z ? -sign(dir.z) : 0.0);
+    }
+
+    return hit;
+}
+
+///
 
 void main() {
     ivec2 uvi      = ivec2(gl_GlobalInvocationID.xy);

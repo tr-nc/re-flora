@@ -1,5 +1,5 @@
 
-//! Input: uint data[] inside a buffer named scene_data
+//! Input: uint data[] inside a buffer named octree_data
 
 #ifndef SVO_MARCHING_GLSL
 #define SVO_MARCHING_GLSL
@@ -72,7 +72,7 @@ bool _svo_marching(out float o_t, out uint o_iter, out uint o_voxel_type, out ve
         // parent pointer is the address of first largest sub-octree (8 in total) of the parent
         o_voxel_hash = parent + (idx ^ oct_mask) + octree_buffer_offset;
         if (cur == 0u) {
-            cur = scene_data.data[o_voxel_hash];
+            cur = octree_data.data[o_voxel_hash];
         }
 
         vec3 t_corner = pos * t_coef - t_bias;

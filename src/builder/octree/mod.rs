@@ -640,7 +640,7 @@ impl OctreeBuilder {
                 .record("build_and_alloc_total", t_start.elapsed());
             return Ok(None);
         }
-        log::debug!("Frag list length: {}", frag_list_len);
+        // log::debug!("Frag list length: {}", frag_list_len);
 
         // 2) build_octree
         let t2 = Instant::now();

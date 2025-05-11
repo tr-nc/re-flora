@@ -1,5 +1,5 @@
 use super::TracerResources;
-use crate::builder::{AccelStructResources, OctreeBuilderResources};
+use crate::builder::{AccelStructResources, ContreeBuilderResources, OctreeBuilderResources};
 use crate::gameplay::Camera;
 use crate::util::ShaderCompiler;
 use crate::vkn::{
@@ -27,6 +27,7 @@ impl Tracer {
         shader_compiler: &ShaderCompiler,
         screen_extent: &[u32; 2],
         octree_builder_resources: &OctreeBuilderResources,
+        contree_builder_resources: &ContreeBuilderResources,
     ) -> Self {
         let tracer_sm = ShaderModule::from_glsl(
             vulkan_context.device(),
@@ -56,6 +57,7 @@ impl Tracer {
             &tracer_ppl,
             &resources,
             octree_builder_resources,
+            contree_builder_resources,
         );
 
         return Self {
@@ -72,6 +74,7 @@ impl Tracer {
         &mut self,
         screen_extent: &[u32; 2],
         octree_builder_resources: &OctreeBuilderResources,
+        contree_builder_resources: &ContreeBuilderResources,
     ) {
         self.resources.on_resize(
             self.vulkan_context.device().clone(),
@@ -86,6 +89,7 @@ impl Tracer {
             &self.tracer_ppl,
             &self.resources,
             octree_builder_resources,
+            contree_builder_resources,
         );
     }
 
@@ -189,6 +193,7 @@ impl Tracer {
         compute_pipeline: &ComputePipeline,
         resources: &TracerResources,
         octree_builder_resources: &OctreeBuilderResources,
+        contree_builder_resources: &ContreeBuilderResources,
     ) -> DescriptorSet {
         let compute_descriptor_set = DescriptorSet::new(
             vulkan_context.device().clone(),
@@ -200,8 +205,10 @@ impl Tracer {
             WriteDescriptorSet::new_buffer_write(1, &resources.camera_info),
             WriteDescriptorSet::new_buffer_write(2, &resources.env_info),
             WriteDescriptorSet::new_buffer_write(3, &octree_builder_resources.octree_data),
+            WriteDescriptorSet::new_buffer_write(4, &contree_builder_resources.contree_data),
+            WriteDescriptorSet::new_buffer_write(5, &contree_builder_resources.leaf_data),
             WriteDescriptorSet::new_texture_write(
-                4,
+                6,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &resources.shader_write_tex,
                 vk::ImageLayout::GENERAL,

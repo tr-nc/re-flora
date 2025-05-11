@@ -155,7 +155,7 @@ impl InitializedApp {
             allocator.clone(),
             &shader_compiler,
             plain_builder.resources(),
-            UVec3::new(16, 16, 16), // max voxel dim per chunk
+            UVec3::new(256, 256, 256), // max voxel dim per chunk
             10_000_000,                // octree buffer pool size
         );
 
@@ -165,6 +165,7 @@ impl InitializedApp {
             &shader_compiler,
             &screen_extent,
             octree_builder.get_resources(),
+            contree_builder.get_resources(),
         );
 
         let mut this = Self {
@@ -220,13 +221,15 @@ impl InitializedApp {
         // |-----------------------+------------+--------------+--------------+-------|
         // | build_and_alloc_total | 1.384039ms | 1.1007ms@718 | 3.0928ms@73  | 1000  |
         // +-----------------------+------------+--------------+--------------+-------+
-        self.octree_builder
-            .build_and_alloc(UVec3::new(20, 50, 20), UVec3::new(16, 16, 16))
-            .unwrap();
+        for _ in 0..1 {
+            self.octree_builder
+                .build_and_alloc(UVec3::new(0, 0, 0), UVec3::new(256, 256, 256))
+                .unwrap();
+        }
 
         for _ in 0..1 {
             self.contree_builder
-                .build_and_alloc(UVec3::new(20, 50, 20), UVec3::new(16, 16, 16))
+                .build_and_alloc(UVec3::new(0, 0, 0), UVec3::new(256, 256, 256))
                 .unwrap();
         }
 
@@ -488,8 +491,11 @@ impl InitializedApp {
         let window_size = self.window_state.window_size();
 
         self.camera.on_resize(&window_size);
-        self.tracer
-            .on_resize(&window_size, self.octree_builder.get_resources());
+        self.tracer.on_resize(
+            &window_size,
+            self.octree_builder.get_resources(),
+            self.contree_builder.get_resources(),
+        );
         self.swapchain.on_resize(&window_size);
 
         // the render pass should be rebuilt when the swapchain is recreated
