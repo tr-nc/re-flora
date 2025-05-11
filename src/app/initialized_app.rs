@@ -148,7 +148,7 @@ impl InitializedApp {
             &shader_compiler,
             plain_builder.resources(),
             UVec3::new(256, 256, 256), // max voxel dim per chunk
-            10_000_000,                // octree buffer pool size
+            100_000_000,                // octree buffer pool size
         );
 
         let contree_builder = ContreeBuilder::new(
@@ -224,14 +224,14 @@ impl InitializedApp {
         // | build_and_alloc_total | 1.384039ms | 1.1007ms@718 | 3.0928ms@73  | 1000  |
         // +-----------------------+------------+--------------+--------------+-------+
         // 2.78MB
-        for _ in 0..1 {
+        for _ in 0..1000 {
             self.octree_builder
                 .build_and_alloc(UVec3::new(0, 0, 0), UVec3::new(256, 256, 256))
                 .unwrap();
         }
 
         // 1.13MB
-        for _ in 0..1 {
+        for _ in 0..1000 {
             self.contree_builder
                 .build_and_alloc(UVec3::new(0, 0, 0), UVec3::new(256, 256, 256))
                 .unwrap();

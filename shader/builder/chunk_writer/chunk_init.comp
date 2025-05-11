@@ -53,5 +53,11 @@ void main() {
     float weight    = noise - world_voxel_pos.y;
     uint voxel_type = get_voxel_type(weight);
 
+    if (uvi.x % 4 == 0 && uvi.y % 4 == 0 && uvi.z % 4 == 0) {
+        voxel_type = VOXEL_TYPE_GRASS_LAND;
+    } else {
+        voxel_type = VOXEL_TYPE_EMPTY;
+    }
+
     imageStore(raw_atlas, atlas_uvi, uvec4(voxel_type, 0, 0, 0));
 }
