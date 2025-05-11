@@ -102,7 +102,7 @@ impl InitializedApp {
         let screen_extent = window_state.window_size();
 
         let camera = Camera::new(
-            Vec3::new(-0.5, 0.6, -0.5),
+            Vec3::new(1.1, 1.1, 1.1),
             135.0,
             -5.0,
             CameraDesc {
@@ -155,8 +155,8 @@ impl InitializedApp {
             allocator.clone(),
             &shader_compiler,
             plain_builder.resources(),
-            UVec3::new(256, 256, 256), // max voxel dim per chunk
-            10_000_000,                // octree buffer pool size
+            UVec3::new(64, 64, 64), // max voxel dim per chunk
+            10_000_000,             // octree buffer pool size
         );
 
         let tracer = Tracer::new(
@@ -223,13 +223,13 @@ impl InitializedApp {
         // +-----------------------+------------+--------------+--------------+-------+
         for _ in 0..1 {
             self.octree_builder
-                .build_and_alloc(UVec3::new(0, 0, 0), UVec3::new(256, 256, 256))
+                .build_and_alloc(UVec3::new(0, 70, 0), UVec3::new(64, 64, 64))
                 .unwrap();
         }
 
         for _ in 0..1 {
             self.contree_builder
-                .build_and_alloc(UVec3::new(0, 0, 0), UVec3::new(256, 256, 256))
+                .build_and_alloc(UVec3::new(0, 70, 0), UVec3::new(64, 64, 64))
                 .unwrap();
         }
 
