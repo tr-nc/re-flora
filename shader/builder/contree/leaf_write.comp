@@ -24,8 +24,11 @@ sparse_nodes;
 layout(set = 0, binding = 4) writeonly buffer B_LeafData { uint data[]; }
 leaf_data;
 
-layout(set = 0, binding = 5) buffer B_CounterForLevels { uint data[]; }
-counter_for_levels;
+layout(set = 0, binding = 5) writeonly buffer B_ContreeBuildResult {
+    uint node_len;
+    uint leaf_len;
+}
+contree_build_result;
 
 #include "../../include/core/bits.glsl"
 
@@ -49,7 +52,7 @@ void main() {
 
                 // the node is valid if voxel type is non zero
                 bool exists = (v != 0);
-                child_mask |= exists ? (1ul << i) : 0ul;
+                child_mask |= exists ? (uint64_t(1) << i) : 0ul;
             }
         }
     }
@@ -69,11 +72,11 @@ void main() {
     }
 
     // allocate a region for the leaf data to be written
-    uint base = atomicAdd(counter_for_levels.data[contree_build_state.level], cnt);
+    uint base = atomicAdd(contree_build_result.leaf_len, cnt);
     uint w    = 0;
     for (uint i = 0; i < 64; i++) {
-        if ((child_mask & (1 << i)) != 0) {
-            leaf_data.data[base + w] = temp[i];
+        if ((child_mask & (uint64_t(1) << i)) != 0) {
+            leaf_data.data[base + w] = temp[i]; // TODO: validate this
             w++;
         }
     }
@@ -83,6 +86,6 @@ void main() {
     // 1290^3 = 2146689000, 2^31 = 2147483648, so we are safe
     // so the maximum available voxel dim limit is 1024^3, to match the 4^n dimension need of
     // contree
-    sparse_nodes.data[brick_idx].packed_0   = (1u) | (base << 1);
+    sparse_nodes.data[brick_idx].packed_0   = 1 | (base << 1);
     sparse_nodes.data[brick_idx].child_mask = child_mask;
 }

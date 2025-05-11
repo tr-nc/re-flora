@@ -223,7 +223,7 @@ impl ContreeBuilder {
             WriteDescriptorSet::new_buffer_write(2, &resources.node_offset_for_levels),
             WriteDescriptorSet::new_buffer_write(3, &resources.sparse_nodes),
             WriteDescriptorSet::new_buffer_write(4, &resources.leaf_data),
-            WriteDescriptorSet::new_buffer_write(5, &resources.counter_for_levels),
+            WriteDescriptorSet::new_buffer_write(5, &resources.contree_build_result),
         ]);
         let contree_tree_write_ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),
@@ -261,6 +261,9 @@ impl ContreeBuilder {
         contree_last_buffer_update_ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.contree_build_result),
             WriteDescriptorSet::new_buffer_write(1, &resources.concat_dispatch_indirect),
+            WriteDescriptorSet::new_buffer_write(2, &resources.sparse_nodes),
+            WriteDescriptorSet::new_buffer_write(3, &resources.dense_nodes),
+            WriteDescriptorSet::new_buffer_write(4, &resources.counter_for_levels),
         ]);
         let contree_concat_ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),
@@ -268,11 +271,12 @@ impl ContreeBuilder {
             descriptor_pool.clone(),
         );
         contree_concat_ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.node_offset_for_levels),
-            WriteDescriptorSet::new_buffer_write(1, &resources.dense_nodes),
-            WriteDescriptorSet::new_buffer_write(2, &resources.counter_for_levels),
-            WriteDescriptorSet::new_buffer_write(3, &resources.contree_data),
-            WriteDescriptorSet::new_buffer_write(4, &resources.contree_build_result),
+            WriteDescriptorSet::new_buffer_write(0, &resources.contree_build_info),
+            WriteDescriptorSet::new_buffer_write(1, &resources.node_offset_for_levels),
+            WriteDescriptorSet::new_buffer_write(2, &resources.dense_nodes),
+            WriteDescriptorSet::new_buffer_write(3, &resources.counter_for_levels),
+            WriteDescriptorSet::new_buffer_write(4, &resources.contree_data),
+            WriteDescriptorSet::new_buffer_write(5, &resources.contree_build_result),
         ]);
 
         let contree_buffer_allocator = FirstFitAllocator::new(contree_buffer_pool_size);

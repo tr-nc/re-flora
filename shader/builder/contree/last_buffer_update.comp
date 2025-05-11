@@ -4,7 +4,10 @@
 
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
-layout(set = 0, binding = 0) readonly buffer B_ContreeBuildResult { uint len; }
+layout(set = 0, binding = 0) buffer B_ContreeBuildResult {
+    uint node_len;
+    uint leaf_len;
+}
 contree_build_result;
 
 layout(set = 0, binding = 1) writeonly buffer B_ConcatDispatchIndirect {
@@ -14,10 +17,28 @@ layout(set = 0, binding = 1) writeonly buffer B_ConcatDispatchIndirect {
 }
 concat_dispatch_indirect;
 
+#include "../../include/contree_node.glsl"
+layout(set = 0, binding = 2) buffer B_SparseNodes { ContreeNode data[]; }
+sparse_nodes;
+
+layout(set = 0, binding = 3) writeonly buffer B_DenseNodes { ContreeNode data[]; }
+dense_nodes;
+
+layout(set = 0, binding = 4) writeonly buffer B_CounterForLevels { uint data[]; }
+counter_for_levels;
+
 #include "../../include/core/dispatch_grouper.glsl"
 
 void main() {
-    uint dispatch_count                 = group_x_256(contree_build_result.len);
+    // write the first level of dense data from sparse data
+    dense_nodes.data[0] = sparse_nodes.data[0];
+
+    // add the node_len of the first level, because each tree_write only updates node_len by the
+    // next level, so the first level is left out
+    counter_for_levels.data[0] = 1;
+    contree_build_result.node_len += 1;
+
+    uint dispatch_count                 = group_x_256(contree_build_result.node_len);
     concat_dispatch_indirect.dispatch_x = dispatch_count;
     concat_dispatch_indirect.dispatch_y = 1;
     concat_dispatch_indirect.dispatch_z = 1;

@@ -3,54 +3,75 @@
 
 #extension GL_GOOGLE_include_directive : require
 
-layout(set = 0, binding = 0) readonly buffer B_NodeOffsetForLevels { uint data[]; }
+layout(set = 0, binding = 0) readonly uniform U_ContreeBuildInfo {
+    uint dim; // the dimension of the contree to be built, uniform in x, y, z
+    uint max_level;
+}
+contree_build_info;
+
+layout(set = 0, binding = 1) readonly buffer B_NodeOffsetForLevels { uint data[]; }
 node_offset_for_levels;
 
 #include "../../include/contree_node.glsl"
-layout(set = 0, binding = 1) readonly buffer B_DenseNodes { ContreeNode data[]; }
+layout(set = 0, binding = 2) readonly buffer B_DenseNodes { ContreeNode data[]; }
 dense_nodes;
 
-layout(set = 0, binding = 2) readonly buffer B_CounterForLevels { uint data[]; }
+layout(set = 0, binding = 3) readonly buffer B_CounterForLevels { uint data[]; }
 counter_for_levels;
 
-layout(set = 0, binding = 3) writeonly buffer B_ContreeData { ContreeNode data[]; }
+layout(set = 0, binding = 4) writeonly buffer B_ContreeData { ContreeNode data[]; }
 contree_data;
 
-layout(set = 0, binding = 4) readonly buffer B_ContreeBuildResult { uint len; }
+layout(set = 0, binding = 5) readonly buffer B_ContreeBuildResult {
+    uint node_len;
+    uint leaf_len;
+}
 contree_build_result;
 
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 #include "../../include/core/bits.glsl"
 
+// it must be constant, so we define a fixed size here that must be enough for all cases
+#define BUFFER_SIZE 10
+
 void main() {
     uint idx = gl_GlobalInvocationID.x;
 
     // this buffer is filled inside each tree_write
-    if (idx >= contree_build_result.len) {
+    if (idx >= contree_build_result.node_len) {
         return;
     }
 
-    const uint counter_len = 10;
+    // exclusive upper bound for each node level
+    uint upper_bound_for_node_levels[BUFFER_SIZE];
+    uint node_level_count = contree_build_info.max_level - 1;
 
-    uint prefix_sums[counter_len];
-    prefix_sums[0] = counter_for_levels.data[0]; // it should be 1
-    for (uint i = 1; i < counter_len; i++) {
-        prefix_sums[i] = prefix_sums[i - 1] + counter_for_levels.data[i];
+    upper_bound_for_node_levels[0] = counter_for_levels.data[0];
+    for (uint i = 1; i < node_level_count; i++) {
+        upper_bound_for_node_levels[i] =
+            upper_bound_for_node_levels[i - 1] + counter_for_levels.data[i];
     }
-    uint total_len = prefix_sums[counter_len - 1]; // just an alias
 
-    for (uint i = 0; i < counter_len; i++) {
-        if (idx < prefix_sums[i]) {
-            uint offset    = node_offset_for_levels.data[i];
-            uint local_idx = idx - (i == 0 ? 0 : prefix_sums[i - 1]);
+    for (uint level = 0; level < node_level_count; level++) {
+        if (idx < upper_bound_for_node_levels[level]) {
+            uint offset    = node_offset_for_levels.data[level];
+            uint local_idx = idx - (level == 0 ? 0 : upper_bound_for_node_levels[level - 1]);
 
-            ContreeNode fetched  = dense_nodes.data[offset + local_idx];
+            ContreeNode fetched = dense_nodes.data[offset + local_idx];
+
             uint relative_offset = fetched.packed_0 >> 1;
-            uint abs_offset      = relative_offset + prefix_sums[i];
+            uint abs_offset      = relative_offset + upper_bound_for_node_levels[level];
 
             ContreeNode cn;
-            cn.packed_0   = (fetched.packed_0 & 1u) | (abs_offset << 1);
+            // last node level points to leaf data, therefore we can directly use the relative
+            // offset
+            if (level == node_level_count - 1) {
+                cn.packed_0 = (fetched.packed_0 & 1u) | (relative_offset << 1);
+            } else {
+                cn.packed_0 = (fetched.packed_0 & 1u) | (abs_offset << 1);
+            }
+
             cn.child_mask = fetched.child_mask;
 
             contree_data.data[idx] = cn;

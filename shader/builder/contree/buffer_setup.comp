@@ -5,8 +5,8 @@
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
 layout(set = 0, binding = 0) readonly uniform U_ContreeBuildInfo {
-    uint dim;       // the dimension of the contree to be built, uniform in x, y, z
-    uint max_level; // it should be 6 at most
+    uint dim; // the dimension of the contree to be built, uniform in x, y, z
+    uint max_level;
 }
 contree_build_info;
 
@@ -30,7 +30,10 @@ counter_for_levels;
 layout(set = 0, binding = 4) writeonly buffer B_NodeOffsetForLevels { uint data[]; }
 node_offset_for_levels;
 
-layout(set = 0, binding = 5) writeonly buffer B_ContreeBuildResult { uint len; }
+layout(set = 0, binding = 5) writeonly buffer B_ContreeBuildResult {
+    uint node_len;
+    uint leaf_len;
+}
 contree_build_result;
 
 #include "../../include/config.glsl"
@@ -51,21 +54,20 @@ void main() {
     level_dispatch_indirect.dispatch_y = dispatch_count;
     level_dispatch_indirect.dispatch_z = dispatch_count;
 
-    // the first pass is always 1, which is the root node, this will never be written again, so we
-    // have to initialize it here
-    counter_for_levels.data[0] = 1;
-    for (uint i = 1; i < contree_build_info.max_level; i++) {
+    // we use max_level - 1 because the last level is the leaf level
+    for (uint i = 0; i < contree_build_info.max_level - 1; i++) {
         counter_for_levels.data[i] = 0;
     }
 
     uint cur                = 0;
     uint size_mul_per_level = 64;
     uint size               = 1;
-    for (uint i = 0; i < contree_build_info.max_level; i++) {
+    for (uint i = 0; i < contree_build_info.max_level - 1; i++) {
         node_offset_for_levels.data[i] = cur;
         cur += size;
         size *= size_mul_per_level;
     }
 
-    contree_build_result.len = 0;
+    contree_build_result.node_len = 0;
+    contree_build_result.leaf_len = 0;
 }

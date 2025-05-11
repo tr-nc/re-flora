@@ -156,7 +156,7 @@ impl ContreeBuilderResources {
             allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
             gpu_allocator::MemoryLocation::GpuOnly,
-            max_level as u64 * std::mem::size_of::<u32>() as u64,
+            (max_level - 1) as u64 * std::mem::size_of::<u32>() as u64,
         );
 
         let node_offset_for_levels = Buffer::new_sized(
@@ -164,7 +164,7 @@ impl ContreeBuilderResources {
             allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
             gpu_allocator::MemoryLocation::GpuOnly,
-            max_level as u64 * std::mem::size_of::<u32>() as u64,
+            (max_level - 1) as u64 * std::mem::size_of::<u32>() as u64,
         );
 
         let sparse_nodes_layout = leaf_write_sm.get_buffer_layout("B_SparseNodes").unwrap();

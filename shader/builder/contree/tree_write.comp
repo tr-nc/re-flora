@@ -23,7 +23,10 @@ dense_nodes;
 layout(set = 0, binding = 4) buffer B_CounterForLevels { uint data[]; }
 counter_for_levels;
 
-layout(set = 0, binding = 5) buffer B_ContreeBuildResult { uint len; }
+layout(set = 0, binding = 5) buffer B_ContreeBuildResult {
+    uint node_len;
+    uint leaf_len;
+}
 contree_build_result;
 
 layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
@@ -57,7 +60,7 @@ void main() {
 
                 // the node is valid if non-leaf, or child_mask != 0
                 bool exists = (cn.child_mask != 0ul) || ((cn.packed_0 & 1u) != 0u);
-                child_mask |= exists ? (1ul << i) : 0ul;
+                child_mask |= exists ? (uint64_t(1) << i) : 0ul;
             }
         }
     }
@@ -73,24 +76,19 @@ void main() {
     if (cnt == 0) {
         sparse_nodes.data[brick_idx].packed_0   = 0;
         sparse_nodes.data[brick_idx].child_mask = 0ul;
-
-        // // replicate
-        // if (contree_build_state.level == 0) {
-        //     dense_nodes.data[0].packed_0   = 0;
-        //     dense_nodes.data[0].child_mask = 0ul;
-        // }
         return;
     }
 
     // summarize it to the overall valid node count buffer, this is useful for guiding the concat
     // pass
-    atomicAdd(contree_build_result.len, cnt);
+    atomicAdd(contree_build_result.node_len, cnt);
+
     // allocate a region for the leaf data to be written
-    uint base   = atomicAdd(counter_for_levels.data[contree_build_state.level], cnt);
-    uint offset = node_offset_for_levels.data[contree_build_state.level];
+    uint base   = atomicAdd(counter_for_levels.data[contree_build_state.level + 1], cnt);
+    uint offset = node_offset_for_levels.data[contree_build_state.level + 1];
     uint w      = 0;
     for (uint i = 0; i < 64; i++) {
-        if ((child_mask & (1 << i)) != 0) {
+        if ((child_mask & (uint64_t(1) << i)) != 0) {
             dense_nodes.data[offset + base + w] = temp[i];
             w++;
         }
@@ -103,10 +101,4 @@ void main() {
     // contree
     sparse_nodes.data[brick_idx].packed_0   = (0u) | (base << 1);
     sparse_nodes.data[brick_idx].child_mask = child_mask;
-
-    // // replicate
-    // if (contree_build_state.level == 0) {
-    //     dense_nodes.data[0].packed_0   = (0u) | (base << 1);
-    //     dense_nodes.data[0].child_mask = child_mask;
-    // }
 }
