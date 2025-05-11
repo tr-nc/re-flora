@@ -115,17 +115,27 @@ impl Tracer {
     pub fn update_buffers(
         &mut self,
         debug_float: f32,
+        debug_bool: bool,
         camera: &Camera,
         time_stamp: u32,
     ) -> Result<(), String> {
-        update_gui_input(&self.resources, debug_float)?;
+        update_gui_input(&self.resources, debug_float, debug_bool)?;
         update_cam_info(&self.resources, camera)?;
         update_env_info(&self.resources, time_stamp)?;
         return Ok(());
 
-        fn update_gui_input(resources: &TracerResources, debug_float: f32) -> Result<(), String> {
+        fn update_gui_input(
+            resources: &TracerResources,
+            debug_float: f32,
+            debug_bool: bool,
+        ) -> Result<(), String> {
             let data = StructMemberDataBuilder::from_buffer(&resources.gui_input)
                 .set_field("debug_float", PlainMemberTypeWithData::Float(debug_float))
+                .unwrap()
+                .set_field(
+                    "debug_bool",
+                    PlainMemberTypeWithData::UInt(debug_bool as u32),
+                )
                 .unwrap()
                 .get_data_u8();
             resources.gui_input.fill_with_raw_u8(&data)?;

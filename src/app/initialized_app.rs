@@ -47,6 +47,7 @@ pub struct InitializedApp {
 
     // gui adjustables
     debug_float: f32,
+    debug_bool: bool,
 
     // note: always keep the context to end, as it has to be destroyed last
     vulkan_ctx: VulkanContext,
@@ -102,7 +103,7 @@ impl InitializedApp {
         let screen_extent = window_state.window_size();
 
         let camera = Camera::new(
-            Vec3::new(1.1, 1.1, 1.1),
+            Vec3::new(0.5, 0.6, 0.5),
             135.0,
             -5.0,
             CameraDesc {
@@ -155,8 +156,8 @@ impl InitializedApp {
             allocator.clone(),
             &shader_compiler,
             plain_builder.resources(),
-            UVec3::new(64, 64, 64), // max voxel dim per chunk
-            10_000_000,             // octree buffer pool size
+            UVec3::new(256, 256, 256), // max voxel dim per chunk
+            10_000_000,                // octree buffer pool size
         );
 
         let tracer = Tracer::new(
@@ -194,6 +195,7 @@ impl InitializedApp {
             time_info: TimeInfo::default(),
 
             debug_float: 0.0,
+            debug_bool: false,
         };
         this.init();
         return this;
@@ -221,15 +223,17 @@ impl InitializedApp {
         // |-----------------------+------------+--------------+--------------+-------|
         // | build_and_alloc_total | 1.384039ms | 1.1007ms@718 | 3.0928ms@73  | 1000  |
         // +-----------------------+------------+--------------+--------------+-------+
+        // 2.78MB
         for _ in 0..1 {
             self.octree_builder
-                .build_and_alloc(UVec3::new(0, 70, 0), UVec3::new(64, 64, 64))
+                .build_and_alloc(UVec3::new(0, 0, 0), UVec3::new(256, 256, 256))
                 .unwrap();
         }
 
+        // 1.13MB
         for _ in 0..1 {
             self.contree_builder
-                .build_and_alloc(UVec3::new(0, 70, 0), UVec3::new(64, 64, 64))
+                .build_and_alloc(UVec3::new(0, 0, 0), UVec3::new(256, 256, 256))
                 .unwrap();
         }
 
@@ -375,6 +379,11 @@ impl InitializedApp {
                                         egui::Slider::new(&mut self.debug_float, 0.0..=1.0)
                                             .text("Debug Float"),
                                     );
+
+                                    ui.add(egui::Checkbox::new(
+                                        &mut self.debug_bool,
+                                        "Check to use contree",
+                                    ));
                                 });
                             });
                     });
@@ -398,7 +407,7 @@ impl InitializedApp {
                 };
 
                 self.tracer
-                    .update_buffers(self.debug_float, &self.camera, 0)
+                    .update_buffers(self.debug_float, self.debug_bool, &self.camera, 0)
                     .unwrap();
 
                 let cmdbuf = &self.cmdbuf;
