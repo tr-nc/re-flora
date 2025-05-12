@@ -650,7 +650,11 @@ impl OctreeBuilder {
         // 3) allocate & copy
         let octree_size = self.get_octree_data_size_in_bytes(&self.resources);
         assert!(octree_size > 0);
-        // log::debug!("Octree size: {}", octree_size);
+        // log::debug!(
+        //     "Octree size in MB: {}",
+        //     octree_size as f32 / 1024.0 / 1024.0
+        // );
+
         let write_offset = self.allocate_chunk(octree_size as u64, atlas_offset);
 
         let t3 = Instant::now();

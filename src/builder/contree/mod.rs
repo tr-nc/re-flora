@@ -773,21 +773,21 @@ impl ContreeBuilder {
         let (confirmed_node_buffer_size_in_bytes, confirmed_leaf_buffer_size_in_bytes) =
             self.get_contree_size_info(&self.resources);
 
-        log::debug!(
-            "Node buffer size in MB: {}",
-            confirmed_node_buffer_size_in_bytes as f64 / 1024.0 / 1024.0
-        );
-        log::debug!(
-            "Leaf buffer size in MB: {}",
-            confirmed_leaf_buffer_size_in_bytes as f64 / 1024.0 / 1024.0
-        );
-        log::debug!(
-            "Total buffer size in MB: {}",
-            (confirmed_node_buffer_size_in_bytes as f64
-                + confirmed_leaf_buffer_size_in_bytes as f64)
-                / 1024.0
-                / 1024.0
-        );
+        // log::debug!(
+        //     "Node buffer size in MB: {}",
+        //     confirmed_node_buffer_size_in_bytes as f64 / 1024.0 / 1024.0
+        // );
+        // log::debug!(
+        //     "Leaf buffer size in MB: {}",
+        //     confirmed_leaf_buffer_size_in_bytes as f64 / 1024.0 / 1024.0
+        // );
+        // log::debug!(
+        //     "Total buffer size in MB: {}",
+        //     (confirmed_node_buffer_size_in_bytes as f64
+        //         + confirmed_leaf_buffer_size_in_bytes as f64)
+        //         / 1024.0
+        //         / 1024.0
+        // );
 
         self.confirm_allocation_of_chunk(
             confirmed_node_buffer_size_in_bytes,
