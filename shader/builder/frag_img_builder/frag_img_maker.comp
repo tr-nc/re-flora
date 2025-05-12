@@ -12,7 +12,7 @@ layout(set = 0, binding = 0) readonly uniform U_FragImgMakerInfo {
 }
 frag_img_maker_info;
 
-layout(set = 0, binding = 1) buffer B_FragImgBuildResult { uint frag_img_len; }
+layout(set = 0, binding = 1) buffer B_FragImgBuildResult { uint active_voxel_len; }
 frag_img_build_result;
 
 layout(set = 0, binding = 2, r32ui) writeonly uniform uimage3D frag_img;
@@ -175,6 +175,6 @@ void main() {
     calculate_normal(normal, is_normal_valid, uvi);
     uint properties = compress_voxel_type_and_normal(voxel_type, normal, is_normal_valid);
 
-    atomicAdd(frag_img_build_result.frag_img_len, 1);
+    atomicAdd(frag_img_build_result.active_voxel_len, 1);
     imageStore(frag_img, uvi, uvec4(properties, 0, 0, 0));
 }

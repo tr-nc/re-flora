@@ -241,16 +241,18 @@ impl InitializedApp {
         // octree size: 2.7821655MB
         // contree size: 1.1336212158203125MB
 
-        for _ in 0..1000 {
-            self.octree_builder
-                .build_and_alloc(VOXEL_OFFSET, VOXEL_TEST_DIM)
-                .unwrap();
-        }
-
-        for _ in 0..1000 {
-            self.contree_builder
-                .build_and_alloc(VOXEL_OFFSET, VOXEL_TEST_DIM)
-                .unwrap();
+        let chunk_pos_to_build_min = UVec3::new(0, 0, 0);
+        let chunk_pos_to_build_max = UVec3::new(0, 0, 0); // incl
+        for x in chunk_pos_to_build_min.x..=chunk_pos_to_build_max.x {
+            for y in chunk_pos_to_build_min.y..=chunk_pos_to_build_max.y {
+                for z in chunk_pos_to_build_min.z..=chunk_pos_to_build_max.z {
+                    let chunk_pos = UVec3::new(x, y, z);
+                    let atlas_offset = chunk_pos * VOXEL_TEST_DIM;
+                    self.contree_builder
+                        .build_and_alloc(atlas_offset, VOXEL_TEST_DIM)
+                        .unwrap();
+                }
+            }
         }
 
         // dump bench results

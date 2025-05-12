@@ -601,7 +601,7 @@ impl ContreeBuilder {
         resources: &ContreeBuilderResources,
         atlas_read_offset: UVec3,
         atlas_read_dim: UVec3,
-    ) {
+    ) -> u32 {
         let device = self.vulkan_ctx.device();
 
         update_buffers(
@@ -614,6 +614,8 @@ impl ContreeBuilder {
         self.frag_img_cmdbuf
             .submit(&self.vulkan_ctx.get_general_queue(), None);
         device.wait_queue_idle(&self.vulkan_ctx.get_general_queue());
+
+        return get_active_voxel_len(&resources.frag_img_build_result);
 
         fn update_buffers(
             resources: &ContreeBuilderResources,
@@ -643,25 +645,18 @@ impl ContreeBuilder {
                 .fill_with_raw_u8(&data)
                 .unwrap();
         }
-    }
 
-    fn get_fraglist_length(&self) -> u32 {
-        // let layout = &self
-        //     .resources
-        //     .frag_img_build_result
-        //     .get_layout()
-        //     .unwrap()
-        //     .root_member;
-        // let raw_data = self.resources.frag_img_build_result.read_back().unwrap();
-        // let reader = StructMemberDataReader::new(layout, &raw_data);
-        // let field_val = reader.get_field("frag_img_len").unwrap();
-        // if let PlainMemberTypeWithData::UInt(val) = field_val {
-        //     val
-        // } else {
-        //     panic!("Expected UInt type for frag_img_len")
-        // }
-
-        todo!();
+        fn get_active_voxel_len(frag_img_build_result: &Buffer) -> u32 {
+            let layout = &frag_img_build_result.get_layout().unwrap().root_member;
+            let raw_data = frag_img_build_result.read_back().unwrap();
+            let reader = StructMemberDataReader::new(layout, &raw_data);
+            let field_val = reader.get_field("active_voxel_len").unwrap();
+            if let PlainMemberTypeWithData::UInt(val) = field_val {
+                val
+            } else {
+                panic!("Expected UInt type for active_voxel_len")
+            }
+        }
     }
 
     pub fn get_resources(&self) -> &ContreeBuilderResources {
@@ -750,8 +745,9 @@ impl ContreeBuilder {
         check_dim(atlas_dim)?;
 
         let t1 = Instant::now();
-        self.build_frag_img(&self.resources, atlas_offset, atlas_dim);
+        let active_voxel_len = self.build_frag_img(&self.resources, atlas_offset, atlas_dim);
         BENCH.lock().unwrap().record("build_frag_img", t1.elapsed());
+        log::debug!("Active voxel len: {}", active_voxel_len);
 
         // preallocate 10MB for both the currentl node and leaf buffer to be built
         const MAX_NODE_BUFFER_SIZE_IN_BYTES: u64 = 10 * 1024 * 1024;
