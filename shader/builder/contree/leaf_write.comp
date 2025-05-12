@@ -31,9 +31,28 @@ contree_build_result;
 
 #include "../../include/core/bits.glsl"
 
-shared uint workgroup_cnt[64];
-shared uint prefix_sums[64];
+shared uint shared_invocation_data[64];
 shared uint group_base;
+
+uint calculate_leaf_data_base_offset(uint invocation_voxel_count, uint local_invocation_idx) {
+    shared_invocation_data[local_invocation_idx] = invocation_voxel_count;
+    barrier();
+
+    if (local_invocation_idx == 0) {
+        uint current_prefix_sum = 0;
+        for (uint i = 0; i < 64; ++i) {
+            uint count_at_i           = shared_invocation_data[i];
+            shared_invocation_data[i] = current_prefix_sum;
+            current_prefix_sum += count_at_i;
+        }
+        uint total_workgroup_voxels = current_prefix_sum;
+        group_base = atomicAdd(contree_build_result.leaf_len, total_workgroup_voxels);
+    }
+
+    barrier();
+    uint local_offset_within_group = shared_invocation_data[local_invocation_idx];
+    return group_base + local_offset_within_group;
+}
 
 void main() {
     ivec3 uvi = ivec3(gl_GlobalInvocationID);
@@ -59,30 +78,8 @@ void main() {
         }
     }
 
-    uint cnt = bit_count_u64(child_mask);
-
-    // MARK:
-
-    uint local_id           = gl_LocalInvocationIndex;
-    workgroup_cnt[local_id] = cnt;
-    barrier();
-
-    if (local_id == 0) {
-        prefix_sums[0] = 0;
-        // Initialize the prefix sum array to zero
-        for (uint i = 1; i < 64; ++i) {
-            prefix_sums[i] = prefix_sums[i - 1] + workgroup_cnt[i - 1];
-        }
-        uint group_cnt = prefix_sums[63] + workgroup_cnt[63];
-
-        group_base = atomicAdd(contree_build_result.leaf_len, group_cnt);
-    }
-    barrier();
-
-    uint local_base = prefix_sums[local_id];
-    uint base       = group_base + local_base;
-
-    // MARK:
+    uint cnt  = bit_count_u64(child_mask);
+    uint base = calculate_leaf_data_base_offset(cnt, gl_LocalInvocationIndex);
 
     uint sparse_node_write_offset = node_offset_for_levels.data[contree_build_state.level];
     uint brick_idx                = uint(uvi.x) + uint(uvi.z) * contree_build_state.curr_dim +
