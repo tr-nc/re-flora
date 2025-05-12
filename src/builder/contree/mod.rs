@@ -2,6 +2,7 @@ mod resources;
 pub use resources::*;
 
 use std::collections::HashMap;
+use std::fmt::Write;
 use std::time::Instant;
 
 use crate::builder::PlainBuilderResources;
@@ -22,10 +23,14 @@ use crate::vkn::PipelineBarrier;
 use crate::vkn::PlainMemberTypeWithData;
 use crate::vkn::ShaderModule;
 use crate::vkn::StructMemberDataBuilder;
+use crate::vkn::StructMemberDataReader;
 use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
 use ash::vk;
 use glam::UVec3;
+
+const SIZE_OF_NODE_ELEMENT: u64 = 3 * std::mem::size_of::<u32>() as u64;
+const SIZE_OF_LEAF_ELEMENT: u64 = 1 * std::mem::size_of::<u32>() as u64;
 
 pub struct ContreeBuilder {
     vulkan_ctx: VulkanContext,
@@ -49,12 +54,15 @@ pub struct ContreeBuilder {
     contree_last_buffer_update_ds: DescriptorSet,
     contree_concat_ds: DescriptorSet,
 
-    chunk_offset_allocation_table: HashMap<UVec3, u64>,
-    contree_buffer_allocator: FirstFitAllocator,
+    /// Atlas offset <-> (node_alloc_id, leaf_alloc_id)
+    chunk_offset_allocation_table: HashMap<UVec3, (u64, u64)>,
 
     // cmdbuf_table: HashMap<u32, CommandBuffer>,
     frag_img_cmdbuf: CommandBuffer,
     contree_cmdbuf: CommandBuffer,
+
+    leaf_allocator: FirstFitAllocator,
+    node_allocator: FirstFitAllocator,
 }
 
 impl ContreeBuilder {
@@ -64,7 +72,8 @@ impl ContreeBuilder {
         shader_compiler: &ShaderCompiler,
         plain_builder_resources: &PlainBuilderResources,
         voxel_dim_per_chunk: UVec3,
-        contree_buffer_pool_size: u64,
+        node_pool_size_in_bytes: u64,
+        leaf_pool_size_in_bytes: u64,
     ) -> Self {
         let descriptor_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
 
@@ -129,7 +138,8 @@ impl ContreeBuilder {
             vulkan_ctx.device().clone(),
             allocator.clone(),
             voxel_dim_per_chunk,
-            contree_buffer_pool_size,
+            node_pool_size_in_bytes,
+            leaf_pool_size_in_bytes,
             &frag_img_buffer_setup_sm,
             &contree_buffer_setup_sm,
             &contree_leaf_write_sm,
@@ -213,17 +223,18 @@ impl ContreeBuilder {
             descriptor_pool.clone(),
         );
         contree_leaf_write_ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.contree_build_state),
+            WriteDescriptorSet::new_buffer_write(0, &resources.contree_build_info),
+            WriteDescriptorSet::new_buffer_write(1, &resources.contree_build_state),
             WriteDescriptorSet::new_texture_write(
-                1,
+                2,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &resources.frag_img,
                 vk::ImageLayout::GENERAL,
             ),
-            WriteDescriptorSet::new_buffer_write(2, &resources.node_offset_for_levels),
-            WriteDescriptorSet::new_buffer_write(3, &resources.sparse_nodes),
-            WriteDescriptorSet::new_buffer_write(4, &resources.leaf_data),
-            WriteDescriptorSet::new_buffer_write(5, &resources.contree_build_result),
+            WriteDescriptorSet::new_buffer_write(3, &resources.node_offset_for_levels),
+            WriteDescriptorSet::new_buffer_write(4, &resources.sparse_nodes),
+            WriteDescriptorSet::new_buffer_write(5, &resources.leaf_data),
+            WriteDescriptorSet::new_buffer_write(6, &resources.contree_build_result),
         ]);
         let contree_tree_write_ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),
@@ -275,11 +286,9 @@ impl ContreeBuilder {
             WriteDescriptorSet::new_buffer_write(1, &resources.node_offset_for_levels),
             WriteDescriptorSet::new_buffer_write(2, &resources.dense_nodes),
             WriteDescriptorSet::new_buffer_write(3, &resources.counter_for_levels),
-            WriteDescriptorSet::new_buffer_write(4, &resources.contree_data),
+            WriteDescriptorSet::new_buffer_write(4, &resources.node_data),
             WriteDescriptorSet::new_buffer_write(5, &resources.contree_build_result),
         ]);
-
-        let contree_buffer_allocator = FirstFitAllocator::new(contree_buffer_pool_size);
 
         let frag_img_cmdbuf = record_frag_img_cmdbuf(
             &vulkan_ctx,
@@ -310,6 +319,9 @@ impl ContreeBuilder {
 
         init_atlas_images(&vulkan_ctx, &resources);
 
+        let node_allocator = FirstFitAllocator::new(node_pool_size_in_bytes);
+        let leaf_allocator = FirstFitAllocator::new(leaf_pool_size_in_bytes);
+
         return Self {
             vulkan_ctx,
             resources,
@@ -333,10 +345,12 @@ impl ContreeBuilder {
             contree_concat_ds,
 
             chunk_offset_allocation_table: HashMap::new(),
-            contree_buffer_allocator,
 
             frag_img_cmdbuf,
             contree_cmdbuf,
+
+            node_allocator,
+            leaf_allocator,
         };
 
         fn init_atlas_images(vulkan_context: &VulkanContext, resources: &ContreeBuilderResources) {
@@ -522,45 +536,32 @@ impl ContreeBuilder {
         }
     }
 
-    pub fn get_contree_data_size_in_bytes(&self, resources: &ContreeBuilderResources) -> u32 {
-        // let layout = &resources
-        //     .contree_build_result
-        //     .get_layout()
-        //     .unwrap()
-        //     .root_member;
-        // let raw_data = resources.contree_build_result.read_back().unwrap();
-        // let reader = StructMemberDataReader::new(layout, &raw_data);
-        // let field_val = reader.get_field("size_u32").unwrap();
-        // if let PlainMemberTypeWithData::UInt(val) = field_val {
-        //     return val * std::mem::size_of::<u32>() as u32;
-        // } else {
-        //     panic!("Failed to get size_u32 from contree_build_result");
-        // }
-        todo!();
-    }
+    /// Returns: (node_size_in_bytes, leaf_size_in_bytes)
+    pub fn get_contree_size_info(&self, resources: &ContreeBuilderResources) -> (u64, u64) {
+        let layout = &resources
+            .contree_build_result
+            .get_layout()
+            .unwrap()
+            .root_member;
+        let raw_data = resources.contree_build_result.read_back().unwrap();
+        let reader = StructMemberDataReader::new(layout, &raw_data);
 
-    // fn copy_contree_data_single_to_contree_data(
-    //     &self,
-    //     vulkan_context: &VulkanContext,
-    //     resources: &ContreeBuilderResources,
-    //     write_offset: u64,
-    //     size: u64,
-    // ) {
-    //     execute_one_time_command(
-    //         vulkan_context.device(),
-    //         vulkan_context.command_pool(),
-    //         &vulkan_context.get_general_queue(),
-    //         |cmdbuf| {
-    //             resources.contree_data_single.record_copy_to_buffer(
-    //                 cmdbuf,
-    //                 &resources.contree_data,
-    //                 size,
-    //                 0,
-    //                 write_offset,
-    //             );
-    //         },
-    //     );
-    // }
+        let leaf_len = reader.get_field("leaf_len").unwrap();
+        let leaf_size_in_bytes = if let PlainMemberTypeWithData::UInt(val) = leaf_len {
+            val as u64 * SIZE_OF_LEAF_ELEMENT
+        } else {
+            panic!("Expected UInt type for leaf_len")
+        };
+
+        let node_len = reader.get_field("node_len").unwrap();
+        let node_size_in_bytes = if let PlainMemberTypeWithData::UInt(val) = node_len {
+            val as u64 * SIZE_OF_NODE_ELEMENT
+        } else {
+            panic!("Expected UInt type for node_len")
+        };
+
+        return (leaf_size_in_bytes, node_size_in_bytes);
+    }
 
     fn build_cmdbuf_for_level(
         &self,
@@ -694,24 +695,47 @@ impl ContreeBuilder {
         }
     }
 
-    fn build_contree(&mut self, contree_dim: UVec3) {
+    fn build_contree(
+        &mut self,
+        contree_dim: UVec3,
+        node_write_offset: u64,
+        leaf_write_offset: u64,
+    ) {
         let device = self.vulkan_ctx.device();
 
         update_buffers(
             &self.resources.contree_build_info,
             contree_dim,
             Self::get_level(contree_dim),
+            node_write_offset as u32,
+            leaf_write_offset as u32,
         );
 
         let cmdbuf = self.contree_cmdbuf.clone();
         cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), None);
         device.wait_queue_idle(&self.vulkan_ctx.get_general_queue());
 
-        fn update_buffers(contree_build_info: &Buffer, contree_dim: UVec3, max_level: u32) {
+        fn update_buffers(
+            contree_build_info: &Buffer,
+            contree_dim: UVec3,
+            max_level: u32,
+            node_write_offset: u32,
+            leaf_write_offset: u32,
+        ) {
             let data = StructMemberDataBuilder::from_buffer(contree_build_info)
                 .set_field("dim", PlainMemberTypeWithData::UInt(contree_dim.x))
                 .unwrap()
                 .set_field("max_level", PlainMemberTypeWithData::UInt(max_level))
+                .unwrap()
+                .set_field(
+                    "node_write_offset",
+                    PlainMemberTypeWithData::UInt(node_write_offset),
+                )
+                .unwrap()
+                .set_field(
+                    "leaf_write_offset",
+                    PlainMemberTypeWithData::UInt(leaf_write_offset),
+                )
                 .unwrap()
                 .get_data_u8();
             contree_build_info.fill_with_raw_u8(&data).unwrap();
@@ -729,11 +753,48 @@ impl ContreeBuilder {
         self.build_frag_img(&self.resources, atlas_offset, atlas_dim);
         BENCH.lock().unwrap().record("build_frag_img", t1.elapsed());
 
+        // preallocate 10MB for both the currentl node and leaf buffer to be built
+        const MAX_NODE_BUFFER_SIZE_IN_BYTES: u64 = 10 * 1024 * 1024;
+        const MAX_LEAF_BUFFER_SIZE_IN_BYTES: u64 = 10 * 1024 * 1024;
+        let (node_alloc_offset_in_bytes, leaf_alloc_offset_in_bytes) = self.pre_allocate_chunk(
+            MAX_NODE_BUFFER_SIZE_IN_BYTES,
+            MAX_LEAF_BUFFER_SIZE_IN_BYTES,
+            atlas_offset,
+        );
+        // the offset's unit is in bytes, we need to convert it to array idx, each element is a 3*u32
+        let node_alloc_offset = node_alloc_offset_in_bytes / SIZE_OF_NODE_ELEMENT as u64;
+        // the element of leaf data is a u32
+        let leaf_alloc_offset = leaf_alloc_offset_in_bytes / SIZE_OF_LEAF_ELEMENT as u64;
+
         let t2 = Instant::now();
-        self.build_contree(atlas_dim);
+        self.build_contree(atlas_dim, node_alloc_offset, leaf_alloc_offset);
         BENCH.lock().unwrap().record("build_contree", t2.elapsed());
 
-        // if nothing to do early-exit
+        let (confirmed_node_buffer_size_in_bytes, confirmed_leaf_buffer_size_in_bytes) =
+            self.get_contree_size_info(&self.resources);
+
+        log::debug!(
+            "Node buffer size in MB: {}",
+            confirmed_node_buffer_size_in_bytes as f64 / 1024.0 / 1024.0
+        );
+        log::debug!(
+            "Leaf buffer size in MB: {}",
+            confirmed_leaf_buffer_size_in_bytes as f64 / 1024.0 / 1024.0
+        );
+        log::debug!(
+            "Total buffer size in MB: {}",
+            (confirmed_node_buffer_size_in_bytes as f64
+                + confirmed_leaf_buffer_size_in_bytes as f64)
+                / 1024.0
+                / 1024.0
+        );
+
+        self.confirm_allocation_of_chunk(
+            confirmed_node_buffer_size_in_bytes,
+            confirmed_leaf_buffer_size_in_bytes,
+            atlas_offset,
+        );
+
         // let frag_img_len = self.get_fraglist_length();
         // if frag_img_len == 0 {
         //     log::debug!("No fragments found, skipping contree build.");
@@ -745,35 +806,7 @@ impl ContreeBuilder {
         //     return Ok(None);
         // }
 
-        return Ok(None); // todo!();
-
-        // // 2) build_contree
-        // let t2 = Instant::now();
-        // self.build_contree(frag_img_len, atlas_dim);
-        // BENCH.lock().unwrap().record("build_contree", t2.elapsed());
-
-        // // 3) allocate & copy
-        // let contree_size = self.get_contree_data_size_in_bytes(&self.resources);
-        // assert!(contree_size > 0);
-        // let write_offset = self.allocate_chunk(contree_size as u64, atlas_offset);
-
-        // let t3 = Instant::now();
-        // self.copy_contree_data_single_to_contree_data(
-        //     &self.vulkan_ctx,
-        //     &self.resources,
-        //     write_offset,
-        //     contree_size as u64,
-        // );
-        // BENCH
-        //     .lock()
-        //     .unwrap()
-        //     .record("copy_contree_data", t3.elapsed());
-
-        // // total for this call
-        // BENCH
-        //     .lock()
-        //     .unwrap()
-        //     .record("build_and_alloc_total", t_start.elapsed());
+        return Ok(None);
 
         // return Ok(Some(write_offset));
 
@@ -794,26 +827,59 @@ impl ContreeBuilder {
             Ok(())
         }
     }
-    /// Allocate a chunk of contree data and store the allocation id in the offset_allocation_table.
+
+    /// Allocate a chunk of data and store the allocation id in the offset_allocation_table.
     ///
+    /// Returns: (node_alloc_offset_in_bytes, leaf_alloc_offset_in_bytes)
     /// If the chunk already exists, deallocate it first.
-    fn allocate_chunk(&mut self, buffer_size: u64, atlas_offset: UVec3) -> u64 {
+    fn pre_allocate_chunk(
+        &mut self,
+        max_node_buffer_size_in_bytes: u64,
+        max_leaf_buffer_size_in_bytes: u64,
+        atlas_offset: UVec3,
+    ) -> (u64, u64) {
         if self
             .chunk_offset_allocation_table
             .contains_key(&atlas_offset)
         {
-            let allocation_id = self
+            let (node_alloc_id, leaf_alloc_id) = self
                 .chunk_offset_allocation_table
                 .remove(&atlas_offset)
                 .unwrap();
-            self.contree_buffer_allocator
-                .deallocate(allocation_id)
-                .unwrap();
+            self.node_allocator.deallocate(node_alloc_id).unwrap();
+            self.leaf_allocator.deallocate(leaf_alloc_id).unwrap();
         }
-        let allocation = self.contree_buffer_allocator.allocate(buffer_size).unwrap();
+        let node_allocation = self
+            .node_allocator
+            .allocate(max_node_buffer_size_in_bytes)
+            .unwrap();
+        let leaf_allocation = self
+            .leaf_allocator
+            .allocate(max_leaf_buffer_size_in_bytes)
+            .unwrap();
+
         self.chunk_offset_allocation_table
-            .insert(atlas_offset, allocation.id);
-        return allocation.offset;
+            .insert(atlas_offset, (node_allocation.id, leaf_allocation.id));
+        return (node_allocation.offset, leaf_allocation.offset);
+    }
+
+    fn confirm_allocation_of_chunk(
+        &mut self,
+        confirmed_node_buffer_size_in_bytes: u64,
+        confirmed_leaf_buffer_size_in_bytes: u64,
+        atlas_offset: UVec3,
+    ) {
+        let (node_alloc_id, leaf_alloc_id) = self
+            .chunk_offset_allocation_table
+            .get(&atlas_offset)
+            .expect("Chunk not found in allocation table");
+
+        self.node_allocator
+            .resize(*node_alloc_id, confirmed_node_buffer_size_in_bytes)
+            .unwrap();
+        self.leaf_allocator
+            .resize(*leaf_alloc_id, confirmed_leaf_buffer_size_in_bytes)
+            .unwrap();
     }
 
     // pub fn update_contree_offset_atlas_tex(

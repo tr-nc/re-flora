@@ -4,26 +4,34 @@
 
 layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 
-layout(set = 0, binding = 0) readonly buffer B_ContreeBuildState {
+layout(set = 0, binding = 0) readonly uniform U_ContreeBuildInfo {
+    uint dim; // the dimension of the contree to be built, uniform in x, y, z
+    uint max_level;
+    uint node_write_offset; // the offset in the global node buffer
+    uint leaf_write_offset; // the offset in the global leaf buffer
+}
+contree_build_info;
+
+layout(set = 0, binding = 1) readonly buffer B_ContreeBuildState {
     uint prev_dim;
     uint curr_dim;
     uint level;
 }
 contree_build_state;
 
-layout(set = 0, binding = 1, r32ui) readonly uniform uimage3D frag_img;
+layout(set = 0, binding = 2, r32ui) readonly uniform uimage3D frag_img;
 
-layout(set = 0, binding = 2) readonly buffer B_NodeOffsetForLevels { uint data[]; }
+layout(set = 0, binding = 3) readonly buffer B_NodeOffsetForLevels { uint data[]; }
 node_offset_for_levels;
 
 #include "../../include/contree_node.glsl"
-layout(set = 0, binding = 3) writeonly buffer B_SparseNodes { ContreeNode data[]; }
+layout(set = 0, binding = 4) writeonly buffer B_SparseNodes { ContreeNode data[]; }
 sparse_nodes;
 
-layout(set = 0, binding = 4) writeonly buffer B_LeafData { uint data[]; }
+layout(set = 0, binding = 5) writeonly buffer B_LeafData { uint data[]; }
 leaf_data;
 
-layout(set = 0, binding = 5) writeonly buffer B_ContreeBuildResult {
+layout(set = 0, binding = 6) writeonly buffer B_ContreeBuildResult {
     uint node_len;
     uint leaf_len;
 }
@@ -105,7 +113,7 @@ void main() {
     for (uint i = 0; i < 64; i++) {
         // Check if the i-th voxel in the 4x4x4 brick is valid.
         if ((child_mask & (uint64_t(1) << i)) != 0) {
-            leaf_data.data[base + w] = temp[i];
+            leaf_data.data[contree_build_info.leaf_write_offset + base + w] = temp[i];
             w++;
         }
     }

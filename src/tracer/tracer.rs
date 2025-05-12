@@ -215,7 +215,7 @@ impl Tracer {
             WriteDescriptorSet::new_buffer_write(1, &resources.camera_info),
             WriteDescriptorSet::new_buffer_write(2, &resources.env_info),
             WriteDescriptorSet::new_buffer_write(3, &octree_builder_resources.octree_data),
-            WriteDescriptorSet::new_buffer_write(4, &contree_builder_resources.contree_data),
+            WriteDescriptorSet::new_buffer_write(4, &contree_builder_resources.node_data),
             WriteDescriptorSet::new_buffer_write(5, &contree_builder_resources.leaf_data),
             WriteDescriptorSet::new_texture_write(
                 6,

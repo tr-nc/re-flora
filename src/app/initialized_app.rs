@@ -56,6 +56,9 @@ pub struct InitializedApp {
 const VOXEL_TEST_DIM: UVec3 = UVec3::new(256, 256, 256);
 const VOXEL_OFFSET: UVec3 = UVec3::new(0, 0, 0);
 
+// const VOXEL_TEST_DIM: UVec3 = UVec3::new(64, 64, 64);
+// const VOXEL_OFFSET: UVec3 = UVec3::new(0, 50, 0);
+
 // const VOXEL_TEST_DIM: UVec3 = UVec3::new(16, 16, 16);
 // const VOXEL_OFFSET: UVec3 = UVec3::new(0, 50, 0);
 
@@ -157,13 +160,16 @@ impl InitializedApp {
             100_000_000,               // octree buffer pool size
         );
 
+        // 0.5GB of node buffer
+        // 0.5GB of leaf buffer
         let contree_builder = ContreeBuilder::new(
             vulkan_ctx.clone(),
             allocator.clone(),
             &shader_compiler,
             plain_builder.resources(),
             VOXEL_TEST_DIM,
-            10_000_000, // octree buffer pool size
+            512 * 1024 * 1024, // node buffer pool size
+            512 * 1024 * 1024, // leaf buffer pool size
         );
 
         let tracer = Tracer::new(
@@ -236,7 +242,7 @@ impl InitializedApp {
                 .unwrap();
         }
 
-        // 1.13MB
+        // 1.1336212158203125MB
         for _ in 0..1 {
             self.contree_builder
                 .build_and_alloc(VOXEL_OFFSET, VOXEL_TEST_DIM)

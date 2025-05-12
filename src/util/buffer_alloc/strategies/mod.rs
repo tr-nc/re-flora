@@ -24,4 +24,12 @@ pub trait AllocationStrategy {
 
     /// Resets the allocator, clearing all allocations.
     fn reset(&mut self);
+
+    /// Resize an existing allocation `id` to `to_size` bytes.
+    ///
+    /// - If `to_size <= old_size`, shrinks in place (offset unchanged).
+    /// - If `to_size > old_size`, first tries to expand in place if
+    ///   there is a free block immediately after; otherwise moves
+    ///   the block to a new region (offset may change).
+    fn resize(&mut self, id: u64, to_size: u64) -> Result<BufferAllocation, String>;
 }

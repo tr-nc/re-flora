@@ -7,6 +7,8 @@ layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 layout(set = 0, binding = 0) readonly uniform U_ContreeBuildInfo {
     uint dim; // the dimension of the contree to be built, uniform in x, y, z
     uint max_level;
+    uint node_write_offset; // the offset in the global node buffer
+    uint leaf_write_offset; // the offset in the global leaf buffer
 }
 contree_build_info;
 
