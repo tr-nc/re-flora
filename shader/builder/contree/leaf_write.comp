@@ -31,22 +31,15 @@ contree_build_result;
 
 #include "../../include/core/bits.glsl"
 
-// Shared memory for workgroup-local operations. Size is 64 (4*4*4).
-// s_voxel_counts will be used for the parallel prefix sum.
-shared uint s_voxel_counts[64];
-// s_workgroup_total_voxels_in_group stores the sum of voxels for this entire workgroup.
-shared uint s_workgroup_total_voxels_in_group;
-// s_base_offset_for_workgroup_leaf_data stores the starting offset in the global leaf_data buffer
-// for this workgroup.
-shared uint s_base_offset_for_workgroup_leaf_data;
+shared uint workgroup_cnt[64];
+shared uint prefix_sums[64];
+shared uint group_base;
 
 void main() {
     ivec3 uvi = ivec3(gl_GlobalInvocationID);
     if (any(greaterThanEqual(uvi, ivec3(contree_build_state.curr_dim)))) {
         return;
     }
-
-    uint local_id = gl_LocalInvocationIndex;
 
     uint temp[64];
     uint64_t child_mask = 0;
@@ -70,76 +63,24 @@ void main() {
 
     // MARK:
 
-    // Store this invocation's count of valid voxels into shared memory.
-    s_voxel_counts[local_id] = cnt;
-    // Synchronize all invocations in the workgroup to ensure all counts are written to shared
-    // memory before proceeding to the scan.
+    uint local_id           = gl_LocalInvocationIndex;
+    workgroup_cnt[local_id] = cnt;
     barrier();
 
-    // --- Begin Parallel Exclusive Scan (Blelloch scan algorithm) ---
-    // This scan operates on s_voxel_counts. After the scan, s_voxel_counts[local_id]
-    // will hold the sum of all 'cnt' values from invocations with local indices less than local_id.
-    // The total sum for the workgroup will be available in s_workgroup_total_voxels_in_group.
-
-    // 1. Up-sweep phase (Reduction phase):
-    // Iteratively sums values. After this loop, s_voxel_counts[local_id] holds the inclusive sum
-    // of 'cnt' from local_id 0 up to the current local_id.
-    // The last element (s_voxel_counts[63]) will hold the total sum for the workgroup.
-    for (uint d = 0; d < 6; ++d) { // log2(64) = 6 iterations for workgroup size 64
-        uint offset = 1 << d;
-        if (local_id >= offset) {
-            s_voxel_counts[local_id] += s_voxel_counts[local_id - offset];
+    if (local_id == 0) {
+        prefix_sums[0] = 0;
+        // Initialize the prefix sum array to zero
+        for (uint i = 1; i < 64; ++i) {
+            prefix_sums[i] = prefix_sums[i - 1] + workgroup_cnt[i - 1];
         }
-        // Synchronize after each step of the up-sweep to ensure correct dependencies.
-        barrier();
-    }
+        uint group_cnt = prefix_sums[63] + workgroup_cnt[63];
 
-    // The last invocation (local_id == 63) now has the total sum of voxels for this workgroup in
-    // its s_voxel_counts[63]. Store this total sum into s_workgroup_total_voxels_in_group. For an
-    // exclusive scan, the prefix sum for the last element is effectively 0 relative to its own
-    // value's contribution to subsequent global offsets, so set s_voxel_counts[63] to 0.
-    if (local_id == (64 - 1)) {
-        s_workgroup_total_voxels_in_group = s_voxel_counts[local_id];
-        s_voxel_counts[local_id]          = 0;
+        group_base = atomicAdd(contree_build_result.leaf_len, group_cnt);
     }
-    // Synchronize to make s_workgroup_total_voxels_in_group visible to all and ensure
-    // s_voxel_counts[63] is updated.
     barrier();
 
-    // 2. Down-sweep phase:
-    // Converts the inclusive sums from the up-sweep phase into exclusive prefix sums.
-    for (int d = 5; d >= 0; --d) { // Iterate downwards from log2(64)-1
-        uint offset = 1 << d;
-        if (local_id >= offset) {
-            uint temp                         = s_voxel_counts[local_id - offset];
-            s_voxel_counts[local_id - offset] = s_voxel_counts[local_id];
-            s_voxel_counts[local_id] += temp;
-        }
-        // Synchronize after each step of the down-sweep.
-        barrier();
-    }
-    // --- End Parallel Exclusive Scan ---
-
-    // s_voxel_counts[local_id] now holds the exclusive prefix sum for this invocation.
-    // This is the offset of this invocation's leaf data *within the workgroup's* aggregated chunk.
-    uint local_exclusive_prefix_sum = s_voxel_counts[local_id];
-
-    // One invocation from the workgroup (e.g., the last one) performs the global atomic add.
-    // It adds the total count of voxels for the entire workgroup
-    // (s_workgroup_total_voxels_in_group) to the global leaf_len counter. The returned value is the
-    // base offset in the global leaf_data buffer for this workgroup's combined data.
-    if (local_id == (64 - 1)) {
-        s_base_offset_for_workgroup_leaf_data =
-            atomicAdd(contree_build_result.leaf_len, s_workgroup_total_voxels_in_group);
-    }
-    // Synchronize to make s_base_offset_for_workgroup_leaf_data (written by one invocation)
-    // visible to all other invocations in the workgroup.
-    barrier();
-
-    // Calculate the final base address in leaf_data for this specific invocation.
-    // It's the sum of the workgroup's base offset and this invocation's local offset within the
-    // workgroup.
-    uint base = s_base_offset_for_workgroup_leaf_data + local_exclusive_prefix_sum;
+    uint local_base = prefix_sums[local_id];
+    uint base       = group_base + local_base;
 
     // MARK:
 

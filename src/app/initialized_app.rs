@@ -53,12 +53,11 @@ pub struct InitializedApp {
     vulkan_ctx: VulkanContext,
 }
 
-// const VOXEL_TEST_DIM: UVec3 = UVec3::new(256, 256, 256);
-// const VOXEL_OFFSET: UVec3 = UVec3::new(0, 0, 0);
+const VOXEL_TEST_DIM: UVec3 = UVec3::new(256, 256, 256);
+const VOXEL_OFFSET: UVec3 = UVec3::new(0, 0, 0);
 
-const VOXEL_TEST_DIM: UVec3 = UVec3::new(16, 16, 16);
-// const VOXEL_TEST_DIM: UVec3 = UVec3::new(64, 64, 64);
-const VOXEL_OFFSET: UVec3 = UVec3::new(0, 50, 0);
+// const VOXEL_TEST_DIM: UVec3 = UVec3::new(16, 16, 16);
+// const VOXEL_OFFSET: UVec3 = UVec3::new(0, 50, 0);
 
 impl InitializedApp {
     pub fn new(_event_loop: &ActiveEventLoop) -> Self {
