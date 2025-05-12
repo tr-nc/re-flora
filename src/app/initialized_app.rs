@@ -221,7 +221,7 @@ impl InitializedApp {
         // use bigger chunk size, for smaller overhead
         // use workgroup size of 4^3 works better than 8^3
         self.plain_builder
-            .chunk_init(UVec3::new(0, 0, 0), UVec3::new(256, 256, 256));
+            .chunk_init(UVec3::new(0, 0, 0), UVec3::new(512, 512, 512));
 
         // +-----------------------+------------+--------------+--------------+-------+
         // | Name                  | Avg        | Min@Idx      | Max@Idx      | Count |
@@ -242,7 +242,7 @@ impl InitializedApp {
         // contree size: 1.1336212158203125MB
 
         let chunk_pos_to_build_min = UVec3::new(0, 0, 0);
-        let chunk_pos_to_build_max = UVec3::new(0, 0, 0); // incl
+        let chunk_pos_to_build_max = UVec3::new(0, 0, 1); // incl
         for x in chunk_pos_to_build_min.x..=chunk_pos_to_build_max.x {
             for y in chunk_pos_to_build_min.y..=chunk_pos_to_build_max.y {
                 for z in chunk_pos_to_build_min.z..=chunk_pos_to_build_max.z {

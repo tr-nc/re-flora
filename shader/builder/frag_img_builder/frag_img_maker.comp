@@ -162,11 +162,13 @@ void main() {
     }
 
     if (is_occluded(uvi)) {
+        imageStore(frag_img, uvi, uvec4(0, 0, 0, 0));
         return;
     }
 
     uint voxel_type = voxel_at_local_idx(uvi);
     if (!is_solid(voxel_type)) {
+        imageStore(frag_img, uvi, uvec4(0, 0, 0, 0));
         return;
     }
 
@@ -175,6 +177,7 @@ void main() {
     calculate_normal(normal, is_normal_valid, uvi);
     uint properties = compress_voxel_type_and_normal(voxel_type, normal, is_normal_valid);
 
+    // TODO: maybe do atomic add once in a local workgroup?
     atomicAdd(frag_img_build_result.active_voxel_len, 1);
     imageStore(frag_img, uvi, uvec4(properties, 0, 0, 0));
 }

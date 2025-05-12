@@ -86,12 +86,15 @@ vec3 floor_scale(vec3 pos, int scale_exp) {
     return uintBitsToFloat(r);
 }
 
-// Main traversal
-HitInfo ray_cast(vec3 origin, vec3 dir, bool coarse) {
+/// node_offset is the offset when addressing the contree node data
+/// leaf_offset is the offset when addressing the contree leaf data
+/// These offsets should be passed in because each chunk are expected to have distinct offsets,
+/// which represents there data regions
+HitInfo ray_cast(vec3 origin, vec3 dir, bool coarse, uint node_offset, uint leaf_offset) {
     uint group_id    = gl_LocalInvocationIndex;
     int scale_exp    = 21; // start at finest level 2⁻²¹ ≈ 0.25
     uint node_idx    = 0u;
-    ContreeNode node = contree_node_data.data[node_idx];
+    ContreeNode node = contree_node_data.data[node_offset + node_idx];
 
     // Build mirror mask based on ray octant
     uint mirror_mask = 0u;
@@ -120,7 +123,7 @@ HitInfo ray_cast(vec3 origin, vec3 dir, bool coarse) {
 
             uint bits = bit_count_u64_var(node.child_mask, child_idx);
             node_idx  = (node.packed_0 >> 1u) + bits;
-            node      = contree_node_data.data[node_idx];
+            node      = contree_node_data.data[node_offset + node_idx];
 
             scale_exp -= 2;
             child_idx = uint(get_node_cell_index(pos, scale_exp)) ^ mirror_mask;
@@ -160,7 +163,7 @@ HitInfo ray_cast(vec3 origin, vec3 dir, bool coarse) {
             if (diff_exp > 21) break; // outside root?
             uint stk_idx = uint(scale_exp >> 1);
             node_idx     = gs_stack[group_id][stk_idx];
-            node         = contree_node_data.data[node_idx];
+            node         = contree_node_data.data[node_offset + node_idx];
         }
     }
 
@@ -178,7 +181,7 @@ HitInfo ray_cast(vec3 origin, vec3 dir, bool coarse) {
         uint bits      = bit_count_u64_var(node.child_mask, child_idx);
 
         hit.pos       = pos;
-        hit.leaf_data = contree_leaf_data.data[(node.packed_0 >> 1u) + bits];
+        hit.leaf_data = contree_leaf_data.data[leaf_offset + (node.packed_0 >> 1u) + bits];
 
         float tmax       = min(min(side_dist.x, side_dist.y), side_dist.z);
         bvec3 side_mask2 = bvec3(tmax >= side_dist.x, tmax >= side_dist.y, tmax >= side_dist.z);
@@ -209,7 +212,7 @@ void main() {
             svo_marching(ray.origin, ray.direction, vec3(0.0), vec3(1.0), 0);
         vis = svo_result.is_hit ? svo_result.normal : vec3(0.0);
     } else {
-        HitInfo hit_info = ray_cast(ray.origin + 1.0, ray.direction, false);
+        HitInfo hit_info = ray_cast(ray.origin + 1.0, ray.direction, false, 15869, 193719); // TODO:
         vec3 normal      = unpack_normal_v2((hit_info.leaf_data & 0x1FFFFF00u) >> 8);
         vis              = hit_info.is_hit ? normal : vec3(0.0);
     }

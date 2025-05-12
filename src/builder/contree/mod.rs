@@ -560,7 +560,7 @@ impl ContreeBuilder {
             panic!("Expected UInt type for node_len")
         };
 
-        return (leaf_size_in_bytes, node_size_in_bytes);
+        return (node_size_in_bytes, leaf_size_in_bytes);
     }
 
     fn build_cmdbuf_for_level(
@@ -749,6 +749,11 @@ impl ContreeBuilder {
         BENCH.lock().unwrap().record("build_frag_img", t1.elapsed());
         log::debug!("Active voxel len: {}", active_voxel_len);
 
+        if active_voxel_len == 0 {
+            log::debug!("No fragments found, skipping contree build.");
+            return Ok(None);
+        }
+
         // preallocate 10MB for both the currentl node and leaf buffer to be built
         const MAX_NODE_BUFFER_SIZE_IN_BYTES: u64 = 10 * 1024 * 1024;
         const MAX_LEAF_BUFFER_SIZE_IN_BYTES: u64 = 10 * 1024 * 1024;
@@ -762,6 +767,12 @@ impl ContreeBuilder {
         // the element of leaf data is a u32
         let leaf_alloc_offset = leaf_alloc_offset_in_bytes / SIZE_OF_LEAF_ELEMENT as u64;
 
+        log::debug!(
+            "Node alloc offset: {}, Leaf alloc offset: {}",
+            node_alloc_offset,
+            leaf_alloc_offset
+        );
+
         let t2 = Instant::now();
         self.build_contree(atlas_dim, node_alloc_offset, leaf_alloc_offset);
         BENCH.lock().unwrap().record("build_contree", t2.elapsed());
@@ -769,38 +780,11 @@ impl ContreeBuilder {
         let (confirmed_node_buffer_size_in_bytes, confirmed_leaf_buffer_size_in_bytes) =
             self.get_contree_size_info(&self.resources);
 
-        // log::debug!(
-        //     "Node buffer size in MB: {}",
-        //     confirmed_node_buffer_size_in_bytes as f64 / 1024.0 / 1024.0
-        // );
-        // log::debug!(
-        //     "Leaf buffer size in MB: {}",
-        //     confirmed_leaf_buffer_size_in_bytes as f64 / 1024.0 / 1024.0
-        // );
-        // log::debug!(
-        //     "Total buffer size in MB: {}",
-        //     (confirmed_node_buffer_size_in_bytes as f64
-        //         + confirmed_leaf_buffer_size_in_bytes as f64)
-        //         / 1024.0
-        //         / 1024.0
-        // );
-
         self.confirm_allocation_of_chunk(
             confirmed_node_buffer_size_in_bytes,
             confirmed_leaf_buffer_size_in_bytes,
             atlas_offset,
         );
-
-        // let frag_img_len = self.get_fraglist_length();
-        // if frag_img_len == 0 {
-        //     log::debug!("No fragments found, skipping contree build.");
-        //     // record total so far
-        //     BENCH
-        //         .lock()
-        //         .unwrap()
-        //         .record("build_and_alloc_total", t_start.elapsed());
-        //     return Ok(None);
-        // }
 
         return Ok(None);
 
