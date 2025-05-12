@@ -33,7 +33,38 @@ layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 
 #include "../../include/core/bits.glsl"
 
+shared uint shared_invocation_data[64];
+shared uint group_base;
+
+void cleanup_shared_invocation_data(uint local_invocation_idx) {
+    shared_invocation_data[local_invocation_idx] = 0;
+    barrier();
+}
+
+uint register_and_get_local_base(uint invocation_cnt, uint local_invocation_idx) {
+    shared_invocation_data[local_invocation_idx] = invocation_cnt;
+    barrier();
+
+    if (local_invocation_idx == 0) {
+        uint current_prefix_sum = 0;
+        for (uint i = 0; i < 64; ++i) {
+            uint count_at_i           = shared_invocation_data[i];
+            shared_invocation_data[i] = current_prefix_sum;
+            current_prefix_sum += count_at_i;
+        }
+        uint total_workgroup_cnt = current_prefix_sum;
+        atomicAdd(contree_build_result.node_len, total_workgroup_cnt);
+        group_base =
+            atomicAdd(counter_for_levels.data[contree_build_state.level + 1], total_workgroup_cnt);
+    }
+
+    barrier();
+    uint local_offset_within_group = shared_invocation_data[local_invocation_idx];
+    return group_base + local_offset_within_group;
+}
+
 void main() {
+    cleanup_shared_invocation_data(gl_LocalInvocationIndex);
     ivec3 uvi = ivec3(gl_GlobalInvocationID);
     if (any(greaterThanEqual(uvi, ivec3(contree_build_state.curr_dim)))) {
         return;
@@ -65,7 +96,8 @@ void main() {
         }
     }
 
-    uint cnt = bit_count_u64(child_mask);
+    uint cnt  = bit_count_u64(child_mask);
+    uint base = register_and_get_local_base(cnt, gl_LocalInvocationIndex);
 
     uint sparse_node_write_offset = node_offset_for_levels.data[contree_build_state.level];
     uint brick_idx                = uint(uvi.x) + uint(uvi.z) * contree_build_state.curr_dim +
@@ -79,12 +111,6 @@ void main() {
         return;
     }
 
-    // summarize it to the overall valid node count buffer, this is useful for guiding the concat
-    // pass
-    atomicAdd(contree_build_result.node_len, cnt);
-
-    // allocate a region for the leaf data to be written
-    uint base   = atomicAdd(counter_for_levels.data[contree_build_state.level + 1], cnt);
     uint offset = node_offset_for_levels.data[contree_build_state.level + 1];
     uint w      = 0;
     for (uint i = 0; i < 64; i++) {

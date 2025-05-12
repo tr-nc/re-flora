@@ -34,8 +34,13 @@ contree_build_result;
 shared uint shared_invocation_data[64];
 shared uint group_base;
 
-uint calculate_leaf_data_base_offset(uint invocation_voxel_count, uint local_invocation_idx) {
-    shared_invocation_data[local_invocation_idx] = invocation_voxel_count;
+void cleanup_shared_invocation_data(uint local_invocation_idx) {
+    shared_invocation_data[local_invocation_idx] = 0;
+    barrier();
+}
+
+uint register_and_get_local_base(uint invocation_cnt, uint local_invocation_idx) {
+    shared_invocation_data[local_invocation_idx] = invocation_cnt;
     barrier();
 
     if (local_invocation_idx == 0) {
@@ -45,8 +50,8 @@ uint calculate_leaf_data_base_offset(uint invocation_voxel_count, uint local_inv
             shared_invocation_data[i] = current_prefix_sum;
             current_prefix_sum += count_at_i;
         }
-        uint total_workgroup_voxels = current_prefix_sum;
-        group_base = atomicAdd(contree_build_result.leaf_len, total_workgroup_voxels);
+        uint total_workgroup_cnt = current_prefix_sum;
+        group_base               = atomicAdd(contree_build_result.leaf_len, total_workgroup_cnt);
     }
 
     barrier();
@@ -55,6 +60,7 @@ uint calculate_leaf_data_base_offset(uint invocation_voxel_count, uint local_inv
 }
 
 void main() {
+    cleanup_shared_invocation_data(gl_LocalInvocationIndex);
     ivec3 uvi = ivec3(gl_GlobalInvocationID);
     if (any(greaterThanEqual(uvi, ivec3(contree_build_state.curr_dim)))) {
         return;
@@ -79,7 +85,7 @@ void main() {
     }
 
     uint cnt  = bit_count_u64(child_mask);
-    uint base = calculate_leaf_data_base_offset(cnt, gl_LocalInvocationIndex);
+    uint base = register_and_get_local_base(cnt, gl_LocalInvocationIndex);
 
     uint sparse_node_write_offset = node_offset_for_levels.data[contree_build_state.level];
     uint brick_idx                = uint(uvi.x) + uint(uvi.z) * contree_build_state.curr_dim +
