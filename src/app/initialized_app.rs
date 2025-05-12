@@ -53,6 +53,12 @@ pub struct InitializedApp {
     vulkan_ctx: VulkanContext,
 }
 
+// const VOXEL_TEST_DIM: UVec3 = UVec3::new(256, 256, 256);
+// const VOXEL_OFFSET: UVec3 = UVec3::new(0, 0, 0);
+
+const VOXEL_TEST_DIM: UVec3 = UVec3::new(16, 16, 16);
+const VOXEL_OFFSET: UVec3 = UVec3::new(0, 50, 0);
+
 impl InitializedApp {
     pub fn new(_event_loop: &ActiveEventLoop) -> Self {
         let window_state = Self::create_window_state(_event_loop);
@@ -156,8 +162,8 @@ impl InitializedApp {
             allocator.clone(),
             &shader_compiler,
             plain_builder.resources(),
-            UVec3::new(256, 256, 256), // max voxel dim per chunk
-            10_000_000,                // octree buffer pool size
+            VOXEL_TEST_DIM,
+            10_000_000, // octree buffer pool size
         );
 
         let tracer = Tracer::new(
@@ -226,14 +232,14 @@ impl InitializedApp {
         // 2.78MB
         for _ in 0..1 {
             self.octree_builder
-                .build_and_alloc(UVec3::new(0, 0, 0), UVec3::new(256, 256, 256))
+                .build_and_alloc(VOXEL_OFFSET, VOXEL_TEST_DIM)
                 .unwrap();
         }
 
         // 1.13MB
         for _ in 0..1000 {
             self.contree_builder
-                .build_and_alloc(UVec3::new(0, 0, 0), UVec3::new(256, 256, 256))
+                .build_and_alloc(VOXEL_OFFSET, VOXEL_TEST_DIM)
                 .unwrap();
         }
 

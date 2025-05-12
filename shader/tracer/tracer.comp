@@ -207,7 +207,7 @@ void main() {
     if (gui_input.debug_bool == 0) {
         SvoMarchingResult svo_result =
             svo_marching(ray.origin, ray.direction, vec3(0.0), vec3(1.0), 0);
-        vis = svo_result.is_hit ? vec3(1.0) : vec3(0.0);
+        vis = svo_result.is_hit ? svo_result.normal : vec3(0.0);
     } else {
         HitInfo hit_info = ray_cast(ray.origin + 1.0, ray.direction, false);
         vec3 normal      = unpack_normal_v2((hit_info.leaf_data & 0x1FFFFF00u) >> 8);
