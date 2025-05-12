@@ -207,11 +207,15 @@ void main() {
     if (gui_input.debug_bool == 0) {
         SvoMarchingResult svo_result =
             svo_marching(ray.origin, ray.direction, vec3(0.0), vec3(1.0), 0);
-        vis = svo_result.is_hit ? svo_result.normal : vec3(0.0);
+        vec3 normal = svo_result.is_hit ? svo_result.normal : vec3(0.0);
+        normal      = normal * 0.5 + vec3(0.5);
+        vis         = mix(normal, svo_result.is_hit ? vec3(1.0) : vec3(0.0), 0.5);
     } else {
         HitInfo hit_info = ray_cast(ray.origin + 1.0, ray.direction, false);
         vec3 normal      = unpack_normal_v2((hit_info.leaf_data & 0x1FFFFF00u) >> 8);
-        vis              = hit_info.is_hit ? normal : vec3(0.0);
+        normal           = hit_info.is_hit ? normal : vec3(0.0);
+        normal           = normal * 0.5 + vec3(0.5);
+        vis              = mix(normal, hit_info.is_hit ? vec3(1.0) : vec3(0.0), 0.5);
     }
 
     uint64_t end_time = get_current_time();

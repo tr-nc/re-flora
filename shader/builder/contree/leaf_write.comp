@@ -53,25 +53,22 @@ void main() {
     for (uint yi = 0; yi < 4; yi++) {
         for (uint zi = 0; zi < 4; zi++) {
             for (uint xi = 0; xi < 4; xi++) {
-                // Calculate the linear index (0-63) within the 4x4x4 brick.
                 uint i = xi + zi * 4 + yi * 16;
 
-                // Calculate the global voxel position in frag_img.
                 ivec3 vpos = uvi * 4 + ivec3(xi, yi, zi);
-                // Load the voxel value.
-                uint v  = imageLoad(frag_img, vpos).x;
-                temp[i] = v;
+                uint v     = imageLoad(frag_img, vpos).x;
+                temp[i]    = v;
 
-                // If the voxel value is non-zero, mark it as existing in the child_mask.
+                // the node is valid if voxel type is non zero
                 bool exists = (v != 0);
                 child_mask |= exists ? (uint64_t(1) << i) : 0ul;
             }
         }
     }
 
-    // Count the number of set bits in child_mask (i.e., number of valid voxels in this brick).
-    // bit_count_u64 is assumed to be an efficient implementation (e.g., using gl_popcount).
     uint cnt = bit_count_u64(child_mask);
+
+    // MARK:
 
     // Store this invocation's count of valid voxels into shared memory.
     s_voxel_counts[local_id] = cnt;
@@ -144,23 +141,18 @@ void main() {
     // workgroup.
     uint base = s_base_offset_for_workgroup_leaf_data + local_exclusive_prefix_sum;
 
-    // Calculate the index for writing to the sparse_nodes buffer.
-    // This is based on the brick's 3D coordinate (uvi) and an offset for the current processing
-    // level.
+    // MARK:
+
     uint sparse_node_write_offset = node_offset_for_levels.data[contree_build_state.level];
     uint brick_idx                = uint(uvi.x) + uint(uvi.z) * contree_build_state.curr_dim +
                      uint(uvi.y) * contree_build_state.curr_dim * contree_build_state.curr_dim;
     brick_idx += sparse_node_write_offset;
 
-    // If this brick contains no valid voxels (cnt == 0), write a null/empty node.
-    // This check is done after the scan and shared memory operations are complete for this
-    // invocation's role.
+    // early out: if no voxels are presented in this brick
     if (cnt == 0) {
-        sparse_nodes.data[brick_idx].packed_0 =
-            0; // Indicates an empty or non-leaf node without children here
-        sparse_nodes.data[brick_idx].child_mask = 0ul; // No children
-        return; // Safely exit as shared memory operations involving this invocation's 'cnt' are
-                // done.
+        sparse_nodes.data[brick_idx].packed_0   = 0;
+        sparse_nodes.data[brick_idx].child_mask = 0ul;
+        return;
     }
 
     // If there are valid voxels, write their data to the leaf_data buffer.
@@ -169,18 +161,16 @@ void main() {
     for (uint i = 0; i < 64; i++) {
         // Check if the i-th voxel in the 4x4x4 brick is valid.
         if ((child_mask & (uint64_t(1) << i)) != 0) {
-            // Write the voxel data from the temporary array to the calculated position in
-            // leaf_data.
             leaf_data.data[base + w] = temp[i];
             w++;
         }
     }
 
-    // Populate the ContreeNode structure for this brick.
-    // packed_0: LSB is a flag (1 likely means it's a leaf or points to leaf data).
-    // The rest of packed_0 is the 'base' offset into leaf_data, shifted left by 1.
-    // (This assumes 'base' fits within 31 bits, as per the original shader's comments).
-    sparse_nodes.data[brick_idx].packed_0 = 1 | (base << 1);
-    // child_mask stores the 64-bit mask indicating which voxels are present.
+    // because we are using 31 bits for the leaf ptr, there's a limit of 1290^3 of total voxels pre
+    // chunk
+    // 1290^3 = 2146689000, 2^31 = 2147483648, so we are safe
+    // so the maximum available voxel dim limit is 1024^3, to match the 4^n dimension need of
+    // contree
+    sparse_nodes.data[brick_idx].packed_0   = 1 | (base << 1);
     sparse_nodes.data[brick_idx].child_mask = child_mask;
 }

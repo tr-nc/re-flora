@@ -57,6 +57,7 @@ pub struct InitializedApp {
 // const VOXEL_OFFSET: UVec3 = UVec3::new(0, 0, 0);
 
 const VOXEL_TEST_DIM: UVec3 = UVec3::new(16, 16, 16);
+// const VOXEL_TEST_DIM: UVec3 = UVec3::new(64, 64, 64);
 const VOXEL_OFFSET: UVec3 = UVec3::new(0, 50, 0);
 
 impl InitializedApp {
@@ -237,7 +238,7 @@ impl InitializedApp {
         }
 
         // 1.13MB
-        for _ in 0..1000 {
+        for _ in 0..1 {
             self.contree_builder
                 .build_and_alloc(VOXEL_OFFSET, VOXEL_TEST_DIM)
                 .unwrap();
