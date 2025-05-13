@@ -1,0 +1,20 @@
+#version 450
+
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform U_SceneTexUpdateInfo {
+    uvec3 chunk_idx;
+    uint node_offset_for_chunk;
+    uint leaf_offset_for_chunk;
+}
+scene_tex_update_info;
+
+layout(set = 0, binding = 1, rg32ui) writeonly uniform uimage3D scene_tex;
+
+void main() {
+    imageStore(scene_tex, ivec3(scene_tex_update_info.chunk_idx),
+               uvec4(scene_tex_update_info.node_offset_for_chunk,
+                     scene_tex_update_info.leaf_offset_for_chunk, 0, 0));
+}

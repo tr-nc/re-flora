@@ -34,7 +34,6 @@ impl ContreeBuilderResources {
         leaf_write_sm: &ShaderModule,
         tree_write_sm: &ShaderModule,
         last_buffer_update_sm: &ShaderModule,
-        buffer_concat: &ShaderModule,
     ) -> Self {
         let voxel_dim_indirect_layout = frag_img_buffer_setup_sm
             .get_buffer_layout("B_VoxelDimIndirect")

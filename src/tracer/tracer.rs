@@ -1,5 +1,5 @@
 use super::TracerResources;
-use crate::builder::{AccelStructResources, ContreeBuilderResources, OctreeBuilderResources};
+use crate::builder::ContreeBuilderResources;
 use crate::gameplay::Camera;
 use crate::util::ShaderCompiler;
 use crate::vkn::{
@@ -26,7 +26,6 @@ impl Tracer {
         allocator: Allocator,
         shader_compiler: &ShaderCompiler,
         screen_extent: &[u32; 2],
-        octree_builder_resources: &OctreeBuilderResources,
         contree_builder_resources: &ContreeBuilderResources,
     ) -> Self {
         let tracer_sm = ShaderModule::from_glsl(
@@ -56,7 +55,6 @@ impl Tracer {
             &vulkan_context,
             &tracer_ppl,
             &resources,
-            octree_builder_resources,
             contree_builder_resources,
         );
 
@@ -73,7 +71,6 @@ impl Tracer {
     pub fn on_resize(
         &mut self,
         screen_extent: &[u32; 2],
-        octree_builder_resources: &OctreeBuilderResources,
         contree_builder_resources: &ContreeBuilderResources,
     ) {
         self.resources.on_resize(
@@ -88,7 +85,6 @@ impl Tracer {
             &self.vulkan_context,
             &self.tracer_ppl,
             &self.resources,
-            octree_builder_resources,
             contree_builder_resources,
         );
     }
@@ -202,7 +198,6 @@ impl Tracer {
         vulkan_context: &VulkanContext,
         compute_pipeline: &ComputePipeline,
         resources: &TracerResources,
-        octree_builder_resources: &OctreeBuilderResources,
         contree_builder_resources: &ContreeBuilderResources,
     ) -> DescriptorSet {
         let compute_descriptor_set = DescriptorSet::new(
@@ -214,11 +209,10 @@ impl Tracer {
             WriteDescriptorSet::new_buffer_write(0, &resources.gui_input),
             WriteDescriptorSet::new_buffer_write(1, &resources.camera_info),
             WriteDescriptorSet::new_buffer_write(2, &resources.env_info),
-            WriteDescriptorSet::new_buffer_write(3, &octree_builder_resources.octree_data),
-            WriteDescriptorSet::new_buffer_write(4, &contree_builder_resources.node_data),
-            WriteDescriptorSet::new_buffer_write(5, &contree_builder_resources.leaf_data),
+            WriteDescriptorSet::new_buffer_write(3, &contree_builder_resources.node_data),
+            WriteDescriptorSet::new_buffer_write(4, &contree_builder_resources.leaf_data),
             WriteDescriptorSet::new_texture_write(
-                6,
+                5,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &resources.shader_write_tex,
                 vk::ImageLayout::GENERAL,

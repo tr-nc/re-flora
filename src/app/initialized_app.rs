@@ -1,7 +1,10 @@
-use crate::builder::{AccelStructBuilder, ContreeBuilder, OctreeBuilder, PlainBuilder};
+#[allow(unused)]
+use crate::util::Timer;
+
+use crate::builder::{AccelStructBuilder, ContreeBuilder, PlainBuilder, SceneAccelBuilder};
 use crate::gameplay::{Camera, CameraDesc};
 use crate::tracer::Tracer;
-use crate::util::{ShaderCompiler, Timer};
+use crate::util::ShaderCompiler;
 use crate::util::{TimeInfo, BENCH};
 use crate::vkn::{Allocator, CommandBuffer, Fence, Semaphore, SwapchainDesc};
 use crate::{
@@ -13,7 +16,6 @@ use ash::vk;
 use egui::{Color32, RichText};
 use glam::{UVec3, Vec2, Vec3};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use winit::event::DeviceEvent;
 use winit::{
@@ -41,9 +43,8 @@ pub struct InitializedApp {
 
     // builders
     plain_builder: PlainBuilder,
-    accel_struct_builder: AccelStructBuilder,
-    octree_builder: OctreeBuilder,
     contree_builder: ContreeBuilder,
+    scene_accel_builder: SceneAccelBuilder,
 
     // gui adjustables
     debug_float: f32,
@@ -53,14 +54,9 @@ pub struct InitializedApp {
     vulkan_ctx: VulkanContext,
 }
 
-const VOXEL_TEST_DIM: UVec3 = UVec3::new(256, 256, 256);
-const VOXEL_OFFSET: UVec3 = UVec3::new(0, 0, 0);
-
-// const VOXEL_TEST_DIM: UVec3 = UVec3::new(64, 64, 64);
-// const VOXEL_OFFSET: UVec3 = UVec3::new(0, 50, 0);
-
-// const VOXEL_TEST_DIM: UVec3 = UVec3::new(16, 16, 16);
-// const VOXEL_OFFSET: UVec3 = UVec3::new(0, 50, 0);
+const CHUNK_VOXEL_DIM: UVec3 = UVec3::new(256, 256, 256);
+const CHUNK_DIM: UVec3 = UVec3::new(5, 5, 5);
+const FREE_ATLAS_DIM: UVec3 = UVec3::new(512, 512, 512);
 
 impl InitializedApp {
     pub fn new(_event_loop: &ActiveEventLoop) -> Self {
@@ -126,38 +122,8 @@ impl InitializedApp {
             vulkan_ctx.clone(),
             &shader_compiler,
             allocator.clone(),
-            UVec3::new(256, 256, 256) * UVec3::new(5, 5, 5), // plain atlas dim
-            UVec3::new(512, 512, 512),                       // free atlas dim
-        );
-
-        let mut accel_struct_builder = AccelStructBuilder::new(
-            vulkan_ctx.clone(),
-            allocator.clone(),
-            &shader_compiler,
-            UVec3::new(4, 4, 4),
-            20 * 20 * 20, // tlas instance cap
-        );
-
-        // 64^3 chunk, a total scene size of 1024 * 512 * 1024
-        let mut test_map = HashMap::new();
-        for i in 0..1 {
-            for j in 0..1 {
-                for k in 0..1 {
-                    test_map.insert(UVec3::new(i, j, k), i * 100 + j * 10 + k);
-                }
-            }
-        }
-        let timer = Timer::new();
-        accel_struct_builder.build_chunks_tlas(test_map);
-        log::debug!("Tlas build time: {:?}", timer.elapsed());
-
-        let octree_builder = OctreeBuilder::new(
-            vulkan_ctx.clone(),
-            allocator.clone(),
-            &shader_compiler,
-            plain_builder.resources(),
-            UVec3::new(256, 256, 256), // max voxel dim per chunk
-            100_000_000,               // octree buffer pool size
+            CHUNK_DIM * CHUNK_VOXEL_DIM,
+            FREE_ATLAS_DIM,
         );
 
         // 0.5GB of node buffer
@@ -167,9 +133,16 @@ impl InitializedApp {
             allocator.clone(),
             &shader_compiler,
             plain_builder.resources(),
-            VOXEL_TEST_DIM,
+            CHUNK_VOXEL_DIM,
             512 * 1024 * 1024, // node buffer pool size
             512 * 1024 * 1024, // leaf buffer pool size
+        );
+
+        let scene_accel_builder = SceneAccelBuilder::new(
+            vulkan_ctx.clone(),
+            allocator.clone(),
+            &shader_compiler,
+            CHUNK_DIM,
         );
 
         let tracer = Tracer::new(
@@ -177,7 +150,6 @@ impl InitializedApp {
             allocator.clone(),
             &shader_compiler,
             &screen_extent,
-            octree_builder.get_resources(),
             contree_builder.get_resources(),
         );
 
@@ -198,9 +170,8 @@ impl InitializedApp {
             tracer,
 
             plain_builder,
-            accel_struct_builder,
-            octree_builder,
             contree_builder,
+            scene_accel_builder,
 
             camera,
             is_resize_pending: false,
@@ -223,33 +194,15 @@ impl InitializedApp {
         self.plain_builder
             .chunk_init(UVec3::new(0, 0, 0), UVec3::new(512, 512, 512));
 
-        // +-----------------------+------------+--------------+--------------+-------+
-        // | Name                  | Avg        | Min@Idx      | Max@Idx      | Count |
-        // +==========================================================================+
-        // | build_frag_list       | 859.507µs  | 785µs@486    | 1.5548ms@105 | 1000  |
-        // |-----------------------+------------+--------------+--------------+-------|
-        // | build_octree          | 289.123µs  | 238.1µs@995  | 1.3439ms@105 | 1000  |
-        // |-----------------------+------------+--------------+--------------+-------|
-        // | copy_octree_data      | 121.277µs  | 74.7µs@859   | 1.6859ms@104 | 1000  |
-        // |-----------------------+------------+--------------+--------------+-------|
-        // | build_and_alloc_total | 1.378538ms | 1.1976ms@989 | 4.4731ms@812 | 1000  |
-        // |-----------------------+------------+--------------+--------------+-------|
-        // | build_frag_img        | 870.565µs  | 783.3µs@368  | 1.1693ms@414 | 1000  |
-        // |-----------------------+------------+--------------+--------------+-------|
-        // | build_contree         | 330.439µs  | 272.6µs@689  | 840.5µs@26   | 1000  |
-        // +-----------------------+------------+--------------+--------------+-------+
-        // octree size: 2.7821655MB
-        // contree size: 1.1336212158203125MB
-
         let chunk_pos_to_build_min = UVec3::new(0, 0, 0);
         let chunk_pos_to_build_max = UVec3::new(0, 0, 1); // incl
         for x in chunk_pos_to_build_min.x..=chunk_pos_to_build_max.x {
             for y in chunk_pos_to_build_min.y..=chunk_pos_to_build_max.y {
                 for z in chunk_pos_to_build_min.z..=chunk_pos_to_build_max.z {
                     let chunk_pos = UVec3::new(x, y, z);
-                    let atlas_offset = chunk_pos * VOXEL_TEST_DIM;
+                    let atlas_offset = chunk_pos * CHUNK_VOXEL_DIM;
                     self.contree_builder
-                        .build_and_alloc(atlas_offset, VOXEL_TEST_DIM)
+                        .build_and_alloc(atlas_offset, CHUNK_VOXEL_DIM)
                         .unwrap();
                 }
             }
@@ -518,11 +471,8 @@ impl InitializedApp {
         let window_size = self.window_state.window_size();
 
         self.camera.on_resize(&window_size);
-        self.tracer.on_resize(
-            &window_size,
-            self.octree_builder.get_resources(),
-            self.contree_builder.get_resources(),
-        );
+        self.tracer
+            .on_resize(&window_size, self.contree_builder.get_resources());
         self.swapchain.on_resize(&window_size);
 
         // the render pass should be rebuilt when the swapchain is recreated

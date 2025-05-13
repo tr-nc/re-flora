@@ -2,7 +2,6 @@ mod resources;
 pub use resources::*;
 
 use std::collections::HashMap;
-use std::fmt::Write;
 use std::time::Instant;
 
 use crate::builder::PlainBuilderResources;
@@ -145,7 +144,6 @@ impl ContreeBuilder {
             &contree_leaf_write_sm,
             &contree_tree_write_sm,
             &contree_last_buffer_update_sm,
-            &contree_concat_sm,
         );
 
         let frag_img_buffer_setup_ppl =
