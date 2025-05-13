@@ -1,7 +1,7 @@
 #[allow(unused)]
 use crate::util::Timer;
 
-use crate::builder::{AccelStructBuilder, ContreeBuilder, PlainBuilder, SceneAccelBuilder};
+use crate::builder::{ContreeBuilder, PlainBuilder, SceneAccelBuilder};
 use crate::gameplay::{Camera, CameraDesc};
 use crate::tracer::Tracer;
 use crate::util::ShaderCompiler;

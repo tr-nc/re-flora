@@ -785,10 +785,7 @@ impl ContreeBuilder {
             atlas_offset,
         );
 
-        return Ok(Some((
-            node_alloc_offset_in_bytes,
-            leaf_alloc_offset_in_bytes,
-        )));
+        return Ok(Some((node_alloc_offset, leaf_alloc_offset)));
 
         // return Ok(Some(write_offset));
 

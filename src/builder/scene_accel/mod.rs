@@ -16,8 +16,8 @@ pub struct SceneAccelBuilder {
     pub vulkan_ctx: VulkanContext,
     pub resources: SceneAccelResources,
 
-    update_scene_tex_ppl: ComputePipeline,
-    update_scene_tex_ds: DescriptorSet,
+    _update_scene_tex_ppl: ComputePipeline,
+    _update_scene_tex_ds: DescriptorSet,
 
     update_scene_tex_cmdbuf: CommandBuffer,
 }
@@ -77,8 +77,8 @@ impl SceneAccelBuilder {
         return Self {
             vulkan_ctx,
             resources,
-            update_scene_tex_ppl,
-            update_scene_tex_ds,
+            _update_scene_tex_ppl: update_scene_tex_ppl,
+            _update_scene_tex_ds: update_scene_tex_ds,
             update_scene_tex_cmdbuf,
         };
 
