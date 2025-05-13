@@ -1,10 +1,12 @@
+use std::fmt::Write;
+
 use super::TracerResources;
 use crate::builder::ContreeBuilderResources;
 use crate::gameplay::Camera;
 use crate::util::ShaderCompiler;
 use crate::vkn::{
-    Allocator, ComputePipeline, DescriptorPool, DescriptorSet, Image, PlainMemberTypeWithData,
-    ShaderModule, StructMemberDataBuilder, WriteDescriptorSet,
+    Allocator, Buffer, ComputePipeline, DescriptorPool, DescriptorSet, Image,
+    PlainMemberTypeWithData, ShaderModule, StructMemberDataBuilder, Texture, WriteDescriptorSet,
 };
 use crate::vkn::{CommandBuffer, VulkanContext};
 use ash::vk;
@@ -26,7 +28,9 @@ impl Tracer {
         allocator: Allocator,
         shader_compiler: &ShaderCompiler,
         screen_extent: &[u32; 2],
-        contree_builder_resources: &ContreeBuilderResources,
+        node_data: &Buffer,
+        leaf_data: &Buffer,
+        scene_tex: &Texture,
     ) -> Self {
         let tracer_sm = ShaderModule::from_glsl(
             vulkan_context.device(),
@@ -55,7 +59,9 @@ impl Tracer {
             &vulkan_context,
             &tracer_ppl,
             &resources,
-            contree_builder_resources,
+            node_data,
+            leaf_data,
+            scene_tex,
         );
 
         return Self {
@@ -71,7 +77,9 @@ impl Tracer {
     pub fn on_resize(
         &mut self,
         screen_extent: &[u32; 2],
-        contree_builder_resources: &ContreeBuilderResources,
+        node_data: &Buffer,
+        leaf_data: &Buffer,
+        scene_tex: &Texture,
     ) {
         self.resources.on_resize(
             self.vulkan_context.device().clone(),
@@ -80,12 +88,15 @@ impl Tracer {
         );
 
         self.descriptor_pool.reset().unwrap();
+        // TODO: use two descriptor sets to avoid binding swapchain-size unrelated resources
         self.tracer_ds = Self::create_tracer_ds(
             self.descriptor_pool.clone(),
             &self.vulkan_context,
             &self.tracer_ppl,
             &self.resources,
-            contree_builder_resources,
+            node_data,
+            leaf_data,
+            scene_tex,
         );
     }
 
@@ -198,7 +209,9 @@ impl Tracer {
         vulkan_context: &VulkanContext,
         compute_pipeline: &ComputePipeline,
         resources: &TracerResources,
-        contree_builder_resources: &ContreeBuilderResources,
+        node_data: &Buffer,
+        leaf_data: &Buffer,
+        scene_tex: &Texture,
     ) -> DescriptorSet {
         let compute_descriptor_set = DescriptorSet::new(
             vulkan_context.device().clone(),
@@ -209,10 +222,16 @@ impl Tracer {
             WriteDescriptorSet::new_buffer_write(0, &resources.gui_input),
             WriteDescriptorSet::new_buffer_write(1, &resources.camera_info),
             WriteDescriptorSet::new_buffer_write(2, &resources.env_info),
-            WriteDescriptorSet::new_buffer_write(3, &contree_builder_resources.node_data),
-            WriteDescriptorSet::new_buffer_write(4, &contree_builder_resources.leaf_data),
+            WriteDescriptorSet::new_buffer_write(3, &node_data),
+            WriteDescriptorSet::new_buffer_write(4, &leaf_data),
             WriteDescriptorSet::new_texture_write(
                 5,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &scene_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                6,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &resources.shader_write_tex,
                 vk::ImageLayout::GENERAL,

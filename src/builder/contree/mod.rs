@@ -735,11 +735,12 @@ impl ContreeBuilder {
         }
     }
 
+    /// Returns: (node_alloc_offset, leaf_alloc_offset)
     pub fn build_and_alloc(
         &mut self,
         atlas_offset: UVec3,
         atlas_dim: UVec3,
-    ) -> Result<Option<u64>, String> {
+    ) -> Result<Option<(u64, u64)>, String> {
         check_dim(atlas_dim)?;
 
         let t1 = Instant::now();
@@ -784,7 +785,10 @@ impl ContreeBuilder {
             atlas_offset,
         );
 
-        return Ok(None);
+        return Ok(Some((
+            node_alloc_offset_in_bytes,
+            leaf_alloc_offset_in_bytes,
+        )));
 
         // return Ok(Some(write_offset));
 

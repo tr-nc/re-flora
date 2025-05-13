@@ -73,6 +73,7 @@ impl SceneAccelBuilder {
         );
 
         Self::clear_tex(&vulkan_ctx, &resources);
+
         return Self {
             vulkan_ctx,
             resources,
@@ -125,14 +126,14 @@ impl SceneAccelBuilder {
     pub fn update_scene_tex(
         &mut self,
         chunk_idx: UVec3,
-        node_offset_for_chunk: u32,
-        node_count_for_chunk: u32,
+        node_offset_for_chunk: u64,
+        node_count_for_chunk: u64,
     ) {
         update_buffers(
             &self.resources.scene_tex_update_info,
             chunk_idx,
-            node_offset_for_chunk,
-            node_count_for_chunk,
+            node_offset_for_chunk as u32,
+            node_count_for_chunk as u32,
         );
 
         self.update_scene_tex_cmdbuf
@@ -166,5 +167,9 @@ impl SceneAccelBuilder {
                 .get_data_u8();
             scene_tex_update_info.fill_with_raw_u8(&data).unwrap();
         }
+    }
+
+    pub fn get_resources(&self) -> &SceneAccelResources {
+        &self.resources
     }
 }

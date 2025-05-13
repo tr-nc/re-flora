@@ -150,7 +150,9 @@ impl InitializedApp {
             allocator.clone(),
             &shader_compiler,
             &screen_extent,
-            contree_builder.get_resources(),
+            &contree_builder.get_resources().node_data,
+            &contree_builder.get_resources().leaf_data,
+            &scene_accel_builder.get_resources().scene_offset_tex,
         );
 
         let mut this = Self {
@@ -195,15 +197,27 @@ impl InitializedApp {
             .chunk_init(UVec3::new(0, 0, 0), UVec3::new(512, 512, 512));
 
         let chunk_pos_to_build_min = UVec3::new(0, 0, 0);
-        let chunk_pos_to_build_max = UVec3::new(0, 0, 1); // incl
+        let chunk_pos_to_build_max = UVec3::new(0, 0, 1); // inclusive
         for x in chunk_pos_to_build_min.x..=chunk_pos_to_build_max.x {
             for y in chunk_pos_to_build_min.y..=chunk_pos_to_build_max.y {
                 for z in chunk_pos_to_build_min.z..=chunk_pos_to_build_max.z {
-                    let chunk_pos = UVec3::new(x, y, z);
-                    let atlas_offset = chunk_pos * CHUNK_VOXEL_DIM;
-                    self.contree_builder
+                    let chunk_idx = UVec3::new(x, y, z);
+
+                    let atlas_offset = chunk_idx * CHUNK_VOXEL_DIM;
+                    let res = self
+                        .contree_builder
                         .build_and_alloc(atlas_offset, CHUNK_VOXEL_DIM)
                         .unwrap();
+                    if let Some(res) = res {
+                        let (node_buffer_offset, leaf_buffer_offset) = res;
+                        self.scene_accel_builder.update_scene_tex(
+                            chunk_idx,
+                            node_buffer_offset,
+                            leaf_buffer_offset,
+                        );
+                    } else {
+                        log::debug!("Don't need to update scene tex because the chunk is empty");
+                    }
                 }
             }
         }
@@ -471,8 +485,12 @@ impl InitializedApp {
         let window_size = self.window_state.window_size();
 
         self.camera.on_resize(&window_size);
-        self.tracer
-            .on_resize(&window_size, self.contree_builder.get_resources());
+        self.tracer.on_resize(
+            &window_size,
+            &self.contree_builder.get_resources().node_data,
+            &self.contree_builder.get_resources().leaf_data,
+            &self.scene_accel_builder.get_resources().scene_offset_tex,
+        );
         self.swapchain.on_resize(&window_size);
 
         // the render pass should be rebuilt when the swapchain is recreated
