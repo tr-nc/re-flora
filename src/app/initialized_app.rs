@@ -55,7 +55,7 @@ pub struct InitializedApp {
 }
 
 const CHUNK_VOXEL_DIM: UVec3 = UVec3::new(256, 256, 256);
-const CHUNK_DIM: UVec3 = UVec3::new(5, 5, 5);
+const CHUNK_DIM: UVec3 = UVec3::new(5, 2, 5);
 const FREE_ATLAS_DIM: UVec3 = UVec3::new(512, 512, 512);
 
 impl InitializedApp {
@@ -341,7 +341,7 @@ impl InitializedApp {
                 self.egui_renderer
                     .update(&self.window_state.window(), |ctx| {
                         let my_frame = egui::containers::Frame {
-                            fill: Color32::from_rgba_premultiplied(50, 0, 10, 128),
+                            fill: Color32::from_rgba_premultiplied(115, 34, 85, 250),
                             inner_margin: egui::Margin::same(10),
                             ..Default::default()
                         };
