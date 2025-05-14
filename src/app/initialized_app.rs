@@ -194,10 +194,10 @@ impl InitializedApp {
         // use bigger chunk size, for smaller overhead
         // use workgroup size of 4^3 works better than 8^3
         self.plain_builder
-            .chunk_init(UVec3::new(0, 0, 0), UVec3::new(512, 512, 512));
+            .chunk_init(UVec3::new(0, 0, 0), CHUNK_VOXEL_DIM * CHUNK_DIM);
 
         let chunk_pos_to_build_min = UVec3::new(0, 0, 0);
-        let chunk_pos_to_build_max = UVec3::new(0, 0, 1); // inclusive
+        let chunk_pos_to_build_max = CHUNK_DIM - 1; // inclusive
         for x in chunk_pos_to_build_min.x..=chunk_pos_to_build_max.x {
             for y in chunk_pos_to_build_min.y..=chunk_pos_to_build_max.y {
                 for z in chunk_pos_to_build_min.z..=chunk_pos_to_build_max.z {
