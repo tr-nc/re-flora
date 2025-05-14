@@ -6,7 +6,9 @@
 shared uint gs_stack[64][11];
 
 #include "../include/contree_node.glsl"
+#include "../include/core/aabb.glsl"
 #include "../include/core/bits.glsl"
+
 
 struct ContreeMarchingResult {
     bool is_hit;
@@ -57,6 +59,18 @@ ContreeMarchingResult _contree_marching(vec3 origin, vec3 dir, bool coarse, uint
     int scale_exp    = 21; // start at finest level 2⁻²¹ ≈ 0.25
     uint node_idx    = 0u;
     ContreeNode node = contree_node_data.data[node_offset + node_idx];
+
+    ContreeMarchingResult res;
+    res.is_hit     = false;
+    res.voxel_data = 0;
+    res.pos        = vec3(0.0);
+    res.normal     = vec3(0.0);
+
+    vec2 slab = slabs(vec3(1.0), vec3(2.0), origin, 1.0 / dir);
+    if (slab.x > slab.y || slab.y < 0.0) {
+        return res; // out of the broader bound directly
+    }
+    origin += max(slab.x, 0.0) * dir;
 
     // Build mirror mask based on ray octant
     uint mirror_mask = 0u;
@@ -129,11 +143,6 @@ ContreeMarchingResult _contree_marching(vec3 origin, vec3 dir, bool coarse, uint
         }
     }
 
-    ContreeMarchingResult res;
-    res.is_hit     = false;
-    res.voxel_data = 0;
-    res.pos        = vec3(0.0);
-    res.normal     = vec3(0.0);
     // if we ended in a leaf
     if ((node.packed_0 & 1u) != 0u && scale_exp <= 21) {
         res.is_hit = true;

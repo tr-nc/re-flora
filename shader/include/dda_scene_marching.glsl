@@ -23,7 +23,7 @@ DdaSceneMarchingResult dda_scene_marching(vec3 o, vec3 d, vec3 inv_d) {
     d = max(abs(d), vec3(EPSILON)) * (step(0.0, d) * 2.0 - 1.0);
 
     vec2 t = slabs(min_bound, max_bound, o, inv_d);
-    // out of the broader bound directly
+    // ray shoots out of the scene bound directly
     if (t.x > t.y || t.y < 0.0) {
         return res;
     }
