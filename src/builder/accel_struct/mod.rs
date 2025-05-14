@@ -1,8 +1,7 @@
 mod resources;
-use std::collections::HashMap;
 
 use ash::vk;
-use glam::{UVec3, Vec3};
+use glam::Vec3;
 pub use resources::*;
 
 use crate::{
@@ -22,12 +21,10 @@ pub struct AccelStructBuilder {
     _unit_cube_maker_ds: DescriptorSet,
     _unit_cube_maker_ppl: ComputePipeline,
 
-    chunk_instance_maker_ds: DescriptorSet,
-    chunk_instance_maker_ppl: ComputePipeline,
+    instance_maker_ds: DescriptorSet,
+    instance_maker_ppl: ComputePipeline,
 
     unit_cube_maker_cmdbuf: CommandBuffer,
-    // chunk_instance_maker_cmdbuf: CommandBuffer,
-    voxel_dim_per_chunk: UVec3,
 }
 
 impl AccelStructBuilder {
@@ -35,7 +32,6 @@ impl AccelStructBuilder {
         vulkan_ctx: VulkanContext,
         allocator: Allocator,
         shader_compiler: &ShaderCompiler,
-        voxel_dim_per_chunk: UVec3,
         tlas_instance_cap: u64,
     ) -> Self {
         let descriptor_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
@@ -91,16 +87,10 @@ impl AccelStructBuilder {
             WriteDescriptorSet::new_buffer_write(2, &resources.tlas_instances),
         ]);
 
-        let unit_cube_maker_cmdbuf = create_unit_cube_maker_cmdbuf(
-            &vulkan_ctx,
-            &unit_cube_maker_ppl,
-            &unit_cube_maker_ds,
-            voxel_dim_per_chunk,
-        );
-        // let chunk_instance_maker_cmdbuf =
-        //     create_instance_maker_cmdbuf(&vulkan_ctx, &instance_maker_ppl, &instance_maker_ds);
+        let unit_cube_maker_cmdbuf =
+            create_unit_cube_maker_cmdbuf(&vulkan_ctx, &unit_cube_maker_ppl, &unit_cube_maker_ds);
 
-        let mut this = Self {
+        return Self {
             vulkan_ctx,
             resources,
             descriptor_pool,
@@ -108,21 +98,16 @@ impl AccelStructBuilder {
             _unit_cube_maker_ppl: unit_cube_maker_ppl,
             _unit_cube_maker_ds: unit_cube_maker_ds,
 
-            chunk_instance_maker_ppl: instance_maker_ppl,
-            chunk_instance_maker_ds: instance_maker_ds,
+            instance_maker_ppl,
+            instance_maker_ds,
 
             unit_cube_maker_cmdbuf,
-            // chunk_instance_maker_cmdbuf,
-            voxel_dim_per_chunk,
         };
-        this.init();
-        return this;
 
         fn create_unit_cube_maker_cmdbuf(
             vulkan_ctx: &VulkanContext,
             unit_cube_maker_ppl: &ComputePipeline,
             unit_cube_maker_ds: &DescriptorSet,
-            voxel_dim_per_chunk: UVec3,
         ) -> CommandBuffer {
             let device = vulkan_ctx.device();
 
@@ -135,24 +120,19 @@ impl AccelStructBuilder {
                 std::slice::from_ref(unit_cube_maker_ds),
                 0,
             );
-            unit_cube_maker_ppl.record_dispatch(&cmdbuf, voxel_dim_per_chunk.to_array());
+            unit_cube_maker_ppl.record_dispatch(&cmdbuf, [1, 1, 1]);
 
             cmdbuf.end();
             return cmdbuf;
         }
     }
 
-    fn init(&mut self) {
-        self.build_cube_blas();
-    }
-
-    fn build_cube_blas(&mut self) {
+    pub fn build_cube_blas(&mut self) {
         self.unit_cube_maker_cmdbuf
             .submit(&self.vulkan_ctx.get_general_queue(), None);
         self.vulkan_ctx
             .device()
             .wait_queue_idle(&self.vulkan_ctx.get_general_queue());
-
         self.resources.blas.build(
             &self.resources.vertices,
             &self.resources.indices,
@@ -163,45 +143,34 @@ impl AccelStructBuilder {
         );
     }
 
-    pub fn build_chunks_tlas(&mut self, chunk_pos_custom_idx_table: HashMap<UVec3, u32>) {
+    pub fn build_tlas(&mut self, instances: &[(Vec3, u32)]) {
         // build the buffer first
         // this step takes 90% of the time! optimize it later
-        self.build_tlas_instances(
-            &chunk_pos_custom_idx_table,
-            self.resources.blas.get_device_address().unwrap(),
-        );
+        self.build_tlas_instances(instances, self.resources.blas.get_device_address().unwrap());
         // then build the tlas using the buffer
         self.resources.tlas.build(
             &self.resources.tlas_instances,
-            chunk_pos_custom_idx_table.len() as u32,
+            instances.len() as u32,
             vk::GeometryFlagsKHR::empty(),
         );
     }
 
-    pub fn build_tlas_instances(
-        &mut self,
-        chunk_pos_custom_idx_table: &HashMap<UVec3, u32>,
-        blas_device_address: u64,
-    ) {
-        update_buffers(
-            &self.resources,
-            chunk_pos_custom_idx_table,
-            blas_device_address,
-        );
+    fn build_tlas_instances(&mut self, instances: &[(Vec3, u32)], blas_device_address: u64) {
+        update_buffers(&self.resources, instances, blas_device_address);
 
-        let x_dispatch_count = chunk_pos_custom_idx_table.len() as u32;
+        let x_dispatch_count = instances.len() as u32;
         execute_one_time_command(
             self.vulkan_ctx.device(),
             self.vulkan_ctx.command_pool(),
             &self.vulkan_ctx.get_general_queue(),
             |cmdbuf| {
-                self.chunk_instance_maker_ppl.record_bind(&cmdbuf);
-                self.chunk_instance_maker_ppl.record_bind_descriptor_sets(
+                self.instance_maker_ppl.record_bind(&cmdbuf);
+                self.instance_maker_ppl.record_bind_descriptor_sets(
                     &cmdbuf,
-                    std::slice::from_ref(&self.chunk_instance_maker_ds),
+                    std::slice::from_ref(&self.instance_maker_ds),
                     0,
                 );
-                self.chunk_instance_maker_ppl
+                self.instance_maker_ppl
                     .record_dispatch(&cmdbuf, [x_dispatch_count, 1, 1]);
             },
         );
@@ -212,10 +181,10 @@ impl AccelStructBuilder {
 
         fn update_buffers(
             resources: &AccelStructResources,
-            chunk_pos_custom_idx_table: &HashMap<UVec3, u32>,
+            instances: &[(Vec3, u32)],
             blas_device_address: u64,
         ) {
-            let instance_count = chunk_pos_custom_idx_table.len() as u32;
+            let instance_count = instances.len() as u32;
 
             update_instance_info(
                 &resources.instance_info,
@@ -223,13 +192,14 @@ impl AccelStructBuilder {
                 blas_device_address,
             );
 
-            update_instance_descriptor(chunk_pos_custom_idx_table, &resources.instance_descriptor);
+            update_instance_descriptor(instances, &resources.instance_descriptor);
 
             fn update_instance_info(
                 instance_info_buf: &Buffer,
                 instance_count: u32,
                 blas_device_address: u64,
             ) {
+                // TODO: just use u64 directly with that extension in glsl
                 let lower = (blas_device_address & 0xFFFF_FFFF) as u32;
                 let upper = (blas_device_address >> 32) as u32;
 
@@ -250,19 +220,15 @@ impl AccelStructBuilder {
             }
 
             fn update_instance_descriptor(
-                chunk_pos_custom_idx_table: &HashMap<UVec3, u32>,
+                instances: &[(Vec3, u32)],
                 instance_descriptor_buf: &Buffer,
             ) {
                 const SCALE: f32 = 1.0;
-                for i in 0..chunk_pos_custom_idx_table.len() {
-                    let (chunk_pos, custom_idx) = chunk_pos_custom_idx_table.iter().nth(i).unwrap();
-
+                for (i, (pos, custom_idx)) in instances.iter().enumerate() {
                     let data = StructMemberDataBuilder::from_buffer(instance_descriptor_buf)
                         .set_field(
                             "data.position",
-                            PlainMemberTypeWithData::Vec3(
-                                chunk_position_to_position(chunk_pos, SCALE).to_array(),
-                            ),
+                            PlainMemberTypeWithData::Vec3(pos.to_array()),
                         )
                         .unwrap()
                         .set_field(
@@ -284,12 +250,6 @@ impl AccelStructBuilder {
                     instance_descriptor_buf
                         .fill_element_with_raw_u8(&data, i as u64)
                         .unwrap();
-                }
-
-                fn chunk_position_to_position(chunk_pos: &UVec3, scale: f32) -> Vec3 {
-                    let base_offset: Vec3 = Vec3::ZERO * scale;
-                    let chunk_pos = chunk_pos.as_vec3() * scale;
-                    return chunk_pos + base_offset;
                 }
             }
         }

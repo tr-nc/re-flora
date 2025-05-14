@@ -1,7 +1,7 @@
 #[allow(unused)]
 use crate::util::Timer;
 
-use crate::builder::{ContreeBuilder, PlainBuilder, SceneAccelBuilder};
+use crate::builder::{AccelStructBuilder, ContreeBuilder, PlainBuilder, SceneAccelBuilder};
 use crate::gameplay::{Camera, CameraDesc};
 use crate::tracer::Tracer;
 use crate::util::ShaderCompiler;
@@ -16,6 +16,7 @@ use ash::vk;
 use egui::{Color32, RichText};
 use glam::{UVec3, Vec2, Vec3};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use winit::event::DeviceEvent;
 use winit::{
@@ -45,6 +46,7 @@ pub struct InitializedApp {
     plain_builder: PlainBuilder,
     contree_builder: ContreeBuilder,
     scene_accel_builder: SceneAccelBuilder,
+    accel_struct_builder: AccelStructBuilder,
 
     // gui adjustables
     debug_float: f32,
@@ -145,6 +147,9 @@ impl InitializedApp {
             CHUNK_DIM,
         );
 
+        let accel_struct_builder =
+            AccelStructBuilder::new(vulkan_ctx.clone(), allocator.clone(), &shader_compiler, 100);
+
         let tracer = Tracer::new(
             vulkan_ctx.clone(),
             allocator.clone(),
@@ -174,6 +179,7 @@ impl InitializedApp {
             plain_builder,
             contree_builder,
             scene_accel_builder,
+            accel_struct_builder,
 
             camera,
             is_resize_pending: false,
@@ -221,6 +227,11 @@ impl InitializedApp {
                 }
             }
         }
+
+        self.accel_struct_builder.build_cube_blas();
+        let mut instances = Vec::new();
+        instances.push((Vec3::new(0.0, 0.0, 0.0), 0));
+        self.accel_struct_builder.build_tlas(&instances);
 
         // dump bench results
         BENCH.lock().unwrap().summary();
