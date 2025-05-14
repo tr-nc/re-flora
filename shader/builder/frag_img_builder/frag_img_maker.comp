@@ -161,13 +161,13 @@ void main() {
         return;
     }
 
-    if (is_occluded(uvi)) {
+    uint voxel_type = voxel_at_local_idx(uvi);
+    if (!is_solid(voxel_type)) {
         imageStore(frag_img, uvi, uvec4(0, 0, 0, 0));
         return;
     }
 
-    uint voxel_type = voxel_at_local_idx(uvi);
-    if (!is_solid(voxel_type)) {
+    if (is_occluded(uvi)) {
         imageStore(frag_img, uvi, uvec4(0, 0, 0, 0));
         return;
     }
