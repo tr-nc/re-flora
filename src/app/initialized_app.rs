@@ -147,8 +147,27 @@ impl InitializedApp {
             CHUNK_DIM,
         );
 
-        let accel_struct_builder =
-            AccelStructBuilder::new(vulkan_ctx.clone(), allocator.clone(), &shader_compiler, 100);
+        let mut accel_struct_builder = AccelStructBuilder::new(
+            vulkan_ctx.clone(),
+            allocator.clone(),
+            &shader_compiler,
+            100000,
+        );
+
+        accel_struct_builder.build_cube_blas();
+        let mut instances = Vec::new();
+        // instances.push((Vec3::new(0.0, 0.0, 0.0), 0));
+        let range_min = Vec3::new(-0.5, -0.5, -0.5);
+        let range_max = Vec3::new(0.5, 0.5, 0.5);
+        let generate_count = 100000;
+        for _ in 0..generate_count {
+            let x = rand::random::<f32>() * (range_max.x - range_min.x) + range_min.x;
+            let y = rand::random::<f32>() * (range_max.y - range_min.y) + range_min.y;
+            let z = rand::random::<f32>() * (range_max.z - range_min.z) + range_min.z;
+            let pos = Vec3::new(x, y, z);
+            instances.push((pos, 0));
+        }
+        accel_struct_builder.build_tlas(&instances);
 
         let tracer = Tracer::new(
             vulkan_ctx.clone(),
@@ -158,6 +177,7 @@ impl InitializedApp {
             &contree_builder.get_resources().node_data,
             &contree_builder.get_resources().leaf_data,
             &scene_accel_builder.get_resources().scene_offset_tex,
+            &accel_struct_builder.get_resources().tlas,
         );
 
         let mut this = Self {
@@ -227,11 +247,6 @@ impl InitializedApp {
                 }
             }
         }
-
-        self.accel_struct_builder.build_cube_blas();
-        let mut instances = Vec::new();
-        instances.push((Vec3::new(0.0, 0.0, 0.0), 0));
-        self.accel_struct_builder.build_tlas(&instances);
 
         // dump bench results
         BENCH.lock().unwrap().summary();
@@ -501,6 +516,7 @@ impl InitializedApp {
             &self.contree_builder.get_resources().node_data,
             &self.contree_builder.get_resources().leaf_data,
             &self.scene_accel_builder.get_resources().scene_offset_tex,
+            &self.accel_struct_builder.get_resources().tlas,
         );
         self.swapchain.on_resize(&window_size);
 

@@ -137,7 +137,7 @@ impl AccelStructBuilder {
             &self.resources.vertices,
             &self.resources.indices,
             // this controls the culling mode, it can be overwritten by gl_RayFlagsNoneEXT in rayQuery
-            vk::GeometryFlagsKHR::empty(),
+            vk::GeometryFlagsKHR::OPAQUE,
             86,
             171,
         );
@@ -151,7 +151,7 @@ impl AccelStructBuilder {
         self.resources.tlas.build(
             &self.resources.tlas_instances,
             instances.len() as u32,
-            vk::GeometryFlagsKHR::empty(),
+            vk::GeometryFlagsKHR::OPAQUE,
         );
     }
 
@@ -223,7 +223,7 @@ impl AccelStructBuilder {
                 instances: &[(Vec3, u32)],
                 instance_descriptor_buf: &Buffer,
             ) {
-                const SCALE: f32 = 1.0;
+                const SCALE: f32 = 0.01;
                 for (i, (pos, custom_idx)) in instances.iter().enumerate() {
                     let data = StructMemberDataBuilder::from_buffer(instance_descriptor_buf)
                         .set_field(

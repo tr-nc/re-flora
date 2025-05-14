@@ -1,9 +1,11 @@
 use super::TracerResources;
+use crate::builder::AccelStructResources;
 use crate::gameplay::Camera;
 use crate::util::ShaderCompiler;
 use crate::vkn::{
     Allocator, Buffer, ComputePipeline, DescriptorPool, DescriptorSet, Image,
-    PlainMemberTypeWithData, ShaderModule, StructMemberDataBuilder, Texture, WriteDescriptorSet,
+    PlainMemberTypeWithData, ShaderModule, StructMemberDataBuilder, Texture, Tlas,
+    WriteDescriptorSet,
 };
 use crate::vkn::{CommandBuffer, VulkanContext};
 use ash::vk;
@@ -28,6 +30,7 @@ impl Tracer {
         node_data: &Buffer,
         leaf_data: &Buffer,
         scene_tex: &Texture,
+        tlas: &Tlas,
     ) -> Self {
         let tracer_sm = ShaderModule::from_glsl(
             vulkan_context.device(),
@@ -59,6 +62,7 @@ impl Tracer {
             node_data,
             leaf_data,
             scene_tex,
+            tlas,
         );
 
         return Self {
@@ -77,6 +81,7 @@ impl Tracer {
         node_data: &Buffer,
         leaf_data: &Buffer,
         scene_tex: &Texture,
+        tlas: &Tlas,
     ) {
         self.resources.on_resize(
             self.vulkan_context.device().clone(),
@@ -94,6 +99,7 @@ impl Tracer {
             node_data,
             leaf_data,
             scene_tex,
+            tlas,
         );
     }
 
@@ -209,6 +215,7 @@ impl Tracer {
         node_data: &Buffer,
         leaf_data: &Buffer,
         scene_tex: &Texture,
+        tlas: &Tlas,
     ) -> DescriptorSet {
         let compute_descriptor_set = DescriptorSet::new(
             vulkan_context.device().clone(),
@@ -233,6 +240,7 @@ impl Tracer {
                 &resources.shader_write_tex,
                 vk::ImageLayout::GENERAL,
             ),
+            WriteDescriptorSet::new_acceleration_structure_write(7, tlas),
         ]);
         compute_descriptor_set
     }
