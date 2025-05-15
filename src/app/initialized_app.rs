@@ -154,7 +154,7 @@ impl InitializedApp {
             100000,
         );
 
-        accel_struct_builder.build_grass_blas();
+        accel_struct_builder.build_grass_blas(Vec2::new(0.5, 6.5));
         let mut instances = Vec::new();
         let range_min = Vec3::new(0.0, 0.5, 0.0);
         let range_max = Vec3::new(1.0, 0.5, 1.0);

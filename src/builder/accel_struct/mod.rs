@@ -3,7 +3,7 @@ mod resources;
 use std::{fmt::Write, time::Instant};
 
 use ash::vk;
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 pub use resources::*;
 
 use crate::{
@@ -75,9 +75,10 @@ impl AccelStructBuilder {
             descriptor_pool.clone(),
         );
         make_unit_grass_ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.vertices),
-            WriteDescriptorSet::new_buffer_write(1, &resources.indices),
-            WriteDescriptorSet::new_buffer_write(2, &resources.blas_build_result),
+            WriteDescriptorSet::new_buffer_write(0, &resources.make_unit_grass_info),
+            WriteDescriptorSet::new_buffer_write(1, &resources.vertices),
+            WriteDescriptorSet::new_buffer_write(2, &resources.indices),
+            WriteDescriptorSet::new_buffer_write(3, &resources.blas_build_result),
         ]);
         let instance_maker_ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),
@@ -130,7 +131,9 @@ impl AccelStructBuilder {
         }
     }
 
-    pub fn build_grass_blas(&mut self) {
+    pub fn build_grass_blas(&mut self, bend_dir_and_strength: Vec2) {
+        update_buffers(&self.resources.make_unit_grass_info, bend_dir_and_strength);
+
         self.make_unit_grass_cmdbuf
             .submit(&self.vulkan_ctx.get_general_queue(), None);
         self.vulkan_ctx
@@ -149,6 +152,17 @@ impl AccelStructBuilder {
             vertices_len,
             primitives_len,
         );
+
+        fn update_buffers(make_unit_grass_info: &Buffer, bend_dir_and_strength: Vec2) {
+            let data = StructMemberDataBuilder::from_buffer(make_unit_grass_info)
+                .set_field(
+                    "bend_dir_and_strength",
+                    PlainMemberTypeWithData::Vec2(bend_dir_and_strength.to_array()),
+                )
+                .unwrap()
+                .get_data_u8();
+            make_unit_grass_info.fill_with_raw_u8(&data).unwrap();
+        }
 
         /// Returns: (vertices_len, indices_len)
         fn get_vertices_and_indices_len(blas_build_result: &Buffer) -> (u32, u32) {

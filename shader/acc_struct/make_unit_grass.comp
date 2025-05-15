@@ -5,11 +5,13 @@ layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
 #include "../include/vertex_index_attribute.glsl"
 
-layout(set = 0, binding = 0) writeonly buffer B_Vertices { Vertex data[]; }
+layout(set = 0, binding = 0) uniform U_MakeUnitGrassInfo { vec2 bend_dir_and_strength; }
+make_unit_grass_info;
+layout(set = 0, binding = 1) writeonly buffer B_Vertices { Vertex data[]; }
 vertices;
-layout(set = 0, binding = 1) writeonly buffer B_Indices { Index data[]; }
+layout(set = 0, binding = 2) writeonly buffer B_Indices { Index data[]; }
 indices;
-layout(set = 0, binding = 2) writeonly buffer B_BlasBuildResult {
+layout(set = 0, binding = 3) writeonly buffer B_BlasBuildResult {
     uint vertices_len;
     uint indices_len;
 }
@@ -74,8 +76,7 @@ void main() {
     uint vertex_offset = 0u;
     uint index_offset  = 0u;
 
-    // Example: one blade of 8 voxels, bending +X by 0.3, +Z by 0.1
-    draw_grass_blade(vertex_offset, index_offset, vec2(2.0, 0.0), 8u);
+    draw_grass_blade(vertex_offset, index_offset, make_unit_grass_info.bend_dir_and_strength, 8u);
 
     blas_build_result.vertices_len = vertex_offset;
     blas_build_result.indices_len  = index_offset;

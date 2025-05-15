@@ -6,6 +6,7 @@ pub struct AccelStructResources {
     pub blas: Blas,
     pub tlas: Tlas,
 
+    pub make_unit_grass_info: Buffer,
     pub vertices: Buffer,
     pub indices: Buffer,
     pub blas_build_result: Buffer,
@@ -31,6 +32,17 @@ impl AccelStructResources {
         let accel_struct_device = ash::khr::acceleration_structure::Device::new(
             &vulkan_ctx.instance(),
             &vulkan_ctx.device(),
+        );
+
+        let make_unit_grass_info_layout = make_unit_grass_sm
+            .get_buffer_layout("U_MakeUnitGrassInfo")
+            .unwrap();
+        let make_unit_grass_info = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            make_unit_grass_info_layout.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
         let vertices_layout = make_unit_grass_sm.get_buffer_layout("B_Vertices").unwrap();
@@ -129,6 +141,7 @@ impl AccelStructResources {
             blas,
             tlas,
 
+            make_unit_grass_info,
             vertices,
             indices,
             blas_build_result,
