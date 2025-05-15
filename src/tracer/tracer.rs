@@ -1,5 +1,4 @@
 use super::TracerResources;
-use crate::builder::AccelStructResources;
 use crate::gameplay::Camera;
 use crate::util::ShaderCompiler;
 use crate::vkn::{

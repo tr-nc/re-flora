@@ -1,0 +1,82 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+#include "../include/vertex_index_attribute.glsl"
+
+layout(set = 0, binding = 0) writeonly buffer B_Vertices { Vertex data[]; }
+vertices;
+layout(set = 0, binding = 1) writeonly buffer B_Indices { Index data[]; }
+indices;
+layout(set = 0, binding = 2) writeonly buffer B_BlasBuildResult {
+    uint vertices_len;
+    uint indices_len;
+}
+blas_build_result;
+
+// Appends one cube into the global vertex/index buffers.
+void append_cube(inout uint vertex_offset, inout uint index_offset, vec3 center, vec3 scale) {
+    const vec3 base_verts[8] = vec3[](
+        vec3(-0.5, -0.5, -0.5), vec3(0.5, -0.5, -0.5), vec3(0.5, 0.5, -0.5), vec3(-0.5, 0.5, -0.5),
+        vec3(-0.5, -0.5, 0.5), vec3(0.5, -0.5, 0.5), vec3(0.5, 0.5, 0.5), vec3(-0.5, 0.5, 0.5));
+    const uint base_indices[36] = uint[](0, 1, 2, 2, 3, 0, // -Z
+                                         4, 6, 5, 6, 4, 7, // +Z
+                                         0, 3, 7, 7, 4, 0, // -X
+                                         1, 5, 6, 6, 2, 1, // +X
+                                         0, 4, 5, 5, 1, 0, // -Y
+                                         3, 2, 6, 6, 7, 3  // +Y
+    );
+
+    // write verts
+    for (uint i = 0u; i < 8u; ++i) {
+        vec3 pos                                  = base_verts[i] * scale + center;
+        vertices.data[vertex_offset + i].position = pos;
+    }
+    // write indices (with bias)
+    for (uint i = 0u; i < 36u; ++i) {
+        indices.data[index_offset + i].index = vertex_offset + base_indices[i];
+    }
+    vertex_offset += 8u;
+    index_offset += 36u;
+}
+
+// Builds one grass blade as a vertical stack of 'voxel_count' cubes.
+// – The bottom cube sits at Y=0.
+// – The top cube sits at Y=voxel_count-1, and is bent full‐strength in X and Z.
+// – Intermediate cubes have Y = their integer index, but X/Z are bent by t² ease‐in.
+void draw_grass_blade(inout uint vertex_offset, inout uint index_offset, vec2 bend_dir_and_strength,
+                      uint voxel_count) {
+    if (voxel_count == 0u) {
+        return;
+    }
+
+    // number of intervals = voxel_count-1 (clamp to 1 to avoid div0)
+    float denom = float(max(voxel_count - 1u, 1u));
+
+    for (uint i = 0u; i < voxel_count; ++i) {
+        float t       = float(i) / denom;
+        float t_curve = t * t; // ease‐in: gentle near base, stronger near tip
+
+        // Y is uniform step = i
+        float y = float(i);
+
+        // X/Z are bent along the ease‐in from 0→bend
+        float x = bend_dir_and_strength.x * t_curve;
+        float z = bend_dir_and_strength.y * t_curve;
+
+        vec3 center = vec3(x, y, z);
+        append_cube(vertex_offset, index_offset, center, vec3(1.0));
+    }
+}
+
+void main() {
+    uint vertex_offset = 0u;
+    uint index_offset  = 0u;
+
+    // Example: one blade of 8 voxels, bending +X by 0.3, +Z by 0.1
+    draw_grass_blade(vertex_offset, index_offset, vec2(2.0, 0.0), 8u);
+
+    blas_build_result.vertices_len = vertex_offset;
+    blas_build_result.indices_len  = index_offset;
+}

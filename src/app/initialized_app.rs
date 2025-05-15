@@ -154,12 +154,11 @@ impl InitializedApp {
             100000,
         );
 
-        accel_struct_builder.build_cube_blas();
+        accel_struct_builder.build_grass_blas();
         let mut instances = Vec::new();
-        // instances.push((Vec3::new(0.0, 0.0, 0.0), 0));
-        let range_min = Vec3::new(-0.5, -0.5, -0.5);
-        let range_max = Vec3::new(0.5, 0.5, 0.5);
-        let generate_count = 100000;
+        let range_min = Vec3::new(0.0, 0.5, 0.0);
+        let range_max = Vec3::new(1.0, 0.5, 1.0);
+        let generate_count = 5000;
         for _ in 0..generate_count {
             let x = rand::random::<f32>() * (range_max.x - range_min.x) + range_min.x;
             let y = rand::random::<f32>() * (range_max.y - range_min.y) + range_min.y;
@@ -168,6 +167,7 @@ impl InitializedApp {
             instances.push((pos, 0));
         }
         accel_struct_builder.build_tlas(&instances);
+        BENCH.lock().unwrap().summary();
 
         let tracer = Tracer::new(
             vulkan_ctx.clone(),

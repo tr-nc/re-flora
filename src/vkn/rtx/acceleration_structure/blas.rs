@@ -46,8 +46,8 @@ impl Blas {
         vertices_buf: &Buffer,
         indices_buf: &Buffer,
         geom_flags: vk::GeometryFlagsKHR,
-        primitive_count: u32,
         vertices_count: u32,
+        primitive_count: u32,
     ) {
         let geom = make_blas_geom(
             vertices_buf,

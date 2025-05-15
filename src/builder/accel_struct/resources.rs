@@ -8,6 +8,7 @@ pub struct AccelStructResources {
 
     pub vertices: Buffer,
     pub indices: Buffer,
+    pub blas_build_result: Buffer,
 
     pub instance_info: Buffer,
     pub instance_descriptor: Buffer,
@@ -19,7 +20,7 @@ impl AccelStructResources {
     pub fn new(
         vulkan_ctx: VulkanContext,
         allocator: Allocator,
-        unit_cube_maker_sm: &ShaderModule,
+        make_unit_grass_sm: &ShaderModule,
         instance_maker_sm: &ShaderModule,
         vertices_buffer_max_len: u64,
         indices_buffer_max_len: u64,
@@ -32,7 +33,7 @@ impl AccelStructResources {
             &vulkan_ctx.device(),
         );
 
-        let vertices_layout = unit_cube_maker_sm.get_buffer_layout("B_Vertices").unwrap();
+        let vertices_layout = make_unit_grass_sm.get_buffer_layout("B_Vertices").unwrap();
         let vertices = Buffer::from_buffer_layout_arraylike(
             device.clone(),
             allocator.clone(),
@@ -47,7 +48,7 @@ impl AccelStructResources {
         log::debug!("vertices buffer max len: {}", vertices_buffer_max_len);
         log::debug!("vertices buffer size: {}", vertices.get_size_bytes());
 
-        let indices_layout = unit_cube_maker_sm.get_buffer_layout("B_Indices").unwrap();
+        let indices_layout = make_unit_grass_sm.get_buffer_layout("B_Indices").unwrap();
         let indices = Buffer::from_buffer_layout_arraylike(
             device.clone(),
             allocator.clone(),
@@ -61,6 +62,17 @@ impl AccelStructResources {
         );
         log::debug!("indices buffer max len: {}", indices_buffer_max_len);
         log::debug!("indices buffer size: {}", indices.get_size_bytes());
+
+        let blas_build_result_layout = make_unit_grass_sm
+            .get_buffer_layout("B_BlasBuildResult")
+            .unwrap();
+        let blas_build_result = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            blas_build_result_layout.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::GpuToCpu,
+        );
 
         let blas = Blas::new(
             vulkan_ctx.clone(),
@@ -114,10 +126,13 @@ impl AccelStructResources {
         );
 
         Self {
-            vertices,
-            indices,
             blas,
             tlas,
+
+            vertices,
+            indices,
+            blas_build_result,
+
             instance_info,
             instance_descriptor,
             tlas_instances,

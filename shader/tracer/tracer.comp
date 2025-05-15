@@ -99,7 +99,7 @@ void main() {
     bool hit = (rayQueryGetIntersectionTypeEXT(rayQuery, true) ==
                 gl_RayQueryCommittedIntersectionTriangleEXT);
 
-    vis = hit ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+    vis = hit ? vec3(0.0, 1.0, 0.0) : vec3(0.0, 0.0, 0.0);
 
     // uint64_t start_time        = get_current_time();
     // DdaSceneMarchingResult res = dda_scene_marching(ray.origin, ray.direction,
