@@ -391,7 +391,7 @@ impl InitializedApp {
                 if changed {
                     log::debug!("Debug float: {}", self.debug_float);
                     self.accel_struct_builder
-                        .update(Vec2::new(self.debug_float, self.debug_float));
+                        .update(Vec2::new(self.debug_float * 4.0, self.debug_float));
                     self.tracer.update_tlas_binding(
                         self.accel_struct_builder
                             .get_resources()

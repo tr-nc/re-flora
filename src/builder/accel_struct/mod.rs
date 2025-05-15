@@ -149,8 +149,8 @@ impl AccelStructBuilder {
         fn make_instances() -> Vec<(Vec3, u32)> {
             let mut instances = Vec::new();
             let range_min = Vec3::new(0.0, 0.5, 0.0);
-            let range_max = Vec3::new(1.0, 0.5, 1.0);
-            let generate_count = 5000;
+            let range_max = Vec3::new(5.0, 0.5, 5.0);
+            let generate_count = 32 * 32 * 25;
             for _ in 0..generate_count {
                 let x = rand::random::<f32>() * (range_max.x - range_min.x) + range_min.x;
                 let y = rand::random::<f32>() * (range_max.y - range_min.y) + range_min.y;

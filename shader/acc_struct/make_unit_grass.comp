@@ -48,7 +48,7 @@ void append_cube(inout uint vertex_offset, inout uint index_offset, vec3 center,
 // – The top cube sits at Y=voxel_count-1, and is bent full‐strength in X and Z.
 // – Intermediate cubes have Y = their integer index, but X/Z are bent by t² ease‐in.
 void draw_grass_blade(inout uint vertex_offset, inout uint index_offset, vec2 bend_dir_and_strength,
-                      uint voxel_count) {
+                      vec3 offset, uint voxel_count) {
     if (voxel_count == 0u) {
         return;
     }
@@ -67,7 +67,7 @@ void draw_grass_blade(inout uint vertex_offset, inout uint index_offset, vec2 be
         float x = bend_dir_and_strength.x * t_curve;
         float z = bend_dir_and_strength.y * t_curve;
 
-        vec3 center = vec3(x, y, z);
+        vec3 center = vec3(x, y, z) + offset;
         append_cube(vertex_offset, index_offset, center, vec3(1.0));
     }
 }
@@ -76,7 +76,15 @@ void main() {
     uint vertex_offset = 0u;
     uint index_offset  = 0u;
 
-    draw_grass_blade(vertex_offset, index_offset, make_unit_grass_info.bend_dir_and_strength, 8u);
+    draw_grass_blade(vertex_offset, index_offset, make_unit_grass_info.bend_dir_and_strength,
+                     vec3(0.0, 0.0, 0.0), 8);
+    draw_grass_blade(vertex_offset, index_offset, make_unit_grass_info.bend_dir_and_strength,
+                     vec3(0.0, 0.0, 2.0), 14);
+    // TODO: draw more
+    draw_grass_blade(vertex_offset, index_offset, make_unit_grass_info.bend_dir_and_strength,
+                     vec3(0.0, 0.0, 4.0), 6);
+    draw_grass_blade(vertex_offset, index_offset, make_unit_grass_info.bend_dir_and_strength,
+                     vec3(2.0, 0.0, 2.0), 4);
 
     blas_build_result.vertices_len = vertex_offset;
     blas_build_result.indices_len  = index_offset;
