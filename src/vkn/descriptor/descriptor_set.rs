@@ -1,5 +1,5 @@
 use super::{DescriptorPool, DescriptorSetLayout};
-use crate::vkn::{Buffer, Device, Texture, Tlas};
+use crate::vkn::{AccelStruct, Buffer, Device, Texture};
 use ash::vk;
 
 pub struct DescriptorSet {
@@ -108,7 +108,7 @@ impl<'a> WriteDescriptorSet<'a> {
         }
     }
 
-    pub fn new_acceleration_structure_write(binding: u32, tlas: &Tlas) -> Self {
+    pub fn new_acceleration_structure_write(binding: u32, tlas: &AccelStruct) -> Self {
         let handles = vec![tlas.as_raw()];
 
         // take caution of this pitfall:

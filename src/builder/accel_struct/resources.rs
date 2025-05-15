@@ -1,10 +1,10 @@
 use ash::vk;
 
-use crate::vkn::{Allocator, Blas, Buffer, BufferUsage, ShaderModule, Tlas, VulkanContext};
+use crate::vkn::{AccelStruct, Allocator, Buffer, BufferUsage, ShaderModule, VulkanContext};
 
 pub struct AccelStructResources {
-    pub blas: Blas,
-    pub tlas: Tlas,
+    pub blas: Option<AccelStruct>,
+    pub tlas: Option<AccelStruct>,
 
     pub make_unit_grass_info: Buffer,
     pub vertices: Buffer,
@@ -28,11 +28,6 @@ impl AccelStructResources {
         tlas_instance_cap: u64,
     ) -> Self {
         let device = vulkan_ctx.device();
-
-        let accel_struct_device = ash::khr::acceleration_structure::Device::new(
-            &vulkan_ctx.instance(),
-            &vulkan_ctx.device(),
-        );
 
         let make_unit_grass_info_layout = make_unit_grass_sm
             .get_buffer_layout("U_MakeUnitGrassInfo")
@@ -86,18 +81,6 @@ impl AccelStructResources {
             gpu_allocator::MemoryLocation::GpuToCpu,
         );
 
-        let blas = Blas::new(
-            vulkan_ctx.clone(),
-            allocator.clone(),
-            accel_struct_device.clone(),
-        );
-
-        let tlas = Tlas::new(
-            vulkan_ctx.clone(),
-            allocator.clone(),
-            accel_struct_device.clone(),
-        );
-
         let instance_info_layout = instance_maker_sm
             .get_buffer_layout("U_InstanceInfo")
             .unwrap();
@@ -138,8 +121,8 @@ impl AccelStructResources {
         );
 
         Self {
-            blas,
-            tlas,
+            blas: None,
+            tlas: None,
 
             make_unit_grass_info,
             vertices,

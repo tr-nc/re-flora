@@ -1,6 +1,6 @@
 mod resources;
 
-use std::{fmt::Write, time::Instant};
+use std::time::Instant;
 
 use ash::vk;
 use glam::{Vec2, Vec3};
@@ -9,14 +9,18 @@ pub use resources::*;
 use crate::{
     util::{ShaderCompiler, BENCH},
     vkn::{
-        execute_one_time_command, Allocator, Buffer, CommandBuffer, ComputePipeline,
-        DescriptorPool, DescriptorSet, PlainMemberTypeWithData, ShaderModule,
-        StructMemberDataBuilder, StructMemberDataReader, VulkanContext, WriteDescriptorSet,
+        build_or_update_blas, build_tlas, execute_one_time_command, Allocator, Buffer,
+        CommandBuffer, ComputePipeline, DescriptorPool, DescriptorSet, PlainMemberTypeWithData,
+        ShaderModule, StructMemberDataBuilder, StructMemberDataReader, VulkanContext,
+        WriteDescriptorSet,
     },
 };
 
 pub struct AccelStructBuilder {
     vulkan_ctx: VulkanContext,
+    allocator: Allocator,
+    accel_struct_device: ash::khr::acceleration_structure::Device,
+
     resources: AccelStructResources,
     descriptor_pool: DescriptorPool,
 
@@ -36,6 +40,11 @@ impl AccelStructBuilder {
         shader_compiler: &ShaderCompiler,
         tlas_instance_cap: u64,
     ) -> Self {
+        let accel_struct_device = ash::khr::acceleration_structure::Device::new(
+            &vulkan_ctx.instance(),
+            &vulkan_ctx.device(),
+        );
+
         let descriptor_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
 
         let device = vulkan_ctx.device();
@@ -96,6 +105,9 @@ impl AccelStructBuilder {
 
         return Self {
             vulkan_ctx,
+            allocator,
+            accel_struct_device,
+
             resources,
             descriptor_pool,
 
@@ -131,7 +143,7 @@ impl AccelStructBuilder {
         }
     }
 
-    pub fn build_grass_blas(&mut self, bend_dir_and_strength: Vec2) {
+    pub fn build_or_update_grass_blas(&mut self, bend_dir_and_strength: Vec2, is_building: bool) {
         update_buffers(&self.resources.make_unit_grass_info, bend_dir_and_strength);
 
         self.make_unit_grass_cmdbuf
@@ -144,14 +156,22 @@ impl AccelStructBuilder {
             get_vertices_and_indices_len(&self.resources.blas_build_result);
         let primitives_len = indices_len / 3;
 
-        self.resources.blas.build(
+        let blas = build_or_update_blas(
+            &self.vulkan_ctx,
+            self.allocator.clone(),
+            self.accel_struct_device.clone(),
             &self.resources.vertices,
             &self.resources.indices,
             // this controls the culling mode, it can be overwritten by gl_RayFlagsNoneEXT in rayQuery
             vk::GeometryFlagsKHR::OPAQUE,
             vertices_len,
             primitives_len,
+            &self.resources.blas,
+            true,
+            is_building,
         );
+
+        self.resources.blas = Some(blas);
 
         fn update_buffers(make_unit_grass_info: &Buffer, bend_dir_and_strength: Vec2) {
             let data = StructMemberDataBuilder::from_buffer(make_unit_grass_info)
@@ -192,7 +212,14 @@ impl AccelStructBuilder {
         // build the buffer first
         // this step takes 90% of the time! optimize it later
         let t1 = Instant::now();
-        self.build_tlas_instances(instances, self.resources.blas.get_device_address().unwrap());
+        self.build_tlas_instances(
+            instances,
+            self.resources
+                .blas
+                .as_ref()
+                .expect("BLAS not found")
+                .get_device_address(),
+        );
         BENCH
             .lock()
             .unwrap()
@@ -200,12 +227,17 @@ impl AccelStructBuilder {
 
         let t2 = Instant::now();
         // then build the tlas using the buffer
-        self.resources.tlas.build(
+        let tlas = build_tlas(
+            &self.vulkan_ctx,
+            &self.allocator,
+            self.accel_struct_device.clone(),
             &self.resources.tlas_instances,
             instances.len() as u32,
             vk::GeometryFlagsKHR::OPAQUE,
         );
         BENCH.lock().unwrap().record("build_tlas", t2.elapsed());
+
+        self.resources.tlas = Some(tlas);
     }
 
     fn build_tlas_instances(&mut self, instances: &[(Vec3, u32)], blas_device_address: u64) {

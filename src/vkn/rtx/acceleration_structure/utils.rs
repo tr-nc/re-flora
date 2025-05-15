@@ -2,6 +2,8 @@ use ash::{khr, vk};
 
 use crate::vkn::{execute_one_time_command, Allocator, Buffer, BufferUsage, Device, VulkanContext};
 
+use super::AccelStruct;
+
 /// Returns: (acceleration_structure_size, scratch_buf_size)
 pub fn query_properties<'a>(
     acc_device: &khr::acceleration_structure::Device,
@@ -42,10 +44,10 @@ pub fn query_properties<'a>(
 pub fn create_acc(
     device: &Device,
     allocator: &Allocator,
-    acc_device: &khr::acceleration_structure::Device,
+    acc_device: khr::acceleration_structure::Device,
     acceleration_structure_size: u64,
     acc_type: vk::AccelerationStructureTypeKHR,
-) -> (vk::AccelerationStructureKHR, Buffer) {
+) -> AccelStruct {
     let buf_usage_flags = BufferUsage::from_flags(
         vk::BufferUsageFlags::ACCELERATION_STRUCTURE_STORAGE_KHR
             | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
@@ -73,16 +75,17 @@ pub fn create_acc(
             .expect("Failed to create BLAS")
     };
 
-    return (blas, acc_buf);
+    return AccelStruct::new(acc_device, blas, acc_buf);
 }
 
-pub fn build_acc(
+pub fn build_or_update_acc(
     vulkan_ctx: &VulkanContext,
     allocator: Allocator,
     scratch_buf_size: u64,
     geom: vk::AccelerationStructureGeometryKHR,
     acc_device: &khr::acceleration_structure::Device,
-    acc: vk::AccelerationStructureKHR,
+    src_accel_struct: &Option<AccelStruct>,
+    dst_accel_struct: &AccelStruct,
     acc_type: vk::AccelerationStructureTypeKHR,
     acc_flags: vk::BuildAccelerationStructureFlagsKHR,
     acc_mode: vk::BuildAccelerationStructureModeKHR,
@@ -97,7 +100,14 @@ pub fn build_acc(
         mode: acc_mode,
         geometry_count: geom_count,
         p_geometries: &geom,
-        dst_acceleration_structure: acc,
+        src_acceleration_structure: {
+            if let Some(src) = src_accel_struct {
+                src.as_raw()
+            } else {
+                vk::AccelerationStructureKHR::null()
+            }
+        },
+        dst_acceleration_structure: dst_accel_struct.as_raw(),
         scratch_data: vk::DeviceOrHostAddressKHR {
             device_address: scratch_buf.device_address(),
         },

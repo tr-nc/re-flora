@@ -16,7 +16,6 @@ use ash::vk;
 use egui::{Color32, RichText};
 use glam::{UVec3, Vec2, Vec3};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use winit::event::DeviceEvent;
 use winit::{
@@ -154,7 +153,7 @@ impl InitializedApp {
             100000,
         );
 
-        accel_struct_builder.build_grass_blas(Vec2::new(0.5, 6.5));
+        accel_struct_builder.build_or_update_grass_blas(Vec2::new(0.0, 0.0), true);
         let mut instances = Vec::new();
         let range_min = Vec3::new(0.0, 0.5, 0.0);
         let range_max = Vec3::new(1.0, 0.5, 1.0);
@@ -177,7 +176,7 @@ impl InitializedApp {
             &contree_builder.get_resources().node_data,
             &contree_builder.get_resources().leaf_data,
             &scene_accel_builder.get_resources().scene_offset_tex,
-            &accel_struct_builder.get_resources().tlas,
+            &accel_struct_builder.get_resources().tlas.as_ref().unwrap(),
         );
 
         let mut this = Self {
@@ -364,6 +363,7 @@ impl InitializedApp {
                     .wait_for_fences(&[self.fence.as_raw()])
                     .unwrap();
 
+                let mut changed = false;
                 self.egui_renderer
                     .update(&self.window_state.window(), |ctx| {
                         let my_frame = egui::containers::Frame {
@@ -386,10 +386,12 @@ impl InitializedApp {
                                         self.time_info.display_fps()
                                     )));
 
-                                    ui.add(
-                                        egui::Slider::new(&mut self.debug_float, 0.0..=1.0)
-                                            .text("Debug Float"),
-                                    );
+                                    changed |= ui
+                                        .add(
+                                            egui::Slider::new(&mut self.debug_float, 0.0..=1.0)
+                                                .text("Debug Float"),
+                                        )
+                                        .changed();
 
                                     ui.add(egui::Checkbox::new(
                                         &mut self.debug_bool,
@@ -398,6 +400,12 @@ impl InitializedApp {
                                 });
                             });
                     });
+
+                if changed {
+                    log::debug!("Debug float: {}", self.debug_float);
+                    self.accel_struct_builder
+                        .build_or_update_grass_blas(Vec2::new(0.0, self.debug_float), false);
+                }
 
                 let device = self.vulkan_ctx.device();
 
@@ -516,7 +524,12 @@ impl InitializedApp {
             &self.contree_builder.get_resources().node_data,
             &self.contree_builder.get_resources().leaf_data,
             &self.scene_accel_builder.get_resources().scene_offset_tex,
-            &self.accel_struct_builder.get_resources().tlas,
+            &self
+                .accel_struct_builder
+                .get_resources()
+                .tlas
+                .as_ref()
+                .unwrap(),
         );
         self.swapchain.on_resize(&window_size);
 
