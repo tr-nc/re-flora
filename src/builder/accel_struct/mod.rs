@@ -143,7 +143,34 @@ impl AccelStructBuilder {
         }
     }
 
-    pub fn build_or_update_grass_blas(&mut self, bend_dir_and_strength: Vec2, is_building: bool) {
+    pub fn build(&mut self, bend_dir_and_strength: Vec2) {
+        self.build_or_update_grass_blas(bend_dir_and_strength, true);
+        let instances = Self::make_instances();
+        self.build_tlas(&instances);
+    }
+
+    pub fn update(&mut self, bend_dir_and_strength: Vec2) {
+        self.build_or_update_grass_blas(bend_dir_and_strength, false);
+        // let instances = Self::make_instances();
+        // self.build_tlas(&instances);
+    }
+
+    fn make_instances() -> Vec<(Vec3, u32)> {
+        let mut instances = Vec::new();
+        let range_min = Vec3::new(0.0, 0.5, 0.0);
+        let range_max = Vec3::new(1.0, 0.5, 1.0);
+        let generate_count = 5000;
+        for _ in 0..generate_count {
+            let x = rand::random::<f32>() * (range_max.x - range_min.x) + range_min.x;
+            let y = rand::random::<f32>() * (range_max.y - range_min.y) + range_min.y;
+            let z = rand::random::<f32>() * (range_max.z - range_min.z) + range_min.z;
+            let pos = Vec3::new(x, y, z);
+            instances.push((pos, 0));
+        }
+        instances
+    }
+
+    fn build_or_update_grass_blas(&mut self, bend_dir_and_strength: Vec2, is_building: bool) {
         update_buffers(&self.resources.make_unit_grass_info, bend_dir_and_strength);
 
         self.make_unit_grass_cmdbuf
@@ -208,7 +235,7 @@ impl AccelStructBuilder {
         }
     }
 
-    pub fn build_tlas(&mut self, instances: &[(Vec3, u32)]) {
+    fn build_tlas(&mut self, instances: &[(Vec3, u32)]) {
         // build the buffer first
         // this step takes 90% of the time! optimize it later
         let t1 = Instant::now();

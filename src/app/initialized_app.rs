@@ -153,20 +153,7 @@ impl InitializedApp {
             100000,
         );
 
-        accel_struct_builder.build_or_update_grass_blas(Vec2::new(0.0, 0.0), true);
-        let mut instances = Vec::new();
-        let range_min = Vec3::new(0.0, 0.5, 0.0);
-        let range_max = Vec3::new(1.0, 0.5, 1.0);
-        let generate_count = 5000;
-        for _ in 0..generate_count {
-            let x = rand::random::<f32>() * (range_max.x - range_min.x) + range_min.x;
-            let y = rand::random::<f32>() * (range_max.y - range_min.y) + range_min.y;
-            let z = rand::random::<f32>() * (range_max.z - range_min.z) + range_min.z;
-            let pos = Vec3::new(x, y, z);
-            instances.push((pos, 0));
-        }
-        accel_struct_builder.build_tlas(&instances);
-        BENCH.lock().unwrap().summary();
+        accel_struct_builder.build(Vec2::new(0.0, 0.0));
 
         let tracer = Tracer::new(
             vulkan_ctx.clone(),
@@ -404,7 +391,7 @@ impl InitializedApp {
                 if changed {
                     log::debug!("Debug float: {}", self.debug_float);
                     self.accel_struct_builder
-                        .build_or_update_grass_blas(Vec2::new(0.0, self.debug_float), false);
+                        .update(Vec2::new(self.debug_float, self.debug_float));
                 }
 
                 let device = self.vulkan_ctx.device();
