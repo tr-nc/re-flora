@@ -30,8 +30,10 @@ contree_node_data;
 layout(set = 0, binding = 4) readonly buffer B_ContreeLeafData { uint data[]; }
 contree_leaf_data;
 layout(set = 0, binding = 5, rg32ui) readonly uniform uimage3D scene_tex;
-layout(set = 0, binding = 6) writeonly uniform image2D result_image;
-layout(set = 0, binding = 7) uniform accelerationStructureEXT tlas;
+
+layout(set = 1, binding = 0) writeonly uniform image2D result_image;
+
+layout(set = 2, binding = 0) uniform accelerationStructureEXT tlas;
 
 #include "../include/contree_marching.glsl"
 #include "../include/core/packer.glsl"

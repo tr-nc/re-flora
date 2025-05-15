@@ -31,6 +31,8 @@ pub struct AccelStructBuilder {
     instance_maker_ppl: ComputePipeline,
 
     make_unit_grass_cmdbuf: CommandBuffer,
+
+    instances: Vec<(Vec3, u32)>,
 }
 
 impl AccelStructBuilder {
@@ -118,6 +120,8 @@ impl AccelStructBuilder {
             instance_maker_ds,
 
             make_unit_grass_cmdbuf,
+
+            instances: make_instances(),
         };
 
         fn create_make_unit_grass_cmdbuf(
@@ -141,33 +145,31 @@ impl AccelStructBuilder {
             cmdbuf.end();
             return cmdbuf;
         }
+
+        fn make_instances() -> Vec<(Vec3, u32)> {
+            let mut instances = Vec::new();
+            let range_min = Vec3::new(0.0, 0.5, 0.0);
+            let range_max = Vec3::new(1.0, 0.5, 1.0);
+            let generate_count = 5000;
+            for _ in 0..generate_count {
+                let x = rand::random::<f32>() * (range_max.x - range_min.x) + range_min.x;
+                let y = rand::random::<f32>() * (range_max.y - range_min.y) + range_min.y;
+                let z = rand::random::<f32>() * (range_max.z - range_min.z) + range_min.z;
+                let pos = Vec3::new(x, y, z);
+                instances.push((pos, 0));
+            }
+            instances
+        }
     }
 
     pub fn build(&mut self, bend_dir_and_strength: Vec2) {
         self.build_or_update_grass_blas(bend_dir_and_strength, true);
-        let instances = Self::make_instances();
-        self.build_tlas(&instances);
+        self.build_tlas();
     }
 
     pub fn update(&mut self, bend_dir_and_strength: Vec2) {
         self.build_or_update_grass_blas(bend_dir_and_strength, false);
-        // let instances = Self::make_instances();
-        // self.build_tlas(&instances);
-    }
-
-    fn make_instances() -> Vec<(Vec3, u32)> {
-        let mut instances = Vec::new();
-        let range_min = Vec3::new(0.0, 0.5, 0.0);
-        let range_max = Vec3::new(1.0, 0.5, 1.0);
-        let generate_count = 5000;
-        for _ in 0..generate_count {
-            let x = rand::random::<f32>() * (range_max.x - range_min.x) + range_min.x;
-            let y = rand::random::<f32>() * (range_max.y - range_min.y) + range_min.y;
-            let z = rand::random::<f32>() * (range_max.z - range_min.z) + range_min.z;
-            let pos = Vec3::new(x, y, z);
-            instances.push((pos, 0));
-        }
-        instances
+        self.build_tlas();
     }
 
     fn build_or_update_grass_blas(&mut self, bend_dir_and_strength: Vec2, is_building: bool) {
@@ -235,12 +237,11 @@ impl AccelStructBuilder {
         }
     }
 
-    fn build_tlas(&mut self, instances: &[(Vec3, u32)]) {
+    fn build_tlas(&mut self) {
         // build the buffer first
         // this step takes 90% of the time! optimize it later
         let t1 = Instant::now();
         self.build_tlas_instances(
-            instances,
             self.resources
                 .blas
                 .as_ref()
@@ -259,7 +260,7 @@ impl AccelStructBuilder {
             &self.allocator,
             self.accel_struct_device.clone(),
             &self.resources.tlas_instances,
-            instances.len() as u32,
+            self.instances.len() as u32,
             vk::GeometryFlagsKHR::OPAQUE,
         );
         BENCH.lock().unwrap().record("build_tlas", t2.elapsed());
@@ -267,10 +268,10 @@ impl AccelStructBuilder {
         self.resources.tlas = Some(tlas);
     }
 
-    fn build_tlas_instances(&mut self, instances: &[(Vec3, u32)], blas_device_address: u64) {
-        update_buffers(&self.resources, instances, blas_device_address);
+    fn build_tlas_instances(&mut self, blas_device_address: u64) {
+        update_buffers(&self.resources, &self.instances, blas_device_address);
 
-        let x_dispatch_count = instances.len() as u32;
+        let x_dispatch_count = self.instances.len() as u32;
         execute_one_time_command(
             self.vulkan_ctx.device(),
             self.vulkan_ctx.command_pool(),

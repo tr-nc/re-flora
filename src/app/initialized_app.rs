@@ -392,6 +392,13 @@ impl InitializedApp {
                     log::debug!("Debug float: {}", self.debug_float);
                     self.accel_struct_builder
                         .update(Vec2::new(self.debug_float, self.debug_float));
+                    self.tracer.update_tlas_binding(
+                        self.accel_struct_builder
+                            .get_resources()
+                            .tlas
+                            .as_ref()
+                            .unwrap(),
+                    );
                 }
 
                 let device = self.vulkan_ctx.device();
@@ -506,18 +513,7 @@ impl InitializedApp {
         let window_size = self.window_state.window_size();
 
         self.camera.on_resize(&window_size);
-        self.tracer.on_resize(
-            &window_size,
-            &self.contree_builder.get_resources().node_data,
-            &self.contree_builder.get_resources().leaf_data,
-            &self.scene_accel_builder.get_resources().scene_offset_tex,
-            &self
-                .accel_struct_builder
-                .get_resources()
-                .tlas
-                .as_ref()
-                .unwrap(),
-        );
+        self.tracer.on_resize(&window_size);
         self.swapchain.on_resize(&window_size);
 
         // the render pass should be rebuilt when the swapchain is recreated
