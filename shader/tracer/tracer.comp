@@ -105,9 +105,9 @@ void main() {
     // DdaSceneMarchingResult res = dda_scene_marching(ray.origin, ray.direction,
     // ray.inv_direction); vec3 normal                = unpack_normal_v2((res.voxel_data &
     // 0x1FFFFF00u) >> 8); vis                        = res.is_hit ? normal : vec3(0.0); uint64_t
-    // end_time          = get_current_time(); float delta_time = get_delta_time(start_time,
-    // end_time); vec3 time_vis    = inferno_quintic(1.0 - exp(-float(delta_time))); vis = mix(vis,
-    // time_vis, 0.5);
+    // end_time          = get_current_time(); float delta_time           =
+    // get_delta_time(start_time, end_time); vec3 time_vis              = inferno_quintic(1.0 -
+    // exp(-float(delta_time))); vis                        = mix(vis, time_vis, 0.5);
 
     imageStore(result_image, uvi, vec4(vis, 1.0));
 }

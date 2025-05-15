@@ -118,7 +118,7 @@ https://rust-unofficial.github.io/patterns/patterns/structural/small-crates.html
 
 [Best Practices 1](https://developer.nvidia.com/blog/rtx-best-practices/)
 
-[Best Practices 2](https://developer.nvidia.com/blog/best-practices-using-nvidia-rtx-ray-tracing/)
+[Best Practices 2](https://developer.nvidia.com/blog/best-practices-for-using-nvidia-rtx-ray-tracing-updated/)
 
 [Another View on the Classic Ray-AABB Intersection Algorithm for BVH Traversal](https://medium.com/@bromanz/another-view-on-the-classic-ray-aabb-intersection-algorithm-for-bvh-traversal-41125138b525)
 
