@@ -34,18 +34,30 @@ pub struct ContreeBuilder {
     vulkan_ctx: VulkanContext,
     resources: ContreeBuilderResources,
 
+    #[allow(dead_code)]
     contree_buffer_setup_ppl: ComputePipeline,
+    #[allow(dead_code)]
     contree_leaf_write_ppl: ComputePipeline,
+    #[allow(dead_code)]
     contree_tree_write_ppl: ComputePipeline,
+    #[allow(dead_code)]
     contree_buffer_update_ppl: ComputePipeline,
+    #[allow(dead_code)]
     contree_last_buffer_update_ppl: ComputePipeline,
+    #[allow(dead_code)]
     contree_concat_ppl: ComputePipeline,
 
+    #[allow(dead_code)]
     contree_buffer_setup_ds: DescriptorSet,
+    #[allow(dead_code)]
     contree_leaf_write_ds: DescriptorSet,
+    #[allow(dead_code)]
     contree_tree_write_ds: DescriptorSet,
+    #[allow(dead_code)]
     contree_buffer_update_ds: DescriptorSet,
+    #[allow(dead_code)]
     contree_last_buffer_update_ds: DescriptorSet,
+    #[allow(dead_code)]
     contree_concat_ds: DescriptorSet,
 
     /// Atlas offset <-> (node_alloc_id, leaf_alloc_id)

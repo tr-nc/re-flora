@@ -5,7 +5,9 @@ use std::{ops::Deref, sync::Arc};
 struct AccelStructInner {
     acc_device: khr::acceleration_structure::Device,
     blas: vk::AccelerationStructureKHR,
+
     // must be kept alive until AS is destroyed
+    #[allow(dead_code)]
     buffer: Buffer,
 }
 

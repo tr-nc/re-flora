@@ -64,10 +64,5 @@ impl SurfaceResources {
             voxel_dim_indirect,
             make_surface_result,
         };
-
-        fn log_4(n: u32) -> u32 {
-            // trailing_zeros gives 2*k, so divide by 2:
-            n.trailing_zeros() / 2
-        }
     }
 }

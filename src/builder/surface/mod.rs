@@ -19,10 +19,14 @@ pub struct SurfaceBuilder {
     vulkan_ctx: VulkanContext,
     resources: SurfaceResources,
 
+    #[allow(dead_code)]
     buffer_setup_ppl: ComputePipeline,
+    #[allow(dead_code)]
     make_surface_ppl: ComputePipeline,
 
+    #[allow(dead_code)]
     buffer_setup_ds: DescriptorSet,
+    #[allow(dead_code)]
     make_surface_ds: DescriptorSet,
 
     cmdbuf: CommandBuffer,

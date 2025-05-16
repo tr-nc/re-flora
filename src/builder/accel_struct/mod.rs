@@ -1,13 +1,11 @@
 mod resources;
 
-use std::time::Instant;
-
 use ash::vk;
 use glam::{Vec2, Vec3};
 pub use resources::*;
 
 use crate::{
-    util::{ShaderCompiler, BENCH},
+    util::ShaderCompiler,
     vkn::{
         build_or_update_blas, build_tlas, execute_one_time_command, Allocator, Buffer,
         CommandBuffer, ComputePipeline, DescriptorPool, DescriptorSet, PlainMemberTypeWithData,
@@ -22,10 +20,11 @@ pub struct AccelStructBuilder {
     accel_struct_device: ash::khr::acceleration_structure::Device,
 
     resources: AccelStructResources,
-    descriptor_pool: DescriptorPool,
 
-    _make_unit_grass_ds: DescriptorSet,
-    _make_unit_grass_ppl: ComputePipeline,
+    #[allow(dead_code)]
+    make_unit_grass_ds: DescriptorSet,
+    #[allow(dead_code)]
+    make_unit_grass_ppl: ComputePipeline,
 
     instance_maker_ds: DescriptorSet,
     instance_maker_ppl: ComputePipeline,
@@ -111,10 +110,9 @@ impl AccelStructBuilder {
             accel_struct_device,
 
             resources,
-            descriptor_pool,
 
-            _make_unit_grass_ppl: make_unit_grass_ppl,
-            _make_unit_grass_ds: make_unit_grass_ds,
+            make_unit_grass_ppl,
+            make_unit_grass_ds,
 
             instance_maker_ppl,
             instance_maker_ds,

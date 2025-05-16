@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::vkn::{Buffer, MemberLayout};
 
-use super::{PlainMemberLayout, PlainMemberType, PlainMemberTypeWithData, StructMemberLayout};
+use super::{PlainMemberLayout, PlainMemberTypeWithData, StructMemberLayout};
 
 struct PlainMemberDataBuilder<'a> {
     layout: &'a PlainMemberLayout,
