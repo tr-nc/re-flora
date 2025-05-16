@@ -164,11 +164,30 @@ impl AccelStructBuilder {
 
     pub fn build(&mut self, bend_dir_and_strength: Vec2) {
         self.build_or_update_grass_blas(bend_dir_and_strength, true);
+
+        self.build_tlas_instances(
+            self.resources
+                .blas
+                .as_ref()
+                .expect("BLAS not found")
+                .get_device_address(),
+            true,
+        );
+
         self.build_tlas();
     }
 
     pub fn update(&mut self, bend_dir_and_strength: Vec2) {
         self.build_or_update_grass_blas(bend_dir_and_strength, false);
+
+        self.build_tlas_instances(
+            self.resources
+                .blas
+                .as_ref()
+                .expect("BLAS not found")
+                .get_device_address(),
+            false,
+        );
         self.build_tlas();
     }
 
@@ -238,22 +257,6 @@ impl AccelStructBuilder {
     }
 
     fn build_tlas(&mut self) {
-        // build the buffer first
-        // this step takes 90% of the time! optimize it later
-        let t1 = Instant::now();
-        self.build_tlas_instances(
-            self.resources
-                .blas
-                .as_ref()
-                .expect("BLAS not found")
-                .get_device_address(),
-        );
-        BENCH
-            .lock()
-            .unwrap()
-            .record("build_tlas_instances", t1.elapsed());
-
-        let t2 = Instant::now();
         // then build the tlas using the buffer
         let tlas = build_tlas(
             &self.vulkan_ctx,
@@ -263,13 +266,19 @@ impl AccelStructBuilder {
             self.instances.len() as u32,
             vk::GeometryFlagsKHR::OPAQUE,
         );
-        BENCH.lock().unwrap().record("build_tlas", t2.elapsed());
-
         self.resources.tlas = Some(tlas);
     }
 
-    fn build_tlas_instances(&mut self, blas_device_address: u64) {
-        update_buffers(&self.resources, &self.instances, blas_device_address);
+    fn build_tlas_instances(&mut self, blas_device_address: u64, rebuild_desc: bool) {
+        update_instance_info(
+            &self.resources.instance_info,
+            self.instances.len() as u32,
+            blas_device_address,
+        );
+
+        if rebuild_desc {
+            update_instance_descriptor(&self.instances, &self.resources.instance_descriptor);
+        }
 
         let x_dispatch_count = self.instances.len() as u32;
         execute_one_time_command(
@@ -292,78 +301,59 @@ impl AccelStructBuilder {
             .device()
             .wait_queue_idle(&self.vulkan_ctx.get_general_queue());
 
-        fn update_buffers(
-            resources: &AccelStructResources,
-            instances: &[(Vec3, u32)],
+        fn update_instance_info(
+            instance_info_buf: &Buffer,
+            instance_count: u32,
             blas_device_address: u64,
         ) {
-            let instance_count = instances.len() as u32;
+            // TODO: just use u64 directly with that extension in glsl
+            let lower = (blas_device_address & 0xFFFF_FFFF) as u32;
+            let upper = (blas_device_address >> 32) as u32;
 
-            update_instance_info(
-                &resources.instance_info,
-                instance_count,
-                blas_device_address,
-            );
+            // blas_device_address
+            let data = StructMemberDataBuilder::from_buffer(instance_info_buf)
+                .set_field(
+                    "instance_count",
+                    PlainMemberTypeWithData::UInt(instance_count),
+                )
+                .unwrap()
+                .set_field(
+                    "blas_device_address",
+                    PlainMemberTypeWithData::UVec2([lower, upper]),
+                )
+                .unwrap()
+                .get_data_u8();
+            instance_info_buf.fill_with_raw_u8(&data).unwrap();
+        }
 
-            update_instance_descriptor(instances, &resources.instance_descriptor);
-
-            fn update_instance_info(
-                instance_info_buf: &Buffer,
-                instance_count: u32,
-                blas_device_address: u64,
-            ) {
-                // TODO: just use u64 directly with that extension in glsl
-                let lower = (blas_device_address & 0xFFFF_FFFF) as u32;
-                let upper = (blas_device_address >> 32) as u32;
-
-                // blas_device_address
-                let data = StructMemberDataBuilder::from_buffer(instance_info_buf)
+        fn update_instance_descriptor(instances: &[(Vec3, u32)], instance_descriptor_buf: &Buffer) {
+            const SCALE: f32 = 1.0 / 256.0;
+            for (i, (pos, custom_idx)) in instances.iter().enumerate() {
+                let data = StructMemberDataBuilder::from_buffer(instance_descriptor_buf)
                     .set_field(
-                        "instance_count",
-                        PlainMemberTypeWithData::UInt(instance_count),
+                        "data.position",
+                        PlainMemberTypeWithData::Vec3(pos.to_array()),
                     )
                     .unwrap()
                     .set_field(
-                        "blas_device_address",
-                        PlainMemberTypeWithData::UVec2([lower, upper]),
+                        "data.rotation",
+                        PlainMemberTypeWithData::Vec3([0.0, 0.0, 0.0]),
+                    )
+                    .unwrap()
+                    .set_field(
+                        "data.scale",
+                        PlainMemberTypeWithData::Vec3([SCALE, SCALE, SCALE]),
+                    )
+                    .unwrap()
+                    .set_field(
+                        "data.custom_idx",
+                        PlainMemberTypeWithData::UInt(*custom_idx as u32),
                     )
                     .unwrap()
                     .get_data_u8();
-                instance_info_buf.fill_with_raw_u8(&data).unwrap();
-            }
-
-            fn update_instance_descriptor(
-                instances: &[(Vec3, u32)],
-                instance_descriptor_buf: &Buffer,
-            ) {
-                const SCALE: f32 = 1.0 / 256.0;
-                for (i, (pos, custom_idx)) in instances.iter().enumerate() {
-                    let data = StructMemberDataBuilder::from_buffer(instance_descriptor_buf)
-                        .set_field(
-                            "data.position",
-                            PlainMemberTypeWithData::Vec3(pos.to_array()),
-                        )
-                        .unwrap()
-                        .set_field(
-                            "data.rotation",
-                            PlainMemberTypeWithData::Vec3([0.0, 0.0, 0.0]),
-                        )
-                        .unwrap()
-                        .set_field(
-                            "data.scale",
-                            PlainMemberTypeWithData::Vec3([SCALE, SCALE, SCALE]),
-                        )
-                        .unwrap()
-                        .set_field(
-                            "data.custom_idx",
-                            PlainMemberTypeWithData::UInt(*custom_idx as u32),
-                        )
-                        .unwrap()
-                        .get_data_u8();
-                    instance_descriptor_buf
-                        .fill_element_with_raw_u8(&data, i as u64)
-                        .unwrap();
-                }
+                instance_descriptor_buf
+                    .fill_element_with_raw_u8(&data, i as u64)
+                    .unwrap();
             }
         }
     }

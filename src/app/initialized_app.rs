@@ -150,7 +150,7 @@ impl InitializedApp {
             vulkan_ctx.clone(),
             allocator.clone(),
             &shader_compiler,
-            100000,
+            1_000_000,
         );
 
         accel_struct_builder.build(Vec2::new(0.0, 0.0));
