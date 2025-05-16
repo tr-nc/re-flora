@@ -12,9 +12,7 @@ pub struct AccelStructResources {
     pub blas_build_result: Buffer,
 
     pub instance_info: Buffer,
-    pub instance_descriptor: Buffer,
     pub tlas_instances: Buffer,
-    // pub instance_maker_indirect: Buffer,
 }
 
 impl AccelStructResources {
@@ -92,18 +90,6 @@ impl AccelStructResources {
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
-        let instance_descriptor_layout = instance_maker_sm
-            .get_buffer_layout("B_InstanceDescriptor")
-            .unwrap();
-        let instance_descriptor = Buffer::from_buffer_layout_arraylike(
-            device.clone(),
-            allocator.clone(),
-            instance_descriptor_layout.clone(),
-            BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
-            tlas_instance_cap,
-        );
-
         let tlas_instances_layout = instance_maker_sm
             .get_buffer_layout("B_AccelStructInstances")
             .unwrap();
@@ -130,7 +116,6 @@ impl AccelStructResources {
             blas_build_result,
 
             instance_info,
-            instance_descriptor,
             tlas_instances,
         }
     }

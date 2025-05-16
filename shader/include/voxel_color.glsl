@@ -4,7 +4,6 @@
 #include "./core/color.glsl"
 #include "./voxel_type.glsl"
 
-// https://colorhunt.co/
 // all color pickers are in sRGB space for human preservation, but lighting calculations are done in
 // linear space
 vec3 voxel_color_by_type_srgb(uint voxel_type) {

@@ -5,6 +5,7 @@ struct DdaSceneMarchingResult {
     uint iter_count;
     bool is_hit;
     vec3 pos;
+    float t;
     vec3 normal;
     uint voxel_data;
 };

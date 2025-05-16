@@ -1,21 +1,7 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 
-layout(local_size_x = 8, local_size_y = 1, local_size_z = 1) in;
-
-struct InstanceDescriptor {
-    vec3 position;
-    vec3 rotation; // Euler angles in radians: (pitch, yaw, roll)
-    vec3 scale;
-    uint custom_idx; // 24-bit custom index (bits 0–23)
-};
-
-struct AccelStructInstance {
-    mat3x4 transform;
-    uint instance_custom_index_and_mask;
-    uint instance_shader_binding_table_record_offset_and_flags;
-    uvec2 blas_device_address;
-};
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 layout(set = 0, binding = 0) uniform U_InstanceInfo {
     uint instance_count;
@@ -23,11 +9,18 @@ layout(set = 0, binding = 0) uniform U_InstanceInfo {
 }
 instance_info;
 
-layout(set = 0, binding = 1) readonly buffer B_InstanceDescriptor { InstanceDescriptor data[]; }
-instance_descriptor;
+#include "../include/grass_instance.glsl"
+layout(set = 0, binding = 1) readonly buffer B_GrassInstances { GrassInstance data[]; }
+grass_instances;
 
+struct AccelStructInstance {
+    mat3x4 transform;
+    uint instance_custom_index_and_mask;
+    uint instance_shader_binding_table_record_offset_and_flags;
+    uvec2 blas_device_address;
+};
 layout(set = 0, binding = 2) writeonly buffer B_AccelStructInstances { AccelStructInstance data[]; }
-instance;
+tlas_instances;
 
 void main() {
     uint id = gl_GlobalInvocationID.x;
@@ -35,17 +28,16 @@ void main() {
         return;
     }
 
-    InstanceDescriptor desc = instance_descriptor.data[id];
+    GrassInstance grass_instance = grass_instances.data[id];
 
-    // InstanceDescriptor desc;
-    // desc.position = vec3(0.0, 0.0, 0.0);
-    // desc.rotation = vec3(0.0, 0.0, 0.0);
-    // desc.scale    = vec3(1.0, 1.0, 1.0);
-    // desc.custom_index = 0x123456; // 24-bit custom index
+    vec3 rotation   = vec3(0.0);
+    vec3 scale      = vec3(1.0 / 256.0);
+    vec3 position   = vec3(grass_instance.position) / 256.0;
+    uint custom_idx = 0;
 
     // build R from Euler XYZ
-    vec3 s = sin(desc.rotation);
-    vec3 c = cos(desc.rotation);
+    vec3 s = sin(rotation);
+    vec3 c = cos(rotation);
 
     mat3 r_x = mat3(1, 0, 0, 0, c.x, -s.x, 0, s.x, c.x);
     mat3 r_y = mat3(c.y, 0, s.y, 0, 1, 0, -s.y, 0, c.y);
@@ -53,30 +45,23 @@ void main() {
 
     // combined rotation & scale
     mat3 M = r_z * r_y * r_x;
-    M[0] *= desc.scale.x; // scale X‐column
-    M[1] *= desc.scale.y; // scale Y‐column
-    M[2] *= desc.scale.z; // scale Z‐column
+    M[0] *= scale.x; // scale X‐column
+    M[1] *= scale.y; // scale Y‐column
+    M[2] *= scale.z; // scale Z‐column
 
-    // 4) write out row-major 3×4
     AccelStructInstance outInst;
-    outInst.transform = mat3x4(vec4(M[0], desc.position.x), vec4(M[1], desc.position.y),
-                               vec4(M[2], desc.position.z));
+    outInst.transform =
+        mat3x4(vec4(M[0], position.x), vec4(M[1], position.y), vec4(M[2], position.z));
 
-    // 5) pack 24-bit customIndex and 8-bit mask (mask = 0xFF)
-    outInst.instance_custom_index_and_mask =
-        (desc.custom_idx & 0x00FFFFFFu) // customIndex in bits 0–23
-        | (0xFFu << 24);                // mask      in bits 24–31
+    outInst.instance_custom_index_and_mask = (custom_idx & 0x00FFFFFFu) // customIndex in bits 0–23
+                                             | (0xFFu << 24);           // mask      in bits 24–31
 
-    // 6) pack 24-bit sbt-record-offset and 8-bit flags
-    //    VK_GEOMETr_y_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR == 0x1
     uint flags = 0x1u;
     outInst.instance_shader_binding_table_record_offset_and_flags =
         (0u & 0x00FFFFFFu) // sbt offset in bits 0–23
         | (flags << 24);   // flags      in bits 24–31
 
-    // 7) BLAS device address
     outInst.blas_device_address = instance_info.blas_device_address;
 
-    // 8) store
-    instance.data[id] = outInst;
+    tlas_instances.data[id] = outInst;
 }

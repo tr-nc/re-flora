@@ -123,7 +123,7 @@ impl InitializedApp {
             },
         );
 
-        let plain_builder = PlainBuilder::new(
+        let mut plain_builder = PlainBuilder::new(
             vulkan_ctx.clone(),
             &shader_compiler,
             allocator.clone(),
@@ -131,7 +131,7 @@ impl InitializedApp {
             FREE_ATLAS_DIM,
         );
 
-        let surface_builder = SurfaceBuilder::new(
+        let mut surface_builder = SurfaceBuilder::new(
             vulkan_ctx.clone(),
             allocator.clone(),
             &shader_compiler,
@@ -146,7 +146,7 @@ impl InitializedApp {
 
         // 0.5GB of node buffer
         // 0.5GB of leaf buffer
-        let contree_builder = ContreeBuilder::new(
+        let mut contree_builder = ContreeBuilder::new(
             vulkan_ctx.clone(),
             allocator.clone(),
             &shader_compiler,
@@ -156,7 +156,7 @@ impl InitializedApp {
             512 * 1024 * 1024, // leaf buffer pool size
         );
 
-        let scene_accel_builder = SceneAccelBuilder::new(
+        let mut scene_accel_builder = SceneAccelBuilder::new(
             vulkan_ctx.clone(),
             allocator.clone(),
             &shader_compiler,
@@ -168,9 +168,16 @@ impl InitializedApp {
             allocator.clone(),
             &shader_compiler,
             1_000_000,
+            surface_builder.get_resources(),
         );
 
-        accel_struct_builder.build(Vec2::new(0.0, 0.0));
+        Self::init(
+            &mut plain_builder,
+            &mut surface_builder,
+            &mut contree_builder,
+            &mut scene_accel_builder,
+            &mut accel_struct_builder,
+        );
 
         let tracer = Tracer::new(
             vulkan_ctx.clone(),
@@ -183,7 +190,7 @@ impl InitializedApp {
             &accel_struct_builder.get_resources().tlas.as_ref().unwrap(),
         );
 
-        let mut this = Self {
+        return Self {
             vulkan_ctx,
             egui_renderer: renderer,
             window_state,
@@ -212,13 +219,16 @@ impl InitializedApp {
             debug_float: 0.0,
             debug_bool: true,
         };
-        this.init();
-        return this;
     }
 
-    fn init(&mut self) {
-        self.plain_builder
-            .chunk_init(UVec3::new(0, 0, 0), VOXEL_DIM_PER_CHUNK * CHUNK_DIM);
+    fn init(
+        plain_builder: &mut PlainBuilder,
+        surface_builder: &mut SurfaceBuilder,
+        contree_builder: &mut ContreeBuilder,
+        scene_accel_builder: &mut SceneAccelBuilder,
+        accel_struct_builder: &mut AccelStructBuilder,
+    ) {
+        plain_builder.chunk_init(UVec3::new(0, 0, 0), VOXEL_DIM_PER_CHUNK * CHUNK_DIM);
 
         let chunk_pos_to_build_min = UVec3::new(0, 0, 0);
         let chunk_pos_to_build_max = CHUNK_DIM - 1; // inclusive
@@ -230,11 +240,8 @@ impl InitializedApp {
                     let atlas_offset = chunk_idx * VOXEL_DIM_PER_CHUNK;
 
                     let t = Instant::now();
-                    let (active_voxel_len, grass_instance_len) =
-                        self.surface_builder.build_surface(atlas_offset);
+                    let active_voxel_len = surface_builder.build_surface(atlas_offset);
                     BENCH.lock().unwrap().record("build_surface", t.elapsed());
-
-                    log::debug!("grass instance len: {}", grass_instance_len);
 
                     if active_voxel_len == 0 {
                         log::debug!("Don't need to build contree because the chunk is empty");
@@ -242,12 +249,12 @@ impl InitializedApp {
                     }
 
                     let t = Instant::now();
-                    let res = self.contree_builder.build_and_alloc(atlas_offset).unwrap();
+                    let res = contree_builder.build_and_alloc(atlas_offset).unwrap();
                     BENCH.lock().unwrap().record("build_contree", t.elapsed());
 
                     if let Some(res) = res {
                         let (node_buffer_offset, leaf_buffer_offset) = res;
-                        self.scene_accel_builder.update_scene_tex(
+                        scene_accel_builder.update_scene_tex(
                             chunk_idx,
                             node_buffer_offset,
                             leaf_buffer_offset,
@@ -260,6 +267,11 @@ impl InitializedApp {
         }
 
         BENCH.lock().unwrap().summary();
+
+        accel_struct_builder.build(
+            Vec2::new(0.0, 0.0),
+            surface_builder.get_grass_instance_len(),
+        );
     }
 
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {
@@ -414,8 +426,10 @@ impl InitializedApp {
 
                 if changed {
                     log::debug!("Debug float: {}", self.debug_float);
-                    self.accel_struct_builder
-                        .update(Vec2::new(self.debug_float * 4.0, self.debug_float));
+                    self.accel_struct_builder.update(
+                        Vec2::new(self.debug_float * 4.0, self.debug_float),
+                        self.surface_builder.get_grass_instance_len(),
+                    );
                     self.tracer.update_tlas_binding(
                         self.accel_struct_builder
                             .get_resources()

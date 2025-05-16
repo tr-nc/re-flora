@@ -1,9 +1,5 @@
 mod resources;
 
-use ash::vk;
-use glam::{Vec2, Vec3};
-pub use resources::*;
-
 use crate::{
     util::ShaderCompiler,
     vkn::{
@@ -13,6 +9,11 @@ use crate::{
         WriteDescriptorSet,
     },
 };
+use ash::vk;
+use glam::Vec2;
+pub use resources::*;
+
+use super::SurfaceResources;
 
 pub struct AccelStructBuilder {
     vulkan_ctx: VulkanContext,
@@ -30,8 +31,6 @@ pub struct AccelStructBuilder {
     instance_maker_ppl: ComputePipeline,
 
     make_unit_grass_cmdbuf: CommandBuffer,
-
-    instances: Vec<(Vec3, u32)>,
 }
 
 impl AccelStructBuilder {
@@ -40,6 +39,7 @@ impl AccelStructBuilder {
         allocator: Allocator,
         shader_compiler: &ShaderCompiler,
         tlas_instance_cap: u64,
+        surface_resources: &SurfaceResources,
     ) -> Self {
         let accel_struct_device = ash::khr::acceleration_structure::Device::new(
             &vulkan_ctx.instance(),
@@ -97,7 +97,7 @@ impl AccelStructBuilder {
         );
         instance_maker_ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.instance_info),
-            WriteDescriptorSet::new_buffer_write(1, &resources.instance_descriptor),
+            WriteDescriptorSet::new_buffer_write(1, &surface_resources.grass_instances),
             WriteDescriptorSet::new_buffer_write(2, &resources.tlas_instances),
         ]);
 
@@ -118,8 +118,6 @@ impl AccelStructBuilder {
             instance_maker_ds,
 
             make_unit_grass_cmdbuf,
-
-            instances: make_instances(),
         };
 
         fn create_make_unit_grass_cmdbuf(
@@ -143,24 +141,9 @@ impl AccelStructBuilder {
             cmdbuf.end();
             return cmdbuf;
         }
-
-        fn make_instances() -> Vec<(Vec3, u32)> {
-            let mut instances = Vec::new();
-            let range_min = Vec3::new(0.0, 0.5, 0.0);
-            let range_max = Vec3::new(5.0, 0.5, 5.0);
-            let generate_count = 32 * 32 * 25;
-            for _ in 0..generate_count {
-                let x = rand::random::<f32>() * (range_max.x - range_min.x) + range_min.x;
-                let y = rand::random::<f32>() * (range_max.y - range_min.y) + range_min.y;
-                let z = rand::random::<f32>() * (range_max.z - range_min.z) + range_min.z;
-                let pos = Vec3::new(x, y, z);
-                instances.push((pos, 0));
-            }
-            instances
-        }
     }
 
-    pub fn build(&mut self, bend_dir_and_strength: Vec2) {
+    pub fn build(&mut self, bend_dir_and_strength: Vec2, grass_instance_len: u32) {
         self.build_or_update_grass_blas(bend_dir_and_strength, true);
 
         self.build_tlas_instances(
@@ -169,13 +152,13 @@ impl AccelStructBuilder {
                 .as_ref()
                 .expect("BLAS not found")
                 .get_device_address(),
-            true,
+            grass_instance_len,
         );
 
-        self.build_tlas();
+        self.build_tlas(grass_instance_len);
     }
 
-    pub fn update(&mut self, bend_dir_and_strength: Vec2) {
+    pub fn update(&mut self, bend_dir_and_strength: Vec2, grass_instance_len: u32) {
         self.build_or_update_grass_blas(bend_dir_and_strength, false);
 
         self.build_tlas_instances(
@@ -184,9 +167,9 @@ impl AccelStructBuilder {
                 .as_ref()
                 .expect("BLAS not found")
                 .get_device_address(),
-            false,
+            grass_instance_len,
         );
-        self.build_tlas();
+        self.build_tlas(grass_instance_len);
     }
 
     fn build_or_update_grass_blas(&mut self, bend_dir_and_strength: Vec2, is_building: bool) {
@@ -254,31 +237,26 @@ impl AccelStructBuilder {
         }
     }
 
-    fn build_tlas(&mut self) {
+    fn build_tlas(&mut self, grass_instance_len: u32) {
         // then build the tlas using the buffer
         let tlas = build_tlas(
             &self.vulkan_ctx,
             &self.allocator,
             self.accel_struct_device.clone(),
             &self.resources.tlas_instances,
-            self.instances.len() as u32,
+            grass_instance_len,
             vk::GeometryFlagsKHR::OPAQUE,
         );
         self.resources.tlas = Some(tlas);
     }
 
-    fn build_tlas_instances(&mut self, blas_device_address: u64, rebuild_desc: bool) {
+    fn build_tlas_instances(&mut self, blas_device_address: u64, grass_instance_len: u32) {
         update_instance_info(
             &self.resources.instance_info,
-            self.instances.len() as u32,
+            grass_instance_len,
             blas_device_address,
         );
 
-        if rebuild_desc {
-            update_instance_descriptor(&self.instances, &self.resources.instance_descriptor);
-        }
-
-        let x_dispatch_count = self.instances.len() as u32;
         execute_one_time_command(
             self.vulkan_ctx.device(),
             self.vulkan_ctx.command_pool(),
@@ -291,7 +269,7 @@ impl AccelStructBuilder {
                     0,
                 );
                 self.instance_maker_ppl
-                    .record_dispatch(&cmdbuf, [x_dispatch_count, 1, 1]);
+                    .record_dispatch(&cmdbuf, [grass_instance_len, 1, 1]);
             },
         );
 
@@ -322,37 +300,6 @@ impl AccelStructBuilder {
                 .unwrap()
                 .get_data_u8();
             instance_info_buf.fill_with_raw_u8(&data).unwrap();
-        }
-
-        fn update_instance_descriptor(instances: &[(Vec3, u32)], instance_descriptor_buf: &Buffer) {
-            const SCALE: f32 = 1.0 / 256.0;
-            for (i, (pos, custom_idx)) in instances.iter().enumerate() {
-                let data = StructMemberDataBuilder::from_buffer(instance_descriptor_buf)
-                    .set_field(
-                        "data.position",
-                        PlainMemberTypeWithData::Vec3(pos.to_array()),
-                    )
-                    .unwrap()
-                    .set_field(
-                        "data.rotation",
-                        PlainMemberTypeWithData::Vec3([0.0, 0.0, 0.0]),
-                    )
-                    .unwrap()
-                    .set_field(
-                        "data.scale",
-                        PlainMemberTypeWithData::Vec3([SCALE, SCALE, SCALE]),
-                    )
-                    .unwrap()
-                    .set_field(
-                        "data.custom_idx",
-                        PlainMemberTypeWithData::UInt(*custom_idx as u32),
-                    )
-                    .unwrap()
-                    .get_data_u8();
-                instance_descriptor_buf
-                    .fill_element_with_raw_u8(&data, i as u64)
-                    .unwrap();
-            }
         }
     }
 

@@ -32,6 +32,8 @@ pub struct SurfaceBuilder {
     cmdbuf: CommandBuffer,
 
     voxel_dim_per_chunk: UVec3,
+
+    grass_instance_len: u32,
 }
 
 impl SurfaceBuilder {
@@ -104,6 +106,7 @@ impl SurfaceBuilder {
                 &plain_builder_resources.chunk_atlas,
                 vk::ImageLayout::GENERAL,
             ),
+            WriteDescriptorSet::new_buffer_write(4, &resources.grass_instances),
         ]);
 
         init_surface_image(&vulkan_ctx, &resources.surface);
@@ -129,6 +132,7 @@ impl SurfaceBuilder {
             cmdbuf,
 
             voxel_dim_per_chunk,
+            grass_instance_len: 0,
         };
 
         fn init_surface_image(vulkan_context: &VulkanContext, surface: &Texture) {
@@ -197,8 +201,12 @@ impl SurfaceBuilder {
         }
     }
 
-    /// Returns (active_voxel_len, grass_instance_len)
-    pub fn build_surface(&mut self, atlas_read_offset: UVec3) -> (u32, u32) {
+    pub fn get_grass_instance_len(&self) -> u32 {
+        self.grass_instance_len
+    }
+
+    /// Returns active_voxel_len
+    pub fn build_surface(&mut self, atlas_read_offset: UVec3) -> u32 {
         let atlas_read_dim = self.voxel_dim_per_chunk;
 
         let device = self.vulkan_ctx.device();
@@ -214,7 +222,11 @@ impl SurfaceBuilder {
             .submit(&self.vulkan_ctx.get_general_queue(), None);
         device.wait_queue_idle(&self.vulkan_ctx.get_general_queue());
 
-        return get_result(&self.resources.make_surface_result);
+        let (active_voxel_len, grass_instance_len) =
+            get_result(&self.resources.make_surface_result);
+        self.grass_instance_len = grass_instance_len;
+
+        return active_voxel_len;
 
         fn update_buffers(
             make_surface_info: &Buffer,

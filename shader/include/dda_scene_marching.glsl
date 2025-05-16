@@ -12,6 +12,7 @@ DdaSceneMarchingResult dda_scene_marching(vec3 o, vec3 d, vec3 inv_d) {
     res.iter_count = 0;
     res.is_hit     = false;
     res.pos        = vec3(0.0);
+    res.t          = 1e10;
     res.normal     = vec3(0.0);
     res.voxel_data = 0;
 
@@ -28,13 +29,14 @@ DdaSceneMarchingResult dda_scene_marching(vec3 o, vec3 d, vec3 inv_d) {
         return res;
     }
 
-    float march_extent = max(t.x, 0.0) + EPSILON;
-    o += march_extent * d;
+    float march_extent  = max(t.x, 0.0) + EPSILON;
+    vec3 marched_origin = o + march_extent * d;
 
     const vec3 delta_dist = 1.0 / abs(d);
     const ivec3 ray_step  = ivec3(sign(d));
-    ivec3 map_pos         = ivec3(floor(o));
-    vec3 side_dist        = (((sign(d) * 0.5) + 0.5) + sign(d) * (vec3(map_pos) - o)) * delta_dist;
+    ivec3 map_pos         = ivec3(floor(marched_origin));
+    vec3 side_dist =
+        (((sign(d) * 0.5) + 0.5) + sign(d) * (vec3(map_pos) - marched_origin)) * delta_dist;
 
     while (res.iter_count++ < MAX_DDA_ITERATION) {
         bvec3 min_mask = lessThanEqual(side_dist, min(side_dist.yzx, side_dist.zxy));
@@ -43,7 +45,8 @@ DdaSceneMarchingResult dda_scene_marching(vec3 o, vec3 d, vec3 inv_d) {
             break;
         }
         uvec4 scene_tex_read = imageLoad(SCENE_TEX_NAME, map_pos);
-        if (scene_hit(res, o, d, map_pos, scene_tex_read)) {
+        if (scene_hit(res, marched_origin, d, map_pos, scene_tex_read)) {
+            res.t = length(o - res.pos);
             break;
         }
         map_pos += ivec3(vec3(min_mask)) * ray_step;

@@ -30,9 +30,10 @@ make_surface_result;
 
 void main() {
     // TODO: maybe use uvec3 in indirect buffers?
-    voxel_dim_indirect.dispatch_x          = group_x_8(make_surface_info.atlas_read_dim.x);
-    voxel_dim_indirect.dispatch_y          = group_x_8(make_surface_info.atlas_read_dim.y);
-    voxel_dim_indirect.dispatch_z          = group_x_8(make_surface_info.atlas_read_dim.z);
-    make_surface_result.active_voxel_len   = 0;
-    make_surface_result.grass_instance_len = 0;
+    voxel_dim_indirect.dispatch_x        = group_x_8(make_surface_info.atlas_read_dim.x);
+    voxel_dim_indirect.dispatch_y        = group_x_8(make_surface_info.atlas_read_dim.y);
+    voxel_dim_indirect.dispatch_z        = group_x_8(make_surface_info.atlas_read_dim.z);
+    make_surface_result.active_voxel_len = 0;
+    // FIXME: this comment is just a trick, do use an allocator!
+    // make_surface_result.grass_instance_len = 0;
 }
