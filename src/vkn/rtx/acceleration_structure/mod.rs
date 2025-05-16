@@ -126,11 +126,11 @@ pub fn build_tlas(
     vulkan_ctx: &VulkanContext,
     allocator: &Allocator,
     acc_device: khr::acceleration_structure::Device,
-    instances_buf: &Buffer,
+    instances: &Buffer,
     instance_count: u32,
     geom_flags: vk::GeometryFlagsKHR,
 ) -> AccelStruct {
-    let geom = make_tlas_geom(&instances_buf, geom_flags);
+    let geom = make_tlas_geom(&instances, geom_flags);
 
     // TODO: maybe reuse the scratch buffer / tlas handle later
     let (tlas_size, scratch_buf_size) = utils::query_properties(
@@ -169,7 +169,7 @@ pub fn build_tlas(
     return dst_tlas;
 
     fn make_tlas_geom<'a>(
-        instance_buffer: &'a Buffer,
+        instances: &'a Buffer,
         geom_flags: vk::GeometryFlagsKHR,
     ) -> vk::AccelerationStructureGeometryKHR<'a> {
         return vk::AccelerationStructureGeometryKHR {
@@ -179,7 +179,7 @@ pub fn build_tlas(
                 instances: vk::AccelerationStructureGeometryInstancesDataKHR {
                     array_of_pointers: vk::FALSE,
                     data: vk::DeviceOrHostAddressConstKHR {
-                        device_address: instance_buffer.device_address(),
+                        device_address: instances.device_address(),
                     },
                     ..Default::default()
                 },

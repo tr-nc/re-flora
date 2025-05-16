@@ -260,7 +260,7 @@ impl PlainBuilder {
         }
     }
 
-    pub fn resources(&self) -> &PlainBuilderResources {
+    pub fn get_resources(&self) -> &PlainBuilderResources {
         &self.resources
     }
 

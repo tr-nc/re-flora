@@ -19,7 +19,7 @@ layout(set = 0, binding = 1) readonly buffer B_ContreeBuildState {
 }
 contree_build_state;
 
-layout(set = 0, binding = 2, r32ui) readonly uniform uimage3D frag_img;
+layout(set = 0, binding = 2, r32ui) readonly uniform uimage3D surface;
 
 layout(set = 0, binding = 3) readonly buffer B_NodeOffsetForLevels { uint data[]; }
 node_offset_for_levels;
@@ -82,7 +82,7 @@ void main() {
                 uint i = xi + zi * 4 + yi * 16;
 
                 ivec3 vpos = uvi * 4 + ivec3(xi, yi, zi);
-                uint v     = imageLoad(frag_img, vpos).x;
+                uint v     = imageLoad(surface, vpos).x;
                 temp[i]    = v;
 
                 // the node is valid if voxel type is non zero

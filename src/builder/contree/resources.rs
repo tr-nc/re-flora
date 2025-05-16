@@ -1,13 +1,8 @@
-use crate::vkn::{Allocator, Buffer, BufferUsage, Device, ShaderModule, Texture, TextureDesc};
+use crate::vkn::{Allocator, Buffer, BufferUsage, Device, ShaderModule};
 use ash::vk;
 use glam::UVec3;
 
 pub struct ContreeBuilderResources {
-    pub frag_img: Texture,
-
-    pub voxel_dim_indirect: Buffer,
-    pub frag_img_maker_info: Buffer,
-    pub frag_img_build_result: Buffer,
     pub contree_build_info: Buffer,
     pub contree_build_state: Buffer,
     pub level_dispatch_indirect: Buffer,
@@ -29,58 +24,11 @@ impl ContreeBuilderResources {
         max_voxel_dim_per_chunk: UVec3,
         node_pool_size_in_bytes: u64,
         leaf_pool_size_in_bytes: u64,
-        frag_img_buffer_setup_sm: &ShaderModule,
         contree_buffer_setup_sm: &ShaderModule,
         leaf_write_sm: &ShaderModule,
         tree_write_sm: &ShaderModule,
         last_buffer_update_sm: &ShaderModule,
     ) -> Self {
-        let voxel_dim_indirect_layout = frag_img_buffer_setup_sm
-            .get_buffer_layout("B_VoxelDimIndirect")
-            .unwrap();
-        let voxel_dim_indirect = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            voxel_dim_indirect_layout.clone(),
-            BufferUsage::from_flags(vk::BufferUsageFlags::INDIRECT_BUFFER),
-            gpu_allocator::MemoryLocation::GpuOnly,
-        );
-
-        let frag_img_maker_info_layout = frag_img_buffer_setup_sm
-            .get_buffer_layout("U_FragImgMakerInfo")
-            .unwrap();
-        let frag_img_maker_info = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            frag_img_maker_info_layout.clone(),
-            BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
-        );
-
-        let frag_img_build_result = frag_img_buffer_setup_sm
-            .get_buffer_layout("B_FragImgBuildResult")
-            .unwrap();
-        let frag_img_build_result = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            frag_img_build_result.clone(),
-            BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
-        );
-
-        // ---
-
-        let frag_img_desc = TextureDesc {
-            extent: max_voxel_dim_per_chunk.to_array(),
-            format: vk::Format::R32_UINT,
-            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
-            initial_layout: vk::ImageLayout::UNDEFINED,
-            aspect: vk::ImageAspectFlags::COLOR,
-            ..Default::default()
-        };
-        let sam_desc = Default::default();
-        let frag_img = Texture::new(device.clone(), allocator.clone(), &frag_img_desc, &sam_desc);
-
         let contree_build_info_layout = contree_buffer_setup_sm
             .get_buffer_layout("U_ContreeBuildInfo")
             .unwrap();
@@ -210,11 +158,6 @@ impl ContreeBuilderResources {
         );
 
         return Self {
-            frag_img,
-
-            voxel_dim_indirect,
-            frag_img_maker_info,
-            frag_img_build_result,
             contree_build_info,
             contree_build_state,
             level_dispatch_indirect,

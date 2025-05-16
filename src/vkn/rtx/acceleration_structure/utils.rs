@@ -69,13 +69,13 @@ pub fn create_acc(
         ..Default::default()
     };
 
-    let blas = unsafe {
+    let accel_struct = unsafe {
         acc_device
             .create_acceleration_structure(&acc_create_info, None)
             .expect("Failed to create BLAS")
     };
 
-    return AccelStruct::new(acc_device, blas, acc_buf);
+    return AccelStruct::new(acc_device, accel_struct, acc_buf);
 }
 
 pub fn build_or_update_acc(

@@ -1,7 +1,9 @@
 #[allow(unused)]
 use crate::util::Timer;
 
-use crate::builder::{AccelStructBuilder, ContreeBuilder, PlainBuilder, SceneAccelBuilder};
+use crate::builder::{
+    AccelStructBuilder, ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder,
+};
 use crate::gameplay::{Camera, CameraDesc};
 use crate::tracer::Tracer;
 use crate::util::ShaderCompiler;
@@ -43,6 +45,7 @@ pub struct InitializedApp {
 
     // builders
     plain_builder: PlainBuilder,
+    surface_builder: SurfaceBuilder,
     contree_builder: ContreeBuilder,
     scene_accel_builder: SceneAccelBuilder,
     accel_struct_builder: AccelStructBuilder,
@@ -55,7 +58,7 @@ pub struct InitializedApp {
     vulkan_ctx: VulkanContext,
 }
 
-const CHUNK_VOXEL_DIM: UVec3 = UVec3::new(256, 256, 256);
+const VOXEL_DIM_PER_CHUNK: UVec3 = UVec3::new(256, 256, 256);
 const CHUNK_DIM: UVec3 = UVec3::new(5, 2, 5);
 const FREE_ATLAS_DIM: UVec3 = UVec3::new(512, 512, 512);
 
@@ -123,8 +126,16 @@ impl InitializedApp {
             vulkan_ctx.clone(),
             &shader_compiler,
             allocator.clone(),
-            CHUNK_DIM * CHUNK_VOXEL_DIM,
+            CHUNK_DIM * VOXEL_DIM_PER_CHUNK,
             FREE_ATLAS_DIM,
+        );
+
+        let surface_builder = SurfaceBuilder::new(
+            vulkan_ctx.clone(),
+            allocator.clone(),
+            &shader_compiler,
+            plain_builder.get_resources(),
+            VOXEL_DIM_PER_CHUNK,
         );
 
         // 0.5GB of node buffer
@@ -133,8 +144,8 @@ impl InitializedApp {
             vulkan_ctx.clone(),
             allocator.clone(),
             &shader_compiler,
-            plain_builder.resources(),
-            CHUNK_VOXEL_DIM,
+            surface_builder.get_resources(),
+            VOXEL_DIM_PER_CHUNK,
             512 * 1024 * 1024, // node buffer pool size
             512 * 1024 * 1024, // leaf buffer pool size
         );
@@ -183,6 +194,7 @@ impl InitializedApp {
             tracer,
 
             plain_builder,
+            surface_builder,
             contree_builder,
             scene_accel_builder,
             accel_struct_builder,
@@ -206,7 +218,7 @@ impl InitializedApp {
         // use bigger chunk size, for smaller overhead
         // use workgroup size of 4^3 works better than 8^3
         self.plain_builder
-            .chunk_init(UVec3::new(0, 0, 0), CHUNK_VOXEL_DIM * CHUNK_DIM);
+            .chunk_init(UVec3::new(0, 0, 0), VOXEL_DIM_PER_CHUNK * CHUNK_DIM);
 
         let chunk_pos_to_build_min = UVec3::new(0, 0, 0);
         let chunk_pos_to_build_max = CHUNK_DIM - 1; // inclusive
@@ -215,11 +227,14 @@ impl InitializedApp {
                 for z in chunk_pos_to_build_min.z..=chunk_pos_to_build_max.z {
                     let chunk_idx = UVec3::new(x, y, z);
 
-                    let atlas_offset = chunk_idx * CHUNK_VOXEL_DIM;
-                    let res = self
-                        .contree_builder
-                        .build_and_alloc(atlas_offset, CHUNK_VOXEL_DIM)
-                        .unwrap();
+                    let atlas_offset = chunk_idx * VOXEL_DIM_PER_CHUNK;
+
+                    let active_voxel_len = self.surface_builder.build_surface(atlas_offset);
+                    if active_voxel_len == 0 {
+                        log::debug!("Don't need to build contree because the chunk is empty");
+                        continue;
+                    }
+                    let res = self.contree_builder.build_and_alloc(atlas_offset).unwrap();
                     if let Some(res) = res {
                         let (node_buffer_offset, leaf_buffer_offset) = res;
                         self.scene_accel_builder.update_scene_tex(

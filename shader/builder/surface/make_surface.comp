@@ -1,21 +1,22 @@
 #version 450
+
 #extension GL_GOOGLE_include_directive : require
 
 #define GROUP_SIZE 8
 #define GROUP_SIZE_3 (GROUP_SIZE * GROUP_SIZE * GROUP_SIZE)
 layout(local_size_x = GROUP_SIZE, local_size_y = GROUP_SIZE, local_size_z = GROUP_SIZE) in;
 
-layout(set = 0, binding = 0) readonly uniform U_FragImgMakerInfo {
+layout(set = 0, binding = 0) readonly uniform U_MakeSurfaceInfo {
     uvec3 atlas_read_offset;
     uvec3 atlas_read_dim;
     uint is_crossing_boundary; // bool
 }
-frag_img_maker_info;
+make_surface_info;
 
-layout(set = 0, binding = 1) buffer B_FragImgBuildResult { uint active_voxel_len; }
-frag_img_build_result;
+layout(set = 0, binding = 1) buffer B_MakeSurfaceResult { uint active_voxel_len; }
+make_surface_result;
 
-layout(set = 0, binding = 2, r32ui) writeonly uniform uimage3D frag_img;
+layout(set = 0, binding = 2, r32ui) writeonly uniform uimage3D surface;
 
 layout(set = 0, binding = 3, r8ui) readonly uniform uimage3D atlas;
 
@@ -63,11 +64,11 @@ void preload() {
         shared_idx.y = (linear_idx / SHARED_SIZE) % SHARED_SIZE;
         shared_idx.z = linear_idx / (SHARED_SIZE * SHARED_SIZE);
 
-        ivec3 atlas_idx = shared_idx_to_atlas_idx(ivec3(frag_img_maker_info.atlas_read_offset),
-                                                  ivec3(shared_idx));
-        uint val        = load_atlas(atlas_idx, ivec3(frag_img_maker_info.atlas_read_offset),
-                                     ivec3(frag_img_maker_info.atlas_read_dim),
-                                     frag_img_maker_info.is_crossing_boundary != 0);
+        ivec3 atlas_idx =
+            shared_idx_to_atlas_idx(ivec3(make_surface_info.atlas_read_offset), ivec3(shared_idx));
+        uint val = load_atlas(atlas_idx, ivec3(make_surface_info.atlas_read_offset),
+                              ivec3(make_surface_info.atlas_read_dim),
+                              make_surface_info.is_crossing_boundary != 0);
 
         shared_data[shared_idx.x][shared_idx.y][shared_idx.z] = val;
     }
@@ -157,18 +158,18 @@ void main() {
     barrier();
 
     ivec3 uvi = ivec3(gl_GlobalInvocationID);
-    if (any(greaterThanEqual(uvi, ivec3(frag_img_maker_info.atlas_read_dim)))) {
+    if (any(greaterThanEqual(uvi, ivec3(make_surface_info.atlas_read_dim)))) {
         return;
     }
 
     uint voxel_type = voxel_at_local_idx(uvi);
     if (!is_solid(voxel_type)) {
-        imageStore(frag_img, uvi, uvec4(0, 0, 0, 0));
+        imageStore(surface, uvi, uvec4(0, 0, 0, 0));
         return;
     }
 
     if (is_occluded(uvi)) {
-        imageStore(frag_img, uvi, uvec4(0, 0, 0, 0));
+        imageStore(surface, uvi, uvec4(0, 0, 0, 0));
         return;
     }
 
@@ -178,6 +179,6 @@ void main() {
     uint properties = compress_voxel_type_and_normal(voxel_type, normal, is_normal_valid);
 
     // TODO: maybe do atomic add once in a local workgroup?
-    atomicAdd(frag_img_build_result.active_voxel_len, 1);
-    imageStore(frag_img, uvi, uvec4(properties, 0, 0, 0));
+    atomicAdd(make_surface_result.active_voxel_len, 1);
+    imageStore(surface, uvi, uvec4(properties, 0, 0, 0));
 }
