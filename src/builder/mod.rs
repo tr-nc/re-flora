@@ -1,6 +1,3 @@
-mod octree;
-pub use octree::*;
-
 mod contree;
 pub use contree::*;
 

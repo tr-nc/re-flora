@@ -9,7 +9,6 @@ shared uint gs_stack[64][11];
 #include "../include/core/aabb.glsl"
 #include "../include/core/bits.glsl"
 
-
 struct ContreeMarchingResult {
     bool is_hit;
     vec3 pos;
@@ -171,38 +170,18 @@ ContreeMarchingResult contree_marching(vec3 o,              // world-space ray o
                                        uint node_offset,    // offset in the global node buffer
                                        uint leaf_offset     // offset in the global leaf buffer
 ) {
-    /* -------------------------------------------------------------------- *
-     * 1.  Bring the ray into the octree’s LOCAL space.                      *
-     *     The octree traversal expects coordinates inside the range [1,2]. *
-     *                                                                      *
-     *     world -> local :  p_local = (p_world - chunk_min) / scale + 1    *
-     *     d_local        =  d_world / scale  (component-wise division)     *
-     *                                                                      *
-     *     With this parameterisation the ray parameter 𝑡 is preserved even *
-     *     for non-uniform scaling, because                                 *
-     *        p_world = (p_local - 1)*scale + chunk_min                     *
-     * -------------------------------------------------------------------- */
     vec3 local_o = (o - chunk_position) / chunk_scaling + 1.0;
     vec3 local_d = d / chunk_scaling;
 
-    /* -------------------------------------------------------------------- *
-     * 2.  Traverse the octree in local space.                               *
-     * -------------------------------------------------------------------- */
     ContreeMarchingResult result =
         _contree_marching(local_o, local_d, coarse, node_offset, leaf_offset);
 
-    /* -------------------------------------------------------------------- *
-     * 3.  Transform the returned positions back to world space.             *
-     *     local -> world :  p_world = (p_local - 1)*scale + chunk_min       *
-     * -------------------------------------------------------------------- */
     result.pos = (result.pos - 1.0) * chunk_scaling + chunk_position;
-    // result.next_ray_start_pos = (result.next_ray_start_pos - 1.0) * chunk_scaling +
-    // chunk_position;
 
-    /* 4.  (Optional) If you need true world-space normals for non-uniform
-          scaling, multiply by the inverse-transpose of the scaling matrix
-          and re-normalise.  For now we keep the normal in local space,
-          matching the previous behaviour when scale == 1.                   */
+    // (Optional) If you need true world-space normals for non-uniform
+    // scaling, multiply by the inverse-transpose of the scaling matrix
+    // and re-normalise.  For now we keep the normal in local space,
+    // matching the previous behaviour when scale == 1.
 
     return result;
 }
