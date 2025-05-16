@@ -1,13 +1,9 @@
 mod resources;
 pub use resources::*;
 
-use std::collections::HashMap;
-use std::time::Instant;
-
 use crate::util::AllocationStrategy;
 use crate::util::FirstFitAllocator;
 use crate::util::ShaderCompiler;
-use crate::util::BENCH;
 use crate::vkn::Allocator;
 use crate::vkn::Buffer;
 use crate::vkn::CommandBuffer;
@@ -24,6 +20,7 @@ use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
 use ash::vk;
 use glam::UVec3;
+use std::collections::HashMap;
 
 use super::SurfaceResources;
 
@@ -499,16 +496,6 @@ impl ContreeBuilder {
     pub fn build_and_alloc(&mut self, atlas_offset: UVec3) -> Result<Option<(u64, u64)>, String> {
         let atlas_dim = self.voxel_dim_per_chunk;
 
-        // let t1 = Instant::now();
-        // let active_voxel_len = self.build_frag_img(&self.resources, atlas_offset, atlas_dim);
-        // BENCH.lock().unwrap().record("build_frag_img", t1.elapsed());
-        // log::debug!("Active voxel len: {}", active_voxel_len);
-
-        // if active_voxel_len == 0 {
-        //     log::debug!("No fragments found, skipping contree build.");
-        //     return Ok(None);
-        // }
-
         // preallocate 10MB for both the currentl node and leaf buffer to be built
         const MAX_NODE_BUFFER_SIZE_IN_BYTES: u64 = 10 * 1024 * 1024;
         const MAX_LEAF_BUFFER_SIZE_IN_BYTES: u64 = 10 * 1024 * 1024;
@@ -522,15 +509,7 @@ impl ContreeBuilder {
         // the element of leaf data is a u32
         let leaf_alloc_offset = leaf_alloc_offset_in_bytes / SIZE_OF_LEAF_ELEMENT as u64;
 
-        log::debug!(
-            "Node alloc offset: {}, Leaf alloc offset: {}",
-            node_alloc_offset,
-            leaf_alloc_offset
-        );
-
-        let t2 = Instant::now();
         self.build_contree(atlas_dim, node_alloc_offset, leaf_alloc_offset);
-        BENCH.lock().unwrap().record("build_contree", t2.elapsed());
 
         let (confirmed_node_buffer_size_in_bytes, confirmed_leaf_buffer_size_in_bytes) =
             self.get_contree_size_info(&self.resources);

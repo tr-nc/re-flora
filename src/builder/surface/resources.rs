@@ -7,6 +7,7 @@ pub struct SurfaceResources {
     pub make_surface_info: Buffer,
     pub voxel_dim_indirect: Buffer,
     pub make_surface_result: Buffer,
+    pub grass_instances: Buffer,
 }
 
 impl SurfaceResources {
@@ -14,7 +15,9 @@ impl SurfaceResources {
         device: Device,
         allocator: Allocator,
         max_voxel_dim_per_chunk: UVec3,
+        grass_instances_pool_len: u64,
         buffer_setup: &ShaderModule,
+        make_surface: &ShaderModule,
     ) -> Self {
         let surface_desc = TextureDesc {
             extent: max_voxel_dim_per_chunk.to_array(),
@@ -58,11 +61,22 @@ impl SurfaceResources {
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
+        let grass_instances_layout = make_surface.get_buffer_layout("B_GrassInstances").unwrap();
+        let grass_instances = Buffer::from_buffer_layout_arraylike(
+            device.clone(),
+            allocator.clone(),
+            grass_instances_layout.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::GpuOnly,
+            grass_instances_pool_len,
+        );
+
         return Self {
             surface,
             make_surface_info,
             voxel_dim_indirect,
             make_surface_result,
+            grass_instances,
         };
     }
 }

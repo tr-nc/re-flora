@@ -13,16 +13,24 @@ layout(set = 0, binding = 0) readonly uniform U_MakeSurfaceInfo {
 }
 make_surface_info;
 
-layout(set = 0, binding = 1) buffer B_MakeSurfaceResult { uint active_voxel_len; }
+layout(set = 0, binding = 1) buffer B_MakeSurfaceResult {
+    uint active_voxel_len;
+    uint grass_instance_len;
+}
 make_surface_result;
 
 layout(set = 0, binding = 2, r32ui) writeonly uniform uimage3D surface;
 
 layout(set = 0, binding = 3, r8ui) readonly uniform uimage3D atlas;
 
+#include "../../include/grass_instance.glsl"
+layout(set = 0, binding = 4) writeonly buffer B_GrassInstances { GrassInstance data[]; }
+grass_instances;
+
 #include "../../include/config.glsl"
 #include "../../include/core/definitions.glsl"
 #include "../../include/core/packer.glsl"
+#include "../../include/grass_type.glsl"
 #include "../../include/voxel_type.glsl"
 
 #define SHARED_SIZE (GROUP_SIZE + 4) // 4 for halo
@@ -131,6 +139,12 @@ void calculate_normal(out vec3 o_normal, out bool o_is_normal_valid, ivec3 uvi) 
     }
 }
 
+/// Threhold ranges from 0.0 to 1.0.
+bool normal_not_too_steep(vec3 normal, float threhold) {
+    vec3 up = vec3(0.0, 1.0, 0.0);
+    return dot(normal, up) > threhold;
+}
+
 /// Compress a coordinate into a single uint.
 /// The coordinate is compressed into 3 10-bit components.
 /// Total occupied bits: 10 * 3 = 30 bits.
@@ -181,4 +195,14 @@ void main() {
     // TODO: maybe do atomic add once in a local workgroup?
     atomicAdd(make_surface_result.active_voxel_len, 1);
     imageStore(surface, uvi, uvec4(properties, 0, 0, 0));
+
+    //
+
+    if (uvi.x % 8 == 0 && uvi.z % 8 == 0 && normal_not_too_steep(normal, 0.9)) {
+        uint write_idx = atomicAdd(make_surface_result.grass_instance_len, 1);
+        GrassInstance instance;
+        instance.position               = uvec3(uvi);
+        instance.grass_type             = GRASS_TYPE_NORMAL;
+        grass_instances.data[write_idx] = instance;
+    }
 }

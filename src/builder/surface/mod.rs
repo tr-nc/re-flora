@@ -41,6 +41,7 @@ impl SurfaceBuilder {
         shader_compiler: &ShaderCompiler,
         plain_builder_resources: &PlainBuilderResources,
         voxel_dim_per_chunk: UVec3,
+        grass_instances_pool_len: u64,
     ) -> Self {
         let descriptor_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
 
@@ -63,7 +64,9 @@ impl SurfaceBuilder {
             vulkan_ctx.device().clone(),
             allocator,
             voxel_dim_per_chunk,
+            grass_instances_pool_len,
             &buffer_setup_sm,
+            &make_surface_sm,
         );
 
         let buffer_setup_ppl =
@@ -194,8 +197,8 @@ impl SurfaceBuilder {
         }
     }
 
-    /// Returns the number of active voxels in the surface.
-    pub fn build_surface(&mut self, atlas_read_offset: UVec3) -> u32 {
+    /// Returns (active_voxel_len, grass_instance_len)
+    pub fn build_surface(&mut self, atlas_read_offset: UVec3) -> (u32, u32) {
         let atlas_read_dim = self.voxel_dim_per_chunk;
 
         let device = self.vulkan_ctx.device();
@@ -211,7 +214,7 @@ impl SurfaceBuilder {
             .submit(&self.vulkan_ctx.get_general_queue(), None);
         device.wait_queue_idle(&self.vulkan_ctx.get_general_queue());
 
-        return get_active_voxel_len(&self.resources.make_surface_result);
+        return get_result(&self.resources.make_surface_result);
 
         fn update_buffers(
             make_surface_info: &Buffer,
@@ -239,16 +242,27 @@ impl SurfaceBuilder {
             make_surface_info.fill_with_raw_u8(&data).unwrap();
         }
 
-        fn get_active_voxel_len(frag_img_build_result: &Buffer) -> u32 {
+        /// Returns: (active_voxel_len, grass_instance_len)
+        fn get_result(frag_img_build_result: &Buffer) -> (u32, u32) {
             let layout = &frag_img_build_result.get_layout().unwrap().root_member;
             let raw_data = frag_img_build_result.read_back().unwrap();
             let reader = StructMemberDataReader::new(layout, &raw_data);
-            let field_val = reader.get_field("active_voxel_len").unwrap();
-            if let PlainMemberTypeWithData::UInt(val) = field_val {
+
+            let active_voxel_len = if let PlainMemberTypeWithData::UInt(val) =
+                reader.get_field("active_voxel_len").unwrap()
+            {
                 val
             } else {
                 panic!("Expected UInt type for active_voxel_len")
-            }
+            };
+            let grass_instance_len = if let PlainMemberTypeWithData::UInt(val) =
+                reader.get_field("grass_instance_len").unwrap()
+            {
+                val
+            } else {
+                panic!("Expected UInt type for grass_instance_len")
+            };
+            (active_voxel_len, grass_instance_len)
         }
     }
 

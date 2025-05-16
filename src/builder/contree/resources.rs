@@ -128,16 +128,6 @@ impl ContreeBuilderResources {
             leaf_pool_size_in_bytes,
         );
 
-        // let node_data_layout = buffer_concat.get_buffer_layout("B_NodeData").unwrap();
-        // let contree_data = Buffer::from_buffer_layout_arraylike(
-        //     device.clone(),
-        //     allocator.clone(),
-        //     node_data_layout.clone(),
-        //     BufferUsage::empty(),
-        //     gpu_allocator::MemoryLocation::GpuOnly,
-        //     node_pool_size_in_bytes,
-        // );
-
         let node_data = Buffer::new_sized(
             device.clone(),
             allocator.clone(),

@@ -19,7 +19,10 @@ layout(set = 0, binding = 1) writeonly buffer B_VoxelDimIndirect {
 }
 voxel_dim_indirect;
 
-layout(set = 0, binding = 2) buffer B_MakeSurfaceResult { uint active_voxel_len; }
+layout(set = 0, binding = 2) buffer B_MakeSurfaceResult {
+    uint active_voxel_len;
+    uint grass_instance_len;
+}
 make_surface_result;
 
 #include "../../include/config.glsl"
@@ -30,5 +33,6 @@ void main() {
     voxel_dim_indirect.dispatch_x          = group_x_8(make_surface_info.atlas_read_dim.x);
     voxel_dim_indirect.dispatch_y          = group_x_8(make_surface_info.atlas_read_dim.y);
     voxel_dim_indirect.dispatch_z          = group_x_8(make_surface_info.atlas_read_dim.z);
-    make_surface_result.active_voxel_len = 0;
+    make_surface_result.active_voxel_len   = 0;
+    make_surface_result.grass_instance_len = 0;
 }

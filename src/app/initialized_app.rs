@@ -19,6 +19,7 @@ use egui::{Color32, RichText};
 use glam::{UVec3, Vec2, Vec3};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use winit::event::DeviceEvent;
 use winit::{
     event::{ElementState, WindowEvent},
@@ -136,6 +137,11 @@ impl InitializedApp {
             &shader_compiler,
             plain_builder.get_resources(),
             VOXEL_DIM_PER_CHUNK,
+            (VOXEL_DIM_PER_CHUNK.x / 8) as u64
+                * (VOXEL_DIM_PER_CHUNK.z / 8) as u64
+                * CHUNK_DIM.x as u64
+                * CHUNK_DIM.y as u64
+                * CHUNK_DIM.z as u64,
         );
 
         // 0.5GB of node buffer
@@ -211,12 +217,6 @@ impl InitializedApp {
     }
 
     fn init(&mut self) {
-        // Chunk avg init time: 28.55ms for 512^3 chunk
-        // Chunk avg init time: 3.8ms for 256^3 chunk
-        // Chunk avg init time: 0.65ms for 128^3 chunk
-        // Chunk avg init time: 0.183ms for 64^3 chunk
-        // use bigger chunk size, for smaller overhead
-        // use workgroup size of 4^3 works better than 8^3
         self.plain_builder
             .chunk_init(UVec3::new(0, 0, 0), VOXEL_DIM_PER_CHUNK * CHUNK_DIM);
 
@@ -229,12 +229,22 @@ impl InitializedApp {
 
                     let atlas_offset = chunk_idx * VOXEL_DIM_PER_CHUNK;
 
-                    let active_voxel_len = self.surface_builder.build_surface(atlas_offset);
+                    let t = Instant::now();
+                    let (active_voxel_len, grass_instance_len) =
+                        self.surface_builder.build_surface(atlas_offset);
+                    BENCH.lock().unwrap().record("build_surface", t.elapsed());
+
+                    log::debug!("grass instance len: {}", grass_instance_len);
+
                     if active_voxel_len == 0 {
                         log::debug!("Don't need to build contree because the chunk is empty");
                         continue;
                     }
+
+                    let t = Instant::now();
                     let res = self.contree_builder.build_and_alloc(atlas_offset).unwrap();
+                    BENCH.lock().unwrap().record("build_contree", t.elapsed());
+
                     if let Some(res) = res {
                         let (node_buffer_offset, leaf_buffer_offset) = res;
                         self.scene_accel_builder.update_scene_tex(
@@ -249,7 +259,6 @@ impl InitializedApp {
             }
         }
 
-        // dump bench results
         BENCH.lock().unwrap().summary();
     }
 
