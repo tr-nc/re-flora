@@ -99,6 +99,8 @@ void main() {
 
     vec3 vis = vec3(0.0);
 
+    const vec3 SKYBOX_COLOR = vec3(0.5, 0.7, 1.0);
+
     // after traversal, ask whether we actually committed a hit
     bool hit_grass = (rayQueryGetIntersectionTypeEXT(rayQuery, true) ==
                       gl_RayQueryCommittedIntersectionTriangleEXT);
@@ -107,13 +109,14 @@ void main() {
     DdaSceneMarchingResult res = dda_scene_marching(ray.origin, ray.direction, ray.inv_direction);
 
     if (!hit_grass && !res.is_hit) {
-        vis = vec3(0.0);
+        vis = SKYBOX_COLOR;
     } else {
         if (t_grass < res.t) {
             // 17,124,19
             vis = grass_color_by_type_unorm(GRASS_TYPE_NORMAL);
         } else {
             vec3 normal = unpack_normal_v2((res.voxel_data & 0x1FFFFF00u) >> 8);
+            normal = normal * 0.5 + 0.5; // convert to [0..1] range
             vis         = res.is_hit ? normal : vec3(0.0);
         }
     }
