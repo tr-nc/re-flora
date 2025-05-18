@@ -128,6 +128,10 @@ https://rust-unofficial.github.io/patterns/patterns/structural/small-crates.html
 
 [Reddit discussion](https://www.reddit.com/r/VoxelGameDev/comments/1fzimke/a_guide_to_fast_voxel_ray_tracing_using_sparse/)
 
+### Papers
+
+[ReSTIR GI](https://research.nvidia.com/publication/2021-06_restir-gi-path-resampling-real-time-path-tracing)
+
 # Special Thanks To
 
 [Implementation of ash with egui](https://github.com/adrien-ben/egui-ash-renderer)
