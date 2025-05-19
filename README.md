@@ -71,6 +71,10 @@ Notes:
 
 ## References
 
+### Art
+
+[Some Islands](https://blenderartists.org/t/procedural-island-generator-illustration-using-blenders-geometry-nodes/1483314)
+
 ### Tech
 
 #### Vulkan Related

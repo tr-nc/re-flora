@@ -39,11 +39,14 @@ layout(set = 1, binding = 0) writeonly uniform image2D result_image;
 layout(set = 2, binding = 0) uniform accelerationStructureEXT tlas;
 
 #include "../include/contree_marching.glsl"
+#include "../include/core/definitions.glsl"
 #include "../include/core/packer.glsl"
 #include "../include/core/shader_clock.glsl"
 #include "../include/core/viridis.glsl"
 #include "../include/dda_scene_marching_result.glsl"
 #include "../include/ray.glsl"
+#include "../include/skylight.glsl"
+#include "../include/voxel_color.glsl"
 
 bool scene_hit(inout DdaSceneMarchingResult dda_res, vec3 o, vec3 d, ivec3 map_pos,
                uvec4 scene_tex_read) {
@@ -70,6 +73,15 @@ bool scene_hit(inout DdaSceneMarchingResult dda_res, vec3 o, vec3 d, ivec3 map_p
 
 ///
 
+vec3 get_shadow_ray_color(Ray ray) {
+    DdaSceneMarchingResult res_shadow_ray;
+    res_shadow_ray = dda_scene_marching(ray.origin, ray.direction, ray.inv_direction);
+    if (res_shadow_ray.is_hit) {
+        return vec3(0.0);
+    }
+    return get_sky_color(ray.direction);
+}
+
 void main() {
     ivec2 uvi      = ivec2(gl_GlobalInvocationID.xy);
     ivec2 img_size = imageSize(result_image);
@@ -82,16 +94,35 @@ void main() {
 
     vec3 vis = vec3(0.0);
 
-    const vec3 SKYBOX_COLOR = vec3(0.5, 0.7, 1.0);
+    DdaSceneMarchingResult res_primary_ray =
+        dda_scene_marching(ray.origin, ray.direction, ray.inv_direction);
 
-    DdaSceneMarchingResult res = dda_scene_marching(ray.origin, ray.direction, ray.inv_direction);
+    if (res_primary_ray.is_hit) {
+        // // unpack normal from the packed voxel data (bits 8..28)
+        // vec3 normal = unpack_normal_v2((res_primary_ray.voxel_data & 0x1FFFFF00u) >> 8);
 
-    if (!res.is_hit) {
-        vis = SKYBOX_COLOR;
+        // uint voxel_type = res_primary_ray.voxel_data & 0xFFu;
+        // vec3 albedo     = voxel_color_by_type_unorm(voxel_type);
+
+        // vec3 shadow_ray_col = vec3(0.0);
+
+        // Ray shadow_ray;
+        // shadow_ray.direction     = gui_input.sun_dir;
+        // shadow_ray.inv_direction = vec3(1.0) / shadow_ray.direction;
+        // shadow_ray.origin        = res_primary_ray.pos + normal * 0.01;
+
+        // if (dot(shadow_ray.direction, normal) > 0.0) {
+        //     shadow_ray_col             = get_shadow_ray_color(shadow_ray);
+        //     const float shadow_ray_pdf = 1.0 / (0.01 * PI);
+        //     shadow_ray_col *= dot(shadow_ray.direction, normal) / shadow_ray_pdf;
+        // }
+
+        // vec3 brdf = albedo * INV_PI;
+        // vis       = gui_input.sun_color * brdf * shadow_ray_col;
+        
+        vis = res_primary_ray.pos;
     } else {
-        vec3 normal = unpack_normal_v2((res.voxel_data & 0x1FFFFF00u) >> 8);
-        normal      = normal * 0.5 + 0.5; // convert to [0..1] range
-        vis         = res.is_hit ? normal : vec3(0.0);
+        vis = get_sky_color(ray.direction);
     }
 
     imageStore(result_image, uvi, vec4(vis, 1.0));
