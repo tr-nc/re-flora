@@ -18,7 +18,9 @@ mod timer;
 #[allow(unused_imports)]
 pub use timer::*;
 
-mod bench;  
+mod bench;
 #[allow(unused_imports)]
 pub use bench::*;
 
+mod sun_dir;
+pub use sun_dir::*;

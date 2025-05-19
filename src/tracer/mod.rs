@@ -1,4 +1,5 @@
 mod resources;
+use glam::Vec3;
 pub use resources::*;
 
 use crate::gameplay::Camera;
@@ -213,10 +214,20 @@ impl Tracer {
         &mut self,
         debug_float: f32,
         debug_bool: bool,
+        sun_dir: Vec3,
+        sun_size: f32,
+        sun_color: Vec3,
         camera: &Camera,
         time_stamp: u32,
     ) -> Result<(), String> {
-        update_gui_input(&self.resources, debug_float, debug_bool)?;
+        update_gui_input(
+            &self.resources,
+            debug_float,
+            debug_bool,
+            sun_dir,
+            sun_size,
+            sun_color,
+        )?;
         update_cam_info(&self.resources, camera)?;
         update_env_info(&self.resources, time_stamp)?;
         return Ok(());
@@ -225,6 +236,9 @@ impl Tracer {
             resources: &TracerResources,
             debug_float: f32,
             debug_bool: bool,
+            sun_dir: Vec3,
+            sun_size: f32,
+            sun_color: Vec3,
         ) -> Result<(), String> {
             let data = StructMemberDataBuilder::from_buffer(&resources.gui_input)
                 .set_field("debug_float", PlainMemberTypeWithData::Float(debug_float))
@@ -232,6 +246,15 @@ impl Tracer {
                 .set_field(
                     "debug_bool",
                     PlainMemberTypeWithData::UInt(debug_bool as u32),
+                )
+                .unwrap()
+                .set_field("sun_dir", PlainMemberTypeWithData::Vec3(sun_dir.to_array()))
+                .unwrap()
+                .set_field("sun_size", PlainMemberTypeWithData::Float(sun_size))
+                .unwrap()
+                .set_field(
+                    "sun_color",
+                    PlainMemberTypeWithData::Vec3(sun_color.to_array()),
                 )
                 .unwrap()
                 .get_data_u8();

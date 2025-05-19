@@ -6,7 +6,7 @@ use crate::builder::{
 };
 use crate::gameplay::{Camera, CameraDesc};
 use crate::tracer::Tracer;
-use crate::util::ShaderCompiler;
+use crate::util::{get_sun_dir, ShaderCompiler};
 use crate::util::{TimeInfo, BENCH};
 use crate::vkn::{Allocator, CommandBuffer, Fence, Semaphore, SwapchainDesc};
 use crate::{
@@ -54,6 +54,10 @@ pub struct InitializedApp {
     // gui adjustables
     debug_float: f32,
     debug_bool: bool,
+    sun_altitude: f32,
+    sun_azimuth: f32,
+    sun_size: f32,
+    sun_color: egui::Color32,
 
     // note: always keep the context to end, as it has to be destroyed last
     vulkan_ctx: VulkanContext,
@@ -218,6 +222,10 @@ impl InitializedApp {
 
             debug_float: 0.0,
             debug_bool: true,
+            sun_altitude: 45.0, // degrees above the horizon
+            sun_azimuth: 135.0, // degrees around the Y axis
+            sun_size: 0.1,
+            sun_color: egui::Color32::from_rgb(255, 233, 144),
         };
     }
 
@@ -386,7 +394,7 @@ impl InitializedApp {
                     .wait_for_fences(&[self.fence.as_raw()])
                     .unwrap();
 
-                let mut changed = false;
+                let mut grass_changed = false;
                 self.egui_renderer
                     .update(&self.window_state.window(), |ctx| {
                         let my_frame = egui::containers::Frame {
@@ -409,7 +417,7 @@ impl InitializedApp {
                                         self.time_info.display_fps()
                                     )));
 
-                                    changed |= ui
+                                    grass_changed |= ui
                                         .add(
                                             egui::Slider::new(&mut self.debug_float, 0.0..=1.0)
                                                 .text("Debug Float"),
@@ -420,11 +428,29 @@ impl InitializedApp {
                                         &mut self.debug_bool,
                                         "Check to use contree",
                                     ));
+
+                                    ui.add(
+                                        egui::Slider::new(&mut self.sun_altitude, 0.0..=90.0)
+                                            .text("Sun Altitude (degrees above horizon)"),
+                                    );
+
+                                    ui.add(
+                                        egui::Slider::new(&mut self.sun_azimuth, 0.0..=360.0)
+                                            .text("Sun Azimuth (degrees around Y axis)"),
+                                    );
+
+                                    ui.add(
+                                        egui::Slider::new(&mut self.sun_size, 0.0..=1.0)
+                                            .text("Sun Size (relative to screen)"),
+                                    );
+
+                                    ui.add(egui::Label::new("Sun Color:"));
+                                    ui.color_edit_button_srgba(&mut self.sun_color);
                                 });
                             });
                     });
 
-                if changed {
+                if grass_changed {
                     log::debug!("Debug float: {}", self.debug_float);
                     self.accel_struct_builder.update(
                         Vec2::new(self.debug_float * 4.0, self.debug_float),
@@ -458,7 +484,19 @@ impl InitializedApp {
                 };
 
                 self.tracer
-                    .update_buffers(self.debug_float, self.debug_bool, &self.camera, 0)
+                    .update_buffers(
+                        self.debug_float,
+                        self.debug_bool,
+                        get_sun_dir(self.sun_altitude, self.sun_azimuth),
+                        self.sun_size,
+                        Vec3::new(
+                            self.sun_color.r() as f32,
+                            self.sun_color.g() as f32,
+                            self.sun_color.b() as f32,
+                        ),
+                        &self.camera,
+                        0,
+                    )
                     .unwrap();
 
                 let cmdbuf = &self.cmdbuf;
