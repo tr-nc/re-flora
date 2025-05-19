@@ -12,13 +12,17 @@ shared uint gs_stack[64][11];
 struct ContreeMarchingResult {
     bool is_hit;
     vec3 pos;
+    vec3 center_pos;
     vec3 normal;
     uint voxel_data;
 };
 
 // Reverses pos from [1.0,2.0) to (2.0,1.0] if dir>0
 vec3 get_mirrored_pos(vec3 pos, vec3 dir, bool range_check) {
-    // flip mantissa bits
+    // although we could reverse float coordinates from range [1.0, 2.0] to [2.0, 1.0] simply by
+    // 3.0 - x, our upper bound is exclusive and so this will produce ever so slightly off results,
+    // which can cause some minor artifacts if the resulting hit coordinates are used for things
+    // like light bounces.
     uvec3 pu      = floatBitsToUint(pos);
     uvec3 flipped = pu ^ uvec3(0x7FFFFFu);
     vec3 mirrored = uintBitsToFloat(flipped);
@@ -55,7 +59,7 @@ vec3 floor_scale(vec3 pos, int scale_exp) {
 ContreeMarchingResult _contree_marching(vec3 origin, vec3 dir, bool coarse, uint node_offset,
                                         uint leaf_offset) {
     uint group_id    = gl_LocalInvocationIndex;
-    int scale_exp    = 21; // start at finest level 2⁻²¹ ≈ 0.25
+    int scale_exp    = 21; // 0.25 (as bit offset in mantissa)
     uint node_idx    = 0u;
     ContreeNode node = contree_node_data.data[node_offset + node_idx];
 
@@ -63,9 +67,10 @@ ContreeMarchingResult _contree_marching(vec3 origin, vec3 dir, bool coarse, uint
     res.is_hit     = false;
     res.voxel_data = 0;
     res.pos        = vec3(0.0);
+    res.center_pos = vec3(0.0);
     res.normal     = vec3(0.0);
 
-    vec2 slab = slabs(vec3(1.0), vec3(2.0), origin, 1.0 / dir);
+    vec2 slab = slabs(vec3(1.0), vec3(1.9999999), origin, 1.0 / dir);
     if (slab.x > slab.y || slab.y < 0.0) {
         return res; // out of the broader bound directly
     }
@@ -146,11 +151,20 @@ ContreeMarchingResult _contree_marching(vec3 origin, vec3 dir, bool coarse, uint
     if ((node.packed_0 & 1u) != 0u && scale_exp <= 21) {
         res.is_hit = true;
 
-        pos            = get_mirrored_pos(pos, dir, false);
+        vec3 centered_pos = floor_scale(pos, scale_exp);
+        // this is essentially constructing a float in range [1.0, 2.0) from bit manipulation, then
+        // sub 1 see IEEE-754 Floating Point Representation
+        float offset = uintBitsToFloat(0x3f800000u | (1u << (scale_exp - 1))) - 1.0;
+        centered_pos += offset;
+
+        pos          = get_mirrored_pos(pos, dir, false);
+        centered_pos = get_mirrored_pos(centered_pos, dir, false);
+
         uint child_idx = uint(get_node_cell_index(pos, scale_exp));
         uint bits      = bit_count_u64_var(node.child_mask, child_idx);
 
         res.pos        = pos;
+        res.center_pos = centered_pos;
         res.voxel_data = contree_leaf_data.data[leaf_offset + (node.packed_0 >> 1u) + bits];
 
         float tmax       = min(min(side_dist.x, side_dist.y), side_dist.z);
@@ -176,12 +190,8 @@ ContreeMarchingResult contree_marching(vec3 o,              // world-space ray o
     ContreeMarchingResult result =
         _contree_marching(local_o, local_d, coarse, node_offset, leaf_offset);
 
-    result.pos = (result.pos - 1.0) * chunk_scaling + chunk_position;
-
-    // (Optional) If you need true world-space normals for non-uniform
-    // scaling, multiply by the inverse-transpose of the scaling matrix
-    // and re-normalise.  For now we keep the normal in local space,
-    // matching the previous behaviour when scale == 1.
+    result.pos        = (result.pos - 1.0) * chunk_scaling + chunk_position;
+    result.center_pos = (result.center_pos - 1.0) * chunk_scaling + chunk_position;
 
     return result;
 }

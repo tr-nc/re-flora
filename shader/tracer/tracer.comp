@@ -61,6 +61,7 @@ bool scene_hit(inout DdaSceneMarchingResult dda_res, vec3 o, vec3 d, ivec3 map_p
     if (contree_res.is_hit) {
         dda_res.is_hit     = true;
         dda_res.pos        = contree_res.pos;
+        dda_res.center_pos = contree_res.center_pos;
         dda_res.normal     = contree_res.normal;
         dda_res.voxel_data = contree_res.voxel_data;
         return true;
@@ -98,29 +99,38 @@ void main() {
         dda_scene_marching(ray.origin, ray.direction, ray.inv_direction);
 
     if (res_primary_ray.is_hit) {
-        // // unpack normal from the packed voxel data (bits 8..28)
-        // vec3 normal = unpack_normal_v2((res_primary_ray.voxel_data & 0x1FFFFF00u) >> 8);
+        // unpack normal from the packed voxel data (bits 8..28)
+        vec3 normal = unpack_normal_v2((res_primary_ray.voxel_data & 0x1FFFFF00u) >> 8);
 
-        // uint voxel_type = res_primary_ray.voxel_data & 0xFFu;
-        // vec3 albedo     = voxel_color_by_type_unorm(voxel_type);
+        uint voxel_type = res_primary_ray.voxel_data & 0xFFu;
+        vec3 albedo     = voxel_color_by_type_unorm(voxel_type);
 
-        // vec3 shadow_ray_col = vec3(0.0);
+        vec3 shadow_ray_col = vec3(0.0);
 
-        // Ray shadow_ray;
-        // shadow_ray.direction     = gui_input.sun_dir;
-        // shadow_ray.inv_direction = vec3(1.0) / shadow_ray.direction;
-        // shadow_ray.origin        = res_primary_ray.pos + normal * 0.01;
+        Ray shadow_ray;
+        shadow_ray.direction     = gui_input.sun_dir;
+        shadow_ray.inv_direction = vec3(1.0) / shadow_ray.direction;
 
-        // if (dot(shadow_ray.direction, normal) > 0.0) {
-        //     shadow_ray_col             = get_shadow_ray_color(shadow_ray);
-        //     const float shadow_ray_pdf = 1.0 / (0.01 * PI);
-        //     shadow_ray_col *= dot(shadow_ray.direction, normal) / shadow_ray_pdf;
+        // gives more accurate shadow
+        vec2 t            = slabs(vec3(-1.0 / 512.0), vec3(1.0 / 512.0), vec3(0.0), 1.0 / normal);
+        vec3 march_extent = normal * (t.y + 0.004);
+
+        shadow_ray.origin = res_primary_ray.center_pos + march_extent;
+
+        if (dot(shadow_ray.direction, normal) > 0.0) {
+            shadow_ray_col             = get_shadow_ray_color(shadow_ray);
+            const float shadow_ray_pdf = 1.0 / (0.01 * PI);
+            shadow_ray_col *= dot(shadow_ray.direction, normal) / shadow_ray_pdf;
+        }
+
+        vec3 brdf = albedo * INV_PI;
+        vis       = gui_input.sun_color * brdf * shadow_ray_col;
+
+        // if (gui_input.debug_bool != 0) {
+        //     vis = res_primary_ray.center_pos;
+        // } else {
+        //     vis = res_primary_ray.pos;
         // }
-
-        // vec3 brdf = albedo * INV_PI;
-        // vis       = gui_input.sun_color * brdf * shadow_ray_col;
-        
-        vis = res_primary_ray.pos;
     } else {
         vis = get_sky_color(ray.direction);
     }

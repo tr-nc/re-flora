@@ -12,6 +12,7 @@ DdaSceneMarchingResult dda_scene_marching(vec3 o, vec3 d, vec3 inv_d) {
     res.iter_count = 0;
     res.is_hit     = false;
     res.pos        = vec3(0.0);
+    res.center_pos = vec3(0.0);
     res.t          = 1e10;
     res.normal     = vec3(0.0);
     res.voxel_data = 0;
@@ -24,7 +25,7 @@ DdaSceneMarchingResult dda_scene_marching(vec3 o, vec3 d, vec3 inv_d) {
     d = max(abs(d), vec3(EPSILON)) * (step(0.0, d) * 2.0 - 1.0);
 
     vec2 t = slabs(min_bound, max_bound, o, inv_d);
-    // ray shoots out of the scene bound directly
+    // ray shoots out of the entire scene bound directly
     if (t.x > t.y || t.y < 0.0) {
         return res;
     }
