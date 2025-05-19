@@ -43,8 +43,6 @@ layout(set = 2, binding = 0) uniform accelerationStructureEXT tlas;
 #include "../include/core/shader_clock.glsl"
 #include "../include/core/viridis.glsl"
 #include "../include/dda_scene_marching_result.glsl"
-#include "../include/grass_color.glsl"
-#include "../include/grass_type.glsl"
 #include "../include/ray.glsl"
 
 bool scene_hit(inout DdaSceneMarchingResult dda_res, vec3 o, vec3 d, ivec3 map_pos,
