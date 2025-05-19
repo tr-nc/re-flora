@@ -112,7 +112,6 @@ void main() {
         vis = SKYBOX_COLOR;
     } else {
         if (t_grass < res.t) {
-            // 17,124,19
             vis = grass_color_by_type_unorm(GRASS_TYPE_NORMAL);
         } else {
             vec3 normal = unpack_normal_v2((res.voxel_data & 0x1FFFFF00u) >> 8);

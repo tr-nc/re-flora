@@ -7,7 +7,7 @@
 // all color pickers are in sRGB space for human preservation, but lighting calculations are done in
 // linear space
 vec3 voxel_color_by_type_srgb(uint voxel_type) {
-    if (voxel_type == VOXEL_TYPE_GRASS_LAND) {
+    if (voxel_type == VOXEL_TYPE_DIRT) {
         return vec3(0.35, 0.57, 0.23);
     } else if (voxel_type == VOXEL_TYPE_LEAF) {
         return vec3(0.95, 0.78, 0.14);
