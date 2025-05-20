@@ -3,12 +3,14 @@ use std::sync::Arc;
 
 use crate::vkn::Device;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct ImageViewDesc {
     pub image: vk::Image,
     pub format: vk::Format,
     pub image_view_type: vk::ImageViewType,
     pub aspect: vk::ImageAspectFlags,
+    pub base_array_layer: u32,
+    pub layer_count: u32,
 }
 
 impl Default for ImageViewDesc {
@@ -18,6 +20,8 @@ impl Default for ImageViewDesc {
             format: vk::Format::UNDEFINED,
             image_view_type: vk::ImageViewType::TYPE_2D,
             aspect: vk::ImageAspectFlags::COLOR,
+            base_array_layer: 0,
+            layer_count: 1,
         }
     }
 }
@@ -55,8 +59,8 @@ impl ImageView {
                 aspect_mask: desc.aspect,
                 base_mip_level: 0,
                 level_count: 1,
-                base_array_layer: 0,
-                layer_count: 1,
+                base_array_layer: desc.base_array_layer,
+                layer_count: desc.layer_count,
             });
 
         let image_view = unsafe { device.create_image_view(&create_info, None).unwrap() };

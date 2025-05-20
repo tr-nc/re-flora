@@ -25,7 +25,7 @@ layout(set = 0, binding = 1) uniform U_CameraInfo {
     mat4 view_proj_mat_inv;
 }
 camera_info;
-layout(set = 0, binding = 2) uniform U_EnvInfo { uint time_stamp; }
+layout(set = 0, binding = 2) uniform U_EnvInfo { uint frame_serial_idx; }
 env_info;
 #include "../include/contree_node.glsl"
 layout(set = 0, binding = 3) readonly buffer B_ContreeNodeData { ContreeNode data[]; }
@@ -130,7 +130,7 @@ void main() {
 
     // test
 
-    vis = imageLoad(noise_tex, ivec3(uvi, 0) % imageSize(noise_tex)).xyz;
+    vis = imageLoad(noise_tex, ivec3(uvi, env_info.frame_serial_idx) % imageSize(noise_tex)).xyz;
 
     imageStore(result_image, uvi, vec4(vis, 1.0));
 }

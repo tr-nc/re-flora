@@ -144,6 +144,7 @@ impl SurfaceBuilder {
                     surface.get_image().record_clear(
                         cmdbuf,
                         Some(vk::ImageLayout::GENERAL),
+                        0,
                         ClearValue::UInt([0, 0, 0, 0]),
                     );
                 },

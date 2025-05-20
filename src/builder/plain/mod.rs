@@ -195,11 +195,13 @@ impl PlainBuilder {
                     resources.chunk_atlas.get_image().record_clear(
                         cmdbuf,
                         Some(vk::ImageLayout::GENERAL),
+                        0,
                         ClearValue::UInt([0, 0, 0, 0]),
                     );
                     resources.free_atlas.get_image().record_clear(
                         cmdbuf,
                         Some(vk::ImageLayout::GENERAL),
+                        0,
                         ClearValue::UInt([0, 0, 0, 0]),
                     );
                 },
@@ -234,7 +236,7 @@ impl PlainBuilder {
 
             chunk_atlas
                 .get_image()
-                .record_transition_barrier(&cmdbuf, vk::ImageLayout::GENERAL);
+                .record_transition_barrier(&cmdbuf, 0, vk::ImageLayout::GENERAL);
 
             buffer_setup_ppl.record_bind(&cmdbuf);
             buffer_setup_ppl.record_bind_descriptor_sets(

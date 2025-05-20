@@ -132,7 +132,7 @@ impl Swapchain {
         let device = self.vulkan_context.device();
 
         // transition src
-        src_img.record_transition_barrier(cmdbuf, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
+        src_img.record_transition_barrier(cmdbuf, 0, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
 
         // transition dst (a raw image)
         // from UNDEFINED, because the image is just being available
@@ -142,6 +142,8 @@ impl Swapchain {
             vk::ImageLayout::UNDEFINED,
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
             dst_raw_img,
+            0,
+            1,
         );
 
         unsafe {
@@ -163,6 +165,8 @@ impl Swapchain {
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
             vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
             dst_raw_img,
+            0,
+            1,
         );
     }
 

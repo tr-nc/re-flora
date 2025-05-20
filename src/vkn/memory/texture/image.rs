@@ -16,7 +16,7 @@ struct ImageInner {
     image: vk::Image,
     allocator: Allocator,
     allocated_mem: Allocation,
-    current_layout: Mutex<vk::ImageLayout>,
+    current_layout: Mutex<Vec<vk::ImageLayout>>,
     size: vk::DeviceSize,
 }
 
@@ -90,13 +90,16 @@ impl Image {
             * desc.extent[2] as vk::DeviceSize
             * desc.get_pixel_size() as vk::DeviceSize;
 
+        // initialize one entry per array layer
+        let layouts = vec![desc.initial_layout; desc.array_len as usize];
+
         Ok(Self(Arc::new(ImageInner {
             device: device.clone(),
             image,
             desc: desc.clone(),
             allocator,
             allocated_mem,
-            current_layout: Mutex::new(desc.initial_layout),
+            current_layout: Mutex::new(layouts),
             size,
         })))
     }
@@ -112,10 +115,15 @@ impl Image {
         queue: &Queue,
         command_pool: &CommandPool,
         dst_image_layout: vk::ImageLayout,
+        array_layer: u32,
         region: TextureRegion,
     ) {
         execute_one_time_command(&self.0.device, command_pool, queue, |cmdbuf| {
-            self.record_transition_barrier(cmdbuf, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
+            self.record_transition_barrier(
+                cmdbuf,
+                array_layer,
+                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+            );
             let region = vk::BufferImageCopy::default()
                 .buffer_offset(0)
                 .buffer_row_length(0)
@@ -145,7 +153,7 @@ impl Image {
                     &[region],
                 )
             }
-            self.record_transition_barrier(cmdbuf, dst_image_layout);
+            self.record_transition_barrier(cmdbuf, array_layer, dst_image_layout);
         });
     }
 
@@ -207,11 +215,12 @@ impl Image {
         &self,
         cmdbuf: &CommandBuffer,
         layout_after_clear: Option<vk::ImageLayout>,
+        base_array_layer: u32,
         clear_value: ClearValue,
     ) {
-        let target_layout = layout_after_clear.unwrap_or(self.get_layout());
+        let target_layout = layout_after_clear.unwrap_or(self.get_layout(base_array_layer));
         const LAYOUT_USED_TO_CLEAR: vk::ImageLayout = vk::ImageLayout::GENERAL;
-        self.record_transition_barrier(cmdbuf, LAYOUT_USED_TO_CLEAR);
+        self.record_transition_barrier(cmdbuf, base_array_layer, LAYOUT_USED_TO_CLEAR);
 
         let clear_value = match clear_value {
             ClearValue::UInt(v) => vk::ClearColorValue { uint32: v },
@@ -231,37 +240,43 @@ impl Image {
                     aspect_mask: vk::ImageAspectFlags::COLOR,
                     base_mip_level: 0,
                     level_count: 1,
-                    base_array_layer: 0,
+                    base_array_layer,
                     layer_count: 1,
                 }],
             );
         }
-        self.record_transition_barrier(cmdbuf, target_layout);
+        self.record_transition_barrier(cmdbuf, base_array_layer, target_layout);
     }
 
+    /// Transition just `array_layer` from its current layout → `target_layout`
     pub fn record_transition_barrier(
         &self,
         cmdbuf: &CommandBuffer,
+        array_layer: u32,
         target_layout: vk::ImageLayout,
     ) {
         let device = &self.0.device;
-        let mut layout_guard = self.0.current_layout.lock().unwrap();
+        let mut layouts = self.0.current_layout.lock().unwrap();
+        let idx = array_layer as usize;
+        let old_layout = layouts[idx];
 
-        let current_layout = *layout_guard;
-
-        if current_layout == target_layout {
+        if old_layout == target_layout {
             return;
         }
 
+        // emit a barrier for exactly one layer
         record_image_transition_barrier(
             device.as_raw(),
             cmdbuf.as_raw(),
-            current_layout,
+            old_layout,
             target_layout,
             self.0.image,
+            array_layer,
+            1, // only one layer
         );
 
-        *layout_guard = target_layout;
+        // update our tracked layout
+        layouts[idx] = target_layout;
     }
 
     /// Loads an RGBA image from the given path and checks if it has the same size as the texture.
@@ -335,10 +350,14 @@ impl Image {
             .fill(data)
             .map_err(|e| format!("Failed to fill buffer: {}", e))?;
 
-        let target_layout = dst_image_layout.unwrap_or(self.get_layout());
+        let target_layout = dst_image_layout.unwrap_or(self.get_layout(array_layer));
 
         execute_one_time_command(device, command_pool, queue, |cmdbuf| {
-            self.record_transition_barrier(cmdbuf, vk::ImageLayout::TRANSFER_DST_OPTIMAL);
+            self.record_transition_barrier(
+                cmdbuf,
+                array_layer,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            );
             let region = vk::BufferImageCopy::default()
                 .buffer_offset(0)
                 .buffer_row_length(0)
@@ -368,7 +387,7 @@ impl Image {
                     &[region],
                 )
             }
-            self.record_transition_barrier(cmdbuf, target_layout);
+            self.record_transition_barrier(cmdbuf, array_layer, target_layout);
         });
         Ok(())
     }
@@ -389,7 +408,7 @@ impl Image {
         );
 
         execute_one_time_command(device, command_pool, queue, |cmdbuf| {
-            self.record_transition_barrier(cmdbuf, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
+            self.record_transition_barrier(cmdbuf, 0, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
             let region = vk::BufferImageCopy::default()
                 .buffer_offset(0)
                 .buffer_row_length(0)
@@ -421,8 +440,14 @@ impl Image {
         Ok(fetched_data)
     }
 
-    pub fn get_layout(&self) -> vk::ImageLayout {
-        *self.0.current_layout.lock().unwrap()
+    pub fn get_layout(&self, array_layer: u32) -> vk::ImageLayout {
+        *self
+            .0
+            .current_layout
+            .lock()
+            .unwrap()
+            .get(array_layer as usize)
+            .unwrap()
     }
 
     pub fn as_raw(&self) -> vk::Image {
@@ -434,20 +459,23 @@ impl Image {
     }
 }
 
-/// Record a transition barrier for an image.
+/// Record a transition barrier for one subresource‐range of an image
+/// (you now provide base_array_layer + layer_count explicitly).
 pub fn record_image_transition_barrier(
     device: &ash::Device,
     cmdbuf: vk::CommandBuffer,
-    current_layout: vk::ImageLayout,
-    target_layout: vk::ImageLayout,
+    old_layout: vk::ImageLayout,
+    new_layout: vk::ImageLayout,
     image: vk::Image,
+    base_array_layer: u32,
+    layer_count: u32,
 ) {
-    let (src_access_mask, src_stage) = map_src_stage_access_flags(current_layout);
-    let (dst_access_mask, dst_stage) = map_dst_stage_access_flags(target_layout);
+    let (src_access, src_stage) = map_src_stage_access_flags(old_layout);
+    let (dst_access, dst_stage) = map_dst_stage_access_flags(new_layout);
 
     let barrier = vk::ImageMemoryBarrier::default()
-        .old_layout(current_layout)
-        .new_layout(target_layout)
+        .old_layout(old_layout)
+        .new_layout(new_layout)
         .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
         .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
         .image(image)
@@ -455,11 +483,12 @@ pub fn record_image_transition_barrier(
             aspect_mask: vk::ImageAspectFlags::COLOR,
             base_mip_level: 0,
             level_count: 1,
-            base_array_layer: 0,
-            layer_count: 1,
+            base_array_layer,
+            layer_count,
         })
-        .src_access_mask(src_access_mask)
-        .dst_access_mask(dst_access_mask);
+        .src_access_mask(src_access)
+        .dst_access_mask(dst_access);
+
     unsafe {
         device.cmd_pipeline_barrier(
             cmdbuf,
@@ -482,7 +511,6 @@ pub fn record_image_transition_barrier(
 /// Note that READ access is redundant for SrcAccessMask, as reading never
 /// requires a cache flush.
 ///
-/// See: https://themaister.net/blog/2019/08/14/yet-another-blog-explaining-vulkan-synchronization/
 fn map_src_stage_access_flags(
     old_layout: vk::ImageLayout,
 ) -> (vk::AccessFlags, vk::PipelineStageFlags) {

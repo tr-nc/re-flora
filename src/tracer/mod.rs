@@ -24,6 +24,8 @@ pub struct Tracer {
     descriptor_pool_ds_0: DescriptorPool,
     descriptor_pool_ds_1: DescriptorPool,
     descriptor_pool_ds_2: DescriptorPool,
+
+    frame_serial_idx: u32,
 }
 
 impl Tracer {
@@ -98,6 +100,8 @@ impl Tracer {
             descriptor_pool_ds_0,
             descriptor_pool_ds_1,
             descriptor_pool_ds_2,
+
+            frame_serial_idx: 0,
         };
     }
 
@@ -204,7 +208,7 @@ impl Tracer {
         self.resources
             .shader_write_tex
             .get_image()
-            .record_transition_barrier(cmdbuf, vk::ImageLayout::GENERAL);
+            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
         self.tracer_ppl.record_bind(cmdbuf);
 
         self.tracer_ppl
@@ -225,7 +229,6 @@ impl Tracer {
         sun_size: f32,
         sun_color: Vec3,
         camera: &Camera,
-        time_stamp: u32,
     ) -> Result<(), String> {
         update_gui_input(
             &self.resources,
@@ -236,7 +239,10 @@ impl Tracer {
             sun_color,
         )?;
         update_cam_info(&self.resources, camera)?;
-        update_env_info(&self.resources, time_stamp)?;
+        update_env_info(&self.resources, self.frame_serial_idx)?;
+
+        self.frame_serial_idx += 1;
+
         return Ok(());
 
         fn update_gui_input(
@@ -314,9 +320,15 @@ impl Tracer {
             Ok(())
         }
 
-        fn update_env_info(resources: &TracerResources, time_stamp: u32) -> Result<(), String> {
+        fn update_env_info(
+            resources: &TracerResources,
+            frame_serial_idx: u32,
+        ) -> Result<(), String> {
             let data = StructMemberDataBuilder::from_buffer(&resources.env_info)
-                .set_field("time_stamp", PlainMemberTypeWithData::UInt(time_stamp))
+                .set_field(
+                    "frame_serial_idx",
+                    PlainMemberTypeWithData::UInt(frame_serial_idx),
+                )
                 .unwrap()
                 .get_data_u8();
             resources.env_info.fill_with_raw_u8(&data)?;

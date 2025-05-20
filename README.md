@@ -77,13 +77,15 @@ Notes:
 
 ### Tech
 
-#### Vulkan Related
+#### Vulkan
 
 [Descriptor set - Vulkan's guide](https://vkguide.dev/docs/chapter-4/descriptors/#binding-descriptors)
 
 [Descriptor set - Nvidia's guide](https://developer.nvidia.com/vulkan-shader-resource-binding)
 
-#### Rust Related
+[Vulkan Synchronisation](https://themaister.net/blog/2019/08/14/yet-another-blog-explaining-vulkan-synchronization/)
+
+#### Rust
 
 https://refactoring.guru/refactoring/smells
 

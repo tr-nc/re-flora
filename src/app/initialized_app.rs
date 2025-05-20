@@ -495,7 +495,6 @@ impl InitializedApp {
                             self.sun_color.b() as f32,
                         ),
                         &self.camera,
-                        0,
                     )
                     .unwrap();
 

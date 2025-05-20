@@ -31,6 +31,8 @@ impl Texture {
             )
             .unwrap(),
             aspect: img_desc.aspect,
+            base_array_layer: 0,
+            layer_count: img_desc.array_len,
         };
         let image_view = ImageView::new(device.clone(), image_view_desc);
         let sampler = Sampler::new(device.clone(), sampler_desc);
