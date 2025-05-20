@@ -33,7 +33,10 @@ contree_node_data;
 layout(set = 0, binding = 4) readonly buffer B_ContreeLeafData { uint data[]; }
 contree_leaf_data;
 layout(set = 0, binding = 5, rg32ui) readonly uniform uimage3D scene_tex;
-layout(set = 0, binding = 6, rgba8) readonly uniform image2DArray noise_tex;
+layout(set = 0, binding = 6, r8) readonly uniform image2DArray scalar_bn;
+layout(set = 0, binding = 7, rg8) readonly uniform image2DArray vec2_bn;
+layout(set = 0, binding = 8, rgba8) readonly uniform image2DArray vec3_bn;
+layout(set = 0, binding = 9, rgba8) readonly uniform image2DArray weighted_cosine_bn;
 
 layout(set = 1, binding = 0) writeonly uniform image2D result_image;
 
@@ -130,7 +133,8 @@ void main() {
 
     // test
 
-    vis = imageLoad(noise_tex, ivec3(uvi, env_info.frame_serial_idx) % imageSize(noise_tex)).xyz;
+    vis = imageLoad(vec2_bn, ivec3(uvi, env_info.frame_serial_idx) % imageSize(weighted_cosine_bn))
+              .rgb;
 
     imageStore(result_image, uvi, vec4(vis, 1.0));
 }

@@ -296,8 +296,50 @@ impl Image {
                 self.0.desc.extent[2]
             ));
         }
-        let data = rgba_image.into_raw();
+        let mut data = rgba_image.into_raw();
+        data = self
+            .convert_rgba_data_to_image_format(&data)
+            .map_err(|e| format!("Failed to convert image data: {}", e))?;
         Ok(data)
+    }
+
+    fn convert_rgba_data_to_image_format(&self, data: &[u8]) -> Result<Vec<u8>, String> {
+        use ash::vk::Format;
+        let fmt = self.0.desc.format;
+        // data is &[R, G, B, A,  R, G, B, A,  …]
+        match fmt {
+            Format::R8G8B8A8_UNORM => {
+                // Already in RGBA8 – just clone
+                Ok(data.to_vec())
+            }
+            Format::R8_UNORM => {
+                // Keep only R
+                if data.len() % 4 != 0 {
+                    return Err("Input RGBA data length not divisible by 4".into());
+                }
+                let mut out = Vec::with_capacity(data.len() / 4);
+                for pixel in data.chunks_exact(4) {
+                    out.push(pixel[0]);
+                }
+                Ok(out)
+            }
+            Format::R8G8_UNORM => {
+                // Keep R and G
+                if data.len() % 4 != 0 {
+                    return Err("Input RGBA data length not divisible by 4".into());
+                }
+                let mut out = Vec::with_capacity(data.len() / 2);
+                for pixel in data.chunks_exact(4) {
+                    out.push(pixel[0]);
+                    out.push(pixel[1]);
+                }
+                Ok(out)
+            }
+            other => Err(format!(
+                "Unsupported image format for RGBA→raw conversion: {:?}",
+                other
+            )),
+        }
     }
 
     /// Loads an RGBA image from the given path and fills the texture with it.
@@ -546,7 +588,6 @@ fn map_src_stage_access_flags(
 /// - DstAccessMask represents which part of available memory to be made visible.
 /// (By invalidating caches)
 ///
-/// See: https://themaister.net/blog/2019/08/14/yet-another-blog-explaining-vulkan-synchronization/
 fn map_dst_stage_access_flags(
     new_layout: vk::ImageLayout,
 ) -> (vk::AccessFlags, vk::PipelineStageFlags) {

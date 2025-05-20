@@ -64,21 +64,25 @@ impl TracerResources {
         let scalar_bn = create_bn(
             &vulkan_ctx,
             allocator.clone(),
+            vk::Format::R8_UNORM,
             "scalar_2d_1d_1d/stbn_scalar_2Dx1Dx1D_128x128x64x1_",
         );
         let vec2_bn = create_bn(
             &vulkan_ctx,
             allocator.clone(),
+            vk::Format::R8G8_UNORM,
             "unitvec2_2d_1d/stbn_unitvec2_2Dx1D_128x128x64_",
         );
         let vec3_bn = create_bn(
             &vulkan_ctx,
             allocator.clone(),
+            vk::Format::R8G8B8A8_UNORM,
             "unitvec3_2d_1d/stbn_unitvec3_2Dx1D_128x128x64_",
         );
         let weighted_cosine_bn = create_bn(
             &vulkan_ctx,
             allocator.clone(),
+            vk::Format::R8G8B8A8_UNORM,
             "unitvec3_cosine_2d_1d/stbn_unitvec3_cosine_2Dx1D_128x128x64_",
         );
         log::debug!("Blue noise texture load time: {:?}", timer.elapsed());
@@ -98,6 +102,7 @@ impl TracerResources {
         fn create_bn(
             vulkan_ctx: &VulkanContext,
             allocator: Allocator,
+            format: vk::Format,
             relative_path: &str,
         ) -> Texture {
             const BLUE_NOISE_LEN: u32 = 64;
@@ -105,7 +110,7 @@ impl TracerResources {
             let img_desc = ImageDesc {
                 extent: [128, 128, 1],
                 array_len: BLUE_NOISE_LEN,
-                format: vk::Format::R8G8B8A8_UNORM,
+                format,
                 usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
                 initial_layout: vk::ImageLayout::UNDEFINED,
                 aspect: vk::ImageAspectFlags::COLOR,

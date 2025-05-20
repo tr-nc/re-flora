@@ -134,6 +134,24 @@ impl Tracer {
             WriteDescriptorSet::new_texture_write(
                 6,
                 vk::DescriptorType::STORAGE_IMAGE,
+                &resources.scalar_bn,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                7,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.vec2_bn,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                8,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.vec3_bn,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                9,
+                vk::DescriptorType::STORAGE_IMAGE,
                 &resources.weighted_cosine_bn,
                 vk::ImageLayout::GENERAL,
             ),
