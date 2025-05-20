@@ -4,6 +4,7 @@ use ash::vk;
 #[derive(Copy, Clone)]
 pub struct ImageDesc {
     pub extent: [u32; 3],
+    pub array_len: u32,
     pub format: vk::Format,
     pub usage: vk::ImageUsageFlags,
     pub initial_layout: vk::ImageLayout,
@@ -16,6 +17,7 @@ impl Default for ImageDesc {
     fn default() -> Self {
         Self {
             extent: [0, 0, 0],
+            array_len: 1,
             format: vk::Format::UNDEFINED,
             usage: vk::ImageUsageFlags::empty(),
             initial_layout: vk::ImageLayout::UNDEFINED,

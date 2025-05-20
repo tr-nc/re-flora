@@ -97,6 +97,7 @@ impl TracerResources {
     fn create_bn(vulkan_ctx: &VulkanContext, allocator: Allocator) -> Texture {
         let tex_desc = ImageDesc {
             extent: [128, 128, 1],
+            array_len: 64,
             format: vk::Format::R8G8B8A8_UNORM,
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
             initial_layout: vk::ImageLayout::UNDEFINED,
@@ -113,6 +114,7 @@ impl TracerResources {
                 &vulkan_ctx.get_general_queue(),
                 vulkan_ctx.command_pool(),
                 &path,
+                0,
                 Some(vk::ImageLayout::GENERAL),
             )
             .unwrap();

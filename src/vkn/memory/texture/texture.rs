@@ -1,4 +1,4 @@
-use super::{Image, ImageView, ImageViewDesc, Sampler, SamplerDesc, ImageDesc};
+use super::{Image, ImageDesc, ImageView, ImageViewDesc, Sampler, SamplerDesc};
 use crate::vkn::{Allocator, Device};
 use ash::vk::{self, ImageType};
 
@@ -17,16 +17,20 @@ impl Texture {
     pub fn new(
         device: Device,
         allocator: Allocator,
-        texture_desc: &ImageDesc,
+        img_desc: &ImageDesc,
         sampler_desc: &SamplerDesc,
     ) -> Self {
-        let image = Image::new(device.clone(), allocator, &texture_desc).unwrap();
+        let image = Image::new(device.clone(), allocator, &img_desc).unwrap();
 
         let image_view_desc = ImageViewDesc {
             image: image.as_raw(),
-            format: texture_desc.format,
-            image_view_type: image_type_to_image_view_type(texture_desc.get_image_type()).unwrap(),
-            aspect: texture_desc.aspect,
+            format: img_desc.format,
+            image_view_type: image_type_to_image_view_type(
+                img_desc.get_image_type(),
+                img_desc.array_len,
+            )
+            .unwrap(),
+            aspect: img_desc.aspect,
         };
         let image_view = ImageView::new(device.clone(), image_view_desc);
         let sampler = Sampler::new(device.clone(), sampler_desc);
@@ -51,11 +55,46 @@ impl Texture {
     }
 }
 
-fn image_type_to_image_view_type(image_type: ImageType) -> Result<vk::ImageViewType, String> {
-    match image_type {
-        ImageType::TYPE_1D => Ok(vk::ImageViewType::TYPE_1D),
-        ImageType::TYPE_2D => Ok(vk::ImageViewType::TYPE_2D),
-        ImageType::TYPE_3D => Ok(vk::ImageViewType::TYPE_3D),
-        _ => Err(format!("Unsupported image type: {:?}", image_type)),
+pub fn image_type_to_image_view_type(
+    image_type: ImageType,
+    array_len: u32,
+) -> Result<vk::ImageViewType, String> {
+    if array_len == 0 {
+        return Err("array_len must be at least 1".into());
     }
+
+    let view = match image_type {
+        ImageType::TYPE_1D => {
+            if array_len == 1 {
+                vk::ImageViewType::TYPE_1D
+            } else {
+                vk::ImageViewType::TYPE_1D_ARRAY
+            }
+        }
+
+        ImageType::TYPE_2D => {
+            if array_len == 1 {
+                vk::ImageViewType::TYPE_2D
+            } else {
+                vk::ImageViewType::TYPE_2D_ARRAY
+            }
+        }
+
+        ImageType::TYPE_3D => {
+            if array_len == 1 {
+                vk::ImageViewType::TYPE_3D
+            } else {
+                return Err(format!(
+                    "3D images cannot be viewed as arrays (array_len = {})",
+                    array_len
+                ));
+            }
+        }
+
+        other => {
+            return Err(format!("Unsupported image type: {:?}", other));
+        }
+    };
+
+    Ok(view)
 }

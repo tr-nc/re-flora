@@ -57,7 +57,7 @@ impl Image {
             .extent(desc.get_extent())
             .image_type(desc.get_image_type())
             .mip_levels(1)
-            .array_layers(1)
+            .array_layers(desc.array_len)
             .format(desc.format)
             .tiling(desc.tilting)
             .initial_layout(ImageLayout::UNDEFINED)
@@ -264,27 +264,11 @@ impl Image {
         *layout_guard = target_layout;
     }
 
-    #[allow(dead_code)]
-    pub fn fill_with_raw_u32(
-        &self,
-        queue: &Queue,
-        command_pool: &CommandPool,
-        region: TextureRegion,
-        data: &[u32],
-        dst_image_layout: Option<vk::ImageLayout>,
-    ) -> Result<(), String> {
-        let data_u8: &[u8] = unsafe {
-            std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * size_of::<u32>())
-        };
-        self.fill_with_raw_u8(queue, command_pool, region, data_u8, dst_image_layout)
-    }
-
-    fn load_image_as_raw_u8(&self, path: &str) -> Result<Vec<u8>, String> {
+    /// Loads an RGBA image from the given path and checks if it has the same size as the texture.
+    fn load_same_sized_image_as_raw_u8(&self, path: &str) -> Result<Vec<u8>, String> {
         let image = image::open(path).map_err(|e| format!("Failed to open image: {}", e))?;
         let rgba_image = image.to_rgba8();
         let (width, height) = rgba_image.dimensions();
-        log::debug!("Loaded image: {}x{}", width, height);
-        log::debug!("Current image extent: {:?}", self.0.desc.extent);
         if width != self.0.desc.extent[0] as u32 || height != self.0.desc.extent[1] as u32 {
             return Err(format!(
                 "Image size does not match texture size: {}x{} != {}x{}",
@@ -310,11 +294,19 @@ impl Image {
         queue: &Queue,
         command_pool: &CommandPool,
         path: &str,
+        array_layer: u32,
         dst_image_layout: Option<vk::ImageLayout>,
     ) -> Result<(), String> {
-        let data = self.load_image_as_raw_u8(path)?;
+        let data = self.load_same_sized_image_as_raw_u8(path)?;
         let region = TextureRegion::from_image(self);
-        self.fill_with_raw_u8(queue, command_pool, region, &data, dst_image_layout)
+        self.fill_with_raw_u8(
+            queue,
+            command_pool,
+            region,
+            &data,
+            array_layer,
+            dst_image_layout,
+        )
     }
 
     /// Uploads an RGBA image to the texture. The image is transitioned into `dst_image_layout` after the copy.
@@ -327,6 +319,7 @@ impl Image {
         command_pool: &CommandPool,
         region: TextureRegion,
         data: &[u8],
+        array_layer: u32,
         dst_image_layout: Option<vk::ImageLayout>,
     ) -> Result<(), String> {
         let device = &self.0.device;
@@ -353,7 +346,7 @@ impl Image {
                 .image_subresource(vk::ImageSubresourceLayers {
                     aspect_mask: vk::ImageAspectFlags::COLOR,
                     mip_level: 0,
-                    base_array_layer: 0,
+                    base_array_layer: array_layer,
                     layer_count: 1,
                 })
                 .image_offset(vk::Offset3D {
@@ -381,7 +374,8 @@ impl Image {
     }
 
     /// Obtain the image data from the texture of the full image region.
-    // TODO: Add support for regions and other formats.
+    // TODO: Add support for regions and other formats. Add support for
+    // array layers.
     #[allow(dead_code)]
     pub fn fetch_data(&self, queue: &Queue, command_pool: &CommandPool) -> Result<Vec<u8>, String> {
         let device = &self.0.device;

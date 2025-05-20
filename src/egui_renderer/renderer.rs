@@ -207,6 +207,7 @@ impl EguiRenderer {
                         self.vulkan_context.command_pool(),
                         region,
                         data.as_slice(),
+                        0,
                         Some(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL),
                     )
                     .unwrap();
@@ -231,6 +232,7 @@ impl EguiRenderer {
                         self.vulkan_context.command_pool(),
                         TextureRegion::from_image(&texture.get_image()),
                         data.as_slice(),
+                        0,
                         Some(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL),
                     )
                     .unwrap();
@@ -241,7 +243,7 @@ impl EguiRenderer {
                     self.descriptor_pool.clone(),
                 );
 
-                set.perform_writes(&mut[WriteDescriptorSet::new_texture_write(
+                set.perform_writes(&mut [WriteDescriptorSet::new_texture_write(
                     0,
                     vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
                     &texture,
