@@ -15,17 +15,15 @@ struct ImageInner {
     desc: ImageDesc,
     image: vk::Image,
     allocator: Allocator,
-    // TODO: use Allocation simply, like buffer.rs
-    memory: Mutex<Option<Allocation>>,
+    allocated_mem: Allocation,
     current_layout: Mutex<vk::ImageLayout>,
     size: vk::DeviceSize,
 }
 
 impl Drop for ImageInner {
     fn drop(&mut self) {
-        if let Some(memory) = self.memory.lock().unwrap().take() {
-            self.allocator.destroy_image(self.image, memory);
-        }
+        let allocated_mem = std::mem::take(&mut self.allocated_mem);
+        self.allocator.destroy_image(self.image, allocated_mem);
     }
 }
 
@@ -97,7 +95,7 @@ impl Image {
             image,
             desc: desc.clone(),
             allocator,
-            memory: Mutex::new(Some(allocated_mem)),
+            allocated_mem,
             current_layout: Mutex::new(desc.initial_layout),
             size,
         })))

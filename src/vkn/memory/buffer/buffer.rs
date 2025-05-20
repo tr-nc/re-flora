@@ -240,6 +240,7 @@ impl Buffer {
         }
     }
 
+    #[allow(dead_code)]
     pub fn fill_element_with_raw_u8(&self, data: &[u8], element_idx: u64) -> Result<(), String> {
         if data.len() != self.get_element_size_bytes() as usize {
             return Err(format!(
@@ -326,6 +327,7 @@ impl Buffer {
         }
     }
 
+    #[allow(dead_code)]
     pub fn record_copy_to_buffer(
         &self,
         cmdbuf: &CommandBuffer,

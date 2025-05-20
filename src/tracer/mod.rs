@@ -20,6 +20,7 @@ pub struct Tracer {
     tracer_ppl: ComputePipeline,
     tracer_sets: [DescriptorSet; 3],
 
+    #[allow(dead_code)]
     descriptor_pool_ds_0: DescriptorPool,
     descriptor_pool_ds_1: DescriptorPool,
     descriptor_pool_ds_2: DescriptorPool,
