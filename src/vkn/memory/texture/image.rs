@@ -1,4 +1,4 @@
-use super::{TextureDesc, TextureRegion};
+use super::{ImageDesc, TextureRegion};
 use crate::vkn::{
     execute_one_time_command, Allocator, Buffer, BufferUsage, CommandBuffer, CommandPool, Device,
     Queue,
@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 
 struct ImageInner {
     device: Device,
-    desc: TextureDesc,
+    desc: ImageDesc,
     image: vk::Image,
     allocator: Allocator,
     // TODO: use Allocation simply, like buffer.rs
@@ -47,11 +47,7 @@ impl std::ops::Deref for Image {
 }
 
 impl Image {
-    pub fn new(
-        device: Device,
-        mut allocator: Allocator,
-        desc: &TextureDesc,
-    ) -> Result<Self, String> {
+    pub fn new(device: Device, mut allocator: Allocator, desc: &ImageDesc) -> Result<Self, String> {
         // for vulkan spec, initial_layout must be either UNDEFINED or PREINITIALIZED,
         if desc.initial_layout != ImageLayout::UNDEFINED
             && desc.initial_layout != ImageLayout::PREINITIALIZED
@@ -107,8 +103,52 @@ impl Image {
         })))
     }
 
-    pub fn get_desc(&self) -> &TextureDesc {
+    pub fn get_desc(&self) -> &ImageDesc {
         &self.0.desc
+    }
+
+    #[allow(dead_code)]
+    pub fn copy_image_to_buffer(
+        &self,
+        buffer: &mut Buffer,
+        queue: &Queue,
+        command_pool: &CommandPool,
+        dst_image_layout: vk::ImageLayout,
+        region: TextureRegion,
+    ) {
+        execute_one_time_command(&self.0.device, command_pool, queue, |cmdbuf| {
+            self.record_transition_barrier(cmdbuf, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
+            let region = vk::BufferImageCopy::default()
+                .buffer_offset(0)
+                .buffer_row_length(0)
+                .buffer_image_height(0)
+                .image_subresource(vk::ImageSubresourceLayers {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    mip_level: 0,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                })
+                .image_offset(vk::Offset3D {
+                    x: region.offset[0],
+                    y: region.offset[1],
+                    z: region.offset[2],
+                })
+                .image_extent(vk::Extent3D {
+                    width: region.extent[0],
+                    height: region.extent[1],
+                    depth: region.extent[2],
+                });
+            unsafe {
+                self.0.device.cmd_copy_image_to_buffer(
+                    cmdbuf.as_raw(),
+                    self.as_raw(),
+                    vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                    buffer.as_raw(),
+                    &[region],
+                )
+            }
+            self.record_transition_barrier(cmdbuf, dst_image_layout);
+        });
     }
 
     #[allow(dead_code)]
@@ -226,6 +266,7 @@ impl Image {
         *layout_guard = target_layout;
     }
 
+    #[allow(dead_code)]
     pub fn fill_with_raw_u32(
         &self,
         queue: &Queue,
@@ -240,8 +281,47 @@ impl Image {
         self.fill_with_raw_u8(queue, command_pool, region, data_u8, dst_image_layout)
     }
 
+    fn load_image_as_raw_u8(&self, path: &str) -> Result<Vec<u8>, String> {
+        let image = image::open(path).map_err(|e| format!("Failed to open image: {}", e))?;
+        let rgba_image = image.to_rgba8();
+        let (width, height) = rgba_image.dimensions();
+        log::debug!("Loaded image: {}x{}", width, height);
+        log::debug!("Current image extent: {:?}", self.0.desc.extent);
+        if width != self.0.desc.extent[0] as u32 || height != self.0.desc.extent[1] as u32 {
+            return Err(format!(
+                "Image size does not match texture size: {}x{} != {}x{}",
+                width, height, self.0.desc.extent[0], self.0.desc.extent[1]
+            ));
+        }
+        if self.0.desc.extent[2] != 1 {
+            return Err(format!(
+                "Image depth must be 1, but got {}",
+                self.0.desc.extent[2]
+            ));
+        }
+        let data = rgba_image.into_raw();
+        Ok(data)
+    }
+
+    /// Loads an RGBA image from the given path and fills the texture with it.
+    ///
+    /// The image is transitioned into `dst_image_layout` after the copy.
+    /// If `dst_image_layout` is `None`, the image is transitioned back to where it was before the copy.
+    pub fn load_and_fill(
+        &self,
+        queue: &Queue,
+        command_pool: &CommandPool,
+        path: &str,
+        dst_image_layout: Option<vk::ImageLayout>,
+    ) -> Result<(), String> {
+        let data = self.load_image_as_raw_u8(path)?;
+        let region = TextureRegion::from_image(self);
+        self.fill_with_raw_u8(queue, command_pool, region, &data, dst_image_layout)
+    }
+
     /// Uploads an RGBA image to the texture. The image is transitioned into `dst_image_layout` after the copy.
     ///
+    /// The image is transitioned into `dst_image_layout` after the copy.
     /// If `dst_image_layout` is `None`, the image is transitioned back to where it was before the copy.
     pub fn fill_with_raw_u8(
         &self,

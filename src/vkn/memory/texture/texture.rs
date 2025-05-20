@@ -1,11 +1,10 @@
-use super::{Image, ImageView, ImageViewDesc, Sampler, SamplerDesc, TextureDesc, TextureRegion};
-use crate::vkn::{execute_one_time_command, Allocator, Buffer, CommandPool, Device, Queue};
+use super::{Image, ImageView, ImageViewDesc, Sampler, SamplerDesc, ImageDesc};
+use crate::vkn::{Allocator, Device};
 use ash::vk::{self, ImageType};
 
 /// A texture is a combination of an image, image view, and sampler.
 #[derive(Clone)]
 pub struct Texture {
-    device: Device,
     image: Image,
     image_view: ImageView,
     sampler: Sampler,
@@ -18,7 +17,7 @@ impl Texture {
     pub fn new(
         device: Device,
         allocator: Allocator,
-        texture_desc: &TextureDesc,
+        texture_desc: &ImageDesc,
         sampler_desc: &SamplerDesc,
     ) -> Self {
         let image = Image::new(device.clone(), allocator, &texture_desc).unwrap();
@@ -33,57 +32,10 @@ impl Texture {
         let sampler = Sampler::new(device.clone(), sampler_desc);
 
         Self {
-            device,
             image,
             image_view,
             sampler,
         }
-    }
-
-    #[allow(dead_code)]
-    pub fn copy_image_to_buffer(
-        &self,
-        buffer: &mut Buffer,
-        queue: &Queue,
-        command_pool: &CommandPool,
-        dst_image_layout: vk::ImageLayout,
-        region: TextureRegion,
-    ) {
-        execute_one_time_command(&self.device.clone(), command_pool, queue, |cmdbuf| {
-            self.image
-                .record_transition_barrier(cmdbuf, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
-            let region = vk::BufferImageCopy::default()
-                .buffer_offset(0)
-                .buffer_row_length(0)
-                .buffer_image_height(0)
-                .image_subresource(vk::ImageSubresourceLayers {
-                    aspect_mask: vk::ImageAspectFlags::COLOR,
-                    mip_level: 0,
-                    base_array_layer: 0,
-                    layer_count: 1,
-                })
-                .image_offset(vk::Offset3D {
-                    x: region.offset[0],
-                    y: region.offset[1],
-                    z: region.offset[2],
-                })
-                .image_extent(vk::Extent3D {
-                    width: region.extent[0],
-                    height: region.extent[1],
-                    depth: region.extent[2],
-                });
-            unsafe {
-                self.device.cmd_copy_image_to_buffer(
-                    cmdbuf.as_raw(),
-                    self.image.as_raw(),
-                    vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-                    buffer.as_raw(),
-                    &[region],
-                )
-            }
-            self.image
-                .record_transition_barrier(cmdbuf, dst_image_layout);
-        });
     }
 
     pub fn get_image(&self) -> &Image {

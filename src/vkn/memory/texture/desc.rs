@@ -2,7 +2,7 @@ use ash::vk;
 
 /// Responsible for the creation of image and image view.
 #[derive(Copy, Clone)]
-pub struct TextureDesc {
+pub struct ImageDesc {
     pub extent: [u32; 3],
     pub format: vk::Format,
     pub usage: vk::ImageUsageFlags,
@@ -12,7 +12,7 @@ pub struct TextureDesc {
     pub tilting: vk::ImageTiling,
 }
 
-impl Default for TextureDesc {
+impl Default for ImageDesc {
     fn default() -> Self {
         Self {
             extent: [0, 0, 0],
@@ -26,7 +26,7 @@ impl Default for TextureDesc {
     }
 }
 
-impl TextureDesc {
+impl ImageDesc {
     pub fn get_extent(&self) -> vk::Extent3D {
         vk::Extent3D {
             width: self.extent[0],

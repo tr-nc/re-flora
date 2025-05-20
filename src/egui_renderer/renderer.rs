@@ -2,7 +2,7 @@ use super::mesh::Mesh;
 use crate::util::ShaderCompiler;
 use crate::vkn::CommandBuffer;
 use crate::vkn::DescriptorSet;
-use crate::vkn::TextureDesc;
+use crate::vkn::ImageDesc;
 use crate::vkn::TextureRegion;
 use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
@@ -211,7 +211,7 @@ impl EguiRenderer {
                     )
                     .unwrap();
             } else {
-                let tex_desc = TextureDesc {
+                let tex_desc = ImageDesc {
                     extent: [width, height, 1],
                     format: vk::Format::B8G8R8A8_SRGB,
                     usage: vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST,

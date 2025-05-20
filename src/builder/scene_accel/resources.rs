@@ -1,7 +1,7 @@
 use ash::vk;
 use glam::UVec3;
 
-use crate::vkn::{Allocator, Buffer, BufferUsage, Device, ShaderModule, Texture, TextureDesc};
+use crate::vkn::{Allocator, Buffer, BufferUsage, Device, ShaderModule, Texture, ImageDesc};
 
 pub struct SceneAccelResources {
     pub scene_tex_update_info: Buffer,
@@ -16,7 +16,7 @@ impl SceneAccelResources {
         scene_chunk_dim: UVec3,
         update_scene_tex_sm: &ShaderModule,
     ) -> Self {
-        let tex_desc = TextureDesc {
+        let tex_desc = ImageDesc {
             extent: scene_chunk_dim.to_array(),
             format: vk::Format::R32G32_UINT,
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
