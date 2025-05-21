@@ -136,13 +136,11 @@ vec3 sample_sun_disk(ivec3 seed, float sun_size, vec3 sun_dir) {
 
 ///
 
+/// If the ray hits the scene, no light, otherwise sunlight
 vec3 get_shadow_ray_color(Ray ray) {
     DdaSceneMarchingResult res_shadow_ray;
     res_shadow_ray = dda_scene_marching(ray.origin, ray.direction, ray.inv_direction);
-    if (res_shadow_ray.is_hit) {
-        return vec3(0.0);
-    }
-    return get_sky_color(ray.direction);
+    return res_shadow_ray.is_hit ? vec3(0.0) : gui_input.sun_color * 0.01;
 }
 
 vec3 get_next_tracing_pos(vec3 voxel_center_pos, vec3 voxel_normal) {
@@ -153,6 +151,8 @@ vec3 get_next_tracing_pos(vec3 voxel_center_pos, vec3 voxel_normal) {
     vec3 march_extent = voxel_normal * (t.y * half_voxel_size + 0.005);
     return voxel_center_pos + march_extent;
 }
+
+vec3 get_lambertian_brdf(vec3 albedo) { return albedo * INV_PI; }
 
 void parse_trace_result(out vec3 normal, out vec3 albedo, out vec3 next_tracing_pos,
                         DdaSceneMarchingResult res) {
@@ -168,6 +168,7 @@ vec3 get_pixel_color(Ray ray, ivec3 seed) {
         dda_scene_marching(ray.origin, ray.direction, ray.inv_direction);
 
     if (!res_primary_ray.is_hit) {
+        // render skybox
         return get_sky_color(ray.direction);
     }
     vec3 normal, albedo, next_tracing_pos;
@@ -175,18 +176,17 @@ vec3 get_pixel_color(Ray ray, ivec3 seed) {
 
     vec3 direct_color = vec3(0.0);
 
-    vec3 shadow_ray_dir = sample_sun_disk(seed, gui_input.sun_size, gui_input.sun_dir);
     Ray shadow_ray;
-    shadow_ray.direction     = shadow_ray_dir;
+    shadow_ray.direction     = sample_sun_disk(seed, gui_input.sun_size, gui_input.sun_dir);
     shadow_ray.inv_direction = vec3(1.0) / shadow_ray.direction;
     shadow_ray.origin        = next_tracing_pos;
 
-    if (dot(shadow_ray.direction, normal) > 0.0) {
-        vec3 shadow_ray_col = get_shadow_ray_color(shadow_ray) * dot(shadow_ray.direction, normal);
-        direct_color        = gui_input.sun_color * albedo * shadow_ray_col * 0.01;
+    float cos_i = dot(shadow_ray.direction, normal);
+    if (cos_i > 0.0) {
+        // we ignored the pdf and brdf calc here, because the sun's luminance is experimental
+        direct_color = get_shadow_ray_color(shadow_ray) * cos_i * albedo;
     }
 
-    //
     vec3 indirect_color = vec3(0.0);
 
     Ray indirect_ray;
@@ -197,15 +197,20 @@ vec3 get_pixel_color(Ray ray, ivec3 seed) {
     DdaSceneMarchingResult res_indirect_ray =
         dda_scene_marching(indirect_ray.origin, indirect_ray.direction, indirect_ray.inv_direction);
     if (!res_indirect_ray.is_hit) {
-        // indirect_color = get_sky_color(indirect_ray.direction); // Question: should i do this?
-    }
+        indirect_color = get_sky_color(indirect_ray.direction);
+    } else {
+        vec3 sample_normal, sample_albedo, sample_next_tracing_pos;
+        parse_trace_result(sample_normal, sample_albedo, sample_next_tracing_pos, res_indirect_ray);
+        // only change the origin of the ray, reuse the direction for performance
+        shadow_ray.origin = sample_next_tracing_pos;
 
-    parse_trace_result(normal, albedo, next_tracing_pos, res_indirect_ray);
-    shadow_ray.origin = next_tracing_pos;
-    if (dot(shadow_ray.direction, normal) > 0.0) {
-        vec3 shadow_ray_col = get_shadow_ray_color(shadow_ray) * dot(shadow_ray.direction, normal);
-        indirect_color      = gui_input.sun_color * albedo * shadow_ray_col * 0.01;
+        float cos_i = dot(shadow_ray.direction, sample_normal);
+        if (cos_i > 0.0) {
+            indirect_color = get_shadow_ray_color(shadow_ray) * cos_i * sample_albedo;
+        }
     }
+    // https://computergraphics.stackexchange.com/questions/8578/how-to-set-equivalent-pdfs-for-cosine-weighted-and-uniform-sampled-hemispheres
+    indirect_color *= albedo;
 
     return direct_color + indirect_color;
 }
