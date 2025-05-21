@@ -79,10 +79,7 @@ bool scene_hit(inout DdaSceneMarchingResult dda_res, vec3 o, vec3 d, ivec3 map_p
 ///
 
 const ivec3 BN_NOISE_TEX_SIZE = ivec3(128, 128, 64);
-ivec3 get_seed() {
-    return ivec3(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y, env_info.frame_serial_idx) %
-           BN_NOISE_TEX_SIZE;
-}
+ivec3 get_seed() { return ivec3(gl_GlobalInvocationID.xy % 128, env_info.frame_serial_idx % 64); }
 
 // range [0, 1)
 float random_float_bn(ivec3 seed) { return imageLoad(scalar_bn, seed).r; }
@@ -98,10 +95,24 @@ vec3 random_weighted_cosine_bn(ivec3 seed) {
     return imageLoad(weighted_cosine_bn, seed).rgb * 2.0 - 1.0;
 }
 
+mat3 make_tbn(vec3 normal) {
+    vec3 up = abs(normal.z) < 0.999 ? vec3(0, 0, 1) : vec3(1, 0, 0);
+    vec3 t  = normalize(cross(up, normal));
+    vec3 b  = cross(normal, t);
+    return mat3(t, b, normal);
+}
+
+vec3 sample_diffuse_bounce(ivec3 seed, vec3 normal) {
+    vec3 weighted_cosine_bn = random_weighted_cosine_bn(seed);
+    mat3 tbn                = make_tbn(normal);
+    return tbn * weighted_cosine_bn;
+}
+
 // xi.x, xi.y ∈ [-1, +1] assumed uniformly random
 // sun_size ∈ [0,1] controls apparent radius of the Sun disk
 // sun_dir    unit‐vector pointing to the center of the Sun
-vec3 sample_sun_disk(vec2 xi, float sun_size, vec3 sun_dir) {
+vec3 sample_sun_disk(ivec3 seed, float sun_size, vec3 sun_dir) {
+    vec2 xi = random_unit_vec2_bn(seed);
     // 1) warp xi from [-1,1]→[0,1]²
     float u = 0.5 * (xi.x + 1.0);
     float v = 0.5 * (xi.y + 1.0);
@@ -134,6 +145,82 @@ vec3 get_shadow_ray_color(Ray ray) {
     return get_sky_color(ray.direction);
 }
 
+vec3 get_next_tracing_pos(vec3 voxel_center_pos, vec3 voxel_normal) {
+    // gives more accurate shadow
+    vec2 t                = slabs(vec3(-1.0), vec3(1.0), vec3(0.0), 1.0 / voxel_normal);
+    float half_voxel_size = 1.0 / 512.0; // assuming the voxel size is 1/512
+    // 0.005 is experimental to maintain a good shadow quality
+    vec3 march_extent = voxel_normal * (t.y * half_voxel_size + 0.005);
+    return voxel_center_pos + march_extent;
+}
+
+void parse_trace_result(out vec3 normal, out vec3 albedo, out vec3 next_tracing_pos,
+                        DdaSceneMarchingResult res) {
+    // unpack normal from the packed voxel data (bits 8..28)
+    normal           = unpack_normal_v2((res.voxel_data & 0x1FFFFF00u) >> 8);
+    uint voxel_type  = res.voxel_data & 0xFFu;
+    albedo           = voxel_color_by_type_unorm(voxel_type);
+    next_tracing_pos = get_next_tracing_pos(res.center_pos, normal);
+}
+
+vec3 get_pixel_color(Ray ray, ivec3 seed) {
+    DdaSceneMarchingResult res_primary_ray =
+        dda_scene_marching(ray.origin, ray.direction, ray.inv_direction);
+
+    if (!res_primary_ray.is_hit) {
+        return get_sky_color(ray.direction);
+    }
+    vec3 normal_direct, albedo, next_tracing_pos_direct;
+    parse_trace_result(normal_direct, albedo, next_tracing_pos_direct, res_primary_ray);
+
+    //
+    vec3 direct_color   = vec3(0.0);
+    vec3 shadow_ray_col = vec3(0.0);
+
+    vec3 shadow_ray_dir = sample_sun_disk(seed, gui_input.sun_size, gui_input.sun_dir);
+    Ray shadow_ray;
+    shadow_ray.direction     = shadow_ray_dir;
+    shadow_ray.inv_direction = vec3(1.0) / shadow_ray.direction;
+    shadow_ray.origin        = next_tracing_pos_direct;
+
+    if (dot(shadow_ray.direction, normal_direct) > 0.0) {
+        shadow_ray_col =
+            get_shadow_ray_color(shadow_ray) * dot(shadow_ray.direction, normal_direct);
+    }
+    direct_color = gui_input.sun_color * albedo * shadow_ray_col * 0.01;
+
+    //
+    vec3 indirect_color = vec3(0.0);
+
+    Ray indirect_ray;
+    indirect_ray.direction     = sample_diffuse_bounce(seed, normal_direct);
+    indirect_ray.inv_direction = vec3(1.0) / indirect_ray.direction;
+    indirect_ray.origin        = next_tracing_pos_direct;
+
+    DdaSceneMarchingResult res_indirect_ray =
+        dda_scene_marching(indirect_ray.origin, indirect_ray.direction, indirect_ray.inv_direction);
+    if (!res_indirect_ray.is_hit) {
+        indirect_color = get_sky_color(indirect_ray.direction);
+    }
+
+    vec3 normal_indirect, albedo_indirect, next_tracing_pos_indirect;
+    parse_trace_result(normal_indirect, albedo_indirect, next_tracing_pos_indirect,
+                       res_indirect_ray);
+
+    Ray shadow_ray_indirect;
+    shadow_ray_indirect.direction     = shadow_ray_dir;
+    shadow_ray_indirect.inv_direction = vec3(1.0) / shadow_ray_indirect.direction;
+    shadow_ray_indirect.origin        = next_tracing_pos_indirect;
+
+    if (dot(shadow_ray_indirect.direction, normal_indirect) > 0.0) {
+        shadow_ray_col = get_shadow_ray_color(shadow_ray_indirect) *
+                         dot(shadow_ray_indirect.direction, normal_indirect);
+    }
+    indirect_color = gui_input.sun_color * albedo_indirect * shadow_ray_col * 0.01;
+
+    return direct_color + indirect_color;
+}
+
 void main() {
     ivec2 uvi      = ivec2(gl_GlobalInvocationID.xy);
     ivec2 img_size = imageSize(result_image);
@@ -148,43 +235,6 @@ void main() {
 
     vec3 vis = vec3(0.0);
 
-    DdaSceneMarchingResult res_primary_ray =
-        dda_scene_marching(ray.origin, ray.direction, ray.inv_direction);
-
-    if (res_primary_ray.is_hit) {
-        // unpack normal from the packed voxel data (bits 8..28)
-        vec3 normal = unpack_normal_v2((res_primary_ray.voxel_data & 0x1FFFFF00u) >> 8);
-
-        uint voxel_type = res_primary_ray.voxel_data & 0xFFu;
-        vec3 albedo     = voxel_color_by_type_unorm(voxel_type);
-
-        vec3 shadow_ray_col = vec3(0.0);
-
-        //
-        vec2 rand    = random_unit_vec2_bn(seed);
-        vec3 sun_dir = sample_sun_disk(rand, gui_input.sun_size, gui_input.sun_dir);
-
-        Ray shadow_ray;
-        shadow_ray.direction     = sun_dir;
-        shadow_ray.inv_direction = vec3(1.0) / shadow_ray.direction;
-
-        // gives more accurate shadow
-        vec2 t                = slabs(vec3(-1.0), vec3(1.0), vec3(0.0), 1.0 / normal);
-        float half_voxel_size = 1.0 / 512.0; // assuming the voxel size is 1/512
-        // 0.004 is experimental to maintain a good shadow quality
-        vec3 march_extent = normal * (t.y * half_voxel_size + 0.005);
-
-        shadow_ray.origin = res_primary_ray.center_pos + march_extent;
-
-        if (dot(shadow_ray.direction, normal) > 0.0) {
-            shadow_ray_col = get_shadow_ray_color(shadow_ray) * dot(shadow_ray.direction, normal);
-        }
-        vis = gui_input.sun_color * albedo * shadow_ray_col * 0.01;
-    } else {
-        vis = get_sky_color(ray.direction);
-    }
-
-    //
-
+    vis = get_pixel_color(ray, seed);
     imageStore(result_image, uvi, vec4(vis, 1.0));
 }
