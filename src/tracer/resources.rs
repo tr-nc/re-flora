@@ -13,8 +13,8 @@ pub struct TracerResources {
     pub shader_write_tex: Texture,
 
     pub scalar_bn: Texture,
-    pub vec2_bn: Texture,
-    pub vec3_bn: Texture,
+    pub unit_vec2_bn: Texture,
+    pub unit_vec3_bn: Texture,
     pub weighted_cosine_bn: Texture,
 }
 
@@ -67,13 +67,13 @@ impl TracerResources {
             vk::Format::R8_UNORM,
             "scalar_2d_1d_1d/stbn_scalar_2Dx1Dx1D_128x128x64x1_",
         );
-        let vec2_bn = create_bn(
+        let unit_vec2_bn = create_bn(
             &vulkan_ctx,
             allocator.clone(),
             vk::Format::R8G8_UNORM,
             "unitvec2_2d_1d/stbn_unitvec2_2Dx1D_128x128x64_",
         );
-        let vec3_bn = create_bn(
+        let unit_vec3_bn = create_bn(
             &vulkan_ctx,
             allocator.clone(),
             vk::Format::R8G8B8A8_UNORM,
@@ -94,8 +94,8 @@ impl TracerResources {
             shader_write_tex,
 
             scalar_bn,
-            vec2_bn,
-            vec3_bn,
+            unit_vec2_bn,
+            unit_vec3_bn,
             weighted_cosine_bn,
         };
 

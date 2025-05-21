@@ -278,7 +278,7 @@ impl Image {
         // update our tracked layout
         layouts[idx] = target_layout;
     }
-
+    
     /// Loads an RGBA image from the given path and checks if it has the same size as the texture.
     fn load_same_sized_image_as_raw_u8(&self, path: &str) -> Result<Vec<u8>, String> {
         let image = image::open(path).map_err(|e| format!("Failed to open image: {}", e))?;

@@ -34,8 +34,8 @@ layout(set = 0, binding = 4) readonly buffer B_ContreeLeafData { uint data[]; }
 contree_leaf_data;
 layout(set = 0, binding = 5, rg32ui) readonly uniform uimage3D scene_tex;
 layout(set = 0, binding = 6, r8) readonly uniform image2DArray scalar_bn;
-layout(set = 0, binding = 7, rg8) readonly uniform image2DArray vec2_bn;
-layout(set = 0, binding = 8, rgba8) readonly uniform image2DArray vec3_bn;
+layout(set = 0, binding = 7, rg8) readonly uniform image2DArray unit_vec2_bn;
+layout(set = 0, binding = 8, rgba8) readonly uniform image2DArray unit_vec3_bn;
 layout(set = 0, binding = 9, rgba8) readonly uniform image2DArray weighted_cosine_bn;
 
 layout(set = 1, binding = 0) writeonly uniform image2D result_image;
@@ -54,7 +54,7 @@ layout(set = 2, binding = 0) uniform accelerationStructureEXT tlas;
 
 bool scene_hit(inout DdaSceneMarchingResult dda_res, vec3 o, vec3 d, ivec3 map_pos,
                uvec4 scene_tex_read) {
-    // see update_scene_tex.comp for the encoding part
+    // see update_scene_tex.comp for encoding part
     if (scene_tex_read.x == 0) {
         return false;
     }
@@ -78,6 +78,53 @@ bool scene_hit(inout DdaSceneMarchingResult dda_res, vec3 o, vec3 d, ivec3 map_p
 
 ///
 
+const ivec3 BN_NOISE_TEX_SIZE = ivec3(128, 128, 64);
+ivec3 get_seed() {
+    return ivec3(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y, env_info.frame_serial_idx) %
+           BN_NOISE_TEX_SIZE;
+}
+
+// range [0, 1)
+float random_float_bn(ivec3 seed) { return imageLoad(scalar_bn, seed).r; }
+
+// range (-1, 1) in 2 components
+vec2 random_unit_vec2_bn(ivec3 seed) { return imageLoad(unit_vec2_bn, seed).rg * 2.0 - 1.0; }
+
+// range (-1, 1) in 3 components
+vec3 random_unit_vec3_bn(ivec3 seed) { return imageLoad(unit_vec3_bn, seed).rgb * 2.0 - 1.0; }
+
+// range (-1, 1) in 3 components
+vec3 random_weighted_cosine_bn(ivec3 seed) {
+    return imageLoad(weighted_cosine_bn, seed).rgb * 2.0 - 1.0;
+}
+
+// xi.x, xi.y ∈ [-1, +1] assumed uniformly random
+// sun_size ∈ [0,1] controls apparent radius of the Sun disk
+// sun_dir    unit‐vector pointing to the center of the Sun
+vec3 sample_sun_disk(vec2 xi, float sun_size, vec3 sun_dir) {
+    // 1) warp xi from [-1,1]→[0,1]²
+    float u = 0.5 * (xi.x + 1.0);
+    float v = 0.5 * (xi.y + 1.0);
+
+    // 2) uniform‐disk sampling (radius = sun_size)
+    float r   = sqrt(u) * sun_size;
+    float phi = 2.0 * PI * v;
+    float dx  = r * cos(phi);
+    float dy  = r * sin(phi);
+
+    // 3) build an ON‐basis (tangent,bitangent) around sun_dir
+    vec3 tangent   = normalize(abs(sun_dir.x) < 0.99 ? cross(sun_dir, vec3(1, 0, 0))
+                                                     : cross(sun_dir, vec3(0, 1, 0)));
+    vec3 bitangent = cross(sun_dir, tangent);
+
+    // 4) offset the center‐ray by (dx,dy) in that plane
+    vec3 sampleDir = normalize(sun_dir + dx * tangent + dy * bitangent);
+
+    return sampleDir;
+}
+
+///
+
 vec3 get_shadow_ray_color(Ray ray) {
     DdaSceneMarchingResult res_shadow_ray;
     res_shadow_ray = dda_scene_marching(ray.origin, ray.direction, ray.inv_direction);
@@ -93,6 +140,8 @@ void main() {
     if (any(greaterThanEqual(uvi, img_size))) {
         return;
     }
+
+    ivec3 seed = get_seed();
 
     vec2 screen_uv = (vec2(gl_GlobalInvocationID.xy) + vec2(0.5)) / vec2(img_size);
     Ray ray        = ray_gen(camera_info.camera_pos.xyz, screen_uv);
@@ -111,15 +160,19 @@ void main() {
 
         vec3 shadow_ray_col = vec3(0.0);
 
+        //
+        vec2 rand    = random_unit_vec2_bn(seed);
+        vec3 sun_dir = sample_sun_disk(rand, gui_input.sun_size, gui_input.sun_dir);
+
         Ray shadow_ray;
-        shadow_ray.direction     = gui_input.sun_dir;
+        shadow_ray.direction     = sun_dir;
         shadow_ray.inv_direction = vec3(1.0) / shadow_ray.direction;
 
         // gives more accurate shadow
         vec2 t                = slabs(vec3(-1.0), vec3(1.0), vec3(0.0), 1.0 / normal);
         float half_voxel_size = 1.0 / 512.0; // assuming the voxel size is 1/512
         // 0.004 is experimental to maintain a good shadow quality
-        vec3 march_extent = normal * (t.y * half_voxel_size + 0.004);
+        vec3 march_extent = normal * (t.y * half_voxel_size + 0.005);
 
         shadow_ray.origin = res_primary_ray.center_pos + march_extent;
 
@@ -131,10 +184,7 @@ void main() {
         vis = get_sky_color(ray.direction);
     }
 
-    // test
-
-    vis = imageLoad(vec2_bn, ivec3(uvi, env_info.frame_serial_idx) % imageSize(weighted_cosine_bn))
-              .rgb;
+    //
 
     imageStore(result_image, uvi, vec4(vis, 1.0));
 }

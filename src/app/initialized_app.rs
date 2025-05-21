@@ -224,7 +224,7 @@ impl InitializedApp {
             debug_bool: true,
             sun_altitude: 45.0, // degrees above the horizon
             sun_azimuth: 135.0, // degrees around the Y axis
-            sun_size: 0.1,
+            sun_size: 0.02,
             sun_color: egui::Color32::from_rgb(255, 233, 144),
         };
     }
