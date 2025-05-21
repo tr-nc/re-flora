@@ -170,53 +170,42 @@ vec3 get_pixel_color(Ray ray, ivec3 seed) {
     if (!res_primary_ray.is_hit) {
         return get_sky_color(ray.direction);
     }
-    vec3 normal_direct, albedo, next_tracing_pos_direct;
-    parse_trace_result(normal_direct, albedo, next_tracing_pos_direct, res_primary_ray);
+    vec3 normal, albedo, next_tracing_pos;
+    parse_trace_result(normal, albedo, next_tracing_pos, res_primary_ray);
 
-    //
-    vec3 direct_color   = vec3(0.0);
-    vec3 shadow_ray_col = vec3(0.0);
+    vec3 direct_color = vec3(0.0);
 
     vec3 shadow_ray_dir = sample_sun_disk(seed, gui_input.sun_size, gui_input.sun_dir);
     Ray shadow_ray;
     shadow_ray.direction     = shadow_ray_dir;
     shadow_ray.inv_direction = vec3(1.0) / shadow_ray.direction;
-    shadow_ray.origin        = next_tracing_pos_direct;
+    shadow_ray.origin        = next_tracing_pos;
 
-    if (dot(shadow_ray.direction, normal_direct) > 0.0) {
-        shadow_ray_col =
-            get_shadow_ray_color(shadow_ray) * dot(shadow_ray.direction, normal_direct);
+    if (dot(shadow_ray.direction, normal) > 0.0) {
+        vec3 shadow_ray_col = get_shadow_ray_color(shadow_ray) * dot(shadow_ray.direction, normal);
+        direct_color        = gui_input.sun_color * albedo * shadow_ray_col * 0.01;
     }
-    direct_color = gui_input.sun_color * albedo * shadow_ray_col * 0.01;
 
     //
     vec3 indirect_color = vec3(0.0);
 
     Ray indirect_ray;
-    indirect_ray.direction     = sample_diffuse_bounce(seed, normal_direct);
+    indirect_ray.direction     = sample_diffuse_bounce(seed, normal);
     indirect_ray.inv_direction = vec3(1.0) / indirect_ray.direction;
-    indirect_ray.origin        = next_tracing_pos_direct;
+    indirect_ray.origin        = next_tracing_pos;
 
     DdaSceneMarchingResult res_indirect_ray =
         dda_scene_marching(indirect_ray.origin, indirect_ray.direction, indirect_ray.inv_direction);
     if (!res_indirect_ray.is_hit) {
-        indirect_color = get_sky_color(indirect_ray.direction);
+        // indirect_color = get_sky_color(indirect_ray.direction); // Question: should i do this?
     }
 
-    vec3 normal_indirect, albedo_indirect, next_tracing_pos_indirect;
-    parse_trace_result(normal_indirect, albedo_indirect, next_tracing_pos_indirect,
-                       res_indirect_ray);
-
-    Ray shadow_ray_indirect;
-    shadow_ray_indirect.direction     = shadow_ray_dir;
-    shadow_ray_indirect.inv_direction = vec3(1.0) / shadow_ray_indirect.direction;
-    shadow_ray_indirect.origin        = next_tracing_pos_indirect;
-
-    if (dot(shadow_ray_indirect.direction, normal_indirect) > 0.0) {
-        shadow_ray_col = get_shadow_ray_color(shadow_ray_indirect) *
-                         dot(shadow_ray_indirect.direction, normal_indirect);
+    parse_trace_result(normal, albedo, next_tracing_pos, res_indirect_ray);
+    shadow_ray.origin = next_tracing_pos;
+    if (dot(shadow_ray.direction, normal) > 0.0) {
+        vec3 shadow_ray_col = get_shadow_ray_color(shadow_ray) * dot(shadow_ray.direction, normal);
+        indirect_color      = gui_input.sun_color * albedo * shadow_ray_col * 0.01;
     }
-    indirect_color = gui_input.sun_color * albedo_indirect * shadow_ray_col * 0.01;
 
     return direct_color + indirect_color;
 }
