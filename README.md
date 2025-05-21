@@ -134,6 +134,8 @@ https://rust-unofficial.github.io/patterns/patterns/structural/small-crates.html
 
 [Reddit discussion](https://www.reddit.com/r/VoxelGameDev/comments/1fzimke/a_guide_to_fast_voxel_ray_tracing_using_sparse/)
 
+[BRDF, PDF](https://computergraphics.stackexchange.com/questions/8578/how-to-set-equivalent-pdfs-for-cosine-weighted-and-uniform-sampled-hemispheres)
+
 ### Papers
 
 [ReSTIR GI](https://research.nvidia.com/publication/2021-06_restir-gi-path-resampling-real-time-path-tracing)

@@ -81,7 +81,7 @@ bool scene_hit(inout DdaSceneMarchingResult dda_res, vec3 o, vec3 d, ivec3 map_p
 const ivec3 BN_NOISE_TEX_SIZE = ivec3(128, 128, 64);
 ivec3 get_seed() { return ivec3(gl_GlobalInvocationID.xy % 128, env_info.frame_serial_idx % 64); }
 
-// range [0, 1)
+// range (0, 1)
 float random_float_bn(ivec3 seed) { return imageLoad(scalar_bn, seed).r; }
 
 // range (-1, 1) in 2 components
@@ -90,7 +90,7 @@ vec2 random_unit_vec2_bn(ivec3 seed) { return imageLoad(unit_vec2_bn, seed).rg *
 // range (-1, 1) in 3 components
 vec3 random_unit_vec3_bn(ivec3 seed) { return imageLoad(unit_vec3_bn, seed).rgb * 2.0 - 1.0; }
 
-// range (-1, 1) in 3 components
+// range (-1, 1) in x and y, range (0, 1) in z
 vec3 random_weighted_cosine_bn(ivec3 seed) {
     return imageLoad(weighted_cosine_bn, seed).rgb * 2.0 - 1.0;
 }
@@ -209,7 +209,7 @@ vec3 get_pixel_color(Ray ray, ivec3 seed) {
             indirect_color = get_shadow_ray_color(shadow_ray) * cos_i * sample_albedo;
         }
     }
-    // https://computergraphics.stackexchange.com/questions/8578/how-to-set-equivalent-pdfs-for-cosine-weighted-and-uniform-sampled-hemispheres
+    // see README for the brdf, pdf explanation
     indirect_color *= albedo;
 
     return direct_color + indirect_color;
