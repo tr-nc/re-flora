@@ -155,6 +155,12 @@ impl Tracer {
                 &resources.weighted_cosine_bn,
                 vk::ImageLayout::GENERAL,
             ),
+            WriteDescriptorSet::new_texture_write(
+                10,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.fast_weighted_cosine_bn,
+                vk::ImageLayout::GENERAL,
+            ),
         ]);
         compute_descriptor_set
     }

@@ -16,6 +16,7 @@ pub struct TracerResources {
     pub unit_vec2_bn: Texture,
     pub unit_vec3_bn: Texture,
     pub weighted_cosine_bn: Texture,
+    pub fast_weighted_cosine_bn: Texture,
 }
 
 impl TracerResources {
@@ -65,25 +66,31 @@ impl TracerResources {
             &vulkan_ctx,
             allocator.clone(),
             vk::Format::R8_UNORM,
-            "scalar_2d_1d_1d/stbn_scalar_2Dx1Dx1D_128x128x64x1_",
+            "stbn/scalar_2d_1d_1d/stbn_scalar_2Dx1Dx1D_128x128x64x1_",
         );
         let unit_vec2_bn = create_bn(
             &vulkan_ctx,
             allocator.clone(),
             vk::Format::R8G8_UNORM,
-            "unitvec2_2d_1d/stbn_unitvec2_2Dx1D_128x128x64_",
+            "stbn/unitvec2_2d_1d/stbn_unitvec2_2Dx1D_128x128x64_",
         );
         let unit_vec3_bn = create_bn(
             &vulkan_ctx,
             allocator.clone(),
             vk::Format::R8G8B8A8_UNORM,
-            "unitvec3_2d_1d/stbn_unitvec3_2Dx1D_128x128x64_",
+            "stbn/unitvec3_2d_1d/stbn_unitvec3_2Dx1D_128x128x64_",
         );
         let weighted_cosine_bn = create_bn(
             &vulkan_ctx,
             allocator.clone(),
             vk::Format::R8G8B8A8_UNORM,
-            "unitvec3_cosine_2d_1d/stbn_unitvec3_cosine_2Dx1D_128x128x64_",
+            "stbn/unitvec3_cosine_2d_1d/stbn_unitvec3_cosine_2Dx1D_128x128x64_",
+        );
+        let fast_weighted_cosine_bn = create_bn(
+            &vulkan_ctx,
+            allocator.clone(),
+            vk::Format::R8G8B8A8_UNORM,
+            "fast/weighted_cosine/out_",
         );
         log::debug!("Blue noise texture load time: {:?}", timer.elapsed());
 
@@ -97,6 +104,7 @@ impl TracerResources {
             unit_vec2_bn,
             unit_vec3_bn,
             weighted_cosine_bn,
+            fast_weighted_cosine_bn,
         };
 
         fn create_bn(
@@ -119,7 +127,7 @@ impl TracerResources {
             let sam_desc = Default::default();
             let tex = Texture::new(vulkan_ctx.device().clone(), allocator, &img_desc, &sam_desc);
 
-            let base_path = get_project_root() + "/texture/stbn/";
+            let base_path = get_project_root() + "/texture/";
             for i in 0..BLUE_NOISE_LEN {
                 let path = format!("{}{}{}.png", base_path, relative_path, i);
                 tex.get_image()
