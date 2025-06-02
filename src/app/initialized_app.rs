@@ -222,8 +222,8 @@ impl InitializedApp {
 
             debug_float: 0.0,
             debug_bool: true,
-            sun_altitude: 14.0, // degrees above the horizon
-            sun_azimuth: 280.0, // degrees around the Y axis
+            sun_altitude: 14.0,
+            sun_azimuth: 280.0,
             sun_size: 0.02,
             sun_color: egui::Color32::from_rgb(255, 233, 144),
         };
