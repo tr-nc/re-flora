@@ -11,7 +11,8 @@ struct RoundCone {
 };
 
 layout(set = 0, binding = 0) readonly uniform U_ChunkModifyInfo {
-    uvec3 chunk_pos;
+    uvec3 offset;
+    uvec3 dim;
     uint fill_voxel_type;
 }
 chunk_modify_info;
@@ -32,13 +33,12 @@ vec3 center_position_of_voxel(ivec3 voxel_pos) { return vec3(voxel_pos) + vec3(0
 
 void main() {
     ivec3 uvi = ivec3(gl_GlobalInvocationID);
-    if (any(greaterThanEqual(uvi, ivec3(VOXEL_DIM)))) {
+    if (any(greaterThanEqual(uvi, ivec3(chunk_modify_info.dim)))) {
         return;
     }
 
-    const ivec3 atlas_base_offset = ivec3(chunk_modify_info.chunk_pos) * VOXEL_DIM;
-    const ivec3 world_voxel_pos   = uvi + atlas_base_offset;
-    vec3 world_voxel_pos_f        = center_position_of_voxel(world_voxel_pos);
+    const ivec3 world_voxel_pos = uvi + ivec3(chunk_modify_info.offset);
+    vec3 world_voxel_pos_f      = center_position_of_voxel(world_voxel_pos);
 
     // --- BVH traversal stack ------------------------------------------------
     const int MAX_STACK = 64;

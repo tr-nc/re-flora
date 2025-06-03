@@ -21,7 +21,7 @@ float compute_noise(vec3 p) {
 
     float noise_scale = 2.0;
 
-    fnl_state state    = fnlCreateState(1337);
+    fnl_state state    = fnlCreateState(42);
     state.noise_type   = FNL_NOISE_PERLIN;
     state.fractal_type = FNL_FRACTAL_FBM;
     state.frequency    = 1.0;

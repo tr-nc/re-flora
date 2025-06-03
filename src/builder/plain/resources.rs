@@ -1,7 +1,7 @@
 use ash::vk;
 use glam::UVec3;
 
-use crate::vkn::{Allocator, Buffer, BufferUsage, Device, ShaderModule, Texture, ImageDesc};
+use crate::vkn::{Allocator, Buffer, BufferUsage, Device, ImageDesc, ShaderModule, Texture};
 
 pub struct PlainBuilderResources {
     pub chunk_atlas: Texture,
@@ -10,7 +10,6 @@ pub struct PlainBuilderResources {
     pub region_info: Buffer,
     pub region_indirect: Buffer,
     pub chunk_modify_info: Buffer,
-    pub leaf_write_info: Buffer,
     pub round_cones: Buffer,
     pub trunk_bvh_nodes: Buffer,
 }
@@ -23,7 +22,6 @@ impl PlainBuilderResources {
         free_atlas_dim: UVec3,
         buffer_setup_sm: &ShaderModule,
         chunk_modify_sm: &ShaderModule,
-        leaf_write_sm: &ShaderModule,
     ) -> Self {
         let tex_desc = ImageDesc {
             extent: plain_atlas_dim.to_array(),
@@ -58,15 +56,6 @@ impl PlainBuilderResources {
             device.clone(),
             allocator.clone(),
             chunk_modify_info_layout.clone(),
-            BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
-        );
-
-        let leaf_write_info_layout = leaf_write_sm.get_buffer_layout("U_LeafWriteInfo").unwrap();
-        let leaf_write_info = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            leaf_write_info_layout.clone(),
             BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
@@ -115,7 +104,6 @@ impl PlainBuilderResources {
             chunk_atlas,
             free_atlas,
             chunk_modify_info,
-            leaf_write_info,
             round_cones,
             trunk_bvh_nodes,
             region_info,

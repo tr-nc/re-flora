@@ -1,3 +1,5 @@
+use crate::geom::{build_bvh, Aabb};
+use crate::tree_gen::Tree;
 #[allow(unused)]
 use crate::util::Timer;
 
@@ -59,6 +61,8 @@ pub struct InitializedApp {
     sun_size: f32,
     sun_color: egui::Color32,
 
+    new_tree_pos: Vec3,
+
     // note: always keep the context to end, as it has to be destroyed last
     vulkan_ctx: VulkanContext,
 }
@@ -117,7 +121,7 @@ impl InitializedApp {
         let screen_extent = window_state.window_size();
 
         let camera = Camera::new(
-            Vec3::new(0.5, 0.6, 0.5),
+            Vec3::new(0.5, 1.2, 0.5),
             135.0,
             -5.0,
             CameraDesc {
@@ -226,6 +230,7 @@ impl InitializedApp {
             sun_azimuth: 280.0,
             sun_size: 0.02,
             sun_color: egui::Color32::from_rgb(255, 233, 144),
+            new_tree_pos: Vec3::new(110.0, 170.0, 120.0),
         };
     }
 
@@ -244,32 +249,13 @@ impl InitializedApp {
             for y in chunk_pos_to_build_min.y..=chunk_pos_to_build_max.y {
                 for z in chunk_pos_to_build_min.z..=chunk_pos_to_build_max.z {
                     let chunk_idx = UVec3::new(x, y, z);
-
-                    let atlas_offset = chunk_idx * VOXEL_DIM_PER_CHUNK;
-
-                    let t = Instant::now();
-                    let active_voxel_len = surface_builder.build_surface(atlas_offset);
-                    BENCH.lock().unwrap().record("build_surface", t.elapsed());
-
-                    if active_voxel_len == 0 {
-                        log::debug!("Don't need to build contree because the chunk is empty");
-                        continue;
-                    }
-
-                    let t = Instant::now();
-                    let res = contree_builder.build_and_alloc(atlas_offset).unwrap();
-                    BENCH.lock().unwrap().record("build_contree", t.elapsed());
-
-                    if let Some(res) = res {
-                        let (node_buffer_offset, leaf_buffer_offset) = res;
-                        scene_accel_builder.update_scene_tex(
-                            chunk_idx,
-                            node_buffer_offset,
-                            leaf_buffer_offset,
-                        );
-                    } else {
-                        log::debug!("Don't need to update scene tex because the chunk is empty");
-                    }
+                    Self::update_affacted_terrain(
+                        surface_builder,
+                        contree_builder,
+                        scene_accel_builder,
+                        chunk_idx * VOXEL_DIM_PER_CHUNK,
+                        (chunk_idx + 1) * VOXEL_DIM_PER_CHUNK,
+                    );
                 }
             }
         }
@@ -308,6 +294,84 @@ impl InitializedApp {
         event_loop.exit();
     }
 
+    fn add_a_tree(&mut self) {
+        let tree = Tree::new(Default::default());
+        let mut round_cones = Vec::new();
+        for tree_trunk in tree.trunks() {
+            let mut round_cone = tree_trunk.clone();
+            round_cone.transform(self.new_tree_pos);
+            round_cones.push(round_cone);
+        }
+
+        let mut leaves_data_sequential = vec![0; round_cones.len()];
+        for i in 0..round_cones.len() {
+            leaves_data_sequential[i] = i as u32;
+        }
+        let mut aabbs = Vec::new();
+        for round_cone in &round_cones {
+            aabbs.push(round_cone.aabb());
+        }
+        let bvh_nodes = build_bvh(&aabbs, &leaves_data_sequential).unwrap();
+
+        self.plain_builder.chunk_modify(&bvh_nodes, &round_cones);
+        log::info!("Added new tree at position: {:?}", self.new_tree_pos);
+
+        Self::update_affacted_terrain(
+            &mut self.surface_builder,
+            &mut self.contree_builder,
+            &mut self.scene_accel_builder,
+            bvh_nodes[0].aabb.min_uvec3(),
+            bvh_nodes[0].aabb.max_uvec3(),
+        );
+    }
+
+    fn update_affacted_terrain(
+        surface_builder: &mut SurfaceBuilder,
+        contree_builder: &mut ContreeBuilder,
+        scene_accel_builder: &mut SceneAccelBuilder,
+        min_bound: UVec3,
+        max_bound: UVec3,
+    ) {
+        let affected_chunk_indices = get_affected_chunk_indices(min_bound, max_bound);
+        for chunk_idx in affected_chunk_indices {
+            let atlas_offset = chunk_idx * VOXEL_DIM_PER_CHUNK;
+
+            let active_voxel_len = surface_builder.build_surface(atlas_offset);
+
+            if active_voxel_len == 0 {
+                log::debug!("Don't need to build contree because the chunk is empty");
+                continue;
+            }
+
+            let res = contree_builder.build_and_alloc(atlas_offset).unwrap();
+
+            if let Some(res) = res {
+                let (node_buffer_offset, leaf_buffer_offset) = res;
+                scene_accel_builder.update_scene_tex(
+                    chunk_idx,
+                    node_buffer_offset,
+                    leaf_buffer_offset,
+                );
+            } else {
+                log::debug!("Don't need to update scene tex because the chunk is empty");
+            }
+        }
+
+        fn get_affected_chunk_indices(min_bound: UVec3, max_bound: UVec3) -> Vec<UVec3> {
+            let min_chunk_idx = min_bound / VOXEL_DIM_PER_CHUNK;
+            let max_chunk_idx = max_bound / VOXEL_DIM_PER_CHUNK;
+
+            let mut affacted = Vec::new();
+            for x in min_chunk_idx.x..=max_chunk_idx.x {
+                for y in min_chunk_idx.y..=max_chunk_idx.y {
+                    for z in min_chunk_idx.z..=max_chunk_idx.z {
+                        affacted.push(UVec3::new(x, y, z));
+                    }
+                }
+            }
+            return affacted;
+        }
+    }
     pub fn on_window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
@@ -395,6 +459,8 @@ impl InitializedApp {
                     .unwrap();
 
                 let mut grass_changed = false;
+                let mut add_tree_requested = false;
+
                 self.egui_renderer
                     .update(&self.window_state.window(), |ctx| {
                         let my_frame = egui::containers::Frame {
@@ -446,6 +512,24 @@ impl InitializedApp {
 
                                     ui.add(egui::Label::new("Sun Color:"));
                                     ui.color_edit_button_srgba(&mut self.sun_color);
+
+                                    // adjust new tree position
+                                    ui.add(
+                                        egui::Slider::new(&mut self.new_tree_pos.x, 0.0..=512.0)
+                                            .text("New Tree X Position"),
+                                    );
+                                    ui.add(
+                                        egui::Slider::new(&mut self.new_tree_pos.y, 0.0..=512.0)
+                                            .text("New Tree Y Position"),
+                                    );
+                                    ui.add(
+                                        egui::Slider::new(&mut self.new_tree_pos.z, 0.0..=512.0)
+                                            .text("New Tree Z Position"),
+                                    );
+                                    // a button to add a new tree
+                                    if ui.button("Add New Tree").clicked() {
+                                        add_tree_requested = true;
+                                    }
                                 });
                             });
                     });
@@ -463,6 +547,10 @@ impl InitializedApp {
                             .as_ref()
                             .unwrap(),
                     );
+                }
+
+                if add_tree_requested {
+                    self.add_a_tree();
                 }
 
                 let device = self.vulkan_ctx.device();
