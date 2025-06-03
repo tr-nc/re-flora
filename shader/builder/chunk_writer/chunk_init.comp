@@ -26,10 +26,10 @@ float compute_noise(vec3 p) {
     state.fractal_type = FNL_FRACTAL_FBM;
     state.frequency    = 1.0;
     state.octaves      = 5;
-    state.lacunarity   = 2.2;
-    state.gain         = 0.3;
+    state.lacunarity   = 2.6;
+    state.gain         = 0.2;
     // its return value is automatically
-    float noise_01     = fnlGetNoise3D(state, p.x, p.y, p.z) * 0.5 + 0.5;
+    float noise_01 = fnlGetNoise3D(state, p.x, p.y, p.z) * 0.5 + 0.5;
     return noise_01 * noise_scale;
 }
 
