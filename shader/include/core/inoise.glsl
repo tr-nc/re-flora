@@ -58,8 +58,8 @@ vec3 hash(vec3 p) // this hash is not production ready, please
 }
 #endif
 
-// return value noise (in x) and its derivatives (in yzw)
-// noise value ranges from 0 to 1: if all components of x are integer values, the noise is fixed to
+// return value noise (in x) in range of (-1, 1) and its derivatives (in yzw)
+// if all components of the input x are integer values, the noise is fixed to
 // zero
 vec4 noised(in vec3 x) {
 // grid

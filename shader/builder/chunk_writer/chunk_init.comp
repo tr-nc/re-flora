@@ -12,24 +12,25 @@ region_info;
 layout(set = 0, binding = 1, r8ui) writeonly uniform uimage3D raw_atlas;
 
 #include "../../include/config.glsl"
-#include "../../include/core/inoise.glsl"
+// #include "../../include/core/inoise.glsl"
+#include "../../include/core/fast_noise_lite.glsl"
 #include "../../include/voxel_type.glsl"
 
 float compute_noise(vec3 p) {
-    float total       = 0.0;
-    float amplitude   = 0.5;
-    float frequency   = 2.0;
-    float persistence = 0.3;
-    float lacunarity  = 2.2;
-    int octaves       = 5;
+    // https://auburn.github.io/FastNoiseLite/
 
-    for (int i = 0; i < octaves; i++) {
-        float noise = noised(p * frequency).x;
-        total += amplitude * (noise + 0.5);
-        amplitude *= persistence;
-        frequency *= lacunarity;
-    }
-    return total;
+    float noise_scale = 2.0;
+
+    fnl_state state    = fnlCreateState(1337);
+    state.noise_type   = FNL_NOISE_PERLIN;
+    state.fractal_type = FNL_FRACTAL_FBM;
+    state.frequency    = 1.0;
+    state.octaves      = 5;
+    state.lacunarity   = 2.2;
+    state.gain         = 0.3;
+    // its return value is automatically
+    float noise_01     = fnlGetNoise3D(state, p.x, p.y, p.z) * 0.5 + 0.5;
+    return noise_01 * noise_scale;
 }
 
 uint get_voxel_type(float weight) {

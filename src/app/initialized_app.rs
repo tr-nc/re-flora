@@ -430,7 +430,7 @@ impl InitializedApp {
                                     ));
 
                                     ui.add(
-                                        egui::Slider::new(&mut self.sun_altitude, 0.0..=90.0)
+                                        egui::Slider::new(&mut self.sun_altitude, 0.0..=180.0)
                                             .text("Sun Altitude (degrees above horizon)"),
                                     );
 
