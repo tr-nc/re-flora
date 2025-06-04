@@ -2,6 +2,17 @@ use glam::Vec3;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
+// Assuming crate::geom::{Cuboid, RoundCone} are defined elsewhere
+// For example:
+// mod geom {
+//     use glam::Vec3;
+//     #[derive(Debug)]
+//     pub struct Cuboid { pos: Vec3, half_size: Vec3 }
+//     impl Cuboid { pub fn new(pos: Vec3, half_size: Vec3) -> Self { Self { pos, half_size } } }
+//     #[derive(Debug)]
+//     pub struct RoundCone { r1: f32, p1: Vec3, r2: f32, p2: Vec3 }
+//     impl RoundCone { pub fn new(r1: f32, p1: Vec3, r2: f32, p2: Vec3) -> Self { Self { r1, p1, r2, p2 } } }
+// }
 use crate::geom::{Cuboid, RoundCone};
 
 #[derive(Debug, Clone)]
@@ -28,7 +39,7 @@ impl Default for TreeDesc {
             spread: 0.47,
             twisted: 0.08,
             leaves_size_level: 5,
-            gravity: 0.0, // Default gravity is 0.0 (no effect)
+            gravity: 0.0,
             iterations: 12,
             wide: 0.5,
             seed: 30,
@@ -64,10 +75,6 @@ impl TreeDesc {
             .changed();
 
         changed |= ui
-            .add(egui::Slider::new(&mut self.spread, 0.0..=1.0).text("Spread"))
-            .changed();
-
-        changed |= ui
             .add(egui::Slider::new(&mut self.twisted, 0.0..=1.0).text("Twisted"))
             .changed();
 
@@ -77,7 +84,6 @@ impl TreeDesc {
                     .text("Leaves Size Level (2^level)"),
             )
             .changed();
-        // Note: 2^8 = 256. Adjust max level as needed.
 
         changed |= ui
             .add(egui::Slider::new(&mut self.gravity, -2.0..=2.0).text("Gravity"))
@@ -86,7 +92,6 @@ impl TreeDesc {
         changed |= ui
             .add(egui::Slider::new(&mut self.iterations, 1..=12).text("Iterations"))
             .changed();
-        // Iterations can heavily impact performance, so keep the max reasonable.
 
         changed |= ui
             .add(egui::Slider::new(&mut self.wide, 0.0..=5.0).text("Wide"))
@@ -95,8 +100,7 @@ impl TreeDesc {
         changed |= ui
             .add(
                 egui::DragValue::new(&mut self.seed)
-                    .speed(1.0) // Controls how fast the value changes when dragging
-                    .range(0..=u64::MAX) // Optional: clamp to a specific range
+                    .speed(1.0)
                     .prefix("Seed: "),
             )
             .changed();
@@ -138,27 +142,24 @@ impl Tree {
         &self.built_objects.leaves
     }
 
-    /// Build the tree: generate branch primitives and leaf positions.
     fn build(desc: &TreeDesc) -> BuiltObjects {
         let mut rng = StdRng::seed_from_u64(desc.seed);
         let mut trunks = Vec::new();
         let mut leaves_positions = Vec::new();
 
-        // Precompute branch length parameters and trunk thickness
-        let size = 150.0 * desc.size / desc.iterations as f32;
-        let branch_len_start = size * (1.0 - desc.wide);
-        let branch_len_end = size * desc.wide;
-        let trunk_thickness = desc.trunk_thickness * desc.size * 6.0;
+        let size_factor = 150.0 * desc.size / (desc.iterations.max(1) as f32); // Ensure iterations is not 0 for division
+        let branch_len_start = size_factor * (1.0 - desc.wide.clamp(0.0, 1.0));
+        let branch_len_end = size_factor * desc.wide.clamp(0.0, 1.0);
+        let trunk_thickness_base = desc.trunk_thickness * desc.size * 6.0;
 
-        // Start recursion from the origin, growing along +Y (assuming Y is up)
         recurse(
             Vec3::ZERO,
-            Vec3::Y, // Initial growth direction (upwards)
+            Vec3::Y,
             0,
             desc,
             branch_len_start,
             branch_len_end,
-            trunk_thickness,
+            trunk_thickness_base,
             &mut trunks,
             &mut leaves_positions,
             &mut rng,
@@ -168,7 +169,6 @@ impl Tree {
 
         return BuiltObjects { trunks, leaves };
 
-        // Recursive branch generation
         fn recurse(
             pos: Vec3,
             dir: Vec3,
@@ -176,56 +176,56 @@ impl Tree {
             desc: &TreeDesc,
             branch_len_start: f32,
             branch_len_end: f32,
-            trunk_thickness: f32,
+            trunk_thickness_base: f32,
             trunks: &mut Vec<RoundCone>,
             leaves: &mut Vec<Vec3>,
             rng: &mut StdRng,
         ) {
-            let iter_f = desc.iterations as f32;
-            // t ranges from 0 (trunk base) to almost 1 (branch tips)
+            let iter_f = desc.iterations.max(1) as f32; // Ensure iterations is not 0 for division
             let t = ((i as f32) / iter_f).sqrt();
             let branch_len = branch_len_start + t * (branch_len_end - branch_len_start);
 
             let t_next = (((i + 1) as f32) / iter_f).sqrt();
-            let mut thickness_start = (1.0 - t) * trunk_thickness;
-            let mut thickness_end = (1.0 - t_next) * trunk_thickness;
+            let mut thickness_start_val = (1.0 - t) * trunk_thickness_base;
+            let mut thickness_end_val = (1.0 - t_next) * trunk_thickness_base;
 
-            thickness_start = thickness_start.max(desc.trunk_thickness_min);
-            thickness_end = thickness_end.max(desc.trunk_thickness_min);
+            thickness_start_val = thickness_start_val.max(desc.trunk_thickness_min);
+            thickness_end_val = thickness_end_val.max(desc.trunk_thickness_min);
 
             let end = pos + dir * branch_len;
 
-            // Record this branch segment as a round cone
-            trunks.push(RoundCone::new(thickness_start, pos, thickness_end, end));
+            // --- MODIFICATION START: Only add trunk segment if i > 0 ---
+            // This skips drawing the segment for i=0, effectively removing the root sphere/cone.
+            // The tree structure will start from the children of the conceptual i=0 segment.
+            if i > 0 {
+                trunks.push(RoundCone::new(
+                    thickness_start_val,
+                    pos,
+                    thickness_end_val,
+                    end,
+                ));
+            }
+            // --- MODIFICATION END ---
 
             if i < desc.iterations - 1 {
-                // Decide branching
-                let mut b = 1; // Number of child branches
-                let mut var = (i as f32) * 0.2 * desc.twisted; // Variance for direction change
-                let branch_prob = t; // Probability of branching increases with t
-                if rng.gen::<f32>() < branch_prob {
-                    // Assuming rng.random() was a stand-in for rng.gen()
+                let mut b = 1;
+                let mut var = (i as f32) * 0.2 * desc.twisted;
+                if rng.gen::<f32>() < t {
                     b = 2;
                     var = 2.0 * desc.spread * t;
                 }
+
                 for _ in 0..b {
-                    // Calculate random components for the new direction
-                    let rand_dx = rng.gen_range(-var..=var); // Assuming rng.random_range was rng.gen_range
+                    let rand_dx = rng.gen_range(-var..=var);
                     let rand_dy = rng.gen_range(-var..=var);
                     let rand_dz = rng.gen_range(-var..=var);
 
-                    // Initial new direction components based on current direction and randomization
                     let next_dir_x_unnormalized = dir.x + rand_dx;
                     let mut next_dir_y_unnormalized = dir.y + rand_dy;
                     let next_dir_z_unnormalized = dir.z + rand_dz;
 
-                    // --- MODIFICATION START: Apply gravity ---
-                    // desc.gravity is expected to be in [0, 1].
-                    // 't' scales the effect, so outer/later branches (larger 't') are more affected.
-                    // The main trunk (i=0, t=0) is not affected by this pull.
-                    let downward_pull = desc.gravity * t;
-                    next_dir_y_unnormalized -= downward_pull; // Reduce y-component to simulate droop
-                                                              // --- MODIFICATION END ---
+                    let downward_pull = desc.gravity * t.powi(2);
+                    next_dir_y_unnormalized -= downward_pull;
 
                     let new_dir = Vec3::new(
                         next_dir_x_unnormalized,
@@ -234,19 +234,15 @@ impl Tree {
                     )
                     .normalize_or_zero();
 
-                    // If new_dir becomes zero (e.g., due to strong gravity exactly countering upward growth),
-                    // the recursion for this branch effectively stops as future segments will have zero length.
-                    // This might be desired or could be handled by ensuring new_dir is never zero if problematic.
                     if new_dir != Vec3::ZERO {
-                        // Added a check to prevent recursion with zero direction
                         recurse(
-                            end,
+                            end, // Children start from the 'end' of the current (possibly conceptual) segment
                             new_dir,
-                            i + 1,
+                            i + 1, // Increment iteration count for children
                             desc,
                             branch_len_start,
                             branch_len_end,
-                            trunk_thickness,
+                            trunk_thickness_base,
                             trunks,
                             leaves,
                             rng,
@@ -254,16 +250,16 @@ impl Tree {
                     }
                 }
             } else {
-                // Leaf spawn point at the midpoint of the last segment
+                // Leaf spawn point at the midpoint of the last segment (even if conceptual for i=0)
                 leaves.push((pos + end) * 0.5);
             }
         }
 
         fn make_leaves(leaves_positions: &[Vec3], leaves_size_level: u32) -> Vec<Cuboid> {
             let mut leaves = Vec::new();
+            let leaf_actual_size = 2_u32.pow(leaves_size_level) as f32;
             for pos in leaves_positions {
-                let half_size = Vec3::splat(2_u32.pow(leaves_size_level) as f32 * 0.5);
-                leaves.push(Cuboid::new(*pos, half_size));
+                leaves.push(Cuboid::new(*pos, Vec3::splat(leaf_actual_size * 0.5)));
             }
             leaves
         }
