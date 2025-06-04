@@ -1,6 +1,6 @@
-use crate::geom::build_bvh;
+use crate::geom::{build_bvh, UAabb3};
 use crate::procedual_placer::{generate_positions, PlacerDesc};
-use crate::tree_gen::Tree;
+use crate::tree_gen::{Tree, TreeDesc};
 #[allow(unused)]
 use crate::util::Timer;
 
@@ -62,6 +62,9 @@ pub struct InitializedApp {
     sun_color: egui::Color32,
 
     new_tree_pos: Vec3,
+
+    debug_tree_desc: TreeDesc,
+    prev_bound: UAabb3,
 
     // note: always keep the context to end, as it has to be destroyed last
     vulkan_ctx: VulkanContext,
@@ -231,6 +234,8 @@ impl InitializedApp {
             sun_size: 0.02,
             sun_color: egui::Color32::from_rgb(255, 233, 144),
             new_tree_pos: Vec3::new(110.0, 170.0, 120.0),
+            debug_tree_desc: TreeDesc::default(),
+            prev_bound: Default::default(),
         };
     }
 
@@ -249,12 +254,15 @@ impl InitializedApp {
             for y in chunk_pos_to_build_min.y..=chunk_pos_to_build_max.y {
                 for z in chunk_pos_to_build_min.z..=chunk_pos_to_build_max.z {
                     let chunk_idx = UVec3::new(x, y, z);
-                    Self::update_affacted_terrain(
+                    let this_bound = UAabb3::new(
+                        chunk_idx * VOXEL_DIM_PER_CHUNK,
+                        (chunk_idx + UVec3::ONE) * VOXEL_DIM_PER_CHUNK,
+                    );
+                    Self::mesh_regenerate(
                         surface_builder,
                         contree_builder,
                         scene_accel_builder,
-                        chunk_idx * VOXEL_DIM_PER_CHUNK,
-                        (chunk_idx + 1) * VOXEL_DIM_PER_CHUNK,
+                        this_bound,
                     );
                 }
             }
@@ -294,8 +302,10 @@ impl InitializedApp {
         event_loop.exit();
     }
 
-    fn add_a_tree(&mut self, tree_pos: Vec3) {
-        let tree = Tree::new(Default::default());
+    fn add_a_tree(&mut self, tree_desc: TreeDesc, tree_pos: Vec3, clean_up_before_add: bool) {
+        log::info!("Added new tree at position: {:?}", tree_pos);
+
+        let tree = Tree::new(tree_desc);
         let mut round_cones = Vec::new();
         for tree_trunk in tree.trunks() {
             let mut round_cone = tree_trunk.clone();
@@ -313,26 +323,34 @@ impl InitializedApp {
         }
         let bvh_nodes = build_bvh(&aabbs, &leaves_data_sequential).unwrap();
 
-        self.plain_builder.chunk_modify(&bvh_nodes, &round_cones);
-        log::info!("Added new tree at position: {:?}", tree_pos);
+        let this_bound = UAabb3::new(bvh_nodes[0].aabb.min_uvec3(), bvh_nodes[0].aabb.max_uvec3());
 
-        Self::update_affacted_terrain(
+        if clean_up_before_add {
+            self.plain_builder.chunk_init(
+                self.prev_bound.min(),
+                self.prev_bound.max() - self.prev_bound.min(),
+            );
+        }
+
+        self.plain_builder.chunk_modify(&bvh_nodes, &round_cones);
+        Self::mesh_regenerate(
             &mut self.surface_builder,
             &mut self.contree_builder,
             &mut self.scene_accel_builder,
-            bvh_nodes[0].aabb.min_uvec3(),
-            bvh_nodes[0].aabb.max_uvec3(),
+            this_bound.union(&self.prev_bound),
         );
+
+        self.prev_bound = this_bound;
     }
 
-    fn update_affacted_terrain(
+    fn mesh_regenerate(
         surface_builder: &mut SurfaceBuilder,
         contree_builder: &mut ContreeBuilder,
         scene_accel_builder: &mut SceneAccelBuilder,
-        min_bound: UVec3,
-        max_bound: UVec3,
+        bound: UAabb3,
     ) {
-        let affected_chunk_indices = get_affected_chunk_indices(min_bound, max_bound);
+        let affected_chunk_indices = get_affected_chunk_indices(bound.min(), bound.max());
+
         for chunk_idx in affected_chunk_indices {
             let atlas_offset = chunk_idx * VOXEL_DIM_PER_CHUNK;
 
@@ -460,6 +478,7 @@ impl InitializedApp {
 
                 let mut grass_changed = false;
                 let mut add_tree_requested = false;
+                let mut tree_desc_changed = false;
 
                 self.egui_renderer
                     .update(&self.window_state.window(), |ctx| {
@@ -513,23 +532,148 @@ impl InitializedApp {
                                     ui.add(egui::Label::new("Sun Color:"));
                                     ui.color_edit_button_srgba(&mut self.sun_color);
 
-                                    // adjust new tree position
-                                    ui.add(
-                                        egui::Slider::new(&mut self.new_tree_pos.x, 0.0..=512.0)
-                                            .text("New Tree X Position"),
-                                    );
-                                    ui.add(
-                                        egui::Slider::new(&mut self.new_tree_pos.y, 0.0..=512.0)
-                                            .text("New Tree Y Position"),
-                                    );
-                                    ui.add(
-                                        egui::Slider::new(&mut self.new_tree_pos.z, 0.0..=512.0)
-                                            .text("New Tree Z Position"),
-                                    );
                                     // a button to add a new tree
                                     if ui.button("Add New Tree").clicked() {
                                         add_tree_requested = true;
                                     }
+
+                                    //
+
+                                    ui.separator(); // Add a visual separator
+
+                                    ui.heading("New Tree Position");
+
+                                    tree_desc_changed |= ui
+                                        .add(
+                                            egui::Slider::new(
+                                                &mut self.new_tree_pos.x,
+                                                0.0..=512.0,
+                                            )
+                                            .text("New Tree X Position"),
+                                        )
+                                        .changed();
+                                    tree_desc_changed |= ui
+                                        .add(
+                                            egui::Slider::new(
+                                                &mut self.new_tree_pos.y,
+                                                0.0..=512.0,
+                                            )
+                                            .text("New Tree Y Position"),
+                                        )
+                                        .changed();
+                                    tree_desc_changed |= ui
+                                        .add(
+                                            egui::Slider::new(
+                                                &mut self.new_tree_pos.z,
+                                                0.0..=512.0,
+                                            )
+                                            .text("New Tree Z Position"),
+                                        )
+                                        .changed();
+
+                                    ui.heading("Tree Descriptor"); // Heading for the new section
+
+                                    tree_desc_changed |= ui
+                                        .add(
+                                            egui::Slider::new(
+                                                &mut self.debug_tree_desc.size,
+                                                0.1..=50.0,
+                                            )
+                                            .text("Tree Size")
+                                            .logarithmic(true), // Logarithmic scale can be useful for sizes
+                                        )
+                                        .changed();
+
+                                    tree_desc_changed |= ui
+                                        .add(
+                                            egui::Slider::new(
+                                                &mut self.debug_tree_desc.trunk_thickness,
+                                                0.01..=5.0,
+                                            )
+                                            .text("Trunk Thickness"),
+                                        )
+                                        .changed();
+
+                                    tree_desc_changed |= ui
+                                        .add(
+                                            egui::Slider::new(
+                                                &mut self.debug_tree_desc.trunk_thickness_min,
+                                                0.001..=1.0,
+                                            )
+                                            .text("Min Trunk Thickness"),
+                                        )
+                                        .changed();
+
+                                    tree_desc_changed |= ui
+                                        .add(
+                                            egui::Slider::new(
+                                                &mut self.debug_tree_desc.spread,
+                                                0.0..=10.0,
+                                            )
+                                            .text("Spread"),
+                                        )
+                                        .changed();
+
+                                    tree_desc_changed |= ui
+                                        .add(
+                                            egui::Slider::new(
+                                                &mut self.debug_tree_desc.twisted,
+                                                0.0..=1.0,
+                                            )
+                                            .text("Twisted"),
+                                        )
+                                        .changed();
+
+                                    tree_desc_changed |= ui
+                                        .add(
+                                            egui::Slider::new(
+                                                &mut self.debug_tree_desc.leaves_size_level,
+                                                0..=8,
+                                            )
+                                            .text("Leaves Size Level (2^level)"),
+                                        )
+                                        .changed();
+                                    // Note: 2^8 = 256. Adjust max level as needed.
+
+                                    tree_desc_changed |= ui
+                                        .add(
+                                            egui::Slider::new(
+                                                &mut self.debug_tree_desc.gravity,
+                                                -2.0..=2.0,
+                                            )
+                                            .text("Gravity"),
+                                        )
+                                        .changed();
+
+                                    tree_desc_changed |= ui
+                                        .add(
+                                            egui::Slider::new(
+                                                &mut self.debug_tree_desc.iterations,
+                                                1..=12,
+                                            )
+                                            .text("Iterations"),
+                                        )
+                                        .changed();
+                                    // Iterations can heavily impact performance, so keep the max reasonable.
+
+                                    tree_desc_changed |= ui
+                                        .add(
+                                            egui::Slider::new(
+                                                &mut self.debug_tree_desc.wide,
+                                                0.0..=5.0,
+                                            )
+                                            .text("Wide"),
+                                        )
+                                        .changed();
+
+                                    tree_desc_changed |= ui
+                                        .add(
+                                            egui::DragValue::new(&mut self.debug_tree_desc.seed)
+                                                .speed(1.0) // Controls how fast the value changes when dragging
+                                                .range(0..=u64::MAX) // Optional: clamp to a specific range
+                                                .prefix("Seed: "),
+                                        )
+                                        .changed();
                                 });
                             });
                     });
@@ -549,6 +693,16 @@ impl InitializedApp {
                     );
                 }
 
+                if tree_desc_changed {
+                    log::debug!("Tree descriptor changed: {:?}", self.debug_tree_desc);
+
+                    self.add_a_tree(
+                        self.debug_tree_desc.clone(),
+                        self.new_tree_pos,
+                        true, // clean up before adding a new tree
+                    );
+                }
+
                 if add_tree_requested {
                     let placer_desc = PlacerDesc::new(42);
                     let map_dim = VOXEL_DIM_PER_CHUNK * CHUNK_DIM;
@@ -559,11 +713,9 @@ impl InitializedApp {
                         "Generated {} positions for trees",
                         generated_positions.len()
                     );
-                    // self.add_a_tree(self.new_tree_pos);
-
                     for pos in generated_positions {
                         let tree_pos = Vec3::new(pos.x, 256.0, pos.y);
-                        self.add_a_tree(tree_pos);
+                        self.add_a_tree(self.debug_tree_desc.clone(), tree_pos, false);
                     }
                 }
 

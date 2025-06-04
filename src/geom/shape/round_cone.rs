@@ -1,6 +1,6 @@
 use glam::Vec3;
 
-use crate::geom::Aabb;
+use crate::geom::Aabb3;
 
 /// Descriptor for round cone connecting two spheres on each side
 #[derive(Debug, Clone)]
@@ -49,7 +49,7 @@ impl RoundCone {
         self.center_b *= scale;
     }
 
-    pub fn aabb(&self) -> Aabb {
+    pub fn aabb(&self) -> Aabb3 {
         // since the cone/ramp between them never “sticks out” past the larger of the two spherical caps,
         // the union of the two sphere bounds is sufficient.
 
@@ -57,13 +57,13 @@ impl RoundCone {
         let r_a = Vec3::splat(self.radius_a);
         let min_a = self.center_a - r_a;
         let max_a = self.center_a + r_a;
-        let aabb_a = Aabb::new(min_a, max_a);
+        let aabb_a = Aabb3::new(min_a, max_a);
 
         // AABB of sphere B
         let r_b = Vec3::splat(self.radius_b);
         let min_b = self.center_b - r_b;
         let max_b = self.center_b + r_b;
-        let aabb_b = Aabb::new(min_b, max_b);
+        let aabb_b = Aabb3::new(min_b, max_b);
 
         // union of the two
         aabb_a.union(&aabb_b)

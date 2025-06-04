@@ -1,4 +1,4 @@
-use super::Aabb;
+use super::Aabb3;
 use ordered_float::OrderedFloat;
 
 /// The final, flattened BVH node.
@@ -7,7 +7,7 @@ use ordered_float::OrderedFloat;
 /// • right-hand child is implicitly `left + 1`
 #[derive(Debug, Clone)]
 pub struct BvhNode {
-    pub aabb: Aabb,
+    pub aabb: Aabb3,
     /// Leaf: index of the original AABB.  
     /// Internal: ignored.
     pub data_offset: u32,
@@ -21,7 +21,7 @@ pub struct BvhNode {
 
 /// Build a BVH from a slice of AABBs.
 /// The root node is always at index `0`.
-pub fn build_bvh(aabbs: &[Aabb], leaves_data: &[u32]) -> Result<Vec<BvhNode>, String> {
+pub fn build_bvh(aabbs: &[Aabb3], leaves_data: &[u32]) -> Result<Vec<BvhNode>, String> {
     if aabbs.len() != leaves_data.len() {
         return Err(format!(
             "AABBs and leaves data must have the same length. Got {} and {}.",
@@ -59,7 +59,7 @@ pub fn build_bvh(aabbs: &[Aabb], leaves_data: &[u32]) -> Result<Vec<BvhNode>, St
 /// `node_index` – position in `nodes` that has to be filled  
 /// `start..end`  – range inside `aabb_idx_pair` that this node covers
 fn build_bvh_recursive_in_place(
-    aabb_idx_pair: &mut [(Aabb, u32)],
+    aabb_idx_pair: &mut [(Aabb3, u32)],
     nodes: &mut Vec<BvhNode>,
     node_index: usize,
     start: usize,
@@ -134,7 +134,7 @@ fn build_bvh_recursive_in_place(
 
 /// Creates a throw-away node –  the fields will be overwritten later.
 #[inline(always)]
-fn dummy_node(aabb: &Aabb) -> BvhNode {
+fn dummy_node(aabb: &Aabb3) -> BvhNode {
     BvhNode {
         aabb: aabb.clone(),
         data_offset: 0,

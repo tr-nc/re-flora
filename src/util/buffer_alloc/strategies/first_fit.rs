@@ -1,3 +1,4 @@
+// TODO: maybe introduce a paging mechanism to handle large allocations
 use super::AllocationStrategy;
 use crate::util::{BufferAllocation, FreeBlock};
 use std::collections::HashMap;

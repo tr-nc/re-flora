@@ -240,6 +240,9 @@ impl PlainBuilder {
     }
 
     pub fn chunk_init(&mut self, atlas_offset: UVec3, atlas_dim: UVec3) {
+        if atlas_dim.x == 0 || atlas_dim.y == 0 || atlas_dim.z == 0 {
+            return;
+        }
         update_buffers(&self.resources, atlas_offset, atlas_dim);
 
         self.build_cmdbuf

@@ -1,6 +1,6 @@
 use glam::Vec3;
 
-use crate::geom::Aabb;
+use crate::geom::Aabb3;
 
 /// Descriptor for a 3D rectangular prism (cuboid)
 #[derive(Debug, Clone)]
@@ -45,11 +45,11 @@ impl Cuboid {
         self.center *= scale;
     }
 
-    pub fn aabb(&self) -> Aabb {
+    pub fn aabb(&self) -> Aabb3 {
         // The AABB is simply defined by the min and max corners
         let min = self.center - self.half_size;
         let max = self.center + self.half_size;
-        Aabb::new(min, max)
+        Aabb3::new(min, max)
     }
 
     pub fn width(&self) -> f32 {

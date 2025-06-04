@@ -537,6 +537,10 @@ impl ContreeBuilder {
             .chunk_offset_allocation_table
             .contains_key(&atlas_offset)
         {
+            log::debug!(
+                "ContreeBuilder: pre_allocate_chunk: chunk already exists at offset {:?}, deallocating first",
+                atlas_offset
+            );
             let (node_alloc_id, leaf_alloc_id) = self
                 .chunk_offset_allocation_table
                 .remove(&atlas_offset)
