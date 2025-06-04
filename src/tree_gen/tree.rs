@@ -147,15 +147,17 @@ impl Tree {
         let mut trunks = Vec::new();
         let mut leaves_positions = Vec::new();
 
-        let size_factor = 150.0 * desc.size / (desc.iterations.max(1) as f32); // Ensure iterations is not 0 for division
+        let size_factor = 150.0 * desc.size / (desc.iterations.max(1) as f32);
         let branch_len_start = size_factor * (1.0 - desc.wide.clamp(0.0, 1.0));
         let branch_len_end = size_factor * desc.wide.clamp(0.0, 1.0);
         let trunk_thickness_base = desc.trunk_thickness * desc.size * 6.0;
 
+        // Start the recursion from i=1 with a fixed base position
+        // This ensures the first trunk segment always starts from Vec3::ZERO
         recurse(
-            Vec3::ZERO,
+            Vec3::ZERO, // Fixed starting position
             Vec3::Y,
-            0,
+            1, // Start from i=1 so the first segment is actually drawn
             desc,
             branch_len_start,
             branch_len_end,
@@ -181,7 +183,7 @@ impl Tree {
             leaves: &mut Vec<Vec3>,
             rng: &mut StdRng,
         ) {
-            let iter_f = desc.iterations.max(1) as f32; // Ensure iterations is not 0 for division
+            let iter_f = desc.iterations.max(1) as f32;
             let t = ((i as f32) / iter_f).sqrt();
             let branch_len = branch_len_start + t * (branch_len_end - branch_len_start);
 
@@ -194,18 +196,13 @@ impl Tree {
 
             let end = pos + dir * branch_len;
 
-            // --- MODIFICATION START: Only add trunk segment if i > 0 ---
-            // This skips drawing the segment for i=0, effectively removing the root sphere/cone.
-            // The tree structure will start from the children of the conceptual i=0 segment.
-            if i > 0 {
-                trunks.push(RoundCone::new(
-                    thickness_start_val,
-                    pos,
-                    thickness_end_val,
-                    end,
-                ));
-            }
-            // --- MODIFICATION END ---
+            // Now we always add the trunk segment since we start from i=1
+            trunks.push(RoundCone::new(
+                thickness_start_val,
+                pos,
+                thickness_end_val,
+                end,
+            ));
 
             if i < desc.iterations - 1 {
                 let mut b = 1;
@@ -236,9 +233,9 @@ impl Tree {
 
                     if new_dir != Vec3::ZERO {
                         recurse(
-                            end, // Children start from the 'end' of the current (possibly conceptual) segment
+                            end,
                             new_dir,
-                            i + 1, // Increment iteration count for children
+                            i + 1,
                             desc,
                             branch_len_start,
                             branch_len_end,
@@ -250,7 +247,6 @@ impl Tree {
                     }
                 }
             } else {
-                // Leaf spawn point at the midpoint of the last segment (even if conceptual for i=0)
                 leaves.push((pos + end) * 0.5);
             }
         }
