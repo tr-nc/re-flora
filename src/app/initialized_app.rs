@@ -61,9 +61,9 @@ pub struct InitializedApp {
     sun_size: f32,
     sun_color: egui::Color32,
 
-    new_tree_pos: Vec3,
+    tree_pos: Vec3,
 
-    debug_tree_desc: TreeDesc,
+    tree_desc: TreeDesc,
     prev_bound: UAabb3,
 
     // note: always keep the context to end, as it has to be destroyed last
@@ -233,8 +233,8 @@ impl InitializedApp {
             sun_azimuth: 280.0,
             sun_size: 0.02,
             sun_color: egui::Color32::from_rgb(255, 233, 144),
-            new_tree_pos: Vec3::new(512.0, 250.0, 512.0),
-            debug_tree_desc: TreeDesc::default(),
+            tree_pos: Vec3::new(512.0, 250.0, 512.0),
+            tree_desc: TreeDesc::default(),
             prev_bound: Default::default(),
         };
     }
@@ -388,6 +388,7 @@ impl InitializedApp {
             return affacted;
         }
     }
+
     pub fn on_window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
@@ -535,143 +536,32 @@ impl InitializedApp {
                                         add_tree_requested = true;
                                     }
 
-                                    //
+                                    ui.separator();
 
-                                    ui.separator(); // Add a visual separator
-
-                                    ui.heading("New Tree Position");
+                                    ui.heading("Tree Position");
 
                                     tree_desc_changed |= ui
                                         .add(
-                                            egui::Slider::new(
-                                                &mut self.new_tree_pos.x,
-                                                0.0..=512.0,
-                                            )
-                                            .text("New Tree X Position"),
+                                            egui::Slider::new(&mut self.tree_pos.x, 0.0..=512.0)
+                                                .text("New Tree X Position"),
                                         )
                                         .changed();
                                     tree_desc_changed |= ui
                                         .add(
-                                            egui::Slider::new(
-                                                &mut self.new_tree_pos.y,
-                                                0.0..=512.0,
-                                            )
-                                            .text("New Tree Y Position"),
+                                            egui::Slider::new(&mut self.tree_pos.y, 0.0..=512.0)
+                                                .text("New Tree Y Position"),
                                         )
                                         .changed();
                                     tree_desc_changed |= ui
                                         .add(
-                                            egui::Slider::new(
-                                                &mut self.new_tree_pos.z,
-                                                0.0..=512.0,
-                                            )
-                                            .text("New Tree Z Position"),
+                                            egui::Slider::new(&mut self.tree_pos.z, 0.0..=512.0)
+                                                .text("New Tree Z Position"),
                                         )
                                         .changed();
 
                                     ui.heading("Tree Descriptor"); // Heading for the new section
 
-                                    tree_desc_changed |= ui
-                                        .add(
-                                            egui::Slider::new(
-                                                &mut self.debug_tree_desc.size,
-                                                0.1..=50.0,
-                                            )
-                                            .text("Tree Size")
-                                            .logarithmic(true), // Logarithmic scale can be useful for sizes
-                                        )
-                                        .changed();
-
-                                    tree_desc_changed |= ui
-                                        .add(
-                                            egui::Slider::new(
-                                                &mut self.debug_tree_desc.trunk_thickness,
-                                                0.01..=5.0,
-                                            )
-                                            .text("Trunk Thickness"),
-                                        )
-                                        .changed();
-
-                                    tree_desc_changed |= ui
-                                        .add(
-                                            egui::Slider::new(
-                                                &mut self.debug_tree_desc.trunk_thickness_min,
-                                                0.001..=2.0,
-                                            )
-                                            .text("Min Trunk Thickness"),
-                                        )
-                                        .changed();
-
-                                    tree_desc_changed |= ui
-                                        .add(
-                                            egui::Slider::new(
-                                                &mut self.debug_tree_desc.spread,
-                                                0.0..=1.0,
-                                            )
-                                            .text("Spread"),
-                                        )
-                                        .changed();
-
-                                    tree_desc_changed |= ui
-                                        .add(
-                                            egui::Slider::new(
-                                                &mut self.debug_tree_desc.twisted,
-                                                0.0..=1.0,
-                                            )
-                                            .text("Twisted"),
-                                        )
-                                        .changed();
-
-                                    tree_desc_changed |= ui
-                                        .add(
-                                            egui::Slider::new(
-                                                &mut self.debug_tree_desc.leaves_size_level,
-                                                0..=8,
-                                            )
-                                            .text("Leaves Size Level (2^level)"),
-                                        )
-                                        .changed();
-                                    // Note: 2^8 = 256. Adjust max level as needed.
-
-                                    tree_desc_changed |= ui
-                                        .add(
-                                            egui::Slider::new(
-                                                &mut self.debug_tree_desc.gravity,
-                                                -2.0..=2.0,
-                                            )
-                                            .text("Gravity"),
-                                        )
-                                        .changed();
-
-                                    tree_desc_changed |= ui
-                                        .add(
-                                            egui::Slider::new(
-                                                &mut self.debug_tree_desc.iterations,
-                                                1..=12,
-                                            )
-                                            .text("Iterations"),
-                                        )
-                                        .changed();
-                                    // Iterations can heavily impact performance, so keep the max reasonable.
-
-                                    tree_desc_changed |= ui
-                                        .add(
-                                            egui::Slider::new(
-                                                &mut self.debug_tree_desc.wide,
-                                                0.0..=5.0,
-                                            )
-                                            .text("Wide"),
-                                        )
-                                        .changed();
-
-                                    tree_desc_changed |= ui
-                                        .add(
-                                            egui::DragValue::new(&mut self.debug_tree_desc.seed)
-                                                .speed(1.0) // Controls how fast the value changes when dragging
-                                                .range(0..=u64::MAX) // Optional: clamp to a specific range
-                                                .prefix("Seed: "),
-                                        )
-                                        .changed();
+                                    tree_desc_changed |= self.tree_desc.edit_by_gui(ui);
                                 });
                             });
                     });
@@ -693,8 +583,8 @@ impl InitializedApp {
 
                 if tree_desc_changed {
                     self.add_a_tree(
-                        self.debug_tree_desc.clone(),
-                        self.new_tree_pos,
+                        self.tree_desc.clone(),
+                        self.tree_pos,
                         true, // clean up before adding a new tree
                     );
                 }
@@ -711,7 +601,7 @@ impl InitializedApp {
                     );
                     for pos in generated_positions {
                         let tree_pos = Vec3::new(pos.x, 256.0, pos.y);
-                        self.add_a_tree(self.debug_tree_desc.clone(), tree_pos, false);
+                        self.add_a_tree(self.tree_desc.clone(), tree_pos, false);
                     }
                 }
 

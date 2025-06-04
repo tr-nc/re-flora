@@ -36,6 +36,75 @@ impl Default for TreeDesc {
     }
 }
 
+impl TreeDesc {
+    pub fn edit_by_gui(&mut self, ui: &mut egui::Ui) -> bool {
+        let mut changed = false;
+
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.size, 0.1..=50.0)
+                    .text("Tree Size")
+                    .logarithmic(true),
+            )
+            .changed();
+
+        changed |= ui
+            .add(egui::Slider::new(&mut self.trunk_thickness, 0.01..=5.0).text("Trunk Thickness"))
+            .changed();
+
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.trunk_thickness_min, 0.001..=2.0)
+                    .text("Min Trunk Thickness"),
+            )
+            .changed();
+
+        changed |= ui
+            .add(egui::Slider::new(&mut self.spread, 0.0..=1.0).text("Spread"))
+            .changed();
+
+        changed |= ui
+            .add(egui::Slider::new(&mut self.spread, 0.0..=1.0).text("Spread"))
+            .changed();
+
+        changed |= ui
+            .add(egui::Slider::new(&mut self.twisted, 0.0..=1.0).text("Twisted"))
+            .changed();
+
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.leaves_size_level, 0..=8)
+                    .text("Leaves Size Level (2^level)"),
+            )
+            .changed();
+        // Note: 2^8 = 256. Adjust max level as needed.
+
+        changed |= ui
+            .add(egui::Slider::new(&mut self.gravity, -2.0..=2.0).text("Gravity"))
+            .changed();
+
+        changed |= ui
+            .add(egui::Slider::new(&mut self.iterations, 1..=12).text("Iterations"))
+            .changed();
+        // Iterations can heavily impact performance, so keep the max reasonable.
+
+        changed |= ui
+            .add(egui::Slider::new(&mut self.wide, 0.0..=5.0).text("Wide"))
+            .changed();
+
+        changed |= ui
+            .add(
+                egui::DragValue::new(&mut self.seed)
+                    .speed(1.0) // Controls how fast the value changes when dragging
+                    .range(0..=u64::MAX) // Optional: clamp to a specific range
+                    .prefix("Seed: "),
+            )
+            .changed();
+
+        return changed;
+    }
+}
+
 #[derive(Debug)]
 struct BuiltObjects {
     trunks: Vec<RoundCone>,
