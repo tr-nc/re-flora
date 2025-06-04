@@ -233,7 +233,7 @@ impl InitializedApp {
             sun_azimuth: 280.0,
             sun_size: 0.02,
             sun_color: egui::Color32::from_rgb(255, 233, 144),
-            new_tree_pos: Vec3::new(110.0, 170.0, 120.0),
+            new_tree_pos: Vec3::new(512.0, 250.0, 512.0),
             debug_tree_desc: TreeDesc::default(),
             prev_bound: Default::default(),
         };
@@ -303,8 +303,6 @@ impl InitializedApp {
     }
 
     fn add_a_tree(&mut self, tree_desc: TreeDesc, tree_pos: Vec3, clean_up_before_add: bool) {
-        log::info!("Added new tree at position: {:?}", tree_pos);
-
         let tree = Tree::new(tree_desc);
         let mut round_cones = Vec::new();
         for tree_trunk in tree.trunks() {
@@ -598,7 +596,7 @@ impl InitializedApp {
                                         .add(
                                             egui::Slider::new(
                                                 &mut self.debug_tree_desc.trunk_thickness_min,
-                                                0.001..=1.0,
+                                                0.001..=2.0,
                                             )
                                             .text("Min Trunk Thickness"),
                                         )
@@ -608,7 +606,7 @@ impl InitializedApp {
                                         .add(
                                             egui::Slider::new(
                                                 &mut self.debug_tree_desc.spread,
-                                                0.0..=10.0,
+                                                0.0..=1.0,
                                             )
                                             .text("Spread"),
                                         )
@@ -694,8 +692,6 @@ impl InitializedApp {
                 }
 
                 if tree_desc_changed {
-                    log::debug!("Tree descriptor changed: {:?}", self.debug_tree_desc);
-
                     self.add_a_tree(
                         self.debug_tree_desc.clone(),
                         self.new_tree_pos,

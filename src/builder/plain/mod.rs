@@ -264,7 +264,6 @@ impl PlainBuilder {
 
     pub fn chunk_modify(&mut self, bvh_nodes: &[BvhNode], round_cones: &[RoundCone]) {
         let (offset, dim) = calculate_offset_and_dim(bvh_nodes);
-        log::debug!("Chunk modify offset: {:?}, dim: {:?}", offset, dim);
 
         update_buffers(&self.resources, offset, dim, round_cones, bvh_nodes);
 
