@@ -93,9 +93,9 @@ https://rust-unofficial.github.io/patterns/patterns/structural/small-crates.html
 
 ### Inspirations
 
-[Ray Traced Reverb, Wind and Sound Occlusion (Path Traced Voxel Project)](https://www.youtube.com/watch?v=UHzeQZD9t2s)
-
 [Exploring an Infinite Voxel Forest](https://www.youtube.com/watch?v=1wufuXY3l1o)
+
+[Ray Traced Reverb, Wind and Sound Occlusion (Path Traced Voxel Project)](https://www.youtube.com/watch?v=UHzeQZD9t2s)
 
 [Animated Voxel Trees - Detail Enhancement Preview](https://www.youtube.com/watch?v=BObFTsNeeGc)
 

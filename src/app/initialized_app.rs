@@ -1,4 +1,5 @@
-use crate::geom::{build_bvh, Aabb};
+use crate::geom::build_bvh;
+use crate::procedual_placer::{generate_positions, PlacerDesc};
 use crate::tree_gen::Tree;
 #[allow(unused)]
 use crate::util::Timer;
@@ -21,7 +22,6 @@ use egui::{Color32, RichText};
 use glam::{UVec3, Vec2, Vec3};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
 use winit::event::DeviceEvent;
 use winit::{
     event::{ElementState, WindowEvent},
@@ -294,12 +294,12 @@ impl InitializedApp {
         event_loop.exit();
     }
 
-    fn add_a_tree(&mut self) {
+    fn add_a_tree(&mut self, tree_pos: Vec3) {
         let tree = Tree::new(Default::default());
         let mut round_cones = Vec::new();
         for tree_trunk in tree.trunks() {
             let mut round_cone = tree_trunk.clone();
-            round_cone.transform(self.new_tree_pos);
+            round_cone.transform(tree_pos);
             round_cones.push(round_cone);
         }
 
@@ -314,7 +314,7 @@ impl InitializedApp {
         let bvh_nodes = build_bvh(&aabbs, &leaves_data_sequential).unwrap();
 
         self.plain_builder.chunk_modify(&bvh_nodes, &round_cones);
-        log::info!("Added new tree at position: {:?}", self.new_tree_pos);
+        log::info!("Added new tree at position: {:?}", tree_pos);
 
         Self::update_affacted_terrain(
             &mut self.surface_builder,
@@ -550,7 +550,21 @@ impl InitializedApp {
                 }
 
                 if add_tree_requested {
-                    self.add_a_tree();
+                    let placer_desc = PlacerDesc::new(42);
+                    let map_dim = VOXEL_DIM_PER_CHUNK * CHUNK_DIM;
+                    let map_dim_2d = Vec2::new(map_dim.x as f32, map_dim.z as f32);
+                    let generated_positions = generate_positions(map_dim_2d, 128.0, &placer_desc);
+
+                    log::debug!(
+                        "Generated {} positions for trees",
+                        generated_positions.len()
+                    );
+                    // self.add_a_tree(self.new_tree_pos);
+
+                    for pos in generated_positions {
+                        let tree_pos = Vec3::new(pos.x, 256.0, pos.y);
+                        self.add_a_tree(tree_pos);
+                    }
                 }
 
                 let device = self.vulkan_ctx.device();
