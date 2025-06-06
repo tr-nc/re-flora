@@ -23,7 +23,8 @@ pub struct TreeDesc {
     pub branch_count_max: u32,
     pub leaves_size_level: u32,
     pub iterations: u32,
-    pub length_variation: f32,
+    // CHANGED: Renamed for clarity.
+    pub segment_length_variation: f32,
     pub tree_height: f32,
     pub length_dropoff: f32,
     pub thickness_reduction: f32,
@@ -44,35 +45,35 @@ impl Default for TreeDesc {
             trunk_thickness_min: 1.05, // Min Trunk Thickness
 
             // Tree Shape
-            tree_height: 10.0,         // Tree Height
-            spread: 0.00,              // Spread
-            vertical_tendency: 0.25,   // Vertical Tendency (up/downward)
-            length_variation: 0.15,    // Length Variation
-            length_dropoff: 0.66,      // Length Dropoff per Level
-            thickness_reduction: 0.70, // Thickness Reduction
+            tree_height: 11.0,              // Tree Height
+            spread: 0.00,                   // Spread
+            vertical_tendency: 0.10,        // Vertical Tendency (up/downward)
+            segment_length_variation: 0.02, // Segment Length Variation
+            length_dropoff: 0.66,           // Length Dropoff per Level
+            thickness_reduction: 0.70,      // Thickness Reduction
 
             // Branching Control
-            branch_probability: 0.57,            // Branch Probability
+            branch_probability: 0.65,            // Branch Probability
             branch_count_min: 2,                 // Min Branches
             branch_count_max: 3,                 // Max Branches
             branch_angle_min: 24.0 * PI / 180.0, // Min Branch Angle (24°)
             branch_angle_max: 48.0 * PI / 180.0, // Max Branch Angle (48°)
 
             // Variation
-            randomness: 0.22,     // Randomness
+            randomness: 0.27,     // Randomness
             leaves_size_level: 5, // Leaves Size Level (2^level)
 
             // Iterations
-            iterations: 6, // Iterations
+            iterations: 7, // Iterations
 
             // Subdivision Parameters
-            subdivision_threshold: 10.2,  // Subdivision Threshold
-            subdivision_count_min: 2,     // Min Subdivisions
+            subdivision_threshold: 15.0,  // Subdivision Threshold
+            subdivision_count_min: 3,     // Min Subdivisions
             subdivision_count_max: 7,     // Max Subdivisions
             subdivision_randomness: 0.15, // Subdivision Randomness
 
             // Seed
-            seed: 30,
+            seed: 41,
         }
     }
 }
@@ -117,8 +118,12 @@ impl TreeDesc {
                     .text("Vertical Tendency (upward/downward)"),
             )
             .changed();
+        // CHANGED: Renamed for clarity and updated UI text.
         changed |= ui
-            .add(egui::Slider::new(&mut self.length_variation, 0.0..=1.0).text("Length Variation"))
+            .add(
+                egui::Slider::new(&mut self.segment_length_variation, 0.0..=1.0)
+                    .text("Segment Length Variation"),
+            )
             .changed();
         changed |= ui
             .add(
@@ -293,11 +298,12 @@ impl Tree {
 
 /// **UPDATED FUNCTION**
 /// Subdivides a single RoundCone into multiple, smaller, slightly perturbed cones.
+/// This version provides more stable and intuitive results.
 fn subdivide_trunk_segment(cone: &RoundCone, desc: &TreeDesc, rng: &mut StdRng) -> Vec<RoundCone> {
-    // Use accessor methods from the provided RoundCone definition
     let axis = cone.center_b() - cone.center_a();
     let length = axis.length();
 
+    // Do not subdivide if the segment is too short or if subdivision is disabled.
     if length <= desc.subdivision_threshold || desc.subdivision_count_max <= 1 {
         return vec![cone.clone()];
     }
@@ -313,12 +319,10 @@ fn subdivide_trunk_segment(cone: &RoundCone, desc: &TreeDesc, rng: &mut StdRng) 
     }
 
     let mut subdivided_trunks = Vec::with_capacity(num_segments as usize);
-    // Use accessor methods to get initial state
     let mut current_pos = cone.center_a();
-    let mut current_radius = cone.radius_a();
-
     let segment_vec = axis / num_segments as f32;
 
+    // Define a stable perpendicular basis for random displacement.
     let up = if axis.normalize_or_zero().y.abs() < 0.9 {
         Vec3::Y
     } else {
@@ -328,39 +332,44 @@ fn subdivide_trunk_segment(cone: &RoundCone, desc: &TreeDesc, rng: &mut StdRng) 
     let perp2 = axis.cross(perp1).normalize_or_zero();
 
     for i in 1..=num_segments {
-        // Interpolate radius manually.
-        let end_radius = cone.radius_b();
-        let t_radius = 1.0 / (num_segments - i + 1) as f32;
-        let next_radius = current_radius * (1.0 - t_radius) + end_radius * t_radius;
+        // **FIX:** Calculate start and end radius for this sub-segment directly via linear
+        // interpolation. This is more robust than the previous recursive method.
+        let start_t = (i - 1) as f32 / num_segments as f32;
+        let end_t = i as f32 / num_segments as f32;
+        let segment_start_radius = cone.radius_a() * (1.0 - start_t) + cone.radius_b() * start_t;
+        let segment_end_radius = cone.radius_a() * (1.0 - end_t) + cone.radius_b() * end_t;
 
         let mut next_pos;
 
         if i == num_segments {
-            // Ensure the last segment ends exactly at the original endpoint.
+            // Ensure the final segment ends exactly at the original endpoint.
             next_pos = cone.center_b();
         } else {
-            // Use accessor to get the starting position for interpolation.
-            next_pos = cone.center_a() + segment_vec * i as f32;
+            // The ideal next position is one step along the original axis from the *previous* position.
+            next_pos = current_pos + segment_vec;
 
             if desc.subdivision_randomness > 0.0 {
-                let random_angle = rng.gen_range(0.0..=2.0 * PI);
+                let random_angle = rng.gen_range(0.0..2.0 * PI);
                 let random_dir_perp = perp1 * random_angle.cos() + perp2 * random_angle.sin();
+
+                // **FIX:** Displacement is now proportional to the segment's starting radius,
+                // not its length. This makes the effect stable across different branch lengths.
                 let displacement_magnitude =
-                    segment_vec.length() * desc.subdivision_randomness * rng.gen_range(0.5..=1.0);
+                    segment_start_radius * desc.subdivision_randomness * rng.gen_range(0.5..=1.0);
+
                 next_pos += random_dir_perp * displacement_magnitude;
             }
         }
 
-        // Create the new segment using the RoundCone constructor.
         subdivided_trunks.push(RoundCone::new(
-            current_radius,
+            segment_start_radius,
             current_pos,
-            next_radius,
+            segment_end_radius,
             next_pos,
         ));
 
+        // The end of this segment is the start of the next one.
         current_pos = next_pos;
-        current_radius = next_radius;
     }
 
     subdivided_trunks
@@ -382,12 +391,13 @@ fn recurse(
         return;
     }
 
-    let length_variation = if desc.length_variation > 0.0 {
-        rng.gen_range(1.0 - desc.length_variation..=1.0 + desc.length_variation)
+    // CHANGED: Using the renamed, more descriptive parameter.
+    let length_variation_factor = if desc.segment_length_variation > 0.0 {
+        rng.gen_range(1.0 - desc.segment_length_variation..=1.0 + desc.segment_length_variation)
     } else {
         1.0
     };
-    let segment_length = length * length_variation;
+    let segment_length = length * length_variation_factor;
     let thickness_start = thickness.max(desc.trunk_thickness_min);
     let natural_thickness_end = if desc.thickness_reduction > 0.0 {
         thickness * desc.thickness_reduction
@@ -402,7 +412,6 @@ fn recurse(
 
     let end_pos = pos + adjusted_dir * segment_length;
 
-    // This call is compatible with the new RoundCone::new signature.
     trunks.push(RoundCone::new(thickness_start, pos, thickness_end, end_pos));
 
     let should_branch =
