@@ -46,25 +46,25 @@ pub struct TreeDesc {
 impl Default for TreeDesc {
     fn default() -> Self {
         TreeDesc {
-            // Basic Properties
-            size: 40.0,                // Tree Size
+            // Basic Properties (from image)
+            size: 50.0,                // Tree Size
             trunk_thickness: 0.20,     // Trunk Thickness
             trunk_thickness_min: 1.05, // Min Trunk Thickness
-            iterations: 7,             // Iterations
+            iterations: 6,             // Iterations
 
             // Tree Shape
-            tree_height: 11.0,         // Tree Height
-            spread: 0.40,              // Spread
-            vertical_tendency: -0.15,  // Vertical Tendency (up/down)
-            length_variation: 0.21,    // Length Variation
+            tree_height: 10.0,         // Tree Height
+            spread: 0.00,              // Spread
+            vertical_tendency: 0.10,   // Vertical Tendency (up/downward)
+            length_variation: 0.05,    // Length Variation
             length_dropoff: 0.70,      // Length Dropoff per Level
-            thickness_reduction: 0.73, // Thickness Reduction
+            thickness_reduction: 0.70, // Thickness Reduction
 
             // Branching Control
-            branch_probability: 0.80,            // Branch Probability
+            branch_probability: 0.57,            // Branch Probability
             branch_count_min: 2,                 // Min Branches
             branch_count_max: 3,                 // Max Branches
-            branch_angle_min: 22.0 * PI / 180.0, // Min Branch Angle (22°)
+            branch_angle_min: 28.0 * PI / 180.0, // Min Branch Angle (28°)
             branch_angle_max: 37.0 * PI / 180.0, // Max Branch Angle (37°)
 
             // Variation
