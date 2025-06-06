@@ -79,8 +79,10 @@ bool scene_hit(inout MarchingResult dda_res, vec3 o, vec3 d, ivec3 map_pos, uvec
 ///
 
 MarchingResult combined_scene_marching(Ray ray, bool is_primary_ray) {
+    MarchingResult res;
+    res = dda_scene_marching(ray.origin, ray.direction, ray.inv_direction);
     if (!is_primary_ray) {
-        return dda_scene_marching(ray.origin, ray.direction, ray.inv_direction);
+        return res; // for shadow rays, we don't need to do ray query
     }
 
     rayQueryEXT rayQuery;
@@ -104,9 +106,6 @@ MarchingResult combined_scene_marching(Ray ray, bool is_primary_ray) {
     bool hit_grass = (rayQueryGetIntersectionTypeEXT(rayQuery, true) ==
                       gl_RayQueryCommittedIntersectionTriangleEXT);
     float t_grass  = rayQueryGetIntersectionTEXT(rayQuery, true);
-
-    MarchingResult res;
-    res = dda_scene_marching(ray.origin, ray.direction, ray.inv_direction);
 
     if (hit_grass && t_grass < res.t) {
         // we hit the grass, so we override the result
