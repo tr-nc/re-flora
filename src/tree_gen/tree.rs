@@ -5,8 +5,6 @@ use std::f32::consts::PI;
 
 // Assuming Cuboid is defined in crate::geom as per the original code.
 use crate::geom::{Cuboid, RoundCone};
-// Use the provided RoundCone definition.
-// use crate::geom::RoundCone; // This is now defined above.
 
 #[derive(Debug, Clone)]
 pub struct TreeDesc {
@@ -30,12 +28,16 @@ pub struct TreeDesc {
     pub thickness_reduction: f32,
     pub seed: u64,
 
+    // NEW: Toggle subdivision on/off
+    pub enable_subdivision: bool,
+
     // Subdivision Parameters
     pub subdivision_threshold: f32,
     pub subdivision_count_min: u32,
     pub subdivision_count_max: u32,
     pub subdivision_randomness: f32,
 }
+
 impl Default for TreeDesc {
     fn default() -> Self {
         TreeDesc {
@@ -65,6 +67,9 @@ impl Default for TreeDesc {
 
             // Iterations
             iterations: 7, // Iterations
+
+            // NEW: enable subdivision by default
+            enable_subdivision: true,
 
             // Subdivision Parameters
             subdivision_threshold: 15.0,  // Subdivision Threshold
@@ -118,7 +123,6 @@ impl TreeDesc {
                     .text("Vertical Tendency (upward/downward)"),
             )
             .changed();
-        // CHANGED: Renamed for clarity and updated UI text.
         changed |= ui
             .add(
                 egui::Slider::new(&mut self.segment_length_variation, 0.0..=1.0)
@@ -177,6 +181,11 @@ impl TreeDesc {
 
         ui.separator();
         ui.heading("Subdivision");
+
+        // NEW: subdivision toggle
+        changed |= ui
+            .checkbox(&mut self.enable_subdivision, "Enable Subdivision")
+            .changed();
 
         changed |= ui
             .add(
@@ -286,6 +295,7 @@ impl Tree {
 
         let mut trunks = Vec::new();
         for cone in &initial_trunks {
+            // subdivision now respects the toggle
             let subdivided_cones = subdivide_trunk_segment(cone, desc, &mut rng);
             trunks.extend(subdivided_cones);
         }
@@ -296,14 +306,18 @@ impl Tree {
     }
 }
 
-/// **UPDATED FUNCTION**
 /// Subdivides a single RoundCone into multiple, smaller, slightly perturbed cones.
-/// This version provides more stable and intuitive results.
+/// Respects the `enable_subdivision` toggle.
 fn subdivide_trunk_segment(cone: &RoundCone, desc: &TreeDesc, rng: &mut StdRng) -> Vec<RoundCone> {
+    // NEW: early-out if subdivision is disabled
+    if !desc.enable_subdivision {
+        return vec![cone.clone()];
+    }
+
     let axis = cone.center_b() - cone.center_a();
     let length = axis.length();
 
-    // Do not subdivide if the segment is too short or if subdivision is disabled.
+    // Do not subdivide if the segment is too short or if subdivision is effectively disabled.
     if length <= desc.subdivision_threshold || desc.subdivision_count_max <= 1 {
         return vec![cone.clone()];
     }
@@ -311,7 +325,7 @@ fn subdivide_trunk_segment(cone: &RoundCone, desc: &TreeDesc, rng: &mut StdRng) 
     let num_segments = if desc.subdivision_count_min >= desc.subdivision_count_max {
         desc.subdivision_count_min
     } else {
-        rng.gen_range(desc.subdivision_count_min..=desc.subdivision_count_max)
+        rng.random_range(desc.subdivision_count_min..=desc.subdivision_count_max)
     };
 
     if num_segments <= 1 {
@@ -322,7 +336,6 @@ fn subdivide_trunk_segment(cone: &RoundCone, desc: &TreeDesc, rng: &mut StdRng) 
     let mut current_pos = cone.center_a();
     let segment_vec = axis / num_segments as f32;
 
-    // Define a stable perpendicular basis for random displacement.
     let up = if axis.normalize_or_zero().y.abs() < 0.9 {
         Vec3::Y
     } else {
@@ -332,8 +345,6 @@ fn subdivide_trunk_segment(cone: &RoundCone, desc: &TreeDesc, rng: &mut StdRng) 
     let perp2 = axis.cross(perp1).normalize_or_zero();
 
     for i in 1..=num_segments {
-        // **FIX:** Calculate start and end radius for this sub-segment directly via linear
-        // interpolation. This is more robust than the previous recursive method.
         let start_t = (i - 1) as f32 / num_segments as f32;
         let end_t = i as f32 / num_segments as f32;
         let segment_start_radius = cone.radius_a() * (1.0 - start_t) + cone.radius_b() * start_t;
@@ -342,33 +353,26 @@ fn subdivide_trunk_segment(cone: &RoundCone, desc: &TreeDesc, rng: &mut StdRng) 
         let mut next_pos;
 
         if i == num_segments {
-            // Ensure the final segment ends exactly at the original endpoint.
             next_pos = cone.center_b();
         } else {
-            // The ideal next position is one step along the original axis from the *previous* position.
             next_pos = current_pos + segment_vec;
-
             if desc.subdivision_randomness > 0.0 {
-                let random_angle = rng.gen_range(0.0..2.0 * PI);
+                let random_angle = rng.random_range(0.0..2.0 * PI);
                 let random_dir_perp = perp1 * random_angle.cos() + perp2 * random_angle.sin();
-
-                // **FIX:** Displacement is now proportional to the segment's starting radius,
-                // not its length. This makes the effect stable across different branch lengths.
-                let displacement_magnitude =
-                    segment_start_radius * desc.subdivision_randomness * rng.gen_range(0.5..=1.0);
-
+                let displacement_magnitude = segment_start_radius
+                    * desc.subdivision_randomness
+                    * rng.random_range(0.5..=1.0);
                 next_pos += random_dir_perp * displacement_magnitude;
             }
         }
 
         subdivided_trunks.push(RoundCone::new(
-            segment_start_radius,
+            segment_start_radius.max(desc.trunk_thickness_min),
             current_pos,
-            segment_end_radius,
+            segment_end_radius.max(desc.trunk_thickness_min),
             next_pos,
         ));
 
-        // The end of this segment is the start of the next one.
         current_pos = next_pos;
     }
 
@@ -391,20 +395,19 @@ fn recurse(
         return;
     }
 
-    // CHANGED: Using the renamed, more descriptive parameter.
-    let length_variation_factor = if desc.segment_length_variation > 0.0 {
-        rng.gen_range(1.0 - desc.segment_length_variation..=1.0 + desc.segment_length_variation)
-    } else {
-        1.0
+    let length_variation_factor = {
+        let random_factor = rng.random_range(-1.0..=1.0); // Always generate a random value
+        1.0 + random_factor * desc.segment_length_variation // Scale by variation amount
     };
+
     let segment_length = length * length_variation_factor;
-    let thickness_start = thickness.max(desc.trunk_thickness_min);
+    let thickness_start = thickness;
     let natural_thickness_end = if desc.thickness_reduction > 0.0 {
         thickness * desc.thickness_reduction
     } else {
         thickness * 0.1_f32.powf((level + 1) as f32)
     };
-    let thickness_end = natural_thickness_end.max(desc.trunk_thickness_min);
+    let thickness_end = natural_thickness_end;
 
     let level_factor = (level as f32) / (desc.iterations as f32);
     let vertical_influence = desc.vertical_tendency * level_factor;
@@ -412,7 +415,12 @@ fn recurse(
 
     let end_pos = pos + adjusted_dir * segment_length;
 
-    trunks.push(RoundCone::new(thickness_start, pos, thickness_end, end_pos));
+    trunks.push(RoundCone::new(
+        thickness_start.max(desc.trunk_thickness_min),
+        pos,
+        thickness_end.max(desc.trunk_thickness_min),
+        end_pos,
+    ));
 
     let should_branch =
         level < desc.iterations - 1 && (level == 0 || rng.gen::<f32>() < desc.branch_probability);
@@ -421,7 +429,7 @@ fn recurse(
         let branch_count = if desc.branch_count_min == desc.branch_count_max {
             desc.branch_count_min
         } else {
-            rng.gen_range(desc.branch_count_min..=desc.branch_count_max)
+            rng.random_range(desc.branch_count_min..=desc.branch_count_max)
         };
 
         for i in 0..branch_count {
@@ -473,7 +481,7 @@ fn calculate_branch_direction(
         rng.gen::<f32>() * 2.0 * PI
     };
     let away_angle =
-        rng.gen_range(desc.branch_angle_min..=desc.branch_angle_max) * (1.0 + desc.spread);
+        rng.random_range(desc.branch_angle_min..=desc.branch_angle_max) * (1.0 + desc.spread);
 
     let up = if parent_dir.y.abs() < 0.9 {
         Vec3::Y
@@ -496,9 +504,9 @@ fn add_direction_variation(dir: Vec3, variation: f32, rng: &mut StdRng) -> Vec3 
     if variation <= 0.0 {
         return dir;
     }
-    let rand_x = rng.gen_range(-variation..=variation);
-    let rand_y = rng.gen_range(-variation..=variation);
-    let rand_z = rng.gen_range(-variation..=variation);
+    let rand_x = rng.random_range(-variation..=variation);
+    let rand_y = rng.random_range(-variation..=variation);
+    let rand_z = rng.random_range(-variation..=variation);
     (dir + Vec3::new(rand_x, rand_y, rand_z)).normalize_or_zero()
 }
 
