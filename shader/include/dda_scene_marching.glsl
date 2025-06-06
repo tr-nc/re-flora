@@ -15,7 +15,7 @@ MarchingResult dda_scene_marching(vec3 o, vec3 d, vec3 inv_d) {
     res.center_pos = vec3(0.0);
     res.t          = 1e10;
     res.normal     = vec3(0.0);
-    res.voxel_data = 0;
+    res.voxel_type = 0;
 
     ivec3 visible_chunk_dim = imageSize(SCENE_TEX_NAME).xyz;
 

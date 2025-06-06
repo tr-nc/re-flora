@@ -8,7 +8,7 @@ struct MarchingResult {
     vec3 center_pos;
     float t;
     vec3 normal;
-    uint voxel_data;
+    uint voxel_type;
 };
 
 #endif // DDA_SCENE_MARCHING_RESULT_GLSL

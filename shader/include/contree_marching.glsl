@@ -13,7 +13,6 @@ struct ContreeMarchingResult {
     bool is_hit;
     vec3 pos;
     vec3 center_pos;
-    vec3 normal;
     uint voxel_data;
 };
 
@@ -68,7 +67,6 @@ ContreeMarchingResult _contree_marching(vec3 origin, vec3 dir, bool coarse, uint
     res.voxel_data = 0;
     res.pos        = vec3(0.0);
     res.center_pos = vec3(0.0);
-    res.normal     = vec3(0.0);
 
     vec2 slab = slabs(vec3(1.0), vec3(1.9999999), origin, 1.0 / dir);
     if (slab.x > slab.y || slab.y < 0.0) {
@@ -167,10 +165,11 @@ ContreeMarchingResult _contree_marching(vec3 origin, vec3 dir, bool coarse, uint
         res.center_pos = centered_pos;
         res.voxel_data = contree_leaf_data.data[leaf_offset + (node.packed_0 >> 1u) + bits];
 
-        float tmax       = min(min(side_dist.x, side_dist.y), side_dist.z);
-        bvec3 side_mask2 = bvec3(tmax >= side_dist.x, tmax >= side_dist.y, tmax >= side_dist.z);
-        res.normal = vec3(side_mask2.x ? -sign(dir.x) : 0.0, side_mask2.y ? -sign(dir.y) : 0.0,
-                          side_mask2.z ? -sign(dir.z) : 0.0);
+        // we need per-voxel normal, so we disable the per-face normal computation here
+        // float tmax       = min(min(side_dist.x, side_dist.y), side_dist.z);
+        // bvec3 side_mask2 = bvec3(tmax >= side_dist.x, tmax >= side_dist.y, tmax >= side_dist.z);
+        // res.normal = vec3(side_mask2.x ? -sign(dir.x) : 0.0, side_mask2.y ? -sign(dir.y) : 0.0,
+        //                   side_mask2.z ? -sign(dir.z) : 0.0);
     }
 
     return res;
