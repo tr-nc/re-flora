@@ -1,7 +1,7 @@
 #ifndef DDA_SCENE_MARCHING_RESULT_GLSL
 #define DDA_SCENE_MARCHING_RESULT_GLSL
 
-struct DdaSceneMarchingResult {
+struct MarchingResult {
     uint iter_count;
     bool is_hit;
     vec3 pos;

@@ -5,10 +5,10 @@
 
 #include "../include/core/aabb.glsl"
 #include "../include/core/definitions.glsl"
-#include "../include/dda_scene_marching_result.glsl"
+#include "../include/marching_result.glsl"
 
-DdaSceneMarchingResult dda_scene_marching(vec3 o, vec3 d, vec3 inv_d) {
-    DdaSceneMarchingResult res;
+MarchingResult dda_scene_marching(vec3 o, vec3 d, vec3 inv_d) {
+    MarchingResult res;
     res.iter_count = 0;
     res.is_hit     = false;
     res.pos        = vec3(0.0);

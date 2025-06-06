@@ -48,13 +48,12 @@ layout(set = 2, binding = 0) uniform accelerationStructureEXT tlas;
 #include "../include/core/packer.glsl"
 #include "../include/core/shader_clock.glsl"
 #include "../include/core/viridis.glsl"
-#include "../include/dda_scene_marching_result.glsl"
+#include "../include/marching_result.glsl"
 #include "../include/ray.glsl"
 #include "../include/skylight.glsl"
 #include "../include/voxel_color.glsl"
 
-bool scene_hit(inout DdaSceneMarchingResult dda_res, vec3 o, vec3 d, ivec3 map_pos,
-               uvec4 scene_tex_read) {
+bool scene_hit(inout MarchingResult dda_res, vec3 o, vec3 d, ivec3 map_pos, uvec4 scene_tex_read) {
     // see update_scene_tex.comp for encoding part
     if (scene_tex_read.x == 0) {
         return false;
@@ -78,6 +77,48 @@ bool scene_hit(inout DdaSceneMarchingResult dda_res, vec3 o, vec3 d, ivec3 map_p
 #include "../include/dda_scene_marching.glsl"
 
 ///
+
+MarchingResult combined_scene_marching(Ray ray, bool is_primary_ray) {
+    if (!is_primary_ray) {
+        return dda_scene_marching(ray.origin, ray.direction, ray.inv_direction);
+    }
+
+    rayQueryEXT rayQuery;
+    rayQueryInitializeEXT(rayQuery, tlas,
+                          gl_RayFlagsOpaqueEXT, // skip “transparent” triangles
+                          0xFF,                 // instance mask
+                          ray.origin,
+                          0.001, // bias off your surface
+                          ray.direction, 10000.0);
+
+    // march through *every* candidate
+    while (rayQueryProceedEXT(rayQuery)) {
+        if (rayQueryGetIntersectionTypeEXT(rayQuery, false) ==
+            gl_RayQueryCandidateIntersectionTriangleEXT) {
+            // “commit” it; this tells the driver “yes, I want
+            // you to consider this for the nearest‐hit test”
+            rayQueryConfirmIntersectionEXT(rayQuery);
+        }
+    }
+    // after traversal, ask whether we actually committed a hit
+    bool hit_grass = (rayQueryGetIntersectionTypeEXT(rayQuery, true) ==
+                      gl_RayQueryCommittedIntersectionTriangleEXT);
+    float t_grass  = rayQueryGetIntersectionTEXT(rayQuery, true);
+
+    MarchingResult res;
+    res = dda_scene_marching(ray.origin, ray.direction, ray.inv_direction);
+
+    if (hit_grass && t_grass < res.t) {
+        // we hit the grass, so we override the result
+        res.is_hit     = true;
+        res.pos        = ray.origin + ray.direction * t_grass;
+        res.center_pos = res.pos;             // for grass, center_pos is the same as pos
+        res.normal     = vec3(0.0, 0.0, 1.0); // grass is always flat on the ground
+        res.voxel_data = 0;                   // grass has no voxel data
+    }
+
+    return res;
+}
 
 const ivec3 BN_NOISE_TEX_SIZE = ivec3(128, 128, 64);
 ivec3 get_seed() { return ivec3(gl_GlobalInvocationID.xy % 128, env_info.frame_serial_idx % 64); }
@@ -120,8 +161,8 @@ vec3 sample_sun_disk(ivec3 seed, float sun_size, vec3 sun_dir) {
 
 /// If the ray hits the scene, no light, otherwise sunlight
 vec3 get_shadow_ray_color(Ray ray) {
-    DdaSceneMarchingResult res_shadow_ray;
-    res_shadow_ray = dda_scene_marching(ray.origin, ray.direction, ray.inv_direction);
+    MarchingResult res_shadow_ray;
+    res_shadow_ray = combined_scene_marching(ray, false);
     return res_shadow_ray.is_hit ? vec3(0.0) : gui_input.sun_color * 0.01;
 }
 
@@ -137,7 +178,7 @@ vec3 get_next_tracing_pos(vec3 voxel_center_pos, vec3 voxel_normal) {
 vec3 get_lambertian_brdf(vec3 albedo) { return albedo * INV_PI; }
 
 void parse_trace_result(out vec3 normal, out vec3 albedo, out vec3 next_tracing_pos,
-                        DdaSceneMarchingResult res) {
+                        MarchingResult res) {
     // unpack normal from the packed voxel data (bits 8..28)
     normal           = unpack_normal_v2((res.voxel_data & 0x1FFFFF00u) >> 8);
     uint voxel_type  = res.voxel_data & 0xFFu;
@@ -146,8 +187,7 @@ void parse_trace_result(out vec3 normal, out vec3 albedo, out vec3 next_tracing_
 }
 
 vec3 get_pixel_color(Ray ray, ivec3 seed) {
-    DdaSceneMarchingResult res_primary_ray =
-        dda_scene_marching(ray.origin, ray.direction, ray.inv_direction);
+    MarchingResult res_primary_ray = combined_scene_marching(ray, true);
 
     if (!res_primary_ray.is_hit) {
         // render skybox
@@ -176,8 +216,7 @@ vec3 get_pixel_color(Ray ray, ivec3 seed) {
     indirect_ray.inv_direction = vec3(1.0) / indirect_ray.direction;
     indirect_ray.origin        = next_tracing_pos;
 
-    DdaSceneMarchingResult res_indirect_ray =
-        dda_scene_marching(indirect_ray.origin, indirect_ray.direction, indirect_ray.inv_direction);
+    MarchingResult res_indirect_ray = combined_scene_marching(indirect_ray, false);
     if (!res_indirect_ray.is_hit) {
         indirect_color = get_sky_color(indirect_ray.direction);
     } else {
