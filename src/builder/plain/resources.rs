@@ -67,7 +67,7 @@ impl PlainBuilderResources {
             round_cones_layout.clone(),
             BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
-            10000,
+            100000,
         ); // less than 1 MB though, don't worry about the size
 
         let trunk_bvh_nodes_layout = chunk_modify_sm.get_buffer_layout("B_BvhNodes").unwrap();
@@ -77,7 +77,7 @@ impl PlainBuilderResources {
             trunk_bvh_nodes_layout.clone(),
             BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
-            10000,
+            100000,
         ); // less than 1 MB though, don't worry about the size
 
         let region_info_layout = buffer_setup_sm.get_buffer_layout("U_RegionInfo").unwrap();
