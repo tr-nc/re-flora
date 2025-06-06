@@ -501,9 +501,9 @@ fn calculate_branch_direction(
 }
 
 fn add_direction_variation(dir: Vec3, variation: f32, rng: &mut StdRng) -> Vec3 {
-    if variation <= 0.0 {
-        return dir;
-    }
+    // if variation <= 0.0 {
+    //     return dir;
+    // }
     let rand_x = rng.random_range(-variation..=variation);
     let rand_y = rng.random_range(-variation..=variation);
     let rand_z = rng.random_range(-variation..=variation);
