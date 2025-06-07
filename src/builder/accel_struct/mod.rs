@@ -69,8 +69,8 @@ impl AccelStructBuilder {
             allocator.clone(),
             &make_unit_grass_sm,
             &instance_maker_sm,
-            2000,
-            2000 * 3,
+            100000,
+            100000 * 3,
             tlas_instance_cap,
         );
 

@@ -30,7 +30,8 @@ void main() {
 
     GrassInstance grass_instance = grass_instances.data[id];
 
-    vec3 rotation   = vec3(0.0);
+    vec3 rotation = vec3(0.0);
+    // TODO: make the resolution configurable
     vec3 scale      = vec3(1.0 / 256.0);
     vec3 position   = vec3(grass_instance.position) / 256.0;
     uint custom_idx = 0;
@@ -49,19 +50,19 @@ void main() {
     M[1] *= scale.y; // scale Y‐column
     M[2] *= scale.z; // scale Z‐column
 
-    AccelStructInstance outInst;
-    outInst.transform =
+    AccelStructInstance out_inst;
+    out_inst.transform =
         mat3x4(vec4(M[0], position.x), vec4(M[1], position.y), vec4(M[2], position.z));
 
-    outInst.instance_custom_index_and_mask = (custom_idx & 0x00FFFFFFu) // customIndex in bits 0–23
-                                             | (0xFFu << 24);           // mask      in bits 24–31
+    out_inst.instance_custom_index_and_mask = (custom_idx & 0x00FFFFFFu) // customIndex in bits 0–23
+                                              | (0xFFu << 24); // mask      in bits 24–31
 
     uint flags = 0x1u;
-    outInst.instance_shader_binding_table_record_offset_and_flags =
+    out_inst.instance_shader_binding_table_record_offset_and_flags =
         (0u & 0x00FFFFFFu) // sbt offset in bits 0–23
         | (flags << 24);   // flags      in bits 24–31
 
-    outInst.blas_device_address = instance_info.blas_device_address;
+    out_inst.blas_device_address = instance_info.blas_device_address;
 
-    tlas_instances.data[id] = outInst;
+    tlas_instances.data[id] = out_inst;
 }

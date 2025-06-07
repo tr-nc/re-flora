@@ -18,7 +18,7 @@ layout(set = 0, binding = 3) writeonly buffer B_BlasBuildResult {
 blas_build_result;
 
 // Appends one cube into the global vertex/index buffers.
-void append_cube(inout uint vertex_offset, inout uint index_offset, vec3 center, vec3 scale) {
+void append_cube(inout uint io_vertex_offset, inout uint io_index_offset, vec3 center, vec3 scale) {
     const vec3 base_verts[8] = vec3[](
         vec3(-0.5, -0.5, -0.5), vec3(0.5, -0.5, -0.5), vec3(0.5, 0.5, -0.5), vec3(-0.5, 0.5, -0.5),
         vec3(-0.5, -0.5, 0.5), vec3(0.5, -0.5, 0.5), vec3(0.5, 0.5, 0.5), vec3(-0.5, 0.5, 0.5));
@@ -32,23 +32,23 @@ void append_cube(inout uint vertex_offset, inout uint index_offset, vec3 center,
 
     // write verts
     for (uint i = 0u; i < 8u; ++i) {
-        vec3 pos                                  = base_verts[i] * scale + center;
-        vertices.data[vertex_offset + i].position = pos;
+        vec3 pos                                     = base_verts[i] * scale + center;
+        vertices.data[io_vertex_offset + i].position = pos;
     }
     // write indices (with bias)
     for (uint i = 0u; i < 36u; ++i) {
-        indices.data[index_offset + i].index = vertex_offset + base_indices[i];
+        indices.data[io_index_offset + i].index = io_vertex_offset + base_indices[i];
     }
-    vertex_offset += 8u;
-    index_offset += 36u;
+    io_vertex_offset += 8u;
+    io_index_offset += 36u;
 }
 
 // Builds one grass blade as a vertical stack of 'voxel_count' cubes.
 // – The bottom cube sits at Y=0.
 // – The top cube sits at Y=voxel_count-1, and is bent full‐strength in X and Z.
 // – Intermediate cubes have Y = their integer index, but X/Z are bent by t² ease‐in.
-void draw_grass_blade(inout uint vertex_offset, inout uint index_offset, vec2 bend_dir_and_strength,
-                      vec3 offset, uint voxel_count) {
+void draw_grass_blade(inout uint io_vertex_offset, inout uint io_index_offset,
+                      vec2 bend_dir_and_strength, vec3 offset, uint voxel_count) {
     if (voxel_count == 0u) {
         return;
     }
@@ -68,22 +68,46 @@ void draw_grass_blade(inout uint vertex_offset, inout uint index_offset, vec2 be
         float z = bend_dir_and_strength.y * t_curve;
 
         vec3 center = vec3(x, y, z) + offset;
-        append_cube(vertex_offset, index_offset, center, vec3(1.0));
+        append_cube(io_vertex_offset, io_index_offset, center, vec3(1.0));
     }
 }
 
-void main() {
-    uint vertex_offset = 0u;
-    uint index_offset  = 0u;
+const uint GRASS_CHUNK_DIM  = 8;
+const uint GRASS_CHUNK_SIZE = GRASS_CHUNK_DIM * GRASS_CHUNK_DIM;
 
-    draw_grass_blade(vertex_offset, index_offset, make_unit_grass_info.bend_dir_and_strength,
-                     vec3(0.0, 0.0, 0.0), 8);
-    draw_grass_blade(vertex_offset, index_offset, make_unit_grass_info.bend_dir_and_strength,
-                     vec3(0.0, 0.0, 2.0), 10);
-    draw_grass_blade(vertex_offset, index_offset, make_unit_grass_info.bend_dir_and_strength,
-                     vec3(0.0, 0.0, 4.0), 6);
-    draw_grass_blade(vertex_offset, index_offset, make_unit_grass_info.bend_dir_and_strength,
-                     vec3(2.0, 0.0, 2.0), 4);
+vec3[GRASS_CHUNK_SIZE] make_grass_offsets(vec3 base_offset) {
+    vec3 offsets[GRASS_CHUNK_SIZE];
+    for (uint i = 0; i < GRASS_CHUNK_SIZE; ++i) {
+        float x    = float(i % GRASS_CHUNK_DIM);
+        float z    = float(i / GRASS_CHUNK_DIM);
+        offsets[i] = base_offset + vec3(x, 0.0, z);
+    }
+    return offsets;
+}
+
+uint[GRASS_CHUNK_SIZE] make_grass_lengths() {
+    uint lengths[GRASS_CHUNK_SIZE];
+    for (uint i = 0; i < GRASS_CHUNK_SIZE; ++i) {
+        lengths[i] = 5;
+    }
+    return lengths;
+}
+
+void main() {
+    uint vertex_offset = 0;
+    uint index_offset  = 0;
+
+    vec3 base_grass_offset = vec3(0.5, 0.0, 0.5);
+    vec3 grass_offsets[]   = make_grass_offsets(base_grass_offset);
+    uint grass_lengths[]   = make_grass_lengths();
+
+    for (uint i = 0; i < GRASS_CHUNK_SIZE; ++i) {
+        vec3 offset       = grass_offsets[i];
+        uint grass_length = grass_lengths[i];
+        // draw one grass blade
+        draw_grass_blade(vertex_offset, index_offset, make_unit_grass_info.bend_dir_and_strength,
+                         offset + base_grass_offset, grass_length);
+    }
 
     blas_build_result.vertices_len = vertex_offset;
     blas_build_result.indices_len  = index_offset;
