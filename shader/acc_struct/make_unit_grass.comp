@@ -44,9 +44,9 @@ void append_cube(inout uint io_vertex_offset, inout uint io_index_offset, vec3 c
 }
 
 // Builds one grass blade as a vertical stack of 'voxel_count' cubes.
-// – The bottom cube sits at Y=0.
-// – The top cube sits at Y=voxel_count-1, and is bent full‐strength in X and Z.
-// – Intermediate cubes have Y = their integer index, but X/Z are bent by t² ease‐in.
+// -- The bottom cube sits at Y=0.
+// -- The top cube sits at Y=voxel_count-1, and is bent full‐strength in X and Z.
+// -- Intermediate cubes have Y = their integer index, but X/Z are bent by t² ease‐in.
 void draw_grass_blade(inout uint io_vertex_offset, inout uint io_index_offset,
                       vec2 bend_dir_and_strength, vec3 offset, uint voxel_count) {
     if (voxel_count == 0u) {
@@ -85,10 +85,38 @@ vec3[GRASS_CHUNK_SIZE] make_grass_offsets(vec3 base_offset) {
     return offsets;
 }
 
-uint[GRASS_CHUNK_SIZE] make_grass_lengths() {
+// Added a simple pseudo-random number generator (hash function)
+// It produces a deterministic random-looking value between 0.0 and 1.0 based on input coordinates.
+float rand(vec2 co) { return fract(sin(dot(co, vec2(12.9898, 78.233))) * 43758.5453); }
+
+// Add a configurable chance for a grass blade to be absent.
+// A value of 0.2 means a 20% chance of no grass. Set to 0.0 for 100% density.
+const float CHANCE_OF_NO_GRASS = 0.8;
+
+// Modified this function to generate random heights and to potentially skip blades.
+uint[GRASS_CHUNK_SIZE] make_grass_lengths(vec3 offsets[GRASS_CHUNK_SIZE]) {
     uint lengths[GRASS_CHUNK_SIZE];
+    uint min_height   = 3u;
+    uint max_height   = 8u;
+    uint height_range = max_height - min_height;
+
     for (uint i = 0; i < GRASS_CHUNK_SIZE; ++i) {
-        lengths[i] = 5;
+        // Use the position to generate a random value for the existence check.
+        float existence_rand = rand(offsets[i].xz);
+
+        if (existence_rand < CHANCE_OF_NO_GRASS) {
+            // If the random value falls within the chance, set length to 0.
+            // The draw_grass_blade function will skip drawing blades with 0 length.
+            lengths[i] = 0u;
+        } else {
+            // If the grass exists, calculate its height.
+            // Use a different seed for the height randomness to decouple it from existence.
+            // Swizzling the input vector (.zx) is a simple way to get a different random sequence.
+            float height_rand = rand(offsets[i].zx);
+
+            // Map the random value to our desired height range
+            lengths[i] = min_height + uint(height_rand * float(height_range));
+        }
     }
     return lengths;
 }
@@ -99,14 +127,13 @@ void main() {
 
     vec3 base_grass_offset = vec3(0.5, 0.0, 0.5);
     vec3 grass_offsets[]   = make_grass_offsets(base_grass_offset);
-    uint grass_lengths[]   = make_grass_lengths();
+    uint grass_lengths[]   = make_grass_lengths(grass_offsets);
 
     for (uint i = 0; i < GRASS_CHUNK_SIZE; ++i) {
         vec3 offset       = grass_offsets[i];
         uint grass_length = grass_lengths[i];
-        // draw one grass blade
         draw_grass_blade(vertex_offset, index_offset, make_unit_grass_info.bend_dir_and_strength,
-                         offset + base_grass_offset, grass_length);
+                         offset, grass_length);
     }
 
     blas_build_result.vertices_len = vertex_offset;

@@ -162,7 +162,7 @@ vec3 sample_sun_disk(ivec3 seed, float sun_size, vec3 sun_dir) {
 /// If the ray hits the scene, no light, otherwise sunlight
 vec3 get_shadow_ray_color(Ray ray) {
     MarchingResult res_shadow_ray;
-    res_shadow_ray = combined_scene_marching(ray, false);
+    res_shadow_ray = combined_scene_marching(ray, true);
     return res_shadow_ray.is_hit ? vec3(0.0) : gui_input.sun_color * 0.01;
 }
 
@@ -212,7 +212,7 @@ vec3 get_pixel_color(Ray ray, ivec3 seed) {
     indirect_ray.inv_direction = vec3(1.0) / indirect_ray.direction;
     indirect_ray.origin        = next_tracing_pos;
 
-    MarchingResult res_indirect_ray = combined_scene_marching(indirect_ray, false);
+    MarchingResult res_indirect_ray = combined_scene_marching(indirect_ray,true);
     if (!res_indirect_ray.is_hit) {
         indirect_color = get_sky_color(indirect_ray.direction);
     } else {
