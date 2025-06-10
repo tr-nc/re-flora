@@ -22,6 +22,8 @@ use egui::{Color32, RichText};
 use glam::{UVec3, Vec2, Vec3};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
+use time::Time;
 use winit::event::DeviceEvent;
 use winit::{
     event::{ElementState, WindowEvent},
@@ -249,14 +251,15 @@ impl InitializedApp {
         plain_builder.chunk_init(UVec3::new(0, 0, 0), VOXEL_DIM_PER_CHUNK * CHUNK_DIM);
 
         let chunk_pos_to_build_min = UVec3::new(0, 0, 0);
-        let chunk_pos_to_build_max = CHUNK_DIM - 1; // inclusive
-        for x in chunk_pos_to_build_min.x..=chunk_pos_to_build_max.x {
-            for y in chunk_pos_to_build_min.y..=chunk_pos_to_build_max.y {
-                for z in chunk_pos_to_build_min.z..=chunk_pos_to_build_max.z {
+        let chunk_pos_to_build_max = CHUNK_DIM;
+
+        for x in chunk_pos_to_build_min.x..chunk_pos_to_build_max.x {
+            for y in chunk_pos_to_build_min.y..chunk_pos_to_build_max.y {
+                for z in chunk_pos_to_build_min.z..chunk_pos_to_build_max.z {
                     let chunk_idx = UVec3::new(x, y, z);
                     let this_bound = UAabb3::new(
                         chunk_idx * VOXEL_DIM_PER_CHUNK,
-                        (chunk_idx + UVec3::ONE) * VOXEL_DIM_PER_CHUNK,
+                        (chunk_idx + UVec3::ONE) * VOXEL_DIM_PER_CHUNK - UVec3::ONE,
                     );
                     Self::mesh_regenerate(
                         surface_builder,
@@ -352,14 +355,21 @@ impl InitializedApp {
         for chunk_idx in affected_chunk_indices {
             let atlas_offset = chunk_idx * VOXEL_DIM_PER_CHUNK;
 
+            let now = Instant::now();
             let active_voxel_len = surface_builder.build_surface(atlas_offset);
+            BENCH.lock().unwrap().record("build_surface", now.elapsed());
 
             if active_voxel_len == 0 {
                 log::debug!("Don't need to build contree because the chunk is empty");
                 continue;
             }
 
+            let now = Instant::now();
             let res = contree_builder.build_and_alloc(atlas_offset).unwrap();
+            BENCH
+                .lock()
+                .unwrap()
+                .record("build_and_alloc", now.elapsed());
 
             if let Some(res) = res {
                 let (node_buffer_offset, leaf_buffer_offset) = res;
