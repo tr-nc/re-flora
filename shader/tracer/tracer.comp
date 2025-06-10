@@ -63,11 +63,12 @@ bool scene_hit(inout MarchingResult o_res, vec3 o, vec3 d, ivec3 map_pos, uvec4 
     ContreeMarchingResult contree_res =
         contree_marching(o, d, map_pos, vec3(1.0), false, scene_tex_read.x, scene_tex_read.y);
     if (contree_res.is_hit) {
-        o_res.is_hit     = true;
-        o_res.pos        = contree_res.pos;
-        o_res.center_pos = contree_res.center_pos;
-        o_res.normal     = unpack_normal_v2((contree_res.voxel_data & 0x1FFFFF00u) >> 8);
-        o_res.voxel_type = contree_res.voxel_data & 0xFFu;
+        o_res.is_hit          = true;
+        o_res.pos             = contree_res.pos;
+        o_res.center_pos      = contree_res.center_pos;
+        o_res.is_normal_valid = (contree_res.voxel_data & (1u << 29)) != 0u;
+        o_res.normal          = unpack_normal_v2((contree_res.voxel_data & 0x1FFFFF00u) >> 8);
+        o_res.voxel_type      = contree_res.voxel_data & 0xFFu;
         return true;
     }
     return false;
@@ -78,46 +79,8 @@ bool scene_hit(inout MarchingResult o_res, vec3 o, vec3 d, ivec3 map_pos, uvec4 
 
 ///
 
-MarchingResult combined_scene_marching(Ray ray, bool is_primary_ray) {
-    MarchingResult res;
-    res = dda_scene_marching(ray.origin, ray.direction, ray.inv_direction);
-    if (!is_primary_ray) {
-        return res; // for shadow rays, we don't need to do ray query
-    }
-
-    rayQueryEXT rayQuery;
-    rayQueryInitializeEXT(rayQuery, tlas,
-                          gl_RayFlagsOpaqueEXT, // skip “transparent” triangles
-                          0xFF,                 // instance mask
-                          ray.origin,
-                          0.001, // bias off your surface
-                          ray.direction, 10000.0);
-
-    // march through *every* candidate
-    while (rayQueryProceedEXT(rayQuery)) {
-        if (rayQueryGetIntersectionTypeEXT(rayQuery, false) ==
-            gl_RayQueryCandidateIntersectionTriangleEXT) {
-            // “commit” it; this tells the driver “yes, I want
-            // you to consider this for the nearest‐hit test”
-            rayQueryConfirmIntersectionEXT(rayQuery);
-        }
-    }
-    // after traversal, ask whether we actually committed a hit
-    bool hit_grass = (rayQueryGetIntersectionTypeEXT(rayQuery, true) ==
-                      gl_RayQueryCommittedIntersectionTriangleEXT);
-    float t_grass  = rayQueryGetIntersectionTEXT(rayQuery, true);
-
-    if (hit_grass && t_grass < res.t) {
-        // we hit the grass, so we override the result
-        res.is_hit = true;
-        res.pos    = ray.origin + ray.direction * t_grass;
-        // FIXME:
-        res.center_pos = res.pos;
-        res.normal     = vec3(0.0, 1.0, 0.0);
-        res.voxel_type = VOXEL_TYPE_GRASS;
-    }
-
-    return res;
+MarchingResult general_scene_marching(Ray ray) {
+    return dda_scene_marching(ray.origin, ray.direction, ray.inv_direction);
 }
 
 const ivec3 BN_NOISE_TEX_SIZE = ivec3(128, 128, 64);
@@ -161,8 +124,7 @@ vec3 sample_sun_disk(ivec3 seed, float sun_size, vec3 sun_dir) {
 
 /// If the ray hits the scene, no light, otherwise sunlight
 vec3 get_shadow_ray_color(Ray ray) {
-    MarchingResult res_shadow_ray;
-    res_shadow_ray = combined_scene_marching(ray, true);
+    MarchingResult res_shadow_ray = general_scene_marching(ray);
     return res_shadow_ray.is_hit ? vec3(0.0) : gui_input.sun_color * 0.01;
 }
 
@@ -182,13 +144,27 @@ void parse_trace_result(out vec3 albedo, out vec3 next_tracing_pos, MarchingResu
     next_tracing_pos = get_next_tracing_pos(res.center_pos, res.normal);
 }
 
+vec3 choose_random_normal(ivec3 seed) {
+    return random_unit_vec3_bn(seed);
+
+    vec2 rand_vec = random_unit_vec2_bn(seed);
+    return vec3(rand_vec.x, 0.0,
+                rand_vec.y); // This is a 2D random vector projected onto the XZ plane.
+}
+
 vec3 get_pixel_color(Ray ray, ivec3 seed) {
-    MarchingResult res_primary_ray = combined_scene_marching(ray, true);
+    MarchingResult res_primary_ray = general_scene_marching(ray);
 
     if (!res_primary_ray.is_hit) {
         // render skybox
         return get_sky_color(ray.direction);
     }
+
+    // if normal is not valid, change the res.normal to a random one
+    if (!res_primary_ray.is_normal_valid) {
+        res_primary_ray.normal = choose_random_normal(seed);
+    }
+
     vec3 albedo, next_tracing_pos;
     parse_trace_result(albedo, next_tracing_pos, res_primary_ray);
 
@@ -207,15 +183,24 @@ vec3 get_pixel_color(Ray ray, ivec3 seed) {
 
     vec3 indirect_color = vec3(0.0);
 
+    // MODIFICATION: Create a new, unique seed for the indirect bounce to avoid
+    // reusing the same random numbers as the direct lighting, which prevents correlation.
+    ivec3 indirect_seed = ivec3((seed.xy + ivec2(13, 37)) % 128, seed.z);
+
     Ray indirect_ray;
-    indirect_ray.direction     = sample_diffuse_bounce(seed, res_primary_ray.normal);
+    indirect_ray.direction     = sample_diffuse_bounce(indirect_seed, res_primary_ray.normal);
     indirect_ray.inv_direction = vec3(1.0) / indirect_ray.direction;
     indirect_ray.origin        = next_tracing_pos;
 
-    MarchingResult res_indirect_ray = combined_scene_marching(indirect_ray,true);
+    MarchingResult res_indirect_ray = general_scene_marching(indirect_ray);
     if (!res_indirect_ray.is_hit) {
         indirect_color = get_sky_color(indirect_ray.direction);
     } else {
+        if (!res_indirect_ray.is_normal_valid) {
+            // Use the unique indirect_seed for this random choice as well.
+            res_indirect_ray.normal = choose_random_normal(indirect_seed);
+        }
+
         vec3 sample_albedo, sample_next_tracing_pos;
         parse_trace_result(sample_albedo, sample_next_tracing_pos, res_indirect_ray);
         // only change the origin of the ray, reuse the direction for performance
