@@ -109,7 +109,6 @@ bool is_occluded(ivec3 uvi) {
     return true;
 }
 
-// https://www.youtube.com/watch?v=YTZBFz3Et40
 void calculate_normal(out vec3 o_normal, out bool o_is_normal_valid, ivec3 uvi) {
     const ivec3 min_bound = ivec3(-2);
     const ivec3 max_bound = ivec3(2);
@@ -192,7 +191,6 @@ void main() {
     calculate_normal(normal, is_normal_valid, uvi);
     uint properties = compress_voxel_type_and_normal(voxel_type, normal, is_normal_valid);
 
-    // TODO: maybe do atomic add once in a local workgroup?
     atomicAdd(make_surface_result.active_voxel_len, 1);
     imageStore(surface, uvi, uvec4(properties, 0, 0, 0));
 
