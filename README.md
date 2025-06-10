@@ -153,3 +153,92 @@ https://rust-unofficial.github.io/patterns/patterns/structural/small-crates.html
 [Gamma Correction](https://www.cambridgeincolour.com/tutorials/gamma-correction.htm)
 
 [Gamma Correction, SRGB color space](https://observablehq.com/@sebastien/srgb-rgb-gamma)
+
+---
+
+Grass Design Decisions
+
+### **Project Design Document: Dynamic Voxel Grass Rendering**
+
+#### **1. Project Vision & Core Architecture**
+
+The project is a real-time ray tracer built using the **Vulkan API**. Its primary goal is to render a fully dynamic world with a distinct, uniform, **cubic voxel art style**.
+
+The core rendering architecture is built upon the modern Vulkan ray tracing extensions (`VK_KHR_acceleration_structure`, `VK_KHR_ray_tracing_pipeline`, etc.). The world is composed of two main types of geometry:
+
+- **Static Terrain:** The vast, non-changing voxel landscape. To manage this sparse and complex data efficiently for ray tracing, the terrain is built into a specialized acceleration structure known as a **Contree**. A Contree is a pointer-based tree structure, similar to an Octree but often more efficient for ray traversal in sparse voxel scenes, as it can have a variable number of children per node, leading to a more compact and faster-to-traverse structure. The Contree is built once and treated as a highly optimized, static piece of the world.
+- **Dynamic Objects:** Elements like grass, effects, and characters that need to be updated every frame. It is computationally prohibitive to rebuild the entire terrain's Contree structure just to update these smaller, dynamic elements.
+
+#### **2. The Aesthetic Constraint: The "Golden Rule"**
+
+There is one critical, non-negotiable rule that dictates all design decisions for new geometry:
+
+> **All rendered geometry must be composed of axis-aligned cubes that are snapped to a global voxel grid.**
+
+This rule ensures a cohesive and intentional art style. Its primary technical implication is that **standard instance transformations like rotation and shear are forbidden for animation**, as they would deform the cubes and misalign them from the global grid.
+
+#### **3. The Challenge: Rendering Performant, Dynamic Grass**
+
+The immediate goal is to add large fields of grass that adhere to the Golden Rule and meet the following criteria:
+
+- **Visually Consistent:** The grass must be made of voxels.
+- **Dynamic:** It must animate (e.g., react to wind).
+- **Granular & Natural:** It should not be rendered in repeating, grid-like patterns. Borders between grass and other terrain types must look natural.
+- **Performant:** It must be rendered efficiently without rebuilding the static terrain's Contree.
+
+#### **4. The Design Journey: Exploring Solutions**
+
+We analyzed several architectural approaches to solve this problem.
+
+##### **Approach A: The Initial User Implementation (Chunk-Based BLAS)**
+
+- **Concept:** A compute shader generates the geometry for an entire 8x8 chunk of grass blades. This chunk is built into a single Bottom-Level Acceleration Structure (BLAS). The Top-Level Acceleration Structure (TLAS) then places instances of this chunk BLAS around the world.
+- **Analysis:**
+  - **Pros:** Efficiently reuses one BLAS; keeps the TLAS instance count low.
+  - **Cons (Fatal Flaws):** Creates highly visible, repetitive grid patterns. Offers no control over individual blades, resulting in unnatural, blocky borders and no per-blade variation. This was deemed insufficient to meet the visual quality goals.
+
+##### **Approach B: Shearing Instance Transforms (The Standard Method - Rejected)**
+
+- **Concept:** Create one BLAS for a single, straight blade of grass. In the TLAS, create thousands of instances of this BLAS. Apply a shear transformation to each instance's matrix to simulate bending from wind.
+- **Analysis:**
+  - **Pros:** Extremely fast and efficient for animating large quantities of simple objects.
+  - **Cons (Fatal Flaw):** **Violates the Golden Rule.** The shear transform would deform the cubes within the BLAS, breaking the axis-aligned, grid-snapped aesthetic. This approach was immediately rejected.
+
+##### **Approach C: The Dynamic "Mega-BLAS"**
+
+- **Concept:** Every frame, a compute shader generates the complete, final geometry for _every visible blade of grass_ into a single, massive vertex/index buffer. A new "Mega-BLAS" is built from this buffer every frame. The TLAS then only needs two instances: one for the static terrain and one for this all-encompassing grass BLAS.
+- **Analysis:**
+  - **Pros:** Offers maximum flexibility for animation and placement. Perfectly enforces the Golden Rule by calculating snapped voxel positions in the shader.
+  - **Cons:** Incurs the performance cost of building a large, new BLAS every single frame.
+
+##### **Approach D: BLAS Caching (The Chosen Method)**
+
+- **Concept:** Acknowledges that animation must come from changing geometry, but avoids the per-frame build cost of Approach C. It involves pre-generating a library of different grass blade shapes and selecting from them at runtime.
+- **Analysis:**
+  - **Pros:** Extremely fast runtime performance as no new geometry or BLASes are built in the main loop. Perfectly enforces the Golden Rule.
+  - **Cons:** Animation is "jumpy" as it snaps between pre-defined poses. Consumes more VRAM to store the pool of BLASes. Animation variety is limited to the number of pre-built poses.
+
+#### **5. Final Design Decision & Implementation Plan**
+
+Based on your preference for maximum runtime performance and simplicity over perfectly smooth animation, we have selected **Approach D: The BLAS Caching Approach**.
+
+This strategy provides the best balance of performance and visual fidelity _within the project's unique constraints_.
+
+**The Action Plan is as follows:**
+
+1.  **Phase 1: Offline BLAS Library Generation (One-Time Setup)**
+
+    - A setup routine will run a compute shader multiple times.
+    - This shader will generate the geometry for a variety of grass blades (e.g., `blade_height5_bendX1`, `blade_height6_bendZ-2`, etc.).
+    - Inside the shader, the final position of each cube will be passed through a `round()` function to snap it to the global voxel grid.
+    - Each unique blade shape will be used to build a separate BLAS. The handles to these BLASes will be stored in a "pool" or "library" on the GPU.
+
+2.  **Phase 2: Real-Time Frame Logic**
+    - **A) Instance Generation (Compute Shader):** A compute shader will run every frame to determine grass placement. For each potential blade, it will:
+      1.  Use noise and terrain data (material, normal) to decide if a blade should exist there, providing natural placement and borders.
+      2.  Perform camera frustum and distance culling.
+      3.  Simulate wind using a noise function based on world position and time.
+      4.  Based on the wind simulation, **select the ID of the most appropriate BLAS** from the pre-built library.
+      5.  Output an instance structure containing the blade's world position and the selected `blasId`.
+    - **B) TLAS Construction:** The main TLAS will be rebuilt every frame. It will contain one instance for the static Contree/terrain, and a dynamic list of instances generated by the compute shader, where each grass instance can point to a different BLAS from the library.
+    - **C) Ray Tracing:** The ray tracing shaders will execute, tracing against this final TLAS to render the scene.

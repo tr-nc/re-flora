@@ -569,7 +569,7 @@ impl InitializedApp {
                 if grass_changed {
                     log::debug!("Debug float: {}", self.debug_float);
                     self.accel_struct_builder.update(
-                        Vec2::new(self.debug_float * 4.0, self.debug_float),
+                        Vec2::new(self.debug_float * 4.0, 0.0),
                         self.surface_builder.get_grass_instance_len(),
                     );
                     self.tracer.update_tlas_binding(

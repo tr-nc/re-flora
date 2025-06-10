@@ -198,7 +198,8 @@ void main() {
 
     //
 
-    if (uvi.x % 8 == 0 && uvi.z % 8 == 0 && normal_not_too_steep(normal, 0.9)) {
+    const uint grid_size = 8;
+    if (uvi.x % grid_size == 0 && uvi.z % grid_size == 0 && normal_not_too_steep(normal, 0.9)) {
         uint write_idx = atomicAdd(make_surface_result.grass_instance_len, 1);
         GrassInstance instance;
         instance.position               = uvec3(make_surface_info.atlas_read_offset + uvi);
