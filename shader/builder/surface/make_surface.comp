@@ -206,11 +206,11 @@ void main() {
         uint grass_property =
             compress_voxel_type_and_normal(VOXEL_TYPE_GRASS, vec3(0.0, 1.0, 0.0), false);
         uint grass_height = 8;
-        for (int y = 0; y < grass_height; y++) {
+        for (int y = 2; y < grass_height; y++) {
             ivec3 grass_uvi = uvi + ivec3(0, y, 0);
-            if (any(greaterThanEqual(grass_uvi, ivec3(make_surface_info.atlas_read_dim)))) {
-                break;
-            }
+            // if (any(greaterThanEqual(grass_uvi, ivec3(make_surface_info.atlas_read_dim)))) {
+            //     break;
+            // }
             imageStore(surface, grass_uvi, uvec4(grass_property, 0, 0, 0));
         }
     }

@@ -16,6 +16,7 @@ pub struct TracerResources {
     pub unit_vec2_bn: Texture,
     pub unit_vec3_bn: Texture,
     pub weighted_cosine_bn: Texture,
+    pub fast_unit_vec3_bn: Texture,
     pub fast_weighted_cosine_bn: Texture,
 }
 
@@ -86,6 +87,12 @@ impl TracerResources {
             vk::Format::R8G8B8A8_UNORM,
             "stbn/unitvec3_cosine_2d_1d/stbn_unitvec3_cosine_2Dx1D_128x128x64_",
         );
+        let fast_unit_vec3_bn = create_bn(
+            &vulkan_ctx,
+            allocator.clone(),
+            vk::Format::R8G8B8A8_UNORM,
+            "fast/unit_vec3/out_",
+        );
         let fast_weighted_cosine_bn = create_bn(
             &vulkan_ctx,
             allocator.clone(),
@@ -104,6 +111,7 @@ impl TracerResources {
             unit_vec2_bn,
             unit_vec3_bn,
             weighted_cosine_bn,
+            fast_unit_vec3_bn,
             fast_weighted_cosine_bn,
         };
 
