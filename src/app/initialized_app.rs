@@ -23,7 +23,6 @@ use glam::{UVec3, Vec2, Vec3};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use time::Time;
 use winit::event::DeviceEvent;
 use winit::{
     event::{ElementState, WindowEvent},
@@ -157,8 +156,6 @@ impl InitializedApp {
                 * CHUNK_DIM.z as u64,
         );
 
-        // 0.5GB of node buffer
-        // 0.5GB of leaf buffer
         let mut contree_builder = ContreeBuilder::new(
             vulkan_ctx.clone(),
             allocator.clone(),

@@ -4,6 +4,7 @@ use glam::UVec3;
 pub use resources::*;
 
 use crate::{
+    builder::surface,
     util::ShaderCompiler,
     vkn::{
         execute_one_time_command, Allocator, Buffer, ClearValue, CommandBuffer, ComputePipeline,
@@ -113,6 +114,7 @@ impl SurfaceBuilder {
 
         let cmdbuf = record_cmdbuf(
             &vulkan_ctx,
+            &resources.surface,
             &resources.voxel_dim_indirect,
             &buffer_setup_ppl,
             &make_surface_ppl,
@@ -153,11 +155,12 @@ impl SurfaceBuilder {
 
         fn record_cmdbuf(
             vulkan_ctx: &VulkanContext,
+            surface: &Texture,
             voxel_dim_indirect: &Buffer,
             buffer_setup_ppl: &ComputePipeline,
-            frag_img_maker_ppl: &ComputePipeline,
+            make_surface_ppl: &ComputePipeline,
             buffer_setup_ds: &DescriptorSet,
-            frag_img_maker_ds: &DescriptorSet,
+            make_surface_ds: &DescriptorSet,
         ) -> CommandBuffer {
             let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
             let indirect_access_memory_barrier = MemoryBarrier::new_indirect_access();
@@ -178,6 +181,10 @@ impl SurfaceBuilder {
             let cmdbuf = CommandBuffer::new(device, vulkan_ctx.command_pool());
             cmdbuf.begin(false);
 
+            surface
+                .get_image()
+                .record_clear(&cmdbuf, None, 0, ClearValue::UInt([0, 0, 0, 0]));
+
             buffer_setup_ppl.record_bind(&cmdbuf);
             buffer_setup_ppl.record_bind_descriptor_sets(
                 &cmdbuf,
@@ -189,13 +196,13 @@ impl SurfaceBuilder {
             shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
             indirect_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
 
-            frag_img_maker_ppl.record_bind(&cmdbuf);
-            frag_img_maker_ppl.record_bind_descriptor_sets(
+            make_surface_ppl.record_bind(&cmdbuf);
+            make_surface_ppl.record_bind_descriptor_sets(
                 &cmdbuf,
-                std::slice::from_ref(frag_img_maker_ds),
+                std::slice::from_ref(make_surface_ds),
                 0,
             );
-            frag_img_maker_ppl.record_dispatch_indirect(&cmdbuf, &voxel_dim_indirect);
+            make_surface_ppl.record_dispatch_indirect(&cmdbuf, &voxel_dim_indirect);
 
             cmdbuf.end();
             return cmdbuf;

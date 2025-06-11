@@ -166,6 +166,8 @@ uint compress_voxel_type_and_normal(uint voxel_type, vec3 normal, bool is_normal
     return properties_data;
 }
 
+bool is_surface_top(ivec3 p) { return !is_solid(voxel_at_local_idx(p + ivec3(0, 1, 0))); }
+
 void main() {
     preload();
     barrier();
@@ -177,12 +179,10 @@ void main() {
 
     uint voxel_type = voxel_at_local_idx(uvi);
     if (!is_solid(voxel_type)) {
-        imageStore(surface, uvi, uvec4(0, 0, 0, 0));
         return;
     }
 
     if (is_occluded(uvi)) {
-        imageStore(surface, uvi, uvec4(0, 0, 0, 0));
         return;
     }
 
@@ -194,23 +194,17 @@ void main() {
     atomicAdd(make_surface_result.active_voxel_len, 1);
     imageStore(surface, uvi, uvec4(properties, 0, 0, 0));
 
-    //
-
-    const uint grid_size = 8;
-    if (uvi.x % grid_size == 0 && uvi.z % grid_size == 0 && normal_not_too_steep(normal, 0.9)) {
-        // uint write_idx = atomicAdd(make_surface_result.grass_instance_len, 1);
-        // GrassInstance instance;
-        // instance.position               = uvec3(make_surface_info.atlas_read_offset + uvi);
-        // instance.grass_type             = GRASS_TYPE_NORMAL;
-        // grass_instances.data[write_idx] = instance;
+    const uint grid_size = 2;
+    if (uvi.x % grid_size == 0 && uvi.z % grid_size == 0) {
         uint grass_property =
             compress_voxel_type_and_normal(VOXEL_TYPE_GRASS, vec3(0.0, 1.0, 0.0), false);
-        uint grass_height = 8;
-        for (int y = 2; y < grass_height; y++) {
+        uint grass_height = 10;
+        for (int y = 1; y <= grass_height; y++) {
             ivec3 grass_uvi = uvi + ivec3(0, y, 0);
-            // if (any(greaterThanEqual(grass_uvi, ivec3(make_surface_info.atlas_read_dim)))) {
-            //     break;
-            // }
+            if (any(greaterThanEqual(grass_uvi, ivec3(make_surface_info.atlas_read_dim)))) {
+                break;
+            }
+            atomicAdd(make_surface_result.active_voxel_len, 1);
             imageStore(surface, grass_uvi, uvec4(grass_property, 0, 0, 0));
         }
     }
