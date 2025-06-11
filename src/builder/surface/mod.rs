@@ -4,7 +4,6 @@ use glam::UVec3;
 pub use resources::*;
 
 use crate::{
-    builder::surface,
     util::ShaderCompiler,
     vkn::{
         execute_one_time_command, Allocator, Buffer, ClearValue, CommandBuffer, ComputePipeline,
