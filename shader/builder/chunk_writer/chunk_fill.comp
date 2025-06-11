@@ -14,7 +14,7 @@ chunk_modify_info;
 layout(set = 0, binding = 1, r8ui) writeonly uniform uimage3D raw_atlas;
 
 #include "../../include/config.glsl"
-#include "../../include/voxel_type.glsl"
+#include "../../include/voxel_registry.glsl"
 
 void main() {
     ivec3 uvi = ivec3(gl_GlobalInvocationID);

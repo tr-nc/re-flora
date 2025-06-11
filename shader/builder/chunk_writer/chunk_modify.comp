@@ -27,7 +27,7 @@ layout(set = 0, binding = 3, r8ui) writeonly uniform uimage3D raw_atlas;
 #include "../../include/config.glsl"
 #include "../../include/core/aabb.glsl"
 #include "../../include/core/sdf.glsl"
-#include "../../include/voxel_type.glsl"
+#include "../../include/voxel_registry.glsl"
 
 vec3 center_position_of_voxel(ivec3 voxel_pos) { return vec3(voxel_pos) + vec3(0.5); }
 

@@ -1,8 +1,20 @@
-#ifndef VOXEL_COLOR_GLSL
-#define VOXEL_COLOR_GLSL
+#ifndef VOXEL_REGISTRY_GLSL
+#define VOXEL_REGISTRY_GLSL
+
+// all voxel types
+
+const uint VOXEL_TYPE_EMPTY = 0;
+const uint VOXEL_TYPE_SAND  = 1;
+const uint VOXEL_TYPE_DIRT  = 2;
+const uint VOXEL_TYPE_ROCK  = 3;
+
+const uint VOXEL_TYPE_LEAF  = 4;
+const uint VOXEL_TYPE_GRASS = 5;
+const uint VOXEL_TYPE_CHUNK = 6;
+
+// coloring
 
 #include "./core/color.glsl"
-#include "./voxel_type.glsl"
 
 vec3 voxel_color_by_type_srgb(uint voxel_type) {
     if (voxel_type == VOXEL_TYPE_EMPTY) {
@@ -27,4 +39,4 @@ vec3 voxel_color_by_type_unorm(uint voxel_type) {
     return srgb_to_linear(voxel_color_by_type_srgb(voxel_type));
 }
 
-#endif // VOXEL_COLOR_GLSL
+#endif // VOXEL_REGISTRY_GLSL

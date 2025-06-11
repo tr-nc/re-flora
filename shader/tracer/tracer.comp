@@ -52,7 +52,7 @@ layout(set = 2, binding = 0) uniform accelerationStructureEXT tlas;
 #include "../include/marching_result.glsl"
 #include "../include/ray.glsl"
 #include "../include/skylight.glsl"
-#include "../include/voxel_color.glsl"
+#include "../include/voxel_registry.glsl"
 
 bool scene_hit(inout MarchingResult o_res, vec3 o, vec3 d, ivec3 map_pos, uvec4 scene_tex_read) {
     // see update_scene_tex.comp for encoding part
