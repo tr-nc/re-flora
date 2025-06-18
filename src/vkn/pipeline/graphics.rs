@@ -1,3 +1,5 @@
+// https://poe.com/s/5YXvBiF609JQ2diRpNFe
+
 use crate::vkn::Device;
 use ash::vk;
 use std::ops::Deref;

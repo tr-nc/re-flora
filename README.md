@@ -48,14 +48,7 @@ This project draws inspiration from:
 
 ### Rust Setup
 
-Simply use the stable channel of the latest version of rust.
-
-<!--
-- Use nightly build for [portable simd](https://github.com/rust-lang/portable-simd)
-
-```shell
-rustup default nightly
-``` -->
+Use the latest version fromstable channel of rust.
 
 ### VSCode Plugins
 
@@ -71,12 +64,6 @@ Notes:
 
 ## References
 
-### Art
-
-[Some Islands](https://blenderartists.org/t/procedural-island-generator-illustration-using-blenders-geometry-nodes/1483314)
-
-### Tech
-
 #### Vulkan
 
 [Descriptor set - Vulkan's guide](https://vkguide.dev/docs/chapter-4/descriptors/#binding-descriptors)
@@ -85,17 +72,13 @@ Notes:
 
 [Vulkan Synchronisation](https://themaister.net/blog/2019/08/14/yet-another-blog-explaining-vulkan-synchronization/)
 
-#### Rust
+#### Inspirations
 
-https://refactoring.guru/refactoring/smells
-
-https://rust-unofficial.github.io/patterns/patterns/structural/small-crates.html
-
-### Inspirations
-
-[Exploring an Infinite Voxel Forest](https://www.youtube.com/watch?v=1wufuXY3l1o)
+[Some Islands](https://blenderartists.org/t/procedural-island-generator-illustration-using-blenders-geometry-nodes/1483314)
 
 [Ray Traced Reverb, Wind and Sound Occlusion (Path Traced Voxel Project)](https://www.youtube.com/watch?v=UHzeQZD9t2s)
+
+[Exploring an Infinite Voxel Forest](https://www.youtube.com/watch?v=1wufuXY3l1o)
 
 [Animated Voxel Trees - Detail Enhancement Preview](https://www.youtube.com/watch?v=BObFTsNeeGc)
 

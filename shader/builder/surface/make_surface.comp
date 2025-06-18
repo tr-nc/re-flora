@@ -34,7 +34,6 @@ grass_instances;
 #include "../../include/grass_type.glsl"
 #include "../../include/voxel_registry.glsl"
 
-
 #define SHARED_SIZE (GROUP_SIZE + 4) // 4 for halo
 #define SHARED_SIZE_3 (SHARED_SIZE * SHARED_SIZE * SHARED_SIZE)
 shared uint shared_data[SHARED_SIZE][SHARED_SIZE][SHARED_SIZE];
@@ -239,15 +238,22 @@ void main() {
                 uint grass_property =
                     compress_voxel_type_and_normal(VOXEL_TYPE_GRASS, vec3(0.0, 1.0, 0.0), false);
 
-                for (uint y = 0; y <= grass_height; y++) {
-                    ivec3 grass_uvi = uvi + ivec3(0, y, 0);
-                    // Ensure we don't write outside the designated atlas region
-                    if (any(greaterThanEqual(grass_uvi, ivec3(make_surface_info.atlas_read_dim)))) {
-                        break;
-                    }
-                    atomicAdd(make_surface_result.active_voxel_len, 1);
-                    imageStore(surface, grass_uvi, uvec4(grass_property, 0, 0, 0));
-                }
+                // for (uint y = 0; y <= grass_height; y++) {
+                //     ivec3 grass_uvi = uvi + ivec3(0, y, 0);
+                //     // Ensure we don't write outside the designated atlas region
+                //     if (any(greaterThanEqual(grass_uvi,
+                //     ivec3(make_surface_info.atlas_read_dim)))) {
+                //         break;
+                //     }
+                //     atomicAdd(make_surface_result.active_voxel_len, 1);
+                //     imageStore(surface, grass_uvi, uvec4(grass_property, 0, 0, 0));
+                // }
+
+                uint write_idx = atomicAdd(make_surface_result.grass_instance_len, 1);
+                GrassInstance instance;
+                instance.position               = uvec3(make_surface_info.atlas_read_offset + uvi);
+                instance.grass_type             = GRASS_TYPE_NORMAL;
+                grass_instances.data[write_idx] = instance;
             }
         }
     }
