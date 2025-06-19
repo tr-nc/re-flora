@@ -8,7 +8,7 @@ use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
 use crate::vkn::{
     Allocator, DescriptorPool, DescriptorSetLayout, DescriptorSetLayoutBinding,
-    DescriptorSetLayoutBuilder, Device, GraphicsPipeline, PipelineLayout, ShaderModule, Texture,
+    DescriptorSetLayoutBuilder, Device, GraphicsPipeline, ShaderModule, Texture,
 };
 use ash::vk;
 use ash::vk::Extent2D;
@@ -19,7 +19,7 @@ use egui::{
 };
 use egui_winit::EventResponse;
 use glam::Mat4;
-use std::{collections::HashMap, mem};
+use std::collections::HashMap;
 use winit::event::WindowEvent;
 use winit::window::Window;
 
@@ -28,7 +28,6 @@ pub struct EguiRenderer {
     vulkan_context: VulkanContext,
     allocator: Allocator,
     gui_pipeline: GraphicsPipeline,
-    pipeline_layout: PipelineLayout,
     vert_shader_module: ShaderModule,
     frag_shader_module: ShaderModule,
 
@@ -58,28 +57,16 @@ impl EguiRenderer {
     ) -> Self {
         let device = vulkan_context.device();
 
-        let binding = DescriptorSetLayoutBinding {
-            no: 0,
-            descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-            descriptor_count: 1,
-            stage_flags: vk::ShaderStageFlags::FRAGMENT,
+        let descriptor_set_layout = {
+            let mut builder = DescriptorSetLayoutBuilder::new();
+            builder.add_binding(DescriptorSetLayoutBinding {
+                no: 0,
+                descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                descriptor_count: 1,
+                stage_flags: vk::ShaderStageFlags::FRAGMENT,
+            });
+            builder.build(device).unwrap()
         };
-        let mut builder = DescriptorSetLayoutBuilder::new();
-        builder.add_binding(binding);
-        let descriptor_set_layout = builder.build(device).unwrap();
-        let descriptor_set_layouts = std::slice::from_ref(&descriptor_set_layout);
-
-        let push_const_range = vk::PushConstantRange {
-            stage_flags: vk::ShaderStageFlags::VERTEX,
-            offset: 0,
-            size: mem::size_of::<[f32; 16]>() as u32,
-        };
-        let push_const_ranges = std::slice::from_ref(&push_const_range);
-        let pipeline_layout = PipelineLayout::new(
-            device,
-            Some(descriptor_set_layouts),
-            Some(push_const_ranges),
-        );
 
         let vert_shader_module = ShaderModule::from_glsl(
             device,
@@ -99,7 +86,6 @@ impl EguiRenderer {
 
         let pipeline = create_gui_pipeline(
             device,
-            &pipeline_layout,
             &vert_shader_module,
             &frag_shader_module,
             render_pass,
@@ -125,7 +111,6 @@ impl EguiRenderer {
             vulkan_context: vulkan_context.clone(),
             allocator: allocator.clone(),
             gui_pipeline: pipeline,
-            pipeline_layout,
             vert_shader_module,
             frag_shader_module,
             descriptor_set_layout,
@@ -153,7 +138,6 @@ impl EguiRenderer {
     pub fn set_render_pass(&mut self, render_pass: vk::RenderPass) {
         self.gui_pipeline = create_gui_pipeline(
             &self.vulkan_context.device(),
-            &self.pipeline_layout,
             &self.vert_shader_module,
             &self.frag_shader_module,
             render_pass,
@@ -261,7 +245,6 @@ impl EguiRenderer {
         device: &Device,
         frames: &mut Option<Mesh>,
         pipeline: &GraphicsPipeline,
-        pipeline_layout: &PipelineLayout,
         textures: &mut HashMap<TextureId, DescriptorSet>,
         allocator: &mut Allocator,
         cmdbuf: &CommandBuffer,
@@ -320,7 +303,7 @@ impl EguiRenderer {
             let push = any_as_u8_slice(&projection);
             device.cmd_push_constants(
                 cmdbuf.as_raw(),
-                pipeline_layout.as_raw(),
+                pipeline.get_layout().as_raw(),
                 vk::ShaderStageFlags::VERTEX,
                 0,
                 push,
@@ -380,7 +363,7 @@ impl EguiRenderer {
                             device.cmd_bind_descriptor_sets(
                                 cmdbuf.as_raw(),
                                 vk::PipelineBindPoint::GRAPHICS,
-                                pipeline_layout.as_raw(),
+                                pipeline.get_layout().as_raw(),
                                 0,
                                 &[descriptor_set],
                                 &[],
@@ -449,7 +432,6 @@ impl EguiRenderer {
             device,
             &mut self.frames,
             &self.gui_pipeline,
-            &self.pipeline_layout,
             &mut self.textures,
             &mut self.allocator,
             cmdbuf,
@@ -468,117 +450,35 @@ unsafe fn any_as_u8_slice<T: Sized>(any: &T) -> &[u8] {
 
 fn create_gui_pipeline(
     device: &Device,
-    pipeline_layout: &PipelineLayout,
     vert_shader_module: &ShaderModule,
     frag_shader_module: &ShaderModule,
     render_pass: vk::RenderPass,
 ) -> GraphicsPipeline {
-    let vert_state_info = vert_shader_module.get_shader_stage_create_info();
-    let frag_state_info = frag_shader_module.get_shader_stage_create_info();
+    let push_const_range = vk::PushConstantRange::default()
+        .stage_flags(vk::ShaderStageFlags::VERTEX)
+        .offset(0)
+        .size(std::mem::size_of::<[f32; 16]>() as u32);
 
-    let shader_states_infos = [vert_state_info, frag_state_info];
+    let descriptor_set_layout = {
+        let mut builder = DescriptorSetLayoutBuilder::new();
+        builder.add_binding(DescriptorSetLayoutBinding {
+            no: 0,
+            descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            descriptor_count: 1,
+            stage_flags: vk::ShaderStageFlags::FRAGMENT,
+        });
+        builder.build(device).unwrap()
+    };
 
-    let mut pipeline_info = vk::GraphicsPipelineCreateInfo::default()
-        .stages(&shader_states_infos)
-        .render_pass(render_pass)
-        .layout(pipeline_layout.as_raw());
+    let descriptor_set_layouts = std::slice::from_ref(&descriptor_set_layout);
+    let push_const_ranges = std::slice::from_ref(&push_const_range);
 
-    let binding_desc = [vk::VertexInputBindingDescription::default()
-        .binding(0)
-        .stride(20)
-        .input_rate(vk::VertexInputRate::VERTEX)];
-    let attribute_desc = [
-        vk::VertexInputAttributeDescription::default()
-            .binding(0)
-            .location(0)
-            .format(vk::Format::R32G32_SFLOAT)
-            .offset(0),
-        vk::VertexInputAttributeDescription::default()
-            .binding(0)
-            .location(1)
-            .format(vk::Format::R32G32_SFLOAT)
-            .offset(8),
-        vk::VertexInputAttributeDescription::default()
-            .binding(0)
-            .location(2)
-            .format(vk::Format::R8G8B8A8_UNORM)
-            .offset(16),
-    ];
-
-    let vertex_input_info = vk::PipelineVertexInputStateCreateInfo::default()
-        .vertex_binding_descriptions(&binding_desc)
-        .vertex_attribute_descriptions(&attribute_desc);
-
-    let input_assembly_info = vk::PipelineInputAssemblyStateCreateInfo::default()
-        .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
-        .primitive_restart_enable(false);
-
-    let rasterizer_info = vk::PipelineRasterizationStateCreateInfo::default()
-        .depth_clamp_enable(false)
-        .rasterizer_discard_enable(false)
-        .polygon_mode(vk::PolygonMode::FILL)
-        .line_width(1.0)
-        .cull_mode(vk::CullModeFlags::NONE)
-        .front_face(vk::FrontFace::CLOCKWISE)
-        .depth_bias_enable(false)
-        .depth_bias_constant_factor(0.0)
-        .depth_bias_clamp(0.0)
-        .depth_bias_slope_factor(0.0);
-
-    let viewports = [Default::default()];
-    let scissors = [Default::default()];
-    let viewport_info = vk::PipelineViewportStateCreateInfo::default()
-        .viewports(&viewports)
-        .scissors(&scissors);
-
-    let multisampling_info = vk::PipelineMultisampleStateCreateInfo::default()
-        .sample_shading_enable(false)
-        .rasterization_samples(vk::SampleCountFlags::TYPE_1)
-        .min_sample_shading(1.0)
-        .alpha_to_coverage_enable(false)
-        .alpha_to_one_enable(false);
-
-    let color_blend_attachments = [vk::PipelineColorBlendAttachmentState::default()
-        .color_write_mask(
-            vk::ColorComponentFlags::R
-                | vk::ColorComponentFlags::G
-                | vk::ColorComponentFlags::B
-                | vk::ColorComponentFlags::A,
-        )
-        .blend_enable(true)
-        .src_color_blend_factor(vk::BlendFactor::ONE)
-        .dst_color_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
-        .color_blend_op(vk::BlendOp::ADD)
-        .src_alpha_blend_factor(vk::BlendFactor::ONE_MINUS_DST_ALPHA)
-        .dst_alpha_blend_factor(vk::BlendFactor::ONE)
-        .alpha_blend_op(vk::BlendOp::ADD)];
-    let color_blending_info = vk::PipelineColorBlendStateCreateInfo::default()
-        .logic_op_enable(false)
-        .logic_op(vk::LogicOp::COPY)
-        .attachments(&color_blend_attachments)
-        .blend_constants([0.0, 0.0, 0.0, 0.0]);
-
-    let depth_stencil_state_create_info = vk::PipelineDepthStencilStateCreateInfo::default()
-        .depth_test_enable(false)
-        .depth_write_enable(false)
-        .depth_compare_op(vk::CompareOp::ALWAYS)
-        .depth_bounds_test_enable(false)
-        .stencil_test_enable(false);
-
-    let dynamic_states = [vk::DynamicState::SCISSOR, vk::DynamicState::VIEWPORT];
-    let dynamic_states_info =
-        vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
-
-    pipeline_info = pipeline_info
-        .vertex_input_state(&vertex_input_info)
-        .input_assembly_state(&input_assembly_info)
-        .rasterization_state(&rasterizer_info)
-        .viewport_state(&viewport_info)
-        .multisample_state(&multisampling_info)
-        .color_blend_state(&color_blending_info)
-        .depth_stencil_state(&depth_stencil_state_create_info)
-        .dynamic_state(&dynamic_states_info);
-
-    let pipeline = GraphicsPipeline::new(device, pipeline_info);
-    pipeline
+    GraphicsPipeline::from_shader_modules(
+        device,
+        vert_shader_module,
+        frag_shader_module,
+        render_pass,
+        Some(descriptor_set_layouts),
+        Some(push_const_ranges),
+    )
 }
