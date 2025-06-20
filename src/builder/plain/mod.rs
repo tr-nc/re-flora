@@ -90,7 +90,11 @@ impl PlainBuilder {
 
         let buffer_setup_ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),
-            &buffer_setup_ppl.get_layout().get_descriptor_set_layouts()[0],
+            &buffer_setup_ppl
+                .get_layout()
+                .get_descriptor_set_layouts()
+                .get(&0)
+                .unwrap(),
             descriptor_pool.clone(),
         );
         buffer_setup_ds.perform_writes(&mut [
@@ -99,7 +103,11 @@ impl PlainBuilder {
         ]);
         let chunk_init_ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),
-            &chunk_init_ppl.get_layout().get_descriptor_set_layouts()[0],
+            &chunk_init_ppl
+                .get_layout()
+                .get_descriptor_set_layouts()
+                .get(&0)
+                .unwrap(),
             descriptor_pool.clone(),
         );
         chunk_init_ds.perform_writes(&mut [
@@ -113,7 +121,11 @@ impl PlainBuilder {
         ]);
         let chunk_modify_ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),
-            &chunk_modify_ppl.get_layout().get_descriptor_set_layouts()[0],
+            &chunk_modify_ppl
+                .get_layout()
+                .get_descriptor_set_layouts()
+                .get(&0)
+                .unwrap(),
             descriptor_pool.clone(),
         );
         chunk_modify_ds.perform_writes(&mut [

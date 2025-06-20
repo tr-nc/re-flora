@@ -160,28 +160,7 @@ impl ShaderModule {
         })))
     }
 
-    pub fn get_push_constant_ranges(&self) -> Option<Vec<PushConstantRange>> {
-        let push_constant_blocks = self
-            .0
-            .reflect_shader_module
-            .enumerate_push_constant_blocks(None)
-            .ok()?;
-        if push_constant_blocks.is_empty() {
-            return None;
-        }
-
-        let mut ranges = Vec::new();
-        for block in push_constant_blocks {
-            ranges.push(PushConstantRange {
-                stage_flags: self.get_stage(),
-                offset: block.offset,
-                size: block.size,
-            });
-        }
-        Some(ranges)
-    }
-
-    fn get_descriptor_sets(&self) -> Vec<Option<ReflectDescriptorSet>> {
+    fn get_descriptor_sets(&self) -> HashMap<u32, ReflectDescriptorSet> {
         let descriptor_sets = self
             .0
             .reflect_shader_module
@@ -189,46 +168,67 @@ impl ShaderModule {
             .expect("Failed to enumerate descriptor sets");
 
         if descriptor_sets.is_empty() {
-            return vec![];
+            return HashMap::new();
         }
 
-        let max_set_no = descriptor_sets.iter().map(|set| set.set).max().unwrap_or(0);
-
-        let mut sets: Vec<Option<ReflectDescriptorSet>> = vec![None; (max_set_no + 1) as usize];
+        let mut sets: HashMap<u32, ReflectDescriptorSet> = HashMap::new();
 
         for set in descriptor_sets {
             let set_no = set.set;
-            sets[set_no as usize] = Some(set);
+            sets.insert(set_no, set);
         }
 
         sets
     }
 
-    pub fn get_descriptor_set_layouts(&self) -> Option<Vec<DescriptorSetLayout>> {
+    pub fn get_push_constant_ranges(&self) -> HashMap<u32, vk::PushConstantRange> {
+        let push_constant_blocks = self
+            .0
+            .reflect_shader_module
+            .enumerate_push_constant_blocks(None)
+            .expect("Failed to enumerate push constant blocks");
+
+        if push_constant_blocks.is_empty() {
+            return HashMap::new();
+        }
+
+        let mut ranges = HashMap::new();
+        for block in push_constant_blocks {
+            ranges.insert(
+                block.offset,
+                PushConstantRange {
+                    stage_flags: self.get_stage(),
+                    offset: block.offset,
+                    size: block.size,
+                },
+            );
+        }
+        ranges
+    }
+
+    pub fn get_descriptor_set_layouts(&self) -> HashMap<u32, DescriptorSetLayout> {
         let descriptor_sets = self.get_descriptor_sets();
 
-        let mut layouts = Vec::new();
+        let mut layouts = HashMap::new();
         for descriptor_set in descriptor_sets {
             let mut builder = DescriptorSetLayoutBuilder::new();
 
             // if the descriptor set is valid, add its bindings to the layout
-            if let Some(descriptor_set) = descriptor_set {
-                for binding in descriptor_set.bindings {
-                    let descriptor_type =
-                        reflect_descriptor_type_to_descriptor_type(binding.descriptor_type);
-                    let stage_flags = self.get_stage();
-                    builder.add_binding(DescriptorSetLayoutBinding {
-                        no: binding.binding,
-                        descriptor_type,
-                        descriptor_count: binding.count,
-                        stage_flags,
-                    });
-                }
+            for binding in descriptor_set.1.bindings {
+                let descriptor_type =
+                    reflect_descriptor_type_to_descriptor_type(binding.descriptor_type);
+                let stage_flags = self.get_stage();
+                builder.add_binding(DescriptorSetLayoutBinding {
+                    no: binding.binding,
+                    descriptor_type,
+                    descriptor_count: binding.count,
+                    stage_flags,
+                });
             }
-            layouts.push(builder.build(&self.0.device).unwrap());
+            layouts.insert(descriptor_set.0, builder.build(&self.0.device).unwrap());
         }
 
-        Some(layouts)
+        layouts
     }
 }
 

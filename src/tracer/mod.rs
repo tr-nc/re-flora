@@ -6,7 +6,7 @@ use crate::gameplay::Camera;
 use crate::util::ShaderCompiler;
 use crate::vkn::{
     AccelStruct, Allocator, Buffer, ComputePipeline, DescriptorPool, DescriptorSet,
-    GraphicsPipeline, Image, PipelineLayout, PlainMemberTypeWithData, RenderPass, ShaderModule,
+    GraphicsPipeline, Image, PlainMemberTypeWithData, RenderPass, ShaderModule,
     StructMemberDataBuilder, Texture, WriteDescriptorSet,
 };
 use crate::vkn::{CommandBuffer, VulkanContext};
@@ -141,16 +141,10 @@ impl Tracer {
             vk::SampleCountFlags::TYPE_1,
         );
 
-        let graphics_ppl = GraphicsPipeline::new(
-            vulkan_ctx.device(),
-            &vert_sm,
-            &frag_sm,
-            render_pass.inner,
-            None,
-            None,
-        );
+        let gfx_ppl =
+            GraphicsPipeline::new(vulkan_ctx.device(), &vert_sm, &frag_sm, render_pass.inner);
 
-        (graphics_ppl, render_pass)
+        (gfx_ppl, render_pass)
     }
 
     fn create_descriptor_set_0(
@@ -164,7 +158,11 @@ impl Tracer {
     ) -> DescriptorSet {
         let compute_descriptor_set = DescriptorSet::new(
             vulkan_ctx.device().clone(),
-            &tracer_ppl.get_layout().get_descriptor_set_layouts()[0],
+            &tracer_ppl
+                .get_layout()
+                .get_descriptor_set_layouts()
+                .get(&0)
+                .unwrap(),
             descriptor_pool,
         );
         compute_descriptor_set.perform_writes(&mut [
@@ -227,7 +225,7 @@ impl Tracer {
     ) -> DescriptorSet {
         let compute_descriptor_set = DescriptorSet::new(
             vulkan_ctx.device().clone(),
-            &tracer_ppl.get_layout().get_descriptor_set_layouts()[1],
+            &tracer_ppl.get_layout().get_descriptor_set_layouts()[&1],
             descriptor_pool,
         );
         compute_descriptor_set.perform_writes(&mut [WriteDescriptorSet::new_texture_write(
@@ -247,7 +245,7 @@ impl Tracer {
     ) -> DescriptorSet {
         let compute_descriptor_set = DescriptorSet::new(
             vulkan_ctx.device().clone(),
-            &tracer_ppl.get_layout().get_descriptor_set_layouts()[2],
+            &tracer_ppl.get_layout().get_descriptor_set_layouts()[&2],
             descriptor_pool,
         );
         compute_descriptor_set.perform_writes(&mut [

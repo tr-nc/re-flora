@@ -1,7 +1,7 @@
 use super::DescriptorSetLayout;
 use crate::vkn::Device;
 use ash::vk;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 struct DescriptorPoolInner {
     device: Device,
@@ -70,10 +70,10 @@ impl DescriptorPool {
 
     pub fn from_descriptor_set_layouts(
         device: &Device,
-        descriptor_set_layouts: &[DescriptorSetLayout],
+        descriptor_set_layouts: &HashMap<u32, DescriptorSetLayout>,
     ) -> Result<Self, String> {
         let mut pool_sizes = Vec::new();
-        for layout in descriptor_set_layouts {
+        for layout in descriptor_set_layouts.values() {
             for binding in layout.get_bindings().iter() {
                 let pool_size = vk::DescriptorPoolSize {
                     ty: binding.descriptor_type,

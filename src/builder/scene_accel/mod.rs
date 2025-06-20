@@ -52,7 +52,9 @@ impl SceneAccelBuilder {
             vulkan_ctx.device().clone(),
             &update_scene_tex_ppl
                 .get_layout()
-                .get_descriptor_set_layouts()[0],
+                .get_descriptor_set_layouts()
+                .get(&0)
+                .unwrap(),
             descriptor_pool.clone(),
         );
         update_scene_tex_ds.perform_writes(&mut [

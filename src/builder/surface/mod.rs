@@ -71,14 +71,16 @@ impl SurfaceBuilder {
             &make_surface_sm,
         );
 
-        let buffer_setup_ppl =
-            ComputePipeline::new(vulkan_ctx.device(), &buffer_setup_sm);
-        let make_surface_ppl =
-            ComputePipeline::new(vulkan_ctx.device(), &make_surface_sm);
+        let buffer_setup_ppl = ComputePipeline::new(vulkan_ctx.device(), &buffer_setup_sm);
+        let make_surface_ppl = ComputePipeline::new(vulkan_ctx.device(), &make_surface_sm);
 
         let buffer_setup_ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),
-            &buffer_setup_ppl.get_layout().get_descriptor_set_layouts()[0],
+            &buffer_setup_ppl
+                .get_layout()
+                .get_descriptor_set_layouts()
+                .get(&0)
+                .unwrap(),
             descriptor_pool.clone(),
         );
         buffer_setup_ds.perform_writes(&mut [
@@ -88,7 +90,11 @@ impl SurfaceBuilder {
         ]);
         let make_surface_ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),
-            &make_surface_ppl.get_layout().get_descriptor_set_layouts()[0],
+            &make_surface_ppl
+                .get_layout()
+                .get_descriptor_set_layouts()
+                .get(&0)
+                .unwrap(),
             descriptor_pool.clone(),
         );
         make_surface_ds.perform_writes(&mut [

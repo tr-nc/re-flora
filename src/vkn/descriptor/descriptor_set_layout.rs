@@ -1,7 +1,9 @@
 use crate::vkn::Device;
+use anyhow::Result;
 use ash::vk;
 use std::{collections::HashMap, sync::Arc};
 
+#[derive(Debug)]
 struct DescriptorSetLayoutInner {
     device: Device,
     descriptor_set_layout: vk::DescriptorSetLayout,
@@ -17,7 +19,7 @@ impl Drop for DescriptorSetLayoutInner {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DescriptorSetLayout(Arc<DescriptorSetLayoutInner>);
 
 impl std::ops::Deref for DescriptorSetLayout {
@@ -29,20 +31,20 @@ impl std::ops::Deref for DescriptorSetLayout {
 
 impl DescriptorSetLayout {
     /// Use the builder pattern to create a new DescriptorSetLayout
-    fn new(device: &Device, bindings: &[DescriptorSetLayoutBinding]) -> Result<Self, String> {
+    fn new(device: &Device, bindings: &[DescriptorSetLayoutBinding]) -> Result<Self> {
         let raw_bindings = bindings.iter().map(|b| b.as_raw()).collect::<Vec<_>>();
         let descriptor_set_create_info =
             vk::DescriptorSetLayoutCreateInfo::default().bindings(&raw_bindings);
         let descriptor_set_layout = unsafe {
             device
                 .create_descriptor_set_layout(&descriptor_set_create_info, None)
-                .map_err(|e| e.to_string())?
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?
         };
 
         let mut bindings_map = HashMap::new();
         for &binding in bindings {
             if let Some(_) = bindings_map.insert(binding.no, binding) {
-                return Err(format!(
+                return Err(anyhow::anyhow!(
                     "Duplicate binding no {} found in descriptor set layout",
                     binding.no
                 ));
@@ -63,9 +65,42 @@ impl DescriptorSetLayout {
     pub fn get_bindings(&self) -> Vec<DescriptorSetLayoutBinding> {
         self.0.bindings.values().cloned().collect::<Vec<_>>()
     }
+
+    pub fn merge(&self, other: &DescriptorSetLayout) -> Result<Self> {
+        if self.0.device != other.0.device {
+            return Err(anyhow::anyhow!(
+                "Cannot merge DescriptorSetLayouts from different devices"
+            ));
+        }
+
+        let mut merged_bindings = Vec::new();
+        for binding in self.0.bindings.values() {
+            if !other.0.bindings.contains_key(&binding.no) {
+                merged_bindings.push(binding.clone());
+            } else {
+                let other_binding = other.0.bindings.get(&binding.no).unwrap();
+                if binding != other_binding {
+                    return Err(anyhow::anyhow!(
+                        "Duplicate binding no {} found in descriptor set layout",
+                        binding.no
+                    ));
+                }
+                merged_bindings.push(binding.clone());
+            }
+        }
+
+        for binding in other.0.bindings.values() {
+            if !self.0.bindings.contains_key(&binding.no) {
+                merged_bindings.push(binding.clone());
+            }
+            // skip if they have the same binding number, we already checked this in the previous loop
+        }
+
+        Self::new(&self.0.device, &merged_bindings)
+    }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct DescriptorSetLayoutBinding {
     pub no: u32,
     pub descriptor_type: vk::DescriptorType,
@@ -99,7 +134,7 @@ impl DescriptorSetLayoutBuilder {
         self
     }
 
-    pub fn build(self, device: &Device) -> Result<DescriptorSetLayout, String> {
+    pub fn build(self, device: &Device) -> Result<DescriptorSetLayout> {
         DescriptorSetLayout::new(device, &self.bindings)
     }
 }

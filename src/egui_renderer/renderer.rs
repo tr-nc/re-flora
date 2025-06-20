@@ -84,7 +84,7 @@ impl EguiRenderer {
         )
         .unwrap();
 
-        let pipeline = create_gui_pipeline(
+        let pipeline = GraphicsPipeline::new(
             device,
             &vert_shader_module,
             &frag_shader_module,
@@ -93,7 +93,7 @@ impl EguiRenderer {
 
         let descriptor_pool = DescriptorPool::from_descriptor_set_layouts(
             device,
-            std::slice::from_ref(&descriptor_set_layout),
+            &HashMap::from([(0, descriptor_set_layout.clone())]),
         )
         .unwrap();
 
@@ -136,7 +136,7 @@ impl EguiRenderer {
     ///
     /// This is an expensive operation.
     pub fn set_render_pass(&mut self, render_pass: vk::RenderPass) {
-        self.gui_pipeline = create_gui_pipeline(
+        self.gui_pipeline = GraphicsPipeline::new(
             &self.vulkan_context.device(),
             &self.vert_shader_module,
             &self.frag_shader_module,
@@ -446,39 +446,4 @@ impl EguiRenderer {
 unsafe fn any_as_u8_slice<T: Sized>(any: &T) -> &[u8] {
     let ptr = (any as *const T) as *const u8;
     std::slice::from_raw_parts(ptr, std::mem::size_of::<T>())
-}
-
-fn create_gui_pipeline(
-    device: &Device,
-    vert_shader_module: &ShaderModule,
-    frag_shader_module: &ShaderModule,
-    render_pass: vk::RenderPass,
-) -> GraphicsPipeline {
-    let push_const_range = vk::PushConstantRange::default()
-        .stage_flags(vk::ShaderStageFlags::VERTEX)
-        .offset(0)
-        .size(std::mem::size_of::<[f32; 16]>() as u32);
-
-    let descriptor_set_layout = {
-        let mut builder = DescriptorSetLayoutBuilder::new();
-        builder.add_binding(DescriptorSetLayoutBinding {
-            no: 0,
-            descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-            descriptor_count: 1,
-            stage_flags: vk::ShaderStageFlags::FRAGMENT,
-        });
-        builder.build(device).unwrap()
-    };
-
-    let descriptor_set_layouts = std::slice::from_ref(&descriptor_set_layout);
-    let push_const_ranges = std::slice::from_ref(&push_const_range);
-
-    GraphicsPipeline::new(
-        device,
-        vert_shader_module,
-        frag_shader_module,
-        render_pass,
-        Some(descriptor_set_layouts),
-        Some(push_const_ranges),
-    )
 }

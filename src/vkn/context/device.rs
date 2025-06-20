@@ -2,6 +2,7 @@ use super::Queue;
 use super::{instance::Instance, physical_device::PhysicalDevice, queue::QueueFamilyIndices};
 use ash::vk;
 use std::collections::HashSet;
+use std::fmt::Debug;
 use std::sync::Arc;
 
 struct DeviceInner {
@@ -24,6 +25,18 @@ impl std::ops::Deref for Device {
     type Target = ash::Device;
     fn deref(&self) -> &Self::Target {
         &self.0.device
+    }
+}
+
+impl Debug for Device {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Device({:?})", self.0.device.handle())
+    }
+}
+
+impl PartialEq for Device {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.device.handle() == other.0.device.handle()
     }
 }
 

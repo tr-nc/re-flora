@@ -81,7 +81,9 @@ impl AccelStructBuilder {
             vulkan_ctx.device().clone(),
             &make_unit_grass_ppl
                 .get_layout()
-                .get_descriptor_set_layouts()[0],
+                .get_descriptor_set_layouts()
+                .get(&0)
+                .unwrap(),
             descriptor_pool.clone(),
         );
         make_unit_grass_ds.perform_writes(&mut [
@@ -92,7 +94,11 @@ impl AccelStructBuilder {
         ]);
         let instance_maker_ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),
-            &instance_maker_ppl.get_layout().get_descriptor_set_layouts()[0],
+            &instance_maker_ppl
+                .get_layout()
+                .get_descriptor_set_layouts()
+                .get(&0)
+                .unwrap(),
             descriptor_pool.clone(),
         );
         instance_maker_ds.perform_writes(&mut [

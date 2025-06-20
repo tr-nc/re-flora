@@ -150,18 +150,17 @@ impl ContreeBuilder {
             ComputePipeline::new(vulkan_ctx.device(), &contree_tree_write_sm);
         let contree_buffer_update_ppl =
             ComputePipeline::new(vulkan_ctx.device(), &contree_buffer_update_sm);
-        let contree_last_buffer_update_ppl = ComputePipeline::new(
-            vulkan_ctx.device(),
-            &contree_last_buffer_update_sm,
-        );
-        let contree_concat_ppl =
-            ComputePipeline::new(vulkan_ctx.device(), &contree_concat_sm);
+        let contree_last_buffer_update_ppl =
+            ComputePipeline::new(vulkan_ctx.device(), &contree_last_buffer_update_sm);
+        let contree_concat_ppl = ComputePipeline::new(vulkan_ctx.device(), &contree_concat_sm);
 
         let contree_buffer_setup_ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),
             &contree_buffer_setup_ppl
                 .get_layout()
-                .get_descriptor_set_layouts()[0],
+                .get_descriptor_set_layouts()
+                .get(&0)
+                .unwrap(),
             descriptor_pool.clone(),
         );
         contree_buffer_setup_ds.perform_writes(&mut [
@@ -176,7 +175,9 @@ impl ContreeBuilder {
             vulkan_ctx.device().clone(),
             &contree_leaf_write_ppl
                 .get_layout()
-                .get_descriptor_set_layouts()[0],
+                .get_descriptor_set_layouts()
+                .get(&0)
+                .unwrap(),
             descriptor_pool.clone(),
         );
         contree_leaf_write_ds.perform_writes(&mut [
@@ -197,7 +198,9 @@ impl ContreeBuilder {
             vulkan_ctx.device().clone(),
             &contree_tree_write_ppl
                 .get_layout()
-                .get_descriptor_set_layouts()[0],
+                .get_descriptor_set_layouts()
+                .get(&0)
+                .unwrap(),
             descriptor_pool.clone(),
         );
         contree_tree_write_ds.perform_writes(&mut [
@@ -212,7 +215,9 @@ impl ContreeBuilder {
             vulkan_ctx.device().clone(),
             &contree_buffer_update_ppl
                 .get_layout()
-                .get_descriptor_set_layouts()[0],
+                .get_descriptor_set_layouts()
+                .get(&0)
+                .unwrap(),
             descriptor_pool.clone(),
         );
         contree_buffer_update_ds.perform_writes(&mut [
@@ -223,7 +228,9 @@ impl ContreeBuilder {
             vulkan_ctx.device().clone(),
             &contree_last_buffer_update_ppl
                 .get_layout()
-                .get_descriptor_set_layouts()[0],
+                .get_descriptor_set_layouts()
+                .get(&0)
+                .unwrap(),
             descriptor_pool.clone(),
         );
         contree_last_buffer_update_ds.perform_writes(&mut [
@@ -235,7 +242,11 @@ impl ContreeBuilder {
         ]);
         let contree_concat_ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),
-            &contree_concat_ppl.get_layout().get_descriptor_set_layouts()[0],
+            &contree_concat_ppl
+                .get_layout()
+                .get_descriptor_set_layouts()
+                .get(&0)
+                .unwrap(),
             descriptor_pool.clone(),
         );
         contree_concat_ds.perform_writes(&mut [
