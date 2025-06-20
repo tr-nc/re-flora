@@ -40,7 +40,6 @@ impl Tracer {
         leaf_data: &Buffer,
         scene_tex: &Texture,
         tlas: &AccelStruct,
-        final_render_target_format: vk::Format,
     ) -> Self {
         let tracer_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
@@ -50,12 +49,6 @@ impl Tracer {
         )
         .unwrap();
         let tracer_ppl = ComputePipeline::new(vulkan_ctx.device(), &tracer_sm);
-
-        let (gfx_ppl, gfx_render_pass) = Self::create_graphics_pipeline(
-            &vulkan_ctx,
-            shader_compiler,
-            final_render_target_format,
-        );
 
         let descriptor_pool_ds_0 = DescriptorPool::from_descriptor_set_layouts(
             vulkan_ctx.device(),
@@ -75,6 +68,12 @@ impl Tracer {
 
         let resources =
             TracerResources::new(&vulkan_ctx, allocator.clone(), &tracer_sm, screen_extent);
+
+        let (gfx_ppl, gfx_render_pass) = Self::create_graphics_pipeline(
+            &vulkan_ctx,
+            resources.shader_write_tex.get_image().get_desc().format,
+            shader_compiler,
+        );
 
         let tracer_set_0 = Self::create_descriptor_set_0(
             descriptor_pool_ds_0.clone(),
@@ -117,8 +116,8 @@ impl Tracer {
 
     fn create_graphics_pipeline(
         vulkan_ctx: &VulkanContext,
+        shader_write_tex_format: vk::Format,
         shader_compiler: &ShaderCompiler,
-        final_render_target_format: vk::Format,
     ) -> (GraphicsPipeline, RenderPass) {
         let vert_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
@@ -137,7 +136,7 @@ impl Tracer {
 
         let render_pass = RenderPass::new(
             vulkan_ctx.device().clone(),
-            final_render_target_format,
+            shader_write_tex_format,
             vk::SampleCountFlags::TYPE_1,
         );
 

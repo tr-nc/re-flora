@@ -198,7 +198,6 @@ impl InitializedApp {
             &contree_builder.get_resources().leaf_data,
             &scene_accel_builder.get_resources().scene_offset_tex,
             &accel_struct_builder.get_resources().tlas.as_ref().unwrap(),
-            vk::Format::B8G8R8A8_UNORM,
         );
 
         return Self {
