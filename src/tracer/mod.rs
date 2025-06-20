@@ -279,7 +279,14 @@ impl Tracer {
         );
     }
 
-    pub fn record_command_buffer(&mut self, cmdbuf: &CommandBuffer, screen_extent: &[u32; 2]) {
+    pub fn record_command_buffer(&mut self, cmdbuf: &CommandBuffer) {
+        let screen_extent = self
+            .resources
+            .shader_write_tex
+            .get_image()
+            .get_desc()
+            .extent;
+
         self.resources
             .shader_write_tex
             .get_image()
@@ -296,12 +303,22 @@ impl Tracer {
         self.resources.shader_write_tex.get_image()
     }
 
-    pub fn record_screen_space_pass(
-        &self,
-        cmdbuf: &CommandBuffer,
-        dst_image_view: vk::ImageView,
-        dst_image_extent: vk::Extent2D,
-    ) {
+    pub fn record_screen_space_pass(&self, cmdbuf: &CommandBuffer) {
+        let dst_image_view = self.resources.shader_write_tex.get_image_view().as_raw();
+
+        let dst_image_extent = {
+            let ext = self
+                .resources
+                .shader_write_tex
+                .get_image()
+                .get_desc()
+                .extent;
+            vk::Extent2D {
+                width: ext[0],
+                height: ext[1],
+            }
+        };
+
         let framebuffer = self
             .gfx_render_pass
             .create_framebuffer(dst_image_view, dst_image_extent)
