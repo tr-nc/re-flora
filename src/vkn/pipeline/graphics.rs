@@ -1,5 +1,3 @@
-// https://poe.com/s/5YXvBiF609JQ2diRpNFe
-
 use crate::vkn::{DescriptorSetLayout, Device, PipelineLayout, ShaderModule};
 use ash::vk;
 use std::{ops::Deref, sync::Arc};
