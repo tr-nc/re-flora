@@ -68,21 +68,11 @@ impl EguiRenderer {
             builder.build(device).unwrap()
         };
 
-        let vert_shader_module = ShaderModule::from_glsl(
-            device,
-            compiler,
-            "src/egui_renderer/shaders/shader.vert",
-            "main",
-        )
-        .unwrap();
+        let vert_shader_module =
+            ShaderModule::from_glsl(device, compiler, "shader/egui/egui.vert", "main").unwrap();
 
-        let frag_shader_module = ShaderModule::from_glsl(
-            device,
-            compiler,
-            "src/egui_renderer/shaders/shader.frag",
-            "main",
-        )
-        .unwrap();
+        let frag_shader_module =
+            ShaderModule::from_glsl(device, compiler, "shader/egui/egui.frag", "main").unwrap();
 
         let pipeline = GraphicsPipeline::new(
             device,

@@ -11,13 +11,10 @@ matrices;
 layout(location = 0) out vec4 o_color;
 layout(location = 1) out vec2 o_uv;
 
-const float GAMMA = 2.2;
-
-vec3 SRGBtoLINEAR(vec3 color) { return pow(color, vec3(GAMMA)); }
-vec4 SRGBtoLINEAR(vec4 color) { return vec4(SRGBtoLINEAR(color.rgb), color.a); }
+#include "../include/core/color.glsl"
 
 void main() {
-  o_color = SRGBtoLINEAR(v_color);
+  o_color = vec4(srgb_to_linear(v_color.rgb), v_color.a);
   o_uv    = v_uv;
 
   gl_Position = matrices.ortho * vec4(v_position.x, v_position.y, 0.0, 1.0);
