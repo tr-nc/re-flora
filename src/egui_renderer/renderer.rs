@@ -473,7 +473,7 @@ fn create_gui_pipeline(
     let descriptor_set_layouts = std::slice::from_ref(&descriptor_set_layout);
     let push_const_ranges = std::slice::from_ref(&push_const_range);
 
-    GraphicsPipeline::from_shader_modules(
+    GraphicsPipeline::new(
         device,
         vert_shader_module,
         frag_shader_module,

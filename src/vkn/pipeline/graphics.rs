@@ -28,44 +28,7 @@ impl Deref for GraphicsPipeline {
 }
 
 impl GraphicsPipeline {
-    fn new(
-        device: &Device,
-        create_info: vk::GraphicsPipelineCreateInfo,
-        pipeline_layout: PipelineLayout,
-    ) -> Self {
-        let pipeline = Self::create_pipeline(device, &create_info);
-        Self(Arc::new(GraphicsPipelineInner {
-            device: device.clone(),
-            pipeline,
-            pipeline_layout,
-        }))
-    }
-
-    pub fn as_raw(&self) -> vk::Pipeline {
-        self.0.pipeline
-    }
-
-    pub fn get_layout(&self) -> &PipelineLayout {
-        &self.0.pipeline_layout
-    }
-
-    fn create_pipeline(
-        device: &Device,
-        create_info: &vk::GraphicsPipelineCreateInfo,
-    ) -> vk::Pipeline {
-        unsafe {
-            device
-                .create_graphics_pipelines(
-                    vk::PipelineCache::null(),
-                    std::slice::from_ref(create_info),
-                    None,
-                )
-                .map_err(|e| e.1)
-                .unwrap()[0]
-        }
-    }
-
-    pub fn from_shader_modules(
+    pub fn new(
         device: &Device,
         vert_shader_module: &ShaderModule,
         frag_shader_module: &ShaderModule,
@@ -178,7 +141,36 @@ impl GraphicsPipeline {
             .depth_stencil_state(&depth_stencil_state_create_info)
             .dynamic_state(&dynamic_states_info);
 
-        Self::new(device, pipeline_info, pipeline_layout)
+        let pipeline = Self::create_pipeline(device, &pipeline_info);
+        Self(Arc::new(GraphicsPipelineInner {
+            device: device.clone(),
+            pipeline,
+            pipeline_layout,
+        }))
+    }
+
+    pub fn as_raw(&self) -> vk::Pipeline {
+        self.0.pipeline
+    }
+
+    pub fn get_layout(&self) -> &PipelineLayout {
+        &self.0.pipeline_layout
+    }
+
+    fn create_pipeline(
+        device: &Device,
+        create_info: &vk::GraphicsPipelineCreateInfo,
+    ) -> vk::Pipeline {
+        unsafe {
+            device
+                .create_graphics_pipelines(
+                    vk::PipelineCache::null(),
+                    std::slice::from_ref(create_info),
+                    None,
+                )
+                .map_err(|e| e.1)
+                .unwrap()[0]
+        }
     }
 
     pub fn record_bind(&self, cmdbuf: &CommandBuffer) {

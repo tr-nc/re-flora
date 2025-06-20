@@ -34,7 +34,7 @@ impl ComputePipeline {
         let pipeline_layout = PipelineLayout::from_shader_module(device, shader_module);
         let workgroup_size = shader_module.get_workgroup_size().unwrap();
 
-        let create_info = vk::ComputePipelineCreateInfo::default()
+        let pipeline_info = vk::ComputePipelineCreateInfo::default()
             .stage(stage_info)
             .layout(pipeline_layout.as_raw());
 
@@ -42,7 +42,7 @@ impl ComputePipeline {
             device
                 .create_compute_pipelines(
                     vk::PipelineCache::null(),
-                    std::slice::from_ref(&create_info),
+                    std::slice::from_ref(&pipeline_info),
                     None,
                 )
                 .map_err(|e| e.1)

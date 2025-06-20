@@ -141,7 +141,7 @@ impl Tracer {
             vk::SampleCountFlags::TYPE_1,
         );
 
-        let graphics_ppl = GraphicsPipeline::from_shader_modules(
+        let graphics_ppl = GraphicsPipeline::new(
             vulkan_ctx.device(),
             &vert_sm,
             &frag_sm,
