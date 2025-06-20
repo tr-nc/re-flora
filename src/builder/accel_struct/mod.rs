@@ -74,8 +74,8 @@ impl AccelStructBuilder {
             tlas_instance_cap,
         );
 
-        let make_unit_grass_ppl = ComputePipeline::from_shader_module(device, &make_unit_grass_sm);
-        let instance_maker_ppl = ComputePipeline::from_shader_module(device, &instance_maker_sm);
+        let make_unit_grass_ppl = ComputePipeline::new(device, &make_unit_grass_sm);
+        let instance_maker_ppl = ComputePipeline::new(device, &instance_maker_sm);
 
         let make_unit_grass_ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),

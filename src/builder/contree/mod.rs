@@ -143,19 +143,19 @@ impl ContreeBuilder {
         );
 
         let contree_buffer_setup_ppl =
-            ComputePipeline::from_shader_module(vulkan_ctx.device(), &contree_buffer_setup_sm);
+            ComputePipeline::new(vulkan_ctx.device(), &contree_buffer_setup_sm);
         let contree_leaf_write_ppl =
-            ComputePipeline::from_shader_module(vulkan_ctx.device(), &contree_leaf_write_sm);
+            ComputePipeline::new(vulkan_ctx.device(), &contree_leaf_write_sm);
         let contree_tree_write_ppl =
-            ComputePipeline::from_shader_module(vulkan_ctx.device(), &contree_tree_write_sm);
+            ComputePipeline::new(vulkan_ctx.device(), &contree_tree_write_sm);
         let contree_buffer_update_ppl =
-            ComputePipeline::from_shader_module(vulkan_ctx.device(), &contree_buffer_update_sm);
-        let contree_last_buffer_update_ppl = ComputePipeline::from_shader_module(
+            ComputePipeline::new(vulkan_ctx.device(), &contree_buffer_update_sm);
+        let contree_last_buffer_update_ppl = ComputePipeline::new(
             vulkan_ctx.device(),
             &contree_last_buffer_update_sm,
         );
         let contree_concat_ppl =
-            ComputePipeline::from_shader_module(vulkan_ctx.device(), &contree_concat_sm);
+            ComputePipeline::new(vulkan_ctx.device(), &contree_concat_sm);
 
         let contree_buffer_setup_ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),

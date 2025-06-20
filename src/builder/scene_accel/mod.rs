@@ -46,8 +46,7 @@ impl SceneAccelBuilder {
             &update_scene_tex_sm,
         );
 
-        let update_scene_tex_ppl =
-            ComputePipeline::from_shader_module(vulkan_ctx.device(), &update_scene_tex_sm);
+        let update_scene_tex_ppl = ComputePipeline::new(vulkan_ctx.device(), &update_scene_tex_sm);
 
         let update_scene_tex_ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),

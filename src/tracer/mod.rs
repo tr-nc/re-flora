@@ -49,7 +49,7 @@ impl Tracer {
             "main",
         )
         .unwrap();
-        let tracer_ppl = ComputePipeline::from_shader_module(vulkan_ctx.device(), &tracer_sm);
+        let tracer_ppl = ComputePipeline::new(vulkan_ctx.device(), &tracer_sm);
 
         let (gfx_ppl, gfx_render_pass) = Self::create_graphics_pipeline(
             &vulkan_ctx,

@@ -29,14 +29,13 @@ impl Deref for ComputePipeline {
 }
 
 impl ComputePipeline {
-    fn new(
-        device: &Device,
-        stage_info: &vk::PipelineShaderStageCreateInfo,
-        pipeline_layout: PipelineLayout,
-        shader_module: &ShaderModule,
-    ) -> Self {
+    pub fn new(device: &Device, shader_module: &ShaderModule) -> Self {
+        let stage_info = shader_module.get_shader_stage_create_info();
+        let pipeline_layout = PipelineLayout::from_shader_module(device, shader_module);
+        let workgroup_size = shader_module.get_workgroup_size().unwrap();
+
         let create_info = vk::ComputePipelineCreateInfo::default()
-            .stage(*stage_info)
+            .stage(stage_info)
             .layout(pipeline_layout.as_raw());
 
         let pipeline = unsafe {
@@ -50,22 +49,12 @@ impl ComputePipeline {
                 .unwrap()[0]
         };
 
-        let workgroup_size = shader_module
-            .get_workgroup_size()
-            .expect("Failed to get workgroup size");
-
         Self(Arc::new(ComputePipelineInner {
             device: device.clone(),
             pipeline,
             pipeline_layout,
             workgroup_size,
         }))
-    }
-
-    pub fn from_shader_module(device: &Device, shader_module: &ShaderModule) -> Self {
-        let stage_info = shader_module.get_shader_stage_create_info();
-        let pipeline_layout = PipelineLayout::from_shader_module(device, shader_module);
-        Self::new(device, &stage_info, pipeline_layout, shader_module)
     }
 
     pub fn get_layout(&self) -> &PipelineLayout {

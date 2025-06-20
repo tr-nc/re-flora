@@ -84,12 +84,9 @@ impl PlainBuilder {
             &chunk_modify_sm,
         );
 
-        let buffer_setup_ppl =
-            ComputePipeline::from_shader_module(vulkan_ctx.device(), &buffer_setup_sm);
-        let chunk_init_ppl =
-            ComputePipeline::from_shader_module(vulkan_ctx.device(), &chunk_init_sm);
-        let chunk_modify_ppl =
-            ComputePipeline::from_shader_module(vulkan_ctx.device(), &chunk_modify_sm);
+        let buffer_setup_ppl = ComputePipeline::new(vulkan_ctx.device(), &buffer_setup_sm);
+        let chunk_init_ppl = ComputePipeline::new(vulkan_ctx.device(), &chunk_init_sm);
+        let chunk_modify_ppl = ComputePipeline::new(vulkan_ctx.device(), &chunk_modify_sm);
 
         let buffer_setup_ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),

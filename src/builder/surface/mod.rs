@@ -72,9 +72,9 @@ impl SurfaceBuilder {
         );
 
         let buffer_setup_ppl =
-            ComputePipeline::from_shader_module(vulkan_ctx.device(), &buffer_setup_sm);
+            ComputePipeline::new(vulkan_ctx.device(), &buffer_setup_sm);
         let make_surface_ppl =
-            ComputePipeline::from_shader_module(vulkan_ctx.device(), &make_surface_sm);
+            ComputePipeline::new(vulkan_ctx.device(), &make_surface_sm);
 
         let buffer_setup_ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),
