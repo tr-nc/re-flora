@@ -1,4 +1,4 @@
-use crate::vkn::{DescriptorSetLayout, Device, PipelineLayout, ShaderModule};
+use crate::vkn::{CommandBuffer, DescriptorSetLayout, Device, PipelineLayout, ShaderModule};
 use ash::vk;
 use std::{ops::Deref, sync::Arc};
 
@@ -179,5 +179,34 @@ impl GraphicsPipeline {
             .dynamic_state(&dynamic_states_info);
 
         Self::new(device, pipeline_info, pipeline_layout)
+    }
+
+    pub fn record_bind(&self, cmdbuf: &CommandBuffer) {
+        unsafe {
+            self.0.device.cmd_bind_pipeline(
+                cmdbuf.as_raw(),
+                vk::PipelineBindPoint::GRAPHICS,
+                self.0.pipeline,
+            );
+        }
+    }
+
+    pub fn record_draw(
+        &self,
+        cmdbuf: &CommandBuffer,
+        vertex_count: u32,
+        instance_count: u32,
+        first_vertex: u32,
+        first_instance: u32,
+    ) {
+        unsafe {
+            self.0.device.cmd_draw(
+                cmdbuf.as_raw(),
+                vertex_count,
+                instance_count,
+                first_vertex,
+                first_instance,
+            );
+        }
     }
 }

@@ -5,8 +5,9 @@ pub use resources::*;
 use crate::gameplay::Camera;
 use crate::util::ShaderCompiler;
 use crate::vkn::{
-    AccelStruct, Allocator, Buffer, ComputePipeline, DescriptorPool, DescriptorSet, Image,
-    PlainMemberTypeWithData, ShaderModule, StructMemberDataBuilder, Texture, WriteDescriptorSet,
+    AccelStruct, Allocator, Buffer, ComputePipeline, DescriptorPool, DescriptorSet,
+    GraphicsPipeline, Image, PipelineLayout, PlainMemberTypeWithData, RenderPass, ShaderModule,
+    StructMemberDataBuilder, Texture, WriteDescriptorSet,
 };
 use crate::vkn::{CommandBuffer, VulkanContext};
 use ash::vk;
@@ -19,8 +20,9 @@ pub struct Tracer {
 
     tracer_ppl: ComputePipeline,
     tracer_sets: [DescriptorSet; 3],
+    gfx_ppl: GraphicsPipeline,
+    gfx_render_pass: RenderPass,
 
-    #[allow(dead_code)]
     descriptor_pool_ds_0: DescriptorPool,
     descriptor_pool_ds_1: DescriptorPool,
     descriptor_pool_ds_2: DescriptorPool,
@@ -38,6 +40,7 @@ impl Tracer {
         leaf_data: &Buffer,
         scene_tex: &Texture,
         tlas: &AccelStruct,
+        final_render_target_format: vk::Format,
     ) -> Self {
         let tracer_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
@@ -47,6 +50,12 @@ impl Tracer {
         )
         .unwrap();
         let tracer_ppl = ComputePipeline::from_shader_module(vulkan_ctx.device(), &tracer_sm);
+
+        let (gfx_ppl, gfx_render_pass) = Self::create_graphics_pipeline(
+            &vulkan_ctx,
+            shader_compiler,
+            final_render_target_format,
+        );
 
         let descriptor_pool_ds_0 = DescriptorPool::from_descriptor_set_layouts(
             vulkan_ctx.device(),
@@ -97,12 +106,109 @@ impl Tracer {
             resources,
             tracer_ppl,
             tracer_sets: [tracer_set_0, tracer_set_1, tracer_set_2],
+            gfx_ppl,
+            gfx_render_pass,
             descriptor_pool_ds_0,
             descriptor_pool_ds_1,
             descriptor_pool_ds_2,
-
             frame_serial_idx: 0,
         };
+    }
+
+    fn create_graphics_pipeline(
+        vulkan_ctx: &VulkanContext,
+        shader_compiler: &ShaderCompiler,
+        final_render_target_format: vk::Format,
+    ) -> (GraphicsPipeline, RenderPass) {
+        let vert_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            shader_compiler,
+            "shader/foliage/foliage.vert",
+            "main",
+        )
+        .unwrap();
+        let frag_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            shader_compiler,
+            "shader/foliage/foliage.frag",
+            "main",
+        )
+        .unwrap();
+
+        let render_pass = RenderPass::new(
+            vulkan_ctx.device().clone(),
+            final_render_target_format,
+            vk::SampleCountFlags::TYPE_1,
+        );
+
+        let pipeline_layout = PipelineLayout::new(vulkan_ctx.device(), None, None);
+        let vert_state_info = vert_sm.get_shader_stage_create_info();
+        let frag_state_info = frag_sm.get_shader_stage_create_info();
+        let shader_states_infos = [vert_state_info, frag_state_info];
+        let vertex_input_info = vk::PipelineVertexInputStateCreateInfo::default();
+        let input_assembly_info = vk::PipelineInputAssemblyStateCreateInfo::default()
+            .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+            .primitive_restart_enable(false);
+        let rasterizer_info = vk::PipelineRasterizationStateCreateInfo::default()
+            .depth_clamp_enable(false)
+            .rasterizer_discard_enable(false)
+            .polygon_mode(vk::PolygonMode::FILL)
+            .line_width(1.0)
+            .cull_mode(vk::CullModeFlags::NONE)
+            .front_face(vk::FrontFace::CLOCKWISE)
+            .depth_bias_enable(false)
+            .depth_bias_constant_factor(0.0)
+            .depth_bias_clamp(0.0)
+            .depth_bias_slope_factor(0.0);
+        let viewports = [Default::default()];
+        let scissors = [Default::default()];
+        let viewport_info = vk::PipelineViewportStateCreateInfo::default()
+            .viewports(&viewports)
+            .scissors(&scissors);
+        let multisampling_info = vk::PipelineMultisampleStateCreateInfo::default()
+            .sample_shading_enable(false)
+            .rasterization_samples(vk::SampleCountFlags::TYPE_1)
+            .min_sample_shading(1.0)
+            .alpha_to_coverage_enable(false)
+            .alpha_to_one_enable(false);
+        let color_blend_attachments = [vk::PipelineColorBlendAttachmentState::default()
+            .color_write_mask(
+                vk::ColorComponentFlags::R
+                    | vk::ColorComponentFlags::G
+                    | vk::ColorComponentFlags::B
+                    | vk::ColorComponentFlags::A,
+            )
+            .blend_enable(false)];
+        let color_blending_info = vk::PipelineColorBlendStateCreateInfo::default()
+            .logic_op_enable(false)
+            .logic_op(vk::LogicOp::COPY)
+            .attachments(&color_blend_attachments)
+            .blend_constants([0.0, 0.0, 0.0, 0.0]);
+        let depth_stencil_state_create_info = vk::PipelineDepthStencilStateCreateInfo::default()
+            .depth_test_enable(false)
+            .depth_write_enable(false)
+            .depth_compare_op(vk::CompareOp::ALWAYS)
+            .depth_bounds_test_enable(false)
+            .stencil_test_enable(false);
+        let dynamic_states = [vk::DynamicState::SCISSOR, vk::DynamicState::VIEWPORT];
+        let dynamic_states_info =
+            vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
+        let pipeline_info = vk::GraphicsPipelineCreateInfo::default()
+            .stages(&shader_states_infos)
+            .render_pass(render_pass.inner)
+            .layout(pipeline_layout.as_raw())
+            .vertex_input_state(&vertex_input_info)
+            .input_assembly_state(&input_assembly_info)
+            .rasterization_state(&rasterizer_info)
+            .viewport_state(&viewport_info)
+            .multisample_state(&multisampling_info)
+            .color_blend_state(&color_blending_info)
+            .depth_stencil_state(&depth_stencil_state_create_info)
+            .dynamic_state(&dynamic_states_info);
+        let graphics_ppl =
+            GraphicsPipeline::new(vulkan_ctx.device(), pipeline_info, pipeline_layout);
+
+        (graphics_ppl, render_pass)
     }
 
     fn create_descriptor_set_0(
@@ -249,6 +355,48 @@ impl Tracer {
 
     pub fn get_dst_image(&self) -> &Image {
         self.resources.shader_write_tex.get_image()
+    }
+
+    pub fn record_screen_space_pass(
+        &self,
+        cmdbuf: &CommandBuffer,
+        dst_image_view: vk::ImageView,
+        dst_image_extent: vk::Extent2D,
+    ) {
+        let framebuffer = self
+            .gfx_render_pass
+            .create_framebuffer(dst_image_view, dst_image_extent)
+            .unwrap();
+
+        let render_pass_begin_info = vk::RenderPassBeginInfo::default()
+            .render_pass(self.gfx_render_pass.inner)
+            .framebuffer(framebuffer)
+            .render_area(vk::Rect2D {
+                offset: vk::Offset2D { x: 0, y: 0 },
+                extent: dst_image_extent,
+            })
+            .clear_values(&[vk::ClearValue {
+                color: vk::ClearColorValue {
+                    float32: [0.0, 0.0, 0.0, 1.0],
+                },
+            }]);
+
+        self.gfx_ppl.record_bind(cmdbuf);
+
+        unsafe {
+            self.vulkan_ctx.device().cmd_begin_render_pass(
+                cmdbuf.as_raw(),
+                &render_pass_begin_info,
+                vk::SubpassContents::INLINE,
+            );
+            self.gfx_ppl.record_draw(cmdbuf, 3, 1, 0, 0);
+            self.vulkan_ctx
+                .device()
+                .cmd_end_render_pass(cmdbuf.as_raw());
+            self.vulkan_ctx
+                .device()
+                .destroy_framebuffer(framebuffer, None);
+        }
     }
 
     pub fn update_buffers(

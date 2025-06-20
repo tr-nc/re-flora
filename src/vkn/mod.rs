@@ -27,3 +27,6 @@ pub use descriptor::*;
 
 mod rtx;
 pub use rtx::*;
+
+mod render_pass;
+pub use render_pass::*;
