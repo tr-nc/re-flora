@@ -28,7 +28,7 @@ impl Deref for GraphicsPipeline {
 }
 
 impl GraphicsPipeline {
-    pub fn new(
+    fn new(
         device: &Device,
         create_info: vk::GraphicsPipelineCreateInfo,
         pipeline_layout: PipelineLayout,

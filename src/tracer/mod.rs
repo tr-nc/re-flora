@@ -141,72 +141,14 @@ impl Tracer {
             vk::SampleCountFlags::TYPE_1,
         );
 
-        let pipeline_layout = PipelineLayout::new(vulkan_ctx.device(), None, None);
-        let vert_state_info = vert_sm.get_shader_stage_create_info();
-        let frag_state_info = frag_sm.get_shader_stage_create_info();
-        let shader_states_infos = [vert_state_info, frag_state_info];
-        let vertex_input_info = vk::PipelineVertexInputStateCreateInfo::default();
-        let input_assembly_info = vk::PipelineInputAssemblyStateCreateInfo::default()
-            .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
-            .primitive_restart_enable(false);
-        let rasterizer_info = vk::PipelineRasterizationStateCreateInfo::default()
-            .depth_clamp_enable(false)
-            .rasterizer_discard_enable(false)
-            .polygon_mode(vk::PolygonMode::FILL)
-            .line_width(1.0)
-            .cull_mode(vk::CullModeFlags::NONE)
-            .front_face(vk::FrontFace::CLOCKWISE)
-            .depth_bias_enable(false)
-            .depth_bias_constant_factor(0.0)
-            .depth_bias_clamp(0.0)
-            .depth_bias_slope_factor(0.0);
-        let viewports = [Default::default()];
-        let scissors = [Default::default()];
-        let viewport_info = vk::PipelineViewportStateCreateInfo::default()
-            .viewports(&viewports)
-            .scissors(&scissors);
-        let multisampling_info = vk::PipelineMultisampleStateCreateInfo::default()
-            .sample_shading_enable(false)
-            .rasterization_samples(vk::SampleCountFlags::TYPE_1)
-            .min_sample_shading(1.0)
-            .alpha_to_coverage_enable(false)
-            .alpha_to_one_enable(false);
-        let color_blend_attachments = [vk::PipelineColorBlendAttachmentState::default()
-            .color_write_mask(
-                vk::ColorComponentFlags::R
-                    | vk::ColorComponentFlags::G
-                    | vk::ColorComponentFlags::B
-                    | vk::ColorComponentFlags::A,
-            )
-            .blend_enable(false)];
-        let color_blending_info = vk::PipelineColorBlendStateCreateInfo::default()
-            .logic_op_enable(false)
-            .logic_op(vk::LogicOp::COPY)
-            .attachments(&color_blend_attachments)
-            .blend_constants([0.0, 0.0, 0.0, 0.0]);
-        let depth_stencil_state_create_info = vk::PipelineDepthStencilStateCreateInfo::default()
-            .depth_test_enable(false)
-            .depth_write_enable(false)
-            .depth_compare_op(vk::CompareOp::ALWAYS)
-            .depth_bounds_test_enable(false)
-            .stencil_test_enable(false);
-        let dynamic_states = [vk::DynamicState::SCISSOR, vk::DynamicState::VIEWPORT];
-        let dynamic_states_info =
-            vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
-        let pipeline_info = vk::GraphicsPipelineCreateInfo::default()
-            .stages(&shader_states_infos)
-            .render_pass(render_pass.inner)
-            .layout(pipeline_layout.as_raw())
-            .vertex_input_state(&vertex_input_info)
-            .input_assembly_state(&input_assembly_info)
-            .rasterization_state(&rasterizer_info)
-            .viewport_state(&viewport_info)
-            .multisample_state(&multisampling_info)
-            .color_blend_state(&color_blending_info)
-            .depth_stencil_state(&depth_stencil_state_create_info)
-            .dynamic_state(&dynamic_states_info);
-        let graphics_ppl =
-            GraphicsPipeline::new(vulkan_ctx.device(), pipeline_info, pipeline_layout);
+        let graphics_ppl = GraphicsPipeline::from_shader_modules(
+            vulkan_ctx.device(),
+            &vert_sm,
+            &frag_sm,
+            render_pass.inner,
+            None,
+            None,
+        );
 
         (graphics_ppl, render_pass)
     }
