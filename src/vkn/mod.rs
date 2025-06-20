@@ -30,3 +30,6 @@ pub use rtx::*;
 
 mod render_pass;
 pub use render_pass::*;
+
+mod framebuffer;
+pub use framebuffer::*;

@@ -4,6 +4,8 @@ use ash::{
     vk::{self, Extent2D, PresentModeKHR, SurfaceCapabilitiesKHR, SurfaceFormatKHR},
 };
 
+use crate::vkn::{RenderPass, RenderPassDesc};
+
 use super::{
     context::VulkanContext, record_image_transition_barrier, CommandBuffer, Device, Image,
     Semaphore,
@@ -33,7 +35,7 @@ pub struct Swapchain {
 
     swapchain_device: swapchain::Device,
 
-    render_pass: vk::RenderPass,
+    render_pass: RenderPass,
     framebuffers: Vec<vk::Framebuffer>,
     image_views: Vec<vk::ImageView>,
     swapchain_khr: vk::SwapchainKHR,
@@ -87,9 +89,6 @@ impl Swapchain {
     fn clean_up(&mut self) {
         let device = &self.vulkan_context.device();
         unsafe {
-            // renderpass
-            device.destroy_render_pass(self.render_pass, None);
-
             // frame buffers
             self.framebuffers
                 .iter()
@@ -192,8 +191,12 @@ impl Swapchain {
         }
     }
 
-    pub fn get_render_pass(&self) -> vk::RenderPass {
-        self.render_pass
+    pub fn get_render_pass(&self) -> &RenderPass {
+        &self.render_pass
+    }
+
+    pub fn get_image_views(&self) -> &[vk::ImageView] {
+        &self.image_views
     }
 
     pub fn record_begin_render_pass_cmdbuf(
@@ -203,7 +206,7 @@ impl Swapchain {
         render_area: &vk::Extent2D,
     ) {
         let render_pass_begin_info = vk::RenderPassBeginInfo::default()
-            .render_pass(self.render_pass)
+            .render_pass(self.render_pass.as_raw())
             .framebuffer(self.framebuffers[image_index as usize])
             .render_area(vk::Rect2D {
                 offset: vk::Offset2D { x: 0, y: 0 },
@@ -362,7 +365,7 @@ fn create_vulkan_swapchain(
     swapchain::Device,
     vk::SwapchainKHR,
     Vec<vk::ImageView>,
-    vk::RenderPass,
+    RenderPass,
     Vec<vk::Framebuffer>,
 ) {
     let format = choose_surface_format(
@@ -434,7 +437,7 @@ fn create_vulkan_swapchain(
 
     let framebuffers = create_vulkan_framebuffers(
         vulkan_context.device(),
-        render_pass,
+        render_pass.as_raw(),
         &image_views,
         window_size,
     );
@@ -448,43 +451,18 @@ fn create_vulkan_swapchain(
     )
 }
 
-fn create_vulkan_render_pass(device: &Device, format: vk::Format) -> vk::RenderPass {
-    let attachment_descs = [vk::AttachmentDescription::default()
-        .format(format)
-        .samples(vk::SampleCountFlags::TYPE_1)
-        .load_op(vk::AttachmentLoadOp::LOAD)
-        .store_op(vk::AttachmentStoreOp::STORE)
-        .initial_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-        .final_layout(vk::ImageLayout::PRESENT_SRC_KHR)];
+fn create_vulkan_render_pass(device: &Device, format: vk::Format) -> RenderPass {
+    let desc = RenderPassDesc {
+        format,
+        load_op: vk::AttachmentLoadOp::LOAD,
+        initial_layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+        final_layout: vk::ImageLayout::PRESENT_SRC_KHR,
+        dst_access_mask: vk::AccessFlags::COLOR_ATTACHMENT_READ
+            | vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+        ..Default::default()
+    };
 
-    let color_attachment_refs = [vk::AttachmentReference::default()
-        .attachment(0)
-        .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)];
-
-    let subpass_descs = [vk::SubpassDescription::default()
-        .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
-        .color_attachments(&color_attachment_refs)];
-
-    let subpass_deps = [vk::SubpassDependency::default()
-        .src_subpass(vk::SUBPASS_EXTERNAL)
-        .dst_subpass(0)
-        .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
-        .src_access_mask(vk::AccessFlags::empty())
-        .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
-        .dst_access_mask(
-            vk::AccessFlags::COLOR_ATTACHMENT_READ | vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
-        )];
-
-    let render_pass_info = vk::RenderPassCreateInfo::default()
-        .attachments(&attachment_descs)
-        .subpasses(&subpass_descs)
-        .dependencies(&subpass_deps);
-
-    unsafe {
-        device
-            .create_render_pass(&render_pass_info, None)
-            .expect("Failed to create render pass")
-    }
+    RenderPass::new(device.clone(), &desc)
 }
 
 fn create_vulkan_framebuffers(

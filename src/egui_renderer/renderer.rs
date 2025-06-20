@@ -3,6 +3,7 @@ use crate::util::ShaderCompiler;
 use crate::vkn::CommandBuffer;
 use crate::vkn::DescriptorSet;
 use crate::vkn::ImageDesc;
+use crate::vkn::RenderPass;
 use crate::vkn::TextureRegion;
 use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
@@ -53,7 +54,7 @@ impl EguiRenderer {
         window: &Window,
         allocator: &Allocator,
         compiler: &ShaderCompiler,
-        render_pass: vk::RenderPass,
+        render_pass: &RenderPass,
     ) -> Self {
         let device = vulkan_context.device();
 
@@ -125,7 +126,7 @@ impl EguiRenderer {
     /// Set the render pass used by the renderer, by recreating the pipeline.
     ///
     /// This is an expensive operation.
-    pub fn set_render_pass(&mut self, render_pass: vk::RenderPass) {
+    pub fn set_render_pass(&mut self, render_pass: &RenderPass) {
         self.gui_pipeline = GraphicsPipeline::new(
             &self.vulkan_context.device(),
             &self.vert_shader_module,

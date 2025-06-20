@@ -198,6 +198,7 @@ impl InitializedApp {
             &contree_builder.get_resources().leaf_data,
             &scene_accel_builder.get_resources().scene_offset_tex,
             &accel_struct_builder.get_resources().tlas.as_ref().unwrap(),
+            swapchain.get_image_views(),
         );
 
         return Self {
@@ -648,7 +649,8 @@ impl InitializedApp {
                 let cmdbuf = &self.cmdbuf;
                 cmdbuf.begin(false);
 
-                self.tracer.record_command_buffer(cmdbuf);
+                self.tracer
+                    .record_command_buffer(cmdbuf, image_idx as usize);
 
                 self.swapchain
                     .record_blit(self.tracer.get_dst_image(), cmdbuf, image_idx);
@@ -734,8 +736,9 @@ impl InitializedApp {
         let window_size = self.window_state.window_size();
 
         self.camera.on_resize(&window_size);
-        self.tracer.on_resize(&window_size);
         self.swapchain.on_resize(&window_size);
+        self.tracer
+            .on_resize(&window_size, self.swapchain.get_image_views());
 
         // the render pass should be rebuilt when the swapchain is recreated
         self.egui_renderer

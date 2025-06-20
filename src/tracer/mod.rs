@@ -5,8 +5,8 @@ pub use resources::*;
 use crate::gameplay::Camera;
 use crate::util::ShaderCompiler;
 use crate::vkn::{
-    AccelStruct, Allocator, Buffer, ComputePipeline, DescriptorPool, DescriptorSet,
-    GraphicsPipeline, Image, PlainMemberTypeWithData, RenderPass, ShaderModule,
+    AccelStruct, Allocator, Buffer, ComputePipeline, DescriptorPool, DescriptorSet, Framebuffer,
+    GraphicsPipeline, Image, PlainMemberTypeWithData, RenderPass, RenderPassDesc, ShaderModule,
     StructMemberDataBuilder, Texture, WriteDescriptorSet,
 };
 use crate::vkn::{CommandBuffer, VulkanContext};
@@ -22,12 +22,17 @@ pub struct Tracer {
     tracer_sets: [DescriptorSet; 3],
     gfx_ppl: GraphicsPipeline,
     gfx_render_pass: RenderPass,
+    gfx_framebuffers: Vec<Framebuffer>,
 
     descriptor_pool_ds_0: DescriptorPool,
     descriptor_pool_ds_1: DescriptorPool,
     descriptor_pool_ds_2: DescriptorPool,
 
     frame_serial_idx: u32,
+}
+
+impl Drop for Tracer {
+    fn drop(&mut self) {}
 }
 
 impl Tracer {
@@ -40,6 +45,7 @@ impl Tracer {
         leaf_data: &Buffer,
         scene_tex: &Texture,
         tlas: &AccelStruct,
+        swapchain_image_views: &[vk::ImageView],
     ) -> Self {
         let tracer_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
@@ -75,6 +81,13 @@ impl Tracer {
             shader_compiler,
         );
 
+        let gfx_framebuffers = Self::create_framebuffers(
+            &vulkan_ctx,
+            &gfx_render_pass,
+            &resources.shader_write_tex,
+            swapchain_image_views,
+        );
+
         let tracer_set_0 = Self::create_descriptor_set_0(
             descriptor_pool_ds_0.clone(),
             &vulkan_ctx,
@@ -107,6 +120,7 @@ impl Tracer {
             tracer_sets: [tracer_set_0, tracer_set_1, tracer_set_2],
             gfx_ppl,
             gfx_render_pass,
+            gfx_framebuffers,
             descriptor_pool_ds_0,
             descriptor_pool_ds_1,
             descriptor_pool_ds_2,
@@ -134,16 +148,46 @@ impl Tracer {
         )
         .unwrap();
 
-        let render_pass = RenderPass::new(
-            vulkan_ctx.device().clone(),
-            shader_write_tex_format,
-            vk::SampleCountFlags::TYPE_1,
-        );
+        let render_pass = {
+            let desc = RenderPassDesc {
+                format: shader_write_tex_format,
+                ..Default::default()
+            };
+            RenderPass::new(vulkan_ctx.device().clone(), &desc)
+        };
 
-        let gfx_ppl =
-            GraphicsPipeline::new(vulkan_ctx.device(), &vert_sm, &frag_sm, render_pass.inner);
+        let gfx_ppl = GraphicsPipeline::new(vulkan_ctx.device(), &vert_sm, &frag_sm, &render_pass);
 
         (gfx_ppl, render_pass)
+    }
+
+    fn create_framebuffers(
+        vulkan_ctx: &VulkanContext,
+        render_pass: &RenderPass,
+        target_texture: &Texture,
+        swapchain_image_views: &[vk::ImageView],
+    ) -> Vec<Framebuffer> {
+        let dst_image_view = target_texture.get_image_view().as_raw();
+        let dst_image_extent = {
+            let ext = target_texture.get_image().get_desc().extent;
+            vk::Extent2D {
+                width: ext[0],
+                height: ext[1],
+            }
+        };
+
+        return swapchain_image_views
+            .iter()
+            .map(|_| {
+                Framebuffer::new(
+                    vulkan_ctx.clone(),
+                    &render_pass,
+                    dst_image_view,
+                    dst_image_extent,
+                )
+                .unwrap()
+            })
+            .collect();
     }
 
     fn create_descriptor_set_0(
@@ -263,11 +307,18 @@ impl Tracer {
         );
     }
 
-    pub fn on_resize(&mut self, screen_extent: &[u32; 2]) {
+    pub fn on_resize(&mut self, screen_extent: &[u32; 2], swapchain_image_views: &[vk::ImageView]) {
         self.resources.on_resize(
             self.vulkan_ctx.device().clone(),
             self.allocator.clone(),
             &screen_extent,
+        );
+
+        self.gfx_framebuffers = Self::create_framebuffers(
+            &self.vulkan_ctx,
+            &self.gfx_render_pass,
+            &self.resources.shader_write_tex,
+            swapchain_image_views,
         );
 
         self.descriptor_pool_ds_1.reset().unwrap();
@@ -279,7 +330,9 @@ impl Tracer {
         );
     }
 
-    pub fn record_command_buffer(&mut self, cmdbuf: &CommandBuffer) {
+    pub fn record_command_buffer(&mut self, cmdbuf: &CommandBuffer, image_index: usize) {
+        // self.record_screen_space_pass(cmdbuf, image_index);
+
         let screen_extent = self
             .resources
             .shader_write_tex
@@ -303,56 +356,16 @@ impl Tracer {
         self.resources.shader_write_tex.get_image()
     }
 
-    pub fn record_screen_space_pass(&self, cmdbuf: &CommandBuffer) {
-        let dst_image_view = self.resources.shader_write_tex.get_image_view().as_raw();
-
-        let dst_image_extent = {
-            let ext = self
-                .resources
-                .shader_write_tex
-                .get_image()
-                .get_desc()
-                .extent;
-            vk::Extent2D {
-                width: ext[0],
-                height: ext[1],
-            }
-        };
-
-        let framebuffer = self
-            .gfx_render_pass
-            .create_framebuffer(dst_image_view, dst_image_extent)
-            .unwrap();
-
-        let render_pass_begin_info = vk::RenderPassBeginInfo::default()
-            .render_pass(self.gfx_render_pass.inner)
-            .framebuffer(framebuffer)
-            .render_area(vk::Rect2D {
-                offset: vk::Offset2D { x: 0, y: 0 },
-                extent: dst_image_extent,
-            })
-            .clear_values(&[vk::ClearValue {
-                color: vk::ClearColorValue {
-                    float32: [0.0, 0.0, 0.0, 1.0],
-                },
-            }]);
-
+    pub fn record_screen_space_pass(&self, cmdbuf: &CommandBuffer, image_index: usize) {
         self.gfx_ppl.record_bind(cmdbuf);
 
-        unsafe {
-            self.vulkan_ctx.device().cmd_begin_render_pass(
-                cmdbuf.as_raw(),
-                &render_pass_begin_info,
-                vk::SubpassContents::INLINE,
-            );
-            self.gfx_ppl.record_draw(cmdbuf, 3, 1, 0, 0);
-            self.vulkan_ctx
-                .device()
-                .cmd_end_render_pass(cmdbuf.as_raw());
-            self.vulkan_ctx
-                .device()
-                .destroy_framebuffer(framebuffer, None);
-        }
+        self.gfx_render_pass.record_begin(
+            cmdbuf,
+            &self.gfx_framebuffers[image_index],
+            &[0.0, 0.0, 0.0, 1.0],
+        );
+        self.gfx_ppl.record_draw(cmdbuf, 3, 1, 0, 0);
+        self.gfx_render_pass.record_end(cmdbuf);
     }
 
     pub fn update_buffers(

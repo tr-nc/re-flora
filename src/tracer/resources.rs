@@ -168,7 +168,9 @@ impl TracerResources {
         let tex_desc = ImageDesc {
             extent: screen_extent,
             format: vk::Format::R8G8B8A8_UNORM,
-            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC,
+            usage: vk::ImageUsageFlags::STORAGE
+                | vk::ImageUsageFlags::TRANSFER_SRC
+                | vk::ImageUsageFlags::COLOR_ATTACHMENT,
             initial_layout: vk::ImageLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()

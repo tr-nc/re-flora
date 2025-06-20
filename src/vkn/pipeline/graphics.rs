@@ -1,4 +1,4 @@
-use crate::vkn::{CommandBuffer, Device, PipelineLayout, ShaderModule};
+use crate::vkn::{CommandBuffer, Device, PipelineLayout, RenderPass, ShaderModule};
 use ash::vk;
 use std::{ops::Deref, sync::Arc};
 
@@ -32,7 +32,7 @@ impl GraphicsPipeline {
         device: &Device,
         vert_shader_module: &ShaderModule,
         frag_shader_module: &ShaderModule,
-        render_pass: vk::RenderPass,
+        render_pass: &RenderPass,
     ) -> Self {
         let vert_pipeline_layout = PipelineLayout::from_shader_module(device, vert_shader_module);
         let frag_pipeline_layout = PipelineLayout::from_shader_module(device, frag_shader_module);
@@ -129,7 +129,7 @@ impl GraphicsPipeline {
 
         let pipeline_info = vk::GraphicsPipelineCreateInfo::default()
             .stages(&shader_states_infos)
-            .render_pass(render_pass)
+            .render_pass(render_pass.as_raw())
             .layout(pipeline_layout.as_raw())
             .vertex_input_state(&vertex_input_info)
             .input_assembly_state(&input_assembly_info)
