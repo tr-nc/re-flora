@@ -151,6 +151,7 @@ impl Tracer {
         let render_pass = {
             let desc = RenderPassDesc {
                 format: shader_write_tex_format,
+                final_layout: vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
                 ..Default::default()
             };
             RenderPass::new(vulkan_ctx.device().clone(), &desc)
@@ -331,25 +332,25 @@ impl Tracer {
     }
 
     pub fn record_command_buffer(&mut self, cmdbuf: &CommandBuffer, image_index: usize) {
-        // self.record_screen_space_pass(cmdbuf, image_index);
+        self.record_screen_space_pass(cmdbuf, image_index);
 
-        let screen_extent = self
-            .resources
-            .shader_write_tex
-            .get_image()
-            .get_desc()
-            .extent;
+        // let screen_extent = self
+        //     .resources
+        //     .shader_write_tex
+        //     .get_image()
+        //     .get_desc()
+        //     .extent;
 
-        self.resources
-            .shader_write_tex
-            .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
-        self.tracer_ppl.record_bind(cmdbuf);
+        // self.resources
+        //     .shader_write_tex
+        //     .get_image()
+        //     .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+        // self.tracer_ppl.record_bind(cmdbuf);
 
-        self.tracer_ppl
-            .record_bind_descriptor_sets(cmdbuf, &self.tracer_sets, 0);
-        self.tracer_ppl
-            .record_dispatch(cmdbuf, [screen_extent[0], screen_extent[1], 1]);
+        // self.tracer_ppl
+        //     .record_bind_descriptor_sets(cmdbuf, &self.tracer_sets, 0);
+        // self.tracer_ppl
+        //     .record_dispatch(cmdbuf, [screen_extent[0], screen_extent[1], 1]);
     }
 
     pub fn get_dst_image(&self) -> &Image {
@@ -357,6 +358,11 @@ impl Tracer {
     }
 
     pub fn record_screen_space_pass(&self, cmdbuf: &CommandBuffer, image_index: usize) {
+        // self.resources
+        //     .shader_write_tex
+        //     .get_image()
+        //     .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
+
         self.gfx_ppl.record_bind(cmdbuf);
 
         self.gfx_render_pass.record_begin(

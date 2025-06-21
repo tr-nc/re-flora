@@ -132,12 +132,23 @@ unsafe extern "system" fn vulkan_debug_callback(
 ) -> vk::Bool32 {
     use vk::DebugUtilsMessageSeverityFlagsEXT as Flag;
 
-    let message = CStr::from_ptr((*p_callback_data).p_message);
+    let message = CStr::from_ptr((*p_callback_data).p_message).to_string_lossy();
+
+    let short_message = if let Some((msg, _)) = message.split_once(" (https://") {
+        msg
+    } else {
+        &message
+    };
+
     match flag {
-        Flag::INFO => log::info!("[Validation] {:?} - {:?}", ty, message),
-        Flag::WARNING => log::warn!("[Validation] {:?} - {:?}", ty, message),
-        Flag::ERROR => log::error!("[Validation] {:?} - {:?}", ty, message),
-        _ => log::error!("[Validation] Unexpected type met: {:?} - {:?}", ty, message),
+        Flag::INFO => log::info!("[Validation] {:?} - {:?}", ty, short_message),
+        Flag::WARNING => log::warn!("[Validation] {:?} - {:?}", ty, short_message),
+        Flag::ERROR => log::error!("[Validation] {:?} - {:?}", ty, short_message),
+        _ => log::error!(
+            "[Validation] Unexpected type met: {:?} - {:?}",
+            ty,
+            short_message
+        ),
     }
     vk::FALSE
 }

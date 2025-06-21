@@ -219,7 +219,7 @@ impl Image {
         clear_value: ClearValue,
     ) {
         let target_layout = layout_after_clear.unwrap_or(self.get_layout(base_array_layer));
-        const LAYOUT_USED_TO_CLEAR: vk::ImageLayout = vk::ImageLayout::GENERAL;
+        const LAYOUT_USED_TO_CLEAR: vk::ImageLayout = vk::ImageLayout::TRANSFER_DST_OPTIMAL;
         self.record_transition_barrier(cmdbuf, base_array_layer, LAYOUT_USED_TO_CLEAR);
 
         let clear_value = match clear_value {
@@ -278,7 +278,7 @@ impl Image {
         // update our tracked layout
         layouts[idx] = target_layout;
     }
-    
+
     /// Loads an RGBA image from the given path and checks if it has the same size as the texture.
     fn load_same_sized_image_as_raw_u8(&self, path: &str) -> Result<Vec<u8>, String> {
         let image = image::open(path).map_err(|e| format!("Failed to open image: {}", e))?;
@@ -573,8 +573,12 @@ fn map_src_stage_access_flags(
             vk::PipelineStageFlags::TRANSFER,
         ),
         vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL => {
-            (vk::AccessFlags::SHADER_READ, general_shader_stages)
+            (vk::AccessFlags::empty(), general_shader_stages)
         }
+        vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL => (
+            vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+        ),
         layout => {
             panic!("Unsupported old_layout transition from: {:?}", layout);
         }
