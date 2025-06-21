@@ -176,24 +176,17 @@ impl ShaderModule {
             }
         }
 
-        let mut input_vars = self
+        let input_vars = self
             .0
             .reflect_shader_module
             .enumerate_input_variables(None)
             .expect("Failed to enumerate input variables from shader");
 
-        // Sort by `location` to ensure the memory offsets are calculated correctly.
-        input_vars.sort_by_key(|var| var.location);
-
-        if input_vars.is_empty() {
-            return Ok((Vec::new(), Vec::new()));
-        }
-
         let mut attribute_descriptions = Vec::with_capacity(input_vars.len());
         let mut current_offset = 0u32;
 
         for var in &input_vars {
-            // skip built-in variables
+            // skip built-in variables like gl_VertexIndex
             if var
                 .decoration_flags
                 .contains(spirv_reflect::types::ReflectDecorationFlags::BUILT_IN)
@@ -221,8 +214,11 @@ impl ShaderModule {
             current_offset += format_to_size_in_bytes(final_format);
         }
 
-        let stride = current_offset;
+        if attribute_descriptions.is_empty() {
+            return Ok((Vec::new(), Vec::new()));
+        }
 
+        let stride = current_offset;
         let binding_description = vec![vk::VertexInputBindingDescription::default()
             .binding(binding_index)
             .stride(stride)

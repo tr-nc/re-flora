@@ -1,6 +1,27 @@
 #version 450
 
+// No 'in' variables are needed! We generate everything from gl_VertexIndex.
+
+// We can still pass data to the fragment shader if we want, e.g., for UVs.
+// For this simple example, we don't need to.
+
 void main() {
-    vec2 pos = vec2(float(gl_VertexIndex & 1), float(gl_VertexIndex & 2));
-    gl_Position = vec4(pos * 2.0 - 1.0, 0.0, 1.0);
+    // This is a common trick to generate a full-screen triangle.
+    // The vertices are intentionally oversized to ensure full coverage
+    // of the [-1, 1] Normalized Device Coordinate (NDC) space.
+    //
+    // gl_VertexIndex | Output Position (x, y)
+    // ---------------------------------------
+    // 0              | (-1, -1)  (bottom-left)
+    // 1              | ( 3, -1)  (far-right, offscreen)
+    // 2              | (-1,  3)  (far-top, offscreen)
+
+    vec2 positions[3] = vec2[](
+        vec2(-1.0, -1.0),
+        vec2( 3.0, -1.0),
+        vec2(-1.0,  3.0)
+    );
+
+    // Select the position from the array based on the vertex being processed.
+    gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
 }

@@ -42,14 +42,17 @@ impl GraphicsPipeline {
         let vert_state_info = vert_shader_module.get_shader_stage_create_info();
         let frag_state_info = frag_shader_module.get_shader_stage_create_info();
 
-        log::debug!("vert: {:?}", vert_shader_module);
-        log::debug!("frag: {:?}", frag_shader_module);
+        log::debug!("vert: {:#?}", vert_shader_module);
+        log::debug!("frag: {:#?}", frag_shader_module);
 
         let shader_states_infos = [vert_state_info, frag_state_info];
 
         let (binding_desc, attribute_desc) = vert_shader_module
             .get_vertex_input_state(0, format_overrides)
             .unwrap();
+
+        log::debug!("binding_desc: {:#?}", binding_desc);
+        log::debug!("attribute_desc: {:#?}", attribute_desc);
 
         let vertex_input_info = vk::PipelineVertexInputStateCreateInfo::default()
             .vertex_binding_descriptions(&binding_desc)
