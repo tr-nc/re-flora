@@ -126,11 +126,13 @@ impl Swapchain {
         }
     }
 
+    /// Blits the source image to the destination image.
+    /// The layout of src_img is transferred to TRANSFER_SRC_OPTIMAL.
     pub fn record_blit(&self, src_img: &Image, cmdbuf: &CommandBuffer, image_idx: u32) {
+        // the swapchain image is not wrapped because it is handled by the swapchain
         let dst_raw_img = self.get_image(image_idx);
         let device = self.vulkan_context.device();
 
-        // transition src
         src_img.record_transition_barrier(cmdbuf, 0, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
 
         // transition dst (a raw image)
@@ -158,6 +160,7 @@ impl Swapchain {
         }
 
         // transition dst (a raw image)
+        // TODO: is this needed?
         record_image_transition_barrier(
             device.as_raw(),
             cmdbuf.as_raw(),

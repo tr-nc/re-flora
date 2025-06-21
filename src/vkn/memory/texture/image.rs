@@ -279,6 +279,12 @@ impl Image {
         layouts[idx] = target_layout;
     }
 
+    /// Force set the layout for the given array layer.
+    pub fn set_layout(&self, array_layer: u32, new_layout: vk::ImageLayout) {
+        let mut layouts = self.0.current_layout.lock().unwrap();
+        layouts[array_layer as usize] = new_layout;
+    }
+
     /// Loads an RGBA image from the given path and checks if it has the same size as the texture.
     fn load_same_sized_image_as_raw_u8(&self, path: &str) -> Result<Vec<u8>, String> {
         let image = image::open(path).map_err(|e| format!("Failed to open image: {}", e))?;

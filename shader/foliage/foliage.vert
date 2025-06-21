@@ -9,17 +9,10 @@ void main() {
     // This is a common trick to generate a full-screen triangle.
     // The vertices are intentionally oversized to ensure full coverage
     // of the [-1, 1] Normalized Device Coordinate (NDC) space.
-    //
-    // gl_VertexIndex | Output Position (x, y)
-    // ---------------------------------------
-    // 0              | (-1, -1)  (bottom-left)
-    // 1              | ( 3, -1)  (far-right, offscreen)
-    // 2              | (-1,  3)  (far-top, offscreen)
-
     vec2 positions[3] = vec2[](
         vec2(-1.0, -1.0),
-        vec2( 3.0, -1.0),
-        vec2(-1.0,  3.0)
+        vec2(1.0,  -1.0),
+        vec2( 0.0, 1.0)
     );
 
     // Select the position from the array based on the vertex being processed.

@@ -343,16 +343,9 @@ impl Tracer {
     }
 
     pub fn _record_trace_pass(&self, cmdbuf: &CommandBuffer) {
-        let screen_extent = self
-            .resources
-            .shader_write_tex
-            .get_image()
-            .get_desc()
-            .extent;
+        let screen_extent = self.get_dst_image().get_desc().extent;
 
-        self.resources
-            .shader_write_tex
-            .get_image()
+        self.get_dst_image()
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
         self.tracer_ppl.record_bind(cmdbuf);
 
@@ -373,12 +366,7 @@ impl Tracer {
             &[0.0, 0.0, 0.0, 1.0],
         );
 
-        let image_extent = self
-            .resources
-            .shader_write_tex
-            .get_image()
-            .get_desc()
-            .extent;
+        let image_extent = self.get_dst_image().get_desc().extent;
 
         let viewport = vk::Viewport {
             x: 0.0,
@@ -401,6 +389,9 @@ impl Tracer {
         self.gfx_ppl.record_draw(cmdbuf, 3, 1, 0, 0);
 
         self.gfx_render_pass.record_end(cmdbuf);
+        // TODO: do this inside the render pass!
+        self.get_dst_image()
+            .set_layout(0, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
     }
 
     pub fn update_buffers(
