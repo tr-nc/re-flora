@@ -104,7 +104,9 @@ pub fn create_vulkan_instance(
     let create_info = vk::DebugUtilsMessengerCreateInfoEXT::default()
         .flags(vk::DebugUtilsMessengerCreateFlagsEXT::empty())
         .message_severity(
-            vk::DebugUtilsMessageSeverityFlagsEXT::WARNING
+            vk::DebugUtilsMessageSeverityFlagsEXT::VERBOSE
+                | vk::DebugUtilsMessageSeverityFlagsEXT::INFO
+                | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING
                 | vk::DebugUtilsMessageSeverityFlagsEXT::ERROR,
         )
         .message_type(
@@ -124,6 +126,16 @@ pub fn create_vulkan_instance(
     (instance, debug_utils, debug_utils_messenger)
 }
 
+struct ValidationCallbackDesc {
+    pretty_print: bool,
+    log_level: log::Level,
+}
+
+const DEFAULT_VALIDATION_CALLBACK_DESC: ValidationCallbackDesc = ValidationCallbackDesc {
+    pretty_print: true,
+    log_level: log::Level::Error,
+};
+
 unsafe extern "system" fn vulkan_debug_callback(
     flag: vk::DebugUtilsMessageSeverityFlagsEXT,
     ty: vk::DebugUtilsMessageTypeFlagsEXT,
@@ -132,23 +144,64 @@ unsafe extern "system" fn vulkan_debug_callback(
 ) -> vk::Bool32 {
     use vk::DebugUtilsMessageSeverityFlagsEXT as Flag;
 
-    let message = CStr::from_ptr((*p_callback_data).p_message).to_string_lossy();
-
-    let short_message = if let Some((msg, _)) = message.split_once(" (https://") {
-        msg
-    } else {
-        &message
+    let message_level = match flag {
+        Flag::VERBOSE => log::Level::Debug,
+        Flag::INFO => log::Level::Info,
+        Flag::WARNING => log::Level::Warn,
+        Flag::ERROR => log::Level::Error,
+        _ => log::Level::Error, // Treat unknown flags as errors.
     };
 
-    match flag {
-        Flag::INFO => log::info!("[Validation] {:?} - {:?}", ty, short_message),
-        Flag::WARNING => log::warn!("[Validation] {:?} - {:?}", ty, short_message),
-        Flag::ERROR => log::error!("[Validation] {:?} - {:?}", ty, short_message),
-        _ => log::error!(
-            "[Validation] Unexpected type met: {:?} - {:?}",
-            ty,
-            short_message
-        ),
+    // ERROR is the lowest level in the enum
+    if message_level > DEFAULT_VALIDATION_CALLBACK_DESC.log_level {
+        return vk::FALSE;
     }
+
+    let message = CStr::from_ptr((*p_callback_data).p_message).to_string_lossy();
+    let header = format!("[Validation] {:?}", ty);
+
+    if DEFAULT_VALIDATION_CALLBACK_DESC.pretty_print {
+        let short_message = if let Some((msg, _)) = message.split_once(" (https://") {
+            msg
+        } else {
+            &message
+        };
+
+        let formatted_parts = short_message
+            .split('|')
+            .map(|s| s.trim())
+            .collect::<Vec<&str>>()
+            .join("\n");
+
+        let final_message = format!("\n* {}\n{}", header, formatted_parts);
+
+        match flag {
+            Flag::VERBOSE => log::debug!("{final_message}\n"),
+            Flag::INFO => log::info!("{final_message}\n"),
+            Flag::WARNING => log::warn!("{final_message}\n"),
+            Flag::ERROR => log::error!("{final_message}\n"),
+            _ => log::error!(
+                "\n* {} with unknown severity {:?}\n{}\n",
+                header,
+                flag,
+                formatted_parts
+            ),
+        }
+    } else {
+        // Raw message output
+        match flag {
+            Flag::VERBOSE => log::debug!("{header} | {message}\n"),
+            Flag::INFO => log::info!("{header} | {message}\n"),
+            Flag::WARNING => log::warn!("{header} | {message}\n"),
+            Flag::ERROR => log::error!("{header} | {message}\n"),
+            _ => log::error!(
+                "{} with unknown severity {:?} | {}\n",
+                header,
+                flag,
+                message
+            ),
+        }
+    }
+
     vk::FALSE
 }
