@@ -1,5 +1,5 @@
 use crate::vkn::{Buffer, CommandBuffer, DescriptorSet, Device, PipelineLayout, ShaderModule};
-use ash::vk::{self};
+use ash::vk;
 use std::{ops::Deref, sync::Arc};
 
 struct ComputePipelineInner {

@@ -6,7 +6,7 @@
     "create test env": "conda create -n re_flora_test_env python=3.9 -y",
     "install test env": "conda activate re_flora_test_env && pip install -r misc/test_env/requirements.txt",
     "run test env": "conda activate re_flora_test_env && python misc/test_env/test.py",
-    "repomix": "repomix --include \"*.md\",\"*.rs\",\"*.glsl\",\"src/**\",\"shader/**\"",
+    "repomix": "repomix --compress --include \"*.md\",\"*.rs\",\"*.glsl\",\"src/**\",\"shader/**\" --ignore \"**/fast_noise_lite.glsl\"",
     "aider": "aider --no-auto-commits --no-show-model-warnings --model openai/gemini-2.5-pro-preview-06-05"
     // "git submodule init": "git submodule update --init --recursive"
   },
