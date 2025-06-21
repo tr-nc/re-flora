@@ -3,7 +3,8 @@ use crate::{
     util::{full_path_from_relative, ShaderCompiler},
     vkn::{DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutBuilder, Device},
 };
-use ash::vk::{self, PushConstantRange};
+use anyhow::Result;
+use ash::vk;
 use shaderc::ShaderKind;
 use spirv_reflect::{
     types::{
@@ -13,11 +14,26 @@ use spirv_reflect::{
 };
 use std::{collections::HashMap, ffi::CString, fmt::Debug, sync::Arc};
 
+/// Specifies a manual override for a vertex attribute's format.
+///
+/// This is used to tell the pipeline to use a more compact format (like `R8G8B8A8_UNORM`)
+/// from the vertex buffer, even if the shader itself expects a wider type (like `vec4`).
+/// The GPU's vertex fetch unit will handle the conversion.
+/// See: https://github.com/ocornut/imgui/discussions/6049
+#[derive(Debug, Clone, Copy)]
+pub struct FormatOverride {
+    /// The shader `location` of the attribute to override.
+    pub location: u32,
+    /// The `vk::Format` to use instead of the one from reflection.
+    pub format: vk::Format,
+}
+
 /// Internal struct holding the actual Vulkan `ShaderModule` and reflection data.
 struct ShaderModuleInner {
     device: Device,
+    module_name: String,
     entry_point_name: CString,
-    shader_module: ash::vk::ShaderModule,
+    shader_module: vk::ShaderModule,
     reflect_shader_module: ReflectShaderModule,
 
     buffer_layouts: HashMap<String, BufferLayout>, // type_name - the buffer layout
@@ -35,23 +51,25 @@ impl Drop for ShaderModuleInner {
 pub struct ShaderModule(Arc<ShaderModuleInner>);
 
 impl std::ops::Deref for ShaderModule {
-    type Target = ash::vk::ShaderModule;
+    type Target = vk::ShaderModule;
     fn deref(&self) -> &Self::Target {
         &self.0.shader_module
     }
 }
 
 impl Debug for ShaderModule {
-    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let descriptor_bindings = self
             .0
             .reflect_shader_module
             .enumerate_descriptor_bindings(None)
-            .unwrap();
-        for binding in descriptor_bindings {
-            log::debug!("binding: {:#?}", binding);
-        }
-        Ok(())
+            .unwrap_or_else(|_| Vec::new()); // Handle potential error gracefully
+
+        f.debug_struct("ShaderModule")
+            .field("module_name", &self.0.module_name)
+            .field("bindings_count", &descriptor_bindings.len())
+            .field("bindings", &descriptor_bindings)
+            .finish()
     }
 }
 
@@ -68,12 +86,14 @@ impl ShaderModule {
         file_path: &str,
         entry_point_name: &str,
     ) -> Result<Self, String> {
+        let module_name = file_path.split('/').last().unwrap().to_string();
         let full_path = full_path_from_relative(file_path);
         let code = read_code_from_path(&full_path)?;
         let shader_kind = predict_shader_kind(file_path).map_err(|e| e.to_string())?;
 
         Self::from_glsl_code(
             device,
+            &module_name,
             &code,
             &full_path,
             entry_point_name,
@@ -111,21 +131,120 @@ impl ShaderModule {
         vk::ShaderStageFlags::from_raw(self.0.reflect_shader_module.get_shader_stage().bits())
     }
 
-    /// Returns the underlying Vulkan `ash::vk::ShaderModule`.
-    pub fn get_shader_module(&self) -> ash::vk::ShaderModule {
+    /// Returns the underlying Vulkan `vk::ShaderModule`.
+    pub fn get_shader_module(&self) -> vk::ShaderModule {
         self.0.shader_module
     }
 
     /// Convenience for creating a stage create info (for pipeline creation).
-    pub fn get_shader_stage_create_info(&self) -> ash::vk::PipelineShaderStageCreateInfo {
-        ash::vk::PipelineShaderStageCreateInfo::default()
+    pub fn get_shader_stage_create_info(&self) -> vk::PipelineShaderStageCreateInfo {
+        vk::PipelineShaderStageCreateInfo::default()
             .stage(self.get_stage())
             .module(self.get_shader_module())
             .name(&self.0.entry_point_name)
     }
 
+    pub fn get_vertex_input_state(
+        &self,
+        binding_index: u32,
+        format_overrides: &[FormatOverride],
+    ) -> Result<(
+        Vec<vk::VertexInputBindingDescription>,
+        Vec<vk::VertexInputAttributeDescription>,
+    )> {
+        if self.get_stage() != vk::ShaderStageFlags::VERTEX {
+            return Err(anyhow::anyhow!(
+                "Shader module is not a vertex shader, stage: {:?}",
+                self.get_stage()
+            )
+            .into());
+        }
+
+        // Helper to get the size of a format in bytes.
+        fn format_to_size_in_bytes(format: vk::Format) -> u32 {
+            match format {
+                vk::Format::R32_SFLOAT => 4,
+                vk::Format::R32G32_SFLOAT => 8,
+                vk::Format::R32G32B32_SFLOAT => 12,
+                vk::Format::R32G32B32A32_SFLOAT => 16,
+                vk::Format::R8G8B8A8_UNORM => 4,
+                // Add other formats as needed for your application
+                _ => panic!(
+                    "Unsupported vertex format for size calculation: {:?}",
+                    format
+                ),
+            }
+        }
+
+        let mut input_vars = self
+            .0
+            .reflect_shader_module
+            .enumerate_input_variables(None)
+            .expect("Failed to enumerate input variables from shader");
+
+        // Sort by `location` to ensure the memory offsets are calculated correctly.
+        input_vars.sort_by_key(|var| var.location);
+
+        if input_vars.is_empty() {
+            return Ok((Vec::new(), Vec::new()));
+        }
+
+        let mut attribute_descriptions = Vec::with_capacity(input_vars.len());
+        let mut current_offset = 0u32;
+
+        for var in &input_vars {
+            // skip built-in variables
+            if var
+                .decoration_flags
+                .contains(spirv_reflect::types::ReflectDecorationFlags::BUILT_IN)
+            {
+                continue;
+            }
+
+            let reflected_format = reflect_format_to_vk(var.format)?;
+
+            // Check for an override for the current location.
+            let final_format = format_overrides
+                .iter()
+                .find(|ov| ov.location == var.location)
+                .map_or(reflected_format, |ov| ov.format); // Use override if found, else default
+
+            let description = vk::VertexInputAttributeDescription::default()
+                .binding(binding_index)
+                .location(var.location)
+                .format(final_format) // Use the final, possibly overridden, format
+                .offset(current_offset);
+
+            attribute_descriptions.push(description);
+
+            // IMPORTANT: Calculate the next offset using the size of the FINAL format.
+            current_offset += format_to_size_in_bytes(final_format);
+        }
+
+        let stride = current_offset;
+
+        let binding_description = vec![vk::VertexInputBindingDescription::default()
+            .binding(binding_index)
+            .stride(stride)
+            .input_rate(vk::VertexInputRate::VERTEX)];
+
+        return Ok((binding_description, attribute_descriptions));
+
+        fn reflect_format_to_vk(fmt: spirv_reflect::types::ReflectFormat) -> Result<vk::Format> {
+            use spirv_reflect::types::ReflectFormat as RF;
+            match fmt {
+                RF::R32_SFLOAT => Ok(vk::Format::R32_SFLOAT),
+                RF::R32G32_SFLOAT => Ok(vk::Format::R32G32_SFLOAT),
+                RF::R32G32B32_SFLOAT => Ok(vk::Format::R32G32B32_SFLOAT),
+                RF::R32G32B32A32_SFLOAT => Ok(vk::Format::R32G32B32A32_SFLOAT),
+                _ => return Err(anyhow::anyhow!("Unsupported format: {:?}", fmt)),
+            }
+        }
+    }
+
     fn from_glsl_code(
         device: &Device,
+        module_name: &str,
         code: &str,
         full_path_to_shader_file: &str,
         entry_point_name: &str,
@@ -153,6 +272,7 @@ impl ShaderModule {
 
         Ok(Self(Arc::new(ShaderModuleInner {
             device: device.clone(),
+            module_name: module_name.to_string(),
             entry_point_name: CString::new(entry_point_name).unwrap(),
             shader_module: sm,
             reflect_shader_module: reflect_sm,
@@ -196,7 +316,7 @@ impl ShaderModule {
         for block in push_constant_blocks {
             ranges.insert(
                 block.offset,
-                PushConstantRange {
+                vk::PushConstantRange {
                     stage_flags: self.get_stage(),
                     offset: block.offset,
                     size: block.size,
@@ -261,7 +381,7 @@ fn create_shader_module(
     entry_point_name: &str,
     full_path_to_shader_file: &str,
     compiler: &ShaderCompiler,
-) -> Result<ash::vk::ShaderModule, String> {
+) -> Result<vk::ShaderModule, String> {
     let shader_byte_code_u8_full_opti = compiler
         .compile_to_bytecode(
             code,
@@ -293,7 +413,7 @@ fn predict_shader_kind(file_path: &str) -> Result<shaderc::ShaderKind, String> {
 fn bytecode_to_shader_module(
     device: &Device,
     shader_byte_code: &[u8],
-) -> Result<ash::vk::ShaderModule, String> {
+) -> Result<vk::ShaderModule, String> {
     let shader_byte_code_u32 = u8_to_u32(shader_byte_code);
     let shader_module_create_info =
         vk::ShaderModuleCreateInfo::default().code(&shader_byte_code_u32);

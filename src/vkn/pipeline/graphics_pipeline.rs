@@ -1,4 +1,4 @@
-use crate::vkn::{CommandBuffer, Device, PipelineLayout, RenderPass, ShaderModule};
+use crate::vkn::{CommandBuffer, Device, FormatOverride, PipelineLayout, RenderPass, ShaderModule};
 use ash::vk;
 use std::{ops::Deref, sync::Arc};
 
@@ -33,6 +33,7 @@ impl GraphicsPipeline {
         vert_shader_module: &ShaderModule,
         frag_shader_module: &ShaderModule,
         render_pass: &RenderPass,
+        format_overrides: &[FormatOverride],
     ) -> Self {
         let vert_pipeline_layout = PipelineLayout::from_shader_module(device, vert_shader_module);
         let frag_pipeline_layout = PipelineLayout::from_shader_module(device, frag_shader_module);
@@ -40,29 +41,16 @@ impl GraphicsPipeline {
 
         let vert_state_info = vert_shader_module.get_shader_stage_create_info();
         let frag_state_info = frag_shader_module.get_shader_stage_create_info();
+
+        log::debug!("vert: {:?}", vert_shader_module);
+        log::debug!("frag: {:?}", frag_shader_module);
+
         let shader_states_infos = [vert_state_info, frag_state_info];
 
-        let binding_desc = [vk::VertexInputBindingDescription::default()
-            .binding(0)
-            .stride(20)
-            .input_rate(vk::VertexInputRate::VERTEX)];
-        let attribute_desc = [
-            vk::VertexInputAttributeDescription::default()
-                .binding(0)
-                .location(0)
-                .format(vk::Format::R32G32_SFLOAT)
-                .offset(0),
-            vk::VertexInputAttributeDescription::default()
-                .binding(0)
-                .location(1)
-                .format(vk::Format::R32G32_SFLOAT)
-                .offset(8),
-            vk::VertexInputAttributeDescription::default()
-                .binding(0)
-                .location(2)
-                .format(vk::Format::R8G8B8A8_UNORM)
-                .offset(16),
-        ];
+        let (binding_desc, attribute_desc) = vert_shader_module
+            .get_vertex_input_state(0, format_overrides)
+            .unwrap();
+
         let vertex_input_info = vk::PipelineVertexInputStateCreateInfo::default()
             .vertex_binding_descriptions(&binding_desc)
             .vertex_attribute_descriptions(&attribute_desc);
@@ -179,6 +167,22 @@ impl GraphicsPipeline {
                 vk::PipelineBindPoint::GRAPHICS,
                 self.0.pipeline,
             );
+        }
+    }
+
+    pub fn record_viewport_scissor(
+        &self,
+        cmdbuf: &CommandBuffer,
+        viewport: vk::Viewport,
+        scissor: vk::Rect2D,
+    ) {
+        unsafe {
+            self.0
+                .device
+                .cmd_set_viewport(cmdbuf.as_raw(), 0, &[viewport]);
+            self.0
+                .device
+                .cmd_set_scissor(cmdbuf.as_raw(), 0, &[scissor]);
         }
     }
 

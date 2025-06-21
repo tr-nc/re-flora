@@ -157,7 +157,8 @@ impl Tracer {
             RenderPass::new(vulkan_ctx.device().clone(), &desc)
         };
 
-        let gfx_ppl = GraphicsPipeline::new(vulkan_ctx.device(), &vert_sm, &frag_sm, &render_pass);
+        let gfx_ppl =
+            GraphicsPipeline::new(vulkan_ctx.device(), &vert_sm, &frag_sm, &render_pass, &[]);
 
         (gfx_ppl, render_pass)
     }
@@ -333,35 +334,36 @@ impl Tracer {
 
     pub fn record_command_buffer(&mut self, cmdbuf: &CommandBuffer, image_index: usize) {
         self.record_screen_space_pass(cmdbuf, image_index);
-
-        // let screen_extent = self
-        //     .resources
-        //     .shader_write_tex
-        //     .get_image()
-        //     .get_desc()
-        //     .extent;
-
-        // self.resources
-        //     .shader_write_tex
-        //     .get_image()
-        //     .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
-        // self.tracer_ppl.record_bind(cmdbuf);
-
-        // self.tracer_ppl
-        //     .record_bind_descriptor_sets(cmdbuf, &self.tracer_sets, 0);
-        // self.tracer_ppl
-        //     .record_dispatch(cmdbuf, [screen_extent[0], screen_extent[1], 1]);
+        // disabled to use later on
+        // self._record_trace_pass(cmdbuf);
     }
 
     pub fn get_dst_image(&self) -> &Image {
         self.resources.shader_write_tex.get_image()
     }
 
+    pub fn _record_trace_pass(&self, cmdbuf: &CommandBuffer) {
+        let screen_extent = self
+            .resources
+            .shader_write_tex
+            .get_image()
+            .get_desc()
+            .extent;
+
+        self.resources
+            .shader_write_tex
+            .get_image()
+            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+        self.tracer_ppl.record_bind(cmdbuf);
+
+        self.tracer_ppl
+            .record_bind_descriptor_sets(cmdbuf, &self.tracer_sets, 0);
+        self.tracer_ppl
+            .record_dispatch(cmdbuf, [screen_extent[0], screen_extent[1], 1]);
+    }
+
     pub fn record_screen_space_pass(&self, cmdbuf: &CommandBuffer, image_index: usize) {
-        // self.resources
-        //     .shader_write_tex
-        //     .get_image()
-        //     .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
+        // TODO: take care of the transition of the image layout, if needed
 
         self.gfx_ppl.record_bind(cmdbuf);
 
@@ -370,7 +372,34 @@ impl Tracer {
             &self.gfx_framebuffers[image_index],
             &[0.0, 0.0, 0.0, 1.0],
         );
+
+        let image_extent = self
+            .resources
+            .shader_write_tex
+            .get_image()
+            .get_desc()
+            .extent;
+
+        let viewport = vk::Viewport {
+            x: 0.0,
+            y: 0.0,
+            width: image_extent[0] as f32,
+            height: image_extent[1] as f32,
+            min_depth: 0.0,
+            max_depth: 1.0,
+        };
+        let scissor = vk::Rect2D {
+            offset: vk::Offset2D { x: 0, y: 0 },
+            extent: vk::Extent2D {
+                width: image_extent[0],
+                height: image_extent[1],
+            },
+        };
+
+        self.gfx_ppl
+            .record_viewport_scissor(cmdbuf, viewport, scissor);
         self.gfx_ppl.record_draw(cmdbuf, 3, 1, 0, 0);
+
         self.gfx_render_pass.record_end(cmdbuf);
     }
 

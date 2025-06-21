@@ -2,6 +2,7 @@ use super::mesh::Mesh;
 use crate::util::ShaderCompiler;
 use crate::vkn::CommandBuffer;
 use crate::vkn::DescriptorSet;
+use crate::vkn::FormatOverride;
 use crate::vkn::ImageDesc;
 use crate::vkn::RenderPass;
 use crate::vkn::TextureRegion;
@@ -50,9 +51,9 @@ pub struct EguiRenderer {
 
 impl EguiRenderer {
     pub fn new(
-        vulkan_context: &VulkanContext,
+        vulkan_context: VulkanContext,
         window: &Window,
-        allocator: &Allocator,
+        allocator: Allocator,
         compiler: &ShaderCompiler,
         render_pass: &RenderPass,
     ) -> Self {
@@ -71,7 +72,6 @@ impl EguiRenderer {
 
         let vert_shader_module =
             ShaderModule::from_glsl(device, compiler, "shader/egui/egui.vert", "main").unwrap();
-
         let frag_shader_module =
             ShaderModule::from_glsl(device, compiler, "shader/egui/egui.frag", "main").unwrap();
 
@@ -80,6 +80,10 @@ impl EguiRenderer {
             &vert_shader_module,
             &frag_shader_module,
             render_pass,
+            &[FormatOverride {
+                location: 2,
+                format: vk::Format::R8G8B8A8_UNORM,
+            }],
         );
 
         let descriptor_pool = DescriptorPool::from_descriptor_set_layouts(
@@ -99,8 +103,8 @@ impl EguiRenderer {
         );
 
         Self {
-            vulkan_context: vulkan_context.clone(),
-            allocator: allocator.clone(),
+            vulkan_context,
+            allocator,
             gui_pipeline: pipeline,
             vert_shader_module,
             frag_shader_module,
@@ -132,6 +136,10 @@ impl EguiRenderer {
             &self.vert_shader_module,
             &self.frag_shader_module,
             render_pass,
+            &[FormatOverride {
+                location: 2,
+                format: vk::Format::R8G8B8A8_UNORM,
+            }],
         );
     }
 

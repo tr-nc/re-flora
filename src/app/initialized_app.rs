@@ -115,9 +115,9 @@ impl InitializedApp {
         let cmdbuf = CommandBuffer::new(device, vulkan_ctx.command_pool());
 
         let renderer = EguiRenderer::new(
-            &vulkan_ctx,
+            vulkan_ctx.clone(),
             &window_state.window(),
-            &allocator,
+            allocator.clone(),
             &shader_compiler,
             swapchain.get_render_pass(),
         );
