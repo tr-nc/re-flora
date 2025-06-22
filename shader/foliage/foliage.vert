@@ -17,4 +17,6 @@ void main() {
 
     // Select the position from the array based on the vertex being processed.
     gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
+    
+    // test commit...
 }
