@@ -6,8 +6,8 @@ use crate::gameplay::Camera;
 use crate::util::ShaderCompiler;
 use crate::vkn::{
     AccelStruct, Allocator, Buffer, ComputePipeline, DescriptorPool, DescriptorSet, Framebuffer,
-    GraphicsPipeline, Image, PlainMemberTypeWithData, RenderPass, RenderPassDesc, ShaderModule,
-    StructMemberDataBuilder, Texture, WriteDescriptorSet,
+    GraphicsPipeline, GraphicsPipelineDesc, Image, PlainMemberTypeWithData, RenderPass,
+    RenderPassDesc, ShaderModule, StructMemberDataBuilder, Texture, WriteDescriptorSet,
 };
 use crate::vkn::{CommandBuffer, VulkanContext};
 use ash::vk;
@@ -157,8 +157,16 @@ impl Tracer {
             RenderPass::new(vulkan_ctx.device().clone(), &desc)
         };
 
-        let gfx_ppl =
-            GraphicsPipeline::new(vulkan_ctx.device(), &vert_sm, &frag_sm, &render_pass, &[]);
+        let gfx_ppl = GraphicsPipeline::new(
+            vulkan_ctx.device(),
+            &vert_sm,
+            &frag_sm,
+            &render_pass,
+            &GraphicsPipelineDesc {
+                cull_mode: vk::CullModeFlags::BACK,
+                ..Default::default()
+            },
+        );
 
         (gfx_ppl, render_pass)
     }

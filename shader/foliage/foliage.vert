@@ -11,8 +11,8 @@ void main() {
     // of the [-1, 1] Normalized Device Coordinate (NDC) space.
     vec2 positions[3] = vec2[](
         vec2(-1.0, -1.0),
-        vec2(1.0,  -1.0),
-        vec2( 0.0, 1.0)
+        vec2( 0.0, 1.0),
+        vec2(1.0,  -1.0)
     );
 
     // Select the position from the array based on the vertex being processed.

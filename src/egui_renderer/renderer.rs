@@ -10,7 +10,8 @@ use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
 use crate::vkn::{
     Allocator, DescriptorPool, DescriptorSetLayout, DescriptorSetLayoutBinding,
-    DescriptorSetLayoutBuilder, Device, GraphicsPipeline, ShaderModule, Texture,
+    DescriptorSetLayoutBuilder, Device, GraphicsPipeline, GraphicsPipelineDesc, ShaderModule,
+    Texture,
 };
 use ash::vk;
 use ash::vk::Extent2D;
@@ -80,10 +81,13 @@ impl EguiRenderer {
             &vert_shader_module,
             &frag_shader_module,
             render_pass,
-            &[FormatOverride {
-                location: 2,
-                format: vk::Format::R8G8B8A8_UNORM,
-            }],
+            &GraphicsPipelineDesc {
+                format_overrides: vec![FormatOverride {
+                    location: 2,
+                    format: vk::Format::R8G8B8A8_UNORM,
+                }],
+                ..Default::default()
+            },
         );
 
         let descriptor_pool = DescriptorPool::from_descriptor_set_layouts(
@@ -136,10 +140,13 @@ impl EguiRenderer {
             &self.vert_shader_module,
             &self.frag_shader_module,
             render_pass,
-            &[FormatOverride {
-                location: 2,
-                format: vk::Format::R8G8B8A8_UNORM,
-            }],
+            &GraphicsPipelineDesc {
+                format_overrides: vec![FormatOverride {
+                    location: 2,
+                    format: vk::Format::R8G8B8A8_UNORM,
+                }],
+                ..Default::default()
+            },
         );
     }
 

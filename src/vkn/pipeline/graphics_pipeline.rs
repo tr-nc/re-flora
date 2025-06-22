@@ -27,13 +27,30 @@ impl Deref for GraphicsPipeline {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct GraphicsPipelineDesc {
+    pub format_overrides: Vec<FormatOverride>,
+    pub cull_mode: vk::CullModeFlags,
+    pub front_face: vk::FrontFace,
+}
+
+impl Default for GraphicsPipelineDesc {
+    fn default() -> Self {
+        Self {
+            format_overrides: Vec::new(),
+            cull_mode: vk::CullModeFlags::NONE,
+            front_face: vk::FrontFace::COUNTER_CLOCKWISE,
+        }
+    }
+}
+
 impl GraphicsPipeline {
     pub fn new(
         device: &Device,
         vert_shader_module: &ShaderModule,
         frag_shader_module: &ShaderModule,
         render_pass: &RenderPass,
-        format_overrides: &[FormatOverride],
+        desc: &GraphicsPipelineDesc,
     ) -> Self {
         let vert_pipeline_layout = PipelineLayout::from_shader_module(device, vert_shader_module);
         let frag_pipeline_layout = PipelineLayout::from_shader_module(device, frag_shader_module);
@@ -48,7 +65,7 @@ impl GraphicsPipeline {
         let shader_states_infos = [vert_state_info, frag_state_info];
 
         let (binding_desc, attribute_desc) = vert_shader_module
-            .get_vertex_input_state(0, format_overrides)
+            .get_vertex_input_state(0, &desc.format_overrides)
             .unwrap();
 
         log::debug!("binding_desc: {:#?}", binding_desc);
@@ -67,8 +84,8 @@ impl GraphicsPipeline {
             .rasterizer_discard_enable(false)
             .polygon_mode(vk::PolygonMode::FILL)
             .line_width(1.0)
-            .cull_mode(vk::CullModeFlags::BACK)
-            .front_face(vk::FrontFace::CLOCKWISE)
+            .cull_mode(desc.cull_mode)
+            .front_face(desc.front_face)
             .depth_bias_enable(false)
             .depth_bias_constant_factor(0.0)
             .depth_bias_clamp(0.0)
