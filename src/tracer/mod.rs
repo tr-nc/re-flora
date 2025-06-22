@@ -190,7 +190,7 @@ impl Tracer {
             &frag_sm,
             &render_pass,
             &GraphicsPipelineDesc {
-                cull_mode: vk::CullModeFlags::NONE,
+                cull_mode: vk::CullModeFlags::BACK,
                 ..Default::default()
             },
         );
@@ -368,9 +368,9 @@ impl Tracer {
     }
 
     pub fn record_command_buffer(&mut self, cmdbuf: &CommandBuffer, image_index: usize) {
-        // self.record_screen_space_pass(cmdbuf, image_index);
+        self.record_screen_space_pass(cmdbuf, image_index);
         // disabled to use later on
-        self._record_trace_pass(cmdbuf);
+        // self._record_trace_pass(cmdbuf);
     }
 
     pub fn get_dst_image(&self) -> &Image {
