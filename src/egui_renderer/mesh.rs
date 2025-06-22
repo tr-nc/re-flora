@@ -61,7 +61,6 @@ impl Mesh {
     ) {
         let vertices = create_vertices(primitives);
         if vertices.len() > self.vertex_count {
-            log::trace!("Resizing vertex buffers");
             self.vertex_count = vertices.len();
             let size = self.vertex_count * size_of::<Vertex>();
             self.vertices_buffer = Buffer::new_sized(
@@ -78,8 +77,6 @@ impl Mesh {
 
         let indices = create_indices(primitives);
         if indices.len() > self.index_count {
-            log::trace!("Resizing index buffers");
-
             self.index_count = indices.len();
             let size = self.index_count * size_of::<u32>();
             self.indices_buffer = Buffer::new_sized(
