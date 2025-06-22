@@ -176,11 +176,14 @@ impl ShaderModule {
             }
         }
 
-        let input_vars = self
+        let mut input_vars = self
             .0
             .reflect_shader_module
             .enumerate_input_variables(None)
             .expect("Failed to enumerate input variables from shader");
+
+        // otherwise the order of the attributes is not guaranteed, leading to incorrect offset calculation
+        input_vars.sort_by_key(|var| var.location);
 
         let mut attribute_descriptions = Vec::with_capacity(input_vars.len());
         let mut current_offset = 0u32;
