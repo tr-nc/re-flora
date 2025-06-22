@@ -20,6 +20,7 @@ pub struct Tracer {
 
     tracer_ppl: ComputePipeline,
     tracer_sets: [DescriptorSet; 3],
+    graphics_sets: [DescriptorSet; 1],
     gfx_ppl: GraphicsPipeline,
     gfx_render_pass: RenderPass,
     gfx_framebuffers: Vec<Framebuffer>,
@@ -112,12 +113,20 @@ impl Tracer {
             tlas,
         );
 
+        let graphics_set_0 = Self::create_graphics_set_0(
+            descriptor_pool_ds_0.clone(),
+            &vulkan_ctx,
+            &gfx_ppl,
+            &resources,
+        );
+
         return Self {
             vulkan_ctx,
             allocator,
             resources,
             tracer_ppl,
             tracer_sets: [tracer_set_0, tracer_set_1, tracer_set_2],
+            graphics_sets: [graphics_set_0],
             gfx_ppl,
             gfx_render_pass,
             gfx_framebuffers,
@@ -126,6 +135,24 @@ impl Tracer {
             descriptor_pool_ds_2,
             frame_serial_idx: 0,
         };
+    }
+
+    fn create_graphics_set_0(
+        descriptor_pool: DescriptorPool,
+        vulkan_ctx: &VulkanContext,
+        gfx_ppl: &GraphicsPipeline,
+        resources: &TracerResources,
+    ) -> DescriptorSet {
+        let ds = DescriptorSet::new(
+            vulkan_ctx.device().clone(),
+            &gfx_ppl.get_layout().get_descriptor_set_layouts()[&0],
+            descriptor_pool,
+        );
+        ds.perform_writes(&mut [WriteDescriptorSet::new_buffer_write(
+            0,
+            &resources.camera_info,
+        )]);
+        ds
     }
 
     fn create_graphics_pipeline(
@@ -209,7 +236,7 @@ impl Tracer {
         leaf_data: &Buffer,
         scene_tex: &Texture,
     ) -> DescriptorSet {
-        let compute_descriptor_set = DescriptorSet::new(
+        let ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),
             &tracer_ppl
                 .get_layout()
@@ -218,7 +245,7 @@ impl Tracer {
                 .unwrap(),
             descriptor_pool,
         );
-        compute_descriptor_set.perform_writes(&mut [
+        ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.gui_input),
             WriteDescriptorSet::new_buffer_write(1, &resources.camera_info),
             WriteDescriptorSet::new_buffer_write(2, &resources.env_info),
@@ -267,7 +294,7 @@ impl Tracer {
                 vk::ImageLayout::GENERAL,
             ),
         ]);
-        compute_descriptor_set
+        ds
     }
 
     fn create_descriptor_set_1(
@@ -276,18 +303,18 @@ impl Tracer {
         tracer_ppl: &ComputePipeline,
         resources: &TracerResources,
     ) -> DescriptorSet {
-        let compute_descriptor_set = DescriptorSet::new(
+        let ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),
             &tracer_ppl.get_layout().get_descriptor_set_layouts()[&1],
             descriptor_pool,
         );
-        compute_descriptor_set.perform_writes(&mut [WriteDescriptorSet::new_texture_write(
+        ds.perform_writes(&mut [WriteDescriptorSet::new_texture_write(
             0,
             vk::DescriptorType::STORAGE_IMAGE,
             &resources.shader_write_tex,
             vk::ImageLayout::GENERAL,
         )]);
-        compute_descriptor_set
+        ds
     }
 
     fn create_descriptor_set_2(
@@ -296,15 +323,15 @@ impl Tracer {
         tracer_ppl: &ComputePipeline,
         tlas: &AccelStruct,
     ) -> DescriptorSet {
-        let compute_descriptor_set = DescriptorSet::new(
+        let ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),
             &tracer_ppl.get_layout().get_descriptor_set_layouts()[&2],
             descriptor_pool,
         );
-        compute_descriptor_set.perform_writes(&mut [
-            WriteDescriptorSet::new_acceleration_structure_write(0, tlas),
-        ]);
-        compute_descriptor_set
+        ds.perform_writes(&mut [WriteDescriptorSet::new_acceleration_structure_write(
+            0, tlas,
+        )]);
+        ds
     }
 
     pub fn update_tlas_binding(&mut self, tlas: &AccelStruct) {
@@ -392,8 +419,13 @@ impl Tracer {
             },
         };
 
+        // must be done before record draw, can be swapped with record_viewport_scissor
+        self.gfx_ppl
+            .record_bind_descriptor_sets(cmdbuf, &self.graphics_sets, 0);
+
         self.gfx_ppl
             .record_viewport_scissor(cmdbuf, viewport, scissor);
+
         self.gfx_ppl.record_draw(cmdbuf, 3, 1, 0, 0);
 
         self.gfx_render_pass.record_end(cmdbuf);

@@ -1,4 +1,6 @@
-use crate::vkn::{CommandBuffer, Device, FormatOverride, PipelineLayout, RenderPass, ShaderModule};
+use crate::vkn::{
+    CommandBuffer, DescriptorSet, Device, FormatOverride, PipelineLayout, RenderPass, ShaderModule,
+};
 use ash::vk;
 use std::{ops::Deref, sync::Arc};
 
@@ -164,6 +166,28 @@ impl GraphicsPipeline {
         &self.0.pipeline_layout
     }
 
+    pub fn record_bind_descriptor_sets(
+        &self,
+        cmdbuf: &CommandBuffer,
+        descriptor_sets: &[DescriptorSet],
+        first_set: u32,
+    ) {
+        let descriptor_sets = descriptor_sets
+            .iter()
+            .map(|s| s.as_raw())
+            .collect::<Vec<_>>();
+
+        unsafe {
+            self.0.device.cmd_bind_descriptor_sets(
+                cmdbuf.as_raw(),
+                vk::PipelineBindPoint::GRAPHICS,
+                self.0.pipeline_layout.as_raw(),
+                first_set,
+                &descriptor_sets,
+                &[],
+            );
+        }
+    }
     fn create_pipeline(
         device: &Device,
         create_info: &vk::GraphicsPipelineCreateInfo,
