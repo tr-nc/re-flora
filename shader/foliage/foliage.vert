@@ -1,7 +1,5 @@
 #version 450
 
-// layout(location = 0) in vec3 in_position;
-
 layout(location = 0) out vec3 vert_color;
 
 layout(set = 0, binding = 0) uniform U_CameraInfo {
@@ -15,17 +13,13 @@ layout(set = 0, binding = 0) uniform U_CameraInfo {
 }
 camera_info;
 
+// These are your model-space positions for a test triangle
+const vec3 positions[3] = vec3[](vec3(-1.0, -1.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(1.0, -1.0, 0.0));
+
 void main() {
-    // just hard coded for testing
-    vec2 positions[3] = vec2[](vec2(-1.0, -1.0), vec2(0.0, 1.0), vec2(1.0, -1.0));
+    // Take the model-space position and transform it once to clip space.
+    gl_Position = camera_info.view_proj_mat * vec4(positions[gl_VertexIndex], 1.0);
 
-    // If your vertices are in model space, the formula would be:
-    // view_proj_mat * model_mat * vec4(in_position, 1.0);
-    // gl_Position = camera_info.view_proj_mat * vec4(in_position, 1.0);
-
-    gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
-    gl_Position = camera_info.view_proj_mat * gl_Position;
-
-    // For fun, let's pass the world position as a color.
-    vert_color = gl_Position.xyz;
+    // Pass the original model-space position as the color for visualization.
+    vert_color = positions[gl_VertexIndex];
 }

@@ -6,7 +6,7 @@
 /// We use right-handed coordinate system here, so the z value of clip space
 /// far point is -1.
 vec4 screen_uv_to_clip_far_point(vec2 screen_uv) {
-    screen_uv.y = 1.0 - screen_uv.y;
+    // notice that the y axis has been flipped in the projection matrix
     return vec4(screen_uv * 2.0 - 1.0, -1.0, 1.0);
 }
 

@@ -170,7 +170,6 @@ impl Camera {
         Vec4::new(self.position.x, self.position.y, self.position.z, 1.0)
     }
 
-    #[allow(dead_code)]
     pub fn get_view_mat(&self) -> Mat4 {
         Mat4::look_at_rh(
             self.position,
@@ -179,14 +178,27 @@ impl Camera {
         )
     }
 
-    #[allow(dead_code)]
     pub fn get_proj_mat(&self) -> Mat4 {
-        Mat4::perspective_rh(
+        // 1. “Regular” perspective that glam already gives us for 0‥1 depth.
+        let proj = Mat4::perspective_rh(
             self.desc.projection.v_fov.to_radians(),
             self.desc.aspect_ratio,
             self.desc.projection.z_near,
             self.desc.projection.z_far,
-        )
+        );
+
+        // 2. Flip the Y axis so “up” in world space is “up” on screen.
+        //    We do that by prepending a scale matrix ⎡1  0  0  0⎤
+        //                                          ⎢0 -1  0  0⎥
+        //                                          ⎢0  0  1  0⎥
+        //                                          ⎣0  0  0  1⎦
+        //
+        //    Multiplication order matters: the vertex shader will do
+        //        clip_pos = (flip_y * proj) * view_pos;
+        //    therefore we multiply *left*.
+        let flip_y = Mat4::from_scale(Vec3::new(1.0, -1.0, 1.0));
+
+        flip_y * proj
     }
 
     /// Only controls the camera's movement state based on the key event.
