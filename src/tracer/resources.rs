@@ -1,4 +1,5 @@
 use crate::{
+    tracer::Vertex,
     util::{get_project_root, Timer},
     vkn::{
         Allocator, Buffer, BufferUsage, Device, ImageDesc, ShaderModule, Texture, VulkanContext,
@@ -10,6 +11,7 @@ pub struct TracerResources {
     pub gui_input: Buffer,
     pub camera_info: Buffer,
     pub env_info: Buffer,
+    pub vertices: Buffer,
     pub shader_write_tex: Texture,
 
     pub scalar_bn: Texture,
@@ -25,6 +27,7 @@ impl TracerResources {
         vulkan_ctx: &VulkanContext,
         allocator: Allocator,
         tracer_sm: &ShaderModule,
+        vertex_shader_sm: &ShaderModule,
         screen_extent: &[u32; 2],
     ) -> Self {
         let device = vulkan_ctx.device();
@@ -101,10 +104,34 @@ impl TracerResources {
         );
         log::debug!("Blue noise texture load time: {:?}", timer.elapsed());
 
+        let vertices_data = [
+            Vertex {
+                position: glam::vec3(-1.0, -1.0, 0.0),
+                color: glam::vec3(1.0, 0.0, 0.0),
+            },
+            Vertex {
+                position: glam::vec3(0.0, 1.0, 0.0),
+                color: glam::vec3(0.0, 1.0, 0.0),
+            },
+            Vertex {
+                position: glam::vec3(1.0, -1.0, 0.0),
+                color: glam::vec3(0.0, 0.0, 1.0),
+            },
+        ];
+        let vertices = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            (std::mem::size_of::<Vertex>() * vertices_data.len()) as u64,
+        );
+        vertices.fill(&vertices_data).unwrap();
+
         return Self {
             gui_input,
             camera_info,
             env_info,
+            vertices,
             shader_write_tex,
 
             scalar_bn,

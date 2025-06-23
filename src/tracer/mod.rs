@@ -2,6 +2,9 @@ mod resources;
 use glam::Vec3;
 pub use resources::*;
 
+mod vertex;
+pub use vertex::*;
+
 use crate::gameplay::Camera;
 use crate::util::ShaderCompiler;
 use crate::vkn::{
@@ -73,11 +76,33 @@ impl Tracer {
         )
         .unwrap();
 
-        let resources =
-            TracerResources::new(&vulkan_ctx, allocator.clone(), &tracer_sm, screen_extent);
+        let vert_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            shader_compiler,
+            "shader/foliage/foliage.vert",
+            "main",
+        )
+        .unwrap();
+        let frag_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            shader_compiler,
+            "shader/foliage/foliage.frag",
+            "main",
+        )
+        .unwrap();
+
+        let resources = TracerResources::new(
+            &vulkan_ctx,
+            allocator.clone(),
+            &tracer_sm,
+            &vert_sm,
+            screen_extent,
+        );
 
         let (gfx_ppl, gfx_render_pass) = Self::create_graphics_pipeline(
             &vulkan_ctx,
+            &vert_sm,
+            &frag_sm,
             resources.shader_write_tex.get_image().get_desc().format,
             shader_compiler,
         );
@@ -157,24 +182,11 @@ impl Tracer {
 
     fn create_graphics_pipeline(
         vulkan_ctx: &VulkanContext,
+        vert_sm: &ShaderModule,
+        frag_sm: &ShaderModule,
         shader_write_tex_format: vk::Format,
         shader_compiler: &ShaderCompiler,
     ) -> (GraphicsPipeline, RenderPass) {
-        let vert_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            shader_compiler,
-            "shader/foliage/foliage.vert",
-            "main",
-        )
-        .unwrap();
-        let frag_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            shader_compiler,
-            "shader/foliage/foliage.frag",
-            "main",
-        )
-        .unwrap();
-
         let render_pass = {
             let desc = RenderPassDesc {
                 format: shader_write_tex_format,
@@ -190,7 +202,7 @@ impl Tracer {
             &frag_sm,
             &render_pass,
             &GraphicsPipelineDesc {
-                cull_mode: vk::CullModeFlags::BACK,
+                cull_mode: vk::CullModeFlags::NONE,
                 ..Default::default()
             },
         );
@@ -422,6 +434,15 @@ impl Tracer {
         // must be done before record draw, can be swapped with record_viewport_scissor
         self.gfx_ppl
             .record_bind_descriptor_sets(cmdbuf, &self.graphics_sets, 0);
+
+        unsafe {
+            self.vulkan_ctx.device().cmd_bind_vertex_buffers(
+                cmdbuf.as_raw(),
+                0,                                   // firstBinding
+                &[self.resources.vertices.as_raw()], // The buffer to bind
+                &[0],                                // The offset into the buffer
+            );
+        }
 
         self.gfx_ppl
             .record_viewport_scissor(cmdbuf, viewport, scissor);

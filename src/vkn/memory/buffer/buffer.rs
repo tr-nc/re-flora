@@ -217,7 +217,8 @@ impl Buffer {
     }
 
     /// Returns the memory location of the buffer.
-    pub fn _get_location(&self) -> MemoryLocation {
+    #[allow(dead_code)]
+    pub fn get_location(&self) -> MemoryLocation {
         self.desc._location
     }
 
