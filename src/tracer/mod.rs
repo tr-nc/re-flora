@@ -5,6 +5,9 @@ pub use resources::*;
 mod vertex;
 pub use vertex::*;
 
+mod grass_construct;
+use grass_construct::*;
+
 use crate::gameplay::Camera;
 use crate::util::ShaderCompiler;
 use crate::vkn::{
@@ -447,7 +450,8 @@ impl Tracer {
         self.gfx_ppl
             .record_viewport_scissor(cmdbuf, viewport, scissor);
 
-        self.gfx_ppl.record_draw(cmdbuf, 3, 1, 0, 0);
+        self.gfx_ppl
+            .record_draw(cmdbuf, self.resources.vertices_len, 1, 0, 0);
 
         self.gfx_render_pass.record_end(cmdbuf);
         // TODO: do this inside the render pass!
