@@ -1,16 +1,13 @@
 #version 450
 
-// Vertex attributes now include height
 layout(location = 0) in vec3 in_position;
 layout(location = 1) in vec3 in_color;
 layout(location = 2) in uint in_height; // The voxel's stack level
 
-// Outputs to fragment shader
 layout(location = 0) out vec3 vert_color;
 
-// Existing camera uniforms
 layout(set = 0, binding = 0) uniform U_CameraInfo {
-    vec4 camera_pos; // w is padding.
+    vec4 camera_pos;
     mat4 view_mat;
     mat4 view_mat_inv;
     mat4 proj_mat;

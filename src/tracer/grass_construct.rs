@@ -14,11 +14,8 @@ pub fn generate_indexed_voxel_grass_blade(
     let mut indices = Vec::new();
 
     for i in 0..voxel_count {
-        // The current vertex offset is the number of vertices we've already added.
         let vertex_offset = vertices.len() as u32;
 
-        // The position passed to the helper is now just the vertical stack position.
-        // The bending will be done in the vertex shader.
         let base_position = vec3(0.0, i as f32, 0.0);
 
         // Interpolate the color based on the height (i).
