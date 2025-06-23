@@ -234,21 +234,6 @@ void main() {
                 uint grass_height =
                     min_grass_height + uint(height_noise * (max_grass_height - min_grass_height));
 
-                // --- Place the grass voxels ---
-                uint grass_property =
-                    compress_voxel_type_and_normal(VOXEL_TYPE_GRASS, vec3(0.0, 1.0, 0.0), false);
-
-                // for (uint y = 0; y <= grass_height; y++) {
-                //     ivec3 grass_uvi = uvi + ivec3(0, y, 0);
-                //     // Ensure we don't write outside the designated atlas region
-                //     if (any(greaterThanEqual(grass_uvi,
-                //     ivec3(make_surface_info.atlas_read_dim)))) {
-                //         break;
-                //     }
-                //     atomicAdd(make_surface_result.active_voxel_len, 1);
-                //     imageStore(surface, grass_uvi, uvec4(grass_property, 0, 0, 0));
-                // }
-
                 uint write_idx = atomicAdd(make_surface_result.grass_instance_len, 1);
                 GrassInstance instance;
                 instance.position               = uvec3(make_surface_info.atlas_read_offset + uvi);

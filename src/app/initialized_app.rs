@@ -149,8 +149,8 @@ impl InitializedApp {
             &shader_compiler,
             plain_builder.get_resources(),
             VOXEL_DIM_PER_CHUNK,
-            (VOXEL_DIM_PER_CHUNK.x / 8) as u64
-                * (VOXEL_DIM_PER_CHUNK.z / 8) as u64
+            VOXEL_DIM_PER_CHUNK.x as u64
+                * VOXEL_DIM_PER_CHUNK.z as u64
                 * CHUNK_DIM.x as u64
                 * CHUNK_DIM.y as u64
                 * CHUNK_DIM.z as u64,
