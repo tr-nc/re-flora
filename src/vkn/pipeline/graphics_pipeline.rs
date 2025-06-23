@@ -73,11 +73,7 @@ impl GraphicsPipeline {
         let shader_states_infos = [vert_state_info, frag_state_info];
 
         let (binding_descs, attribute_descs) = vert_shader_module
-            .get_vertex_input_state(
-                vk::VertexInputRate::VERTEX,
-                &desc.format_overrides,
-                instance_rate_starting_location,
-            )
+            .get_vertex_input_state(&desc.format_overrides, instance_rate_starting_location)
             .unwrap();
 
         log::debug!("binding_descs: {:#?}", binding_descs);

@@ -237,6 +237,7 @@ impl SurfaceBuilder {
 
         let (active_voxel_len, grass_instance_len) =
             get_result(&self.resources.make_surface_result);
+        log::debug!("grass_instance_len: {}", grass_instance_len);
         self.grass_instance_len = grass_instance_len;
 
         return active_voxel_len;

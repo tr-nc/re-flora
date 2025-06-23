@@ -146,7 +146,6 @@ impl ShaderModule {
 
     pub fn get_vertex_input_state(
         &self,
-        rate: vk::VertexInputRate,
         format_overrides: &[FormatOverride],
         instance_rate_starting_location: Option<u32>,
     ) -> Result<(
@@ -171,9 +170,11 @@ impl ShaderModule {
         input_vars.sort_by_key(|var| var.location);
 
         let mut attribute_descriptions = Vec::with_capacity(input_vars.len());
-        let mut accumulated_offset = 0u32;
+        // Use an array or a small Vec to track offsets for each binding.
+        // Assuming max 2 bindings for simplicity.
+        let mut offsets = [0u32; 2];
 
-        let mut vert_rate_stride = 0;
+        let vert_rate_stride;
         let mut inst_rate_stride = None;
 
         let mut binding_index = 0;
@@ -181,7 +182,6 @@ impl ShaderModule {
         for var in &input_vars {
             let loc = var.location;
 
-            // skip built-in variables like gl_VertexIndex
             if var
                 .decoration_flags
                 .contains(spirv_reflect::types::ReflectDecorationFlags::BUILT_IN)
@@ -190,50 +190,45 @@ impl ShaderModule {
             }
 
             let reflected_format = reflect_format_to_vk(var.format)?;
-
-            // Check for an override for the current location.
             let final_format = format_overrides
                 .iter()
                 .find(|ov| ov.location == loc)
-                .map_or(reflected_format, |ov| ov.format); // Use override if found, else default
+                .map_or(reflected_format, |ov| ov.format);
 
-            if let Some(inst_rate_starting_location) = instance_rate_starting_location {
-                if loc == inst_rate_starting_location {
+            // Check if we've crossed into the instance-rate attributes and update the binding index
+            if let Some(start_loc) = instance_rate_starting_location {
+                if loc >= start_loc {
                     binding_index = 1;
                 }
             }
 
             let description = vk::VertexInputAttributeDescription::default()
-                .binding(binding_index)
+                .binding(binding_index as u32)
                 .location(loc)
-                .format(final_format) // Use the final, possibly overridden, format
-                .offset(accumulated_offset);
+                .format(final_format)
+                // Use the offset for the CURRENT binding
+                .offset(offsets[binding_index]);
 
             attribute_descriptions.push(description);
 
-            // IMPORTANT: Calculate the next offset using the size of the FINAL format.
-            accumulated_offset += format_to_size_in_bytes(final_format);
+            // Increment the offset for the CURRENT binding
+            offsets[binding_index] += format_to_size_in_bytes(final_format);
+        }
 
-            if let Some(inst_rate_starting_location) = instance_rate_starting_location {
-                if loc >= inst_rate_starting_location {
-                    inst_rate_stride = Some(accumulated_offset - vert_rate_stride);
-                } else {
-                    vert_rate_stride = accumulated_offset;
-                }
-            } else {
-                vert_rate_stride = accumulated_offset;
-            }
+        // Final strides are just the total accumulated offsets for each binding
+        vert_rate_stride = offsets[0];
+        if instance_rate_starting_location.is_some() {
+            inst_rate_stride = Some(offsets[1]);
         }
 
         if attribute_descriptions.is_empty() {
             return Ok((Vec::new(), Vec::new()));
         }
 
-        // TODO: remove binding index from passing in
         let mut binding_description = vec![vk::VertexInputBindingDescription::default()
             .binding(0)
             .stride(vert_rate_stride)
-            .input_rate(rate)];
+            .input_rate(vk::VertexInputRate::VERTEX)];
         if let Some(inst_rate_stride) = inst_rate_stride {
             binding_description.push(
                 vk::VertexInputBindingDescription::default()
