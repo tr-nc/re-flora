@@ -1,13 +1,10 @@
 use crate::tracer::Vertex;
 use glam::{vec3, Vec3};
 
-/// Generates indexed vertex and index data for a single blade of voxel grass.
-///
-/// # Returns
-/// * `(Vec<Vertex>, Vec<u32>)` - A tuple containing the vertex list and the index list.
 pub fn generate_indexed_voxel_grass_blade(
     voxel_count: u32,
-    color: Vec3,
+    bottom_color: Vec3,
+    tip_color: Vec3,
 ) -> (Vec<Vertex>, Vec<u32>) {
     if voxel_count == 0 {
         return (Vec::new(), Vec::new());
@@ -24,11 +21,16 @@ pub fn generate_indexed_voxel_grass_blade(
         // The bending will be done in the vertex shader.
         let base_position = vec3(0.0, i as f32, 0.0);
 
+        // Interpolate the color based on the height (i).
+        // 't' will go from 0.0 for the first voxel to 1.0 for the last one.
+        let t = i as f32 / (voxel_count - 1).max(1) as f32;
+        let voxel_color = bottom_color.lerp(tip_color, t);
+
         append_indexed_cube_data(
             &mut vertices,
             &mut indices,
             base_position,
-            color,
+            voxel_color, // Pass the interpolated color for this specific voxel.
             i,
             vertex_offset,
         );
@@ -55,7 +57,7 @@ fn append_indexed_cube_data(
         vec3(-0.5, -0.5, 0.5),
         vec3(0.5, -0.5, 0.5),
         vec3(0.5, 0.5, 0.5),
-        vec3(-0.5, 0.5, 0.5),
+        vec3(-0.5, 0.5, 0.7),
     ];
 
     for &local_pos in &base_verts {

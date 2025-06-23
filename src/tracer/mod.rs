@@ -106,13 +106,14 @@ impl Tracer {
             &vulkan_ctx,
             &vert_sm,
             &frag_sm,
+            resources.depth_tex.get_image().get_desc().format,
             resources.shader_write_tex.get_image().get_desc().format,
-            shader_compiler,
         );
 
         let gfx_framebuffers = Self::create_framebuffers(
             &vulkan_ctx,
             &gfx_render_pass,
+            &resources.depth_tex,
             &resources.shader_write_tex,
             swapchain_image_views,
         );
@@ -187,13 +188,15 @@ impl Tracer {
         vulkan_ctx: &VulkanContext,
         vert_sm: &ShaderModule,
         frag_sm: &ShaderModule,
+        depth_tex_format: vk::Format,
         shader_write_tex_format: vk::Format,
-        shader_compiler: &ShaderCompiler,
     ) -> (GraphicsPipeline, RenderPass) {
         let render_pass = {
             let desc = RenderPassDesc {
                 format: shader_write_tex_format,
                 final_layout: vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                depth_format: Some(depth_tex_format),
+                depth_final_layout: Some(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL),
                 ..Default::default()
             };
             RenderPass::new(vulkan_ctx.device().clone(), &desc)
@@ -206,6 +209,8 @@ impl Tracer {
             &render_pass,
             &GraphicsPipelineDesc {
                 cull_mode: vk::CullModeFlags::NONE,
+                depth_test_enable: true,
+                depth_write_enable: true,
                 ..Default::default()
             },
         );
@@ -216,11 +221,14 @@ impl Tracer {
     fn create_framebuffers(
         vulkan_ctx: &VulkanContext,
         render_pass: &RenderPass,
+        depth_texture: &Texture,
         target_texture: &Texture,
         swapchain_image_views: &[vk::ImageView],
     ) -> Vec<Framebuffer> {
-        let dst_image_view = target_texture.get_image_view().as_raw();
-        let dst_image_extent = {
+        let depth_image_view = depth_texture.get_image_view().as_raw();
+        let target_view = target_texture.get_image_view().as_raw();
+
+        let target_image_extent = {
             let ext = target_texture.get_image().get_desc().extent;
             vk::Extent2D {
                 width: ext[0],
@@ -234,8 +242,8 @@ impl Tracer {
                 Framebuffer::new(
                     vulkan_ctx.clone(),
                     &render_pass,
-                    dst_image_view,
-                    dst_image_extent,
+                    &[target_view, depth_image_view],
+                    target_image_extent,
                 )
                 .unwrap()
             })
@@ -369,6 +377,7 @@ impl Tracer {
         self.gfx_framebuffers = Self::create_framebuffers(
             &self.vulkan_ctx,
             &self.gfx_render_pass,
+            &self.resources.depth_tex,
             &self.resources.shader_write_tex,
             swapchain_image_views,
         );
@@ -410,10 +419,27 @@ impl Tracer {
 
         self.gfx_ppl.record_bind(cmdbuf);
 
+        // When beginning the render pass, you must also provide a clear value for the depth buffer.
+        let clear_values = [
+            vk::ClearValue {
+                // Color
+                color: vk::ClearColorValue {
+                    float32: [0.0, 0.0, 0.0, 1.0],
+                },
+            },
+            vk::ClearValue {
+                // Depth
+                depth_stencil: vk::ClearDepthStencilValue {
+                    depth: 1.0,
+                    stencil: 0,
+                },
+            },
+        ];
+
         self.gfx_render_pass.record_begin(
             cmdbuf,
             &self.gfx_framebuffers[image_index],
-            &[0.0, 0.0, 0.0, 1.0],
+            &clear_values,
         );
 
         let image_extent = self.get_dst_image().get_desc().extent;

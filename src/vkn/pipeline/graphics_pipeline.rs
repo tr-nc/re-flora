@@ -34,6 +34,8 @@ pub struct GraphicsPipelineDesc {
     pub format_overrides: Vec<FormatOverride>,
     pub cull_mode: vk::CullModeFlags,
     pub front_face: vk::FrontFace,
+    pub depth_test_enable: bool,
+    pub depth_write_enable: bool,
 }
 
 impl Default for GraphicsPipelineDesc {
@@ -42,6 +44,8 @@ impl Default for GraphicsPipelineDesc {
             format_overrides: Vec::new(),
             cull_mode: vk::CullModeFlags::NONE,
             front_face: vk::FrontFace::COUNTER_CLOCKWISE,
+            depth_test_enable: false,
+            depth_write_enable: false,
         }
     }
 }
@@ -127,9 +131,9 @@ impl GraphicsPipeline {
             .blend_constants([0.0, 0.0, 0.0, 0.0]);
 
         let depth_stencil_state_create_info = vk::PipelineDepthStencilStateCreateInfo::default()
-            .depth_test_enable(false)
-            .depth_write_enable(false)
-            .depth_compare_op(vk::CompareOp::ALWAYS)
+            .depth_test_enable(desc.depth_test_enable)
+            .depth_write_enable(desc.depth_write_enable)
+            .depth_compare_op(vk::CompareOp::LESS)
             .depth_bounds_test_enable(false)
             .stencil_test_enable(false);
 

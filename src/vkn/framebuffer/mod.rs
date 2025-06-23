@@ -5,7 +5,6 @@ use ash::vk;
 pub struct Framebuffer {
     vulkan_ctx: VulkanContext,
     framebuffer: vk::Framebuffer,
-    image_view: vk::ImageView,
     extent: vk::Extent2D,
 }
 
@@ -13,10 +12,9 @@ impl Framebuffer {
     pub fn new(
         vulkan_ctx: VulkanContext,
         render_pass: &RenderPass,
-        image_view: vk::ImageView,
+        attachments: &[vk::ImageView],
         extent: vk::Extent2D,
     ) -> Result<Self> {
-        let attachments = [image_view];
         let framebuffer_info = vk::FramebufferCreateInfo::default()
             .render_pass(render_pass.as_raw())
             .attachments(&attachments)
@@ -33,7 +31,6 @@ impl Framebuffer {
             return Ok(Self {
                 vulkan_ctx,
                 framebuffer,
-                image_view,
                 extent,
             });
         }
@@ -41,10 +38,6 @@ impl Framebuffer {
 
     pub fn as_raw(&self) -> vk::Framebuffer {
         self.framebuffer
-    }
-
-    pub fn get_image_view(&self) -> vk::ImageView {
-        self.image_view
     }
 
     pub fn get_extent(&self) -> vk::Extent2D {

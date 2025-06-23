@@ -14,6 +14,7 @@ pub struct TracerResources {
     pub vertices: Buffer,
     pub indices: Buffer,
     pub indices_len: u32,
+    pub depth_tex: Texture,
     pub shader_write_tex: Texture,
 
     pub scalar_bn: Texture,
@@ -59,6 +60,12 @@ impl TracerResources {
             env_info_layout.clone(),
             BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
+        );
+
+        let depth_tex = Self::create_depth_tex(
+            device.clone(),
+            allocator.clone(),
+            [screen_extent[0], screen_extent[1], 1],
         );
 
         let shader_write_tex = Self::create_shader_write_tex(
@@ -108,11 +115,13 @@ impl TracerResources {
 
         // --- Generate and create indexed vertex and index buffers ---
         const GRASS_BLADE_VOXEL_LENGTH: u32 = 8;
-        let grass_color = glam::vec3(0.0, 1.0, 0.0);
+        // Define bottom and tip colors, converting from [0, 255] RGB to [0.0, 1.0] Vec3.
+        let bottom_color = glam::vec3(52.0 / 255.0, 116.0 / 255.0, 51.0 / 255.0);
+        let tip_color = glam::vec3(182.0 / 255.0, 245.0 / 255.0, 0.0 / 255.0);
 
-        // 1. Generate the indexed data.
+        // 1. Generate the indexed data with the color gradient.
         let (vertices_data, indices_data) =
-            generate_indexed_voxel_grass_blade(GRASS_BLADE_VOXEL_LENGTH, grass_color);
+            generate_indexed_voxel_grass_blade(GRASS_BLADE_VOXEL_LENGTH, bottom_color, tip_color);
 
         let indices_len = indices_data.len() as u32;
 
@@ -146,6 +155,7 @@ impl TracerResources {
             vertices,
             indices,
             indices_len,
+            depth_tex,
             shader_write_tex,
 
             scalar_bn,
@@ -194,11 +204,30 @@ impl TracerResources {
     }
 
     pub fn on_resize(&mut self, device: Device, allocator: Allocator, screen_extent: &[u32; 2]) {
-        self.shader_write_tex = Self::create_shader_write_tex(
-            device,
-            allocator,
+        self.depth_tex = Self::create_depth_tex(
+            device.clone(),
+            allocator.clone(),
             [screen_extent[0], screen_extent[1], 1],
         );
+        self.shader_write_tex = Self::create_shader_write_tex(
+            device.clone(),
+            allocator.clone(),
+            [screen_extent[0], screen_extent[1], 1],
+        );
+    }
+
+    fn create_depth_tex(device: Device, allocator: Allocator, screen_extent: [u32; 3]) -> Texture {
+        let tex_desc = ImageDesc {
+            extent: screen_extent,
+            format: vk::Format::D32_SFLOAT,
+            usage: vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::DEPTH,
+            ..Default::default()
+        };
+        let sam_desc = Default::default();
+        let tex = Texture::new(device, allocator, &tex_desc, &sam_desc);
+        tex
     }
 
     fn create_shader_write_tex(
