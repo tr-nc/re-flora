@@ -436,7 +436,7 @@ fn create_vulkan_swapchain(
         .collect::<VkResult<Vec<vk::ImageView>>>()
         .unwrap();
 
-    let render_pass = create_vulkan_render_pass(vulkan_context.device(), format.format);
+    let render_pass = create_vulkan_render_pass(vulkan_context.device().clone(), format.format);
 
     let framebuffers = create_vulkan_framebuffers(
         vulkan_context.device(),
@@ -454,7 +454,7 @@ fn create_vulkan_swapchain(
     )
 }
 
-fn create_vulkan_render_pass(device: &Device, format: vk::Format) -> RenderPass {
+fn create_vulkan_render_pass(device: Device, format: vk::Format) -> RenderPass {
     let desc = RenderPassDesc {
         format,
         load_op: vk::AttachmentLoadOp::LOAD,
@@ -464,8 +464,7 @@ fn create_vulkan_render_pass(device: &Device, format: vk::Format) -> RenderPass 
             | vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
         ..Default::default()
     };
-
-    RenderPass::new(device.clone(), &desc)
+    RenderPass::from_formats(device, desc)
 }
 
 fn create_vulkan_framebuffers(

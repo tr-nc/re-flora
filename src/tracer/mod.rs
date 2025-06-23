@@ -12,7 +12,7 @@ use crate::util::ShaderCompiler;
 use crate::vkn::{
     AccelStruct, Allocator, Buffer, ComputePipeline, DescriptorPool, DescriptorSet, Framebuffer,
     GraphicsPipeline, GraphicsPipelineDesc, Image, PlainMemberTypeWithData, RenderPass,
-    RenderPassDesc, ShaderModule, StructMemberDataBuilder, Texture, WriteDescriptorSet,
+    ShaderModule, StructMemberDataBuilder, Texture, WriteDescriptorSet,
 };
 use crate::vkn::{CommandBuffer, VulkanContext};
 use ash::vk;
@@ -97,12 +97,12 @@ impl Tracer {
         let resources =
             TracerResources::new(&vulkan_ctx, allocator.clone(), &tracer_sm, screen_extent);
 
-        let (gfx_ppl, gfx_render_pass) = Self::create_graphics_pipeline(
+        let (gfx_ppl, gfx_render_pass) = Self::create_render_pass_and_graphics_pipeline(
             &vulkan_ctx,
             &vert_sm,
             &frag_sm,
-            resources.depth_tex.get_image().get_desc().format,
-            resources.shader_write_tex.get_image().get_desc().format,
+            resources.depth_tex.clone(),
+            resources.shader_write_tex.clone(),
         );
 
         let gfx_framebuffers = Self::create_framebuffers(
@@ -179,24 +179,21 @@ impl Tracer {
         ds
     }
 
-    fn create_graphics_pipeline(
+    fn create_render_pass_and_graphics_pipeline(
         vulkan_ctx: &VulkanContext,
         vert_sm: &ShaderModule,
         frag_sm: &ShaderModule,
-        depth_tex_format: vk::Format,
-        shader_write_tex_format: vk::Format,
+        depth_tex: Texture,
+        shader_write_tex: Texture,
     ) -> (GraphicsPipeline, RenderPass) {
         let render_pass = {
-            let desc = RenderPassDesc {
-                format: shader_write_tex_format,
-                final_layout: vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-                depth_format: Some(depth_tex_format),
-                depth_final_layout: Some(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL),
-                dst_access_mask: vk::AccessFlags::COLOR_ATTACHMENT_WRITE
-                    | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
-                ..Default::default()
-            };
-            RenderPass::new(vulkan_ctx.device().clone(), &desc)
+            RenderPass::with_attachments(
+                vulkan_ctx.device().clone(),
+                shader_write_tex,
+                Some(depth_tex),
+                vk::AttachmentLoadOp::CLEAR,
+                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+            )
         };
 
         let gfx_ppl = GraphicsPipeline::new(
@@ -461,16 +458,7 @@ impl Tracer {
         self.gfx_ppl
             .record_bind_descriptor_sets(cmdbuf, &self.graphics_sets, 0);
 
-        // unsafe {
-        //     self.vulkan_ctx.device().cmd_bind_vertex_buffers(
-        //         cmdbuf.as_raw(),
-        //         0,                                   // firstBinding
-        //         &[self.resources.vertices.as_raw()], // The buffer to bind
-        //         &[0],                                // The offset into the buffer
-        //     );
-        // }
-
-        // --- Bind Vertex and Index Buffers ---
+        // TODO: wrap them!
         unsafe {
             // Bind the vertex buffer to binding point 0
             self.vulkan_ctx.device().cmd_bind_vertex_buffers(
@@ -495,9 +483,6 @@ impl Tracer {
             .record_draw_indexed(cmdbuf, self.resources.indices_len, 1, 0, 0, 0);
 
         self.gfx_render_pass.record_end(cmdbuf);
-        // TODO: do this inside the render pass!
-        self.get_dst_image()
-            .set_layout(0, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
     }
 
     pub fn update_buffers(

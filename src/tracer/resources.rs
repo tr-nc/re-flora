@@ -13,6 +13,8 @@ pub struct TracerResources {
     pub env_info: Buffer,
     pub vertices: Buffer,
     pub indices: Buffer,
+    // pub grass_instances: Buffer,
+    // pub grass_instance_count: u32,
     pub indices_len: u32,
     pub depth_tex: Texture,
     pub shader_write_tex: Texture,

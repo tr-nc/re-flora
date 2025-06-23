@@ -1,5 +1,6 @@
-use crate::vkn::{CommandBuffer, Device, Framebuffer};
+use crate::vkn::{CommandBuffer, Device, Framebuffer, Texture};
 use ash::vk;
+use std::{ops::Deref, sync::Arc};
 
 #[derive(Clone, Debug)]
 pub struct RenderPassDesc {
@@ -34,18 +35,76 @@ impl Default for RenderPassDesc {
     }
 }
 
-pub struct RenderPass {
+struct RenderPassInner {
     device: Device,
+    desc: RenderPassDesc,
     vk_renderpass: vk::RenderPass,
+    color_attachment: Option<Texture>,
+    depth_attachment: Option<Texture>,
+}
+
+impl Drop for RenderPassInner {
+    fn drop(&mut self) {
+        unsafe {
+            self.device.destroy_render_pass(self.vk_renderpass, None);
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct RenderPass(Arc<RenderPassInner>);
+
+impl Deref for RenderPass {
+    type Target = vk::RenderPass;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0.vk_renderpass
+    }
 }
 
 impl RenderPass {
-    pub fn new(device: Device, desc: &RenderPassDesc) -> Self {
+    /// Creates a "stateless" RenderPass from explicit format descriptions.
+    /// Ideal for swapchains where the target ImageView changes each frame.
+    pub fn from_formats(device: Device, desc: RenderPassDesc) -> Self {
+        Self::new_internal(device, desc, None, None)
+    }
+
+    /// Creates a "stateful" RenderPass that is bound to specific Texture resources.
+    /// It derives its format description from the textures and will manage their
+    /// image layouts automatically.
+    pub fn with_attachments(
+        device: Device,
+        color_attachment: Texture,
+        depth_attachment: Option<Texture>,
+        load_op: vk::AttachmentLoadOp,
+        final_layout: vk::ImageLayout,
+    ) -> Self {
+        let mut desc = RenderPassDesc {
+            format: color_attachment.get_image().get_desc().format,
+            load_op,
+            final_layout,
+            ..Default::default()
+        };
+
+        if let Some(ref depth) = depth_attachment {
+            desc.depth_format = Some(depth.get_image().get_desc().format);
+            desc.depth_final_layout = Some(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+            desc.dst_access_mask |= vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE;
+        }
+
+        Self::new_internal(device, desc, Some(color_attachment), depth_attachment)
+    }
+
+    fn new_internal(
+        device: Device,
+        desc: RenderPassDesc,
+        color_attachment: Option<Texture>,
+        depth_attachment: Option<Texture>,
+    ) -> Self {
         let mut attachments = vec![];
         let mut subpass_description =
             vk::SubpassDescription::default().pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS);
 
-        // Color Attachment
         let color_attachment_desc = vk::AttachmentDescription::default()
             .format(desc.format)
             .samples(desc.sample_count)
@@ -63,14 +122,13 @@ impl RenderPass {
         subpass_description =
             subpass_description.color_attachments(std::slice::from_ref(&color_attachment_ref));
 
-        // Depth Attachment (if it exists)
-        let depth_attachment_ref;
+        let depth_attachment_ref_storage;
         if let Some(depth_format) = desc.depth_format {
             let depth_attachment_desc = vk::AttachmentDescription::default()
                 .format(depth_format)
                 .samples(vk::SampleCountFlags::TYPE_1)
                 .load_op(vk::AttachmentLoadOp::CLEAR)
-                .store_op(vk::AttachmentStoreOp::DONT_CARE)
+                .store_op(vk::AttachmentStoreOp::STORE)
                 .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
                 .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
                 .initial_layout(vk::ImageLayout::UNDEFINED)
@@ -80,15 +138,14 @@ impl RenderPass {
                 );
             attachments.push(depth_attachment_desc);
 
-            depth_attachment_ref = vk::AttachmentReference::default()
-                .attachment(1) // Index 1 for the depth attachment
+            depth_attachment_ref_storage = vk::AttachmentReference::default()
+                .attachment(attachments.len() as u32 - 1)
                 .layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
             subpass_description =
-                subpass_description.depth_stencil_attachment(&depth_attachment_ref);
+                subpass_description.depth_stencil_attachment(&depth_attachment_ref_storage);
         }
 
         let subpass = [subpass_description];
-
         let dependency = [vk::SubpassDependency::default()
             .src_subpass(vk::SUBPASS_EXTERNAL)
             .dst_subpass(0)
@@ -110,14 +167,18 @@ impl RenderPass {
 
         let vk_renderpass = unsafe { device.create_render_pass(&render_pass_info, None).unwrap() };
 
-        Self {
+        let inner = RenderPassInner {
             device,
+            desc,
             vk_renderpass,
-        }
+            color_attachment,
+            depth_attachment,
+        };
+        Self(Arc::new(inner))
     }
 
     pub fn as_raw(&self) -> vk::RenderPass {
-        self.vk_renderpass
+        self.0.vk_renderpass
     }
 
     pub fn record_begin(
@@ -136,7 +197,7 @@ impl RenderPass {
             .clear_values(&clear_values);
 
         unsafe {
-            self.device.cmd_begin_render_pass(
+            self.0.device.cmd_begin_render_pass(
                 cmdbuf.as_raw(),
                 &render_pass_begin_info,
                 vk::SubpassContents::INLINE,
@@ -144,17 +205,19 @@ impl RenderPass {
         }
     }
 
+    /// Ends the render pass and, if bound to textures, updates their internal layout state.
     pub fn record_end(&self, cmdbuf: &CommandBuffer) {
         unsafe {
-            self.device.cmd_end_render_pass(cmdbuf.as_raw());
+            self.0.device.cmd_end_render_pass(cmdbuf.as_raw());
         }
-    }
-}
 
-impl Drop for RenderPass {
-    fn drop(&mut self) {
-        unsafe {
-            self.device.destroy_render_pass(self.vk_renderpass, None);
+        if let Some(color) = &self.0.color_attachment {
+            color.get_image().set_layout(0, self.0.desc.final_layout);
+        }
+        if let Some(depth) = &self.0.depth_attachment {
+            if let Some(layout) = self.0.desc.depth_final_layout {
+                depth.get_image().set_layout(0, layout);
+            }
         }
     }
 }

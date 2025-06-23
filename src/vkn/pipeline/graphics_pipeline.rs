@@ -234,6 +234,7 @@ impl GraphicsPipeline {
         }
     }
 
+    #[allow(dead_code)]
     pub fn record_draw(
         &self,
         cmdbuf: &CommandBuffer,
