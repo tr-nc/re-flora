@@ -6,7 +6,6 @@ mod vertex;
 pub use vertex::*;
 
 mod grass_construct;
-use grass_construct::*;
 
 use crate::gameplay::Camera;
 use crate::util::ShaderCompiler;
@@ -31,7 +30,7 @@ pub struct Tracer {
     gfx_render_pass: RenderPass,
     gfx_framebuffers: Vec<Framebuffer>,
 
-    descriptor_pool_ds_0: DescriptorPool,
+    _descriptor_pool_ds_0: DescriptorPool,
     descriptor_pool_ds_1: DescriptorPool,
     descriptor_pool_ds_2: DescriptorPool,
 
@@ -94,13 +93,8 @@ impl Tracer {
         )
         .unwrap();
 
-        let resources = TracerResources::new(
-            &vulkan_ctx,
-            allocator.clone(),
-            &tracer_sm,
-            &vert_sm,
-            screen_extent,
-        );
+        let resources =
+            TracerResources::new(&vulkan_ctx, allocator.clone(), &tracer_sm, screen_extent);
 
         let (gfx_ppl, gfx_render_pass) = Self::create_graphics_pipeline(
             &vulkan_ctx,
@@ -159,7 +153,7 @@ impl Tracer {
             gfx_ppl,
             gfx_render_pass,
             gfx_framebuffers,
-            descriptor_pool_ds_0,
+            _descriptor_pool_ds_0: descriptor_pool_ds_0,
             descriptor_pool_ds_1,
             descriptor_pool_ds_2,
             frame_serial_idx: 0,
@@ -197,6 +191,8 @@ impl Tracer {
                 final_layout: vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
                 depth_format: Some(depth_tex_format),
                 depth_final_layout: Some(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL),
+                dst_access_mask: vk::AccessFlags::COLOR_ATTACHMENT_WRITE
+                    | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
                 ..Default::default()
             };
             RenderPass::new(vulkan_ctx.device().clone(), &desc)

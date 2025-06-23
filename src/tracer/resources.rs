@@ -30,7 +30,6 @@ impl TracerResources {
         vulkan_ctx: &VulkanContext,
         allocator: Allocator,
         tracer_sm: &ShaderModule,
-        vertex_shader_sm: &ShaderModule,
         screen_extent: &[u32; 2],
     ) -> Self {
         let device = vulkan_ctx.device();

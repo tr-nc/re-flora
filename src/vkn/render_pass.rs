@@ -101,10 +101,7 @@ impl RenderPass {
                 vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
                     | vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS,
             )
-            .dst_access_mask(
-                vk::AccessFlags::COLOR_ATTACHMENT_WRITE
-                    | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
-            )];
+            .dst_access_mask(desc.dst_access_mask)];
 
         let render_pass_info = vk::RenderPassCreateInfo::default()
             .attachments(&attachments)
