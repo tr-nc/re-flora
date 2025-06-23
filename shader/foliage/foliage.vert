@@ -20,13 +20,6 @@ layout(set = 0, binding = 0) uniform U_CameraInfo {
 }
 camera_info;
 
-// New uniform for grass animation parameters
-// layout(set = 0, binding = 1) uniform U_GrassInfo {
-//     vec2 bend_dir_and_strength;
-//     uint voxel_count;
-// }
-// grass_info;
-
 const vec2 bend_dir_and_strength = vec2(2.0, 0.0);
 const uint voxel_count           = 8;
 

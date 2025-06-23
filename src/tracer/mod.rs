@@ -30,7 +30,8 @@ pub struct Tracer {
     gfx_render_pass: RenderPass,
     gfx_framebuffers: Vec<Framebuffer>,
 
-    _descriptor_pool_ds_0: DescriptorPool,
+    #[allow(dead_code)]
+    descriptor_pool_ds_0: DescriptorPool,
     descriptor_pool_ds_1: DescriptorPool,
     descriptor_pool_ds_2: DescriptorPool,
 
@@ -153,7 +154,7 @@ impl Tracer {
             gfx_ppl,
             gfx_render_pass,
             gfx_framebuffers,
-            _descriptor_pool_ds_0: descriptor_pool_ds_0,
+            descriptor_pool_ds_0,
             descriptor_pool_ds_1,
             descriptor_pool_ds_2,
             frame_serial_idx: 0,
