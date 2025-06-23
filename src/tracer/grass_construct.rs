@@ -1,71 +1,84 @@
-use glam::{Vec2, Vec3};
-
 use crate::tracer::Vertex;
+use glam::{vec3, Vec3};
 
-pub fn generate_voxel_grass_blade(
+/// Generates indexed vertex and index data for a single blade of voxel grass.
+///
+/// # Returns
+/// * `(Vec<Vertex>, Vec<u32>)` - A tuple containing the vertex list and the index list.
+pub fn generate_indexed_voxel_grass_blade(
     voxel_count: u32,
-    bend_dir_and_strength: Vec2,
     color: Vec3,
-) -> (Vec<Vertex>, u32) {
+) -> (Vec<Vertex>, Vec<u32>) {
     if voxel_count == 0 {
-        return (Vec::new(), 0);
+        return (Vec::new(), Vec::new());
     }
 
     let mut vertices = Vec::new();
-    let denom = (voxel_count - 1).max(1) as f32;
+    let mut indices = Vec::new();
 
     for i in 0..voxel_count {
-        let t = i as f32 / denom;
-        let t_curve = t * t; // ease-in curve for a natural bend
+        // The current vertex offset is the number of vertices we've already added.
+        let vertex_offset = vertices.len() as u32;
 
-        // Calculate the floating-point position of the cube's center
-        let float_center = Vec3::new(
-            bend_dir_and_strength.x * t_curve, // X bend
-            i as f32,                          // Y position
-            bend_dir_and_strength.y * t_curve, // Z bend
+        // The position passed to the helper is now just the vertical stack position.
+        // The bending will be done in the vertex shader.
+        let base_position = vec3(0.0, i as f32, 0.0);
+
+        append_indexed_cube_data(
+            &mut vertices,
+            &mut indices,
+            base_position,
+            color,
+            i,
+            vertex_offset,
         );
-
-        // Round the position to the nearest integer grid point to snap it.
-        // The +0.5 moves it to the center of the voxel cell.
-        // The extra +1.0 on Y matches the GLSL reference.
-        let snapped_center = float_center.round() + Vec3::new(0.5, 1.5, 0.5);
-
-        append_cube_vertices(&mut vertices, snapped_center, color);
     }
 
-    let vertex_count = vertices.len() as u32;
-    (vertices, vertex_count)
+    (vertices, indices)
 }
 
-/// Appends the 36 vertices of a single, non-indexed cube to the vertex list.
-fn append_cube_vertices(vertices: &mut Vec<Vertex>, center: Vec3, color: Vec3) {
-    // Base vertices for a 1x1x1 cube centered at the origin
+/// Appends 8 vertices and 36 indices for a single cube to the provided lists.
+fn append_indexed_cube_data(
+    vertices: &mut Vec<Vertex>,
+    indices: &mut Vec<u32>,
+    base_position: Vec3,
+    color: Vec3,
+    height: u32,
+    vertex_offset: u32,
+) {
+    // 8 unique vertices for a cube, relative to its center.
     let base_verts = [
-        Vec3::new(-0.5, -0.5, -0.5), // 0
-        Vec3::new(0.5, -0.5, -0.5),  // 1
-        Vec3::new(0.5, 0.5, -0.5),   // 2
-        Vec3::new(-0.5, 0.5, -0.5),  // 3
-        Vec3::new(-0.5, -0.5, 0.5),  // 4
-        Vec3::new(0.5, -0.5, 0.5),   // 5
-        Vec3::new(0.5, 0.5, 0.5),    // 6
-        Vec3::new(-0.5, 0.5, 0.5),   // 7
+        vec3(-0.5, -0.5, -0.5),
+        vec3(0.5, -0.5, -0.5),
+        vec3(0.5, 0.5, -0.5),
+        vec3(-0.5, 0.5, -0.5),
+        vec3(-0.5, -0.5, 0.5),
+        vec3(0.5, -0.5, 0.5),
+        vec3(0.5, 0.5, 0.5),
+        vec3(-0.5, 0.5, 0.5),
     ];
 
-    // Indices defining the 12 triangles (36 vertices) for a cube
-    let indices = [
-        // -Z face
-        0, 1, 2, 2, 3, 0, // +Z face
-        4, 6, 5, 6, 4, 7, // -X face
-        0, 3, 7, 7, 4, 0, // +X face
-        1, 5, 6, 6, 2, 1, // -Y face
-        0, 4, 5, 5, 1, 0, // +Y face
-        3, 2, 6, 6, 7, 3,
-    ];
-
-    for &index in &indices {
+    for &local_pos in &base_verts {
         vertices.push(Vertex {
-            position: base_verts[index] + center,
+            // The position stored in the buffer is the un-bent, stacked position.
+            position: local_pos + base_position,
             color,
+            height, // Store the voxel's height level for shader calculations.
         });
+    }
+
+    // 36 indices that reference the 8 vertices just added.
+    // Must be offset by the number of vertices already in the buffer.
+    let base_indices: [u32; 36] = [
+        0, 1, 2, 2, 3, 0, // -Z
+        4, 6, 5, 6, 4, 7, // +Z
+        0, 3, 7, 7, 4, 0, // -X
+        1, 5, 6, 6, 2, 1, // +X
+        0, 4, 5, 5, 1, 0, // -Y
+        3, 2, 6, 6, 7, 3, // +Y
+    ];
+
+    for &index in &base_indices {
+        indices.push(vertex_offset + index);
     }
 }

@@ -438,12 +438,30 @@ impl Tracer {
         self.gfx_ppl
             .record_bind_descriptor_sets(cmdbuf, &self.graphics_sets, 0);
 
+        // unsafe {
+        //     self.vulkan_ctx.device().cmd_bind_vertex_buffers(
+        //         cmdbuf.as_raw(),
+        //         0,                                   // firstBinding
+        //         &[self.resources.vertices.as_raw()], // The buffer to bind
+        //         &[0],                                // The offset into the buffer
+        //     );
+        // }
+
+        // --- Bind Vertex and Index Buffers ---
         unsafe {
+            // Bind the vertex buffer to binding point 0
             self.vulkan_ctx.device().cmd_bind_vertex_buffers(
                 cmdbuf.as_raw(),
-                0,                                   // firstBinding
-                &[self.resources.vertices.as_raw()], // The buffer to bind
-                &[0],                                // The offset into the buffer
+                0,
+                &[self.resources.vertices.as_raw()],
+                &[0],
+            );
+            // Bind the index buffer
+            self.vulkan_ctx.device().cmd_bind_index_buffer(
+                cmdbuf.as_raw(),
+                self.resources.indices.as_raw(),
+                0,
+                vk::IndexType::UINT32, // Use 32-bit indices
             );
         }
 
@@ -451,7 +469,7 @@ impl Tracer {
             .record_viewport_scissor(cmdbuf, viewport, scissor);
 
         self.gfx_ppl
-            .record_draw(cmdbuf, self.resources.vertices_len, 1, 0, 0);
+            .record_draw_indexed(cmdbuf, self.resources.indices_len, 1, 0, 0, 0);
 
         self.gfx_render_pass.record_end(cmdbuf);
         // TODO: do this inside the render pass!

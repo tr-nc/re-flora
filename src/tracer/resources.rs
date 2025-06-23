@@ -1,5 +1,5 @@
 use crate::{
-    tracer::{grass_construct::generate_voxel_grass_blade, Vertex},
+    tracer::{grass_construct::generate_indexed_voxel_grass_blade, Vertex},
     util::{get_project_root, Timer},
     vkn::{
         Allocator, Buffer, BufferUsage, Device, ImageDesc, ShaderModule, Texture, VulkanContext,
@@ -12,7 +12,8 @@ pub struct TracerResources {
     pub camera_info: Buffer,
     pub env_info: Buffer,
     pub vertices: Buffer,
-    pub vertices_len: u32,
+    pub indices: Buffer,
+    pub indices_len: u32,
     pub shader_write_tex: Texture,
 
     pub scalar_bn: Texture,
@@ -105,31 +106,46 @@ impl TracerResources {
         );
         log::debug!("Blue noise texture load time: {:?}", timer.elapsed());
 
-        // 1. Define parameters for the grass blade.
+        // --- Generate and create indexed vertex and index buffers ---
         const GRASS_BLADE_VOXEL_LENGTH: u32 = 8;
-        let bend = glam::vec2(2.0, 0.0); // Bend 2 units along the X axis
-        let grass_color = glam::vec3(0.0, 1.0, 0.0); // Solid green as requested
+        let grass_color = glam::vec3(0.0, 1.0, 0.0);
 
-        // 2. Generate the vertex data and get the count.
-        let (vertices_data, vertices_len) =
-            generate_voxel_grass_blade(GRASS_BLADE_VOXEL_LENGTH, bend, grass_color);
+        // 1. Generate the indexed data.
+        let (vertices_data, indices_data) =
+            generate_indexed_voxel_grass_blade(GRASS_BLADE_VOXEL_LENGTH, grass_color);
 
-        // 3. Create the vertex buffer and fill it.
+        let indices_len = indices_data.len() as u32;
+
+        log::debug!("vertices len: {}", vertices_data.len());
+        log::debug!("indices len: {}", indices_data.len());
+
+        // 2. Create and fill the vertex buffer.
         let vertices = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
             gpu_allocator::MemoryLocation::CpuToGpu,
-            (std::mem::size_of::<Vertex>() * vertices_len as usize) as u64,
+            (std::mem::size_of::<Vertex>() * vertices_data.len()) as u64,
         );
         vertices.fill(&vertices_data).unwrap();
+
+        // 3. Create and fill the index buffer.
+        let indices = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::INDEX_BUFFER),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            (std::mem::size_of::<u32>() * indices_data.len()) as u64,
+        );
+        indices.fill(&indices_data).unwrap();
 
         return Self {
             gui_input,
             camera_info,
             env_info,
             vertices,
-            vertices_len,
+            indices,
+            indices_len,
             shader_write_tex,
 
             scalar_bn,

@@ -1,10 +1,14 @@
 #version 450
 
+// Vertex attributes now include height
 layout(location = 0) in vec3 in_position;
 layout(location = 1) in vec3 in_color;
+layout(location = 2) in uint in_height; // The voxel's stack level
 
+// Outputs to fragment shader
 layout(location = 0) out vec3 vert_color;
 
+// Existing camera uniforms
 layout(set = 0, binding = 0) uniform U_CameraInfo {
     vec4 camera_pos; // w is padding.
     mat4 view_mat;
@@ -16,17 +20,35 @@ layout(set = 0, binding = 0) uniform U_CameraInfo {
 }
 camera_info;
 
-// These are your model-space positions for a test triangle
-// const vec3 positions[3] = vec3[](vec3(-1.0, -1.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(1.0, -1.0,
-// 0.0));
+// New uniform for grass animation parameters
+// layout(set = 0, binding = 1) uniform U_GrassInfo {
+//     vec2 bend_dir_and_strength;
+//     uint voxel_count;
+// }
+// grass_info;
+
+const vec2 bend_dir_and_strength = vec2(2.0, 0.0);
+const uint voxel_count           = 8;
 
 void main() {
-    // Take the model-space position and transform it once to clip space.
-    // gl_Position = camera_info.view_proj_mat * vec4(positions[gl_VertexIndex], 1.0);
+    float height = float(in_height);
 
-    // Transform the input model-space position to clip space.
-    gl_Position = camera_info.view_proj_mat * vec4(in_position, 1.0);
+    // Avoid division by zero if the blade has only one voxel.
+    float denom = float(max(voxel_count - 1u, 1u));
 
-    // Pass the original model-space position as the color for visualization.
+    float t       = height / denom;
+    float t_curve = t * t; // ease-in curve for a natural bend
+
+    // Calculate the floating-point center of the voxel based on its height and bend
+    vec3 voxel_offset =
+        vec3(bend_dir_and_strength.x * t_curve, 0.0, bend_dir_and_strength.y * t_curve);
+
+    // Final position is the snapped center of the voxel plus the vertex's local position
+    vec3 final_pos = voxel_offset + in_position;
+
+    // Transform to clip space
+    gl_Position = camera_info.view_proj_mat * vec4(final_pos, 1.0);
+
+    // Pass color to fragment shader
     vert_color = in_color;
 }

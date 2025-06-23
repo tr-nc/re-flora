@@ -163,6 +163,7 @@ impl ShaderModule {
         // Helper to get the size of a format in bytes.
         fn format_to_size_in_bytes(format: vk::Format) -> u32 {
             match format {
+                vk::Format::R32_UINT => 4,
                 vk::Format::R32_SFLOAT => 4,
                 vk::Format::R32G32_SFLOAT => 8,
                 vk::Format::R32G32B32_SFLOAT => 12,
@@ -232,6 +233,7 @@ impl ShaderModule {
         fn reflect_format_to_vk(fmt: spirv_reflect::types::ReflectFormat) -> Result<vk::Format> {
             use spirv_reflect::types::ReflectFormat as RF;
             match fmt {
+                RF::R32_UINT => Ok(vk::Format::R32_UINT),
                 RF::R32_SFLOAT => Ok(vk::Format::R32_SFLOAT),
                 RF::R32G32_SFLOAT => Ok(vk::Format::R32G32_SFLOAT),
                 RF::R32G32B32_SFLOAT => Ok(vk::Format::R32G32B32_SFLOAT),
