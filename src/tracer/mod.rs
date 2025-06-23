@@ -7,6 +7,7 @@ pub use vertex::*;
 
 mod grass_construct;
 
+use crate::builder::SurfaceResources;
 use crate::gameplay::Camera;
 use crate::util::ShaderCompiler;
 use crate::vkn::{
@@ -207,6 +208,7 @@ impl Tracer {
                 depth_write_enable: true,
                 ..Default::default()
             },
+            Some(3),
         );
 
         (gfx_ppl, render_pass)
@@ -385,8 +387,14 @@ impl Tracer {
         );
     }
 
-    pub fn record_command_buffer(&mut self, cmdbuf: &CommandBuffer, image_index: usize) {
-        self.record_screen_space_pass(cmdbuf, image_index);
+    pub fn record_command_buffer(
+        &mut self,
+        cmdbuf: &CommandBuffer,
+        image_index: usize,
+        surface_resources: &SurfaceResources,
+        grass_instances_len: u32,
+    ) {
+        self.record_screen_space_pass(cmdbuf, image_index, surface_resources, grass_instances_len);
         // disabled to use later on
         // self._record_trace_pass(cmdbuf);
     }
@@ -408,7 +416,13 @@ impl Tracer {
             .record_dispatch(cmdbuf, [screen_extent[0], screen_extent[1], 1]);
     }
 
-    pub fn record_screen_space_pass(&self, cmdbuf: &CommandBuffer, image_index: usize) {
+    pub fn record_screen_space_pass(
+        &self,
+        cmdbuf: &CommandBuffer,
+        image_index: usize,
+        surface_resources: &SurfaceResources,
+        grass_instances_len: u32,
+    ) {
         // TODO: take care of the transition of the image layout, if needed
 
         self.gfx_ppl.record_bind(cmdbuf);
@@ -464,8 +478,11 @@ impl Tracer {
             self.vulkan_ctx.device().cmd_bind_vertex_buffers(
                 cmdbuf.as_raw(),
                 0,
-                &[self.resources.vertices.as_raw()],
-                &[0],
+                &[
+                    self.resources.vertices.as_raw(),
+                    surface_resources.grass_instances.as_raw(),
+                ],
+                &[0, 0],
             );
             // Bind the index buffer
             self.vulkan_ctx.device().cmd_bind_index_buffer(
@@ -479,8 +496,14 @@ impl Tracer {
         self.gfx_ppl
             .record_viewport_scissor(cmdbuf, viewport, scissor);
 
-        self.gfx_ppl
-            .record_draw_indexed(cmdbuf, self.resources.indices_len, 1, 0, 0, 0);
+        self.gfx_ppl.record_draw_indexed(
+            cmdbuf,
+            self.resources.indices_len,
+            grass_instances_len,
+            0,
+            0,
+            0,
+        );
 
         self.gfx_render_pass.record_end(cmdbuf);
     }
@@ -534,7 +557,7 @@ impl Tracer {
                     PlainMemberTypeWithData::Vec3(sun_color.to_array()),
                 )
                 .unwrap()
-                .get_data_u8();
+                .build();
             resources.gui_input.fill_with_raw_u8(&data)?;
             return Ok(());
         }
@@ -579,7 +602,7 @@ impl Tracer {
                     PlainMemberTypeWithData::Mat4(view_proj_mat.inverse().to_cols_array_2d()),
                 )
                 .unwrap()
-                .get_data_u8();
+                .build();
             resources.camera_info.fill_with_raw_u8(&data)?;
             Ok(())
         }
@@ -594,7 +617,7 @@ impl Tracer {
                     PlainMemberTypeWithData::UInt(frame_serial_idx),
                 )
                 .unwrap()
-                .get_data_u8();
+                .build();
             resources.env_info.fill_with_raw_u8(&data)?;
             Ok(())
         }

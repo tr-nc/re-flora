@@ -166,7 +166,7 @@ impl SceneAccelBuilder {
                     PlainMemberTypeWithData::UInt(leaf_offset_for_chunk),
                 )
                 .unwrap()
-                .get_data_u8();
+                .build();
             scene_tex_update_info.fill_with_raw_u8(&data).unwrap();
         }
     }

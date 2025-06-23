@@ -1,4 +1,4 @@
-use crate::vkn::{Allocator, Buffer, BufferUsage, Device, ShaderModule, Texture, ImageDesc};
+use crate::vkn::{Allocator, Buffer, BufferUsage, Device, ImageDesc, ShaderModule, Texture};
 use ash::vk;
 use glam::UVec3;
 
@@ -66,7 +66,7 @@ impl SurfaceResources {
             device.clone(),
             allocator.clone(),
             grass_instances_layout.clone(),
-            BufferUsage::empty(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
             gpu_allocator::MemoryLocation::GpuOnly,
             grass_instances_pool_len,
         );

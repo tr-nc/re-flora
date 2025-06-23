@@ -215,7 +215,7 @@ impl AccelStructBuilder {
                     PlainMemberTypeWithData::Vec2(bend_dir_and_strength.to_array()),
                 )
                 .unwrap()
-                .get_data_u8();
+                .build();
             make_unit_grass_info.fill_with_raw_u8(&data).unwrap();
         }
 
@@ -304,7 +304,7 @@ impl AccelStructBuilder {
                     PlainMemberTypeWithData::UVec2([lower, upper]),
                 )
                 .unwrap()
-                .get_data_u8();
+                .build();
             instance_info_buf.fill_with_raw_u8(&data).unwrap();
         }
     }

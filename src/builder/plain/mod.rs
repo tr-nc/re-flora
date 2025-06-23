@@ -266,7 +266,7 @@ impl PlainBuilder {
                 .unwrap()
                 .set_field("dim", PlainMemberTypeWithData::UVec3(dim.to_array()))
                 .unwrap()
-                .get_data_u8();
+                .build();
             resources.region_info.fill_with_raw_u8(&data).unwrap();
         }
     }
@@ -327,7 +327,7 @@ impl PlainBuilder {
                         PlainMemberTypeWithData::UInt(fill_voxel_type),
                     )
                     .unwrap()
-                    .get_data_u8();
+                    .build();
                 resources.chunk_modify_info.fill_with_raw_u8(&data).unwrap();
             }
 
@@ -355,7 +355,7 @@ impl PlainBuilder {
                             PlainMemberTypeWithData::Float(round_cone.radius_b()),
                         )
                         .unwrap()
-                        .get_data_u8();
+                        .build();
                     resources
                         .round_cones
                         .fill_element_with_raw_u8(&data, i as u64)
@@ -389,7 +389,7 @@ impl PlainBuilder {
                             PlainMemberTypeWithData::UInt(combined_offset),
                         )
                         .unwrap()
-                        .get_data_u8();
+                        .build();
                     resources
                         .trunk_bvh_nodes
                         .fill_element_with_raw_u8(&data, i as u64)

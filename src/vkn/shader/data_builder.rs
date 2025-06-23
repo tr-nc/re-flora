@@ -235,7 +235,7 @@ impl<'a> StructMemberDataBuilder<'a> {
 
     /// Produce one flat Vec<u8> for the entire (sub‑)struct,
     /// recursively writing every plain member at its offset.
-    pub fn get_data_u8(&self) -> Vec<u8> {
+    pub fn build(&self) -> Vec<u8> {
         let mut data = vec![0u8; self.layout.get_size_bytes() as usize];
         self.write_all_fields(&mut data);
         data

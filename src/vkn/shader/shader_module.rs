@@ -146,8 +146,9 @@ impl ShaderModule {
 
     pub fn get_vertex_input_state(
         &self,
-        binding_index: u32,
+        rate: vk::VertexInputRate,
         format_overrides: &[FormatOverride],
+        instance_rate_starting_location: Option<u32>,
     ) -> Result<(
         Vec<vk::VertexInputBindingDescription>,
         Vec<vk::VertexInputAttributeDescription>,
@@ -160,23 +161,6 @@ impl ShaderModule {
             .into());
         }
 
-        // Helper to get the size of a format in bytes.
-        fn format_to_size_in_bytes(format: vk::Format) -> u32 {
-            match format {
-                vk::Format::R32_UINT => 4,
-                vk::Format::R32_SFLOAT => 4,
-                vk::Format::R32G32_SFLOAT => 8,
-                vk::Format::R32G32B32_SFLOAT => 12,
-                vk::Format::R32G32B32A32_SFLOAT => 16,
-                vk::Format::R8G8B8A8_UNORM => 4,
-                // Add other formats as needed for your application
-                _ => panic!(
-                    "Unsupported vertex format for size calculation: {:?}",
-                    format
-                ),
-            }
-        }
-
         let mut input_vars = self
             .0
             .reflect_shader_module
@@ -187,9 +171,16 @@ impl ShaderModule {
         input_vars.sort_by_key(|var| var.location);
 
         let mut attribute_descriptions = Vec::with_capacity(input_vars.len());
-        let mut current_offset = 0u32;
+        let mut accumulated_offset = 0u32;
+
+        let mut vert_rate_stride = 0;
+        let mut inst_rate_stride = None;
+
+        let mut binding_index = 0;
 
         for var in &input_vars {
+            let loc = var.location;
+
             // skip built-in variables like gl_VertexIndex
             if var
                 .decoration_flags
@@ -203,42 +194,146 @@ impl ShaderModule {
             // Check for an override for the current location.
             let final_format = format_overrides
                 .iter()
-                .find(|ov| ov.location == var.location)
+                .find(|ov| ov.location == loc)
                 .map_or(reflected_format, |ov| ov.format); // Use override if found, else default
+
+            if let Some(inst_rate_starting_location) = instance_rate_starting_location {
+                if loc == inst_rate_starting_location {
+                    binding_index = 1;
+                }
+            }
 
             let description = vk::VertexInputAttributeDescription::default()
                 .binding(binding_index)
-                .location(var.location)
+                .location(loc)
                 .format(final_format) // Use the final, possibly overridden, format
-                .offset(current_offset);
+                .offset(accumulated_offset);
 
             attribute_descriptions.push(description);
 
             // IMPORTANT: Calculate the next offset using the size of the FINAL format.
-            current_offset += format_to_size_in_bytes(final_format);
+            accumulated_offset += format_to_size_in_bytes(final_format);
+
+            if let Some(inst_rate_starting_location) = instance_rate_starting_location {
+                if loc >= inst_rate_starting_location {
+                    inst_rate_stride = Some(accumulated_offset - vert_rate_stride);
+                } else {
+                    vert_rate_stride = accumulated_offset;
+                }
+            } else {
+                vert_rate_stride = accumulated_offset;
+            }
         }
 
         if attribute_descriptions.is_empty() {
             return Ok((Vec::new(), Vec::new()));
         }
 
-        let stride = current_offset;
-        let binding_description = vec![vk::VertexInputBindingDescription::default()
-            .binding(binding_index)
-            .stride(stride)
-            .input_rate(vk::VertexInputRate::VERTEX)];
+        // TODO: remove binding index from passing in
+        let mut binding_description = vec![vk::VertexInputBindingDescription::default()
+            .binding(0)
+            .stride(vert_rate_stride)
+            .input_rate(rate)];
+        if let Some(inst_rate_stride) = inst_rate_stride {
+            binding_description.push(
+                vk::VertexInputBindingDescription::default()
+                    .binding(1)
+                    .stride(inst_rate_stride)
+                    .input_rate(vk::VertexInputRate::INSTANCE),
+            );
+        }
 
         return Ok((binding_description, attribute_descriptions));
+
+        fn format_to_size_in_bytes(format: vk::Format) -> u32 {
+            match format {
+                // 8-bit formats
+                vk::Format::R8_UNORM
+                | vk::Format::R8_SNORM
+                | vk::Format::R8_UINT
+                | vk::Format::R8_SINT => 1,
+                vk::Format::R8G8_UNORM
+                | vk::Format::R8G8_SNORM
+                | vk::Format::R8G8_UINT
+                | vk::Format::R8G8_SINT => 2,
+                vk::Format::R8G8B8_UNORM
+                | vk::Format::R8G8B8_SNORM
+                | vk::Format::R8G8B8_UINT
+                | vk::Format::R8G8B8_SINT => 3,
+                vk::Format::R8G8B8A8_UNORM
+                | vk::Format::R8G8B8A8_SNORM
+                | vk::Format::R8G8B8A8_UINT
+                | vk::Format::R8G8B8A8_SINT
+                | vk::Format::R8G8B8A8_SRGB => 4,
+
+                // 16-bit formats
+                vk::Format::R16_UNORM
+                | vk::Format::R16_SNORM
+                | vk::Format::R16_UINT
+                | vk::Format::R16_SINT
+                | vk::Format::R16_SFLOAT => 2,
+                vk::Format::R16G16_UNORM
+                | vk::Format::R16G16_SNORM
+                | vk::Format::R16G16_UINT
+                | vk::Format::R16G16_SINT
+                | vk::Format::R16G16_SFLOAT => 4,
+                vk::Format::R16G16B16_UNORM
+                | vk::Format::R16G16B16_SNORM
+                | vk::Format::R16G16B16_UINT
+                | vk::Format::R16G16B16_SINT
+                | vk::Format::R16G16B16_SFLOAT => 6,
+                vk::Format::R16G16B16A16_UNORM
+                | vk::Format::R16G16B16A16_SNORM
+                | vk::Format::R16G16B16A16_UINT
+                | vk::Format::R16G16B16A16_SINT
+                | vk::Format::R16G16B16A16_SFLOAT => 8,
+
+                // 32-bit formats
+                vk::Format::R32_UINT | vk::Format::R32_SINT | vk::Format::R32_SFLOAT => 4,
+                vk::Format::R32G32_UINT | vk::Format::R32G32_SINT | vk::Format::R32G32_SFLOAT => 8,
+                vk::Format::R32G32B32_UINT
+                | vk::Format::R32G32B32_SINT
+                | vk::Format::R32G32B32_SFLOAT => 12,
+                vk::Format::R32G32B32A32_UINT
+                | vk::Format::R32G32B32A32_SINT
+                | vk::Format::R32G32B32A32_SFLOAT => 16,
+
+                // 64-bit formats (double precision)
+                vk::Format::R64_UINT | vk::Format::R64_SINT | vk::Format::R64_SFLOAT => 8,
+                vk::Format::R64G64_UINT | vk::Format::R64G64_SINT | vk::Format::R64G64_SFLOAT => 16,
+                vk::Format::R64G64B64_UINT
+                | vk::Format::R64G64B64_SINT
+                | vk::Format::R64G64B64_SFLOAT => 24,
+                vk::Format::R64G64B64A64_UINT
+                | vk::Format::R64G64B64A64_SINT
+                | vk::Format::R64G64B64A64_SFLOAT => 32,
+
+                // Packed formats
+                vk::Format::A2B10G10R10_UNORM_PACK32 | vk::Format::A2B10G10R10_UINT_PACK32 => 4,
+
+                _ => panic!(
+                    "Unsupported vertex format for size calculation: {:?}",
+                    format
+                ),
+            }
+        }
 
         fn reflect_format_to_vk(fmt: spirv_reflect::types::ReflectFormat) -> Result<vk::Format> {
             use spirv_reflect::types::ReflectFormat as RF;
             match fmt {
+                RF::Undefined => Err(anyhow::anyhow!("Cannot reflect an undefined format.")),
                 RF::R32_UINT => Ok(vk::Format::R32_UINT),
+                RF::R32_SINT => Ok(vk::Format::R32_SINT),
                 RF::R32_SFLOAT => Ok(vk::Format::R32_SFLOAT),
+                RF::R32G32_UINT => Ok(vk::Format::R32G32_UINT),
+                RF::R32G32_SINT => Ok(vk::Format::R32G32_SINT),
                 RF::R32G32_SFLOAT => Ok(vk::Format::R32G32_SFLOAT),
+                RF::R32G32B32_UINT => Ok(vk::Format::R32G32B32_UINT),
+                RF::R32G32B32_SINT => Ok(vk::Format::R32G32B32_SINT),
                 RF::R32G32B32_SFLOAT => Ok(vk::Format::R32G32B32_SFLOAT),
+                RF::R32G32B32A32_UINT => Ok(vk::Format::R32G32B32A32_UINT),
+                RF::R32G32B32A32_SINT => Ok(vk::Format::R32G32B32A32_SINT),
                 RF::R32G32B32A32_SFLOAT => Ok(vk::Format::R32G32B32A32_SFLOAT),
-                _ => return Err(anyhow::anyhow!("Unsupported format: {:?}", fmt)),
             }
         }
     }

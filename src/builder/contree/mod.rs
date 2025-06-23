@@ -498,7 +498,7 @@ impl ContreeBuilder {
                     PlainMemberTypeWithData::UInt(leaf_write_offset),
                 )
                 .unwrap()
-                .get_data_u8();
+                .build();
             contree_build_info.fill_with_raw_u8(&data).unwrap();
         }
     }

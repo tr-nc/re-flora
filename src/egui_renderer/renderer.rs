@@ -88,6 +88,7 @@ impl EguiRenderer {
                 }],
                 ..Default::default()
             },
+            None,
         );
 
         let descriptor_pool = DescriptorPool::from_descriptor_set_layouts(
@@ -147,6 +148,7 @@ impl EguiRenderer {
                 }],
                 ..Default::default()
             },
+            None,
         );
     }
 

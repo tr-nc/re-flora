@@ -649,8 +649,12 @@ impl InitializedApp {
                 let cmdbuf = &self.cmdbuf;
                 cmdbuf.begin(false);
 
-                self.tracer
-                    .record_command_buffer(cmdbuf, image_idx as usize);
+                self.tracer.record_command_buffer(
+                    cmdbuf,
+                    image_idx as usize,
+                    &self.surface_builder.get_resources(),
+                    self.surface_builder.get_grass_instance_len(),
+                );
 
                 self.swapchain
                     .record_blit(self.tracer.get_dst_image(), cmdbuf, image_idx);

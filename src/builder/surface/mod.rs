@@ -263,7 +263,7 @@ impl SurfaceBuilder {
                     PlainMemberTypeWithData::UInt(if is_crossing_boundary { 1 } else { 0 }),
                 )
                 .unwrap()
-                .get_data_u8();
+                .build();
             make_surface_info.fill_with_raw_u8(&data).unwrap();
         }
 

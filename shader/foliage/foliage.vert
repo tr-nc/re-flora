@@ -1,8 +1,14 @@
 #version 450
 
+// these are vertex-rate attributes
 layout(location = 0) in vec3 in_position;
 layout(location = 1) in vec3 in_color;
 layout(location = 2) in uint in_height; // The voxel's stack level
+
+// these are instance-rate attributes
+// this should match the grass_instance.glsl
+layout(location = 3) in uvec3 in_instance_position;
+layout(location = 4) in uint in_instance_grass_type;
 
 layout(location = 0) out vec3 vert_color;
 
@@ -34,10 +40,18 @@ void main() {
         vec3(bend_dir_and_strength.x * t_curve, 0.0, bend_dir_and_strength.y * t_curve);
 
     // Final position is the snapped center of the voxel plus the vertex's local position
-    vec3 final_pos = voxel_offset + in_position;
+    vec4 final_pos = vec4(in_position + voxel_offset + in_instance_position, 1.0);
+
+    // create a scale matrix
+    mat4 scale_mat  = mat4(1.0);
+    scale_mat[0][0] = 1.0 / 256.0;
+    scale_mat[1][1] = 1.0 / 256.0;
+    scale_mat[2][2] = 1.0 / 256.0;
+
+    final_pos = (scale_mat * final_pos);
 
     // Transform to clip space
-    gl_Position = camera_info.view_proj_mat * vec4(final_pos, 1.0);
+    gl_Position = camera_info.view_proj_mat * final_pos;
 
     // Pass color to fragment shader
     vert_color = in_color;

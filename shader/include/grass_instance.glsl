@@ -2,7 +2,7 @@
 #define GRASS_INSTANCE_GLSL
 
 struct GrassInstance {
-    uvec3 position; // TODO: maybe use lower memory footprint
+    uvec3 position;
     uint grass_type;
 };
 

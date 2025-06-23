@@ -12,3 +12,6 @@ pub use scene_accel::*;
 
 mod surface;
 pub use surface::*;
+
+mod instance;
+pub use instance::*;

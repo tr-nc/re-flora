@@ -1,5 +1,6 @@
 use crate::vkn::{
-    CommandBuffer, DescriptorSet, Device, FormatOverride, PipelineLayout, RenderPass, ShaderModule,
+    Buffer, CommandBuffer, DescriptorSet, Device, FormatOverride, PipelineLayout, RenderPass,
+    ShaderModule,
 };
 use ash::vk;
 use std::{ops::Deref, sync::Arc};
@@ -57,7 +58,11 @@ impl GraphicsPipeline {
         frag_shader_module: &ShaderModule,
         render_pass: &RenderPass,
         desc: &GraphicsPipelineDesc,
+        instance_rate_starting_location: Option<u32>,
     ) -> Self {
+        log::debug!("vert_shader_module: {:#?}", vert_shader_module);
+        log::debug!("frag_shader_module: {:#?}", frag_shader_module);
+
         let vert_pipeline_layout = PipelineLayout::from_shader_module(device, vert_shader_module);
         let frag_pipeline_layout = PipelineLayout::from_shader_module(device, frag_shader_module);
         let pipeline_layout = vert_pipeline_layout.merge(&frag_pipeline_layout).unwrap();
@@ -65,21 +70,22 @@ impl GraphicsPipeline {
         let vert_state_info = vert_shader_module.get_shader_stage_create_info();
         let frag_state_info = frag_shader_module.get_shader_stage_create_info();
 
-        log::debug!("vert: {:#?}", vert_shader_module);
-        log::debug!("frag: {:#?}", frag_shader_module);
-
         let shader_states_infos = [vert_state_info, frag_state_info];
 
-        let (binding_desc, attribute_desc) = vert_shader_module
-            .get_vertex_input_state(0, &desc.format_overrides)
+        let (binding_descs, attribute_descs) = vert_shader_module
+            .get_vertex_input_state(
+                vk::VertexInputRate::VERTEX,
+                &desc.format_overrides,
+                instance_rate_starting_location,
+            )
             .unwrap();
 
-        log::debug!("binding_desc: {:#?}", binding_desc);
-        log::debug!("attribute_desc: {:#?}", attribute_desc);
+        log::debug!("binding_descs: {:#?}", binding_descs);
+        log::debug!("attribute_descs: {:#?}", attribute_descs);
 
         let vertex_input_info = vk::PipelineVertexInputStateCreateInfo::default()
-            .vertex_binding_descriptions(&binding_desc)
-            .vertex_attribute_descriptions(&attribute_desc);
+            .vertex_binding_descriptions(&binding_descs)
+            .vertex_attribute_descriptions(&attribute_descs);
 
         let input_assembly_info = vk::PipelineInputAssemblyStateCreateInfo::default()
             .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
@@ -271,6 +277,26 @@ impl GraphicsPipeline {
                 first_index,
                 vertex_offset,
                 first_instance,
+            );
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn record_draw_indexed_indirect(
+        &self,
+        cmdbuf: &CommandBuffer,
+        buffer: &Buffer,
+        offset: u64,
+        draw_count: u32,
+        stride: u32,
+    ) {
+        unsafe {
+            self.0.device.cmd_draw_indexed_indirect(
+                cmdbuf.as_raw(),
+                buffer.as_raw(),
+                offset,
+                draw_count,
+                stride,
             );
         }
     }
