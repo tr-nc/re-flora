@@ -129,7 +129,7 @@ impl Image {
                 .buffer_row_length(0)
                 .buffer_image_height(0)
                 .image_subresource(vk::ImageSubresourceLayers {
-                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    aspect_mask: self.0.desc.get_aspect_mask(),
                     mip_level: 0,
                     base_array_layer: 0,
                     layer_count: 1,
@@ -271,6 +271,7 @@ impl Image {
             old_layout,
             target_layout,
             self.0.image,
+            self.0.desc.get_aspect_mask(),
             array_layer,
             1, // only one layer
         );
@@ -515,6 +516,7 @@ pub fn record_image_transition_barrier(
     old_layout: vk::ImageLayout,
     new_layout: vk::ImageLayout,
     image: vk::Image,
+    aspect_mask: vk::ImageAspectFlags,
     base_array_layer: u32,
     layer_count: u32,
 ) {
@@ -528,7 +530,7 @@ pub fn record_image_transition_barrier(
         .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
         .image(image)
         .subresource_range(vk::ImageSubresourceRange {
-            aspect_mask: vk::ImageAspectFlags::COLOR,
+            aspect_mask,
             base_mip_level: 0,
             level_count: 1,
             base_array_layer,
@@ -584,6 +586,11 @@ fn map_src_stage_access_flags(
         vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL => (
             vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
             vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+        ),
+        vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL => (
+            vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
+            vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS
+                | vk::PipelineStageFlags::LATE_FRAGMENT_TESTS,
         ),
         layout => {
             panic!("Unsupported old_layout transition from: {:?}", layout);

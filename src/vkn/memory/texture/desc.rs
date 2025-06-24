@@ -28,6 +28,70 @@ impl Default for ImageDesc {
     }
 }
 
+pub fn format_to_aspect_mask(format: vk::Format) -> vk::ImageAspectFlags {
+    match format {
+        // --- Depth-Only Formats ---
+        vk::Format::D16_UNORM
+        | vk::Format::X8_D24_UNORM_PACK32
+        | vk::Format::D32_SFLOAT => vk::ImageAspectFlags::DEPTH,
+
+        // --- Stencil-Only Formats ---
+        vk::Format::S8_UINT => vk::ImageAspectFlags::STENCIL,
+
+        // --- Combined Depth-Stencil Formats ---
+        vk::Format::D16_UNORM_S8_UINT
+        | vk::Format::D24_UNORM_S8_UINT
+        | vk::Format::D32_SFLOAT_S8_UINT => {
+            vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL
+        }
+
+        // --- Color Formats ---
+        // This large block handles most common color formats to prevent warnings.
+        vk::Format::R8_UNORM | vk::Format::R8_SNORM | vk::Format::R8_USCALED | vk::Format::R8_SSCALED | vk::Format::R8_UINT | vk::Format::R8_SINT | vk::Format::R8_SRGB
+        | vk::Format::R8G8_UNORM | vk::Format::R8G8_SNORM | vk::Format::R8G8_USCALED | vk::Format::R8G8_SSCALED | vk::Format::R8G8_UINT | vk::Format::R8G8_SINT | vk::Format::R8G8_SRGB
+        | vk::Format::R8G8B8_UNORM | vk::Format::R8G8B8_SNORM | vk::Format::R8G8B8_USCALED | vk::Format::R8G8B8_SSCALED | vk::Format::R8G8B8_UINT | vk::Format::R8G8B8_SINT | vk::Format::R8G8B8_SRGB
+        | vk::Format::B8G8R8_UNORM | vk::Format::B8G8R8_SNORM | vk::Format::B8G8R8_USCALED | vk::Format::B8G8R8_SSCALED | vk::Format::B8G8R8_UINT | vk::Format::B8G8R8_SINT | vk::Format::B8G8R8_SRGB
+        | vk::Format::R8G8B8A8_UNORM | vk::Format::R8G8B8A8_SNORM | vk::Format::R8G8B8A8_USCALED | vk::Format::R8G8B8A8_SSCALED | vk::Format::R8G8B8A8_UINT | vk::Format::R8G8B8A8_SINT | vk::Format::R8G8B8A8_SRGB
+        | vk::Format::B8G8R8A8_UNORM | vk::Format::B8G8R8A8_SNORM | vk::Format::B8G8R8A8_USCALED | vk::Format::B8G8R8A8_SSCALED | vk::Format::B8G8R8A8_UINT | vk::Format::B8G8R8A8_SINT | vk::Format::B8G8R8A8_SRGB
+        | vk::Format::A8B8G8R8_UNORM_PACK32 | vk::Format::A8B8G8R8_SNORM_PACK32 | vk::Format::A8B8G8R8_USCALED_PACK32 | vk::Format::A8B8G8R8_SSCALED_PACK32 | vk::Format::A8B8G8R8_UINT_PACK32 | vk::Format::A8B8G8R8_SINT_PACK32 | vk::Format::A8B8G8R8_SRGB_PACK32
+        | vk::Format::A2R10G10B10_UNORM_PACK32 | vk::Format::A2R10G10B10_UINT_PACK32
+        | vk::Format::A2B10G10R10_UNORM_PACK32 | vk::Format::A2B10G10R10_UINT_PACK32
+        | vk::Format::R16_UNORM | vk::Format::R16_SNORM | vk::Format::R16_USCALED | vk::Format::R16_SSCALED | vk::Format::R16_UINT | vk::Format::R16_SINT | vk::Format::R16_SFLOAT
+        | vk::Format::R16G16_UNORM | vk::Format::R16G16_SNORM | vk::Format::R16G16_USCALED | vk::Format::R16G16_SSCALED | vk::Format::R16G16_UINT | vk::Format::R16G16_SINT | vk::Format::R16G16_SFLOAT
+        | vk::Format::R16G16B16_UNORM | vk::Format::R16G16B16_SNORM | vk::Format::R16G16B16_USCALED | vk::Format::R16G16B16_SSCALED | vk::Format::R16G16B16_UINT | vk::Format::R16G16B16_SINT | vk::Format::R16G16B16_SFLOAT
+        | vk::Format::R16G16B16A16_UNORM | vk::Format::R16G16B16A16_SNORM | vk::Format::R16G16B16A16_USCALED | vk::Format::R16G16B16A16_SSCALED | vk::Format::R16G16B16A16_UINT | vk::Format::R16G16B16A16_SINT | vk::Format::R16G16B16A16_SFLOAT
+        | vk::Format::R32_UINT | vk::Format::R32_SINT | vk::Format::R32_SFLOAT
+        | vk::Format::R32G32_UINT | vk::Format::R32G32_SINT | vk::Format::R32G32_SFLOAT
+        | vk::Format::R32G32B32_UINT | vk::Format::R32G32B32_SINT | vk::Format::R32G32B32_SFLOAT
+        | vk::Format::R32G32B32A32_UINT | vk::Format::R32G32B32A32_SINT | vk::Format::R32G32B32A32_SFLOAT
+        | vk::Format::B10G11R11_UFLOAT_PACK32
+        | vk::Format::E5B9G9R9_UFLOAT_PACK32
+        | vk::Format::BC1_RGB_UNORM_BLOCK | vk::Format::BC1_RGB_SRGB_BLOCK
+        | vk::Format::BC1_RGBA_UNORM_BLOCK | vk::Format::BC1_RGBA_SRGB_BLOCK
+        | vk::Format::BC2_UNORM_BLOCK | vk::Format::BC2_SRGB_BLOCK
+        | vk::Format::BC3_UNORM_BLOCK | vk::Format::BC3_SRGB_BLOCK
+        | vk::Format::BC4_UNORM_BLOCK | vk::Format::BC4_SNORM_BLOCK
+        | vk::Format::BC5_UNORM_BLOCK | vk::Format::BC5_SNORM_BLOCK
+        | vk::Format::BC6H_UFLOAT_BLOCK | vk::Format::BC6H_SFLOAT_BLOCK
+        | vk::Format::BC7_UNORM_BLOCK | vk::Format::BC7_SRGB_BLOCK
+        | vk::Format::ETC2_R8G8B8_UNORM_BLOCK | vk::Format::ETC2_R8G8B8_SRGB_BLOCK
+        | vk::Format::ETC2_R8G8B8A1_UNORM_BLOCK | vk::Format::ETC2_R8G8B8A1_SRGB_BLOCK
+        | vk::Format::ETC2_R8G8B8A8_UNORM_BLOCK | vk::Format::ETC2_R8G8B8A8_SRGB_BLOCK
+        | vk::Format::ASTC_4X4_UNORM_BLOCK | vk::Format::ASTC_4X4_SRGB_BLOCK
+        // Add other ASTC block sizes if needed, e.g., ASTC_5x5, etc.
+        => {
+            vk::ImageAspectFlags::COLOR
+        }
+
+        // --- Fallback Case ---
+        // This handles any format not explicitly listed above.
+        _ => {
+            log::warn!("Unknown format: {:?}, using COLOR aspect mask as a fallback.", format);
+            vk::ImageAspectFlags::COLOR
+        }
+    }
+}
+
 impl ImageDesc {
     pub fn get_extent(&self) -> vk::Extent3D {
         vk::Extent3D {
@@ -35,6 +99,10 @@ impl ImageDesc {
             height: self.extent[1],
             depth: self.extent[2],
         }
+    }
+
+    pub fn get_aspect_mask(&self) -> vk::ImageAspectFlags {
+        format_to_aspect_mask(self.format)
     }
 
     pub fn get_image_type(&self) -> vk::ImageType {

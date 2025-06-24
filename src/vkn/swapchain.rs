@@ -143,6 +143,7 @@ impl Swapchain {
             vk::ImageLayout::UNDEFINED,
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
             dst_raw_img,
+            src_img.get_desc().get_aspect_mask(),
             0,
             1,
         );
@@ -167,6 +168,7 @@ impl Swapchain {
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
             vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
             dst_raw_img,
+            src_img.get_desc().get_aspect_mask(),
             0,
             1,
         );

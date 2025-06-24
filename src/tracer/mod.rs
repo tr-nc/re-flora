@@ -24,6 +24,9 @@ pub struct Tracer {
     allocator: Allocator,
     resources: TracerResources,
 
+    vert_sm: ShaderModule,
+    frag_sm: ShaderModule,
+
     tracer_ppl: ComputePipeline,
     tracer_sets: [DescriptorSet; 2],
     graphics_sets: [DescriptorSet; 1],
@@ -140,6 +143,8 @@ impl Tracer {
             vulkan_ctx,
             allocator,
             resources,
+            vert_sm,
+            frag_sm,
             tracer_ppl,
             tracer_sets: [tracer_set_0, tracer_set_1],
             graphics_sets: [graphics_set_0],
@@ -317,12 +322,20 @@ impl Tracer {
             &tracer_ppl.get_layout().get_descriptor_set_layouts()[&1],
             descriptor_pool,
         );
-        ds.perform_writes(&mut [WriteDescriptorSet::new_texture_write(
-            0,
-            vk::DescriptorType::STORAGE_IMAGE,
-            &resources.shader_write_tex,
-            vk::ImageLayout::GENERAL,
-        )]);
+        ds.perform_writes(&mut [
+            WriteDescriptorSet::new_texture_write(
+                0,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.shader_write_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                1,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.depth_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+        ]);
         ds
     }
 
@@ -358,19 +371,23 @@ impl Tracer {
         grass_instances_len: u32,
     ) {
         self.record_screen_space_pass(cmdbuf, image_index, surface_resources, grass_instances_len);
-        // disabled to use later on
-        // self._record_trace_pass(cmdbuf);
+        self.record_trace_pass(cmdbuf);
     }
 
     pub fn get_dst_image(&self) -> &Image {
         self.resources.shader_write_tex.get_image()
     }
 
-    pub fn _record_trace_pass(&self, cmdbuf: &CommandBuffer) {
+    pub fn record_trace_pass(&self, cmdbuf: &CommandBuffer) {
         let screen_extent = self.get_dst_image().get_desc().extent;
 
         self.get_dst_image()
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+        self.resources
+            .depth_tex
+            .get_image()
+            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+
         self.tracer_ppl.record_bind(cmdbuf);
 
         self.tracer_ppl
@@ -386,8 +403,6 @@ impl Tracer {
         surface_resources: &SurfaceResources,
         grass_instances_len: u32,
     ) {
-        // TODO: take care of the transition of the image layout, if needed
-
         self.gfx_ppl.record_bind(cmdbuf);
 
         // When beginning the render pass, you must also provide a clear value for the depth buffer.
@@ -469,6 +484,13 @@ impl Tracer {
         );
 
         self.gfx_render_pass.record_end(cmdbuf);
+
+        self.get_dst_image()
+            .set_layout(0, self.gfx_render_pass.get_desc().final_layout);
+        self.resources.depth_tex.get_image().set_layout(
+            0,
+            self.gfx_render_pass.get_desc().depth_final_layout.unwrap(),
+        );
     }
 
     pub fn update_buffers(

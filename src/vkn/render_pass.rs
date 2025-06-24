@@ -39,8 +39,6 @@ struct RenderPassInner {
     device: Device,
     desc: RenderPassDesc,
     vk_renderpass: vk::RenderPass,
-    color_attachment: Option<Texture>,
-    depth_attachment: Option<Texture>,
 }
 
 impl Drop for RenderPassInner {
@@ -66,7 +64,7 @@ impl RenderPass {
     /// Creates a "stateless" RenderPass from explicit format descriptions.
     /// Ideal for swapchains where the target ImageView changes each frame.
     pub fn from_formats(device: Device, desc: RenderPassDesc) -> Self {
-        Self::new_internal(device, desc, None, None)
+        Self::new(device, desc)
     }
 
     /// Creates a "stateful" RenderPass that is bound to specific Texture resources.
@@ -92,15 +90,10 @@ impl RenderPass {
             desc.dst_access_mask |= vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE;
         }
 
-        Self::new_internal(device, desc, Some(color_attachment), depth_attachment)
+        Self::new(device, desc)
     }
 
-    fn new_internal(
-        device: Device,
-        desc: RenderPassDesc,
-        color_attachment: Option<Texture>,
-        depth_attachment: Option<Texture>,
-    ) -> Self {
+    fn new(device: Device, desc: RenderPassDesc) -> Self {
         let mut attachments = vec![];
         let mut subpass_description =
             vk::SubpassDescription::default().pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS);
@@ -171,8 +164,6 @@ impl RenderPass {
             device,
             desc,
             vk_renderpass,
-            color_attachment,
-            depth_attachment,
         };
         Self(Arc::new(inner))
     }
@@ -205,19 +196,16 @@ impl RenderPass {
         }
     }
 
-    /// Ends the render pass and, if bound to textures, updates their internal layout state.
+    /// Ends the render pass, you should explicitly set the layout of the images after this.
+    /// TODO: maybe find another way to do this without losing explicit control over the layout.
+    /// since the devs may forget to set the layout after the render pass.
     pub fn record_end(&self, cmdbuf: &CommandBuffer) {
         unsafe {
             self.0.device.cmd_end_render_pass(cmdbuf.as_raw());
         }
+    }
 
-        if let Some(color) = &self.0.color_attachment {
-            color.get_image().set_layout(0, self.0.desc.final_layout);
-        }
-        if let Some(depth) = &self.0.depth_attachment {
-            if let Some(layout) = self.0.desc.depth_final_layout {
-                depth.get_image().set_layout(0, layout);
-            }
-        }
+    pub fn get_desc(&self) -> &RenderPassDesc {
+        &self.0.desc
     }
 }
