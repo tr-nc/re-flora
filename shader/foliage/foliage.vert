@@ -23,8 +23,10 @@ layout(set = 0, binding = 0) uniform U_CameraInfo {
 }
 camera_info;
 
-const vec2 bend_dir_and_strength = vec2(2.0, 0.0);
-const uint voxel_count           = 8;
+layout(set = 0, binding = 1) uniform U_GrassInfo { vec2 grass_offset; }
+grass_info;
+
+const uint voxel_count = 8;
 
 void main() {
     float height = float(in_height);
@@ -37,7 +39,7 @@ void main() {
 
     // Calculate the floating-point center of the voxel based on its height and bend
     vec3 voxel_offset =
-        vec3(bend_dir_and_strength.x * t_curve, 0.0, bend_dir_and_strength.y * t_curve);
+        vec3(grass_info.grass_offset.x * t_curve, 0.0, grass_info.grass_offset.y * t_curve);
 
     // Final position is the snapped center of the voxel plus the vertex's local position
     vec4 final_pos = vec4(in_position + voxel_offset + in_instance_position, 1.0);

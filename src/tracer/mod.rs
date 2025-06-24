@@ -1,5 +1,5 @@
 mod resources;
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 pub use resources::*;
 
 mod vertex;
@@ -95,8 +95,13 @@ impl Tracer {
         )
         .unwrap();
 
-        let resources =
-            TracerResources::new(&vulkan_ctx, allocator.clone(), &tracer_sm, screen_extent);
+        let resources = TracerResources::new(
+            &vulkan_ctx,
+            allocator.clone(),
+            &vert_sm,
+            &tracer_sm,
+            screen_extent,
+        );
 
         let (gfx_ppl, gfx_render_pass) = Self::create_render_pass_and_graphics_pipeline(
             &vulkan_ctx,
@@ -173,10 +178,10 @@ impl Tracer {
             &gfx_ppl.get_layout().get_descriptor_set_layouts()[&0],
             descriptor_pool,
         );
-        ds.perform_writes(&mut [WriteDescriptorSet::new_buffer_write(
-            0,
-            &resources.camera_info,
-        )]);
+        ds.perform_writes(&mut [
+            WriteDescriptorSet::new_buffer_write(0, &resources.camera_info),
+            WriteDescriptorSet::new_buffer_write(1, &resources.grass_info),
+        ]);
         ds
     }
 
@@ -516,6 +521,7 @@ impl Tracer {
         sun_size: f32,
         sun_color: Vec3,
         camera: &Camera,
+        grass_offset: Vec2,
     ) -> Result<(), String> {
         update_gui_input(
             &self.resources,
@@ -527,6 +533,8 @@ impl Tracer {
         )?;
         update_cam_info(&self.resources, camera)?;
         update_env_info(&self.resources, self.frame_serial_idx)?;
+
+        update_grass_info(&self.resources, grass_offset)?;
 
         self.frame_serial_idx += 1;
 
@@ -619,6 +627,21 @@ impl Tracer {
                 .unwrap()
                 .build();
             resources.env_info.fill_with_raw_u8(&data)?;
+            Ok(())
+        }
+
+        fn update_grass_info(
+            resources: &TracerResources,
+            grass_offset: Vec2,
+        ) -> Result<(), String> {
+            let data = StructMemberDataBuilder::from_buffer(&resources.grass_info)
+                .set_field(
+                    "grass_offset",
+                    PlainMemberTypeWithData::Vec2(grass_offset.to_array()),
+                )
+                .unwrap()
+                .build();
+            resources.grass_info.fill_with_raw_u8(&data)?;
             Ok(())
         }
     }

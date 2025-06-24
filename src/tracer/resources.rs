@@ -11,10 +11,12 @@ pub struct TracerResources {
     pub gui_input: Buffer,
     pub camera_info: Buffer,
     pub env_info: Buffer,
+    pub grass_info: Buffer,
 
     pub vertices: Buffer,
     pub indices: Buffer,
     pub indices_len: u32,
+
     pub depth_tex: Texture,
     pub shader_write_tex: Texture,
 
@@ -30,6 +32,7 @@ impl TracerResources {
     pub fn new(
         vulkan_ctx: &VulkanContext,
         allocator: Allocator,
+        vert_sm: &ShaderModule,
         tracer_sm: &ShaderModule,
         screen_extent: &[u32; 2],
     ) -> Self {
@@ -58,6 +61,16 @@ impl TracerResources {
             device.clone(),
             allocator.clone(),
             env_info_layout.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+        );
+
+        let grass_info_layout = vert_sm.get_buffer_layout("U_GrassInfo").unwrap();
+
+        let grass_info = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            grass_info_layout.clone(),
             BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
@@ -152,6 +165,8 @@ impl TracerResources {
             gui_input,
             camera_info,
             env_info,
+            grass_info,
+
             vertices,
             indices,
             indices_len,

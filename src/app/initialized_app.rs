@@ -643,6 +643,7 @@ impl InitializedApp {
                             self.sun_color.b() as f32,
                         ),
                         &self.camera,
+                        Vec2::new(self.debug_float, 0.0),
                     )
                     .unwrap();
 
