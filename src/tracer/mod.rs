@@ -11,7 +11,7 @@ use crate::builder::SurfaceResources;
 use crate::gameplay::Camera;
 use crate::util::ShaderCompiler;
 use crate::vkn::{
-    AccelStruct, Allocator, Buffer, ComputePipeline, DescriptorPool, DescriptorSet, Framebuffer,
+    Allocator, Buffer, ComputePipeline, DescriptorPool, DescriptorSet, Framebuffer,
     GraphicsPipeline, GraphicsPipelineDesc, Image, PlainMemberTypeWithData, RenderPass,
     ShaderModule, StructMemberDataBuilder, Texture, WriteDescriptorSet,
 };
@@ -25,7 +25,7 @@ pub struct Tracer {
     resources: TracerResources,
 
     tracer_ppl: ComputePipeline,
-    tracer_sets: [DescriptorSet; 3],
+    tracer_sets: [DescriptorSet; 2],
     graphics_sets: [DescriptorSet; 1],
     gfx_ppl: GraphicsPipeline,
     gfx_render_pass: RenderPass,
@@ -34,7 +34,6 @@ pub struct Tracer {
     #[allow(dead_code)]
     descriptor_pool_ds_0: DescriptorPool,
     descriptor_pool_ds_1: DescriptorPool,
-    descriptor_pool_ds_2: DescriptorPool,
 
     frame_serial_idx: u32,
 }
@@ -52,7 +51,6 @@ impl Tracer {
         node_data: &Buffer,
         leaf_data: &Buffer,
         scene_tex: &Texture,
-        tlas: &AccelStruct,
         swapchain_image_views: &[vk::ImageView],
     ) -> Self {
         let tracer_sm = ShaderModule::from_glsl(
@@ -70,11 +68,6 @@ impl Tracer {
         )
         .unwrap();
         let descriptor_pool_ds_1 = DescriptorPool::from_descriptor_set_layouts(
-            vulkan_ctx.device(),
-            tracer_ppl.get_layout().get_descriptor_set_layouts(),
-        )
-        .unwrap();
-        let descriptor_pool_ds_2 = DescriptorPool::from_descriptor_set_layouts(
             vulkan_ctx.device(),
             tracer_ppl.get_layout().get_descriptor_set_layouts(),
         )
@@ -136,13 +129,6 @@ impl Tracer {
             &resources,
         );
 
-        let tracer_set_2 = Self::create_descriptor_set_2(
-            descriptor_pool_ds_2.clone(),
-            &vulkan_ctx,
-            &tracer_ppl,
-            tlas,
-        );
-
         let graphics_set_0 = Self::create_graphics_set_0(
             descriptor_pool_ds_0.clone(),
             &vulkan_ctx,
@@ -155,14 +141,13 @@ impl Tracer {
             allocator,
             resources,
             tracer_ppl,
-            tracer_sets: [tracer_set_0, tracer_set_1, tracer_set_2],
+            tracer_sets: [tracer_set_0, tracer_set_1],
             graphics_sets: [graphics_set_0],
             gfx_ppl,
             gfx_render_pass,
             gfx_framebuffers,
             descriptor_pool_ds_0,
             descriptor_pool_ds_1,
-            descriptor_pool_ds_2,
             frame_serial_idx: 0,
         };
     }
@@ -339,33 +324,6 @@ impl Tracer {
             vk::ImageLayout::GENERAL,
         )]);
         ds
-    }
-
-    fn create_descriptor_set_2(
-        descriptor_pool: DescriptorPool,
-        vulkan_ctx: &VulkanContext,
-        tracer_ppl: &ComputePipeline,
-        tlas: &AccelStruct,
-    ) -> DescriptorSet {
-        let ds = DescriptorSet::new(
-            vulkan_ctx.device().clone(),
-            &tracer_ppl.get_layout().get_descriptor_set_layouts()[&2],
-            descriptor_pool,
-        );
-        ds.perform_writes(&mut [WriteDescriptorSet::new_acceleration_structure_write(
-            0, tlas,
-        )]);
-        ds
-    }
-
-    pub fn update_tlas_binding(&mut self, tlas: &AccelStruct) {
-        self.descriptor_pool_ds_2.reset().unwrap();
-        self.tracer_sets[2] = Self::create_descriptor_set_2(
-            self.descriptor_pool_ds_2.clone(),
-            &self.vulkan_ctx,
-            &self.tracer_ppl,
-            tlas,
-        );
     }
 
     pub fn on_resize(&mut self, screen_extent: &[u32; 2], swapchain_image_views: &[vk::ImageView]) {

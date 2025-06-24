@@ -4,9 +4,7 @@ use crate::tree_gen::{Tree, TreeDesc};
 #[allow(unused)]
 use crate::util::Timer;
 
-use crate::builder::{
-    AccelStructBuilder, ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder,
-};
+use crate::builder::{ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder};
 use crate::gameplay::{Camera, CameraDesc};
 use crate::tracer::Tracer;
 use crate::util::{get_sun_dir, ShaderCompiler};
@@ -52,7 +50,6 @@ pub struct InitializedApp {
     surface_builder: SurfaceBuilder,
     contree_builder: ContreeBuilder,
     scene_accel_builder: SceneAccelBuilder,
-    accel_struct_builder: AccelStructBuilder,
 
     // gui adjustables
     debug_float: f32,
@@ -173,20 +170,11 @@ impl InitializedApp {
             CHUNK_DIM,
         );
 
-        let mut accel_struct_builder = AccelStructBuilder::new(
-            vulkan_ctx.clone(),
-            allocator.clone(),
-            &shader_compiler,
-            1_000_000,
-            surface_builder.get_resources(),
-        );
-
         Self::init(
             &mut plain_builder,
             &mut surface_builder,
             &mut contree_builder,
             &mut scene_accel_builder,
-            &mut accel_struct_builder,
         );
 
         let tracer = Tracer::new(
@@ -197,7 +185,6 @@ impl InitializedApp {
             &contree_builder.get_resources().node_data,
             &contree_builder.get_resources().leaf_data,
             &scene_accel_builder.get_resources().scene_offset_tex,
-            &accel_struct_builder.get_resources().tlas.as_ref().unwrap(),
             swapchain.get_image_views(),
         );
 
@@ -221,7 +208,6 @@ impl InitializedApp {
             surface_builder,
             contree_builder,
             scene_accel_builder,
-            accel_struct_builder,
 
             camera,
             is_resize_pending: false,
@@ -244,7 +230,6 @@ impl InitializedApp {
         surface_builder: &mut SurfaceBuilder,
         contree_builder: &mut ContreeBuilder,
         scene_accel_builder: &mut SceneAccelBuilder,
-        accel_struct_builder: &mut AccelStructBuilder,
     ) {
         plain_builder.chunk_init(UVec3::new(0, 0, 0), VOXEL_DIM_PER_CHUNK * CHUNK_DIM);
 
@@ -270,11 +255,6 @@ impl InitializedApp {
         }
 
         BENCH.lock().unwrap().summary();
-
-        accel_struct_builder.build(
-            Vec2::new(0.0, 0.0),
-            surface_builder.get_grass_instance_len(),
-        );
     }
 
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {
@@ -573,21 +553,6 @@ impl InitializedApp {
                                 });
                             });
                     });
-
-                if grass_changed {
-                    log::debug!("Debug float: {}", self.debug_float);
-                    self.accel_struct_builder.update(
-                        Vec2::new(self.debug_float * 4.0, 0.0),
-                        self.surface_builder.get_grass_instance_len(),
-                    );
-                    self.tracer.update_tlas_binding(
-                        self.accel_struct_builder
-                            .get_resources()
-                            .tlas
-                            .as_ref()
-                            .unwrap(),
-                    );
-                }
 
                 if tree_desc_changed {
                     self.add_a_tree(

@@ -42,8 +42,6 @@ layout(set = 0, binding = 11, rgba8) readonly uniform image2DArray fast_weighted
 
 layout(set = 1, binding = 0) writeonly uniform image2D result_image;
 
-layout(set = 2, binding = 0) uniform accelerationStructureEXT tlas;
-
 #include "../include/contree_marching.glsl"
 #include "../include/core/definitions.glsl"
 #include "../include/core/packer.glsl"
@@ -80,49 +78,8 @@ bool scene_hit(inout MarchingResult o_res, vec3 o, vec3 d, ivec3 map_pos, uvec4 
 
 ///
 
-MarchingResult general_scene_marching(Ray ray, bool is_primary) {
-    if (!is_primary) {
-        return dda_scene_marching(ray.origin, ray.direction, ray.inv_direction);
-    }
-
-    rayQueryEXT rayQuery;
-    rayQueryInitializeEXT(rayQuery, tlas,
-                          gl_RayFlagsOpaqueEXT, // skip “transparent” triangles
-                          0xFF,                 // instance mask
-                          ray.origin,
-                          0.001, // bias off your surface
-                          ray.direction, 10000.0);
-
-    // march through *every* candidate
-    while (rayQueryProceedEXT(rayQuery)) {
-        if (rayQueryGetIntersectionTypeEXT(rayQuery, false) ==
-            gl_RayQueryCandidateIntersectionTriangleEXT) {
-            // “commit” it; this tells the driver “yes, I want
-            // you to consider this for the nearest‐hit test”
-            rayQueryConfirmIntersectionEXT(rayQuery);
-        }
-    }
-    // after traversal, ask whether we actually committed a hit
-    bool hit_grass = (rayQueryGetIntersectionTypeEXT(rayQuery, true) ==
-                      gl_RayQueryCommittedIntersectionTriangleEXT);
-    float t_grass  = rayQueryGetIntersectionTEXT(rayQuery, true);
-
-    MarchingResult res;
-    res = dda_scene_marching(ray.origin, ray.direction, ray.inv_direction);
-
-    if (hit_grass && t_grass < res.t) {
-        // we hit the grass, so we override the result
-        res.is_hit = true;
-        // TODO: clip it to grid space
-        res.pos             = ray.origin + ray.direction * t_grass;
-        res.center_pos      = res.pos; // for grass, center_pos is the same as pos
-        res.t               = t_grass;
-        res.is_normal_valid = false;
-        res.normal          = vec3(0.0, 1.0, 0.0); // tmp val
-        res.voxel_type      = VOXEL_TYPE_GRASS;
-    }
-
-    return res;
+MarchingResult general_scene_marching(Ray ray) {
+    return dda_scene_marching(ray.origin, ray.direction, ray.inv_direction);
 }
 
 const ivec3 BN_NOISE_TEX_SIZE = ivec3(128, 128, 64);
@@ -166,7 +123,7 @@ vec3 sample_sun_disk(ivec3 seed, float sun_size, vec3 sun_dir) {
 
 /// If the ray hits the scene, no light, otherwise sunlight
 vec3 get_shadow_ray_color(Ray ray) {
-    MarchingResult res_shadow_ray = general_scene_marching(ray, false);
+    MarchingResult res_shadow_ray = general_scene_marching(ray);
     return res_shadow_ray.is_hit ? vec3(0.0) : gui_input.sun_color * 0.01;
 }
 
@@ -195,7 +152,7 @@ vec3 choose_random_normal(ivec3 seed) {
 }
 
 vec3 get_pixel_color(Ray ray, ivec3 seed) {
-    MarchingResult res_primary_ray = general_scene_marching(ray, true);
+    MarchingResult res_primary_ray = general_scene_marching(ray);
 
     if (!res_primary_ray.is_hit) {
         // render skybox
@@ -234,7 +191,7 @@ vec3 get_pixel_color(Ray ray, ivec3 seed) {
     indirect_ray.inv_direction = vec3(1.0) / indirect_ray.direction;
     indirect_ray.origin        = next_tracing_pos;
 
-    MarchingResult res_indirect_ray = general_scene_marching(indirect_ray, false);
+    MarchingResult res_indirect_ray = general_scene_marching(indirect_ray);
     if (!res_indirect_ray.is_hit) {
         indirect_color = get_sky_color(indirect_ray.direction);
     } else {
