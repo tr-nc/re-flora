@@ -169,6 +169,8 @@ uint compress_voxel_type_and_normal(uint voxel_type, vec3 normal, bool is_normal
 
 bool is_surface_top(ivec3 p) { return !is_solid(voxel_at_local_idx(p + ivec3(0, 1, 0))); }
 
+bool is_surface_plantable(uint voxel_type) { return voxel_type != VOXEL_TYPE_TRUNK; }
+
 void main() {
     preload();
     barrier();
@@ -204,7 +206,8 @@ void main() {
     // Only consider placing grass on the grid points.
     if (uvi.x % grid_size == 0 && uvi.z % grid_size == 0) {
         // Grass should only grow on top surfaces that are not too steep
-        if (is_surface_top(uvi) && is_normal_valid && normal_not_too_steep(normal, 0.8)) {
+        if (is_surface_top(uvi) && is_normal_valid && normal_not_too_steep(normal, 0.8) &&
+            is_surface_plantable(voxel_type)) {
             // --- Noise-based placement (density) ---
             fnl_state density_noise_state  = fnlCreateState(42); // Seed for density
             density_noise_state.noise_type = FNL_NOISE_PERLIN;
