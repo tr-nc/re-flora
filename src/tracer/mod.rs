@@ -198,7 +198,7 @@ impl Tracer {
             &frag_sm,
             &render_pass,
             &GraphicsPipelineDesc {
-                cull_mode: vk::CullModeFlags::NONE,
+                cull_mode: vk::CullModeFlags::BACK,
                 depth_test_enable: true,
                 depth_write_enable: true,
                 ..Default::default()

@@ -15,19 +15,22 @@ pub fn generate_indexed_voxel_grass_blade(
 
     for i in 0..voxel_count {
         let vertex_offset = vertices.len() as u32;
-
         let base_position = vec3(0.0, i as f32, 0.0);
 
         // Interpolate the color based on the height (i).
         // 't' will go from 0.0 for the first voxel to 1.0 for the last one.
-        let t = i as f32 / (voxel_count - 1).max(1) as f32;
+        let t = if voxel_count > 1 {
+            i as f32 / (voxel_count - 1) as f32
+        } else {
+            0.0
+        };
         let voxel_color = bottom_color.lerp(tip_color, t);
 
         append_indexed_cube_data(
             &mut vertices,
             &mut indices,
             base_position,
-            voxel_color, // Pass the interpolated color for this specific voxel.
+            voxel_color,
             i,
             vertex_offset,
         );
@@ -45,16 +48,18 @@ fn append_indexed_cube_data(
     height: u32,
     vertex_offset: u32,
 ) {
-    // 8 unique vertices for a cube, relative to its center.
+    // Define the 8 vertices of a unit cube, starting with the bottom face.
     let base_verts = [
-        vec3(-0.5, -0.5, -0.5),
-        vec3(0.5, -0.5, -0.5),
-        vec3(0.5, 0.5, -0.5),
-        vec3(-0.5, 0.5, -0.5),
-        vec3(-0.5, -0.5, 0.5),
-        vec3(0.5, -0.5, 0.5),
-        vec3(0.5, 0.5, 0.5),
-        vec3(-0.5, 0.5, 0.7),
+        // Bottom face vertices
+        vec3(0.0, 0.0, 0.0), // 0
+        vec3(1.0, 0.0, 0.0), // 1
+        vec3(1.0, 0.0, 1.0), // 2
+        vec3(0.0, 0.0, 1.0), // 3
+        // Top face vertices
+        vec3(0.0, 1.0, 0.0), // 4
+        vec3(1.0, 1.0, 0.0), // 5
+        vec3(1.0, 1.0, 1.0), // 6
+        vec3(0.0, 1.0, 1.0), // 7
     ];
 
     for &local_pos in &base_verts {
@@ -66,15 +71,15 @@ fn append_indexed_cube_data(
         });
     }
 
-    // 36 indices that reference the 8 vertices just added.
-    // Must be offset by the number of vertices already in the buffer.
-    let base_indices: [u32; 36] = [
-        0, 1, 2, 2, 3, 0, // -Z
-        4, 6, 5, 6, 4, 7, // +Z
-        0, 3, 7, 7, 4, 0, // -X
-        1, 5, 6, 6, 2, 1, // +X
-        0, 4, 5, 5, 1, 0, // -Y
-        3, 2, 6, 6, 7, 3, // +Y
+    // Define 36 indices for 12 triangles (6 faces).
+    // The winding order is Counter-Clockwise (CCW) when viewed from the outside.
+    let base_indices = vec![
+        0, 1, 2, 0, 2, 3, // Bottom face (-Y)
+        4, 6, 5, 4, 7, 6, // Top face (+Y)
+        1, 0, 4, 1, 4, 5, // Back face (-Z)
+        2, 7, 3, 2, 6, 7, // Front face (+Z)
+        0, 3, 7, 0, 7, 4, // Left face (-X)
+        1, 6, 2, 1, 5, 6, // Right face (+X)
     ];
 
     for &index in &base_indices {

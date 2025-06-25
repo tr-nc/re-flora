@@ -8,7 +8,7 @@ pub struct CameraMovementDesc {
 impl Default for CameraMovementDesc {
     fn default() -> Self {
         Self {
-            normal_speed: 0.2,
+            normal_speed: 0.02,
             boosted_speed_mul: 4.0,
             mouse_sensitivity: 1.0,
         }
@@ -26,7 +26,7 @@ impl Default for CameraProjectionDesc {
     fn default() -> Self {
         Self {
             v_fov: 60.0,
-            z_near: 0.01,
+            z_near: 0.001,
             z_far: 100000.0,
         }
     }

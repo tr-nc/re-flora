@@ -239,7 +239,8 @@ void main() {
 
                 uint write_idx = atomicAdd(make_surface_result.grass_instance_len, 1);
                 GrassInstance instance;
-                instance.position               = uvec3(make_surface_info.atlas_read_offset + uvi);
+                instance.position =
+                    uvec3(make_surface_info.atlas_read_offset + uvi) + uvec3(0, 1, 0);
                 instance.grass_type             = GRASS_TYPE_NORMAL;
                 grass_instances.data[write_idx] = instance;
             }
