@@ -40,7 +40,7 @@ layout(set = 0, binding = 9, rgba8) readonly uniform image2DArray weighted_cosin
 layout(set = 0, binding = 10, rgba8) readonly uniform image2DArray fast_unit_vec3_bn;
 layout(set = 0, binding = 11, rgba8) readonly uniform image2DArray fast_weighted_cosine_bn;
 
-layout(set = 1, binding = 0) writeonly uniform image2D result_image;
+layout(set = 1, binding = 0, rgba8) uniform image2D result_image;
 layout(set = 1, binding = 1, r32f) readonly uniform image2D depth_image;
 
 #include "../include/contree_marching.glsl"
@@ -152,12 +152,27 @@ vec3 choose_random_normal(ivec3 seed) {
                 rand_vec.y); // This is a 2D random vector projected onto the XZ plane.
 }
 
-vec3 get_pixel_color(Ray ray, ivec3 seed) {
+/// Gets the depth in [0, 1], from NDC coordinates of vulkan
+/// 0 means it's on the near plane, 1 means it's on the far plane
+float get_frag_depth_01(ivec2 uvi) {
+    float depth = imageLoad(depth_image, uvi).r;
+    return depth;
+}
+
+vec3 get_pixel_color(Ray ray, vec3 color_in, ivec3 seed) {
     MarchingResult res_primary_ray = general_scene_marching(ray);
 
     if (!res_primary_ray.is_hit) {
-        // render skybox
-        return get_sky_color(ray.direction);
+        // return get_sky_color(ray.direction);
+        return color_in;
+    }
+
+    vec4 point_ndc         = camera_info.view_proj_mat * vec4(res_primary_ray.pos, 1.0);
+    float primary_depth_01 = point_ndc.z / point_ndc.w;
+    float frag_depth_01    = get_frag_depth_01(ivec2(gl_GlobalInvocationID.xy));
+    // return vec3(primary_depth_01, frag_depth_01, 0.0);
+    if (primary_depth_01 > frag_depth_01) {
+        return color_in;
     }
 
     // if normal is not valid, change the res.normal to a random one
@@ -224,18 +239,13 @@ void main() {
         return;
     }
 
-    // ivec3 seed = get_seed();
+    ivec3 seed = get_seed();
 
-    // vec2 screen_uv = (vec2(gl_GlobalInvocationID.xy) + vec2(0.5)) / vec2(img_size);
-    // Ray ray        = ray_gen(camera_info.camera_pos.xyz, screen_uv);
+    vec2 screen_uv = (vec2(gl_GlobalInvocationID.xy) + vec2(0.5)) / vec2(img_size);
+    Ray ray        = ray_gen(camera_info.camera_pos.xyz, screen_uv);
 
-    // vec3 vis = vec3(0.0);
+    vec3 vis = vec3(0.0);
 
-    // vis = get_pixel_color(ray, seed);
-    // imageStore(result_image, uvi, vec4(vis, 1.0));
-
-    // read the depth image, and store it inside result_image
-    float depth = imageLoad(depth_image, uvi).r;
-    depth = exp(depth);
-    imageStore(result_image, uvi, vec4(depth, depth, depth, 1.0));
+    vis = get_pixel_color(ray, imageLoad(result_image, uvi).rgb, seed);
+    imageStore(result_image, uvi, vec4(vis, 1.0));
 }
