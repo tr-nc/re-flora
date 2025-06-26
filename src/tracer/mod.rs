@@ -50,6 +50,9 @@ pub struct Tracer {
     tracer_ppl: ComputePipeline,
     tracer_sets: [DescriptorSet; 2],
 
+    tracer_shadow_ppl: ComputePipeline,
+    tracer_shadow_sets: [DescriptorSet; 1],
+
     main_sets: [DescriptorSet; 1],
     main_ppl: GraphicsPipeline,
     main_render_pass: RenderPass,
@@ -61,8 +64,8 @@ pub struct Tracer {
     shadow_framebuffer: Framebuffer,
 
     #[allow(dead_code)]
-    descriptor_pool_ds_0: DescriptorPool,
-    descriptor_pool_ds_1: DescriptorPool,
+    fixed_pool: DescriptorPool,
+    flexible_pool: DescriptorPool,
 
     frame_serial_idx: u32,
 }
@@ -99,15 +102,20 @@ impl Tracer {
             "main",
         )
         .unwrap();
-        let tracer_ppl = ComputePipeline::new(vulkan_ctx.device(), &tracer_sm);
 
-        let descriptor_pool_ds_0 = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
-
-        let descriptor_pool_ds_1 = DescriptorPool::from_descriptor_set_layouts(
+        let tracer_shadow_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
-            tracer_ppl.get_layout().get_descriptor_set_layouts(),
+            &shader_compiler,
+            "shader/tracer/tracer_shadow.comp",
+            "main",
         )
         .unwrap();
+
+        let tracer_ppl = ComputePipeline::new(vulkan_ctx.device(), &tracer_sm);
+        let tracer_shadow_ppl = ComputePipeline::new(vulkan_ctx.device(), &tracer_shadow_sm);
+
+        let fixed_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
+        let flexible_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
 
         let main_vert_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
@@ -144,6 +152,7 @@ impl Tracer {
             allocator.clone(),
             &main_vert_sm,
             &tracer_sm,
+            &tracer_shadow_sm,
             screen_extent,
             Extent2D::new(1024, 1024), // shadow map resolution
         );
@@ -176,8 +185,8 @@ impl Tracer {
             &resources.shadow_map_tex,
         );
 
-        let tracer_set_0 = Self::create_descriptor_set_0(
-            descriptor_pool_ds_0.clone(),
+        let tracer_set_0 = Self::create_tracer_set_0(
+            fixed_pool.clone(),
             &vulkan_ctx,
             &tracer_ppl,
             &resources,
@@ -186,26 +195,23 @@ impl Tracer {
             scene_tex,
         );
 
-        let tracer_set_1 = Self::create_descriptor_set_1(
-            descriptor_pool_ds_1.clone(),
+        let tracer_set_1 =
+            Self::create_tracer_set_1(flexible_pool.clone(), &vulkan_ctx, &tracer_ppl, &resources);
+
+        let tracer_shadow_set = Self::create_tracer_shadow_set(
+            fixed_pool.clone(),
             &vulkan_ctx,
-            &tracer_ppl,
+            &tracer_shadow_ppl,
             &resources,
+            node_data,
+            leaf_data,
+            scene_tex,
         );
 
-        let main_ds = Self::create_main_ds(
-            descriptor_pool_ds_0.clone(),
-            &vulkan_ctx,
-            &main_ppl,
-            &resources,
-        );
+        let main_ds = Self::create_main_ds(fixed_pool.clone(), &vulkan_ctx, &main_ppl, &resources);
 
-        let shadow_ds = Self::create_shadow_ds(
-            descriptor_pool_ds_0.clone(),
-            &vulkan_ctx,
-            &shadow_ppl,
-            &resources,
-        );
+        let shadow_ds =
+            Self::create_shadow_ds(fixed_pool.clone(), &vulkan_ctx, &shadow_ppl, &resources);
 
         return Self {
             vulkan_ctx,
@@ -213,7 +219,9 @@ impl Tracer {
             resources,
             camera,
             tracer_ppl,
+            tracer_shadow_ppl,
             tracer_sets: [tracer_set_0, tracer_set_1],
+            tracer_shadow_sets: [tracer_shadow_set],
             main_sets: [main_ds],
             shadow_sets: [shadow_ds],
             main_ppl,
@@ -222,8 +230,8 @@ impl Tracer {
             shadow_ppl,
             shadow_render_pass,
             shadow_framebuffer,
-            descriptor_pool_ds_0,
-            descriptor_pool_ds_1,
+            fixed_pool,
+            flexible_pool,
             frame_serial_idx: 0,
         };
     }
@@ -265,7 +273,7 @@ impl Tracer {
             descriptor_pool,
         );
         ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.camera_info),
+            WriteDescriptorSet::new_buffer_write(0, &resources.shadow_camera_info),
             WriteDescriptorSet::new_buffer_write(1, &resources.grass_info),
         ]);
         ds
@@ -410,7 +418,7 @@ impl Tracer {
         .unwrap()
     }
 
-    fn create_descriptor_set_0(
+    fn create_tracer_set_0(
         descriptor_pool: DescriptorPool,
         vulkan_ctx: &VulkanContext,
         tracer_ppl: &ComputePipeline,
@@ -476,11 +484,17 @@ impl Tracer {
                 &resources.fast_weighted_cosine_bn,
                 vk::ImageLayout::GENERAL,
             ),
+            WriteDescriptorSet::new_texture_write(
+                12,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.shadow_map_tex,
+                vk::ImageLayout::GENERAL,
+            ),
         ]);
         ds
     }
 
-    fn create_descriptor_set_1(
+    fn create_tracer_set_1(
         descriptor_pool: DescriptorPool,
         vulkan_ctx: &VulkanContext,
         tracer_ppl: &ComputePipeline,
@@ -508,6 +522,42 @@ impl Tracer {
         ds
     }
 
+    fn create_tracer_shadow_set(
+        descriptor_pool: DescriptorPool,
+        vulkan_ctx: &VulkanContext,
+        tracer_depth_only_ppl: &ComputePipeline,
+        resources: &TracerResources,
+        node_data: &Buffer,
+        leaf_data: &Buffer,
+        scene_tex: &Texture,
+    ) -> DescriptorSet {
+        let ds = DescriptorSet::new(
+            vulkan_ctx.device().clone(),
+            &tracer_depth_only_ppl
+                .get_layout()
+                .get_descriptor_set_layouts()[&0],
+            descriptor_pool,
+        );
+        ds.perform_writes(&mut [
+            WriteDescriptorSet::new_buffer_write(0, &resources.shadow_camera_info),
+            WriteDescriptorSet::new_buffer_write(1, &node_data),
+            WriteDescriptorSet::new_buffer_write(2, &leaf_data),
+            WriteDescriptorSet::new_texture_write(
+                3,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &scene_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                4,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.shadow_map_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+        ]);
+        ds
+    }
+
     pub fn on_resize(&mut self, screen_extent: Extent2D) {
         self.camera.on_resize(screen_extent);
 
@@ -524,44 +574,65 @@ impl Tracer {
             &self.resources.depth_tex,
         );
 
-        self.descriptor_pool_ds_1.reset().unwrap();
-        self.tracer_sets[1] = Self::create_descriptor_set_1(
-            self.descriptor_pool_ds_1.clone(),
+        self.flexible_pool.reset().unwrap();
+        self.tracer_sets[1] = Self::create_tracer_set_1(
+            self.flexible_pool.clone(),
             &self.vulkan_ctx,
             &self.tracer_ppl,
             &self.resources,
         );
     }
 
-    pub fn record_command_buffer(
+    pub fn get_dst_image(&self) -> &Image {
+        self.resources.shader_write_tex.get_image()
+    }
+
+    pub fn update_buffers_and_record(
         &mut self,
         cmdbuf: &CommandBuffer,
+        grass_offset: Vec2,
+        surface_resources: &SurfaceResources,
+        grass_instances_len: u32,
         debug_float: f32,
         debug_bool: bool,
         sun_dir: Vec3,
         sun_size: f32,
         sun_color: Vec3,
-        grass_offset: Vec2,
     ) -> Result<()> {
-        // self.record_main_pass(cmdbuf, surface_resources, grass_instances_len);
-        self.record_shadow_pass(
-            cmdbuf,
+        let (shadow_view_mat, shadow_proj_mat) =
+            calculate_directional_light_matrices(&self.camera, sun_dir);
+        Self::update_cam_info(
+            &mut self.resources.shadow_camera_info,
+            shadow_view_mat,
+            shadow_proj_mat,
+        )?;
+        self.record_tracer_shadow_pass(cmdbuf);
+
+        Self::update_cam_info(
+            &mut self.resources.camera_info,
+            self.camera.get_view_mat(),
+            self.camera.get_proj_mat(),
+        )?;
+        Self::update_grass_info(&self.resources, grass_offset)?;
+        self.record_main_pass(cmdbuf, surface_resources, grass_instances_len);
+
+        Self::update_gui_input(
+            &self.resources,
             debug_float,
             debug_bool,
             sun_dir,
             sun_size,
             sun_color,
-            grass_offset,
         )?;
+        Self::update_env_info(&self.resources, self.frame_serial_idx)?;
+        self.record_compute_pass(cmdbuf);
+
         self.frame_serial_idx += 1;
+
         Ok(())
     }
 
-    pub fn get_dst_image(&self) -> &Image {
-        self.resources.shader_write_tex.get_image()
-    }
-
-    pub fn record_main_pass(
+    fn record_main_pass(
         &self,
         cmdbuf: &CommandBuffer,
         surface_resources: &SurfaceResources,
@@ -669,48 +740,53 @@ impl Tracer {
         );
     }
 
-    pub fn record_shadow_pass(
-        &mut self,
-        cmdbuf: &CommandBuffer,
-
-        debug_float: f32,
-        debug_bool: bool,
-        sun_dir: Vec3,
-        sun_size: f32,
-        sun_color: Vec3,
-        grass_offset: Vec2,
-    ) -> Result<()> {
-        Self::update_buffers(
-            &self.resources,
-            self.camera.position(),
-            self.camera.get_view_mat(),
-            self.camera.get_proj_mat(),
-            self.frame_serial_idx,
-            debug_float,
-            debug_bool,
-            sun_dir,
-            sun_size,
-            sun_color,
-            grass_offset,
-        )?;
-        self.record_compute_pass(cmdbuf);
-        Ok(())
+    fn record_tracer_shadow_pass(&mut self, cmdbuf: &CommandBuffer) {
+        self.resources
+            .shadow_map_tex
+            .get_image()
+            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+        self.tracer_shadow_ppl.record_bind(cmdbuf);
+        self.tracer_shadow_ppl
+            .record_bind_descriptor_sets(cmdbuf, &self.tracer_shadow_sets, 0);
+        self.tracer_shadow_ppl.record_dispatch(
+            cmdbuf,
+            [
+                self.resources
+                    .shadow_map_tex
+                    .get_image()
+                    .get_desc()
+                    .extent
+                    .width,
+                self.resources
+                    .shadow_map_tex
+                    .get_image()
+                    .get_desc()
+                    .extent
+                    .height,
+                self.resources
+                    .shadow_map_tex
+                    .get_image()
+                    .get_desc()
+                    .extent
+                    .depth,
+            ],
+        );
     }
 
     fn record_compute_pass(&self, cmdbuf: &CommandBuffer) {
-        let screen_extent = self.get_dst_image().get_desc().extent;
-
-        self.get_dst_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
-        self.resources
-            .depth_tex
-            .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+        // self.get_dst_image()
+        //     .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+        // self.resources
+        //     .depth_tex
+        //     .get_image()
+        //     .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
 
         self.tracer_ppl.record_bind(cmdbuf);
 
         self.tracer_ppl
             .record_bind_descriptor_sets(cmdbuf, &self.tracer_sets, 0);
+
+        let screen_extent = self.get_dst_image().get_desc().extent;
         self.tracer_ppl.record_dispatch(
             cmdbuf,
             [
@@ -733,133 +809,102 @@ impl Tracer {
         self.camera.update_transform(frame_delta_time);
     }
 
-    fn update_buffers(
+    fn update_gui_input(
         resources: &TracerResources,
-        camera_pos: Vec3,
-        view_mat: Mat4,
-        proj_mat: Mat4,
-        frame_serial_idx: u32,
         debug_float: f32,
         debug_bool: bool,
         sun_dir: Vec3,
         sun_size: f32,
         sun_color: Vec3,
-        grass_offset: Vec2,
     ) -> Result<()> {
-        update_gui_input(
-            resources,
-            debug_float,
-            debug_bool,
-            sun_dir,
-            sun_size,
-            sun_color,
-        )?;
-        update_cam_info(resources, camera_pos, view_mat, proj_mat)?;
-        update_env_info(resources, frame_serial_idx)?;
-        update_grass_info(resources, grass_offset)?;
+        let data = StructMemberDataBuilder::from_buffer(&resources.gui_input)
+            .set_field("debug_float", PlainMemberTypeWithData::Float(debug_float))
+            .unwrap()
+            .set_field(
+                "debug_bool",
+                PlainMemberTypeWithData::UInt(debug_bool as u32),
+            )
+            .unwrap()
+            .set_field("sun_dir", PlainMemberTypeWithData::Vec3(sun_dir.to_array()))
+            .unwrap()
+            .set_field("sun_size", PlainMemberTypeWithData::Float(sun_size))
+            .unwrap()
+            .set_field(
+                "sun_color",
+                PlainMemberTypeWithData::Vec3(sun_color.to_array()),
+            )
+            .unwrap()
+            .build();
+        resources.gui_input.fill_with_raw_u8(&data)?;
         return Ok(());
+    }
 
-        fn update_gui_input(
-            resources: &TracerResources,
-            debug_float: f32,
-            debug_bool: bool,
-            sun_dir: Vec3,
-            sun_size: f32,
-            sun_color: Vec3,
-        ) -> Result<()> {
-            let data = StructMemberDataBuilder::from_buffer(&resources.gui_input)
-                .set_field("debug_float", PlainMemberTypeWithData::Float(debug_float))
-                .unwrap()
-                .set_field(
-                    "debug_bool",
-                    PlainMemberTypeWithData::UInt(debug_bool as u32),
-                )
-                .unwrap()
-                .set_field("sun_dir", PlainMemberTypeWithData::Vec3(sun_dir.to_array()))
-                .unwrap()
-                .set_field("sun_size", PlainMemberTypeWithData::Float(sun_size))
-                .unwrap()
-                .set_field(
-                    "sun_color",
-                    PlainMemberTypeWithData::Vec3(sun_color.to_array()),
-                )
-                .unwrap()
-                .build();
-            resources.gui_input.fill_with_raw_u8(&data)?;
-            return Ok(());
-        }
+    fn update_cam_info(camera_info: &mut Buffer, view_mat: Mat4, proj_mat: Mat4) -> Result<()> {
+        let view_proj_mat = proj_mat * view_mat;
 
-        fn update_cam_info(
-            resources: &TracerResources,
-            camera_pos: Vec3,
-            view_mat: Mat4,
-            proj_mat: Mat4,
-        ) -> Result<()> {
-            let view_proj_mat = proj_mat * view_mat;
+        let camera_pos = view_mat.inverse().w_axis;
+        let data = StructMemberDataBuilder::from_buffer(camera_info)
+            .set_field(
+                "camera_pos",
+                PlainMemberTypeWithData::Vec4(camera_pos.to_array()),
+            )
+            .unwrap()
+            .set_field(
+                "view_mat",
+                PlainMemberTypeWithData::Mat4(view_mat.to_cols_array_2d()),
+            )
+            .unwrap()
+            .set_field(
+                "view_mat_inv",
+                PlainMemberTypeWithData::Mat4(view_mat.inverse().to_cols_array_2d()),
+            )
+            .unwrap()
+            .set_field(
+                "proj_mat",
+                PlainMemberTypeWithData::Mat4(proj_mat.to_cols_array_2d()),
+            )
+            .unwrap()
+            .set_field(
+                "proj_mat_inv",
+                PlainMemberTypeWithData::Mat4(proj_mat.inverse().to_cols_array_2d()),
+            )
+            .unwrap()
+            .set_field(
+                "view_proj_mat",
+                PlainMemberTypeWithData::Mat4(view_proj_mat.to_cols_array_2d()),
+            )
+            .unwrap()
+            .set_field(
+                "view_proj_mat_inv",
+                PlainMemberTypeWithData::Mat4(view_proj_mat.inverse().to_cols_array_2d()),
+            )
+            .unwrap()
+            .build();
+        camera_info.fill_with_raw_u8(&data)?;
+        Ok(())
+    }
 
-            let data = StructMemberDataBuilder::from_buffer(&resources.camera_info)
-                .set_field(
-                    "camera_pos",
-                    PlainMemberTypeWithData::Vec4([camera_pos.x, camera_pos.y, camera_pos.z, 1.0]),
-                )
-                .unwrap()
-                .set_field(
-                    "view_mat",
-                    PlainMemberTypeWithData::Mat4(view_mat.to_cols_array_2d()),
-                )
-                .unwrap()
-                .set_field(
-                    "view_mat_inv",
-                    PlainMemberTypeWithData::Mat4(view_mat.inverse().to_cols_array_2d()),
-                )
-                .unwrap()
-                .set_field(
-                    "proj_mat",
-                    PlainMemberTypeWithData::Mat4(proj_mat.to_cols_array_2d()),
-                )
-                .unwrap()
-                .set_field(
-                    "proj_mat_inv",
-                    PlainMemberTypeWithData::Mat4(proj_mat.inverse().to_cols_array_2d()),
-                )
-                .unwrap()
-                .set_field(
-                    "view_proj_mat",
-                    PlainMemberTypeWithData::Mat4(view_proj_mat.to_cols_array_2d()),
-                )
-                .unwrap()
-                .set_field(
-                    "view_proj_mat_inv",
-                    PlainMemberTypeWithData::Mat4(view_proj_mat.inverse().to_cols_array_2d()),
-                )
-                .unwrap()
-                .build();
-            resources.camera_info.fill_with_raw_u8(&data)?;
-            Ok(())
-        }
+    fn update_env_info(resources: &TracerResources, frame_serial_idx: u32) -> Result<()> {
+        let data = StructMemberDataBuilder::from_buffer(&resources.env_info)
+            .set_field(
+                "frame_serial_idx",
+                PlainMemberTypeWithData::UInt(frame_serial_idx),
+            )
+            .unwrap()
+            .build();
+        resources.env_info.fill_with_raw_u8(&data)?;
+        Ok(())
+    }
 
-        fn update_env_info(resources: &TracerResources, frame_serial_idx: u32) -> Result<()> {
-            let data = StructMemberDataBuilder::from_buffer(&resources.env_info)
-                .set_field(
-                    "frame_serial_idx",
-                    PlainMemberTypeWithData::UInt(frame_serial_idx),
-                )
-                .unwrap()
-                .build();
-            resources.env_info.fill_with_raw_u8(&data)?;
-            Ok(())
-        }
-
-        fn update_grass_info(resources: &TracerResources, grass_offset: Vec2) -> Result<()> {
-            let data = StructMemberDataBuilder::from_buffer(&resources.grass_info)
-                .set_field(
-                    "grass_offset",
-                    PlainMemberTypeWithData::Vec2(grass_offset.to_array()),
-                )
-                .unwrap()
-                .build();
-            resources.grass_info.fill_with_raw_u8(&data)?;
-            Ok(())
-        }
+    fn update_grass_info(resources: &TracerResources, grass_offset: Vec2) -> Result<()> {
+        let data = StructMemberDataBuilder::from_buffer(&resources.grass_info)
+            .set_field(
+                "grass_offset",
+                PlainMemberTypeWithData::Vec2(grass_offset.to_array()),
+            )
+            .unwrap()
+            .build();
+        resources.grass_info.fill_with_raw_u8(&data)?;
+        Ok(())
     }
 }

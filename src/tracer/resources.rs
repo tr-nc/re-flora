@@ -11,6 +11,7 @@ use ash::vk;
 pub struct TracerResources {
     pub gui_input: Buffer,
     pub camera_info: Buffer,
+    pub shadow_camera_info: Buffer,
     pub env_info: Buffer,
     pub grass_info: Buffer,
 
@@ -37,6 +38,7 @@ impl TracerResources {
         allocator: Allocator,
         vert_sm: &ShaderModule,
         tracer_sm: &ShaderModule,
+        tracer_shadow_sm: &ShaderModule,
         screen_extent: Extent2D,
         shadow_map_extent: Extent2D,
     ) -> Self {
@@ -60,6 +62,17 @@ impl TracerResources {
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
+        let shadow_camera_info_layout = tracer_shadow_sm
+            .get_buffer_layout("U_ShadowCameraInfo")
+            .unwrap();
+        let shadow_camera_info = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            shadow_camera_info_layout.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+        );
+
         let env_info_layout = tracer_sm.get_buffer_layout("U_EnvInfo").unwrap();
         let env_info = Buffer::from_buffer_layout(
             device.clone(),
@@ -79,7 +92,7 @@ impl TracerResources {
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
-        let depth_tex =
+        let depth_stencil_tex =
             Self::create_depth_tex(device.clone(), allocator.clone(), screen_extent.into());
 
         let shader_write_tex =
@@ -168,13 +181,14 @@ impl TracerResources {
         return Self {
             gui_input,
             camera_info,
+            shadow_camera_info,
             env_info,
             grass_info,
 
             vertices,
             indices,
             indices_len,
-            depth_tex,
+            depth_tex: depth_stencil_tex,
             shader_write_tex,
             shadow_map_tex,
 

@@ -1,0 +1,83 @@
+#version 460
+
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform U_ShadowCameraInfo {
+    vec4 camera_pos; // w is padding.
+    mat4 view_mat;
+    mat4 view_mat_inv;
+    mat4 proj_mat;
+    mat4 proj_mat_inv;
+    mat4 view_proj_mat;
+    mat4 view_proj_mat_inv;
+}
+camera_info;
+#include "../include/contree_node.glsl"
+layout(set = 0, binding = 1) readonly buffer B_ContreeNodeData { ContreeNode data[]; }
+contree_node_data;
+layout(set = 0, binding = 2) readonly buffer B_ContreeLeafData { uint data[]; }
+contree_leaf_data;
+layout(set = 0, binding = 3, rg32ui) readonly uniform uimage3D scene_tex;
+layout(set = 0, binding = 4, r32f) writeonly uniform image2D shadow_map_tex;
+
+#include "../include/contree_marching.glsl"
+#include "../include/core/packer.glsl"
+#include "../include/marching_result.glsl"
+#include "../include/ray.glsl"
+
+bool scene_hit(inout MarchingResult o_res, vec3 o, vec3 d, ivec3 map_pos, uvec4 scene_tex_read) {
+    // see update_scene_tex.comp for encoding part
+    if (scene_tex_read.x == 0) {
+        return false;
+    }
+    scene_tex_read -= 1;
+
+    ContreeMarchingResult contree_res =
+        contree_marching(o, d, map_pos, vec3(1.0), false, scene_tex_read.x, scene_tex_read.y);
+    if (contree_res.is_hit) {
+        o_res.is_hit          = true;
+        o_res.pos             = contree_res.pos;
+        o_res.center_pos      = contree_res.center_pos;
+        o_res.is_normal_valid = (contree_res.voxel_data & (1u << 29)) != 0u;
+        o_res.normal          = unpack_normal_v2((contree_res.voxel_data & 0x1FFFFF00u) >> 8);
+        o_res.voxel_type      = contree_res.voxel_data & 0xFFu;
+        return true;
+    }
+    return false;
+}
+
+#define SCENE_TEX_NAME scene_tex
+#include "../include/dda_scene_marching.glsl"
+
+///
+
+MarchingResult general_scene_marching(Ray ray) {
+    return dda_scene_marching(ray.origin, ray.direction, ray.inv_direction);
+}
+
+float get_pixel_depth(Ray ray) {
+    MarchingResult res_primary_ray = general_scene_marching(ray);
+
+    if (!res_primary_ray.is_hit) {
+        return 1.0;
+    }
+    vec4 point_ndc         = camera_info.view_proj_mat * vec4(res_primary_ray.pos, 1.0);
+    float primary_depth_01 = point_ndc.z / point_ndc.w;
+    return primary_depth_01;
+}
+
+void main() {
+    ivec2 uvi      = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 img_size = imageSize(shadow_map_tex);
+    if (any(greaterThanEqual(uvi, img_size))) {
+        return;
+    }
+
+    vec2 screen_uv = (vec2(gl_GlobalInvocationID.xy) + vec2(0.5)) / vec2(img_size);
+    Ray ray        = ray_gen(camera_info.camera_pos.xyz, screen_uv);
+
+    float depth = get_pixel_depth(ray);
+    imageStore(shadow_map_tex, uvi, vec4(depth, 0.0, 0.0, 1.0));
+}

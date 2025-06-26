@@ -582,19 +582,23 @@ impl InitializedApp {
                 let cmdbuf = &self.cmdbuf;
                 cmdbuf.begin(false);
 
-                self.tracer.record_command_buffer(
-                    cmdbuf,
-                    self.debug_float,
-                    self.debug_bool,
-                    get_sun_dir(self.sun_altitude, self.sun_azimuth),
-                    self.sun_size,
-                    Vec3::new(
-                        self.sun_color.r() as f32,
-                        self.sun_color.g() as f32,
-                        self.sun_color.b() as f32,
-                    ),
-                    Vec2::new(self.debug_float, 0.0),
-                ).unwrap();
+                self.tracer
+                    .update_buffers_and_record(
+                        cmdbuf,
+                        Vec2::new(self.debug_float, 0.0),
+                        &self.surface_builder.get_resources(),
+                        self.surface_builder.get_grass_instance_len(),
+                        self.debug_float,
+                        self.debug_bool,
+                        get_sun_dir(self.sun_altitude, self.sun_azimuth),
+                        self.sun_size,
+                        Vec3::new(
+                            self.sun_color.r() as f32,
+                            self.sun_color.g() as f32,
+                            self.sun_color.b() as f32,
+                        ),
+                    )
+                    .unwrap();
 
                 self.swapchain
                     .record_blit(self.tracer.get_dst_image(), cmdbuf, image_idx);

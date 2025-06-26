@@ -30,7 +30,7 @@ pub fn calculate_directional_light_matrices(
     // in right handed coordinate system, the camera is looking at the negative z axis
     // so for the near plane, we need to pull it closer to the camera
     // and for the far plane, we need to push it further away from the camera
-    let z_mult = 10.0;
+    let z_mult = 1.0;
     if min.z < 0.0 {
         min.z *= z_mult;
     } else {
