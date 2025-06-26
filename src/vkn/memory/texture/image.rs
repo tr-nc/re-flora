@@ -3,6 +3,7 @@ use crate::vkn::{
     execute_one_time_command, Allocator, Buffer, BufferUsage, CommandBuffer, CommandPool, Device,
     Queue,
 };
+use anyhow::Result;
 use ash::vk::{self, ImageLayout};
 use gpu_allocator::{
     vulkan::{Allocation, AllocationCreateDesc, AllocationScheme},
@@ -45,12 +46,12 @@ impl std::ops::Deref for Image {
 }
 
 impl Image {
-    pub fn new(device: Device, mut allocator: Allocator, desc: &ImageDesc) -> Result<Self, String> {
+    pub fn new(device: Device, mut allocator: Allocator, desc: &ImageDesc) -> Result<Self> {
         // for vulkan spec, initial_layout must be either UNDEFINED or PREINITIALIZED,
         if desc.initial_layout != ImageLayout::UNDEFINED
             && desc.initial_layout != ImageLayout::PREINITIALIZED
         {
-            return Err("Initial layout must be UNDEFINED".to_string());
+            return Err(anyhow::anyhow!("Initial layout must be UNDEFINED"));
         }
 
         let image_info = vk::ImageCreateInfo::default()
@@ -281,24 +282,29 @@ impl Image {
     }
 
     /// Force set the layout for the given array layer.
+    #[allow(dead_code)]
     pub fn set_layout(&self, array_layer: u32, new_layout: vk::ImageLayout) {
         let mut layouts = self.0.current_layout.lock().unwrap();
         layouts[array_layer as usize] = new_layout;
     }
 
     /// Loads an RGBA image from the given path and checks if it has the same size as the texture.
-    fn load_same_sized_image_as_raw_u8(&self, path: &str) -> Result<Vec<u8>, String> {
-        let image = image::open(path).map_err(|e| format!("Failed to open image: {}", e))?;
+    fn load_same_sized_image_as_raw_u8(&self, path: &str) -> Result<Vec<u8>> {
+        let image =
+            image::open(path).map_err(|e| anyhow::anyhow!("Failed to open image: {}", e))?;
         let rgba_image = image.to_rgba8();
         let (width, height) = rgba_image.dimensions();
         if width != self.0.desc.extent.width as u32 || height != self.0.desc.extent.height as u32 {
-            return Err(format!(
+            return Err(anyhow::anyhow!(
                 "Image size does not match texture size: {}x{} != {}x{}",
-                width, height, self.0.desc.extent.width, self.0.desc.extent.height
+                width,
+                height,
+                self.0.desc.extent.width,
+                self.0.desc.extent.height
             ));
         }
         if self.0.desc.extent.depth != 1 {
-            return Err(format!(
+            return Err(anyhow::anyhow!(
                 "Image depth must be 1, but got {}",
                 self.0.desc.extent.depth
             ));
@@ -306,11 +312,11 @@ impl Image {
         let mut data = rgba_image.into_raw();
         data = self
             .convert_rgba_data_to_image_format(&data)
-            .map_err(|e| format!("Failed to convert image data: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to convert image data: {}", e))?;
         Ok(data)
     }
 
-    fn convert_rgba_data_to_image_format(&self, data: &[u8]) -> Result<Vec<u8>, String> {
+    fn convert_rgba_data_to_image_format(&self, data: &[u8]) -> Result<Vec<u8>> {
         use ash::vk::Format;
         let fmt = self.0.desc.format;
         // data is &[R, G, B, A,  R, G, B, A,  …]
@@ -322,7 +328,7 @@ impl Image {
             Format::R8_UNORM => {
                 // Keep only R
                 if data.len() % 4 != 0 {
-                    return Err("Input RGBA data length not divisible by 4".into());
+                    return Err(anyhow::anyhow!("Input RGBA data length not divisible by 4"));
                 }
                 let mut out = Vec::with_capacity(data.len() / 4);
                 for pixel in data.chunks_exact(4) {
@@ -333,7 +339,7 @@ impl Image {
             Format::R8G8_UNORM => {
                 // Keep R and G
                 if data.len() % 4 != 0 {
-                    return Err("Input RGBA data length not divisible by 4".into());
+                    return Err(anyhow::anyhow!("Input RGBA data length not divisible by 4"));
                 }
                 let mut out = Vec::with_capacity(data.len() / 2);
                 for pixel in data.chunks_exact(4) {
@@ -342,7 +348,7 @@ impl Image {
                 }
                 Ok(out)
             }
-            other => Err(format!(
+            other => Err(anyhow::anyhow!(
                 "Unsupported image format for RGBA→raw conversion: {:?}",
                 other
             )),
@@ -360,7 +366,7 @@ impl Image {
         path: &str,
         array_layer: u32,
         dst_image_layout: Option<vk::ImageLayout>,
-    ) -> Result<(), String> {
+    ) -> Result<()> {
         let data = self.load_same_sized_image_as_raw_u8(path)?;
         let region = TextureRegion::from_image(self);
         self.fill_with_raw_u8(
@@ -385,7 +391,7 @@ impl Image {
         data: &[u8],
         array_layer: u32,
         dst_image_layout: Option<vk::ImageLayout>,
-    ) -> Result<(), String> {
+    ) -> Result<()> {
         let device = &self.0.device;
 
         let buffer = Buffer::new_sized(
@@ -397,7 +403,7 @@ impl Image {
         );
         buffer
             .fill(data)
-            .map_err(|e| format!("Failed to fill buffer: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to fill buffer: {}", e))?;
 
         let target_layout = dst_image_layout.unwrap_or(self.get_layout(array_layer));
 
@@ -441,7 +447,7 @@ impl Image {
     // TODO: Add support for regions and other formats. Add support for
     // array layers.
     #[allow(dead_code)]
-    pub fn fetch_data(&self, queue: &Queue, command_pool: &CommandPool) -> Result<Vec<u8>, String> {
+    pub fn fetch_data(&self, queue: &Queue, command_pool: &CommandPool) -> Result<Vec<u8>> {
         let device = &self.0.device;
 
         let buffer = Buffer::new_sized(

@@ -1,6 +1,7 @@
 use crate::vkn::{Allocator, BufferLayout, CommandBuffer, Device};
 
 use super::BufferUsage;
+use anyhow::Result;
 use ash::vk;
 use core::slice;
 use gpu_allocator::{
@@ -222,7 +223,7 @@ impl Buffer {
         self.desc._location
     }
 
-    fn map_buffer_mem_and_write(&self, data: &[u8], byte_offset: u64) -> Result<(), String> {
+    fn map_buffer_mem_and_write(&self, data: &[u8], byte_offset: u64) -> Result<()> {
         // Try to get the raw mapped pointer
         if let Some(ptr) = self.allocated_mem.mapped_ptr() {
             unsafe {
@@ -237,14 +238,14 @@ impl Buffer {
             }
             Ok(())
         } else {
-            Err("Failed to map buffer memory".into())
+            Err(anyhow::anyhow!("Failed to map buffer memory"))
         }
     }
 
     #[allow(dead_code)]
-    pub fn fill_element_with_raw_u8(&self, data: &[u8], element_idx: u64) -> Result<(), String> {
+    pub fn fill_element_with_raw_u8(&self, data: &[u8], element_idx: u64) -> Result<()> {
         if data.len() != self.get_element_size_bytes() as usize {
-            return Err(format!(
+            return Err(anyhow::anyhow!(
                 "Data size {} does not match element size {}",
                 data.len(),
                 self.get_element_size_bytes()
@@ -252,9 +253,10 @@ impl Buffer {
         }
 
         if element_idx >= self.desc.element_length {
-            return Err(format!(
+            return Err(anyhow::anyhow!(
                 "Element index {} out of bounds for element length {}",
-                element_idx, self.desc.element_length
+                element_idx,
+                self.desc.element_length
             ));
         }
 
@@ -262,10 +264,10 @@ impl Buffer {
         self.map_buffer_mem_and_write(data, offset)
     }
 
-    pub fn fill_with_raw_u8(&self, data: &[u8]) -> Result<(), String> {
+    pub fn fill_with_raw_u8(&self, data: &[u8]) -> Result<()> {
         // validation: check if data size matches buffer size
         if data.len() != self.get_size_bytes() as usize {
-            return Err(format!(
+            return Err(anyhow::anyhow!(
                 "Data size {} does not match buffer size {}",
                 data.len(),
                 self.get_size_bytes()
@@ -275,7 +277,7 @@ impl Buffer {
     }
 
     #[allow(dead_code)]
-    pub fn fill_with_raw_u32(&self, data: &[u32]) -> Result<(), String> {
+    pub fn fill_with_raw_u32(&self, data: &[u32]) -> Result<()> {
         let data_u8: &[u8] = unsafe {
             std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * size_of::<u32>())
         };
@@ -293,7 +295,7 @@ impl Buffer {
     /// # Returns
     /// * `Ok(())` if the operation was successful
     /// * `Err` with a description if memory mapping failed
-    pub fn fill<T: Copy>(&self, data: &[T]) -> Result<(), String> {
+    pub fn fill<T: Copy>(&self, data: &[T]) -> Result<()> {
         if let Some(ptr) = self.allocated_mem.mapped_ptr() {
             let size_of_slice = std::mem::size_of_val(data) as vk::DeviceSize;
             unsafe {
@@ -306,7 +308,7 @@ impl Buffer {
             };
             return Ok(());
         }
-        return Err("Failed to map buffer memory".to_string());
+        return Err(anyhow::anyhow!("Failed to map buffer memory"));
     }
 
     /// Reads raw data from the buffer.
@@ -314,7 +316,7 @@ impl Buffer {
     /// # Returns
     /// * `Ok(Vec<u8>)` containing the buffer's data if successful
     /// * `Err` with a description if memory mapping failed
-    pub fn read_back(&self) -> Result<Vec<u8>, String> {
+    pub fn read_back(&self) -> Result<Vec<u8>> {
         if let Some(ptr) = self.allocated_mem.mapped_ptr() {
             let size = self.get_size_bytes() as usize;
             let mut data: Vec<u8> = vec![0; size];
@@ -324,7 +326,7 @@ impl Buffer {
             }
             Ok(data)
         } else {
-            Err("Failed to map buffer memory".to_string())
+            Err(anyhow::anyhow!("Failed to map buffer memory"))
         }
     }
 

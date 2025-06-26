@@ -1,5 +1,6 @@
 use super::DescriptorSetLayout;
 use crate::vkn::Device;
+use anyhow::Result;
 use ash::vk;
 use std::{collections::HashMap, sync::Arc};
 
@@ -31,11 +32,11 @@ impl std::ops::Deref for DescriptorPool {
 
 impl DescriptorPool {
     /// Create a new descriptor pool
-    fn new(device: &Device, create_info: vk::DescriptorPoolCreateInfo) -> Result<Self, String> {
+    fn new(device: &Device, create_info: vk::DescriptorPoolCreateInfo) -> Result<Self> {
         let descriptor_pool = unsafe {
             device
                 .create_descriptor_pool(&create_info, None)
-                .map_err(|e| e.to_string())?
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?
         };
 
         Ok(Self(Arc::new(DescriptorPoolInner {
@@ -45,7 +46,7 @@ impl DescriptorPool {
     }
 
     /// Use this for development stages only. Not recommended for production use.
-    pub fn a_big_one(device: &Device) -> Result<Self, String> {
+    pub fn a_big_one(device: &Device) -> Result<Self> {
         let pool_sizes = [
             vk::DescriptorPoolSize {
                 ty: vk::DescriptorType::UNIFORM_BUFFER,
@@ -73,7 +74,7 @@ impl DescriptorPool {
     pub fn from_descriptor_set_layouts(
         device: &Device,
         descriptor_set_layouts: &HashMap<u32, DescriptorSetLayout>,
-    ) -> Result<Self, String> {
+    ) -> Result<Self> {
         let mut pool_sizes = Vec::new();
         for layout in descriptor_set_layouts.values() {
             for binding in layout.get_bindings().iter() {
@@ -87,7 +88,7 @@ impl DescriptorPool {
         let create_info = vk::DescriptorPoolCreateInfo::default()
             .pool_sizes(&pool_sizes)
             .max_sets(descriptor_set_layouts.len() as u32);
-        let descriptor_pool = Self::new(&device, create_info)?;
+        let descriptor_pool = Self::new(&device, create_info).unwrap();
         Ok(descriptor_pool)
     }
 
