@@ -86,7 +86,7 @@ impl RenderPass {
 
         if let Some(ref depth) = depth_attachment {
             desc.depth_format = Some(depth.get_image().get_desc().format);
-            desc.depth_final_layout = Some(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+            desc.depth_final_layout = Some(vk::ImageLayout::GENERAL);
             desc.dst_access_mask |= vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE;
         }
 
@@ -125,10 +125,7 @@ impl RenderPass {
                 .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
                 .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
                 .initial_layout(vk::ImageLayout::UNDEFINED)
-                .final_layout(
-                    desc.depth_final_layout
-                        .unwrap_or(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL),
-                );
+                .final_layout(desc.depth_final_layout.unwrap());
             attachments.push(depth_attachment_desc);
 
             depth_attachment_ref_storage = vk::AttachmentReference::default()

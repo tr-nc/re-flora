@@ -127,15 +127,15 @@ impl Swapchain {
     }
 
     /// Blits the source image to the destination image.
-    /// The layout of src_img is transferred to TRANSFER_SRC_OPTIMAL.
+    /// The layout of src_img is transferred to GENERAL.
     pub fn record_blit(&self, src_img: &Image, cmdbuf: &CommandBuffer, image_idx: u32) {
         // the swapchain image is not wrapped because it is handled by the swapchain
         let dst_raw_img = self.get_image(image_idx);
         let device = self.vulkan_context.device();
 
-        src_img.record_transition_barrier(cmdbuf, 0, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
+        src_img.record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
 
-        // transition dst (a raw image)
+        // transition dst using the raw function
         // from UNDEFINED, because the image is just being available
         record_image_transition_barrier(
             device.as_raw(),
@@ -152,7 +152,7 @@ impl Swapchain {
             device.cmd_blit_image(
                 cmdbuf.as_raw(),
                 src_img.as_raw(),
-                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                vk::ImageLayout::GENERAL,
                 dst_raw_img,
                 vk::ImageLayout::TRANSFER_DST_OPTIMAL,
                 &[src_img.get_blit_region()],
@@ -160,8 +160,7 @@ impl Swapchain {
             );
         }
 
-        // transition dst (a raw image)
-        // TODO: is this needed?
+        // transition dst using the raw function
         record_image_transition_barrier(
             device.as_raw(),
             cmdbuf.as_raw(),

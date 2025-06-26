@@ -188,7 +188,7 @@ impl Tracer {
                 shader_write_tex,
                 Some(depth_tex),
                 vk::AttachmentLoadOp::CLEAR,
-                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                vk::ImageLayout::GENERAL,
             )
         };
 
