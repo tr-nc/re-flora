@@ -26,7 +26,8 @@ impl Default for CameraProjectionDesc {
     fn default() -> Self {
         Self {
             v_fov: 60.0,
-            z_near: 0.001,
+            // do not go smaller, or the projection matrix will be unstable!
+            z_near: 0.01,
             z_far: 10.0,
         }
     }
