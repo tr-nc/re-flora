@@ -170,7 +170,6 @@ impl InitializedApp {
             &contree_builder.get_resources().node_data,
             &contree_builder.get_resources().leaf_data,
             &scene_accel_builder.get_resources().scene_offset_tex,
-            swapchain.get_image_views(),
         );
 
         return Self {
@@ -600,7 +599,6 @@ impl InitializedApp {
 
                 self.tracer.record_command_buffer(
                     cmdbuf,
-                    image_idx as usize,
                     &self.surface_builder.get_resources(),
                     self.surface_builder.get_grass_instance_len(),
                 );
@@ -686,8 +684,7 @@ impl InitializedApp {
         let window_extent = self.window_state.window_extent();
 
         self.swapchain.on_resize(window_extent);
-        self.tracer
-            .on_resize(window_extent, self.swapchain.get_image_views());
+        self.tracer.on_resize(window_extent);
 
         // the render pass should be rebuilt when the swapchain is recreated
         self.egui_renderer

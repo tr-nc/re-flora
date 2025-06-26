@@ -12,9 +12,28 @@ use crate::builder::SurfaceResources;
 use crate::gameplay::{calculate_directional_light_matrices, Camera, CameraDesc};
 use crate::util::ShaderCompiler;
 use crate::vkn::{
-    Allocator, Buffer, ComputePipeline, DescriptorPool, DescriptorSet, Extent2D, Framebuffer,
-    GraphicsPipeline, GraphicsPipelineDesc, Image, PlainMemberTypeWithData, RenderPass,
-    ShaderModule, StructMemberDataBuilder, Texture, Viewport, WriteDescriptorSet,
+    Allocator,
+    AttachmentDesc,
+    AttachmentReference,
+    Buffer,
+    ComputePipeline,
+    DescriptorPool,
+    DescriptorSet,
+    Extent2D,
+    Framebuffer,
+    GraphicsPipeline,
+    GraphicsPipelineDesc,
+    Image,
+    PlainMemberTypeWithData,
+    RenderPass,
+    // Import the structs needed for manual RenderPass creation
+    RenderPassDesc,
+    ShaderModule,
+    StructMemberDataBuilder,
+    SubpassDesc,
+    Texture,
+    Viewport,
+    WriteDescriptorSet,
 };
 use crate::vkn::{CommandBuffer, VulkanContext};
 use ash::vk;
@@ -29,10 +48,17 @@ pub struct Tracer {
 
     tracer_ppl: ComputePipeline,
     tracer_sets: [DescriptorSet; 2],
+
+    // Main pass resources
     main_sets: [DescriptorSet; 1],
     main_ppl: GraphicsPipeline,
     main_render_pass: RenderPass,
-    main_framebuffers: Vec<Framebuffer>,
+    main_framebuffer: Framebuffer,
+
+    // Shadow pass resources (you would add these)
+    shadow_ppl: GraphicsPipeline,
+    shadow_render_pass: RenderPass,
+    shadow_framebuffer: Framebuffer,
 
     #[allow(dead_code)]
     descriptor_pool_ds_0: DescriptorPool,
@@ -54,7 +80,6 @@ impl Tracer {
         node_data: &Buffer,
         leaf_data: &Buffer,
         scene_tex: &Texture,
-        swapchain_image_views: &[vk::ImageView],
     ) -> Self {
         let camera = Camera::new(
             Vec3::new(0.5, 1.2, 0.5),
@@ -87,14 +112,14 @@ impl Tracer {
         )
         .unwrap();
 
-        let vert_sm = ShaderModule::from_glsl(
+        let main_vert_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             shader_compiler,
             "shader/foliage/foliage.vert",
             "main",
         )
         .unwrap();
-        let frag_sm = ShaderModule::from_glsl(
+        let main_frag_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             shader_compiler,
             "shader/foliage/foliage.frag",
@@ -102,29 +127,56 @@ impl Tracer {
         )
         .unwrap();
 
+        let shadow_vert_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            shader_compiler,
+            "shader/foliage/shadow.vert",
+            "main",
+        )
+        .unwrap();
+        let shadow_frag_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            shader_compiler,
+            "shader/foliage/shadow.frag",
+            "main",
+        )
+        .unwrap();
+
         let resources = TracerResources::new(
             &vulkan_ctx,
             allocator.clone(),
-            &vert_sm,
+            &main_vert_sm,
             &tracer_sm,
             screen_extent,
             Extent2D::new(1024, 1024), // shadow map resolution
         );
-
-        let (main_ppl, main_render_pass) = Self::create_render_pass_and_graphics_pipeline(
+        let (main_ppl, main_render_pass) = Self::create_main_render_pass_and_graphics_pipeline(
             &vulkan_ctx,
-            &vert_sm,
-            &frag_sm,
+            &main_vert_sm,
+            &main_frag_sm,
             resources.depth_tex.clone(),
             resources.shader_write_tex.clone(),
         );
 
-        let main_framebuffers = Self::create_framebuffers(
+        let (shadow_ppl, shadow_render_pass) =
+            Self::create_shadow_render_pass_and_graphics_pipeline(
+                &vulkan_ctx,
+                &shadow_vert_sm,
+                &shadow_frag_sm,
+                resources.shadow_map_tex.clone(),
+            );
+
+        let main_framebuffer = Self::create_main_framebuffer(
             &vulkan_ctx,
             &main_render_pass,
             &resources.shader_write_tex,
             &resources.depth_tex,
-            swapchain_image_views,
+        );
+
+        let shadow_framebuffer = Self::create_shadow_framebuffer(
+            &vulkan_ctx,
+            &shadow_render_pass,
+            &resources.shadow_map_tex,
         );
 
         let tracer_set_0 = Self::create_descriptor_set_0(
@@ -161,11 +213,89 @@ impl Tracer {
             main_sets: [main_ds],
             main_ppl,
             main_render_pass,
-            main_framebuffers,
+            main_framebuffer,
+            shadow_ppl,
+            shadow_render_pass,
+            shadow_framebuffer,
             descriptor_pool_ds_0,
             descriptor_pool_ds_1,
             frame_serial_idx: 0,
         };
+    }
+
+    fn create_shadow_render_pass_and_graphics_pipeline(
+        vulkan_ctx: &VulkanContext,
+        vert_sm: &ShaderModule,
+        frag_sm: &ShaderModule,
+        shadow_depth_tex: Texture,
+    ) -> (GraphicsPipeline, RenderPass) {
+        let render_pass_desc = RenderPassDesc {
+            attachments: vec![AttachmentDesc {
+                format: shadow_depth_tex.get_image().get_desc().format,
+                samples: vk::SampleCountFlags::TYPE_1,
+                load_op: vk::AttachmentLoadOp::CLEAR,
+                store_op: vk::AttachmentStoreOp::STORE,
+                stencil_load_op: vk::AttachmentLoadOp::DONT_CARE,
+                stencil_store_op: vk::AttachmentStoreOp::DONT_CARE,
+                initial_layout: vk::ImageLayout::UNDEFINED,
+                final_layout: vk::ImageLayout::DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+            }],
+            subpasses: vec![SubpassDesc {
+                color_attachments: vec![],
+                depth_stencil_attachment: Some(AttachmentReference {
+                    attachment: 0,
+                    layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                }),
+                ..Default::default()
+            }],
+            // Add a dependency to ensure writes to the depth buffer are complete
+            // before any subsequent pass tries to read from it.
+            dependencies: vec![vk::SubpassDependency::default()
+                .src_subpass(vk::SUBPASS_EXTERNAL)
+                .dst_subpass(0)
+                .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT) // Or an earlier stage
+                .dst_stage_mask(vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS)
+                .src_access_mask(vk::AccessFlags::empty())
+                .dst_access_mask(vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE)],
+        };
+
+        // 2. Create the render pass using the flexible `from_desc` constructor.
+        let render_pass = RenderPass::from_desc(vulkan_ctx.device().clone(), render_pass_desc);
+
+        // 3. Create the graphics pipeline for this render pass.
+        let gfx_ppl = GraphicsPipeline::new(
+            vulkan_ctx.device(),
+            &vert_sm,
+            &frag_sm,
+            &render_pass,
+            &GraphicsPipelineDesc {
+                cull_mode: vk::CullModeFlags::BACK, // Or FRONT depending on your shadow bias needs
+                depth_test_enable: true,
+                depth_write_enable: true,
+                ..Default::default()
+            },
+            Some(3),
+        );
+
+        (gfx_ppl, render_pass)
+    }
+
+    fn create_shadow_ds(
+        descriptor_pool: DescriptorPool,
+        vulkan_ctx: &VulkanContext,
+        shadow_ppl: &GraphicsPipeline,
+        resources: &TracerResources,
+    ) -> DescriptorSet {
+        let ds = DescriptorSet::new(
+            vulkan_ctx.device().clone(),
+            &shadow_ppl.get_layout().get_descriptor_set_layouts()[&0],
+            descriptor_pool,
+        );
+        ds.perform_writes(&mut [
+            WriteDescriptorSet::new_buffer_write(0, &resources.camera_info),
+            WriteDescriptorSet::new_buffer_write(1, &resources.grass_info),
+        ]);
+        ds
     }
 
     fn create_main_ds(
@@ -182,11 +312,13 @@ impl Tracer {
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.camera_info),
             WriteDescriptorSet::new_buffer_write(1, &resources.grass_info),
+            // You would also bind the shadow map texture here for the main pass to read
+            // WriteDescriptorSet::new_texture_write(2, vk::DescriptorType::COMBINED_IMAGE_SAMPLER, &resources.shadow_depth_tex, vk::ImageLayout::DEPTH_STENCIL_READ_ONLY_OPTIMAL),
         ]);
         ds
     }
 
-    fn create_render_pass_and_graphics_pipeline(
+    fn create_main_render_pass_and_graphics_pipeline(
         vulkan_ctx: &VulkanContext,
         vert_sm: &ShaderModule,
         frag_sm: &ShaderModule,
@@ -221,13 +353,12 @@ impl Tracer {
         (gfx_ppl, render_pass)
     }
 
-    fn create_framebuffers(
+    fn create_main_framebuffer(
         vulkan_ctx: &VulkanContext,
         render_pass: &RenderPass,
         target_texture: &Texture,
         depth_texture: &Texture,
-        swapchain_image_views: &[vk::ImageView],
-    ) -> Vec<Framebuffer> {
+    ) -> Framebuffer {
         let target_view = target_texture.get_image_view().as_raw();
         let depth_image_view = depth_texture.get_image_view().as_raw();
 
@@ -238,18 +369,35 @@ impl Tracer {
             .as_extent_2d()
             .unwrap();
 
-        return swapchain_image_views
-            .iter()
-            .map(|_| {
-                Framebuffer::new(
-                    vulkan_ctx.clone(),
-                    &render_pass,
-                    &[target_view, depth_image_view],
-                    target_image_extent,
-                )
-                .unwrap()
-            })
-            .collect();
+        Framebuffer::new(
+            vulkan_ctx.clone(),
+            &render_pass,
+            &[target_view, depth_image_view],
+            target_image_extent,
+        )
+        .unwrap()
+    }
+
+    fn create_shadow_framebuffer(
+        vulkan_ctx: &VulkanContext,
+        render_pass: &RenderPass,
+        shadow_depth_tex: &Texture,
+    ) -> Framebuffer {
+        let shadow_depth_image_view = shadow_depth_tex.get_image_view().as_raw();
+        let shadow_depth_image_extent = shadow_depth_tex
+            .get_image()
+            .get_desc()
+            .extent
+            .as_extent_2d()
+            .unwrap();
+
+        Framebuffer::new(
+            vulkan_ctx.clone(),
+            &render_pass,
+            &[shadow_depth_image_view],
+            shadow_depth_image_extent,
+        )
+        .unwrap()
     }
 
     fn create_descriptor_set_0(
@@ -350,7 +498,7 @@ impl Tracer {
         ds
     }
 
-    pub fn on_resize(&mut self, screen_extent: Extent2D, swapchain_image_views: &[vk::ImageView]) {
+    pub fn on_resize(&mut self, screen_extent: Extent2D) {
         self.camera.on_resize(screen_extent);
 
         self.resources.on_resize(
@@ -359,12 +507,11 @@ impl Tracer {
             screen_extent,
         );
 
-        self.main_framebuffers = Self::create_framebuffers(
+        self.main_framebuffer = Self::create_main_framebuffer(
             &self.vulkan_ctx,
             &self.main_render_pass,
             &self.resources.shader_write_tex,
             &self.resources.depth_tex,
-            swapchain_image_views,
         );
 
         self.descriptor_pool_ds_1.reset().unwrap();
@@ -379,11 +526,10 @@ impl Tracer {
     pub fn record_command_buffer(
         &mut self,
         cmdbuf: &CommandBuffer,
-        image_index: usize,
         surface_resources: &SurfaceResources,
         grass_instances_len: u32,
     ) {
-        self.record_screen_space_pass(cmdbuf, image_index, surface_resources, grass_instances_len);
+        self.record_screen_space_pass(cmdbuf, surface_resources, grass_instances_len);
         // self.record_trace_pass(cmdbuf);
     }
 
@@ -418,7 +564,6 @@ impl Tracer {
     pub fn record_screen_space_pass(
         &self,
         cmdbuf: &CommandBuffer,
-        image_index: usize,
         surface_resources: &SurfaceResources,
         grass_instances_len: u32,
     ) {
@@ -438,11 +583,8 @@ impl Tracer {
             },
         ];
 
-        self.main_render_pass.record_begin(
-            cmdbuf,
-            &self.main_framebuffers[image_index],
-            &clear_values,
-        );
+        self.main_render_pass
+            .record_begin(cmdbuf, &self.main_framebuffer, &clear_values);
 
         let image_extent = self.get_dst_image().get_desc().extent;
 
@@ -576,10 +718,13 @@ impl Tracer {
             camera: &Camera,
             sun_dir: Vec3,
         ) -> Result<(), String> {
-            // let view_mat = camera.get_view_mat();
-            // let proj_mat = camera.get_proj_mat();
+            // For the shadow pass, you'd use the light's view/projection matrix.
+            // For the main pass, you'd use the camera's view/projection matrix.
+            // You would need to update this buffer twice per frame, once for each pass,
+            // or use separate uniform buffers.
 
-            let (view_mat, proj_mat) = calculate_directional_light_matrices(camera, sun_dir);
+            // let (view_mat, proj_mat) = (camera.get_view_mat(), camera.get_proj_mat()); // For main pass
+            let (view_mat, proj_mat) = calculate_directional_light_matrices(camera, sun_dir); // For shadow pass
 
             let view_proj_mat = proj_mat * view_mat;
 
