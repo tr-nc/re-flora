@@ -9,7 +9,7 @@ use winit::event::KeyEvent;
 mod grass_construct;
 
 use crate::builder::SurfaceResources;
-use crate::gameplay::{Camera, CameraDesc};
+use crate::gameplay::{calculate_directional_light_matrices, Camera, CameraDesc};
 use crate::util::ShaderCompiler;
 use crate::vkn::{
     Allocator, Buffer, ComputePipeline, DescriptorPool, DescriptorSet, Framebuffer,
@@ -384,7 +384,7 @@ impl Tracer {
         grass_instances_len: u32,
     ) {
         self.record_screen_space_pass(cmdbuf, image_index, surface_resources, grass_instances_len);
-        self.record_trace_pass(cmdbuf);
+        // self.record_trace_pass(cmdbuf);
     }
 
     pub fn get_dst_image(&self) -> &Image {
@@ -538,7 +538,7 @@ impl Tracer {
             sun_size,
             sun_color,
         )?;
-        update_cam_info(&self.camera, &self.resources)?;
+        update_cam_info(&self.resources, &self.camera, sun_dir)?;
         update_env_info(&self.resources, self.frame_serial_idx)?;
 
         update_grass_info(&self.resources, grass_offset)?;
@@ -577,10 +577,18 @@ impl Tracer {
             return Ok(());
         }
 
-        fn update_cam_info(camera: &Camera, resources: &TracerResources) -> Result<(), String> {
-            let view_mat = camera.get_view_mat();
-            let proj_mat = camera.get_proj_mat();
+        fn update_cam_info(
+            resources: &TracerResources,
+            camera: &Camera,
+            sun_dir: Vec3,
+        ) -> Result<(), String> {
+            // let view_mat = camera.get_view_mat();
+            // let proj_mat = camera.get_proj_mat();
+
+            let (view_mat, proj_mat) = calculate_directional_light_matrices(camera, sun_dir);
+
             let view_proj_mat = proj_mat * view_mat;
+
             let data = StructMemberDataBuilder::from_buffer(&resources.camera_info)
                 .set_field(
                     "camera_pos",

@@ -318,6 +318,11 @@ impl Camera {
     /// 6: far-top-left
     /// 7: far-top-right
     pub fn get_frustum_corners(&self) -> [Vec3; 8] {
+        let vp = self.get_proj_mat() * self.get_view_mat();
+        if !vp.determinant().is_finite() {
+            log::error!("View-projection matrix is singular!");
+        }
+
         let view_proj_inv = (self.get_proj_mat() * self.get_view_mat()).inverse();
 
         let mut corners = [Vec3::ZERO; 8];
@@ -345,5 +350,13 @@ impl Camera {
 
     pub fn get_far_plane(&self) -> f32 {
         self.desc.projection.z_far
+    }
+
+    pub fn get_forward(&self) -> Vec3 {
+        self.vectors.front
+    }
+
+    pub fn get_up(&self) -> Vec3 {
+        self.vectors.up
     }
 }
