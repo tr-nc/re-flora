@@ -189,6 +189,7 @@ impl Tracer {
                 Some(depth_tex),
                 vk::AttachmentLoadOp::CLEAR,
                 vk::ImageLayout::GENERAL,
+                Some(vk::ImageLayout::GENERAL),
             )
         };
 
@@ -485,12 +486,15 @@ impl Tracer {
 
         self.gfx_render_pass.record_end(cmdbuf);
 
+        let desc = self.gfx_render_pass.get_desc();
+        // The color attachment is at index 0
         self.get_dst_image()
-            .set_layout(0, self.gfx_render_pass.get_desc().final_layout);
-        self.resources.depth_tex.get_image().set_layout(
-            0,
-            self.gfx_render_pass.get_desc().depth_final_layout.unwrap(),
-        );
+            .set_layout(0, desc.attachments[0].final_layout);
+        // The depth attachment is at index 1
+        self.resources
+            .depth_tex
+            .get_image()
+            .set_layout(0, desc.attachments[1].final_layout);
     }
 
     pub fn update_buffers(

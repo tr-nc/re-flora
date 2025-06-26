@@ -4,7 +4,9 @@ use ash::{
     vk::{self, Extent2D, PresentModeKHR, SurfaceCapabilitiesKHR, SurfaceFormatKHR},
 };
 
-use crate::vkn::{RenderPass, RenderPassDesc};
+use crate::vkn::{
+    RenderPass, RenderPassDesc, {AttachmentDesc, AttachmentReference, SubpassDesc},
+};
 
 use super::{
     context::VulkanContext, record_image_transition_barrier, CommandBuffer, Device, Image,
@@ -456,16 +458,42 @@ fn create_vulkan_swapchain(
 }
 
 fn create_vulkan_render_pass(device: Device, format: vk::Format) -> RenderPass {
-    let desc = RenderPassDesc {
+    let color_attachment = AttachmentDesc {
         format,
+        samples: vk::SampleCountFlags::TYPE_1,
         load_op: vk::AttachmentLoadOp::LOAD,
+        store_op: vk::AttachmentStoreOp::STORE,
+        stencil_load_op: vk::AttachmentLoadOp::DONT_CARE,
+        stencil_store_op: vk::AttachmentStoreOp::DONT_CARE,
         initial_layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
         final_layout: vk::ImageLayout::PRESENT_SRC_KHR,
-        dst_access_mask: vk::AccessFlags::COLOR_ATTACHMENT_READ
-            | vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
-        ..Default::default()
     };
-    RenderPass::from_formats(device, desc)
+
+    let subpass = SubpassDesc {
+        color_attachments: vec![AttachmentReference {
+            attachment: 0,
+            layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+        }],
+        depth_stencil_attachment: None,
+    };
+
+    let dependency = vk::SubpassDependency::default()
+        .src_subpass(vk::SUBPASS_EXTERNAL)
+        .dst_subpass(0)
+        .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+        .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+        .src_access_mask(vk::AccessFlags::empty())
+        .dst_access_mask(
+            vk::AccessFlags::COLOR_ATTACHMENT_READ | vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+        );
+
+    let desc = RenderPassDesc {
+        attachments: vec![color_attachment],
+        subpasses: vec![subpass],
+        dependencies: vec![dependency],
+    };
+
+    RenderPass::from_desc(device, desc)
 }
 
 fn create_vulkan_framebuffers(
