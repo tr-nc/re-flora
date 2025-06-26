@@ -60,8 +60,8 @@ impl GraphicsPipeline {
         desc: &GraphicsPipelineDesc,
         instance_rate_starting_location: Option<u32>,
     ) -> Self {
-        log::debug!("vert_shader_module: {:#?}", vert_shader_module);
-        log::debug!("frag_shader_module: {:#?}", frag_shader_module);
+        // log::debug!("vert_shader_module: {:#?}", vert_shader_module);
+        // log::debug!("frag_shader_module: {:#?}", frag_shader_module);
 
         let vert_pipeline_layout = PipelineLayout::from_shader_module(device, vert_shader_module);
         let frag_pipeline_layout = PipelineLayout::from_shader_module(device, frag_shader_module);
@@ -76,8 +76,8 @@ impl GraphicsPipeline {
             .get_vertex_input_state(&desc.format_overrides, instance_rate_starting_location)
             .unwrap();
 
-        log::debug!("binding_descs: {:#?}", binding_descs);
-        log::debug!("attribute_descs: {:#?}", attribute_descs);
+        // log::debug!("binding_descs: {:#?}", binding_descs);
+        // log::debug!("attribute_descs: {:#?}", attribute_descs);
 
         let vertex_input_info = vk::PipelineVertexInputStateCreateInfo::default()
             .vertex_binding_descriptions(&binding_descs)
