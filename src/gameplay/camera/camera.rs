@@ -305,4 +305,45 @@ impl Camera {
             self.vectors.up,
         ) * frame_delta_time;
     }
+
+    /// Returns the 8 corners of the camera's view frustum in world space.
+    /// The corners are ordered:
+    /// (near/far, bottom/top, left/right)
+    /// 0: near-bottom-left
+    /// 1: near-bottom-right
+    /// 2: near-top-left
+    /// 3: near-top-right
+    /// 4: far-bottom-left
+    /// 5: far-bottom-right
+    /// 6: far-top-left
+    /// 7: far-top-right
+    pub fn get_frustum_corners(&self) -> [Vec3; 8] {
+        let view_proj_inv = (self.get_proj_mat() * self.get_view_mat()).inverse();
+
+        let mut corners = [Vec3::ZERO; 8];
+        let mut i = 0;
+        for z in &[0.0, 1.0] {
+            // Near, Far
+            for y in &[-1.0, 1.0] {
+                // Bottom, Top
+                for x in &[-1.0, 1.0] {
+                    // Left, Right
+                    // From normalized device coordinates (NDC) to world space
+                    let p = view_proj_inv * Vec4::new(*x, *y, *z, 1.0);
+                    corners[i] = p.truncate() / p.w;
+                    i += 1;
+                }
+            }
+        }
+        corners
+    }
+
+    // Also add simple getters for near/far planes
+    pub fn get_near_plane(&self) -> f32 {
+        self.desc.projection.z_near
+    }
+
+    pub fn get_far_plane(&self) -> f32 {
+        self.desc.projection.z_far
+    }
 }
