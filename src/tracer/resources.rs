@@ -37,8 +37,8 @@ impl TracerResources {
         allocator: Allocator,
         vert_sm: &ShaderModule,
         tracer_sm: &ShaderModule,
-        screen_extent: &[u32; 2],
-        shadow_map_resolution: &[u32; 2],
+        screen_extent: Extent2D,
+        shadow_map_extent: Extent2D,
     ) -> Self {
         let device = vulkan_ctx.device();
 
@@ -79,22 +79,16 @@ impl TracerResources {
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
-        let depth_tex = Self::create_depth_tex(
-            device.clone(),
-            allocator.clone(),
-            Extent3D::new(screen_extent[0], screen_extent[1], 1),
-        );
+        let depth_tex =
+            Self::create_depth_tex(device.clone(), allocator.clone(), screen_extent.into());
 
-        let shader_write_tex = Self::create_shader_write_tex(
-            device.clone(),
-            allocator.clone(),
-            Extent3D::new(screen_extent[0], screen_extent[1], 1),
-        );
+        let shader_write_tex =
+            Self::create_shader_write_tex(device.clone(), allocator.clone(), screen_extent.into());
 
         let shadow_map_tex = Self::create_shadow_map_tex(
             device.clone(),
             allocator.clone(),
-            Extent3D::new(shadow_map_resolution[0], shadow_map_resolution[1], 1),
+            shadow_map_extent.into(),
         );
 
         let timer = Timer::new();

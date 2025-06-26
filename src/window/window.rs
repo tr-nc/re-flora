@@ -1,5 +1,5 @@
+use crate::vkn::Extent2D;
 use std::sync::Arc;
-
 use winit::{
     dpi::{LogicalPosition, LogicalSize},
     window::{CursorGrabMode, Fullscreen, Window},
@@ -238,12 +238,10 @@ impl WindowState {
         }
     }
 
-    /// Size of the physical
-    /// window, in (width,
-    /// height).
-    pub fn window_size(&self) -> [u32; 2] {
+    /// Size of the physical window, in (width, height).
+    pub fn window_extent(&self) -> Extent2D {
         let size = self.window().inner_size();
-        [size.width, size.height]
+        Extent2D::new(size.width, size.height)
     }
 
     pub fn is_minimized(&self) -> bool {
@@ -254,21 +252,12 @@ impl WindowState {
     /// accounted window size.
     #[allow(dead_code)]
     pub fn resolution(&self) -> [f32; 2] {
-        let size = self.window_size();
+        let size = self.window_extent();
         let scale_factor = self.window().scale_factor();
         [
-            (size[0] as f64 / scale_factor) as f32,
-            (size[1] as f64 / scale_factor) as f32,
+            (size.width as f64 / scale_factor) as f32,
+            (size.height as f64 / scale_factor) as f32,
         ]
-    }
-
-    /// Return aspect ratio of
-    /// the window. (width /
-    /// height)
-    #[allow(dead_code)]
-    pub fn aspect_ratio(&self) -> f32 {
-        let dims = self.window_size();
-        dims[0] as f32 / dims[1] as f32
     }
 
     /// Returns the cursor grab mode that should be used for the current platform.

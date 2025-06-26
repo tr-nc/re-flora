@@ -8,7 +8,7 @@ use crate::tracer::Tracer;
 use crate::tree_gen::{Tree, TreeDesc};
 use crate::util::{get_sun_dir, ShaderCompiler};
 use crate::util::{TimeInfo, BENCH};
-use crate::vkn::{Allocator, CommandBuffer, Extent2D, Fence, Semaphore, SwapchainDesc};
+use crate::vkn::{Allocator, CommandBuffer, Fence, Semaphore, SwapchainDesc};
 use crate::{
     egui_renderer::EguiRenderer,
     vkn::{Swapchain, VulkanContext, VulkanContextDesc},
@@ -95,7 +95,7 @@ impl InitializedApp {
 
         let swapchain = Swapchain::new(
             vulkan_ctx.clone(),
-            &window_state.window_size(),
+            window_state.window_extent(),
             SwapchainDesc {
                 present_mode: vk::PresentModeKHR::MAILBOX,
                 ..Default::default()
@@ -116,8 +116,6 @@ impl InitializedApp {
             &shader_compiler,
             swapchain.get_render_pass(),
         );
-
-        let screen_extent = window_state.window_size();
 
         let mut plain_builder = PlainBuilder::new(
             vulkan_ctx.clone(),
@@ -168,7 +166,7 @@ impl InitializedApp {
             vulkan_ctx.clone(),
             allocator.clone(),
             &shader_compiler,
-            &screen_extent,
+            window_state.window_extent(),
             &contree_builder.get_resources().node_data,
             &contree_builder.get_resources().leaf_data,
             &scene_accel_builder.get_resources().scene_offset_tex,
@@ -610,13 +608,10 @@ impl InitializedApp {
                 self.swapchain
                     .record_blit(self.tracer.get_dst_image(), cmdbuf, image_idx);
 
-                let render_area = vk::Extent2D {
-                    width: self.window_state.window_size()[0],
-                    height: self.window_state.window_size()[1],
-                };
+                let render_area = self.window_state.window_extent();
 
                 self.swapchain
-                    .record_begin_render_pass_cmdbuf(cmdbuf, image_idx, &render_area);
+                    .record_begin_render_pass_cmdbuf(cmdbuf, image_idx, render_area);
 
                 self.egui_renderer
                     .record_command_buffer(device, cmdbuf, render_area);
@@ -688,13 +683,11 @@ impl InitializedApp {
     fn on_resize(&mut self) {
         self.vulkan_ctx.device().wait_idle();
 
-        let window_size = self.window_state.window_size();
+        let window_extent = self.window_state.window_extent();
 
-        self.swapchain.on_resize(&window_size);
-        self.tracer.on_resize(
-            Extent2D::new(window_size[0], window_size[1]),
-            self.swapchain.get_image_views(),
-        );
+        self.swapchain.on_resize(window_extent);
+        self.tracer
+            .on_resize(window_extent, self.swapchain.get_image_views());
 
         // the render pass should be rebuilt when the swapchain is recreated
         self.egui_renderer

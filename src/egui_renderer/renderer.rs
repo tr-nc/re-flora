@@ -6,15 +6,15 @@ use crate::vkn::FormatOverride;
 use crate::vkn::ImageDesc;
 use crate::vkn::RenderPass;
 use crate::vkn::TextureRegion;
+use crate::vkn::Viewport;
 use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
 use crate::vkn::{
     Allocator, DescriptorPool, DescriptorSetLayout, DescriptorSetLayoutBinding,
-    DescriptorSetLayoutBuilder, Device, Extent3D, GraphicsPipeline, GraphicsPipelineDesc,
+    DescriptorSetLayoutBuilder, Device, Extent2D, Extent3D, GraphicsPipeline, GraphicsPipelineDesc,
     ShaderModule, Texture,
 };
 use ash::vk;
-use ash::vk::Extent2D;
 use egui::ViewportId;
 use egui::{
     epaint::{ImageDelta, Primitive},
@@ -256,7 +256,7 @@ impl EguiRenderer {
         textures: &mut HashMap<TextureId, DescriptorSet>,
         allocator: &mut Allocator,
         cmdbuf: &CommandBuffer,
-        extent: vk::Extent2D,
+        extent: Extent2D,
         pixels_per_point: f32,
         primitives: &[ClippedPrimitive],
     ) {
@@ -288,12 +288,7 @@ impl EguiRenderer {
             device.cmd_set_viewport(
                 cmdbuf.as_raw(),
                 0,
-                &[vk::Viewport {
-                    width: screen_width,
-                    height: screen_height,
-                    max_depth: 1.0,
-                    ..Default::default()
-                }],
+                &[Viewport::from_extent(extent).as_raw()],
             )
         };
 

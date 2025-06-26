@@ -18,6 +18,13 @@ impl Extent2D {
             height: self.height,
         }
     }
+
+    /// Get the aspect ratio of the extent
+    ///
+    /// Aspect ratio is the width divided by the height.
+    pub fn get_aspect_ratio(&self) -> f32 {
+        self.width as f32 / self.height as f32
+    }
 }
 
 impl Default for Extent2D {
@@ -84,6 +91,7 @@ impl From<vk::Extent3D> for Extent3D {
 }
 
 impl From<Extent2D> for Extent3D {
+    /// Convert a 2D extent to a 3D extent with a depth of 1
     fn from(extent: Extent2D) -> Self {
         Self {
             width: extent.width,

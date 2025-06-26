@@ -1,11 +1,11 @@
 use ash::{
     khr::swapchain,
     prelude::VkResult,
-    vk::{self, Extent2D, PresentModeKHR, SurfaceCapabilitiesKHR, SurfaceFormatKHR},
+    vk::{self, PresentModeKHR, SurfaceCapabilitiesKHR, SurfaceFormatKHR},
 };
 
 use crate::vkn::{
-    RenderPass, RenderPassDesc, {AttachmentDesc, AttachmentReference, SubpassDesc},
+    AttachmentDesc, AttachmentReference, Extent2D, RenderPass, RenderPassDesc, SubpassDesc,
 };
 
 use super::{
@@ -52,9 +52,9 @@ impl Drop for Swapchain {
 }
 
 impl Swapchain {
-    pub fn new(context: VulkanContext, window_size: &[u32; 2], desc: SwapchainDesc) -> Self {
+    pub fn new(context: VulkanContext, window_extent: Extent2D, desc: SwapchainDesc) -> Self {
         let (swapchain_device, swapchain_khr, image_views, render_pass, framebuffers) =
-            create_vulkan_swapchain(&context, window_size, &desc);
+            create_vulkan_swapchain(&context, window_extent, &desc);
 
         Self {
             vulkan_context: context,
@@ -67,11 +67,11 @@ impl Swapchain {
         }
     }
 
-    pub fn on_resize(&mut self, window_size: &[u32; 2]) {
+    pub fn on_resize(&mut self, window_extent: Extent2D) {
         self.clean_up();
 
         let (swapchain_device, swapchain_khr, image_views, render_pass, framebuffers) =
-            create_vulkan_swapchain(&self.vulkan_context, window_size, &self.desc);
+            create_vulkan_swapchain(&self.vulkan_context, window_extent, &self.desc);
 
         self.swapchain_device = swapchain_device;
         self.swapchain_khr = swapchain_khr;
@@ -209,14 +209,14 @@ impl Swapchain {
         &self,
         cmdbuf: &CommandBuffer,
         image_index: u32,
-        render_area: &vk::Extent2D,
+        render_area: Extent2D,
     ) {
         let render_pass_begin_info = vk::RenderPassBeginInfo::default()
             .render_pass(self.render_pass.as_raw())
             .framebuffer(self.framebuffers[image_index as usize])
             .render_area(vk::Rect2D {
                 offset: vk::Offset2D { x: 0, y: 0 },
-                extent: *render_area,
+                extent: render_area.as_raw(),
             })
             .clear_values(&[vk::ClearValue {
                 color: vk::ClearColorValue {
@@ -331,7 +331,7 @@ fn create_swapchain_device_khr(
             .min_image_count(image_count)
             .image_format(format.format)
             .image_color_space(format.color_space)
-            .image_extent(extent)
+            .image_extent(extent.as_raw())
             .image_array_layers(1)
             .image_usage(
                 vk::ImageUsageFlags::COLOR_ATTACHMENT
@@ -365,7 +365,7 @@ fn create_swapchain_device_khr(
 
 fn create_vulkan_swapchain(
     vulkan_context: &VulkanContext,
-    window_size: &[u32; 2],
+    window_extent: Extent2D,
     swapchain_preference: &SwapchainDesc,
 ) -> (
     swapchain::Device,
@@ -382,8 +382,8 @@ fn create_vulkan_swapchain(
     let present_mode = choose_present_mode(vulkan_context, swapchain_preference.present_mode);
 
     let extent = Extent2D {
-        width: window_size[0],
-        height: window_size[1],
+        width: window_extent.width,
+        height: window_extent.height,
     };
 
     let capabilities: SurfaceCapabilitiesKHR = unsafe {
@@ -445,7 +445,7 @@ fn create_vulkan_swapchain(
         vulkan_context.device(),
         render_pass.as_raw(),
         &image_views,
-        window_size,
+        window_extent,
     );
 
     (
@@ -500,7 +500,7 @@ fn create_vulkan_framebuffers(
     device: &Device,
     render_pass: vk::RenderPass,
     image_views: &[vk::ImageView],
-    window_size: &[u32; 2],
+    window_extent: Extent2D,
 ) -> Vec<vk::Framebuffer> {
     image_views
         .iter()
@@ -509,8 +509,8 @@ fn create_vulkan_framebuffers(
             let framebuffer_info = vk::FramebufferCreateInfo::default()
                 .render_pass(render_pass)
                 .attachments(&attachments)
-                .width(window_size[0])
-                .height(window_size[1])
+                .width(window_extent.width)
+                .height(window_extent.height)
                 .layers(1);
             unsafe { device.create_framebuffer(&framebuffer_info, None) }
         })

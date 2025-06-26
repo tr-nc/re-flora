@@ -50,7 +50,7 @@ impl Tracer {
         vulkan_ctx: VulkanContext,
         allocator: Allocator,
         shader_compiler: &ShaderCompiler,
-        screen_extent: &[u32; 2],
+        screen_extent: Extent2D,
         node_data: &Buffer,
         leaf_data: &Buffer,
         scene_tex: &Texture,
@@ -63,7 +63,7 @@ impl Tracer {
             CameraDesc {
                 movement: Default::default(),
                 projection: Default::default(),
-                aspect_ratio: screen_extent[0] as f32 / screen_extent[1] as f32,
+                aspect_ratio: screen_extent.get_aspect_ratio(),
             },
         );
 
@@ -108,7 +108,7 @@ impl Tracer {
             &vert_sm,
             &tracer_sm,
             screen_extent,
-            &[1024, 1024], // shadow map resolution
+            Extent2D::new(1024, 1024), // shadow map resolution
         );
 
         let (gfx_ppl, gfx_render_pass) = Self::create_render_pass_and_graphics_pipeline(
