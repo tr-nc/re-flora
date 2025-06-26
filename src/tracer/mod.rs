@@ -4,11 +4,12 @@ pub use resources::*;
 
 mod vertex;
 pub use vertex::*;
+use winit::event::KeyEvent;
 
 mod grass_construct;
 
 use crate::builder::SurfaceResources;
-use crate::gameplay::Camera;
+use crate::gameplay::{Camera, CameraDesc};
 use crate::util::ShaderCompiler;
 use crate::vkn::{
     Allocator, Buffer, ComputePipeline, DescriptorPool, DescriptorSet, Framebuffer,
@@ -24,8 +25,7 @@ pub struct Tracer {
     allocator: Allocator,
     resources: TracerResources,
 
-    vert_sm: ShaderModule,
-    frag_sm: ShaderModule,
+    camera: Camera,
 
     tracer_ppl: ComputePipeline,
     tracer_sets: [DescriptorSet; 2],
@@ -56,6 +56,17 @@ impl Tracer {
         scene_tex: &Texture,
         swapchain_image_views: &[vk::ImageView],
     ) -> Self {
+        let camera = Camera::new(
+            Vec3::new(0.5, 1.2, 0.5),
+            135.0,
+            -5.0,
+            CameraDesc {
+                movement: Default::default(),
+                projection: Default::default(),
+                aspect_ratio: screen_extent[0] as f32 / screen_extent[1] as f32,
+            },
+        );
+
         let tracer_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             &shader_compiler,
@@ -143,8 +154,7 @@ impl Tracer {
             vulkan_ctx,
             allocator,
             resources,
-            vert_sm,
-            frag_sm,
+            camera,
             tracer_ppl,
             tracer_sets: [tracer_set_0, tracer_set_1],
             graphics_sets: [graphics_set_0],
@@ -341,6 +351,8 @@ impl Tracer {
     }
 
     pub fn on_resize(&mut self, screen_extent: &[u32; 2], swapchain_image_views: &[vk::ImageView]) {
+        self.camera.on_resize(screen_extent);
+
         self.resources.on_resize(
             self.vulkan_ctx.device().clone(),
             self.allocator.clone(),
@@ -497,6 +509,18 @@ impl Tracer {
             .set_layout(0, desc.attachments[1].final_layout);
     }
 
+    pub fn handle_keyboard(&mut self, key_event: &KeyEvent) {
+        self.camera.handle_keyboard(key_event);
+    }
+
+    pub fn handle_mouse(&mut self, delta: Vec2) {
+        self.camera.handle_mouse(delta);
+    }
+
+    pub fn update_transform(&mut self, frame_delta_time: f32) {
+        self.camera.update_transform(frame_delta_time);
+    }
+
     pub fn update_buffers(
         &mut self,
         debug_float: f32,
@@ -504,7 +528,6 @@ impl Tracer {
         sun_dir: Vec3,
         sun_size: f32,
         sun_color: Vec3,
-        camera: &Camera,
         grass_offset: Vec2,
     ) -> Result<(), String> {
         update_gui_input(
@@ -515,7 +538,7 @@ impl Tracer {
             sun_size,
             sun_color,
         )?;
-        update_cam_info(&self.resources, camera)?;
+        update_cam_info(&self.camera, &self.resources)?;
         update_env_info(&self.resources, self.frame_serial_idx)?;
 
         update_grass_info(&self.resources, grass_offset)?;
@@ -554,7 +577,7 @@ impl Tracer {
             return Ok(());
         }
 
-        fn update_cam_info(resources: &TracerResources, camera: &Camera) -> Result<(), String> {
+        fn update_cam_info(camera: &Camera, resources: &TracerResources) -> Result<(), String> {
             let view_mat = camera.get_view_mat();
             let proj_mat = camera.get_proj_mat();
             let view_proj_mat = proj_mat * view_mat;

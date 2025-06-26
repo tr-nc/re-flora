@@ -1,12 +1,11 @@
-use crate::geom::{build_bvh, UAabb3};
-use crate::procedual_placer::{generate_positions, PlacerDesc};
-use crate::tree_gen::{Tree, TreeDesc};
 #[allow(unused)]
 use crate::util::Timer;
 
 use crate::builder::{ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder};
-use crate::gameplay::{Camera, CameraDesc};
+use crate::geom::{build_bvh, UAabb3};
+use crate::procedual_placer::{generate_positions, PlacerDesc};
 use crate::tracer::Tracer;
+use crate::tree_gen::{Tree, TreeDesc};
 use crate::util::{get_sun_dir, ShaderCompiler};
 use crate::util::{TimeInfo, BENCH};
 use crate::vkn::{Allocator, CommandBuffer, Fence, Semaphore, SwapchainDesc};
@@ -42,7 +41,6 @@ pub struct InitializedApp {
     accumulated_mouse_delta: Vec2,
     smoothed_mouse_delta: Vec2,
 
-    camera: Camera,
     tracer: Tracer,
 
     // builders
@@ -121,17 +119,6 @@ impl InitializedApp {
 
         let screen_extent = window_state.window_size();
 
-        let camera = Camera::new(
-            Vec3::new(0.5, 1.2, 0.5),
-            135.0,
-            -5.0,
-            CameraDesc {
-                movement: Default::default(),
-                projection: Default::default(),
-                aspect_ratio: screen_extent[0] as f32 / screen_extent[1] as f32,
-            },
-        );
-
         let mut plain_builder = PlainBuilder::new(
             vulkan_ctx.clone(),
             &shader_compiler,
@@ -209,7 +196,6 @@ impl InitializedApp {
             contree_builder,
             scene_accel_builder,
 
-            camera,
             is_resize_pending: false,
             time_info: TimeInfo::default(),
 
@@ -426,7 +412,7 @@ impl InitializedApp {
                 }
 
                 if !self.window_state.is_cursor_visible() {
-                    self.camera.handle_keyboard(&event);
+                    self.tracer.handle_keyboard(&event);
                 }
             }
 
@@ -454,10 +440,10 @@ impl InitializedApp {
                     self.smoothed_mouse_delta =
                         self.smoothed_mouse_delta * alpha + mouse_delta * (1.0 - alpha);
 
-                    self.camera.handle_mouse(self.smoothed_mouse_delta);
+                    self.tracer.handle_mouse(self.smoothed_mouse_delta);
                 }
 
-                self.camera.update_transform(frame_delta_time);
+                self.tracer.update_transform(frame_delta_time);
 
                 self.vulkan_ctx
                     .wait_for_fences(&[self.fence.as_raw()])
@@ -607,7 +593,6 @@ impl InitializedApp {
                             self.sun_color.g() as f32,
                             self.sun_color.b() as f32,
                         ),
-                        &self.camera,
                         Vec2::new(self.debug_float, 0.0),
                     )
                     .unwrap();
@@ -705,7 +690,6 @@ impl InitializedApp {
 
         let window_size = self.window_state.window_size();
 
-        self.camera.on_resize(&window_size);
         self.swapchain.on_resize(&window_size);
         self.tracer
             .on_resize(&window_size, self.swapchain.get_image_views());
