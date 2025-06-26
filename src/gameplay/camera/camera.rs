@@ -4,6 +4,8 @@ use winit::{
     keyboard::{KeyCode, PhysicalKey},
 };
 
+use crate::vkn::Extent2D;
+
 use super::CameraDesc;
 
 #[derive(Debug)]
@@ -155,8 +157,8 @@ impl Camera {
         camera
     }
 
-    pub fn on_resize(&mut self, screen_extent: &[u32; 2]) {
-        self.desc.aspect_ratio = screen_extent[0] as f32 / screen_extent[1] as f32;
+    pub fn on_resize(&mut self, screen_extent: Extent2D) {
+        self.desc.aspect_ratio = screen_extent.width as f32 / screen_extent.height as f32;
     }
 
     #[allow(dead_code)]

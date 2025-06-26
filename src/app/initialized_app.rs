@@ -8,7 +8,7 @@ use crate::tracer::Tracer;
 use crate::tree_gen::{Tree, TreeDesc};
 use crate::util::{get_sun_dir, ShaderCompiler};
 use crate::util::{TimeInfo, BENCH};
-use crate::vkn::{Allocator, CommandBuffer, Fence, Semaphore, SwapchainDesc};
+use crate::vkn::{Allocator, CommandBuffer, Extent2D, Fence, Semaphore, SwapchainDesc};
 use crate::{
     egui_renderer::EguiRenderer,
     vkn::{Swapchain, VulkanContext, VulkanContextDesc},
@@ -691,8 +691,10 @@ impl InitializedApp {
         let window_size = self.window_state.window_size();
 
         self.swapchain.on_resize(&window_size);
-        self.tracer
-            .on_resize(&window_size, self.swapchain.get_image_views());
+        self.tracer.on_resize(
+            Extent2D::new(window_size[0], window_size[1]),
+            self.swapchain.get_image_views(),
+        );
 
         // the render pass should be rebuilt when the swapchain is recreated
         self.egui_renderer

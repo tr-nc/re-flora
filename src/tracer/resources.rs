@@ -2,7 +2,8 @@ use crate::{
     tracer::{grass_construct::generate_indexed_voxel_grass_blade, Vertex},
     util::{get_project_root, Timer},
     vkn::{
-        Allocator, Buffer, BufferUsage, Device, ImageDesc, ShaderModule, Texture, VulkanContext,
+        Allocator, Buffer, BufferUsage, Device, Extent2D, Extent3D, ImageDesc, ShaderModule,
+        Texture, VulkanContext,
     },
 };
 use ash::vk;
@@ -20,6 +21,8 @@ pub struct TracerResources {
     pub depth_tex: Texture,
     pub shader_write_tex: Texture,
 
+    pub shadow_map_tex: Texture,
+
     pub scalar_bn: Texture,
     pub unit_vec2_bn: Texture,
     pub unit_vec3_bn: Texture,
@@ -35,6 +38,7 @@ impl TracerResources {
         vert_sm: &ShaderModule,
         tracer_sm: &ShaderModule,
         screen_extent: &[u32; 2],
+        shadow_map_resolution: &[u32; 2],
     ) -> Self {
         let device = vulkan_ctx.device();
 
@@ -78,13 +82,19 @@ impl TracerResources {
         let depth_tex = Self::create_depth_tex(
             device.clone(),
             allocator.clone(),
-            [screen_extent[0], screen_extent[1], 1],
+            Extent3D::new(screen_extent[0], screen_extent[1], 1),
         );
 
         let shader_write_tex = Self::create_shader_write_tex(
             device.clone(),
             allocator.clone(),
-            [screen_extent[0], screen_extent[1], 1],
+            Extent3D::new(screen_extent[0], screen_extent[1], 1),
+        );
+
+        let shadow_map_tex = Self::create_shadow_map_tex(
+            device.clone(),
+            allocator.clone(),
+            Extent3D::new(shadow_map_resolution[0], shadow_map_resolution[1], 1),
         );
 
         let timer = Timer::new();
@@ -172,6 +182,7 @@ impl TracerResources {
             indices_len,
             depth_tex,
             shader_write_tex,
+            shadow_map_tex,
 
             scalar_bn,
             unit_vec2_bn,
@@ -190,7 +201,7 @@ impl TracerResources {
             const BLUE_NOISE_LEN: u32 = 64;
 
             let img_desc = ImageDesc {
-                extent: [128, 128, 1],
+                extent: Extent3D::new(128, 128, 1),
                 array_len: BLUE_NOISE_LEN,
                 format,
                 usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
@@ -218,20 +229,14 @@ impl TracerResources {
         }
     }
 
-    pub fn on_resize(&mut self, device: Device, allocator: Allocator, screen_extent: &[u32; 2]) {
-        self.depth_tex = Self::create_depth_tex(
-            device.clone(),
-            allocator.clone(),
-            [screen_extent[0], screen_extent[1], 1],
-        );
-        self.shader_write_tex = Self::create_shader_write_tex(
-            device.clone(),
-            allocator.clone(),
-            [screen_extent[0], screen_extent[1], 1],
-        );
+    pub fn on_resize(&mut self, device: Device, allocator: Allocator, screen_extent: Extent2D) {
+        self.depth_tex =
+            Self::create_depth_tex(device.clone(), allocator.clone(), screen_extent.into());
+        self.shader_write_tex =
+            Self::create_shader_write_tex(device.clone(), allocator.clone(), screen_extent.into());
     }
 
-    fn create_depth_tex(device: Device, allocator: Allocator, screen_extent: [u32; 3]) -> Texture {
+    fn create_depth_tex(device: Device, allocator: Allocator, screen_extent: Extent3D) -> Texture {
         let tex_desc = ImageDesc {
             extent: screen_extent,
             format: vk::Format::D32_SFLOAT,
@@ -248,7 +253,7 @@ impl TracerResources {
     fn create_shader_write_tex(
         device: Device,
         allocator: Allocator,
-        screen_extent: [u32; 3],
+        screen_extent: Extent3D,
     ) -> Texture {
         let tex_desc = ImageDesc {
             extent: screen_extent,
@@ -258,6 +263,24 @@ impl TracerResources {
                 | vk::ImageUsageFlags::COLOR_ATTACHMENT,
             initial_layout: vk::ImageLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        let sam_desc = Default::default();
+        let tex = Texture::new(device, allocator, &tex_desc, &sam_desc);
+        tex
+    }
+
+    fn create_shadow_map_tex(
+        device: Device,
+        allocator: Allocator,
+        shadow_map_resolution: Extent3D,
+    ) -> Texture {
+        let tex_desc = ImageDesc {
+            extent: shadow_map_resolution,
+            format: vk::Format::D32_SFLOAT,
+            usage: vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT | vk::ImageUsageFlags::STORAGE,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::DEPTH,
             ..Default::default()
         };
         let sam_desc = Default::default();

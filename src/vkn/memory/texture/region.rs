@@ -1,15 +1,16 @@
 use super::Image;
+use crate::vkn::Extent3D;
 
 pub struct TextureRegion {
     pub offset: [i32; 3],
-    pub extent: [u32; 3],
+    pub extent: Extent3D,
 }
 
 impl Default for TextureRegion {
     fn default() -> Self {
         Self {
             offset: [0, 0, 0],
-            extent: [0, 0, 0],
+            extent: Extent3D::default(),
         }
     }
 }
@@ -21,11 +22,7 @@ impl TextureRegion {
     pub fn from_image(image: &Image) -> Self {
         Self {
             offset: [0, 0, 0],
-            extent: [
-                image.get_desc().extent[0],
-                image.get_desc().extent[1],
-                image.get_desc().extent[2],
-            ],
+            extent: image.get_desc().extent,
         }
     }
 }

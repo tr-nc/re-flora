@@ -10,8 +10,8 @@ use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
 use crate::vkn::{
     Allocator, DescriptorPool, DescriptorSetLayout, DescriptorSetLayoutBinding,
-    DescriptorSetLayoutBuilder, Device, GraphicsPipeline, GraphicsPipelineDesc, ShaderModule,
-    Texture,
+    DescriptorSetLayoutBuilder, Device, Extent3D, GraphicsPipeline, GraphicsPipelineDesc,
+    ShaderModule, Texture,
 };
 use ash::vk;
 use ash::vk::Extent2D;
@@ -183,13 +183,13 @@ impl EguiRenderer {
             };
 
             let device = self.vulkan_context.device();
-
+            let extent = Extent3D::new(width, height, 1);
             if let Some([offset_x, offset_y]) = delta.pos {
                 let texture = self.managed_textures.get_mut(id).unwrap();
 
                 let region = TextureRegion {
                     offset: [offset_x as _, offset_y as _, 0],
-                    extent: [width, height, 1],
+                    extent,
                 };
 
                 texture
@@ -205,7 +205,7 @@ impl EguiRenderer {
                     .unwrap();
             } else {
                 let tex_desc = ImageDesc {
-                    extent: [width, height, 1],
+                    extent,
                     format: vk::Format::B8G8R8A8_SRGB,
                     usage: vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST,
                     initial_layout: vk::ImageLayout::UNDEFINED,

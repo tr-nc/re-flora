@@ -1,6 +1,6 @@
 use crate::vkn::{
     Buffer, CommandBuffer, DescriptorSet, Device, FormatOverride, PipelineLayout, RenderPass,
-    ShaderModule,
+    ShaderModule, Viewport,
 };
 use ash::vk;
 use std::{ops::Deref, sync::Arc};
@@ -223,13 +223,13 @@ impl GraphicsPipeline {
     pub fn record_viewport_scissor(
         &self,
         cmdbuf: &CommandBuffer,
-        viewport: vk::Viewport,
+        viewport: Viewport,
         scissor: vk::Rect2D,
     ) {
         unsafe {
             self.0
                 .device
-                .cmd_set_viewport(cmdbuf.as_raw(), 0, &[viewport]);
+                .cmd_set_viewport(cmdbuf.as_raw(), 0, &[viewport.as_raw()]);
             self.0
                 .device
                 .cmd_set_scissor(cmdbuf.as_raw(), 0, &[scissor]);

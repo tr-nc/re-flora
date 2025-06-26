@@ -1,4 +1,6 @@
-use crate::vkn::{Allocator, Buffer, BufferUsage, Device, ImageDesc, ShaderModule, Texture};
+use crate::vkn::{
+    Allocator, Buffer, BufferUsage, Device, Extent3D, ImageDesc, ShaderModule, Texture,
+};
 use ash::vk;
 use glam::UVec3;
 
@@ -20,7 +22,11 @@ impl SurfaceResources {
         make_surface: &ShaderModule,
     ) -> Self {
         let surface_desc = ImageDesc {
-            extent: max_voxel_dim_per_chunk.to_array(),
+            extent: Extent3D::new(
+                max_voxel_dim_per_chunk.x,
+                max_voxel_dim_per_chunk.y,
+                max_voxel_dim_per_chunk.z,
+            ),
             format: vk::Format::R32_UINT,
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
             initial_layout: vk::ImageLayout::UNDEFINED,

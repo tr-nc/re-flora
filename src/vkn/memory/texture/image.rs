@@ -54,7 +54,7 @@ impl Image {
         }
 
         let image_info = vk::ImageCreateInfo::default()
-            .extent(desc.get_extent())
+            .extent(desc.extent.as_raw())
             .image_type(desc.get_image_type())
             .mip_levels(1)
             .array_layers(desc.array_len)
@@ -85,9 +85,9 @@ impl Image {
                 .unwrap()
         };
 
-        let size = desc.extent[0] as vk::DeviceSize
-            * desc.extent[1] as vk::DeviceSize
-            * desc.extent[2] as vk::DeviceSize
+        let size = desc.extent.width as vk::DeviceSize
+            * desc.extent.height as vk::DeviceSize
+            * desc.extent.depth as vk::DeviceSize
             * desc.get_pixel_size() as vk::DeviceSize;
 
         // initialize one entry per array layer
@@ -140,9 +140,9 @@ impl Image {
                     z: region.offset[2],
                 })
                 .image_extent(vk::Extent3D {
-                    width: region.extent[0],
-                    height: region.extent[1],
-                    depth: region.extent[2],
+                    width: region.extent.width,
+                    height: region.extent.height,
+                    depth: region.extent.depth,
                 });
             unsafe {
                 self.0.device.cmd_copy_image_to_buffer(
@@ -174,7 +174,7 @@ impl Image {
                 layer_count: 1,
             },
             dst_offset: vk::Offset3D { x: 0, y: 0, z: 0 },
-            extent: self.0.desc.get_extent(),
+            extent: self.0.desc.extent.as_raw(),
         }
     }
 
@@ -187,8 +187,8 @@ impl Image {
     pub fn get_blit_region(&self) -> vk::ImageBlit {
         let offset_min = vk::Offset3D { x: 0, y: 0, z: 0 };
         let offset_max = vk::Offset3D {
-            x: self.0.desc.get_extent().width as i32,
-            y: self.0.desc.get_extent().height as i32,
+            x: self.0.desc.extent.width as i32,
+            y: self.0.desc.extent.height as i32,
             z: 1,
         };
         let offsets = [offset_min, offset_max];
@@ -291,16 +291,16 @@ impl Image {
         let image = image::open(path).map_err(|e| format!("Failed to open image: {}", e))?;
         let rgba_image = image.to_rgba8();
         let (width, height) = rgba_image.dimensions();
-        if width != self.0.desc.extent[0] as u32 || height != self.0.desc.extent[1] as u32 {
+        if width != self.0.desc.extent.width as u32 || height != self.0.desc.extent.height as u32 {
             return Err(format!(
                 "Image size does not match texture size: {}x{} != {}x{}",
-                width, height, self.0.desc.extent[0], self.0.desc.extent[1]
+                width, height, self.0.desc.extent.width, self.0.desc.extent.height
             ));
         }
-        if self.0.desc.extent[2] != 1 {
+        if self.0.desc.extent.depth != 1 {
             return Err(format!(
                 "Image depth must be 1, but got {}",
-                self.0.desc.extent[2]
+                self.0.desc.extent.depth
             ));
         }
         let mut data = rgba_image.into_raw();
@@ -422,11 +422,7 @@ impl Image {
                     y: region.offset[1],
                     z: region.offset[2],
                 })
-                .image_extent(vk::Extent3D {
-                    width: region.extent[0],
-                    height: region.extent[1],
-                    depth: region.extent[2],
-                });
+                .image_extent(region.extent.as_raw());
             unsafe {
                 device.cmd_copy_buffer_to_image(
                     cmdbuf.as_raw(),
@@ -469,11 +465,7 @@ impl Image {
                     layer_count: 1,
                 })
                 .image_offset(vk::Offset3D { x: 0, y: 0, z: 0 })
-                .image_extent(vk::Extent3D {
-                    width: self.get_desc().extent[0],
-                    height: self.get_desc().extent[1],
-                    depth: self.get_desc().extent[2],
-                });
+                .image_extent(self.get_desc().extent.as_raw());
             unsafe {
                 device.cmd_copy_image_to_buffer(
                     cmdbuf.as_raw(),

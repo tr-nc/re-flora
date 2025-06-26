@@ -12,9 +12,9 @@ use crate::builder::SurfaceResources;
 use crate::gameplay::{calculate_directional_light_matrices, Camera, CameraDesc};
 use crate::util::ShaderCompiler;
 use crate::vkn::{
-    Allocator, Buffer, ComputePipeline, DescriptorPool, DescriptorSet, Framebuffer,
+    Allocator, Buffer, ComputePipeline, DescriptorPool, DescriptorSet, Extent2D, Framebuffer,
     GraphicsPipeline, GraphicsPipelineDesc, Image, PlainMemberTypeWithData, RenderPass,
-    ShaderModule, StructMemberDataBuilder, Texture, WriteDescriptorSet,
+    ShaderModule, StructMemberDataBuilder, Texture, Viewport, WriteDescriptorSet,
 };
 use crate::vkn::{CommandBuffer, VulkanContext};
 use ash::vk;
@@ -108,6 +108,7 @@ impl Tracer {
             &vert_sm,
             &tracer_sm,
             screen_extent,
+            &[1024, 1024], // shadow map resolution
         );
 
         let (gfx_ppl, gfx_render_pass) = Self::create_render_pass_and_graphics_pipeline(
@@ -121,8 +122,8 @@ impl Tracer {
         let gfx_framebuffers = Self::create_framebuffers(
             &vulkan_ctx,
             &gfx_render_pass,
-            &resources.depth_tex,
             &resources.shader_write_tex,
+            &resources.depth_tex,
             swapchain_image_views,
         );
 
@@ -223,20 +224,19 @@ impl Tracer {
     fn create_framebuffers(
         vulkan_ctx: &VulkanContext,
         render_pass: &RenderPass,
-        depth_texture: &Texture,
         target_texture: &Texture,
+        depth_texture: &Texture,
         swapchain_image_views: &[vk::ImageView],
     ) -> Vec<Framebuffer> {
-        let depth_image_view = depth_texture.get_image_view().as_raw();
         let target_view = target_texture.get_image_view().as_raw();
+        let depth_image_view = depth_texture.get_image_view().as_raw();
 
-        let target_image_extent = {
-            let ext = target_texture.get_image().get_desc().extent;
-            vk::Extent2D {
-                width: ext[0],
-                height: ext[1],
-            }
-        };
+        let target_image_extent = target_texture
+            .get_image()
+            .get_desc()
+            .extent
+            .as_extent_2d()
+            .unwrap();
 
         return swapchain_image_views
             .iter()
@@ -350,20 +350,20 @@ impl Tracer {
         ds
     }
 
-    pub fn on_resize(&mut self, screen_extent: &[u32; 2], swapchain_image_views: &[vk::ImageView]) {
+    pub fn on_resize(&mut self, screen_extent: Extent2D, swapchain_image_views: &[vk::ImageView]) {
         self.camera.on_resize(screen_extent);
 
         self.resources.on_resize(
             self.vulkan_ctx.device().clone(),
             self.allocator.clone(),
-            &screen_extent,
+            screen_extent,
         );
 
         self.gfx_framebuffers = Self::create_framebuffers(
             &self.vulkan_ctx,
             &self.gfx_render_pass,
-            &self.resources.depth_tex,
             &self.resources.shader_write_tex,
+            &self.resources.depth_tex,
             swapchain_image_views,
         );
 
@@ -405,8 +405,14 @@ impl Tracer {
 
         self.tracer_ppl
             .record_bind_descriptor_sets(cmdbuf, &self.tracer_sets, 0);
-        self.tracer_ppl
-            .record_dispatch(cmdbuf, [screen_extent[0], screen_extent[1], 1]);
+        self.tracer_ppl.record_dispatch(
+            cmdbuf,
+            [
+                screen_extent.width,
+                screen_extent.height,
+                screen_extent.depth,
+            ],
+        );
     }
 
     pub fn record_screen_space_pass(
@@ -418,16 +424,13 @@ impl Tracer {
     ) {
         self.gfx_ppl.record_bind(cmdbuf);
 
-        // When beginning the render pass, you must also provide a clear value for the depth buffer.
         let clear_values = [
             vk::ClearValue {
-                // Color
                 color: vk::ClearColorValue {
                     float32: [0.0, 0.0, 0.0, 1.0],
                 },
             },
             vk::ClearValue {
-                // Depth
                 depth_stencil: vk::ClearDepthStencilValue {
                     depth: 1.0,
                     stencil: 0,
@@ -443,19 +446,12 @@ impl Tracer {
 
         let image_extent = self.get_dst_image().get_desc().extent;
 
-        let viewport = vk::Viewport {
-            x: 0.0,
-            y: 0.0,
-            width: image_extent[0] as f32,
-            height: image_extent[1] as f32,
-            min_depth: 0.0,
-            max_depth: 1.0,
-        };
+        let viewport = Viewport::from_extent(image_extent.as_extent_2d().unwrap());
         let scissor = vk::Rect2D {
             offset: vk::Offset2D { x: 0, y: 0 },
             extent: vk::Extent2D {
-                width: image_extent[0],
-                height: image_extent[1],
+                width: image_extent.width,
+                height: image_extent.height,
             },
         };
 
@@ -499,10 +495,8 @@ impl Tracer {
         self.gfx_render_pass.record_end(cmdbuf);
 
         let desc = self.gfx_render_pass.get_desc();
-        // The color attachment is at index 0
         self.get_dst_image()
             .set_layout(0, desc.attachments[0].final_layout);
-        // The depth attachment is at index 1
         self.resources
             .depth_tex
             .get_image()

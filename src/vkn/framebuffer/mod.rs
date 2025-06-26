@@ -1,11 +1,11 @@
-use crate::vkn::{context::VulkanContext, RenderPass};
+use crate::vkn::{context::VulkanContext, Extent2D, RenderPass};
 use anyhow::Result;
 use ash::vk;
 
 pub struct Framebuffer {
     vulkan_ctx: VulkanContext,
     framebuffer: vk::Framebuffer,
-    extent: vk::Extent2D,
+    extent: Extent2D,
 }
 
 impl Framebuffer {
@@ -13,7 +13,7 @@ impl Framebuffer {
         vulkan_ctx: VulkanContext,
         render_pass: &RenderPass,
         attachments: &[vk::ImageView],
-        extent: vk::Extent2D,
+        extent: Extent2D,
     ) -> Result<Self> {
         let framebuffer_info = vk::FramebufferCreateInfo::default()
             .render_pass(render_pass.as_raw())
@@ -40,7 +40,7 @@ impl Framebuffer {
         self.framebuffer
     }
 
-    pub fn get_extent(&self) -> vk::Extent2D {
+    pub fn get_extent(&self) -> Extent2D {
         self.extent
     }
 }

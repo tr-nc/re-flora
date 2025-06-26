@@ -1,9 +1,10 @@
+use crate::vkn::Extent3D;
 use ash::vk;
 
 /// Responsible for the creation of image and image view.
 #[derive(Copy, Clone)]
 pub struct ImageDesc {
-    pub extent: [u32; 3],
+    pub extent: Extent3D,
     pub array_len: u32,
     pub format: vk::Format,
     pub usage: vk::ImageUsageFlags,
@@ -16,7 +17,7 @@ pub struct ImageDesc {
 impl Default for ImageDesc {
     fn default() -> Self {
         Self {
-            extent: [0, 0, 0],
+            extent: Extent3D::default(),
             array_len: 1,
             format: vk::Format::UNDEFINED,
             usage: vk::ImageUsageFlags::empty(),
@@ -93,23 +94,19 @@ pub fn format_to_aspect_mask(format: vk::Format) -> vk::ImageAspectFlags {
 }
 
 impl ImageDesc {
-    pub fn get_extent(&self) -> vk::Extent3D {
-        vk::Extent3D {
-            width: self.extent[0],
-            height: self.extent[1],
-            depth: self.extent[2],
-        }
-    }
-
     pub fn get_aspect_mask(&self) -> vk::ImageAspectFlags {
         format_to_aspect_mask(self.format)
     }
 
     pub fn get_image_type(&self) -> vk::ImageType {
-        match self.extent {
-            [_, 1, 1] => vk::ImageType::TYPE_1D,
-            [_, _, 1] => vk::ImageType::TYPE_2D,
-            _ => vk::ImageType::TYPE_3D,
+        if self.extent.depth == 1 {
+            if self.extent.height == 1 {
+                vk::ImageType::TYPE_1D
+            } else {
+                vk::ImageType::TYPE_2D
+            }
+        } else {
+            vk::ImageType::TYPE_3D
         }
     }
 

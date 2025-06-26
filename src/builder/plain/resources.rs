@@ -1,7 +1,9 @@
 use ash::vk;
 use glam::UVec3;
 
-use crate::vkn::{Allocator, Buffer, BufferUsage, Device, ImageDesc, ShaderModule, Texture};
+use crate::vkn::{
+    Allocator, Buffer, BufferUsage, Device, Extent3D, ImageDesc, ShaderModule, Texture,
+};
 
 pub struct PlainBuilderResources {
     pub chunk_atlas: Texture,
@@ -24,7 +26,7 @@ impl PlainBuilderResources {
         chunk_modify_sm: &ShaderModule,
     ) -> Self {
         let tex_desc = ImageDesc {
-            extent: plain_atlas_dim.to_array(),
+            extent: Extent3D::new(plain_atlas_dim.x, plain_atlas_dim.y, plain_atlas_dim.z),
             format: vk::Format::R8_UINT,
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
             initial_layout: vk::ImageLayout::UNDEFINED,
@@ -35,7 +37,7 @@ impl PlainBuilderResources {
         let chunk_atlas = Texture::new(device.clone(), allocator.clone(), &tex_desc, &sam_desc);
 
         let free_atlas_tex_desc = ImageDesc {
-            extent: free_atlas_dim.to_array(),
+            extent: Extent3D::new(free_atlas_dim.x, free_atlas_dim.y, free_atlas_dim.z),
             format: vk::Format::R8_UINT,
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
             initial_layout: vk::ImageLayout::UNDEFINED,
