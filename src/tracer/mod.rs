@@ -29,10 +29,10 @@ pub struct Tracer {
 
     tracer_ppl: ComputePipeline,
     tracer_sets: [DescriptorSet; 2],
-    graphics_sets: [DescriptorSet; 1],
-    gfx_ppl: GraphicsPipeline,
-    gfx_render_pass: RenderPass,
-    gfx_framebuffers: Vec<Framebuffer>,
+    main_sets: [DescriptorSet; 1],
+    main_ppl: GraphicsPipeline,
+    main_render_pass: RenderPass,
+    main_framebuffers: Vec<Framebuffer>,
 
     #[allow(dead_code)]
     descriptor_pool_ds_0: DescriptorPool,
@@ -111,7 +111,7 @@ impl Tracer {
             Extent2D::new(1024, 1024), // shadow map resolution
         );
 
-        let (gfx_ppl, gfx_render_pass) = Self::create_render_pass_and_graphics_pipeline(
+        let (main_ppl, main_render_pass) = Self::create_render_pass_and_graphics_pipeline(
             &vulkan_ctx,
             &vert_sm,
             &frag_sm,
@@ -119,9 +119,9 @@ impl Tracer {
             resources.shader_write_tex.clone(),
         );
 
-        let gfx_framebuffers = Self::create_framebuffers(
+        let main_framebuffers = Self::create_framebuffers(
             &vulkan_ctx,
-            &gfx_render_pass,
+            &main_render_pass,
             &resources.shader_write_tex,
             &resources.depth_tex,
             swapchain_image_views,
@@ -144,10 +144,10 @@ impl Tracer {
             &resources,
         );
 
-        let graphics_set_0 = Self::create_graphics_set_0(
+        let main_ds = Self::create_main_ds(
             descriptor_pool_ds_0.clone(),
             &vulkan_ctx,
-            &gfx_ppl,
+            &main_ppl,
             &resources,
         );
 
@@ -158,25 +158,25 @@ impl Tracer {
             camera,
             tracer_ppl,
             tracer_sets: [tracer_set_0, tracer_set_1],
-            graphics_sets: [graphics_set_0],
-            gfx_ppl,
-            gfx_render_pass,
-            gfx_framebuffers,
+            main_sets: [main_ds],
+            main_ppl,
+            main_render_pass,
+            main_framebuffers,
             descriptor_pool_ds_0,
             descriptor_pool_ds_1,
             frame_serial_idx: 0,
         };
     }
 
-    fn create_graphics_set_0(
+    fn create_main_ds(
         descriptor_pool: DescriptorPool,
         vulkan_ctx: &VulkanContext,
-        gfx_ppl: &GraphicsPipeline,
+        main_ppl: &GraphicsPipeline,
         resources: &TracerResources,
     ) -> DescriptorSet {
         let ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),
-            &gfx_ppl.get_layout().get_descriptor_set_layouts()[&0],
+            &main_ppl.get_layout().get_descriptor_set_layouts()[&0],
             descriptor_pool,
         );
         ds.perform_writes(&mut [
@@ -359,9 +359,9 @@ impl Tracer {
             screen_extent,
         );
 
-        self.gfx_framebuffers = Self::create_framebuffers(
+        self.main_framebuffers = Self::create_framebuffers(
             &self.vulkan_ctx,
-            &self.gfx_render_pass,
+            &self.main_render_pass,
             &self.resources.shader_write_tex,
             &self.resources.depth_tex,
             swapchain_image_views,
@@ -422,7 +422,7 @@ impl Tracer {
         surface_resources: &SurfaceResources,
         grass_instances_len: u32,
     ) {
-        self.gfx_ppl.record_bind(cmdbuf);
+        self.main_ppl.record_bind(cmdbuf);
 
         let clear_values = [
             vk::ClearValue {
@@ -438,9 +438,9 @@ impl Tracer {
             },
         ];
 
-        self.gfx_render_pass.record_begin(
+        self.main_render_pass.record_begin(
             cmdbuf,
-            &self.gfx_framebuffers[image_index],
+            &self.main_framebuffers[image_index],
             &clear_values,
         );
 
@@ -456,8 +456,8 @@ impl Tracer {
         };
 
         // must be done before record draw, can be swapped with record_viewport_scissor
-        self.gfx_ppl
-            .record_bind_descriptor_sets(cmdbuf, &self.graphics_sets, 0);
+        self.main_ppl
+            .record_bind_descriptor_sets(cmdbuf, &self.main_sets, 0);
 
         // TODO: wrap them!
         unsafe {
@@ -480,10 +480,10 @@ impl Tracer {
             );
         }
 
-        self.gfx_ppl
+        self.main_ppl
             .record_viewport_scissor(cmdbuf, viewport, scissor);
 
-        self.gfx_ppl.record_draw_indexed(
+        self.main_ppl.record_draw_indexed(
             cmdbuf,
             self.resources.indices_len,
             grass_instances_len,
@@ -492,9 +492,9 @@ impl Tracer {
             0,
         );
 
-        self.gfx_render_pass.record_end(cmdbuf);
+        self.main_render_pass.record_end(cmdbuf);
 
-        let desc = self.gfx_render_pass.get_desc();
+        let desc = self.main_render_pass.get_desc();
         self.get_dst_image()
             .set_layout(0, desc.attachments[0].final_layout);
         self.resources
