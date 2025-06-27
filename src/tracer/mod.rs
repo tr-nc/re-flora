@@ -249,9 +249,10 @@ impl Tracer {
         );
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.camera_info),
-            WriteDescriptorSet::new_buffer_write(1, &resources.grass_info),
+            WriteDescriptorSet::new_buffer_write(1, &resources.shadow_camera_info),
+            WriteDescriptorSet::new_buffer_write(2, &resources.grass_info),
             WriteDescriptorSet::new_texture_write(
-                2,
+                3,
                 vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
                 &resources.shadow_map_tex,
                 vk::ImageLayout::GENERAL,

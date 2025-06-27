@@ -257,7 +257,7 @@ void main() {
 
     ivec3 seed     = get_seed();
     vec2 screen_uv = (vec2(gl_GlobalInvocationID.xy) + vec2(0.5)) / vec2(img_size);
-    Ray ray        = ray_gen(screen_uv);
+    Ray ray        = ray_gen(screen_uv, camera_info.view_proj_mat_inv);
 
     vec3 vis = get_pixel_color(ray, imageLoad(result_image, uvi).rgb, seed);
 
