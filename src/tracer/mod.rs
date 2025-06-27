@@ -714,30 +714,6 @@ impl Tracer {
             .depth_tex
             .get_image()
             .set_layout(0, desc.attachments[1].final_layout);
-
-        //
-
-        let screen_extent = self.get_dst_image().get_desc().extent;
-
-        self.get_dst_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
-        self.resources
-            .depth_tex
-            .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
-
-        self.tracer_ppl.record_bind(cmdbuf);
-
-        self.tracer_ppl
-            .record_bind_descriptor_sets(cmdbuf, &self.tracer_sets, 0);
-        self.tracer_ppl.record_dispatch(
-            cmdbuf,
-            [
-                screen_extent.width,
-                screen_extent.height,
-                screen_extent.depth,
-            ],
-        );
     }
 
     fn record_tracer_shadow_pass(&mut self, cmdbuf: &CommandBuffer) {
@@ -774,13 +750,6 @@ impl Tracer {
     }
 
     fn record_compute_pass(&self, cmdbuf: &CommandBuffer) {
-        // self.get_dst_image()
-        //     .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
-        // self.resources
-        //     .depth_tex
-        //     .get_image()
-        //     .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
-
         self.tracer_ppl.record_bind(cmdbuf);
 
         self.tracer_ppl

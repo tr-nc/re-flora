@@ -80,7 +80,7 @@ void get_shadow_weight_soft(out float o_shadow_weight, out bool o_shadow_result_
     o_shadow_weight               = 0.0;
     float total_weight            = 0.0;
     const int half_kernel_size_xz = 1;
-    const int half_kernel_size_y  = 4;
+    const int half_kernel_size_y  = 3;
 
     for (int x = -half_kernel_size_xz; x <= half_kernel_size_xz; x++) {
         for (int y = -half_kernel_size_y; y <= half_kernel_size_y; y++) {
