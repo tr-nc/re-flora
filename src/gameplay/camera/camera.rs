@@ -305,7 +305,7 @@ impl Camera {
             self.desc.projection.v_fov,
             self.desc.aspect_ratio,
             self.desc.projection.z_near,
-            1.0,
+            2.0,
         ) * self.get_view_mat())
         .inverse();
 

@@ -65,8 +65,8 @@ float get_pixel_depth(Ray ray) {
     }
     vec4 point_ndc         = camera_info.view_proj_mat * vec4(res_primary_ray.pos, 1.0);
     float primary_depth_01 = point_ndc.z / point_ndc.w;
-    // return primary_depth_01;
-    return 0.0;
+    return primary_depth_01;
+    // return 0.0;
 }
 
 void main() {
