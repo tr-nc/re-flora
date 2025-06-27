@@ -64,9 +64,22 @@ void main() {
     scale_mat[2][2] = 1.0 / 256.0;
     world_space_pos = (scale_mat * world_space_pos);
 
-    // Transform to clip space
+    vec4 point_ndc     = shadow_camera_info.view_proj_mat * world_space_pos;
+    vec2 shadow_uv     = point_ndc.xy / point_ndc.w;
+    shadow_uv          = shadow_uv * 0.5 + 0.5;
+    float shadow_depth = texture(shadow_map_tex, shadow_uv).r;
+    float depth_01     = point_ndc.z / point_ndc.w;
+
+    float weight_01 = 1.0 - smoothstep(0.0, 0.01, depth_01 - shadow_depth);
+
+    // transform to clip space
     gl_Position = camera_info.view_proj_mat * world_space_pos;
 
-    // Pass color to fragment shader
-    vert_color = in_color;
+    float ambient_light = 0.1;
+    // if out of shadow map range, vert_color is red to warn
+    if (shadow_uv.x < 0.0 || shadow_uv.x > 1.0 || shadow_uv.y < 0.0 || shadow_uv.y > 1.0) {
+        vert_color = vec3(1.0, 0.0, 0.0);
+    } else {
+        vert_color = in_color * (weight_01 + ambient_light);
+    }
 }
