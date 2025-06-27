@@ -180,27 +180,19 @@ impl Camera {
         )
     }
 
+    pub fn calculate_proj_mat(v_fov: f32, aspect_ratio: f32, z_near: f32, z_far: f32) -> Mat4 {
+        let proj = Mat4::perspective_rh(v_fov.to_radians(), aspect_ratio, z_near, z_far);
+        let flip_y = Mat4::from_scale(Vec3::new(1.0, -1.0, 1.0));
+        flip_y * proj
+    }
+
     pub fn get_proj_mat(&self) -> Mat4 {
-        // 1. “Regular” perspective that glam already gives us for 0‥1 depth.
-        let proj = Mat4::perspective_rh(
-            self.desc.projection.v_fov.to_radians(),
+        Self::calculate_proj_mat(
+            self.desc.projection.v_fov,
             self.desc.aspect_ratio,
             self.desc.projection.z_near,
             self.desc.projection.z_far,
-        );
-
-        // 2. Flip the Y axis so “up” in world space is “up” on screen.
-        //    We do that by prepending a scale matrix ⎡1  0  0  0⎤
-        //                                          ⎢0 -1  0  0⎥
-        //                                          ⎢0  0  1  0⎥
-        //                                          ⎣0  0  0  1⎦
-        //
-        //    Multiplication order matters: the vertex shader will do
-        //        clip_pos = (flip_y * proj) * view_pos;
-        //    therefore we multiply *left*.
-        let flip_y = Mat4::from_scale(Vec3::new(1.0, -1.0, 1.0));
-
-        flip_y * proj
+        )
     }
 
     /// Only controls the camera's movement state based on the key event.
@@ -308,24 +300,14 @@ impl Camera {
         ) * frame_delta_time;
     }
 
-    /// Returns the 8 corners of the camera's view frustum in world space.
-    /// The corners are ordered:
-    /// (near/far, bottom/top, left/right)
-    /// 0: near-bottom-left
-    /// 1: near-bottom-right
-    /// 2: near-top-left
-    /// 3: near-top-right
-    /// 4: far-bottom-left
-    /// 5: far-bottom-right
-    /// 6: far-top-left
-    /// 7: far-top-right
     pub fn get_frustum_corners(&self) -> [Vec3; 8] {
-        let vp = self.get_proj_mat() * self.get_view_mat();
-        if !vp.determinant().is_finite() {
-            log::error!("View-projection matrix is singular!");
-        }
-
-        let view_proj_inv = (self.get_proj_mat() * self.get_view_mat()).inverse();
+        let view_proj_inv = (Self::calculate_proj_mat(
+            self.desc.projection.v_fov,
+            self.desc.aspect_ratio,
+            self.desc.projection.z_near,
+            1.0,
+        ) * self.get_view_mat())
+        .inverse();
 
         let mut corners = [Vec3::ZERO; 8];
         let mut i = 0;
