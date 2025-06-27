@@ -26,6 +26,8 @@ camera_info;
 layout(set = 0, binding = 1) uniform U_GrassInfo { vec2 grass_offset; }
 grass_info;
 
+layout(set = 0, binding = 2) uniform sampler2D shadow_map_tex;
+
 const uint voxel_count = 8;
 
 void main() {
@@ -41,19 +43,16 @@ void main() {
     vec3 voxel_offset =
         vec3(grass_info.grass_offset.x * t_curve, 0.0, grass_info.grass_offset.y * t_curve);
 
-    // Final position is the snapped center of the voxel plus the vertex's local position
-    vec4 final_pos = vec4(in_position + voxel_offset + in_instance_position, 1.0);
+    vec4 vert_pos = vec4(in_position + voxel_offset + in_instance_position, 1.0);
 
-    // create a scale matrix
     mat4 scale_mat  = mat4(1.0);
     scale_mat[0][0] = 1.0 / 256.0;
     scale_mat[1][1] = 1.0 / 256.0;
     scale_mat[2][2] = 1.0 / 256.0;
-
-    final_pos = (scale_mat * final_pos);
+    vert_pos        = (scale_mat * vert_pos);
 
     // Transform to clip space
-    gl_Position = camera_info.view_proj_mat * final_pos;
+    gl_Position = camera_info.view_proj_mat * vert_pos;
 
     // Pass color to fragment shader
     vert_color = in_color;

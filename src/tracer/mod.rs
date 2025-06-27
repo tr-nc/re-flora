@@ -250,13 +250,12 @@ impl Tracer {
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.camera_info),
             WriteDescriptorSet::new_buffer_write(1, &resources.grass_info),
-            // TODO:
-            // WriteDescriptorSet::new_texture_write(
-            //     2,
-            //     vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-            //     &resources.shadow_depth_tex,
-            //     vk::ImageLayout::DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-            // ),
+            WriteDescriptorSet::new_texture_write(
+                2,
+                vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                &resources.shadow_map_tex,
+                vk::ImageLayout::GENERAL,
+            ),
         ]);
         ds
     }

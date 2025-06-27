@@ -286,7 +286,9 @@ impl TracerResources {
         let tex_desc = ImageDesc {
             extent: shadow_map_resolution,
             format: vk::Format::D32_SFLOAT,
-            usage: vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT | vk::ImageUsageFlags::STORAGE,
+            usage: vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT
+                | vk::ImageUsageFlags::STORAGE
+                | vk::ImageUsageFlags::SAMPLED,
             initial_layout: vk::ImageLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::DEPTH,
             ..Default::default()
