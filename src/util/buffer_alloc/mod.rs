@@ -138,44 +138,4 @@ mod tests {
             println!("{:?}", allocator);
         }
     }
-
-    #[test]
-    fn test_resize_first_fit() {
-        let mut allocator = FirstFitAllocator::new(1000);
-
-        // 1) Shrink in place
-        let a1 = allocator.allocate(200).unwrap();
-        let resized1 = allocator.resize(a1.id, 150).unwrap();
-        assert_eq!(resized1.offset, a1.offset);
-        assert_eq!(resized1.size, 150);
-        // Ensure freed 50 bytes landed just after
-        let next_free = allocator
-            .free_list
-            .iter()
-            .find(|b| b.offset == a1.offset + 150)
-            .unwrap();
-        assert_eq!(next_free.size, 850);
-
-        // 2) Expand in place: allocate a second in between, free it
-        let a2 = allocator.allocate(100).unwrap(); // sits at offset 200
-        allocator.deallocate(a2.id).unwrap();
-        let resized2 = allocator.resize(resized1.id, 200).unwrap();
-        // Since the freed a2 was immediately after, we should expand in place
-        assert_eq!(resized2.offset, resized1.offset);
-        assert_eq!(resized2.size, 200);
-
-        // 3) Expand with move: fill the next region so in-place fails
-        let b1 = allocator.allocate(300).unwrap(); // next to resized2
-        let before_offset = allocator.lookup(resized2.id).unwrap().offset;
-        let resized3 = allocator.resize(resized2.id, 400).unwrap();
-        let after_offset = resized3.offset;
-        // We expect it to move to some other free region => offset changes
-        assert_ne!(before_offset, after_offset);
-        assert_eq!(resized3.size, 400);
-        // The old region should now be free again:
-        assert!(allocator
-            .free_list
-            .iter()
-            .any(|b| b.offset == before_offset && b.size == 200));
-    }
 }

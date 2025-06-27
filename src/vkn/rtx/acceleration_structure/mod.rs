@@ -6,6 +6,7 @@ use ash::{khr, vk};
 
 use crate::vkn::{Allocator, Buffer, VulkanContext};
 
+#[allow(dead_code)]
 pub fn build_or_update_blas(
     vulkan_ctx: &VulkanContext,
     allocator: Allocator,
@@ -122,6 +123,7 @@ pub fn build_or_update_blas(
     }
 }
 
+#[allow(dead_code)]
 pub fn build_tlas(
     vulkan_ctx: &VulkanContext,
     allocator: &Allocator,

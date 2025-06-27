@@ -243,11 +243,13 @@ impl TreeDesc {
 #[derive(Debug)]
 struct BuiltObjects {
     trunks: Vec<RoundCone>,
+    #[allow(dead_code)]
     leaves: Vec<Cuboid>,
 }
 
 #[derive(Debug)]
 pub struct Tree {
+    #[allow(dead_code)]
     desc: TreeDesc,
     built_objects: BuiltObjects,
 }
@@ -261,6 +263,7 @@ impl Tree {
         }
     }
 
+    #[allow(dead_code)]
     pub fn desc(&self) -> &TreeDesc {
         &self.desc
     }
@@ -269,6 +272,7 @@ impl Tree {
         &self.built_objects.trunks
     }
 
+    #[allow(dead_code)]
     pub fn leaves(&self) -> &[Cuboid] {
         &self.built_objects.leaves
     }
@@ -422,8 +426,8 @@ fn recurse(
         end_pos,
     ));
 
-    let should_branch =
-        level < desc.iterations - 1 && (level == 0 || rng.gen::<f32>() < desc.branch_probability);
+    let should_branch = level < desc.iterations - 1
+        && (level == 0 || rng.random::<f32>() < desc.branch_probability);
 
     if should_branch {
         let branch_count = if desc.branch_count_min == desc.branch_count_max {
@@ -478,7 +482,7 @@ fn calculate_branch_direction(
     let around_angle = if total_branches > 1 {
         (branch_index as f32) * (2.0 * PI) / (total_branches as f32) + (level as f32) * golden_angle
     } else {
-        rng.gen::<f32>() * 2.0 * PI
+        rng.random::<f32>() * 2.0 * PI
     };
     let away_angle =
         rng.random_range(desc.branch_angle_min..=desc.branch_angle_max) * (1.0 + desc.spread);

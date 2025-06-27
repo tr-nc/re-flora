@@ -42,6 +42,7 @@ impl RoundCone {
         self.center_b += offset;
     }
 
+    #[allow(dead_code)]
     pub fn scale(&mut self, scale: Vec3) {
         self.radius_a *= scale.x;
         self.radius_b *= scale.y;

@@ -50,6 +50,7 @@ impl AccelStruct {
     }
 
     /// Query the device address of the AS.
+    #[allow(dead_code)]
     pub fn get_device_address(&self) -> u64 {
         unsafe {
             self.0.acc_device.get_acceleration_structure_device_address(

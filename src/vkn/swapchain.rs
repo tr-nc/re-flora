@@ -201,10 +201,6 @@ impl Swapchain {
         &self.render_pass
     }
 
-    pub fn get_image_views(&self) -> &[vk::ImageView] {
-        &self.image_views
-    }
-
     pub fn record_begin_render_pass_cmdbuf(
         &self,
         cmdbuf: &CommandBuffer,

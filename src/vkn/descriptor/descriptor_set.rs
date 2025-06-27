@@ -108,6 +108,7 @@ impl<'a> WriteDescriptorSet<'a> {
         }
     }
 
+    #[allow(dead_code)]
     pub fn new_acceleration_structure_write(binding: u32, tlas: &AccelStruct) -> Self {
         let handles = vec![tlas.as_raw()];
 

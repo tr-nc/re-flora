@@ -132,6 +132,7 @@ impl UAabb3 {
     ///
     /// Since the min and max are unsigned integers, the center might
     /// not be an integer, so `Vec3` is used for precision.
+    #[allow(dead_code)]
     pub fn center(&self) -> Vec3 {
         (self.min.as_vec3() + self.max.as_vec3()) * 0.5
     }
@@ -140,34 +141,40 @@ impl UAabb3 {
     ///
     /// This will panic if `max` is less than `min` on any axis due to unsigned subtraction.
     /// Consider adding checks or using `saturating_sub` if this is a concern.
+    #[allow(dead_code)]
     pub fn dimensions(&self) -> UVec3 {
         self.max - self.min
     }
 
     /// Checks if the AABB has a valid range (min <= max on all axes).
+    #[allow(dead_code)]
     pub fn is_valid(&self) -> bool {
         self.min.x <= self.max.x && self.min.y <= self.max.y && self.min.z <= self.max.z
     }
 
     /// Returns the width of the AABB (x-axis).
     /// Panics if `max.x < min.x`.
+    #[allow(dead_code)]
     pub fn width(&self) -> u32 {
         self.max.x - self.min.x
     }
 
     /// Returns the height of the AABB (y-axis).
     /// Panics if `max.y < min.y`.
+    #[allow(dead_code)]
     pub fn height(&self) -> u32 {
         self.max.y - self.min.y
     }
 
     /// Returns the depth of the AABB (z-axis).
     /// Panics if `max.z < min.z`.
+    #[allow(dead_code)]
     pub fn depth(&self) -> u32 {
         self.max.z - self.min.z
     }
 
     /// Checks if a point is contained within the AABB (inclusive).
+    #[allow(dead_code)]
     pub fn contains_point(&self, point: UVec3) -> bool {
         point.x >= self.min.x
             && point.x <= self.max.x
@@ -178,6 +185,7 @@ impl UAabb3 {
     }
 
     /// Checks if another AABB is fully contained within this AABB.
+    #[allow(dead_code)]
     pub fn contains_aabb(&self, other: &UAabb3) -> bool {
         self.min.x <= other.min.x
             && self.min.y <= other.min.y
@@ -189,6 +197,7 @@ impl UAabb3 {
 
     /// Checks if this AABB intersects with another AABB.
     /// Two AABBs intersect if they overlap in all three dimensions.
+    #[allow(dead_code)]
     pub fn intersects(&self, other: &UAabb3) -> bool {
         self.min.x < other.max.x
             && self.max.x > other.min.x
@@ -200,6 +209,7 @@ impl UAabb3 {
 
     /// Checks if the AABB has a positive size in all dimensions
     /// (i.e., min < max on all axes).
+    #[allow(dead_code)]
     pub fn has_size(&self) -> bool {
         self.min.x < self.max.x && self.min.y < self.max.y && self.min.z < self.max.z
     }

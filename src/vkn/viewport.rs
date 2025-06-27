@@ -26,17 +26,6 @@ impl Default for Viewport {
 }
 
 impl Viewport {
-    pub fn new(x: f32, y: f32, width: f32, height: f32, min_depth: f32, max_depth: f32) -> Self {
-        Self {
-            x,
-            y,
-            width,
-            height,
-            min_depth,
-            max_depth,
-        }
-    }
-
     pub fn from_extent(extent: Extent2D) -> Self {
         Self {
             width: extent.width as f32,

@@ -58,9 +58,13 @@ pub struct Tracer {
     main_render_pass: RenderPass,
     main_framebuffer: Framebuffer,
 
+    #[allow(dead_code)]
     shadow_sets: [DescriptorSet; 1],
+    #[allow(dead_code)]
     shadow_ppl: GraphicsPipeline,
+    #[allow(dead_code)]
     shadow_render_pass: RenderPass,
+    #[allow(dead_code)]
     shadow_framebuffer: Framebuffer,
 
     #[allow(dead_code)]
