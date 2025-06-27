@@ -13,7 +13,7 @@ layout(location = 4) in uint in_instance_grass_type;
 layout(location = 0) out vec3 vert_color;
 
 layout(set = 0, binding = 0) uniform U_CameraInfo {
-    vec4 camera_pos;
+    vec4 pos;
     mat4 view_mat;
     mat4 view_mat_inv;
     mat4 proj_mat;
@@ -24,7 +24,7 @@ layout(set = 0, binding = 0) uniform U_CameraInfo {
 camera_info;
 
 layout(set = 0, binding = 1) uniform U_ShadowCameraInfo {
-    vec4 camera_pos;
+    vec4 pos;
     mat4 view_mat;
     mat4 view_mat_inv;
     mat4 proj_mat;

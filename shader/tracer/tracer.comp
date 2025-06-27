@@ -13,7 +13,7 @@ layout(set = 0, binding = 0) uniform U_GuiInput {
 }
 gui_input;
 layout(set = 0, binding = 1) uniform U_CameraInfo {
-    vec4 camera_pos; // w is padding.
+    vec4 pos;
     mat4 view_mat;
     mat4 view_mat_inv;
     mat4 proj_mat;

@@ -5,7 +5,7 @@
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(set = 0, binding = 0) uniform U_ShadowCameraInfo {
-    vec4 camera_pos; // w is padding.
+    vec4 pos;
     mat4 view_mat;
     mat4 view_mat_inv;
     mat4 proj_mat;

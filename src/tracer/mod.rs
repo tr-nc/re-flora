@@ -844,10 +844,7 @@ impl Tracer {
 
         let camera_pos = view_mat.inverse().w_axis;
         let data = StructMemberDataBuilder::from_buffer(camera_info)
-            .set_field(
-                "camera_pos",
-                PlainMemberTypeWithData::Vec4(camera_pos.to_array()),
-            )
+            .set_field("pos", PlainMemberTypeWithData::Vec4(camera_pos.to_array()))
             .unwrap()
             .set_field(
                 "view_mat",
