@@ -6,6 +6,8 @@ pub fn calculate_directional_light_matrices(
     light_direction: Vec3,
 ) -> (Mat4, Mat4) {
     const LIGHT_UP: Vec3 = Vec3::Y;
+    const TOLERENCE_XY: f32 = 0.1;
+    const MULTIPLIER_Z: f32 = 4.0;
 
     let frustum_corners = player_camera.get_frustum_corners();
 
@@ -29,18 +31,25 @@ pub fn calculate_directional_light_matrices(
     // in right handed coordinate system, the camera is looking at the negative z axis
     // so for the near plane, we need to pull it closer to the camera
     // and for the far plane, we need to push it further away from the camera
-    let z_mult = 4.0;
     if min.z < 0.0 {
-        min.z *= z_mult;
+        min.z *= MULTIPLIER_Z;
     } else {
-        min.z /= z_mult;
+        min.z /= MULTIPLIER_Z;
     }
     if max.z < 0.0 {
-        max.z /= z_mult;
+        max.z /= MULTIPLIER_Z;
     } else {
-        max.z *= z_mult;
+        max.z *= MULTIPLIER_Z;
     }
-    let proj = Mat4::orthographic_rh(min.x, max.x, min.y, max.y, min.z, max.z);
+
+    let proj = Mat4::orthographic_rh(
+        min.x - TOLERENCE_XY,
+        max.x + TOLERENCE_XY,
+        min.y - TOLERENCE_XY,
+        max.y + TOLERENCE_XY,
+        min.z,
+        max.z,
+    );
 
     let flip_y = Mat4::from_scale(Vec3::new(1.0, -1.0, 1.0));
     let projection_matrix = flip_y * proj;

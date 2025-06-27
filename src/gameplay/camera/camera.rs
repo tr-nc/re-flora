@@ -305,7 +305,7 @@ impl Camera {
             self.desc.projection.v_fov,
             self.desc.aspect_ratio,
             self.desc.projection.z_near,
-            3.0,
+            0.6,
         ) * self.get_view_mat())
         .inverse();
 
@@ -325,22 +325,5 @@ impl Camera {
             }
         }
         corners
-    }
-
-    // Also add simple getters for near/far planes
-    pub fn get_near_plane(&self) -> f32 {
-        self.desc.projection.z_near
-    }
-
-    pub fn get_far_plane(&self) -> f32 {
-        self.desc.projection.z_far
-    }
-
-    pub fn get_forward(&self) -> Vec3 {
-        self.vectors.front
-    }
-
-    pub fn get_up(&self) -> Vec3 {
-        self.vectors.up
     }
 }
