@@ -154,7 +154,7 @@ impl Tracer {
             &tracer_sm,
             &tracer_shadow_sm,
             screen_extent,
-            Extent2D::new(1024, 1024), // shadow map resolution
+            Extent2D::new(1024, 1024),
         );
         let (main_ppl, main_render_pass) = Self::create_main_render_pass_and_graphics_pipeline(
             &vulkan_ctx,

@@ -237,23 +237,27 @@ void main() {
         return;
     }
 
-    // const float scale     = 1.0 / 6.0;
-    // vec2 corner_dims      = vec2(imageSize(shadow_map_tex)) * scale;
-    // ivec2 corner_start_uv = ivec2(img_size.x - corner_dims.x, 0);
+    const float scale     = 1.0 / 6.0;
+    vec2 corner_dims      = vec2(imageSize(shadow_map_tex)) * scale;
+    ivec2 corner_start_uv = ivec2(img_size.x - corner_dims.x, 0);
 
-    // if (uvi.x >= corner_start_uv.x && uvi.y < corner_dims.y) {
-    //     vec2 shadow_uv = (vec2(uvi - corner_start_uv)) / corner_dims;
+    if (uvi.x >= corner_start_uv.x && uvi.y < corner_dims.y) {
+        vec2 shadow_uv = (vec2(uvi - corner_start_uv)) / corner_dims;
 
-    //     ivec2 shadow_map_size    = imageSize(shadow_map_tex);
-    //     ivec2 shadow_texel_coord = ivec2(shadow_uv * vec2(shadow_map_size));
+        ivec2 shadow_map_size    = imageSize(shadow_map_tex);
+        ivec2 shadow_texel_coord = ivec2(shadow_uv * vec2(shadow_map_size));
 
-    //     shadow_texel_coord = clamp(shadow_texel_coord, ivec2(0), shadow_map_size - 1);
+        shadow_texel_coord = clamp(shadow_texel_coord, ivec2(0), shadow_map_size - 1);
 
-    //     float shadow_depth = imageLoad(shadow_map_tex, shadow_texel_coord).r;
+        float shadow_depth = imageLoad(shadow_map_tex, shadow_texel_coord).r;
 
-    //     imageStore(result_image, uvi, vec4(vec3(shadow_depth), 1.0));
-    //     return;
-    // }
+        vec3 color = vec3(shadow_depth);
+        if (shadow_depth > 1.0) {
+            color = vec3(1.0, 0.0, 0.0);
+        }
+        imageStore(result_image, uvi, vec4(color, 1.0));
+        return;
+    }
 
     ivec3 seed     = get_seed();
     vec2 screen_uv = (vec2(gl_GlobalInvocationID.xy) + vec2(0.5)) / vec2(img_size);
