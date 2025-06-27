@@ -39,7 +39,8 @@ grass_info;
 
 layout(set = 0, binding = 3) uniform sampler2D shadow_map_tex;
 
-const uint voxel_count = 8;
+const uint voxel_count     = 8;
+const float scaling_factor = 1.0 / 256.0;
 
 vec3 get_offset_of_vertex(float voxel_height, uint voxel_count, vec2 grass_offset) {
     // Avoid division by zero if the blade has only one voxel.
@@ -52,6 +53,28 @@ vec3 get_offset_of_vertex(float voxel_height, uint voxel_count, vec2 grass_offse
     return vec3(grass_info.grass_offset.x * t_curve, 0.0, grass_info.grass_offset.y * t_curve);
 }
 
+void get_shadow_weight(out float o_shadow_weight, out bool o_shadow_result_valid,
+                       vec4 voxel_pos_ws) {
+    vec4 point_ndc = shadow_camera_info.view_proj_mat * voxel_pos_ws;
+    vec2 shadow_uv = point_ndc.xy / point_ndc.w;
+    shadow_uv      = shadow_uv * 0.5 + 0.5;
+
+    o_shadow_result_valid =
+        all(lessThanEqual(shadow_uv, vec2(1.0))) && all(greaterThanEqual(shadow_uv, vec2(0.0)));
+    if (!o_shadow_result_valid) {
+        o_shadow_weight = 0.0;
+        return;
+    }
+
+    float shadow_depth = texture(shadow_map_tex, shadow_uv).r;
+    float depth_01     = point_ndc.z / point_ndc.w;
+    float delta        = depth_01 - shadow_depth;
+    bool is_in_shadow  = delta > 0.001;
+    float weight_01    = is_in_shadow ? 0.0 : 1.0;
+
+    o_shadow_weight = weight_01;
+}
+
 void main() {
     float height       = float(in_height);
     vec3 vertex_offset = get_offset_of_vertex(height, voxel_count, grass_info.grass_offset);
@@ -61,28 +84,24 @@ void main() {
     vec4 voxel_pos_ws  = vec4(voxel_pos_ms + in_instance_position, 1.0);
 
     mat4 scale_mat  = mat4(1.0);
-    scale_mat[0][0] = 1.0 / 256.0;
-    scale_mat[1][1] = 1.0 / 256.0;
-    scale_mat[2][2] = 1.0 / 256.0;
+    scale_mat[0][0] = scaling_factor;
+    scale_mat[1][1] = scaling_factor;
+    scale_mat[2][2] = scaling_factor;
     vert_pos_ws     = (scale_mat * vert_pos_ws);
     voxel_pos_ws    = (scale_mat * voxel_pos_ws);
 
-    vec4 point_ndc     = shadow_camera_info.view_proj_mat * voxel_pos_ws;
-    vec2 shadow_uv     = point_ndc.xy / point_ndc.w;
-    shadow_uv          = shadow_uv * 0.5 + 0.5;
-    float shadow_depth = texture(shadow_map_tex, shadow_uv).r;
-    float depth_01     = point_ndc.z / point_ndc.w;
-
-    float weight_01 = 1.0 - smoothstep(0.0, 0.01, depth_01 - shadow_depth);
+    float shadow_weight;
+    bool shadow_result_valid;
+    get_shadow_weight(shadow_weight, shadow_result_valid, voxel_pos_ws);
 
     // transform to clip space
     gl_Position = camera_info.view_proj_mat * vert_pos_ws;
 
     float ambient_light = 0.2;
     // if out of shadow map range, vert_color is red to warn
-    if (shadow_uv.x < 0.0 || shadow_uv.x > 1.0 || shadow_uv.y < 0.0 || shadow_uv.y > 1.0) {
+    if (!shadow_result_valid) {
         vert_color = vec3(1.0, 0.0, 0.0);
     } else {
-        vert_color = in_color * (weight_01 + ambient_light);
+        vert_color = in_color * (shadow_weight + ambient_light);
     }
 }
