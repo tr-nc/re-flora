@@ -1,16 +1,16 @@
-use crate::gameplay::Camera;
+use crate::geom::Aabb3;
 use glam::{Mat4, Vec3};
 
 /// Returns: (view_matrix, projection_matrix)
 pub fn calculate_directional_light_matrices(
-    player_camera: &Camera,
+    world_bound: Aabb3,
     light_direction: Vec3,
 ) -> (Mat4, Mat4) {
     const LIGHT_UP: Vec3 = Vec3::Y;
     const TOLERENCE_XY: f32 = 0.1;
-    const TOLERENCE_Z: f32 = 10.0;
+    const TOLERENCE_Z: f32 = 0.1;
 
-    let frustum_corners = player_camera.get_frustum_corners();
+    let frustum_corners = world_bound.get_corners();
 
     let mut frustum_center = Vec3::ZERO;
     for corner in &frustum_corners {

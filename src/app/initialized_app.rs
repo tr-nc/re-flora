@@ -166,6 +166,7 @@ impl InitializedApp {
             vulkan_ctx.clone(),
             allocator.clone(),
             &shader_compiler,
+            CHUNK_DIM,
             window_state.window_extent(),
             &contree_builder.get_resources().node_data,
             &contree_builder.get_resources().leaf_data,
@@ -246,7 +247,7 @@ impl InitializedApp {
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {
         let window_descriptor = WindowStateDesc {
             title: "Re: Flora".to_owned(),
-            window_mode: WindowMode::Windowed,
+            window_mode: WindowMode::BorderlessFullscreen,
             cursor_locked: true,
             cursor_visible: false,
             ..Default::default()

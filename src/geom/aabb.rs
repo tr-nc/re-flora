@@ -24,7 +24,7 @@ impl Aabb3 {
         self.min
     }
 
-    pub fn min_uvec3(&self) -> glam::UVec3 {
+    pub fn min_uvec3(&self) -> UVec3 {
         self.min.floor().as_uvec3()
     }
 
@@ -32,8 +32,21 @@ impl Aabb3 {
         self.max
     }
 
-    pub fn max_uvec3(&self) -> glam::UVec3 {
+    pub fn max_uvec3(&self) -> UVec3 {
         self.max.ceil().as_uvec3()
+    }
+
+    pub fn get_corners(&self) -> [Vec3; 8] {
+        [
+            Vec3::new(self.min.x, self.min.y, self.min.z),
+            Vec3::new(self.max.x, self.min.y, self.min.z),
+            Vec3::new(self.min.x, self.min.y, self.max.z),
+            Vec3::new(self.max.x, self.min.y, self.max.z),
+            Vec3::new(self.min.x, self.max.y, self.min.z),
+            Vec3::new(self.max.x, self.max.y, self.min.z),
+            Vec3::new(self.min.x, self.max.y, self.max.z),
+            Vec3::new(self.max.x, self.max.y, self.max.z),
+        ]
     }
 
     /// Returns a new `Aabb3` that encloses both `self` and `other`.
