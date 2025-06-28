@@ -42,6 +42,7 @@ grass_info;
 layout(set = 0, binding = 3) uniform sampler2D shadow_map_tex;
 
 #include "../include/core/fast_noise_lite.glsl"
+#include "../include/core/hash.glsl"
 
 const uint voxel_count     = 8;
 const float scaling_factor = 1.0 / 256.0;
@@ -109,22 +110,27 @@ void get_shadow_weight_soft(out float o_shadow_weight, out bool o_shadow_result_
 }
 
 vec2 random_grass_offset(vec2 grass_instance_pos, float time) {
-    fnl_state state    = fnlCreateState(42);
+    const float wind_speed    = 0.6; // how fast the wind moves
+    const float wind_strength = 5.0; // how much the grass bends
+    const float wind_scale    = 2.0; // the size of the wind gusts. smaller value = larger gusts.
+    const float natual_variance_scale = 1.5; // how much the grass varies naturally
+
+    // ranges from 0 to 1
+    vec2 natual_state = hash_22(grass_instance_pos);
+    // convert to -1 to 1
+    natual_state = natual_state * 2.0 - 1.0;
+    natual_state = natual_state * natual_variance_scale;
+
+    fnl_state state    = fnlCreateState(469);
     state.noise_type   = FNL_NOISE_PERLIN;
     state.fractal_type = FNL_FRACTAL_FBM;
-    // You can adjust these parameters to change the wind's appearance.
-    const float wind_speed    = 0.5; // How fast the wind moves
-    const float wind_strength = 8.0; // How much the grass bends
-    const float wind_scale    = 0.8; // The size of the wind gusts. Smaller value = larger gusts.
-
-    state.frequency  = wind_scale;
-    state.octaves    = 1;
-    state.lacunarity = 2.6;
-    state.gain       = 0.2;
+    state.frequency    = wind_scale;
+    state.octaves      = 2;
+    state.lacunarity   = 2.0;
+    state.gain         = 0.2;
 
     float time_offset = time * wind_speed;
 
-    // Sample noise for the X offset.
     float noise_x = fnlGetNoise2D(state, grass_instance_pos.x + time_offset, grass_instance_pos.y);
 
     // Sample noise for the Z offset from a different location in the noise field to make it look
@@ -134,14 +140,15 @@ vec2 random_grass_offset(vec2 grass_instance_pos, float time) {
                                   grass_instance_pos.y - 234.5 + time_offset);
 
     // The noise is in the range [-1, 1], we scale it by the desired strength.
-    return vec2(noise_x, noise_z) * wind_strength;
+    return vec2(noise_x, noise_z) * wind_strength + natual_state;
 }
 
 void main() {
     float height = float(in_height);
 
     // MODIFICATION 3: Pass the global time from the uniform into the offset function.
-    vec2 grass_offset = random_grass_offset(vec2(in_instance_position.xz), grass_info.time);
+    vec2 grass_offset =
+        random_grass_offset(vec2(in_instance_position.xz * scaling_factor), grass_info.time);
 
     vec3 vertex_offset = get_offset_of_vertex(height, voxel_count, grass_offset);
     vec3 vert_pos_ms   = in_position + vertex_offset;
