@@ -82,14 +82,13 @@ void get_shadow_weight(out float o_shadow_weight, out bool o_shadow_result_valid
 
 void get_shadow_weight_soft(out float o_shadow_weight, out bool o_shadow_result_valid,
                             vec4 voxel_pos_ws) {
-    o_shadow_weight               = 0.0;
-    float total_weight            = 0.0;
-    const int half_kernel_size_xz = 1;
-    const int half_kernel_size_y  = 3;
+    o_shadow_weight            = 0.0;
+    const int half_kernel_size = 1;
 
-    for (int x = -half_kernel_size_xz; x <= half_kernel_size_xz; x++) {
-        for (int y = -half_kernel_size_y; y <= half_kernel_size_y; y++) {
-            for (int z = -half_kernel_size_xz; z <= half_kernel_size_xz; z++) {
+    float total_weight = 0.0;
+    for (int x = -half_kernel_size; x <= half_kernel_size; x++) {
+        for (int y = -half_kernel_size; y <= half_kernel_size; y++) {
+            for (int z = -half_kernel_size; z <= half_kernel_size; z++) {
                 vec3 offset               = vec3(x, y, z) * scaling_factor;
                 vec4 testing_voxel_pos_ws = voxel_pos_ws + vec4(offset, 0.0);
                 float shadow_weight;
