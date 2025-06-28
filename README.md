@@ -108,3 +108,14 @@ rustup update stable
 - **Khronos Group** for the official [Vulkan Synchronization Examples](https://github.com/KhronosGroup/Vulkan-Docs/wiki/Synchronization-Examples) and documentation on the [Command Buffer Lifecycle](https://registry.khronos.org/vulkan/specs/latest/html/vkspec.html#commandbuffers-lifecycle).
 - **Cambridge in Colour** for the clear tutorial on [Gamma Correction](https://www.cambridgeincolour.com/tutorials/gamma-correction.htm).
 - **Sébastien Piquemal** for the interactive explanation of [Gamma Correction and sRGB](https://observablehq.com/@sebastien/srgb-rgb-gamma).
+
+---
+
+## TODO list
+
+- [ ] Decouple rendering resolution from the game resolution
+- [ ] Wavy grass
+- [ ] Other types of plants
+- [ ] Dynamic Terrain Edit
+- [ ] Plant trees
+- [ ] Config system
