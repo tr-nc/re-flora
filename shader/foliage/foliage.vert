@@ -58,54 +58,41 @@ vec3 get_offset_of_vertex(float voxel_height, uint voxel_count, vec2 grass_offse
     return vec3(grass_offset.x * t_curve, 0.0, grass_offset.y * t_curve);
 }
 
-void get_shadow_weight(out float o_shadow_weight, out bool o_shadow_result_valid,
-                       vec4 voxel_pos_ws) {
+// Simplified version that assumes the sample is always valid.
+float get_shadow_weight(vec4 voxel_pos_ws) {
     vec4 point_ndc = shadow_camera_info.view_proj_mat * voxel_pos_ws;
-    vec2 shadow_uv = point_ndc.xy / point_ndc.w;
-    shadow_uv      = shadow_uv * 0.5 + 0.5;
-
-    o_shadow_result_valid =
-        all(lessThanEqual(shadow_uv, vec2(1.0))) && all(greaterThanEqual(shadow_uv, vec2(0.0)));
-    if (!o_shadow_result_valid) {
-        o_shadow_weight = 0.0;
-        return;
-    }
+    vec2 shadow_uv = point_ndc.xy / point_ndc.w * 0.5 + 0.5;
 
     float shadow_depth = texture(shadow_map_tex, shadow_uv).r;
     float depth_01     = point_ndc.z / point_ndc.w;
     float delta        = depth_01 - shadow_depth;
     bool is_in_shadow  = delta > 0.001;
-    float weight_01    = is_in_shadow ? 0.0 : 1.0;
 
-    o_shadow_weight = weight_01;
+    return is_in_shadow ? 0.0 : 1.0;
 }
 
-void get_shadow_weight_soft(out float o_shadow_weight, out bool o_shadow_result_valid,
-                            vec4 voxel_pos_ws) {
-    o_shadow_weight            = 0.0;
-    const int half_kernel_size = 1;
+// Optimized version assuming all samples are valid.
+float get_shadow_weight_soft(vec4 voxel_pos_ws) {
+    // The 1D binomial kernel weights are [1, 2, 1]. The total 3D weight is 4*4*4 = 64.
+    const float total_weight = 64.0;
+    const float weights[3]   = float[](1.0, 2.0, 1.0);
 
-    float total_weight = 0.0;
-    for (int x = -half_kernel_size; x <= half_kernel_size; x++) {
-        for (int y = -half_kernel_size; y <= half_kernel_size; y++) {
-            for (int z = -half_kernel_size; z <= half_kernel_size; z++) {
-                vec3 offset               = vec3(x, y, z) * scaling_factor;
-                vec4 testing_voxel_pos_ws = voxel_pos_ws + vec4(offset, 0.0);
-                float shadow_weight;
-                bool shadow_result_valid;
-                get_shadow_weight(shadow_weight, shadow_result_valid, testing_voxel_pos_ws);
-                if (!shadow_result_valid) {
-                    o_shadow_weight       = 0.0;
-                    o_shadow_result_valid = false;
-                    return;
-                }
-                o_shadow_weight += shadow_weight;
-                total_weight += 1.0;
+    float accumulated_shadow = 0.0;
+
+    for (int x = -1; x <= 1; x++) {
+        for (int y = -1; y <= 1; y++) {
+            for (int z = -1; z <= 1; z++) {
+                float sample_weight = weights[x + 1] * weights[y + 1] * weights[z + 1];
+                vec3 offset         = vec3(x, y, z) * scaling_factor;
+
+                float shadow_value = get_shadow_weight(voxel_pos_ws + vec4(offset, 0.0));
+
+                accumulated_shadow += shadow_value * sample_weight;
             }
         }
     }
-    o_shadow_weight /= total_weight;
-    o_shadow_result_valid = true;
+
+    return accumulated_shadow / total_weight;
 }
 
 vec2 random_grass_offset(vec2 grass_instance_pos, float time) {
@@ -145,7 +132,6 @@ vec2 random_grass_offset(vec2 grass_instance_pos, float time) {
 void main() {
     float height = float(in_height);
 
-    // MODIFICATION 3: Pass the global time from the uniform into the offset function.
     vec2 grass_offset =
         random_grass_offset(vec2(in_instance_position.xz * scaling_factor), grass_info.time);
 
@@ -162,18 +148,11 @@ void main() {
     vert_pos_ws     = (scale_mat * vert_pos_ws);
     voxel_pos_ws    = (scale_mat * voxel_pos_ws);
 
-    float shadow_weight;
-    bool shadow_result_valid;
-    get_shadow_weight_soft(shadow_weight, shadow_result_valid, voxel_pos_ws);
+    float shadow_weight = get_shadow_weight_soft(voxel_pos_ws);
 
     // transform to clip space
     gl_Position = camera_info.view_proj_mat * vert_pos_ws;
 
     float ambient_light = 0.2;
-    // if out of shadow map range, vert_color is red to warn
-    if (!shadow_result_valid) {
-        vert_color = vec3(1.0, 0.0, 0.0);
-    } else {
-        vert_color = in_color * (shadow_weight + ambient_light);
-    }
+    vert_color          = in_color * (shadow_weight + ambient_light);
 }
