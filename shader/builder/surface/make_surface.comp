@@ -211,7 +211,7 @@ void main() {
             // --- Noise-based placement (density) ---
             fnl_state density_noise_state  = fnlCreateState(42); // Seed for density
             density_noise_state.noise_type = FNL_NOISE_PERLIN;
-            density_noise_state.frequency  = 0.1; // Lower frequency for larger patches
+            density_noise_state.frequency  = 0.06; // Lower frequency for larger patches
 
             // fnlGetNoise returns [-1, 1], so we map it to [0, 1]
             float density_noise = fnlGetNoise2D(density_noise_state, uvi.x, uvi.z) * 0.5 + 0.5;

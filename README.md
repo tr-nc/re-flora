@@ -113,9 +113,8 @@ rustup update stable
 
 ## TODO list
 
-- [ ] Wavy grass
 - [ ] Volumetric Lighting (toggable)
+- [ ] Trees adding back & Leaves
 - [ ] Other types of plants
 - [ ] Dynamic Terrain Edit
-- [ ] Plant trees
 - [ ] Config system
