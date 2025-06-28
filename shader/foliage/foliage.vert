@@ -1,5 +1,7 @@
 #version 450
 
+#extension GL_GOOGLE_include_directive : require
+
 // these are vertex-rate attributes
 layout(location = 0) in vec3 in_position;
 layout(location = 1) in vec3 in_color;
@@ -39,6 +41,8 @@ grass_info;
 
 layout(set = 0, binding = 3) uniform sampler2D shadow_map_tex;
 
+#include "../include/core/fast_noise_lite.glsl"
+
 const uint voxel_count     = 8;
 const float scaling_factor = 1.0 / 256.0;
 
@@ -50,7 +54,7 @@ vec3 get_offset_of_vertex(float voxel_height, uint voxel_count, vec2 grass_offse
     float t_curve = t * t; // ease-in curve for a natural bend
 
     // Calculate the floating-point center of the voxel based on its height and bend
-    return vec3(grass_info.grass_offset.x * t_curve, 0.0, grass_info.grass_offset.y * t_curve);
+    return vec3(grass_offset.x * t_curve, 0.0, grass_offset.y * t_curve);
 }
 
 void get_shadow_weight(out float o_shadow_weight, out bool o_shadow_result_valid,
@@ -104,9 +108,27 @@ void get_shadow_weight_soft(out float o_shadow_weight, out bool o_shadow_result_
     o_shadow_result_valid = true;
 }
 
+vec2 random_grass_offset(vec2 grass_instance_pos) {
+    fnl_state state    = fnlCreateState(42);
+    state.noise_type   = FNL_NOISE_PERLIN;
+    state.fractal_type = FNL_FRACTAL_FBM;
+    state.frequency    = 1.0;
+    state.octaves      = 1;
+    state.lacunarity   = 2.6;
+    state.gain         = 0.2;
+    // range: [-1, 1]
+    float noise = fnlGetNoise2D(state, grass_instance_pos.x, grass_instance_pos.y);
+    noise *= 10.0;
+
+    return vec2(noise, noise);
+}
+
 void main() {
-    float height       = float(in_height);
-    vec3 vertex_offset = get_offset_of_vertex(height, voxel_count, grass_info.grass_offset);
+    float height = float(in_height);
+
+    vec2 grass_offset = random_grass_offset(vec2(in_instance_position.xz) + 0.1);
+
+    vec3 vertex_offset = get_offset_of_vertex(height, voxel_count, grass_offset);
     vec3 vert_pos_ms   = in_position + vertex_offset;
     vec4 vert_pos_ws   = vec4(vert_pos_ms + in_instance_position, 1.0);
     vec3 voxel_pos_ms  = float(in_height) + vec3(0.5) + vertex_offset;
