@@ -7,7 +7,7 @@ pub fn calculate_directional_light_matrices(
     light_direction: Vec3,
 ) -> (Mat4, Mat4) {
     const LIGHT_UP: Vec3 = Vec3::Y;
-    const TOLERENCE_XY: f32 = 0.01;
+    const TOLERENCE_XY: f32 = 0.1;
     const TOLERENCE_Z: f32 = 10.0;
 
     let frustum_corners = player_camera.get_frustum_corners();
