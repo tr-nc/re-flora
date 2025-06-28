@@ -8,7 +8,7 @@ use crate::tracer::{Tracer, TracerDesc};
 use crate::tree_gen::{Tree, TreeDesc};
 use crate::util::{get_sun_dir, ShaderCompiler};
 use crate::util::{TimeInfo, BENCH};
-use crate::vkn::{Allocator, CommandBuffer, Extent2D, Fence, Semaphore, SwapchainDesc};
+use crate::vkn::{Allocator, CommandBuffer, Fence, Semaphore, SwapchainDesc};
 use crate::{
     egui_renderer::EguiRenderer,
     vkn::{Swapchain, VulkanContext, VulkanContextDesc},
@@ -588,7 +588,7 @@ impl InitializedApp {
                 self.tracer
                     .update_buffers_and_record(
                         cmdbuf,
-                        Vec2::new(self.debug_float, 0.0),
+                        &self.time_info,
                         &self.surface_builder.get_resources(),
                         self.surface_builder.get_grass_instance_len(),
                         self.debug_float,

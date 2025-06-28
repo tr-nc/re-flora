@@ -10,7 +10,7 @@ mod grass_construct;
 
 use crate::builder::SurfaceResources;
 use crate::gameplay::{calculate_directional_light_matrices, Camera, CameraDesc};
-use crate::util::ShaderCompiler;
+use crate::util::{ShaderCompiler, TimeInfo};
 use crate::vkn::{
     Allocator, AttachmentDesc, AttachmentReference, Buffer, ComputePipeline, DescriptorPool,
     DescriptorSet, Extent2D, Framebuffer, GraphicsPipeline, GraphicsPipelineDesc, MemoryBarrier,
@@ -61,8 +61,6 @@ pub struct Tracer {
     #[allow(dead_code)]
     fixed_pool: DescriptorPool,
     flexible_pool: DescriptorPool,
-
-    frame_serial_idx: u32,
 }
 
 impl Drop for Tracer {
@@ -251,7 +249,6 @@ impl Tracer {
             shadow_framebuffer,
             fixed_pool,
             flexible_pool,
-            frame_serial_idx: 0,
         };
     }
 
@@ -678,7 +675,7 @@ impl Tracer {
     pub fn update_buffers_and_record(
         &mut self,
         cmdbuf: &CommandBuffer,
-        grass_offset: Vec2,
+        time_info: &TimeInfo,
         surface_resources: &SurfaceResources,
         grass_instances_len: u32,
         debug_float: f32,
@@ -710,7 +707,7 @@ impl Tracer {
             self.camera.get_view_mat(),
             self.camera.get_proj_mat(),
         )?;
-        Self::update_grass_info(&self.resources, grass_offset)?;
+        Self::update_grass_info(&self.resources, time_info.time_since_start())?;
         self.record_main_pass(cmdbuf, surface_resources, grass_instances_len);
 
         Self::update_gui_input(
@@ -721,7 +718,7 @@ impl Tracer {
             sun_size,
             sun_color,
         )?;
-        Self::update_env_info(&self.resources, self.frame_serial_idx)?;
+        Self::update_env_info(&self.resources, time_info.total_frame_count() as u32)?;
 
         self.record_compute_pass(cmdbuf);
 
@@ -734,8 +731,6 @@ impl Tracer {
 
         Self::update_post_processing_info(&self.resources, self.desc.scaling_factor)?;
         self.record_post_processing_pass(cmdbuf);
-
-        self.frame_serial_idx += 1;
 
         Ok(())
     }
@@ -1011,12 +1006,9 @@ impl Tracer {
         Ok(())
     }
 
-    fn update_grass_info(resources: &TracerResources, grass_offset: Vec2) -> Result<()> {
+    fn update_grass_info(resources: &TracerResources, time: f32) -> Result<()> {
         let data = StructMemberDataBuilder::from_buffer(&resources.grass_info)
-            .set_field(
-                "grass_offset",
-                PlainMemberTypeWithData::Vec2(grass_offset.to_array()),
-            )
+            .set_field("time", PlainMemberTypeWithData::Float(time))
             .unwrap()
             .build();
         resources.grass_info.fill_with_raw_u8(&data)?;
