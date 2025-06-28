@@ -38,8 +38,8 @@ layout(set = 0, binding = 10, rgba8) readonly uniform image2DArray fast_unit_vec
 layout(set = 0, binding = 11, rgba8) readonly uniform image2DArray fast_weighted_cosine_bn;
 layout(set = 0, binding = 12, r32f) readonly uniform image2D shadow_map_tex;
 
-layout(set = 1, binding = 0, rgba8) uniform image2D result_image;
-layout(set = 1, binding = 1, r32f) readonly uniform image2D depth_stencil_tex;
+layout(set = 1, binding = 0, rgba8) writeonly uniform image2D compute_output_tex;
+layout(set = 1, binding = 1, r32f) writeonly uniform image2D compute_depth_tex;
 
 #include "../include/contree_marching.glsl"
 #include "../include/core/definitions.glsl"
@@ -150,28 +150,18 @@ vec3 choose_random_normal(ivec3 seed) {
                 rand_vec.y); // This is a 2D random vector projected onto the XZ plane.
 }
 
-/// Gets the depth in [0, 1], from NDC coordinates of vulkan
-/// 0 means it's on the near plane, 1 means it's on the far plane
-float get_frag_depth_01(ivec2 uvi) {
-    float depth = imageLoad(depth_stencil_tex, uvi).r;
-    return depth;
-}
-
-vec3 get_pixel_color(Ray ray, vec3 color_in, ivec3 seed) {
+void get_pixel_color(out vec3 color, out float depth_01, Ray ray, ivec3 seed) {
     MarchingResult res_primary_ray = general_scene_marching(ray);
 
     if (!res_primary_ray.is_hit) {
         // return get_sky_color(ray.direction);
-        return color_in;
+        depth_01 = 1.0;
+        color    = vec3(0.0);
+        return;
     }
 
     vec4 point_ndc         = camera_info.view_proj_mat * vec4(res_primary_ray.pos, 1.0);
     float primary_depth_01 = point_ndc.z / point_ndc.w;
-    float frag_depth_01    = get_frag_depth_01(ivec2(gl_GlobalInvocationID.xy));
-    // return vec3(primary_depth_01, frag_depth_01, 0.0);
-    if (primary_depth_01 > frag_depth_01) {
-        return color_in;
-    }
 
     // if normal is not valid, change the res.normal to a random one
     if (!res_primary_ray.is_normal_valid) {
@@ -227,35 +217,14 @@ vec3 get_pixel_color(Ray ray, vec3 color_in, ivec3 seed) {
     // see README for the brdf, pdf explanation
     indirect_color *= albedo;
 
-    return direct_color + indirect_color;
+    color    = direct_color + indirect_color;
+    depth_01 = primary_depth_01;
 }
 
 void main() {
     ivec2 uvi      = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 img_size = imageSize(result_image);
+    ivec2 img_size = imageSize(compute_output_tex);
     if (any(greaterThanEqual(uvi, img_size))) {
-        return;
-    }
-
-    const float scale     = 1.0 / 6.0;
-    vec2 corner_dims      = vec2(imageSize(shadow_map_tex)) * scale;
-    ivec2 corner_start_uv = ivec2(img_size.x - corner_dims.x, 0);
-
-    if (uvi.x >= corner_start_uv.x && uvi.y < corner_dims.y) {
-        vec2 shadow_uv = (vec2(uvi - corner_start_uv)) / corner_dims;
-
-        ivec2 shadow_map_size    = imageSize(shadow_map_tex);
-        ivec2 shadow_texel_coord = ivec2(shadow_uv * vec2(shadow_map_size));
-
-        shadow_texel_coord = clamp(shadow_texel_coord, ivec2(0), shadow_map_size - 1);
-
-        float shadow_depth = imageLoad(shadow_map_tex, shadow_texel_coord).r;
-
-        vec3 color = vec3(shadow_depth);
-        if (shadow_depth > 1.0) {
-            color = vec3(1.0, 0.0, 0.0);
-        }
-        imageStore(result_image, uvi, vec4(color, 1.0));
         return;
     }
 
@@ -263,7 +232,10 @@ void main() {
     vec2 screen_uv = (vec2(gl_GlobalInvocationID.xy) + vec2(0.5)) / vec2(img_size);
     Ray ray        = ray_gen(screen_uv, camera_info.view_proj_mat_inv);
 
-    vec3 vis = get_pixel_color(ray, imageLoad(result_image, uvi).rgb, seed);
+    vec3 color;
+    float depth_01;
+    get_pixel_color(color, depth_01, ray, seed);
 
-    imageStore(result_image, uvi, vec4(vis, 1.0));
+    imageStore(compute_output_tex, uvi, vec4(color, 1.0));
+    imageStore(compute_depth_tex, uvi, vec4(depth_01, 0.0, 0.0, 1.0));
 }

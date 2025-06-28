@@ -13,9 +13,9 @@ use crate::gameplay::{calculate_directional_light_matrices, Camera, CameraDesc};
 use crate::util::ShaderCompiler;
 use crate::vkn::{
     Allocator, AttachmentDesc, AttachmentReference, Buffer, ComputePipeline, DescriptorPool,
-    DescriptorSet, Extent2D, Framebuffer, GraphicsPipeline, GraphicsPipelineDesc, Image,
-    MemoryBarrier, PipelineBarrier, PlainMemberTypeWithData, RenderPass, RenderPassDesc,
-    ShaderModule, StructMemberDataBuilder, SubpassDesc, Texture, Viewport, WriteDescriptorSet,
+    DescriptorSet, Extent2D, Framebuffer, GraphicsPipeline, GraphicsPipelineDesc, MemoryBarrier,
+    PipelineBarrier, PlainMemberTypeWithData, RenderPass, RenderPassDesc, ShaderModule,
+    StructMemberDataBuilder, SubpassDesc, Texture, Viewport, WriteDescriptorSet,
 };
 use crate::vkn::{CommandBuffer, VulkanContext};
 use anyhow::Result;
@@ -169,8 +169,8 @@ impl Tracer {
             &vulkan_ctx,
             &main_vert_sm,
             &main_frag_sm,
-            resources.depth_tex.clone(),
-            resources.render_output_tex.clone(),
+            resources.gfx_output_tex.clone(),
+            resources.gfx_depth_tex.clone(),
         );
 
         let (shadow_ppl, shadow_render_pass) =
@@ -184,8 +184,8 @@ impl Tracer {
         let main_framebuffer = Self::create_main_framebuffer(
             &vulkan_ctx,
             &main_render_pass,
-            &resources.render_output_tex,
-            &resources.depth_tex,
+            &resources.gfx_output_tex,
+            &resources.gfx_depth_tex,
         );
 
         let shadow_framebuffer = Self::create_shadow_framebuffer(
@@ -302,13 +302,13 @@ impl Tracer {
         vulkan_ctx: &VulkanContext,
         vert_sm: &ShaderModule,
         frag_sm: &ShaderModule,
+        output_tex: Texture,
         depth_tex: Texture,
-        shader_write_tex: Texture,
     ) -> (GraphicsPipeline, RenderPass) {
         let render_pass = {
             RenderPass::with_attachments(
                 vulkan_ctx.device().clone(),
-                shader_write_tex,
+                output_tex,
                 Some(depth_tex),
                 vk::AttachmentLoadOp::CLEAR,
                 vk::ImageLayout::GENERAL,
@@ -528,13 +528,13 @@ impl Tracer {
             WriteDescriptorSet::new_texture_write(
                 0,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.render_output_tex,
+                &resources.compute_output_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 1,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.depth_tex,
+                &resources.compute_depth_tex,
                 vk::ImageLayout::GENERAL,
             ),
         ]);
@@ -559,11 +559,29 @@ impl Tracer {
             WriteDescriptorSet::new_texture_write(
                 1,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.render_output_tex,
+                &resources.gfx_output_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 2,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.gfx_depth_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                3,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.compute_output_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                4,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.compute_depth_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                5,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &resources.screen_output_tex,
                 vk::ImageLayout::GENERAL,
@@ -623,8 +641,8 @@ impl Tracer {
         self.main_framebuffer = Self::create_main_framebuffer(
             &self.vulkan_ctx,
             &self.main_render_pass,
-            &self.resources.render_output_tex,
-            &self.resources.depth_tex,
+            &self.resources.gfx_output_tex,
+            &self.resources.gfx_depth_tex,
         );
 
         self.flexible_pool.reset().unwrap();
@@ -670,21 +688,6 @@ impl Tracer {
         sun_color: Vec3,
     ) -> Result<()> {
         let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
-        let compute_to_vert_barrier = PipelineBarrier::new(
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            vk::PipelineStageFlags::VERTEX_SHADER,
-            vec![shader_access_memory_barrier],
-        );
-        let vert_to_compute_barrier = PipelineBarrier::new(
-            vk::PipelineStageFlags::VERTEX_SHADER,
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            vec![shader_access_memory_barrier],
-        );
-        let compute_to_compute_barrier = PipelineBarrier::new(
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            vec![shader_access_memory_barrier],
-        );
 
         let (shadow_view_mat, shadow_proj_mat) =
             calculate_directional_light_matrices(&self.camera, sun_dir);
@@ -694,7 +697,13 @@ impl Tracer {
             shadow_proj_mat,
         )?;
         self.record_tracer_shadow_pass(cmdbuf);
-        compute_to_vert_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+
+        let b1 = PipelineBarrier::new(
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vk::PipelineStageFlags::VERTEX_SHADER | vk::PipelineStageFlags::COMPUTE_SHADER,
+            vec![shader_access_memory_barrier],
+        );
+        b1.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
         Self::update_cam_info(
             &mut self.resources.camera_info,
@@ -703,7 +712,6 @@ impl Tracer {
         )?;
         Self::update_grass_info(&self.resources, grass_offset)?;
         self.record_main_pass(cmdbuf, surface_resources, grass_instances_len);
-        vert_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
         Self::update_gui_input(
             &self.resources,
@@ -716,7 +724,13 @@ impl Tracer {
         Self::update_env_info(&self.resources, self.frame_serial_idx)?;
 
         self.record_compute_pass(cmdbuf);
-        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+
+        let b2 = PipelineBarrier::new(
+            vk::PipelineStageFlags::FRAGMENT_SHADER | vk::PipelineStageFlags::COMPUTE_SHADER,
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vec![shader_access_memory_barrier],
+        );
+        b2.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
         Self::update_post_processing_info(&self.resources, self.desc.scaling_factor)?;
         self.record_post_processing_pass(cmdbuf);
@@ -751,12 +765,7 @@ impl Tracer {
         self.main_render_pass
             .record_begin(cmdbuf, &self.main_framebuffer, &clear_values);
 
-        let render_extent = self
-            .resources
-            .render_output_tex
-            .get_image()
-            .get_desc()
-            .extent;
+        let render_extent = self.resources.gfx_output_tex.get_image().get_desc().extent;
         let viewport = Viewport::from_extent(render_extent.as_extent_2d().unwrap());
         let scissor = vk::Rect2D {
             offset: vk::Offset2D { x: 0, y: 0 },
@@ -807,11 +816,11 @@ impl Tracer {
 
         let desc = self.main_render_pass.get_desc();
         self.resources
-            .render_output_tex
+            .gfx_output_tex
             .get_image()
             .set_layout(0, desc.attachments[0].final_layout);
         self.resources
-            .depth_tex
+            .gfx_depth_tex
             .get_image()
             .set_layout(0, desc.attachments[1].final_layout);
     }
@@ -850,6 +859,15 @@ impl Tracer {
     }
 
     fn record_compute_pass(&self, cmdbuf: &CommandBuffer) {
+        self.resources
+            .compute_output_tex
+            .get_image()
+            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+        self.resources
+            .compute_depth_tex
+            .get_image()
+            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+
         self.tracer_ppl.record_bind(cmdbuf);
 
         self.tracer_ppl
@@ -857,7 +875,7 @@ impl Tracer {
 
         let render_extent = self
             .resources
-            .render_output_tex
+            .compute_output_tex
             .get_image()
             .get_desc()
             .extent;

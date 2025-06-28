@@ -20,8 +20,10 @@ pub struct TracerResources {
     pub indices: Buffer,
     pub indices_len: u32,
 
-    pub depth_tex: Texture,
-    pub render_output_tex: Texture,
+    pub gfx_depth_tex: Texture,
+    pub compute_depth_tex: Texture,
+    pub compute_output_tex: Texture,
+    pub gfx_output_tex: Texture,
     pub screen_output_tex: Texture,
 
     pub shadow_map_tex: Texture,
@@ -107,11 +109,19 @@ impl TracerResources {
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
-        let depth_stencil_tex =
-            Self::create_depth_tex(device.clone(), allocator.clone(), rendering_extent.into());
+        let gfx_depth_tex =
+            Self::create_gfx_depth_tex(device.clone(), allocator.clone(), rendering_extent.into());
+        let compute_depth_tex = Self::create_compute_depth_tex(
+            device.clone(),
+            allocator.clone(),
+            rendering_extent.into(),
+        );
 
-        let render_output_tex =
-            Self::create_render_output_tex(device.clone(), allocator.clone(), rendering_extent);
+        let compute_output_tex =
+            Self::create_compute_output_tex(device.clone(), allocator.clone(), rendering_extent);
+
+        let gfx_output_tex =
+            Self::create_gfx_output_tex(device.clone(), allocator.clone(), rendering_extent);
 
         let screen_output_tex =
             Self::create_screen_output_tex(device.clone(), allocator.clone(), screen_extent);
@@ -207,8 +217,10 @@ impl TracerResources {
             vertices,
             indices,
             indices_len,
-            depth_tex: depth_stencil_tex,
-            render_output_tex,
+            gfx_depth_tex,
+            compute_depth_tex,
+            compute_output_tex,
+            gfx_output_tex,
             screen_output_tex,
             shadow_map_tex,
 
@@ -264,15 +276,19 @@ impl TracerResources {
         rendering_extent: Extent2D,
         screen_extent: Extent2D,
     ) {
-        self.depth_tex =
-            Self::create_depth_tex(device.clone(), allocator.clone(), rendering_extent);
-        self.render_output_tex =
-            Self::create_render_output_tex(device.clone(), allocator.clone(), rendering_extent);
+        self.gfx_depth_tex =
+            Self::create_gfx_depth_tex(device.clone(), allocator.clone(), rendering_extent);
+        self.compute_depth_tex =
+            Self::create_compute_depth_tex(device.clone(), allocator.clone(), rendering_extent);
+        self.compute_output_tex =
+            Self::create_compute_output_tex(device.clone(), allocator.clone(), rendering_extent);
+        self.gfx_output_tex =
+            Self::create_gfx_output_tex(device.clone(), allocator.clone(), rendering_extent);
         self.screen_output_tex =
             Self::create_screen_output_tex(device.clone(), allocator.clone(), screen_extent);
     }
 
-    fn create_depth_tex(
+    fn create_gfx_depth_tex(
         device: Device,
         allocator: Allocator,
         rendering_extent: Extent2D,
@@ -290,7 +306,25 @@ impl TracerResources {
         tex
     }
 
-    fn create_render_output_tex(
+    fn create_compute_depth_tex(
+        device: Device,
+        allocator: Allocator,
+        rendering_extent: Extent2D,
+    ) -> Texture {
+        let tex_desc = ImageDesc {
+            extent: rendering_extent.into(),
+            format: vk::Format::D32_SFLOAT,
+            usage: vk::ImageUsageFlags::STORAGE,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::DEPTH,
+            ..Default::default()
+        };
+        let sam_desc = Default::default();
+        let tex = Texture::new(device, allocator, &tex_desc, &sam_desc);
+        tex
+    }
+
+    fn create_gfx_output_tex(
         device: Device,
         allocator: Allocator,
         rendering_extent: Extent2D,
@@ -299,6 +333,24 @@ impl TracerResources {
             extent: rendering_extent.into(),
             format: vk::Format::R8G8B8A8_UNORM,
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::COLOR_ATTACHMENT,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        let sam_desc = Default::default();
+        let tex = Texture::new(device, allocator, &tex_desc, &sam_desc);
+        tex
+    }
+
+    fn create_compute_output_tex(
+        device: Device,
+        allocator: Allocator,
+        rendering_extent: Extent2D,
+    ) -> Texture {
+        let tex_desc = ImageDesc {
+            extent: rendering_extent.into(),
+            format: vk::Format::R8G8B8A8_UNORM,
+            usage: vk::ImageUsageFlags::STORAGE,
             initial_layout: vk::ImageLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
