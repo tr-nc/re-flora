@@ -113,8 +113,8 @@ rustup update stable
 
 ## TODO list
 
-- [ ] Decouple rendering resolution from the game resolution
 - [ ] Wavy grass
+- [ ] Volumetric Lighting (toggable)
 - [ ] Other types of plants
 - [ ] Dynamic Terrain Edit
 - [ ] Plant trees

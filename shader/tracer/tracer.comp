@@ -236,7 +236,6 @@ void main() {
     if (any(greaterThanEqual(uvi, img_size))) {
         return;
     }
-   
 
     const float scale     = 1.0 / 6.0;
     vec2 corner_dims      = vec2(imageSize(shadow_map_tex)) * scale;
