@@ -4,11 +4,11 @@ use crate::util::Timer;
 use crate::builder::{ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder};
 use crate::geom::{build_bvh, UAabb3};
 use crate::procedual_placer::{generate_positions, PlacerDesc};
-use crate::tracer::Tracer;
+use crate::tracer::{Tracer, TracerDesc};
 use crate::tree_gen::{Tree, TreeDesc};
 use crate::util::{get_sun_dir, ShaderCompiler};
 use crate::util::{TimeInfo, BENCH};
-use crate::vkn::{Allocator, CommandBuffer, Fence, Semaphore, SwapchainDesc};
+use crate::vkn::{Allocator, CommandBuffer, Extent2D, Fence, Semaphore, SwapchainDesc};
 use crate::{
     egui_renderer::EguiRenderer,
     vkn::{Swapchain, VulkanContext, VulkanContextDesc},
@@ -170,6 +170,9 @@ impl InitializedApp {
             &contree_builder.get_resources().node_data,
             &contree_builder.get_resources().leaf_data,
             &scene_accel_builder.get_resources().scene_offset_tex,
+            TracerDesc {
+                scaling_factor: 0.5,
+            },
         );
 
         return Self {
@@ -600,8 +603,11 @@ impl InitializedApp {
                     )
                     .unwrap();
 
-                self.swapchain
-                    .record_blit(self.tracer.get_dst_image(), cmdbuf, image_idx);
+                self.swapchain.record_blit(
+                    self.tracer.get_screen_output_tex().get_image(),
+                    cmdbuf,
+                    image_idx,
+                );
 
                 let render_area = self.window_state.window_extent();
 

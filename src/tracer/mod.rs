@@ -12,35 +12,23 @@ use crate::builder::SurfaceResources;
 use crate::gameplay::{calculate_directional_light_matrices, Camera, CameraDesc};
 use crate::util::ShaderCompiler;
 use crate::vkn::{
-    Allocator,
-    AttachmentDesc,
-    AttachmentReference,
-    Buffer,
-    ComputePipeline,
-    DescriptorPool,
-    DescriptorSet,
-    Extent2D,
-    Framebuffer,
-    GraphicsPipeline,
-    GraphicsPipelineDesc,
-    Image,
-    PlainMemberTypeWithData,
-    RenderPass,
-    // Import the structs needed for manual RenderPass creation
-    RenderPassDesc,
-    ShaderModule,
-    StructMemberDataBuilder,
-    SubpassDesc,
-    Texture,
-    Viewport,
-    WriteDescriptorSet,
+    Allocator, AttachmentDesc, AttachmentReference, Buffer, ComputePipeline, DescriptorPool,
+    DescriptorSet, Extent2D, Framebuffer, GraphicsPipeline, GraphicsPipelineDesc, Image,
+    MemoryBarrier, PipelineBarrier, PlainMemberTypeWithData, RenderPass, RenderPassDesc,
+    ShaderModule, StructMemberDataBuilder, SubpassDesc, Texture, Viewport, WriteDescriptorSet,
 };
 use crate::vkn::{CommandBuffer, VulkanContext};
 use anyhow::Result;
 use ash::vk;
 
+pub struct TracerDesc {
+    pub scaling_factor: f32,
+}
+
 pub struct Tracer {
     vulkan_ctx: VulkanContext,
+
+    desc: TracerDesc,
 
     allocator: Allocator,
     resources: TracerResources,
@@ -49,6 +37,9 @@ pub struct Tracer {
 
     tracer_ppl: ComputePipeline,
     tracer_sets: [DescriptorSet; 2],
+
+    post_processing_ppl: ComputePipeline,
+    post_processing_sets: [DescriptorSet; 1],
 
     tracer_shadow_ppl: ComputePipeline,
     tracer_shadow_sets: [DescriptorSet; 1],
@@ -87,7 +78,10 @@ impl Tracer {
         node_data: &Buffer,
         leaf_data: &Buffer,
         scene_tex: &Texture,
+        desc: TracerDesc,
     ) -> Self {
+        let render_extent = Self::get_render_extent(screen_extent, desc.scaling_factor);
+
         let camera = Camera::new(
             Vec3::new(0.5, 1.2, 0.5),
             135.0,
@@ -95,7 +89,7 @@ impl Tracer {
             CameraDesc {
                 movement: Default::default(),
                 projection: Default::default(),
-                aspect_ratio: screen_extent.get_aspect_ratio(),
+                aspect_ratio: render_extent.get_aspect_ratio(),
             },
         );
 
@@ -115,8 +109,17 @@ impl Tracer {
         )
         .unwrap();
 
+        let post_processing_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            &shader_compiler,
+            "shader/tracer/post_processing.comp",
+            "main",
+        )
+        .unwrap();
+
         let tracer_ppl = ComputePipeline::new(vulkan_ctx.device(), &tracer_sm);
         let tracer_shadow_ppl = ComputePipeline::new(vulkan_ctx.device(), &tracer_shadow_sm);
+        let post_processing_ppl = ComputePipeline::new(vulkan_ctx.device(), &post_processing_sm);
 
         let fixed_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
         let flexible_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
@@ -157,6 +160,8 @@ impl Tracer {
             &main_vert_sm,
             &tracer_sm,
             &tracer_shadow_sm,
+            &post_processing_sm,
+            render_extent,
             screen_extent,
             Extent2D::new(1024, 1024),
         );
@@ -165,7 +170,7 @@ impl Tracer {
             &main_vert_sm,
             &main_frag_sm,
             resources.depth_tex.clone(),
-            resources.shader_write_tex.clone(),
+            resources.render_output_tex.clone(),
         );
 
         let (shadow_ppl, shadow_render_pass) =
@@ -179,7 +184,7 @@ impl Tracer {
         let main_framebuffer = Self::create_main_framebuffer(
             &vulkan_ctx,
             &main_render_pass,
-            &resources.shader_write_tex,
+            &resources.render_output_tex,
             &resources.depth_tex,
         );
 
@@ -212,6 +217,13 @@ impl Tracer {
             scene_tex,
         );
 
+        let post_processing_set_0 = Self::create_post_processing_set_0(
+            flexible_pool.clone(),
+            &vulkan_ctx,
+            &post_processing_ppl,
+            &resources,
+        );
+
         let main_ds = Self::create_main_ds(fixed_pool.clone(), &vulkan_ctx, &main_ppl, &resources);
 
         let shadow_ds =
@@ -219,11 +231,14 @@ impl Tracer {
 
         return Self {
             vulkan_ctx,
+            desc,
             allocator,
             resources,
             camera,
             tracer_ppl,
             tracer_shadow_ppl,
+            post_processing_ppl,
+            post_processing_sets: [post_processing_set_0],
             tracer_sets: [tracer_set_0, tracer_set_1],
             tracer_shadow_sets: [tracer_shadow_set],
             main_sets: [main_ds],
@@ -513,13 +528,44 @@ impl Tracer {
             WriteDescriptorSet::new_texture_write(
                 0,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.shader_write_tex,
+                &resources.render_output_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 1,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &resources.depth_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+        ]);
+        ds
+    }
+
+    fn create_post_processing_set_0(
+        descriptor_pool: DescriptorPool,
+        vulkan_ctx: &VulkanContext,
+        post_processing_ppl: &ComputePipeline,
+        resources: &TracerResources,
+    ) -> DescriptorSet {
+        let ds = DescriptorSet::new(
+            vulkan_ctx.device().clone(),
+            &post_processing_ppl
+                .get_layout()
+                .get_descriptor_set_layouts()[&0],
+            descriptor_pool,
+        );
+        ds.perform_writes(&mut [
+            WriteDescriptorSet::new_buffer_write(0, &resources.post_processing_info),
+            WriteDescriptorSet::new_texture_write(
+                1,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.render_output_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                2,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.screen_output_tex,
                 vk::ImageLayout::GENERAL,
             ),
         ]);
@@ -563,18 +609,21 @@ impl Tracer {
     }
 
     pub fn on_resize(&mut self, screen_extent: Extent2D) {
-        self.camera.on_resize(screen_extent);
+        let render_extent = Self::get_render_extent(screen_extent, self.desc.scaling_factor);
+
+        self.camera.on_resize(render_extent);
 
         self.resources.on_resize(
             self.vulkan_ctx.device().clone(),
             self.allocator.clone(),
+            render_extent,
             screen_extent,
         );
 
         self.main_framebuffer = Self::create_main_framebuffer(
             &self.vulkan_ctx,
             &self.main_render_pass,
-            &self.resources.shader_write_tex,
+            &self.resources.render_output_tex,
             &self.resources.depth_tex,
         );
 
@@ -585,10 +634,27 @@ impl Tracer {
             &self.tracer_ppl,
             &self.resources,
         );
+
+        self.post_processing_sets[0] = Self::create_post_processing_set_0(
+            self.flexible_pool.clone(),
+            &self.vulkan_ctx,
+            &self.post_processing_ppl,
+            &self.resources,
+        );
     }
 
-    pub fn get_dst_image(&self) -> &Image {
-        self.resources.shader_write_tex.get_image()
+    // create a lower resolution texture for rendering, for better performance,
+    // less memory usage, and stylized rendering
+    fn get_render_extent(screen_extent: Extent2D, scaling_factor: f32) -> Extent2D {
+        let extent = Extent2D::new(
+            (screen_extent.width as f32 * scaling_factor) as u32,
+            (screen_extent.height as f32 * scaling_factor) as u32,
+        );
+        extent
+    }
+
+    pub fn get_screen_output_tex(&self) -> &Texture {
+        &self.resources.screen_output_tex
     }
 
     pub fn update_buffers_and_record(
@@ -603,6 +669,23 @@ impl Tracer {
         sun_size: f32,
         sun_color: Vec3,
     ) -> Result<()> {
+        let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
+        let compute_to_vert_barrier = PipelineBarrier::new(
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vk::PipelineStageFlags::VERTEX_SHADER,
+            vec![shader_access_memory_barrier],
+        );
+        let vert_to_compute_barrier = PipelineBarrier::new(
+            vk::PipelineStageFlags::VERTEX_SHADER,
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vec![shader_access_memory_barrier],
+        );
+        let compute_to_compute_barrier = PipelineBarrier::new(
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vec![shader_access_memory_barrier],
+        );
+
         let (shadow_view_mat, shadow_proj_mat) =
             calculate_directional_light_matrices(&self.camera, sun_dir);
         Self::update_cam_info(
@@ -611,6 +694,7 @@ impl Tracer {
             shadow_proj_mat,
         )?;
         self.record_tracer_shadow_pass(cmdbuf);
+        compute_to_vert_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
         Self::update_cam_info(
             &mut self.resources.camera_info,
@@ -619,6 +703,7 @@ impl Tracer {
         )?;
         Self::update_grass_info(&self.resources, grass_offset)?;
         self.record_main_pass(cmdbuf, surface_resources, grass_instances_len);
+        vert_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
         Self::update_gui_input(
             &self.resources,
@@ -629,7 +714,12 @@ impl Tracer {
             sun_color,
         )?;
         Self::update_env_info(&self.resources, self.frame_serial_idx)?;
+
         self.record_compute_pass(cmdbuf);
+        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+
+        Self::update_post_processing_info(&self.resources, self.desc.scaling_factor)?;
+        self.record_post_processing_pass(cmdbuf);
 
         self.frame_serial_idx += 1;
 
@@ -661,14 +751,18 @@ impl Tracer {
         self.main_render_pass
             .record_begin(cmdbuf, &self.main_framebuffer, &clear_values);
 
-        let image_extent = self.get_dst_image().get_desc().extent;
-
-        let viewport = Viewport::from_extent(image_extent.as_extent_2d().unwrap());
+        let render_extent = self
+            .resources
+            .render_output_tex
+            .get_image()
+            .get_desc()
+            .extent;
+        let viewport = Viewport::from_extent(render_extent.as_extent_2d().unwrap());
         let scissor = vk::Rect2D {
             offset: vk::Offset2D { x: 0, y: 0 },
             extent: vk::Extent2D {
-                width: image_extent.width,
-                height: image_extent.height,
+                width: render_extent.width,
+                height: render_extent.height,
             },
         };
 
@@ -712,7 +806,9 @@ impl Tracer {
         self.main_render_pass.record_end(cmdbuf);
 
         let desc = self.main_render_pass.get_desc();
-        self.get_dst_image()
+        self.resources
+            .render_output_tex
+            .get_image()
             .set_layout(0, desc.attachments[0].final_layout);
         self.resources
             .depth_tex
@@ -759,8 +855,39 @@ impl Tracer {
         self.tracer_ppl
             .record_bind_descriptor_sets(cmdbuf, &self.tracer_sets, 0);
 
-        let screen_extent = self.get_dst_image().get_desc().extent;
+        let render_extent = self
+            .resources
+            .render_output_tex
+            .get_image()
+            .get_desc()
+            .extent;
         self.tracer_ppl.record_dispatch(
+            cmdbuf,
+            [
+                render_extent.width,
+                render_extent.height,
+                render_extent.depth,
+            ],
+        );
+    }
+
+    fn record_post_processing_pass(&self, cmdbuf: &CommandBuffer) {
+        self.resources
+            .screen_output_tex
+            .get_image()
+            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+
+        self.post_processing_ppl.record_bind(cmdbuf);
+        self.post_processing_ppl
+            .record_bind_descriptor_sets(cmdbuf, &self.post_processing_sets, 0);
+
+        let screen_extent = self
+            .resources
+            .screen_output_tex
+            .get_image()
+            .get_desc()
+            .extent;
+        self.post_processing_ppl.record_dispatch(
             cmdbuf,
             [
                 screen_extent.width,
@@ -875,6 +1002,18 @@ impl Tracer {
             .unwrap()
             .build();
         resources.grass_info.fill_with_raw_u8(&data)?;
+        Ok(())
+    }
+
+    fn update_post_processing_info(resources: &TracerResources, scaling_factor: f32) -> Result<()> {
+        let data = StructMemberDataBuilder::from_buffer(&resources.post_processing_info)
+            .set_field(
+                "scaling_factor",
+                PlainMemberTypeWithData::Float(scaling_factor),
+            )
+            .unwrap()
+            .build();
+        resources.post_processing_info.fill_with_raw_u8(&data)?;
         Ok(())
     }
 }

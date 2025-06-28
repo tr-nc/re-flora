@@ -14,13 +14,15 @@ pub struct TracerResources {
     pub shadow_camera_info: Buffer,
     pub env_info: Buffer,
     pub grass_info: Buffer,
+    pub post_processing_info: Buffer,
 
     pub vertices: Buffer,
     pub indices: Buffer,
     pub indices_len: u32,
 
     pub depth_tex: Texture,
-    pub shader_write_tex: Texture,
+    pub render_output_tex: Texture,
+    pub screen_output_tex: Texture,
 
     pub shadow_map_tex: Texture,
 
@@ -39,6 +41,8 @@ impl TracerResources {
         vert_sm: &ShaderModule,
         tracer_sm: &ShaderModule,
         tracer_shadow_sm: &ShaderModule,
+        post_processing_sm: &ShaderModule,
+        rendering_extent: Extent2D,
         screen_extent: Extent2D,
         shadow_map_extent: Extent2D,
     ) -> Self {
@@ -84,6 +88,17 @@ impl TracerResources {
 
         let grass_info_layout = vert_sm.get_buffer_layout("U_GrassInfo").unwrap();
 
+        let post_processing_info_layout = post_processing_sm
+            .get_buffer_layout("U_PostProcessingInfo")
+            .unwrap();
+        let post_processing_info = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            post_processing_info_layout.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+        );
+
         let grass_info = Buffer::from_buffer_layout(
             device.clone(),
             allocator.clone(),
@@ -93,10 +108,13 @@ impl TracerResources {
         );
 
         let depth_stencil_tex =
-            Self::create_depth_tex(device.clone(), allocator.clone(), screen_extent.into());
+            Self::create_depth_tex(device.clone(), allocator.clone(), rendering_extent.into());
 
-        let shader_write_tex =
-            Self::create_shader_write_tex(device.clone(), allocator.clone(), screen_extent.into());
+        let render_output_tex =
+            Self::create_render_output_tex(device.clone(), allocator.clone(), rendering_extent);
+
+        let screen_output_tex =
+            Self::create_screen_output_tex(device.clone(), allocator.clone(), screen_extent);
 
         let shadow_map_tex = Self::create_shadow_map_tex(
             device.clone(),
@@ -184,12 +202,14 @@ impl TracerResources {
             shadow_camera_info,
             env_info,
             grass_info,
+            post_processing_info,
 
             vertices,
             indices,
             indices_len,
             depth_tex: depth_stencil_tex,
-            shader_write_tex,
+            render_output_tex,
+            screen_output_tex,
             shadow_map_tex,
 
             scalar_bn,
@@ -237,16 +257,28 @@ impl TracerResources {
         }
     }
 
-    pub fn on_resize(&mut self, device: Device, allocator: Allocator, screen_extent: Extent2D) {
+    pub fn on_resize(
+        &mut self,
+        device: Device,
+        allocator: Allocator,
+        rendering_extent: Extent2D,
+        screen_extent: Extent2D,
+    ) {
         self.depth_tex =
-            Self::create_depth_tex(device.clone(), allocator.clone(), screen_extent.into());
-        self.shader_write_tex =
-            Self::create_shader_write_tex(device.clone(), allocator.clone(), screen_extent.into());
+            Self::create_depth_tex(device.clone(), allocator.clone(), rendering_extent);
+        self.render_output_tex =
+            Self::create_render_output_tex(device.clone(), allocator.clone(), rendering_extent);
+        self.screen_output_tex =
+            Self::create_screen_output_tex(device.clone(), allocator.clone(), screen_extent);
     }
 
-    fn create_depth_tex(device: Device, allocator: Allocator, screen_extent: Extent3D) -> Texture {
+    fn create_depth_tex(
+        device: Device,
+        allocator: Allocator,
+        rendering_extent: Extent2D,
+    ) -> Texture {
         let tex_desc = ImageDesc {
-            extent: screen_extent,
+            extent: rendering_extent.into(),
             format: vk::Format::D32_SFLOAT,
             usage: vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT | vk::ImageUsageFlags::STORAGE,
             initial_layout: vk::ImageLayout::UNDEFINED,
@@ -258,13 +290,32 @@ impl TracerResources {
         tex
     }
 
-    fn create_shader_write_tex(
+    fn create_render_output_tex(
         device: Device,
         allocator: Allocator,
-        screen_extent: Extent3D,
+        rendering_extent: Extent2D,
     ) -> Texture {
         let tex_desc = ImageDesc {
-            extent: screen_extent,
+            extent: rendering_extent.into(),
+            format: vk::Format::R8G8B8A8_UNORM,
+            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::COLOR_ATTACHMENT,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        let sam_desc = Default::default();
+        let tex = Texture::new(device, allocator, &tex_desc, &sam_desc);
+        tex
+    }
+
+    /// The only screen extent texture in this resource set
+    fn create_screen_output_tex(
+        device: Device,
+        allocator: Allocator,
+        screen_extent: Extent2D,
+    ) -> Texture {
+        let tex_desc = ImageDesc {
+            extent: screen_extent.into(),
             format: vk::Format::R8G8B8A8_UNORM,
             usage: vk::ImageUsageFlags::STORAGE
                 | vk::ImageUsageFlags::TRANSFER_SRC

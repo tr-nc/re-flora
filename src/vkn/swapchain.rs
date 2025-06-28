@@ -135,7 +135,7 @@ impl Swapchain {
         let dst_raw_img = self.get_image(image_idx);
         let device = self.vulkan_context.device();
 
-        src_img.record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+        src_img.record_transition_barrier(cmdbuf, 0, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
 
         // transition dst using the raw function
         // from UNDEFINED, because the image is just being available
@@ -154,7 +154,7 @@ impl Swapchain {
             device.cmd_blit_image(
                 cmdbuf.as_raw(),
                 src_img.as_raw(),
-                vk::ImageLayout::GENERAL,
+                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
                 dst_raw_img,
                 vk::ImageLayout::TRANSFER_DST_OPTIMAL,
                 &[src_img.get_blit_region()],
@@ -173,6 +173,9 @@ impl Swapchain {
             0,
             1,
         );
+
+        // for now, just transition src to general
+        src_img.record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
     }
 
     /// Present the image to the swapchain with the given index.

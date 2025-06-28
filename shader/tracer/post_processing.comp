@@ -1,0 +1,22 @@
+/// For upscaling the rendering output to the screen and applying postprocessing effects
+
+#version 460
+
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform U_PostProcessingInfo { float scaling_factor; }
+post_processing_info;
+layout(set = 0, binding = 1, rgba8) uniform readonly image2D render_output_tex;
+layout(set = 0, binding = 2, rgba8) uniform writeonly image2D screen_output_tex;
+
+void main() {
+    ivec2 uvi = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(uvi, imageSize(screen_output_tex)))) {
+        return;
+    }
+
+    ivec2 mapped_uvi = ivec2(vec2(uvi) * post_processing_info.scaling_factor);
+    imageStore(screen_output_tex, uvi, imageLoad(render_output_tex, mapped_uvi));
+}
