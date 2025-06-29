@@ -6,7 +6,7 @@ pub fn calculate_directional_light_matrices(
     world_bound: Aabb3,
     light_direction: Vec3,
 ) -> (Mat4, Mat4) {
-    const TOLERANCE: f32 = 0.1;
+    const TOLERANCE: f32 = 0.5;
     const PARALLEL_EPS: f32 = 0.999; // cos(ϑ) threshold for “almost parallel”
 
     // 1. Collect the world-space frustum corners and their centre
