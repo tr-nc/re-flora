@@ -43,35 +43,10 @@ layout(set = 0, binding = 3) uniform sampler2D vsm_shadow_map_tex;
 
 #include "../include/core/fast_noise_lite.glsl"
 #include "../include/core/hash.glsl"
+#include "../include/vsm.glsl"
 
 const uint voxel_count     = 8;
 const float scaling_factor = 1.0 / 256.0;
-
-// Calculates shadow visibility using Variance Shadow Mapping.
-// Returns a value from 0.0 (in shadow) to 1.0 (fully lit).
-// https://www.shadertoy.com/view/MlKSRm
-// https://developer.download.nvidia.com/SDK/10/direct3d/Source/VarianceShadowMapping/Doc/VarianceShadowMapping.pdf
-float get_shadow_vsm(vec4 voxel_pos_ws) {
-    vec4 point_light_space = shadow_camera_info.view_proj_mat * voxel_pos_ws;
-
-    vec3 point_ndc = point_light_space.xyz / point_light_space.w;
-    vec2 shadow_uv = point_ndc.xy * 0.5 + 0.5;
-
-    float t = point_ndc.z;
-
-    vec2 moments = texture(vsm_shadow_map_tex, shadow_uv).rg;
-    float ex     = moments.x;
-    float ex_2   = moments.y;
-
-    float variance = ex_2 - ex * ex;
-
-    float znorm   = t - ex;
-    float znorm_2 = znorm * znorm;
-
-    float p = variance / (variance + znorm_2);
-
-    return max(p, float(t <= ex));
-}
 
 vec3 get_offset_of_vertex(float voxel_height, uint voxel_count, vec2 grass_offset) {
     float denom   = float(max(voxel_count - 1u, 1u));
@@ -135,7 +110,7 @@ void main() {
 
     // Call the new VSM function instead of the old PCF one.
     // The new function uses the VSM texture from binding 3.
-    float shadow_weight = get_shadow_vsm(voxel_pos_ws);
+    float shadow_weight = get_shadow_vsm(shadow_camera_info.view_proj_mat, voxel_pos_ws);
 
     // transform to clip space
     gl_Position = camera_info.view_proj_mat * vert_pos_ws;

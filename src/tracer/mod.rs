@@ -227,7 +227,7 @@ impl Tracer {
             &resources.shadow_map_tex,
         );
 
-        let tracer_set_0 = Self::create_tracer_set_0(
+        let tracer_ds_0 = Self::create_tracer_ds_0(
             fixed_pool.clone(),
             &vulkan_ctx,
             &tracer_ppl,
@@ -237,10 +237,10 @@ impl Tracer {
             scene_tex,
         );
 
-        let tracer_set_1 =
-            Self::create_tracer_set_1(flexible_pool.clone(), &vulkan_ctx, &tracer_ppl, &resources);
+        let tracer_ds_1 =
+            Self::create_tracer_ds_1(flexible_pool.clone(), &vulkan_ctx, &tracer_ppl, &resources);
 
-        let tracer_shadow_set = Self::create_tracer_shadow_set(
+        let tracer_shadow_ds = Self::create_tracer_shadow_ds(
             fixed_pool.clone(),
             &vulkan_ctx,
             &tracer_shadow_ppl,
@@ -285,8 +285,8 @@ impl Tracer {
             vsm_blur_v_ppl,
             vsm_sets: [vsm_set_0],
             post_processing_sets: [post_processing_set_0],
-            tracer_sets: [tracer_set_0, tracer_set_1],
-            tracer_shadow_sets: [tracer_shadow_set],
+            tracer_sets: [tracer_ds_0, tracer_ds_1],
+            tracer_shadow_sets: [tracer_shadow_ds],
             main_sets: [main_ds],
             shadow_sets: [shadow_ds],
             main_ppl,
@@ -482,7 +482,7 @@ impl Tracer {
         .unwrap()
     }
 
-    fn create_tracer_set_0(
+    fn create_tracer_ds_0(
         descriptor_pool: DescriptorPool,
         vulkan_ctx: &VulkanContext,
         tracer_ppl: &ComputePipeline,
@@ -550,15 +550,15 @@ impl Tracer {
             ),
             WriteDescriptorSet::new_texture_write(
                 12,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.shadow_map_tex,
+                vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                &resources.shadow_map_tex_for_vsm_ping,
                 vk::ImageLayout::GENERAL,
             ),
         ]);
         ds
     }
 
-    fn create_tracer_set_1(
+    fn create_tracer_ds_1(
         descriptor_pool: DescriptorPool,
         vulkan_ctx: &VulkanContext,
         tracer_ppl: &ComputePipeline,
@@ -635,7 +635,7 @@ impl Tracer {
         ds
     }
 
-    fn create_tracer_shadow_set(
+    fn create_tracer_shadow_ds(
         descriptor_pool: DescriptorPool,
         vulkan_ctx: &VulkanContext,
         tracer_depth_only_ppl: &ComputePipeline,
@@ -725,7 +725,7 @@ impl Tracer {
         );
 
         self.flexible_pool.reset().unwrap();
-        self.tracer_sets[1] = Self::create_tracer_set_1(
+        self.tracer_sets[1] = Self::create_tracer_ds_1(
             self.flexible_pool.clone(),
             &self.vulkan_ctx,
             &self.tracer_ppl,

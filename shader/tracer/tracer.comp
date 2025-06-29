@@ -36,7 +36,7 @@ layout(set = 0, binding = 8, rgba8) readonly uniform image2DArray unit_vec3_bn;
 layout(set = 0, binding = 9, rgba8) readonly uniform image2DArray weighted_cosine_bn;
 layout(set = 0, binding = 10, rgba8) readonly uniform image2DArray fast_unit_vec3_bn;
 layout(set = 0, binding = 11, rgba8) readonly uniform image2DArray fast_weighted_cosine_bn;
-layout(set = 0, binding = 12, r32f) readonly uniform image2D shadow_map_tex;
+layout(set = 0, binding = 12) uniform sampler2D vsm_shadow_map_tex;
 
 layout(set = 1, binding = 0, rgba8) writeonly uniform image2D compute_output_tex;
 layout(set = 1, binding = 1, r32f) writeonly uniform image2D compute_depth_tex;
@@ -50,6 +50,7 @@ layout(set = 1, binding = 1, r32f) writeonly uniform image2D compute_depth_tex;
 #include "../include/ray.glsl"
 #include "../include/skylight.glsl"
 #include "../include/voxel_registry.glsl"
+#include "../include/vsm.glsl"
 
 bool scene_hit(inout MarchingResult o_res, vec3 o, vec3 d, ivec3 map_pos, uvec4 scene_tex_read) {
     // see update_scene_tex.comp for encoding part
