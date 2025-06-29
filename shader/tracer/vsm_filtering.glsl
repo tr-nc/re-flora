@@ -1,7 +1,12 @@
+/// Filters the raw VSM texture
+/// Requires:
+/// ifdef VSM_FILTER_H: shadow_map_tex_for_vsm_ping
+/// ifdef VSM_FILTER_V: shadow_map_tex_for_vsm_pong
+
 #ifndef VSM_FILTERING_GLSL
 #define VSM_FILTERING_GLSL
 
-const int VSM_FILTER_HALF_SIZE = 10;
+const int VSM_FILTER_HALF_SIZE = 5;
 
 float get_gaussian_weight(float offset, float sigma) {
     // If sigma is zero (for a 0-sized kernel), only the center pixel gets weight.
@@ -14,8 +19,8 @@ float get_gaussian_weight(float offset, float sigma) {
 
 // read from ping
 #ifdef VSM_FILTER_H
-vec2 get_filtered_vsm(ivec2 uvi) {
-    vec2 filtered      = vec2(0.0, 0.0);
+vec4 get_filtered_vsm(ivec2 uvi) {
+    vec4 filtered      = vec4(0.0);
     float total_weight = 0.0;
 
     // Sigma controls the "spread" of the blur. A larger sigma gives a softer blur.
@@ -32,7 +37,7 @@ vec2 get_filtered_vsm(ivec2 uvi) {
         // Calculate the weight dynamically instead of using an array lookup
         float weight = get_gaussian_weight(float(i), sigma);
 
-        vec2 sample_value = imageLoad(shadow_map_tex_for_vsm_ping, uvi + ivec2(i, 0)).xy;
+        vec4 sample_value = imageLoad(shadow_map_tex_for_vsm_ping, uvi + ivec2(i, 0));
 
         // Apply the weight to the sampled value
         filtered += sample_value * weight;
@@ -51,8 +56,8 @@ vec2 get_filtered_vsm(ivec2 uvi) {
 
 #ifdef VSM_FILTER_V
 // read from pong
-vec2 get_filtered_vsm(ivec2 uvi) {
-    vec2 filtered      = vec2(0.0, 0.0);
+vec4 get_filtered_vsm(ivec2 uvi) {
+    vec4 filtered      = vec4(0.0);
     float total_weight = 0.0;
 
     // Calculate sigma based on the kernel size
@@ -68,7 +73,7 @@ vec2 get_filtered_vsm(ivec2 uvi) {
         // Calculate the weight dynamically
         float weight = get_gaussian_weight(float(i), sigma);
 
-        vec2 sample_value = imageLoad(shadow_map_tex_for_vsm_pong, uvi + ivec2(0, i)).xy;
+        vec4 sample_value = imageLoad(shadow_map_tex_for_vsm_pong, uvi + ivec2(0, i));
 
         // Apply the weight to the sampled value
         filtered += sample_value * weight;

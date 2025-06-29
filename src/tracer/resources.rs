@@ -420,7 +420,7 @@ impl TracerResources {
     ) -> Texture {
         let tex_desc = ImageDesc {
             extent: shadow_map_extent,
-            format: vk::Format::R32G32_SFLOAT,
+            format: vk::Format::R32G32B32A32_SFLOAT,
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::SAMPLED,
             initial_layout: vk::ImageLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,

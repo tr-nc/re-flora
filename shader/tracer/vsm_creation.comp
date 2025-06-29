@@ -6,9 +6,17 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 // these textures are expected to be the same size
 layout(set = 0, binding = 0, r32f) readonly uniform image2D shadow_map_tex;
-layout(set = 0, binding = 1, rg32f) writeonly uniform image2D shadow_map_tex_for_vsm_ping;
+layout(set = 0, binding = 1, rgba32f) writeonly uniform image2D shadow_map_tex_for_vsm_ping;
 // not used
-layout(set = 0, binding = 2, rg32f) writeonly uniform image2D shadow_map_tex_for_vsm_pong;
+layout(set = 0, binding = 2, rgba32f) writeonly uniform image2D shadow_map_tex_for_vsm_pong;
+
+#define IGNORE_GET_SHADOW_VSM
+#include "../include/vsm.glsl"
+
+vec4 convert_to_evsm(float depth) {
+    vec2 evsm_depth = warp_depth(depth, get_evsm_exponents());
+    return vec4(evsm_depth, evsm_depth * evsm_depth);
+}
 
 void main() {
     ivec2 uvi = ivec2(gl_GlobalInvocationID.xy);
@@ -17,9 +25,6 @@ void main() {
     }
 
     float depth = imageLoad(shadow_map_tex, uvi).x;
-
-    // we are going to use Variance Shadow Maps (VSM), to do this, first we have to store
-    // both the depth and the depth squared, so we can compute the variance and the mean
-    // https://graphics.stanford.edu/~mdfisher/Shadows.html
-    imageStore(shadow_map_tex_for_vsm_ping, uvi, vec4(depth, depth * depth, 0.0, 0.0));
+    vec4 evsm   = convert_to_evsm(depth);
+    imageStore(shadow_map_tex_for_vsm_ping, uvi, evsm);
 }
