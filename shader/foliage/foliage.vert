@@ -49,6 +49,8 @@ const float scaling_factor = 1.0 / 256.0;
 
 // Calculates shadow visibility using Variance Shadow Mapping.
 // Returns a value from 0.0 (in shadow) to 1.0 (fully lit).
+// https://www.shadertoy.com/view/MlKSRm
+// https://developer.download.nvidia.com/SDK/10/direct3d/Source/VarianceShadowMapping/Doc/VarianceShadowMapping.pdf
 float get_shadow_vsm(vec4 voxel_pos_ws) {
     vec4 point_light_space = shadow_camera_info.view_proj_mat * voxel_pos_ws;
 
@@ -58,17 +60,17 @@ float get_shadow_vsm(vec4 voxel_pos_ws) {
     float t = point_ndc.z;
 
     vec2 moments = texture(vsm_shadow_map_tex, shadow_uv).rg;
-    float m1     = moments.x; // M1
-    float m2     = moments.y; // M2
+    float ex     = moments.x;
+    float ex_2   = moments.y;
 
-    float mean     = m1;
-    float variance = max(m2 - (m1 * m1), 1e-4);
+    float variance = ex_2 - ex * ex;
 
-    float depth_delta = t - m1;
+    float znorm   = t - ex;
+    float znorm_2 = znorm * znorm;
 
-    float percentage_occuluded = variance / (variance + (t - mean) * (t - mean));
+    float p = variance / (variance + znorm_2);
 
-    return percentage_occuluded;
+    return max(p, float(t <= ex));
 }
 
 vec3 get_offset_of_vertex(float voxel_height, uint voxel_count, vec2 grass_offset) {
