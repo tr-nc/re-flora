@@ -27,7 +27,8 @@ pub struct TracerResources {
     pub screen_output_tex: Texture,
 
     pub shadow_map_tex: Texture,
-
+    pub shadow_map_tex_for_vsm_ping: Texture,
+    pub shadow_map_tex_for_vsm_pong: Texture,
     pub scalar_bn: Texture,
     pub unit_vec2_bn: Texture,
     pub unit_vec3_bn: Texture,
@@ -131,6 +132,16 @@ impl TracerResources {
             allocator.clone(),
             shadow_map_extent.into(),
         );
+        let shadow_map_tex_for_vsm_ping = Self::create_shadow_map_tex_for_vsm_pingpong(
+            device.clone(),
+            allocator.clone(),
+            shadow_map_extent.into(),
+        );
+        let shadow_map_tex_for_vsm_pong = Self::create_shadow_map_tex_for_vsm_pingpong(
+            device.clone(),
+            allocator.clone(),
+            shadow_map_extent.into(),
+        );
 
         let timer = Timer::new();
         let scalar_bn = create_bn(
@@ -223,7 +234,8 @@ impl TracerResources {
             gfx_output_tex,
             screen_output_tex,
             shadow_map_tex,
-
+            shadow_map_tex_for_vsm_ping,
+            shadow_map_tex_for_vsm_pong,
             scalar_bn,
             unit_vec2_bn,
             unit_vec3_bn,
@@ -384,16 +396,34 @@ impl TracerResources {
     fn create_shadow_map_tex(
         device: Device,
         allocator: Allocator,
-        shadow_map_resolution: Extent3D,
+        shadow_map_extent: Extent3D,
     ) -> Texture {
         let tex_desc = ImageDesc {
-            extent: shadow_map_resolution,
+            extent: shadow_map_extent,
             format: vk::Format::D32_SFLOAT,
             usage: vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT
                 | vk::ImageUsageFlags::STORAGE
                 | vk::ImageUsageFlags::SAMPLED,
             initial_layout: vk::ImageLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::DEPTH,
+            ..Default::default()
+        };
+        let sam_desc = Default::default();
+        let tex = Texture::new(device, allocator, &tex_desc, &sam_desc);
+        tex
+    }
+
+    fn create_shadow_map_tex_for_vsm_pingpong(
+        device: Device,
+        allocator: Allocator,
+        shadow_map_extent: Extent3D,
+    ) -> Texture {
+        let tex_desc = ImageDesc {
+            extent: shadow_map_extent,
+            format: vk::Format::R32G32_SFLOAT,
+            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::SAMPLED,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
         };
         let sam_desc = Default::default();

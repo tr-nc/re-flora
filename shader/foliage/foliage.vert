@@ -8,12 +8,12 @@ layout(location = 1) in vec3 in_color;
 layout(location = 2) in uint in_height; // The voxel's stack level
 
 // these are instance-rate attributes
-// this should match the grass_instance.glsl
 layout(location = 3) in uvec3 in_instance_position;
 layout(location = 4) in uint in_instance_grass_type;
 
 layout(location = 0) out vec3 vert_color;
 
+// --- UNIFORM BINDINGS UNCHANGED (as requested) ---
 layout(set = 0, binding = 0) uniform U_CameraInfo {
     vec4 pos;
     mat4 view_mat;
@@ -39,7 +39,7 @@ shadow_camera_info;
 layout(set = 0, binding = 2) uniform U_GrassInfo { float time; }
 grass_info;
 
-layout(set = 0, binding = 3) uniform sampler2D shadow_map_tex;
+layout(set = 0, binding = 3) uniform sampler2D vsm_shadow_map_tex;
 
 #include "../include/core/fast_noise_lite.glsl"
 #include "../include/core/hash.glsl"
@@ -47,52 +47,35 @@ layout(set = 0, binding = 3) uniform sampler2D shadow_map_tex;
 const uint voxel_count     = 8;
 const float scaling_factor = 1.0 / 256.0;
 
+// Calculates shadow visibility using Variance Shadow Mapping.
+// Returns a value from 0.0 (in shadow) to 1.0 (fully lit).
+float get_shadow_vsm(vec4 voxel_pos_ws) {
+    vec4 point_light_space = shadow_camera_info.view_proj_mat * voxel_pos_ws;
+
+    vec3 point_ndc = point_light_space.xyz / point_light_space.w;
+    vec2 shadow_uv = point_ndc.xy * 0.5 + 0.5;
+
+    float t = point_ndc.z;
+
+    vec2 moments = texture(vsm_shadow_map_tex, shadow_uv).rg;
+    float m1     = moments.x; // M1
+    float m2     = moments.y; // M2
+
+    float mean     = m1;
+    float variance = max(m2 - (m1 * m1), 1e-4);
+
+    float depth_delta = t - m1;
+
+    float percentage_occuluded = variance / (variance + (t - mean) * (t - mean));
+
+    return percentage_occuluded;
+}
+
 vec3 get_offset_of_vertex(float voxel_height, uint voxel_count, vec2 grass_offset) {
-    // Avoid division by zero if the blade has only one voxel.
-    float denom = float(max(voxel_count - 1u, 1u));
-
+    float denom   = float(max(voxel_count - 1u, 1u));
     float t       = voxel_height / denom;
-    float t_curve = t * t; // ease-in curve for a natural bend
-
-    // Calculate the floating-point center of the voxel based on its height and bend
+    float t_curve = t * t;
     return vec3(grass_offset.x * t_curve, 0.0, grass_offset.y * t_curve);
-}
-
-// Simplified version that assumes the sample is always valid.
-float get_shadow_weight(vec4 voxel_pos_ws) {
-    vec4 point_ndc = shadow_camera_info.view_proj_mat * voxel_pos_ws;
-    vec2 shadow_uv = point_ndc.xy / point_ndc.w * 0.5 + 0.5;
-
-    float shadow_depth = texture(shadow_map_tex, shadow_uv).r;
-    float depth_01     = point_ndc.z / point_ndc.w;
-    float delta        = depth_01 - shadow_depth;
-    bool is_in_shadow  = delta > 0.001;
-
-    return is_in_shadow ? 0.0 : 1.0;
-}
-
-// Optimized version assuming all samples are valid.
-float get_shadow_weight_soft(vec4 voxel_pos_ws) {
-    // The 1D binomial kernel weights are [1, 2, 1]. The total 3D weight is 4*4*4 = 64.
-    const float total_weight = 64.0;
-    const float weights[3]   = float[](1.0, 2.0, 1.0);
-
-    float accumulated_shadow = 0.0;
-
-    for (int x = -1; x <= 1; x++) {
-        for (int y = -1; y <= 1; y++) {
-            for (int z = -1; z <= 1; z++) {
-                float sample_weight = weights[x + 1] * weights[y + 1] * weights[z + 1];
-                vec3 offset         = vec3(x, y, z) * scaling_factor;
-
-                float shadow_value = get_shadow_weight(voxel_pos_ws + vec4(offset, 0.0));
-
-                accumulated_shadow += shadow_value * sample_weight;
-            }
-        }
-    }
-
-    return accumulated_shadow / total_weight;
 }
 
 vec2 random_grass_offset(vec2 grass_instance_pos, float time) {
@@ -148,7 +131,9 @@ void main() {
     vert_pos_ws     = (scale_mat * vert_pos_ws);
     voxel_pos_ws    = (scale_mat * voxel_pos_ws);
 
-    float shadow_weight = get_shadow_weight_soft(voxel_pos_ws);
+    // Call the new VSM function instead of the old PCF one.
+    // The new function uses the VSM texture from binding 3.
+    float shadow_weight = get_shadow_vsm(voxel_pos_ws);
 
     // transform to clip space
     gl_Position = camera_info.view_proj_mat * vert_pos_ws;

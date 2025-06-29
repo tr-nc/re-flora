@@ -1,0 +1,23 @@
+#version 460
+
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+// not used
+layout(set = 0, binding = 0, r32f) readonly uniform image2D shadow_map_tex;
+layout(set = 0, binding = 1, rg32f) readonly uniform image2D shadow_map_tex_for_vsm_ping;
+layout(set = 0, binding = 2, rg32f) writeonly uniform image2D shadow_map_tex_for_vsm_pong;
+
+#define VSM_FILTER_H
+#include "./vsm_filtering.glsl"
+
+void main() {
+    ivec2 uvi = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(uvi, imageSize(shadow_map_tex_for_vsm_ping)))) {
+        return;
+    }
+
+    vec2 filtered = get_filtered_vsm(uvi);
+    imageStore(shadow_map_tex_for_vsm_pong, uvi, vec4(filtered, 0.0, 0.0));
+}

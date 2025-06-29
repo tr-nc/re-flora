@@ -79,5 +79,9 @@ void main() {
     Ray ray        = ray_gen(screen_uv, shadow_camera_info.view_proj_mat_inv);
 
     float depth = get_pixel_depth(ray);
-    imageStore(shadow_map_tex, uvi, vec4(depth, 0.0, 0.0, 1.0));
+
+    // we are going to use Variance Shadow Maps (VSM), to do this, first we have to store
+    // both the depth and the depth squared, so we can compute the variance and the mean
+    // https://graphics.stanford.edu/~mdfisher/Shadows.html
+    imageStore(shadow_map_tex, uvi, vec4(depth, 0.0, 0.0, 0.0));
 }

@@ -46,6 +46,11 @@ pub struct Tracer {
     tracer_shadow_ppl: ComputePipeline,
     tracer_shadow_sets: [DescriptorSet; 1],
 
+    vsm_creation_ppl: ComputePipeline,
+    vsm_blur_h_ppl: ComputePipeline,
+    vsm_blur_v_ppl: ComputePipeline,
+    vsm_sets: [DescriptorSet; 1],
+
     main_sets: [DescriptorSet; 1],
     main_ppl: GraphicsPipeline,
     main_render_pass: RenderPass,
@@ -110,6 +115,30 @@ impl Tracer {
         )
         .unwrap();
 
+        let vsm_creation_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            &shader_compiler,
+            "shader/tracer/vsm_creation.comp",
+            "main",
+        )
+        .unwrap();
+
+        let vsm_blur_h_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            &shader_compiler,
+            "shader/tracer/vsm_blur_h.comp",
+            "main",
+        )
+        .unwrap();
+
+        let vsm_blur_v_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            &shader_compiler,
+            "shader/tracer/vsm_blur_v.comp",
+            "main",
+        )
+        .unwrap();
+
         let post_processing_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             &shader_compiler,
@@ -120,6 +149,9 @@ impl Tracer {
 
         let tracer_ppl = ComputePipeline::new(vulkan_ctx.device(), &tracer_sm);
         let tracer_shadow_ppl = ComputePipeline::new(vulkan_ctx.device(), &tracer_shadow_sm);
+        let vsm_creation_ppl = ComputePipeline::new(vulkan_ctx.device(), &vsm_creation_sm);
+        let vsm_blur_h_ppl = ComputePipeline::new(vulkan_ctx.device(), &vsm_blur_h_sm);
+        let vsm_blur_v_ppl = ComputePipeline::new(vulkan_ctx.device(), &vsm_blur_v_sm);
         let post_processing_ppl = ComputePipeline::new(vulkan_ctx.device(), &post_processing_sm);
 
         let fixed_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
@@ -218,6 +250,13 @@ impl Tracer {
             scene_tex,
         );
 
+        let vsm_set_0 = Self::create_vsm_set_0(
+            fixed_pool.clone(),
+            &vulkan_ctx,
+            &vsm_creation_ppl,
+            &resources,
+        );
+
         let post_processing_set_0 = Self::create_post_processing_set_0(
             flexible_pool.clone(),
             &vulkan_ctx,
@@ -225,10 +264,11 @@ impl Tracer {
             &resources,
         );
 
-        let main_ds = Self::create_main_ds(fixed_pool.clone(), &vulkan_ctx, &main_ppl, &resources);
+        let main_ds =
+            Self::create_main_ds_0(fixed_pool.clone(), &vulkan_ctx, &main_ppl, &resources);
 
         let shadow_ds =
-            Self::create_shadow_ds(fixed_pool.clone(), &vulkan_ctx, &shadow_ppl, &resources);
+            Self::create_shadow_ds_0(fixed_pool.clone(), &vulkan_ctx, &shadow_ppl, &resources);
 
         return Self {
             vulkan_ctx,
@@ -240,6 +280,10 @@ impl Tracer {
             tracer_ppl,
             tracer_shadow_ppl,
             post_processing_ppl,
+            vsm_creation_ppl,
+            vsm_blur_h_ppl,
+            vsm_blur_v_ppl,
+            vsm_sets: [vsm_set_0],
             post_processing_sets: [post_processing_set_0],
             tracer_sets: [tracer_set_0, tracer_set_1],
             tracer_shadow_sets: [tracer_shadow_set],
@@ -256,7 +300,7 @@ impl Tracer {
         };
     }
 
-    fn create_main_ds(
+    fn create_main_ds_0(
         descriptor_pool: DescriptorPool,
         vulkan_ctx: &VulkanContext,
         main_ppl: &GraphicsPipeline,
@@ -274,14 +318,14 @@ impl Tracer {
             WriteDescriptorSet::new_texture_write(
                 3,
                 vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                &resources.shadow_map_tex,
+                &resources.shadow_map_tex_for_vsm_ping,
                 vk::ImageLayout::GENERAL,
             ),
         ]);
         ds
     }
 
-    fn create_shadow_ds(
+    fn create_shadow_ds_0(
         descriptor_pool: DescriptorPool,
         vulkan_ctx: &VulkanContext,
         shadow_ppl: &GraphicsPipeline,
@@ -627,6 +671,40 @@ impl Tracer {
         ds
     }
 
+    fn create_vsm_set_0(
+        descriptor_pool: DescriptorPool,
+        vulkan_ctx: &VulkanContext,
+        vsm_creation_ppl: &ComputePipeline,
+        resources: &TracerResources,
+    ) -> DescriptorSet {
+        let ds = DescriptorSet::new(
+            vulkan_ctx.device().clone(),
+            &vsm_creation_ppl.get_layout().get_descriptor_set_layouts()[&0],
+            descriptor_pool,
+        );
+        ds.perform_writes(&mut [
+            WriteDescriptorSet::new_texture_write(
+                0,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.shadow_map_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                1,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.shadow_map_tex_for_vsm_ping,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                2,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.shadow_map_tex_for_vsm_pong,
+                vk::ImageLayout::GENERAL,
+            ),
+        ]);
+        ds
+    }
+
     pub fn on_resize(&mut self, screen_extent: Extent2D) {
         let render_extent = Self::get_render_extent(screen_extent, self.desc.scaling_factor);
 
@@ -689,6 +767,11 @@ impl Tracer {
         sun_color: Vec3,
     ) -> Result<()> {
         let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
+        let compute_to_compute_barrier = PipelineBarrier::new(
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vec![shader_access_memory_barrier],
+        );
 
         let world_bound = Aabb3::new(Vec3::ZERO, self.chunk_dim.as_vec3());
 
@@ -700,6 +783,9 @@ impl Tracer {
             shadow_proj_mat,
         )?;
         self.record_tracer_shadow_pass(cmdbuf);
+        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+        self.record_vsm_filtering_pass(cmdbuf);
+        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
         let b1 = PipelineBarrier::new(
             vk::PipelineStageFlags::COMPUTE_SHADER,
@@ -855,6 +941,67 @@ impl Tracer {
                     .get_desc()
                     .extent
                     .depth,
+            ],
+        );
+    }
+
+    fn record_vsm_filtering_pass(&self, cmdbuf: &CommandBuffer) {
+        // transition shadow map to general
+        self.resources
+            .shadow_map_tex
+            .get_image()
+            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+        self.resources
+            .shadow_map_tex_for_vsm_ping
+            .get_image()
+            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+        self.resources
+            .shadow_map_tex_for_vsm_pong
+            .get_image()
+            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+
+        let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
+        let compute_to_compute_barrier = PipelineBarrier::new(
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vec![shader_access_memory_barrier],
+        );
+
+        self.vsm_creation_ppl.record_bind(cmdbuf);
+        self.vsm_creation_ppl
+            .record_bind_descriptor_sets(cmdbuf, &self.vsm_sets, 0);
+
+        let render_extent = self.resources.shadow_map_tex.get_image().get_desc().extent;
+        self.vsm_creation_ppl.record_dispatch(
+            cmdbuf,
+            [
+                render_extent.width,
+                render_extent.height,
+                render_extent.depth,
+            ],
+        );
+
+        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+
+        self.vsm_blur_h_ppl.record_bind(cmdbuf);
+        self.vsm_blur_h_ppl.record_dispatch(
+            cmdbuf,
+            [
+                render_extent.width,
+                render_extent.height,
+                render_extent.depth,
+            ],
+        );
+
+        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+
+        self.vsm_blur_v_ppl.record_bind(cmdbuf);
+        self.vsm_blur_v_ppl.record_dispatch(
+            cmdbuf,
+            [
+                render_extent.width,
+                render_extent.height,
+                render_extent.depth,
             ],
         );
     }
