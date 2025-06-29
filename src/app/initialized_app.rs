@@ -483,10 +483,7 @@ impl InitializedApp {
                                         )
                                         .changed();
 
-                                    ui.add(egui::Checkbox::new(
-                                        &mut self.debug_bool,
-                                        "Check to use contree",
-                                    ));
+                                    ui.add(egui::Checkbox::new(&mut self.debug_bool, "Debug Bool"));
 
                                     ui.add(
                                         egui::Slider::new(&mut self.sun_altitude, 0.0..=180.0)

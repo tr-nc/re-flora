@@ -1,25 +1,26 @@
 #ifndef VSM_FILTERING_GLSL
 #define VSM_FILTERING_GLSL
 
-const int VSM_FILTER_HALF_SIZE = 5;
+const int VSM_FILTER_HALF_SIZE = 10;
 
-// Pre-calculated 1D Gaussian weights for a kernel of size 11 (half_size = 5).
-// These weights are normalized. They were generated with a sigma of approximately
-// (VSM_FILTER_HALF_SIZE / 2.0). The array stores weights for the center (index 0) up to the edge
-// (index 5).
-const float gaussian_weights[6] = float[](0.227027,  // center (offset 0)
-                                          0.1945946, // offset 1
-                                          0.1216216, // offset 2
-                                          0.054054,  // offset 3
-                                          0.016216,  // offset 4
-                                          0.003378   // offset 5
-);
+float get_gaussian_weight(float offset, float sigma) {
+    // If sigma is zero (for a 0-sized kernel), only the center pixel gets weight.
+    if (sigma <= 0.0) {
+        return (offset == 0.0) ? 1.0 : 0.0;
+    }
+    // The Gaussian function: G(x) = exp( -(x^2) / (2 * sigma^2) )
+    return exp(-(offset * offset) / (2.0 * sigma * sigma));
+}
 
 // read from ping
 #ifdef VSM_FILTER_H
 vec2 get_filtered_vsm(ivec2 uvi) {
     vec2 filtered      = vec2(0.0, 0.0);
     float total_weight = 0.0;
+
+    // Sigma controls the "spread" of the blur. A larger sigma gives a softer blur.
+    // A common practice is to base it on the kernel size.
+    float sigma = float(VSM_FILTER_HALF_SIZE) / 2.0;
 
     // Do a horizontal Gaussian blur
     for (int i = -VSM_FILTER_HALF_SIZE; i <= VSM_FILTER_HALF_SIZE; i++) {
@@ -28,9 +29,8 @@ vec2 get_filtered_vsm(ivec2 uvi) {
             continue;
         }
 
-        // Get the weight for the current sample from our pre-calculated array.
-        // abs(i) is used because the Gaussian kernel is symmetric.
-        float weight = gaussian_weights[abs(i)];
+        // Calculate the weight dynamically instead of using an array lookup
+        float weight = get_gaussian_weight(float(i), sigma);
 
         vec2 sample_value = imageLoad(shadow_map_tex_for_vsm_ping, uvi + ivec2(i, 0)).xy;
 
@@ -55,6 +55,9 @@ vec2 get_filtered_vsm(ivec2 uvi) {
     vec2 filtered      = vec2(0.0, 0.0);
     float total_weight = 0.0;
 
+    // Calculate sigma based on the kernel size
+    float sigma = float(VSM_FILTER_HALF_SIZE) / 2.0;
+
     // Do a vertical Gaussian blur
     for (int i = -VSM_FILTER_HALF_SIZE; i <= VSM_FILTER_HALF_SIZE; i++) {
         // Check if the sample is within the texture bounds
@@ -62,8 +65,8 @@ vec2 get_filtered_vsm(ivec2 uvi) {
             continue;
         }
 
-        // Get the weight for the current sample from our pre-calculated array.
-        float weight = gaussian_weights[abs(i)];
+        // Calculate the weight dynamically
+        float weight = get_gaussian_weight(float(i), sigma);
 
         vec2 sample_value = imageLoad(shadow_map_tex_for_vsm_pong, uvi + ivec2(0, i)).xy;
 
