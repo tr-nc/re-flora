@@ -1,0 +1,121 @@
+// From Douglas:
+// - The screen is divided into 8x8 pixel tiles. The maximum depth traveled by any primary ray in
+// the 8x8 pixels is determined using workgroup atomics.
+// - A line segment is constructed from the camera to that maximum depth, representing the rough
+// path that rays in the 8x8 tile traveled.
+// - The line segment is divided into 64 pieces. Each pixel in the 8x8 tile traces one ray toward
+// the sun.
+// - The results are accumulated using workgroup atomics and written to a low-res texture.
+// - The low-res texture is composited onto the final image.
+
+#version 460
+
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_shader_atomic_float : require
+
+#define WORKGROUP_SIZE_XY 8
+layout(local_size_x = WORKGROUP_SIZE_XY, local_size_y = WORKGROUP_SIZE_XY, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform U_CameraInfo {
+    vec4 pos;
+    mat4 view_mat;
+    mat4 view_mat_inv;
+    mat4 proj_mat;
+    mat4 proj_mat_inv;
+    mat4 view_proj_mat;
+    mat4 view_proj_mat_inv;
+}
+camera_info;
+layout(set = 0, binding = 1) uniform U_ShadowCameraInfo {
+    vec4 pos;
+    mat4 view_mat;
+    mat4 view_mat_inv;
+    mat4 proj_mat;
+    mat4 proj_mat_inv;
+    mat4 view_proj_mat;
+    mat4 view_proj_mat_inv;
+}
+shadow_camera_info;
+layout(set = 0, binding = 2) uniform U_GodRayInfo { float max_depth; }
+god_ray_info;
+layout(set = 0, binding = 3, r32f) uniform readonly image2D gfx_depth_tex;
+layout(set = 0, binding = 4, r32f) uniform readonly image2D compute_depth_tex;
+layout(set = 0, binding = 5) uniform sampler2D vsm_shadow_map_tex;
+layout(set = 0, binding = 6, rgba32f) uniform writeonly image2D god_ray_output_tex;
+
+#include "../include/ray.glsl"
+#include "../include/vsm.glsl"
+
+// TODO: check if use this or, just pick a center pixel within each tile and use its depth
+shared float workgroup_max_depth;
+shared float workgroup_shadow_visibility_sum;
+
+const int MAX_CHECKS = WORKGROUP_SIZE_XY * WORKGROUP_SIZE_XY;
+
+void initialize_workgroup_datas() {
+    workgroup_max_depth             = 0.0;
+    workgroup_shadow_visibility_sum = 0.0;
+}
+
+float get_depth_01(ivec2 uvi) {
+    // float gfx_depth_01     = imageLoad(gfx_depth_tex, uvi).r;
+    float compute_depth_01 = imageLoad(compute_depth_tex, uvi).r;
+    // return min(gfx_depth_01, compute_depth_01);
+    return compute_depth_01;
+}
+
+void update_workgroup_max_depth(ivec2 uvi) {
+    if (gl_LocalInvocationIndex == 0) {
+        float depth_01      = get_depth_01(uvi);
+        workgroup_max_depth = depth_01;
+    }
+}
+
+void main() {
+    if (gl_LocalInvocationIndex == 0) {
+        // is this the best practice?
+        initialize_workgroup_datas();
+    }
+    barrier();
+
+    ivec2 uvi = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(uvi, imageSize(gfx_depth_tex)))) {
+        return;
+    }
+
+    update_workgroup_max_depth(uvi);
+    barrier();
+
+    // now the workgroup_max_depth is the max depth of the workgroup
+    vec2 downscaled_size = vec2(imageSize(gfx_depth_tex)) / WORKGROUP_SIZE_XY;
+    vec2 screen_uv       = (vec2(gl_WorkGroupID.xy) + vec2(0.5)) / downscaled_size;
+    Ray ray              = ray_gen(screen_uv, camera_info.view_proj_mat_inv);
+
+    vec4 near_point_ndc = vec4(screen_uv * 2.0 - 1.0, 0.0, 1.0);
+    vec3 near_point_ws  = ndc_to_world(near_point_ndc, camera_info.view_proj_mat_inv);
+
+    vec4 hit_far_point_ndc = vec4(screen_uv * 2.0 - 1.0, workgroup_max_depth, 1.0);
+    vec3 hit_far_point_ws  = ndc_to_world(hit_far_point_ndc, camera_info.view_proj_mat_inv);
+
+    float real_depth = length(hit_far_point_ws - near_point_ws);
+
+    // float step_size   = god_ray_info.max_depth / MAX_CHECKS;
+    float using_depth = min(real_depth, god_ray_info.max_depth);
+    float step_size   = using_depth / MAX_CHECKS;
+
+    float current_depth = gl_LocalInvocationIndex * step_size;
+    if (current_depth < using_depth) {
+        vec4 lookup_pos  = vec4(ray.origin + ray.direction * current_depth, 1.0);
+        float shadow_vsm = get_shadow_vsm(shadow_camera_info.view_proj_mat, lookup_pos);
+
+        atomicAdd(workgroup_shadow_visibility_sum, shadow_vsm);
+    }
+
+    barrier();
+
+    if (gl_LocalInvocationIndex == 0) {
+        float shadow_visibility = workgroup_shadow_visibility_sum / MAX_CHECKS;
+        imageStore(god_ray_output_tex, ivec2(gl_WorkGroupID.xy),
+                   vec4(shadow_visibility, 0.0, 0.0, 1.0));
+    }
+}

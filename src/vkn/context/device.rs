@@ -99,8 +99,9 @@ fn create_device(
         vk::KHR_SWAPCHAIN_NAME.as_ptr(),
         // vk::KHR_ACCELERATION_STRUCTURE_NAME.as_ptr(),
         vk::KHR_DEFERRED_HOST_OPERATIONS_NAME.as_ptr(), // must be coupled with ACCLERATION_STRUCTURE
-        // vk::KHR_RAY_QUERY_NAME.as_ptr(),
         vk::KHR_SHADER_CLOCK_NAME.as_ptr(),
+        vk::EXT_SHADER_ATOMIC_FLOAT_NAME.as_ptr(),
+        // vk::KHR_RAY_QUERY_NAME.as_ptr(),
         // vk::KHR_RAY_TRACING_PIPELINE_NAME.as_ptr(),
         // vk::KHR_PIPELINE_LIBRARY_NAME.as_ptr(),
         // vk::KHR_BUFFER_DEVICE_ADDRESS_NAME.as_ptr(),
@@ -115,6 +116,20 @@ fn create_device(
         buffer_device_address: vk::TRUE,
         ..Default::default()
     };
+
+    let mut physical_device_shader_atomic_float_features_khr =
+        vk::PhysicalDeviceShaderAtomicFloatFeaturesEXT {
+            shader_buffer_float32_atomics: vk::TRUE,
+            shader_buffer_float32_atomic_add: vk::TRUE,
+            shader_shared_float32_atomics: vk::TRUE,
+            shader_shared_float32_atomic_add: vk::TRUE,
+            shader_image_float32_atomics: vk::TRUE,
+            shader_image_float32_atomic_add: vk::TRUE,
+            sparse_image_float32_atomics: vk::TRUE,
+            sparse_image_float32_atomic_add: vk::TRUE,
+            ..Default::default()
+        };
+
     // let mut physical_device_acceleration_structure_features_khr =
     //     vk::PhysicalDeviceAccelerationStructureFeaturesKHR {
     //         acceleration_structure: vk::TRUE,
@@ -124,6 +139,7 @@ fn create_device(
     //     ray_query: vk::TRUE,
     //     ..Default::default()
     // };
+
     let mut physical_device_shader_clock_features_khr = vk::PhysicalDeviceShaderClockFeaturesKHR {
         shader_subgroup_clock: vk::TRUE,
         ..Default::default()
@@ -134,9 +150,8 @@ fn create_device(
         .enabled_extension_names(&device_extensions_ptrs)
         .enabled_features(&physical_device_features)
         .push_next(&mut buffer_device_address_features)
-        // .push_next(&mut physical_device_acceleration_structure_features_khr)
-        // .push_next(&mut physical_device_ray_query_features_khr)
-        .push_next(&mut physical_device_shader_clock_features_khr);
+        .push_next(&mut physical_device_shader_clock_features_khr)
+        .push_next(&mut physical_device_shader_atomic_float_features_khr);
 
     let device = unsafe {
         instance

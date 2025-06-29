@@ -36,6 +36,7 @@ float chebyshev_upper_bound(vec2 moments, float t) {
     return (t <= moments.x ? 1.0f : p_max);
 }
 
+// TODO: do not use a binding name for this, just pass the value, we are just sampling once anyway
 #ifndef IGNORE_GET_SHADOW_VSM
 float get_shadow_vsm(mat4 shadow_cam_view_proj_mat, vec4 voxel_pos_ws) {
     vec4 light_space = shadow_cam_view_proj_mat * voxel_pos_ws;

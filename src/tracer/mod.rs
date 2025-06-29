@@ -51,6 +51,9 @@ pub struct Tracer {
     vsm_blur_v_ppl: ComputePipeline,
     vsm_sets: [DescriptorSet; 1],
 
+    god_ray_ppl: ComputePipeline,
+    god_ray_sets: [DescriptorSet; 1],
+
     main_sets: [DescriptorSet; 1],
     main_ppl: GraphicsPipeline,
     main_render_pass: RenderPass,
@@ -139,6 +142,14 @@ impl Tracer {
         )
         .unwrap();
 
+        let god_ray_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            &shader_compiler,
+            "shader/tracer/god_ray.comp",
+            "main",
+        )
+        .unwrap();
+
         let post_processing_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             &shader_compiler,
@@ -152,6 +163,7 @@ impl Tracer {
         let vsm_creation_ppl = ComputePipeline::new(vulkan_ctx.device(), &vsm_creation_sm);
         let vsm_blur_h_ppl = ComputePipeline::new(vulkan_ctx.device(), &vsm_blur_h_sm);
         let vsm_blur_v_ppl = ComputePipeline::new(vulkan_ctx.device(), &vsm_blur_v_sm);
+        let god_ray_ppl = ComputePipeline::new(vulkan_ctx.device(), &god_ray_sm);
         let post_processing_ppl = ComputePipeline::new(vulkan_ctx.device(), &post_processing_sm);
 
         let fixed_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
@@ -193,6 +205,7 @@ impl Tracer {
             &main_vert_sm,
             &tracer_sm,
             &tracer_shadow_sm,
+            &god_ray_sm,
             &post_processing_sm,
             render_extent,
             screen_extent,
@@ -250,14 +263,17 @@ impl Tracer {
             scene_tex,
         );
 
-        let vsm_set_0 = Self::create_vsm_set_0(
+        let vsm_ds_0 = Self::create_vsm_ds_0(
             fixed_pool.clone(),
             &vulkan_ctx,
             &vsm_creation_ppl,
             &resources,
         );
 
-        let post_processing_set_0 = Self::create_post_processing_set_0(
+        let god_ray_ds_0 =
+            Self::create_god_ray_ds_0(fixed_pool.clone(), &vulkan_ctx, &god_ray_ppl, &resources);
+
+        let post_processing_ds_0 = Self::create_post_processing_set_0(
             flexible_pool.clone(),
             &vulkan_ctx,
             &post_processing_ppl,
@@ -279,12 +295,14 @@ impl Tracer {
             camera,
             tracer_ppl,
             tracer_shadow_ppl,
+            god_ray_ppl,
             post_processing_ppl,
             vsm_creation_ppl,
             vsm_blur_h_ppl,
             vsm_blur_v_ppl,
-            vsm_sets: [vsm_set_0],
-            post_processing_sets: [post_processing_set_0],
+            vsm_sets: [vsm_ds_0],
+            god_ray_sets: [god_ray_ds_0],
+            post_processing_sets: [post_processing_ds_0],
             tracer_sets: [tracer_ds_0, tracer_ds_1],
             tracer_shadow_sets: [tracer_shadow_ds],
             main_sets: [main_ds],
@@ -587,6 +605,49 @@ impl Tracer {
         ds
     }
 
+    fn create_god_ray_ds_0(
+        descriptor_pool: DescriptorPool,
+        vulkan_ctx: &VulkanContext,
+        god_ray_ppl: &ComputePipeline,
+        resources: &TracerResources,
+    ) -> DescriptorSet {
+        let ds = DescriptorSet::new(
+            vulkan_ctx.device().clone(),
+            &god_ray_ppl.get_layout().get_descriptor_set_layouts()[&0],
+            descriptor_pool,
+        );
+        ds.perform_writes(&mut [
+            WriteDescriptorSet::new_buffer_write(0, &resources.camera_info),
+            WriteDescriptorSet::new_buffer_write(1, &resources.shadow_camera_info),
+            WriteDescriptorSet::new_buffer_write(2, &resources.god_ray_info),
+            WriteDescriptorSet::new_texture_write(
+                3,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.gfx_depth_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                4,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.compute_depth_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                5,
+                vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                &resources.shadow_map_tex_for_vsm_ping,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                6,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.god_ray_output_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+        ]);
+        ds
+    }
+
     fn create_post_processing_set_0(
         descriptor_pool: DescriptorPool,
         vulkan_ctx: &VulkanContext,
@@ -632,6 +693,12 @@ impl Tracer {
                 &resources.screen_output_tex,
                 vk::ImageLayout::GENERAL,
             ),
+            WriteDescriptorSet::new_texture_write(
+                6,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.god_ray_output_tex,
+                vk::ImageLayout::GENERAL,
+            ),
         ]);
         ds
     }
@@ -672,7 +739,7 @@ impl Tracer {
         ds
     }
 
-    fn create_vsm_set_0(
+    fn create_vsm_ds_0(
         descriptor_pool: DescriptorPool,
         vulkan_ctx: &VulkanContext,
         vsm_creation_ppl: &ComputePipeline,
@@ -733,6 +800,13 @@ impl Tracer {
             &self.resources,
         );
 
+        self.god_ray_sets[0] = Self::create_god_ray_ds_0(
+            self.flexible_pool.clone(),
+            &self.vulkan_ctx,
+            &self.god_ray_ppl,
+            &self.resources,
+        );
+
         self.post_processing_sets[0] = Self::create_post_processing_set_0(
             self.flexible_pool.clone(),
             &self.vulkan_ctx,
@@ -766,6 +840,7 @@ impl Tracer {
         sun_dir: Vec3,
         sun_size: f32,
         sun_color: Vec3,
+        god_ray_max_depth: f32,
     ) -> Result<()> {
         let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
         let compute_to_compute_barrier = PipelineBarrier::new(
@@ -821,6 +896,10 @@ impl Tracer {
             vec![shader_access_memory_barrier],
         );
         b2.record_insert(self.vulkan_ctx.device(), cmdbuf);
+
+        Self::update_god_ray_info(&self.resources, god_ray_max_depth)?;
+        self.record_god_ray_pass(cmdbuf);
+        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
         Self::update_post_processing_info(&self.resources, self.desc.scaling_factor)?;
         self.record_post_processing_pass(cmdbuf);
@@ -1038,6 +1117,34 @@ impl Tracer {
         );
     }
 
+    fn record_god_ray_pass(&self, cmdbuf: &CommandBuffer) {
+        self.resources
+            .god_ray_output_tex
+            .get_image()
+            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+
+        self.god_ray_ppl.record_bind(cmdbuf);
+        self.god_ray_ppl
+            .record_bind_descriptor_sets(cmdbuf, &self.god_ray_sets, 0);
+
+        // use the higher extent
+        let render_extent = self
+            .resources
+            .compute_depth_tex
+            .get_image()
+            .get_desc()
+            .extent;
+
+        self.god_ray_ppl.record_dispatch(
+            cmdbuf,
+            [
+                render_extent.width,
+                render_extent.height,
+                render_extent.depth,
+            ],
+        );
+    }
+
     fn record_post_processing_pass(&self, cmdbuf: &CommandBuffer) {
         self.resources
             .screen_output_tex
@@ -1166,6 +1273,18 @@ impl Tracer {
             .unwrap()
             .build();
         resources.grass_info.fill_with_raw_u8(&data)?;
+        Ok(())
+    }
+
+    fn update_god_ray_info(resources: &TracerResources, god_ray_max_depth: f32) -> Result<()> {
+        let data = StructMemberDataBuilder::from_buffer(&resources.god_ray_info)
+            .set_field(
+                "max_depth",
+                PlainMemberTypeWithData::Float(god_ray_max_depth),
+            )
+            .unwrap()
+            .build();
+        resources.god_ray_info.fill_with_raw_u8(&data)?;
         Ok(())
     }
 

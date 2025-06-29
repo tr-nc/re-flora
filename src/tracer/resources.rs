@@ -14,6 +14,7 @@ pub struct TracerResources {
     pub shadow_camera_info: Buffer,
     pub env_info: Buffer,
     pub grass_info: Buffer,
+    pub god_ray_info: Buffer,
     pub post_processing_info: Buffer,
 
     pub vertices: Buffer,
@@ -24,6 +25,7 @@ pub struct TracerResources {
     pub compute_depth_tex: Texture,
     pub compute_output_tex: Texture,
     pub gfx_output_tex: Texture,
+    pub god_ray_output_tex: Texture,
     pub screen_output_tex: Texture,
 
     pub shadow_map_tex: Texture,
@@ -44,6 +46,7 @@ impl TracerResources {
         vert_sm: &ShaderModule,
         tracer_sm: &ShaderModule,
         tracer_shadow_sm: &ShaderModule,
+        god_ray_sm: &ShaderModule,
         post_processing_sm: &ShaderModule,
         rendering_extent: Extent2D,
         screen_extent: Extent2D,
@@ -91,6 +94,15 @@ impl TracerResources {
 
         let grass_info_layout = vert_sm.get_buffer_layout("U_GrassInfo").unwrap();
 
+        let god_ray_info_layout = god_ray_sm.get_buffer_layout("U_GodRayInfo").unwrap();
+        let god_ray_info = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            god_ray_info_layout.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+        );
+
         let post_processing_info_layout = post_processing_sm
             .get_buffer_layout("U_PostProcessingInfo")
             .unwrap();
@@ -123,6 +135,9 @@ impl TracerResources {
 
         let gfx_output_tex =
             Self::create_gfx_output_tex(device.clone(), allocator.clone(), rendering_extent);
+
+        let god_ray_output_tex =
+            Self::create_god_ray_output_tex(device.clone(), allocator.clone(), rendering_extent);
 
         let screen_output_tex =
             Self::create_screen_output_tex(device.clone(), allocator.clone(), screen_extent);
@@ -223,6 +238,7 @@ impl TracerResources {
             shadow_camera_info,
             env_info,
             grass_info,
+            god_ray_info,
             post_processing_info,
 
             vertices,
@@ -232,6 +248,7 @@ impl TracerResources {
             compute_depth_tex,
             compute_output_tex,
             gfx_output_tex,
+            god_ray_output_tex,
             screen_output_tex,
             shadow_map_tex,
             shadow_map_tex_for_vsm_ping,
@@ -296,8 +313,31 @@ impl TracerResources {
             Self::create_compute_output_tex(device.clone(), allocator.clone(), rendering_extent);
         self.gfx_output_tex =
             Self::create_gfx_output_tex(device.clone(), allocator.clone(), rendering_extent);
+        self.god_ray_output_tex =
+            Self::create_god_ray_output_tex(device.clone(), allocator.clone(), rendering_extent);
         self.screen_output_tex =
             Self::create_screen_output_tex(device.clone(), allocator.clone(), screen_extent);
+    }
+
+    fn create_god_ray_output_tex(
+        device: Device,
+        allocator: Allocator,
+        rendering_extent: Extent2D,
+    ) -> Texture {
+        // this is hardcoded for now
+        let downscaled_extent =
+            Extent2D::new(rendering_extent.width / 8, rendering_extent.height / 8);
+        let tex_desc = ImageDesc {
+            extent: downscaled_extent.into(),
+            format: vk::Format::R32G32B32A32_SFLOAT, // TODO: maybe use a lower precision?
+            usage: vk::ImageUsageFlags::STORAGE,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        let sam_desc = Default::default();
+        let tex = Texture::new(device, allocator, &tex_desc, &sam_desc);
+        tex
     }
 
     fn create_gfx_depth_tex(

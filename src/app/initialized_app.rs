@@ -598,6 +598,7 @@ impl InitializedApp {
                             self.sun_color.g() as f32,
                             self.sun_color.b() as f32,
                         ),
+                        self.debug_float * 10.0,
                     )
                     .unwrap();
 

@@ -113,9 +113,7 @@ rustup update stable
 
 ## TODO list
 
-- [ ] VSM!
 - [ ] Volumetric Lighting (toggable)
 - [ ] Trees adding back & Leaves
 - [ ] Other types of plants
 - [ ] Dynamic Terrain Edit
-- [ ] Config system
