@@ -132,11 +132,8 @@ impl InitializedApp {
             &shader_compiler,
             plain_builder.get_resources(),
             VOXEL_DIM_PER_CHUNK,
-            VOXEL_DIM_PER_CHUNK.x as u64
-                * VOXEL_DIM_PER_CHUNK.z as u64
-                * CHUNK_DIM.x as u64
-                * CHUNK_DIM.y as u64
-                * CHUNK_DIM.z as u64,
+            CHUNK_DIM,
+            CHUNK_DIM.x as u64 * CHUNK_DIM.y as u64 * CHUNK_DIM.z as u64,
         );
 
         let mut contree_builder = ContreeBuilder::new(
@@ -319,11 +316,11 @@ impl InitializedApp {
     ) {
         let affected_chunk_indices = get_affected_chunk_indices(bound.min(), bound.max());
 
-        for chunk_idx in affected_chunk_indices {
-            let atlas_offset = chunk_idx * VOXEL_DIM_PER_CHUNK;
+        for chunk_id in affected_chunk_indices {
+            let atlas_offset = chunk_id * VOXEL_DIM_PER_CHUNK;
 
             let now = Instant::now();
-            let active_voxel_len = surface_builder.build_surface(atlas_offset);
+            let active_voxel_len = surface_builder.build_surface(chunk_id);
             BENCH.lock().unwrap().record("build_surface", now.elapsed());
 
             if active_voxel_len == 0 {
@@ -341,7 +338,7 @@ impl InitializedApp {
             if let Some(res) = res {
                 let (node_buffer_offset, leaf_buffer_offset) = res;
                 scene_accel_builder.update_scene_tex(
-                    chunk_idx,
+                    chunk_id,
                     node_buffer_offset,
                     leaf_buffer_offset,
                 );
@@ -594,7 +591,6 @@ impl InitializedApp {
                         cmdbuf,
                         &self.time_info,
                         &self.surface_builder.get_resources(),
-                        self.surface_builder.get_grass_instance_len(),
                         self.debug_float,
                         self.debug_bool,
                         self.debug_uint,

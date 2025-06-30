@@ -853,7 +853,6 @@ impl Tracer {
         cmdbuf: &CommandBuffer,
         time_info: &TimeInfo,
         surface_resources: &SurfaceResources,
-        grass_instances_len: u32,
         debug_float: f32,
         debug_bool: bool,
         debug_uint: u32,
@@ -895,7 +894,7 @@ impl Tracer {
             self.camera.get_proj_mat(),
         )?;
         Self::update_grass_info(&self.resources, time_info.time_since_start())?;
-        self.record_main_pass(cmdbuf, surface_resources, grass_instances_len);
+        self.record_main_pass(cmdbuf, surface_resources);
 
         Self::update_gui_input(
             &self.resources,
@@ -926,12 +925,9 @@ impl Tracer {
         Ok(())
     }
 
-    fn record_main_pass(
-        &self,
-        cmdbuf: &CommandBuffer,
-        surface_resources: &SurfaceResources,
-        grass_instances_len: u32,
-    ) {
+    fn record_main_pass(&self, cmdbuf: &CommandBuffer, surface_resources: &SurfaceResources) {
+        let testing_chunk_id = UVec3::new(0, 1, 0);
+
         self.main_ppl.record_bind(cmdbuf);
 
         let clear_values = [
@@ -973,7 +969,12 @@ impl Tracer {
                 0,
                 &[
                     self.resources.vertices.as_raw(),
-                    surface_resources.grass_instances.as_raw(),
+                    surface_resources
+                        .chunk_raster_resources
+                        .get(&testing_chunk_id)
+                        .unwrap()
+                        .grass_instances
+                        .as_raw(),
                 ],
                 &[0, 0],
             );
@@ -992,7 +993,11 @@ impl Tracer {
         self.main_ppl.record_draw_indexed(
             cmdbuf,
             self.resources.indices_len,
-            grass_instances_len,
+            surface_resources
+                .chunk_raster_resources
+                .get(&testing_chunk_id)
+                .unwrap()
+                .grass_instances_len,
             0,
             0,
             0,

@@ -24,7 +24,7 @@ layout(set = 0, binding = 2, r32ui) writeonly uniform uimage3D surface;
 layout(set = 0, binding = 3, r8ui) readonly uniform uimage3D atlas;
 
 #include "../../include/grass_instance.glsl"
-layout(set = 0, binding = 4) writeonly buffer B_GrassInstances { GrassInstance data[]; }
+layout(set = 1, binding = 0) writeonly buffer B_GrassInstances { GrassInstance data[]; }
 grass_instances;
 
 #include "../../include/config.glsl"

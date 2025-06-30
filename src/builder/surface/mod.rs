@@ -1,39 +1,29 @@
 mod resources;
+use anyhow::Result;
 use ash::vk;
 use glam::UVec3;
 pub use resources::*;
 
+use super::PlainBuilderResources;
 use crate::{
     util::ShaderCompiler,
     vkn::{
         execute_one_time_command, Allocator, Buffer, ClearValue, CommandBuffer, ComputePipeline,
-        DescriptorPool, DescriptorSet, MemoryBarrier, PipelineBarrier, PlainMemberTypeWithData,
-        ShaderModule, StructMemberDataBuilder, StructMemberDataReader, Texture, VulkanContext,
+        DescriptorPool, DescriptorSet, PlainMemberTypeWithData, ShaderModule,
+        StructMemberDataBuilder, StructMemberDataReader, Texture, VulkanContext,
         WriteDescriptorSet,
     },
 };
-
-use super::PlainBuilderResources;
 
 pub struct SurfaceBuilder {
     vulkan_ctx: VulkanContext,
     resources: SurfaceResources,
 
-    #[allow(dead_code)]
-    buffer_setup_ppl: ComputePipeline,
-    #[allow(dead_code)]
     make_surface_ppl: ComputePipeline,
-
-    #[allow(dead_code)]
-    buffer_setup_ds: DescriptorSet,
-    #[allow(dead_code)]
-    make_surface_ds: DescriptorSet,
-
-    cmdbuf: CommandBuffer,
+    make_surface_ds_0: DescriptorSet,
+    flexible_descriptor_pool: DescriptorPool,
 
     voxel_dim_per_chunk: UVec3,
-
-    grass_instance_len: u32,
 }
 
 impl SurfaceBuilder {
@@ -43,17 +33,12 @@ impl SurfaceBuilder {
         shader_compiler: &ShaderCompiler,
         plain_builder_resources: &PlainBuilderResources,
         voxel_dim_per_chunk: UVec3,
-        grass_instances_pool_len: u64,
+        chunk_dim: UVec3,
+        grass_instances_capacity_per_chunk: u64,
     ) -> Self {
-        let descriptor_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
+        let fixed_descriptor_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
+        let flexible_descriptor_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
 
-        let buffer_setup_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            &shader_compiler,
-            "shader/builder/surface/buffer_setup.comp",
-            "main",
-        )
-        .unwrap();
         let make_surface_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             &shader_compiler,
@@ -66,80 +51,33 @@ impl SurfaceBuilder {
             vulkan_ctx.device().clone(),
             allocator,
             voxel_dim_per_chunk,
-            grass_instances_pool_len,
-            &buffer_setup_sm,
             &make_surface_sm,
+            chunk_dim,
+            grass_instances_capacity_per_chunk,
         );
 
-        let buffer_setup_ppl = ComputePipeline::new(vulkan_ctx.device(), &buffer_setup_sm);
         let make_surface_ppl = ComputePipeline::new(vulkan_ctx.device(), &make_surface_sm);
 
-        let buffer_setup_ds = DescriptorSet::new(
-            vulkan_ctx.device().clone(),
-            &buffer_setup_ppl
-                .get_layout()
-                .get_descriptor_set_layouts()
-                .get(&0)
-                .unwrap(),
-            descriptor_pool.clone(),
+        let make_surface_ds_0 = create_make_surface_ds_0(
+            &vulkan_ctx,
+            &make_surface_ppl,
+            &resources,
+            plain_builder_resources,
+            &fixed_descriptor_pool,
         );
-        buffer_setup_ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.make_surface_info),
-            WriteDescriptorSet::new_buffer_write(1, &resources.voxel_dim_indirect),
-            WriteDescriptorSet::new_buffer_write(2, &resources.make_surface_result),
-        ]);
-        let make_surface_ds = DescriptorSet::new(
-            vulkan_ctx.device().clone(),
-            &make_surface_ppl
-                .get_layout()
-                .get_descriptor_set_layouts()
-                .get(&0)
-                .unwrap(),
-            descriptor_pool.clone(),
-        );
-        make_surface_ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.make_surface_info),
-            WriteDescriptorSet::new_buffer_write(1, &resources.make_surface_result),
-            WriteDescriptorSet::new_texture_write(
-                2,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.surface,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                3,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &plain_builder_resources.chunk_atlas,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_buffer_write(4, &resources.grass_instances),
-        ]);
 
         init_surface_image(&vulkan_ctx, &resources.surface);
-
-        let cmdbuf = record_cmdbuf(
-            &vulkan_ctx,
-            &resources.surface,
-            &resources.voxel_dim_indirect,
-            &buffer_setup_ppl,
-            &make_surface_ppl,
-            &buffer_setup_ds,
-            &make_surface_ds,
-        );
 
         return Self {
             vulkan_ctx,
             resources,
 
-            buffer_setup_ppl,
             make_surface_ppl,
-            buffer_setup_ds,
-            make_surface_ds,
+            make_surface_ds_0,
 
-            cmdbuf,
+            flexible_descriptor_pool,
 
             voxel_dim_per_chunk,
-            grass_instance_len: 0,
         };
 
         fn init_surface_image(vulkan_context: &VulkanContext, surface: &Texture) {
@@ -158,91 +96,140 @@ impl SurfaceBuilder {
             );
         }
 
-        fn record_cmdbuf(
+        fn create_make_surface_ds_0(
             vulkan_ctx: &VulkanContext,
-            surface: &Texture,
-            voxel_dim_indirect: &Buffer,
-            buffer_setup_ppl: &ComputePipeline,
             make_surface_ppl: &ComputePipeline,
-            buffer_setup_ds: &DescriptorSet,
-            make_surface_ds: &DescriptorSet,
-        ) -> CommandBuffer {
-            let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
-            let indirect_access_memory_barrier = MemoryBarrier::new_indirect_access();
-
-            let shader_access_pipeline_barrier = PipelineBarrier::new(
-                vk::PipelineStageFlags::COMPUTE_SHADER,
-                vk::PipelineStageFlags::COMPUTE_SHADER,
-                vec![shader_access_memory_barrier],
+            resources: &SurfaceResources,
+            plain_builder_resources: &PlainBuilderResources,
+            fixed_pool: &DescriptorPool,
+        ) -> DescriptorSet {
+            let make_surface_ds_0 = DescriptorSet::new(
+                vulkan_ctx.device().clone(),
+                &make_surface_ppl
+                    .get_layout()
+                    .get_descriptor_set_layouts()
+                    .get(&0)
+                    .unwrap(),
+                fixed_pool.clone(),
             );
-            let indirect_access_pipeline_barrier = PipelineBarrier::new(
-                vk::PipelineStageFlags::COMPUTE_SHADER,
-                vk::PipelineStageFlags::DRAW_INDIRECT | vk::PipelineStageFlags::COMPUTE_SHADER,
-                vec![indirect_access_memory_barrier],
-            );
-
-            let device = vulkan_ctx.device();
-
-            let cmdbuf = CommandBuffer::new(device, vulkan_ctx.command_pool());
-            cmdbuf.begin(false);
-
-            surface
-                .get_image()
-                .record_clear(&cmdbuf, None, 0, ClearValue::UInt([0, 0, 0, 0]));
-
-            buffer_setup_ppl.record_bind(&cmdbuf);
-            buffer_setup_ppl.record_bind_descriptor_sets(
-                &cmdbuf,
-                std::slice::from_ref(buffer_setup_ds),
-                0,
-            );
-            buffer_setup_ppl.record_dispatch(&cmdbuf, [1, 1, 1]);
-
-            shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
-            indirect_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
-
-            make_surface_ppl.record_bind(&cmdbuf);
-            make_surface_ppl.record_bind_descriptor_sets(
-                &cmdbuf,
-                std::slice::from_ref(make_surface_ds),
-                0,
-            );
-            make_surface_ppl.record_dispatch_indirect(&cmdbuf, &voxel_dim_indirect);
-
-            cmdbuf.end();
-            return cmdbuf;
+            make_surface_ds_0.perform_writes(&mut [
+                WriteDescriptorSet::new_buffer_write(0, &resources.make_surface_info),
+                WriteDescriptorSet::new_buffer_write(1, &resources.make_surface_result),
+                WriteDescriptorSet::new_texture_write(
+                    2,
+                    vk::DescriptorType::STORAGE_IMAGE,
+                    &resources.surface,
+                    vk::ImageLayout::GENERAL,
+                ),
+                WriteDescriptorSet::new_texture_write(
+                    3,
+                    vk::DescriptorType::STORAGE_IMAGE,
+                    &plain_builder_resources.chunk_atlas,
+                    vk::ImageLayout::GENERAL,
+                ),
+            ]);
+            return make_surface_ds_0;
         }
     }
 
-    pub fn get_grass_instance_len(&self) -> u32 {
-        self.grass_instance_len
+    fn create_make_surface_ds_1(
+        vulkan_ctx: &VulkanContext,
+        make_surface_ppl: &ComputePipeline,
+        resources: &SurfaceResources,
+        chunk_id: UVec3,
+        flexible_pool: &DescriptorPool,
+    ) -> DescriptorSet {
+        flexible_pool.reset().unwrap();
+        let make_surface_ds_1 = DescriptorSet::new(
+            vulkan_ctx.device().clone(),
+            &make_surface_ppl
+                .get_layout()
+                .get_descriptor_set_layouts()
+                .get(&1)
+                .unwrap(),
+            flexible_pool.clone(),
+        );
+        make_surface_ds_1.perform_writes(&mut [WriteDescriptorSet::new_buffer_write(
+            0,
+            &resources
+                .chunk_raster_resources
+                .get(&chunk_id)
+                .unwrap()
+                .grass_instances,
+        )]);
+        return make_surface_ds_1;
+    }
+
+    pub fn get_grass_instance_len(&self, chunk_id: UVec3) -> Result<u32> {
+        let len = self
+            .resources
+            .chunk_raster_resources
+            .get(&chunk_id)
+            .ok_or(anyhow::anyhow!("Chunk not found"))?
+            .grass_instances_len;
+        Ok(len)
     }
 
     /// Returns active_voxel_len
-    pub fn build_surface(&mut self, atlas_read_offset: UVec3) -> u32 {
+    pub fn build_surface(&mut self, chunk_id: UVec3) -> u32 {
+        let atlas_read_offset = chunk_id * self.voxel_dim_per_chunk;
         let atlas_read_dim = self.voxel_dim_per_chunk;
 
         let device = self.vulkan_ctx.device();
 
-        update_buffers(
+        update_make_surface_info(
             &self.resources.make_surface_info,
             atlas_read_offset,
             atlas_read_dim,
             true, // is_crossing_boundary,
         );
 
-        self.cmdbuf
-            .submit(&self.vulkan_ctx.get_general_queue(), None);
+        update_make_surface_result(&self.resources.make_surface_result, 0, 0);
+
+        let make_surface_ds_1 = Self::create_make_surface_ds_1(
+            &self.vulkan_ctx,
+            &self.make_surface_ppl,
+            &self.resources,
+            chunk_id,
+            &self.flexible_descriptor_pool,
+        );
+
+        let cmdbuf = CommandBuffer::new(device, self.vulkan_ctx.command_pool());
+        cmdbuf.begin(true);
+
+        self.make_surface_ppl.record_bind(&cmdbuf);
+        self.make_surface_ppl.record_bind_descriptor_sets(
+            &cmdbuf,
+            &[self.make_surface_ds_0.clone(), make_surface_ds_1],
+            0,
+        );
+        self.make_surface_ppl.record_dispatch(
+            &cmdbuf,
+            [
+                self.voxel_dim_per_chunk.x,
+                self.voxel_dim_per_chunk.y,
+                self.voxel_dim_per_chunk.z,
+            ],
+        );
+
+        cmdbuf.end();
+
+        cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), None);
+
         device.wait_queue_idle(&self.vulkan_ctx.get_general_queue());
 
         let (active_voxel_len, grass_instance_len) =
             get_result(&self.resources.make_surface_result);
         log::debug!("grass_instance_len: {}", grass_instance_len);
-        self.grass_instance_len = grass_instance_len;
+        self.resources
+            .chunk_raster_resources
+            .get_mut(&chunk_id)
+            .unwrap()
+            .grass_instances_len = grass_instance_len;
 
         return active_voxel_len;
 
-        fn update_buffers(
+        fn update_make_surface_info(
             make_surface_info: &Buffer,
             atlas_read_offset: UVec3,
             atlas_read_dim: UVec3,
@@ -266,6 +253,26 @@ impl SurfaceBuilder {
                 .unwrap()
                 .build();
             make_surface_info.fill_with_raw_u8(&data).unwrap();
+        }
+
+        fn update_make_surface_result(
+            make_surface_result: &Buffer,
+            active_voxel_len: u32,
+            grass_instance_len: u32,
+        ) {
+            let data = StructMemberDataBuilder::from_buffer(&make_surface_result)
+                .set_field(
+                    "active_voxel_len",
+                    PlainMemberTypeWithData::UInt(active_voxel_len),
+                )
+                .unwrap()
+                .set_field(
+                    "grass_instance_len",
+                    PlainMemberTypeWithData::UInt(grass_instance_len),
+                )
+                .unwrap()
+                .build();
+            make_surface_result.fill_with_raw_u8(&data).unwrap();
         }
 
         /// Returns: (active_voxel_len, grass_instance_len)

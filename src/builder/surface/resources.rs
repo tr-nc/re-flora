@@ -3,29 +3,62 @@ use crate::vkn::{
 };
 use ash::vk;
 use glam::UVec3;
+use std::collections::HashMap;
+
+pub struct ChunkRasterResources {
+    pub chunk_id: UVec3,
+    pub grass_instances: Buffer,
+    pub grass_instances_len: u32,
+}
+
+impl ChunkRasterResources {
+    pub fn new(
+        device: Device,
+        allocator: Allocator,
+        make_surface_sm: &ShaderModule,
+        chunk_id: UVec3,
+        grass_instances_capacity: u64,
+    ) -> Self {
+        let grass_instances_layout = make_surface_sm
+            .get_buffer_layout("B_GrassInstances")
+            .unwrap();
+        let grass_instances = Buffer::from_buffer_layout_arraylike(
+            device.clone(),
+            allocator.clone(),
+            grass_instances_layout.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
+            gpu_allocator::MemoryLocation::GpuOnly,
+            grass_instances_capacity,
+        );
+        Self {
+            chunk_id,
+            grass_instances,
+            grass_instances_len: 0,
+        }
+    }
+}
 
 pub struct SurfaceResources {
     pub surface: Texture,
     pub make_surface_info: Buffer,
-    pub voxel_dim_indirect: Buffer,
     pub make_surface_result: Buffer,
-    pub grass_instances: Buffer,
+    pub chunk_raster_resources: HashMap<UVec3, ChunkRasterResources>,
 }
 
 impl SurfaceResources {
     pub fn new(
         device: Device,
         allocator: Allocator,
-        max_voxel_dim_per_chunk: UVec3,
-        grass_instances_pool_len: u64,
-        buffer_setup: &ShaderModule,
-        make_surface: &ShaderModule,
+        voxel_dim_per_chunk: UVec3,
+        make_surface_sm: &ShaderModule,
+        chunk_dim: UVec3,
+        grass_instances_capacity_per_chunk: u64,
     ) -> Self {
         let surface_desc = ImageDesc {
             extent: Extent3D::new(
-                max_voxel_dim_per_chunk.x,
-                max_voxel_dim_per_chunk.y,
-                max_voxel_dim_per_chunk.z,
+                voxel_dim_per_chunk.x,
+                voxel_dim_per_chunk.y,
+                voxel_dim_per_chunk.z,
             ),
             format: vk::Format::R32_UINT,
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
@@ -36,18 +69,9 @@ impl SurfaceResources {
         let sam_desc = Default::default();
         let surface = Texture::new(device.clone(), allocator.clone(), &surface_desc, &sam_desc);
 
-        let voxel_dim_indirect_layout = buffer_setup
-            .get_buffer_layout("B_VoxelDimIndirect")
+        let make_surface_info_layout = make_surface_sm
+            .get_buffer_layout("U_MakeSurfaceInfo")
             .unwrap();
-        let voxel_dim_indirect = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            voxel_dim_indirect_layout.clone(),
-            BufferUsage::from_flags(vk::BufferUsageFlags::INDIRECT_BUFFER),
-            gpu_allocator::MemoryLocation::GpuOnly,
-        );
-
-        let make_surface_info_layout = buffer_setup.get_buffer_layout("U_MakeSurfaceInfo").unwrap();
         let make_surface_info = Buffer::from_buffer_layout(
             device.clone(),
             allocator.clone(),
@@ -56,7 +80,7 @@ impl SurfaceResources {
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
-        let make_surface_result_layout = buffer_setup
+        let make_surface_result_layout = make_surface_sm
             .get_buffer_layout("B_MakeSurfaceResult")
             .unwrap();
         let make_surface_result = Buffer::from_buffer_layout(
@@ -67,22 +91,30 @@ impl SurfaceResources {
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
-        let grass_instances_layout = make_surface.get_buffer_layout("B_GrassInstances").unwrap();
-        let grass_instances = Buffer::from_buffer_layout_arraylike(
-            device.clone(),
-            allocator.clone(),
-            grass_instances_layout.clone(),
-            BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
-            gpu_allocator::MemoryLocation::GpuOnly,
-            grass_instances_pool_len,
-        );
+        let mut chunk_raster_resources = HashMap::new();
+        for x in 0..chunk_dim.x {
+            for y in 0..chunk_dim.y {
+                for z in 0..chunk_dim.z {
+                    let chunk_offset = UVec3::new(x, y, z);
+                    chunk_raster_resources.insert(
+                        chunk_offset,
+                        ChunkRasterResources::new(
+                            device.clone(),
+                            allocator.clone(),
+                            make_surface_sm,
+                            chunk_offset,
+                            grass_instances_capacity_per_chunk,
+                        ),
+                    );
+                }
+            }
+        }
 
         return Self {
             surface,
             make_surface_info,
-            voxel_dim_indirect,
             make_surface_result,
-            grass_instances,
+            chunk_raster_resources,
         };
     }
 }
