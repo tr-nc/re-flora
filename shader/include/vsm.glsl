@@ -7,10 +7,17 @@
 
 const float MIN_VARIANCE = 1e-5;
 
+// for 4xEVSM, these three factors should be enough
 const float POSITIVE_EXPONENT = 16.0;
 const float NEGATIVE_EXPONENT = 5.0;
+const float HARDENING         = 2.0;
+// the last factor is for finetuning, it's effective but it came at a cost of harder shadow,
+// therefore making the blur kernal less effective
+// 0.0: no effect, 1.0: fully black, typically 0.2
+const float BLEEDING_REDUCTION_FACTOR = 0.0;
+
 // DO NOT CHANGE THIS VALUE, IT IS THE MAX EXPONENT FOR 32-BIT FLOAT
-const float MAX_EXPONENT = 42.0f;
+const float MAX_EXPONENT = 42.0;
 
 vec2 get_evsm_exponents() {
     vec2 exponents = vec2(POSITIVE_EXPONENT, NEGATIVE_EXPONENT);
@@ -27,16 +34,12 @@ vec2 warp_depth(float depth, vec2 exponents) {
 }
 
 float chebyshev_upper_bound(vec2 moments, float t) {
-    float variance = moments.y - moments.x * moments.x;
-    variance       = max(variance, MIN_VARIANCE);
-    float d        = t - moments.x;
-
-    float p_max = variance / (variance + d * d);
-
-    return (t <= moments.x ? 1.0f : p_max);
+    float variance = max(moments.y - moments.x * moments.x, MIN_VARIANCE);
+    // TODO: float h = 1.0 + shadowMip * 0.5;
+    float d = (t - moments.x) * HARDENING;
+    return (t <= moments.x) ? 1.0 : variance / (variance + d * d);
 }
 
-// TODO: do not use a binding name for this, just pass the value, we are just sampling once anyway
 #ifndef IGNORE_GET_SHADOW_VSM
 float get_shadow_vsm(mat4 shadow_cam_view_proj_mat, vec4 voxel_pos_ws) {
     vec4 light_space = shadow_cam_view_proj_mat * voxel_pos_ws;
@@ -51,7 +54,11 @@ float get_shadow_vsm(mat4 shadow_cam_view_proj_mat, vec4 voxel_pos_ws) {
     float positive_contrib = chebyshev_upper_bound(occluder.xz, evsm_depth.x);
     float negative_contrib = chebyshev_upper_bound(occluder.yw, evsm_depth.y);
 
-    return min(positive_contrib, negative_contrib);
+    float vis = min(positive_contrib, negative_contrib);
+
+    vis = clamp((vis - BLEEDING_REDUCTION_FACTOR) / (1.0 - BLEEDING_REDUCTION_FACTOR), 0.0, 1.0);
+
+    return vis;
 }
 #endif // IGNORE_GET_SHADOW_VSM
 
