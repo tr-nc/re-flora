@@ -68,9 +68,7 @@ pub struct Tracer {
     #[allow(dead_code)]
     shadow_framebuffer: Framebuffer,
 
-    #[allow(dead_code)]
-    fixed_pool: DescriptorPool,
-    flexible_pool: DescriptorPool,
+    flexible_descriptor_pool: DescriptorPool,
 }
 
 impl Drop for Tracer {
@@ -166,8 +164,8 @@ impl Tracer {
         let god_ray_ppl = ComputePipeline::new(vulkan_ctx.device(), &god_ray_sm);
         let post_processing_ppl = ComputePipeline::new(vulkan_ctx.device(), &post_processing_sm);
 
-        let fixed_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
-        let flexible_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
+        let fixed_descriptor_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
+        let flexible_descriptor_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
 
         let main_vert_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
@@ -240,7 +238,7 @@ impl Tracer {
         );
 
         let tracer_ds_0 = Self::create_tracer_ds_0(
-            fixed_pool.clone(),
+            fixed_descriptor_pool.clone(),
             &vulkan_ctx,
             &tracer_ppl,
             &resources,
@@ -249,14 +247,22 @@ impl Tracer {
             scene_tex,
         );
 
-        let tracer_ds_1 =
-            Self::create_tracer_ds_1(flexible_pool.clone(), &vulkan_ctx, &tracer_ppl, &resources);
+        let tracer_ds_1 = Self::create_tracer_ds_1(
+            flexible_descriptor_pool.clone(),
+            &vulkan_ctx,
+            &tracer_ppl,
+            &resources,
+        );
 
-        let noise_tex_ds =
-            Self::create_noise_tex_ds(fixed_pool.clone(), &vulkan_ctx, &tracer_ppl, &resources);
+        let noise_tex_ds = Self::create_noise_tex_ds(
+            fixed_descriptor_pool.clone(),
+            &vulkan_ctx,
+            &tracer_ppl,
+            &resources,
+        );
 
         let tracer_shadow_ds = Self::create_tracer_shadow_ds(
-            fixed_pool.clone(),
+            fixed_descriptor_pool.clone(),
             &vulkan_ctx,
             &tracer_shadow_ppl,
             &resources,
@@ -266,27 +272,39 @@ impl Tracer {
         );
 
         let vsm_ds_0 = Self::create_vsm_ds_0(
-            fixed_pool.clone(),
+            fixed_descriptor_pool.clone(),
             &vulkan_ctx,
             &vsm_creation_ppl,
             &resources,
         );
 
-        let god_ray_ds_0 =
-            Self::create_god_ray_ds_0(fixed_pool.clone(), &vulkan_ctx, &god_ray_ppl, &resources);
+        let god_ray_ds_0 = Self::create_god_ray_ds_0(
+            fixed_descriptor_pool.clone(),
+            &vulkan_ctx,
+            &god_ray_ppl,
+            &resources,
+        );
 
         let post_processing_ds_0 = Self::create_post_processing_set_0(
-            flexible_pool.clone(),
+            flexible_descriptor_pool.clone(),
             &vulkan_ctx,
             &post_processing_ppl,
             &resources,
         );
 
-        let main_ds =
-            Self::create_main_ds_0(fixed_pool.clone(), &vulkan_ctx, &main_ppl, &resources);
+        let main_ds = Self::create_main_ds_0(
+            fixed_descriptor_pool.clone(),
+            &vulkan_ctx,
+            &main_ppl,
+            &resources,
+        );
 
-        let shadow_ds =
-            Self::create_shadow_ds_0(fixed_pool.clone(), &vulkan_ctx, &shadow_ppl, &resources);
+        let shadow_ds = Self::create_shadow_ds_0(
+            fixed_descriptor_pool.clone(),
+            &vulkan_ctx,
+            &shadow_ppl,
+            &resources,
+        );
 
         return Self {
             vulkan_ctx,
@@ -315,8 +333,7 @@ impl Tracer {
             shadow_ppl,
             shadow_render_pass,
             shadow_framebuffer,
-            fixed_pool,
-            flexible_pool,
+            flexible_descriptor_pool,
         };
     }
 
@@ -811,23 +828,23 @@ impl Tracer {
             &self.resources.gfx_depth_tex,
         );
 
-        self.flexible_pool.reset().unwrap();
+        self.flexible_descriptor_pool.reset().unwrap();
         self.tracer_sets[1] = Self::create_tracer_ds_1(
-            self.flexible_pool.clone(),
+            self.flexible_descriptor_pool.clone(),
             &self.vulkan_ctx,
             &self.tracer_ppl,
             &self.resources,
         );
 
         self.god_ray_sets[0] = Self::create_god_ray_ds_0(
-            self.flexible_pool.clone(),
+            self.flexible_descriptor_pool.clone(),
             &self.vulkan_ctx,
             &self.god_ray_ppl,
             &self.resources,
         );
 
         self.post_processing_sets[0] = Self::create_post_processing_set_0(
-            self.flexible_pool.clone(),
+            self.flexible_descriptor_pool.clone(),
             &self.vulkan_ctx,
             &self.post_processing_ppl,
             &self.resources,
@@ -926,7 +943,7 @@ impl Tracer {
     }
 
     fn record_main_pass(&self, cmdbuf: &CommandBuffer, surface_resources: &SurfaceResources) {
-        let testing_chunk_id = UVec3::new(1, 1, 0);
+        // let testing_chunk_id = UVec3::new(1, 1, 0);
 
         self.main_ppl.record_bind(cmdbuf);
 
@@ -961,23 +978,10 @@ impl Tracer {
         self.main_ppl
             .record_bind_descriptor_sets(cmdbuf, &self.main_sets, 0);
 
-        // TODO: wrap them later
+        self.main_ppl
+            .record_viewport_scissor(cmdbuf, viewport, scissor);
+
         unsafe {
-            // Bind the vertex buffer to binding point 0
-            self.vulkan_ctx.device().cmd_bind_vertex_buffers(
-                cmdbuf.as_raw(),
-                0,
-                &[
-                    self.resources.vertices.as_raw(),
-                    surface_resources
-                        .chunk_raster_resources
-                        .get(&testing_chunk_id)
-                        .unwrap()
-                        .grass_instances
-                        .as_raw(),
-                ],
-                &[0, 0],
-            );
             // Bind the index buffer
             self.vulkan_ctx.device().cmd_bind_index_buffer(
                 cmdbuf.as_raw(),
@@ -987,24 +991,40 @@ impl Tracer {
             );
         }
 
-        self.main_ppl
-            .record_viewport_scissor(cmdbuf, viewport, scissor);
+        // --- Loop for chunk-specific drawing ---
+        // Now, iterate over each chunk and issue a draw call for it.
+        for (_chunk_id, chunk_resources) in &surface_resources.chunk_raster_resources {
+            // Only draw if this chunk actually has grass instances.
+            if chunk_resources.grass_instances_len == 0 {
+                continue;
+            }
 
-        let grass_instances_len = surface_resources
-            .chunk_raster_resources
-            .get(&testing_chunk_id)
-            .unwrap()
-            .grass_instances_len;
-        log::debug!("grass_instances_len: {}", grass_instances_len);
+            // Bind the vertex buffers for this specific chunk.
+            // Binding point 0: Common grass blade vertices.
+            // Binding point 1: Per-chunk, per-instance data.
+            unsafe {
+                self.vulkan_ctx.device().cmd_bind_vertex_buffers(
+                    cmdbuf.as_raw(),
+                    0, // firstBinding
+                    &[
+                        self.resources.vertices.as_raw(),
+                        chunk_resources.grass_instances.as_raw(),
+                    ],
+                    &[0, 0], // offsets
+                );
+            }
 
-        self.main_ppl.record_draw_indexed(
-            cmdbuf,
-            self.resources.indices_len,
-            grass_instances_len,
-            0,
-            0,
-            0,
-        );
+            // Issue the draw call for the current chunk.
+            // No barriers are needed here.
+            self.main_ppl.record_draw_indexed(
+                cmdbuf,
+                self.resources.indices_len,
+                chunk_resources.grass_instances_len,
+                0, // firstIndex
+                0, // vertexOffset
+                0, // firstInstance
+            );
+        }
 
         self.main_render_pass.record_end(cmdbuf);
 
