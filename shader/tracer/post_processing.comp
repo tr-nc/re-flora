@@ -48,10 +48,10 @@ void main() {
     ivec2 god_ray_mapped_uvi    = ivec2(vec2(uvi) * god_ray_scaling_factor);
     float dithering             = bayer_16(vec2(uvi) * 0.5) - 0.5;
     float god_ray_color         = imageLoad(god_ray_output_tex, god_ray_mapped_uvi).r;
-    god_ray_color += dithering;
-    god_ray_color = god_ray_color < 0.5 ? 0.0 : 1.0;
+    // god_ray_color += dithering;
+    // god_ray_color = god_ray_color < 0.5 ? 0.0 : 1.0;
 
-    final_color += vec3(god_ray_color) * 0.1;
+    final_color += vec3(god_ray_color) * 0.05;
 
     imageStore(screen_output_tex, uvi, vec4(final_color, 1.0));
 }

@@ -324,12 +324,9 @@ impl TracerResources {
         allocator: Allocator,
         rendering_extent: Extent2D,
     ) -> Texture {
-        // this is hardcoded for now
-        let downscaled_extent =
-            Extent2D::new(rendering_extent.width / 8, rendering_extent.height / 8);
         let tex_desc = ImageDesc {
-            extent: downscaled_extent.into(),
-            format: vk::Format::R32G32B32A32_SFLOAT, // TODO: maybe use a lower precision?
+            extent: rendering_extent.into(),
+            format: vk::Format::R32G32B32A32_SFLOAT, // TODO: use a lower precision?
             usage: vk::ImageUsageFlags::STORAGE,
             initial_layout: vk::ImageLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
