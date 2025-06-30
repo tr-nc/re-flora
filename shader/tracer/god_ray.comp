@@ -36,10 +36,20 @@ layout(set = 0, binding = 1) uniform U_ShadowCameraInfo {
 shadow_camera_info;
 layout(set = 0, binding = 2) uniform U_GodRayInfo { float max_depth; }
 god_ray_info;
-layout(set = 0, binding = 3, r32f) uniform readonly image2D gfx_depth_tex;
-layout(set = 0, binding = 4, r32f) uniform readonly image2D compute_depth_tex;
-layout(set = 0, binding = 5) uniform sampler2D vsm_shadow_map_tex;
-layout(set = 0, binding = 6, rgba32f) uniform writeonly image2D god_ray_output_tex;
+layout(set = 0, binding = 3) uniform U_EnvInfo { uint frame_serial_idx; }
+env_info;
+layout(set = 0, binding = 4, r32f) uniform readonly image2D gfx_depth_tex;
+layout(set = 0, binding = 5, r32f) uniform readonly image2D compute_depth_tex;
+layout(set = 0, binding = 6) uniform sampler2D vsm_shadow_map_tex;
+layout(set = 0, binding = 7, rgba32f) uniform writeonly image2D god_ray_output_tex;
+
+layout(set = 1, binding = 0, r8) readonly uniform image2DArray scalar_bn;
+layout(set = 1, binding = 1, rg8) readonly uniform image2DArray unit_vec2_bn;
+layout(set = 1, binding = 2, rgba8) readonly uniform image2DArray unit_vec3_bn;
+layout(set = 1, binding = 3, rgba8) readonly uniform image2DArray weighted_cosine_bn;
+layout(set = 1, binding = 4, rgba8) readonly uniform image2DArray fast_unit_vec3_bn;
+layout(set = 1, binding = 5, rgba8) readonly uniform image2DArray fast_weighted_cosine_bn;
+#include "../include/noise_tex.glsl"
 
 #include "../include/ray.glsl"
 #include "../include/vsm.glsl"
@@ -76,9 +86,12 @@ void main() {
     float step_size   = god_ray_info.max_depth / MAX_CHECKS;
     float using_depth = min(real_depth, god_ray_info.max_depth);
 
+    ivec3 seed         = get_seed(env_info.frame_serial_idx);
+    float random_float = random_float_bn(seed);
+
     float shadow_visibility = 0.0;
     for (uint i = 0; i < MAX_CHECKS; i++) {
-        float current_depth = i * step_size;
+        float current_depth = (random_float + float(i)) * step_size;
         if (current_depth < using_depth) {
             vec4 lookup_pos  = vec4(ray.origin + ray.direction * current_depth, 1.0);
             float shadow_vsm = get_shadow_vsm(shadow_camera_info.view_proj_mat, lookup_pos);

@@ -40,16 +40,18 @@ contree_node_data;
 layout(set = 0, binding = 5) readonly buffer B_ContreeLeafData { uint data[]; }
 contree_leaf_data;
 layout(set = 0, binding = 6, rg32ui) readonly uniform uimage3D scene_tex;
-layout(set = 0, binding = 7, r8) readonly uniform image2DArray scalar_bn;
-layout(set = 0, binding = 8, rg8) readonly uniform image2DArray unit_vec2_bn;
-layout(set = 0, binding = 9, rgba8) readonly uniform image2DArray unit_vec3_bn;
-layout(set = 0, binding = 10, rgba8) readonly uniform image2DArray weighted_cosine_bn;
-layout(set = 0, binding = 11, rgba8) readonly uniform image2DArray fast_unit_vec3_bn;
-layout(set = 0, binding = 12, rgba8) readonly uniform image2DArray fast_weighted_cosine_bn;
-layout(set = 0, binding = 13) uniform sampler2D vsm_shadow_map_tex;
+layout(set = 0, binding = 7) uniform sampler2D vsm_shadow_map_tex;
 
 layout(set = 1, binding = 0, rgba8) writeonly uniform image2D compute_output_tex;
 layout(set = 1, binding = 1, r32f) writeonly uniform image2D compute_depth_tex;
+
+layout(set = 2, binding = 0, r8) readonly uniform image2DArray scalar_bn;
+layout(set = 2, binding = 1, rg8) readonly uniform image2DArray unit_vec2_bn;
+layout(set = 2, binding = 2, rgba8) readonly uniform image2DArray unit_vec3_bn;
+layout(set = 2, binding = 3, rgba8) readonly uniform image2DArray weighted_cosine_bn;
+layout(set = 2, binding = 4, rgba8) readonly uniform image2DArray fast_unit_vec3_bn;
+layout(set = 2, binding = 5, rgba8) readonly uniform image2DArray fast_weighted_cosine_bn;
+#include "../include/noise_tex.glsl"
 
 #include "../include/contree_marching.glsl"
 #include "../include/core/definitions.glsl"
@@ -90,23 +92,6 @@ bool scene_hit(inout MarchingResult o_res, vec3 o, vec3 d, ivec3 map_pos, uvec4 
 
 MarchingResult general_scene_marching(Ray ray) {
     return dda_scene_marching(ray.origin, ray.direction, ray.inv_direction);
-}
-
-const ivec3 BN_NOISE_TEX_SIZE = ivec3(128, 128, 64);
-ivec3 get_seed() { return ivec3(gl_GlobalInvocationID.xy % 128, env_info.frame_serial_idx % 64); }
-
-// range (0, 1)
-float random_float_bn(ivec3 seed) { return imageLoad(scalar_bn, seed).r; }
-
-// range (-1, 1) in 2 components
-vec2 random_unit_vec2_bn(ivec3 seed) { return imageLoad(unit_vec2_bn, seed).rg * 2.0 - 1.0; }
-
-// range (-1, 1) in 3 components
-vec3 random_unit_vec3_bn(ivec3 seed) { return imageLoad(fast_unit_vec3_bn, seed).rgb * 2.0 - 1.0; }
-
-// range (-1, 1) in x and y, range (0, 1) in z
-vec3 random_weighted_cosine_bn(ivec3 seed) {
-    return imageLoad(fast_weighted_cosine_bn, seed).rgb * 2.0 - 1.0;
 }
 
 mat3 make_tbn(vec3 normal) {
@@ -244,7 +229,7 @@ void main() {
         return;
     }
 
-    ivec3 seed     = get_seed();
+    ivec3 seed     = get_seed(env_info.frame_serial_idx);
     vec2 screen_uv = (vec2(gl_GlobalInvocationID.xy) + vec2(0.5)) / vec2(img_size);
     Ray ray        = ray_gen(screen_uv, camera_info.view_proj_mat_inv);
 

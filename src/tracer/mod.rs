@@ -38,7 +38,7 @@ pub struct Tracer {
     camera: Camera,
 
     tracer_ppl: ComputePipeline,
-    tracer_sets: [DescriptorSet; 2],
+    tracer_sets: [DescriptorSet; 3],
 
     post_processing_ppl: ComputePipeline,
     post_processing_sets: [DescriptorSet; 1],
@@ -52,7 +52,7 @@ pub struct Tracer {
     vsm_sets: [DescriptorSet; 1],
 
     god_ray_ppl: ComputePipeline,
-    god_ray_sets: [DescriptorSet; 1],
+    god_ray_sets: [DescriptorSet; 2],
 
     main_sets: [DescriptorSet; 1],
     main_ppl: GraphicsPipeline,
@@ -253,6 +253,9 @@ impl Tracer {
         let tracer_ds_1 =
             Self::create_tracer_ds_1(flexible_pool.clone(), &vulkan_ctx, &tracer_ppl, &resources);
 
+        let noise_tex_ds =
+            Self::create_noise_tex_ds(fixed_pool.clone(), &vulkan_ctx, &tracer_ppl, &resources);
+
         let tracer_shadow_ds = Self::create_tracer_shadow_ds(
             fixed_pool.clone(),
             &vulkan_ctx,
@@ -301,9 +304,9 @@ impl Tracer {
             vsm_blur_h_ppl,
             vsm_blur_v_ppl,
             vsm_sets: [vsm_ds_0],
-            god_ray_sets: [god_ray_ds_0],
+            god_ray_sets: [god_ray_ds_0, noise_tex_ds.clone()],
             post_processing_sets: [post_processing_ds_0],
-            tracer_sets: [tracer_ds_0, tracer_ds_1],
+            tracer_sets: [tracer_ds_0, tracer_ds_1, noise_tex_ds],
             tracer_shadow_sets: [tracer_shadow_ds],
             main_sets: [main_ds],
             shadow_sets: [shadow_ds],
@@ -533,42 +536,6 @@ impl Tracer {
             ),
             WriteDescriptorSet::new_texture_write(
                 7,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.scalar_bn,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                8,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.unit_vec2_bn,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                9,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.unit_vec3_bn,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                10,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.weighted_cosine_bn,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                11,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.fast_unit_vec3_bn,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                12,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.fast_weighted_cosine_bn,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                13,
                 vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
                 &resources.shadow_map_tex_for_vsm_ping,
                 vk::ImageLayout::GENERAL,
@@ -605,6 +572,58 @@ impl Tracer {
         ds
     }
 
+    fn create_noise_tex_ds(
+        descriptor_pool: DescriptorPool,
+        vulkan_ctx: &VulkanContext,
+        tracer_ppl: &ComputePipeline,
+        resources: &TracerResources,
+    ) -> DescriptorSet {
+        let ds = DescriptorSet::new(
+            vulkan_ctx.device().clone(),
+            &tracer_ppl.get_layout().get_descriptor_set_layouts()[&2],
+            descriptor_pool,
+        );
+        ds.perform_writes(&mut [
+            WriteDescriptorSet::new_texture_write(
+                0,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.scalar_bn,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                1,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.unit_vec2_bn,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                2,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.unit_vec3_bn,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                3,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.weighted_cosine_bn,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                4,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.fast_unit_vec3_bn,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                5,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.fast_weighted_cosine_bn,
+                vk::ImageLayout::GENERAL,
+            ),
+        ]);
+        ds
+    }
+
     fn create_god_ray_ds_0(
         descriptor_pool: DescriptorPool,
         vulkan_ctx: &VulkanContext,
@@ -620,26 +639,27 @@ impl Tracer {
             WriteDescriptorSet::new_buffer_write(0, &resources.camera_info),
             WriteDescriptorSet::new_buffer_write(1, &resources.shadow_camera_info),
             WriteDescriptorSet::new_buffer_write(2, &resources.god_ray_info),
+            WriteDescriptorSet::new_buffer_write(3, &resources.env_info),
             WriteDescriptorSet::new_texture_write(
-                3,
+                4,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &resources.gfx_depth_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
-                4,
+                5,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &resources.compute_depth_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
-                5,
+                6,
                 vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
                 &resources.shadow_map_tex_for_vsm_ping,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
-                6,
+                7,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &resources.god_ray_output_tex,
                 vk::ImageLayout::GENERAL,

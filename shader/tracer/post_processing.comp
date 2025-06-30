@@ -35,6 +35,10 @@ void main() {
         return;
     }
 
+    if (debug_texture_in_top_right_corner(uvi)) {
+        return;
+    }
+
     ivec2 mapped_uvi = ivec2(vec2(uvi) * post_processing_info.scaling_factor);
 
     float gfx_depth_01     = imageLoad(gfx_depth_tex, mapped_uvi).r;
@@ -48,8 +52,8 @@ void main() {
     ivec2 god_ray_mapped_uvi    = ivec2(vec2(uvi) * god_ray_scaling_factor);
     float dithering             = bayer_16(vec2(uvi) * 0.5) - 0.5;
     float god_ray_color         = imageLoad(god_ray_output_tex, god_ray_mapped_uvi).r;
-    // god_ray_color += dithering;
-    // god_ray_color = god_ray_color < 0.5 ? 0.0 : 1.0;
+    god_ray_color += dithering;
+    god_ray_color = god_ray_color < 0.5 ? 0.0 : 1.0;
 
     final_color += vec3(god_ray_color) * 0.05;
 

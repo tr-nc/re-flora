@@ -1,14 +1,23 @@
 use super::{DescriptorPool, DescriptorSetLayout};
 use crate::vkn::{AccelStruct, Buffer, Device, Texture};
 use ash::vk;
+use std::sync::Arc;
 
-pub struct DescriptorSet {
+/// Inner, non-cloneable part of the DescriptorSet.
+/// Manages the lifetime of the Vulkan descriptor set handle.
+struct DescriptorSetInner {
     device: Device,
     descriptor_set: vk::DescriptorSet,
     _pool: DescriptorPool,
 }
 
+/// A cloneable, reference-counted handle to a Vulkan descriptor set.
+/// Cloning is a cheap operation that increases the reference count.
+#[derive(Clone)]
+pub struct DescriptorSet(Arc<DescriptorSetInner>);
+
 impl DescriptorSet {
+    /// Allocates a new descriptor set from a descriptor pool.
     pub fn new(
         device: Device,
         descriptor_set_layout: &DescriptorSetLayout,
@@ -16,26 +25,32 @@ impl DescriptorSet {
     ) -> Self {
         let descriptor_set =
             create_descriptor_set(&device, &descriptor_pool, descriptor_set_layout);
-        Self {
+        Self(Arc::new(DescriptorSetInner {
             device: device.clone(),
             descriptor_set,
             _pool: descriptor_pool.clone(),
-        }
+        }))
     }
 
+    /// Returns the raw Vulkan handle for the descriptor set.
     pub fn as_raw(&self) -> vk::DescriptorSet {
-        self.descriptor_set
+        self.0.descriptor_set
     }
 
+    /// Performs a batch of write operations to update the descriptor set.
     pub fn perform_writes(&self, writes: &mut [WriteDescriptorSet]) {
-        let writes = writes
+        if writes.is_empty() {
+            return;
+        }
+        let raw_writes = writes
             .iter_mut()
             .map(|w| w.make_raw(self))
             .collect::<Vec<_>>();
-        unsafe { self.device.update_descriptor_sets(&writes, &[]) }
+        unsafe { self.0.device.update_descriptor_sets(&raw_writes, &[]) }
     }
 }
 
+/// Helper function to allocate a raw vk::DescriptorSet.
 fn create_descriptor_set(
     device: &Device,
     descriptor_pool: &DescriptorPool,
@@ -60,7 +75,8 @@ pub struct WriteDescriptorSet<'a> {
     buffer_infos: Option<Vec<vk::DescriptorBufferInfo>>,
     accel_struct_infos: Option<Vec<vk::WriteDescriptorSetAccelerationStructureKHR<'a>>>,
 
-    // for avoiding dangling pointer
+    // This field holds ownership of the acceleration structure handles
+    // to prevent their pointers from becoming dangling.
     _accel_handles: Option<Vec<vk::AccelerationStructureKHR>>,
 }
 
@@ -112,11 +128,10 @@ impl<'a> WriteDescriptorSet<'a> {
     pub fn new_acceleration_structure_write(binding: u32, tlas: &AccelStruct) -> Self {
         let handles = vec![tlas.as_raw()];
 
-        // take caution of this pitfall:
-        // let tmp: vk::AccelerationStructureKHR = tlas.as_raw(); // copy out the u64 handle
-        // let ptr: *const vk::AccelerationStructureKHR = &tmp; // take address of that local `tmp`
-        // p_acceleration_structures = ptr;
-
+        // The WriteDescriptorSetAccelerationStructureKHR struct requires a raw pointer.
+        // To ensure this pointer remains valid, we store the owned `handles` Vec
+        // within our struct (_accel_handles). The pointer in `as_info` will now
+        // point to the data owned by this struct instance.
         let as_info = vk::WriteDescriptorSetAccelerationStructureKHR {
             acceleration_structure_count: handles.len() as u32,
             p_acceleration_structures: handles.as_ptr(),
@@ -148,11 +163,12 @@ impl<'a> WriteDescriptorSet<'a> {
     }
 
     pub fn make_raw(&mut self, descriptor_set: &DescriptorSet) -> vk::WriteDescriptorSet {
-        // we can only have one of these at a time
+        // A descriptor write can only target one type of resource at a time.
         assert!(
             self.image_infos.is_some()
                 ^ self.buffer_infos.is_some()
-                ^ self.accel_struct_infos.is_some()
+                ^ self.accel_struct_infos.is_some(),
+            "A WriteDescriptorSet must contain exactly one of: image_infos, buffer_infos, or accel_struct_infos"
         );
 
         let mut write = vk::WriteDescriptorSet::default()
@@ -168,6 +184,7 @@ impl<'a> WriteDescriptorSet<'a> {
         }
 
         if let Some(accel_infos) = &mut self.accel_struct_infos {
+            // For extension structures, we must use push_next.
             let len = accel_infos.len();
             write = write
                 .push_next(&mut accel_infos[0])
