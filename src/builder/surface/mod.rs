@@ -1,5 +1,4 @@
 mod resources;
-use anyhow::Result;
 use ash::vk;
 use glam::UVec3;
 pub use resources::*;
@@ -8,10 +7,9 @@ use super::PlainBuilderResources;
 use crate::{
     util::ShaderCompiler,
     vkn::{
-        execute_one_time_command, Allocator, Buffer, ClearValue, CommandBuffer, ComputePipeline,
-        DescriptorPool, DescriptorSet, PlainMemberTypeWithData, ShaderModule,
-        StructMemberDataBuilder, StructMemberDataReader, Texture, VulkanContext,
-        WriteDescriptorSet,
+        Allocator, Buffer, ClearValue, CommandBuffer, ComputePipeline, DescriptorPool,
+        DescriptorSet, PlainMemberTypeWithData, ShaderModule, StructMemberDataBuilder,
+        StructMemberDataReader, VulkanContext, WriteDescriptorSet,
     },
 };
 
@@ -66,8 +64,6 @@ impl SurfaceBuilder {
             &fixed_descriptor_pool,
         );
 
-        init_surface_image(&vulkan_ctx, &resources.surface);
-
         return Self {
             vulkan_ctx,
             resources,
@@ -79,22 +75,6 @@ impl SurfaceBuilder {
 
             voxel_dim_per_chunk,
         };
-
-        fn init_surface_image(vulkan_context: &VulkanContext, surface: &Texture) {
-            execute_one_time_command(
-                vulkan_context.device(),
-                vulkan_context.command_pool(),
-                &vulkan_context.get_general_queue(),
-                |cmdbuf| {
-                    surface.get_image().record_clear(
-                        cmdbuf,
-                        Some(vk::ImageLayout::GENERAL),
-                        0,
-                        ClearValue::UInt([0, 0, 0, 0]),
-                    );
-                },
-            );
-        }
 
         fn create_make_surface_ds_0(
             vulkan_ctx: &VulkanContext,
@@ -160,16 +140,6 @@ impl SurfaceBuilder {
         return make_surface_ds_1;
     }
 
-    pub fn get_grass_instance_len(&self, chunk_id: UVec3) -> Result<u32> {
-        let len = self
-            .resources
-            .chunk_raster_resources
-            .get(&chunk_id)
-            .ok_or(anyhow::anyhow!("Chunk not found"))?
-            .grass_instances_len;
-        Ok(len)
-    }
-
     /// Returns active_voxel_len
     pub fn build_surface(&mut self, chunk_id: UVec3) -> u32 {
         let atlas_read_offset = chunk_id * self.voxel_dim_per_chunk;
@@ -196,6 +166,13 @@ impl SurfaceBuilder {
 
         let cmdbuf = CommandBuffer::new(device, self.vulkan_ctx.command_pool());
         cmdbuf.begin(true);
+
+        self.resources.surface.get_image().record_clear(
+            &cmdbuf,
+            Some(vk::ImageLayout::GENERAL),
+            0,
+            ClearValue::UInt([0, 0, 0, 0]),
+        );
 
         self.make_surface_ppl.record_bind(&cmdbuf);
         self.make_surface_ppl.record_bind_descriptor_sets(

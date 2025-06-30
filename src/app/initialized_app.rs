@@ -133,7 +133,7 @@ impl InitializedApp {
             plain_builder.get_resources(),
             VOXEL_DIM_PER_CHUNK,
             CHUNK_DIM,
-            CHUNK_DIM.x as u64 * CHUNK_DIM.y as u64 * CHUNK_DIM.z as u64,
+            VOXEL_DIM_PER_CHUNK.x as u64 * VOXEL_DIM_PER_CHUNK.z as u64,
         );
 
         let mut contree_builder = ContreeBuilder::new(

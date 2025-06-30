@@ -926,7 +926,7 @@ impl Tracer {
     }
 
     fn record_main_pass(&self, cmdbuf: &CommandBuffer, surface_resources: &SurfaceResources) {
-        let testing_chunk_id = UVec3::new(0, 1, 0);
+        let testing_chunk_id = UVec3::new(1, 1, 0);
 
         self.main_ppl.record_bind(cmdbuf);
 
@@ -990,14 +990,17 @@ impl Tracer {
         self.main_ppl
             .record_viewport_scissor(cmdbuf, viewport, scissor);
 
+        let grass_instances_len = surface_resources
+            .chunk_raster_resources
+            .get(&testing_chunk_id)
+            .unwrap()
+            .grass_instances_len;
+        log::debug!("grass_instances_len: {}", grass_instances_len);
+
         self.main_ppl.record_draw_indexed(
             cmdbuf,
             self.resources.indices_len,
-            surface_resources
-                .chunk_raster_resources
-                .get(&testing_chunk_id)
-                .unwrap()
-                .grass_instances_len,
+            grass_instances_len,
             0,
             0,
             0,

@@ -19,6 +19,7 @@ impl ChunkRasterResources {
         chunk_id: UVec3,
         grass_instances_capacity: u64,
     ) -> Self {
+        log::debug!("capacity: {}", grass_instances_capacity);
         let grass_instances_layout = make_surface_sm
             .get_buffer_layout("B_GrassInstances")
             .unwrap();
