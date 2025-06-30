@@ -35,10 +35,6 @@ void main() {
         return;
     }
 
-    if (debug_texture_in_top_right_corner(uvi)) {
-        return;
-    }
-
     ivec2 mapped_uvi = ivec2(vec2(uvi) * post_processing_info.scaling_factor);
 
     float gfx_depth_01     = imageLoad(gfx_depth_tex, mapped_uvi).r;
@@ -51,11 +47,17 @@ void main() {
     vec2 god_ray_scaling_factor = vec2(god_ray_tex_size) / vec2(imageSize(screen_output_tex));
     ivec2 god_ray_mapped_uvi    = ivec2(vec2(uvi) * god_ray_scaling_factor);
     float dithering             = bayer_16(vec2(uvi) * 0.5) - 0.5;
-    float god_ray_color         = imageLoad(god_ray_output_tex, god_ray_mapped_uvi).r;
-    god_ray_color += dithering;
-    god_ray_color = god_ray_color < 0.5 ? 0.0 : 1.0;
+    float god_ray_weight        = imageLoad(god_ray_output_tex, god_ray_mapped_uvi).r;
+    god_ray_weight += dithering;
 
-    final_color += vec3(god_ray_color) * 0.05;
+    god_ray_weight = god_ray_weight < 0.5 ? 0.0 : 1.0;
+
+    // 255, 178, 0
+    vec3 dot_color     = vec3(1.0, 0.698, 0.0);
+    vec4 god_ray_color = vec4(dot_color, 0.6 * god_ray_weight);
+
+    // overlap the god ray color with the final color
+    final_color = mix(final_color, god_ray_color.rgb, god_ray_color.a);
 
     imageStore(screen_output_tex, uvi, vec4(final_color, 1.0));
 }

@@ -40,7 +40,8 @@ layout(set = 0, binding = 3) uniform U_EnvInfo { uint frame_serial_idx; }
 env_info;
 layout(set = 0, binding = 4, r32f) uniform readonly image2D gfx_depth_tex;
 layout(set = 0, binding = 5, r32f) uniform readonly image2D compute_depth_tex;
-layout(set = 0, binding = 6) uniform sampler2D vsm_shadow_map_tex;
+// we don't use the filtered VSM texture here, just use the plain shadow map texture
+layout(set = 0, binding = 6, r32f) readonly uniform image2D shadow_map_tex;
 layout(set = 0, binding = 7, rgba32f) uniform writeonly image2D god_ray_output_tex;
 
 layout(set = 1, binding = 0, r8) readonly uniform image2DArray scalar_bn;
@@ -52,9 +53,8 @@ layout(set = 1, binding = 5, rgba8) readonly uniform image2DArray fast_weighted_
 #include "../include/noise_tex.glsl"
 
 #include "../include/ray.glsl"
-#include "../include/vsm.glsl"
 
-const uint MAX_CHECKS = 64;
+const uint MAX_CHECKS = 32;
 
 float get_depth_01(ivec2 uvi) {
     // float gfx_depth_01     = imageLoad(gfx_depth_tex, uvi).r;
@@ -89,15 +89,33 @@ void main() {
     ivec3 seed         = get_seed(env_info.frame_serial_idx);
     float random_float = random_float_bn(seed);
 
+    // -----------------------------------------------------------------------------
+    // Accumulate lit length along the ray (Riemann sum)
+    // -----------------------------------------------------------------------------
     float shadow_visibility = 0.0;
-    for (uint i = 0; i < MAX_CHECKS; i++) {
+
+    for (uint i = 0; i < MAX_CHECKS; ++i) {
         float current_depth = (random_float + float(i)) * step_size;
-        if (current_depth < using_depth) {
-            vec4 lookup_pos  = vec4(ray.origin + ray.direction * current_depth, 1.0);
-            float shadow_vsm = get_shadow_vsm(shadow_camera_info.view_proj_mat, lookup_pos);
-            shadow_visibility += shadow_vsm;
+        if (current_depth >= using_depth) break; // past the hit
+
+        vec4 lookup_pos = vec4(ray.origin + ray.direction * current_depth, 1.0);
+
+        vec4 light_space       = shadow_camera_info.view_proj_mat * lookup_pos;
+        vec3 ndc               = light_space.xyz / light_space.w;
+        vec2 uv                = ndc.xy * 0.5 + 0.5;
+        float t                = ndc.z;
+        float shadow_tex_depth = imageLoad(shadow_map_tex, ivec2(uv * imageSize(shadow_map_tex))).r;
+
+        // If the current point in the atmosphere can be lit
+        if (shadow_tex_depth > t) {
+            float mist_weight = exp(-lookup_pos.y * 2.0);
+            shadow_visibility += mist_weight * step_size; // weight by segment length
         }
     }
-    shadow_visibility /= MAX_CHECKS;
+
+    // Convert the path-length sum to the [0,1] range
+    float inv_total_len = 1.0 / max(using_depth, 1e-4); // avoid /0
+    shadow_visibility *= inv_total_len;
+
     imageStore(god_ray_output_tex, uvi, vec4(shadow_visibility, 0.0, 0.0, 1.0));
 }

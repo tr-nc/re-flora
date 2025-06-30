@@ -654,8 +654,8 @@ impl Tracer {
             ),
             WriteDescriptorSet::new_texture_write(
                 6,
-                vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                &resources.shadow_map_tex_for_vsm_ping,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.shadow_map_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
