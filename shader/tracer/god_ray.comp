@@ -54,7 +54,8 @@ layout(set = 1, binding = 5, rgba8) readonly uniform image2DArray fast_weighted_
 
 #include "../include/ray.glsl"
 
-const uint MAX_CHECKS = 32;
+const float MAX_DEPTH = 1.5;
+const uint MAX_CHECKS = 64;
 
 float get_depth_01(ivec2 uvi) {
     // float gfx_depth_01     = imageLoad(gfx_depth_tex, uvi).r;
@@ -83,8 +84,8 @@ void main() {
 
     float real_depth = length(hit_far_point_ws - near_point_ws);
 
-    float step_size   = god_ray_info.max_depth / MAX_CHECKS;
-    float using_depth = min(real_depth, god_ray_info.max_depth);
+    float step_size   = MAX_DEPTH / MAX_CHECKS;
+    float using_depth = min(real_depth, MAX_DEPTH);
 
     ivec3 seed         = get_seed(env_info.frame_serial_idx);
     float random_float = random_float_bn(seed);
