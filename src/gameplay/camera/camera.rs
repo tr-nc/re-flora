@@ -300,6 +300,7 @@ impl Camera {
         ) * frame_delta_time;
     }
 
+    #[allow(dead_code)]
     pub fn get_frustum_corners(&self) -> [Vec3; 8] {
         let view_proj_inv = (Self::calculate_proj_mat(
             self.desc.projection.v_fov,

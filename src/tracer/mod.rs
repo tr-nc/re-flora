@@ -205,7 +205,6 @@ impl Tracer {
             &main_vert_sm,
             &tracer_sm,
             &tracer_shadow_sm,
-            &god_ray_sm,
             &post_processing_sm,
             render_extent,
             screen_extent,

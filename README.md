@@ -113,7 +113,7 @@ rustup update stable
 
 ## TODO list
 
-- [ ] Volumetric Lighting (toggable)
 - [ ] Trees adding back & Leaves
-- [ ] Other types of plants
 - [ ] Dynamic Terrain Edit
+- [ ] Other types of plants
+- [ ] Sky Color

@@ -45,7 +45,6 @@ impl TracerResources {
         vert_sm: &ShaderModule,
         tracer_sm: &ShaderModule,
         tracer_shadow_sm: &ShaderModule,
-        god_ray_sm: &ShaderModule,
         post_processing_sm: &ShaderModule,
         rendering_extent: Extent2D,
         screen_extent: Extent2D,
