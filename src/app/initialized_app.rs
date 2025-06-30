@@ -52,6 +52,7 @@ pub struct InitializedApp {
     // gui adjustables
     debug_float: f32,
     debug_bool: bool,
+    debug_uint: u32,
     sun_altitude: f32,
     sun_azimuth: f32,
     sun_size: f32,
@@ -202,6 +203,7 @@ impl InitializedApp {
 
             debug_float: 0.0,
             debug_bool: true,
+            debug_uint: 0,
             sun_altitude: 14.0,
             sun_azimuth: 280.0,
             sun_size: 0.02,
@@ -450,7 +452,6 @@ impl InitializedApp {
                     .wait_for_fences(&[self.fence.as_raw()])
                     .unwrap();
 
-                let mut grass_changed = false;
                 let mut add_tree_requested = false;
                 let mut tree_desc_changed = false;
 
@@ -476,12 +477,17 @@ impl InitializedApp {
                                         self.time_info.display_fps()
                                     )));
 
-                                    grass_changed |= ui
-                                        .add(
-                                            egui::Slider::new(&mut self.debug_float, 0.0..=1.0)
-                                                .text("Debug Float"),
-                                        )
-                                        .changed();
+                                    ui.add(
+                                        egui::Slider::new(&mut self.debug_float, 0.0..=10.0)
+                                            .text("Debug Float"),
+                                    )
+                                    .changed();
+
+                                    ui.add(
+                                        egui::Slider::new(&mut self.debug_uint, 0..=100)
+                                            .text("Debug UInt"),
+                                    )
+                                    .changed();
 
                                     ui.add(egui::Checkbox::new(&mut self.debug_bool, "Debug Bool"));
 
@@ -591,6 +597,7 @@ impl InitializedApp {
                         self.surface_builder.get_grass_instance_len(),
                         self.debug_float,
                         self.debug_bool,
+                        self.debug_uint,
                         get_sun_dir(self.sun_altitude, self.sun_azimuth),
                         self.sun_size,
                         Vec3::new(
@@ -598,7 +605,6 @@ impl InitializedApp {
                             self.sun_color.g() as f32,
                             self.sun_color.b() as f32,
                         ),
-                        self.debug_float * 10.0,
                     )
                     .unwrap();
 

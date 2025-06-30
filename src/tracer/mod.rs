@@ -638,7 +638,7 @@ impl Tracer {
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.camera_info),
             WriteDescriptorSet::new_buffer_write(1, &resources.shadow_camera_info),
-            WriteDescriptorSet::new_buffer_write(2, &resources.god_ray_info),
+            WriteDescriptorSet::new_buffer_write(2, &resources.gui_input),
             WriteDescriptorSet::new_buffer_write(3, &resources.env_info),
             WriteDescriptorSet::new_texture_write(
                 4,
@@ -857,10 +857,10 @@ impl Tracer {
         grass_instances_len: u32,
         debug_float: f32,
         debug_bool: bool,
+        debug_uint: u32,
         sun_dir: Vec3,
         sun_size: f32,
         sun_color: Vec3,
-        god_ray_max_depth: f32,
     ) -> Result<()> {
         let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
         let compute_to_compute_barrier = PipelineBarrier::new(
@@ -902,6 +902,7 @@ impl Tracer {
             &self.resources,
             debug_float,
             debug_bool,
+            debug_uint,
             sun_dir,
             sun_size,
             sun_color,
@@ -917,7 +918,6 @@ impl Tracer {
         );
         b2.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
-        Self::update_god_ray_info(&self.resources, god_ray_max_depth)?;
         self.record_god_ray_pass(cmdbuf);
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
@@ -1207,6 +1207,7 @@ impl Tracer {
         resources: &TracerResources,
         debug_float: f32,
         debug_bool: bool,
+        debug_uint: u32,
         sun_dir: Vec3,
         sun_size: f32,
         sun_color: Vec3,
@@ -1218,6 +1219,8 @@ impl Tracer {
                 "debug_bool",
                 PlainMemberTypeWithData::UInt(debug_bool as u32),
             )
+            .unwrap()
+            .set_field("debug_uint", PlainMemberTypeWithData::UInt(debug_uint))
             .unwrap()
             .set_field("sun_dir", PlainMemberTypeWithData::Vec3(sun_dir.to_array()))
             .unwrap()
@@ -1293,18 +1296,6 @@ impl Tracer {
             .unwrap()
             .build();
         resources.grass_info.fill_with_raw_u8(&data)?;
-        Ok(())
-    }
-
-    fn update_god_ray_info(resources: &TracerResources, god_ray_max_depth: f32) -> Result<()> {
-        let data = StructMemberDataBuilder::from_buffer(&resources.god_ray_info)
-            .set_field(
-                "max_depth",
-                PlainMemberTypeWithData::Float(god_ray_max_depth),
-            )
-            .unwrap()
-            .build();
-        resources.god_ray_info.fill_with_raw_u8(&data)?;
         Ok(())
     }
 

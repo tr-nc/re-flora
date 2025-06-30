@@ -34,8 +34,15 @@ layout(set = 0, binding = 1) uniform U_ShadowCameraInfo {
     mat4 view_proj_mat_inv;
 }
 shadow_camera_info;
-layout(set = 0, binding = 2) uniform U_GodRayInfo { float max_depth; }
-god_ray_info;
+layout(set = 0, binding = 2) uniform U_GuiInput {
+    float debug_float;
+    uint debug_bool;
+    uint debug_uint;
+    vec3 sun_dir;
+    float sun_size;
+    vec3 sun_color;
+}
+gui_input;
 layout(set = 0, binding = 3) uniform U_EnvInfo { uint frame_serial_idx; }
 env_info;
 layout(set = 0, binding = 4, r32f) uniform readonly image2D gfx_depth_tex;
@@ -55,13 +62,12 @@ layout(set = 1, binding = 5, rgba8) readonly uniform image2DArray fast_weighted_
 #include "../include/ray.glsl"
 
 const float MAX_DEPTH = 1.5;
-const uint MAX_CHECKS = 64;
+const uint MAX_CHECKS = 16;
 
 float get_depth_01(ivec2 uvi) {
-    // float gfx_depth_01     = imageLoad(gfx_depth_tex, uvi).r;
+    float gfx_depth_01     = imageLoad(gfx_depth_tex, uvi).r;
     float compute_depth_01 = imageLoad(compute_depth_tex, uvi).r;
-    // return min(gfx_depth_01, compute_depth_01);
-    return compute_depth_01;
+    return min(gfx_depth_01, compute_depth_01);
 }
 
 void main() {
@@ -90,9 +96,7 @@ void main() {
     ivec3 seed         = get_seed(env_info.frame_serial_idx);
     float random_float = random_float_bn(seed);
 
-    // -----------------------------------------------------------------------------
-    // Accumulate lit length along the ray (Riemann sum)
-    // -----------------------------------------------------------------------------
+    // accumulate lit length along the ray (Riemann sum)
     float shadow_visibility = 0.0;
 
     for (uint i = 0; i < MAX_CHECKS; ++i) {

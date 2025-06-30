@@ -14,7 +14,6 @@ pub struct TracerResources {
     pub shadow_camera_info: Buffer,
     pub env_info: Buffer,
     pub grass_info: Buffer,
-    pub god_ray_info: Buffer,
     pub post_processing_info: Buffer,
 
     pub vertices: Buffer,
@@ -93,15 +92,6 @@ impl TracerResources {
         );
 
         let grass_info_layout = vert_sm.get_buffer_layout("U_GrassInfo").unwrap();
-
-        let god_ray_info_layout = god_ray_sm.get_buffer_layout("U_GodRayInfo").unwrap();
-        let god_ray_info = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            god_ray_info_layout.clone(),
-            BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
-        );
 
         let post_processing_info_layout = post_processing_sm
             .get_buffer_layout("U_PostProcessingInfo")
@@ -238,7 +228,6 @@ impl TracerResources {
             shadow_camera_info,
             env_info,
             grass_info,
-            god_ray_info,
             post_processing_info,
 
             vertices,
