@@ -19,6 +19,8 @@ layout(set = 0, binding = 6, rgba32f) uniform readonly image2D god_ray_output_te
 #define OUTPUT_TEXTURE_NAME screen_output_tex
 #include "../include/core/debug.glsl"
 
+#include "../include/core/dither.glsl"
+
 vec3 combine_colors(float gfx_depth_01, float compute_depth_01, vec4 gfx_color,
                     vec4 compute_color) {
     if (gfx_depth_01 > compute_depth_01) {
@@ -44,9 +46,12 @@ void main() {
     ivec2 god_ray_tex_size      = imageSize(god_ray_output_tex);
     vec2 god_ray_scaling_factor = vec2(god_ray_tex_size) / vec2(imageSize(screen_output_tex));
     ivec2 god_ray_mapped_uvi    = ivec2(vec2(uvi) * god_ray_scaling_factor);
+    float dithering             = bayer_16(vec2(uvi) * 0.5) - 0.5;
     float god_ray_color         = imageLoad(god_ray_output_tex, god_ray_mapped_uvi).r;
+    god_ray_color += dithering;
+    god_ray_color = god_ray_color < 0.5 ? 0.0 : 1.0;
 
-    final_color += vec3(god_ray_color) * 0.02;
+    final_color += vec3(god_ray_color) * 0.1;
 
     imageStore(screen_output_tex, uvi, vec4(final_color, 1.0));
 }

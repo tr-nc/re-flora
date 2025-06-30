@@ -65,7 +65,7 @@ float get_depth_01(ivec2 uvi) {
 }
 
 void update_workgroup_max_depth(ivec2 uvi) {
-    if (gl_LocalInvocationIndex == 0) {
+    if (gl_LocalInvocationID == uvec3(1, 1, 0)) {
         float depth_01      = get_depth_01(uvi);
         workgroup_max_depth = depth_01;
     }
@@ -114,8 +114,8 @@ void main() {
     barrier();
 
     if (gl_LocalInvocationIndex == 0) {
+        ivec2 lowres_uvi        = ivec2(gl_WorkGroupID.xy);
         float shadow_visibility = workgroup_shadow_visibility_sum / MAX_CHECKS;
-        imageStore(god_ray_output_tex, ivec2(gl_WorkGroupID.xy),
-                   vec4(shadow_visibility, 0.0, 0.0, 1.0));
+        imageStore(god_ray_output_tex, lowres_uvi, vec4(shadow_visibility, 0.0, 0.0, 1.0));
     }
 }
