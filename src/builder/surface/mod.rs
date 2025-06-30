@@ -197,7 +197,7 @@ impl SurfaceBuilder {
 
         let (active_voxel_len, grass_instance_len) =
             get_result(&self.resources.make_surface_result);
-        log::debug!("grass_instance_len: {}", grass_instance_len);
+
         self.resources
             .chunk_raster_resources
             .get_mut(&chunk_id)
