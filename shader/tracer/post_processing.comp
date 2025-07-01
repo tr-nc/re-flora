@@ -53,7 +53,7 @@ void main() {
     vec4 god_ray_color = vec4(dot_color, god_ray_weight);
 
     // overlap the god ray color with the final color
-    final_color = mix(final_color, god_ray_color.rgb, god_ray_color.a);
+    // final_color = mix(final_color, god_ray_color.rgb, god_ray_color.a);
 
     vec3 dither_mask = get_dither_mask(uvi);
     final_color += dither_mask;

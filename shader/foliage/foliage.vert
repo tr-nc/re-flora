@@ -13,7 +13,6 @@ layout(location = 4) in uint in_instance_grass_type;
 
 layout(location = 0) out vec3 vert_color;
 
-// --- UNIFORM BINDINGS UNCHANGED (as requested) ---
 layout(set = 0, binding = 0) uniform U_CameraInfo {
     vec4 pos;
     mat4 view_mat;
@@ -39,11 +38,21 @@ shadow_camera_info;
 layout(set = 0, binding = 2) uniform U_GrassInfo { float time; }
 grass_info;
 
-layout(set = 0, binding = 3) uniform sampler2D vsm_shadow_map_tex;
+layout(set = 0, binding = 3) uniform U_GuiInput {
+    float debug_float;
+    uint debug_bool;
+    uint debug_uint;
+    vec3 sun_dir;
+    float sun_size;
+    vec3 sun_color;
+}
+gui_input;
+
+layout(set = 0, binding = 4) uniform sampler2D shadow_map_tex;
 
 #include "../include/core/fast_noise_lite.glsl"
 #include "../include/core/hash.glsl"
-#include "../include/vsm.glsl"
+#include "../include/pcss.glsl"
 
 const uint voxel_count     = 8;
 const float scaling_factor = 1.0 / 256.0;
@@ -108,9 +117,7 @@ void main() {
     vert_pos_ws     = (scale_mat * vert_pos_ws);
     voxel_pos_ws    = (scale_mat * voxel_pos_ws);
 
-    // Call the new VSM function instead of the old PCF one.
-    // The new function uses the VSM texture from binding 3.
-    float shadow_weight = get_shadow_vsm(shadow_camera_info.view_proj_mat, voxel_pos_ws);
+    float shadow_weight = get_shadow_weight(voxel_pos_ws.xyz);
 
     // transform to clip space
     gl_Position = camera_info.view_proj_mat * vert_pos_ws;

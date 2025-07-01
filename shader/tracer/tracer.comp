@@ -41,7 +41,7 @@ contree_node_data;
 layout(set = 0, binding = 5) readonly buffer B_ContreeLeafData { uint data[]; }
 contree_leaf_data;
 layout(set = 0, binding = 6, rg32ui) readonly uniform uimage3D scene_tex;
-layout(set = 0, binding = 7) uniform sampler2D vsm_shadow_map_tex;
+layout(set = 0, binding = 7) uniform sampler2D shadow_map_tex;
 
 layout(set = 1, binding = 0, rgba8) writeonly uniform image2D compute_output_tex;
 layout(set = 1, binding = 1, r32f) writeonly uniform image2D compute_depth_tex;
@@ -60,10 +60,11 @@ layout(set = 2, binding = 5, rgba8) readonly uniform image2DArray fast_weighted_
 #include "../include/core/shader_clock.glsl"
 #include "../include/core/viridis.glsl"
 #include "../include/marching_result.glsl"
+#include "../include/pcss.glsl"
 #include "../include/ray.glsl"
 #include "../include/skylight.glsl"
 #include "../include/voxel_registry.glsl"
-#include "../include/vsm.glsl"
+
 
 bool scene_hit(inout MarchingResult o_res, vec3 o, vec3 d, ivec3 map_pos, uvec4 scene_tex_read) {
     // see update_scene_tex.comp for encoding part
@@ -123,8 +124,7 @@ vec3 get_shadow_ray_color(Ray ray) {
         MarchingResult res_shadow_ray = general_scene_marching(ray);
         return res_shadow_ray.is_hit ? vec3(0.0) : gui_input.sun_color * 0.01;
     } else {
-        return get_shadow_vsm(shadow_camera_info.view_proj_mat, vec4(ray.origin, 1.0)) *
-               gui_input.sun_color * 0.01;
+        return get_shadow_weight(ray.origin) * gui_input.sun_color * 0.01;
     }
 }
 

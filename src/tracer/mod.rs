@@ -352,10 +352,11 @@ impl Tracer {
             WriteDescriptorSet::new_buffer_write(0, &resources.camera_info),
             WriteDescriptorSet::new_buffer_write(1, &resources.shadow_camera_info),
             WriteDescriptorSet::new_buffer_write(2, &resources.grass_info),
+            WriteDescriptorSet::new_buffer_write(3, &resources.gui_input),
             WriteDescriptorSet::new_texture_write(
-                3,
+                4,
                 vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                &resources.shadow_map_tex_for_vsm_ping,
+                &resources.shadow_map_tex,
                 vk::ImageLayout::GENERAL,
             ),
         ]);
@@ -553,7 +554,7 @@ impl Tracer {
             WriteDescriptorSet::new_texture_write(
                 7,
                 vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                &resources.shadow_map_tex_for_vsm_ping,
+                &resources.shadow_map_tex,
                 vk::ImageLayout::GENERAL,
             ),
         ]);
@@ -910,8 +911,8 @@ impl Tracer {
             self.camera.get_view_mat(),
             self.camera.get_proj_mat(),
         )?;
+
         Self::update_grass_info(&self.resources, time_info.time_since_start())?;
-        self.record_main_pass(cmdbuf, surface_resources);
 
         Self::update_gui_input(
             &self.resources,
@@ -922,6 +923,9 @@ impl Tracer {
             sun_size,
             sun_color,
         )?;
+
+        self.record_main_pass(cmdbuf, surface_resources);
+
         Self::update_env_info(&self.resources, time_info.total_frame_count() as u32)?;
 
         self.record_compute_pass(cmdbuf);

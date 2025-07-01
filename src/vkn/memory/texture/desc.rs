@@ -371,8 +371,8 @@ pub struct SamplerDesc {
 impl Default for SamplerDesc {
     fn default() -> Self {
         Self {
-            mag_filter: vk::Filter::NEAREST,
-            min_filter: vk::Filter::NEAREST,
+            mag_filter: vk::Filter::LINEAR,
+            min_filter: vk::Filter::LINEAR,
             mipmap_mode: vk::SamplerMipmapMode::NEAREST,
             address_mode_u: vk::SamplerAddressMode::CLAMP_TO_EDGE,
             address_mode_v: vk::SamplerAddressMode::CLAMP_TO_EDGE,
@@ -385,7 +385,7 @@ impl Default for SamplerDesc {
             compare_op: vk::CompareOp::ALWAYS,
             mip_lod_bias: 0.0,
             min_lod: 0.0,
-            max_lod: 0.0, // no mipmaps
+            max_lod: 0.25, // no mipmaps
         }
     }
 }
