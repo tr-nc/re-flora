@@ -1,6 +1,6 @@
 /// Calculates shadow visibility using Variance Shadow Mapping.
 /// Requires:
-/// ifndef IGNORE_GET_SHADOW_VSM: uniform sampler2D vsm_shadow_map_tex;      // RG moments
+/// ifndef IGNORE_GET_SHADOW_WEIGHT_VSM: uniform sampler2D vsm_shadow_map_tex;      // RG moments
 
 #ifndef VSM_GLSL
 #define VSM_GLSL
@@ -40,8 +40,8 @@ float chebyshev_upper_bound(vec2 moments, float t) {
     return (t <= moments.x) ? 1.0 : variance / (variance + d * d);
 }
 
-#ifndef IGNORE_GET_SHADOW_VSM
-float get_shadow_vsm(mat4 shadow_cam_view_proj_mat, vec4 voxel_pos_ws) {
+#ifndef IGNORE_GET_SHADOW_WEIGHT_VSM
+float get_shadow_weight_vsm(mat4 shadow_cam_view_proj_mat, vec4 voxel_pos_ws) {
     vec4 light_space = shadow_cam_view_proj_mat * voxel_pos_ws;
     vec3 ndc         = light_space.xyz / light_space.w;
     vec2 uv          = ndc.xy * 0.5 + 0.5;
@@ -60,6 +60,6 @@ float get_shadow_vsm(mat4 shadow_cam_view_proj_mat, vec4 voxel_pos_ws) {
 
     return vis;
 }
-#endif // IGNORE_GET_SHADOW_VSM
+#endif // IGNORE_GET_SHADOW_WEIGHT_VSM
 
 #endif // VSM_GLSL

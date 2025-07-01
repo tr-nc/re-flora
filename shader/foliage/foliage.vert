@@ -48,11 +48,12 @@ layout(set = 0, binding = 3) uniform U_GuiInput {
 }
 gui_input;
 
-layout(set = 0, binding = 4) uniform sampler2D shadow_map_tex;
+layout(set = 0, binding = 4) uniform sampler2D vsm_shadow_map_tex;
 
 #include "../include/core/fast_noise_lite.glsl"
 #include "../include/core/hash.glsl"
-#include "../include/pcss.glsl"
+// #include "../include/pcss.glsl"
+#include "../include/vsm.glsl"
 
 const uint voxel_count     = 8;
 const float scaling_factor = 1.0 / 256.0;
@@ -107,7 +108,7 @@ void main() {
     vec3 vertex_offset = get_offset_of_vertex(height, voxel_count, grass_offset);
     vec3 vert_pos_ms   = in_position + vertex_offset;
     vec4 vert_pos_ws   = vec4(vert_pos_ms + in_instance_position, 1.0);
-    vec3 voxel_pos_ms  = float(in_height) + vec3(0.5) + vertex_offset;
+    vec3 voxel_pos_ms  = vec3(0.0, in_height, 0.0) + vec3(0.5) + vertex_offset;
     vec4 voxel_pos_ws  = vec4(voxel_pos_ms + in_instance_position, 1.0);
 
     mat4 scale_mat  = mat4(1.0);
@@ -117,7 +118,7 @@ void main() {
     vert_pos_ws     = (scale_mat * vert_pos_ws);
     voxel_pos_ws    = (scale_mat * voxel_pos_ws);
 
-    float shadow_weight = get_shadow_weight(voxel_pos_ws.xyz);
+    float shadow_weight = get_shadow_weight_vsm(shadow_camera_info.view_proj_mat, voxel_pos_ws);
 
     // transform to clip space
     gl_Position = camera_info.view_proj_mat * vert_pos_ws;

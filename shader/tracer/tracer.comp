@@ -65,7 +65,6 @@ layout(set = 2, binding = 5, rgba8) readonly uniform image2DArray fast_weighted_
 #include "../include/skylight.glsl"
 #include "../include/voxel_registry.glsl"
 
-
 bool scene_hit(inout MarchingResult o_res, vec3 o, vec3 d, ivec3 map_pos, uvec4 scene_tex_read) {
     // see update_scene_tex.comp for encoding part
     if (scene_tex_read.x == 0) {
@@ -119,12 +118,12 @@ vec3 sample_sun_disk(ivec3 seed, float sun_size, vec3 sun_dir) {
 ///
 
 /// If the ray hits the scene, no light, otherwise sunlight
-vec3 get_shadow_ray_color(Ray ray) {
+vec3 get_shadow_ray_color(Ray ray, ivec3 seed) {
     if (gui_input.debug_bool == 0) {
         MarchingResult res_shadow_ray = general_scene_marching(ray);
         return res_shadow_ray.is_hit ? vec3(0.0) : gui_input.sun_color * 0.01;
     } else {
-        return get_shadow_weight(ray.origin) * gui_input.sun_color * 0.01;
+        return get_shadow_weight_pcss(ray.origin, seed) * gui_input.sun_color * 0.01;
     }
 }
 
@@ -183,7 +182,7 @@ void get_pixel_color(out vec3 color, out float depth_01, Ray ray, ivec3 seed) {
     float cos_i = dot(shadow_ray.direction, res_primary_ray.normal);
     if (cos_i > 0.0) {
         // we ignored the pdf and brdf calc here, because the sun's luminance is experimental
-        direct_color = get_shadow_ray_color(shadow_ray) * cos_i * albedo;
+        direct_color = get_shadow_ray_color(shadow_ray, seed) * cos_i * albedo;
     }
 
     vec3 indirect_color = vec3(0.0);
@@ -213,7 +212,8 @@ void get_pixel_color(out vec3 color, out float depth_01, Ray ray, ivec3 seed) {
 
         float cos_i = dot(shadow_ray.direction, res_indirect_ray.normal);
         if (cos_i > 0.0) {
-            indirect_color = get_shadow_ray_color(shadow_ray) * cos_i * sample_albedo;
+            indirect_color =
+                get_shadow_ray_color(shadow_ray, indirect_seed) * cos_i * sample_albedo;
         }
     }
     // see README for the brdf, pdf explanation
