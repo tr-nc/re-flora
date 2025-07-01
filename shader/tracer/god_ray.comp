@@ -61,7 +61,7 @@ layout(set = 1, binding = 5, rgba8) readonly uniform image2DArray fast_weighted_
 
 #include "../include/ray.glsl"
 
-const float MAX_DEPTH = 1.5;
+float MAX_DEPTH = 3.0;
 const uint MAX_CHECKS = 16;
 
 float get_depth_01(ivec2 uvi) {

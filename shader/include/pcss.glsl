@@ -8,11 +8,10 @@
 #include "./core/sampling.glsl"
 #include "./noise_tex.glsl"
 
-float SHADOW_EPSILON = 1e-4;
+float SHADOW_EPSILON = 3.5 * 1e-3;
 
-// float BLOCKER_SEARCH_FILTER_RADIUS = gui_input.debug_float / 100.0;
-
-float LIGHT_SIZE_UV = float(gui_input.debug_uint) / 1000.0;
+float BLOCKER_SEARCH_WIDTH = 2.0 / 100.0;
+float LIGHT_SIZE_UV        = 4.0 / 100.0;
 
 const float NEAR_PLANE = 0.01;
 
@@ -40,6 +39,7 @@ float pcf(vec2 base_uv, float ref_z, float filter_radius, ivec3 seed) {
         float vis      = (sample_z + SHADOW_EPSILON > ref_z) ? 1.0 : 0.0;
 
         float weight = 1.0;
+
         sum_of_weight += weight;
         sum_of_weighted_values += weight * vis;
     }
@@ -47,7 +47,7 @@ float pcf(vec2 base_uv, float ref_z, float filter_radius, ivec3 seed) {
 }
 
 float get_avg_blocker_depth(vec2 base_uv, float ref_z, ivec3 seed) {
-    float search_width = LIGHT_SIZE_UV * (ref_z - NEAR_PLANE) / ref_z * 2.0;
+    float search_width = BLOCKER_SEARCH_WIDTH;
 
     float random_01 = random_float_bn(seed);
     mat2 rot        = get_rotation_matrix(random_01);
@@ -76,7 +76,7 @@ float get_shadow_weight_pcss(vec3 voxel_pos_ws, ivec3 seed) {
 
     if (avg_blocker_z < 0.0) return 1.0;
 
-    float penumbra_filter_radius = (ref_z - avg_blocker_z) / avg_blocker_z * LIGHT_SIZE_UV;
+    float penumbra_filter_radius = (ref_z - avg_blocker_z) * LIGHT_SIZE_UV;
 
     return pcf(base_uv, ref_z, penumbra_filter_radius, seed);
 }
