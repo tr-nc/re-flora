@@ -670,7 +670,7 @@ impl Tracer {
             ),
             WriteDescriptorSet::new_texture_write(
                 6,
-                vk::DescriptorType::STORAGE_IMAGE,
+                vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
                 &resources.shadow_map_tex,
                 vk::ImageLayout::GENERAL,
             ),

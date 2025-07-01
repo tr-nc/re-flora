@@ -48,7 +48,7 @@ env_info;
 layout(set = 0, binding = 4, r32f) uniform readonly image2D gfx_depth_tex;
 layout(set = 0, binding = 5, r32f) uniform readonly image2D compute_depth_tex;
 // we don't use the filtered VSM texture here, just use the plain shadow map texture
-layout(set = 0, binding = 6, r32f) readonly uniform image2D shadow_map_tex;
+layout(set = 0, binding = 6) uniform sampler2D shadow_map_tex;
 layout(set = 0, binding = 7, rgba32f) uniform writeonly image2D god_ray_output_tex;
 
 layout(set = 1, binding = 0, r8) readonly uniform image2DArray scalar_bn;
@@ -109,7 +109,7 @@ void main() {
         vec3 ndc               = light_space.xyz / light_space.w;
         vec2 uv                = ndc.xy * 0.5 + 0.5;
         float t                = ndc.z;
-        float shadow_tex_depth = imageLoad(shadow_map_tex, ivec2(uv * imageSize(shadow_map_tex))).r;
+        float shadow_tex_depth = texture(shadow_map_tex, uv).r;
 
         // If the current point in the atmosphere can be lit
         if (shadow_tex_depth > t) {
