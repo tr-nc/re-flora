@@ -6,7 +6,7 @@ layout(location = 1) in vec3 in_color;
 layout(location = 2) in uint in_height; // The voxel's stack level
 
 // these are instance-rate attributes
-// this should match the grass_instance.glsl
+// this should match the frag_elements_registry.glsl
 layout(location = 3) in uvec3 in_instance_position;
 layout(location = 4) in uint in_instance_grass_type;
 

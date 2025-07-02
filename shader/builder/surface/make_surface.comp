@@ -23,7 +23,7 @@ layout(set = 0, binding = 2, r32ui) writeonly uniform uimage3D surface;
 
 layout(set = 0, binding = 3, r8ui) readonly uniform uimage3D atlas;
 
-#include "../../include/grass_instance.glsl"
+#include "../../include/frag_elements_registry.glsl"
 layout(set = 1, binding = 0) writeonly buffer B_GrassInstances { GrassInstance data[]; }
 grass_instances;
 
@@ -196,8 +196,6 @@ void main() {
 
     atomicAdd(make_surface_result.active_voxel_len, 1);
     imageStore(surface, uvi, uvec4(properties, 0, 0, 0));
-
-    // --- Start of the new randomized grass generation ---
 
     // Define the spacing for grass placement. A value of 2 means grass can only
     // spawn on a 2x2 grid, ensuring space between potential stalks.

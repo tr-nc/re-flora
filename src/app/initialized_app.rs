@@ -230,7 +230,7 @@ impl InitializedApp {
                         chunk_idx * VOXEL_DIM_PER_CHUNK,
                         (chunk_idx + UVec3::ONE) * VOXEL_DIM_PER_CHUNK - UVec3::ONE,
                     );
-                    Self::mesh_regenerate(
+                    Self::mesh_generate(
                         surface_builder,
                         contree_builder,
                         scene_accel_builder,
@@ -298,7 +298,7 @@ impl InitializedApp {
         }
 
         self.plain_builder.chunk_modify(&bvh_nodes, &round_cones);
-        Self::mesh_regenerate(
+        Self::mesh_generate(
             &mut self.surface_builder,
             &mut self.contree_builder,
             &mut self.scene_accel_builder,
@@ -308,7 +308,7 @@ impl InitializedApp {
         self.prev_bound = this_bound;
     }
 
-    fn mesh_regenerate(
+    fn mesh_generate(
         surface_builder: &mut SurfaceBuilder,
         contree_builder: &mut ContreeBuilder,
         scene_accel_builder: &mut SceneAccelBuilder,
@@ -455,7 +455,6 @@ impl InitializedApp {
                     .unwrap();
 
                 let mut tree_desc_changed = false;
-
                 self.egui_renderer
                     .update(&self.window_state.window(), |ctx| {
                         let my_frame = egui::containers::Frame {
