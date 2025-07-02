@@ -1,8 +1,15 @@
-#version 450
+#version 460
 
 #extension GL_GOOGLE_include_directive : require
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform U_TemporalInfo {
+    float temporal_position_phi;
+    float temporal_alpha;
+}
+temporal_info;
+layout(set = 0, binding = 1, r32ui) uniform uimage2D raw_image;
 
 layout(set = 3, binding = 0, r32ui) uniform uimage2D denoiser_normal_tex;
 layout(set = 3, binding = 1, r32ui) uniform uimage2D denoiser_normal_tex_prev;
@@ -18,85 +25,85 @@ layout(set = 3, binding = 10, r8ui) uniform uimage2D denoiser_hit_tex;
 layout(set = 3, binding = 11, r11f_g11f_b10f) uniform image2D denoiser_atrous_ping_tex;
 layout(set = 3, binding = 12, r11f_g11f_b10f) uniform image2D denoiser_atrous_pong_tex;
 
-vec3 getAccumColor(ivec2 pUv) {
-    ivec2 bound = ivec2(renderInfoUbo.data.lowResSize);
-    if (any(lessThan(pUv, ivec2(0))) || any(greaterThanEqual(pUv, bound))) {
-        return vec3(0);
+#include "../include/core/packer.glsl"
+
+ivec2 img_size() { return imageSize(denoiser_normal_tex); }
+
+vec3 fetch_accum_color(ivec2 uv) {
+    ivec2 size = img_size();
+    if (any(lessThan(uv, ivec2(0))) || any(greaterThanEqual(uv, size))) {
+        return vec3(0.0);
     }
-    return unpackRgbe(imageLoad(lastAccumedImage, pUv).x);
+    return unpack_rgbe(imageLoad(denoiser_accumed_tex_prev, uv).x);
 }
 
-bool isConsistent(vec3 normal, vec3 lastNormal, vec3 position, vec3 lastPosition) {
-    // normal test is useful for edges (nearby disocclusions)
-    float normalFac       = dot(normal, lastNormal);
-    bool normalConsistent = normalFac > 0.9;
-
-    // position test is useful for disocclusions happened in some distance
-    float positionFac       = exp(-distance(position, lastPosition));
-    bool positionConsistent = positionFac > temporalFilterInfoUbo.data.temporalPositionPhi;
-
-    return normalConsistent && positionConsistent;
+bool is_consistent(vec3 n, vec3 n_prev, vec3 p, vec3 p_prev) {
+    float n_fac = dot(n, n_prev);
+    float p_fac = exp(-distance(p, p_prev));
+    return n_fac > 0.9 && p_fac > temporal_info.temporal_position_phi;
 }
 
 void main() {
-    ivec2 uvi = ivec2(gl_GlobalInvocationID.xy);
-    if (any(greaterThanEqual(uvi, ivec2(renderInfoUbo.data.lowResSize)))) {
+    ivec2 uv   = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = img_size();
+    if (any(greaterThanEqual(uv, size))) {
         return;
     }
 
-    bool hit = imageLoad(hitImage, uvi).x != 0;
-    if (!hit) {
+    if (imageLoad(denoiser_hit_tex, uv).x == 0u) {
         return;
     }
 
-    vec2 motion = imageLoad(motionImage, uvi).xy * vec2(renderInfoUbo.data.lowResSize);
-    vec2 pUv    = vec2(uvi) + motion;
+    vec2 motion = imageLoad(denoiser_motion_tex, uv).xy * vec2(size);
+    vec2 p_uv   = vec2(uv) + motion;
 
-    vec2 pBaseUv = floor(pUv);
-    vec2 subpix  = fract(pUv - pBaseUv);
+    vec2 base_uv_f = floor(p_uv);
+    vec2 frac_uv   = fract(p_uv - base_uv_f);
 
-    const ivec2 off[4] = {{0, 0}, {1, 0}, {0, 1}, {1, 1}};
-    float w[4]         = {(1.0 - subpix.x) * (1.0 - subpix.y), (subpix.x) * (1.0 - subpix.y),
-                          (1.0 - subpix.x) * (subpix.y), (subpix.x) * (subpix.y)};
+    // TODO: use texture fetch to get weights later
+    const ivec2 OFF[4] = ivec2[4](ivec2(0, 0), ivec2(1, 0), ivec2(0, 1), ivec2(1, 1));
+    float w[4];
+    w[0] = (1.0 - frac_uv.x) * (1.0 - frac_uv.y);
+    w[1] = (frac_uv.x) * (1.0 - frac_uv.y);
+    w[2] = (1.0 - frac_uv.x) * frac_uv.y;
+    w[3] = frac_uv.x * frac_uv.y;
 
-    float sumOfWeights       = 0;
-    float sumOfHistLengths   = 0;
-    vec3 sumOfWeightedColors = vec3(0);
+    float sum_w    = 0.0;
+    float sum_hist = 0.0;
+    vec3 sum_color = vec3(0.0);
 
-    // normal test is useful for edges (nearby disocclusions)
-    vec3 normal   = unpackNormal(imageLoad(normalImage, uvi).x);
-    vec3 position = imageLoad(positionImage, uvi).xyz;
-    for (int i = 0; i < 4; i++) {
-        ivec2 tappingUv   = ivec2(pBaseUv) + off[i];
-        vec3 lastNormal   = unpackNormal(imageLoad(lastNormalImage, tappingUv).x);
-        vec3 lastPosition = imageLoad(lastPositionImage, tappingUv).xyz;
+    vec3 cur_normal   = unpack_normal_v2(imageLoad(denoiser_normal_tex, uv).x);
+    vec3 cur_position = imageLoad(denoiser_position_tex, uv).xyz;
 
-        bool consistent = isConsistent(normal, lastNormal, position, lastPosition);
-        if (consistent) {
-            sumOfWeightedColors += w[i] * getAccumColor(tappingUv);
-            sumOfWeights += w[i];
-            sumOfHistLengths += w[i] * float(imageLoad(temporalHistLengthImage, tappingUv).x);
+    for (int i = 0; i < 4; ++i) {
+        ivec2 tap_uv     = ivec2(base_uv_f) + OFF[i];
+        vec3 prev_normal = unpack_normal_v2(imageLoad(denoiser_normal_tex_prev, tap_uv).x);
+        vec3 prev_pos    = imageLoad(denoiser_position_tex_prev, tap_uv).xyz;
+
+        if (is_consistent(cur_normal, prev_normal, cur_position, prev_pos)) {
+            sum_color += w[i] * fetch_accum_color(tap_uv);
+            sum_w += w[i];
+            sum_hist += w[i] * float(imageLoad(denoiser_temporal_hist_len_tex, tap_uv).x);
         }
     }
 
-    vec3 rawColor = unpackRgbe(imageLoad(rawImage, uvi).x);
+    vec3 raw_color = unpack_rgbe(imageLoad(raw_image, uv).x);
 
-    float histLength;
-    vec3 thisFrameColor;
+    float hist_len;
+    vec3 out_color;
 
-    // relevant surfaces found
-    if (sumOfWeights >= 1e-6) {
-        sumOfHistLengths /= sumOfWeights;
-        sumOfWeightedColors /= sumOfWeights;
-        histLength     = min(255.0, sumOfHistLengths + 1.0);
-        float alphaFac = max(temporalFilterInfoUbo.data.temporalAlpha, 1.0 / histLength);
-        thisFrameColor = mix(sumOfWeightedColors, rawColor, alphaFac);
+    if (sum_w >= 1e-6) {
+        sum_hist /= sum_w;
+        sum_color /= sum_w;
+        hist_len  = min(255.0, sum_hist + 1.0);
+        float a   = max(temporal_info.temporal_alpha, 1.0 / hist_len);
+        out_color = mix(sum_color, raw_color, a);
     } else {
-        histLength     = 1.0;
-        thisFrameColor = rawColor;
+        hist_len  = 1.0;
+        out_color = raw_color;
     }
 
-    imageStore(accumedImage, uvi, uvec4(packRgbe(thisFrameColor), 0, 0, 0));
-    imageStore(aTrousPongImage, uvi, vec4(thisFrameColor, 0.0));
-    imageStore(temporalHistLengthImage, uvi, uvec4(histLength, 0.0, 0.0, 0.0));
+    imageStore(denoiser_accumed_tex, uv, uvec4(pack_rgbe(out_color), 0u, 0u, 0u));
+    imageStore(denoiser_atrous_pong_tex, uv, vec4(out_color, 0.0));
+    imageStore(denoiser_temporal_hist_len_tex, uv, uvec4(uint(hist_len), 0u, 0u, 0u));
 }

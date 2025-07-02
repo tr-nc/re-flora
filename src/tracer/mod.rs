@@ -161,6 +161,14 @@ impl Tracer {
         )
         .unwrap();
 
+        let temporal_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            &shader_compiler,
+            "shader/denoiser/temporal.comp",
+            "main",
+        )
+        .unwrap();
+
         let tracer_ppl = ComputePipeline::new(vulkan_ctx.device(), &tracer_sm);
         let tracer_shadow_ppl = ComputePipeline::new(vulkan_ctx.device(), &tracer_shadow_sm);
         let vsm_creation_ppl = ComputePipeline::new(vulkan_ctx.device(), &vsm_creation_sm);
@@ -209,6 +217,7 @@ impl Tracer {
             &tracer_sm,
             &tracer_shadow_sm,
             &post_processing_sm,
+            &temporal_sm,
             render_extent,
             screen_extent,
             Extent2D::new(1024, 1024),
@@ -260,6 +269,13 @@ impl Tracer {
         );
 
         let denoiser_ds = Self::create_denoiser_ds(
+            flexible_descriptor_pool.clone(),
+            &vulkan_ctx,
+            &tracer_ppl,
+            &resources,
+        );
+
+        let temporal_ds = Self::create_temporal_ds(
             flexible_descriptor_pool.clone(),
             &vulkan_ctx,
             &tracer_ppl,
@@ -700,6 +716,23 @@ impl Tracer {
         ds
     }
 
+    fn create_temporal_ds(
+        flexible_pool: DescriptorPool,
+        vulkan_ctx: &VulkanContext,
+        temporal_ppl: &ComputePipeline,
+        resources: &TracerResources,
+    ) -> DescriptorSet {
+        let ds = DescriptorSet::new(
+            vulkan_ctx.device().clone(),
+            &temporal_ppl.get_layout().get_descriptor_set_layouts()[&0],
+            flexible_pool,
+        );
+        ds.perform_writes(&mut [WriteDescriptorSet::new_buffer_write(
+            0,
+            &resources.denoiser_resources.temporal_info,
+        )]);
+        ds
+    }
     fn create_noise_tex_ds(
         descriptor_pool: DescriptorPool,
         vulkan_ctx: &VulkanContext,

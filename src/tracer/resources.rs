@@ -59,6 +59,7 @@ impl TracerResources {
         tracer_sm: &ShaderModule,
         tracer_shadow_sm: &ShaderModule,
         post_processing_sm: &ShaderModule,
+        temporal_sm: &ShaderModule,
         rendering_extent: Extent2D,
         screen_extent: Extent2D,
         shadow_map_extent: Extent2D,
@@ -276,6 +277,7 @@ impl TracerResources {
                 device.clone(),
                 allocator.clone(),
                 rendering_extent,
+                temporal_sm,
             ),
         };
 
@@ -335,9 +337,7 @@ impl TracerResources {
             Self::create_god_ray_output_tex(device.clone(), allocator.clone(), rendering_extent);
         self.screen_output_tex =
             Self::create_screen_output_tex(device.clone(), allocator.clone(), screen_extent);
-
-        self.denoiser_resources =
-            DenoiserResources::new(device.clone(), allocator.clone(), rendering_extent);
+        self.denoiser_resources.on_resize(rendering_extent);
     }
 
     fn create_god_ray_output_tex(
