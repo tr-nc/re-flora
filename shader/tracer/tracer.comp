@@ -23,7 +23,17 @@ layout(set = 0, binding = 1) uniform U_CameraInfo {
     mat4 view_proj_mat_inv;
 }
 camera_info;
-layout(set = 0, binding = 2) uniform U_ShadowCameraInfo {
+layout(set = 0, binding = 2) uniform U_CameraInfoPrevFrame {
+    vec4 pos;
+    mat4 view_mat;
+    mat4 view_mat_inv;
+    mat4 proj_mat;
+    mat4 proj_mat_inv;
+    mat4 view_proj_mat;
+    mat4 view_proj_mat_inv;
+}
+camera_info_prev_frame;
+layout(set = 0, binding = 3) uniform U_ShadowCameraInfo {
     vec4 pos;
     mat4 view_mat;
     mat4 view_mat_inv;
@@ -33,15 +43,15 @@ layout(set = 0, binding = 2) uniform U_ShadowCameraInfo {
     mat4 view_proj_mat_inv;
 }
 shadow_camera_info;
-layout(set = 0, binding = 3) uniform U_EnvInfo { uint frame_serial_idx; }
+layout(set = 0, binding = 4) uniform U_EnvInfo { uint frame_serial_idx; }
 env_info;
 #include "../include/contree_node.glsl"
-layout(set = 0, binding = 4) readonly buffer B_ContreeNodeData { ContreeNode data[]; }
+layout(set = 0, binding = 5) readonly buffer B_ContreeNodeData { ContreeNode data[]; }
 contree_node_data;
-layout(set = 0, binding = 5) readonly buffer B_ContreeLeafData { uint data[]; }
+layout(set = 0, binding = 6) readonly buffer B_ContreeLeafData { uint data[]; }
 contree_leaf_data;
-layout(set = 0, binding = 6, rg32ui) readonly uniform uimage3D scene_tex;
-layout(set = 0, binding = 7) uniform sampler2D shadow_map_tex;
+layout(set = 0, binding = 7, rg32ui) readonly uniform uimage3D scene_tex;
+layout(set = 0, binding = 8) uniform sampler2D shadow_map_tex;
 
 layout(set = 1, binding = 0, rgba8) writeonly uniform image2D compute_output_tex;
 layout(set = 1, binding = 1, r32f) writeonly uniform image2D compute_depth_tex;

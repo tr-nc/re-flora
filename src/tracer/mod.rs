@@ -2,6 +2,9 @@ mod resources;
 use glam::{Mat4, Vec2, Vec3};
 pub use resources::*;
 
+mod denoiser_resources;
+pub use denoiser_resources::*;
+
 mod vertex;
 pub use vertex::*;
 use winit::event::KeyEvent;
@@ -36,6 +39,8 @@ pub struct Tracer {
     resources: TracerResources,
 
     camera: Camera,
+    camera_view_mat_prev_frame: Mat4,
+    camera_proj_mat_prev_frame: Mat4,
 
     tracer_ppl: ComputePipeline,
     tracer_sets: [DescriptorSet; 3],
@@ -313,6 +318,8 @@ impl Tracer {
             allocator,
             resources,
             camera,
+            camera_view_mat_prev_frame: Mat4::IDENTITY,
+            camera_proj_mat_prev_frame: Mat4::IDENTITY,
             tracer_ppl,
             tracer_shadow_ppl,
             god_ray_ppl,
@@ -541,18 +548,19 @@ impl Tracer {
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.gui_input),
             WriteDescriptorSet::new_buffer_write(1, &resources.camera_info),
-            WriteDescriptorSet::new_buffer_write(2, &resources.shadow_camera_info),
-            WriteDescriptorSet::new_buffer_write(3, &resources.env_info),
-            WriteDescriptorSet::new_buffer_write(4, &node_data),
-            WriteDescriptorSet::new_buffer_write(5, &leaf_data),
+            WriteDescriptorSet::new_buffer_write(2, &resources.camera_info_prev_frame),
+            WriteDescriptorSet::new_buffer_write(3, &resources.shadow_camera_info),
+            WriteDescriptorSet::new_buffer_write(4, &resources.env_info),
+            WriteDescriptorSet::new_buffer_write(5, &node_data),
+            WriteDescriptorSet::new_buffer_write(6, &leaf_data),
             WriteDescriptorSet::new_texture_write(
-                6,
+                7,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &scene_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
-                7,
+                8,
                 vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
                 &resources.shadow_map_tex,
                 vk::ImageLayout::GENERAL,
@@ -878,6 +886,46 @@ impl Tracer {
         sun_size: f32,
         sun_color: Vec3,
     ) -> Result<()> {
+        // camera info
+        update_cam_info(
+            &mut self.resources.camera_info,
+            self.camera.get_view_mat(),
+            self.camera.get_proj_mat(),
+        )?;
+
+        // shadow cam info
+        let world_bound = self.chunk_bound.into();
+        let (shadow_view_mat, shadow_proj_mat) =
+            calculate_directional_light_matrices(world_bound, sun_dir);
+        update_cam_info(
+            &mut self.resources.shadow_camera_info,
+            shadow_view_mat,
+            shadow_proj_mat,
+        )?;
+
+        // camera info prev frame
+        update_cam_info(
+            &mut self.resources.camera_info_prev_frame,
+            self.camera_view_mat_prev_frame,
+            self.camera_proj_mat_prev_frame,
+        )?;
+
+        update_post_processing_info(&self.resources, self.desc.scaling_factor)?;
+
+        update_grass_info(&self.resources, time_info.time_since_start())?;
+
+        update_gui_input(
+            &self.resources,
+            debug_float,
+            debug_bool,
+            debug_uint,
+            sun_dir,
+            sun_size,
+            sun_color,
+        )?;
+
+        update_env_info(&self.resources, time_info.total_frame_count() as u32)?;
+
         let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
         let compute_to_compute_barrier = PipelineBarrier::new(
             vk::PipelineStageFlags::COMPUTE_SHADER,
@@ -885,15 +933,6 @@ impl Tracer {
             vec![shader_access_memory_barrier],
         );
 
-        let world_bound = self.chunk_bound.into();
-
-        let (shadow_view_mat, shadow_proj_mat) =
-            calculate_directional_light_matrices(world_bound, sun_dir);
-        Self::update_cam_info(
-            &mut self.resources.shadow_camera_info,
-            shadow_view_mat,
-            shadow_proj_mat,
-        )?;
         self.record_tracer_shadow_pass(cmdbuf);
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         self.record_vsm_filtering_pass(cmdbuf);
@@ -906,27 +945,7 @@ impl Tracer {
         );
         b1.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
-        Self::update_cam_info(
-            &mut self.resources.camera_info,
-            self.camera.get_view_mat(),
-            self.camera.get_proj_mat(),
-        )?;
-
-        Self::update_grass_info(&self.resources, time_info.time_since_start())?;
-
-        Self::update_gui_input(
-            &self.resources,
-            debug_float,
-            debug_bool,
-            debug_uint,
-            sun_dir,
-            sun_size,
-            sun_color,
-        )?;
-
         self.record_main_pass(cmdbuf, surface_resources);
-
-        Self::update_env_info(&self.resources, time_info.total_frame_count() as u32)?;
 
         self.record_compute_pass(cmdbuf);
 
@@ -940,10 +959,123 @@ impl Tracer {
         self.record_god_ray_pass(cmdbuf);
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
-        Self::update_post_processing_info(&self.resources, self.desc.scaling_factor)?;
         self.record_post_processing_pass(cmdbuf);
 
-        Ok(())
+        self.camera_view_mat_prev_frame = self.camera.get_view_mat();
+        self.camera_proj_mat_prev_frame = self.camera.get_proj_mat();
+
+        return Ok(());
+
+        fn update_gui_input(
+            resources: &TracerResources,
+            debug_float: f32,
+            debug_bool: bool,
+            debug_uint: u32,
+            sun_dir: Vec3,
+            sun_size: f32,
+            sun_color: Vec3,
+        ) -> Result<()> {
+            let data = StructMemberDataBuilder::from_buffer(&resources.gui_input)
+                .set_field("debug_float", PlainMemberTypeWithData::Float(debug_float))
+                .unwrap()
+                .set_field(
+                    "debug_bool",
+                    PlainMemberTypeWithData::UInt(debug_bool as u32),
+                )
+                .unwrap()
+                .set_field("debug_uint", PlainMemberTypeWithData::UInt(debug_uint))
+                .unwrap()
+                .set_field("sun_dir", PlainMemberTypeWithData::Vec3(sun_dir.to_array()))
+                .unwrap()
+                .set_field("sun_size", PlainMemberTypeWithData::Float(sun_size))
+                .unwrap()
+                .set_field(
+                    "sun_color",
+                    PlainMemberTypeWithData::Vec3(sun_color.to_array()),
+                )
+                .unwrap()
+                .build();
+            resources.gui_input.fill_with_raw_u8(&data)?;
+            return Ok(());
+        }
+
+        fn update_cam_info(camera_info: &mut Buffer, view_mat: Mat4, proj_mat: Mat4) -> Result<()> {
+            let view_proj_mat = proj_mat * view_mat;
+
+            let camera_pos = view_mat.inverse().w_axis;
+            let data = StructMemberDataBuilder::from_buffer(camera_info)
+                .set_field("pos", PlainMemberTypeWithData::Vec4(camera_pos.to_array()))
+                .unwrap()
+                .set_field(
+                    "view_mat",
+                    PlainMemberTypeWithData::Mat4(view_mat.to_cols_array_2d()),
+                )
+                .unwrap()
+                .set_field(
+                    "view_mat_inv",
+                    PlainMemberTypeWithData::Mat4(view_mat.inverse().to_cols_array_2d()),
+                )
+                .unwrap()
+                .set_field(
+                    "proj_mat",
+                    PlainMemberTypeWithData::Mat4(proj_mat.to_cols_array_2d()),
+                )
+                .unwrap()
+                .set_field(
+                    "proj_mat_inv",
+                    PlainMemberTypeWithData::Mat4(proj_mat.inverse().to_cols_array_2d()),
+                )
+                .unwrap()
+                .set_field(
+                    "view_proj_mat",
+                    PlainMemberTypeWithData::Mat4(view_proj_mat.to_cols_array_2d()),
+                )
+                .unwrap()
+                .set_field(
+                    "view_proj_mat_inv",
+                    PlainMemberTypeWithData::Mat4(view_proj_mat.inverse().to_cols_array_2d()),
+                )
+                .unwrap()
+                .build();
+            camera_info.fill_with_raw_u8(&data)?;
+            Ok(())
+        }
+
+        fn update_env_info(resources: &TracerResources, frame_serial_idx: u32) -> Result<()> {
+            let data = StructMemberDataBuilder::from_buffer(&resources.env_info)
+                .set_field(
+                    "frame_serial_idx",
+                    PlainMemberTypeWithData::UInt(frame_serial_idx),
+                )
+                .unwrap()
+                .build();
+            resources.env_info.fill_with_raw_u8(&data)?;
+            Ok(())
+        }
+
+        fn update_grass_info(resources: &TracerResources, time: f32) -> Result<()> {
+            let data = StructMemberDataBuilder::from_buffer(&resources.grass_info)
+                .set_field("time", PlainMemberTypeWithData::Float(time))
+                .unwrap()
+                .build();
+            resources.grass_info.fill_with_raw_u8(&data)?;
+            Ok(())
+        }
+
+        fn update_post_processing_info(
+            resources: &TracerResources,
+            scaling_factor: f32,
+        ) -> Result<()> {
+            let data = StructMemberDataBuilder::from_buffer(&resources.post_processing_info)
+                .set_field(
+                    "scaling_factor",
+                    PlainMemberTypeWithData::Float(scaling_factor),
+                )
+                .unwrap()
+                .build();
+            resources.post_processing_info.fill_with_raw_u8(&data)?;
+            Ok(())
+        }
     }
 
     fn record_main_pass(&self, cmdbuf: &CommandBuffer, surface_resources: &SurfaceResources) {
@@ -1232,113 +1364,5 @@ impl Tracer {
 
     pub fn update_transform(&mut self, frame_delta_time: f32) {
         self.camera.update_transform(frame_delta_time);
-    }
-
-    fn update_gui_input(
-        resources: &TracerResources,
-        debug_float: f32,
-        debug_bool: bool,
-        debug_uint: u32,
-        sun_dir: Vec3,
-        sun_size: f32,
-        sun_color: Vec3,
-    ) -> Result<()> {
-        let data = StructMemberDataBuilder::from_buffer(&resources.gui_input)
-            .set_field("debug_float", PlainMemberTypeWithData::Float(debug_float))
-            .unwrap()
-            .set_field(
-                "debug_bool",
-                PlainMemberTypeWithData::UInt(debug_bool as u32),
-            )
-            .unwrap()
-            .set_field("debug_uint", PlainMemberTypeWithData::UInt(debug_uint))
-            .unwrap()
-            .set_field("sun_dir", PlainMemberTypeWithData::Vec3(sun_dir.to_array()))
-            .unwrap()
-            .set_field("sun_size", PlainMemberTypeWithData::Float(sun_size))
-            .unwrap()
-            .set_field(
-                "sun_color",
-                PlainMemberTypeWithData::Vec3(sun_color.to_array()),
-            )
-            .unwrap()
-            .build();
-        resources.gui_input.fill_with_raw_u8(&data)?;
-        return Ok(());
-    }
-
-    fn update_cam_info(camera_info: &mut Buffer, view_mat: Mat4, proj_mat: Mat4) -> Result<()> {
-        let view_proj_mat = proj_mat * view_mat;
-
-        let camera_pos = view_mat.inverse().w_axis;
-        let data = StructMemberDataBuilder::from_buffer(camera_info)
-            .set_field("pos", PlainMemberTypeWithData::Vec4(camera_pos.to_array()))
-            .unwrap()
-            .set_field(
-                "view_mat",
-                PlainMemberTypeWithData::Mat4(view_mat.to_cols_array_2d()),
-            )
-            .unwrap()
-            .set_field(
-                "view_mat_inv",
-                PlainMemberTypeWithData::Mat4(view_mat.inverse().to_cols_array_2d()),
-            )
-            .unwrap()
-            .set_field(
-                "proj_mat",
-                PlainMemberTypeWithData::Mat4(proj_mat.to_cols_array_2d()),
-            )
-            .unwrap()
-            .set_field(
-                "proj_mat_inv",
-                PlainMemberTypeWithData::Mat4(proj_mat.inverse().to_cols_array_2d()),
-            )
-            .unwrap()
-            .set_field(
-                "view_proj_mat",
-                PlainMemberTypeWithData::Mat4(view_proj_mat.to_cols_array_2d()),
-            )
-            .unwrap()
-            .set_field(
-                "view_proj_mat_inv",
-                PlainMemberTypeWithData::Mat4(view_proj_mat.inverse().to_cols_array_2d()),
-            )
-            .unwrap()
-            .build();
-        camera_info.fill_with_raw_u8(&data)?;
-        Ok(())
-    }
-
-    fn update_env_info(resources: &TracerResources, frame_serial_idx: u32) -> Result<()> {
-        let data = StructMemberDataBuilder::from_buffer(&resources.env_info)
-            .set_field(
-                "frame_serial_idx",
-                PlainMemberTypeWithData::UInt(frame_serial_idx),
-            )
-            .unwrap()
-            .build();
-        resources.env_info.fill_with_raw_u8(&data)?;
-        Ok(())
-    }
-
-    fn update_grass_info(resources: &TracerResources, time: f32) -> Result<()> {
-        let data = StructMemberDataBuilder::from_buffer(&resources.grass_info)
-            .set_field("time", PlainMemberTypeWithData::Float(time))
-            .unwrap()
-            .build();
-        resources.grass_info.fill_with_raw_u8(&data)?;
-        Ok(())
-    }
-
-    fn update_post_processing_info(resources: &TracerResources, scaling_factor: f32) -> Result<()> {
-        let data = StructMemberDataBuilder::from_buffer(&resources.post_processing_info)
-            .set_field(
-                "scaling_factor",
-                PlainMemberTypeWithData::Float(scaling_factor),
-            )
-            .unwrap()
-            .build();
-        resources.post_processing_info.fill_with_raw_u8(&data)?;
-        Ok(())
     }
 }

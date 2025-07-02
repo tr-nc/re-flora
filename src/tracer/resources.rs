@@ -1,5 +1,5 @@
 use crate::{
-    tracer::{grass_construct::generate_indexed_voxel_grass_blade, Vertex},
+    tracer::{grass_construct::generate_indexed_voxel_grass_blade, DenoiserResources, Vertex},
     util::{get_project_root, Timer},
     vkn::{
         Allocator, Buffer, BufferUsage, Device, Extent2D, Extent3D, ImageDesc, ShaderModule,
@@ -11,6 +11,7 @@ use ash::vk;
 pub struct TracerResources {
     pub gui_input: Buffer,
     pub camera_info: Buffer,
+    pub camera_info_prev_frame: Buffer,
     pub shadow_camera_info: Buffer,
     pub env_info: Buffer,
     pub grass_info: Buffer,
@@ -20,16 +21,28 @@ pub struct TracerResources {
     pub indices: Buffer,
     pub indices_len: u32,
 
+    // gfx
     pub gfx_depth_tex: Texture,
+    pub gfx_output_tex: Texture,
+
+    // god ray
+    pub god_ray_output_tex: Texture,
+
+    // compute
     pub compute_depth_tex: Texture,
     pub compute_output_tex: Texture,
-    pub gfx_output_tex: Texture,
-    pub god_ray_output_tex: Texture,
+
+    pub denoiser_resources: DenoiserResources,
+
+    // screen
     pub screen_output_tex: Texture,
 
+    // shadow map
     pub shadow_map_tex: Texture,
     pub shadow_map_tex_for_vsm_ping: Texture,
     pub shadow_map_tex_for_vsm_pong: Texture,
+
+    // noises
     pub scalar_bn: Texture,
     pub unit_vec2_bn: Texture,
     pub unit_vec3_bn: Texture,
@@ -66,6 +79,17 @@ impl TracerResources {
             device.clone(),
             allocator.clone(),
             camera_info_layout.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+        );
+
+        let camera_info_prev_frame_layout = tracer_sm
+            .get_buffer_layout("U_CameraInfoPrevFrame")
+            .unwrap();
+        let camera_info_prev_frame = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            camera_info_prev_frame_layout.clone(),
             BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
@@ -224,6 +248,7 @@ impl TracerResources {
         return Self {
             gui_input,
             camera_info,
+            camera_info_prev_frame,
             shadow_camera_info,
             env_info,
             grass_info,
@@ -247,6 +272,11 @@ impl TracerResources {
             weighted_cosine_bn,
             fast_unit_vec3_bn,
             fast_weighted_cosine_bn,
+            denoiser_resources: DenoiserResources::new(
+                device.clone(),
+                allocator.clone(),
+                rendering_extent,
+            ),
         };
 
         fn create_bn(
@@ -305,6 +335,9 @@ impl TracerResources {
             Self::create_god_ray_output_tex(device.clone(), allocator.clone(), rendering_extent);
         self.screen_output_tex =
             Self::create_screen_output_tex(device.clone(), allocator.clone(), screen_extent);
+
+        self.denoiser_resources =
+            DenoiserResources::new(device.clone(), allocator.clone(), rendering_extent);
     }
 
     fn create_god_ray_output_tex(
