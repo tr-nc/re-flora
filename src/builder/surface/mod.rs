@@ -1,4 +1,5 @@
 mod resources;
+use anyhow::Result;
 use ash::vk;
 use glam::UVec3;
 pub use resources::*;
@@ -144,9 +145,9 @@ impl SurfaceBuilder {
     }
 
     /// Returns active_voxel_len
-    pub fn build_surface(&mut self, chunk_id: UVec3) -> u32 {
+    pub fn build_surface(&mut self, chunk_id: UVec3) -> Result<u32> {
         if !self.chunk_bound.in_bound(chunk_id) {
-            return 0;
+            return Err(anyhow::anyhow!("Chunk ID out of bounds"));
         }
 
         let atlas_read_offset = chunk_id * self.voxel_dim_per_chunk;
@@ -211,7 +212,7 @@ impl SurfaceBuilder {
             .unwrap()
             .grass_instances_len = grass_instance_len;
 
-        return active_voxel_len;
+        return Ok(active_voxel_len);
 
         fn update_make_surface_info(
             make_surface_info: &Buffer,

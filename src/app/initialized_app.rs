@@ -3,7 +3,6 @@ use crate::util::Timer;
 
 use crate::builder::{ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder};
 use crate::geom::{build_bvh, UAabb3};
-use crate::procedual_placer::{generate_positions, PlacerDesc};
 use crate::tracer::{Tracer, TracerDesc};
 use crate::tree_gen::{Tree, TreeDesc};
 use crate::util::{get_sun_dir, ShaderCompiler};
@@ -180,8 +179,8 @@ impl InitializedApp {
             egui_renderer: renderer,
             window_state,
 
-            accumulated_mouse_delta: glam::Vec2::ZERO,
-            smoothed_mouse_delta: glam::Vec2::ZERO,
+            accumulated_mouse_delta: Vec2::ZERO,
+            smoothed_mouse_delta: Vec2::ZERO,
 
             cmdbuf,
             swapchain,
@@ -322,10 +321,15 @@ impl InitializedApp {
 
             let now = Instant::now();
             let active_voxel_len = surface_builder.build_surface(chunk_id);
+            if let Err(e) = active_voxel_len {
+                log::error!("Failed to build surface for chunk {}: {}", chunk_id, e);
+                continue;
+            }
+            let active_voxel_len = active_voxel_len.unwrap();
+
             BENCH.lock().unwrap().record("build_surface", now.elapsed());
 
             if active_voxel_len == 0 {
-                log::debug!("Don't need to build contree because the chunk is empty");
                 continue;
             }
 
@@ -435,7 +439,7 @@ impl InitializedApp {
                 if !self.window_state.is_cursor_visible() {
                     // grab the value and immediately reset the accumulator
                     let mouse_delta = self.accumulated_mouse_delta;
-                    self.accumulated_mouse_delta = glam::Vec2::ZERO;
+                    self.accumulated_mouse_delta = Vec2::ZERO;
 
                     let alpha = 0.4; // mouse smoothing factor: 0 = no smoothing, 1 = infinite smoothing
                     self.smoothed_mouse_delta =
@@ -450,7 +454,6 @@ impl InitializedApp {
                     .wait_for_fences(&[self.fence.as_raw()])
                     .unwrap();
 
-                let mut add_tree_requested = false;
                 let mut tree_desc_changed = false;
 
                 self.egui_renderer
@@ -507,11 +510,6 @@ impl InitializedApp {
                                     ui.add(egui::Label::new("Sun Color:"));
                                     ui.color_edit_button_srgba(&mut self.sun_color);
 
-                                    // a button to add a new tree
-                                    if ui.button("Add New Tree").clicked() {
-                                        add_tree_requested = true;
-                                    }
-
                                     ui.separator();
 
                                     ui.heading("Tree Position");
@@ -548,22 +546,6 @@ impl InitializedApp {
                         self.tree_pos,
                         true, // clean up before adding a new tree
                     );
-                }
-
-                if add_tree_requested {
-                    let placer_desc = PlacerDesc::new(42);
-                    let map_dim = VOXEL_DIM_PER_CHUNK * CHUNK_DIM;
-                    let map_dim_2d = Vec2::new(map_dim.x as f32, map_dim.z as f32);
-                    let generated_positions = generate_positions(map_dim_2d, 128.0, &placer_desc);
-
-                    log::debug!(
-                        "Generated {} positions for trees",
-                        generated_positions.len()
-                    );
-                    for pos in generated_positions {
-                        let tree_pos = Vec3::new(pos.x, 256.0, pos.y);
-                        self.add_a_tree(self.tree_desc.clone(), tree_pos, false);
-                    }
                 }
 
                 let device = self.vulkan_ctx.device();

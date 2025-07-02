@@ -7,6 +7,7 @@ use glam::UVec3;
 use std::collections::HashMap;
 
 pub struct ChunkRasterResources {
+    #[allow(dead_code)]
     pub chunk_id: UVec3,
     pub grass_instances: Buffer,
     pub grass_instances_len: u32,
