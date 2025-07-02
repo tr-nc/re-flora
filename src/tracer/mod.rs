@@ -43,7 +43,7 @@ pub struct Tracer {
     camera_proj_mat_prev_frame: Mat4,
 
     tracer_ppl: ComputePipeline,
-    tracer_sets: [DescriptorSet; 3],
+    tracer_sets: [DescriptorSet; 4],
 
     post_processing_ppl: ComputePipeline,
     post_processing_sets: [DescriptorSet; 1],
@@ -259,6 +259,13 @@ impl Tracer {
             &resources,
         );
 
+        let denoiser_ds = Self::create_denoiser_ds(
+            flexible_descriptor_pool.clone(),
+            &vulkan_ctx,
+            &tracer_ppl,
+            &resources,
+        );
+
         let noise_tex_ds = Self::create_noise_tex_ds(
             fixed_descriptor_pool.clone(),
             &vulkan_ctx,
@@ -330,7 +337,7 @@ impl Tracer {
             vsm_sets: [vsm_ds_0],
             god_ray_sets: [god_ray_ds_0, noise_tex_ds.clone()],
             post_processing_sets: [post_processing_ds_0],
-            tracer_sets: [tracer_ds_0, tracer_ds_1, noise_tex_ds],
+            tracer_sets: [tracer_ds_0, tracer_ds_1, noise_tex_ds, denoiser_ds],
             tracer_shadow_sets: [tracer_shadow_ds],
             main_sets: [main_ds],
             shadow_sets: [shadow_ds],
@@ -597,6 +604,52 @@ impl Tracer {
         ds
     }
 
+    fn create_denoiser_ds(
+        descriptor_pool: DescriptorPool,
+        vulkan_ctx: &VulkanContext,
+        tracer_ppl: &ComputePipeline,
+        resources: &TracerResources,
+    ) -> DescriptorSet {
+        let ds = DescriptorSet::new(
+            vulkan_ctx.device().clone(),
+            &tracer_ppl.get_layout().get_descriptor_set_layouts()[&3],
+            descriptor_pool,
+        );
+        ds.perform_writes(&mut [
+            WriteDescriptorSet::new_texture_write(
+                0,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.denoiser_resources.denoiser_normal_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                1,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.denoiser_resources.denoiser_position_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                2,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.denoiser_resources.denoiser_vox_id_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                3,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.denoiser_resources.denoiser_motion_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                4,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.denoiser_resources.denoiser_hit_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+        ]);
+        ds
+    }
+
     fn create_noise_tex_ds(
         descriptor_pool: DescriptorPool,
         vulkan_ctx: &VulkanContext,
@@ -823,6 +876,7 @@ impl Tracer {
 
         self.camera.on_resize(render_extent);
 
+        // this must be done first
         self.resources.on_resize(
             self.vulkan_ctx.device().clone(),
             self.allocator.clone(),
@@ -856,6 +910,13 @@ impl Tracer {
             self.flexible_descriptor_pool.clone(),
             &self.vulkan_ctx,
             &self.post_processing_ppl,
+            &self.resources,
+        );
+
+        self.tracer_sets[3] = Self::create_denoiser_ds(
+            self.flexible_descriptor_pool.clone(),
+            &self.vulkan_ctx,
+            &self.tracer_ppl,
             &self.resources,
         );
     }
@@ -947,7 +1008,7 @@ impl Tracer {
 
         self.record_main_pass(cmdbuf, surface_resources);
 
-        self.record_compute_pass(cmdbuf);
+        self.record_tracer_pass(cmdbuf);
 
         let b2 = PipelineBarrier::new(
             vk::PipelineStageFlags::FRAGMENT_SHADER | vk::PipelineStageFlags::COMPUTE_SHADER,
@@ -1269,7 +1330,41 @@ impl Tracer {
         );
     }
 
-    fn record_compute_pass(&self, cmdbuf: &CommandBuffer) {
+    fn record_denoiser_resources_transition_barrier(&self, cmdbuf: &CommandBuffer) {
+        self.resources
+            .denoiser_resources
+            .denoiser_normal_tex
+            .get_image()
+            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+        self.resources
+            .denoiser_resources
+            .denoiser_position_tex
+            .get_image()
+            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+        self.resources
+            .denoiser_resources
+            .denoiser_vox_id_tex
+            .get_image()
+            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+        self.resources
+            .denoiser_resources
+            .denoiser_accumed_tex
+            .get_image()
+            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+        // prev textures are skipped
+        self.resources
+            .denoiser_resources
+            .denoiser_motion_tex
+            .get_image()
+            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+        self.resources
+            .denoiser_resources
+            .denoiser_hit_tex
+            .get_image()
+            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+    }
+
+    fn record_tracer_pass(&self, cmdbuf: &CommandBuffer) {
         self.resources
             .compute_output_tex
             .get_image()
@@ -1278,6 +1373,7 @@ impl Tracer {
             .compute_depth_tex
             .get_image()
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+        self.record_denoiser_resources_transition_barrier(cmdbuf);
 
         self.tracer_ppl.record_bind(cmdbuf);
 

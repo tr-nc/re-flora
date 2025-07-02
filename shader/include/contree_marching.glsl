@@ -13,7 +13,7 @@ struct ContreeMarchingResult {
     bool is_hit;
     vec3 pos;
     vec3 center_pos;
-    uint voxel_data;
+    uint voxel_addr;
 };
 
 // Reverses pos from [1.0,2.0) to (2.0,1.0] if dir>0
@@ -64,7 +64,7 @@ ContreeMarchingResult _contree_marching(vec3 origin, vec3 dir, bool coarse, uint
 
     ContreeMarchingResult res;
     res.is_hit     = false;
-    res.voxel_data = 0;
+    res.voxel_addr = 0;
     res.pos        = vec3(0.0);
     res.center_pos = vec3(0.0);
 
@@ -163,7 +163,7 @@ ContreeMarchingResult _contree_marching(vec3 origin, vec3 dir, bool coarse, uint
 
         res.pos        = pos;
         res.center_pos = centered_pos;
-        res.voxel_data = contree_leaf_data.data[leaf_offset + (node.packed_0 >> 1u) + bits];
+        res.voxel_addr = leaf_offset + (node.packed_0 >> 1u) + bits;
 
         // we need per-voxel normal, so we disable the per-face normal computation here
         // float tmax       = min(min(side_dist.x, side_dist.y), side_dist.z);

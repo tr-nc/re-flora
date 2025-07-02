@@ -10,6 +10,7 @@ struct MarchingResult {
     float t;
     vec3 normal;
     uint voxel_type;
+    uint voxel_addr;
 };
 
 #endif // DDA_SCENE_MARCHING_RESULT_GLSL

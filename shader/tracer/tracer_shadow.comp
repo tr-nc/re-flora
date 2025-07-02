@@ -37,18 +37,18 @@ bool scene_hit(inout MarchingResult o_res, vec3 o, vec3 d, ivec3 map_pos, uvec4 
     ContreeMarchingResult contree_res =
         contree_marching(o, d, map_pos, vec3(1.0), false, scene_tex_read.x, scene_tex_read.y);
     if (contree_res.is_hit) {
+        uint voxel_data       = contree_leaf_data.data[contree_res.voxel_addr];
         o_res.is_hit          = true;
         o_res.pos             = contree_res.pos;
         o_res.center_pos      = contree_res.center_pos;
-        o_res.is_normal_valid = (contree_res.voxel_data & (1u << 29)) != 0u;
-        o_res.normal          = unpack_normal_v2((contree_res.voxel_data & 0x1FFFFF00u) >> 8);
-        o_res.voxel_type      = contree_res.voxel_data & 0xFFu;
+        o_res.is_normal_valid = (voxel_data & (1u << 29)) != 0u;
+        o_res.normal          = unpack_normal_v2((voxel_data & 0x1FFFFF00u) >> 8);
+        o_res.voxel_type      = voxel_data & 0xFFu;
+        o_res.voxel_addr      = contree_res.voxel_addr;
         return true;
     }
     return false;
 }
-
-#define SCENE_TEX_NAME scene_tex
 #include "../include/dda_scene_marching.glsl"
 
 ///

@@ -1,3 +1,9 @@
+/// Conducts the DDA marching inside arbitary data structures
+/// Requires:
+/// - scene_tex: represents the scene in regular chunk sizes
+/// - definition of: bool scene_hit(inout MarchingResult o_res, vec3 o, vec3 d, ivec3 map_pos, uvec4
+/// scene_tex_read) {}
+
 #ifndef DDA_SCENE_MARCHING_GLSL
 #define DDA_SCENE_MARCHING_GLSL
 
@@ -15,9 +21,9 @@ MarchingResult dda_scene_marching(vec3 o, vec3 d, vec3 inv_d) {
     res.center_pos = vec3(0.0);
     res.t          = 1e10;
     res.normal     = vec3(0.0);
-    res.voxel_type = 0;
+    res.voxel_addr = 0;
 
-    ivec3 visible_chunk_dim = imageSize(SCENE_TEX_NAME).xyz;
+    ivec3 visible_chunk_dim = imageSize(scene_tex).xyz;
 
     vec3 min_bound = vec3(0.0);
     vec3 max_bound = vec3(visible_chunk_dim);
@@ -45,7 +51,7 @@ MarchingResult dda_scene_marching(vec3 o, vec3 d, vec3 inv_d) {
         if (!in_aabb_i(map_pos, ivec3(0), visible_chunk_dim)) {
             break;
         }
-        uvec4 scene_tex_read = imageLoad(SCENE_TEX_NAME, map_pos);
+        uvec4 scene_tex_read = imageLoad(scene_tex, map_pos);
         if (scene_hit(res, marched_origin, d, map_pos, scene_tex_read)) {
             res.t = length(o - res.pos);
             break;

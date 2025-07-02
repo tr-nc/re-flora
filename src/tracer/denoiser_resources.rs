@@ -76,10 +76,8 @@ impl DenoiserResources {
         );
 
         // 2. Create textures that only need the current frame's data
-        let denoiser_motion_tex = create_texture(
-            vk::Format::R16G16B16A16_SFLOAT,
-            vk::ImageUsageFlags::STORAGE,
-        );
+        let denoiser_motion_tex =
+            create_texture(vk::Format::R16G16_SFLOAT, vk::ImageUsageFlags::STORAGE);
         let denoiser_temporal_hist_len_tex =
             create_texture(vk::Format::R8_UINT, vk::ImageUsageFlags::STORAGE);
         let denoiser_hit_tex = create_texture(vk::Format::R8_UINT, vk::ImageUsageFlags::STORAGE);

@@ -64,6 +64,12 @@ layout(set = 2, binding = 4, rgba8) readonly uniform image2DArray fast_unit_vec3
 layout(set = 2, binding = 5, rgba8) readonly uniform image2DArray fast_weighted_cosine_bn;
 #include "../include/noise_tex.glsl"
 
+layout(set = 3, binding = 0, r32ui) writeonly uniform uimage2D denioser_normal_tex;
+layout(set = 3, binding = 1, rgba32f) writeonly uniform image2D denioser_position_tex;
+layout(set = 3, binding = 2, r32ui) writeonly uniform uimage2D denioser_vox_id_tex;
+layout(set = 3, binding = 3, rg16f) writeonly uniform image2D denioser_motion_tex;
+layout(set = 3, binding = 4, r8ui) writeonly uniform uimage2D denioser_hit_tex;
+
 #include "../include/contree_marching.glsl"
 #include "../include/core/definitions.glsl"
 #include "../include/core/packer.glsl"
@@ -85,18 +91,18 @@ bool scene_hit(inout MarchingResult o_res, vec3 o, vec3 d, ivec3 map_pos, uvec4 
     ContreeMarchingResult contree_res =
         contree_marching(o, d, map_pos, vec3(1.0), false, scene_tex_read.x, scene_tex_read.y);
     if (contree_res.is_hit) {
+        uint voxel_data       = contree_leaf_data.data[contree_res.voxel_addr];
         o_res.is_hit          = true;
         o_res.pos             = contree_res.pos;
         o_res.center_pos      = contree_res.center_pos;
-        o_res.is_normal_valid = (contree_res.voxel_data & (1u << 29)) != 0u;
-        o_res.normal          = unpack_normal_v2((contree_res.voxel_data & 0x1FFFFF00u) >> 8);
-        o_res.voxel_type      = contree_res.voxel_data & 0xFFu;
+        o_res.is_normal_valid = (voxel_data & (1u << 29)) != 0u;
+        o_res.normal          = unpack_normal_v2((voxel_data & 0x1FFFFF00u) >> 8);
+        o_res.voxel_type      = voxel_data & 0xFFu;
+        o_res.voxel_addr      = contree_res.voxel_addr;
         return true;
     }
     return false;
 }
-
-#define SCENE_TEX_NAME scene_tex
 #include "../include/dda_scene_marching.glsl"
 
 ///
@@ -161,18 +167,29 @@ vec3 choose_random_normal(ivec3 seed) {
                 rand_vec.y); // This is a 2D random vector projected onto the XZ plane.
 }
 
-void get_pixel_color(out vec3 color, out float depth_01, Ray ray, ivec3 seed) {
+void get_pixel_color(out vec3 o_color, out float o_depth_01, out vec3 o_primary_normal,
+                     out vec3 o_primary_position, out uint o_primary_vox_id,
+                     out bool o_primary_is_hit, Ray ray, ivec3 seed) {
     MarchingResult res_primary_ray = general_scene_marching(ray);
 
     if (!res_primary_ray.is_hit) {
-        // return get_sky_color(ray.direction);
-        depth_01 = 1.0;
-        color    = vec3(0.0);
+        o_depth_01         = 1.0;
+        o_color            = vec3(0.0);
+        o_primary_normal   = vec3(0.0);
+        o_primary_position = vec3(0.0);
+        o_primary_vox_id   = 0;
+        o_primary_is_hit   = false;
         return;
     }
 
     vec4 point_ndc         = camera_info.view_proj_mat * vec4(res_primary_ray.pos, 1.0);
     float primary_depth_01 = point_ndc.z / point_ndc.w;
+
+    o_depth_01         = primary_depth_01;
+    o_primary_normal   = res_primary_ray.normal;
+    o_primary_position = res_primary_ray.pos;
+    o_primary_vox_id   = res_primary_ray.voxel_addr;
+    o_primary_is_hit   = true;
 
     // if normal is not valid, change the res.normal to a random one
     if (!res_primary_ray.is_normal_valid) {
@@ -229,8 +246,7 @@ void get_pixel_color(out vec3 color, out float depth_01, Ray ray, ivec3 seed) {
     // see README for the brdf, pdf explanation
     indirect_color *= albedo;
 
-    color    = direct_color + indirect_color;
-    depth_01 = primary_depth_01;
+    o_color = direct_color + indirect_color;
 }
 
 void main() {
@@ -244,10 +260,23 @@ void main() {
     vec2 screen_uv = (vec2(gl_GlobalInvocationID.xy) + vec2(0.5)) / vec2(img_size);
     Ray ray        = ray_gen(screen_uv, camera_info.view_proj_mat_inv);
 
+    vec2 motion_vec;
+
     vec3 color;
     float depth_01;
-    get_pixel_color(color, depth_01, ray, seed);
+    vec3 primary_normal;
+    vec3 primary_position;
+    uint primary_vox_id;
+    bool primary_is_hit;
+    get_pixel_color(color, depth_01, primary_normal, primary_position, primary_vox_id,
+                    primary_is_hit, ray, seed);
 
     imageStore(compute_output_tex, uvi, vec4(color, 1.0));
     imageStore(compute_depth_tex, uvi, vec4(depth_01, 0.0, 0.0, 1.0));
+
+    imageStore(denioser_normal_tex, uvi, uvec4(pack_normal_v2(primary_normal), 0, 0, 0));
+    imageStore(denioser_position_tex, uvi, vec4(primary_position, 1.0));
+    imageStore(denioser_vox_id_tex, uvi, uvec4(primary_vox_id, 0, 0, 0));
+    imageStore(denioser_motion_tex, uvi, vec4(motion_vec, 0.0, 0.0));
+    imageStore(denioser_hit_tex, uvi, uvec4(primary_is_hit ? 1 : 0, 0, 0, 1));
 }
