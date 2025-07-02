@@ -5,12 +5,12 @@ use crate::vkn::{Allocator, Device, Extent2D, ImageDesc, Texture};
 pub struct DenoiserResources {
     // 1. cur-prev paird
     pub denoiser_normal_tex: Texture,
-    pub denoiser_position_tex: Texture,
-    pub denoiser_vox_id_tex: Texture,
-    pub denoiser_accumed_tex: Texture,
     pub denoiser_normal_tex_prev: Texture,
+    pub denoiser_position_tex: Texture,
     pub denoiser_position_tex_prev: Texture,
+    pub denoiser_vox_id_tex: Texture,
     pub denoiser_vox_id_tex_prev: Texture,
+    pub denoiser_accumed_tex: Texture,
     pub denoiser_accumed_tex_prev: Texture,
     // 2. cur only
     pub denoiser_motion_tex: Texture,

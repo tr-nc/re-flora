@@ -615,6 +615,7 @@ impl Tracer {
             &tracer_ppl.get_layout().get_descriptor_set_layouts()[&3],
             descriptor_pool,
         );
+
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_texture_write(
                 0,
@@ -625,28 +626,77 @@ impl Tracer {
             WriteDescriptorSet::new_texture_write(
                 1,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.denoiser_position_tex,
+                &resources.denoiser_resources.denoiser_normal_tex_prev,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 2,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.denoiser_vox_id_tex,
+                &resources.denoiser_resources.denoiser_position_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 3,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.denoiser_motion_tex,
+                &resources.denoiser_resources.denoiser_position_tex_prev,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 4,
                 vk::DescriptorType::STORAGE_IMAGE,
+                &resources.denoiser_resources.denoiser_vox_id_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                5,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.denoiser_resources.denoiser_vox_id_tex_prev,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                6,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.denoiser_resources.denoiser_accumed_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                7,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.denoiser_resources.denoiser_accumed_tex_prev,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                8,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.denoiser_resources.denoiser_motion_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                9,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.denoiser_resources.denoiser_temporal_hist_len_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                10,
+                vk::DescriptorType::STORAGE_IMAGE,
                 &resources.denoiser_resources.denoiser_hit_tex,
                 vk::ImageLayout::GENERAL,
             ),
+            WriteDescriptorSet::new_texture_write(
+                11,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.denoiser_resources.denoiser_atrous_ping_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                12,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.denoiser_resources.denoiser_atrous_pong_tex,
+                vk::ImageLayout::GENERAL,
+            ),
         ]);
+
         ds
     }
 
@@ -1025,7 +1075,36 @@ impl Tracer {
         self.camera_view_mat_prev_frame = self.camera.get_view_mat();
         self.camera_proj_mat_prev_frame = self.camera.get_proj_mat();
 
+        copy_current_to_prev(&self.resources, cmdbuf);
+
         return Ok(());
+
+        fn copy_current_to_prev(resources: &TracerResources, cmdbuf: &CommandBuffer) {
+            let copy_fn = |src_tex: &Texture, dst_tex: &Texture| {
+                src_tex.get_image().record_copy_to(
+                    cmdbuf,
+                    dst_tex.get_image(),
+                    vk::ImageLayout::GENERAL,
+                    vk::ImageLayout::GENERAL,
+                );
+            };
+            copy_fn(
+                &resources.denoiser_resources.denoiser_normal_tex,
+                &resources.denoiser_resources.denoiser_normal_tex_prev,
+            );
+            copy_fn(
+                &resources.denoiser_resources.denoiser_position_tex,
+                &resources.denoiser_resources.denoiser_position_tex_prev,
+            );
+            copy_fn(
+                &resources.denoiser_resources.denoiser_vox_id_tex,
+                &resources.denoiser_resources.denoiser_vox_id_tex_prev,
+            );
+            copy_fn(
+                &resources.denoiser_resources.denoiser_accumed_tex,
+                &resources.denoiser_resources.denoiser_accumed_tex_prev,
+            );
+        }
 
         fn update_gui_input(
             resources: &TracerResources,

@@ -1,0 +1,102 @@
+#version 450
+
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 3, binding = 0, r32ui) uniform uimage2D denoiser_normal_tex;
+layout(set = 3, binding = 1, r32ui) uniform uimage2D denoiser_normal_tex_prev;
+layout(set = 3, binding = 2, rgba32f) uniform image2D denoiser_position_tex;
+layout(set = 3, binding = 3, rgba32f) uniform image2D denoiser_position_tex_prev;
+layout(set = 3, binding = 4, r32ui) uniform uimage2D denoiser_vox_id_tex;
+layout(set = 3, binding = 5, r32ui) uniform uimage2D denoiser_vox_id_tex_prev;
+layout(set = 3, binding = 6, r32ui) uniform uimage2D denoiser_accumed_tex;
+layout(set = 3, binding = 7, r32ui) uniform uimage2D denoiser_accumed_tex_prev;
+layout(set = 3, binding = 8, rg16f) uniform image2D denoiser_motion_tex;
+layout(set = 3, binding = 9, r8ui) uniform uimage2D denoiser_temporal_hist_len_tex;
+layout(set = 3, binding = 10, r8ui) uniform uimage2D denoiser_hit_tex;
+layout(set = 3, binding = 11, r11f_g11f_b10f) uniform image2D denoiser_atrous_ping_tex;
+layout(set = 3, binding = 12, r11f_g11f_b10f) uniform image2D denoiser_atrous_pong_tex;
+
+vec3 getAccumColor(ivec2 pUv) {
+    ivec2 bound = ivec2(renderInfoUbo.data.lowResSize);
+    if (any(lessThan(pUv, ivec2(0))) || any(greaterThanEqual(pUv, bound))) {
+        return vec3(0);
+    }
+    return unpackRgbe(imageLoad(lastAccumedImage, pUv).x);
+}
+
+bool isConsistent(vec3 normal, vec3 lastNormal, vec3 position, vec3 lastPosition) {
+    // normal test is useful for edges (nearby disocclusions)
+    float normalFac       = dot(normal, lastNormal);
+    bool normalConsistent = normalFac > 0.9;
+
+    // position test is useful for disocclusions happened in some distance
+    float positionFac       = exp(-distance(position, lastPosition));
+    bool positionConsistent = positionFac > temporalFilterInfoUbo.data.temporalPositionPhi;
+
+    return normalConsistent && positionConsistent;
+}
+
+void main() {
+    ivec2 uvi = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(uvi, ivec2(renderInfoUbo.data.lowResSize)))) {
+        return;
+    }
+
+    bool hit = imageLoad(hitImage, uvi).x != 0;
+    if (!hit) {
+        return;
+    }
+
+    vec2 motion = imageLoad(motionImage, uvi).xy * vec2(renderInfoUbo.data.lowResSize);
+    vec2 pUv    = vec2(uvi) + motion;
+
+    vec2 pBaseUv = floor(pUv);
+    vec2 subpix  = fract(pUv - pBaseUv);
+
+    const ivec2 off[4] = {{0, 0}, {1, 0}, {0, 1}, {1, 1}};
+    float w[4]         = {(1.0 - subpix.x) * (1.0 - subpix.y), (subpix.x) * (1.0 - subpix.y),
+                          (1.0 - subpix.x) * (subpix.y), (subpix.x) * (subpix.y)};
+
+    float sumOfWeights       = 0;
+    float sumOfHistLengths   = 0;
+    vec3 sumOfWeightedColors = vec3(0);
+
+    // normal test is useful for edges (nearby disocclusions)
+    vec3 normal   = unpackNormal(imageLoad(normalImage, uvi).x);
+    vec3 position = imageLoad(positionImage, uvi).xyz;
+    for (int i = 0; i < 4; i++) {
+        ivec2 tappingUv   = ivec2(pBaseUv) + off[i];
+        vec3 lastNormal   = unpackNormal(imageLoad(lastNormalImage, tappingUv).x);
+        vec3 lastPosition = imageLoad(lastPositionImage, tappingUv).xyz;
+
+        bool consistent = isConsistent(normal, lastNormal, position, lastPosition);
+        if (consistent) {
+            sumOfWeightedColors += w[i] * getAccumColor(tappingUv);
+            sumOfWeights += w[i];
+            sumOfHistLengths += w[i] * float(imageLoad(temporalHistLengthImage, tappingUv).x);
+        }
+    }
+
+    vec3 rawColor = unpackRgbe(imageLoad(rawImage, uvi).x);
+
+    float histLength;
+    vec3 thisFrameColor;
+
+    // relevant surfaces found
+    if (sumOfWeights >= 1e-6) {
+        sumOfHistLengths /= sumOfWeights;
+        sumOfWeightedColors /= sumOfWeights;
+        histLength     = min(255.0, sumOfHistLengths + 1.0);
+        float alphaFac = max(temporalFilterInfoUbo.data.temporalAlpha, 1.0 / histLength);
+        thisFrameColor = mix(sumOfWeightedColors, rawColor, alphaFac);
+    } else {
+        histLength     = 1.0;
+        thisFrameColor = rawColor;
+    }
+
+    imageStore(accumedImage, uvi, uvec4(packRgbe(thisFrameColor), 0, 0, 0));
+    imageStore(aTrousPongImage, uvi, vec4(thisFrameColor, 0.0));
+    imageStore(temporalHistLengthImage, uvi, uvec4(histLength, 0.0, 0.0, 0.0));
+}

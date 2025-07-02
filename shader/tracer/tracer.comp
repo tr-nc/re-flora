@@ -64,11 +64,19 @@ layout(set = 2, binding = 4, rgba8) readonly uniform image2DArray fast_unit_vec3
 layout(set = 2, binding = 5, rgba8) readonly uniform image2DArray fast_weighted_cosine_bn;
 #include "../include/noise_tex.glsl"
 
-layout(set = 3, binding = 0, r32ui) writeonly uniform uimage2D denioser_normal_tex;
-layout(set = 3, binding = 1, rgba32f) writeonly uniform image2D denioser_position_tex;
-layout(set = 3, binding = 2, r32ui) writeonly uniform uimage2D denioser_vox_id_tex;
-layout(set = 3, binding = 3, rg16f) writeonly uniform image2D denioser_motion_tex;
-layout(set = 3, binding = 4, r8ui) writeonly uniform uimage2D denioser_hit_tex;
+layout(set = 3, binding = 0, r32ui) uniform uimage2D denoiser_normal_tex;
+layout(set = 3, binding = 1, r32ui) uniform uimage2D denoiser_normal_tex_prev;
+layout(set = 3, binding = 2, rgba32f) uniform image2D denoiser_position_tex;
+layout(set = 3, binding = 3, rgba32f) uniform image2D denoiser_position_tex_prev;
+layout(set = 3, binding = 4, r32ui) uniform uimage2D denoiser_vox_id_tex;
+layout(set = 3, binding = 5, r32ui) uniform uimage2D denoiser_vox_id_tex_prev;
+layout(set = 3, binding = 6, r32ui) uniform uimage2D denoiser_accumed_tex;
+layout(set = 3, binding = 7, r32ui) uniform uimage2D denoiser_accumed_tex_prev;
+layout(set = 3, binding = 8, rg16f) uniform image2D denoiser_motion_tex;
+layout(set = 3, binding = 9, r8ui) uniform uimage2D denoiser_temporal_hist_len_tex;
+layout(set = 3, binding = 10, r8ui) uniform uimage2D denoiser_hit_tex;
+layout(set = 3, binding = 11, r11f_g11f_b10f) uniform image2D denoiser_atrous_ping_tex;
+layout(set = 3, binding = 12, r11f_g11f_b10f) uniform image2D denoiser_atrous_pong_tex;
 
 #include "../include/contree_marching.glsl"
 #include "../include/core/definitions.glsl"
@@ -274,9 +282,9 @@ void main() {
     imageStore(compute_output_tex, uvi, vec4(color, 1.0));
     imageStore(compute_depth_tex, uvi, vec4(depth_01, 0.0, 0.0, 1.0));
 
-    imageStore(denioser_normal_tex, uvi, uvec4(pack_normal_v2(primary_normal), 0, 0, 0));
-    imageStore(denioser_position_tex, uvi, vec4(primary_position, 1.0));
-    imageStore(denioser_vox_id_tex, uvi, uvec4(primary_vox_id, 0, 0, 0));
-    imageStore(denioser_motion_tex, uvi, vec4(motion_vec, 0.0, 0.0));
-    imageStore(denioser_hit_tex, uvi, uvec4(primary_is_hit ? 1 : 0, 0, 0, 1));
+    imageStore(denoiser_normal_tex, uvi, uvec4(pack_normal_v2(primary_normal), 0, 0, 0));
+    imageStore(denoiser_position_tex, uvi, vec4(primary_position, 1.0));
+    imageStore(denoiser_vox_id_tex, uvi, uvec4(primary_vox_id, 0, 0, 0));
+    imageStore(denoiser_motion_tex, uvi, vec4(motion_vec, 0.0, 0.0));
+    imageStore(denoiser_hit_tex, uvi, uvec4(primary_is_hit ? 1 : 0, 0, 0, 1));
 }

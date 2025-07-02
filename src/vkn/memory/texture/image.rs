@@ -158,6 +158,31 @@ impl Image {
         });
     }
 
+    pub fn record_copy_to(
+        &self,
+        cmdbuf: &CommandBuffer,
+        dst_img: &Image,
+        src_img_dst_layout: vk::ImageLayout,
+        dst_img_dst_layout: vk::ImageLayout,
+    ) {
+        self.record_transition_barrier(cmdbuf, 0, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
+        dst_img.record_transition_barrier(cmdbuf, 0, vk::ImageLayout::TRANSFER_DST_OPTIMAL);
+
+        unsafe {
+            self.0.device.cmd_copy_image(
+                cmdbuf.as_raw(),
+                self.as_raw(),
+                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                dst_img.as_raw(),
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                &[self.get_copy_region()],
+            );
+        }
+
+        self.record_transition_barrier(cmdbuf, 0, src_img_dst_layout);
+        dst_img.record_transition_barrier(cmdbuf, 0, dst_img_dst_layout);
+    }
+
     #[allow(dead_code)]
     pub fn get_copy_region(&self) -> vk::ImageCopy {
         vk::ImageCopy {
