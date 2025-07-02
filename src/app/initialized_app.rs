@@ -73,6 +73,7 @@ const FREE_ATLAS_DIM: UVec3 = UVec3::new(512, 512, 512);
 
 impl InitializedApp {
     pub fn new(_event_loop: &ActiveEventLoop) -> Self {
+        let chunk_bound = UAabb3::new(UVec3::ZERO, CHUNK_DIM);
         let window_state = Self::create_window_state(_event_loop);
         let vulkan_ctx = Self::create_vulkan_context(&window_state);
 
@@ -132,7 +133,7 @@ impl InitializedApp {
             &shader_compiler,
             plain_builder.get_resources(),
             VOXEL_DIM_PER_CHUNK,
-            CHUNK_DIM,
+            chunk_bound,
             VOXEL_DIM_PER_CHUNK.x as u64 * VOXEL_DIM_PER_CHUNK.z as u64,
         );
 
@@ -150,7 +151,7 @@ impl InitializedApp {
             vulkan_ctx.clone(),
             allocator.clone(),
             &shader_compiler,
-            CHUNK_DIM,
+            chunk_bound,
         );
 
         Self::init(
@@ -164,7 +165,7 @@ impl InitializedApp {
             vulkan_ctx.clone(),
             allocator.clone(),
             &shader_compiler,
-            CHUNK_DIM,
+            chunk_bound,
             window_state.window_extent(),
             &contree_builder.get_resources().node_data,
             &contree_builder.get_resources().leaf_data,

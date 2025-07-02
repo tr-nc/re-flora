@@ -1,5 +1,5 @@
 mod resources;
-use glam::{Mat4, UVec3, Vec2, Vec3};
+use glam::{Mat4, Vec2, Vec3};
 pub use resources::*;
 
 mod vertex;
@@ -10,7 +10,7 @@ mod grass_construct;
 
 use crate::builder::SurfaceResources;
 use crate::gameplay::{calculate_directional_light_matrices, Camera, CameraDesc};
-use crate::geom::Aabb3;
+use crate::geom::UAabb3;
 use crate::util::{ShaderCompiler, TimeInfo};
 use crate::vkn::{
     Allocator, AttachmentDesc, AttachmentReference, Buffer, ComputePipeline, DescriptorPool,
@@ -30,7 +30,7 @@ pub struct Tracer {
     vulkan_ctx: VulkanContext,
 
     desc: TracerDesc,
-    chunk_dim: UVec3,
+    chunk_bound: UAabb3,
 
     allocator: Allocator,
     resources: TracerResources,
@@ -80,7 +80,7 @@ impl Tracer {
         vulkan_ctx: VulkanContext,
         allocator: Allocator,
         shader_compiler: &ShaderCompiler,
-        chunk_dim: UVec3,
+        chunk_bound: UAabb3,
         screen_extent: Extent2D,
         node_data: &Buffer,
         leaf_data: &Buffer,
@@ -309,7 +309,7 @@ impl Tracer {
         return Self {
             vulkan_ctx,
             desc,
-            chunk_dim,
+            chunk_bound,
             allocator,
             resources,
             camera,
@@ -885,7 +885,7 @@ impl Tracer {
             vec![shader_access_memory_barrier],
         );
 
-        let world_bound = Aabb3::new(Vec3::ZERO, self.chunk_dim.as_vec3());
+        let world_bound = self.chunk_bound.into();
 
         let (shadow_view_mat, shadow_proj_mat) =
             calculate_directional_light_matrices(world_bound, sun_dir);

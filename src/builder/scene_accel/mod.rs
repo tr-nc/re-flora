@@ -4,6 +4,7 @@ use glam::UVec3;
 pub use resources::*;
 
 use crate::{
+    geom::UAabb3,
     util::ShaderCompiler,
     vkn::{
         execute_one_time_command, Allocator, Buffer, ClearValue, CommandBuffer, ComputePipeline,
@@ -27,8 +28,9 @@ impl SceneAccelBuilder {
         vulkan_ctx: VulkanContext,
         allocator: Allocator,
         shader_compiler: &ShaderCompiler,
-        scene_chunk_dim: UVec3,
+        chunk_bound: UAabb3,
     ) -> Self {
+        let _ = chunk_bound;
         let descriptor_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
 
         let update_scene_tex_sm = ShaderModule::from_glsl(
@@ -42,7 +44,7 @@ impl SceneAccelBuilder {
         let resources = SceneAccelResources::new(
             vulkan_ctx.device().clone(),
             allocator,
-            scene_chunk_dim,
+            chunk_bound,
             &update_scene_tex_sm,
         );
 

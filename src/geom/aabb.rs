@@ -1,5 +1,7 @@
 use glam::{UVec3, Vec3};
 
+use crate::vkn::Extent3D;
+
 #[derive(Debug, Clone)]
 pub struct Aabb3 {
     min: Vec3,
@@ -11,6 +13,15 @@ impl Default for Aabb3 {
         Self {
             min: Vec3::ZERO,
             max: Vec3::ZERO,
+        }
+    }
+}
+
+impl From<UAabb3> for Aabb3 {
+    fn from(value: UAabb3) -> Self {
+        Self {
+            min: value.min().as_vec3(),
+            max: value.max().as_vec3(),
         }
     }
 }
@@ -107,6 +118,14 @@ impl UAabb3 {
     /// on each axis, though this constructor doesn't enforce it.
     pub fn new(min: UVec3, max: UVec3) -> Self {
         Self { min, max }
+    }
+
+    pub fn get_extent(&self) -> Extent3D {
+        Extent3D::new(
+            self.max.x - self.min.x,
+            self.max.y - self.min.y,
+            self.max.z - self.min.z,
+        )
     }
 
     /// Returns the minimum corner of the `UAabb3`.
@@ -225,5 +244,14 @@ impl UAabb3 {
     #[allow(dead_code)]
     pub fn has_size(&self) -> bool {
         self.min.x < self.max.x && self.min.y < self.max.y && self.min.z < self.max.z
+    }
+
+    pub fn in_bound(&self, element_id: UVec3) -> bool {
+        element_id.x >= self.min.x
+            && element_id.x < self.max.x
+            && element_id.y >= self.min.y
+            && element_id.y < self.max.y
+            && element_id.z >= self.min.z
+            && element_id.z < self.max.z
     }
 }

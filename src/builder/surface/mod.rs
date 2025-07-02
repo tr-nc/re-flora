@@ -5,6 +5,7 @@ pub use resources::*;
 
 use super::PlainBuilderResources;
 use crate::{
+    geom::UAabb3,
     util::ShaderCompiler,
     vkn::{
         Allocator, Buffer, ClearValue, CommandBuffer, ComputePipeline, DescriptorPool,
@@ -21,6 +22,7 @@ pub struct SurfaceBuilder {
     make_surface_ds_0: DescriptorSet,
     flexible_descriptor_pool: DescriptorPool,
 
+    chunk_bound: UAabb3,
     voxel_dim_per_chunk: UVec3,
 }
 
@@ -31,7 +33,7 @@ impl SurfaceBuilder {
         shader_compiler: &ShaderCompiler,
         plain_builder_resources: &PlainBuilderResources,
         voxel_dim_per_chunk: UVec3,
-        chunk_dim: UVec3,
+        chunk_bound: UAabb3,
         grass_instances_capacity_per_chunk: u64,
     ) -> Self {
         let fixed_descriptor_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
@@ -50,7 +52,7 @@ impl SurfaceBuilder {
             allocator,
             voxel_dim_per_chunk,
             &make_surface_sm,
-            chunk_dim,
+            chunk_bound,
             grass_instances_capacity_per_chunk,
         );
 
@@ -73,6 +75,7 @@ impl SurfaceBuilder {
 
             flexible_descriptor_pool,
 
+            chunk_bound,
             voxel_dim_per_chunk,
         };
 
@@ -142,6 +145,10 @@ impl SurfaceBuilder {
 
     /// Returns active_voxel_len
     pub fn build_surface(&mut self, chunk_id: UVec3) -> u32 {
+        if !self.chunk_bound.in_bound(chunk_id) {
+            return 0;
+        }
+
         let atlas_read_offset = chunk_id * self.voxel_dim_per_chunk;
         let atlas_read_dim = self.voxel_dim_per_chunk;
 

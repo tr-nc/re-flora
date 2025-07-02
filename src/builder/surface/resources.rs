@@ -1,5 +1,6 @@
-use crate::vkn::{
-    Allocator, Buffer, BufferUsage, Device, Extent3D, ImageDesc, ShaderModule, Texture,
+use crate::{
+    geom::UAabb3,
+    vkn::{Allocator, Buffer, BufferUsage, Device, Extent3D, ImageDesc, ShaderModule, Texture},
 };
 use ash::vk;
 use glam::UVec3;
@@ -51,7 +52,7 @@ impl SurfaceResources {
         allocator: Allocator,
         voxel_dim_per_chunk: UVec3,
         make_surface_sm: &ShaderModule,
-        chunk_dim: UVec3,
+        chunk_dim: UAabb3,
         grass_instances_capacity_per_chunk: u64,
     ) -> Self {
         let surface_desc = ImageDesc {
@@ -92,9 +93,9 @@ impl SurfaceResources {
         );
 
         let mut chunk_raster_resources = HashMap::new();
-        for x in 0..chunk_dim.x {
-            for y in 0..chunk_dim.y {
-                for z in 0..chunk_dim.z {
+        for x in chunk_dim.min().x..chunk_dim.max().x {
+            for y in chunk_dim.min().y..chunk_dim.max().y {
+                for z in chunk_dim.min().z..chunk_dim.max().z {
                     let chunk_offset = UVec3::new(x, y, z);
                     chunk_raster_resources.insert(
                         chunk_offset,

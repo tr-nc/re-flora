@@ -113,7 +113,8 @@ rustup update stable
 
 ## TODO list
 
-- [ ] Trees adding back & Leaves
+- [ ] Leaves
+- [ ] Basic Filtering
 - [ ] Dynamic Terrain Edit
 - [ ] Other types of plants
 - [ ] Sky Color
