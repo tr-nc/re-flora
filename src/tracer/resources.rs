@@ -347,7 +347,7 @@ impl TracerResources {
     ) -> Texture {
         let tex_desc = ImageDesc {
             extent: rendering_extent.into(),
-            format: vk::Format::R32G32B32A32_SFLOAT, // TODO: use a lower precision?
+            format: vk::Format::R32_SFLOAT,
             usage: vk::ImageUsageFlags::STORAGE,
             initial_layout: vk::ImageLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
