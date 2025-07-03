@@ -461,8 +461,10 @@ impl InitializedApp {
                 let mut tree_desc_changed = false;
                 self.egui_renderer
                     .update(&self.window_state.window(), |ctx| {
+                        ctx.style_mut().visuals.override_text_color = Some(egui::Color32::WHITE);
+
                         let my_frame = egui::containers::Frame {
-                            fill: Color32::from_rgba_premultiplied(115, 34, 85, 250),
+                            fill: Color32::from_rgba_premultiplied(123, 64, 25, 250),
                             inner_margin: egui::Margin::same(10),
                             ..Default::default()
                         };
@@ -519,7 +521,7 @@ impl InitializedApp {
 
                                     tree_desc_changed |= ui
                                         .add(
-                                            egui::Slider::new(&mut self.tree_pos.x, 0.0..=512.0)
+                                            egui::Slider::new(&mut self.tree_pos.x, 0.0..=1024.0)
                                                 .text("New Tree X Position"),
                                         )
                                         .changed();
@@ -531,7 +533,7 @@ impl InitializedApp {
                                         .changed();
                                     tree_desc_changed |= ui
                                         .add(
-                                            egui::Slider::new(&mut self.tree_pos.z, 0.0..=512.0)
+                                            egui::Slider::new(&mut self.tree_pos.z, 0.0..=1024.0)
                                                 .text("New Tree Z Position"),
                                         )
                                         .changed();

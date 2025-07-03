@@ -9,7 +9,6 @@ const uint VOXEL_TYPE_DIRT  = 2;
 const uint VOXEL_TYPE_ROCK  = 3;
 
 const uint VOXEL_TYPE_LEAF  = 4;
-const uint VOXEL_TYPE_GRASS = 5;
 const uint VOXEL_TYPE_TRUNK = 6;
 
 // coloring
@@ -23,12 +22,10 @@ vec3 voxel_color_by_type_srgb(uint voxel_type) {
         return vec3(0.96, 0.87, 0.70);
     } else if (voxel_type == VOXEL_TYPE_DIRT) {
         return vec3(0.35, 0.57, 0.23);
-    } else if (voxel_type == VOXEL_TYPE_GRASS) {
-        return vec3(0.30, 0.70, 0.25);
     } else if (voxel_type == VOXEL_TYPE_LEAF) {
         return vec3(0.95, 0.78, 0.14);
     } else if (voxel_type == VOXEL_TYPE_ROCK) {
-        return vec3(0.50, 0.50, 0.50);
+        return vec3(0.92, 0.36, 0.0);
     } else if (voxel_type == VOXEL_TYPE_TRUNK) {
         return vec3(0.39, 0.29, 0.03);
     }

@@ -41,44 +41,42 @@ pub struct TreeDesc {
 impl Default for TreeDesc {
     fn default() -> Self {
         TreeDesc {
-            // Basic Properties
-            size: 50.0,                // Tree Size
-            trunk_thickness: 0.20,     // Trunk Thickness
-            trunk_thickness_min: 1.05, // Min Trunk Thickness
+            /* ────────────── Basic Properties ────────────── */
+            size: 50.0,
+            trunk_thickness: 0.50,
+            trunk_thickness_min: 1.00, // ← was 1.05
 
-            // Tree Shape
-            tree_height: 11.0,              // Tree Height
-            spread: 0.00,                   // Spread
-            vertical_tendency: 0.10,        // Vertical Tendency (up/downward)
-            segment_length_variation: 0.02, // Segment Length Variation
-            length_dropoff: 0.66,           // Length Dropoff per Level
-            thickness_reduction: 0.70,      // Thickness Reduction
+            /* ──────────────── Iterations ───────────────── */
+            iterations: 7,
 
-            // Branching Control
-            branch_probability: 0.65,            // Branch Probability
-            branch_count_min: 2,                 // Min Branches
-            branch_count_max: 3,                 // Max Branches
-            branch_angle_min: 24.0 * PI / 180.0, // Min Branch Angle (24°)
-            branch_angle_max: 48.0 * PI / 180.0, // Max Branch Angle (48°)
+            /* ───────────────── Tree Shape ──────────────── */
+            tree_height: 16.0,              // ← was 10.0
+            spread: 0.45,                   // ← was 0.42
+            vertical_tendency: 1.00,        // ← was 0.50
+            segment_length_variation: 0.15, // ← was 0.35
+            length_dropoff: 0.39,           // ← was 0.66
+            thickness_reduction: 0.40,      // ← was 0.60
 
-            // Variation
-            randomness: 0.27,     // Randomness
-            leaves_size_level: 5, // Leaves Size Level (2^level)
+            /* ────────────── Branching Control ──────────── */
+            branch_probability: 0.65,
+            branch_count_min: 2,
+            branch_count_max: 3,
+            branch_angle_min: 24.0 * PI / 180.0,
+            branch_angle_max: 48.0 * PI / 180.0,
 
-            // Iterations
-            iterations: 7, // Iterations
-
-            // NEW: enable subdivision by default
+            /* ───────────── Subdivision Params ──────────── */
             enable_subdivision: true,
+            subdivision_threshold: 7.0,   // ← was 8.0
+            subdivision_count_min: 3,     // unchanged
+            subdivision_count_max: 6,     // ← was 7
+            subdivision_randomness: 0.64, // ← was 0.75
 
-            // Subdivision Parameters
-            subdivision_threshold: 15.0,  // Subdivision Threshold
-            subdivision_count_min: 3,     // Min Subdivisions
-            subdivision_count_max: 7,     // Max Subdivisions
-            subdivision_randomness: 0.15, // Subdivision Randomness
+            /* ───────────────── Variation ───────────────── */
+            randomness: 0.27,
+            leaves_size_level: 5,
 
-            // Seed
-            seed: 41,
+            /* ─────────────────── Seed ──────────────────── */
+            seed: 152, // ← was 115
         }
     }
 }
