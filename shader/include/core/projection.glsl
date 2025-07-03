@@ -22,4 +22,12 @@ vec3 project_screen_uv_to_world_cam_near_point(vec2 screen_uv, mat4 view_proj_ma
     return world_near_point;
 }
 
+vec2 project_world_to_screen(vec3 world_pos, mat4 view_proj_mat) {
+    vec4 screen_box_coord = view_proj_mat * vec4(world_pos, 1.0);
+    screen_box_coord /= screen_box_coord.w;
+    vec2 screen_uv = screen_box_coord.xy;
+    screen_uv      = (screen_uv + 1.0) * 0.5;
+    return screen_uv;
+}
+
 #endif // PROJECTION_GLSL

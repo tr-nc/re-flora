@@ -56,6 +56,8 @@ pub struct InitializedApp {
     sun_azimuth: f32,
     sun_size: f32,
     sun_color: egui::Color32,
+    temporal_position_phi: f32,
+    temporal_alpha: f32,
 
     tree_pos: Vec3,
 
@@ -201,6 +203,8 @@ impl InitializedApp {
             debug_float: 0.0,
             debug_bool: true,
             debug_uint: 0,
+            temporal_position_phi: 0.8,
+            temporal_alpha: 0.04,
             sun_altitude: 14.0,
             sun_azimuth: 280.0,
             sun_size: 0.02,
@@ -535,6 +539,21 @@ impl InitializedApp {
                                     ui.heading("Tree Descriptor"); // Heading for the new section
 
                                     tree_desc_changed |= self.tree_desc.edit_by_gui(ui);
+
+                                    ui.separator();
+
+                                    ui.heading("Temporal");
+                                    ui.add(
+                                        egui::Slider::new(
+                                            &mut self.temporal_position_phi,
+                                            0.0..=1.0,
+                                        )
+                                        .text("Temporal Position Phi"),
+                                    );
+                                    ui.add(
+                                        egui::Slider::new(&mut self.temporal_alpha, 0.0..=1.0)
+                                            .text("Temporal Alpha"),
+                                    );
                                 });
                             });
                     });
@@ -583,6 +602,8 @@ impl InitializedApp {
                             self.sun_color.g() as f32,
                             self.sun_color.b() as f32,
                         ),
+                        self.temporal_position_phi,
+                        self.temporal_alpha,
                     )
                     .unwrap();
 

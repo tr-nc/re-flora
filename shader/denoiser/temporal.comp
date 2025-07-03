@@ -11,19 +11,19 @@ layout(set = 0, binding = 0) uniform U_TemporalInfo {
 temporal_info;
 layout(set = 0, binding = 1, r32ui) uniform uimage2D raw_image;
 
-layout(set = 3, binding = 0, r32ui) uniform uimage2D denoiser_normal_tex;
-layout(set = 3, binding = 1, r32ui) uniform uimage2D denoiser_normal_tex_prev;
-layout(set = 3, binding = 2, rgba32f) uniform image2D denoiser_position_tex;
-layout(set = 3, binding = 3, rgba32f) uniform image2D denoiser_position_tex_prev;
-layout(set = 3, binding = 4, r32ui) uniform uimage2D denoiser_vox_id_tex;
-layout(set = 3, binding = 5, r32ui) uniform uimage2D denoiser_vox_id_tex_prev;
-layout(set = 3, binding = 6, r32ui) uniform uimage2D denoiser_accumed_tex;
-layout(set = 3, binding = 7, r32ui) uniform uimage2D denoiser_accumed_tex_prev;
-layout(set = 3, binding = 8, rg16f) uniform image2D denoiser_motion_tex;
-layout(set = 3, binding = 9, r8ui) uniform uimage2D denoiser_temporal_hist_len_tex;
-layout(set = 3, binding = 10, r8ui) uniform uimage2D denoiser_hit_tex;
-layout(set = 3, binding = 11, r11f_g11f_b10f) uniform image2D denoiser_atrous_ping_tex;
-layout(set = 3, binding = 12, r11f_g11f_b10f) uniform image2D denoiser_atrous_pong_tex;
+layout(set = 1, binding = 0, r32ui) uniform uimage2D denoiser_normal_tex;
+layout(set = 1, binding = 1, r32ui) uniform uimage2D denoiser_normal_tex_prev;
+layout(set = 1, binding = 2, rgba32f) uniform image2D denoiser_position_tex;
+layout(set = 1, binding = 3, rgba32f) uniform image2D denoiser_position_tex_prev;
+layout(set = 1, binding = 4, r32ui) uniform uimage2D denoiser_vox_id_tex;
+layout(set = 1, binding = 5, r32ui) uniform uimage2D denoiser_vox_id_tex_prev;
+layout(set = 1, binding = 6, r32ui) uniform uimage2D denoiser_accumed_tex;
+layout(set = 1, binding = 7, r32ui) uniform uimage2D denoiser_accumed_tex_prev;
+layout(set = 1, binding = 8, rg16f) uniform image2D denoiser_motion_tex;
+layout(set = 1, binding = 9, r8ui) uniform uimage2D denoiser_temporal_hist_len_tex;
+layout(set = 1, binding = 10, r8ui) uniform uimage2D denoiser_hit_tex;
+layout(set = 1, binding = 11, r11f_g11f_b10f) uniform image2D denoiser_atrous_ping_tex;
+layout(set = 1, binding = 12, r11f_g11f_b10f) uniform image2D denoiser_atrous_pong_tex;
 
 #include "../include/core/packer.glsl"
 
@@ -36,7 +36,7 @@ vec3 fetch_accum_color(ivec2 uv) {
     }
     return unpack_rgbe(imageLoad(denoiser_accumed_tex_prev, uv).x);
 }
-
+    
 bool is_consistent(vec3 n, vec3 n_prev, vec3 p, vec3 p_prev) {
     float n_fac = dot(n, n_prev);
     float p_fac = exp(-distance(p, p_prev));

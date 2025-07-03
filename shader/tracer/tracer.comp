@@ -53,7 +53,7 @@ contree_leaf_data;
 layout(set = 0, binding = 7, rg32ui) readonly uniform uimage3D scene_tex;
 layout(set = 0, binding = 8) uniform sampler2D shadow_map_tex;
 
-layout(set = 1, binding = 0, rgba8) writeonly uniform image2D compute_output_tex;
+layout(set = 1, binding = 0, r32ui) writeonly uniform uimage2D compute_output_tex;
 layout(set = 1, binding = 1, r32f) writeonly uniform image2D compute_depth_tex;
 
 layout(set = 2, binding = 0, r8) readonly uniform image2DArray scalar_bn;
@@ -268,8 +268,6 @@ void main() {
     vec2 screen_uv = (vec2(gl_GlobalInvocationID.xy) + vec2(0.5)) / vec2(img_size);
     Ray ray        = ray_gen(screen_uv, camera_info.view_proj_mat_inv);
 
-    vec2 motion_vec;
-
     vec3 color;
     float depth_01;
     vec3 primary_normal;
@@ -279,7 +277,12 @@ void main() {
     get_pixel_color(color, depth_01, primary_normal, primary_position, primary_vox_id,
                     primary_is_hit, ray, seed);
 
-    imageStore(compute_output_tex, uvi, vec4(color, 1.0));
+    vec2 uv_prev = project_world_to_screen(primary_position, camera_info_prev_frame.view_proj_mat);
+    // directly using screen_uv will cause precision issue
+    vec2 uv_cur     = project_world_to_screen(primary_position, camera_info.view_proj_mat);
+    vec2 motion_vec = uv_prev - uv_cur;
+
+    imageStore(compute_output_tex, uvi, uvec4(pack_rgbe(color), 0, 0, 0));
     imageStore(compute_depth_tex, uvi, vec4(depth_01, 0.0, 0.0, 1.0));
 
     imageStore(denoiser_normal_tex, uvi, uvec4(pack_normal_v2(primary_normal), 0, 0, 0));

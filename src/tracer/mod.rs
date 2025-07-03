@@ -45,8 +45,11 @@ pub struct Tracer {
     tracer_ppl: ComputePipeline,
     tracer_sets: [DescriptorSet; 4],
 
+    temporal_ppl: ComputePipeline,
+    temporal_sets: [DescriptorSet; 2],
+
     post_processing_ppl: ComputePipeline,
-    post_processing_sets: [DescriptorSet; 1],
+    post_processing_sets: [DescriptorSet; 2],
 
     tracer_shadow_ppl: ComputePipeline,
     tracer_shadow_sets: [DescriptorSet; 1],
@@ -175,6 +178,7 @@ impl Tracer {
         let vsm_blur_h_ppl = ComputePipeline::new(vulkan_ctx.device(), &vsm_blur_h_sm);
         let vsm_blur_v_ppl = ComputePipeline::new(vulkan_ctx.device(), &vsm_blur_v_sm);
         let god_ray_ppl = ComputePipeline::new(vulkan_ctx.device(), &god_ray_sm);
+        let temporal_ppl = ComputePipeline::new(vulkan_ctx.device(), &temporal_sm);
         let post_processing_ppl = ComputePipeline::new(vulkan_ctx.device(), &post_processing_sm);
 
         let fixed_descriptor_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
@@ -278,7 +282,7 @@ impl Tracer {
         let temporal_ds = Self::create_temporal_ds(
             flexible_descriptor_pool.clone(),
             &vulkan_ctx,
-            &tracer_ppl,
+            &temporal_ppl,
             &resources,
         );
 
@@ -346,13 +350,15 @@ impl Tracer {
             tracer_ppl,
             tracer_shadow_ppl,
             god_ray_ppl,
+            temporal_ppl,
             post_processing_ppl,
             vsm_creation_ppl,
             vsm_blur_h_ppl,
             vsm_blur_v_ppl,
             vsm_sets: [vsm_ds_0],
             god_ray_sets: [god_ray_ds_0, noise_tex_ds.clone()],
-            post_processing_sets: [post_processing_ds_0],
+            temporal_sets: [temporal_ds, noise_tex_ds.clone()],
+            post_processing_sets: [post_processing_ds_0, denoiser_ds.clone()],
             tracer_sets: [tracer_ds_0, tracer_ds_1, noise_tex_ds, denoiser_ds],
             tracer_shadow_sets: [tracer_shadow_ds],
             main_sets: [main_ds],
@@ -593,7 +599,7 @@ impl Tracer {
     }
 
     fn create_tracer_ds_1(
-        descriptor_pool: DescriptorPool,
+        flexible_pool: DescriptorPool,
         vulkan_ctx: &VulkanContext,
         tracer_ppl: &ComputePipeline,
         resources: &TracerResources,
@@ -601,7 +607,7 @@ impl Tracer {
         let ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),
             &tracer_ppl.get_layout().get_descriptor_set_layouts()[&1],
-            descriptor_pool,
+            flexible_pool,
         );
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_texture_write(
@@ -621,7 +627,7 @@ impl Tracer {
     }
 
     fn create_denoiser_ds(
-        descriptor_pool: DescriptorPool,
+        flexible_pool: DescriptorPool,
         vulkan_ctx: &VulkanContext,
         tracer_ppl: &ComputePipeline,
         resources: &TracerResources,
@@ -629,7 +635,7 @@ impl Tracer {
         let ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),
             &tracer_ppl.get_layout().get_descriptor_set_layouts()[&3],
-            descriptor_pool,
+            flexible_pool,
         );
 
         ds.perform_writes(&mut [
@@ -727,12 +733,18 @@ impl Tracer {
             &temporal_ppl.get_layout().get_descriptor_set_layouts()[&0],
             flexible_pool,
         );
-        ds.perform_writes(&mut [WriteDescriptorSet::new_buffer_write(
-            0,
-            &resources.denoiser_resources.temporal_info,
-        )]);
+        ds.perform_writes(&mut [
+            WriteDescriptorSet::new_buffer_write(0, &resources.denoiser_resources.temporal_info),
+            WriteDescriptorSet::new_texture_write(
+                1,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.compute_output_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+        ]);
         ds
     }
+
     fn create_noise_tex_ds(
         descriptor_pool: DescriptorPool,
         vulkan_ctx: &VulkanContext,
@@ -830,7 +842,7 @@ impl Tracer {
     }
 
     fn create_post_processing_set_0(
-        descriptor_pool: DescriptorPool,
+        flexible_pool: DescriptorPool,
         vulkan_ctx: &VulkanContext,
         post_processing_ppl: &ComputePipeline,
         resources: &TracerResources,
@@ -840,7 +852,7 @@ impl Tracer {
             &post_processing_ppl
                 .get_layout()
                 .get_descriptor_set_layouts()[&0],
-            descriptor_pool,
+            flexible_pool,
         );
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.post_processing_info),
@@ -859,7 +871,7 @@ impl Tracer {
             WriteDescriptorSet::new_texture_write(
                 3,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.compute_output_tex,
+                &resources.denoiser_resources.denoiser_accumed_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
@@ -1002,6 +1014,15 @@ impl Tracer {
             &self.tracer_ppl,
             &self.resources,
         );
+
+        self.temporal_sets[0] = Self::create_temporal_ds(
+            self.flexible_descriptor_pool.clone(),
+            &self.vulkan_ctx,
+            &self.temporal_ppl,
+            &self.resources,
+        );
+        self.temporal_sets[1] = self.tracer_sets[3].clone();
+        self.post_processing_sets[1] = self.tracer_sets[3].clone();
     }
 
     // create a lower resolution texture for rendering, for better performance,
@@ -1029,6 +1050,8 @@ impl Tracer {
         sun_dir: Vec3,
         sun_size: f32,
         sun_color: Vec3,
+        temporal_position_phi: f32,
+        temporal_alpha: f32,
     ) -> Result<()> {
         // camera info
         update_cam_info(
@@ -1091,6 +1114,8 @@ impl Tracer {
 
         self.record_main_pass(cmdbuf, surface_resources);
 
+        record_denoiser_resources_transition_barrier(&self.resources.denoiser_resources, cmdbuf);
+
         self.record_tracer_pass(cmdbuf);
 
         let b2 = PipelineBarrier::new(
@@ -1103,6 +1128,15 @@ impl Tracer {
         self.record_god_ray_pass(cmdbuf);
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
+        update_temporal_info(
+            &mut self.resources.denoiser_resources.temporal_info,
+            temporal_position_phi,
+            temporal_alpha,
+        )?;
+        self.record_denoiser_pass(cmdbuf);
+
+        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+
         self.record_post_processing_pass(cmdbuf);
 
         self.camera_view_mat_prev_frame = self.camera.get_view_mat();
@@ -1111,6 +1145,50 @@ impl Tracer {
         copy_current_to_prev(&self.resources, cmdbuf);
 
         return Ok(());
+
+        fn update_temporal_info(
+            temporal_info: &mut Buffer,
+            temporal_position_phi: f32,
+            temporal_alpha: f32,
+        ) -> Result<()> {
+            let data = StructMemberDataBuilder::from_buffer(temporal_info)
+                .set_field(
+                    "temporal_position_phi",
+                    PlainMemberTypeWithData::Float(temporal_position_phi),
+                )
+                .unwrap()
+                .set_field(
+                    "temporal_alpha",
+                    PlainMemberTypeWithData::Float(temporal_alpha),
+                )
+                .unwrap()
+                .build();
+            temporal_info.fill_with_raw_u8(&data)?;
+            Ok(())
+        }
+
+        fn record_denoiser_resources_transition_barrier(
+            denoiser_resources: &DenoiserResources,
+            cmdbuf: &CommandBuffer,
+        ) {
+            let tr_fn = |tex: &Texture| {
+                tex.get_image()
+                    .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+            };
+            tr_fn(&denoiser_resources.denoiser_normal_tex);
+            tr_fn(&denoiser_resources.denoiser_normal_tex_prev);
+            tr_fn(&denoiser_resources.denoiser_position_tex);
+            tr_fn(&denoiser_resources.denoiser_position_tex_prev);
+            tr_fn(&denoiser_resources.denoiser_vox_id_tex);
+            tr_fn(&denoiser_resources.denoiser_vox_id_tex_prev);
+            tr_fn(&denoiser_resources.denoiser_accumed_tex);
+            tr_fn(&denoiser_resources.denoiser_accumed_tex_prev);
+            tr_fn(&denoiser_resources.denoiser_motion_tex);
+            tr_fn(&denoiser_resources.denoiser_temporal_hist_len_tex);
+            tr_fn(&denoiser_resources.denoiser_hit_tex);
+            tr_fn(&denoiser_resources.denoiser_atrous_ping_tex);
+            tr_fn(&denoiser_resources.denoiser_atrous_pong_tex);
+        }
 
         fn copy_current_to_prev(resources: &TracerResources, cmdbuf: &CommandBuffer) {
             let copy_fn = |src_tex: &Texture, dst_tex: &Texture| {
@@ -1442,40 +1520,6 @@ impl Tracer {
         );
     }
 
-    fn record_denoiser_resources_transition_barrier(&self, cmdbuf: &CommandBuffer) {
-        self.resources
-            .denoiser_resources
-            .denoiser_normal_tex
-            .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
-        self.resources
-            .denoiser_resources
-            .denoiser_position_tex
-            .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
-        self.resources
-            .denoiser_resources
-            .denoiser_vox_id_tex
-            .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
-        self.resources
-            .denoiser_resources
-            .denoiser_accumed_tex
-            .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
-        // prev textures are skipped
-        self.resources
-            .denoiser_resources
-            .denoiser_motion_tex
-            .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
-        self.resources
-            .denoiser_resources
-            .denoiser_hit_tex
-            .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
-    }
-
     fn record_tracer_pass(&self, cmdbuf: &CommandBuffer) {
         self.resources
             .compute_output_tex
@@ -1485,7 +1529,6 @@ impl Tracer {
             .compute_depth_tex
             .get_image()
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
-        self.record_denoiser_resources_transition_barrier(cmdbuf);
 
         self.tracer_ppl.record_bind(cmdbuf);
 
@@ -1527,6 +1570,27 @@ impl Tracer {
             .extent;
 
         self.god_ray_ppl.record_dispatch(
+            cmdbuf,
+            [
+                render_extent.width,
+                render_extent.height,
+                render_extent.depth,
+            ],
+        );
+    }
+
+    fn record_denoiser_pass(&self, cmdbuf: &CommandBuffer) {
+        self.temporal_ppl.record_bind(cmdbuf);
+        self.temporal_ppl
+            .record_bind_descriptor_sets(cmdbuf, &self.temporal_sets, 0);
+
+        let render_extent = self
+            .resources
+            .compute_output_tex
+            .get_image()
+            .get_desc()
+            .extent;
+        self.temporal_ppl.record_dispatch(
             cmdbuf,
             [
                 render_extent.width,
