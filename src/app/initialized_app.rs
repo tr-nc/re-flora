@@ -66,7 +66,7 @@ pub struct InitializedApp {
     phi_z_stable_sample_count: f32,
     is_changing_lum_phi: bool,
     is_spatial_denoising_skipped: bool,
-
+    is_taa_enabled: bool,
     tree_pos: Vec3,
 
     tree_desc: TreeDesc,
@@ -221,7 +221,7 @@ impl InitializedApp {
             phi_z_stable_sample_count: 0.05,
             is_changing_lum_phi: true,
             is_spatial_denoising_skipped: false,
-
+            is_taa_enabled: false,
             sun_altitude: 14.0,
             sun_azimuth: 280.0,
             sun_size: 0.02,
@@ -611,6 +611,15 @@ impl InitializedApp {
                                         &mut self.is_spatial_denoising_skipped,
                                         "Skip Spatial Denoising",
                                     ));
+
+                                    ui.separator();
+
+                                    ui.heading("Temporal Anti-Aliasing");
+
+                                    ui.add(egui::Checkbox::new(
+                                        &mut self.is_taa_enabled,
+                                        "Enable Temporal Anti-Aliasing",
+                                    ));
                                 });
                             });
                     });
@@ -669,6 +678,7 @@ impl InitializedApp {
                         self.phi_z_stable_sample_count,
                         self.is_changing_lum_phi,
                         self.is_spatial_denoising_skipped,
+                        self.is_taa_enabled,
                     )
                     .unwrap();
 

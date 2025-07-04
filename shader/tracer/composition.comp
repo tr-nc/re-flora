@@ -1,0 +1,46 @@
+/// Composite the denoiser output with the gfx output, along with the god ray output
+
+#version 460
+
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba8) uniform readonly image2D gfx_output_tex;
+layout(set = 0, binding = 1, r32f) uniform readonly image2D gfx_depth_tex;
+layout(set = 0, binding = 2, r11f_g11f_b10f) uniform readonly image2D denoiser_output_tex;
+layout(set = 0, binding = 3, r32f) uniform readonly image2D compute_depth_tex;
+layout(set = 0, binding = 4, r32f) uniform readonly image2D god_ray_output_tex;
+layout(set = 0, binding = 5, r11f_g11f_b10f) uniform writeonly image2D composited_tex;
+
+#include "../include/core/color.glsl"
+
+vec3 combine_colors(float gfx_depth_01, float compute_depth_01, vec3 gfx_color,
+                    vec3 denoiser_output_color) {
+    if (gfx_depth_01 > compute_depth_01) {
+        return denoiser_output_color;
+    }
+    return gfx_color;
+}
+
+void main() {
+    ivec2 uvi = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(uvi, imageSize(composited_tex)))) {
+        return;
+    }
+
+    float gfx_depth_01       = imageLoad(gfx_depth_tex, uvi).r;
+    float compute_depth_01   = imageLoad(compute_depth_tex, uvi).r;
+    vec3 gfx_color           = imageLoad(gfx_output_tex, uvi).rgb;
+    vec3 denoiser_output_tex = imageLoad(denoiser_output_tex, uvi).rgb;
+    vec3 final_color =
+        combine_colors(gfx_depth_01, compute_depth_01, gfx_color, denoiser_output_tex);
+
+    float god_ray_weight = imageLoad(god_ray_output_tex, uvi).r;
+
+    vec3 dot_color     = srgb_to_linear(vec3(1.0, 0.945, 0.0));
+    vec4 god_ray_color = vec4(dot_color, god_ray_weight);
+    // final_color = mix(final_color, god_ray_color.rgb, god_ray_color.a);
+
+    imageStore(composited_tex, uvi, vec4(final_color, 1.0));
+}

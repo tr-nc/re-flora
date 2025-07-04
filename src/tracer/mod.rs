@@ -43,16 +43,18 @@ pub struct Tracer {
     camera_proj_mat_prev_frame: Mat4,
 
     tracer_ppl: ComputePipeline,
-    tracer_sets: [DescriptorSet; 4],
-
     temporal_ppl: ComputePipeline,
-    temporal_sets: [DescriptorSet; 2],
-
     spatial_ppl: ComputePipeline,
-    spatial_sets: [DescriptorSet; 3],
-
+    composition_ppl: ComputePipeline,
+    taa_ppl: ComputePipeline,
     post_processing_ppl: ComputePipeline,
-    post_processing_sets: [DescriptorSet; 2],
+
+    tracer_sets: [DescriptorSet; 4],
+    temporal_sets: [DescriptorSet; 2],
+    spatial_sets: [DescriptorSet; 3],
+    composition_sets: [DescriptorSet; 1],
+    taa_sets: [DescriptorSet; 1],
+    post_processing_sets: [DescriptorSet; 1],
 
     tracer_shadow_ppl: ComputePipeline,
     tracer_shadow_sets: [DescriptorSet; 1],
@@ -159,14 +161,6 @@ impl Tracer {
         )
         .unwrap();
 
-        let post_processing_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            &shader_compiler,
-            "shader/tracer/post_processing.comp",
-            "main",
-        )
-        .unwrap();
-
         let temporal_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             &shader_compiler,
@@ -183,6 +177,30 @@ impl Tracer {
         )
         .unwrap();
 
+        let composition_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            &shader_compiler,
+            "shader/tracer/composition.comp",
+            "main",
+        )
+        .unwrap();
+
+        let taa_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            &shader_compiler,
+            "shader/tracer/taa.comp",
+            "main",
+        )
+        .unwrap();
+
+        let post_processing_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            &shader_compiler,
+            "shader/tracer/post_processing.comp",
+            "main",
+        )
+        .unwrap();
+
         let tracer_ppl = ComputePipeline::new(vulkan_ctx.device(), &tracer_sm);
         let tracer_shadow_ppl = ComputePipeline::new(vulkan_ctx.device(), &tracer_shadow_sm);
         let vsm_creation_ppl = ComputePipeline::new(vulkan_ctx.device(), &vsm_creation_sm);
@@ -191,6 +209,8 @@ impl Tracer {
         let god_ray_ppl = ComputePipeline::new(vulkan_ctx.device(), &god_ray_sm);
         let temporal_ppl = ComputePipeline::new(vulkan_ctx.device(), &temporal_sm);
         let spatial_ppl = ComputePipeline::new(vulkan_ctx.device(), &spatial_sm);
+        let composition_ppl = ComputePipeline::new(vulkan_ctx.device(), &composition_sm);
+        let taa_ppl = ComputePipeline::new(vulkan_ctx.device(), &taa_sm);
         let post_processing_ppl = ComputePipeline::new(vulkan_ctx.device(), &post_processing_sm);
 
         let fixed_descriptor_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
@@ -232,9 +252,10 @@ impl Tracer {
             &grass_vert_sm,
             &tracer_sm,
             &tracer_shadow_sm,
-            &post_processing_sm,
             &temporal_sm,
             &spatial_sm,
+            &taa_sm,
+            &post_processing_sm,
             render_extent,
             screen_extent,
             Extent2D::new(1024, 1024),
@@ -344,6 +365,20 @@ impl Tracer {
             &resources,
         );
 
+        let composition_ds = Self::create_composition_ds(
+            flexible_descriptor_pool.clone(),
+            &vulkan_ctx,
+            &composition_ppl,
+            &resources,
+        );
+
+        let taa_ds = Self::create_taa_ds(
+            flexible_descriptor_pool.clone(),
+            &vulkan_ctx,
+            &taa_ppl,
+            &resources,
+        );
+
         let post_processing_ds = Self::create_post_processing_ds(
             flexible_descriptor_pool.clone(),
             &vulkan_ctx,
@@ -379,6 +414,8 @@ impl Tracer {
             god_ray_ppl,
             temporal_ppl,
             spatial_ppl,
+            composition_ppl,
+            taa_ppl,
             post_processing_ppl,
             vsm_creation_ppl,
             vsm_blur_h_ppl,
@@ -387,7 +424,9 @@ impl Tracer {
             god_ray_sets: [god_ray_ds_0, noise_tex_ds.clone()],
             temporal_sets: [temporal_ds, noise_tex_ds.clone()],
             spatial_sets: [spatial_fixed_set, spatial_flexible_set, denoiser_ds.clone()],
-            post_processing_sets: [post_processing_ds, denoiser_ds.clone()],
+            composition_sets: [composition_ds],
+            taa_sets: [taa_ds],
+            post_processing_sets: [post_processing_ds],
             tracer_sets: [tracer_ds_0, tracer_ds_1, noise_tex_ds, denoiser_ds],
             tracer_shadow_sets: [tracer_shadow_ds],
             grass_sets: [grass_ds],
@@ -908,6 +947,99 @@ impl Tracer {
         ds
     }
 
+    fn create_composition_ds(
+        descriptor_pool: DescriptorPool,
+        vulkan_ctx: &VulkanContext,
+        composition_ppl: &ComputePipeline,
+        resources: &TracerResources,
+    ) -> DescriptorSet {
+        let ds = DescriptorSet::new(
+            vulkan_ctx.device().clone(),
+            &composition_ppl.get_layout().get_descriptor_set_layouts()[&0],
+            descriptor_pool,
+        );
+        ds.perform_writes(&mut [
+            WriteDescriptorSet::new_texture_write(
+                0,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.gfx_output_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                1,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.gfx_depth_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                2,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.denoiser_resources.tex.spatial_pong,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                3,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.compute_depth_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                4,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.god_ray_output_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                5,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.composited_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+        ]);
+        ds
+    }
+
+    fn create_taa_ds(
+        descriptor_pool: DescriptorPool,
+        vulkan_ctx: &VulkanContext,
+        taa_ppl: &ComputePipeline,
+        resources: &TracerResources,
+    ) -> DescriptorSet {
+        let ds = DescriptorSet::new(
+            vulkan_ctx.device().clone(),
+            &taa_ppl.get_layout().get_descriptor_set_layouts()[&0],
+            descriptor_pool,
+        );
+        ds.perform_writes(&mut [
+            WriteDescriptorSet::new_buffer_write(0, &resources.taa_info),
+            WriteDescriptorSet::new_texture_write(
+                1,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.composited_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                2,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.denoiser_resources.tex.motion,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                3,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.taa_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                4,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.taa_tex_prev,
+                vk::ImageLayout::GENERAL,
+            ),
+        ]);
+        ds
+    }
+
     fn create_post_processing_ds(
         flexible_pool: DescriptorPool,
         vulkan_ctx: &VulkanContext,
@@ -926,37 +1058,13 @@ impl Tracer {
             WriteDescriptorSet::new_texture_write(
                 1,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.gfx_output_tex,
+                &resources.taa_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 2,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.gfx_depth_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                3,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.spatial_pong,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                4,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.compute_depth_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                5,
-                vk::DescriptorType::STORAGE_IMAGE,
                 &resources.screen_output_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                6,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.god_ray_output_tex,
                 vk::ImageLayout::GENERAL,
             ),
         ]);
@@ -1053,6 +1161,10 @@ impl Tracer {
             &self.resources.gfx_depth_tex,
         );
 
+        // TODO: associate them... this design is not good
+        // TODO: this is error prone!
+
+        // simplify this to avoid code duplication at the same time
         self.flexible_descriptor_pool.reset().unwrap();
         self.tracer_sets[1] = Self::create_tracer_ds_1(
             self.flexible_descriptor_pool.clone(),
@@ -1065,6 +1177,20 @@ impl Tracer {
             self.flexible_descriptor_pool.clone(),
             &self.vulkan_ctx,
             &self.god_ray_ppl,
+            &self.resources,
+        );
+
+        self.composition_sets[0] = Self::create_composition_ds(
+            self.flexible_descriptor_pool.clone(),
+            &self.vulkan_ctx,
+            &self.composition_ppl,
+            &self.resources,
+        );
+
+        self.taa_sets[0] = Self::create_taa_ds(
+            self.flexible_descriptor_pool.clone(),
+            &self.vulkan_ctx,
+            &self.taa_ppl,
             &self.resources,
         );
 
@@ -1089,7 +1215,6 @@ impl Tracer {
             &self.resources,
         );
         self.temporal_sets[1] = self.tracer_sets[3].clone();
-        self.post_processing_sets[1] = self.tracer_sets[3].clone();
 
         self.spatial_sets[1] = Self::create_spatial_flexible_set(
             self.flexible_descriptor_pool.clone(),
@@ -1135,6 +1260,7 @@ impl Tracer {
         phi_z_stable_sample_count: f32,
         is_changing_lum_phi: bool,
         is_spatial_denoising_skipped: bool,
+        is_taa_enabled: bool,
     ) -> Result<()> {
         // camera info
         update_cam_info(
@@ -1159,6 +1285,8 @@ impl Tracer {
             self.camera_view_mat_prev_frame,
             self.camera_proj_mat_prev_frame,
         )?;
+
+        update_taa_info(&self.resources, is_taa_enabled)?;
 
         update_post_processing_info(&self.resources, self.desc.scaling_factor)?;
 
@@ -1227,6 +1355,11 @@ impl Tracer {
         )?;
         self.record_denoiser_pass(cmdbuf);
 
+        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+
+        self.record_composition_pass(cmdbuf);
+        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+        self.record_taa_pass(cmdbuf);
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
         self.record_post_processing_pass(cmdbuf);
@@ -1378,6 +1511,7 @@ impl Tracer {
                 &resources.denoiser_resources.tex.accumed,
                 &resources.denoiser_resources.tex.accumed_prev,
             );
+            copy_fn(&resources.taa_tex, &resources.taa_tex_prev);
         }
 
         fn update_gui_input(
@@ -1473,6 +1607,18 @@ impl Tracer {
                 .unwrap()
                 .build();
             resources.grass_info.fill_with_raw_u8(&data)?;
+            Ok(())
+        }
+
+        fn update_taa_info(resources: &TracerResources, is_taa_enabled: bool) -> Result<()> {
+            let data = StructMemberDataBuilder::from_buffer(&resources.taa_info)
+                .set_field(
+                    "is_taa_enabled",
+                    PlainMemberTypeWithData::UInt(is_taa_enabled as u32),
+                )
+                .unwrap()
+                .build();
+            resources.taa_info.fill_with_raw_u8(&data)?;
             Ok(())
         }
 
@@ -1785,6 +1931,52 @@ impl Tracer {
                 ],
             );
         }
+    }
+
+    fn record_composition_pass(&self, cmdbuf: &CommandBuffer) {
+        self.resources
+            .composited_tex
+            .get_image()
+            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+
+        self.composition_ppl.record_bind(cmdbuf);
+        self.composition_ppl
+            .record_bind_descriptor_sets(cmdbuf, &self.composition_sets, 0);
+
+        let render_extent = self.resources.composited_tex.get_image().get_desc().extent;
+        self.composition_ppl.record_dispatch(
+            cmdbuf,
+            [
+                render_extent.width,
+                render_extent.height,
+                render_extent.depth,
+            ],
+        );
+    }
+
+    fn record_taa_pass(&self, cmdbuf: &CommandBuffer) {
+        self.resources
+            .taa_tex
+            .get_image()
+            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+        self.resources
+            .taa_tex_prev
+            .get_image()
+            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+
+        self.taa_ppl.record_bind(cmdbuf);
+        self.taa_ppl
+            .record_bind_descriptor_sets(cmdbuf, &self.taa_sets, 0);
+
+        let render_extent = self.resources.composited_tex.get_image().get_desc().extent;
+        self.taa_ppl.record_dispatch(
+            cmdbuf,
+            [
+                render_extent.width,
+                render_extent.height,
+                render_extent.depth,
+            ],
+        );
     }
 
     fn record_post_processing_pass(&self, cmdbuf: &CommandBuffer) {

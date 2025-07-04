@@ -1,4 +1,4 @@
-/// For upscaling the rendering output to the screen and applying postprocessing effects
+/// Upscale the rendering output to the screen and apply postprocessing effects
 
 #version 460
 
@@ -6,47 +6,13 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
+// left for future use
 layout(set = 0, binding = 0) uniform U_PostProcessingInfo { float scaling_factor; }
 post_processing_info;
-layout(set = 0, binding = 1, rgba8) uniform readonly image2D gfx_output_tex;
-layout(set = 0, binding = 2, r32f) uniform readonly image2D gfx_depth_tex;
-layout(set = 0, binding = 3, r11f_g11f_b10f) uniform readonly image2D denoiser_output_tex;
-layout(set = 0, binding = 4, r32f) uniform readonly image2D compute_depth_tex;
-layout(set = 0, binding = 5, rgba8) uniform writeonly image2D screen_output_tex;
-layout(set = 0, binding = 6, r32f) uniform readonly image2D god_ray_output_tex;
+layout(set = 0, binding = 1, r11f_g11f_b10f) uniform readonly image2D taa_tex;
+layout(set = 0, binding = 2, rgba8) uniform writeonly image2D screen_output_tex;
 
-layout(set = 1, binding = 0, r32ui) uniform uimage2D denoiser_normal_tex;
-layout(set = 1, binding = 1, r32ui) uniform uimage2D denoiser_normal_tex_prev;
-layout(set = 1, binding = 2, rgba32f) uniform image2D denoiser_position_tex;
-layout(set = 1, binding = 3, rgba32f) uniform image2D denoiser_position_tex_prev;
-layout(set = 1, binding = 4, r32ui) uniform uimage2D denoiser_vox_id_tex;
-layout(set = 1, binding = 5, r32ui) uniform uimage2D denoiser_vox_id_tex_prev;
-layout(set = 1, binding = 6, r32ui) uniform uimage2D denoiser_accumed_tex;
-layout(set = 1, binding = 7, r32ui) uniform uimage2D denoiser_accumed_tex_prev;
-layout(set = 1, binding = 8, rg16f) uniform image2D denoiser_motion_tex;
-layout(set = 1, binding = 9, r8ui) uniform uimage2D denoiser_temporal_hist_len_tex;
-layout(set = 1, binding = 10, r8ui) uniform uimage2D denoiser_hit_tex;
-layout(set = 1, binding = 11, r11f_g11f_b10f) uniform image2D denoiser_spatial_ping_tex;
-layout(set = 1, binding = 12, r11f_g11f_b10f) uniform image2D denoiser_spatial_pong_tex;
-
-#define OUTPUT_TEXTURE_NAME screen_output_tex
-vec4 get_debugging_color(ivec2 uvi) {
-    uint len = imageLoad(denoiser_temporal_hist_len_tex, uvi).r;
-    return vec4(float(len) / 255.0, 0.0, 0.0, 1.0);
-}
-#include "../include/core/debug.glsl"
-
-#include "../include/core/color.glsl"
 #include "../include/core/dither.glsl"
-#include "../include/core/packer.glsl"
-
-vec3 combine_colors(float gfx_depth_01, float compute_depth_01, vec3 gfx_color,
-                    vec3 denoiser_output_color) {
-    if (gfx_depth_01 > compute_depth_01) {
-        return denoiser_output_color;
-    }
-    return gfx_color;
-}
 
 void main() {
     ivec2 uvi = ivec2(gl_GlobalInvocationID.xy);
@@ -54,35 +20,9 @@ void main() {
         return;
     }
 
-    // if (debug_texture_in_top_right_corner(uvi, ivec2(imageSize(denoiser_temporal_hist_len_tex))))
-    // {
-    //     return;
-    // }
-
-    ivec2 mapped_uvi = ivec2(vec2(uvi) * post_processing_info.scaling_factor);
-
-    float gfx_depth_01       = imageLoad(gfx_depth_tex, mapped_uvi).r;
-    float compute_depth_01   = imageLoad(compute_depth_tex, mapped_uvi).r;
-    vec3 gfx_color           = imageLoad(gfx_output_tex, mapped_uvi).rgb;
-    vec3 denoiser_output_tex = imageLoad(denoiser_output_tex, mapped_uvi).rgb;
-    vec3 final_color =
-        combine_colors(gfx_depth_01, compute_depth_01, gfx_color, denoiser_output_tex);
-
-    vec2 god_ray_scaling_factor =
-        vec2(imageSize(god_ray_output_tex)) / vec2(imageSize(screen_output_tex));
-    ivec2 god_ray_mapped_uvi = ivec2(vec2(uvi) * god_ray_scaling_factor);
-    float god_ray_weight     = imageLoad(god_ray_output_tex, god_ray_mapped_uvi).r;
-
-    vec3 dot_color     = srgb_to_linear(vec3(1.0, 0.945, 0.0));
-    vec4 god_ray_color = vec4(dot_color, god_ray_weight);
-
-    // overlap the god ray color with the final color
-    // final_color = mix(final_color, god_ray_color.rgb, god_ray_color.a);
-
-    bool is_hit = min(gfx_depth_01, compute_depth_01) != 1.0;
-    if (!is_hit) {
-        final_color += srgb_to_linear(vec3(0.0, 0.42, 1.0));
-    }
+    vec2 scaling_factor = vec2(imageSize(taa_tex)) / vec2(imageSize(screen_output_tex));
+    ivec2 mapped_uvi    = ivec2(vec2(uvi) * scaling_factor);
+    vec3 final_color    = imageLoad(taa_tex, mapped_uvi).rgb;
 
     vec3 dither_mask = get_dither_mask(uvi);
     final_color += dither_mask;

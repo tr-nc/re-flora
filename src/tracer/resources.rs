@@ -15,6 +15,7 @@ pub struct TracerResources {
     pub shadow_camera_info: Buffer,
     pub env_info: Buffer,
     pub grass_info: Buffer,
+    pub taa_info: Buffer,
     pub post_processing_info: Buffer,
 
     pub vertices: Buffer,
@@ -49,6 +50,13 @@ pub struct TracerResources {
     pub weighted_cosine_bn: Texture,
     pub fast_unit_vec3_bn: Texture,
     pub fast_weighted_cosine_bn: Texture,
+
+    // composition
+    pub composited_tex: Texture,
+
+    // taa
+    pub taa_tex: Texture,
+    pub taa_tex_prev: Texture,
 }
 
 impl TracerResources {
@@ -58,9 +66,10 @@ impl TracerResources {
         vert_sm: &ShaderModule,
         tracer_sm: &ShaderModule,
         tracer_shadow_sm: &ShaderModule,
-        post_processing_sm: &ShaderModule,
         temporal_sm: &ShaderModule,
         spatial_sm: &ShaderModule,
+        taa_sm: &ShaderModule,
+        post_processing_sm: &ShaderModule,
         rendering_extent: Extent2D,
         screen_extent: Extent2D,
         shadow_map_extent: Extent2D,
@@ -117,6 +126,22 @@ impl TracerResources {
         );
 
         let grass_info_layout = vert_sm.get_buffer_layout("U_GrassInfo").unwrap();
+        let grass_info = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            grass_info_layout.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+        );
+
+        let taa_info_layout = taa_sm.get_buffer_layout("U_TaaInfo").unwrap();
+        let taa_info = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            taa_info_layout.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+        );
 
         let post_processing_info_layout = post_processing_sm
             .get_buffer_layout("U_PostProcessingInfo")
@@ -125,14 +150,6 @@ impl TracerResources {
             device.clone(),
             allocator.clone(),
             post_processing_info_layout.clone(),
-            BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
-        );
-
-        let grass_info = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            grass_info_layout.clone(),
             BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
@@ -172,6 +189,13 @@ impl TracerResources {
             allocator.clone(),
             shadow_map_extent.into(),
         );
+
+        let taa_tex = Self::create_taa_tex(device.clone(), allocator.clone(), rendering_extent);
+        let taa_tex_prev =
+            Self::create_taa_tex(device.clone(), allocator.clone(), rendering_extent);
+
+        let composited_tex =
+            Self::create_composited_tex(device.clone(), allocator.clone(), rendering_extent);
 
         let timer = Timer::new();
         let scalar_bn = create_bn(
@@ -254,6 +278,7 @@ impl TracerResources {
             shadow_camera_info,
             env_info,
             grass_info,
+            taa_info,
             post_processing_info,
 
             vertices,
@@ -281,6 +306,9 @@ impl TracerResources {
                 temporal_sm,
                 spatial_sm,
             ),
+            composited_tex,
+            taa_tex,
+            taa_tex_prev,
         };
 
         fn create_bn(
@@ -327,6 +355,8 @@ impl TracerResources {
         rendering_extent: Extent2D,
         screen_extent: Extent2D,
     ) {
+        // TODO: this is error prone!
+        // simplify this to avoid code duplication at the same time
         self.gfx_depth_tex =
             Self::create_gfx_depth_tex(device.clone(), allocator.clone(), rendering_extent);
         self.compute_depth_tex =
@@ -339,6 +369,11 @@ impl TracerResources {
             Self::create_god_ray_output_tex(device.clone(), allocator.clone(), rendering_extent);
         self.screen_output_tex =
             Self::create_screen_output_tex(device.clone(), allocator.clone(), screen_extent);
+        self.composited_tex =
+            Self::create_composited_tex(device.clone(), allocator.clone(), rendering_extent);
+        self.taa_tex = Self::create_taa_tex(device.clone(), allocator.clone(), rendering_extent);
+        self.taa_tex_prev =
+            Self::create_taa_tex(device.clone(), allocator.clone(), rendering_extent);
         self.denoiser_resources.on_resize(rendering_extent);
     }
 
@@ -481,6 +516,42 @@ impl TracerResources {
         let tex_desc = ImageDesc {
             extent: shadow_map_extent,
             format: vk::Format::R32G32B32A32_SFLOAT,
+            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::SAMPLED,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        let sam_desc = Default::default();
+        let tex = Texture::new(device, allocator, &tex_desc, &sam_desc);
+        tex
+    }
+
+    fn create_taa_tex(device: Device, allocator: Allocator, rendering_extent: Extent2D) -> Texture {
+        // actually, the taa tex only needs SRC, and taa tex prev only needs DST
+        let tex_desc = ImageDesc {
+            extent: rendering_extent.into(),
+            format: vk::Format::R16G16B16A16_SFLOAT,
+            usage: vk::ImageUsageFlags::STORAGE
+                | vk::ImageUsageFlags::SAMPLED
+                | vk::ImageUsageFlags::TRANSFER_SRC
+                | vk::ImageUsageFlags::TRANSFER_DST,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        let sam_desc = Default::default();
+        let tex = Texture::new(device, allocator, &tex_desc, &sam_desc);
+        tex
+    }
+
+    fn create_composited_tex(
+        device: Device,
+        allocator: Allocator,
+        rendering_extent: Extent2D,
+    ) -> Texture {
+        let tex_desc = ImageDesc {
+            extent: rendering_extent.into(),
+            format: vk::Format::B10G11R11_UFLOAT_PACK32,
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::SAMPLED,
             initial_layout: vk::ImageLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
