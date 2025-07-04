@@ -101,7 +101,6 @@ void main() {
         out_color = raw_color;
     }
 
-    imageStore(denoiser_accumed_tex, uv, uvec4(pack_rgbe(out_color), 0u, 0u, 0u));
     imageStore(denoiser_spatial_ping_tex, uv, vec4(out_color, 0.0));
     imageStore(denoiser_temporal_hist_len_tex, uv, uvec4(uint(hist_len), 0u, 0u, 0u));
 }
