@@ -13,8 +13,8 @@ layout(set = 0, binding = 0) uniform U_SpatialInfo {
     float min_phi_z;
     float max_phi_z;
     float phi_z_stable_sample_count;
-    uint changing_luminance_phi;
-    uint skip_spatial_denoising;
+    uint is_changing_lum_phi;
+    uint is_spatial_denoising_skipped;
 }
 spatial_info;
 
@@ -79,7 +79,7 @@ void blur_kernel(inout float w_sum, inout vec3 c_sum, ivec2 base_uv, ivec2 off, 
     load_from_pingpong(n_s, c_s, p_s, s_uv, iter);
 
     float phi_c = spatial_info.phi_c;
-    if (spatial_info.changing_luminance_phi != 0u) phi_c *= pow(2.0, -float(iter));
+    if (spatial_info.is_changing_lum_phi != 0u) phi_c *= pow(2.0, -float(iter));
     float w_c = exp(-abs(lum(c_s) - lum_c) / phi_c);
 
     float w_n = max(0.0, pow(dot(n_c, n_s), spatial_info.phi_n));
@@ -111,7 +111,7 @@ void main() {
 
     uint iter = pc.iteration;
 
-    if (spatial_info.skip_spatial_denoising != 0u) {
+    if (spatial_info.is_spatial_denoising_skipped != 0u) {
         if (iter != 0u) return;
         vec3 c = imageLoad(denoiser_spatial_ping_tex, uv).rgb;
         imageStore(denoiser_spatial_pong_tex, uv, vec4(c, 0.0));

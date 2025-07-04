@@ -1133,8 +1133,8 @@ impl Tracer {
         min_phi_z: f32,
         max_phi_z: f32,
         phi_z_stable_sample_count: f32,
-        changing_luminance_phi: bool,
-        skip_spatial_denoising: bool,
+        is_changing_lum_phi: bool,
+        is_spatial_denoising_skipped: bool,
     ) -> Result<()> {
         // camera info
         update_cam_info(
@@ -1222,8 +1222,8 @@ impl Tracer {
             min_phi_z,
             max_phi_z,
             phi_z_stable_sample_count,
-            changing_luminance_phi,
-            skip_spatial_denoising,
+            is_changing_lum_phi,
+            is_spatial_denoising_skipped,
         )?;
         self.record_denoiser_pass(cmdbuf);
 
@@ -1249,8 +1249,8 @@ impl Tracer {
             min_phi_z: f32,
             max_phi_z: f32,
             phi_z_stable_sample_count: f32,
-            changing_luminance_phi: bool,
-            skip_spatial_denoising: bool,
+            is_changing_lum_phi: bool,
+            is_spatial_denoising_skipped: bool,
         ) -> Result<()> {
             update_temporal_info(temporal_info, temporal_position_phi, temporal_alpha)?;
             update_spatial_info(
@@ -1261,8 +1261,8 @@ impl Tracer {
                 min_phi_z,
                 max_phi_z,
                 phi_z_stable_sample_count,
-                changing_luminance_phi,
-                skip_spatial_denoising,
+                is_changing_lum_phi,
+                is_spatial_denoising_skipped,
             )?;
             return Ok(());
 
@@ -1295,8 +1295,8 @@ impl Tracer {
                 min_phi_z: f32,
                 max_phi_z: f32,
                 phi_z_stable_sample_count: f32,
-                changing_luminance_phi: bool,
-                skip_spatial_denoising: bool,
+                is_changing_lum_phi: bool,
+                is_spatial_denoising_skipped: bool,
             ) -> Result<()> {
                 let data = StructMemberDataBuilder::from_buffer(spatial_info)
                     .set_field("phi_c", PlainMemberTypeWithData::Float(phi_c))
@@ -1315,13 +1315,13 @@ impl Tracer {
                     )
                     .unwrap()
                     .set_field(
-                        "changing_luminance_phi",
-                        PlainMemberTypeWithData::UInt(changing_luminance_phi as u32),
+                        "is_changing_lum_phi",
+                        PlainMemberTypeWithData::UInt(is_changing_lum_phi as u32),
                     )
                     .unwrap()
                     .set_field(
-                        "skip_spatial_denoising",
-                        PlainMemberTypeWithData::UInt(skip_spatial_denoising as u32),
+                        "is_spatial_denoising_skipped",
+                        PlainMemberTypeWithData::UInt(is_spatial_denoising_skipped as u32),
                     )
                     .unwrap()
                     .build();

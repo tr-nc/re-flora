@@ -1,0 +1,114 @@
+/// This is a TAA pass without temporal aliasing. Just to increase the temporal stability
+
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform U_TaaInfo {
+    int enable_taa;
+}
+taa_info;
+
+// ───── resources ─────
+layout(set = 0, binding = 1, r32f) uniform readonly image2D blitted_image; // packed color
+layout(set = 0, binding = 2,
+       rg16f) uniform readonly image2D motion_image;             // per-pixel motion vec (low-res)
+layout(set = 0, binding = 3) uniform sampler2D last_taa_texture; // history buffer (full-res)
+layout(set = 0, binding = 4,
+       r11f_g11f_b10f) uniform writeonly image2D taa_output_image; // current frame output
+
+#include "../include/core/packer.glsl"
+
+// ───────────────────────────────────────
+// helper functions
+// ───────────────────────────────────────
+vec2 high_res_to_low_res(ivec2 high_res_uvi) {
+    vec2 subpix = (taa_info.enable_taa != 0) ? taa_info.subpix_offset : vec2(0.0);
+    return (vec2(high_res_uvi) + 0.5) *
+               (vec2(taa_info.low_res_size) / vec2(taa_info.high_res_size)) -
+           0.5 - subpix;
+}
+
+void get_moments(out vec3 mom1, out vec3 mom2, out vec3 center_color, ivec2 uvi) {
+    mom1         = vec3(0.0);
+    mom2         = vec3(0.0);
+    uint samples = 0u;
+
+    for (int yy = -1; yy <= 1; ++yy) {
+        for (int xx = -1; xx <= 1; ++xx) {
+            ivec2 p = uvi + ivec2(xx, yy);
+
+            // skip out-of-bounds
+            if (any(lessThan(p, ivec2(0))) || any(greaterThanEqual(p, taa_info.low_res_size))) {
+                continue;
+            }
+
+            vec3 color = unpackRgbe(imageLoad(blitted_image, p).x);
+            mom1 += color;
+            mom2 += color * color;
+
+            if (xx == 0 && yy == 0) {
+                center_color = color;
+            }
+            ++samples;
+        }
+    }
+    float inv_samples = 1.0 / float(samples);
+    mom1 *= inv_samples;
+    mom2 *= inv_samples;
+}
+
+vec2 get_motion(ivec2 uvi) { return imageLoad(motion_image, uvi).xy; }
+
+float get_sample_weight(vec2 delta, float scale) {
+    return clamp(1.0 - scale * dot(delta, delta), 0.0, 1.0);
+}
+
+// ───────────────────────────────────────
+// main
+// ───────────────────────────────────────
+void main() {
+    ivec2 uvi = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(uvi, taa_info.high_res_size))) {
+        return;
+    }
+
+    // map current pixel to low-res space
+    vec2 low_res_uv   = high_res_to_low_res(uvi);
+    ivec2 low_res_uvi = ivec2(low_res_uv);
+
+    // ─── TAA disabled : just copy ───
+    if (taa_info.enable_taa == 0) {
+        vec3 col = unpackRgbe(imageLoad(blitted_image, low_res_uvi).x);
+        imageStore(taa_output_image, uvi, vec4(col, 0.0));
+        return;
+    }
+
+    // ─── gather neighborhood statistics ───
+    vec3 mom1, mom2, color_center;
+    get_moments(mom1, mom2, color_center, low_res_uvi);
+
+    // ─── fetch history color (motion-compensated) ───
+    vec2 motion_vec = get_motion(low_res_uvi) * vec2(taa_info.high_res_size);
+    vec2 history_uv = (vec2(uvi) + 0.5 + motion_vec) * taa_info.high_res_size_inv;
+    vec3 color_prev = textureLod(last_taa_texture, history_uv, 0.0).rgb;
+
+    // ─── variance-based clamp ───
+    const float VARIANCE_SCALE = 3.0;
+    vec3 sigma                 = sqrt(max(vec3(0.0), mom2 - mom1 * mom1));
+    vec3 mi                    = mom1 - sigma * VARIANCE_SCALE;
+    vec3 ma                    = mom1 + sigma * VARIANCE_SCALE;
+    color_prev                 = clamp(color_prev, mi, ma);
+
+    // ─── weight computation ───
+    float motion_weight = smoothstep(0.0, 1.0, length(motion_vec));
+    float sample_weight =
+        get_sample_weight(low_res_uv - vec2(low_res_uvi),
+                          float(taa_info.high_res_size.x) / float(taa_info.low_res_size.x));
+    float pixel_weight = clamp(max(motion_weight, sample_weight) * 0.2, 0.0, 1.0);
+
+    // ─── final mix ───
+    vec3 final_color = mix(color_prev, color_center, pixel_weight);
+    imageStore(taa_output_image, uvi, vec4(final_color, 0.0));
+}

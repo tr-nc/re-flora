@@ -64,8 +64,8 @@ pub struct InitializedApp {
     min_phi_z: f32,
     max_phi_z: f32,
     phi_z_stable_sample_count: f32,
-    changing_luminance_phi: bool,
-    skip_spatial_denoising: bool,
+    is_changing_lum_phi: bool,
+    is_spatial_denoising_skipped: bool,
 
     tree_pos: Vec3,
 
@@ -219,8 +219,8 @@ impl InitializedApp {
             min_phi_z: 0.0,
             max_phi_z: 0.5,
             phi_z_stable_sample_count: 0.05,
-            changing_luminance_phi: true,
-            skip_spatial_denoising: false,
+            is_changing_lum_phi: true,
+            is_spatial_denoising_skipped: false,
 
             sun_altitude: 14.0,
             sun_azimuth: 280.0,
@@ -604,11 +604,11 @@ impl InitializedApp {
                                         .text("Phi Z Stable Sample Count"),
                                     );
                                     ui.add(egui::Checkbox::new(
-                                        &mut self.changing_luminance_phi,
+                                        &mut self.is_changing_lum_phi,
                                         "Changing Luminance Phi",
                                     ));
                                     ui.add(egui::Checkbox::new(
-                                        &mut self.skip_spatial_denoising,
+                                        &mut self.is_spatial_denoising_skipped,
                                         "Skip Spatial Denoising",
                                     ));
                                 });
@@ -667,8 +667,8 @@ impl InitializedApp {
                         self.min_phi_z,
                         self.max_phi_z,
                         self.phi_z_stable_sample_count,
-                        self.changing_luminance_phi,
-                        self.skip_spatial_denoising,
+                        self.is_changing_lum_phi,
+                        self.is_spatial_denoising_skipped,
                     )
                     .unwrap();
 
