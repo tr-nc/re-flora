@@ -264,8 +264,8 @@ impl Tracer {
             &vulkan_ctx,
             &grass_vert_sm,
             &grass_frag_sm,
-            resources.gfx_output_tex.clone(),
-            resources.gfx_depth_tex.clone(),
+            resources.extent_dependent_resources.gfx_output_tex.clone(),
+            resources.extent_dependent_resources.gfx_depth_tex.clone(),
         );
 
         let (shadow_ppl, shadow_render_pass) =
@@ -279,8 +279,8 @@ impl Tracer {
         let grass_framebuffer = Self::create_grass_framebuffer(
             &vulkan_ctx,
             &grass_render_pass,
-            &resources.gfx_output_tex,
-            &resources.gfx_depth_tex,
+            &resources.extent_dependent_resources.gfx_output_tex,
+            &resources.extent_dependent_resources.gfx_depth_tex,
         );
 
         let shadow_framebuffer = Self::create_shadow_framebuffer(
@@ -681,13 +681,13 @@ impl Tracer {
             WriteDescriptorSet::new_texture_write(
                 0,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.compute_output_tex,
+                &resources.extent_dependent_resources.compute_output_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 1,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.compute_depth_tex,
+                &resources.extent_dependent_resources.compute_depth_tex,
                 vk::ImageLayout::GENERAL,
             ),
         ]);
@@ -806,7 +806,7 @@ impl Tracer {
             WriteDescriptorSet::new_texture_write(
                 1,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.compute_output_tex,
+                &resources.extent_dependent_resources.compute_output_tex,
                 vk::ImageLayout::GENERAL,
             ),
         ]);
@@ -845,7 +845,7 @@ impl Tracer {
         ds.perform_writes(&mut [WriteDescriptorSet::new_texture_write(
             0,
             vk::DescriptorType::STORAGE_IMAGE,
-            &resources.compute_depth_tex,
+            &resources.extent_dependent_resources.compute_depth_tex,
             vk::ImageLayout::GENERAL,
         )]);
         ds
@@ -922,13 +922,13 @@ impl Tracer {
             WriteDescriptorSet::new_texture_write(
                 4,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.gfx_depth_tex,
+                &resources.extent_dependent_resources.gfx_depth_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 5,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.compute_depth_tex,
+                &resources.extent_dependent_resources.compute_depth_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
@@ -940,7 +940,7 @@ impl Tracer {
             WriteDescriptorSet::new_texture_write(
                 7,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.god_ray_output_tex,
+                &resources.extent_dependent_resources.god_ray_output_tex,
                 vk::ImageLayout::GENERAL,
             ),
         ]);
@@ -962,13 +962,13 @@ impl Tracer {
             WriteDescriptorSet::new_texture_write(
                 0,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.gfx_output_tex,
+                &resources.extent_dependent_resources.gfx_output_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 1,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.gfx_depth_tex,
+                &resources.extent_dependent_resources.gfx_depth_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
@@ -980,19 +980,19 @@ impl Tracer {
             WriteDescriptorSet::new_texture_write(
                 3,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.compute_depth_tex,
+                &resources.extent_dependent_resources.compute_depth_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 4,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.god_ray_output_tex,
+                &resources.extent_dependent_resources.god_ray_output_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 5,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.composited_tex,
+                &resources.extent_dependent_resources.composited_tex,
                 vk::ImageLayout::GENERAL,
             ),
         ]);
@@ -1015,7 +1015,7 @@ impl Tracer {
             WriteDescriptorSet::new_texture_write(
                 1,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.composited_tex,
+                &resources.extent_dependent_resources.composited_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
@@ -1027,13 +1027,13 @@ impl Tracer {
             WriteDescriptorSet::new_texture_write(
                 3,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.taa_tex,
+                &resources.extent_dependent_resources.taa_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 4,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.taa_tex_prev,
+                &resources.extent_dependent_resources.taa_tex_prev,
                 vk::ImageLayout::GENERAL,
             ),
         ]);
@@ -1058,13 +1058,13 @@ impl Tracer {
             WriteDescriptorSet::new_texture_write(
                 1,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.taa_tex,
+                &resources.extent_dependent_resources.taa_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 2,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.screen_output_tex,
+                &resources.extent_dependent_resources.screen_output_tex,
                 vk::ImageLayout::GENERAL,
             ),
         ]);
@@ -1157,8 +1157,8 @@ impl Tracer {
         self.grass_framebuffer = Self::create_grass_framebuffer(
             &self.vulkan_ctx,
             &self.grass_render_pass,
-            &self.resources.gfx_output_tex,
-            &self.resources.gfx_depth_tex,
+            &self.resources.extent_dependent_resources.gfx_output_tex,
+            &self.resources.extent_dependent_resources.gfx_depth_tex,
         );
 
         // TODO: associate them... this design is not good
@@ -1236,7 +1236,7 @@ impl Tracer {
     }
 
     pub fn get_screen_output_tex(&self) -> &Texture {
-        &self.resources.screen_output_tex
+        &self.resources.extent_dependent_resources.screen_output_tex
     }
 
     pub fn update_buffers_and_record(
@@ -1511,7 +1511,10 @@ impl Tracer {
                 &resources.denoiser_resources.tex.accumed,
                 &resources.denoiser_resources.tex.accumed_prev,
             );
-            copy_fn(&resources.taa_tex, &resources.taa_tex_prev);
+            copy_fn(
+                &resources.extent_dependent_resources.taa_tex,
+                &resources.extent_dependent_resources.taa_tex_prev,
+            );
         }
 
         fn update_gui_input(
@@ -1658,7 +1661,13 @@ impl Tracer {
         self.grass_render_pass
             .record_begin(cmdbuf, &self.grass_framebuffer, &clear_values);
 
-        let render_extent = self.resources.gfx_output_tex.get_image().get_desc().extent;
+        let render_extent = self
+            .resources
+            .extent_dependent_resources
+            .gfx_output_tex
+            .get_image()
+            .get_desc()
+            .extent;
         let viewport = Viewport::from_extent(render_extent.as_extent_2d().unwrap());
         let scissor = vk::Rect2D {
             offset: vk::Offset2D { x: 0, y: 0 },
@@ -1723,10 +1732,12 @@ impl Tracer {
 
         let desc = self.grass_render_pass.get_desc();
         self.resources
+            .extent_dependent_resources
             .gfx_output_tex
             .get_image()
             .set_layout(0, desc.attachments[0].final_layout);
         self.resources
+            .extent_dependent_resources
             .gfx_depth_tex
             .get_image()
             .set_layout(0, desc.attachments[1].final_layout);
@@ -1828,10 +1839,12 @@ impl Tracer {
 
     fn record_tracer_pass(&self, cmdbuf: &CommandBuffer) {
         self.resources
+            .extent_dependent_resources
             .compute_output_tex
             .get_image()
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
         self.resources
+            .extent_dependent_resources
             .compute_depth_tex
             .get_image()
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
@@ -1843,6 +1856,7 @@ impl Tracer {
 
         let render_extent = self
             .resources
+            .extent_dependent_resources
             .compute_output_tex
             .get_image()
             .get_desc()
@@ -1859,6 +1873,7 @@ impl Tracer {
 
     fn record_god_ray_pass(&self, cmdbuf: &CommandBuffer) {
         self.resources
+            .extent_dependent_resources
             .god_ray_output_tex
             .get_image()
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
@@ -1870,6 +1885,7 @@ impl Tracer {
         // use the higher extent
         let render_extent = self
             .resources
+            .extent_dependent_resources
             .compute_depth_tex
             .get_image()
             .get_desc()
@@ -1899,6 +1915,7 @@ impl Tracer {
 
         let render_extent = self
             .resources
+            .extent_dependent_resources
             .compute_output_tex
             .get_image()
             .get_desc()
@@ -1935,6 +1952,7 @@ impl Tracer {
 
     fn record_composition_pass(&self, cmdbuf: &CommandBuffer) {
         self.resources
+            .extent_dependent_resources
             .composited_tex
             .get_image()
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
@@ -1943,7 +1961,13 @@ impl Tracer {
         self.composition_ppl
             .record_bind_descriptor_sets(cmdbuf, &self.composition_sets, 0);
 
-        let render_extent = self.resources.composited_tex.get_image().get_desc().extent;
+        let render_extent = self
+            .resources
+            .extent_dependent_resources
+            .composited_tex
+            .get_image()
+            .get_desc()
+            .extent;
         self.composition_ppl.record_dispatch(
             cmdbuf,
             [
@@ -1956,10 +1980,12 @@ impl Tracer {
 
     fn record_taa_pass(&self, cmdbuf: &CommandBuffer) {
         self.resources
+            .extent_dependent_resources
             .taa_tex
             .get_image()
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
         self.resources
+            .extent_dependent_resources
             .taa_tex_prev
             .get_image()
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
@@ -1968,7 +1994,13 @@ impl Tracer {
         self.taa_ppl
             .record_bind_descriptor_sets(cmdbuf, &self.taa_sets, 0);
 
-        let render_extent = self.resources.composited_tex.get_image().get_desc().extent;
+        let render_extent = self
+            .resources
+            .extent_dependent_resources
+            .composited_tex
+            .get_image()
+            .get_desc()
+            .extent;
         self.taa_ppl.record_dispatch(
             cmdbuf,
             [
@@ -1981,6 +2013,7 @@ impl Tracer {
 
     fn record_post_processing_pass(&self, cmdbuf: &CommandBuffer) {
         self.resources
+            .extent_dependent_resources
             .screen_output_tex
             .get_image()
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
@@ -1991,6 +2024,7 @@ impl Tracer {
 
         let screen_extent = self
             .resources
+            .extent_dependent_resources
             .screen_output_tex
             .get_image()
             .get_desc()

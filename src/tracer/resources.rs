@@ -1,12 +1,201 @@
 use crate::{
     tracer::{grass_construct::generate_indexed_voxel_grass_blade, DenoiserResources, Vertex},
-    util::{get_project_root, Timer},
+    util::get_project_root,
     vkn::{
         Allocator, Buffer, BufferUsage, Device, Extent2D, Extent3D, ImageDesc, ShaderModule,
         Texture, VulkanContext,
     },
 };
 use ash::vk;
+
+pub struct ExtentDependentResources {
+    pub gfx_depth_tex: Texture,
+    pub compute_depth_tex: Texture,
+    pub compute_output_tex: Texture,
+    pub gfx_output_tex: Texture,
+    pub god_ray_output_tex: Texture,
+    pub screen_output_tex: Texture,
+    pub composited_tex: Texture,
+    pub taa_tex: Texture,
+    pub taa_tex_prev: Texture,
+}
+
+impl ExtentDependentResources {
+    pub fn new(
+        device: Device,
+        allocator: Allocator,
+        rendering_extent: Extent2D,
+        screen_extent: Extent2D,
+    ) -> Self {
+        let gfx_depth_tex =
+            Self::create_gfx_depth_tex(device.clone(), allocator.clone(), rendering_extent);
+        let compute_depth_tex =
+            Self::create_compute_depth_tex(device.clone(), allocator.clone(), rendering_extent);
+        let compute_output_tex =
+            Self::create_compute_output_tex(device.clone(), allocator.clone(), rendering_extent);
+        let gfx_output_tex =
+            Self::create_gfx_output_tex(device.clone(), allocator.clone(), rendering_extent);
+        let god_ray_output_tex =
+            Self::create_god_ray_output_tex(device.clone(), allocator.clone(), rendering_extent);
+        let screen_output_tex =
+            Self::create_screen_output_tex(device.clone(), allocator.clone(), screen_extent);
+        let composited_tex =
+            Self::create_composited_tex(device.clone(), allocator.clone(), rendering_extent);
+        let taa_tex = Self::create_taa_tex(device.clone(), allocator.clone(), rendering_extent);
+        let taa_tex_prev = Self::create_taa_tex(device, allocator, rendering_extent);
+
+        Self {
+            gfx_depth_tex,
+            compute_depth_tex,
+            compute_output_tex,
+            gfx_output_tex,
+            god_ray_output_tex,
+            screen_output_tex,
+            composited_tex,
+            taa_tex,
+            taa_tex_prev,
+        }
+    }
+
+    pub fn on_resize(
+        &mut self,
+        device: Device,
+        allocator: Allocator,
+        rendering_extent: Extent2D,
+        screen_extent: Extent2D,
+    ) {
+        *self = Self::new(device, allocator, rendering_extent, screen_extent);
+    }
+
+    fn create_gfx_depth_tex(
+        device: Device,
+        allocator: Allocator,
+        rendering_extent: Extent2D,
+    ) -> Texture {
+        let tex_desc = ImageDesc {
+            extent: rendering_extent.into(),
+            format: vk::Format::D32_SFLOAT,
+            usage: vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT | vk::ImageUsageFlags::STORAGE,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::DEPTH,
+            ..Default::default()
+        };
+        Texture::new(device, allocator, &tex_desc, &Default::default())
+    }
+
+    fn create_compute_depth_tex(
+        device: Device,
+        allocator: Allocator,
+        rendering_extent: Extent2D,
+    ) -> Texture {
+        let tex_desc = ImageDesc {
+            extent: rendering_extent.into(),
+            format: vk::Format::D32_SFLOAT,
+            usage: vk::ImageUsageFlags::STORAGE,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::DEPTH,
+            ..Default::default()
+        };
+        Texture::new(device, allocator, &tex_desc, &Default::default())
+    }
+
+    fn create_compute_output_tex(
+        device: Device,
+        allocator: Allocator,
+        rendering_extent: Extent2D,
+    ) -> Texture {
+        let tex_desc = ImageDesc {
+            extent: rendering_extent.into(),
+            format: vk::Format::R32_UINT,
+            usage: vk::ImageUsageFlags::STORAGE,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        Texture::new(device, allocator, &tex_desc, &Default::default())
+    }
+
+    fn create_gfx_output_tex(
+        device: Device,
+        allocator: Allocator,
+        rendering_extent: Extent2D,
+    ) -> Texture {
+        let tex_desc = ImageDesc {
+            extent: rendering_extent.into(),
+            format: vk::Format::R8G8B8A8_UNORM,
+            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::COLOR_ATTACHMENT,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        Texture::new(device, allocator, &tex_desc, &Default::default())
+    }
+
+    fn create_god_ray_output_tex(
+        device: Device,
+        allocator: Allocator,
+        rendering_extent: Extent2D,
+    ) -> Texture {
+        let tex_desc = ImageDesc {
+            extent: rendering_extent.into(),
+            format: vk::Format::R32_SFLOAT,
+            usage: vk::ImageUsageFlags::STORAGE,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        Texture::new(device, allocator, &tex_desc, &Default::default())
+    }
+
+    fn create_screen_output_tex(
+        device: Device,
+        allocator: Allocator,
+        screen_extent: Extent2D,
+    ) -> Texture {
+        let tex_desc = ImageDesc {
+            extent: screen_extent.into(),
+            format: vk::Format::R8G8B8A8_UNORM,
+            usage: vk::ImageUsageFlags::STORAGE
+                | vk::ImageUsageFlags::TRANSFER_SRC
+                | vk::ImageUsageFlags::COLOR_ATTACHMENT,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        Texture::new(device, allocator, &tex_desc, &Default::default())
+    }
+
+    fn create_taa_tex(device: Device, allocator: Allocator, rendering_extent: Extent2D) -> Texture {
+        let tex_desc = ImageDesc {
+            extent: rendering_extent.into(),
+            format: vk::Format::R16G16B16A16_SFLOAT,
+            usage: vk::ImageUsageFlags::STORAGE
+                | vk::ImageUsageFlags::SAMPLED
+                | vk::ImageUsageFlags::TRANSFER_SRC
+                | vk::ImageUsageFlags::TRANSFER_DST,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        Texture::new(device, allocator, &tex_desc, &Default::default())
+    }
+
+    fn create_composited_tex(
+        device: Device,
+        allocator: Allocator,
+        rendering_extent: Extent2D,
+    ) -> Texture {
+        let tex_desc = ImageDesc {
+            extent: rendering_extent.into(),
+            format: vk::Format::B10G11R11_UFLOAT_PACK32,
+            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::SAMPLED,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        Texture::new(device, allocator, &tex_desc, &Default::default())
+    }
+}
 
 pub struct TracerResources {
     pub gui_input: Buffer,
@@ -22,23 +211,8 @@ pub struct TracerResources {
     pub indices: Buffer,
     pub indices_len: u32,
 
-    // gfx
-    pub gfx_depth_tex: Texture,
-    pub gfx_output_tex: Texture,
+    pub extent_dependent_resources: ExtentDependentResources,
 
-    // god ray
-    pub god_ray_output_tex: Texture,
-
-    // compute
-    pub compute_depth_tex: Texture,
-    pub compute_output_tex: Texture,
-
-    pub denoiser_resources: DenoiserResources,
-
-    // screen
-    pub screen_output_tex: Texture,
-
-    // shadow map
     pub shadow_map_tex: Texture,
     pub shadow_map_tex_for_vsm_ping: Texture,
     pub shadow_map_tex_for_vsm_pong: Texture,
@@ -51,12 +225,7 @@ pub struct TracerResources {
     pub fast_unit_vec3_bn: Texture,
     pub fast_weighted_cosine_bn: Texture,
 
-    // composition
-    pub composited_tex: Texture,
-
-    // taa
-    pub taa_tex: Texture,
-    pub taa_tex_prev: Texture,
+    pub denoiser_resources: DenoiserResources,
 }
 
 impl TracerResources {
@@ -154,26 +323,6 @@ impl TracerResources {
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
-        let gfx_depth_tex =
-            Self::create_gfx_depth_tex(device.clone(), allocator.clone(), rendering_extent.into());
-        let compute_depth_tex = Self::create_compute_depth_tex(
-            device.clone(),
-            allocator.clone(),
-            rendering_extent.into(),
-        );
-
-        let compute_output_tex =
-            Self::create_compute_output_tex(device.clone(), allocator.clone(), rendering_extent);
-
-        let gfx_output_tex =
-            Self::create_gfx_output_tex(device.clone(), allocator.clone(), rendering_extent);
-
-        let god_ray_output_tex =
-            Self::create_god_ray_output_tex(device.clone(), allocator.clone(), rendering_extent);
-
-        let screen_output_tex =
-            Self::create_screen_output_tex(device.clone(), allocator.clone(), screen_extent);
-
         let shadow_map_tex = Self::create_shadow_map_tex(
             device.clone(),
             allocator.clone(),
@@ -190,14 +339,13 @@ impl TracerResources {
             shadow_map_extent.into(),
         );
 
-        let taa_tex = Self::create_taa_tex(device.clone(), allocator.clone(), rendering_extent);
-        let taa_tex_prev =
-            Self::create_taa_tex(device.clone(), allocator.clone(), rendering_extent);
+        let extent_dependent_resources = ExtentDependentResources::new(
+            device.clone(),
+            allocator.clone(),
+            rendering_extent,
+            screen_extent,
+        );
 
-        let composited_tex =
-            Self::create_composited_tex(device.clone(), allocator.clone(), rendering_extent);
-
-        let timer = Timer::new();
         let scalar_bn = create_bn(
             &vulkan_ctx,
             allocator.clone(),
@@ -234,7 +382,6 @@ impl TracerResources {
             vk::Format::R8G8B8A8_UNORM,
             "fast/weighted_cosine/out_",
         );
-        log::debug!("Blue noise texture load time: {:?}", timer.elapsed());
 
         // --- Generate and create indexed vertex and index buffers ---
         const GRASS_BLADE_VOXEL_LENGTH: u32 = 8;
@@ -284,12 +431,7 @@ impl TracerResources {
             vertices,
             indices,
             indices_len,
-            gfx_depth_tex,
-            compute_depth_tex,
-            compute_output_tex,
-            gfx_output_tex,
-            god_ray_output_tex,
-            screen_output_tex,
+            extent_dependent_resources,
             shadow_map_tex,
             shadow_map_tex_for_vsm_ping,
             shadow_map_tex_for_vsm_pong,
@@ -306,9 +448,6 @@ impl TracerResources {
                 temporal_sm,
                 spatial_sm,
             ),
-            composited_tex,
-            taa_tex,
-            taa_tex_prev,
         };
 
         fn create_bn(
@@ -355,137 +494,13 @@ impl TracerResources {
         rendering_extent: Extent2D,
         screen_extent: Extent2D,
     ) {
-        // TODO: this is error prone!
-        // simplify this to avoid code duplication at the same time
-        self.gfx_depth_tex =
-            Self::create_gfx_depth_tex(device.clone(), allocator.clone(), rendering_extent);
-        self.compute_depth_tex =
-            Self::create_compute_depth_tex(device.clone(), allocator.clone(), rendering_extent);
-        self.compute_output_tex =
-            Self::create_compute_output_tex(device.clone(), allocator.clone(), rendering_extent);
-        self.gfx_output_tex =
-            Self::create_gfx_output_tex(device.clone(), allocator.clone(), rendering_extent);
-        self.god_ray_output_tex =
-            Self::create_god_ray_output_tex(device.clone(), allocator.clone(), rendering_extent);
-        self.screen_output_tex =
-            Self::create_screen_output_tex(device.clone(), allocator.clone(), screen_extent);
-        self.composited_tex =
-            Self::create_composited_tex(device.clone(), allocator.clone(), rendering_extent);
-        self.taa_tex = Self::create_taa_tex(device.clone(), allocator.clone(), rendering_extent);
-        self.taa_tex_prev =
-            Self::create_taa_tex(device.clone(), allocator.clone(), rendering_extent);
+        self.extent_dependent_resources.on_resize(
+            device,
+            allocator,
+            rendering_extent,
+            screen_extent,
+        );
         self.denoiser_resources.on_resize(rendering_extent);
-    }
-
-    fn create_god_ray_output_tex(
-        device: Device,
-        allocator: Allocator,
-        rendering_extent: Extent2D,
-    ) -> Texture {
-        let tex_desc = ImageDesc {
-            extent: rendering_extent.into(),
-            format: vk::Format::R32_SFLOAT,
-            usage: vk::ImageUsageFlags::STORAGE,
-            initial_layout: vk::ImageLayout::UNDEFINED,
-            aspect: vk::ImageAspectFlags::COLOR,
-            ..Default::default()
-        };
-        let sam_desc = Default::default();
-        let tex = Texture::new(device, allocator, &tex_desc, &sam_desc);
-        tex
-    }
-
-    fn create_gfx_depth_tex(
-        device: Device,
-        allocator: Allocator,
-        rendering_extent: Extent2D,
-    ) -> Texture {
-        let tex_desc = ImageDesc {
-            extent: rendering_extent.into(),
-            format: vk::Format::D32_SFLOAT,
-            usage: vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT | vk::ImageUsageFlags::STORAGE,
-            initial_layout: vk::ImageLayout::UNDEFINED,
-            aspect: vk::ImageAspectFlags::DEPTH,
-            ..Default::default()
-        };
-        let sam_desc = Default::default();
-        let tex = Texture::new(device, allocator, &tex_desc, &sam_desc);
-        tex
-    }
-
-    fn create_compute_depth_tex(
-        device: Device,
-        allocator: Allocator,
-        rendering_extent: Extent2D,
-    ) -> Texture {
-        let tex_desc = ImageDesc {
-            extent: rendering_extent.into(),
-            format: vk::Format::D32_SFLOAT,
-            usage: vk::ImageUsageFlags::STORAGE,
-            initial_layout: vk::ImageLayout::UNDEFINED,
-            aspect: vk::ImageAspectFlags::DEPTH,
-            ..Default::default()
-        };
-        let sam_desc = Default::default();
-        let tex = Texture::new(device, allocator, &tex_desc, &sam_desc);
-        tex
-    }
-
-    fn create_gfx_output_tex(
-        device: Device,
-        allocator: Allocator,
-        rendering_extent: Extent2D,
-    ) -> Texture {
-        let tex_desc = ImageDesc {
-            extent: rendering_extent.into(),
-            format: vk::Format::R8G8B8A8_UNORM,
-            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::COLOR_ATTACHMENT,
-            initial_layout: vk::ImageLayout::UNDEFINED,
-            aspect: vk::ImageAspectFlags::COLOR,
-            ..Default::default()
-        };
-        let sam_desc = Default::default();
-        let tex = Texture::new(device, allocator, &tex_desc, &sam_desc);
-        tex
-    }
-
-    fn create_compute_output_tex(
-        device: Device,
-        allocator: Allocator,
-        rendering_extent: Extent2D,
-    ) -> Texture {
-        let tex_desc = ImageDesc {
-            extent: rendering_extent.into(),
-            format: vk::Format::R32_UINT,
-            usage: vk::ImageUsageFlags::STORAGE,
-            initial_layout: vk::ImageLayout::UNDEFINED,
-            aspect: vk::ImageAspectFlags::COLOR,
-            ..Default::default()
-        };
-        let sam_desc = Default::default();
-        let tex = Texture::new(device, allocator, &tex_desc, &sam_desc);
-        tex
-    }
-
-    /// The only screen extent texture in this resource set
-    fn create_screen_output_tex(
-        device: Device,
-        allocator: Allocator,
-        screen_extent: Extent2D,
-    ) -> Texture {
-        let tex_desc = ImageDesc {
-            extent: screen_extent.into(),
-            format: vk::Format::R8G8B8A8_UNORM,
-            usage: vk::ImageUsageFlags::STORAGE
-                | vk::ImageUsageFlags::TRANSFER_SRC
-                | vk::ImageUsageFlags::COLOR_ATTACHMENT,
-            initial_layout: vk::ImageLayout::UNDEFINED,
-            aspect: vk::ImageAspectFlags::COLOR,
-            ..Default::default()
-        };
-        let sam_desc = Default::default();
-        let tex = Texture::new(device, allocator, &tex_desc, &sam_desc);
-        tex
     }
 
     fn create_shadow_map_tex(
@@ -516,42 +531,6 @@ impl TracerResources {
         let tex_desc = ImageDesc {
             extent: shadow_map_extent,
             format: vk::Format::R32G32B32A32_SFLOAT,
-            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::SAMPLED,
-            initial_layout: vk::ImageLayout::UNDEFINED,
-            aspect: vk::ImageAspectFlags::COLOR,
-            ..Default::default()
-        };
-        let sam_desc = Default::default();
-        let tex = Texture::new(device, allocator, &tex_desc, &sam_desc);
-        tex
-    }
-
-    fn create_taa_tex(device: Device, allocator: Allocator, rendering_extent: Extent2D) -> Texture {
-        // actually, the taa tex only needs SRC, and taa tex prev only needs DST
-        let tex_desc = ImageDesc {
-            extent: rendering_extent.into(),
-            format: vk::Format::R16G16B16A16_SFLOAT,
-            usage: vk::ImageUsageFlags::STORAGE
-                | vk::ImageUsageFlags::SAMPLED
-                | vk::ImageUsageFlags::TRANSFER_SRC
-                | vk::ImageUsageFlags::TRANSFER_DST,
-            initial_layout: vk::ImageLayout::UNDEFINED,
-            aspect: vk::ImageAspectFlags::COLOR,
-            ..Default::default()
-        };
-        let sam_desc = Default::default();
-        let tex = Texture::new(device, allocator, &tex_desc, &sam_desc);
-        tex
-    }
-
-    fn create_composited_tex(
-        device: Device,
-        allocator: Allocator,
-        rendering_extent: Extent2D,
-    ) -> Texture {
-        let tex_desc = ImageDesc {
-            extent: rendering_extent.into(),
-            format: vk::Format::B10G11R11_UFLOAT_PACK32,
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::SAMPLED,
             initial_layout: vk::ImageLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
