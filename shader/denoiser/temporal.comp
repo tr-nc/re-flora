@@ -22,21 +22,20 @@ layout(set = 1, binding = 7, r32ui) uniform uimage2D denoiser_accumed_tex_prev;
 layout(set = 1, binding = 8, rg16f) uniform image2D denoiser_motion_tex;
 layout(set = 1, binding = 9, r8ui) uniform uimage2D denoiser_temporal_hist_len_tex;
 layout(set = 1, binding = 10, r8ui) uniform uimage2D denoiser_hit_tex;
-layout(set = 1, binding = 11, r11f_g11f_b10f) uniform image2D denoiser_atrous_ping_tex;
-layout(set = 1, binding = 12, r11f_g11f_b10f) uniform image2D denoiser_atrous_pong_tex;
+layout(set = 1, binding = 11, r11f_g11f_b10f) uniform image2D denoiser_spatial_ping_tex;
+layout(set = 1, binding = 12, r11f_g11f_b10f) uniform image2D denoiser_spatial_pong_tex;
 
 #include "../include/core/packer.glsl"
 
 ivec2 img_size() { return imageSize(denoiser_normal_tex); }
 
-vec3 fetch_accum_color(ivec2 uv) {
-    ivec2 size = img_size();
+vec3 fetch_accum_color(ivec2 uv, ivec2 size) {
     if (any(lessThan(uv, ivec2(0))) || any(greaterThanEqual(uv, size))) {
         return vec3(0.0);
     }
     return unpack_rgbe(imageLoad(denoiser_accumed_tex_prev, uv).x);
 }
-    
+
 bool is_consistent(vec3 n, vec3 n_prev, vec3 p, vec3 p_prev) {
     float n_fac = dot(n, n_prev);
     float p_fac = exp(-distance(p, p_prev));
@@ -60,11 +59,10 @@ void main() {
     vec2 base_uv_f = floor(p_uv);
     vec2 frac_uv   = fract(p_uv - base_uv_f);
 
-    // TODO: use texture fetch to get weights later
     const ivec2 OFF[4] = ivec2[4](ivec2(0, 0), ivec2(1, 0), ivec2(0, 1), ivec2(1, 1));
     float w[4];
     w[0] = (1.0 - frac_uv.x) * (1.0 - frac_uv.y);
-    w[1] = (frac_uv.x) * (1.0 - frac_uv.y);
+    w[1] = frac_uv.x * (1.0 - frac_uv.y);
     w[2] = (1.0 - frac_uv.x) * frac_uv.y;
     w[3] = frac_uv.x * frac_uv.y;
 
@@ -81,7 +79,7 @@ void main() {
         vec3 prev_pos    = imageLoad(denoiser_position_tex_prev, tap_uv).xyz;
 
         if (is_consistent(cur_normal, prev_normal, cur_position, prev_pos)) {
-            sum_color += w[i] * fetch_accum_color(tap_uv);
+            sum_color += w[i] * fetch_accum_color(tap_uv, size);
             sum_w += w[i];
             sum_hist += w[i] * float(imageLoad(denoiser_temporal_hist_len_tex, tap_uv).x);
         }
@@ -104,6 +102,6 @@ void main() {
     }
 
     imageStore(denoiser_accumed_tex, uv, uvec4(pack_rgbe(out_color), 0u, 0u, 0u));
-    imageStore(denoiser_atrous_pong_tex, uv, vec4(out_color, 0.0));
+    imageStore(denoiser_spatial_ping_tex, uv, vec4(out_color, 0.0));
     imageStore(denoiser_temporal_hist_len_tex, uv, uvec4(uint(hist_len), 0u, 0u, 0u));
 }

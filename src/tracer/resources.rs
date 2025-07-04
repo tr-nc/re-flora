@@ -60,6 +60,7 @@ impl TracerResources {
         tracer_shadow_sm: &ShaderModule,
         post_processing_sm: &ShaderModule,
         temporal_sm: &ShaderModule,
+        spatial_sm: &ShaderModule,
         rendering_extent: Extent2D,
         screen_extent: Extent2D,
         shadow_map_extent: Extent2D,
@@ -278,6 +279,7 @@ impl TracerResources {
                 allocator.clone(),
                 rendering_extent,
                 temporal_sm,
+                spatial_sm,
             ),
         };
 

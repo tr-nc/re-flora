@@ -75,8 +75,8 @@ layout(set = 3, binding = 7, r32ui) uniform uimage2D denoiser_accumed_tex_prev;
 layout(set = 3, binding = 8, rg16f) uniform image2D denoiser_motion_tex;
 layout(set = 3, binding = 9, r8ui) uniform uimage2D denoiser_temporal_hist_len_tex;
 layout(set = 3, binding = 10, r8ui) uniform uimage2D denoiser_hit_tex;
-layout(set = 3, binding = 11, r11f_g11f_b10f) uniform image2D denoiser_atrous_ping_tex;
-layout(set = 3, binding = 12, r11f_g11f_b10f) uniform image2D denoiser_atrous_pong_tex;
+layout(set = 3, binding = 11, r11f_g11f_b10f) uniform image2D denoiser_spatial_ping_tex;
+layout(set = 3, binding = 12, r11f_g11f_b10f) uniform image2D denoiser_spatial_pong_tex;
 
 #include "../include/contree_marching.glsl"
 #include "../include/core/definitions.glsl"

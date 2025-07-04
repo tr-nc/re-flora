@@ -94,6 +94,18 @@ impl ComputePipeline {
         }
     }
 
+    pub fn record_push_constants(&self, cmdbuf: &CommandBuffer, push_constants: &[u8]) {
+        unsafe {
+            self.0.device.cmd_push_constants(
+                cmdbuf.as_raw(),
+                self.0.pipeline_layout.as_raw(),
+                vk::ShaderStageFlags::COMPUTE,
+                0,
+                push_constants,
+            );
+        }
+    }
+
     pub fn record_dispatch(&self, cmdbuf: &CommandBuffer, dispatch_size: [u32; 3]) {
         let x = (dispatch_size[0] as f32 / self.0.workgroup_size[0] as f32).ceil() as u32;
         let y = (dispatch_size[1] as f32 / self.0.workgroup_size[1] as f32).ceil() as u32;

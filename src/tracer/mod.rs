@@ -48,6 +48,9 @@ pub struct Tracer {
     temporal_ppl: ComputePipeline,
     temporal_sets: [DescriptorSet; 2],
 
+    spatial_ppl: ComputePipeline,
+    spatial_sets: [DescriptorSet; 3],
+
     post_processing_ppl: ComputePipeline,
     post_processing_sets: [DescriptorSet; 2],
 
@@ -62,10 +65,10 @@ pub struct Tracer {
     god_ray_ppl: ComputePipeline,
     god_ray_sets: [DescriptorSet; 2],
 
-    main_sets: [DescriptorSet; 1],
-    main_ppl: GraphicsPipeline,
-    main_render_pass: RenderPass,
-    main_framebuffer: Framebuffer,
+    grass_sets: [DescriptorSet; 1],
+    grass_ppl: GraphicsPipeline,
+    grass_render_pass: RenderPass,
+    grass_framebuffer: Framebuffer,
 
     #[allow(dead_code)]
     shadow_sets: [DescriptorSet; 1],
@@ -172,6 +175,14 @@ impl Tracer {
         )
         .unwrap();
 
+        let spatial_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            &shader_compiler,
+            "shader/denoiser/spatial.comp",
+            "main",
+        )
+        .unwrap();
+
         let tracer_ppl = ComputePipeline::new(vulkan_ctx.device(), &tracer_sm);
         let tracer_shadow_ppl = ComputePipeline::new(vulkan_ctx.device(), &tracer_shadow_sm);
         let vsm_creation_ppl = ComputePipeline::new(vulkan_ctx.device(), &vsm_creation_sm);
@@ -179,22 +190,23 @@ impl Tracer {
         let vsm_blur_v_ppl = ComputePipeline::new(vulkan_ctx.device(), &vsm_blur_v_sm);
         let god_ray_ppl = ComputePipeline::new(vulkan_ctx.device(), &god_ray_sm);
         let temporal_ppl = ComputePipeline::new(vulkan_ctx.device(), &temporal_sm);
+        let spatial_ppl = ComputePipeline::new(vulkan_ctx.device(), &spatial_sm);
         let post_processing_ppl = ComputePipeline::new(vulkan_ctx.device(), &post_processing_sm);
 
         let fixed_descriptor_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
         let flexible_descriptor_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
 
-        let main_vert_sm = ShaderModule::from_glsl(
+        let grass_vert_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             shader_compiler,
-            "shader/foliage/foliage.vert",
+            "shader/foliage/grass.vert",
             "main",
         )
         .unwrap();
-        let main_frag_sm = ShaderModule::from_glsl(
+        let grass_frag_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             shader_compiler,
-            "shader/foliage/foliage.frag",
+            "shader/foliage/grass.frag",
             "main",
         )
         .unwrap();
@@ -217,19 +229,20 @@ impl Tracer {
         let resources = TracerResources::new(
             &vulkan_ctx,
             allocator.clone(),
-            &main_vert_sm,
+            &grass_vert_sm,
             &tracer_sm,
             &tracer_shadow_sm,
             &post_processing_sm,
             &temporal_sm,
+            &spatial_sm,
             render_extent,
             screen_extent,
             Extent2D::new(1024, 1024),
         );
-        let (main_ppl, main_render_pass) = Self::create_main_render_pass_and_graphics_pipeline(
+        let (grass_ppl, grass_render_pass) = Self::create_grass_render_pass_and_graphics_pipeline(
             &vulkan_ctx,
-            &main_vert_sm,
-            &main_frag_sm,
+            &grass_vert_sm,
+            &grass_frag_sm,
             resources.gfx_output_tex.clone(),
             resources.gfx_depth_tex.clone(),
         );
@@ -242,9 +255,9 @@ impl Tracer {
                 resources.shadow_map_tex.clone(),
             );
 
-        let main_framebuffer = Self::create_main_framebuffer(
+        let grass_framebuffer = Self::create_grass_framebuffer(
             &vulkan_ctx,
-            &main_render_pass,
+            &grass_render_pass,
             &resources.gfx_output_tex,
             &resources.gfx_depth_tex,
         );
@@ -286,6 +299,20 @@ impl Tracer {
             &resources,
         );
 
+        let spatial_fixed_set = Self::create_spatial_fixed_set(
+            fixed_descriptor_pool.clone(),
+            &vulkan_ctx,
+            &spatial_ppl,
+            &resources,
+        );
+
+        let spatial_flexible_set = Self::create_spatial_flexible_set(
+            flexible_descriptor_pool.clone(),
+            &vulkan_ctx,
+            &spatial_ppl,
+            &resources,
+        );
+
         let noise_tex_ds = Self::create_noise_tex_ds(
             fixed_descriptor_pool.clone(),
             &vulkan_ctx,
@@ -317,17 +344,17 @@ impl Tracer {
             &resources,
         );
 
-        let post_processing_ds_0 = Self::create_post_processing_set_0(
+        let post_processing_ds = Self::create_post_processing_ds(
             flexible_descriptor_pool.clone(),
             &vulkan_ctx,
             &post_processing_ppl,
             &resources,
         );
 
-        let main_ds = Self::create_main_ds_0(
+        let grass_ds = Self::create_grass_ds(
             fixed_descriptor_pool.clone(),
             &vulkan_ctx,
-            &main_ppl,
+            &grass_ppl,
             &resources,
         );
 
@@ -351,6 +378,7 @@ impl Tracer {
             tracer_shadow_ppl,
             god_ray_ppl,
             temporal_ppl,
+            spatial_ppl,
             post_processing_ppl,
             vsm_creation_ppl,
             vsm_blur_h_ppl,
@@ -358,14 +386,15 @@ impl Tracer {
             vsm_sets: [vsm_ds_0],
             god_ray_sets: [god_ray_ds_0, noise_tex_ds.clone()],
             temporal_sets: [temporal_ds, noise_tex_ds.clone()],
-            post_processing_sets: [post_processing_ds_0, denoiser_ds.clone()],
+            spatial_sets: [spatial_fixed_set, spatial_flexible_set, denoiser_ds.clone()],
+            post_processing_sets: [post_processing_ds, denoiser_ds.clone()],
             tracer_sets: [tracer_ds_0, tracer_ds_1, noise_tex_ds, denoiser_ds],
             tracer_shadow_sets: [tracer_shadow_ds],
-            main_sets: [main_ds],
+            grass_sets: [grass_ds],
             shadow_sets: [shadow_ds],
-            main_ppl,
-            main_render_pass,
-            main_framebuffer,
+            grass_ppl,
+            grass_render_pass,
+            grass_framebuffer,
             shadow_ppl,
             shadow_render_pass,
             shadow_framebuffer,
@@ -373,15 +402,15 @@ impl Tracer {
         };
     }
 
-    fn create_main_ds_0(
+    fn create_grass_ds(
         descriptor_pool: DescriptorPool,
         vulkan_ctx: &VulkanContext,
-        main_ppl: &GraphicsPipeline,
+        grass_ppl: &GraphicsPipeline,
         resources: &TracerResources,
     ) -> DescriptorSet {
         let ds = DescriptorSet::new(
             vulkan_ctx.device().clone(),
-            &main_ppl.get_layout().get_descriptor_set_layouts()[&0],
+            &grass_ppl.get_layout().get_descriptor_set_layouts()[&0],
             descriptor_pool,
         );
         ds.perform_writes(&mut [
@@ -417,7 +446,7 @@ impl Tracer {
         ds
     }
 
-    fn create_main_render_pass_and_graphics_pipeline(
+    fn create_grass_render_pass_and_graphics_pipeline(
         vulkan_ctx: &VulkanContext,
         vert_sm: &ShaderModule,
         frag_sm: &ShaderModule,
@@ -509,7 +538,7 @@ impl Tracer {
         (gfx_ppl, render_pass)
     }
 
-    fn create_main_framebuffer(
+    fn create_grass_framebuffer(
         vulkan_ctx: &VulkanContext,
         render_pass: &RenderPass,
         target_texture: &Texture,
@@ -642,79 +671,79 @@ impl Tracer {
             WriteDescriptorSet::new_texture_write(
                 0,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.denoiser_normal_tex,
+                &resources.denoiser_resources.tex.normal,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 1,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.denoiser_normal_tex_prev,
+                &resources.denoiser_resources.tex.normal_prev,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 2,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.denoiser_position_tex,
+                &resources.denoiser_resources.tex.position,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 3,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.denoiser_position_tex_prev,
+                &resources.denoiser_resources.tex.position_prev,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 4,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.denoiser_vox_id_tex,
+                &resources.denoiser_resources.tex.vox_id,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 5,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.denoiser_vox_id_tex_prev,
+                &resources.denoiser_resources.tex.vox_id_prev,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 6,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.denoiser_accumed_tex,
+                &resources.denoiser_resources.tex.accumed,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 7,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.denoiser_accumed_tex_prev,
+                &resources.denoiser_resources.tex.accumed_prev,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 8,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.denoiser_motion_tex,
+                &resources.denoiser_resources.tex.motion,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 9,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.denoiser_temporal_hist_len_tex,
+                &resources.denoiser_resources.tex.temporal_hist_len,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 10,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.denoiser_hit_tex,
+                &resources.denoiser_resources.tex.hit,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 11,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.denoiser_atrous_ping_tex,
+                &resources.denoiser_resources.tex.spatial_ping,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 12,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.denoiser_atrous_pong_tex,
+                &resources.denoiser_resources.tex.spatial_pong,
                 vk::ImageLayout::GENERAL,
             ),
         ]);
@@ -742,6 +771,44 @@ impl Tracer {
                 vk::ImageLayout::GENERAL,
             ),
         ]);
+        ds
+    }
+
+    fn create_spatial_fixed_set(
+        descriptor_pool: DescriptorPool,
+        vulkan_ctx: &VulkanContext,
+        spatial_ppl: &ComputePipeline,
+        resources: &TracerResources,
+    ) -> DescriptorSet {
+        let ds = DescriptorSet::new(
+            vulkan_ctx.device().clone(),
+            &spatial_ppl.get_layout().get_descriptor_set_layouts()[&0],
+            descriptor_pool,
+        );
+        ds.perform_writes(&mut [WriteDescriptorSet::new_buffer_write(
+            0,
+            &resources.denoiser_resources.spatial_info,
+        )]);
+        ds
+    }
+
+    fn create_spatial_flexible_set(
+        descriptor_pool: DescriptorPool,
+        vulkan_ctx: &VulkanContext,
+        spatial_ppl: &ComputePipeline,
+        resources: &TracerResources,
+    ) -> DescriptorSet {
+        let ds = DescriptorSet::new(
+            vulkan_ctx.device().clone(),
+            &spatial_ppl.get_layout().get_descriptor_set_layouts()[&1],
+            descriptor_pool,
+        );
+        ds.perform_writes(&mut [WriteDescriptorSet::new_texture_write(
+            0,
+            vk::DescriptorType::STORAGE_IMAGE,
+            &resources.compute_depth_tex,
+            vk::ImageLayout::GENERAL,
+        )]);
         ds
     }
 
@@ -841,7 +908,7 @@ impl Tracer {
         ds
     }
 
-    fn create_post_processing_set_0(
+    fn create_post_processing_ds(
         flexible_pool: DescriptorPool,
         vulkan_ctx: &VulkanContext,
         post_processing_ppl: &ComputePipeline,
@@ -871,7 +938,7 @@ impl Tracer {
             WriteDescriptorSet::new_texture_write(
                 3,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.denoiser_accumed_tex,
+                &resources.denoiser_resources.tex.spatial_pong,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
@@ -979,9 +1046,9 @@ impl Tracer {
             screen_extent,
         );
 
-        self.main_framebuffer = Self::create_main_framebuffer(
+        self.grass_framebuffer = Self::create_grass_framebuffer(
             &self.vulkan_ctx,
-            &self.main_render_pass,
+            &self.grass_render_pass,
             &self.resources.gfx_output_tex,
             &self.resources.gfx_depth_tex,
         );
@@ -1001,7 +1068,7 @@ impl Tracer {
             &self.resources,
         );
 
-        self.post_processing_sets[0] = Self::create_post_processing_set_0(
+        self.post_processing_sets[0] = Self::create_post_processing_ds(
             self.flexible_descriptor_pool.clone(),
             &self.vulkan_ctx,
             &self.post_processing_ppl,
@@ -1023,6 +1090,14 @@ impl Tracer {
         );
         self.temporal_sets[1] = self.tracer_sets[3].clone();
         self.post_processing_sets[1] = self.tracer_sets[3].clone();
+
+        self.spatial_sets[1] = Self::create_spatial_flexible_set(
+            self.flexible_descriptor_pool.clone(),
+            &self.vulkan_ctx,
+            &self.spatial_ppl,
+            &self.resources,
+        );
+        self.spatial_sets[2] = self.tracer_sets[3].clone();
     }
 
     // create a lower resolution texture for rendering, for better performance,
@@ -1052,6 +1127,14 @@ impl Tracer {
         sun_color: Vec3,
         temporal_position_phi: f32,
         temporal_alpha: f32,
+        phi_c: f32,
+        phi_n: f32,
+        phi_p: f32,
+        min_phi_z: f32,
+        max_phi_z: f32,
+        phi_z_stable_sample_count: f32,
+        changing_luminance_phi: bool,
+        skip_spatial_denoising: bool,
     ) -> Result<()> {
         // camera info
         update_cam_info(
@@ -1112,7 +1195,7 @@ impl Tracer {
         );
         b1.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
-        self.record_main_pass(cmdbuf, surface_resources);
+        self.record_grass_pass(cmdbuf, surface_resources);
 
         record_denoiser_resources_transition_barrier(&self.resources.denoiser_resources, cmdbuf);
 
@@ -1128,10 +1211,19 @@ impl Tracer {
         self.record_god_ray_pass(cmdbuf);
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
-        update_temporal_info(
+        update_denoiser_info(
             &mut self.resources.denoiser_resources.temporal_info,
+            &mut self.resources.denoiser_resources.spatial_info,
             temporal_position_phi,
             temporal_alpha,
+            phi_c,
+            phi_n,
+            phi_p,
+            min_phi_z,
+            max_phi_z,
+            phi_z_stable_sample_count,
+            changing_luminance_phi,
+            skip_spatial_denoising,
         )?;
         self.record_denoiser_pass(cmdbuf);
 
@@ -1146,25 +1238,96 @@ impl Tracer {
 
         return Ok(());
 
-        fn update_temporal_info(
+        fn update_denoiser_info(
             temporal_info: &mut Buffer,
+            spatial_info: &mut Buffer,
             temporal_position_phi: f32,
             temporal_alpha: f32,
+            phi_c: f32,
+            phi_n: f32,
+            phi_p: f32,
+            min_phi_z: f32,
+            max_phi_z: f32,
+            phi_z_stable_sample_count: f32,
+            changing_luminance_phi: bool,
+            skip_spatial_denoising: bool,
         ) -> Result<()> {
-            let data = StructMemberDataBuilder::from_buffer(temporal_info)
-                .set_field(
-                    "temporal_position_phi",
-                    PlainMemberTypeWithData::Float(temporal_position_phi),
-                )
-                .unwrap()
-                .set_field(
-                    "temporal_alpha",
-                    PlainMemberTypeWithData::Float(temporal_alpha),
-                )
-                .unwrap()
-                .build();
-            temporal_info.fill_with_raw_u8(&data)?;
-            Ok(())
+            update_temporal_info(temporal_info, temporal_position_phi, temporal_alpha)?;
+            update_spatial_info(
+                spatial_info,
+                phi_c,
+                phi_n,
+                phi_p,
+                min_phi_z,
+                max_phi_z,
+                phi_z_stable_sample_count,
+                changing_luminance_phi,
+                skip_spatial_denoising,
+            )?;
+            return Ok(());
+
+            fn update_temporal_info(
+                temporal_info: &mut Buffer,
+                temporal_position_phi: f32,
+                temporal_alpha: f32,
+            ) -> Result<()> {
+                let data = StructMemberDataBuilder::from_buffer(temporal_info)
+                    .set_field(
+                        "temporal_position_phi",
+                        PlainMemberTypeWithData::Float(temporal_position_phi),
+                    )
+                    .unwrap()
+                    .set_field(
+                        "temporal_alpha",
+                        PlainMemberTypeWithData::Float(temporal_alpha),
+                    )
+                    .unwrap()
+                    .build();
+                temporal_info.fill_with_raw_u8(&data)?;
+                Ok(())
+            }
+
+            fn update_spatial_info(
+                spatial_info: &mut Buffer,
+                phi_c: f32,
+                phi_n: f32,
+                phi_p: f32,
+                min_phi_z: f32,
+                max_phi_z: f32,
+                phi_z_stable_sample_count: f32,
+                changing_luminance_phi: bool,
+                skip_spatial_denoising: bool,
+            ) -> Result<()> {
+                let data = StructMemberDataBuilder::from_buffer(spatial_info)
+                    .set_field("phi_c", PlainMemberTypeWithData::Float(phi_c))
+                    .unwrap()
+                    .set_field("phi_n", PlainMemberTypeWithData::Float(phi_n))
+                    .unwrap()
+                    .set_field("phi_p", PlainMemberTypeWithData::Float(phi_p))
+                    .unwrap()
+                    .set_field("min_phi_z", PlainMemberTypeWithData::Float(min_phi_z))
+                    .unwrap()
+                    .set_field("max_phi_z", PlainMemberTypeWithData::Float(max_phi_z))
+                    .unwrap()
+                    .set_field(
+                        "phi_z_stable_sample_count",
+                        PlainMemberTypeWithData::Float(phi_z_stable_sample_count),
+                    )
+                    .unwrap()
+                    .set_field(
+                        "changing_luminance_phi",
+                        PlainMemberTypeWithData::UInt(changing_luminance_phi as u32),
+                    )
+                    .unwrap()
+                    .set_field(
+                        "skip_spatial_denoising",
+                        PlainMemberTypeWithData::UInt(skip_spatial_denoising as u32),
+                    )
+                    .unwrap()
+                    .build();
+                spatial_info.fill_with_raw_u8(&data)?;
+                Ok(())
+            }
         }
 
         fn record_denoiser_resources_transition_barrier(
@@ -1175,19 +1338,19 @@ impl Tracer {
                 tex.get_image()
                     .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
             };
-            tr_fn(&denoiser_resources.denoiser_normal_tex);
-            tr_fn(&denoiser_resources.denoiser_normal_tex_prev);
-            tr_fn(&denoiser_resources.denoiser_position_tex);
-            tr_fn(&denoiser_resources.denoiser_position_tex_prev);
-            tr_fn(&denoiser_resources.denoiser_vox_id_tex);
-            tr_fn(&denoiser_resources.denoiser_vox_id_tex_prev);
-            tr_fn(&denoiser_resources.denoiser_accumed_tex);
-            tr_fn(&denoiser_resources.denoiser_accumed_tex_prev);
-            tr_fn(&denoiser_resources.denoiser_motion_tex);
-            tr_fn(&denoiser_resources.denoiser_temporal_hist_len_tex);
-            tr_fn(&denoiser_resources.denoiser_hit_tex);
-            tr_fn(&denoiser_resources.denoiser_atrous_ping_tex);
-            tr_fn(&denoiser_resources.denoiser_atrous_pong_tex);
+            tr_fn(&denoiser_resources.tex.normal);
+            tr_fn(&denoiser_resources.tex.normal_prev);
+            tr_fn(&denoiser_resources.tex.position);
+            tr_fn(&denoiser_resources.tex.position_prev);
+            tr_fn(&denoiser_resources.tex.vox_id);
+            tr_fn(&denoiser_resources.tex.vox_id_prev);
+            tr_fn(&denoiser_resources.tex.accumed);
+            tr_fn(&denoiser_resources.tex.accumed_prev);
+            tr_fn(&denoiser_resources.tex.motion);
+            tr_fn(&denoiser_resources.tex.temporal_hist_len);
+            tr_fn(&denoiser_resources.tex.hit);
+            tr_fn(&denoiser_resources.tex.spatial_ping);
+            tr_fn(&denoiser_resources.tex.spatial_pong);
         }
 
         fn copy_current_to_prev(resources: &TracerResources, cmdbuf: &CommandBuffer) {
@@ -1200,20 +1363,20 @@ impl Tracer {
                 );
             };
             copy_fn(
-                &resources.denoiser_resources.denoiser_normal_tex,
-                &resources.denoiser_resources.denoiser_normal_tex_prev,
+                &resources.denoiser_resources.tex.normal,
+                &resources.denoiser_resources.tex.normal_prev,
             );
             copy_fn(
-                &resources.denoiser_resources.denoiser_position_tex,
-                &resources.denoiser_resources.denoiser_position_tex_prev,
+                &resources.denoiser_resources.tex.position,
+                &resources.denoiser_resources.tex.position_prev,
             );
             copy_fn(
-                &resources.denoiser_resources.denoiser_vox_id_tex,
-                &resources.denoiser_resources.denoiser_vox_id_tex_prev,
+                &resources.denoiser_resources.tex.vox_id,
+                &resources.denoiser_resources.tex.vox_id_prev,
             );
             copy_fn(
-                &resources.denoiser_resources.denoiser_accumed_tex,
-                &resources.denoiser_resources.denoiser_accumed_tex_prev,
+                &resources.denoiser_resources.tex.accumed,
+                &resources.denoiser_resources.tex.accumed_prev,
             );
         }
 
@@ -1329,10 +1492,8 @@ impl Tracer {
         }
     }
 
-    fn record_main_pass(&self, cmdbuf: &CommandBuffer, surface_resources: &SurfaceResources) {
-        // let testing_chunk_id = UVec3::new(1, 1, 0);
-
-        self.main_ppl.record_bind(cmdbuf);
+    fn record_grass_pass(&self, cmdbuf: &CommandBuffer, surface_resources: &SurfaceResources) {
+        self.grass_ppl.record_bind(cmdbuf);
 
         let clear_values = [
             vk::ClearValue {
@@ -1348,8 +1509,8 @@ impl Tracer {
             },
         ];
 
-        self.main_render_pass
-            .record_begin(cmdbuf, &self.main_framebuffer, &clear_values);
+        self.grass_render_pass
+            .record_begin(cmdbuf, &self.grass_framebuffer, &clear_values);
 
         let render_extent = self.resources.gfx_output_tex.get_image().get_desc().extent;
         let viewport = Viewport::from_extent(render_extent.as_extent_2d().unwrap());
@@ -1362,14 +1523,14 @@ impl Tracer {
         };
 
         // must be done before record draw, can be swapped with record_viewport_scissor
-        self.main_ppl
-            .record_bind_descriptor_sets(cmdbuf, &self.main_sets, 0);
+        self.grass_ppl
+            .record_bind_descriptor_sets(cmdbuf, &self.grass_sets, 0);
 
-        self.main_ppl
+        self.grass_ppl
             .record_viewport_scissor(cmdbuf, viewport, scissor);
 
         unsafe {
-            // Bind the index buffer
+            // bind the index buffer
             self.vulkan_ctx.device().cmd_bind_index_buffer(
                 cmdbuf.as_raw(),
                 self.resources.indices.as_raw(),
@@ -1378,17 +1539,16 @@ impl Tracer {
             );
         }
 
-        // --- Loop for chunk-specific drawing ---
-        // Now, iterate over each chunk and issue a draw call for it.
+        // now, iterate over each chunk and issue a draw call for it.
         for (_chunk_id, chunk_resources) in &surface_resources.chunk_raster_resources {
-            // Only draw if this chunk actually has grass instances.
+            // only draw if this chunk actually has grass instances.
             if chunk_resources.grass_instances_len == 0 {
                 continue;
             }
 
-            // Bind the vertex buffers for this specific chunk.
-            // Binding point 0: Common grass blade vertices.
-            // Binding point 1: Per-chunk, per-instance data.
+            // bind the vertex buffers for this specific chunk.
+            // binding point 0: common grass blade vertices.
+            // binding point 1: per-chunk, per-instance data.
             unsafe {
                 self.vulkan_ctx.device().cmd_bind_vertex_buffers(
                     cmdbuf.as_raw(),
@@ -1401,9 +1561,9 @@ impl Tracer {
                 );
             }
 
-            // Issue the draw call for the current chunk.
+            // issue the draw call for the current chunk.
             // No barriers are needed here.
-            self.main_ppl.record_draw_indexed(
+            self.grass_ppl.record_draw_indexed(
                 cmdbuf,
                 self.resources.indices_len,
                 chunk_resources.grass_instances_len,
@@ -1413,9 +1573,9 @@ impl Tracer {
             );
         }
 
-        self.main_render_pass.record_end(cmdbuf);
+        self.grass_render_pass.record_end(cmdbuf);
 
-        let desc = self.main_render_pass.get_desc();
+        let desc = self.grass_render_pass.get_desc();
         self.resources
             .gfx_output_tex
             .get_image()
@@ -1580,6 +1740,13 @@ impl Tracer {
     }
 
     fn record_denoiser_pass(&self, cmdbuf: &CommandBuffer) {
+        let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
+        let compute_to_compute_barrier = PipelineBarrier::new(
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vec![shader_access_memory_barrier],
+        );
+
         self.temporal_ppl.record_bind(cmdbuf);
         self.temporal_ppl
             .record_bind_descriptor_sets(cmdbuf, &self.temporal_sets, 0);
@@ -1598,6 +1765,26 @@ impl Tracer {
                 render_extent.depth,
             ],
         );
+
+        self.spatial_ppl.record_bind(cmdbuf);
+        self.spatial_ppl
+            .record_bind_descriptor_sets(cmdbuf, &self.spatial_sets, 0);
+
+        const A_TROUS_ITERATION_COUNT: u32 = 3;
+        for i in 0..A_TROUS_ITERATION_COUNT {
+            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+
+            self.spatial_ppl
+                .record_push_constants(cmdbuf, &i.to_ne_bytes());
+            self.spatial_ppl.record_dispatch(
+                cmdbuf,
+                [
+                    render_extent.width,
+                    render_extent.height,
+                    render_extent.depth,
+                ],
+            );
+        }
     }
 
     fn record_post_processing_pass(&self, cmdbuf: &CommandBuffer) {

@@ -58,6 +58,14 @@ pub struct InitializedApp {
     sun_color: egui::Color32,
     temporal_position_phi: f32,
     temporal_alpha: f32,
+    phi_c: f32,
+    phi_n: f32,
+    phi_p: f32,
+    min_phi_z: f32,
+    max_phi_z: f32,
+    phi_z_stable_sample_count: f32,
+    changing_luminance_phi: bool,
+    skip_spatial_denoising: bool,
 
     tree_pos: Vec3,
 
@@ -205,6 +213,15 @@ impl InitializedApp {
             debug_uint: 0,
             temporal_position_phi: 0.8,
             temporal_alpha: 0.04,
+            phi_c: 0.75,
+            phi_n: 20.0,
+            phi_p: 0.05,
+            min_phi_z: 0.0,
+            max_phi_z: 0.5,
+            phi_z_stable_sample_count: 0.05,
+            changing_luminance_phi: true,
+            skip_spatial_denoising: false,
+
             sun_altitude: 14.0,
             sun_azimuth: 280.0,
             sun_size: 0.02,
@@ -461,7 +478,9 @@ impl InitializedApp {
                 let mut tree_desc_changed = false;
                 self.egui_renderer
                     .update(&self.window_state.window(), |ctx| {
-                        ctx.style_mut().visuals.override_text_color = Some(egui::Color32::WHITE);
+                        let mut style = (*ctx.style()).clone();
+                        style.visuals.override_text_color = Some(egui::Color32::WHITE);
+                        ctx.set_style(style);
 
                         let my_frame = egui::containers::Frame {
                             fill: Color32::from_rgba_premultiplied(123, 64, 25, 250),
@@ -556,6 +575,42 @@ impl InitializedApp {
                                         egui::Slider::new(&mut self.temporal_alpha, 0.0..=1.0)
                                             .text("Temporal Alpha"),
                                     );
+
+                                    ui.separator();
+
+                                    ui.heading("Spatial");
+                                    ui.add(
+                                        egui::Slider::new(&mut self.phi_c, 0.0..=1.0).text("Phi C"),
+                                    );
+                                    ui.add(
+                                        egui::Slider::new(&mut self.phi_n, 0.0..=1.0).text("Phi N"),
+                                    );
+                                    ui.add(
+                                        egui::Slider::new(&mut self.phi_p, 0.0..=1.0).text("Phi P"),
+                                    );
+                                    ui.add(
+                                        egui::Slider::new(&mut self.min_phi_z, 0.0..=1.0)
+                                            .text("Min Phi Z"),
+                                    );
+                                    ui.add(
+                                        egui::Slider::new(&mut self.max_phi_z, 0.0..=1.0)
+                                            .text("Max Phi Z"),
+                                    );
+                                    ui.add(
+                                        egui::Slider::new(
+                                            &mut self.phi_z_stable_sample_count,
+                                            0.0..=1.0,
+                                        )
+                                        .text("Phi Z Stable Sample Count"),
+                                    );
+                                    ui.add(egui::Checkbox::new(
+                                        &mut self.changing_luminance_phi,
+                                        "Changing Luminance Phi",
+                                    ));
+                                    ui.add(egui::Checkbox::new(
+                                        &mut self.skip_spatial_denoising,
+                                        "Skip Spatial Denoising",
+                                    ));
                                 });
                             });
                     });
@@ -606,6 +661,14 @@ impl InitializedApp {
                         ),
                         self.temporal_position_phi,
                         self.temporal_alpha,
+                        self.phi_c,
+                        self.phi_n,
+                        self.phi_p,
+                        self.min_phi_z,
+                        self.max_phi_z,
+                        self.phi_z_stable_sample_count,
+                        self.changing_luminance_phi,
+                        self.skip_spatial_denoising,
                     )
                     .unwrap();
 

@@ -1,0 +1,137 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(push_constant) uniform PC { uint iteration; }
+pc;
+
+layout(set = 0, binding = 0) uniform U_SpatialInfo {
+    float phi_c;
+    float phi_n;
+    float phi_p;
+    float min_phi_z;
+    float max_phi_z;
+    float phi_z_stable_sample_count;
+    uint changing_luminance_phi;
+    uint skip_spatial_denoising;
+}
+spatial_info;
+
+layout(set = 1, binding = 0, r32f) readonly uniform image2D depth_tex;
+
+layout(set = 2, binding = 0, r32ui) uniform uimage2D denoiser_normal_tex;
+layout(set = 2, binding = 1, r32ui) uniform uimage2D denoiser_normal_tex_prev;
+layout(set = 2, binding = 2, rgba32f) uniform image2D denoiser_position_tex;
+layout(set = 2, binding = 3, rgba32f) uniform image2D denoiser_position_tex_prev;
+layout(set = 2, binding = 4, r32ui) uniform uimage2D denoiser_vox_id_tex;
+layout(set = 2, binding = 5, r32ui) uniform uimage2D denoiser_vox_id_tex_prev;
+layout(set = 2, binding = 6, r32ui) uniform uimage2D denoiser_accumed_tex;
+layout(set = 2, binding = 7, r32ui) uniform uimage2D denoiser_accumed_tex_prev;
+layout(set = 2, binding = 8, rg16f) uniform image2D denoiser_motion_tex;
+layout(set = 2, binding = 9, r8ui) uniform uimage2D denoiser_temporal_hist_len_tex;
+layout(set = 2, binding = 10, r8ui) uniform uimage2D denoiser_hit_tex;
+layout(set = 2, binding = 11, r11f_g11f_b10f) uniform image2D denoiser_spatial_ping_tex;
+layout(set = 2, binding = 12, r11f_g11f_b10f) uniform image2D denoiser_spatial_pong_tex;
+
+#include "../include/core/packer.glsl"
+
+const float WAVELET_FAC = 0.5;
+const float KERNEL3x3[2][2] =
+    float[2][2](float[2](1.0, WAVELET_FAC), float[2](WAVELET_FAC, WAVELET_FAC *WAVELET_FAC));
+
+ivec2 img_size() { return imageSize(denoiser_normal_tex); }
+
+void load_from_pingpong(out vec3 n, out vec3 c, out vec3 p, ivec2 uv, uint iter) {
+    n = unpack_normal_v2(imageLoad(denoiser_normal_tex, uv).x);
+    c = (iter % 2u == 0u) ? imageLoad(denoiser_spatial_ping_tex, uv).rgb
+                          : imageLoad(denoiser_spatial_pong_tex, uv).rgb;
+    p = imageLoad(denoiser_position_tex, uv).xyz;
+}
+
+void save_to_pingpong(ivec2 uv, vec3 col, uint iter) {
+    if (iter % 2u == 0u)
+        imageStore(denoiser_spatial_pong_tex, uv, vec4(col, 0.0));
+    else
+        imageStore(denoiser_spatial_ping_tex, uv, vec4(col, 0.0));
+}
+
+float lum(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+
+void blur_kernel(inout float w_sum, inout vec3 c_sum, ivec2 base_uv, ivec2 off, uint iter, vec3 n_c,
+                 vec3 c_c, vec3 p_c, float lum_c, float depth_c) {
+    int step       = 1 << iter;
+    ivec2 s_uv     = base_uv + off * step;
+    float w_kernel = KERNEL3x3[abs(off.x)][abs(off.y)];
+
+    if (off == ivec2(0)) {
+        w_sum += w_kernel;
+        c_sum += w_kernel * c_c;
+        return;
+    }
+
+    ivec2 size = img_size();
+    if (any(lessThan(s_uv, ivec2(0))) || any(greaterThanEqual(s_uv, size)) ||
+        imageLoad(denoiser_hit_tex, s_uv).x == 0u)
+        return;
+
+    vec3 n_s, c_s, p_s;
+    load_from_pingpong(n_s, c_s, p_s, s_uv, iter);
+
+    float phi_c = spatial_info.phi_c;
+    if (spatial_info.changing_luminance_phi != 0u) phi_c *= pow(2.0, -float(iter));
+    float w_c = exp(-abs(lum(c_s) - lum_c) / phi_c);
+
+    float w_n = max(0.0, pow(dot(n_c, n_s), spatial_info.phi_n));
+    float w_p = exp(-distance(p_s, p_c) / spatial_info.phi_p);
+
+    float depth_falloff = exp(-depth_c);
+    float w_z           = 1.0;
+    if (depth_falloff > spatial_info.min_phi_z) {
+        bool same_vox =
+            imageLoad(denoiser_vox_id_tex, base_uv).x == imageLoad(denoiser_vox_id_tex, s_uv).x;
+        if (!same_vox) {
+            float hist = float(imageLoad(denoiser_temporal_hist_len_tex, base_uv).x);
+            float dist_w =
+                smoothstep(spatial_info.min_phi_z,
+                           max(spatial_info.min_phi_z, spatial_info.max_phi_z), depth_falloff);
+            dist_w *= smoothstep(0.0, spatial_info.phi_z_stable_sample_count * 256.0, hist);
+            w_z = 1.0 - dist_w;
+        }
+    }
+
+    float w = w_kernel * w_c * w_n * w_p * w_z;
+    w_sum += w;
+    c_sum += w * c_s;
+}
+
+void main() {
+    ivec2 uv = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(uv, img_size())) || imageLoad(denoiser_hit_tex, uv).x == 0u) return;
+
+    uint iter = pc.iteration;
+
+    if (spatial_info.skip_spatial_denoising != 0u) {
+        if (iter != 0u) return;
+        imageStore(denoiser_spatial_pong_tex, uv,
+                   vec4(imageLoad(denoiser_spatial_ping_tex, uv).rgb, 0.0));
+        return;
+    }
+
+    vec3 n_c, c_c, p_c;
+    load_from_pingpong(n_c, c_c, p_c, uv, iter);
+    float lum_c   = lum(c_c);
+    float depth_c = imageLoad(depth_tex, uv).x;
+
+    const int R = 1;
+    float w_sum = 0.0;
+    vec3 c_sum  = vec3(0.0);
+
+    for (int y = -R; y <= R; ++y)
+        for (int x = -R; x <= R; ++x)
+            blur_kernel(w_sum, c_sum, uv, ivec2(x, y), iter, n_c, c_c, p_c, lum_c, depth_c);
+
+    vec3 out_col = c_sum / max(w_sum, 1e-6);
+
+    save_to_pingpong(uv, out_col, iter);
+}
