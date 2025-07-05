@@ -10,7 +10,7 @@ mod util;
 mod vkn;
 mod window;
 
-use app::App;
+use app::AppController;
 use simple_logger::SimpleLogger;
 use winit::event_loop::EventLoop;
 
@@ -31,7 +31,7 @@ pub fn main() {
         .init()
         .unwrap();
 
-    let mut app = App::default();
+    let mut app = AppController::default();
     let event_loop = EventLoop::builder().build().unwrap();
     let result = event_loop.run_app(&mut app);
 

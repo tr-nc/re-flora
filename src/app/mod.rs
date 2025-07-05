@@ -1,4 +1,4 @@
 mod app;
-mod initialized_app;
+mod app_controller;
 
-pub use app::App;
+pub use app_controller::AppController;
