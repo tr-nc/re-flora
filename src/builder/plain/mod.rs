@@ -32,6 +32,9 @@ pub struct PlainBuilder {
     _chunk_init_ppl: ComputePipeline,
     _chunk_modify_ppl: ComputePipeline,
 
+    #[allow(dead_code)]
+    fixed_pool: DescriptorPool,
+
     _buffer_setup_ds: DescriptorSet,
     _chunk_init_ds: DescriptorSet,
     _chunk_modify_ds: DescriptorSet,
@@ -49,7 +52,7 @@ impl PlainBuilder {
         free_atlas_dim: UVec3,
     ) -> Self {
         // we create a local one
-        let descriptor_pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
+        let fixed_pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
 
         let buffer_setup_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
@@ -88,28 +91,16 @@ impl PlainBuilder {
         let chunk_init_ppl = ComputePipeline::new(vulkan_ctx.device(), &chunk_init_sm);
         let chunk_modify_ppl = ComputePipeline::new(vulkan_ctx.device(), &chunk_modify_sm);
 
-        let buffer_setup_ds = DescriptorSet::new(
-            vulkan_ctx.device().clone(),
-            &buffer_setup_ppl
-                .get_layout()
-                .get_descriptor_set_layouts()
-                .get(&0)
-                .unwrap(),
-            descriptor_pool.clone(),
-        );
+        let buffer_setup_ds = fixed_pool
+            .allocate_set(&buffer_setup_ppl.get_layout().get_descriptor_set_layouts()[&0])
+            .unwrap();
         buffer_setup_ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.region_info),
             WriteDescriptorSet::new_buffer_write(1, &resources.region_indirect),
         ]);
-        let chunk_init_ds = DescriptorSet::new(
-            vulkan_ctx.device().clone(),
-            &chunk_init_ppl
-                .get_layout()
-                .get_descriptor_set_layouts()
-                .get(&0)
-                .unwrap(),
-            descriptor_pool.clone(),
-        );
+        let chunk_init_ds = fixed_pool
+            .allocate_set(&chunk_init_ppl.get_layout().get_descriptor_set_layouts()[&0])
+            .unwrap();
         chunk_init_ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.region_info),
             WriteDescriptorSet::new_texture_write(
@@ -119,15 +110,9 @@ impl PlainBuilder {
                 vk::ImageLayout::GENERAL,
             ),
         ]);
-        let chunk_modify_ds = DescriptorSet::new(
-            vulkan_ctx.device().clone(),
-            &chunk_modify_ppl
-                .get_layout()
-                .get_descriptor_set_layouts()
-                .get(&0)
-                .unwrap(),
-            descriptor_pool.clone(),
-        );
+        let chunk_modify_ds = fixed_pool
+            .allocate_set(&chunk_modify_ppl.get_layout().get_descriptor_set_layouts()[&0])
+            .unwrap();
         chunk_modify_ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.chunk_modify_info),
             WriteDescriptorSet::new_buffer_write(1, &resources.trunk_bvh_nodes),
@@ -159,6 +144,8 @@ impl PlainBuilder {
             _buffer_setup_ppl: buffer_setup_ppl,
             _chunk_init_ppl: chunk_init_ppl,
             _chunk_modify_ppl: chunk_modify_ppl,
+
+            fixed_pool,
 
             _buffer_setup_ds: buffer_setup_ds,
             _chunk_init_ds: chunk_init_ds,
@@ -221,6 +208,7 @@ impl PlainBuilder {
                 .record_transition_barrier(&cmdbuf, 0, vk::ImageLayout::GENERAL);
 
             buffer_setup_ppl.record_bind(&cmdbuf);
+
             buffer_setup_ppl.record_bind_descriptor_sets(
                 &cmdbuf,
                 std::slice::from_ref(&buffer_setup_ds),

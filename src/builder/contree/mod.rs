@@ -45,6 +45,8 @@ pub struct ContreeBuilder {
     contree_concat_ppl: ComputePipeline,
 
     #[allow(dead_code)]
+    fixed_pool: DescriptorPool,
+    #[allow(dead_code)]
     contree_buffer_setup_ds: DescriptorSet,
     #[allow(dead_code)]
     contree_leaf_write_ds: DescriptorSet,
@@ -85,7 +87,7 @@ impl ContreeBuilder {
         );
         assert!(is_power_of_four(voxel_dim_per_chunk.x));
 
-        let descriptor_pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
+        let fixed_pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
 
         let contree_buffer_setup_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
@@ -154,15 +156,13 @@ impl ContreeBuilder {
             ComputePipeline::new(vulkan_ctx.device(), &contree_last_buffer_update_sm);
         let contree_concat_ppl = ComputePipeline::new(vulkan_ctx.device(), &contree_concat_sm);
 
-        let contree_buffer_setup_ds = DescriptorSet::new(
-            vulkan_ctx.device().clone(),
-            &contree_buffer_setup_ppl
-                .get_layout()
-                .get_descriptor_set_layouts()
-                .get(&0)
-                .unwrap(),
-            descriptor_pool.clone(),
-        );
+        let contree_buffer_setup_ds = fixed_pool
+            .allocate_set(
+                &contree_buffer_setup_ppl
+                    .get_layout()
+                    .get_descriptor_set_layouts()[&0],
+            )
+            .unwrap();
         contree_buffer_setup_ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.contree_build_info),
             WriteDescriptorSet::new_buffer_write(1, &resources.contree_build_state),
@@ -171,15 +171,13 @@ impl ContreeBuilder {
             WriteDescriptorSet::new_buffer_write(4, &resources.node_offset_for_levels),
             WriteDescriptorSet::new_buffer_write(5, &resources.contree_build_result),
         ]);
-        let contree_leaf_write_ds = DescriptorSet::new(
-            vulkan_ctx.device().clone(),
-            &contree_leaf_write_ppl
-                .get_layout()
-                .get_descriptor_set_layouts()
-                .get(&0)
-                .unwrap(),
-            descriptor_pool.clone(),
-        );
+        let contree_leaf_write_ds = fixed_pool
+            .allocate_set(
+                &contree_leaf_write_ppl
+                    .get_layout()
+                    .get_descriptor_set_layouts()[&0],
+            )
+            .unwrap();
         contree_leaf_write_ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.contree_build_info),
             WriteDescriptorSet::new_buffer_write(1, &resources.contree_build_state),
@@ -194,15 +192,13 @@ impl ContreeBuilder {
             WriteDescriptorSet::new_buffer_write(5, &resources.leaf_data),
             WriteDescriptorSet::new_buffer_write(6, &resources.contree_build_result),
         ]);
-        let contree_tree_write_ds = DescriptorSet::new(
-            vulkan_ctx.device().clone(),
-            &contree_tree_write_ppl
-                .get_layout()
-                .get_descriptor_set_layouts()
-                .get(&0)
-                .unwrap(),
-            descriptor_pool.clone(),
-        );
+        let contree_tree_write_ds = fixed_pool
+            .allocate_set(
+                &contree_tree_write_ppl
+                    .get_layout()
+                    .get_descriptor_set_layouts()[&0],
+            )
+            .unwrap();
         contree_tree_write_ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.contree_build_state),
             WriteDescriptorSet::new_buffer_write(1, &resources.node_offset_for_levels),
@@ -211,28 +207,24 @@ impl ContreeBuilder {
             WriteDescriptorSet::new_buffer_write(4, &resources.counter_for_levels),
             WriteDescriptorSet::new_buffer_write(5, &resources.contree_build_result),
         ]);
-        let contree_buffer_update_ds = DescriptorSet::new(
-            vulkan_ctx.device().clone(),
-            &contree_buffer_update_ppl
-                .get_layout()
-                .get_descriptor_set_layouts()
-                .get(&0)
-                .unwrap(),
-            descriptor_pool.clone(),
-        );
+        let contree_buffer_update_ds = fixed_pool
+            .allocate_set(
+                &contree_buffer_update_ppl
+                    .get_layout()
+                    .get_descriptor_set_layouts()[&0],
+            )
+            .unwrap();
         contree_buffer_update_ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.contree_build_state),
             WriteDescriptorSet::new_buffer_write(1, &resources.level_dispatch_indirect),
         ]);
-        let contree_last_buffer_update_ds = DescriptorSet::new(
-            vulkan_ctx.device().clone(),
-            &contree_last_buffer_update_ppl
-                .get_layout()
-                .get_descriptor_set_layouts()
-                .get(&0)
-                .unwrap(),
-            descriptor_pool.clone(),
-        );
+        let contree_last_buffer_update_ds = fixed_pool
+            .allocate_set(
+                &contree_last_buffer_update_ppl
+                    .get_layout()
+                    .get_descriptor_set_layouts()[&0],
+            )
+            .unwrap();
         contree_last_buffer_update_ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.contree_build_result),
             WriteDescriptorSet::new_buffer_write(1, &resources.concat_dispatch_indirect),
@@ -240,15 +232,9 @@ impl ContreeBuilder {
             WriteDescriptorSet::new_buffer_write(3, &resources.dense_nodes),
             WriteDescriptorSet::new_buffer_write(4, &resources.counter_for_levels),
         ]);
-        let contree_concat_ds = DescriptorSet::new(
-            vulkan_ctx.device().clone(),
-            &contree_concat_ppl
-                .get_layout()
-                .get_descriptor_set_layouts()
-                .get(&0)
-                .unwrap(),
-            descriptor_pool.clone(),
-        );
+        let contree_concat_ds = fixed_pool
+            .allocate_set(&contree_concat_ppl.get_layout().get_descriptor_set_layouts()[&0])
+            .unwrap();
         contree_concat_ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.contree_build_info),
             WriteDescriptorSet::new_buffer_write(1, &resources.node_offset_for_levels),
@@ -296,6 +282,8 @@ impl ContreeBuilder {
             contree_buffer_update_ds,
             contree_last_buffer_update_ds,
             contree_concat_ds,
+
+            fixed_pool,
 
             chunk_offset_allocation_table: HashMap::new(),
 

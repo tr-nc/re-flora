@@ -18,6 +18,9 @@ pub struct SceneAccelBuilder {
     pub vulkan_ctx: VulkanContext,
     pub resources: SceneAccelResources,
 
+    #[allow(dead_code)]
+    fixed_pool: DescriptorPool,
+
     _update_scene_tex_ppl: ComputePipeline,
     _update_scene_tex_ds: DescriptorSet,
 
@@ -32,7 +35,7 @@ impl SceneAccelBuilder {
         chunk_bound: UAabb3,
     ) -> Self {
         let _ = chunk_bound;
-        let descriptor_pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
+        let fixed_pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
 
         let update_scene_tex_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
@@ -51,15 +54,13 @@ impl SceneAccelBuilder {
 
         let update_scene_tex_ppl = ComputePipeline::new(vulkan_ctx.device(), &update_scene_tex_sm);
 
-        let update_scene_tex_ds = DescriptorSet::new(
-            vulkan_ctx.device().clone(),
-            &update_scene_tex_ppl
-                .get_layout()
-                .get_descriptor_set_layouts()
-                .get(&0)
-                .unwrap(),
-            descriptor_pool.clone(),
-        );
+        let update_scene_tex_ds = fixed_pool
+            .allocate_set(
+                &update_scene_tex_ppl
+                    .get_layout()
+                    .get_descriptor_set_layouts()[&0],
+            )
+            .unwrap();
         update_scene_tex_ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.scene_tex_update_info),
             WriteDescriptorSet::new_texture_write(
@@ -81,6 +82,9 @@ impl SceneAccelBuilder {
         return Self {
             vulkan_ctx,
             resources,
+
+            fixed_pool,
+
             _update_scene_tex_ppl: update_scene_tex_ppl,
             _update_scene_tex_ds: update_scene_tex_ds,
             update_scene_tex_cmdbuf,

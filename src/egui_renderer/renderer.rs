@@ -229,12 +229,10 @@ impl EguiRenderer {
                     )
                     .unwrap();
 
-                let set = DescriptorSet::new(
-                    device.clone(),
-                    &self.descriptor_set_layout,
-                    self.descriptor_pool.clone(),
-                );
-
+                let set = self
+                    .descriptor_pool
+                    .allocate_set(&self.descriptor_set_layout)
+                    .unwrap();
                 set.perform_writes(&mut [WriteDescriptorSet::new_texture_write(
                     0,
                     vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
