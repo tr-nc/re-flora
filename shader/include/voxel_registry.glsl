@@ -21,7 +21,7 @@ vec3 voxel_color_by_type_srgb(uint voxel_type) {
     } else if (voxel_type == VOXEL_TYPE_SAND) {
         return vec3(0.96, 0.87, 0.70);
     } else if (voxel_type == VOXEL_TYPE_DIRT) {
-        return vec3(0.35, 0.57, 0.23);
+        return vec3(0.29, 0.21, 0.17);
     } else if (voxel_type == VOXEL_TYPE_LEAF) {
         return vec3(0.95, 0.78, 0.14);
     } else if (voxel_type == VOXEL_TYPE_ROCK) {

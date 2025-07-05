@@ -18,7 +18,7 @@ layout(set = 0, binding = 1, r8ui) writeonly uniform uimage3D raw_atlas;
 float compute_noise(vec3 p) {
     // https://auburn.github.io/FastNoiseLite/
 
-    float noise_scale = 2.0;
+    float noise_scale = 1.0;
 
     fnl_state state    = fnlCreateState(42);
     state.noise_type   = FNL_NOISE_PERLIN;
@@ -36,7 +36,7 @@ uint get_voxel_type(float weight) {
     if (weight < 0.0) {
         return VOXEL_TYPE_EMPTY;
     }
-    return VOXEL_TYPE_ROCK;
+    return VOXEL_TYPE_DIRT;
 }
 
 void main() {

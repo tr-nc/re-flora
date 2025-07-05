@@ -4,8 +4,6 @@ use anyhow::Result;
 use ash::vk;
 use std::{collections::HashMap, sync::Arc};
 
-// TODO: use better pool creation management
-
 struct DescriptorPoolInner {
     device: Device,
     descriptor_pool: vk::DescriptorPool,
