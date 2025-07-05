@@ -22,7 +22,6 @@ use anyhow::Result;
 use ash::vk;
 use glam::UVec3;
 use std::collections::HashMap;
-
 use super::SurfaceResources;
 
 const SIZE_OF_NODE_ELEMENT: u64 = 3 * std::mem::size_of::<u32>() as u64;

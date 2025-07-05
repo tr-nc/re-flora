@@ -86,8 +86,21 @@ impl WindowState {
             WindowMode::BorderlessFullscreen => winit_window_attributes
                 .with_fullscreen(Some(Fullscreen::Borderless(event_loop.primary_monitor()))),
             WindowMode::FullscreenWindowed => {
-                winit_window_attributes = winit_window_attributes.with_maximized(true);
-                winit_window_attributes
+                let WindowStateDesc {
+                    width,
+                    height,
+                    position,
+                    ..
+                } = *desc;
+
+                if let Some(position) = position {
+                    winit_window_attributes = winit_window_attributes.with_position(
+                        LogicalPosition::new(position[0] as f64, position[1] as f64),
+                    );
+                }
+                winit_window_attributes =
+                    winit_window_attributes.with_inner_size(LogicalSize::new(width, height));
+                winit_window_attributes.with_maximized(true)
             }
             WindowMode::Windowed => {
                 let WindowStateDesc {
