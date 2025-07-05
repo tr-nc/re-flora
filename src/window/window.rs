@@ -13,6 +13,8 @@ pub enum WindowMode {
     Windowed,
     #[allow(dead_code)]
     BorderlessFullscreen,
+    #[allow(dead_code)]
+    FullscreenWindowed,
 }
 
 /// Describes the information
@@ -113,7 +115,6 @@ impl Default for WindowStateDesc {
 /// this struct to keep track
 pub struct WindowState {
     window: Arc<Window>,
-
     desc: WindowStateDesc,
 }
 
@@ -125,6 +126,10 @@ impl WindowState {
         winit_window_attributes = match desc.window_mode {
             WindowMode::BorderlessFullscreen => winit_window_attributes
                 .with_fullscreen(Some(Fullscreen::Borderless(event_loop.primary_monitor()))),
+            WindowMode::FullscreenWindowed => {
+                winit_window_attributes = winit_window_attributes.with_maximized(true);
+                winit_window_attributes
+            }
             WindowMode::Windowed => {
                 let WindowStateDesc {
                     width,

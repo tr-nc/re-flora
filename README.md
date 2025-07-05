@@ -11,49 +11,60 @@ This project aims to give players:
 
 ## ✨ Features
 
-#### Core Gameplay
+### Core Gamepay
+
 - **Intuitive Planting System**: Easily select, place, and nurture various plant species.
+
 - **Dynamic Ecosystem**: Watch plants grow, spread, and interact based on environmental conditions.
+
 - **Day/Night & Seasonal Cycles**: Experience visual changes and different growth patterns.
+
 - **Relaxing Atmosphere**: Meditative audio, gentle animations, and a stress-free experience.
 
-#### Botanical Reality
+### Botanical Reality
+
 We're integrating elements of real-world botany, including:
+
 - Realistic growth cycles (accelerated but proportional).
 - Environmental preferences (light, soil, water needs).
 - Seasonal behaviors and adaptations.
 - Educational elements about plant varieties.
 
-#### Mini-Objectives
+### Mini-Objectives
+
 While **Re: Flora** has no mandatory goals, players can engage with optional objectives:
+
 - Themed garden challenges.
 - Botanical collection completion.
 - Ecosystem balance achievements.
 - Seasonal photography contests.
 
 ## 🎨 Inspiration
+
 This project draws inspiration from:
+
 - The meditative aspects of gardening.
 - Voxel art aesthetics and capabilities.
 - Games focused on creativity and expression.
 - The natural world's beauty and complexity.
 
----
-
 ## 🛠️ Getting Started with Development
 
 ### Rust Setup
+
 Ensure you are using the latest stable version of Rust.
+
 ```sh
 rustup update stable
 ```
 
 ### Recommended VSCode Extensions
+
 | Name | Usage |
 | :--- | :--- |
 | `shader-lint` | For GLSL/HLSL shader linting. |
 | `rust-analyzer` | Provides language support for Rust (linting, formatting, etc.). |
-| *to be continued...* | *...* |
+| _to be continued..._ | _..._ |
 
 > **Note:** Do not use `glslx` for Vulkan-style shaders.
 
@@ -62,11 +73,13 @@ rustup update stable
 ## 📚 Resources & References
 
 ### Vulkan
+
 - [Descriptor set - Vulkan Guide](https://vkguide.dev/docs/chapter-4/descriptors/#binding-descriptors)
 - [Descriptor set - Nvidia's Guide](https://developer.nvidia.com/vulkan-shader-resource-binding)
 - [Vulkan Synchronization Explained](https://themaister.net/blog/2019/08/14/yet-another-blog-explaining-vulkan-synchronization/)
 
 ### Ray Tracing
+
 - [Official Khronos Guide to Ray Tracing in Vulkan](https://www.khronos.org/blog/ray-tracing-in-vulkan/)
 - [GLSL_EXT_ray_query Shading Documentation](https://github.com/KhronosGroup/GLSL/blob/main/extensions/ext/GLSL_EXT_ray_query.txt/)
 - [Ray Tracing Pipeline vs. Ray Query Performance](https://tellusim.com/rt-perf/)
@@ -79,9 +92,11 @@ rustup update stable
 - [Understanding BRDF and PDF for Sampling](https://computergraphics.stackexchange.com/questions/8578/how-to-set-equivalent-pdfs-for-cosine-weighted-and-uniform-sampled-hemispheres)
 
 ### Papers
+
 - [ReSTIR GI: Path Resampling for Real-Time Path Tracing](https://research.nvidia.com/publication/2021-06_restir-gi-path-resampling-real-time-path-tracing)
 
 ### Inspirational Tech & Art
+
 - **Procedural Generation**: [Procedural Island Generator in Blender](https://blenderartists.org/t/procedural-island-generator-illustration-using-blenders-geometry-nodes/1483314)
 - **Voxel Worlds**:
   - [Exploring an Infinite Voxel Forest](https://www.youtube.com/watch?v=1wufuXY3l1o)

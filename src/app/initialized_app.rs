@@ -267,7 +267,7 @@ impl InitializedApp {
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {
         let window_descriptor = WindowStateDesc {
             title: "Re: Flora".to_owned(),
-            window_mode: WindowMode::BorderlessFullscreen,
+            window_mode: WindowMode::Windowed,
             cursor_locked: true,
             cursor_visible: false,
             ..Default::default()
