@@ -18,6 +18,7 @@ use crate::vkn::StructMemberDataBuilder;
 use crate::vkn::StructMemberDataReader;
 use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
+use anyhow::Result;
 use ash::vk;
 use glam::UVec3;
 use std::collections::HashMap;
@@ -461,7 +462,7 @@ impl ContreeBuilder {
         contree_dim: UVec3,
         node_write_offset: u64,
         leaf_write_offset: u64,
-    ) {
+    ) -> Result<()> {
         let device = self.vulkan_ctx.device();
 
         update_buffers(
@@ -470,11 +471,13 @@ impl ContreeBuilder {
             get_level(contree_dim),
             node_write_offset as u32,
             leaf_write_offset as u32,
-        );
+        )?;
 
         let cmdbuf = self.contree_cmdbuf.clone();
         cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), None);
         device.wait_queue_idle(&self.vulkan_ctx.get_general_queue());
+
+        return Ok(());
 
         fn update_buffers(
             contree_build_info: &Buffer,
@@ -482,29 +485,26 @@ impl ContreeBuilder {
             max_level: u32,
             node_write_offset: u32,
             leaf_write_offset: u32,
-        ) {
+        ) -> Result<()> {
             let data = StructMemberDataBuilder::from_buffer(contree_build_info)
                 .set_field("dim", PlainMemberTypeWithData::UInt(contree_dim.x))
-                .unwrap()
                 .set_field("max_level", PlainMemberTypeWithData::UInt(max_level))
-                .unwrap()
                 .set_field(
                     "node_write_offset",
                     PlainMemberTypeWithData::UInt(node_write_offset),
                 )
-                .unwrap()
                 .set_field(
                     "leaf_write_offset",
                     PlainMemberTypeWithData::UInt(leaf_write_offset),
                 )
-                .unwrap()
-                .build();
-            contree_build_info.fill_with_raw_u8(&data).unwrap();
+                .build()?;
+            contree_build_info.fill_with_raw_u8(&data)?;
+            Ok(())
         }
     }
 
     /// Returns: (node_alloc_offset, leaf_alloc_offset)
-    pub fn build_and_alloc(&mut self, atlas_offset: UVec3) -> Result<Option<(u64, u64)>, String> {
+    pub fn build_and_alloc(&mut self, atlas_offset: UVec3) -> Result<Option<(u64, u64)>> {
         let atlas_dim = self.voxel_dim_per_chunk;
 
         // preallocate 10MB for both the currentl node and leaf buffer to be built
@@ -520,7 +520,7 @@ impl ContreeBuilder {
         // the element of leaf data is a u32
         let leaf_alloc_offset = leaf_alloc_offset_in_bytes / SIZE_OF_LEAF_ELEMENT as u64;
 
-        self.build_contree(atlas_dim, node_alloc_offset, leaf_alloc_offset);
+        self.build_contree(atlas_dim, node_alloc_offset, leaf_alloc_offset)?;
 
         let (confirmed_node_buffer_size_in_bytes, confirmed_leaf_buffer_size_in_bytes) =
             self.get_contree_size_info(&self.resources);

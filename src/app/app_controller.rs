@@ -11,7 +11,7 @@ pub struct AppController {
 
 impl ApplicationHandler for AppController {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        self.initialized = Some(App::new(event_loop));
+        self.initialized = Some(App::new(event_loop).unwrap());
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {

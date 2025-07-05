@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use fastnoise_lite::{FastNoiseLite, FractalType, NoiseType};
 use glam::Vec2;
 use rand::Rng; // For Rng trait and gen_range method

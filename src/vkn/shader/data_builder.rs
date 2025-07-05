@@ -1,8 +1,7 @@
-use std::collections::HashMap;
-
-use crate::vkn::{Buffer, MemberLayout};
-
 use super::{PlainMemberLayout, PlainMemberTypeWithData, StructMemberLayout};
+use crate::vkn::{Buffer, MemberLayout};
+use anyhow::Result;
+use std::collections::HashMap;
 
 struct PlainMemberDataBuilder<'a> {
     layout: &'a PlainMemberLayout,
@@ -14,11 +13,13 @@ impl<'a> PlainMemberDataBuilder<'a> {
         Self { layout, data: None }
     }
 
-    pub fn set_val(&mut self, plain_type_with_data: PlainMemberTypeWithData) -> Result<(), String> {
+    pub fn set_val(&mut self, plain_type_with_data: PlainMemberTypeWithData) -> Result<()> {
         if !plain_type_with_data.has_type(&self.layout.ty) {
-            return Err(format!(
+            return Err(anyhow::anyhow!(
                 "Member {} is not a `{:?}`, it's a `{:?}`",
-                self.layout.name, self.layout.ty, plain_type_with_data
+                self.layout.name,
+                self.layout.ty,
+                plain_type_with_data
             ));
         }
 
@@ -149,6 +150,7 @@ pub struct StructMemberDataBuilder<'a> {
     layout: &'a StructMemberLayout,
     plain_member_builders: HashMap<String, PlainMemberDataBuilder<'a>>,
     struct_member_builders: HashMap<String, StructMemberDataBuilder<'a>>,
+    errors: Vec<anyhow::Error>,
 }
 
 impl<'a> StructMemberDataBuilder<'a> {
@@ -181,20 +183,19 @@ impl<'a> StructMemberDataBuilder<'a> {
             layout,
             plain_member_builders,
             struct_member_builders,
+            errors: Vec::new(),
         }
     }
 
-    /// Set a plain‐typed field by a path like `"foo.bar.baz"`.
-    /// Will descend into nested struct builders as needed.
-    pub fn set_field(
-        &mut self,
-        field_path: &str,
-        value: PlainMemberTypeWithData,
-    ) -> Result<&mut Self, String> {
+    /// Set a plain‐typed field.  
+    /// All errors are stored inside `self.errors` and **not** returned.
+    pub fn set_field(&mut self, field_path: &str, value: PlainMemberTypeWithData) -> &mut Self {
         // split on dots into vector of &str
         let parts: Vec<&str> = field_path.split('.').collect();
-        self.set_field_recursive(&parts, value)?;
-        Ok(self)
+        if let Err(e) = self.set_field_recursive(&parts, value) {
+            self.errors.push(e);
+        }
+        self
     }
 
     /// internal recursive helper
@@ -202,7 +203,7 @@ impl<'a> StructMemberDataBuilder<'a> {
         &mut self,
         parts: &[&str],
         value: PlainMemberTypeWithData,
-    ) -> Result<(), String> {
+    ) -> Result<()> {
         match parts {
             // leaf: try to set a plain member here
             [field_name] => {
@@ -210,7 +211,7 @@ impl<'a> StructMemberDataBuilder<'a> {
                     plain.set_val(value)?;
                     Ok(())
                 } else {
-                    Err(format!(
+                    Err(anyhow::anyhow!(
                         "Field `{}` not found in struct `{}`, all fields: {:?}",
                         field_name,
                         self.layout.name,
@@ -223,9 +224,10 @@ impl<'a> StructMemberDataBuilder<'a> {
                 if let Some(nested) = self.struct_member_builders.get_mut(*first) {
                     nested.set_field_recursive(rest, value)
                 } else {
-                    Err(format!(
+                    Err(anyhow::anyhow!(
                         "Struct field `{}` not found in struct `{}`",
-                        first, self.layout.name
+                        first,
+                        self.layout.name
                     ))
                 }
             }
@@ -233,12 +235,26 @@ impl<'a> StructMemberDataBuilder<'a> {
         }
     }
 
-    /// Produce one flat Vec<u8> for the entire (sub‑)struct,
-    /// recursively writing every plain member at its offset.
-    pub fn build(&self) -> Vec<u8> {
+    /// Internal helper that actually assembles bytes
+    fn assemble_bytes(&self) -> Vec<u8> {
         let mut data = vec![0u8; self.layout.get_size_bytes() as usize];
         self.write_all_fields(&mut data);
         data
+    }
+
+    pub fn build(&self) -> Result<Vec<u8>> {
+        if self.errors.is_empty() {
+            Ok(self.assemble_bytes())
+        } else {
+            Err(anyhow::anyhow!(
+                "{}",
+                self.errors
+                    .iter()
+                    .map(|e| e.to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ))
+        }
     }
 
     /// internal helper: write this struct’s plains, then recurse into sub‑structs

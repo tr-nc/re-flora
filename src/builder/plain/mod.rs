@@ -1,6 +1,4 @@
 mod resources;
-pub use resources::*;
-
 use crate::geom::BvhNode;
 use crate::geom::RoundCone;
 use crate::util::ShaderCompiler;
@@ -20,8 +18,10 @@ use crate::vkn::StructMemberDataBuilder;
 use crate::vkn::Texture;
 use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
+use anyhow::Result;
 use ash::vk;
 use glam::UVec3;
+pub use resources::*;
 
 pub struct PlainBuilder {
     vulkan_ctx: VulkanContext,
@@ -248,33 +248,37 @@ impl PlainBuilder {
         &self.resources
     }
 
-    pub fn chunk_init(&mut self, atlas_offset: UVec3, atlas_dim: UVec3) {
+    pub fn chunk_init(&mut self, atlas_offset: UVec3, atlas_dim: UVec3) -> Result<()> {
         if atlas_dim.x == 0 || atlas_dim.y == 0 || atlas_dim.z == 0 {
-            return;
+            return Ok(());
         }
-        update_buffers(&self.resources, atlas_offset, atlas_dim);
+        update_buffers(&self.resources, atlas_offset, atlas_dim)?;
 
         self.build_cmdbuf
             .submit(&self.vulkan_ctx.get_general_queue(), None);
         self.vulkan_ctx
             .device()
             .wait_queue_idle(&self.vulkan_ctx.get_general_queue());
+        return Ok(());
 
-        fn update_buffers(resources: &PlainBuilderResources, offset: UVec3, dim: UVec3) {
+        fn update_buffers(
+            resources: &PlainBuilderResources,
+            offset: UVec3,
+            dim: UVec3,
+        ) -> Result<()> {
             let data = StructMemberDataBuilder::from_buffer(&resources.region_info)
                 .set_field("offset", PlainMemberTypeWithData::UVec3(offset.to_array()))
-                .unwrap()
                 .set_field("dim", PlainMemberTypeWithData::UVec3(dim.to_array()))
-                .unwrap()
-                .build();
-            resources.region_info.fill_with_raw_u8(&data).unwrap();
+                .build()?;
+            resources.region_info.fill_with_raw_u8(&data)?;
+            Ok(())
         }
     }
 
-    pub fn chunk_modify(&mut self, bvh_nodes: &[BvhNode], round_cones: &[RoundCone]) {
+    pub fn chunk_modify(&mut self, bvh_nodes: &[BvhNode], round_cones: &[RoundCone]) -> Result<()> {
         let (offset, dim) = calculate_offset_and_dim(bvh_nodes);
 
-        update_buffers(&self.resources, offset, dim, round_cones, bvh_nodes);
+        update_buffers(&self.resources, offset, dim, round_cones, bvh_nodes)?;
 
         execute_one_time_command(
             self.vulkan_ctx.device(),
@@ -291,6 +295,7 @@ impl PlainBuilder {
                     .record_dispatch(cmdbuf, dim.to_array());
             },
         );
+        return Ok(());
 
         fn calculate_offset_and_dim(bvh_nodes: &[BvhNode]) -> (UVec3, UVec3) {
             let root_node = &bvh_nodes[0];
@@ -306,32 +311,34 @@ impl PlainBuilder {
             dim: UVec3,
             round_cones: &[RoundCone],
             bvh_nodes: &[BvhNode],
-        ) {
-            update_chunk_modify_info(resources, offset, dim, 1);
-            update_round_cones(resources, round_cones);
-            update_trunk_bvh_nodes(resources, bvh_nodes);
+        ) -> Result<()> {
+            update_chunk_modify_info(resources, offset, dim, 1)?;
+            update_round_cones(resources, round_cones)?;
+            update_trunk_bvh_nodes(resources, bvh_nodes)?;
+            return Ok(());
 
             fn update_chunk_modify_info(
                 resources: &PlainBuilderResources,
                 offset: UVec3,
                 dim: UVec3,
                 fill_voxel_type: u32,
-            ) {
+            ) -> Result<()> {
                 let data = StructMemberDataBuilder::from_buffer(&resources.chunk_modify_info)
                     .set_field("offset", PlainMemberTypeWithData::UVec3(offset.to_array()))
-                    .unwrap()
                     .set_field("dim", PlainMemberTypeWithData::UVec3(dim.to_array()))
-                    .unwrap()
                     .set_field(
                         "fill_voxel_type",
                         PlainMemberTypeWithData::UInt(fill_voxel_type),
                     )
-                    .unwrap()
-                    .build();
-                resources.chunk_modify_info.fill_with_raw_u8(&data).unwrap();
+                    .build()?;
+                resources.chunk_modify_info.fill_with_raw_u8(&data)?;
+                Ok(())
             }
 
-            fn update_round_cones(resources: &PlainBuilderResources, round_cones: &[RoundCone]) {
+            fn update_round_cones(
+                resources: &PlainBuilderResources,
+                round_cones: &[RoundCone],
+            ) -> Result<()> {
                 for i in 0..round_cones.len() {
                     let round_cone = &round_cones[i];
                     let data = StructMemberDataBuilder::from_buffer(&resources.round_cones)
@@ -339,31 +346,30 @@ impl PlainBuilder {
                             "data.center_a",
                             PlainMemberTypeWithData::Vec3(round_cone.center_a().to_array()),
                         )
-                        .unwrap()
                         .set_field(
                             "data.center_b",
                             PlainMemberTypeWithData::Vec3(round_cone.center_b().to_array()),
                         )
-                        .unwrap()
                         .set_field(
                             "data.radius_a",
                             PlainMemberTypeWithData::Float(round_cone.radius_a()),
                         )
-                        .unwrap()
                         .set_field(
                             "data.radius_b",
                             PlainMemberTypeWithData::Float(round_cone.radius_b()),
                         )
-                        .unwrap()
-                        .build();
+                        .build()?;
                     resources
                         .round_cones
-                        .fill_element_with_raw_u8(&data, i as u64)
-                        .unwrap();
+                        .fill_element_with_raw_u8(&data, i as u64)?;
                 }
+                Ok(())
             }
 
-            fn update_trunk_bvh_nodes(resources: &PlainBuilderResources, bvh_nodes: &[BvhNode]) {
+            fn update_trunk_bvh_nodes(
+                resources: &PlainBuilderResources,
+                bvh_nodes: &[BvhNode],
+            ) -> Result<()> {
                 for i in 0..bvh_nodes.len() {
                     let bvh_node = &bvh_nodes[i];
 
@@ -378,23 +384,20 @@ impl PlainBuilder {
                             "data.aabb_min",
                             PlainMemberTypeWithData::Vec3(bvh_node.aabb.min().to_array()),
                         )
-                        .unwrap()
                         .set_field(
                             "data.aabb_max",
                             PlainMemberTypeWithData::Vec3(bvh_node.aabb.max().to_array()),
                         )
-                        .unwrap()
                         .set_field(
                             "data.offset",
                             PlainMemberTypeWithData::UInt(combined_offset),
                         )
-                        .unwrap()
-                        .build();
+                        .build()?;
                     resources
                         .trunk_bvh_nodes
-                        .fill_element_with_raw_u8(&data, i as u64)
-                        .unwrap();
+                        .fill_element_with_raw_u8(&data, i as u64)?;
                 }
+                Ok(())
             }
         }
     }

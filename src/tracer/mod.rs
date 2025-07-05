@@ -1409,13 +1409,11 @@ impl Tracer {
                         "temporal_position_phi",
                         PlainMemberTypeWithData::Float(temporal_position_phi),
                     )
-                    .unwrap()
                     .set_field(
                         "temporal_alpha",
                         PlainMemberTypeWithData::Float(temporal_alpha),
                     )
-                    .unwrap()
-                    .build();
+                    .build()?;
                 temporal_info.fill_with_raw_u8(&data)?;
                 Ok(())
             }
@@ -1433,31 +1431,23 @@ impl Tracer {
             ) -> Result<()> {
                 let data = StructMemberDataBuilder::from_buffer(spatial_info)
                     .set_field("phi_c", PlainMemberTypeWithData::Float(phi_c))
-                    .unwrap()
                     .set_field("phi_n", PlainMemberTypeWithData::Float(phi_n))
-                    .unwrap()
                     .set_field("phi_p", PlainMemberTypeWithData::Float(phi_p))
-                    .unwrap()
                     .set_field("min_phi_z", PlainMemberTypeWithData::Float(min_phi_z))
-                    .unwrap()
                     .set_field("max_phi_z", PlainMemberTypeWithData::Float(max_phi_z))
-                    .unwrap()
                     .set_field(
                         "phi_z_stable_sample_count",
                         PlainMemberTypeWithData::Float(phi_z_stable_sample_count),
                     )
-                    .unwrap()
                     .set_field(
                         "is_changing_lum_phi",
                         PlainMemberTypeWithData::UInt(is_changing_lum_phi as u32),
                     )
-                    .unwrap()
                     .set_field(
                         "is_spatial_denoising_skipped",
                         PlainMemberTypeWithData::UInt(is_spatial_denoising_skipped as u32),
                     )
-                    .unwrap()
-                    .build();
+                    .build()?;
                 spatial_info.fill_with_raw_u8(&data)?;
                 Ok(())
             }
@@ -1528,24 +1518,18 @@ impl Tracer {
         ) -> Result<()> {
             let data = StructMemberDataBuilder::from_buffer(&resources.gui_input)
                 .set_field("debug_float", PlainMemberTypeWithData::Float(debug_float))
-                .unwrap()
                 .set_field(
                     "debug_bool",
                     PlainMemberTypeWithData::UInt(debug_bool as u32),
                 )
-                .unwrap()
                 .set_field("debug_uint", PlainMemberTypeWithData::UInt(debug_uint))
-                .unwrap()
                 .set_field("sun_dir", PlainMemberTypeWithData::Vec3(sun_dir.to_array()))
-                .unwrap()
                 .set_field("sun_size", PlainMemberTypeWithData::Float(sun_size))
-                .unwrap()
                 .set_field(
                     "sun_color",
                     PlainMemberTypeWithData::Vec3(sun_color.to_array()),
                 )
-                .unwrap()
-                .build();
+                .build()?;
             resources.gui_input.fill_with_raw_u8(&data)?;
             return Ok(());
         }
@@ -1556,38 +1540,31 @@ impl Tracer {
             let camera_pos = view_mat.inverse().w_axis;
             let data = StructMemberDataBuilder::from_buffer(camera_info)
                 .set_field("pos", PlainMemberTypeWithData::Vec4(camera_pos.to_array()))
-                .unwrap()
                 .set_field(
                     "view_mat",
                     PlainMemberTypeWithData::Mat4(view_mat.to_cols_array_2d()),
                 )
-                .unwrap()
                 .set_field(
                     "view_mat_inv",
                     PlainMemberTypeWithData::Mat4(view_mat.inverse().to_cols_array_2d()),
                 )
-                .unwrap()
                 .set_field(
                     "proj_mat",
                     PlainMemberTypeWithData::Mat4(proj_mat.to_cols_array_2d()),
                 )
-                .unwrap()
                 .set_field(
                     "proj_mat_inv",
                     PlainMemberTypeWithData::Mat4(proj_mat.inverse().to_cols_array_2d()),
                 )
-                .unwrap()
                 .set_field(
                     "view_proj_mat",
                     PlainMemberTypeWithData::Mat4(view_proj_mat.to_cols_array_2d()),
                 )
-                .unwrap()
                 .set_field(
                     "view_proj_mat_inv",
                     PlainMemberTypeWithData::Mat4(view_proj_mat.inverse().to_cols_array_2d()),
                 )
-                .unwrap()
-                .build();
+                .build()?;
             camera_info.fill_with_raw_u8(&data)?;
             Ok(())
         }
@@ -1598,8 +1575,7 @@ impl Tracer {
                     "frame_serial_idx",
                     PlainMemberTypeWithData::UInt(frame_serial_idx),
                 )
-                .unwrap()
-                .build();
+                .build()?;
             resources.env_info.fill_with_raw_u8(&data)?;
             Ok(())
         }
@@ -1607,8 +1583,7 @@ impl Tracer {
         fn update_grass_info(resources: &TracerResources, time: f32) -> Result<()> {
             let data = StructMemberDataBuilder::from_buffer(&resources.grass_info)
                 .set_field("time", PlainMemberTypeWithData::Float(time))
-                .unwrap()
-                .build();
+                .build()?;
             resources.grass_info.fill_with_raw_u8(&data)?;
             Ok(())
         }
@@ -1619,8 +1594,7 @@ impl Tracer {
                     "is_taa_enabled",
                     PlainMemberTypeWithData::UInt(is_taa_enabled as u32),
                 )
-                .unwrap()
-                .build();
+                .build()?;
             resources.taa_info.fill_with_raw_u8(&data)?;
             Ok(())
         }
@@ -1634,8 +1608,7 @@ impl Tracer {
                     "scaling_factor",
                     PlainMemberTypeWithData::Float(scaling_factor),
                 )
-                .unwrap()
-                .build();
+                .build()?;
             resources.post_processing_info.fill_with_raw_u8(&data)?;
             Ok(())
         }

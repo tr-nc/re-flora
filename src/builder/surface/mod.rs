@@ -159,10 +159,10 @@ impl SurfaceBuilder {
             &self.resources.make_surface_info,
             atlas_read_offset,
             atlas_read_dim,
-            true, // is_crossing_boundary,
-        );
+            true,
+        )?;
 
-        update_make_surface_result(&self.resources.make_surface_result, 0, 0);
+        update_make_surface_result(&self.resources.make_surface_result, 0, 0)?;
 
         let make_surface_ds_1 = Self::create_make_surface_ds_1(
             &self.vulkan_ctx,
@@ -219,45 +219,42 @@ impl SurfaceBuilder {
             atlas_read_offset: UVec3,
             atlas_read_dim: UVec3,
             is_crossing_boundary: bool,
-        ) {
+        ) -> Result<()> {
             let data = StructMemberDataBuilder::from_buffer(&make_surface_info)
                 .set_field(
                     "atlas_read_offset",
                     PlainMemberTypeWithData::UVec3(atlas_read_offset.to_array()),
                 )
-                .unwrap()
                 .set_field(
                     "atlas_read_dim",
                     PlainMemberTypeWithData::UVec3(atlas_read_dim.to_array()),
                 )
-                .unwrap()
                 .set_field(
                     "is_crossing_boundary",
                     PlainMemberTypeWithData::UInt(if is_crossing_boundary { 1 } else { 0 }),
                 )
-                .unwrap()
-                .build();
-            make_surface_info.fill_with_raw_u8(&data).unwrap();
+                .build()?;
+            make_surface_info.fill_with_raw_u8(&data)?;
+            Ok(())
         }
 
         fn update_make_surface_result(
             make_surface_result: &Buffer,
             active_voxel_len: u32,
             grass_instance_len: u32,
-        ) {
+        ) -> Result<()> {
             let data = StructMemberDataBuilder::from_buffer(&make_surface_result)
                 .set_field(
                     "active_voxel_len",
                     PlainMemberTypeWithData::UInt(active_voxel_len),
                 )
-                .unwrap()
                 .set_field(
                     "grass_instance_len",
                     PlainMemberTypeWithData::UInt(grass_instance_len),
                 )
-                .unwrap()
-                .build();
-            make_surface_result.fill_with_raw_u8(&data).unwrap();
+                .build()?;
+            make_surface_result.fill_with_raw_u8(&data)?;
+            Ok(())
         }
 
         /// Returns: (active_voxel_len, grass_instance_len)

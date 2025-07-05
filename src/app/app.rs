@@ -13,6 +13,7 @@ use crate::{
     vkn::{Swapchain, VulkanContext, VulkanContextDesc},
     window::{WindowMode, WindowState, WindowStateDesc},
 };
+use anyhow::Result;
 use ash::vk;
 use egui::{Color32, RichText};
 use glam::{UVec3, Vec2, Vec3};
@@ -81,7 +82,7 @@ const CHUNK_DIM: UVec3 = UVec3::new(5, 2, 5);
 const FREE_ATLAS_DIM: UVec3 = UVec3::new(512, 512, 512);
 
 impl App {
-    pub fn new(_event_loop: &ActiveEventLoop) -> Self {
+    pub fn new(_event_loop: &ActiveEventLoop) -> Result<Self> {
         let chunk_bound = UAabb3::new(UVec3::ZERO, CHUNK_DIM);
         let window_state = Self::create_window_state(_event_loop);
         let vulkan_ctx = Self::create_vulkan_context(&window_state);
@@ -168,7 +169,7 @@ impl App {
             &mut surface_builder,
             &mut contree_builder,
             &mut scene_accel_builder,
-        );
+        )?;
 
         let tracer = Tracer::new(
             vulkan_ctx.clone(),
@@ -184,7 +185,7 @@ impl App {
             },
         );
 
-        return Self {
+        Ok(Self {
             vulkan_ctx,
             egui_renderer: renderer,
             window_state,
@@ -229,7 +230,7 @@ impl App {
             tree_pos: Vec3::new(512.0, 250.0, 512.0),
             tree_desc: TreeDesc::default(),
             prev_bound: Default::default(),
-        };
+        })
     }
 
     fn init(
@@ -237,8 +238,8 @@ impl App {
         surface_builder: &mut SurfaceBuilder,
         contree_builder: &mut ContreeBuilder,
         scene_accel_builder: &mut SceneAccelBuilder,
-    ) {
-        plain_builder.chunk_init(UVec3::new(0, 0, 0), VOXEL_DIM_PER_CHUNK * CHUNK_DIM);
+    ) -> Result<()> {
+        plain_builder.chunk_init(UVec3::new(0, 0, 0), VOXEL_DIM_PER_CHUNK * CHUNK_DIM)?;
 
         let chunk_pos_to_build_min = UVec3::new(0, 0, 0);
         let chunk_pos_to_build_max = CHUNK_DIM;
@@ -256,12 +257,13 @@ impl App {
                         contree_builder,
                         scene_accel_builder,
                         this_bound,
-                    );
+                    )?;
                 }
             }
         }
 
         BENCH.lock().unwrap().summary();
+        Ok(())
     }
 
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {
@@ -290,7 +292,12 @@ impl App {
         event_loop.exit();
     }
 
-    fn add_a_tree(&mut self, tree_desc: TreeDesc, tree_pos: Vec3, clean_up_before_add: bool) {
+    fn add_a_tree(
+        &mut self,
+        tree_desc: TreeDesc,
+        tree_pos: Vec3,
+        clean_up_before_add: bool,
+    ) -> Result<()> {
         let tree = Tree::new(tree_desc);
         let mut round_cones = Vec::new();
         for tree_trunk in tree.trunks() {
@@ -315,18 +322,20 @@ impl App {
             self.plain_builder.chunk_init(
                 self.prev_bound.min(),
                 self.prev_bound.max() - self.prev_bound.min(),
-            );
+            )?;
         }
 
-        self.plain_builder.chunk_modify(&bvh_nodes, &round_cones);
+        self.plain_builder.chunk_modify(&bvh_nodes, &round_cones)?;
         Self::mesh_generate(
             &mut self.surface_builder,
             &mut self.contree_builder,
             &mut self.scene_accel_builder,
             this_bound.union(&self.prev_bound),
-        );
+        )?;
 
         self.prev_bound = this_bound;
+
+        Ok(())
     }
 
     fn mesh_generate(
@@ -334,7 +343,7 @@ impl App {
         contree_builder: &mut ContreeBuilder,
         scene_accel_builder: &mut SceneAccelBuilder,
         bound: UAabb3,
-    ) {
+    ) -> Result<()> {
         let affected_chunk_indices = get_affected_chunk_indices(bound.min(), bound.max());
 
         for chunk_id in affected_chunk_indices {
@@ -367,11 +376,12 @@ impl App {
                     chunk_id,
                     node_buffer_offset,
                     leaf_buffer_offset,
-                );
+                )?;
             } else {
                 log::debug!("Don't need to update scene tex because the chunk is empty");
             }
         }
+        return Ok(());
 
         fn get_affected_chunk_indices(min_bound: UVec3, max_bound: UVec3) -> Vec<UVec3> {
             let min_chunk_idx = min_bound / VOXEL_DIM_PER_CHUNK;
@@ -629,7 +639,8 @@ impl App {
                         self.tree_desc.clone(),
                         self.tree_pos,
                         true, // clean up before adding a new tree
-                    );
+                    )
+                    .unwrap();
                 }
 
                 let device = self.vulkan_ctx.device();
