@@ -37,8 +37,8 @@ impl SurfaceBuilder {
         chunk_bound: UAabb3,
         grass_instances_capacity_per_chunk: u64,
     ) -> Self {
-        let fixed_descriptor_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
-        let flexible_descriptor_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
+        let fixed_descriptor_pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
+        let flexible_descriptor_pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
 
         let make_surface_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),

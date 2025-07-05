@@ -1,6 +1,7 @@
 mod resources;
 pub use resources::*;
 
+use super::SurfaceResources;
 use crate::util::AllocationStrategy;
 use crate::util::FirstFitAllocator;
 use crate::util::ShaderCompiler;
@@ -22,7 +23,6 @@ use anyhow::Result;
 use ash::vk;
 use glam::UVec3;
 use std::collections::HashMap;
-use super::SurfaceResources;
 
 const SIZE_OF_NODE_ELEMENT: u64 = 3 * std::mem::size_of::<u32>() as u64;
 const SIZE_OF_LEAF_ELEMENT: u64 = 1 * std::mem::size_of::<u32>() as u64;
@@ -85,7 +85,7 @@ impl ContreeBuilder {
         );
         assert!(is_power_of_four(voxel_dim_per_chunk.x));
 
-        let descriptor_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
+        let descriptor_pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
 
         let contree_buffer_setup_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),

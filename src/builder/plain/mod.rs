@@ -49,7 +49,7 @@ impl PlainBuilder {
         free_atlas_dim: UVec3,
     ) -> Self {
         // we create a local one
-        let descriptor_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
+        let descriptor_pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
 
         let buffer_setup_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),

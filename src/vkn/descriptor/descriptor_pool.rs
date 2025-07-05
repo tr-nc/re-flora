@@ -29,46 +29,35 @@ impl std::ops::Deref for DescriptorPool {
 }
 
 impl DescriptorPool {
-    /// Create a new descriptor pool
-    fn new(device: &Device, create_info: vk::DescriptorPoolCreateInfo) -> Result<Self> {
-        let descriptor_pool = unsafe {
-            device
-                .create_descriptor_pool(&create_info, None)
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?
-        };
-
-        Ok(Self(Arc::new(DescriptorPoolInner {
-            device: device.clone(),
-            descriptor_pool,
-        })))
-    }
-
-    /// Use this for development stages only. Not recommended for production use.
-    pub fn a_big_one(device: &Device) -> Result<Self> {
+    /// Use this for development stages only.
+    ///
+    /// Not recommended for production use.
+    pub fn new(device: &Device) -> Result<Self> {
         let pool_sizes = [
             vk::DescriptorPoolSize {
                 ty: vk::DescriptorType::UNIFORM_BUFFER,
-                descriptor_count: 1000,
+                descriptor_count: 10000,
             },
             vk::DescriptorPoolSize {
                 ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                descriptor_count: 1000,
+                descriptor_count: 10000,
             },
             vk::DescriptorPoolSize {
                 ty: vk::DescriptorType::STORAGE_BUFFER,
-                descriptor_count: 1000,
+                descriptor_count: 10000,
             },
             vk::DescriptorPoolSize {
                 ty: vk::DescriptorType::STORAGE_IMAGE,
-                descriptor_count: 1000,
+                descriptor_count: 10000,
             },
         ];
         let create_info = vk::DescriptorPoolCreateInfo::default()
             .pool_sizes(&pool_sizes)
             .max_sets(100);
-        Self::new(&device, create_info)
+        Self::from_create_info(&device, create_info)
     }
 
+    /// Create a new descriptor pool from a map of descriptor set layouts.
     pub fn from_descriptor_set_layouts(
         device: &Device,
         descriptor_set_layouts: &HashMap<u32, DescriptorSetLayout>,
@@ -86,8 +75,24 @@ impl DescriptorPool {
         let create_info = vk::DescriptorPoolCreateInfo::default()
             .pool_sizes(&pool_sizes)
             .max_sets(descriptor_set_layouts.len() as u32);
-        let descriptor_pool = Self::new(&device, create_info).unwrap();
+        let descriptor_pool = Self::from_create_info(&device, create_info).unwrap();
         Ok(descriptor_pool)
+    }
+
+    /// Create a new descriptor pool from a create info.
+    fn from_create_info(
+        device: &Device,
+        create_info: vk::DescriptorPoolCreateInfo,
+    ) -> Result<Self> {
+        let descriptor_pool = unsafe {
+            device
+                .create_descriptor_pool(&create_info, None)
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?
+        };
+        Ok(Self(Arc::new(DescriptorPoolInner {
+            device: device.clone(),
+            descriptor_pool,
+        })))
     }
 
     pub fn reset(&self) -> Result<(), String> {

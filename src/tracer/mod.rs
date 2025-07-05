@@ -213,8 +213,8 @@ impl Tracer {
         let taa_ppl = ComputePipeline::new(vulkan_ctx.device(), &taa_sm);
         let post_processing_ppl = ComputePipeline::new(vulkan_ctx.device(), &post_processing_sm);
 
-        let fixed_descriptor_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
-        let flexible_descriptor_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
+        let fixed_descriptor_pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
+        let flexible_descriptor_pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
 
         let grass_vert_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),

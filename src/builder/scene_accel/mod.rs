@@ -32,7 +32,7 @@ impl SceneAccelBuilder {
         chunk_bound: UAabb3,
     ) -> Self {
         let _ = chunk_bound;
-        let descriptor_pool = DescriptorPool::a_big_one(vulkan_ctx.device()).unwrap();
+        let descriptor_pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
 
         let update_scene_tex_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
