@@ -293,57 +293,90 @@ impl Tracer {
             &resources.shadow_map_tex,
         );
 
-        let tracer_ds_0 = Self::create_tracer_ds_0(
-            fixed_pool.clone(),
-            &tracer_ppl,
+        let tracer_ds_0 = fixed_pool
+            .allocate_set(&tracer_ppl.get_layout().get_descriptor_set_layouts()[&0])
+            .unwrap();
+        Self::update_tracer_ds_0(&tracer_ds_0, &resources, node_data, leaf_data, scene_tex);
+
+        let tracer_ds_1 = flexible_pool
+            .allocate_set(&tracer_ppl.get_layout().get_descriptor_set_layouts()[&1])
+            .unwrap();
+        Self::update_tracer_ds_1(&tracer_ds_1, &resources);
+
+        let temporal_ds = flexible_pool
+            .allocate_set(&temporal_ppl.get_layout().get_descriptor_set_layouts()[&0])
+            .unwrap();
+        Self::update_temporal_ds(&temporal_ds, &resources);
+
+        let spatial_fixed_set = fixed_pool
+            .allocate_set(&spatial_ppl.get_layout().get_descriptor_set_layouts()[&0])
+            .unwrap();
+        Self::update_spatial_fixed_set(&spatial_fixed_set, &resources);
+
+        let spatial_flexible_set = flexible_pool
+            .allocate_set(&spatial_ppl.get_layout().get_descriptor_set_layouts()[&1])
+            .unwrap();
+        Self::update_spatial_flexible_set(&spatial_flexible_set, &resources);
+
+        let noise_tex_ds = fixed_pool
+            .allocate_set(&tracer_ppl.get_layout().get_descriptor_set_layouts()[&2])
+            .unwrap();
+        Self::update_noise_tex_ds(&noise_tex_ds, &resources);
+
+        let tracer_shadow_ds = fixed_pool
+            .allocate_set(&tracer_shadow_ppl.get_layout().get_descriptor_set_layouts()[&0])
+            .unwrap();
+        Self::update_tracer_shadow_ds(
+            &tracer_shadow_ds,
             &resources,
             node_data,
             leaf_data,
             scene_tex,
         );
 
-        let tracer_ds_1 = Self::create_tracer_ds_1(flexible_pool.clone(), &tracer_ppl, &resources);
+        let vsm_ds_0 = fixed_pool
+            .allocate_set(&vsm_creation_ppl.get_layout().get_descriptor_set_layouts()[&0])
+            .unwrap();
+        Self::update_vsm_ds_0(&vsm_ds_0, &resources);
 
-        let denoiser_ds = Self::create_denoiser_ds(flexible_pool.clone(), &tracer_ppl, &resources);
+        let god_ray_ds_0 = fixed_pool
+            .allocate_set(&god_ray_ppl.get_layout().get_descriptor_set_layouts()[&0])
+            .unwrap();
+        Self::update_god_ray_ds_0(&god_ray_ds_0, &resources);
 
-        let temporal_ds =
-            Self::create_temporal_ds(flexible_pool.clone(), &temporal_ppl, &resources);
+        let composition_ds = flexible_pool
+            .allocate_set(&composition_ppl.get_layout().get_descriptor_set_layouts()[&0])
+            .unwrap();
+        Self::update_composition_ds(&composition_ds, &resources);
 
-        let spatial_fixed_set =
-            Self::create_spatial_fixed_set(fixed_pool.clone(), &spatial_ppl, &resources);
+        let taa_ds = flexible_pool
+            .allocate_set(&taa_ppl.get_layout().get_descriptor_set_layouts()[&0])
+            .unwrap();
+        Self::update_taa_ds(&taa_ds, &resources);
 
-        let spatial_flexible_set =
-            Self::create_spatial_flexible_set(flexible_pool.clone(), &spatial_ppl, &resources);
+        let post_processing_ds = flexible_pool
+            .allocate_set(
+                &post_processing_ppl
+                    .get_layout()
+                    .get_descriptor_set_layouts()[&0],
+            )
+            .unwrap();
+        Self::update_post_processing_ds(&post_processing_ds, &resources);
 
-        let noise_tex_ds = Self::create_noise_tex_ds(fixed_pool.clone(), &tracer_ppl, &resources);
+        let grass_ds = fixed_pool
+            .allocate_set(&grass_ppl.get_layout().get_descriptor_set_layouts()[&0])
+            .unwrap();
+        Self::update_grass_ds(&grass_ds, &resources);
 
-        let tracer_shadow_ds = Self::create_tracer_shadow_ds(
-            fixed_pool.clone(),
-            &tracer_shadow_ppl,
-            &resources,
-            node_data,
-            leaf_data,
-            scene_tex,
-        );
+        let shadow_ds = fixed_pool
+            .allocate_set(&shadow_ppl.get_layout().get_descriptor_set_layouts()[&0])
+            .unwrap();
+        Self::update_shadow_ds_0(&shadow_ds, &resources);
 
-        let vsm_ds_0 = Self::create_vsm_ds_0(fixed_pool.clone(), &vsm_creation_ppl, &resources);
-
-        let god_ray_ds_0 = Self::create_god_ray_ds_0(fixed_pool.clone(), &god_ray_ppl, &resources);
-
-        let composition_ds =
-            Self::create_composition_ds(flexible_pool.clone(), &composition_ppl, &resources);
-
-        let taa_ds = Self::create_taa_ds(flexible_pool.clone(), &taa_ppl, &resources);
-
-        let post_processing_ds = Self::create_post_processing_ds(
-            flexible_pool.clone(),
-            &post_processing_ppl,
-            &resources,
-        );
-
-        let grass_ds = Self::create_grass_ds(fixed_pool.clone(), &grass_ppl, &resources);
-
-        let shadow_ds = Self::create_shadow_ds_0(fixed_pool.clone(), &shadow_ppl, &resources);
+        let denoiser_ds = flexible_pool
+            .allocate_set(&tracer_ppl.get_layout().get_descriptor_set_layouts()[&3])
+            .unwrap();
+        Self::update_denoiser_ds(&denoiser_ds, &resources);
 
         return Self {
             vulkan_ctx,
@@ -367,7 +400,7 @@ impl Tracer {
             vsm_blur_v_ppl,
             vsm_sets: [vsm_ds_0],
             god_ray_sets: [god_ray_ds_0, noise_tex_ds.clone()],
-            temporal_sets: [temporal_ds, noise_tex_ds.clone()],
+            temporal_sets: [temporal_ds, denoiser_ds.clone()],
             spatial_sets: [spatial_fixed_set, spatial_flexible_set, denoiser_ds.clone()],
             composition_sets: [composition_ds],
             taa_sets: [taa_ds],
@@ -387,14 +420,7 @@ impl Tracer {
         };
     }
 
-    fn create_grass_ds(
-        fixed_pool: DescriptorPool,
-        grass_ppl: &GraphicsPipeline,
-        resources: &TracerResources,
-    ) -> DescriptorSet {
-        let ds = fixed_pool
-            .allocate_set(&grass_ppl.get_layout().get_descriptor_set_layouts()[&0])
-            .unwrap();
+    fn update_grass_ds(ds: &DescriptorSet, resources: &TracerResources) {
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.camera_info),
             WriteDescriptorSet::new_buffer_write(1, &resources.shadow_camera_info),
@@ -407,22 +433,13 @@ impl Tracer {
                 vk::ImageLayout::GENERAL,
             ),
         ]);
-        ds
     }
 
-    fn create_shadow_ds_0(
-        fixed_pool: DescriptorPool,
-        shadow_ppl: &GraphicsPipeline,
-        resources: &TracerResources,
-    ) -> DescriptorSet {
-        let ds = fixed_pool
-            .allocate_set(&shadow_ppl.get_layout().get_descriptor_set_layouts()[&0])
-            .unwrap();
+    fn update_shadow_ds_0(ds: &DescriptorSet, resources: &TracerResources) {
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.shadow_camera_info),
             WriteDescriptorSet::new_buffer_write(1, &resources.grass_info),
         ]);
-        ds
     }
 
     fn create_grass_render_pass_and_graphics_pipeline(
@@ -564,17 +581,13 @@ impl Tracer {
         .unwrap()
     }
 
-    fn create_tracer_ds_0(
-        fixed_pool: DescriptorPool,
-        tracer_ppl: &ComputePipeline,
+    fn update_tracer_ds_0(
+        ds: &DescriptorSet,
         resources: &TracerResources,
         node_data: &Buffer,
         leaf_data: &Buffer,
         scene_tex: &Texture,
-    ) -> DescriptorSet {
-        let ds = fixed_pool
-            .allocate_set(&tracer_ppl.get_layout().get_descriptor_set_layouts()[&0])
-            .unwrap();
+    ) {
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.gui_input),
             WriteDescriptorSet::new_buffer_write(1, &resources.camera_info),
@@ -596,17 +609,9 @@ impl Tracer {
                 vk::ImageLayout::GENERAL,
             ),
         ]);
-        ds
     }
 
-    fn create_tracer_ds_1(
-        flexible_pool: DescriptorPool,
-        tracer_ppl: &ComputePipeline,
-        resources: &TracerResources,
-    ) -> DescriptorSet {
-        let ds = flexible_pool
-            .allocate_set(&tracer_ppl.get_layout().get_descriptor_set_layouts()[&1])
-            .unwrap();
+    fn update_tracer_ds_1(ds: &DescriptorSet, resources: &TracerResources) {
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_texture_write(
                 0,
@@ -621,17 +626,9 @@ impl Tracer {
                 vk::ImageLayout::GENERAL,
             ),
         ]);
-        ds
     }
 
-    fn create_denoiser_ds(
-        flexible_pool: DescriptorPool,
-        tracer_ppl: &ComputePipeline,
-        resources: &TracerResources,
-    ) -> DescriptorSet {
-        let ds = flexible_pool
-            .allocate_set(&tracer_ppl.get_layout().get_descriptor_set_layouts()[&3])
-            .unwrap();
+    fn update_denoiser_ds(ds: &DescriptorSet, resources: &TracerResources) {
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_texture_write(
                 0,
@@ -712,18 +709,9 @@ impl Tracer {
                 vk::ImageLayout::GENERAL,
             ),
         ]);
-
-        ds
     }
 
-    fn create_temporal_ds(
-        flexible_pool: DescriptorPool,
-        temporal_ppl: &ComputePipeline,
-        resources: &TracerResources,
-    ) -> DescriptorSet {
-        let ds = flexible_pool
-            .allocate_set(&temporal_ppl.get_layout().get_descriptor_set_layouts()[&0])
-            .unwrap();
+    fn update_temporal_ds(ds: &DescriptorSet, resources: &TracerResources) {
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.denoiser_resources.temporal_info),
             WriteDescriptorSet::new_texture_write(
@@ -733,49 +721,25 @@ impl Tracer {
                 vk::ImageLayout::GENERAL,
             ),
         ]);
-        ds
     }
 
-    fn create_spatial_fixed_set(
-        fixed_pool: DescriptorPool,
-        spatial_ppl: &ComputePipeline,
-        resources: &TracerResources,
-    ) -> DescriptorSet {
-        let ds = fixed_pool
-            .allocate_set(&spatial_ppl.get_layout().get_descriptor_set_layouts()[&0])
-            .unwrap();
+    fn update_spatial_fixed_set(ds: &DescriptorSet, resources: &TracerResources) {
         ds.perform_writes(&mut [WriteDescriptorSet::new_buffer_write(
             0,
             &resources.denoiser_resources.spatial_info,
         )]);
-        ds
     }
 
-    fn create_spatial_flexible_set(
-        flexible_pool: DescriptorPool,
-        spatial_ppl: &ComputePipeline,
-        resources: &TracerResources,
-    ) -> DescriptorSet {
-        let ds = flexible_pool
-            .allocate_set(&spatial_ppl.get_layout().get_descriptor_set_layouts()[&1])
-            .unwrap();
+    fn update_spatial_flexible_set(ds: &DescriptorSet, resources: &TracerResources) {
         ds.perform_writes(&mut [WriteDescriptorSet::new_texture_write(
             0,
             vk::DescriptorType::STORAGE_IMAGE,
             &resources.extent_dependent_resources.compute_depth_tex,
             vk::ImageLayout::GENERAL,
         )]);
-        ds
     }
 
-    fn create_noise_tex_ds(
-        flexible_pool: DescriptorPool,
-        tracer_ppl: &ComputePipeline,
-        resources: &TracerResources,
-    ) -> DescriptorSet {
-        let ds = flexible_pool
-            .allocate_set(&tracer_ppl.get_layout().get_descriptor_set_layouts()[&2])
-            .unwrap();
+    fn update_noise_tex_ds(ds: &DescriptorSet, resources: &TracerResources) {
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_texture_write(
                 0,
@@ -814,17 +778,9 @@ impl Tracer {
                 vk::ImageLayout::GENERAL,
             ),
         ]);
-        ds
     }
 
-    fn create_god_ray_ds_0(
-        flexible_pool: DescriptorPool,
-        god_ray_ppl: &ComputePipeline,
-        resources: &TracerResources,
-    ) -> DescriptorSet {
-        let ds = flexible_pool
-            .allocate_set(&god_ray_ppl.get_layout().get_descriptor_set_layouts()[&0])
-            .unwrap();
+    fn update_god_ray_ds_0(ds: &DescriptorSet, resources: &TracerResources) {
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.camera_info),
             WriteDescriptorSet::new_buffer_write(1, &resources.shadow_camera_info),
@@ -855,17 +811,9 @@ impl Tracer {
                 vk::ImageLayout::GENERAL,
             ),
         ]);
-        ds
     }
 
-    fn create_composition_ds(
-        flexible_pool: DescriptorPool,
-        composition_ppl: &ComputePipeline,
-        resources: &TracerResources,
-    ) -> DescriptorSet {
-        let ds = flexible_pool
-            .allocate_set(&composition_ppl.get_layout().get_descriptor_set_layouts()[&0])
-            .unwrap();
+    fn update_composition_ds(ds: &DescriptorSet, resources: &TracerResources) {
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_texture_write(
                 0,
@@ -904,17 +852,9 @@ impl Tracer {
                 vk::ImageLayout::GENERAL,
             ),
         ]);
-        ds
     }
 
-    fn create_taa_ds(
-        flexible_pool: DescriptorPool,
-        taa_ppl: &ComputePipeline,
-        resources: &TracerResources,
-    ) -> DescriptorSet {
-        let ds = flexible_pool
-            .allocate_set(&taa_ppl.get_layout().get_descriptor_set_layouts()[&0])
-            .unwrap();
+    fn update_taa_ds(ds: &DescriptorSet, resources: &TracerResources) {
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.taa_info),
             WriteDescriptorSet::new_texture_write(
@@ -942,21 +882,9 @@ impl Tracer {
                 vk::ImageLayout::GENERAL,
             ),
         ]);
-        ds
     }
 
-    fn create_post_processing_ds(
-        flexible_pool: DescriptorPool,
-        post_processing_ppl: &ComputePipeline,
-        resources: &TracerResources,
-    ) -> DescriptorSet {
-        let ds = flexible_pool
-            .allocate_set(
-                &post_processing_ppl
-                    .get_layout()
-                    .get_descriptor_set_layouts()[&0],
-            )
-            .unwrap();
+    fn update_post_processing_ds(ds: &DescriptorSet, resources: &TracerResources) {
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.post_processing_info),
             WriteDescriptorSet::new_texture_write(
@@ -972,24 +900,15 @@ impl Tracer {
                 vk::ImageLayout::GENERAL,
             ),
         ]);
-        ds
     }
 
-    fn create_tracer_shadow_ds(
-        fixed_pool: DescriptorPool,
-        tracer_depth_only_ppl: &ComputePipeline,
+    fn update_tracer_shadow_ds(
+        ds: &DescriptorSet,
         resources: &TracerResources,
         node_data: &Buffer,
         leaf_data: &Buffer,
         scene_tex: &Texture,
-    ) -> DescriptorSet {
-        let ds = fixed_pool
-            .allocate_set(
-                &tracer_depth_only_ppl
-                    .get_layout()
-                    .get_descriptor_set_layouts()[&0],
-            )
-            .unwrap();
+    ) {
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.shadow_camera_info),
             WriteDescriptorSet::new_buffer_write(1, &node_data),
@@ -1007,17 +926,9 @@ impl Tracer {
                 vk::ImageLayout::GENERAL,
             ),
         ]);
-        ds
     }
 
-    fn create_vsm_ds_0(
-        fixed_pool: DescriptorPool,
-        vsm_creation_ppl: &ComputePipeline,
-        resources: &TracerResources,
-    ) -> DescriptorSet {
-        let ds = fixed_pool
-            .allocate_set(&vsm_creation_ppl.get_layout().get_descriptor_set_layouts()[&0])
-            .unwrap();
+    fn update_vsm_ds_0(ds: &DescriptorSet, resources: &TracerResources) {
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_texture_write(
                 0,
@@ -1038,7 +949,6 @@ impl Tracer {
                 vk::ImageLayout::GENERAL,
             ),
         ]);
-        ds
     }
 
     pub fn on_resize(&mut self, screen_extent: Extent2D) {
@@ -1061,57 +971,14 @@ impl Tracer {
             &self.resources.extent_dependent_resources.gfx_depth_tex,
         );
 
-        // TODO: associate them... this design is not good
-        // TODO: this is error prone!
-
-        // simplify this to avoid code duplication at the same time
-        self.flexible_pool.reset().unwrap();
-        self.tracer_sets[1] = Self::create_tracer_ds_1(
-            self.flexible_pool.clone(),
-            &self.tracer_ppl,
-            &self.resources,
-        );
-
-        self.god_ray_sets[0] = Self::create_god_ray_ds_0(
-            self.flexible_pool.clone(),
-            &self.god_ray_ppl,
-            &self.resources,
-        );
-
-        self.composition_sets[0] = Self::create_composition_ds(
-            self.flexible_pool.clone(),
-            &self.composition_ppl,
-            &self.resources,
-        );
-
-        self.taa_sets[0] =
-            Self::create_taa_ds(self.flexible_pool.clone(), &self.taa_ppl, &self.resources);
-
-        self.post_processing_sets[0] = Self::create_post_processing_ds(
-            self.flexible_pool.clone(),
-            &self.post_processing_ppl,
-            &self.resources,
-        );
-
-        self.tracer_sets[3] = Self::create_denoiser_ds(
-            self.flexible_pool.clone(),
-            &self.tracer_ppl,
-            &self.resources,
-        );
-
-        self.temporal_sets[0] = Self::create_temporal_ds(
-            self.flexible_pool.clone(),
-            &self.temporal_ppl,
-            &self.resources,
-        );
-        self.temporal_sets[1] = self.tracer_sets[3].clone();
-
-        self.spatial_sets[1] = Self::create_spatial_flexible_set(
-            self.flexible_pool.clone(),
-            &self.spatial_ppl,
-            &self.resources,
-        );
-        self.spatial_sets[2] = self.tracer_sets[3].clone();
+        Self::update_tracer_ds_1(&self.tracer_sets[1], &self.resources);
+        Self::update_god_ray_ds_0(&self.god_ray_sets[0], &self.resources);
+        Self::update_composition_ds(&self.composition_sets[0], &self.resources);
+        Self::update_taa_ds(&self.taa_sets[0], &self.resources);
+        Self::update_post_processing_ds(&self.post_processing_sets[0], &self.resources);
+        Self::update_denoiser_ds(&self.tracer_sets[3], &self.resources);
+        Self::update_temporal_ds(&self.temporal_sets[0], &self.resources);
+        Self::update_spatial_flexible_set(&self.spatial_sets[1], &self.resources);
     }
 
     // create a lower resolution texture for rendering, for better performance,
