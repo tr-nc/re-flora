@@ -50,23 +50,14 @@ pub struct Tracer {
     taa_ppl: ComputePipeline,
     post_processing_ppl: ComputePipeline,
 
-    tracer_sets: [DescriptorSet; 4],
-    temporal_sets: [DescriptorSet; 2],
-    spatial_sets: [DescriptorSet; 3],
-    composition_sets: [DescriptorSet; 1],
-    taa_sets: [DescriptorSet; 1],
-    post_processing_sets: [DescriptorSet; 1],
-
     tracer_shadow_ppl: ComputePipeline,
+    #[allow(dead_code)]
     tracer_shadow_sets: [DescriptorSet; 1],
 
     vsm_creation_ppl: ComputePipeline,
     vsm_blur_h_ppl: ComputePipeline,
     vsm_blur_v_ppl: ComputePipeline,
-    vsm_sets: [DescriptorSet; 1],
-
     god_ray_ppl: ComputePipeline,
-    god_ray_sets: [DescriptorSet; 2],
 
     grass_sets: [DescriptorSet; 1],
     grass_ppl: GraphicsPipeline,
@@ -86,6 +77,8 @@ pub struct Tracer {
     fixed_pool: DescriptorPool,
     #[allow(dead_code)]
     flexible_pool: DescriptorPool,
+
+    flexible_sets: Vec<DescriptorSet>,
 }
 
 impl Drop for Tracer {
@@ -116,6 +109,9 @@ impl Tracer {
                 aspect_ratio: render_extent.get_aspect_ratio(),
             },
         );
+
+        let fixed_pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
+        let flexible_pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
 
         let tracer_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
@@ -205,21 +201,6 @@ impl Tracer {
         )
         .unwrap();
 
-        let tracer_ppl = ComputePipeline::new(vulkan_ctx.device(), &tracer_sm);
-        let tracer_shadow_ppl = ComputePipeline::new(vulkan_ctx.device(), &tracer_shadow_sm);
-        let vsm_creation_ppl = ComputePipeline::new(vulkan_ctx.device(), &vsm_creation_sm);
-        let vsm_blur_h_ppl = ComputePipeline::new(vulkan_ctx.device(), &vsm_blur_h_sm);
-        let vsm_blur_v_ppl = ComputePipeline::new(vulkan_ctx.device(), &vsm_blur_v_sm);
-        let god_ray_ppl = ComputePipeline::new(vulkan_ctx.device(), &god_ray_sm);
-        let temporal_ppl = ComputePipeline::new(vulkan_ctx.device(), &temporal_sm);
-        let spatial_ppl = ComputePipeline::new(vulkan_ctx.device(), &spatial_sm);
-        let composition_ppl = ComputePipeline::new(vulkan_ctx.device(), &composition_sm);
-        let taa_ppl = ComputePipeline::new(vulkan_ctx.device(), &taa_sm);
-        let post_processing_ppl = ComputePipeline::new(vulkan_ctx.device(), &post_processing_sm);
-
-        let fixed_pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
-        let flexible_pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
-
         let grass_vert_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             shader_compiler,
@@ -264,6 +245,80 @@ impl Tracer {
             screen_extent,
             Extent2D::new(1024, 1024),
         );
+
+        let device = vulkan_ctx.device();
+
+        let tracer_ppl = ComputePipeline::new(device, &tracer_sm);
+        let tracer_shadow_ppl = ComputePipeline::new(device, &tracer_shadow_sm);
+        let vsm_creation_ppl = ComputePipeline::new(device, &vsm_creation_sm);
+        let vsm_blur_h_ppl = ComputePipeline::new(device, &vsm_blur_h_sm);
+        let vsm_blur_v_ppl = ComputePipeline::new(device, &vsm_blur_v_sm);
+        let god_ray_ppl = ComputePipeline::new(device, &god_ray_sm);
+        let temporal_ppl = ComputePipeline::new(device, &temporal_sm);
+        let spatial_ppl = ComputePipeline::new(device, &spatial_sm);
+        let composition_ppl = ComputePipeline::new(device, &composition_sm);
+        let taa_ppl = ComputePipeline::new(device, &taa_sm);
+        let post_processing_ppl = ComputePipeline::new(device, &post_processing_sm);
+
+        let alloc_fixed_set_fn = |ppl: &ComputePipeline, layout_idx: u32| -> DescriptorSet {
+            fixed_pool
+                .allocate_set(&ppl.get_layout().get_descriptor_set_layouts()[&layout_idx])
+                .unwrap()
+        };
+        let alloc_flexible_set_fn = |ppl: &ComputePipeline, layout_idx: u32| -> DescriptorSet {
+            flexible_pool
+                .allocate_set(&ppl.get_layout().get_descriptor_set_layouts()[&layout_idx])
+                .unwrap()
+        };
+
+        let tracer_ds_0 = alloc_fixed_set_fn(&tracer_ppl, 0);
+        let tracer_ds_1 = alloc_flexible_set_fn(&tracer_ppl, 1);
+        let temporal_ds = alloc_flexible_set_fn(&temporal_ppl, 0);
+        let spatial_fixed_set = alloc_fixed_set_fn(&spatial_ppl, 0);
+        let spatial_flexible_set = alloc_flexible_set_fn(&spatial_ppl, 1);
+        let noise_tex_ds = alloc_fixed_set_fn(&tracer_ppl, 2);
+        let tracer_shadow_ds = alloc_fixed_set_fn(&tracer_shadow_ppl, 0);
+        let vsm_ds_0 = alloc_fixed_set_fn(&vsm_creation_ppl, 0);
+        let god_ray_ds_0 = alloc_fixed_set_fn(&god_ray_ppl, 0);
+        let composition_ds = alloc_flexible_set_fn(&composition_ppl, 0);
+        let taa_ds = alloc_flexible_set_fn(&taa_ppl, 0);
+        let post_processing_ds = alloc_flexible_set_fn(&post_processing_ppl, 0);
+        let denoiser_ds = alloc_flexible_set_fn(&tracer_ppl, 3);
+
+        // ignore the flexible sets
+        Self::update_tracer_ds_0(&tracer_ds_0, &resources, node_data, leaf_data, scene_tex);
+        Self::update_spatial_fixed_set(&spatial_fixed_set, &resources);
+        Self::update_noise_tex_ds(&noise_tex_ds, &resources);
+        Self::update_tracer_shadow_ds(
+            &tracer_shadow_ds,
+            &resources,
+            node_data,
+            leaf_data,
+            scene_tex,
+        );
+        Self::update_vsm_ds_0(&vsm_ds_0, &resources);
+
+        god_ray_ppl.set_descriptor_sets(vec![god_ray_ds_0.clone(), noise_tex_ds.clone()]);
+        temporal_ppl.set_descriptor_sets(vec![temporal_ds.clone(), denoiser_ds.clone()]);
+        spatial_ppl.set_descriptor_sets(vec![
+            spatial_fixed_set.clone(),
+            spatial_flexible_set.clone(),
+            denoiser_ds.clone(),
+        ]);
+        composition_ppl.set_descriptor_sets(vec![composition_ds.clone()]);
+        taa_ppl.set_descriptor_sets(vec![taa_ds.clone()]);
+        post_processing_ppl.set_descriptor_sets(vec![post_processing_ds.clone()]);
+        tracer_ppl.set_descriptor_sets(vec![
+            tracer_ds_0.clone(),
+            tracer_ds_1.clone(),
+            noise_tex_ds.clone(),
+            denoiser_ds.clone(),
+        ]);
+        tracer_shadow_ppl.set_descriptor_sets(vec![tracer_shadow_ds.clone()]);
+        vsm_creation_ppl.set_descriptor_sets(vec![vsm_ds_0.clone()]);
+        vsm_blur_h_ppl.set_descriptor_sets(vec![vsm_ds_0.clone()]);
+        vsm_blur_v_ppl.set_descriptor_sets(vec![vsm_ds_0.clone()]);
+
         let (grass_ppl, grass_render_pass) = Self::create_grass_render_pass_and_graphics_pipeline(
             &vulkan_ctx,
             &grass_vert_sm,
@@ -280,6 +335,17 @@ impl Tracer {
                 resources.shadow_map_tex.clone(),
             );
 
+        // TODO: refac later
+        let grass_ds = fixed_pool
+            .allocate_set(&grass_ppl.get_layout().get_descriptor_set_layouts()[&0])
+            .unwrap();
+        Self::update_grass_ds(&grass_ds, &resources);
+
+        let shadow_ds = fixed_pool
+            .allocate_set(&shadow_ppl.get_layout().get_descriptor_set_layouts()[&0])
+            .unwrap();
+        Self::update_shadow_ds_0(&shadow_ds, &resources);
+
         let grass_framebuffer = Self::create_grass_framebuffer(
             &vulkan_ctx,
             &grass_render_pass,
@@ -293,92 +359,7 @@ impl Tracer {
             &resources.shadow_map_tex,
         );
 
-        let tracer_ds_0 = fixed_pool
-            .allocate_set(&tracer_ppl.get_layout().get_descriptor_set_layouts()[&0])
-            .unwrap();
-        Self::update_tracer_ds_0(&tracer_ds_0, &resources, node_data, leaf_data, scene_tex);
-
-        let tracer_ds_1 = flexible_pool
-            .allocate_set(&tracer_ppl.get_layout().get_descriptor_set_layouts()[&1])
-            .unwrap();
-        Self::update_tracer_ds_1(&tracer_ds_1, &resources);
-
-        let temporal_ds = flexible_pool
-            .allocate_set(&temporal_ppl.get_layout().get_descriptor_set_layouts()[&0])
-            .unwrap();
-        Self::update_temporal_ds(&temporal_ds, &resources);
-
-        let spatial_fixed_set = fixed_pool
-            .allocate_set(&spatial_ppl.get_layout().get_descriptor_set_layouts()[&0])
-            .unwrap();
-        Self::update_spatial_fixed_set(&spatial_fixed_set, &resources);
-
-        let spatial_flexible_set = flexible_pool
-            .allocate_set(&spatial_ppl.get_layout().get_descriptor_set_layouts()[&1])
-            .unwrap();
-        Self::update_spatial_flexible_set(&spatial_flexible_set, &resources);
-
-        let noise_tex_ds = fixed_pool
-            .allocate_set(&tracer_ppl.get_layout().get_descriptor_set_layouts()[&2])
-            .unwrap();
-        Self::update_noise_tex_ds(&noise_tex_ds, &resources);
-
-        let tracer_shadow_ds = fixed_pool
-            .allocate_set(&tracer_shadow_ppl.get_layout().get_descriptor_set_layouts()[&0])
-            .unwrap();
-        Self::update_tracer_shadow_ds(
-            &tracer_shadow_ds,
-            &resources,
-            node_data,
-            leaf_data,
-            scene_tex,
-        );
-
-        let vsm_ds_0 = fixed_pool
-            .allocate_set(&vsm_creation_ppl.get_layout().get_descriptor_set_layouts()[&0])
-            .unwrap();
-        Self::update_vsm_ds_0(&vsm_ds_0, &resources);
-
-        let god_ray_ds_0 = fixed_pool
-            .allocate_set(&god_ray_ppl.get_layout().get_descriptor_set_layouts()[&0])
-            .unwrap();
-        Self::update_god_ray_ds_0(&god_ray_ds_0, &resources);
-
-        let composition_ds = flexible_pool
-            .allocate_set(&composition_ppl.get_layout().get_descriptor_set_layouts()[&0])
-            .unwrap();
-        Self::update_composition_ds(&composition_ds, &resources);
-
-        let taa_ds = flexible_pool
-            .allocate_set(&taa_ppl.get_layout().get_descriptor_set_layouts()[&0])
-            .unwrap();
-        Self::update_taa_ds(&taa_ds, &resources);
-
-        let post_processing_ds = flexible_pool
-            .allocate_set(
-                &post_processing_ppl
-                    .get_layout()
-                    .get_descriptor_set_layouts()[&0],
-            )
-            .unwrap();
-        Self::update_post_processing_ds(&post_processing_ds, &resources);
-
-        let grass_ds = fixed_pool
-            .allocate_set(&grass_ppl.get_layout().get_descriptor_set_layouts()[&0])
-            .unwrap();
-        Self::update_grass_ds(&grass_ds, &resources);
-
-        let shadow_ds = fixed_pool
-            .allocate_set(&shadow_ppl.get_layout().get_descriptor_set_layouts()[&0])
-            .unwrap();
-        Self::update_shadow_ds_0(&shadow_ds, &resources);
-
-        let denoiser_ds = flexible_pool
-            .allocate_set(&tracer_ppl.get_layout().get_descriptor_set_layouts()[&3])
-            .unwrap();
-        Self::update_denoiser_ds(&denoiser_ds, &resources);
-
-        return Self {
+        let mut this = Self {
             vulkan_ctx,
             desc,
             chunk_bound,
@@ -398,14 +379,6 @@ impl Tracer {
             vsm_creation_ppl,
             vsm_blur_h_ppl,
             vsm_blur_v_ppl,
-            vsm_sets: [vsm_ds_0],
-            god_ray_sets: [god_ray_ds_0, noise_tex_ds.clone()],
-            temporal_sets: [temporal_ds, denoiser_ds.clone()],
-            spatial_sets: [spatial_fixed_set, spatial_flexible_set, denoiser_ds.clone()],
-            composition_sets: [composition_ds],
-            taa_sets: [taa_ds],
-            post_processing_sets: [post_processing_ds],
-            tracer_sets: [tracer_ds_0, tracer_ds_1, noise_tex_ds, denoiser_ds],
             tracer_shadow_sets: [tracer_shadow_ds],
             grass_sets: [grass_ds],
             shadow_sets: [shadow_ds],
@@ -417,7 +390,30 @@ impl Tracer {
             shadow_framebuffer,
             fixed_pool,
             flexible_pool,
+            flexible_sets: vec![
+                tracer_ds_1,
+                god_ray_ds_0,
+                composition_ds,
+                taa_ds,
+                post_processing_ds,
+                denoiser_ds,
+                temporal_ds,
+                spatial_flexible_set,
+            ],
         };
+        this.update_flexible_sets();
+        this
+    }
+
+    fn update_flexible_sets(&mut self) {
+        Self::update_tracer_ds_1(&self.flexible_sets[0], &self.resources);
+        Self::update_god_ray_ds_0(&self.flexible_sets[1], &self.resources);
+        Self::update_composition_ds(&self.flexible_sets[2], &self.resources);
+        Self::update_taa_ds(&self.flexible_sets[3], &self.resources);
+        Self::update_post_processing_ds(&self.flexible_sets[4], &self.resources);
+        Self::update_denoiser_ds(&self.flexible_sets[5], &self.resources);
+        Self::update_temporal_ds(&self.flexible_sets[6], &self.resources);
+        Self::update_spatial_flexible_set(&self.flexible_sets[7], &self.resources);
     }
 
     fn update_grass_ds(ds: &DescriptorSet, resources: &TracerResources) {
@@ -971,14 +967,7 @@ impl Tracer {
             &self.resources.extent_dependent_resources.gfx_depth_tex,
         );
 
-        Self::update_tracer_ds_1(&self.tracer_sets[1], &self.resources);
-        Self::update_god_ray_ds_0(&self.god_ray_sets[0], &self.resources);
-        Self::update_composition_ds(&self.composition_sets[0], &self.resources);
-        Self::update_taa_ds(&self.taa_sets[0], &self.resources);
-        Self::update_post_processing_ds(&self.post_processing_sets[0], &self.resources);
-        Self::update_denoiser_ds(&self.tracer_sets[3], &self.resources);
-        Self::update_temporal_ds(&self.temporal_sets[0], &self.resources);
-        Self::update_spatial_flexible_set(&self.spatial_sets[1], &self.resources);
+        self.update_flexible_sets();
     }
 
     // create a lower resolution texture for rendering, for better performance,
@@ -1477,31 +1466,10 @@ impl Tracer {
             .shadow_map_tex
             .get_image()
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
-        self.tracer_shadow_ppl.record_bind(cmdbuf);
-        self.tracer_shadow_ppl
-            .record_bind_descriptor_sets(cmdbuf, &self.tracer_shadow_sets, 0);
-        self.tracer_shadow_ppl.record_dispatch(
+        self.tracer_shadow_ppl.record(
             cmdbuf,
-            [
-                self.resources
-                    .shadow_map_tex
-                    .get_image()
-                    .get_desc()
-                    .extent
-                    .width,
-                self.resources
-                    .shadow_map_tex
-                    .get_image()
-                    .get_desc()
-                    .extent
-                    .height,
-                self.resources
-                    .shadow_map_tex
-                    .get_image()
-                    .get_desc()
-                    .extent
-                    .depth,
-            ],
+            self.resources.shadow_map_tex.get_image().get_desc().extent,
+            None,
         );
     }
 
@@ -1527,43 +1495,16 @@ impl Tracer {
             vec![shader_access_memory_barrier],
         );
 
-        self.vsm_creation_ppl.record_bind(cmdbuf);
-        self.vsm_creation_ppl
-            .record_bind_descriptor_sets(cmdbuf, &self.vsm_sets, 0);
-
-        let render_extent = self.resources.shadow_map_tex.get_image().get_desc().extent;
-        self.vsm_creation_ppl.record_dispatch(
-            cmdbuf,
-            [
-                render_extent.width,
-                render_extent.height,
-                render_extent.depth,
-            ],
-        );
+        let extent = self.resources.shadow_map_tex.get_image().get_desc().extent;
+        self.vsm_creation_ppl.record(cmdbuf, extent, None);
 
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
-        self.vsm_blur_h_ppl.record_bind(cmdbuf);
-        self.vsm_blur_h_ppl.record_dispatch(
-            cmdbuf,
-            [
-                render_extent.width,
-                render_extent.height,
-                render_extent.depth,
-            ],
-        );
+        self.vsm_blur_h_ppl.record(cmdbuf, extent, None);
 
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
-        self.vsm_blur_v_ppl.record_bind(cmdbuf);
-        self.vsm_blur_v_ppl.record_dispatch(
-            cmdbuf,
-            [
-                render_extent.width,
-                render_extent.height,
-                render_extent.depth,
-            ],
-        );
+        self.vsm_blur_v_ppl.record(cmdbuf, extent, None);
     }
 
     fn record_tracer_pass(&self, cmdbuf: &CommandBuffer) {
@@ -1578,25 +1519,15 @@ impl Tracer {
             .get_image()
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
 
-        self.tracer_ppl.record_bind(cmdbuf);
-
-        self.tracer_ppl
-            .record_bind_descriptor_sets(cmdbuf, &self.tracer_sets, 0);
-
-        let render_extent = self
-            .resources
-            .extent_dependent_resources
-            .compute_output_tex
-            .get_image()
-            .get_desc()
-            .extent;
-        self.tracer_ppl.record_dispatch(
+        self.tracer_ppl.record(
             cmdbuf,
-            [
-                render_extent.width,
-                render_extent.height,
-                render_extent.depth,
-            ],
+            self.resources
+                .extent_dependent_resources
+                .compute_output_tex
+                .get_image()
+                .get_desc()
+                .extent,
+            None,
         );
     }
 
@@ -1607,26 +1538,15 @@ impl Tracer {
             .get_image()
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
 
-        self.god_ray_ppl.record_bind(cmdbuf);
-        self.god_ray_ppl
-            .record_bind_descriptor_sets(cmdbuf, &self.god_ray_sets, 0);
-
-        // use the higher extent
-        let render_extent = self
-            .resources
-            .extent_dependent_resources
-            .compute_depth_tex
-            .get_image()
-            .get_desc()
-            .extent;
-
-        self.god_ray_ppl.record_dispatch(
+        self.god_ray_ppl.record(
             cmdbuf,
-            [
-                render_extent.width,
-                render_extent.height,
-                render_extent.depth,
-            ],
+            self.resources
+                .extent_dependent_resources
+                .compute_depth_tex
+                .get_image()
+                .get_desc()
+                .extent,
+            None,
         );
     }
 
@@ -1638,43 +1558,28 @@ impl Tracer {
             vec![shader_access_memory_barrier],
         );
 
-        self.temporal_ppl.record_bind(cmdbuf);
-        self.temporal_ppl
-            .record_bind_descriptor_sets(cmdbuf, &self.temporal_sets, 0);
-
-        let render_extent = self
+        let extent = self
             .resources
             .extent_dependent_resources
             .compute_output_tex
             .get_image()
             .get_desc()
             .extent;
-        self.temporal_ppl.record_dispatch(
-            cmdbuf,
-            [
-                render_extent.width,
-                render_extent.height,
-                render_extent.depth,
-            ],
-        );
 
-        self.spatial_ppl.record_bind(cmdbuf);
-        self.spatial_ppl
-            .record_bind_descriptor_sets(cmdbuf, &self.spatial_sets, 0);
+        self.temporal_ppl.record(cmdbuf, extent, None);
 
         const A_TROUS_ITERATION_COUNT: u32 = 3;
         for i in 0..A_TROUS_ITERATION_COUNT {
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-
-            self.spatial_ppl
-                .record_push_constants(cmdbuf, &i.to_ne_bytes());
-            self.spatial_ppl.record_dispatch(
+            self.spatial_ppl.record(
                 cmdbuf,
-                [
-                    render_extent.width,
-                    render_extent.height,
-                    render_extent.depth,
-                ],
+                self.resources
+                    .extent_dependent_resources
+                    .compute_output_tex
+                    .get_image()
+                    .get_desc()
+                    .extent,
+                Some(&i.to_ne_bytes()),
             );
         }
     }
@@ -1686,24 +1591,15 @@ impl Tracer {
             .get_image()
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
 
-        self.composition_ppl.record_bind(cmdbuf);
-        self.composition_ppl
-            .record_bind_descriptor_sets(cmdbuf, &self.composition_sets, 0);
-
-        let render_extent = self
-            .resources
-            .extent_dependent_resources
-            .composited_tex
-            .get_image()
-            .get_desc()
-            .extent;
-        self.composition_ppl.record_dispatch(
+        self.composition_ppl.record(
             cmdbuf,
-            [
-                render_extent.width,
-                render_extent.height,
-                render_extent.depth,
-            ],
+            self.resources
+                .extent_dependent_resources
+                .composited_tex
+                .get_image()
+                .get_desc()
+                .extent,
+            None,
         );
     }
 
@@ -1719,24 +1615,15 @@ impl Tracer {
             .get_image()
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
 
-        self.taa_ppl.record_bind(cmdbuf);
-        self.taa_ppl
-            .record_bind_descriptor_sets(cmdbuf, &self.taa_sets, 0);
-
-        let render_extent = self
-            .resources
-            .extent_dependent_resources
-            .composited_tex
-            .get_image()
-            .get_desc()
-            .extent;
-        self.taa_ppl.record_dispatch(
+        self.taa_ppl.record(
             cmdbuf,
-            [
-                render_extent.width,
-                render_extent.height,
-                render_extent.depth,
-            ],
+            self.resources
+                .extent_dependent_resources
+                .taa_tex
+                .get_image()
+                .get_desc()
+                .extent,
+            None,
         );
     }
 
@@ -1747,24 +1634,15 @@ impl Tracer {
             .get_image()
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
 
-        self.post_processing_ppl.record_bind(cmdbuf);
-        self.post_processing_ppl
-            .record_bind_descriptor_sets(cmdbuf, &self.post_processing_sets, 0);
-
-        let screen_extent = self
-            .resources
-            .extent_dependent_resources
-            .screen_output_tex
-            .get_image()
-            .get_desc()
-            .extent;
-        self.post_processing_ppl.record_dispatch(
+        self.post_processing_ppl.record(
             cmdbuf,
-            [
-                screen_extent.width,
-                screen_extent.height,
-                screen_extent.depth,
-            ],
+            self.resources
+                .extent_dependent_resources
+                .screen_output_tex
+                .get_image()
+                .get_desc()
+                .extent,
+            None,
         );
     }
 

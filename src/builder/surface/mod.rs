@@ -10,7 +10,7 @@ use crate::{
     util::ShaderCompiler,
     vkn::{
         Allocator, Buffer, ClearValue, CommandBuffer, ComputePipeline, DescriptorPool,
-        DescriptorSet, PlainMemberTypeWithData, ShaderModule, StructMemberDataBuilder,
+        DescriptorSet, Extent3D, PlainMemberTypeWithData, ShaderModule, StructMemberDataBuilder,
         StructMemberDataReader, VulkanContext, WriteDescriptorSet,
     },
 };
@@ -23,15 +23,38 @@ pub struct SurfaceBuilder {
     fixed_pool: DescriptorPool,
     #[allow(dead_code)]
     flexible_pool: DescriptorPool,
+    flexible_sets: Vec<DescriptorSet>,
 
     make_surface_ppl: ComputePipeline,
-    make_surface_ds_0: DescriptorSet,
 
     chunk_bound: UAabb3,
     voxel_dim_per_chunk: UVec3,
 }
 
 impl SurfaceBuilder {
+    fn update_make_surface_ds_0(
+        ds: &DescriptorSet,
+        resources: &SurfaceResources,
+        plain_builder_resources: &PlainBuilderResources,
+    ) {
+        ds.perform_writes(&mut [
+            WriteDescriptorSet::new_buffer_write(0, &resources.make_surface_info),
+            WriteDescriptorSet::new_buffer_write(1, &resources.make_surface_result),
+            WriteDescriptorSet::new_texture_write(
+                2,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.surface,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_texture_write(
+                3,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &plain_builder_resources.chunk_atlas,
+                vk::ImageLayout::GENERAL,
+            ),
+        ]);
+    }
+
     pub fn new(
         vulkan_ctx: VulkanContext,
         allocator: Allocator,
@@ -41,19 +64,20 @@ impl SurfaceBuilder {
         chunk_bound: UAabb3,
         grass_instances_capacity_per_chunk: u64,
     ) -> Self {
-        let fixed_pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
-        let flexible_pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
+        let device = vulkan_ctx.device();
+        let fixed_pool = DescriptorPool::new(device).unwrap();
+        let flexible_pool = DescriptorPool::new(device).unwrap();
 
         let make_surface_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            &shader_compiler,
+            device,
+            shader_compiler,
             "shader/builder/surface/make_surface.comp",
             "main",
         )
         .unwrap();
 
         let resources = SurfaceResources::new(
-            vulkan_ctx.device().clone(),
+            device.clone(),
             allocator,
             voxel_dim_per_chunk,
             &make_surface_sm,
@@ -61,78 +85,42 @@ impl SurfaceBuilder {
             grass_instances_capacity_per_chunk,
         );
 
-        let make_surface_ppl = ComputePipeline::new(vulkan_ctx.device(), &make_surface_sm);
+        let make_surface_ppl = ComputePipeline::new(device, &make_surface_sm);
 
-        let make_surface_ds_0 = create_make_surface_ds_0(
-            &make_surface_ppl,
-            &resources,
-            plain_builder_resources,
-            &fixed_pool,
-        );
+        let make_surface_ds_0 = fixed_pool
+            .allocate_set(&make_surface_ppl.get_layout().get_descriptor_set_layouts()[&0])
+            .unwrap();
 
-        return Self {
+        Self::update_make_surface_ds_0(&make_surface_ds_0, &resources, plain_builder_resources);
+
+        let grass_instance_set = flexible_pool
+            .allocate_set(&make_surface_ppl.get_layout().get_descriptor_set_layouts()[&1])
+            .unwrap();
+
+        make_surface_ppl.set_descriptor_sets(vec![make_surface_ds_0, grass_instance_set.clone()]);
+
+        Self {
             vulkan_ctx,
             resources,
-
             fixed_pool,
-
-            make_surface_ppl,
-            make_surface_ds_0,
-
             flexible_pool,
-
+            flexible_sets: vec![grass_instance_set],
+            make_surface_ppl,
             chunk_bound,
             voxel_dim_per_chunk,
-        };
-
-        fn create_make_surface_ds_0(
-            make_surface_ppl: &ComputePipeline,
-            resources: &SurfaceResources,
-            plain_builder_resources: &PlainBuilderResources,
-            fixed_pool: &DescriptorPool,
-        ) -> DescriptorSet {
-            let ds = fixed_pool
-                .allocate_set(&make_surface_ppl.get_layout().get_descriptor_set_layouts()[&0])
-                .unwrap();
-            ds.perform_writes(&mut [
-                WriteDescriptorSet::new_buffer_write(0, &resources.make_surface_info),
-                WriteDescriptorSet::new_buffer_write(1, &resources.make_surface_result),
-                WriteDescriptorSet::new_texture_write(
-                    2,
-                    vk::DescriptorType::STORAGE_IMAGE,
-                    &resources.surface,
-                    vk::ImageLayout::GENERAL,
-                ),
-                WriteDescriptorSet::new_texture_write(
-                    3,
-                    vk::DescriptorType::STORAGE_IMAGE,
-                    &plain_builder_resources.chunk_atlas,
-                    vk::ImageLayout::GENERAL,
-                ),
-            ]);
-            return ds;
         }
     }
 
-    fn create_make_surface_ds_1(
-        make_surface_ppl: &ComputePipeline,
-        resources: &SurfaceResources,
-        chunk_id: UVec3,
-        flexible_pool: &DescriptorPool,
-    ) -> DescriptorSet {
-        flexible_pool.reset().unwrap();
-        let ds = flexible_pool
-            .allocate_set(&make_surface_ppl.get_layout().get_descriptor_set_layouts()[&1])
-            .unwrap();
-        ds.perform_writes(&mut [WriteDescriptorSet::new_buffer_write(
+    fn update_grass_instance_set(&self, grass_instance_set: &DescriptorSet, chunk_id: UVec3) {
+        grass_instance_set.perform_writes(&mut [WriteDescriptorSet::new_buffer_write(
             0,
-            &resources
+            &self
+                .resources
                 .chunk_raster_resources
                 .get(&chunk_id)
                 .unwrap()
                 .grass_instances,
         )]);
-        return ds;
     }
 
     /// Returns active_voxel_len
@@ -155,12 +143,7 @@ impl SurfaceBuilder {
 
         update_make_surface_result(&self.resources.make_surface_result, 0, 0)?;
 
-        let make_surface_ds_1 = Self::create_make_surface_ds_1(
-            &self.make_surface_ppl,
-            &self.resources,
-            chunk_id,
-            &self.flexible_pool,
-        );
+        self.update_grass_instance_set(&self.flexible_sets[0], chunk_id);
 
         let cmdbuf = CommandBuffer::new(device, self.vulkan_ctx.command_pool());
         cmdbuf.begin(true);
@@ -172,20 +155,13 @@ impl SurfaceBuilder {
             ClearValue::UInt([0, 0, 0, 0]),
         );
 
-        self.make_surface_ppl.record_bind(&cmdbuf);
-        self.make_surface_ppl.record_bind_descriptor_sets(
-            &cmdbuf,
-            &[self.make_surface_ds_0.clone(), make_surface_ds_1],
-            0,
-        );
-        self.make_surface_ppl.record_dispatch(
-            &cmdbuf,
-            [
-                self.voxel_dim_per_chunk.x,
-                self.voxel_dim_per_chunk.y,
-                self.voxel_dim_per_chunk.z,
-            ],
-        );
+        let extent = Extent3D {
+            width: self.voxel_dim_per_chunk.x,
+            height: self.voxel_dim_per_chunk.y,
+            depth: self.voxel_dim_per_chunk.z,
+        };
+
+        self.make_surface_ppl.record(&cmdbuf, extent, None);
 
         cmdbuf.end();
 

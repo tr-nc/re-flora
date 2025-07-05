@@ -11,6 +11,7 @@ use crate::vkn::CommandBuffer;
 use crate::vkn::ComputePipeline;
 use crate::vkn::DescriptorPool;
 use crate::vkn::DescriptorSet;
+use crate::vkn::Extent3D;
 use crate::vkn::MemoryBarrier;
 use crate::vkn::PipelineBarrier;
 use crate::vkn::PlainMemberTypeWithData;
@@ -31,33 +32,15 @@ pub struct ContreeBuilder {
     vulkan_ctx: VulkanContext,
     resources: ContreeBuilderResources,
 
-    #[allow(dead_code)]
     contree_buffer_setup_ppl: ComputePipeline,
-    #[allow(dead_code)]
     contree_leaf_write_ppl: ComputePipeline,
-    #[allow(dead_code)]
     contree_tree_write_ppl: ComputePipeline,
-    #[allow(dead_code)]
     contree_buffer_update_ppl: ComputePipeline,
-    #[allow(dead_code)]
     contree_last_buffer_update_ppl: ComputePipeline,
-    #[allow(dead_code)]
     contree_concat_ppl: ComputePipeline,
 
     #[allow(dead_code)]
     fixed_pool: DescriptorPool,
-    #[allow(dead_code)]
-    contree_buffer_setup_ds: DescriptorSet,
-    #[allow(dead_code)]
-    contree_leaf_write_ds: DescriptorSet,
-    #[allow(dead_code)]
-    contree_tree_write_ds: DescriptorSet,
-    #[allow(dead_code)]
-    contree_buffer_update_ds: DescriptorSet,
-    #[allow(dead_code)]
-    contree_last_buffer_update_ds: DescriptorSet,
-    #[allow(dead_code)]
-    contree_concat_ds: DescriptorSet,
 
     /// Atlas offset <-> (node_alloc_id, leaf_alloc_id)
     chunk_offset_allocation_table: HashMap<UVec3, (u64, u64)>,
@@ -71,6 +54,80 @@ pub struct ContreeBuilder {
 }
 
 impl ContreeBuilder {
+    fn update_contree_buffer_setup_ds(ds: &DescriptorSet, resources: &ContreeBuilderResources) {
+        ds.perform_writes(&mut [
+            WriteDescriptorSet::new_buffer_write(0, &resources.contree_build_info),
+            WriteDescriptorSet::new_buffer_write(1, &resources.contree_build_state),
+            WriteDescriptorSet::new_buffer_write(2, &resources.level_dispatch_indirect),
+            WriteDescriptorSet::new_buffer_write(3, &resources.counter_for_levels),
+            WriteDescriptorSet::new_buffer_write(4, &resources.node_offset_for_levels),
+            WriteDescriptorSet::new_buffer_write(5, &resources.contree_build_result),
+        ]);
+    }
+
+    fn update_contree_leaf_write_ds(
+        ds: &DescriptorSet,
+        resources: &ContreeBuilderResources,
+        surfacer_resources: &SurfaceResources,
+    ) {
+        ds.perform_writes(&mut [
+            WriteDescriptorSet::new_buffer_write(0, &resources.contree_build_info),
+            WriteDescriptorSet::new_buffer_write(1, &resources.contree_build_state),
+            WriteDescriptorSet::new_texture_write(
+                2,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &surfacer_resources.surface,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_buffer_write(3, &resources.node_offset_for_levels),
+            WriteDescriptorSet::new_buffer_write(4, &resources.sparse_nodes),
+            WriteDescriptorSet::new_buffer_write(5, &resources.leaf_data),
+            WriteDescriptorSet::new_buffer_write(6, &resources.contree_build_result),
+        ]);
+    }
+
+    fn update_contree_tree_write_ds(ds: &DescriptorSet, resources: &ContreeBuilderResources) {
+        ds.perform_writes(&mut [
+            WriteDescriptorSet::new_buffer_write(0, &resources.contree_build_state),
+            WriteDescriptorSet::new_buffer_write(1, &resources.node_offset_for_levels),
+            WriteDescriptorSet::new_buffer_write(2, &resources.sparse_nodes),
+            WriteDescriptorSet::new_buffer_write(3, &resources.dense_nodes),
+            WriteDescriptorSet::new_buffer_write(4, &resources.counter_for_levels),
+            WriteDescriptorSet::new_buffer_write(5, &resources.contree_build_result),
+        ]);
+    }
+
+    fn update_contree_buffer_update_ds(ds: &DescriptorSet, resources: &ContreeBuilderResources) {
+        ds.perform_writes(&mut [
+            WriteDescriptorSet::new_buffer_write(0, &resources.contree_build_state),
+            WriteDescriptorSet::new_buffer_write(1, &resources.level_dispatch_indirect),
+        ]);
+    }
+
+    fn update_contree_last_buffer_update_ds(
+        ds: &DescriptorSet,
+        resources: &ContreeBuilderResources,
+    ) {
+        ds.perform_writes(&mut [
+            WriteDescriptorSet::new_buffer_write(0, &resources.contree_build_result),
+            WriteDescriptorSet::new_buffer_write(1, &resources.concat_dispatch_indirect),
+            WriteDescriptorSet::new_buffer_write(2, &resources.sparse_nodes),
+            WriteDescriptorSet::new_buffer_write(3, &resources.dense_nodes),
+            WriteDescriptorSet::new_buffer_write(4, &resources.counter_for_levels),
+        ]);
+    }
+
+    fn update_contree_concat_ds(ds: &DescriptorSet, resources: &ContreeBuilderResources) {
+        ds.perform_writes(&mut [
+            WriteDescriptorSet::new_buffer_write(0, &resources.contree_build_info),
+            WriteDescriptorSet::new_buffer_write(1, &resources.node_offset_for_levels),
+            WriteDescriptorSet::new_buffer_write(2, &resources.dense_nodes),
+            WriteDescriptorSet::new_buffer_write(3, &resources.counter_for_levels),
+            WriteDescriptorSet::new_buffer_write(4, &resources.node_data),
+            WriteDescriptorSet::new_buffer_write(5, &resources.contree_build_result),
+        ]);
+    }
+
     pub fn new(
         vulkan_ctx: VulkanContext,
         allocator: Allocator,
@@ -87,53 +144,55 @@ impl ContreeBuilder {
         );
         assert!(is_power_of_four(voxel_dim_per_chunk.x));
 
-        let fixed_pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
+        let device = vulkan_ctx.device();
 
+        // --- Shader Modules ---
         let contree_buffer_setup_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            &shader_compiler,
+            device,
+            shader_compiler,
             "shader/builder/contree/buffer_setup.comp",
             "main",
         )
         .unwrap();
         let contree_leaf_write_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            &shader_compiler,
+            device,
+            shader_compiler,
             "shader/builder/contree/leaf_write.comp",
             "main",
         )
         .unwrap();
         let contree_tree_write_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            &shader_compiler,
+            device,
+            shader_compiler,
             "shader/builder/contree/tree_write.comp",
             "main",
         )
         .unwrap();
         let contree_buffer_update_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            &shader_compiler,
+            device,
+            shader_compiler,
             "shader/builder/contree/buffer_update.comp",
             "main",
         )
         .unwrap();
         let contree_last_buffer_update_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            &shader_compiler,
+            device,
+            shader_compiler,
             "shader/builder/contree/last_buffer_update.comp",
             "main",
         )
         .unwrap();
         let contree_concat_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            &shader_compiler,
+            device,
+            shader_compiler,
             "shader/builder/contree/concat.comp",
             "main",
         )
         .unwrap();
 
+        // --- Resources ---
         let resources = ContreeBuilderResources::new(
-            vulkan_ctx.device().clone(),
+            device.clone(),
             allocator.clone(),
             voxel_dim_per_chunk,
             node_pool_size_in_bytes,
@@ -144,107 +203,46 @@ impl ContreeBuilder {
             &contree_last_buffer_update_sm,
         );
 
-        let contree_buffer_setup_ppl =
-            ComputePipeline::new(vulkan_ctx.device(), &contree_buffer_setup_sm);
-        let contree_leaf_write_ppl =
-            ComputePipeline::new(vulkan_ctx.device(), &contree_leaf_write_sm);
-        let contree_tree_write_ppl =
-            ComputePipeline::new(vulkan_ctx.device(), &contree_tree_write_sm);
-        let contree_buffer_update_ppl =
-            ComputePipeline::new(vulkan_ctx.device(), &contree_buffer_update_sm);
+        // --- Pipelines ---
+        let contree_buffer_setup_ppl = ComputePipeline::new(device, &contree_buffer_setup_sm);
+        let contree_leaf_write_ppl = ComputePipeline::new(device, &contree_leaf_write_sm);
+        let contree_tree_write_ppl = ComputePipeline::new(device, &contree_tree_write_sm);
+        let contree_buffer_update_ppl = ComputePipeline::new(device, &contree_buffer_update_sm);
         let contree_last_buffer_update_ppl =
-            ComputePipeline::new(vulkan_ctx.device(), &contree_last_buffer_update_sm);
-        let contree_concat_ppl = ComputePipeline::new(vulkan_ctx.device(), &contree_concat_sm);
+            ComputePipeline::new(device, &contree_last_buffer_update_sm);
+        let contree_concat_ppl = ComputePipeline::new(device, &contree_concat_sm);
 
-        let contree_buffer_setup_ds = fixed_pool
-            .allocate_set(
-                &contree_buffer_setup_ppl
-                    .get_layout()
-                    .get_descriptor_set_layouts()[&0],
-            )
-            .unwrap();
-        contree_buffer_setup_ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.contree_build_info),
-            WriteDescriptorSet::new_buffer_write(1, &resources.contree_build_state),
-            WriteDescriptorSet::new_buffer_write(2, &resources.level_dispatch_indirect),
-            WriteDescriptorSet::new_buffer_write(3, &resources.counter_for_levels),
-            WriteDescriptorSet::new_buffer_write(4, &resources.node_offset_for_levels),
-            WriteDescriptorSet::new_buffer_write(5, &resources.contree_build_result),
-        ]);
-        let contree_leaf_write_ds = fixed_pool
-            .allocate_set(
-                &contree_leaf_write_ppl
-                    .get_layout()
-                    .get_descriptor_set_layouts()[&0],
-            )
-            .unwrap();
-        contree_leaf_write_ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.contree_build_info),
-            WriteDescriptorSet::new_buffer_write(1, &resources.contree_build_state),
-            WriteDescriptorSet::new_texture_write(
-                2,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &surfacer_resources.surface,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_buffer_write(3, &resources.node_offset_for_levels),
-            WriteDescriptorSet::new_buffer_write(4, &resources.sparse_nodes),
-            WriteDescriptorSet::new_buffer_write(5, &resources.leaf_data),
-            WriteDescriptorSet::new_buffer_write(6, &resources.contree_build_result),
-        ]);
-        let contree_tree_write_ds = fixed_pool
-            .allocate_set(
-                &contree_tree_write_ppl
-                    .get_layout()
-                    .get_descriptor_set_layouts()[&0],
-            )
-            .unwrap();
-        contree_tree_write_ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.contree_build_state),
-            WriteDescriptorSet::new_buffer_write(1, &resources.node_offset_for_levels),
-            WriteDescriptorSet::new_buffer_write(2, &resources.sparse_nodes),
-            WriteDescriptorSet::new_buffer_write(3, &resources.dense_nodes),
-            WriteDescriptorSet::new_buffer_write(4, &resources.counter_for_levels),
-            WriteDescriptorSet::new_buffer_write(5, &resources.contree_build_result),
-        ]);
-        let contree_buffer_update_ds = fixed_pool
-            .allocate_set(
-                &contree_buffer_update_ppl
-                    .get_layout()
-                    .get_descriptor_set_layouts()[&0],
-            )
-            .unwrap();
-        contree_buffer_update_ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.contree_build_state),
-            WriteDescriptorSet::new_buffer_write(1, &resources.level_dispatch_indirect),
-        ]);
-        let contree_last_buffer_update_ds = fixed_pool
-            .allocate_set(
-                &contree_last_buffer_update_ppl
-                    .get_layout()
-                    .get_descriptor_set_layouts()[&0],
-            )
-            .unwrap();
-        contree_last_buffer_update_ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.contree_build_result),
-            WriteDescriptorSet::new_buffer_write(1, &resources.concat_dispatch_indirect),
-            WriteDescriptorSet::new_buffer_write(2, &resources.sparse_nodes),
-            WriteDescriptorSet::new_buffer_write(3, &resources.dense_nodes),
-            WriteDescriptorSet::new_buffer_write(4, &resources.counter_for_levels),
-        ]);
-        let contree_concat_ds = fixed_pool
-            .allocate_set(&contree_concat_ppl.get_layout().get_descriptor_set_layouts()[&0])
-            .unwrap();
-        contree_concat_ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.contree_build_info),
-            WriteDescriptorSet::new_buffer_write(1, &resources.node_offset_for_levels),
-            WriteDescriptorSet::new_buffer_write(2, &resources.dense_nodes),
-            WriteDescriptorSet::new_buffer_write(3, &resources.counter_for_levels),
-            WriteDescriptorSet::new_buffer_write(4, &resources.node_data),
-            WriteDescriptorSet::new_buffer_write(5, &resources.contree_build_result),
-        ]);
+        // --- Descriptor Sets ---
+        let fixed_pool = DescriptorPool::new(device).unwrap();
+        let alloc_set_fn = |ppl: &ComputePipeline| -> DescriptorSet {
+            fixed_pool
+                .allocate_set(&ppl.get_layout().get_descriptor_set_layouts()[&0])
+                .unwrap()
+        };
 
-        let contree_cmdbuf = record_cmdbuf(
+        let contree_buffer_setup_ds = alloc_set_fn(&contree_buffer_setup_ppl);
+        let contree_leaf_write_ds = alloc_set_fn(&contree_leaf_write_ppl);
+        let contree_tree_write_ds = alloc_set_fn(&contree_tree_write_ppl);
+        let contree_buffer_update_ds = alloc_set_fn(&contree_buffer_update_ppl);
+        let contree_last_buffer_update_ds = alloc_set_fn(&contree_last_buffer_update_ppl);
+        let contree_concat_ds = alloc_set_fn(&contree_concat_ppl);
+
+        Self::update_contree_buffer_setup_ds(&contree_buffer_setup_ds, &resources);
+        Self::update_contree_leaf_write_ds(&contree_leaf_write_ds, &resources, surfacer_resources);
+        Self::update_contree_tree_write_ds(&contree_tree_write_ds, &resources);
+        Self::update_contree_buffer_update_ds(&contree_buffer_update_ds, &resources);
+        Self::update_contree_last_buffer_update_ds(&contree_last_buffer_update_ds, &resources);
+        Self::update_contree_concat_ds(&contree_concat_ds, &resources);
+
+        contree_buffer_setup_ppl.set_descriptor_sets(vec![contree_buffer_setup_ds]);
+        contree_leaf_write_ppl.set_descriptor_sets(vec![contree_leaf_write_ds]);
+        contree_tree_write_ppl.set_descriptor_sets(vec![contree_tree_write_ds]);
+        contree_buffer_update_ppl.set_descriptor_sets(vec![contree_buffer_update_ds]);
+        contree_last_buffer_update_ppl.set_descriptor_sets(vec![contree_last_buffer_update_ds]);
+        contree_concat_ppl.set_descriptor_sets(vec![contree_concat_ds]);
+
+        // --- Command Buffer Recording ---
+        let contree_cmdbuf = Self::record_cmdbuf(
             &vulkan_ctx,
             &resources,
             get_level(voxel_dim_per_chunk),
@@ -254,163 +252,101 @@ impl ContreeBuilder {
             &contree_buffer_update_ppl,
             &contree_last_buffer_update_ppl,
             &contree_concat_ppl,
-            &contree_buffer_setup_ds,
-            &contree_leaf_write_ds,
-            &contree_tree_write_ds,
-            &contree_buffer_update_ds,
-            &contree_last_buffer_update_ds,
-            &contree_concat_ds,
         );
 
         let node_allocator = FirstFitAllocator::new(node_pool_size_in_bytes);
         let leaf_allocator = FirstFitAllocator::new(leaf_pool_size_in_bytes);
 
-        return Self {
+        Self {
             vulkan_ctx,
             resources,
-
             contree_buffer_setup_ppl,
             contree_leaf_write_ppl,
             contree_tree_write_ppl,
             contree_buffer_update_ppl,
             contree_last_buffer_update_ppl,
             contree_concat_ppl,
-
-            contree_buffer_setup_ds,
-            contree_leaf_write_ds,
-            contree_tree_write_ds,
-            contree_buffer_update_ds,
-            contree_last_buffer_update_ds,
-            contree_concat_ds,
-
             fixed_pool,
-
             chunk_offset_allocation_table: HashMap::new(),
-
             contree_cmdbuf,
-
             node_allocator,
             leaf_allocator,
-
             voxel_dim_per_chunk,
+        }
+    }
+
+    fn record_cmdbuf(
+        vulkan_ctx: &VulkanContext,
+        resources: &ContreeBuilderResources,
+        total_levels: u32,
+        contree_buffer_setup_ppl: &ComputePipeline,
+        contree_leaf_write_ppl: &ComputePipeline,
+        contree_tree_write_ppl: &ComputePipeline,
+        contree_buffer_update_ppl: &ComputePipeline,
+        contree_last_buffer_update_ppl: &ComputePipeline,
+        contree_concat_ppl: &ComputePipeline,
+    ) -> CommandBuffer {
+        let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
+        let indirect_access_memory_barrier = MemoryBarrier::new_indirect_access();
+
+        let shader_access_pipeline_barrier = PipelineBarrier::new(
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vec![shader_access_memory_barrier],
+        );
+        let indirect_access_pipeline_barrier = PipelineBarrier::new(
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vk::PipelineStageFlags::DRAW_INDIRECT | vk::PipelineStageFlags::COMPUTE_SHADER,
+            vec![indirect_access_memory_barrier],
+        );
+
+        let device = vulkan_ctx.device();
+        let cmdbuf = CommandBuffer::new(device, vulkan_ctx.command_pool());
+        cmdbuf.begin(false);
+
+        let dispatch_1x1x1 = Extent3D {
+            width: 1,
+            height: 1,
+            depth: 1,
         };
 
-        fn record_cmdbuf(
-            vulkan_ctx: &VulkanContext,
-            resources: &ContreeBuilderResources,
-            total_levels: u32,
-            contree_buffer_setup_ppl: &ComputePipeline,
-            contree_leaf_write_ppl: &ComputePipeline,
-            contree_tree_write_ppl: &ComputePipeline,
-            contree_buffer_update_ppl: &ComputePipeline,
-            contree_last_buffer_update_ppl: &ComputePipeline,
-            contree_concat_ppl: &ComputePipeline,
-            contree_buffer_setup_ds: &DescriptorSet,
-            contree_leaf_write_ds: &DescriptorSet,
-            contree_tree_write_ds: &DescriptorSet,
-            contree_buffer_update_ds: &DescriptorSet,
-            contree_last_buffer_update_ds: &DescriptorSet,
-            contree_concat_ds: &DescriptorSet,
-        ) -> CommandBuffer {
-            let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
-            let indirect_access_memory_barrier = MemoryBarrier::new_indirect_access();
+        contree_buffer_setup_ppl.record(&cmdbuf, dispatch_1x1x1, None);
 
-            let shader_access_pipeline_barrier = PipelineBarrier::new(
-                vk::PipelineStageFlags::COMPUTE_SHADER,
-                vk::PipelineStageFlags::COMPUTE_SHADER,
-                vec![shader_access_memory_barrier],
-            );
-            let indirect_access_pipeline_barrier = PipelineBarrier::new(
-                vk::PipelineStageFlags::COMPUTE_SHADER,
-                vk::PipelineStageFlags::DRAW_INDIRECT | vk::PipelineStageFlags::COMPUTE_SHADER,
-                vec![indirect_access_memory_barrier],
-            );
+        shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
+        indirect_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
 
-            let device = vulkan_ctx.device();
+        contree_leaf_write_ppl.record_indirect(&cmdbuf, &resources.level_dispatch_indirect, None);
 
-            let cmdbuf = CommandBuffer::new(device, vulkan_ctx.command_pool());
-            cmdbuf.begin(false);
+        shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
 
-            contree_buffer_setup_ppl.record_bind(&cmdbuf);
-            contree_buffer_setup_ppl.record_bind_descriptor_sets(
+        contree_buffer_update_ppl.record(&cmdbuf, dispatch_1x1x1, None);
+
+        shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
+        indirect_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
+
+        for i in 0..(total_levels - 2) {
+            contree_tree_write_ppl.record_indirect(
                 &cmdbuf,
-                std::slice::from_ref(contree_buffer_setup_ds),
-                0,
+                &resources.level_dispatch_indirect,
+                None,
             );
-            contree_buffer_setup_ppl.record_dispatch(&cmdbuf, [1, 1, 1]);
-
-            shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
-            indirect_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
-
-            contree_leaf_write_ppl.record_bind(&cmdbuf);
-            contree_leaf_write_ppl.record_bind_descriptor_sets(
-                &cmdbuf,
-                std::slice::from_ref(contree_leaf_write_ds),
-                0,
-            );
-            contree_leaf_write_ppl
-                .record_dispatch_indirect(&cmdbuf, &resources.level_dispatch_indirect);
 
             shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
 
-            contree_buffer_update_ppl.record_bind(&cmdbuf);
-            contree_buffer_update_ppl.record_bind_descriptor_sets(
-                &cmdbuf,
-                std::slice::from_ref(contree_buffer_update_ds),
-                0,
-            );
-            contree_buffer_update_ppl.record_dispatch(&cmdbuf, [1, 1, 1]);
-
-            shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
-            indirect_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
-
-            for i in 0..(total_levels - 2) {
-                contree_tree_write_ppl.record_bind(&cmdbuf);
-                contree_tree_write_ppl.record_bind_descriptor_sets(
-                    &cmdbuf,
-                    std::slice::from_ref(contree_tree_write_ds),
-                    0,
-                );
-                contree_tree_write_ppl
-                    .record_dispatch_indirect(&cmdbuf, &resources.level_dispatch_indirect);
-
-                shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
-
-                // not the last one
-                if i != total_levels - 3 {
-                    contree_buffer_update_ppl.record_bind(&cmdbuf);
-                    contree_buffer_update_ppl.record_bind_descriptor_sets(
-                        &cmdbuf,
-                        std::slice::from_ref(contree_buffer_update_ds),
-                        0,
-                    );
-                    contree_buffer_update_ppl.record_dispatch(&cmdbuf, [1, 1, 1]);
-                } else {
-                    contree_last_buffer_update_ppl.record_bind(&cmdbuf);
-                    contree_last_buffer_update_ppl.record_bind_descriptor_sets(
-                        &cmdbuf,
-                        std::slice::from_ref(contree_last_buffer_update_ds),
-                        0,
-                    );
-                    contree_last_buffer_update_ppl.record_dispatch(&cmdbuf, [1, 1, 1]);
-                }
-
-                shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
-                indirect_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
+            if i != total_levels - 3 {
+                contree_buffer_update_ppl.record(&cmdbuf, dispatch_1x1x1, None);
+            } else {
+                contree_last_buffer_update_ppl.record(&cmdbuf, dispatch_1x1x1, None);
             }
 
-            contree_concat_ppl.record_bind(&cmdbuf);
-            contree_concat_ppl.record_bind_descriptor_sets(
-                &cmdbuf,
-                std::slice::from_ref(contree_concat_ds),
-                0,
-            );
-            contree_concat_ppl
-                .record_dispatch_indirect(&cmdbuf, &resources.concat_dispatch_indirect);
-
-            cmdbuf.end();
-            return cmdbuf;
+            shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
+            indirect_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
         }
+
+        contree_concat_ppl.record_indirect(&cmdbuf, &resources.concat_dispatch_indirect, None);
+
+        cmdbuf.end();
+        cmdbuf
     }
 
     /// Returns: (node_size_in_bytes, leaf_size_in_bytes)
@@ -437,7 +373,7 @@ impl ContreeBuilder {
             panic!("Expected UInt type for node_len")
         };
 
-        return (node_size_in_bytes, leaf_size_in_bytes);
+        (node_size_in_bytes, leaf_size_in_bytes)
     }
 
     pub fn get_resources(&self) -> &ContreeBuilderResources {
@@ -503,9 +439,9 @@ impl ContreeBuilder {
             atlas_offset,
         );
         // the offset's unit is in bytes, we need to convert it to array idx, each element is a 3*u32
-        let node_alloc_offset = node_alloc_offset_in_bytes / SIZE_OF_NODE_ELEMENT as u64;
+        let node_alloc_offset = node_alloc_offset_in_bytes / SIZE_OF_NODE_ELEMENT;
         // the element of leaf data is a u32
-        let leaf_alloc_offset = leaf_alloc_offset_in_bytes / SIZE_OF_LEAF_ELEMENT as u64;
+        let leaf_alloc_offset = leaf_alloc_offset_in_bytes / SIZE_OF_LEAF_ELEMENT;
 
         self.build_contree(atlas_dim, node_alloc_offset, leaf_alloc_offset)?;
 
@@ -518,7 +454,7 @@ impl ContreeBuilder {
             atlas_offset,
         );
 
-        return Ok(Some((node_alloc_offset, leaf_alloc_offset)));
+        Ok(Some((node_alloc_offset, leaf_alloc_offset)))
     }
 
     /// Allocate a chunk of data and store the allocation id in the offset_allocation_table.
@@ -553,7 +489,7 @@ impl ContreeBuilder {
 
         self.chunk_offset_allocation_table
             .insert(atlas_offset, (node_allocation.id, leaf_allocation.id));
-        return (node_allocation.offset, leaf_allocation.offset);
+        (node_allocation.offset, leaf_allocation.offset)
     }
 
     fn confirm_allocation_of_chunk(
@@ -594,6 +530,5 @@ fn log_4(n: u32) -> u32 {
 }
 
 fn get_level(contree_dim: UVec3) -> u32 {
-    let level = log_4(contree_dim.x) + 1;
-    return level;
+    log_4(contree_dim.x) + 1
 }

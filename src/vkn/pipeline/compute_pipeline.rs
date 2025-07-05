@@ -1,12 +1,18 @@
-use crate::vkn::{Buffer, CommandBuffer, DescriptorSet, Device, PipelineLayout, ShaderModule};
+use crate::vkn::{
+    Buffer, CommandBuffer, DescriptorSet, Device, Extent3D, PipelineLayout, ShaderModule,
+};
 use ash::vk;
-use std::{ops::Deref, sync::Arc};
+use std::{
+    ops::Deref,
+    sync::{Arc, Mutex},
+};
 
 struct ComputePipelineInner {
     device: Device,
     pipeline: vk::Pipeline,
     pipeline_layout: PipelineLayout,
     workgroup_size: [u32; 3],
+    descriptor_sets: Mutex<Vec<DescriptorSet>>,
 }
 
 impl Drop for ComputePipelineInner {
@@ -54,14 +60,20 @@ impl ComputePipeline {
             pipeline,
             pipeline_layout,
             workgroup_size,
+            descriptor_sets: Mutex::new(vec![]),
         }))
+    }
+
+    pub fn set_descriptor_sets(&self, descriptor_sets: Vec<DescriptorSet>) {
+        let mut guard = self.0.descriptor_sets.lock().unwrap();
+        *guard = descriptor_sets;
     }
 
     pub fn get_layout(&self) -> &PipelineLayout {
         &self.0.pipeline_layout
     }
 
-    pub fn record_bind_descriptor_sets(
+    fn record_bind_descriptor_sets(
         &self,
         cmdbuf: &CommandBuffer,
         descriptor_sets: &[DescriptorSet],
@@ -84,7 +96,7 @@ impl ComputePipeline {
         }
     }
 
-    pub fn record_bind(&self, cmdbuf: &CommandBuffer) {
+    fn record_bind(&self, cmdbuf: &CommandBuffer) {
         unsafe {
             self.0.device.cmd_bind_pipeline(
                 cmdbuf.as_raw(),
@@ -94,7 +106,7 @@ impl ComputePipeline {
         }
     }
 
-    pub fn record_push_constants(&self, cmdbuf: &CommandBuffer, push_constants: &[u8]) {
+    fn record_push_constants(&self, cmdbuf: &CommandBuffer, push_constants: &[u8]) {
         unsafe {
             self.0.device.cmd_push_constants(
                 cmdbuf.as_raw(),
@@ -106,7 +118,7 @@ impl ComputePipeline {
         }
     }
 
-    pub fn record_dispatch(&self, cmdbuf: &CommandBuffer, dispatch_size: [u32; 3]) {
+    fn record_dispatch(&self, cmdbuf: &CommandBuffer, dispatch_size: [u32; 3]) {
         let x = (dispatch_size[0] as f32 / self.0.workgroup_size[0] as f32).ceil() as u32;
         let y = (dispatch_size[1] as f32 / self.0.workgroup_size[1] as f32).ceil() as u32;
         let z = (dispatch_size[2] as f32 / self.0.workgroup_size[2] as f32).ceil() as u32;
@@ -115,7 +127,52 @@ impl ComputePipeline {
         }
     }
 
-    pub fn record_dispatch_indirect(&self, cmdbuf: &CommandBuffer, buffer: &Buffer) {
+    /// Record the compute pipeline into the command buffer.
+    ///
+    /// This function will bind the pipeline, bind the descriptor sets, push the push constants, and dispatch the compute work.
+    pub fn record(
+        &self,
+        cmdbuf: &CommandBuffer,
+        dispatch_extent: Extent3D,
+        push_constants: Option<&[u8]>,
+    ) {
+        self.record_bind(cmdbuf);
+        if !self.0.descriptor_sets.lock().unwrap().is_empty() {
+            self.record_bind_descriptor_sets(cmdbuf, &self.0.descriptor_sets.lock().unwrap(), 0);
+        }
+        if let Some(push_constants) = push_constants {
+            self.record_push_constants(cmdbuf, push_constants);
+        }
+        self.record_dispatch(
+            cmdbuf,
+            [
+                dispatch_extent.width,
+                dispatch_extent.height,
+                dispatch_extent.depth,
+            ],
+        );
+    }
+
+    /// Record the compute pipeline into the command buffer.
+    ///
+    /// This function will bind the pipeline, bind the descriptor sets, push the push constants, and dispatch the compute work.
+    pub fn record_indirect(
+        &self,
+        cmdbuf: &CommandBuffer,
+        buffer: &Buffer,
+        push_constants: Option<&[u8]>,
+    ) {
+        self.record_bind(cmdbuf);
+        if !self.0.descriptor_sets.lock().unwrap().is_empty() {
+            self.record_bind_descriptor_sets(cmdbuf, &self.0.descriptor_sets.lock().unwrap(), 0);
+        }
+        if let Some(push_constants) = push_constants {
+            self.record_push_constants(cmdbuf, push_constants);
+        }
+        self.record_dispatch_indirect(cmdbuf, buffer);
+    }
+
+    fn record_dispatch_indirect(&self, cmdbuf: &CommandBuffer, buffer: &Buffer) {
         unsafe {
             self.0
                 .device

@@ -2,13 +2,11 @@ use crate::vkn::{AccelStruct, Buffer, Device, Texture};
 use ash::vk;
 use std::sync::Arc;
 
-/// Non-cloneable inner part of the descriptor set handle.
 struct DescriptorSetInner {
     device: Device,
     descriptor_set: vk::DescriptorSet,
 }
 
-/// A cheap, reference-counted wrapper around a Vulkan descriptor set.
 #[derive(Clone)]
 pub struct DescriptorSet(Arc<DescriptorSetInner>);
 

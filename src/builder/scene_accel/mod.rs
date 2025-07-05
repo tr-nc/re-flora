@@ -9,7 +9,7 @@ use crate::{
     util::ShaderCompiler,
     vkn::{
         execute_one_time_command, Allocator, Buffer, ClearValue, CommandBuffer, ComputePipeline,
-        DescriptorPool, DescriptorSet, PlainMemberTypeWithData, ShaderModule,
+        DescriptorPool, DescriptorSet, Extent3D, PlainMemberTypeWithData, ShaderModule,
         StructMemberDataBuilder, VulkanContext, WriteDescriptorSet,
     },
 };
@@ -21,47 +21,14 @@ pub struct SceneAccelBuilder {
     #[allow(dead_code)]
     fixed_pool: DescriptorPool,
 
-    _update_scene_tex_ppl: ComputePipeline,
-    _update_scene_tex_ds: DescriptorSet,
-
+    #[allow(dead_code)]
+    update_scene_tex_ppl: ComputePipeline,
     update_scene_tex_cmdbuf: CommandBuffer,
 }
 
 impl SceneAccelBuilder {
-    pub fn new(
-        vulkan_ctx: VulkanContext,
-        allocator: Allocator,
-        shader_compiler: &ShaderCompiler,
-        chunk_bound: UAabb3,
-    ) -> Self {
-        let _ = chunk_bound;
-        let fixed_pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
-
-        let update_scene_tex_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            &shader_compiler,
-            "shader/builder/scene_accel/update_scene_tex.comp",
-            "main",
-        )
-        .unwrap();
-
-        let resources = SceneAccelResources::new(
-            vulkan_ctx.device().clone(),
-            allocator,
-            chunk_bound,
-            &update_scene_tex_sm,
-        );
-
-        let update_scene_tex_ppl = ComputePipeline::new(vulkan_ctx.device(), &update_scene_tex_sm);
-
-        let update_scene_tex_ds = fixed_pool
-            .allocate_set(
-                &update_scene_tex_ppl
-                    .get_layout()
-                    .get_descriptor_set_layouts()[&0],
-            )
-            .unwrap();
-        update_scene_tex_ds.perform_writes(&mut [
+    fn update_update_scene_tex_ds(ds: &DescriptorSet, resources: &SceneAccelResources) {
+        ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.scene_tex_update_info),
             WriteDescriptorSet::new_texture_write(
                 1,
@@ -70,47 +37,73 @@ impl SceneAccelBuilder {
                 vk::ImageLayout::GENERAL,
             ),
         ]);
+    }
 
-        let update_scene_tex_cmdbuf = record_update_scene_tex_cmdbuf(
-            vulkan_ctx.clone(),
-            &update_scene_tex_ppl,
-            &update_scene_tex_ds,
-        );
+    pub fn new(
+        vulkan_ctx: VulkanContext,
+        allocator: Allocator,
+        shader_compiler: &ShaderCompiler,
+        chunk_bound: UAabb3,
+    ) -> Self {
+        let device = vulkan_ctx.device();
+        let fixed_pool = DescriptorPool::new(device).unwrap();
+
+        let update_scene_tex_sm = ShaderModule::from_glsl(
+            device,
+            shader_compiler,
+            "shader/builder/scene_accel/update_scene_tex.comp",
+            "main",
+        )
+        .unwrap();
+
+        let resources =
+            SceneAccelResources::new(device.clone(), allocator, chunk_bound, &update_scene_tex_sm);
+
+        let update_scene_tex_ppl = ComputePipeline::new(device, &update_scene_tex_sm);
+
+        let update_scene_tex_ds = fixed_pool
+            .allocate_set(
+                &update_scene_tex_ppl
+                    .get_layout()
+                    .get_descriptor_set_layouts()[&0],
+            )
+            .unwrap();
+
+        Self::update_update_scene_tex_ds(&update_scene_tex_ds, &resources);
+
+        update_scene_tex_ppl.set_descriptor_sets(vec![update_scene_tex_ds]);
+
+        let update_scene_tex_cmdbuf =
+            Self::record_update_scene_tex_cmdbuf(vulkan_ctx.clone(), &update_scene_tex_ppl);
 
         Self::clear_tex(&vulkan_ctx, &resources);
 
-        return Self {
+        Self {
             vulkan_ctx,
             resources,
-
             fixed_pool,
-
-            _update_scene_tex_ppl: update_scene_tex_ppl,
-            _update_scene_tex_ds: update_scene_tex_ds,
+            update_scene_tex_ppl,
             update_scene_tex_cmdbuf,
-        };
-
-        fn record_update_scene_tex_cmdbuf(
-            vulkan_ctx: VulkanContext,
-            update_scene_tex_ppl: &ComputePipeline,
-            update_scene_tex_ds: &DescriptorSet,
-        ) -> CommandBuffer {
-            let device = vulkan_ctx.device();
-
-            let cmdbuf = CommandBuffer::new(device, vulkan_ctx.command_pool());
-            cmdbuf.begin(false);
-
-            update_scene_tex_ppl.record_bind(&cmdbuf);
-            update_scene_tex_ppl.record_bind_descriptor_sets(
-                &cmdbuf,
-                std::slice::from_ref(update_scene_tex_ds),
-                0,
-            );
-            update_scene_tex_ppl.record_dispatch(&cmdbuf, [1, 1, 1]);
-
-            cmdbuf.end();
-            return cmdbuf;
         }
+    }
+
+    fn record_update_scene_tex_cmdbuf(
+        vulkan_ctx: VulkanContext,
+        update_scene_tex_ppl: &ComputePipeline,
+    ) -> CommandBuffer {
+        let device = vulkan_ctx.device();
+        let cmdbuf = CommandBuffer::new(device, vulkan_ctx.command_pool());
+        cmdbuf.begin(false);
+
+        let extent = Extent3D {
+            width: 1,
+            height: 1,
+            depth: 1,
+        };
+        update_scene_tex_ppl.record(&cmdbuf, extent, None);
+
+        cmdbuf.end();
+        cmdbuf
     }
 
     /// Clears the scene offset texture to zero.
