@@ -17,78 +17,40 @@ pub enum WindowMode {
     FullscreenWindowed,
 }
 
-/// Describes the information
-/// needed for creating a
-/// window.
+/// Describes the information needed for creating a window.
 #[derive(Debug, Clone)]
 pub struct WindowStateDesc {
-    /// The requested logical
-    /// width of the window's
-    /// client area.
-    ///
-    /// May vary from the
-    /// physical width due to
-    /// different pixel
-    /// density on different
-    /// monitors.
+    /// The requested logical width of the window's client area.
+    /// May vary from the physical width due to different pixel density on different monitors.
     pub width: f32,
 
-    /// The requested logical
-    /// height of the window's
-    /// client area.
-    ///
-    /// May vary from the
-    /// physical height due to
-    /// different pixel
-    /// density on different
-    /// monitors.
+    /// The requested logical height of the window's client area.
+    /// May vary from the physical height due to different pixel density on different monitors.
     pub height: f32,
 
-    /// The position on the
-    /// screen that the window
-    /// will be centered at.
-    ///
-    /// If set to `None`, some
-    /// platform-specific
-    /// position will be
-    /// chosen.
+    /// The position on the screen that the window will be centered at.
+    /// If set to `None`, some platform-specific position will be chosen.
     pub position: Option<[f32; 2]>,
 
-    /// Sets the title that
-    /// displays on the window
-    /// top bar, on the system
-    /// task bar and other OS
-    /// specific places.
+    /// Sets the title that displays on the window top bar, on the system task bar and other OS specific places.
     pub title: String,
 
-    /// Sets whether the
-    /// window is resizable.
+    /// Sets whether the window is resizable.
     pub resizable: bool,
 
-    /// Sets whether the
-    /// window should have
-    /// borders and bars.
+    /// Sets whether the window should have borders and bars.
     pub decorations: bool,
 
-    /// Sets whether the
-    /// cursor is visible when
-    /// the window has focus.
+    /// Sets whether the cursor is visible when the window has focus.
     pub cursor_visible: bool,
 
-    /// Sets whether the
-    /// window locks the
-    /// cursor inside its
-    /// borders when the
-    /// window has focus.
+    /// Sets whether the window locks the cursor inside its borders when the window has focus.
     pub cursor_locked: bool,
 
     /// Sets the WindowMode.
     pub window_mode: WindowMode,
 
-    /// Sets whether the
-    /// background of the
-    /// window should be
-    /// transparent.
+    /// Sets whether the background of the window should be transparent.
     pub transparent: bool,
 }
 
@@ -109,10 +71,7 @@ impl Default for WindowStateDesc {
     }
 }
 
-/// winit::window::Window is
-/// lacking some state
-/// tracking, so we wrap it in
-/// this struct to keep track
+/// winit::window::Window is lacking some state tracking, so we wrap it in this struct to keep track
 pub struct WindowState {
     window: Arc<Window>,
     desc: WindowStateDesc,
@@ -181,14 +140,7 @@ impl WindowState {
         &self.desc
     }
 
-    /// Toggles the cursor
-    /// visibility, this is
-    /// the only way to change
-    /// the cursor visibility,
-    /// do not change it
-    /// directly, otherwise
-    /// the internal state
-    /// will be out of sync.
+    /// Toggles the cursor visibility, this is the only way to change the cursor visibility, do not change it directly, otherwise the internal state will be out of sync.
     pub fn toggle_cursor_visibility(&mut self) {
         self.set_cursor_visibility(!self.is_cursor_visible());
     }
@@ -197,27 +149,13 @@ impl WindowState {
         self.desc.cursor_visible
     }
 
-    /// Sets the cursor
-    /// visibility, this is
-    /// the only way to change
-    /// the cursor visibility,
-    /// do not change it
-    /// directly, otherwise
-    /// the internal state
-    /// will be out of sync.
+    /// Sets the cursor visibility, this is the only way to change the cursor visibility, do not change it directly, otherwise the internal state will be out of sync.
     pub fn set_cursor_visibility(&mut self, cursor_visible: bool) {
         self.desc.cursor_visible = cursor_visible;
         self.window.set_cursor_visible(cursor_visible);
     }
 
-    /// Toggles the cursor
-    /// grab, this is the only
-    /// way to change the
-    /// cursor grab, do not
-    /// change it directly,
-    /// otherwise the internal
-    /// state will be out of
-    /// sync.
+    /// Toggles the cursor grab, this is the only way to change the cursor grab, do not change it directly, otherwise the internal state will be out of sync.
     pub fn toggle_cursor_grab(&mut self) {
         self.set_cursor_grab(!self.get_cursor_grab());
     }
@@ -226,13 +164,7 @@ impl WindowState {
         self.desc.cursor_locked
     }
 
-    /// Sets the cursor grab,
-    /// this is the only way
-    /// to change the cursor
-    /// grab, do not change it
-    /// directly, otherwise
-    /// the internal state
-    /// will be out of sync.
+    /// Sets the cursor grab, this is the only way to change the cursor grab, do not change it directly, otherwise the internal state will be out of sync.
     pub fn set_cursor_grab(&mut self, cursor_locked: bool) {
         self.desc.cursor_locked = cursor_locked;
         let res = self
@@ -253,8 +185,7 @@ impl WindowState {
         self.window.is_minimized().unwrap()
     }
 
-    /// Return scale factor
-    /// accounted window size.
+    /// Return scale factor accounted window size.
     #[allow(dead_code)]
     pub fn resolution(&self) -> [f32; 2] {
         let size = self.window_extent();
