@@ -128,8 +128,10 @@ rustup update stable
 
 ## TODO list
 
-- [ ] Leaves
-- [ ] Basic Filtering
+- [ ] Trees & Leaves
 - [ ] Dynamic Terrain Edit
-- [ ] Other types of plants
 - [ ] Sky Color
+- [ ] Still Water
+- [ ] Other types of plants
+- [ ] Collider
+- [ ] Audio
