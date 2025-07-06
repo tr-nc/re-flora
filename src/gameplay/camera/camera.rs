@@ -282,6 +282,7 @@ impl Camera {
         (horizontal_front, horizontal_right)
     }
 
+    #[allow(dead_code)]
     pub fn update_transform_fly_mode(&mut self, frame_delta_time: f32) {
         // move in the camera's local axes (front/right/up)
         self.position += self.movement_state.get_velocity(
@@ -290,8 +291,7 @@ impl Camera {
             self.vectors.up,
         ) * frame_delta_time;
     }
-    /// Handles movement and physics for a walking/gravity-based mode.
-    /// This implementation uses a clean state machine to prevent jitter and handle jumps correctly.
+
     pub fn update_transform_walk_mode(&mut self, frame_delta_time: f32, ground_distance: f32) {
         const GRAVITY_G: f32 = 2.0;
         const JUMP_IMPULSE: f32 = 0.4;
