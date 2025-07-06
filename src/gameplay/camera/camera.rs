@@ -295,7 +295,7 @@ impl Camera {
         // if the raw change is larger than this, snap instead of smoothing
         const SNAP_THRESHOLD: f32 = 0.1; // in world units
                                          // low-pass coefficient (0‥1]; higher → faster response, lower → smoother
-        const ALPHA: f32 = 0.2;
+        const ALPHA: f32 = 0.1;
 
         // compare against last *smoothed* value
         let delta = raw_dist - self.last_ground_distance;
@@ -315,7 +315,7 @@ impl Camera {
     }
 
     pub fn update_transform_walk_mode(&mut self, frame_delta_time: f32, ground_distance: f32) {
-        const GRAVITY_G: f32 = 2.0;
+        const GRAVITY_G: f32 = 4.0;
         const JUMP_SPEED: f32 = 0.5;
         const GROUND_EPSILON: f32 = 0.001;
 
