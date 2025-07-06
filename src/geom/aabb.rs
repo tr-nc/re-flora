@@ -143,7 +143,7 @@ impl UAabb3 {
     /// If `self` has no size, `other` is returned.
     /// If `other` has no size, `self` is returned.
     /// If neither has size, a default UAabb3 is returned.
-    pub fn union(&self, other: &UAabb3) -> UAabb3 {
+    pub fn union_with(&self, other: &UAabb3) -> UAabb3 {
         let self_has_size = self.has_size();
         let other_has_size = other.has_size();
 

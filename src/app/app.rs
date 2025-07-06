@@ -330,7 +330,7 @@ impl App {
             &mut self.surface_builder,
             &mut self.contree_builder,
             &mut self.scene_accel_builder,
-            this_bound.union(&self.prev_bound),
+            this_bound.union_with(&self.prev_bound),
         )?;
 
         self.prev_bound = this_bound;
@@ -350,18 +350,14 @@ impl App {
             let atlas_offset = chunk_id * VOXEL_DIM_PER_CHUNK;
 
             let now = Instant::now();
-            let active_voxel_len = surface_builder.build_surface(chunk_id);
-            if let Err(e) = active_voxel_len {
+            let res = surface_builder.build_surface(chunk_id);
+            if let Err(e) = res {
                 log::error!("Failed to build surface for chunk {}: {}", chunk_id, e);
                 continue;
             }
-            let active_voxel_len = active_voxel_len.unwrap();
+            // we don't use the active_voxel_len here
 
             BENCH.lock().unwrap().record("build_surface", now.elapsed());
-
-            if active_voxel_len == 0 {
-                continue;
-            }
 
             let now = Instant::now();
             let res = contree_builder.build_and_alloc(atlas_offset).unwrap();
