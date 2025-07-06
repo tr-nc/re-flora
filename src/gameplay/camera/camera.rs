@@ -130,6 +130,8 @@ pub struct Camera {
 
     /// vertical velocity used by walk/gravity mode (m/s, +y up)
     vertical_velocity: f32,
+
+    last_ground_distance: f32,
 }
 
 impl Camera {
@@ -150,6 +152,7 @@ impl Camera {
             ),
             desc,
             vertical_velocity: 0.0,
+            last_ground_distance: 0.0,
         };
 
         camera.vectors.update(camera.yaw, camera.pitch);
@@ -278,11 +281,6 @@ impl Camera {
         (horizontal_front, horizontal_right)
     }
 
-    // pub fn update_transform_fly_mode(&mut self, frame_delta_time: f32) {
-    //     let (front, right) = self.movement_basis();
-    //     self.position += self.movement_state.get_velocity(front, right, Vec3::Y) * frame_delta_time;
-    // }
-
     pub fn update_transform_fly_mode(&mut self, frame_delta_time: f32) {
         // move in the camera's local axes (front/right/up)
         self.position += self.movement_state.get_velocity(
@@ -292,20 +290,45 @@ impl Camera {
         ) * frame_delta_time;
     }
 
+    /// smooth both uphill and downhill steps; snap when the change is too large
+    fn smooth_ground_distance(&mut self, raw_dist: f32) -> f32 {
+        // if the raw change is larger than this, snap instead of smoothing
+        const SNAP_THRESHOLD: f32 = 0.1; // in world units
+                                         // low-pass coefficient (0‥1]; higher → faster response, lower → smoother
+        const ALPHA: f32 = 0.2;
+
+        // compare against last *smoothed* value
+        let delta = raw_dist - self.last_ground_distance;
+
+        // decide whether to smooth or snap
+        let smoothed = if delta.abs() > SNAP_THRESHOLD {
+            // big jump (e.g. high step, cliff) → take raw value directly
+            raw_dist
+        } else {
+            // small change → exponential smoothing
+            self.last_ground_distance + delta * ALPHA
+        };
+
+        // store smoothed value for the next frame
+        self.last_ground_distance = smoothed;
+        smoothed
+    }
+
     pub fn update_transform_walk_mode(&mut self, frame_delta_time: f32, ground_distance: f32) {
         const GRAVITY_G: f32 = 2.0;
         const JUMP_SPEED: f32 = 0.5;
         const GROUND_EPSILON: f32 = 0.001;
 
+        let smoothed_ground_distance = self.smooth_ground_distance(ground_distance);
+
         let (front, right) = self.movement_basis();
         let mut movement_velocity = self.movement_state.get_velocity(front, right, Vec3::Y);
-        // ensure pure horizontal movement for walking
         movement_velocity.y = 0.0;
 
         self.vertical_velocity -= GRAVITY_G * frame_delta_time;
 
         if self.movement_state.jump_requested
-            && ground_distance <= self.desc.camera_height + GROUND_EPSILON
+            && smoothed_ground_distance <= self.desc.camera_height + GROUND_EPSILON
         {
             self.vertical_velocity = JUMP_SPEED;
         }
@@ -314,10 +337,13 @@ impl Camera {
         let total_velocity = movement_velocity + Vec3::new(0.0, self.vertical_velocity, 0.0);
         self.position += total_velocity * frame_delta_time;
 
-        if ground_distance < self.desc.camera_height && self.vertical_velocity < 0.0 {
-            let correction = self.desc.camera_height - ground_distance;
+        if smoothed_ground_distance < self.desc.camera_height && self.vertical_velocity < 0.0 {
+            let correction = self.desc.camera_height - smoothed_ground_distance;
             self.position.y += correction;
             self.vertical_velocity = 0.0;
+
+            // 防止“弹簧”：把地面距离重置为理想高度
+            self.last_ground_distance = self.desc.camera_height;
         }
     }
 

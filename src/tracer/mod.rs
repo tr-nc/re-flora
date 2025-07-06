@@ -1731,7 +1731,7 @@ impl Tracer {
 
     pub fn update_camera(&mut self, frame_delta_time: f32) {
         let res = get_player_collision_result(&self.resources.player_collision_result).unwrap();
-        log::debug!("player_collision_result: {}", res);
+        // log::debug!("player_collision_result: {}", res);
 
         self.camera
             .update_transform_walk_mode(frame_delta_time, res);
