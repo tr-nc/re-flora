@@ -44,18 +44,18 @@ impl Default for TreeDesc {
             /* ────────────── Basic Properties ────────────── */
             size: 50.0,
             trunk_thickness: 0.50,
-            trunk_thickness_min: 1.00, // ← was 1.05
+            trunk_thickness_min: 1.05,
 
             /* ──────────────── Iterations ───────────────── */
             iterations: 7,
 
             /* ───────────────── Tree Shape ──────────────── */
-            tree_height: 16.0,              // ← was 10.0
-            spread: 0.45,                   // ← was 0.42
-            vertical_tendency: 1.00,        // ← was 0.50
-            segment_length_variation: 0.15, // ← was 0.35
-            length_dropoff: 0.39,           // ← was 0.66
-            thickness_reduction: 0.40,      // ← was 0.60
+            tree_height: 16.0,
+            spread: 0.45,
+            vertical_tendency: 1.00,
+            segment_length_variation: 0.15,
+            length_dropoff: 0.39,
+            thickness_reduction: 0.40,
 
             /* ────────────── Branching Control ──────────── */
             branch_probability: 0.65,
@@ -66,17 +66,17 @@ impl Default for TreeDesc {
 
             /* ───────────── Subdivision Params ──────────── */
             enable_subdivision: true,
-            subdivision_threshold: 7.0,   // ← was 8.0
-            subdivision_count_min: 3,     // unchanged
-            subdivision_count_max: 6,     // ← was 7
-            subdivision_randomness: 0.64, // ← was 0.75
+            subdivision_threshold: 7.0,
+            subdivision_count_min: 3,
+            subdivision_count_max: 6,
+            subdivision_randomness: 0.64,
 
             /* ───────────────── Variation ───────────────── */
             randomness: 0.27,
             leaves_size_level: 5,
 
             /* ─────────────────── Seed ──────────────────── */
-            seed: 152, // ← was 115
+            seed: 152,
         }
     }
 }
