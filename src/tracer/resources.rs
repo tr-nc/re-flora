@@ -206,6 +206,8 @@ pub struct TracerResources {
     pub grass_info: Buffer,
     pub taa_info: Buffer,
     pub post_processing_info: Buffer,
+    pub player_collider_info: Buffer,
+    pub player_collision_result: Buffer,
 
     pub vertices: Buffer,
     pub indices: Buffer,
@@ -239,6 +241,7 @@ impl TracerResources {
         spatial_sm: &ShaderModule,
         taa_sm: &ShaderModule,
         post_processing_sm: &ShaderModule,
+        player_collider_sm: &ShaderModule,
         rendering_extent: Extent2D,
         screen_extent: Extent2D,
         shadow_map_extent: Extent2D,
@@ -319,6 +322,29 @@ impl TracerResources {
             device.clone(),
             allocator.clone(),
             post_processing_info_layout.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+        );
+
+        let player_collider_info_layout = player_collider_sm
+            .get_buffer_layout("U_PlayerColliderInfo")
+            .unwrap();
+        let player_collider_info = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            player_collider_info_layout.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+        );
+
+        let player_collision_result_layout = player_collider_sm
+            .get_buffer_layout("B_PlayerCollisionResult")
+            .unwrap();
+
+        let player_collision_result = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            player_collision_result_layout.clone(),
             BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
@@ -427,7 +453,8 @@ impl TracerResources {
             grass_info,
             taa_info,
             post_processing_info,
-
+            player_collider_info,
+            player_collision_result,
             vertices,
             indices,
             indices_len,

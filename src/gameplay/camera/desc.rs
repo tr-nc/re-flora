@@ -1,3 +1,4 @@
+// camera_desc.rs
 #[derive(Debug)]
 pub struct CameraMovementDesc {
     pub normal_speed: f32,
@@ -38,4 +39,16 @@ pub struct CameraDesc {
     pub movement: CameraMovementDesc,
     pub projection: CameraProjectionDesc,
     pub aspect_ratio: f32,
+    pub camera_height: f32,
+}
+
+impl Default for CameraDesc {
+    fn default() -> Self {
+        Self {
+            movement: CameraMovementDesc::default(),
+            projection: CameraProjectionDesc::default(),
+            aspect_ratio: 16.0 / 9.0,
+            camera_height: 0.1,
+        }
+    }
 }

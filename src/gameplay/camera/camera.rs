@@ -38,6 +38,8 @@ struct MovementState {
     boosted_speed_mul: f32,
     is_boosted: bool,
     axes: AxesState,
+    // indicates that a jump should be performed in the next physics update
+    jump_requested: bool,
 }
 
 impl MovementState {
@@ -47,6 +49,7 @@ impl MovementState {
             boosted_speed_mul,
             is_boosted: false,
             axes: AxesState::default(),
+            jump_requested: false,
         }
     }
 
@@ -116,22 +119,17 @@ pub struct Camera {
     position: Vec3,
 
     /// The initial yaw of the camera in radians.
-    ///
-    /// Yaw is the angle between the yz-plane and the camera's forward vector,
-    /// when the x component of the camera's forward vector is positive, yaw
-    /// ranges from 0 to 180 degrees, otherwise it ranges from 0 to -180 degrees,
     yaw: f32,
 
     /// The initial pitch of the camera in radians.
-    ///
-    /// Pitch is the angle between the xz-plane and the camera's forward vector,
-    /// when the y component of the camera's forward vector is positive, pitch
-    /// ranges from 0 to 90 degrees, otherwise it ranges from 0 to -90 degrees,
     pitch: f32,
 
     vectors: CameraVectors,
     movement_state: MovementState,
     desc: CameraDesc,
+
+    /// vertical velocity used by walk/gravity mode (m/s, +y up)
+    vertical_velocity: f32,
 }
 
 impl Camera {
@@ -151,6 +149,7 @@ impl Camera {
                 desc.movement.boosted_speed_mul,
             ),
             desc,
+            vertical_velocity: 0.0,
         };
 
         camera.vectors.update(camera.yaw, camera.pitch);
@@ -204,51 +203,26 @@ impl Camera {
 
             match key_event.state {
                 ElementState::Pressed => match code {
-                    KeyCode::ShiftLeft => {
-                        self.movement_state.is_boosted = true;
-                    }
-                    KeyCode::KeyW => {
-                        self.movement_state.axes.forward = true;
-                    }
-                    KeyCode::KeyS => {
-                        self.movement_state.axes.backward = true;
-                    }
-                    KeyCode::KeyA => {
-                        self.movement_state.axes.left = true;
-                    }
-                    KeyCode::KeyD => {
-                        self.movement_state.axes.right = true;
-                    }
+                    KeyCode::ShiftLeft => self.movement_state.is_boosted = true,
+                    KeyCode::KeyW => self.movement_state.axes.forward = true,
+                    KeyCode::KeyS => self.movement_state.axes.backward = true,
+                    KeyCode::KeyA => self.movement_state.axes.left = true,
+                    KeyCode::KeyD => self.movement_state.axes.right = true,
                     KeyCode::Space => {
                         self.movement_state.axes.up = true;
+                        self.movement_state.jump_requested = true;
                     }
-                    KeyCode::ControlLeft => {
-                        self.movement_state.axes.down = true;
-                    }
+                    KeyCode::ControlLeft => self.movement_state.axes.down = true,
                     _ => {}
                 },
                 ElementState::Released => match code {
-                    KeyCode::ShiftLeft => {
-                        self.movement_state.is_boosted = false;
-                    }
-                    KeyCode::KeyW => {
-                        self.movement_state.axes.forward = false;
-                    }
-                    KeyCode::KeyS => {
-                        self.movement_state.axes.backward = false;
-                    }
-                    KeyCode::KeyA => {
-                        self.movement_state.axes.left = false;
-                    }
-                    KeyCode::KeyD => {
-                        self.movement_state.axes.right = false;
-                    }
-                    KeyCode::Space => {
-                        self.movement_state.axes.up = false;
-                    }
-                    KeyCode::ControlLeft => {
-                        self.movement_state.axes.down = false;
-                    }
+                    KeyCode::ShiftLeft => self.movement_state.is_boosted = false,
+                    KeyCode::KeyW => self.movement_state.axes.forward = false,
+                    KeyCode::KeyS => self.movement_state.axes.backward = false,
+                    KeyCode::KeyA => self.movement_state.axes.left = false,
+                    KeyCode::KeyD => self.movement_state.axes.right = false,
+                    KeyCode::Space => self.movement_state.axes.up = false,
+                    KeyCode::ControlLeft => self.movement_state.axes.down = false,
                     _ => {}
                 },
             }
@@ -287,17 +261,64 @@ impl Camera {
 
         self.limit_yaw();
         self.clamp_pitch();
-        // self.update_camera_vectors();
 
         self.vectors.update(self.yaw, self.pitch);
     }
 
-    pub fn update_transform(&mut self, frame_delta_time: f32) {
+    fn movement_basis(&self) -> (Vec3, Vec3) {
+        // discard vertical component so movement happens in world-space XZ plane
+        let mut horizontal_front = Vec3::new(self.vectors.front.x, 0.0, self.vectors.front.z);
+        // if the camera looks straight up/down, fallback to yaw to keep movement responsive
+        if horizontal_front.length_squared() < f32::EPSILON {
+            horizontal_front = Vec3::new(self.yaw.sin(), 0.0, -self.yaw.cos());
+        }
+        horizontal_front = horizontal_front.normalize();
+
+        let horizontal_right = horizontal_front.cross(Vec3::Y).normalize();
+        (horizontal_front, horizontal_right)
+    }
+
+    // pub fn update_transform_fly_mode(&mut self, frame_delta_time: f32) {
+    //     let (front, right) = self.movement_basis();
+    //     self.position += self.movement_state.get_velocity(front, right, Vec3::Y) * frame_delta_time;
+    // }
+
+    pub fn update_transform_fly_mode(&mut self, frame_delta_time: f32) {
+        // move in the camera's local axes (front/right/up)
         self.position += self.movement_state.get_velocity(
             self.vectors.front,
             self.vectors.right,
             self.vectors.up,
         ) * frame_delta_time;
+    }
+
+    pub fn update_transform_walk_mode(&mut self, frame_delta_time: f32, ground_distance: f32) {
+        const GRAVITY_G: f32 = 2.0;
+        const JUMP_SPEED: f32 = 0.5;
+        const GROUND_EPSILON: f32 = 0.001;
+
+        let (front, right) = self.movement_basis();
+        let mut movement_velocity = self.movement_state.get_velocity(front, right, Vec3::Y);
+        // ensure pure horizontal movement for walking
+        movement_velocity.y = 0.0;
+
+        self.vertical_velocity -= GRAVITY_G * frame_delta_time;
+
+        if self.movement_state.jump_requested
+            && ground_distance <= self.desc.camera_height + GROUND_EPSILON
+        {
+            self.vertical_velocity = JUMP_SPEED;
+        }
+        self.movement_state.jump_requested = false;
+
+        let total_velocity = movement_velocity + Vec3::new(0.0, self.vertical_velocity, 0.0);
+        self.position += total_velocity * frame_delta_time;
+
+        if ground_distance < self.desc.camera_height && self.vertical_velocity < 0.0 {
+            let correction = self.desc.camera_height - ground_distance;
+            self.position.y += correction;
+            self.vertical_velocity = 0.0;
+        }
     }
 
     #[allow(dead_code)]

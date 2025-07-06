@@ -267,8 +267,15 @@ impl App {
     }
 
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {
+        const WINDOW_TITLE_DEBUG: &str = "Re: Flora - DEBUG BUILD";
+        const WINDOW_TITLE_RELEASE: &str = "Re: Flora - RELEASE BUILD";
+        let using_mode = if cfg!(debug_assertions) {
+            WINDOW_TITLE_DEBUG
+        } else {
+            WINDOW_TITLE_RELEASE
+        };
         let window_descriptor = WindowStateDesc {
-            title: "Re: Flora".to_owned(),
+            title: using_mode.to_owned(),
             window_mode: WindowMode::Windowed,
             cursor_locked: true,
             cursor_visible: false,
@@ -475,12 +482,6 @@ impl App {
                     self.tracer.handle_mouse(self.smoothed_mouse_delta);
                 }
 
-                self.tracer.update_transform(frame_delta_time);
-
-                self.vulkan_ctx
-                    .wait_for_fences(&[self.fence.as_raw()])
-                    .unwrap();
-
                 let mut tree_desc_changed = false;
                 self.egui_renderer
                     .update(&self.window_state.window(), |ctx| {
@@ -661,10 +662,8 @@ impl App {
                 cmdbuf.begin(false);
 
                 self.tracer
-                    .update_buffers_and_record(
-                        cmdbuf,
+                    .update_buffers(
                         &self.time_info,
-                        &self.surface_builder.get_resources(),
                         self.debug_float,
                         self.debug_bool,
                         self.debug_uint,
@@ -687,6 +686,10 @@ impl App {
                         self.is_spatial_denoising_skipped,
                         self.is_taa_enabled,
                     )
+                    .unwrap();
+
+                self.tracer
+                    .record_trace(cmdbuf, &self.surface_builder.get_resources())
                     .unwrap();
 
                 self.swapchain.record_blit(
@@ -743,6 +746,12 @@ impl App {
                     Err(error) => panic!("Failed to present queue. Cause: {}", error),
                     _ => {}
                 }
+
+                self.vulkan_ctx
+                    .wait_for_fences(&[self.fence.as_raw()])
+                    .unwrap();
+
+                self.tracer.update_camera(frame_delta_time);
             }
             _ => (),
         }

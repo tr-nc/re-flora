@@ -18,9 +18,10 @@ use crate::geom::UAabb3;
 use crate::util::{ShaderCompiler, TimeInfo};
 use crate::vkn::{
     Allocator, AttachmentDesc, AttachmentReference, Buffer, ComputePipeline, DescriptorPool,
-    DescriptorSet, Extent2D, Framebuffer, GraphicsPipeline, GraphicsPipelineDesc, MemoryBarrier,
-    PipelineBarrier, PlainMemberTypeWithData, RenderPass, RenderPassDesc, ShaderModule,
-    StructMemberDataBuilder, SubpassDesc, Texture, Viewport, WriteDescriptorSet,
+    DescriptorSet, Extent2D, Extent3D, Framebuffer, GraphicsPipeline, GraphicsPipelineDesc,
+    MemoryBarrier, PipelineBarrier, PlainMemberTypeWithData, RenderPass, RenderPassDesc,
+    ShaderModule, StructMemberDataBuilder, StructMemberDataReader, SubpassDesc, Texture, Viewport,
+    WriteDescriptorSet,
 };
 use crate::vkn::{CommandBuffer, VulkanContext};
 use anyhow::Result;
@@ -49,6 +50,7 @@ pub struct Tracer {
     composition_ppl: ComputePipeline,
     taa_ppl: ComputePipeline,
     post_processing_ppl: ComputePipeline,
+    player_collider_ppl: ComputePipeline,
 
     tracer_shadow_ppl: ComputePipeline,
     #[allow(dead_code)]
@@ -104,9 +106,8 @@ impl Tracer {
             135.0,
             -5.0,
             CameraDesc {
-                movement: Default::default(),
-                projection: Default::default(),
                 aspect_ratio: render_extent.get_aspect_ratio(),
+                ..Default::default()
             },
         );
 
@@ -201,6 +202,14 @@ impl Tracer {
         )
         .unwrap();
 
+        let player_collider_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            &shader_compiler,
+            "shader/tracer/player_collider.comp",
+            "main",
+        )
+        .unwrap();
+
         let grass_vert_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             shader_compiler,
@@ -241,6 +250,7 @@ impl Tracer {
             &spatial_sm,
             &taa_sm,
             &post_processing_sm,
+            &player_collider_sm,
             render_extent,
             screen_extent,
             Extent2D::new(1024, 1024),
@@ -258,6 +268,7 @@ impl Tracer {
         let spatial_ppl = ComputePipeline::new(device, &spatial_sm);
         let composition_ppl = ComputePipeline::new(device, &composition_sm);
         let taa_ppl = ComputePipeline::new(device, &taa_sm);
+        let player_collider_ppl = ComputePipeline::new(device, &player_collider_sm);
         let post_processing_ppl = ComputePipeline::new(device, &post_processing_sm);
 
         let alloc_fixed_set_fn = |ppl: &ComputePipeline, layout_idx: u32| -> DescriptorSet {
@@ -283,6 +294,7 @@ impl Tracer {
         let composition_ds = alloc_flexible_set_fn(&composition_ppl, 0);
         let taa_ds = alloc_flexible_set_fn(&taa_ppl, 0);
         let post_processing_ds = alloc_flexible_set_fn(&post_processing_ppl, 0);
+        let player_collider_ds = alloc_fixed_set_fn(&player_collider_ppl, 0);
         let denoiser_ds = alloc_flexible_set_fn(&tracer_ppl, 3);
 
         // ignore the flexible sets
@@ -297,6 +309,13 @@ impl Tracer {
             scene_tex,
         );
         Self::update_vsm_ds_0(&vsm_ds_0, &resources);
+        Self::update_player_collider_ds(
+            &player_collider_ds,
+            &resources,
+            node_data,
+            leaf_data,
+            scene_tex,
+        );
 
         god_ray_ppl.set_descriptor_sets(vec![god_ray_ds_0.clone(), noise_tex_ds.clone()]);
         temporal_ppl.set_descriptor_sets(vec![temporal_ds.clone(), denoiser_ds.clone()]);
@@ -308,6 +327,7 @@ impl Tracer {
         composition_ppl.set_descriptor_sets(vec![composition_ds.clone()]);
         taa_ppl.set_descriptor_sets(vec![taa_ds.clone()]);
         post_processing_ppl.set_descriptor_sets(vec![post_processing_ds.clone()]);
+        player_collider_ppl.set_descriptor_sets(vec![player_collider_ds.clone()]);
         tracer_ppl.set_descriptor_sets(vec![
             tracer_ds_0.clone(),
             tracer_ds_1.clone(),
@@ -376,6 +396,7 @@ impl Tracer {
             composition_ppl,
             taa_ppl,
             post_processing_ppl,
+            player_collider_ppl,
             vsm_creation_ppl,
             vsm_blur_h_ppl,
             vsm_blur_v_ppl,
@@ -947,6 +968,27 @@ impl Tracer {
         ]);
     }
 
+    fn update_player_collider_ds(
+        ds: &DescriptorSet,
+        resources: &TracerResources,
+        node_data: &Buffer,
+        leaf_data: &Buffer,
+        scene_tex: &Texture,
+    ) {
+        ds.perform_writes(&mut [
+            WriteDescriptorSet::new_buffer_write(0, &resources.player_collider_info),
+            WriteDescriptorSet::new_buffer_write(1, &node_data),
+            WriteDescriptorSet::new_buffer_write(2, &leaf_data),
+            WriteDescriptorSet::new_texture_write(
+                3,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &scene_tex,
+                vk::ImageLayout::GENERAL,
+            ),
+            WriteDescriptorSet::new_buffer_write(4, &resources.player_collision_result),
+        ]);
+    }
+
     pub fn on_resize(&mut self, screen_extent: Extent2D) {
         let render_extent = Self::get_render_extent(screen_extent, self.desc.scaling_factor);
 
@@ -984,11 +1026,9 @@ impl Tracer {
         &self.resources.extent_dependent_resources.screen_output_tex
     }
 
-    pub fn update_buffers_and_record(
+    pub fn update_buffers(
         &mut self,
-        cmdbuf: &CommandBuffer,
         time_info: &TimeInfo,
-        surface_resources: &SurfaceResources,
         debug_float: f32,
         debug_bool: bool,
         debug_uint: u32,
@@ -1035,6 +1075,8 @@ impl Tracer {
 
         update_post_processing_info(&self.resources, self.desc.scaling_factor)?;
 
+        update_player_collider_info(&self.resources, self.camera.position())?;
+
         update_grass_info(&self.resources, time_info.time_since_start())?;
 
         update_gui_input(
@@ -1048,41 +1090,6 @@ impl Tracer {
         )?;
 
         update_env_info(&self.resources, time_info.total_frame_count() as u32)?;
-
-        let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
-        let compute_to_compute_barrier = PipelineBarrier::new(
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            vec![shader_access_memory_barrier],
-        );
-
-        self.record_tracer_shadow_pass(cmdbuf);
-        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-        self.record_vsm_filtering_pass(cmdbuf);
-        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-
-        let b1 = PipelineBarrier::new(
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            vk::PipelineStageFlags::VERTEX_SHADER | vk::PipelineStageFlags::COMPUTE_SHADER,
-            vec![shader_access_memory_barrier],
-        );
-        b1.record_insert(self.vulkan_ctx.device(), cmdbuf);
-
-        self.record_grass_pass(cmdbuf, surface_resources);
-
-        record_denoiser_resources_transition_barrier(&self.resources.denoiser_resources, cmdbuf);
-
-        self.record_tracer_pass(cmdbuf);
-
-        let b2 = PipelineBarrier::new(
-            vk::PipelineStageFlags::FRAGMENT_SHADER | vk::PipelineStageFlags::COMPUTE_SHADER,
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            vec![shader_access_memory_barrier],
-        );
-        b2.record_insert(self.vulkan_ctx.device(), cmdbuf);
-
-        self.record_god_ray_pass(cmdbuf);
-        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
         update_denoiser_info(
             &mut self.resources.denoiser_resources.temporal_info,
@@ -1098,21 +1105,9 @@ impl Tracer {
             is_changing_lum_phi,
             is_spatial_denoising_skipped,
         )?;
-        self.record_denoiser_pass(cmdbuf);
-
-        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-
-        self.record_composition_pass(cmdbuf);
-        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-        self.record_taa_pass(cmdbuf);
-        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-
-        self.record_post_processing_pass(cmdbuf);
 
         self.camera_view_mat_prev_frame = self.camera.get_view_mat();
         self.camera_proj_mat_prev_frame = self.camera.get_proj_mat();
-
-        copy_current_to_prev(&self.resources, cmdbuf);
 
         return Ok(());
 
@@ -1196,60 +1191,6 @@ impl Tracer {
                 spatial_info.fill_with_raw_u8(&data)?;
                 Ok(())
             }
-        }
-
-        fn record_denoiser_resources_transition_barrier(
-            denoiser_resources: &DenoiserResources,
-            cmdbuf: &CommandBuffer,
-        ) {
-            let tr_fn = |tex: &Texture| {
-                tex.get_image()
-                    .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
-            };
-            tr_fn(&denoiser_resources.tex.normal);
-            tr_fn(&denoiser_resources.tex.normal_prev);
-            tr_fn(&denoiser_resources.tex.position);
-            tr_fn(&denoiser_resources.tex.position_prev);
-            tr_fn(&denoiser_resources.tex.vox_id);
-            tr_fn(&denoiser_resources.tex.vox_id_prev);
-            tr_fn(&denoiser_resources.tex.accumed);
-            tr_fn(&denoiser_resources.tex.accumed_prev);
-            tr_fn(&denoiser_resources.tex.motion);
-            tr_fn(&denoiser_resources.tex.temporal_hist_len);
-            tr_fn(&denoiser_resources.tex.hit);
-            tr_fn(&denoiser_resources.tex.spatial_ping);
-            tr_fn(&denoiser_resources.tex.spatial_pong);
-        }
-
-        fn copy_current_to_prev(resources: &TracerResources, cmdbuf: &CommandBuffer) {
-            let copy_fn = |src_tex: &Texture, dst_tex: &Texture| {
-                src_tex.get_image().record_copy_to(
-                    cmdbuf,
-                    dst_tex.get_image(),
-                    vk::ImageLayout::GENERAL,
-                    vk::ImageLayout::GENERAL,
-                );
-            };
-            copy_fn(
-                &resources.denoiser_resources.tex.normal,
-                &resources.denoiser_resources.tex.normal_prev,
-            );
-            copy_fn(
-                &resources.denoiser_resources.tex.position,
-                &resources.denoiser_resources.tex.position_prev,
-            );
-            copy_fn(
-                &resources.denoiser_resources.tex.vox_id,
-                &resources.denoiser_resources.tex.vox_id_prev,
-            );
-            copy_fn(
-                &resources.denoiser_resources.tex.accumed,
-                &resources.denoiser_resources.tex.accumed_prev,
-            );
-            copy_fn(
-                &resources.extent_dependent_resources.taa_tex,
-                &resources.extent_dependent_resources.taa_tex_prev,
-            );
         }
 
         fn update_gui_input(
@@ -1357,6 +1298,135 @@ impl Tracer {
             resources.post_processing_info.fill_with_raw_u8(&data)?;
             Ok(())
         }
+
+        fn update_player_collider_info(
+            resources: &TracerResources,
+            player_pos: Vec3,
+        ) -> Result<()> {
+            let data = StructMemberDataBuilder::from_buffer(&resources.player_collider_info)
+                .set_field(
+                    "player_pos",
+                    PlainMemberTypeWithData::Vec3(player_pos.to_array()),
+                )
+                .build()?;
+            resources.player_collider_info.fill_with_raw_u8(&data)?;
+            Ok(())
+        }
+    }
+
+    pub fn record_trace(
+        &mut self,
+        cmdbuf: &CommandBuffer,
+        surface_resources: &SurfaceResources,
+    ) -> Result<()> {
+        let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
+        let compute_to_compute_barrier = PipelineBarrier::new(
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vec![shader_access_memory_barrier],
+        );
+
+        self.record_tracer_shadow_pass(cmdbuf);
+        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+        self.record_vsm_filtering_pass(cmdbuf);
+        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+
+        let b1 = PipelineBarrier::new(
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vk::PipelineStageFlags::VERTEX_SHADER | vk::PipelineStageFlags::COMPUTE_SHADER,
+            vec![shader_access_memory_barrier],
+        );
+        b1.record_insert(self.vulkan_ctx.device(), cmdbuf);
+
+        self.record_grass_pass(cmdbuf, surface_resources);
+
+        record_denoiser_resources_transition_barrier(&self.resources.denoiser_resources, cmdbuf);
+
+        self.record_tracer_pass(cmdbuf);
+
+        let b2 = PipelineBarrier::new(
+            vk::PipelineStageFlags::FRAGMENT_SHADER | vk::PipelineStageFlags::COMPUTE_SHADER,
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vec![shader_access_memory_barrier],
+        );
+        b2.record_insert(self.vulkan_ctx.device(), cmdbuf);
+
+        self.record_god_ray_pass(cmdbuf);
+        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+
+        self.record_denoiser_pass(&cmdbuf);
+
+        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+        self.record_composition_pass(cmdbuf);
+        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+        self.record_taa_pass(cmdbuf);
+        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+        self.record_post_processing_pass(cmdbuf);
+        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+        self.record_player_collider_pass(cmdbuf);
+
+        copy_current_to_prev(&self.resources, cmdbuf);
+
+        // let player_collision_result =
+        //     get_player_collision_result(&self.resources.player_collision_result)?;
+
+        // log::debug!("player_collision_result: {}", player_collision_result);
+
+        return Ok(());
+
+        fn record_denoiser_resources_transition_barrier(
+            denoiser_resources: &DenoiserResources,
+            cmdbuf: &CommandBuffer,
+        ) {
+            let tr_fn = |tex: &Texture| {
+                tex.get_image()
+                    .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+            };
+            tr_fn(&denoiser_resources.tex.normal);
+            tr_fn(&denoiser_resources.tex.normal_prev);
+            tr_fn(&denoiser_resources.tex.position);
+            tr_fn(&denoiser_resources.tex.position_prev);
+            tr_fn(&denoiser_resources.tex.vox_id);
+            tr_fn(&denoiser_resources.tex.vox_id_prev);
+            tr_fn(&denoiser_resources.tex.accumed);
+            tr_fn(&denoiser_resources.tex.accumed_prev);
+            tr_fn(&denoiser_resources.tex.motion);
+            tr_fn(&denoiser_resources.tex.temporal_hist_len);
+            tr_fn(&denoiser_resources.tex.hit);
+            tr_fn(&denoiser_resources.tex.spatial_ping);
+            tr_fn(&denoiser_resources.tex.spatial_pong);
+        }
+
+        fn copy_current_to_prev(resources: &TracerResources, cmdbuf: &CommandBuffer) {
+            let copy_fn = |src_tex: &Texture, dst_tex: &Texture| {
+                src_tex.get_image().record_copy_to(
+                    cmdbuf,
+                    dst_tex.get_image(),
+                    vk::ImageLayout::GENERAL,
+                    vk::ImageLayout::GENERAL,
+                );
+            };
+            copy_fn(
+                &resources.denoiser_resources.tex.normal,
+                &resources.denoiser_resources.tex.normal_prev,
+            );
+            copy_fn(
+                &resources.denoiser_resources.tex.position,
+                &resources.denoiser_resources.tex.position_prev,
+            );
+            copy_fn(
+                &resources.denoiser_resources.tex.vox_id,
+                &resources.denoiser_resources.tex.vox_id_prev,
+            );
+            copy_fn(
+                &resources.denoiser_resources.tex.accumed,
+                &resources.denoiser_resources.tex.accumed_prev,
+            );
+            copy_fn(
+                &resources.extent_dependent_resources.taa_tex,
+                &resources.extent_dependent_resources.taa_tex_prev,
+            );
+        }
     }
 
     fn record_grass_pass(&self, cmdbuf: &CommandBuffer, surface_resources: &SurfaceResources) {
@@ -1461,7 +1531,7 @@ impl Tracer {
             .set_layout(0, desc.attachments[1].final_layout);
     }
 
-    fn record_tracer_shadow_pass(&mut self, cmdbuf: &CommandBuffer) {
+    fn record_tracer_shadow_pass(&self, cmdbuf: &CommandBuffer) {
         self.resources
             .shadow_map_tex
             .get_image()
@@ -1646,6 +1716,11 @@ impl Tracer {
         );
     }
 
+    fn record_player_collider_pass(&self, cmdbuf: &CommandBuffer) {
+        self.player_collider_ppl
+            .record(cmdbuf, Extent3D::new(1, 1, 1), None);
+    }
+
     pub fn handle_keyboard(&mut self, key_event: &KeyEvent) {
         self.camera.handle_keyboard(key_event);
     }
@@ -1654,7 +1729,26 @@ impl Tracer {
         self.camera.handle_mouse(delta);
     }
 
-    pub fn update_transform(&mut self, frame_delta_time: f32) {
-        self.camera.update_transform(frame_delta_time);
+    pub fn update_camera(&mut self, frame_delta_time: f32) {
+        let res = get_player_collision_result(&self.resources.player_collision_result).unwrap();
+        log::debug!("player_collision_result: {}", res);
+
+        self.camera
+            .update_transform_walk_mode(frame_delta_time, res);
+        // self.camera.update_transform_fly_mode(frame_delta_time);
+
+        fn get_player_collision_result(player_collision_result: &Buffer) -> Result<f32> {
+            let layout = &player_collision_result.get_layout().unwrap().root_member;
+            let raw_data = player_collision_result.read_back().unwrap();
+            let reader = StructMemberDataReader::new(layout, &raw_data);
+
+            let data =
+                if let PlainMemberTypeWithData::Float(val) = reader.get_field("data").unwrap() {
+                    val
+                } else {
+                    panic!("Expected Float type for player_collision_result");
+                };
+            Ok(data)
+        }
     }
 }
