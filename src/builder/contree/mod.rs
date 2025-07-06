@@ -32,11 +32,17 @@ pub struct ContreeBuilder {
     vulkan_ctx: VulkanContext,
     resources: ContreeBuilderResources,
 
+    #[allow(dead_code)]
     contree_buffer_setup_ppl: ComputePipeline,
+    #[allow(dead_code)]
     contree_leaf_write_ppl: ComputePipeline,
+    #[allow(dead_code)]
     contree_tree_write_ppl: ComputePipeline,
+    #[allow(dead_code)]
     contree_buffer_update_ppl: ComputePipeline,
+    #[allow(dead_code)]
     contree_last_buffer_update_ppl: ComputePipeline,
+    #[allow(dead_code)]
     contree_concat_ppl: ComputePipeline,
 
     #[allow(dead_code)]
