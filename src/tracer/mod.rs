@@ -102,7 +102,7 @@ impl Tracer {
         let render_extent = Self::get_render_extent(screen_extent, desc.scaling_factor);
 
         let camera = Camera::new(
-            Vec3::new(0.5, 1.2, 0.5),
+            Vec3::new(0.5, 0.8, 0.5),
             135.0,
             -5.0,
             CameraDesc {

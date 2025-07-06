@@ -130,8 +130,8 @@ pub struct Camera {
 
     /// vertical velocity used by walk/gravity mode (m/s, +y up)
     vertical_velocity: f32,
-
-    last_ground_distance: f32,
+    // REMOVED: `last_ground_distance` is no longer needed with the new smoothing logic.
+    // last_ground_distance: f32,
 }
 
 impl Camera {
@@ -152,7 +152,8 @@ impl Camera {
             ),
             desc,
             vertical_velocity: 0.0,
-            last_ground_distance: 0.0,
+            // REMOVED: No longer need to initialize `last_ground_distance`.
+            // last_ground_distance: 0.0,
         };
 
         camera.vectors.update(camera.yaw, camera.pitch);
@@ -289,62 +290,52 @@ impl Camera {
             self.vectors.up,
         ) * frame_delta_time;
     }
-
-    /// smooth both uphill and downhill steps; snap when the change is too large
-    fn smooth_ground_distance(&mut self, raw_dist: f32) -> f32 {
-        // if the raw change is larger than this, snap instead of smoothing
-        const SNAP_THRESHOLD: f32 = 0.1; // in world units
-                                         // low-pass coefficient (0‥1]; higher → faster response, lower → smoother
-        const ALPHA: f32 = 0.1;
-
-        // compare against last *smoothed* value
-        let delta = raw_dist - self.last_ground_distance;
-
-        // decide whether to smooth or snap
-        let smoothed = if delta.abs() > SNAP_THRESHOLD {
-            // big jump (e.g. high step, cliff) → take raw value directly
-            raw_dist
-        } else {
-            // small change → exponential smoothing
-            self.last_ground_distance + delta * ALPHA
-        };
-
-        // store smoothed value for the next frame
-        self.last_ground_distance = smoothed;
-        smoothed
-    }
-
+    /// Handles movement and physics for a walking/gravity-based mode.
+    /// This implementation uses a clean state machine to prevent jitter and handle jumps correctly.
     pub fn update_transform_walk_mode(&mut self, frame_delta_time: f32, ground_distance: f32) {
-        const GRAVITY_G: f32 = 4.0;
-        const JUMP_SPEED: f32 = 0.5;
-        const GROUND_EPSILON: f32 = 0.001;
+        const GRAVITY_G: f32 = 2.0;
+        const JUMP_IMPULSE: f32 = 0.4;
 
-        let smoothed_ground_distance = self.smooth_ground_distance(ground_distance);
+        const GROUND_EPSILON: f32 = 0.01;
+        const Y_SMOOTHING_ALPHA: f32 = 0.2;
 
         let (front, right) = self.movement_basis();
-        let mut movement_velocity = self.movement_state.get_velocity(front, right, Vec3::Y);
-        movement_velocity.y = 0.0;
+        let horizontal_velocity = self.movement_state.get_velocity(front, right, Vec3::ZERO);
 
-        self.vertical_velocity -= GRAVITY_G * frame_delta_time;
+        let is_on_ground = ground_distance <= self.desc.camera_height + GROUND_EPSILON;
 
-        if self.movement_state.jump_requested
-            && smoothed_ground_distance <= self.desc.camera_height + GROUND_EPSILON
-        {
-            self.vertical_velocity = JUMP_SPEED;
+        if is_on_ground {
+            // When we land, we might have some leftover downward velocity.
+            // Reset it to zero immediately to prevent sinking into the ground on the next frame.
+            if self.vertical_velocity < 0.0 {
+                self.vertical_velocity = 0.0;
+            }
+
+            // Check for a jump request. This is the only way to gain vertical velocity while on the ground.
+            if self.movement_state.jump_requested {
+                // Apply an instantaneous upward velocity, transitioning us to the "Airborne" state.
+                self.vertical_velocity = JUMP_IMPULSE;
+            } else {
+                // Not jumping, so we are walking or standing still.
+                // Apply positional smoothing to stick to the ground. This is NOT velocity-based.
+                // It directly adjusts the camera's position to follow the terrain smoothly.
+                let ground_level_y = self.position.y - ground_distance;
+                let target_camera_y = ground_level_y + self.desc.camera_height;
+                self.position.y += (target_camera_y - self.position.y) * Y_SMOOTHING_ALPHA;
+            }
+        } else {
+            // We are in the air (either jumping or falling).
+            // Apply gravity to the vertical velocity. This is the only force acting on us.
+            self.vertical_velocity -= GRAVITY_G * frame_delta_time;
         }
+
+        // Reset the jump request flag after we've processed it.
         self.movement_state.jump_requested = false;
 
-        let total_velocity = movement_velocity + Vec3::new(0.0, self.vertical_velocity, 0.0);
+        // This update now correctly combines the horizontal velocity with the
+        // state-determined vertical velocity (which could be from a jump, from gravity, or zero).
+        let total_velocity = horizontal_velocity + Vec3::new(0.0, self.vertical_velocity, 0.0);
         self.position += total_velocity * frame_delta_time;
-
-        if smoothed_ground_distance < self.desc.camera_height && self.vertical_velocity < 0.0 {
-            let correction = self.desc.camera_height - smoothed_ground_distance;
-            self.position.y += correction;
-            self.vertical_velocity = 0.0;
-
-            // 防止“弹簧”：把地面距离重置为理想高度
-            self.last_ground_distance = self.desc.camera_height;
-        }
     }
 
     #[allow(dead_code)]

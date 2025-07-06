@@ -1,5 +1,4 @@
-// camera_desc.rs
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CameraMovementDesc {
     pub normal_speed: f32,
     pub boosted_speed_mul: f32,
@@ -16,7 +15,7 @@ impl Default for CameraMovementDesc {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CameraProjectionDesc {
     pub v_fov: f32,
     pub z_near: f32,
@@ -34,7 +33,7 @@ impl Default for CameraProjectionDesc {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CameraDesc {
     pub movement: CameraMovementDesc,
     pub projection: CameraProjectionDesc,

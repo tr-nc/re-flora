@@ -48,17 +48,63 @@ MarchingResult general_scene_marching(Ray ray) {
     return dda_scene_marching(ray.origin, ray.direction, ray.inv_direction);
 }
 
+#define RAY_HALF_KERNAL_SIZE 3
+#define RAY_OFFSET 1.0 / 256.0
+
+shared float shared_result[2 * RAY_HALF_KERNAL_SIZE + 1][2 * RAY_HALF_KERNAL_SIZE + 1];
+
 void main() {
-    int id = int(gl_GlobalInvocationID.x);
-    if (id >= 1) {
+    int id               = int(gl_GlobalInvocationID.x);
+    const int kernel_dim = 2 * RAY_HALF_KERNAL_SIZE + 1;
+    if (id >= (kernel_dim * kernel_dim)) {
         return;
     }
 
+    int x = id % kernel_dim;
+    int y = id / kernel_dim;
+
+    vec2 offset = vec2(x, y) - vec2(RAY_HALF_KERNAL_SIZE);
+    offset *= RAY_OFFSET;
+
+    vec3 ray_origin = player_collider_info.player_pos + vec3(offset.x, 0.0, offset.y);
+
     Ray ray;
-    ray.origin        = player_collider_info.player_pos;
+    ray.origin        = ray_origin;
     ray.direction     = vec3(0.0, -1.0, 0.0);
     ray.inv_direction = 1.0 / ray.direction;
 
-    MarchingResult res           = general_scene_marching(ray);
-    player_collision_result.data = res.t;
+    MarchingResult res  = general_scene_marching(ray);
+    shared_result[x][y] = res.t;
+
+    barrier();
+
+    if (id == 0) {
+        // A 7x7 Gaussian kernel, derived from the binomial coefficients of (a+b)^6.
+        // This provides a discrete approximation of a Gaussian distribution,
+        // allowing for a weighted average that emphasizes central samples.
+        const float gaussian_kernel[kernel_dim][kernel_dim] =
+            float[7][7](float[7](1.0, 6.0, 15.0, 20.0, 15.0, 6.0, 1.0),
+                        float[7](6.0, 36.0, 90.0, 120.0, 90.0, 36.0, 6.0),
+                        float[7](15.0, 90.0, 225.0, 300.0, 225.0, 90.0, 15.0),
+                        float[7](20.0, 120.0, 300.0, 400.0, 300.0, 120.0, 20.0),
+                        float[7](15.0, 90.0, 225.0, 300.0, 225.0, 90.0, 15.0),
+                        float[7](6.0, 36.0, 90.0, 120.0, 90.0, 36.0, 6.0),
+                        float[7](1.0, 6.0, 15.0, 20.0, 15.0, 6.0, 1.0));
+
+        float weighted_sum   = 0.0;
+        float sum_of_weights = 0.0;
+
+        // Apply the Gaussian kernel to the ray marching results.
+        // This calculates a weighted average, giving more importance to the central rays.
+        for (int i = 0; i < kernel_dim; i++) {
+            for (int j = 0; j < kernel_dim; j++) {
+                float weight = gaussian_kernel[i][j];
+                weighted_sum += shared_result[i][j] * weight;
+                sum_of_weights += weight;
+            }
+        }
+
+        // Store the final normalized, weighted average distance.
+        player_collision_result.data = weighted_sum / sum_of_weights;
+    }
 }
