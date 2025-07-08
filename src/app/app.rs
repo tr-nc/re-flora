@@ -1,6 +1,7 @@
 #[allow(unused)]
 use crate::util::Timer;
 
+use crate::audio::{AudioEngine, PlayConfig, PlayMode};
 use crate::builder::{ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder};
 use crate::geom::{build_bvh, UAabb3};
 use crate::tracer::{Tracer, TracerDesc};
@@ -18,8 +19,9 @@ use ash::vk;
 use egui::{Color32, RichText};
 use glam::{UVec3, Vec2, Vec3};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
+use kira::{StartTime, Tween};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use winit::event::DeviceEvent;
 use winit::{
     event::{ElementState, WindowEvent},
@@ -75,6 +77,9 @@ pub struct App {
 
     // note: always keep the context to end, as it has to be destroyed last
     vulkan_ctx: VulkanContext,
+
+    #[allow(unused)]
+    audio_engine: AudioEngine,
 }
 
 const VOXEL_DIM_PER_CHUNK: UVec3 = UVec3::new(256, 256, 256);
@@ -185,6 +190,9 @@ impl App {
             },
         );
 
+        let mut audio_engine = AudioEngine::new()?;
+        Self::add_ambient_sounds(&mut audio_engine)?;
+
         Ok(Self {
             vulkan_ctx,
             egui_renderer: renderer,
@@ -230,7 +238,44 @@ impl App {
             tree_pos: Vec3::new(512.0, 250.0, 512.0),
             tree_desc: TreeDesc::default(),
             prev_bound: Default::default(),
+
+            audio_engine,
         })
+    }
+
+    fn add_ambient_sounds(audio_engine: &mut AudioEngine) -> Result<()> {
+        let leaf_rustling_sound = "assets/sfx/leaf-rustling.wav";
+        let wind_ambient_sound = "assets/sfx/wind-ambient.wav";
+
+        let _leaf_handle = audio_engine.play(
+            leaf_rustling_sound,
+            PlayConfig {
+                mode: PlayMode::Loop,
+                volume: -40.0,
+                fade_in_tween: Some(Tween {
+                    start_time: StartTime::Immediate,
+                    duration: Duration::from_secs(2),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        )?;
+
+        let _wind_handle = audio_engine.play(
+            wind_ambient_sound,
+            PlayConfig {
+                mode: PlayMode::Loop,
+                volume: -40.0,
+                fade_in_tween: Some(Tween {
+                    start_time: StartTime::Immediate,
+                    duration: Duration::from_secs(2),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        )?;
+
+        Ok(())
     }
 
     fn init(

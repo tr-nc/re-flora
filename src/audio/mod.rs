@@ -1,9 +1,8 @@
 use anyhow::Result;
 use kira::{
     sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings},
-    AudioManager, AudioManagerSettings, DefaultBackend, StartTime, Tween,
+    AudioManager, AudioManagerSettings, DefaultBackend, Tween,
 };
-use std::{thread, time::Duration};
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum PlayMode {
@@ -53,17 +52,6 @@ impl AudioEngine {
         Ok(Self { manager })
     }
 
-    /// Plays a sound with the specified configuration.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - The file path to the sound to play.
-    /// * `config` - The configuration for volume, pitch, panning, and looping.
-    ///
-    /// # Returns
-    ///
-    /// A `Result` containing a `SoundHandle` if successful, which can be used
-    /// for later control of the sound instance.
     pub fn play(&mut self, path: &str, config: PlayConfig) -> Result<SoundHandle> {
         let mut settings = StaticSoundSettings::new()
             .volume(config.volume)
@@ -80,47 +68,4 @@ impl AudioEngine {
         let handle = self.manager.play(sound_data)?;
         Ok(handle)
     }
-}
-
-#[test]
-fn test() -> Result<()> {
-    let mut audio_engine = AudioEngine::new()?;
-
-    let leaf_rustling_sound = "assets/sfx/leaf-rustling.wav";
-    let wind_ambient_sound = "assets/sfx/wind-ambient.wav";
-
-    // --- Play the leaf rustling sound, looped and panned to the left ---
-    println!("Playing looping leaf rustling sound...");
-    let _leaf_handle = audio_engine.play(
-        leaf_rustling_sound,
-        PlayConfig {
-            mode: PlayMode::Loop,
-            volume: -20.0,
-            fade_in_tween: Some(Tween {
-                start_time: StartTime::Immediate,
-                duration: Duration::from_secs(2),
-                ..Default::default()
-            }),
-            ..Default::default()
-        },
-    )?;
-
-    println!("Playing wind sound (higher pitch)...");
-    let _wind_handle = audio_engine.play(
-        wind_ambient_sound,
-        PlayConfig {
-            mode: PlayMode::Loop,
-            volume: -10.0,
-            fade_in_tween: Some(Tween {
-                start_time: StartTime::Immediate,
-                duration: Duration::from_secs(2),
-                ..Default::default()
-            }),
-            ..Default::default()
-        },
-    )?;
-
-    thread::sleep(Duration::from_secs(30));
-
-    Ok(())
 }
