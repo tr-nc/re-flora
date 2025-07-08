@@ -9,6 +9,7 @@ mod tree_gen;
 mod util;
 mod vkn;
 mod window;
+mod audio;
 
 use app::AppController;
 use simple_logger::SimpleLogger;
