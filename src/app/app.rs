@@ -265,7 +265,7 @@ impl App {
             wind_ambient_sound,
             PlayConfig {
                 mode: PlayMode::Loop,
-                volume: -40.0,
+                volume: -35.0,
                 fade_in_tween: Some(Tween {
                     start_time: StartTime::Immediate,
                     duration: Duration::from_secs(2),
