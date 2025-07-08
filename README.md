@@ -114,6 +114,10 @@ rustup update stable
   - [Other Optimization Techs](https://www.youtube.com/watch?v=PYu1iwjAxWM)
   - [Scratchapixel CG Tutorials](https://www.scratchapixel.com/)
 
+### Resources
+
+- [Sound Effects](https://pixabay.com/sound-effects/)
+
 ---
 
 ## 🙏 Special Thanks To
