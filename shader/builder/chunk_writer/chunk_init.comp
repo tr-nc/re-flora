@@ -18,7 +18,7 @@ layout(set = 0, binding = 1, r8ui) writeonly uniform uimage3D raw_atlas;
 float compute_noise(vec3 p) {
     // https://auburn.github.io/FastNoiseLite/
 
-    float noise_scale = 1.0;
+    float noise_scale = 0.4;
 
     fnl_state state    = fnlCreateState(42);
     state.noise_type   = FNL_NOISE_PERLIN;
