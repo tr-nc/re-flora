@@ -78,8 +78,8 @@ pub struct App {
     // note: always keep the context to end, as it has to be destroyed last
     vulkan_ctx: VulkanContext,
 
+    #[allow(dead_code)]
     audio_engine: AudioEngine,
-    clip_cache: ClipCache,
 }
 
 const VOXEL_DIM_PER_CHUNK: UVec3 = UVec3::new(256, 256, 256);
@@ -176,6 +176,8 @@ impl App {
             &mut scene_accel_builder,
         )?;
 
+        let mut audio_engine = AudioEngine::new()?;
+
         let tracer = Tracer::new(
             vulkan_ctx.clone(),
             allocator.clone(),
@@ -188,11 +190,10 @@ impl App {
             TracerDesc {
                 scaling_factor: 0.5,
             },
-        );
+            audio_engine.clone(),
+        )?;
 
-        let mut audio_engine = AudioEngine::new()?;
         Self::add_ambient_sounds(&mut audio_engine)?;
-        let clip_cache = make_clip_cache()?;
 
         return Ok(Self {
             vulkan_ctx,
@@ -241,26 +242,7 @@ impl App {
             prev_bound: Default::default(),
 
             audio_engine,
-            clip_cache,
         });
-
-        fn make_clip_cache() -> Result<ClipCache> {
-            let prefix_path = "assets/sfx/raw/Footsteps SFX - Undergrowth & Leaves/TomWinandySFX - FS_UndergrowthLeaves_walk_";
-
-            let numbur_of_clips = 25;
-            let clip_paths: Vec<String> = (0..numbur_of_clips)
-                .map(|i| format!("{}{}.wav", prefix_path, format!("{:02}", i + 1)))
-                .collect();
-            log::debug!("clip_paths: {:?}", clip_paths);
-            let clip_cache = ClipCache::from_files(
-                &clip_paths,
-                SoundDataConfig {
-                    volume: -10.0,
-                    ..Default::default()
-                },
-            )?;
-            Ok(clip_cache)
-        }
     }
 
     fn add_ambient_sounds(audio_engine: &mut AudioEngine) -> Result<()> {
@@ -515,11 +497,6 @@ impl App {
                 if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyE {
                     self.window_state.toggle_cursor_visibility();
                     self.window_state.toggle_cursor_grab();
-                }
-
-                if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyA {
-                    let clip = self.clip_cache.next();
-                    self.audio_engine.play(&clip).unwrap();
                 }
 
                 if !self.window_state.is_cursor_visible() {

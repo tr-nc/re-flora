@@ -12,6 +12,7 @@ mod grass_construct;
 use glam::{Mat4, Vec2, Vec3};
 use winit::event::KeyEvent;
 
+use crate::audio::AudioEngine;
 use crate::builder::SurfaceResources;
 use crate::gameplay::{calculate_directional_light_matrices, Camera, CameraDesc};
 use crate::geom::UAabb3;
@@ -98,7 +99,8 @@ impl Tracer {
         leaf_data: &Buffer,
         scene_tex: &Texture,
         desc: TracerDesc,
-    ) -> Self {
+        audio_engine: AudioEngine,
+    ) -> Result<Self> {
         let render_extent = Self::get_render_extent(screen_extent, desc.scaling_factor);
 
         let camera = Camera::new(
@@ -109,7 +111,8 @@ impl Tracer {
                 aspect_ratio: render_extent.get_aspect_ratio(),
                 ..Default::default()
             },
-        );
+            audio_engine,
+        )?;
 
         let fixed_pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
         let flexible_pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
@@ -423,7 +426,7 @@ impl Tracer {
             ],
         };
         this.update_flexible_sets();
-        this
+        Ok(this)
     }
 
     fn update_flexible_sets(&mut self) {
@@ -1731,11 +1734,9 @@ impl Tracer {
 
     pub fn update_camera(&mut self, frame_delta_time: f32) {
         let res = get_player_collision_result(&self.resources.player_collision_result).unwrap();
-        // log::debug!("player_collision_result: {}", res);
 
         self.camera
             .update_transform_walk_mode(frame_delta_time, res);
-        // self.camera.update_transform_fly_mode(frame_delta_time);
 
         fn get_player_collision_result(player_collision_result: &Buffer) -> Result<f32> {
             let layout = &player_collision_result.get_layout().unwrap().root_member;

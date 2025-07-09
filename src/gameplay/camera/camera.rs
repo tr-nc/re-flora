@@ -1,12 +1,52 @@
+use super::CameraDesc;
+use crate::{
+    audio::{AudioEngine, ClipCache, SoundDataConfig},
+    vkn::Extent2D,
+};
+use anyhow::Result;
 use glam::{Mat4, Vec2, Vec3, Vec4};
 use winit::{
     event::{ElementState, KeyEvent},
     keyboard::{KeyCode, PhysicalKey},
 };
 
-use crate::vkn::Extent2D;
+pub struct PlayerAudioController {
+    audio_engine: AudioEngine,
+    grass_walk_clip_cache: ClipCache,
+}
 
-use super::CameraDesc;
+impl PlayerAudioController {
+    pub fn new(audio_engine: AudioEngine) -> Result<Self> {
+        let clip_cache = make_grass_walk_clip_cache()?;
+        return Ok(Self {
+            audio_engine,
+            grass_walk_clip_cache: clip_cache,
+        });
+
+        fn make_grass_walk_clip_cache() -> Result<ClipCache> {
+            let prefix_path = "assets/sfx/raw/Footsteps SFX - Undergrowth & Leaves/TomWinandySFX - FS_UndergrowthLeaves_walk_";
+
+            let numbur_of_clips = 25;
+            let clip_paths: Vec<String> = (0..numbur_of_clips)
+                .map(|i| format!("{}{}.wav", prefix_path, format!("{:02}", i + 1)))
+                .collect();
+            log::debug!("clip_paths: {:?}", clip_paths);
+            let clip_cache = ClipCache::from_files(
+                &clip_paths,
+                SoundDataConfig {
+                    volume: -10.0,
+                    ..Default::default()
+                },
+            )?;
+            Ok(clip_cache)
+        }
+    }
+
+    pub fn play_grass_step_sound(&mut self) {
+        let clip = self.grass_walk_clip_cache.next();
+        self.audio_engine.play(&clip).unwrap();
+    }
+}
 
 #[derive(Debug)]
 struct AxesState {
@@ -130,8 +170,8 @@ pub struct Camera {
 
     /// vertical velocity used by walk/gravity mode (m/s, +y up)
     vertical_velocity: f32,
-    // REMOVED: `last_ground_distance` is no longer needed with the new smoothing logic.
-    // last_ground_distance: f32,
+
+    player_audio_controller: PlayerAudioController,
 }
 
 impl Camera {
@@ -140,7 +180,8 @@ impl Camera {
         initial_yaw: f32,
         initial_pitch: f32,
         desc: CameraDesc,
-    ) -> Self {
+        audio_engine: AudioEngine,
+    ) -> Result<Self> {
         let mut camera = Self {
             position: initial_position,
             vectors: CameraVectors::new(),
@@ -152,12 +193,11 @@ impl Camera {
             ),
             desc,
             vertical_velocity: 0.0,
-            // REMOVED: No longer need to initialize `last_ground_distance`.
-            // last_ground_distance: 0.0,
+            player_audio_controller: PlayerAudioController::new(audio_engine)?,
         };
 
         camera.vectors.update(camera.yaw, camera.pitch);
-        camera
+        Ok(camera)
     }
 
     pub fn on_resize(&mut self, screen_extent: Extent2D) {
