@@ -936,15 +936,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af9673d8203fcb076b19dfd17e38b3d4ae9f44959416ea532ce72415a6020365"
 
 [[package]]
-name = "fastnoise-lite"
-version = "1.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e5f3c3cc9081e5d0e18bcd50e80cd33cba47fc22f88a9da9c33ecd1c87ea5c0"
-dependencies = [
- "num-traits",
-]
-
-[[package]]
 name = "fdeflate"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2453,7 +2444,6 @@ dependencies = [
  "egui",
  "egui-winit",
  "egui_demo_lib",
- "fastnoise-lite",
  "glam",
  "gpu-allocator",
  "image",
