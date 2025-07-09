@@ -45,7 +45,8 @@ impl PlayerClipCaches {
     }
 
     fn load_clip_cache(sample_name: &str, sample_count: usize) -> Result<ClipCache> {
-        let prefix_path = "assets/sfx/raw/Footsteps SFX - Undergrowth & Leaves/TomWinandySFX - FS_UndergrowthLeaves_";
+        let prefix_path =
+            "assets/sfx/Footsteps SFX - Undergrowth & Leaves/TomWinandySFX - FS_UndergrowthLeaves_";
         let clip_paths: Vec<String> = (0..sample_count)
             .map(|i| {
                 format!(
@@ -59,7 +60,7 @@ impl PlayerClipCaches {
         let clip_cache = ClipCache::from_files(
             &clip_paths,
             SoundDataConfig {
-                volume: -10.0,
+                // volume: -5.0,
                 ..Default::default()
             },
         )?;

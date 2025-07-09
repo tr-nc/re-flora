@@ -251,7 +251,7 @@ impl App {
             &[leaf_rustling_sound],
             SoundDataConfig {
                 mode: PlayMode::Loop,
-                volume: -40.0,
+                volume: -30.0,
                 fade_in_tween: Some(Tween {
                     start_time: StartTime::Immediate,
                     duration: Duration::from_secs(2),
@@ -261,12 +261,12 @@ impl App {
             },
         )?;
 
-        let wind_ambient_sound = "assets/sfx/wind_ambient.wav";
+        let wind_ambient_sound = "assets/sfx/WINDDsgn_Wind, Gentle, Designed 03_SARM_Wind.wav";
         let mut wind_ambient_clip_cache = ClipCache::from_files(
             &[wind_ambient_sound],
             SoundDataConfig {
                 mode: PlayMode::Loop,
-                volume: -35.0,
+                volume: -20.0,
                 fade_in_tween: Some(Tween {
                     start_time: StartTime::Immediate,
                     duration: Duration::from_secs(2),
