@@ -47,7 +47,7 @@ impl Default for CameraDesc {
             movement: CameraMovementDesc::default(),
             projection: CameraProjectionDesc::default(),
             aspect_ratio: 16.0 / 9.0,
-            camera_height: 0.1,
+            camera_height: 0.08,
         }
     }
 }

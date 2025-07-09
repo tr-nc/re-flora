@@ -14,8 +14,8 @@ pub struct PlayerClipCaches {
     pub walk: ClipCache,
     pub jump: ClipCache,
     pub land: ClipCache,
-    pub sneak: ClipCache,
     pub run: ClipCache,
+    pub sneak: ClipCache,
     pub sprint: ClipCache,
 
     // foot-step intervals (seconds)
@@ -92,6 +92,16 @@ impl PlayerAudioController {
 
     pub fn play_land(&mut self) {
         let clip = self.clip_caches.land.next();
+        self.audio_engine.play(&clip).unwrap();
+    }
+
+    pub fn play_step(&mut self, is_running: bool) {
+        let cache = if is_running {
+            &mut self.clip_caches.run
+        } else {
+            &mut self.clip_caches.walk
+        };
+        let clip = cache.next();
         self.audio_engine.play(&clip).unwrap();
     }
 
@@ -461,24 +471,28 @@ impl Camera {
         self.position += total_velocity * frame_delta_time;
 
         // === audio: foot-steps, jump, land ===
-        // player considered "moving" when any horizontal axis key is pressed
         let is_moving = self.movement_state.axes.forward
             || self.movement_state.axes.backward
             || self.movement_state.axes.left
             || self.movement_state.axes.right;
 
-        // "running" if boosted (Shift) – 用于选择 run vs. walk clip 及步频
         let is_running = self.movement_state.is_boosted;
 
-        // 先检测是否刚刚落地
         let just_landed = is_on_ground && !self.was_on_ground;
         if just_landed {
-            self.player_audio_controller.play_land();
-            // 落地视为一次踩步，重置计时器，避免本帧触发 walk/run 音效
-            self.player_audio_controller.reset_walk_timer();
+            if is_moving {
+                // moving when touching ground: treat as an immediate step
+                self.player_audio_controller.play_step(is_running);
+                // reset timer so下一次步伐重新计时
+                self.player_audio_controller.reset_walk_timer();
+            } else {
+                // still: play landing sound only
+                self.player_audio_controller.play_land();
+                // 不重置计时器，让 update_walk_sound 在静止状态保持间隔满值
+            }
         }
 
-        // 再更新 walk/run 音效
+        // per-frame update for regular walk/run sounds
         self.player_audio_controller.update_walk_sound(
             is_on_ground,
             is_moving,
@@ -486,7 +500,6 @@ impl Camera {
             frame_delta_time,
         );
 
-        // 记录本帧 on-ground 状态
         self.was_on_ground = is_on_ground;
     }
 }
