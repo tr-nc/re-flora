@@ -95,6 +95,10 @@ impl PlayerAudioController {
         self.audio_engine.play(&clip).unwrap();
     }
 
+    pub fn reset_walk_timer(&mut self) {
+        self.time_since_last_step = 0.0;
+    }
+
     /// Call this once per frame from the camera update.
     pub fn update_walk_sound(
         &mut self,
@@ -466,7 +470,15 @@ impl Camera {
         // "running" if boosted (Shift) – 用于选择 run vs. walk clip 及步频
         let is_running = self.movement_state.is_boosted;
 
-        // per-frame update for walk / run sounds
+        // 先检测是否刚刚落地
+        let just_landed = is_on_ground && !self.was_on_ground;
+        if just_landed {
+            self.player_audio_controller.play_land();
+            // 落地视为一次踩步，重置计时器，避免本帧触发 walk/run 音效
+            self.player_audio_controller.reset_walk_timer();
+        }
+
+        // 再更新 walk/run 音效
         self.player_audio_controller.update_walk_sound(
             is_on_ground,
             is_moving,
@@ -474,12 +486,7 @@ impl Camera {
             frame_delta_time,
         );
 
-        // play landing sound once when transitioning air → ground
-        if is_on_ground && !self.was_on_ground {
-            self.player_audio_controller.play_land();
-        }
-
-        // remember current on-ground state for next frame
+        // 记录本帧 on-ground 状态
         self.was_on_ground = is_on_ground;
     }
 }
