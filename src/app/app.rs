@@ -1,7 +1,7 @@
 #[allow(unused)]
 use crate::util::Timer;
 
-use crate::audio::{ClipLoader, PlayMode, SoundDataConfig};
+use crate::audio::{AudioEngine, ClipCache, PlayMode, SoundDataConfig};
 use crate::builder::{ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder};
 use crate::geom::{build_bvh, UAabb3};
 use crate::tracer::{Tracer, TracerDesc};
@@ -19,8 +19,7 @@ use ash::vk;
 use egui::{Color32, RichText};
 use glam::{UVec3, Vec2, Vec3};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
-use kira::sound::static_sound::StaticSoundData;
-use kira::{AudioManager, AudioManagerSettings, DefaultBackend, StartTime, Tween};
+use kira::{StartTime, Tween};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use winit::event::DeviceEvent;
@@ -79,8 +78,8 @@ pub struct App {
     // note: always keep the context to end, as it has to be destroyed last
     vulkan_ctx: VulkanContext,
 
-    audio_manager: AudioManager,
-    clip_loader: ClipLoader,
+    audio_engine: AudioEngine,
+    clip_cache: ClipCache,
 }
 
 const VOXEL_DIM_PER_CHUNK: UVec3 = UVec3::new(256, 256, 256);
@@ -191,11 +190,9 @@ impl App {
             },
         );
 
-        let mut audio_manager =
-            AudioManager::<DefaultBackend>::new(AudioManagerSettings::default())?;
-        Self::add_ambient_sounds(&mut audio_manager)?;
-
-        let clip_loader = make_clip_loader()?;
+        let mut audio_engine = AudioEngine::new()?;
+        Self::add_ambient_sounds(&mut audio_engine)?;
+        let clip_cache = make_clip_cache()?;
 
         return Ok(Self {
             vulkan_ctx,
@@ -243,11 +240,11 @@ impl App {
             tree_desc: TreeDesc::default(),
             prev_bound: Default::default(),
 
-            audio_manager,
-            clip_loader,
+            audio_engine,
+            clip_cache,
         });
 
-        fn make_clip_loader() -> Result<ClipLoader> {
+        fn make_clip_cache() -> Result<ClipCache> {
             let prefix_path = "assets/sfx/raw/Footsteps SFX - Undergrowth & Leaves/TomWinandySFX - FS_UndergrowthLeaves_walk_";
 
             let numbur_of_clips = 25;
@@ -255,56 +252,50 @@ impl App {
                 .map(|i| format!("{}{}.wav", prefix_path, format!("{:02}", i + 1)))
                 .collect();
             log::debug!("clip_paths: {:?}", clip_paths);
-            let clip_loader = ClipLoader::new(
+            let clip_cache = ClipCache::from_files(
                 &clip_paths,
                 SoundDataConfig {
                     volume: -10.0,
                     ..Default::default()
                 },
             )?;
-            Ok(clip_loader)
+            Ok(clip_cache)
         }
     }
 
-    fn add_ambient_sounds(audio_manager: &mut AudioManager) -> Result<()> {
+    fn add_ambient_sounds(audio_engine: &mut AudioEngine) -> Result<()> {
         let leaf_rustling_sound = "assets/sfx/leaf_rustling.wav";
+        let mut leaf_rustling_clip_cache = ClipCache::from_files(
+            &[leaf_rustling_sound],
+            SoundDataConfig {
+                mode: PlayMode::Loop,
+                volume: -40.0,
+                fade_in_tween: Some(Tween {
+                    start_time: StartTime::Immediate,
+                    duration: Duration::from_secs(2),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        )?;
+
         let wind_ambient_sound = "assets/sfx/wind_ambient.wav";
-
-        let get_sound_data = |path: &str| -> StaticSoundData {
-            return StaticSoundData::from_file(path).unwrap();
-        };
-
-        let _leaf_handle = audio_manager.play(
-            get_sound_data(leaf_rustling_sound).with_settings(
-                SoundDataConfig {
-                    mode: PlayMode::Loop,
-                    volume: -40.0,
-                    fade_in_tween: Some(Tween {
-                        start_time: StartTime::Immediate,
-                        duration: Duration::from_secs(2),
-                        ..Default::default()
-                    }),
+        let mut wind_ambient_clip_cache = ClipCache::from_files(
+            &[wind_ambient_sound],
+            SoundDataConfig {
+                mode: PlayMode::Loop,
+                volume: -35.0,
+                fade_in_tween: Some(Tween {
+                    start_time: StartTime::Immediate,
+                    duration: Duration::from_secs(2),
                     ..Default::default()
-                }
-                .to_settings(),
-            ),
-        );
+                }),
+                ..Default::default()
+            },
+        )?;
 
-        let _wind_handle = audio_manager.play(
-            get_sound_data(wind_ambient_sound).with_settings(
-                SoundDataConfig {
-                    mode: PlayMode::Loop,
-                    volume: -35.0,
-                    fade_in_tween: Some(Tween {
-                        start_time: StartTime::Immediate,
-                        duration: Duration::from_secs(2),
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                }
-                .to_settings(),
-            ),
-        );
+        audio_engine.play(&leaf_rustling_clip_cache.next())?;
+        audio_engine.play(&wind_ambient_clip_cache.next())?;
 
         Ok(())
     }
@@ -527,8 +518,8 @@ impl App {
                 }
 
                 if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyA {
-                    let clip = self.clip_loader.get_next_clip();
-                    self.audio_manager.play(clip).unwrap();
+                    let clip = self.clip_cache.next();
+                    self.audio_engine.play(&clip).unwrap();
                 }
 
                 if !self.window_state.is_cursor_visible() {

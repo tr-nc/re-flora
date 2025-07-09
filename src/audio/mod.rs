@@ -1,19 +1,21 @@
-mod clip_loader;
-pub use clip_loader::*;
+mod audio_engine;
+pub use audio_engine::*;
 
-use anyhow::Result;
-use kira::{
-    sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings},
-    AudioManager, AudioManagerSettings, DefaultBackend, Tween,
-};
+mod clip_cache;
+pub use clip_cache::*;
+
+mod sound_clip;
+
+pub use kira::Tween;
+pub use sound_clip::SoundClip;
+
+use kira::sound::static_sound::StaticSoundSettings;
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum PlayMode {
     Once,
     Loop,
 }
-
-pub type SoundHandle = StaticSoundHandle;
 
 pub struct SoundDataConfig {
     pub volume: f32,
@@ -36,12 +38,14 @@ impl Default for SoundDataConfig {
 }
 
 impl SoundDataConfig {
-    pub fn to_settings(&self) -> StaticSoundSettings {
+    /// convert to kira settings (crate-internal use only)
+    pub(crate) fn to_settings(&self) -> StaticSoundSettings {
         let mut settings = StaticSoundSettings::new()
             .volume(self.volume)
             .playback_rate(self.playback_rate)
             .panning(self.panning)
-            .fade_in_tween(self.fade_in_tween);
+            .fade_in_tween(self.fade_in_tween.map(|t| Tween { ..t }));
+
         if self.mode == PlayMode::Loop {
             settings = settings.loop_region(..);
         }

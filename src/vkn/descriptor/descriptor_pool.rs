@@ -109,6 +109,7 @@ impl DescriptorPool {
     }
 
     /// Allows manual pool reset.
+    #[allow(unused)]
     pub fn reset(&self) -> Result<()> {
         unsafe {
             self.0
