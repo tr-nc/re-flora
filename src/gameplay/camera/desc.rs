@@ -8,8 +8,8 @@ pub struct CameraMovementDesc {
 impl Default for CameraMovementDesc {
     fn default() -> Self {
         Self {
-            normal_speed: 0.3,
-            boosted_speed_mul: 2.0,
+            normal_speed: 0.25,
+            boosted_speed_mul: 2.2,
             mouse_sensitivity: 1.0,
         }
     }

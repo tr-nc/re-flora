@@ -10,41 +10,120 @@ use winit::{
     keyboard::{KeyCode, PhysicalKey},
 };
 
+pub struct PlayerClipCaches {
+    pub walk: ClipCache,
+    pub jump: ClipCache,
+    pub land: ClipCache,
+    pub sneak: ClipCache,
+    pub run: ClipCache,
+    pub sprint: ClipCache,
+
+    // foot-step intervals (seconds)
+    pub walk_interval: f32,
+    pub run_interval: f32,
+}
+
+impl PlayerClipCaches {
+    fn new() -> Result<Self> {
+        let jump = Self::load_clip_cache("jump", 10)?;
+        let land = Self::load_clip_cache("land", 10)?;
+        let walk = Self::load_clip_cache("walk", 25)?;
+        let sneak = Self::load_clip_cache("sneak", 25)?;
+        let run = Self::load_clip_cache("run", 25)?;
+        let sprint = Self::load_clip_cache("sprint", 25)?;
+
+        Ok(Self {
+            walk,
+            jump,
+            land,
+            sneak,
+            run,
+            sprint,
+            walk_interval: 0.35,
+            run_interval: 0.25,
+        })
+    }
+
+    fn load_clip_cache(sample_name: &str, sample_count: usize) -> Result<ClipCache> {
+        let prefix_path = "assets/sfx/raw/Footsteps SFX - Undergrowth & Leaves/TomWinandySFX - FS_UndergrowthLeaves_";
+        let clip_paths: Vec<String> = (0..sample_count)
+            .map(|i| {
+                format!(
+                    "{}{}_{}.wav",
+                    prefix_path,
+                    sample_name,
+                    format!("{:02}", i + 1)
+                )
+            })
+            .collect();
+        let clip_cache = ClipCache::from_files(
+            &clip_paths,
+            SoundDataConfig {
+                volume: -10.0,
+                ..Default::default()
+            },
+        )?;
+        Ok(clip_cache)
+    }
+}
+
 pub struct PlayerAudioController {
     audio_engine: AudioEngine,
-    grass_walk_clip_cache: ClipCache,
+    clip_caches: PlayerClipCaches,
+    // time elapsed since last step sound
+    time_since_last_step: f32,
 }
 
 impl PlayerAudioController {
     pub fn new(audio_engine: AudioEngine) -> Result<Self> {
-        let clip_cache = make_grass_walk_clip_cache()?;
-        return Ok(Self {
+        let clip_caches = PlayerClipCaches::new()?;
+        Ok(Self {
             audio_engine,
-            grass_walk_clip_cache: clip_cache,
-        });
-
-        fn make_grass_walk_clip_cache() -> Result<ClipCache> {
-            let prefix_path = "assets/sfx/raw/Footsteps SFX - Undergrowth & Leaves/TomWinandySFX - FS_UndergrowthLeaves_walk_";
-
-            let numbur_of_clips = 25;
-            let clip_paths: Vec<String> = (0..numbur_of_clips)
-                .map(|i| format!("{}{}.wav", prefix_path, format!("{:02}", i + 1)))
-                .collect();
-            log::debug!("clip_paths: {:?}", clip_paths);
-            let clip_cache = ClipCache::from_files(
-                &clip_paths,
-                SoundDataConfig {
-                    volume: -10.0,
-                    ..Default::default()
-                },
-            )?;
-            Ok(clip_cache)
-        }
+            clip_caches,
+            time_since_last_step: 0.0,
+        })
     }
 
-    pub fn play_grass_step_sound(&mut self) {
-        let clip = self.grass_walk_clip_cache.next();
+    pub fn play_jump(&mut self) {
+        let clip = self.clip_caches.jump.next();
         self.audio_engine.play(&clip).unwrap();
+    }
+
+    pub fn play_land(&mut self) {
+        let clip = self.clip_caches.land.next();
+        self.audio_engine.play(&clip).unwrap();
+    }
+
+    /// Call this once per frame from the camera update.
+    pub fn update_walk_sound(
+        &mut self,
+        is_on_ground: bool,
+        is_moving: bool,
+        is_running: bool,
+        frame_delta_time: f32,
+    ) {
+        let interval = if is_running {
+            self.clip_caches.run_interval
+        } else {
+            self.clip_caches.walk_interval
+        };
+
+        if !(is_on_ground && is_moving) {
+            self.time_since_last_step = interval;
+            return;
+        }
+
+        self.time_since_last_step += frame_delta_time;
+        if self.time_since_last_step >= interval {
+            let cache = if is_running {
+                &mut self.clip_caches.run
+            } else {
+                &mut self.clip_caches.walk
+            };
+            let clip = cache.next();
+            self.audio_engine.play(&clip).unwrap();
+            self.time_since_last_step = 0.0;
+        }
     }
 }
 
@@ -78,7 +157,6 @@ struct MovementState {
     boosted_speed_mul: f32,
     is_boosted: bool,
     axes: AxesState,
-    // indicates that a jump should be performed in the next physics update
     jump_requested: bool,
 }
 
@@ -172,6 +250,7 @@ pub struct Camera {
     vertical_velocity: f32,
 
     player_audio_controller: PlayerAudioController,
+    was_on_ground: bool,
 }
 
 impl Camera {
@@ -194,6 +273,7 @@ impl Camera {
             desc,
             vertical_velocity: 0.0,
             player_audio_controller: PlayerAudioController::new(audio_engine)?,
+            was_on_ground: false,
         };
 
         camera.vectors.update(camera.yaw, camera.pitch);
@@ -333,76 +413,72 @@ impl Camera {
     }
 
     pub fn update_transform_walk_mode(&mut self, frame_delta_time: f32, ground_distance: f32) {
-        const GRAVITY_G: f32 = 2.0;
-        const JUMP_IMPULSE: f32 = 0.4;
+        const GRAVITY_G: f32 = 2.0; // gravity acceleration (m/s²)
+        const JUMP_IMPULSE: f32 = 0.4; // initial jump velocity (m/s)
+        const GROUND_EPSILON: f32 = 0.01; // tolerance when comparing to ground
+        const Y_SMOOTHING_ALPHA: f32 = 0.2; // fraction used to lerp camera height to ground
 
-        const GROUND_EPSILON: f32 = 0.01;
-        const Y_SMOOTHING_ALPHA: f32 = 0.2;
-
+        // compute horizontal movement basis (XZ plane)
         let (front, right) = self.movement_basis();
         let horizontal_velocity = self.movement_state.get_velocity(front, right, Vec3::ZERO);
 
+        // detect whether the player is on the ground
         let is_on_ground = ground_distance <= self.desc.camera_height + GROUND_EPSILON;
 
+        // === vertical motion & jump handling ===
         if is_on_ground {
-            // When we land, we might have some leftover downward velocity.
-            // Reset it to zero immediately to prevent sinking into the ground on the next frame.
+            // clamp any remaining downward velocity when touching ground
             if self.vertical_velocity < 0.0 {
                 self.vertical_velocity = 0.0;
             }
 
-            // Check for a jump request. This is the only way to gain vertical velocity while on the ground.
             if self.movement_state.jump_requested {
-                // Apply an instantaneous upward velocity, transitioning us to the "Airborne" state.
+                // launch the jump
                 self.vertical_velocity = JUMP_IMPULSE;
+                // play jump sound once, immediately when leaving the ground
+                self.player_audio_controller.play_jump();
             } else {
-                // Not jumping, so we are walking or standing still.
-                // Apply positional smoothing to stick to the ground. This is NOT velocity-based.
-                // It directly adjusts the camera's position to follow the terrain smoothly.
+                // stick to ground smoothly
                 let ground_level_y = self.position.y - ground_distance;
                 let target_camera_y = ground_level_y + self.desc.camera_height;
                 self.position.y += (target_camera_y - self.position.y) * Y_SMOOTHING_ALPHA;
             }
         } else {
-            // We are in the air (either jumping or falling).
-            // Apply gravity to the vertical velocity. This is the only force acting on us.
+            // airborne: apply gravity
             self.vertical_velocity -= GRAVITY_G * frame_delta_time;
         }
 
-        // Reset the jump request flag after we've processed it.
+        // reset the jump flag after use
         self.movement_state.jump_requested = false;
 
-        // This update now correctly combines the horizontal velocity with the
-        // state-determined vertical velocity (which could be from a jump, from gravity, or zero).
+        // === integrate total velocity ===
         let total_velocity = horizontal_velocity + Vec3::new(0.0, self.vertical_velocity, 0.0);
         self.position += total_velocity * frame_delta_time;
-    }
 
-    #[allow(dead_code)]
-    pub fn get_frustum_corners(&self) -> [Vec3; 8] {
-        let view_proj_inv = (Self::calculate_proj_mat(
-            self.desc.projection.v_fov,
-            self.desc.aspect_ratio,
-            self.desc.projection.z_near,
-            1.0,
-        ) * self.get_view_mat())
-        .inverse();
+        // === audio: foot-steps, jump, land ===
+        // player considered "moving" when any horizontal axis key is pressed
+        let is_moving = self.movement_state.axes.forward
+            || self.movement_state.axes.backward
+            || self.movement_state.axes.left
+            || self.movement_state.axes.right;
 
-        let mut corners = [Vec3::ZERO; 8];
-        let mut i = 0;
-        for z in &[0.0, 1.0] {
-            // Near, Far
-            for y in &[-1.0, 1.0] {
-                // Bottom, Top
-                for x in &[-1.0, 1.0] {
-                    // Left, Right
-                    // From normalized device coordinates (NDC) to world space
-                    let p = view_proj_inv * Vec4::new(*x, *y, *z, 1.0);
-                    corners[i] = p.truncate() / p.w;
-                    i += 1;
-                }
-            }
+        // "running" if boosted (Shift) – 用于选择 run vs. walk clip 及步频
+        let is_running = self.movement_state.is_boosted;
+
+        // per-frame update for walk / run sounds
+        self.player_audio_controller.update_walk_sound(
+            is_on_ground,
+            is_moving,
+            is_running,
+            frame_delta_time,
+        );
+
+        // play landing sound once when transitioning air → ground
+        if is_on_ground && !self.was_on_ground {
+            self.player_audio_controller.play_land();
         }
-        corners
+
+        // remember current on-ground state for next frame
+        self.was_on_ground = is_on_ground;
     }
 }
