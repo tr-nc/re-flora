@@ -130,6 +130,17 @@ rustup update stable
 
 ---
 
+---
+
+## Build On Linux (Only for cargo check)
+
+```sh
+curl https://sh.rustup.rs -sSf | sh # install rust
+sudo apt install build-essential # install build essentials
+sudo apt install pkg-config libasound2-dev # install dependencies
+sudo apt install cmake ninja-build # install build tools
+```
+
 ## TODO list
 
 - [ ] Stay Grounded

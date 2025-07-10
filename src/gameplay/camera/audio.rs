@@ -6,7 +6,9 @@ pub struct PlayerClipCaches {
     pub jump: ClipCache,
     pub land: ClipCache,
     pub run: ClipCache,
+    #[allow(dead_code)]
     pub sneak: ClipCache,
+    #[allow(dead_code)]
     pub sprint: ClipCache,
 
     // foot-step intervals (seconds)

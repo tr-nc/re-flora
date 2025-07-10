@@ -15,7 +15,7 @@ pub struct SoundHandle {
 }
 
 impl SoundHandle {
-    /// stop playback; if `tween` is None, stops immediately.
+    /// Stop playback; if `tween` is None, stops immediately.
     #[allow(unused)]
     pub fn stop(&mut self, tween: Option<crate::audio::Tween>) {
         self.inner.stop(tween.unwrap_or_default());
@@ -23,7 +23,7 @@ impl SoundHandle {
 }
 
 impl AudioEngine {
-    /// create with default kira backend/settings
+    /// Create with default kira backend/settings
     pub fn new() -> Result<Self> {
         let mgr = AudioManager::<DefaultBackend>::new(AudioManagerSettings::default())?;
         Ok(Self {
@@ -31,14 +31,14 @@ impl AudioEngine {
         })
     }
 
-    /// play a clip with its baked-in settings
+    /// Play a clip with its baked-in settings
     pub fn play(&self, clip: &SoundClip) -> Result<SoundHandle> {
         let mut mgr = self.manager.lock().unwrap();
         let handle = mgr.play(clip.as_kira().clone())?;
         Ok(SoundHandle { inner: handle })
     }
 
-    /// play a clip but override settings at call site
+    /// Play a clip but override settings at call site
     #[allow(unused)]
     pub fn play_with_config(
         &self,
