@@ -1,252 +1,16 @@
-use super::CameraDesc;
+use super::{
+    audio::PlayerAudioController,
+    movement::MovementState,
+    vectors::CameraVectors,
+    CameraDesc,
+};
 use crate::{
-    audio::{AudioEngine, ClipCache, SoundDataConfig},
+    audio::AudioEngine,
     vkn::Extent2D,
 };
 use anyhow::Result;
 use glam::{Mat4, Vec2, Vec3, Vec4};
-use winit::{
-    event::{ElementState, KeyEvent},
-    keyboard::{KeyCode, PhysicalKey},
-};
-
-pub struct PlayerClipCaches {
-    pub walk: ClipCache,
-    pub jump: ClipCache,
-    pub land: ClipCache,
-    pub run: ClipCache,
-    pub sneak: ClipCache,
-    pub sprint: ClipCache,
-
-    // foot-step intervals (seconds)
-    pub walk_interval: f32,
-    pub run_interval: f32,
-}
-
-impl PlayerClipCaches {
-    fn new() -> Result<Self> {
-        let jump = Self::load_clip_cache("jump", 10)?;
-        let land = Self::load_clip_cache("land", 10)?;
-        let walk = Self::load_clip_cache("walk", 25)?;
-        let sneak = Self::load_clip_cache("sneak", 25)?;
-        let run = Self::load_clip_cache("run", 25)?;
-        let sprint = Self::load_clip_cache("sprint", 25)?;
-
-        Ok(Self {
-            walk,
-            jump,
-            land,
-            sneak,
-            run,
-            sprint,
-            walk_interval: 0.35,
-            run_interval: 0.25,
-        })
-    }
-
-    fn load_clip_cache(sample_name: &str, sample_count: usize) -> Result<ClipCache> {
-        let prefix_path =
-            "assets/sfx/Footsteps SFX - Undergrowth & Leaves/TomWinandySFX - FS_UndergrowthLeaves_";
-        let clip_paths: Vec<String> = (0..sample_count)
-            .map(|i| {
-                format!(
-                    "{}{}_{}.wav",
-                    prefix_path,
-                    sample_name,
-                    format!("{:02}", i + 1)
-                )
-            })
-            .collect();
-        let clip_cache = ClipCache::from_files(
-            &clip_paths,
-            SoundDataConfig {
-                // volume: -5.0,
-                ..Default::default()
-            },
-        )?;
-        Ok(clip_cache)
-    }
-}
-
-pub struct PlayerAudioController {
-    audio_engine: AudioEngine,
-    clip_caches: PlayerClipCaches,
-    // time elapsed since last step sound
-    time_since_last_step: f32,
-}
-
-impl PlayerAudioController {
-    pub fn new(audio_engine: AudioEngine) -> Result<Self> {
-        let clip_caches = PlayerClipCaches::new()?;
-        Ok(Self {
-            audio_engine,
-            clip_caches,
-            time_since_last_step: 0.0,
-        })
-    }
-
-    pub fn play_jump(&mut self) {
-        let clip = self.clip_caches.jump.next();
-        self.audio_engine.play(&clip).unwrap();
-    }
-
-    pub fn play_land(&mut self) {
-        let clip = self.clip_caches.land.next();
-        self.audio_engine.play(&clip).unwrap();
-    }
-
-    pub fn play_step(&mut self, is_running: bool) {
-        let cache = if is_running {
-            &mut self.clip_caches.run
-        } else {
-            &mut self.clip_caches.walk
-        };
-        let clip = cache.next();
-        self.audio_engine.play(&clip).unwrap();
-    }
-
-    pub fn reset_walk_timer(&mut self) {
-        self.time_since_last_step = 0.0;
-    }
-
-    /// Call this once per frame from the camera update.
-    pub fn update_walk_sound(
-        &mut self,
-        is_on_ground: bool,
-        is_moving: bool,
-        is_running: bool,
-        frame_delta_time: f32,
-    ) {
-        let interval = if is_running {
-            self.clip_caches.run_interval
-        } else {
-            self.clip_caches.walk_interval
-        };
-
-        if !(is_on_ground && is_moving) {
-            self.time_since_last_step = interval;
-            return;
-        }
-
-        self.time_since_last_step += frame_delta_time;
-        if self.time_since_last_step >= interval {
-            let cache = if is_running {
-                &mut self.clip_caches.run
-            } else {
-                &mut self.clip_caches.walk
-            };
-            let clip = cache.next();
-            self.audio_engine.play(&clip).unwrap();
-            self.time_since_last_step = 0.0;
-        }
-    }
-}
-
-#[derive(Debug)]
-struct AxesState {
-    forward: bool,
-    backward: bool,
-    left: bool,
-    right: bool,
-    up: bool,
-    down: bool,
-}
-
-impl Default for AxesState {
-    fn default() -> Self {
-        Self {
-            forward: false,
-            backward: false,
-            left: false,
-            right: false,
-            up: false,
-            down: false,
-        }
-    }
-}
-
-/// Stores the current state of the camera's movement.
-#[derive(Debug)]
-struct MovementState {
-    normal_speed: f32,
-    boosted_speed_mul: f32,
-    is_boosted: bool,
-    axes: AxesState,
-    jump_requested: bool,
-}
-
-impl MovementState {
-    fn new(normal_speed: f32, boosted_speed_mul: f32) -> Self {
-        Self {
-            normal_speed,
-            boosted_speed_mul,
-            is_boosted: false,
-            axes: AxesState::default(),
-            jump_requested: false,
-        }
-    }
-
-    fn get_velocity(&self, front: Vec3, right: Vec3, up: Vec3) -> Vec3 {
-        let mut velocity = Vec3::ZERO;
-        if self.axes.forward {
-            velocity += front;
-        }
-        if self.axes.backward {
-            velocity -= front;
-        }
-        if self.axes.left {
-            velocity -= right;
-        }
-        if self.axes.right {
-            velocity += right;
-        }
-        if self.axes.up {
-            velocity += up;
-        }
-        if self.axes.down {
-            velocity -= up;
-        }
-        velocity.normalize_or_zero() * self.current_speed()
-    }
-
-    fn current_speed(&self) -> f32 {
-        if self.is_boosted {
-            self.normal_speed * self.boosted_speed_mul
-        } else {
-            self.normal_speed
-        }
-    }
-}
-
-struct CameraVectors {
-    front: Vec3,
-    up: Vec3,
-    right: Vec3,
-}
-
-impl CameraVectors {
-    const WORLD_UP: Vec3 = Vec3::new(0.0, 1.0, 0.0);
-
-    fn new() -> Self {
-        Self {
-            front: Vec3::ZERO,
-            up: Vec3::ZERO,
-            right: Vec3::ZERO,
-        }
-    }
-
-    /// Updates the camera's front, right, and up vectors based on the current yaw and pitch.
-    fn update(&mut self, yaw: f32, pitch: f32) {
-        self.front = Vec3::new(
-            yaw.sin() * pitch.cos(),
-            pitch.sin(),
-            -yaw.cos() * pitch.cos(),
-        )
-        .normalize();
-        self.right = self.front.cross(Self::WORLD_UP).normalize();
-        self.up = self.right.cross(self.front).normalize();
-    }
-}
+use winit::event::KeyEvent;
 
 pub struct Camera {
     position: Vec3,
@@ -335,37 +99,7 @@ impl Camera {
 
     /// Only controls the camera's movement state based on the key event.
     pub fn handle_keyboard(&mut self, key_event: &KeyEvent) {
-        if let PhysicalKey::Code(code) = key_event.physical_key {
-            if key_event.repeat {
-                return;
-            }
-
-            match key_event.state {
-                ElementState::Pressed => match code {
-                    KeyCode::ShiftLeft => self.movement_state.is_boosted = true,
-                    KeyCode::KeyW => self.movement_state.axes.forward = true,
-                    KeyCode::KeyS => self.movement_state.axes.backward = true,
-                    KeyCode::KeyA => self.movement_state.axes.left = true,
-                    KeyCode::KeyD => self.movement_state.axes.right = true,
-                    KeyCode::Space => {
-                        self.movement_state.axes.up = true;
-                        self.movement_state.jump_requested = true;
-                    }
-                    KeyCode::ControlLeft => self.movement_state.axes.down = true,
-                    _ => {}
-                },
-                ElementState::Released => match code {
-                    KeyCode::ShiftLeft => self.movement_state.is_boosted = false,
-                    KeyCode::KeyW => self.movement_state.axes.forward = false,
-                    KeyCode::KeyS => self.movement_state.axes.backward = false,
-                    KeyCode::KeyA => self.movement_state.axes.left = false,
-                    KeyCode::KeyD => self.movement_state.axes.right = false,
-                    KeyCode::Space => self.movement_state.axes.up = false,
-                    KeyCode::ControlLeft => self.movement_state.axes.down = false,
-                    _ => {}
-                },
-            }
-        }
+        self.movement_state.handle_keyboard(key_event);
     }
 
     /// Limits the yaw to prevent the camera from spinning indefinitely.
@@ -464,17 +198,14 @@ impl Camera {
         }
 
         // reset the jump flag after use
-        self.movement_state.jump_requested = false;
+        self.movement_state.reset_jump_request();
 
         // === integrate total velocity ===
         let total_velocity = horizontal_velocity + Vec3::new(0.0, self.vertical_velocity, 0.0);
         self.position += total_velocity * frame_delta_time;
 
         // === audio: foot-steps, jump, land ===
-        let is_moving = self.movement_state.axes.forward
-            || self.movement_state.axes.backward
-            || self.movement_state.axes.left
-            || self.movement_state.axes.right;
+        let is_moving = self.movement_state.is_moving_horizontally();
 
         let is_running = self.movement_state.is_boosted;
 
