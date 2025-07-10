@@ -48,7 +48,7 @@ MarchingResult general_scene_marching(Ray ray) {
     return dda_scene_marching(ray.origin, ray.direction, ray.inv_direction);
 }
 
-#define RAY_HALF_KERNAL_SIZE 3
+#define RAY_HALF_KERNAL_SIZE 1
 #define RAY_OFFSET 1.0 / 256.0
 
 shared float shared_result[2 * RAY_HALF_KERNAL_SIZE + 1][2 * RAY_HALF_KERNAL_SIZE + 1];
@@ -79,17 +79,13 @@ void main() {
     barrier();
 
     if (id == 0) {
-        // A 7x7 Gaussian kernel, derived from the binomial coefficients of (a+b)^6.
+        // A 3x3 Gaussian kernel, derived from the binomial coefficients of (a+b)^2.
         // This provides a discrete approximation of a Gaussian distribution,
         // allowing for a weighted average that emphasizes central samples.
         const float gaussian_kernel[kernel_dim][kernel_dim] =
-            float[7][7](float[7](1.0, 6.0, 15.0, 20.0, 15.0, 6.0, 1.0),
-                        float[7](6.0, 36.0, 90.0, 120.0, 90.0, 36.0, 6.0),
-                        float[7](15.0, 90.0, 225.0, 300.0, 225.0, 90.0, 15.0),
-                        float[7](20.0, 120.0, 300.0, 400.0, 300.0, 120.0, 20.0),
-                        float[7](15.0, 90.0, 225.0, 300.0, 225.0, 90.0, 15.0),
-                        float[7](6.0, 36.0, 90.0, 120.0, 90.0, 36.0, 6.0),
-                        float[7](1.0, 6.0, 15.0, 20.0, 15.0, 6.0, 1.0));
+            float[3][3](float[3](1.0, 2.0, 1.0),
+                        float[3](2.0, 4.0, 2.0),
+                        float[3](1.0, 2.0, 1.0));
 
         float weighted_sum   = 0.0;
         float sum_of_weights = 0.0;
