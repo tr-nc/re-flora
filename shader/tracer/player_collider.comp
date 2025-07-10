@@ -6,13 +6,25 @@ layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 layout(set = 0, binding = 0) uniform U_PlayerColliderInfo { vec3 player_pos; }
 player_collider_info;
+
 #include "../include/contree_node.glsl"
+
 layout(set = 0, binding = 1) readonly buffer B_ContreeNodeData { ContreeNode data[]; }
 contree_node_data;
+
 layout(set = 0, binding = 2) readonly buffer B_ContreeLeafData { uint data[]; }
 contree_leaf_data;
+
 layout(set = 0, binding = 3, rg32ui) readonly uniform uimage3D scene_tex;
-layout(set = 0, binding = 4) writeonly buffer B_PlayerCollisionResult { float data; }
+
+layout(set = 0, binding = 4) writeonly buffer B_PlayerCollisionResult {
+    float ground_distance;
+    float front_distance;
+    float back_distance;
+    float left_distance;
+    float right_distance;
+    float up_distance;
+}
 player_collision_result;
 
 #include "../include/contree_marching.glsl"
@@ -20,8 +32,8 @@ player_collision_result;
 #include "../include/marching_result.glsl"
 #include "../include/ray.glsl"
 
+/* ------------------------- unchanged helper functions ---------------------- */
 bool scene_hit(inout MarchingResult o_res, vec3 o, vec3 d, ivec3 map_pos, uvec4 scene_tex_read) {
-    // see update_scene_tex.comp for encoding part
     if (scene_tex_read.x == 0) {
         return false;
     }
@@ -48,59 +60,103 @@ MarchingResult general_scene_marching(Ray ray) {
     return dda_scene_marching(ray.origin, ray.direction, ray.inv_direction);
 }
 
-#define RAY_HALF_KERNAL_SIZE 1
-#define RAY_OFFSET 1.0 / 256.0
+/* ----------------- tunable constants & unified kernel logic ---------------- */
+#define RAY_HALF_KERNAL_SIZE 1     // half size of the square ground-ray kernel
+#define RAY_OFFSET (1.0 / 256.0)   // horizontal spacing between ground rays
+#define COLLISION_RAY_DISTANCE 2.0 // max range for the non-ground rays
 
-shared float shared_result[2 * RAY_HALF_KERNAL_SIZE + 1][2 * RAY_HALF_KERNAL_SIZE + 1];
+#define KERNEL_DIM (2 * RAY_HALF_KERNAL_SIZE + 1)
+#define NUM_GROUND_RAYS (KERNEL_DIM * KERNEL_DIM)
+
+/* keep only front / back / left / right / up (ground is handled separately) */
+#define NUM_COLLISION_DIRECTIONS 5
+
+/* -------------------------------- shared memory ---------------------------- */
+shared float ground_results[KERNEL_DIM][KERNEL_DIM];
+shared float collision_distances[NUM_COLLISION_DIRECTIONS];
+
+/* ----------------------------- helper functions ---------------------------- */
+/* dir_index 0–4 correspond to front, back, left, right, up */
+vec3 get_collision_direction(int dir_index) {
+    switch (dir_index) {
+    case 0:
+        return vec3(0.0, 0.0, 1.0); // front
+    case 1:
+        return vec3(0.0, 0.0, -1.0); // back
+    case 2:
+        return vec3(-1.0, 0.0, 0.0); // left
+    case 3:
+        return vec3(1.0, 0.0, 0.0); // right
+    case 4:
+        return vec3(0.0, 1.0, 0.0); // up
+    default:
+        return vec3(0.0); // unreachable
+    }
+}
+
+/* inline 2-D Gaussian weight, keeps the kernel auto-consistent with its size */
+float gaussian_weight(int x, int y) {
+    const float sigma = float(RAY_HALF_KERNAL_SIZE) * 0.5 + 0.5;
+    float sigma2      = sigma * sigma;
+    return exp(-float(x * x + y * y) / (2.0 * sigma2));
+}
 
 void main() {
-    int id               = int(gl_GlobalInvocationID.x);
-    const int kernel_dim = 2 * RAY_HALF_KERNAL_SIZE + 1;
-    if (id >= (kernel_dim * kernel_dim)) {
+    int id                  = int(gl_GlobalInvocationID.x);
+    const int total_threads = NUM_GROUND_RAYS + NUM_COLLISION_DIRECTIONS;
+
+    if (id >= total_threads) {
         return;
     }
 
-    int x = id % kernel_dim;
-    int y = id / kernel_dim;
+    if (id < NUM_GROUND_RAYS) {
+        int x = id % KERNEL_DIM - RAY_HALF_KERNAL_SIZE;
+        int y = id / KERNEL_DIM - RAY_HALF_KERNAL_SIZE;
 
-    vec2 offset = vec2(x, y) - vec2(RAY_HALF_KERNAL_SIZE);
-    offset *= RAY_OFFSET;
+        vec2 offset     = vec2(float(x), float(y)) * RAY_OFFSET;
+        vec3 ray_origin = player_collider_info.player_pos + vec3(offset.x, 0.0, offset.y);
 
-    vec3 ray_origin = player_collider_info.player_pos + vec3(offset.x, 0.0, offset.y);
+        Ray ray;
+        ray.origin        = ray_origin;
+        ray.direction     = vec3(0.0, -1.0, 0.0);
+        ray.inv_direction = 1.0 / ray.direction;
 
-    Ray ray;
-    ray.origin        = ray_origin;
-    ray.direction     = vec3(0.0, -1.0, 0.0);
-    ray.inv_direction = 1.0 / ray.direction;
+        MarchingResult res = general_scene_marching(ray);
+        ground_results[x + RAY_HALF_KERNAL_SIZE][y + RAY_HALF_KERNAL_SIZE] = res.t;
+    } else {
+        int dir_index  = id - NUM_GROUND_RAYS; // 0–4
+        vec3 direction = get_collision_direction(dir_index);
 
-    MarchingResult res  = general_scene_marching(ray);
-    shared_result[x][y] = res.t;
+        Ray ray;
+        ray.origin        = player_collider_info.player_pos;
+        ray.direction     = direction;
+        ray.inv_direction = 1.0 / ray.direction;
+
+        MarchingResult res = general_scene_marching(ray);
+        float distance = res.is_hit ? min(res.t, COLLISION_RAY_DISTANCE) : COLLISION_RAY_DISTANCE;
+        collision_distances[dir_index] = distance;
+    }
 
     barrier();
 
     if (id == 0) {
-        // A 3x3 Gaussian kernel, derived from the binomial coefficients of (a+b)^2.
-        // This provides a discrete approximation of a Gaussian distribution,
-        // allowing for a weighted average that emphasizes central samples.
-        const float gaussian_kernel[kernel_dim][kernel_dim] =
-            float[3][3](float[3](1.0, 2.0, 1.0),
-                        float[3](2.0, 4.0, 2.0),
-                        float[3](1.0, 2.0, 1.0));
-
         float weighted_sum   = 0.0;
         float sum_of_weights = 0.0;
 
-        // Apply the Gaussian kernel to the ray marching results.
-        // This calculates a weighted average, giving more importance to the central rays.
-        for (int i = 0; i < kernel_dim; i++) {
-            for (int j = 0; j < kernel_dim; j++) {
-                float weight = gaussian_kernel[i][j];
-                weighted_sum += shared_result[i][j] * weight;
+        for (int i = -RAY_HALF_KERNAL_SIZE; i <= RAY_HALF_KERNAL_SIZE; ++i) {
+            for (int j = -RAY_HALF_KERNAL_SIZE; j <= RAY_HALF_KERNAL_SIZE; ++j) {
+                float weight = gaussian_weight(i, j);
+                weighted_sum +=
+                    ground_results[i + RAY_HALF_KERNAL_SIZE][j + RAY_HALF_KERNAL_SIZE] * weight;
                 sum_of_weights += weight;
             }
         }
 
-        // Store the final normalized, weighted average distance.
-        player_collision_result.data = weighted_sum / sum_of_weights;
+        player_collision_result.ground_distance = weighted_sum / max(sum_of_weights, 1e-8);
+        player_collision_result.front_distance  = collision_distances[0];
+        player_collision_result.back_distance   = collision_distances[1];
+        player_collision_result.left_distance   = collision_distances[2];
+        player_collision_result.right_distance  = collision_distances[3];
+        player_collision_result.up_distance     = collision_distances[4];
     }
 }
