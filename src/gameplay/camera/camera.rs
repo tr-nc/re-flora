@@ -6,6 +6,29 @@ use anyhow::Result;
 use glam::{Mat4, Vec2, Vec3, Vec4};
 use winit::event::KeyEvent;
 
+#[derive(Debug, Clone)]
+pub struct PlayerRigidBody {
+    pub velocity: Vec3,
+    pub is_grounded: bool,
+    pub collision_radius: f32,
+    pub mass: f32,
+    pub drag: f32,
+    pub bounce_damping: f32,
+}
+
+impl PlayerRigidBody {
+    pub fn new(collision_radius: f32) -> Self {
+        Self {
+            velocity: Vec3::ZERO,
+            is_grounded: false,
+            collision_radius,
+            mass: 1.0,
+            drag: 0.98,
+            bounce_damping: 0.1,
+        }
+    }
+}
+
 pub struct Camera {
     position: Vec3,
 
@@ -24,6 +47,9 @@ pub struct Camera {
 
     player_audio_controller: PlayerAudioController,
     was_on_ground: bool,
+
+    /// Rigidbody physics state for collision response
+    rigidbody: PlayerRigidBody,
 }
 
 impl Camera {
@@ -47,6 +73,7 @@ impl Camera {
             vertical_velocity: 0.0,
             player_audio_controller: PlayerAudioController::new(audio_engine)?,
             was_on_ground: false,
+            rigidbody: PlayerRigidBody::new(0.5), // Default collision radius
         };
 
         camera.vectors.update(camera.yaw, camera.pitch);
@@ -165,19 +192,48 @@ impl Camera {
         collision_result: PlayerCollisionResult,
     ) {
         const GRAVITY_G: f32 = 2.0; // gravity acceleration (m/s²)
-        const JUMP_IMPULSE: f32 = 0.4; // initial jump velocity (m/s)
+        const JUMP_IMPULSE: f32 = 0.5; // initial jump velocity (m/s)
         const GROUND_EPSILON: f32 = 0.01; // tolerance when comparing to ground
         const Y_SMOOTHING_ALPHA: f32 = 0.2; // fraction used to lerp camera height to ground
+        const COLLISION_THRESHOLD: f32 = 0.03; // minimum distance to obstacle before stopping
+        const MAX_COLLISION_ITERATIONS: usize = 3; // maximum collision resolution iterations
 
         // compute horizontal movement basis (XZ plane)
         let (front, right) = self.movement_basis();
-        let horizontal_velocity = self.movement_state.get_velocity(front, right, Vec3::ZERO);
+        let input_velocity = self.movement_state.get_velocity(front, right, Vec3::ZERO);
 
         // detect whether the player is on the ground
-        let is_on_ground =
-            collision_result.ground_distance <= self.desc.camera_height + GROUND_EPSILON;
+        let is_on_ground = collision_result.ground_distance
+            <= self.desc.camera_height + GROUND_EPSILON
+            && self.rigidbody.velocity.y <= 0.0;
 
-        // === vertical motion & jump handling ===
+        // Update rigidbody grounded state
+        self.rigidbody.is_grounded = is_on_ground;
+
+        // Convert input to acceleration forces
+        const GROUND_ACCELERATION: f32 = 20.0; // m/s² - how fast you accelerate on ground
+        const AIR_ACCELERATION: f32 = 10.0; // m/s² - how fast you accelerate in air
+
+        let acceleration_force = if is_on_ground {
+            GROUND_ACCELERATION
+        } else {
+            AIR_ACCELERATION
+        };
+
+        // Calculate desired horizontal velocity
+        let desired_horizontal_velocity = Vec3::new(input_velocity.x, 0.0, input_velocity.z);
+        let current_horizontal_velocity =
+            Vec3::new(self.rigidbody.velocity.x, 0.0, self.rigidbody.velocity.z);
+
+        // Calculate velocity difference and convert to acceleration
+        let velocity_difference = desired_horizontal_velocity - current_horizontal_velocity;
+        let acceleration = velocity_difference * acceleration_force;
+
+        // Apply acceleration to velocity using delta time
+        self.rigidbody.velocity.x += acceleration.x * frame_delta_time;
+        self.rigidbody.velocity.z += acceleration.z * frame_delta_time;
+
+        // Handle vertical physics
         if is_on_ground {
             // clamp any remaining downward velocity when touching ground
             if self.vertical_velocity < 0.0 {
@@ -187,6 +243,7 @@ impl Camera {
             if self.movement_state.jump_requested {
                 // launch the jump
                 self.vertical_velocity = JUMP_IMPULSE;
+                self.rigidbody.velocity.y = JUMP_IMPULSE;
                 // play jump sound once, immediately when leaving the ground
                 self.player_audio_controller.play_jump();
             } else {
@@ -194,81 +251,60 @@ impl Camera {
                 let ground_level_y = self.position.y - collision_result.ground_distance;
                 let target_camera_y = ground_level_y + self.desc.camera_height;
                 self.position.y += (target_camera_y - self.position.y) * Y_SMOOTHING_ALPHA;
+                self.rigidbody.velocity.y = 0.0;
             }
         } else {
             // airborne: apply gravity
             self.vertical_velocity -= GRAVITY_G * frame_delta_time;
-
-            // check for head collision when moving upward
-            // With ring collision, we use the minimum distance from the ring
-            let min_ring_distance = collision_result
-                .ring_distances
-                .iter()
-                .cloned()
-                .fold(f32::INFINITY, f32::min);
-            if self.vertical_velocity > 0.0 && min_ring_distance < 0.2 {
-                self.vertical_velocity = 0.0; // stop upward movement
-            }
+            self.rigidbody.velocity.y = self.vertical_velocity;
         }
 
         // reset the jump flag after use
         self.movement_state.reset_jump_request();
 
-        // === collision detection for horizontal movement ===
-        let collision_threshold = 0.3; // minimum distance to obstacle before stopping
-        let mut adjusted_horizontal_velocity = horizontal_velocity;
+        // Apply drag to horizontal velocity
+        self.rigidbody.velocity.x *= self.rigidbody.drag;
+        self.rigidbody.velocity.z *= self.rigidbody.drag;
 
-        // With ring collision, we check the collision distance in the direction of movement
-        // Ring distances: [0] = forward, then clockwise around the player
-        let num_rings = collision_result.ring_distances.len();
-        if num_rings > 0 {
-            // Compute the movement direction angle
-            let movement_direction = Vec2::new(horizontal_velocity.x, horizontal_velocity.z);
-            let movement_speed = movement_direction.length();
+        // Resolve horizontal collisions only (preserve vertical velocity for gravity)
+        let mut horizontal_velocity =
+            Vec3::new(self.rigidbody.velocity.x, 0.0, self.rigidbody.velocity.z);
+        let vertical_velocity = self.rigidbody.velocity.y;
+        let mut collision_iterations = 0;
 
-            if movement_speed > 0.001 {
-                let movement_angle = movement_direction.y.atan2(movement_direction.x);
+        while collision_iterations < MAX_COLLISION_ITERATIONS {
+            let collision_detected = self.resolve_horizontal_collision_step(
+                &mut horizontal_velocity,
+                &collision_result,
+                COLLISION_THRESHOLD,
+                frame_delta_time,
+            );
 
-                // Check collision in the direction of movement
-                let mut min_collision_distance = f32::INFINITY;
-
-                // Sample several rays in the direction of movement
-                for i in 0..num_rings {
-                    let ring_angle = if i == 0 {
-                        0.0 // forward direction
-                    } else {
-                        2.0 * std::f32::consts::PI * (i - 1) as f32 / (num_rings - 1) as f32
-                    };
-
-                    // Calculate angle difference between movement and this ring direction
-                    let angle_diff = (movement_angle - ring_angle).abs();
-                    let normalized_angle_diff =
-                        angle_diff.min(2.0 * std::f32::consts::PI - angle_diff);
-
-                    // Weight the collision distance based on angle alignment
-                    let weight = (1.0 - normalized_angle_diff / std::f32::consts::PI).max(0.0);
-                    if weight > 0.1 {
-                        // Only consider rays reasonably aligned with movement
-                        min_collision_distance =
-                            min_collision_distance.min(collision_result.ring_distances[i]);
-                    }
-                }
-
-                // If collision detected, stop movement
-                if min_collision_distance < collision_threshold {
-                    adjusted_horizontal_velocity = Vec3::ZERO;
-                }
+            if !collision_detected {
+                break;
             }
+
+            collision_iterations += 1;
         }
 
-        // === integrate total velocity ===
-        let total_velocity =
-            adjusted_horizontal_velocity + Vec3::new(0.0, self.vertical_velocity, 0.0);
-        self.position += total_velocity * frame_delta_time;
+        if collision_iterations >= MAX_COLLISION_ITERATIONS {
+            horizontal_velocity = Vec3::ZERO;
+        }
 
-        // === audio: foot-steps, jump, land ===
+        // Combine resolved horizontal velocity with preserved vertical velocity
+        let resolved_velocity = Vec3::new(
+            horizontal_velocity.x,
+            vertical_velocity,
+            horizontal_velocity.z,
+        );
+        self.rigidbody.velocity = resolved_velocity;
+
+        // integrate position
+        let position_delta = self.rigidbody.velocity * frame_delta_time;
+        self.position += position_delta;
+
+        // audio: foot-steps, jump, land
         let is_moving = self.movement_state.is_moving_horizontally();
-
         let is_running = self.movement_state.is_boosted;
 
         let just_landed = is_on_ground && !self.was_on_ground;
@@ -294,5 +330,116 @@ impl Camera {
         );
 
         self.was_on_ground = is_on_ground;
+    }
+
+    /// Resolve a single horizontal collision step using the 32-ray collision system
+    /// Returns true if a collision was detected and resolved
+    fn resolve_horizontal_collision_step(
+        &self,
+        horizontal_velocity: &mut Vec3,
+        collision_result: &PlayerCollisionResult,
+        collision_threshold: f32,
+        frame_delta_time: f32,
+    ) -> bool {
+        let num_rings = collision_result.ring_distances.len();
+        if num_rings == 0 {
+            return false;
+        }
+
+        let velocity_magnitude = horizontal_velocity.length();
+
+        // Skip collision if velocity is too small
+        if velocity_magnitude < 0.001 {
+            return false;
+        }
+
+        // Calculate movement direction in XZ plane
+        let (front, right) = self.movement_basis();
+        let camera_front_2d = Vec2::new(front.x, front.z).normalize();
+        let camera_right_2d = Vec2::new(right.x, right.z).normalize();
+        let movement_2d = Vec2::new(horizontal_velocity.x, horizontal_velocity.z);
+
+        // Project movement onto camera basis
+        let forward_component = movement_2d.dot(camera_front_2d);
+        let right_component = movement_2d.dot(camera_right_2d);
+
+        // Calculate movement angle relative to camera front
+        let movement_angle = right_component.atan2(forward_component);
+
+        let mut collision_detected = false;
+        let mut collision_normal = Vec3::ZERO;
+        let mut min_distance = f32::INFINITY;
+
+        // Check all ring rays for collisions
+        for i in 0..num_rings {
+            let ring_distance = collision_result.ring_distances[i];
+
+            // Calculate ring direction angle
+            let ring_angle = if i == 0 {
+                0.0 // forward direction
+            } else {
+                2.0 * std::f32::consts::PI * (i - 1) as f32 / (num_rings - 1) as f32
+            };
+
+            // Calculate angle difference between movement and ring
+            let mut angle_diff = (movement_angle - ring_angle).abs();
+            angle_diff = angle_diff.min(2.0 * std::f32::consts::PI - angle_diff);
+
+            // Use a wider collision cone for better collision detection
+            let collision_cone_angle = std::f32::consts::PI * 0.6; // 108 degrees
+            let weight = (1.0 - angle_diff / collision_cone_angle).max(0.0);
+
+            if weight > 0.0 && ring_distance < collision_threshold {
+                collision_detected = true;
+
+                // Calculate horizontal collision normal from ring direction
+                let ring_direction = Vec3::new(
+                    front.x * ring_angle.cos() + right.x * ring_angle.sin(),
+                    0.0, // Keep collision normal horizontal only
+                    front.z * ring_angle.cos() + right.z * ring_angle.sin(),
+                );
+
+                // Weight the collision normal by the angular alignment
+                collision_normal += ring_direction * weight;
+                min_distance = min_distance.min(ring_distance);
+            }
+        }
+
+        if collision_detected {
+            // Normalize the collision normal (horizontal only)
+            collision_normal = collision_normal.normalize();
+
+            // Calculate penetration depth
+            let penetration_depth = collision_threshold - min_distance;
+
+            // Apply horizontal collision response for sliding
+            if penetration_depth > 0.0 {
+                // Separate from collision by moving away from collision normal
+                let separation_distance = penetration_depth * 1.1; // Add small margin
+                let separation_velocity = collision_normal * separation_distance / frame_delta_time;
+
+                // Project horizontal velocity onto collision normal to get collision component
+                let velocity_along_normal = horizontal_velocity.dot(collision_normal);
+
+                if velocity_along_normal < 0.0 {
+                    // Project velocity onto the collision tangent plane for sliding
+                    let collision_velocity = collision_normal * velocity_along_normal;
+                    *horizontal_velocity -= collision_velocity; // Remove the component going into the wall
+
+                    // Add separation velocity to prevent interpenetration
+                    *horizontal_velocity += separation_velocity;
+                }
+            } else {
+                // Simple velocity projection for approaching collision (sliding)
+                let velocity_along_normal = horizontal_velocity.dot(collision_normal);
+                if velocity_along_normal < 0.0 {
+                    // Project velocity onto tangent plane to allow sliding
+                    let collision_velocity = collision_normal * velocity_along_normal;
+                    *horizontal_velocity -= collision_velocity;
+                }
+            }
+        }
+
+        collision_detected
     }
 }

@@ -20,7 +20,7 @@ contree_leaf_data;
 
 layout(set = 0, binding = 3, rg32ui) readonly uniform uimage3D scene_tex;
 
-#define NUM_RING_DISTANCES 8
+#define NUM_RING_DISTANCES 32
 
 layout(set = 0, binding = 4) writeonly buffer B_PlayerCollisionResult {
     float ground_distance;
@@ -33,7 +33,6 @@ player_collision_result;
 #include "../include/marching_result.glsl"
 #include "../include/ray.glsl"
 
-/* ------------------------- unchanged helper functions ---------------------- */
 bool scene_hit(inout MarchingResult o_res, vec3 o, vec3 d, ivec3 map_pos, uvec4 scene_tex_read) {
     if (scene_tex_read.x == 0) {
         return false;
@@ -63,7 +62,6 @@ MarchingResult general_scene_marching(Ray ray) {
 
 #include "../include/core/definitions.glsl"
 
-/* ----------------- tunable constants & unified kernel logic ---------------- */
 #define RAY_HALF_KERNAL_SIZE 1     // half size of the square ground-ray kernel
 #define RAY_OFFSET (1.0 / 256.0)   // horizontal spacing between ground rays
 #define COLLISION_RAY_DISTANCE 2.0 // max range for the non-ground rays
@@ -71,15 +69,11 @@ MarchingResult general_scene_marching(Ray ray) {
 #define KERNEL_DIM (2 * RAY_HALF_KERNAL_SIZE + 1)
 #define NUM_GROUND_RAYS (KERNEL_DIM * KERNEL_DIM)
 
-/* total threads = ground rays + ring distances */
 #define TOTAL_THREADS (NUM_GROUND_RAYS + NUM_RING_DISTANCES)
 
-/* -------------------------------- shared memory ---------------------------- */
 shared float ground_results[KERNEL_DIM][KERNEL_DIM];
 shared float ring_collision_distances[NUM_RING_DISTANCES];
 
-/* ----------------------------- helper functions ---------------------------- */
-/* Generate ring directions relative to camera front vector */
 vec3 get_ring_direction(int ring_index) {
     vec3 flattened_front = normalize(
         vec3(player_collider_info.camera_front.x, 0.0, player_collider_info.camera_front.z));
@@ -96,7 +90,6 @@ vec3 get_ring_direction(int ring_index) {
     }
 }
 
-/* inline 2-D Gaussian weight, keeps the kernel auto-consistent with its size */
 float gaussian_weight(int x, int y) {
     const float sigma = float(RAY_HALF_KERNAL_SIZE) * 0.5 + 0.5;
     float sigma2      = sigma * sigma;
