@@ -195,7 +195,7 @@ impl App {
 
         Self::add_ambient_sounds(&mut audio_engine)?;
 
-        return Ok(Self {
+        let mut app = Self {
             vulkan_ctx,
             egui_renderer: renderer,
             window_state,
@@ -237,12 +237,15 @@ impl App {
             sun_azimuth: 280.0,
             sun_size: 0.02,
             sun_color: egui::Color32::from_rgb(255, 233, 144),
-            tree_pos: Vec3::new(512.0, 250.0, 512.0),
+            tree_pos: Vec3::new(512.0, 0.0, 512.0),
             tree_desc: TreeDesc::default(),
             prev_bound: Default::default(),
 
             audio_engine,
-        });
+        };
+
+        app.add_a_tree(app.tree_desc.clone(), app.tree_pos, true)?;
+        Ok(app)
     }
 
     fn add_ambient_sounds(audio_engine: &mut AudioEngine) -> Result<()> {
