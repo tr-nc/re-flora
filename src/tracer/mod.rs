@@ -1743,47 +1743,62 @@ impl Tracer {
     }
 
     pub fn update_camera(&mut self, frame_delta_time: f32) {
-        let collision_result = get_player_collision_result(&self.resources.player_collision_result).unwrap();
+        let collision_result =
+            get_player_collision_result(&self.resources.player_collision_result).unwrap();
 
         self.camera
             .update_transform_walk_mode(frame_delta_time, collision_result);
 
-        fn get_player_collision_result(player_collision_result: &Buffer) -> Result<PlayerCollisionResult> {
+        fn get_player_collision_result(
+            player_collision_result: &Buffer,
+        ) -> Result<PlayerCollisionResult> {
             let layout = &player_collision_result.get_layout().unwrap().root_member;
             let raw_data = player_collision_result.read_back().unwrap();
             let reader = StructMemberDataReader::new(layout, &raw_data);
 
-            let ground_distance = if let PlainMemberTypeWithData::Float(val) = reader.get_field("ground_distance").unwrap() {
+            let ground_distance = if let PlainMemberTypeWithData::Float(val) =
+                reader.get_field("ground_distance").unwrap()
+            {
                 val
             } else {
                 panic!("Expected Float type for ground_distance");
             };
-            
-            let front_distance = if let PlainMemberTypeWithData::Float(val) = reader.get_field("front_distance").unwrap() {
+
+            let front_distance = if let PlainMemberTypeWithData::Float(val) =
+                reader.get_field("front_distance").unwrap()
+            {
                 val
             } else {
                 panic!("Expected Float type for front_distance");
             };
-            
-            let back_distance = if let PlainMemberTypeWithData::Float(val) = reader.get_field("back_distance").unwrap() {
+
+            let back_distance = if let PlainMemberTypeWithData::Float(val) =
+                reader.get_field("back_distance").unwrap()
+            {
                 val
             } else {
                 panic!("Expected Float type for back_distance");
             };
-            
-            let left_distance = if let PlainMemberTypeWithData::Float(val) = reader.get_field("left_distance").unwrap() {
+
+            let left_distance = if let PlainMemberTypeWithData::Float(val) =
+                reader.get_field("left_distance").unwrap()
+            {
                 val
             } else {
                 panic!("Expected Float type for left_distance");
             };
-            
-            let right_distance = if let PlainMemberTypeWithData::Float(val) = reader.get_field("right_distance").unwrap() {
+
+            let right_distance = if let PlainMemberTypeWithData::Float(val) =
+                reader.get_field("right_distance").unwrap()
+            {
                 val
             } else {
                 panic!("Expected Float type for right_distance");
             };
-            
-            let up_distance = if let PlainMemberTypeWithData::Float(val) = reader.get_field("up_distance").unwrap() {
+
+            let up_distance = if let PlainMemberTypeWithData::Float(val) =
+                reader.get_field("up_distance").unwrap()
+            {
                 val
             } else {
                 panic!("Expected Float type for up_distance");

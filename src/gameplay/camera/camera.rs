@@ -1,13 +1,7 @@
 use super::{
-    audio::PlayerAudioController,
-    movement::MovementState,
-    vectors::CameraVectors,
-    CameraDesc,
+    audio::PlayerAudioController, movement::MovementState, vectors::CameraVectors, CameraDesc,
 };
-use crate::{
-    audio::AudioEngine,
-    vkn::Extent2D,
-};
+use crate::{audio::AudioEngine, vkn::Extent2D};
 use anyhow::Result;
 use glam::{Mat4, Vec2, Vec3, Vec4};
 use winit::event::KeyEvent;
@@ -161,7 +155,11 @@ impl Camera {
         ) * frame_delta_time;
     }
 
-    pub fn update_transform_walk_mode(&mut self, frame_delta_time: f32, collision_result: crate::tracer::PlayerCollisionResult) {
+    pub fn update_transform_walk_mode(
+        &mut self,
+        frame_delta_time: f32,
+        collision_result: crate::tracer::PlayerCollisionResult,
+    ) {
         const GRAVITY_G: f32 = 2.0; // gravity acceleration (m/s²)
         const JUMP_IMPULSE: f32 = 0.4; // initial jump velocity (m/s)
         const GROUND_EPSILON: f32 = 0.01; // tolerance when comparing to ground
@@ -172,7 +170,8 @@ impl Camera {
         let horizontal_velocity = self.movement_state.get_velocity(front, right, Vec3::ZERO);
 
         // detect whether the player is on the ground
-        let is_on_ground = collision_result.ground_distance <= self.desc.camera_height + GROUND_EPSILON;
+        let is_on_ground =
+            collision_result.ground_distance <= self.desc.camera_height + GROUND_EPSILON;
 
         // === vertical motion & jump handling ===
         if is_on_ground {
@@ -195,7 +194,7 @@ impl Camera {
         } else {
             // airborne: apply gravity
             self.vertical_velocity -= GRAVITY_G * frame_delta_time;
-            
+
             // check for head collision when moving upward
             if self.vertical_velocity > 0.0 && collision_result.up_distance < 0.2 {
                 self.vertical_velocity = 0.0; // stop upward movement
@@ -208,23 +207,28 @@ impl Camera {
         // === collision detection for horizontal movement ===
         let collision_threshold = 0.3; // minimum distance to obstacle before stopping
         let mut adjusted_horizontal_velocity = horizontal_velocity;
-        
+
         // Check front/back movement
         if horizontal_velocity.z > 0.0 && collision_result.front_distance < collision_threshold {
             adjusted_horizontal_velocity.z = 0.0;
-        } else if horizontal_velocity.z < 0.0 && collision_result.back_distance < collision_threshold {
+        } else if horizontal_velocity.z < 0.0
+            && collision_result.back_distance < collision_threshold
+        {
             adjusted_horizontal_velocity.z = 0.0;
         }
-        
+
         // Check left/right movement
         if horizontal_velocity.x > 0.0 && collision_result.right_distance < collision_threshold {
             adjusted_horizontal_velocity.x = 0.0;
-        } else if horizontal_velocity.x < 0.0 && collision_result.left_distance < collision_threshold {
+        } else if horizontal_velocity.x < 0.0
+            && collision_result.left_distance < collision_threshold
+        {
             adjusted_horizontal_velocity.x = 0.0;
         }
-        
+
         // === integrate total velocity ===
-        let total_velocity = adjusted_horizontal_velocity + Vec3::new(0.0, self.vertical_velocity, 0.0);
+        let total_velocity =
+            adjusted_horizontal_velocity + Vec3::new(0.0, self.vertical_velocity, 0.0);
         self.position += total_velocity * frame_delta_time;
 
         // === audio: foot-steps, jump, land ===
