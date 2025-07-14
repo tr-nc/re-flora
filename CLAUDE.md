@@ -102,6 +102,45 @@ The shader compiler (`src/util/compiler.rs`) provides:
 ## Testing Environment
 The project includes a Python test environment in `misc/test_env/` for external testing tools and validation.
 
+## Commit Message Conventions
+
+Based on the project's commit history, follow these naming patterns when creating commit messages:
+
+### Format: `<type>: <description>`
+
+**Common Types:**
+- `feat:` - New features or functionality
+- `fix:` - Bug fixes and corrections
+- `refactor:` - Code restructuring without changing functionality
+- `docs:` - Documentation updates
+- `minor:` - Small changes, updates, or tweaks
+
+**Style Guidelines:**
+- Use lowercase for the type prefix
+- Write descriptive, action-oriented descriptions
+- Be specific about what was changed and why
+- For complex changes, include multiple affected areas
+
+**Examples:**
+```
+feat: implement frustum culling for grass chunk rendering to improve performance
+fix: correct chunk AABB calculation for accurate frustum culling
+refactor: streamline camera update logic and improve collision handling
+docs: update CLAUDE.md with commit naming conventions
+minor: adjust grass sway margin constant for better visual quality
+```
+
+**Multi-component changes:**
+When changes affect multiple systems, list them clearly:
+```
+feat: enhance player collision detection by introducing ring-based distances and updating camera logic to utilize these distances for improved movement handling
+```
+
+**Avoid:**
+- Generic messages like "update", "change", or "fix bug"
+- Single letter commits (like "t")
+- Overly verbose descriptions without clear purpose
+
 ## Important Notes
 - Shader compilation happens at runtime using the `shaderc` crate
 - The project targets Vulkan 1.3 with RTX ray tracing extensions
