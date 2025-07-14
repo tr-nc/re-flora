@@ -9,13 +9,13 @@ pub use vertex::*;
 
 mod grass_construct;
 
-use glam::{Mat4, Vec2, Vec3};
+use glam::{Mat4, UVec3, Vec2, Vec3};
 use winit::event::KeyEvent;
 
 use crate::audio::AudioEngine;
 use crate::builder::SurfaceResources;
 use crate::gameplay::{calculate_directional_light_matrices, Camera, CameraDesc};
-use crate::geom::UAabb3;
+use crate::geom::{Aabb3, UAabb3};
 use crate::util::{ShaderCompiler, TimeInfo};
 use crate::vkn::{
     Allocator, AttachmentDesc, AttachmentReference, Buffer, ComputePipeline, DescriptorPool,
@@ -27,6 +27,8 @@ use crate::vkn::{
 use crate::vkn::{CommandBuffer, VulkanContext};
 use anyhow::Result;
 use ash::vk;
+
+const GRASS_SWAY_MARGIN: f32 = 0.2;
 
 pub struct TracerDesc {
     pub scaling_factor: f32,
@@ -50,6 +52,7 @@ pub struct Tracer {
     camera: Camera,
     camera_view_mat_prev_frame: Mat4,
     camera_proj_mat_prev_frame: Mat4,
+    current_view_proj_mat: Mat4,
 
     tracer_ppl: ComputePipeline,
     temporal_ppl: ComputePipeline,
@@ -397,6 +400,7 @@ impl Tracer {
             camera,
             camera_view_mat_prev_frame: Mat4::IDENTITY,
             camera_proj_mat_prev_frame: Mat4::IDENTITY,
+            current_view_proj_mat: Mat4::IDENTITY,
             tracer_ppl,
             tracer_shadow_ppl,
             god_ray_ppl,
@@ -1035,6 +1039,10 @@ impl Tracer {
         &self.resources.extent_dependent_resources.screen_output_tex
     }
 
+    pub fn get_current_view_proj_mat(&self) -> Mat4 {
+        self.current_view_proj_mat
+    }
+
     pub fn update_buffers(
         &mut self,
         time_info: &TimeInfo,
@@ -1057,11 +1065,10 @@ impl Tracer {
         is_taa_enabled: bool,
     ) -> Result<()> {
         // camera info
-        update_cam_info(
-            &mut self.resources.camera_info,
-            self.camera.get_view_mat(),
-            self.camera.get_proj_mat(),
-        )?;
+        let view_mat = self.camera.get_view_mat();
+        let proj_mat = self.camera.get_proj_mat();
+        self.current_view_proj_mat = proj_mat * view_mat;
+        update_cam_info(&mut self.resources.camera_info, view_mat, proj_mat)?;
 
         // shadow cam info
         let world_bound = self.chunk_bound.into();
@@ -1443,6 +1450,17 @@ impl Tracer {
         }
     }
 
+    fn compute_chunk_world_aabb(chunk_id: UVec3, margin: f32) -> Aabb3 {
+        let chunk_min = chunk_id.as_vec3();
+        let chunk_max = chunk_min + Vec3::ONE;
+
+        // add margin for grass swaying
+        let min_with_margin = chunk_min - Vec3::splat(margin);
+        let max_with_margin = chunk_max + Vec3::splat(margin);
+
+        Aabb3::new(min_with_margin, max_with_margin)
+    }
+
     fn record_grass_pass(&self, cmdbuf: &CommandBuffer, surface_resources: &SurfaceResources) {
         self.grass_ppl.record_bind(cmdbuf);
 
@@ -1497,9 +1515,20 @@ impl Tracer {
         }
 
         // now, iterate over each chunk and issue a draw call for it.
-        for (_chunk_id, chunk_resources) in &surface_resources.chunk_raster_resources {
+        for (chunk_id, chunk_resources) in &surface_resources.chunk_raster_resources {
             // only draw if this chunk actually has grass instances.
             if chunk_resources.grass_instances_len == 0 {
+                continue;
+            }
+
+            // compute chunk's world AABB with margin for grass swaying
+            let chunk_world_aabb = Self::compute_chunk_world_aabb(*chunk_id, GRASS_SWAY_MARGIN);
+
+            // perform frustum culling
+            let view_proj_mat = self.current_view_proj_mat;
+            let is_inside = chunk_world_aabb.is_inside_frustum(view_proj_mat);
+            
+            if !is_inside {
                 continue;
             }
 

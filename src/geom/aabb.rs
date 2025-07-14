@@ -1,4 +1,4 @@
-use glam::{UVec3, Vec3};
+use glam::{Mat4, UVec3, Vec3, Vec4, Vec4Swizzles};
 
 use crate::vkn::Extent3D;
 
@@ -92,6 +92,106 @@ impl Aabb3 {
 
     pub fn has_size(&self) -> bool {
         self.min.x < self.max.x && self.min.y < self.max.y && self.min.z < self.max.z
+    }
+
+    pub fn is_inside_frustum(&self, view_proj_mat: Mat4) -> bool {
+        let corners = self.get_corners();
+
+        for corner in corners {
+            let clip_pos = view_proj_mat * corner.extend(1.0);
+
+            if clip_pos.w > 0.0 {
+                let ndc = clip_pos.xyz() / clip_pos.w;
+
+                if ndc.x >= -1.0
+                    && ndc.x <= 1.0
+                    && ndc.y >= -1.0
+                    && ndc.y <= 1.0
+                    && ndc.z >= 0.0
+                    && ndc.z <= 1.0
+                {
+                    return true;
+                }
+            }
+        }
+
+        let frustum_planes = Self::extract_frustum_planes(view_proj_mat);
+
+        for plane in frustum_planes {
+            let mut all_outside = true;
+            for corner in corners {
+                let distance =
+                    plane.x * corner.x + plane.y * corner.y + plane.z * corner.z + plane.w;
+                if distance >= 0.0 {
+                    all_outside = false;
+                    break;
+                }
+            }
+            if all_outside {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    /// Extracts the 6 frustum planes from a view-projection matrix.
+    ///
+    /// Uses the Gribb-Hartmann method to extract plane equations directly from the
+    /// view-projection matrix. Each plane is represented as a Vec4 where (x,y,z) is
+    /// the plane normal and w is the distance from origin.
+    ///
+    /// # Parameters
+    /// * `view_proj_mat` - Combined view-projection matrix
+    ///
+    /// # Returns
+    /// Array of 6 planes in order: [Left, Right, Bottom, Top, Near, Far]
+    ///
+    /// # Plane equation
+    /// For a point P, the distance to plane is: dot(P, plane.xyz) + plane.w
+    /// - Positive distance = point is on the "inside" (visible) side
+    /// - Negative distance = point is on the "outside" (culled) side
+    fn extract_frustum_planes(view_proj_mat: Mat4) -> [Vec4; 6] {
+        let m = view_proj_mat.to_cols_array_2d();
+
+        [
+            Vec4::new(
+                m[0][3] + m[0][0],
+                m[1][3] + m[1][0],
+                m[2][3] + m[2][0],
+                m[3][3] + m[3][0],
+            ), // Left
+            Vec4::new(
+                m[0][3] - m[0][0],
+                m[1][3] - m[1][0],
+                m[2][3] - m[2][0],
+                m[3][3] - m[3][0],
+            ), // Right
+            Vec4::new(
+                m[0][3] + m[0][1],
+                m[1][3] + m[1][1],
+                m[2][3] + m[2][1],
+                m[3][3] + m[3][1],
+            ), // Bottom
+            Vec4::new(
+                m[0][3] - m[0][1],
+                m[1][3] - m[1][1],
+                m[2][3] - m[2][1],
+                m[3][3] - m[3][1],
+            ), // Top
+            Vec4::new(
+                m[0][3] + m[0][2],
+                m[1][3] + m[1][2],
+                m[2][3] + m[2][2],
+                m[3][3] + m[3][2],
+            ), // Near
+            Vec4::new(
+                m[0][3] - m[0][2],
+                m[1][3] - m[1][2],
+                m[2][3] - m[2][2],
+                m[3][3] - m[3][2],
+            ), // Far
+        ]
     }
 }
 
