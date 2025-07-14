@@ -132,6 +132,13 @@ impl<'a> PlainMemberDataBuilder<'a> {
                     }
                     b
                 }
+                PlainMemberTypeWithData::Array(arr) => {
+                    let mut b = Vec::with_capacity(arr.len() * 4);
+                    for &val in arr.iter() {
+                        b.extend_from_slice(&val.to_ne_bytes());
+                    }
+                    b
+                }
             };
 
             // 2) pad with zeros or truncate to exactly padded_size

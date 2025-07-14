@@ -1,7 +1,7 @@
 use super::{
     audio::PlayerAudioController, movement::MovementState, vectors::CameraVectors, CameraDesc,
 };
-use crate::{audio::AudioEngine, vkn::Extent2D};
+use crate::{audio::AudioEngine, tracer::PlayerCollisionResult, vkn::Extent2D};
 use anyhow::Result;
 use glam::{Mat4, Vec2, Vec3, Vec4};
 use winit::event::KeyEvent;
@@ -60,6 +60,10 @@ impl Camera {
     #[allow(dead_code)]
     pub fn position(&self) -> Vec3 {
         self.position
+    }
+
+    pub fn front(&self) -> Vec3 {
+        self.vectors.front
     }
 
     /// Returns the camera's position as a Vec4 with the w component set to 1.0.
@@ -158,7 +162,7 @@ impl Camera {
     pub fn update_transform_walk_mode(
         &mut self,
         frame_delta_time: f32,
-        collision_result: crate::tracer::PlayerCollisionResult,
+        collision_result: PlayerCollisionResult,
     ) {
         const GRAVITY_G: f32 = 2.0; // gravity acceleration (m/s²)
         const JUMP_IMPULSE: f32 = 0.4; // initial jump velocity (m/s)
@@ -196,7 +200,13 @@ impl Camera {
             self.vertical_velocity -= GRAVITY_G * frame_delta_time;
 
             // check for head collision when moving upward
-            if self.vertical_velocity > 0.0 && collision_result.up_distance < 0.2 {
+            // With ring collision, we use the minimum distance from the ring
+            let min_ring_distance = collision_result
+                .ring_distances
+                .iter()
+                .cloned()
+                .fold(f32::INFINITY, f32::min);
+            if self.vertical_velocity > 0.0 && min_ring_distance < 0.2 {
                 self.vertical_velocity = 0.0; // stop upward movement
             }
         }
@@ -208,22 +218,47 @@ impl Camera {
         let collision_threshold = 0.3; // minimum distance to obstacle before stopping
         let mut adjusted_horizontal_velocity = horizontal_velocity;
 
-        // Check front/back movement
-        if horizontal_velocity.z > 0.0 && collision_result.front_distance < collision_threshold {
-            adjusted_horizontal_velocity.z = 0.0;
-        } else if horizontal_velocity.z < 0.0
-            && collision_result.back_distance < collision_threshold
-        {
-            adjusted_horizontal_velocity.z = 0.0;
-        }
+        // With ring collision, we check the collision distance in the direction of movement
+        // Ring distances: [0] = forward, then clockwise around the player
+        let num_rings = collision_result.ring_distances.len();
+        if num_rings > 0 {
+            // Compute the movement direction angle
+            let movement_direction = Vec2::new(horizontal_velocity.x, horizontal_velocity.z);
+            let movement_speed = movement_direction.length();
 
-        // Check left/right movement
-        if horizontal_velocity.x > 0.0 && collision_result.right_distance < collision_threshold {
-            adjusted_horizontal_velocity.x = 0.0;
-        } else if horizontal_velocity.x < 0.0
-            && collision_result.left_distance < collision_threshold
-        {
-            adjusted_horizontal_velocity.x = 0.0;
+            if movement_speed > 0.001 {
+                let movement_angle = movement_direction.y.atan2(movement_direction.x);
+
+                // Check collision in the direction of movement
+                let mut min_collision_distance = f32::INFINITY;
+
+                // Sample several rays in the direction of movement
+                for i in 0..num_rings {
+                    let ring_angle = if i == 0 {
+                        0.0 // forward direction
+                    } else {
+                        2.0 * std::f32::consts::PI * (i - 1) as f32 / (num_rings - 1) as f32
+                    };
+
+                    // Calculate angle difference between movement and this ring direction
+                    let angle_diff = (movement_angle - ring_angle).abs();
+                    let normalized_angle_diff =
+                        angle_diff.min(2.0 * std::f32::consts::PI - angle_diff);
+
+                    // Weight the collision distance based on angle alignment
+                    let weight = (1.0 - normalized_angle_diff / std::f32::consts::PI).max(0.0);
+                    if weight > 0.1 {
+                        // Only consider rays reasonably aligned with movement
+                        min_collision_distance =
+                            min_collision_distance.min(collision_result.ring_distances[i]);
+                    }
+                }
+
+                // If collision detected, stop movement
+                if min_collision_distance < collision_threshold {
+                    adjusted_horizontal_velocity = Vec3::ZERO;
+                }
+            }
         }
 
         // === integrate total velocity ===

@@ -86,6 +86,7 @@ pub enum PlainMemberTypeWithData {
     Mat3([[f32; 3]; 3]),
     Mat4([[f32; 4]; 4]),
     Mat3x4([[f32; 4]; 3]),
+    Array(Vec<f32>),
 }
 
 impl PlainMemberTypeWithData {
@@ -109,6 +110,7 @@ impl PlainMemberTypeWithData {
             (PlainMemberTypeWithData::Mat3(_), PlainMemberType::Mat3) => true,
             (PlainMemberTypeWithData::Mat4(_), PlainMemberType::Mat4) => true,
             (PlainMemberTypeWithData::Mat3x4(_), PlainMemberType::Mat3x4) => true,
+            (PlainMemberTypeWithData::Array(_), PlainMemberType::Array) => true,
             _ => false, // false conditions contains Array types, and any other mismatches
         }
     }

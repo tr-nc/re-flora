@@ -4,7 +4,10 @@
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
-layout(set = 0, binding = 0) uniform U_PlayerColliderInfo { vec3 player_pos; }
+layout(set = 0, binding = 0) uniform U_PlayerColliderInfo {
+    vec3 player_pos;
+    vec3 camera_front;
+}
 player_collider_info;
 
 #include "../include/contree_node.glsl"
@@ -17,13 +20,11 @@ contree_leaf_data;
 
 layout(set = 0, binding = 3, rg32ui) readonly uniform uimage3D scene_tex;
 
+#define NUM_RING_DISTANCES 8
+
 layout(set = 0, binding = 4) writeonly buffer B_PlayerCollisionResult {
     float ground_distance;
-    float front_distance;
-    float back_distance;
-    float left_distance;
-    float right_distance;
-    float up_distance;
+    float ring_distances[NUM_RING_DISTANCES];
 }
 player_collision_result;
 
@@ -60,6 +61,8 @@ MarchingResult general_scene_marching(Ray ray) {
     return dda_scene_marching(ray.origin, ray.direction, ray.inv_direction);
 }
 
+#include "../include/core/definitions.glsl"
+
 /* ----------------- tunable constants & unified kernel logic ---------------- */
 #define RAY_HALF_KERNAL_SIZE 1     // half size of the square ground-ray kernel
 #define RAY_OFFSET (1.0 / 256.0)   // horizontal spacing between ground rays
@@ -68,29 +71,28 @@ MarchingResult general_scene_marching(Ray ray) {
 #define KERNEL_DIM (2 * RAY_HALF_KERNAL_SIZE + 1)
 #define NUM_GROUND_RAYS (KERNEL_DIM * KERNEL_DIM)
 
-/* keep only front / back / left / right / up (ground is handled separately) */
-#define NUM_COLLISION_DIRECTIONS 5
+/* total threads = ground rays + ring distances */
+#define TOTAL_THREADS (NUM_GROUND_RAYS + NUM_RING_DISTANCES)
 
 /* -------------------------------- shared memory ---------------------------- */
 shared float ground_results[KERNEL_DIM][KERNEL_DIM];
-shared float collision_distances[NUM_COLLISION_DIRECTIONS];
+shared float ring_collision_distances[NUM_RING_DISTANCES];
 
 /* ----------------------------- helper functions ---------------------------- */
-/* dir_index 0–4 correspond to front, back, left, right, up */
-vec3 get_collision_direction(int dir_index) {
-    switch (dir_index) {
-    case 0:
-        return vec3(0.0, 0.0, 1.0); // front
-    case 1:
-        return vec3(0.0, 0.0, -1.0); // back
-    case 2:
-        return vec3(-1.0, 0.0, 0.0); // left
-    case 3:
-        return vec3(1.0, 0.0, 0.0); // right
-    case 4:
-        return vec3(0.0, 1.0, 0.0); // up
-    default:
-        return vec3(0.0); // unreachable
+/* Generate ring directions relative to camera front vector */
+vec3 get_ring_direction(int ring_index) {
+    vec3 flattened_front = normalize(
+        vec3(player_collider_info.camera_front.x, 0.0, player_collider_info.camera_front.z));
+    vec3 right = normalize(cross(flattened_front, vec3(0.0, 1.0, 0.0)));
+    vec3 up    = normalize(cross(right, flattened_front));
+
+    if (ring_index == 0) {
+        // First ray shoots forward
+        return flattened_front;
+    } else {
+        // Generate clockwise ring around camera position
+        float angle = TWO_PI * float(ring_index - 1) / float(NUM_RING_DISTANCES - 1);
+        return normalize(flattened_front * cos(angle) + right * sin(angle));
     }
 }
 
@@ -102,10 +104,9 @@ float gaussian_weight(int x, int y) {
 }
 
 void main() {
-    int id                  = int(gl_GlobalInvocationID.x);
-    const int total_threads = NUM_GROUND_RAYS + NUM_COLLISION_DIRECTIONS;
+    int id = int(gl_GlobalInvocationID.x);
 
-    if (id >= total_threads) {
+    if (id >= TOTAL_THREADS) {
         return;
     }
 
@@ -124,8 +125,8 @@ void main() {
         MarchingResult res = general_scene_marching(ray);
         ground_results[x + RAY_HALF_KERNAL_SIZE][y + RAY_HALF_KERNAL_SIZE] = res.t;
     } else {
-        int dir_index  = id - NUM_GROUND_RAYS; // 0–4
-        vec3 direction = get_collision_direction(dir_index);
+        int ring_index = id - NUM_GROUND_RAYS; // 0 to NUM_RING_DISTANCES-1
+        vec3 direction = get_ring_direction(ring_index);
 
         Ray ray;
         ray.origin        = player_collider_info.player_pos;
@@ -134,7 +135,7 @@ void main() {
 
         MarchingResult res = general_scene_marching(ray);
         float distance = res.is_hit ? min(res.t, COLLISION_RAY_DISTANCE) : COLLISION_RAY_DISTANCE;
-        collision_distances[dir_index] = distance;
+        ring_collision_distances[ring_index] = distance;
     }
 
     barrier();
@@ -153,10 +154,9 @@ void main() {
         }
 
         player_collision_result.ground_distance = weighted_sum / max(sum_of_weights, 1e-8);
-        player_collision_result.front_distance  = collision_distances[0];
-        player_collision_result.back_distance   = collision_distances[1];
-        player_collision_result.left_distance   = collision_distances[2];
-        player_collision_result.right_distance  = collision_distances[3];
-        player_collision_result.up_distance     = collision_distances[4];
+
+        for (int i = 0; i < NUM_RING_DISTANCES; ++i) {
+            player_collision_result.ring_distances[i] = ring_collision_distances[i];
+        }
     }
 }

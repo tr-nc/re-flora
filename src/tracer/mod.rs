@@ -35,11 +35,7 @@ pub struct TracerDesc {
 #[derive(Debug, Clone)]
 pub struct PlayerCollisionResult {
     pub ground_distance: f32,
-    pub front_distance: f32,
-    pub back_distance: f32,
-    pub left_distance: f32,
-    pub right_distance: f32,
-    pub up_distance: f32,
+    pub ring_distances: Vec<f32>,
 }
 
 pub struct Tracer {
@@ -1088,7 +1084,7 @@ impl Tracer {
 
         update_post_processing_info(&self.resources, self.desc.scaling_factor)?;
 
-        update_player_collider_info(&self.resources, self.camera.position())?;
+        update_player_collider_info(&self.resources, self.camera.position(), self.camera.front())?;
 
         update_grass_info(&self.resources, time_info.time_since_start())?;
 
@@ -1315,11 +1311,16 @@ impl Tracer {
         fn update_player_collider_info(
             resources: &TracerResources,
             player_pos: Vec3,
+            camera_front: Vec3,
         ) -> Result<()> {
             let data = StructMemberDataBuilder::from_buffer(&resources.player_collider_info)
                 .set_field(
                     "player_pos",
                     PlainMemberTypeWithData::Vec3(player_pos.to_array()),
+                )
+                .set_field(
+                    "camera_front",
+                    PlainMemberTypeWithData::Vec3(camera_front.to_array()),
                 )
                 .build()?;
             resources.player_collider_info.fill_with_raw_u8(&data)?;
@@ -1764,53 +1765,17 @@ impl Tracer {
                 panic!("Expected Float type for ground_distance");
             };
 
-            let front_distance = if let PlainMemberTypeWithData::Float(val) =
-                reader.get_field("front_distance").unwrap()
+            let ring_distances = if let PlainMemberTypeWithData::Array(val) =
+                reader.get_field("ring_distances").unwrap()
             {
                 val
             } else {
-                panic!("Expected Float type for front_distance");
-            };
-
-            let back_distance = if let PlainMemberTypeWithData::Float(val) =
-                reader.get_field("back_distance").unwrap()
-            {
-                val
-            } else {
-                panic!("Expected Float type for back_distance");
-            };
-
-            let left_distance = if let PlainMemberTypeWithData::Float(val) =
-                reader.get_field("left_distance").unwrap()
-            {
-                val
-            } else {
-                panic!("Expected Float type for left_distance");
-            };
-
-            let right_distance = if let PlainMemberTypeWithData::Float(val) =
-                reader.get_field("right_distance").unwrap()
-            {
-                val
-            } else {
-                panic!("Expected Float type for right_distance");
-            };
-
-            let up_distance = if let PlainMemberTypeWithData::Float(val) =
-                reader.get_field("up_distance").unwrap()
-            {
-                val
-            } else {
-                panic!("Expected Float type for up_distance");
+                panic!("Expected Array type for ring_distances");
             };
 
             Ok(PlayerCollisionResult {
                 ground_distance,
-                front_distance,
-                back_distance,
-                left_distance,
-                right_distance,
-                up_distance,
+                ring_distances,
             })
         }
     }
