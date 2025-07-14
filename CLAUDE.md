@@ -9,6 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build Commands
 
 ### Basic Build & Run
+
 ```bash
 # Debug build and run
 cargo run
@@ -18,13 +19,16 @@ cargo run --release --features "no_validation_layer"
 ```
 
 ### Linux Dependencies (for cargo check only)
+
 ```bash
 curl https://sh.rustup.rs -sSf | sh
 sudo apt install build-essential pkg-config libasound2-dev cmake ninja-build
 ```
 
 ### Available VS Code Commands
+
 From `.vscode/settings.json`, these commands are available via the command-runner extension:
+
 - `cargo run debug` - Debug build
 - `cargo run release` - Release build with no validation layers
 - `create test env` - Create conda test environment
@@ -64,11 +68,13 @@ The project is structured around several key systems:
 ### Shader System
 
 Shaders are organized in `shader/` directory:
+
 - **Compute Shaders**: Builder systems, denoising, ray tracing
 - **Graphics Shaders**: Foliage rendering, UI, shadow mapping
 - **Include System**: Shared GLSL code in `shader/include/`
 
 The shader compiler (`src/util/compiler.rs`) provides:
+
 - Runtime GLSL to SPIR-V compilation
 - Custom include resolution for modular shaders
 - Vulkan 1.3 and SPIR-V 1.6 targeting
@@ -84,14 +90,17 @@ The shader compiler (`src/util/compiler.rs`) provides:
 ## Development Setup
 
 ### Required Extensions (VS Code)
+
 - `rust-analyzer`: Rust language support
 - `shader-lint`: GLSL/HLSL shader linting (not `glslx` for Vulkan shaders)
 
 ### Code Style
+
 - **Rust**: Uses `rustfmt.toml` with 100 character line limit
 - **Shaders**: Uses `.clang-format` with LLVM style, 4-space indentation, 100 character limit
 
 ### Project Structure Notes
+
 - `src/main.rs`: Application entry point
 - `src/app/`: Main application controller and state management
 - `src/vkn/`: Vulkan wrapper - comprehensive abstraction over Vulkan API
@@ -100,6 +109,7 @@ The shader compiler (`src/util/compiler.rs`) provides:
 - `assets/`: Game assets including audio files
 
 ## Testing Environment
+
 The project includes a Python test environment in `misc/test_env/` for external testing tools and validation.
 
 ## Commit Message Conventions
@@ -109,6 +119,7 @@ Based on the project's commit history, follow these naming patterns when creatin
 ### Format: `<type>: <description>`
 
 **Common Types:**
+
 - `feat:` - New features or functionality
 - `fix:` - Bug fixes and corrections
 - `refactor:` - Code restructuring without changing functionality
@@ -116,13 +127,15 @@ Based on the project's commit history, follow these naming patterns when creatin
 - `minor:` - Small changes, updates, or tweaks
 
 **Style Guidelines:**
+
 - Use lowercase for the type prefix
 - Write descriptive, action-oriented descriptions
 - Be specific about what was changed and why
 - For complex changes, include multiple affected areas
 
 **Examples:**
-```
+
+```plaintext
 feat: implement frustum culling for grass chunk rendering to improve performance
 fix: correct chunk AABB calculation for accurate frustum culling
 refactor: streamline camera update logic and improve collision handling
@@ -132,16 +145,19 @@ minor: adjust grass sway margin constant for better visual quality
 
 **Multi-component changes:**
 When changes affect multiple systems, list them clearly:
-```
+
+```plaintext
 feat: enhance player collision detection by introducing ring-based distances and updating camera logic to utilize these distances for improved movement handling
 ```
 
 **Avoid:**
+
 - Generic messages like "update", "change", or "fix bug"
 - Single letter commits (like "t")
 - Overly verbose descriptions without clear purpose
 
 ## Important Notes
+
 - Shader compilation happens at runtime using the `shaderc` crate
 - The project targets Vulkan 1.3 with RTX ray tracing extensions
 - Audio system uses the `kira` crate for 3D spatial audio

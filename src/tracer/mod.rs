@@ -28,8 +28,6 @@ use crate::vkn::{CommandBuffer, VulkanContext};
 use anyhow::Result;
 use ash::vk;
 
-const GRASS_SWAY_MARGIN: f32 = 0.2;
-
 pub struct TracerDesc {
     pub scaling_factor: f32,
 }
@@ -1039,10 +1037,6 @@ impl Tracer {
         &self.resources.extent_dependent_resources.screen_output_tex
     }
 
-    pub fn get_current_view_proj_mat(&self) -> Mat4 {
-        self.current_view_proj_mat
-    }
-
     pub fn update_buffers(
         &mut self,
         time_info: &TimeInfo,
@@ -1521,13 +1515,15 @@ impl Tracer {
                 continue;
             }
 
+            const GRASS_SWAY_MARGIN: f32 = 0.2;
+
             // compute chunk's world AABB with margin for grass swaying
             let chunk_world_aabb = Self::compute_chunk_world_aabb(*chunk_id, GRASS_SWAY_MARGIN);
 
             // perform frustum culling
             let view_proj_mat = self.current_view_proj_mat;
             let is_inside = chunk_world_aabb.is_inside_frustum(view_proj_mat);
-            
+
             if !is_inside {
                 continue;
             }
