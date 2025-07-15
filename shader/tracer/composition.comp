@@ -38,7 +38,7 @@ vec3 combine_colors(float gfx_depth_01, float compute_depth_01, vec3 gfx_color,
                     vec3 denoiser_output_color, vec2 screen_uv) {
     if (gfx_depth_01 == 1.0 && compute_depth_01 == 1.0) {
         Ray ray = ray_gen(screen_uv, camera_info.view_proj_mat_inv);
-        return get_sky_color_with_sun(ray.direction, gui_input.sun_dir, gui_input.sun_color);
+        return get_sky_color_with_sun(ray.direction, gui_input.sun_dir, gui_input.sun_color, gui_input.sun_size);
     }
 
     if (gfx_depth_01 > compute_depth_01) {
