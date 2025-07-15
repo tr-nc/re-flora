@@ -10,11 +10,9 @@ use winit::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowMode {
     #[allow(dead_code)]
-    Windowed,
+    Windowed(bool),
     #[allow(dead_code)]
     BorderlessFullscreen,
-    #[allow(dead_code)]
-    FullscreenWindowed,
 }
 
 /// Describes the information needed for creating a window.
@@ -65,7 +63,7 @@ impl Default for WindowStateDesc {
             decorations: true,
             cursor_locked: false,
             cursor_visible: true,
-            window_mode: WindowMode::Windowed,
+            window_mode: WindowMode::Windowed(false),
             transparent: false,
         }
     }
@@ -85,7 +83,7 @@ impl WindowState {
         winit_window_attributes = match desc.window_mode {
             WindowMode::BorderlessFullscreen => winit_window_attributes
                 .with_fullscreen(Some(Fullscreen::Borderless(event_loop.primary_monitor()))),
-            WindowMode::FullscreenWindowed => {
+            WindowMode::Windowed(windowed) => {
                 let WindowStateDesc {
                     width,
                     height,
@@ -100,22 +98,8 @@ impl WindowState {
                 }
                 winit_window_attributes =
                     winit_window_attributes.with_inner_size(LogicalSize::new(width, height));
-                winit_window_attributes.with_maximized(true)
-            }
-            WindowMode::Windowed => {
-                let WindowStateDesc {
-                    width,
-                    height,
-                    position,
-                    ..
-                } = *desc;
 
-                if let Some(position) = position {
-                    winit_window_attributes = winit_window_attributes.with_position(
-                        LogicalPosition::new(position[0] as f64, position[1] as f64),
-                    );
-                }
-                winit_window_attributes.with_inner_size(LogicalSize::new(width, height))
+                winit_window_attributes.with_maximized(windowed)
             }
         }
         // set window to be invisible first to avoid flickering during window creation
@@ -151,6 +135,16 @@ impl WindowState {
     #[allow(dead_code)]
     pub fn get_window_state_desc(&self) -> &WindowStateDesc {
         &self.desc
+    }
+
+    pub fn toggle_fullscreen(&mut self) {
+        if self.desc.window_mode == WindowMode::BorderlessFullscreen {
+            return;
+        }
+        if let WindowMode::Windowed(windowed) = &mut self.desc.window_mode {
+            *windowed = !*windowed;
+            self.window.set_maximized(*windowed);
+        }
     }
 
     /// Toggles the cursor visibility, this is the only way to change the cursor visibility, do not change it directly, otherwise the internal state will be out of sync.

@@ -330,7 +330,7 @@ impl App {
         };
         let window_descriptor = WindowStateDesc {
             title: using_mode.to_owned(),
-            window_mode: WindowMode::Windowed,
+            window_mode: WindowMode::Windowed(false),
             cursor_locked: true,
             cursor_visible: false,
             ..Default::default()
@@ -508,6 +508,10 @@ impl App {
                         self.window_state.set_cursor_visibility(false);
                         self.window_state.set_cursor_grab(true);
                     }
+                }
+
+                if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyF {
+                    self.window_state.toggle_fullscreen();
                 }
 
                 if !self.window_state.is_cursor_visible() {
