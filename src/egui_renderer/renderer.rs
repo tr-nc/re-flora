@@ -159,16 +159,6 @@ impl EguiRenderer {
     fn set_textures(&mut self, textures_delta: &[(TextureId, ImageDelta)]) {
         for (id, delta) in textures_delta {
             let (width, height, data) = match &delta.image {
-                ImageData::Font(font) => {
-                    let w = font.width() as u32;
-                    let h = font.height() as u32;
-                    let data = font
-                        .srgba_pixels(None)
-                        .flat_map(|c| c.to_array())
-                        .collect::<Vec<_>>();
-
-                    (w, h, data)
-                }
                 ImageData::Color(image) => {
                     let w = image.width() as u32;
                     let h = image.height() as u32;
