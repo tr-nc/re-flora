@@ -12,6 +12,6 @@ To ask claude to write code, just type:
 
 ## What This Command Does
 
-1. Writes code for you, with CLAUDE's ultrathink power
+1. Writes code for you, claude will do ultrathink for task planning stages, and then think with normal effort for code writing to balance the effort and the quality.
 2. Performs cargo check
 3. Performs cargo fmt to changed files
