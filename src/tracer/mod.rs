@@ -843,38 +843,40 @@ impl Tracer {
 
     fn update_composition_ds(ds: &DescriptorSet, resources: &TracerResources) {
         ds.perform_writes(&mut [
+            WriteDescriptorSet::new_buffer_write(0, &resources.gui_input),
+            WriteDescriptorSet::new_buffer_write(1, &resources.camera_info),
             WriteDescriptorSet::new_texture_write(
-                0,
+                2,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &resources.extent_dependent_resources.gfx_output_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
-                1,
+                3,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &resources.extent_dependent_resources.gfx_depth_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
-                2,
+                4,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &resources.denoiser_resources.tex.spatial_pong,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
-                3,
+                5,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &resources.extent_dependent_resources.compute_depth_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
-                4,
+                6,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &resources.extent_dependent_resources.god_ray_output_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
-                5,
+                7,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &resources.extent_dependent_resources.composited_tex,
                 vk::ImageLayout::GENERAL,

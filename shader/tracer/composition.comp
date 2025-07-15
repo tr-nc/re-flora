@@ -4,20 +4,41 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout(set = 0, binding = 0, rgba8) uniform readonly image2D gfx_output_tex;
-layout(set = 0, binding = 1, r32f) uniform readonly image2D gfx_depth_tex;
-layout(set = 0, binding = 2, r11f_g11f_b10f) uniform readonly image2D denoiser_output_tex;
-layout(set = 0, binding = 3, r32f) uniform readonly image2D compute_depth_tex;
-layout(set = 0, binding = 4, r32f) uniform readonly image2D god_ray_output_tex;
-layout(set = 0, binding = 5, r11f_g11f_b10f) uniform writeonly image2D composited_tex;
+layout(set = 0, binding = 0) uniform U_GuiInput {
+    float debug_float;
+    uint debug_bool;
+    uint debug_uint;
+    vec3 sun_dir;
+    float sun_size;
+    vec3 sun_color;
+}
+gui_input;
+layout(set = 0, binding = 1) uniform U_CameraInfo {
+    vec4 pos;
+    mat4 view_mat;
+    mat4 view_mat_inv;
+    mat4 proj_mat;
+    mat4 proj_mat_inv;
+    mat4 view_proj_mat;
+    mat4 view_proj_mat_inv;
+}
+camera_info;
+layout(set = 0, binding = 2, rgba8) uniform readonly image2D gfx_output_tex;
+layout(set = 0, binding = 3, r32f) uniform readonly image2D gfx_depth_tex;
+layout(set = 0, binding = 4, r11f_g11f_b10f) uniform readonly image2D denoiser_output_tex;
+layout(set = 0, binding = 5, r32f) uniform readonly image2D compute_depth_tex;
+layout(set = 0, binding = 6, r32f) uniform readonly image2D god_ray_output_tex;
+layout(set = 0, binding = 7, r11f_g11f_b10f) uniform writeonly image2D composited_tex;
 
 #include "../include/core/color.glsl"
+#include "../include/ray.glsl"
 #include "../include/skylight.glsl"
 
 vec3 combine_colors(float gfx_depth_01, float compute_depth_01, vec3 gfx_color,
-                    vec3 denoiser_output_color) {
+                    vec3 denoiser_output_color, vec2 screen_uv) {
     if (gfx_depth_01 == 1.0 && compute_depth_01 == 1.0) {
-        return vec3(1.0);
+        Ray ray = ray_gen(screen_uv, camera_info.view_proj_mat_inv);
+        return get_sky_color_with_sun(ray.direction, gui_input.sun_dir, gui_input.sun_color);
     }
 
     if (gfx_depth_01 > compute_depth_01) {
@@ -32,12 +53,15 @@ void main() {
         return;
     }
 
+    vec2 img_size = vec2(imageSize(composited_tex));
+    vec2 screen_uv = (vec2(gl_GlobalInvocationID.xy) + vec2(0.5)) / img_size;
+
     float gfx_depth_01       = imageLoad(gfx_depth_tex, uvi).r;
     float compute_depth_01   = imageLoad(compute_depth_tex, uvi).r;
     vec3 gfx_color           = imageLoad(gfx_output_tex, uvi).rgb;
     vec3 denoiser_output_tex = imageLoad(denoiser_output_tex, uvi).rgb;
     vec3 final_color =
-        combine_colors(gfx_depth_01, compute_depth_01, gfx_color, denoiser_output_tex);
+        combine_colors(gfx_depth_01, compute_depth_01, gfx_color, denoiser_output_tex, screen_uv);
 
     float god_ray_weight = imageLoad(god_ray_output_tex, uvi).r;
 
