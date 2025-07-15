@@ -24,9 +24,11 @@ fn backtrace_on() {
 pub fn main() {
     // backtrace_on();
 
-    env_logger::Builder::from_env(Env::default().default_filter_or("info,symphonia_core=warn"))
-        .format_timestamp_millis()
-        .init();
+    env_logger::Builder::from_env(
+        Env::default().default_filter_or("info,symphonia_core=warn,symphonia_format_riff=warn"),
+    )
+    .format_timestamp_millis()
+    .init();
 
     let mut app = AppController::default();
     let event_loop = EventLoop::builder().build().unwrap();
