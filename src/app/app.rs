@@ -500,8 +500,14 @@ impl App {
                 }
 
                 if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyE {
-                    self.window_state.toggle_cursor_visibility();
-                    self.window_state.toggle_cursor_grab();
+                    self.config_panel_visible = !self.config_panel_visible;
+                    if self.config_panel_visible {
+                        self.window_state.set_cursor_visibility(true);
+                        self.window_state.set_cursor_grab(false);
+                    } else {
+                        self.window_state.set_cursor_visibility(false);
+                        self.window_state.set_cursor_grab(true);
+                    }
                 }
 
                 if !self.window_state.is_cursor_visible() {
@@ -543,29 +549,6 @@ impl App {
                         style.visuals.override_text_color = Some(egui::Color32::WHITE);
                         ctx.set_style(style);
 
-                        // Modern top bar
-                        let top_bar_frame = egui::containers::Frame {
-                            fill: Color32::from_rgba_premultiplied(40, 40, 40, 250),
-                            inner_margin: egui::Margin::same(10),
-                            ..Default::default()
-                        };
-
-                        egui::TopBottomPanel::top("top_bar")
-                            .frame(top_bar_frame)
-                            .min_height(40.0)
-                            .show(ctx, |ui| {
-                                ui.horizontal(|ui| {
-                                    ui.heading(RichText::new("Re: Flora").color(Color32::WHITE));
-                                    ui.separator();
-                                    if ui
-                                        .button(RichText::new("⚙ Config").color(Color32::WHITE))
-                                        .clicked()
-                                    {
-                                        self.config_panel_visible = !self.config_panel_visible;
-                                    }
-                                });
-                            });
-
                         // Config panel - only show if visible
                         if self.config_panel_visible {
                             let config_frame = egui::containers::Frame {
@@ -582,14 +565,6 @@ impl App {
                                 .show(ctx, |ui| {
                                     ui.horizontal(|ui| {
                                         ui.heading("Configuration");
-                                        ui.with_layout(
-                                            egui::Layout::right_to_left(egui::Align::Center),
-                                            |ui| {
-                                                if ui.small_button("X").clicked() {
-                                                    self.config_panel_visible = false;
-                                                }
-                                            },
-                                        );
                                     });
 
                                     ui.separator();
