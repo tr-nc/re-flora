@@ -23,6 +23,7 @@ layout(set = 0, binding = 1) uniform U_SkyInfo {
     vec3 sun_dir;
     float sun_size;
     vec3 sun_color;
+    float sun_luminance;
     vec3 sky_color;
 }
 sky_info;
@@ -127,5 +128,6 @@ void main() {
     gl_Position = camera_info.view_proj_mat * vert_pos_ws;
 
     float ambient_light = 0.3;
-    vert_color          = 0.5 * in_color * (shadow_weight + ambient_light);
+    vec3 sun_light = sky_info.sun_color * sky_info.sun_luminance;
+    vert_color = in_color * (sun_light * shadow_weight + ambient_light);
 }

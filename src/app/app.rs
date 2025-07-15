@@ -59,6 +59,7 @@ pub struct App {
     sun_azimuth: f32,
     sun_size: f32,
     sun_color: egui::Color32,
+    sun_luminance: f32,
     sky_color: egui::Color32,
     temporal_position_phi: f32,
     temporal_alpha: f32,
@@ -239,6 +240,7 @@ impl App {
             sun_azimuth: 280.0,
             sun_size: 0.02,
             sun_color: egui::Color32::from_rgb(255, 233, 144),
+            sun_luminance: 1.0,
             sky_color: egui::Color32::from_rgb(128, 178, 255),
             tree_pos: Vec3::new(512.0, 0.0, 512.0),
             tree_desc: TreeDesc::default(),
@@ -618,6 +620,15 @@ impl App {
                                                 ui.color_edit_button_srgba(&mut self.sun_color);
                                             });
                                             ui.horizontal(|ui| {
+                                                ui.add(
+                                                    egui::Slider::new(
+                                                        &mut self.sun_luminance,
+                                                        0.0..=10.0,
+                                                    )
+                                                    .text("Sun Luminance"),
+                                                );
+                                            });
+                                            ui.horizontal(|ui| {
                                                 ui.label("Sky Color:");
                                                 ui.color_edit_button_srgba(&mut self.sky_color);
                                             });
@@ -790,14 +801,15 @@ impl App {
                         get_sun_dir(self.sun_altitude, self.sun_azimuth),
                         self.sun_size,
                         Vec3::new(
-                            self.sun_color.r() as f32,
-                            self.sun_color.g() as f32,
-                            self.sun_color.b() as f32,
+                            self.sun_color.r() as f32 / 255.0,
+                            self.sun_color.g() as f32 / 255.0,
+                            self.sun_color.b() as f32 / 255.0,
                         ),
+                        self.sun_luminance,
                         Vec3::new(
-                            self.sky_color.r() as f32,
-                            self.sky_color.g() as f32,
-                            self.sky_color.b() as f32,
+                            self.sky_color.r() as f32 / 255.0,
+                            self.sky_color.g() as f32 / 255.0,
+                            self.sky_color.b() as f32 / 255.0,
                         ),
                         self.temporal_position_phi,
                         self.temporal_alpha,

@@ -14,6 +14,7 @@ layout(set = 0, binding = 1) uniform U_SkyInfo {
     vec3 sun_dir;
     float sun_size;
     vec3 sun_color;
+    float sun_luminance;
     vec3 sky_color;
 }
 sky_info;
@@ -143,15 +144,13 @@ vec3 sample_sun_disk(ivec3 seed, float sun_size, vec3 sun_dir) {
     return normalize(sun_dir + tbn * vec3(random_xy.xy, 0.0));
 }
 
-///
-
 /// If the ray hits the scene, no light, otherwise sunlight
 vec3 get_shadow_ray_color(Ray ray, ivec3 seed) {
     if (gui_input.debug_bool == 0) {
         MarchingResult res_shadow_ray = general_scene_marching(ray);
-        return res_shadow_ray.is_hit ? vec3(0.0) : sky_info.sun_color * 0.01;
+        return res_shadow_ray.is_hit ? vec3(0.0) : sky_info.sun_color * sky_info.sun_luminance;
     } else {
-        return get_shadow_weight_pcss(ray.origin, seed) * sky_info.sun_color * 0.01;
+        return get_shadow_weight_pcss(ray.origin, seed) * sky_info.sun_color * sky_info.sun_luminance;
     }
 }
 
