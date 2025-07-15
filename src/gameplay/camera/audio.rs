@@ -110,13 +110,11 @@ impl PlayerAudioController {
     }
 
     fn calculate_speed_based_volume(&self, speed: f32, min_volume: f32, max_volume: f32) -> f32 {
-        let max_speed = 3.0; // Define maximum expected speed
+        let max_speed = 3.0;
         let speed_ratio = (speed / max_speed).clamp(0.0, 1.0);
         let volume = min_volume + (max_volume - min_volume) * speed_ratio;
         // in case anything goes wrong
-        let volume = volume.clamp(0.0, 2.0);
-        log::debug!("volume: {}", volume);
-        volume
+        volume.clamp(0.0, 2.0)
     }
 
     /// Call this once per frame from the camera update.
