@@ -110,14 +110,9 @@ impl PlayerAudioController {
     }
 
     fn calculate_speed_based_volume(&self, speed: f32, min_volume: f32, max_volume: f32) -> f32 {
-        let base_walk_speed = 1.0;
-        let base_run_speed = 2.0;
-        let speed_normalized = if speed <= base_walk_speed {
-            speed / base_walk_speed
-        } else {
-            1.0 + (speed - base_walk_speed) / (base_run_speed - base_walk_speed)
-        };
-        let volume = min_volume + (max_volume - min_volume) * speed_normalized.clamp(0.0, 1.0);
+        let max_speed = 3.0; // Define maximum expected speed
+        let speed_ratio = (speed / max_speed).clamp(0.0, 1.0);
+        let volume = min_volume + (max_volume - min_volume) * speed_ratio;
         // in case anything goes wrong
         let volume = volume.clamp(0.0, 2.0);
         log::debug!("volume: {}", volume);
