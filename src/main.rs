@@ -12,7 +12,7 @@ mod vkn;
 mod window;
 
 use app::AppController;
-use simple_logger::SimpleLogger;
+use env_logger::Env;
 use winit::event_loop::EventLoop;
 
 #[allow(dead_code)]
@@ -24,13 +24,9 @@ fn backtrace_on() {
 pub fn main() {
     // backtrace_on();
 
-    SimpleLogger::new()
-        .with_local_timestamps()
-        .with_timestamp_format(time::macros::format_description!(
-            "[hour]:[minute]:[second].[subsecond digits:3]Z"
-        ))
-        .init()
-        .unwrap();
+    env_logger::Builder::from_env(Env::default().default_filter_or("info,symphonia_core=warn"))
+        .format_timestamp_millis()
+        .init();
 
     let mut app = AppController::default();
     let event_loop = EventLoop::builder().build().unwrap();
