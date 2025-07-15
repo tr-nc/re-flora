@@ -3,7 +3,10 @@
     "allow": [
       "Bash(cargo check:*)",
       "Bash(rg:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(cargo fmt:*)",
+      "Bash(claude-code settings list)",
+      "Bash(ls:*)"
     ],
     "deny": []
   }

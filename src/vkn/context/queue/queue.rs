@@ -1,5 +1,5 @@
-use std::ops::Deref;
 use ash::vk;
+use std::ops::Deref;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Queue {

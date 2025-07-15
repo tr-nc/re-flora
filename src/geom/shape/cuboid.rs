@@ -71,7 +71,7 @@ impl Cuboid {
     }
 
     #[allow(dead_code)]
-            pub fn depth(&self) -> f32 {
+    pub fn depth(&self) -> f32 {
         self.half_size.z * 2.0
     }
 

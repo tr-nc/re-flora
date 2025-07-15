@@ -71,6 +71,7 @@ pub struct App {
     is_spatial_denoising_skipped: bool,
     is_taa_enabled: bool,
     tree_pos: Vec3,
+    config_panel_visible: bool,
 
     tree_desc: TreeDesc,
     prev_bound: UAabb3,
@@ -240,6 +241,7 @@ impl App {
             tree_pos: Vec3::new(512.0, 0.0, 512.0),
             tree_desc: TreeDesc::default(),
             prev_bound: Default::default(),
+            config_panel_visible: false,
 
             audio_engine,
         };
@@ -541,144 +543,212 @@ impl App {
                         style.visuals.override_text_color = Some(egui::Color32::WHITE);
                         ctx.set_style(style);
 
-                        let my_frame = egui::containers::Frame {
-                            fill: Color32::from_rgba_premultiplied(123, 64, 25, 250),
+                        // Modern top bar
+                        let top_bar_frame = egui::containers::Frame {
+                            fill: Color32::from_rgba_premultiplied(40, 40, 40, 250),
                             inner_margin: egui::Margin::same(10),
                             ..Default::default()
                         };
 
-                        egui::SidePanel::left("left_panel")
-                            .frame(my_frame)
-                            .resizable(true)
-                            .default_width(300.0)
-                            .show(&ctx, |ui| {
-                                ui.vertical_centered(|ui| {
-                                    ui.heading("Config Panel");
+                        egui::TopBottomPanel::top("top_bar")
+                            .frame(top_bar_frame)
+                            .min_height(40.0)
+                            .show(ctx, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.heading(RichText::new("Re: Flora").color(Color32::WHITE));
+                                    ui.separator();
+                                    if ui
+                                        .button(RichText::new("⚙ Config").color(Color32::WHITE))
+                                        .clicked()
+                                    {
+                                        self.config_panel_visible = !self.config_panel_visible;
+                                    }
                                 });
-                                egui::ScrollArea::vertical().show(ui, |ui| {
-                                    ui.label(RichText::new(format!(
-                                        "fps: {:.2}",
-                                        self.time_info.display_fps()
-                                    )));
+                            });
 
-                                    ui.add(
-                                        egui::Slider::new(&mut self.debug_float, 0.0..=10.0)
-                                            .text("Debug Float"),
-                                    )
-                                    .changed();
+                        // Config panel - only show if visible
+                        if self.config_panel_visible {
+                            let config_frame = egui::containers::Frame {
+                                fill: Color32::from_rgba_premultiplied(123, 64, 25, 250),
+                                inner_margin: egui::Margin::same(10),
+                                ..Default::default()
+                            };
 
-                                    ui.add(
-                                        egui::Slider::new(&mut self.debug_uint, 0..=100)
-                                            .text("Debug UInt"),
-                                    )
-                                    .changed();
-
-                                    ui.add(egui::Checkbox::new(&mut self.debug_bool, "Debug Bool"));
-
-                                    ui.add(
-                                        egui::Slider::new(&mut self.sun_altitude, 0.0..=180.0)
-                                            .text("Sun Altitude (degrees above horizon)"),
-                                    );
-
-                                    ui.add(
-                                        egui::Slider::new(&mut self.sun_azimuth, 0.0..=360.0)
-                                            .text("Sun Azimuth (degrees around Y axis)"),
-                                    );
-
-                                    ui.add(
-                                        egui::Slider::new(&mut self.sun_size, 0.0..=1.0)
-                                            .text("Sun Size (relative to screen)"),
-                                    );
-
-                                    ui.add(egui::Label::new("Sun Color:"));
-                                    ui.color_edit_button_srgba(&mut self.sun_color);
+                            egui::SidePanel::left("config_panel")
+                                .frame(config_frame)
+                                .resizable(true)
+                                .default_width(320.0)
+                                .min_width(250.0)
+                                .show(ctx, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.heading("Configuration");
+                                        ui.with_layout(
+                                            egui::Layout::right_to_left(egui::Align::Center),
+                                            |ui| {
+                                                if ui.small_button("X").clicked() {
+                                                    self.config_panel_visible = false;
+                                                }
+                                            },
+                                        );
+                                    });
 
                                     ui.separator();
 
-                                    ui.heading("Tree Position");
+                                    egui::ScrollArea::vertical().show(ui, |ui| {
+                                        ui.collapsing("Debug Settings", |ui| {
+                                            ui.add(
+                                                egui::Slider::new(
+                                                    &mut self.debug_float,
+                                                    0.0..=10.0,
+                                                )
+                                                .text("Debug Float"),
+                                            );
+                                            ui.add(
+                                                egui::Slider::new(&mut self.debug_uint, 0..=100)
+                                                    .text("Debug UInt"),
+                                            );
+                                            ui.add(egui::Checkbox::new(
+                                                &mut self.debug_bool,
+                                                "Debug Bool",
+                                            ));
+                                        });
 
-                                    tree_desc_changed |= ui
-                                        .add(
-                                            egui::Slider::new(&mut self.tree_pos.x, 0.0..=1024.0)
-                                                .text("New Tree X Position"),
-                                        )
-                                        .changed();
-                                    tree_desc_changed |= ui
-                                        .add(
-                                            egui::Slider::new(&mut self.tree_pos.y, 0.0..=512.0)
-                                                .text("New Tree Y Position"),
-                                        )
-                                        .changed();
-                                    tree_desc_changed |= ui
-                                        .add(
-                                            egui::Slider::new(&mut self.tree_pos.z, 0.0..=1024.0)
-                                                .text("New Tree Z Position"),
-                                        )
-                                        .changed();
+                                        ui.collapsing("Sun Settings", |ui| {
+                                            ui.add(
+                                                egui::Slider::new(
+                                                    &mut self.sun_altitude,
+                                                    0.0..=180.0,
+                                                )
+                                                .text("Altitude (degrees)"),
+                                            );
+                                            ui.add(
+                                                egui::Slider::new(
+                                                    &mut self.sun_azimuth,
+                                                    0.0..=360.0,
+                                                )
+                                                .text("Azimuth (degrees)"),
+                                            );
+                                            ui.add(
+                                                egui::Slider::new(&mut self.sun_size, 0.0..=1.0)
+                                                    .text("Size (relative)"),
+                                            );
+                                            ui.horizontal(|ui| {
+                                                ui.label("Color:");
+                                                ui.color_edit_button_srgba(&mut self.sun_color);
+                                            });
+                                        });
 
-                                    ui.heading("Tree Descriptor"); // Heading for the new section
+                                        ui.collapsing("Tree Settings", |ui| {
+                                            ui.label("Position:");
+                                            tree_desc_changed |= ui
+                                                .add(
+                                                    egui::Slider::new(
+                                                        &mut self.tree_pos.x,
+                                                        0.0..=1024.0,
+                                                    )
+                                                    .text("X"),
+                                                )
+                                                .changed();
+                                            tree_desc_changed |= ui
+                                                .add(
+                                                    egui::Slider::new(
+                                                        &mut self.tree_pos.y,
+                                                        0.0..=512.0,
+                                                    )
+                                                    .text("Y"),
+                                                )
+                                                .changed();
+                                            tree_desc_changed |= ui
+                                                .add(
+                                                    egui::Slider::new(
+                                                        &mut self.tree_pos.z,
+                                                        0.0..=1024.0,
+                                                    )
+                                                    .text("Z"),
+                                                )
+                                                .changed();
 
-                                    tree_desc_changed |= self.tree_desc.edit_by_gui(ui);
+                                            ui.separator();
+                                            tree_desc_changed |= self.tree_desc.edit_by_gui(ui);
+                                        });
 
-                                    ui.separator();
+                                        ui.collapsing("Temporal Settings", |ui| {
+                                            ui.add(
+                                                egui::Slider::new(
+                                                    &mut self.temporal_position_phi,
+                                                    0.0..=1.0,
+                                                )
+                                                .text("Position Phi"),
+                                            );
+                                            ui.add(
+                                                egui::Slider::new(
+                                                    &mut self.temporal_alpha,
+                                                    0.0..=1.0,
+                                                )
+                                                .text("Alpha"),
+                                            );
+                                        });
 
-                                    ui.heading("Temporal");
-                                    ui.add(
-                                        egui::Slider::new(
-                                            &mut self.temporal_position_phi,
-                                            0.0..=1.0,
-                                        )
-                                        .text("Temporal Position Phi"),
+                                        ui.collapsing("Spatial Settings", |ui| {
+                                            ui.add(
+                                                egui::Slider::new(&mut self.phi_c, 0.0..=1.0)
+                                                    .text("Phi C"),
+                                            );
+                                            ui.add(
+                                                egui::Slider::new(&mut self.phi_n, 0.0..=1.0)
+                                                    .text("Phi N"),
+                                            );
+                                            ui.add(
+                                                egui::Slider::new(&mut self.phi_p, 0.0..=1.0)
+                                                    .text("Phi P"),
+                                            );
+                                            ui.add(
+                                                egui::Slider::new(&mut self.min_phi_z, 0.0..=1.0)
+                                                    .text("Min Phi Z"),
+                                            );
+                                            ui.add(
+                                                egui::Slider::new(&mut self.max_phi_z, 0.0..=1.0)
+                                                    .text("Max Phi Z"),
+                                            );
+                                            ui.add(
+                                                egui::Slider::new(
+                                                    &mut self.phi_z_stable_sample_count,
+                                                    0.0..=1.0,
+                                                )
+                                                .text("Phi Z Stable Sample Count"),
+                                            );
+                                            ui.add(egui::Checkbox::new(
+                                                &mut self.is_changing_lum_phi,
+                                                "Changing Luminance Phi",
+                                            ));
+                                            ui.add(egui::Checkbox::new(
+                                                &mut self.is_spatial_denoising_skipped,
+                                                "Skip Spatial Denoising",
+                                            ));
+                                        });
+
+                                        ui.collapsing("Anti-Aliasing", |ui| {
+                                            ui.add(egui::Checkbox::new(
+                                                &mut self.is_taa_enabled,
+                                                "Enable Temporal Anti-Aliasing",
+                                            ));
+                                        });
+                                    });
+                                });
+                        }
+
+                        // FPS counter in bottom right
+                        egui::Area::new("fps_counter".into())
+                            .anchor(egui::Align2::RIGHT_BOTTOM, egui::Vec2::new(-10.0, -10.0))
+                            .show(ctx, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        RichText::new(format!(
+                                            "{:.1}",
+                                            self.time_info.display_fps()
+                                        ))
+                                        .color(Color32::LIGHT_GRAY),
                                     );
-                                    ui.add(
-                                        egui::Slider::new(&mut self.temporal_alpha, 0.0..=1.0)
-                                            .text("Temporal Alpha"),
-                                    );
-
-                                    ui.separator();
-
-                                    ui.heading("Spatial");
-                                    ui.add(
-                                        egui::Slider::new(&mut self.phi_c, 0.0..=1.0).text("Phi C"),
-                                    );
-                                    ui.add(
-                                        egui::Slider::new(&mut self.phi_n, 0.0..=1.0).text("Phi N"),
-                                    );
-                                    ui.add(
-                                        egui::Slider::new(&mut self.phi_p, 0.0..=1.0).text("Phi P"),
-                                    );
-                                    ui.add(
-                                        egui::Slider::new(&mut self.min_phi_z, 0.0..=1.0)
-                                            .text("Min Phi Z"),
-                                    );
-                                    ui.add(
-                                        egui::Slider::new(&mut self.max_phi_z, 0.0..=1.0)
-                                            .text("Max Phi Z"),
-                                    );
-                                    ui.add(
-                                        egui::Slider::new(
-                                            &mut self.phi_z_stable_sample_count,
-                                            0.0..=1.0,
-                                        )
-                                        .text("Phi Z Stable Sample Count"),
-                                    );
-                                    ui.add(egui::Checkbox::new(
-                                        &mut self.is_changing_lum_phi,
-                                        "Changing Luminance Phi",
-                                    ));
-                                    ui.add(egui::Checkbox::new(
-                                        &mut self.is_spatial_denoising_skipped,
-                                        "Skip Spatial Denoising",
-                                    ));
-
-                                    ui.separator();
-
-                                    ui.heading("Temporal Anti-Aliasing");
-
-                                    ui.add(egui::Checkbox::new(
-                                        &mut self.is_taa_enabled,
-                                        "Enable Temporal Anti-Aliasing",
-                                    ));
                                 });
                             });
                     });

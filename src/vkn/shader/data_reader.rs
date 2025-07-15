@@ -175,7 +175,9 @@ impl<'a> PlainMemberDataReader<'a> {
                 let mut arr = Vec::with_capacity(num_elements);
                 for i in 0..num_elements {
                     let start = i * elem_size;
-                    let val = f32::from_ne_bytes(self.bytes[start..start + elem_size].try_into().unwrap());
+                    let val = f32::from_ne_bytes(
+                        self.bytes[start..start + elem_size].try_into().unwrap(),
+                    );
                     arr.push(val);
                 }
                 D::Array(arr)

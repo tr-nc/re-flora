@@ -143,7 +143,6 @@ sudo apt install cmake ninja-build # install build tools
 
 ## TODO list
 
-- [ ] Stay Grounded
 - [ ] Trees & Leaves
 - [ ] Dynamic Terrain Edit
 - [ ] Sky Color

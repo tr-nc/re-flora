@@ -47,5 +47,4 @@ impl Allocator {
             .expect("Failed to free image memory");
         unsafe { self.device.destroy_image(image, None) };
     }
-
 }

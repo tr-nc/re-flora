@@ -1,4 +1,5 @@
 mod app;
+mod audio;
 mod builder;
 mod egui_renderer;
 mod gameplay;
@@ -9,7 +10,6 @@ mod tree_gen;
 mod util;
 mod vkn;
 mod window;
-mod audio;
 
 use app::AppController;
 use simple_logger::SimpleLogger;

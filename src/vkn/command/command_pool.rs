@@ -1,6 +1,6 @@
+use crate::vkn::Device;
 use ash::vk;
 use std::sync::Arc;
-use crate::vkn::Device;
 
 struct CommandPoolInner {
     device: Device,
