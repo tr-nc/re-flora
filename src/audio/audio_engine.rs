@@ -1,4 +1,4 @@
-use crate::audio::{SoundClip, SoundDataConfig};
+use crate::audio::SoundClip;
 use anyhow::Result;
 use kira::{
     sound::static_sound::StaticSoundHandle, AudioManager, AudioManagerSettings, DefaultBackend,
@@ -38,15 +38,11 @@ impl AudioEngine {
         Ok(SoundHandle { inner: handle })
     }
 
-    /// Play a clip but override settings at call site
+    /// Play a clip with a custom volume
     #[allow(unused)]
-    pub fn play_with_config(
-        &self,
-        clip: &SoundClip,
-        config: SoundDataConfig,
-    ) -> Result<SoundHandle> {
+    pub fn play_with_volume(&self, clip: &SoundClip, volume: f32) -> Result<SoundHandle> {
         let mut mgr = self.manager.lock().unwrap();
-        let data = clip.as_kira().clone().with_settings(config.to_settings());
+        let data = clip.as_kira().clone().volume(volume);
         let handle = mgr.play(data)?;
         Ok(SoundHandle { inner: handle })
     }

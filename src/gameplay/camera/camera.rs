@@ -44,6 +44,9 @@ pub struct Camera {
 
     /// Rigidbody physics state for collision response
     rigidbody: PlayerRigidBody,
+
+    /// Speed just before landing (for landing sound volume)
+    pre_landing_speed: f32,
 }
 
 impl Camera {
@@ -68,6 +71,7 @@ impl Camera {
             player_audio_controller: PlayerAudioController::new(audio_engine)?,
             was_on_ground: false,
             rigidbody: PlayerRigidBody::new(),
+            pre_landing_speed: 0.0,
         };
 
         camera.vectors.update(camera.yaw, camera.pitch);
@@ -239,7 +243,8 @@ impl Camera {
                 self.vertical_velocity = JUMP_IMPULSE;
                 self.rigidbody.velocity.y = JUMP_IMPULSE;
                 // play jump sound once, immediately when leaving the ground
-                self.player_audio_controller.play_jump();
+                let current_speed = self.rigidbody.velocity.length();
+                self.player_audio_controller.play_jump(current_speed);
             } else {
                 // stick to ground smoothly
                 let ground_level_y = self.position.y - collision_result.ground_distance;
@@ -251,6 +256,8 @@ impl Camera {
             // airborne: apply gravity
             self.vertical_velocity -= GRAVITY_G * frame_delta_time;
             self.rigidbody.velocity.y = self.vertical_velocity;
+            // Track speed before landing for landing sound volume
+            self.pre_landing_speed = self.rigidbody.velocity.length();
         }
 
         // reset the jump flag after use
@@ -305,21 +312,26 @@ impl Camera {
         if just_landed {
             if is_moving {
                 // moving when touching ground: treat as an immediate step
-                self.player_audio_controller.play_step(is_running);
+                let current_speed = self.rigidbody.velocity.length();
+                self.player_audio_controller
+                    .play_step(is_running, current_speed);
                 // reset timer so下一次步伐重新计时
                 self.player_audio_controller.reset_walk_timer();
             } else {
                 // still: play landing sound only
-                self.player_audio_controller.play_land();
+                self.player_audio_controller
+                    .play_land(self.pre_landing_speed);
                 // 不重置计时器，让 update_walk_sound 在静止状态保持间隔满值
             }
         }
 
         // per-frame update for regular walk/run sounds
+        let current_speed = self.rigidbody.velocity.length();
         self.player_audio_controller.update_walk_sound(
             is_on_ground,
             is_moving,
             is_running,
+            current_speed,
             frame_delta_time,
         );
 
