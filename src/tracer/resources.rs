@@ -199,6 +199,7 @@ impl ExtentDependentResources {
 
 pub struct TracerResources {
     pub gui_input: Buffer,
+    pub sky_info: Buffer,
     pub camera_info: Buffer,
     pub camera_info_prev_frame: Buffer,
     pub shadow_camera_info: Buffer,
@@ -253,6 +254,15 @@ impl TracerResources {
             device.clone(),
             allocator.clone(),
             gui_input_layout.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+        );
+
+        let sky_info_layout = tracer_sm.get_buffer_layout("U_SkyInfo").unwrap();
+        let sky_info = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            sky_info_layout.clone(),
             BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
@@ -446,6 +456,7 @@ impl TracerResources {
 
         return Self {
             gui_input,
+            sky_info,
             camera_info,
             camera_info_prev_frame,
             shadow_camera_info,

@@ -13,7 +13,20 @@ layout(location = 4) in uint in_instance_grass_type;
 
 layout(location = 0) out vec3 vert_color;
 
-layout(set = 0, binding = 0) uniform U_CameraInfo {
+layout(set = 0, binding = 0) uniform U_GuiInput {
+    float debug_float;
+    uint debug_bool;
+    uint debug_uint;
+}
+gui_input;
+layout(set = 0, binding = 1) uniform U_SkyInfo {
+    vec3 sun_dir;
+    float sun_size;
+    vec3 sun_color;
+    vec3 sky_color;
+}
+sky_info;
+layout(set = 0, binding = 2) uniform U_CameraInfo {
     vec4 pos;
     mat4 view_mat;
     mat4 view_mat_inv;
@@ -24,7 +37,7 @@ layout(set = 0, binding = 0) uniform U_CameraInfo {
 }
 camera_info;
 
-layout(set = 0, binding = 1) uniform U_ShadowCameraInfo {
+layout(set = 0, binding = 3) uniform U_ShadowCameraInfo {
     vec4 pos;
     mat4 view_mat;
     mat4 view_mat_inv;
@@ -35,20 +48,10 @@ layout(set = 0, binding = 1) uniform U_ShadowCameraInfo {
 }
 shadow_camera_info;
 
-layout(set = 0, binding = 2) uniform U_GrassInfo { float time; }
+layout(set = 0, binding = 4) uniform U_GrassInfo { float time; }
 grass_info;
 
-layout(set = 0, binding = 3) uniform U_GuiInput {
-    float debug_float;
-    uint debug_bool;
-    uint debug_uint;
-    vec3 sun_dir;
-    float sun_size;
-    vec3 sun_color;
-}
-gui_input;
-
-layout(set = 0, binding = 4) uniform sampler2D vsm_shadow_map_tex;
+layout(set = 0, binding = 5) uniform sampler2D vsm_shadow_map_tex;
 
 #include "../include/core/fast_noise_lite.glsl"
 #include "../include/core/hash.glsl"

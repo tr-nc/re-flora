@@ -8,12 +8,16 @@ layout(set = 0, binding = 0) uniform U_GuiInput {
     float debug_float;
     uint debug_bool;
     uint debug_uint;
+}
+gui_input;
+layout(set = 0, binding = 1) uniform U_SkyInfo {
     vec3 sun_dir;
     float sun_size;
     vec3 sun_color;
+    vec3 sky_color;
 }
-gui_input;
-layout(set = 0, binding = 1) uniform U_CameraInfo {
+sky_info;
+layout(set = 0, binding = 2) uniform U_CameraInfo {
     vec4 pos;
     mat4 view_mat;
     mat4 view_mat_inv;
@@ -23,7 +27,7 @@ layout(set = 0, binding = 1) uniform U_CameraInfo {
     mat4 view_proj_mat_inv;
 }
 camera_info;
-layout(set = 0, binding = 2) uniform U_CameraInfoPrevFrame {
+layout(set = 0, binding = 3) uniform U_CameraInfoPrevFrame {
     vec4 pos;
     mat4 view_mat;
     mat4 view_mat_inv;
@@ -33,7 +37,7 @@ layout(set = 0, binding = 2) uniform U_CameraInfoPrevFrame {
     mat4 view_proj_mat_inv;
 }
 camera_info_prev_frame;
-layout(set = 0, binding = 3) uniform U_ShadowCameraInfo {
+layout(set = 0, binding = 4) uniform U_ShadowCameraInfo {
     vec4 pos;
     mat4 view_mat;
     mat4 view_mat_inv;
@@ -43,15 +47,15 @@ layout(set = 0, binding = 3) uniform U_ShadowCameraInfo {
     mat4 view_proj_mat_inv;
 }
 shadow_camera_info;
-layout(set = 0, binding = 4) uniform U_EnvInfo { uint frame_serial_idx; }
+layout(set = 0, binding = 5) uniform U_EnvInfo { uint frame_serial_idx; }
 env_info;
 #include "../include/contree_node.glsl"
-layout(set = 0, binding = 5) readonly buffer B_ContreeNodeData { ContreeNode data[]; }
+layout(set = 0, binding = 6) readonly buffer B_ContreeNodeData { ContreeNode data[]; }
 contree_node_data;
-layout(set = 0, binding = 6) readonly buffer B_ContreeLeafData { uint data[]; }
+layout(set = 0, binding = 7) readonly buffer B_ContreeLeafData { uint data[]; }
 contree_leaf_data;
-layout(set = 0, binding = 7, rg32ui) readonly uniform uimage3D scene_tex;
-layout(set = 0, binding = 8) uniform sampler2D shadow_map_tex;
+layout(set = 0, binding = 8, rg32ui) readonly uniform uimage3D scene_tex;
+layout(set = 0, binding = 9) uniform sampler2D shadow_map_tex;
 
 layout(set = 1, binding = 0, r32ui) writeonly uniform uimage2D compute_output_tex;
 layout(set = 1, binding = 1, r32f) writeonly uniform image2D compute_depth_tex;
@@ -145,9 +149,9 @@ vec3 sample_sun_disk(ivec3 seed, float sun_size, vec3 sun_dir) {
 vec3 get_shadow_ray_color(Ray ray, ivec3 seed) {
     if (gui_input.debug_bool == 0) {
         MarchingResult res_shadow_ray = general_scene_marching(ray);
-        return res_shadow_ray.is_hit ? vec3(0.0) : gui_input.sun_color * 0.01;
+        return res_shadow_ray.is_hit ? vec3(0.0) : sky_info.sun_color * 0.01;
     } else {
-        return get_shadow_weight_pcss(ray.origin, seed) * gui_input.sun_color * 0.01;
+        return get_shadow_weight_pcss(ray.origin, seed) * sky_info.sun_color * 0.01;
     }
 }
 
@@ -210,7 +214,7 @@ void get_pixel_color(out vec3 o_color, out float o_depth_01, out vec3 o_primary_
     vec3 direct_color = vec3(0.0);
 
     Ray shadow_ray;
-    shadow_ray.direction     = sample_sun_disk(seed, gui_input.sun_size, gui_input.sun_dir);
+    shadow_ray.direction     = sample_sun_disk(seed, sky_info.sun_size, sky_info.sun_dir);
     shadow_ray.inv_direction = vec3(1.0) / shadow_ray.direction;
     shadow_ray.origin        = next_tracing_pos;
 
@@ -233,7 +237,7 @@ void get_pixel_color(out vec3 o_color, out float o_depth_01, out vec3 o_primary_
 
     MarchingResult res_indirect_ray = general_scene_marching(indirect_ray);
     if (!res_indirect_ray.is_hit) {
-        indirect_color = get_sky_color(indirect_ray.direction);
+        indirect_color = get_sky_color(indirect_ray.direction, sky_info.sky_color);
     } else {
         if (!res_indirect_ray.is_normal_valid) {
             // Use the unique indirect_seed for this random choice as well.

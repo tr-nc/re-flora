@@ -10,7 +10,7 @@ layout(location = 2) in uint in_height; // The voxel's stack level
 layout(location = 3) in uvec3 in_instance_position;
 layout(location = 4) in uint in_instance_grass_type;
 
-layout(set = 0, binding = 0) uniform U_CameraInfo {
+layout(set = 0, binding = 0) uniform U_ShadowCameraInfo {
     vec4 pos;
     mat4 view_mat;
     mat4 view_mat_inv;
@@ -19,7 +19,7 @@ layout(set = 0, binding = 0) uniform U_CameraInfo {
     mat4 view_proj_mat;
     mat4 view_proj_mat_inv;
 }
-camera_info;
+shadow_camera_info;
 
 layout(set = 0, binding = 1) uniform U_GrassInfo { vec2 grass_offset; }
 grass_info;
@@ -51,5 +51,5 @@ void main() {
     final_pos = (scale_mat * final_pos);
 
     // Transform to clip space
-    gl_Position = camera_info.view_proj_mat * final_pos;
+    gl_Position = shadow_camera_info.view_proj_mat * final_pos;
 }

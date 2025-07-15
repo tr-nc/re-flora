@@ -6,7 +6,8 @@
       "Bash(git commit:*)",
       "Bash(cargo fmt:*)",
       "Bash(claude-code settings list)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(find:*)"
     ],
     "deny": []
   }
