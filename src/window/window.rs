@@ -148,6 +148,7 @@ impl WindowState {
     }
 
     /// Toggles the cursor visibility, this is the only way to change the cursor visibility, do not change it directly, otherwise the internal state will be out of sync.
+    #[allow(dead_code)]
     pub fn toggle_cursor_visibility(&mut self) {
         self.set_cursor_visibility(!self.is_cursor_visible());
     }
@@ -163,6 +164,7 @@ impl WindowState {
     }
 
     /// Toggles the cursor grab, this is the only way to change the cursor grab, do not change it directly, otherwise the internal state will be out of sync.
+    #[allow(dead_code)]
     pub fn toggle_cursor_grab(&mut self) {
         self.set_cursor_grab(!self.get_cursor_grab());
     }

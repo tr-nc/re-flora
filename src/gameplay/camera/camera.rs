@@ -10,21 +10,15 @@ use winit::event::KeyEvent;
 pub struct PlayerRigidBody {
     pub velocity: Vec3,
     pub is_grounded: bool,
-    pub collision_radius: f32,
-    pub mass: f32,
     pub drag: f32,
-    pub bounce_damping: f32,
 }
 
 impl PlayerRigidBody {
-    pub fn new(collision_radius: f32) -> Self {
+    pub fn new() -> Self {
         Self {
             velocity: Vec3::ZERO,
             is_grounded: false,
-            collision_radius,
-            mass: 1.0,
             drag: 0.98,
-            bounce_damping: 0.1,
         }
     }
 }
@@ -73,7 +67,7 @@ impl Camera {
             vertical_velocity: 0.0,
             player_audio_controller: PlayerAudioController::new(audio_engine)?,
             was_on_ground: false,
-            rigidbody: PlayerRigidBody::new(0.5), // Default collision radius
+            rigidbody: PlayerRigidBody::new(),
         };
 
         camera.vectors.update(camera.yaw, camera.pitch);
