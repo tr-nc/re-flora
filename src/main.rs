@@ -25,7 +25,7 @@ pub fn main() {
     // backtrace_on();
 
     env_logger::Builder::from_env(
-        Env::default().default_filter_or("info,symphonia_core=warn,symphonia_format_riff=warn"),
+        Env::default().default_filter_or("debug,symphonia_core=warn,symphonia_format_riff=warn"),
     )
     .format_timestamp_millis()
     .init();
