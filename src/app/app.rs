@@ -321,8 +321,8 @@ impl App {
     }
 
     fn create_window_state(event_loop: &ActiveEventLoop) -> WindowState {
-        const WINDOW_TITLE_DEBUG: &str = "Re: Flora - DEBUG BUILD";
-        const WINDOW_TITLE_RELEASE: &str = "Re: Flora - RELEASE BUILD";
+        const WINDOW_TITLE_DEBUG: &str = "Re: Flora - debug build";
+        const WINDOW_TITLE_RELEASE: &str = "Re: Flora - release build";
         let using_mode = if cfg!(debug_assertions) {
             WINDOW_TITLE_DEBUG
         } else {
@@ -720,13 +720,26 @@ impl App {
                         egui::Area::new("fps_counter".into())
                             .anchor(egui::Align2::RIGHT_BOTTOM, egui::Vec2::new(-10.0, -10.0))
                             .show(ctx, |ui| {
-                                ui.horizontal(|ui| {
-                                    ui.label(
-                                        RichText::new(format!(
-                                            "{:.1}",
-                                            self.time_info.display_fps()
-                                        ))
-                                        .color(Color32::LIGHT_GRAY),
+                                let fps_frame = egui::containers::Frame {
+                                    fill: Color32::from_rgba_premultiplied(0, 0, 0, 128),
+                                    inner_margin: egui::Margin::same(6),
+                                    corner_radius: egui::CornerRadius::same(4),
+                                    ..Default::default()
+                                };
+
+                                fps_frame.show(ui, |ui| {
+                                    ui.allocate_ui_with_layout(
+                                        egui::Vec2::new(80.0, 20.0),
+                                        egui::Layout::left_to_right(egui::Align::Center),
+                                        |ui| {
+                                            ui.label(
+                                                RichText::new(format!(
+                                                    "{:.1}",
+                                                    self.time_info.display_fps()
+                                                ))
+                                                .color(Color32::LIGHT_GRAY),
+                                            );
+                                        },
                                     );
                                 });
                             });
