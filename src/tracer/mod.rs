@@ -4,6 +4,9 @@ pub use resources::*;
 mod denoiser_resources;
 pub use denoiser_resources::*;
 
+mod extent_dependent_resources;
+pub use extent_dependent_resources::*;
+
 mod vertex;
 pub use vertex::*;
 
@@ -14,7 +17,7 @@ use winit::event::KeyEvent;
 
 use crate::audio::AudioEngine;
 use crate::builder::SurfaceResources;
-use crate::gameplay::{Camera, CameraDesc, calculate_directional_light_matrices};
+use crate::gameplay::{calculate_directional_light_matrices, Camera, CameraDesc};
 use crate::geom::{Aabb3, UAabb3};
 use crate::resource::ResourceContainer;
 use crate::util::{ShaderCompiler, TimeInfo};
@@ -272,6 +275,10 @@ impl Tracer {
             screen_extent,
             Extent2D::new(1024, 1024),
         );
+
+        // test on get_resource
+        let gui_input = resources.get_resource::<Buffer>("gui_input").unwrap();
+        log::debug!("gui_input: {:#?}", gui_input);
 
         let device = vulkan_ctx.device();
 
@@ -540,15 +547,13 @@ impl Tracer {
             }],
             // Add a dependency to ensure writes to the depth buffer are complete
             // before any subsequent pass tries to read from it.
-            dependencies: vec![
-                vk::SubpassDependency::default()
-                    .src_subpass(vk::SUBPASS_EXTERNAL)
-                    .dst_subpass(0)
-                    .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT) // Or an earlier stage
-                    .dst_stage_mask(vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS)
-                    .src_access_mask(vk::AccessFlags::empty())
-                    .dst_access_mask(vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE),
-            ],
+            dependencies: vec![vk::SubpassDependency::default()
+                .src_subpass(vk::SUBPASS_EXTERNAL)
+                .dst_subpass(0)
+                .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT) // Or an earlier stage
+                .dst_stage_mask(vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS)
+                .src_access_mask(vk::AccessFlags::empty())
+                .dst_access_mask(vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE)],
         };
 
         // 2. Create the render pass using the flexible `from_desc` constructor.

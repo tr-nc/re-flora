@@ -1,5 +1,7 @@
 use ash::vk;
+use resource_container_derive::ResourceContainer;
 
+use crate::resource::Resource;
 use crate::vkn::{
     Allocator, Buffer, BufferUsage, Device, Extent2D, ImageDesc, ShaderModule, Texture,
 };
@@ -20,10 +22,11 @@ pub struct DenoiserTextureSet {
     pub spatial_pong: Texture,
 }
 
+#[derive(ResourceContainer)]
 pub struct DenoiserResources {
     pub tex: DenoiserTextureSet,
-    pub temporal_info: Buffer,
-    pub spatial_info: Buffer,
+    pub temporal_info: Resource<Buffer>,
+    pub spatial_info: Resource<Buffer>,
 
     device: Device,
     allocator: Allocator,
@@ -58,11 +61,11 @@ impl DenoiserResources {
         );
 
         Self {
-            tex,
-            temporal_info,
-            spatial_info,
             device,
             allocator,
+            tex,
+            temporal_info: Resource::new(temporal_info),
+            spatial_info: Resource::new(spatial_info),
         }
     }
 
