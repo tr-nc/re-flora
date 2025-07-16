@@ -1054,8 +1054,6 @@ impl Tracer {
         sun_size: f32,
         sun_color: Vec3,
         sun_luminance: f32,
-        sky_color: Vec3,
-        sky_bottom_color: Vec3,
         debug_color_1: Vec3,
         debug_color_2: Vec3,
         temporal_position_phi: f32,
@@ -1069,6 +1067,7 @@ impl Tracer {
         is_changing_lum_phi: bool,
         is_spatial_denoising_skipped: bool,
         is_taa_enabled: bool,
+        use_debug_sky_colors: bool,
     ) -> Result<()> {
         // camera info
         let view_mat = self.camera.get_view_mat();
@@ -1109,10 +1108,9 @@ impl Tracer {
             sun_size,
             sun_color,
             sun_luminance,
-            sky_color,
-            sky_bottom_color,
             debug_color_1,
             debug_color_2,
+            use_debug_sky_colors,
         )?;
 
         update_env_info(&self.resources, time_info.total_frame_count() as u32)?;
@@ -1243,10 +1241,9 @@ impl Tracer {
             sun_size: f32,
             sun_color: Vec3,
             sun_luminance: f32,
-            sky_color: Vec3,
-            sky_bottom_color: Vec3,
             debug_color_1: Vec3,
             debug_color_2: Vec3,
+            use_debug_sky_colors: bool,
         ) -> Result<()> {
             let data = StructMemberDataBuilder::from_buffer(&resources.sky_info)
                 .set_field("sun_dir", PlainMemberTypeWithData::Vec3(sun_dir.to_array()))
@@ -1260,20 +1257,16 @@ impl Tracer {
                     PlainMemberTypeWithData::Float(sun_luminance),
                 )
                 .set_field(
-                    "sky_color",
-                    PlainMemberTypeWithData::Vec3(sky_color.to_array()),
-                )
-                .set_field(
-                    "sky_bottom_color",
-                    PlainMemberTypeWithData::Vec3(sky_bottom_color.to_array()),
-                )
-                .set_field(
                     "debug_color_1",
                     PlainMemberTypeWithData::Vec3(debug_color_1.to_array()),
                 )
                 .set_field(
                     "debug_color_2",
                     PlainMemberTypeWithData::Vec3(debug_color_2.to_array()),
+                )
+                .set_field(
+                    "use_debug_sky_colors",
+                    PlainMemberTypeWithData::UInt(if use_debug_sky_colors { 1 } else { 0 }),
                 )
                 .build()?;
             resources.sky_info.fill_with_raw_u8(&data)?;

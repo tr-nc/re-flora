@@ -60,8 +60,6 @@ pub struct App {
     sun_size: f32,
     sun_color: egui::Color32,
     sun_luminance: f32,
-    sky_top_color: egui::Color32,
-    sky_bottom_color: egui::Color32,
     debug_color_1: egui::Color32,
     debug_color_2: egui::Color32,
     temporal_position_phi: f32,
@@ -81,6 +79,7 @@ pub struct App {
 
     tree_desc: TreeDesc,
     prev_bound: UAabb3,
+    use_debug_sky_colors: bool,
 
     // note: always keep the context to end, as it has to be destroyed last
     vulkan_ctx: VulkanContext,
@@ -245,15 +244,14 @@ impl App {
             sun_size: 0.02,
             sun_color: egui::Color32::from_rgb(255, 233, 144),
             sun_luminance: 1.0,
-            sky_top_color: egui::Color32::from_rgb(135, 206, 235),
-            sky_bottom_color: egui::Color32::from_rgb(255, 223, 186),
-            debug_color_1: egui::Color32::from_rgb(255, 0, 0),
-            debug_color_2: egui::Color32::from_rgb(0, 255, 0),
+            debug_color_1: egui::Color32::from_rgb(135, 206, 235),
+            debug_color_2: egui::Color32::from_rgb(255, 223, 186),
             tree_pos: Vec3::new(512.0, 0.0, 512.0),
             tree_desc: TreeDesc::default(),
             prev_bound: Default::default(),
             config_panel_visible: false,
             is_fly_mode: true,
+            use_debug_sky_colors: false,
 
             audio_engine,
         };
@@ -642,15 +640,17 @@ impl App {
                                                 );
                                             });
                                             ui.horizontal(|ui| {
-                                                ui.label("Sky Top Color:");
-                                                ui.color_edit_button_srgba(&mut self.sky_top_color);
+                                                ui.label("Debug Color 1:");
+                                                ui.color_edit_button_srgba(&mut self.debug_color_1);
                                             });
                                             ui.horizontal(|ui| {
-                                                ui.label("Sky Bottom Color:");
-                                                ui.color_edit_button_srgba(
-                                                    &mut self.sky_bottom_color,
-                                                );
+                                                ui.label("Debug Color 2:");
+                                                ui.color_edit_button_srgba(&mut self.debug_color_2);
                                             });
+                                            ui.add(egui::Checkbox::new(
+                                                &mut self.use_debug_sky_colors,
+                                                "Use Debug Colors for Sky",
+                                            ));
                                         });
 
                                         ui.collapsing("Tree Settings", |ui| {
@@ -836,16 +836,6 @@ impl App {
                         ),
                         self.sun_luminance,
                         Vec3::new(
-                            self.sky_top_color.r() as f32 / 255.0,
-                            self.sky_top_color.g() as f32 / 255.0,
-                            self.sky_top_color.b() as f32 / 255.0,
-                        ),
-                        Vec3::new(
-                            self.sky_bottom_color.r() as f32 / 255.0,
-                            self.sky_bottom_color.g() as f32 / 255.0,
-                            self.sky_bottom_color.b() as f32 / 255.0,
-                        ),
-                        Vec3::new(
                             self.debug_color_1.r() as f32 / 255.0,
                             self.debug_color_1.g() as f32 / 255.0,
                             self.debug_color_1.b() as f32 / 255.0,
@@ -866,6 +856,7 @@ impl App {
                         self.is_changing_lum_phi,
                         self.is_spatial_denoising_skipped,
                         self.is_taa_enabled,
+                        self.use_debug_sky_colors,
                     )
                     .unwrap();
 

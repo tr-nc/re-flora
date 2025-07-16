@@ -15,10 +15,9 @@ layout(set = 0, binding = 1) uniform U_SkyInfo {
     float sun_size;
     vec3 sun_color;
     float sun_luminance;
-    vec3 sky_color;
-    vec3 sky_bottom_color;
     vec3 debug_color_1;
     vec3 debug_color_2;
+    uint use_debug_sky_colors;
 }
 sky_info;
 layout(set = 0, binding = 2) uniform U_CameraInfo {
@@ -48,7 +47,8 @@ vec3 combine_colors(float gfx_depth_01, float compute_depth_01, vec3 gfx_color,
     if (gfx_depth_01 == 1.0 && compute_depth_01 == 1.0) {
         Ray ray        = ray_gen(screen_uv, camera_info.view_proj_mat_inv);
         vec3 sky_color = get_sky_color_with_sun(ray.direction, sky_info.sun_dir, sky_info.sun_color,
-                                                sky_info.sun_luminance, sky_info.sun_size);
+                                                sky_info.sun_luminance, sky_info.sun_size,
+                                                sky_info.use_debug_sky_colors, sky_info.debug_color_1, sky_info.debug_color_2);
         return sky_color;
     }
 

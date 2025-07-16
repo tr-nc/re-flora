@@ -15,10 +15,9 @@ layout(set = 0, binding = 1) uniform U_SkyInfo {
     float sun_size;
     vec3 sun_color;
     float sun_luminance;
-    vec3 sky_color;
-    vec3 sky_bottom_color;
     vec3 debug_color_1;
     vec3 debug_color_2;
+    uint use_debug_sky_colors;
 }
 sky_info;
 layout(set = 0, binding = 2) uniform U_CameraInfo {
@@ -239,7 +238,8 @@ void get_pixel_color(out vec3 o_color, out float o_depth_01, out vec3 o_primary_
 
     MarchingResult res_indirect_ray = general_scene_marching(indirect_ray);
     if (!res_indirect_ray.is_hit) {
-        indirect_color = get_sky_color(indirect_ray.direction, sky_info.sun_dir);
+        indirect_color = get_sky_color(indirect_ray.direction, sky_info.sun_dir, 
+                                        sky_info.use_debug_sky_colors, sky_info.debug_color_1, sky_info.debug_color_2);
     } else {
         if (!res_indirect_ray.is_normal_valid) {
             // Use the unique indirect_seed for this random choice as well.

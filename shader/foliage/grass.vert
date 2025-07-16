@@ -24,10 +24,9 @@ layout(set = 0, binding = 1) uniform U_SkyInfo {
     float sun_size;
     vec3 sun_color;
     float sun_luminance;
-    vec3 sky_color;
-    vec3 sky_bottom_color;
     vec3 debug_color_1;
     vec3 debug_color_2;
+    uint use_debug_sky_colors;
 }
 sky_info;
 layout(set = 0, binding = 2) uniform U_CameraInfo {
