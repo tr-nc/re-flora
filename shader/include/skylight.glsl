@@ -8,56 +8,40 @@ struct SkyColors {
     vec3 bottom_color;
 };
 
-// if sun altitude >= 0.4
-// sky_top_color = 0, 108, 206
-// sky_bottom_color = 255, 195, 92
-
-// transition to
-
-// sun altitude == 0.1
-// sky_top_color = 59, 114, 180
-// sky_bottom_color = 191, 126, 145
-
-// transition to
-
-// sun altitude <= -0.2
-// sky_top_color = 0, 28, 56
-// sky_bottom_color = 45, 43, 60
-
 // Sun altitude ranges from -1 to 1
 SkyColors get_sky_color_by_sun_altitude(float sun_altitude) {
     SkyColors result;
-    
+
     // Define color points for different sun altitudes
-    vec3 day_top = vec3(0.0, 108.0, 206.0) / 255.0;
-    vec3 day_bottom = vec3(255.0, 195.0, 92.0) / 255.0;
-    
-    vec3 sunset_top = vec3(59.0, 114.0, 180.0) / 255.0;
-    vec3 sunset_bottom = vec3(191.0, 126.0, 145.0) / 255.0;
-    
-    vec3 night_top = vec3(0.0, 28.0, 56.0) / 255.0;
-    vec3 night_bottom = vec3(45.0, 43.0, 60.0) / 255.0;
-    
+    vec3 day_top    = srgb_to_linear(vec3(0.0, 108.0, 206.0) / 255.0);
+    vec3 day_bottom = srgb_to_linear(vec3(255.0, 195.0, 92.0) / 255.0);
+
+    vec3 sunset_top    = srgb_to_linear(vec3(59.0, 114.0, 180.0) / 255.0);
+    vec3 sunset_bottom = srgb_to_linear(vec3(191.0, 126.0, 145.0) / 255.0);
+
+    vec3 night_top    = srgb_to_linear(vec3(0.0, 28.0, 56.0) / 255.0);
+    vec3 night_bottom = srgb_to_linear(vec3(45.0, 43.0, 60.0) / 255.0);
+
     if (sun_altitude >= 0.4) {
         // Full day
-        result.top_color = day_top;
+        result.top_color    = day_top;
         result.bottom_color = day_bottom;
-    } else if (sun_altitude > 0.1) {
+    } else if (sun_altitude > -0.1) {
         // Transition from day to sunset
-        float t = (sun_altitude - 0.1) / (0.4 - 0.1);
-        result.top_color = mix(sunset_top, day_top, t);
+        float t             = (sun_altitude - 0.1) / (0.4 - 0.1);
+        result.top_color    = mix(sunset_top, day_top, t);
         result.bottom_color = mix(sunset_bottom, day_bottom, t);
     } else if (sun_altitude > -0.2) {
         // Transition from sunset to night
-        float t = (sun_altitude - (-0.2)) / (0.1 - (-0.2));
-        result.top_color = mix(night_top, sunset_top, t);
+        float t             = (sun_altitude - (-0.2)) / (0.1 - (-0.2));
+        result.top_color    = mix(night_top, sunset_top, t);
         result.bottom_color = mix(night_bottom, sunset_bottom, t);
     } else {
         // Full night
-        result.top_color = night_top;
+        result.top_color    = night_top;
         result.bottom_color = night_bottom;
     }
-    
+
     return result;
 }
 
