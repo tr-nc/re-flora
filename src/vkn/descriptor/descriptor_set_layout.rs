@@ -42,8 +42,8 @@ impl DescriptorSetLayout {
         };
 
         let mut bindings_map = HashMap::new();
-        for &binding in bindings {
-            if let Some(_) = bindings_map.insert(binding.no, binding) {
+        for binding in bindings {
+            if let Some(_) = bindings_map.insert(binding.no, binding.clone()) {
                 return Err(anyhow::anyhow!(
                     "Duplicate binding no {} found in descriptor set layout",
                     binding.no
@@ -100,9 +100,10 @@ impl DescriptorSetLayout {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct DescriptorSetLayoutBinding {
     pub no: u32,
+    pub name: String,
     pub descriptor_type: vk::DescriptorType,
     pub descriptor_count: u32,
     pub stage_flags: vk::ShaderStageFlags,

@@ -1,4 +1,5 @@
 use crate::{
+    resource::Resource,
     tracer::{grass_construct::generate_indexed_voxel_grass_blade, DenoiserResources, Vertex},
     util::get_project_root,
     vkn::{
@@ -7,6 +8,7 @@ use crate::{
     },
 };
 use ash::vk;
+use resource_container_derive::ResourceContainer;
 
 pub struct ExtentDependentResources {
     pub gfx_depth_tex: Texture,
@@ -197,37 +199,38 @@ impl ExtentDependentResources {
     }
 }
 
+#[derive(ResourceContainer)]
 pub struct TracerResources {
-    pub gui_input: Buffer,
-    pub sun_info: Buffer,
-    pub sky_info: Buffer,
-    pub camera_info: Buffer,
-    pub camera_info_prev_frame: Buffer,
-    pub shadow_camera_info: Buffer,
-    pub env_info: Buffer,
-    pub grass_info: Buffer,
-    pub taa_info: Buffer,
-    pub post_processing_info: Buffer,
-    pub player_collider_info: Buffer,
-    pub player_collision_result: Buffer,
+    pub gui_input: Resource<Buffer>,
+    pub sun_info: Resource<Buffer>,
+    pub sky_info: Resource<Buffer>,
+    pub camera_info: Resource<Buffer>,
+    pub camera_info_prev_frame: Resource<Buffer>,
+    pub shadow_camera_info: Resource<Buffer>,
+    pub env_info: Resource<Buffer>,
+    pub grass_info: Resource<Buffer>,
+    pub taa_info: Resource<Buffer>,
+    pub post_processing_info: Resource<Buffer>,
+    pub player_collider_info: Resource<Buffer>,
+    pub player_collision_result: Resource<Buffer>,
 
-    pub vertices: Buffer,
-    pub indices: Buffer,
+    pub vertices: Resource<Buffer>,
+    pub indices: Resource<Buffer>,
     pub indices_len: u32,
 
     pub extent_dependent_resources: ExtentDependentResources,
 
-    pub shadow_map_tex: Texture,
-    pub shadow_map_tex_for_vsm_ping: Texture,
-    pub shadow_map_tex_for_vsm_pong: Texture,
+    pub shadow_map_tex: Resource<Texture>,
+    pub shadow_map_tex_for_vsm_ping: Resource<Texture>,
+    pub shadow_map_tex_for_vsm_pong: Resource<Texture>,
 
     // noises
-    pub scalar_bn: Texture,
-    pub unit_vec2_bn: Texture,
-    pub unit_vec3_bn: Texture,
-    pub weighted_cosine_bn: Texture,
-    pub fast_unit_vec3_bn: Texture,
-    pub fast_weighted_cosine_bn: Texture,
+    pub scalar_bn: Resource<Texture>,
+    pub unit_vec2_bn: Resource<Texture>,
+    pub unit_vec3_bn: Resource<Texture>,
+    pub weighted_cosine_bn: Resource<Texture>,
+    pub fast_unit_vec3_bn: Resource<Texture>,
+    pub fast_weighted_cosine_bn: Resource<Texture>,
 
     pub denoiser_resources: DenoiserResources,
 }
@@ -465,31 +468,31 @@ impl TracerResources {
         indices.fill(&indices_data).unwrap();
 
         return Self {
-            gui_input,
-            sun_info,
-            sky_info,
-            camera_info,
-            camera_info_prev_frame,
-            shadow_camera_info,
-            env_info,
-            grass_info,
-            taa_info,
-            post_processing_info,
-            player_collider_info,
-            player_collision_result,
-            vertices,
-            indices,
+            gui_input: Resource::new(gui_input),
+            sun_info: Resource::new(sun_info),
+            sky_info: Resource::new(sky_info),
+            camera_info: Resource::new(camera_info),
+            camera_info_prev_frame: Resource::new(camera_info_prev_frame),
+            shadow_camera_info: Resource::new(shadow_camera_info),
+            env_info: Resource::new(env_info),
+            grass_info: Resource::new(grass_info),
+            taa_info: Resource::new(taa_info),
+            post_processing_info: Resource::new(post_processing_info),
+            player_collider_info: Resource::new(player_collider_info),
+            player_collision_result: Resource::new(player_collision_result),
+            vertices: Resource::new(vertices),
+            indices: Resource::new(indices),
             indices_len,
             extent_dependent_resources,
-            shadow_map_tex,
-            shadow_map_tex_for_vsm_ping,
-            shadow_map_tex_for_vsm_pong,
-            scalar_bn,
-            unit_vec2_bn,
-            unit_vec3_bn,
-            weighted_cosine_bn,
-            fast_unit_vec3_bn,
-            fast_weighted_cosine_bn,
+            shadow_map_tex: Resource::new(shadow_map_tex),
+            shadow_map_tex_for_vsm_ping: Resource::new(shadow_map_tex_for_vsm_ping),
+            shadow_map_tex_for_vsm_pong: Resource::new(shadow_map_tex_for_vsm_pong),
+            scalar_bn: Resource::new(scalar_bn),
+            unit_vec2_bn: Resource::new(unit_vec2_bn),
+            unit_vec3_bn: Resource::new(unit_vec3_bn),
+            weighted_cosine_bn: Resource::new(weighted_cosine_bn),
+            fast_unit_vec3_bn: Resource::new(fast_unit_vec3_bn),
+            fast_weighted_cosine_bn: Resource::new(fast_weighted_cosine_bn),
             denoiser_resources: DenoiserResources::new(
                 device.clone(),
                 allocator.clone(),

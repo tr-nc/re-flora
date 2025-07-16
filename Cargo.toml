@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+resource_container_derive = { path = "./resource_container_derive" }
 
 # https://github.com/ash-rs/ash
 ash = { version = "0.38", default-features = false, features = [

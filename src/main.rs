@@ -5,6 +5,7 @@ mod egui_renderer;
 mod gameplay;
 mod geom;
 mod procedual_placer;
+mod resource;
 mod tracer;
 mod tree_gen;
 mod util;

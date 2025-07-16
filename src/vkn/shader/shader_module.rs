@@ -371,7 +371,7 @@ impl ShaderModule {
         })))
     }
 
-    fn get_descriptor_sets(&self) -> HashMap<u32, ReflectDescriptorSet> {
+    fn get_reflect_descriptor_sets(&self) -> HashMap<u32, ReflectDescriptorSet> {
         let descriptor_sets = self
             .0
             .reflect_shader_module
@@ -417,28 +417,44 @@ impl ShaderModule {
         ranges
     }
 
-    pub fn get_descriptor_set_layouts(&self) -> HashMap<u32, DescriptorSetLayout> {
-        let descriptor_sets = self.get_descriptor_sets();
-
-        let mut layouts = HashMap::new();
-        for descriptor_set in descriptor_sets {
-            let mut builder = DescriptorSetLayoutBuilder::new();
-
-            // if the descriptor set is valid, add its bindings to the layout
-            for binding in descriptor_set.1.bindings {
-                let descriptor_type =
-                    reflect_descriptor_type_to_descriptor_type(binding.descriptor_type);
-                let stage_flags = self.get_stage();
-                builder.add_binding(DescriptorSetLayoutBinding {
-                    no: binding.binding,
-                    descriptor_type,
-                    descriptor_count: binding.count,
-                    stage_flags,
-                });
-            }
-            layouts.insert(descriptor_set.0, builder.build(&self.0.device).unwrap());
+    fn get_descriptor_set_bindings(
+        &self,
+        reflect_descriptor_set: &ReflectDescriptorSet,
+    ) -> Vec<DescriptorSetLayoutBinding> {
+        let mut bindings = Vec::new();
+        for binding in &reflect_descriptor_set.bindings {
+            bindings.push(DescriptorSetLayoutBinding {
+                no: binding.binding,
+                name: binding.name.clone(),
+                descriptor_type: reflect_descriptor_type_to_descriptor_type(
+                    binding.descriptor_type,
+                ),
+                descriptor_count: binding.count,
+                stage_flags: self.get_stage(),
+            });
         }
+        bindings
+    }
 
+    pub fn get_descriptor_sets_bindings(&self) -> HashMap<u32, Vec<DescriptorSetLayoutBinding>> {
+        let refl_descriptor_sets = self.get_reflect_descriptor_sets();
+        let mut bindings = HashMap::new();
+        for refl_ds in refl_descriptor_sets {
+            bindings.insert(refl_ds.0, self.get_descriptor_set_bindings(&refl_ds.1));
+        }
+        bindings
+    }
+
+    pub fn get_descriptor_set_layouts(&self) -> HashMap<u32, DescriptorSetLayout> {
+        let bindings = self.get_descriptor_sets_bindings();
+        let mut layouts = HashMap::new();
+        for (set_no, bindings) in bindings {
+            let mut builder = DescriptorSetLayoutBuilder::new();
+            for binding in bindings {
+                builder.add_binding(binding);
+            }
+            layouts.insert(set_no, builder.build(&self.0.device).unwrap());
+        }
         layouts
     }
 }

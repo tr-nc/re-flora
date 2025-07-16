@@ -220,6 +220,12 @@ impl Tracer {
         )
         .unwrap();
 
+        // TODO:
+        log::debug!(
+            "player_collider_sm descriptor sets bindings: {:#?}",
+            player_collider_sm.get_descriptor_sets_bindings()
+        );
+
         let grass_vert_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             shader_compiler,
