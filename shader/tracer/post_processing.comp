@@ -1,16 +1,19 @@
-/// Upscale the rendering output to the screen and apply postprocessing effects
-
 #version 460
 
 #extension GL_GOOGLE_include_directive : require
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-// left for future use
-layout(set = 0, binding = 0) uniform U_PostProcessingInfo { float scaling_factor; }
+layout(set = 0, binding = 0) uniform U_GuiInput {
+    float debug_float;
+    uint debug_bool;
+    uint debug_uint;
+}
+gui_input;
+layout(set = 0, binding = 1) uniform U_PostProcessingInfo { float scaling_factor; }
 post_processing_info;
-layout(set = 0, binding = 1, r11f_g11f_b10f) uniform readonly image2D taa_tex;
-layout(set = 0, binding = 2, rgba8) uniform writeonly image2D screen_output_tex;
+layout(set = 0, binding = 2, r11f_g11f_b10f) uniform readonly image2D taa_tex;
+layout(set = 0, binding = 3, rgba8) uniform writeonly image2D screen_output_tex;
 
 #include "../include/core/dither.glsl"
 
@@ -25,7 +28,7 @@ void main() {
     vec3 final_color    = imageLoad(taa_tex, mapped_uvi).rgb;
 
     vec3 dither_mask = get_dither_mask(uvi);
-    final_color += dither_mask;
+    final_color += dither_mask * 3.0;
 
     imageStore(screen_output_tex, uvi, vec4(final_color, 1.0));
 }

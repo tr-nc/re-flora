@@ -3,30 +3,93 @@
 
 #include "../include/core/color.glsl"
 
-vec3 get_sky_color(vec3 dir, vec3 sky_top_color, vec3 sky_bottom_color) {
-    float altitude = (dir.y + 1.0) * 0.5;
+struct SkyColors {
+    vec3 top_color;
+    vec3 bottom_color;
+};
+
+// if sun altitude >= 0.4
+// sky_top_color = 0, 108, 206
+// sky_bottom_color = 255, 195, 92
+
+// transition to
+
+// sun altitude == 0.1
+// sky_top_color = 59, 114, 180
+// sky_bottom_color = 191, 126, 145
+
+// transition to
+
+// sun altitude <= -0.2
+// sky_top_color = 0, 28, 56
+// sky_bottom_color = 45, 43, 60
+
+// Sun altitude ranges from -1 to 1
+SkyColors get_sky_color_by_sun_altitude(float sun_altitude) {
+    SkyColors result;
     
-    vec3 sky_color;
-    if (altitude < 0.4) {
-        sky_color = sky_bottom_color;
-    } else if (altitude < 0.7) {
-        float transition = (altitude - 0.4) / 0.3;
-        transition = smoothstep(0.0, 1.0, transition);
-        sky_color = mix(sky_bottom_color, sky_top_color, transition);
+    // Define color points for different sun altitudes
+    vec3 day_top = vec3(0.0, 108.0, 206.0) / 255.0;
+    vec3 day_bottom = vec3(255.0, 195.0, 92.0) / 255.0;
+    
+    vec3 sunset_top = vec3(59.0, 114.0, 180.0) / 255.0;
+    vec3 sunset_bottom = vec3(191.0, 126.0, 145.0) / 255.0;
+    
+    vec3 night_top = vec3(0.0, 28.0, 56.0) / 255.0;
+    vec3 night_bottom = vec3(45.0, 43.0, 60.0) / 255.0;
+    
+    if (sun_altitude >= 0.4) {
+        // Full day
+        result.top_color = day_top;
+        result.bottom_color = day_bottom;
+    } else if (sun_altitude > 0.1) {
+        // Transition from day to sunset
+        float t = (sun_altitude - 0.1) / (0.4 - 0.1);
+        result.top_color = mix(sunset_top, day_top, t);
+        result.bottom_color = mix(sunset_bottom, day_bottom, t);
+    } else if (sun_altitude > -0.2) {
+        // Transition from sunset to night
+        float t = (sun_altitude - (-0.2)) / (0.1 - (-0.2));
+        result.top_color = mix(night_top, sunset_top, t);
+        result.bottom_color = mix(night_bottom, sunset_bottom, t);
     } else {
-        sky_color = sky_top_color;
+        // Full night
+        result.top_color = night_top;
+        result.bottom_color = night_bottom;
     }
     
+    return result;
+}
+
+vec3 get_sky_color(vec3 view_dir, vec3 sun_dir) {
+    // Altitude range now matches sun altitude range (-1 to 1)
+    float altitude     = view_dir.y;
+    float sun_altitude = sun_dir.y;
+
+    SkyColors sky_colors = get_sky_color_by_sun_altitude(sun_altitude);
+
+    vec3 sky_color;
+    if (altitude < -0.2) {
+        sky_color = sky_colors.bottom_color;
+    } else if (altitude < 0.4) {
+        float transition = (altitude - (-0.2)) / (0.4 - (-0.2));
+        transition       = smoothstep(0.0, 1.0, transition);
+        sky_color        = mix(sky_colors.bottom_color, sky_colors.top_color, transition);
+    } else {
+        sky_color = sky_colors.top_color;
+    }
+
     return srgb_to_linear(sky_color);
 }
 
-vec3 get_sky_color_with_sun(vec3 view_dir, vec3 sun_dir, vec3 sun_color, float sun_luminance, float sun_size, vec3 sky_top_color, vec3 sky_bottom_color) {
-    vec3 sky_color_linear = get_sky_color(view_dir, sky_top_color, sky_bottom_color);
+vec3 get_sky_color_with_sun(vec3 view_dir, vec3 sun_dir, vec3 sun_color, float sun_luminance,
+                            float sun_size) {
+    vec3 sky_color_linear = get_sky_color(view_dir, sun_dir);
 
     vec3 luminance_sun_color = sun_color * sun_luminance;
-    float sun_intensity   = max(0.0, dot(view_dir, sun_dir));
-    float sun_power       = max(1.0, 100.0 / max(0.01, sun_size * 10.0));
-    sun_intensity         = pow(sun_intensity, sun_power);
+    float sun_intensity      = max(0.0, dot(view_dir, sun_dir));
+    float sun_power          = max(1.0, 100.0 / max(0.01, sun_size * 10.0));
+    sun_intensity            = pow(sun_intensity, sun_power);
 
     return mix(sky_color_linear, luminance_sun_color, sun_intensity);
 }

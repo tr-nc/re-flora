@@ -239,7 +239,7 @@ void get_pixel_color(out vec3 o_color, out float o_depth_01, out vec3 o_primary_
 
     MarchingResult res_indirect_ray = general_scene_marching(indirect_ray);
     if (!res_indirect_ray.is_hit) {
-        indirect_color = get_sky_color(indirect_ray.direction, sky_info.sky_color, sky_info.sky_bottom_color);
+        indirect_color = get_sky_color(indirect_ray.direction, sky_info.sun_dir);
     } else {
         if (!res_indirect_ray.is_normal_valid) {
             // Use the unique indirect_seed for this random choice as well.
