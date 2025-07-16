@@ -10,17 +10,20 @@ layout(set = 0, binding = 0) uniform U_GuiInput {
     uint debug_uint;
 }
 gui_input;
-layout(set = 0, binding = 1) uniform U_SkyInfo {
+layout(set = 0, binding = 1) uniform U_SunInfo {
     vec3 sun_dir;
     float sun_size;
     vec3 sun_color;
     float sun_luminance;
+}
+sun_info;
+layout(set = 0, binding = 2) uniform U_SkyInfo {
     vec3 debug_color_1;
     vec3 debug_color_2;
     uint use_debug_sky_colors;
 }
 sky_info;
-layout(set = 0, binding = 2) uniform U_CameraInfo {
+layout(set = 0, binding = 3) uniform U_CameraInfo {
     vec4 pos;
     mat4 view_mat;
     mat4 view_mat_inv;
@@ -30,12 +33,12 @@ layout(set = 0, binding = 2) uniform U_CameraInfo {
     mat4 view_proj_mat_inv;
 }
 camera_info;
-layout(set = 0, binding = 3, rgba8) uniform readonly image2D gfx_output_tex;
-layout(set = 0, binding = 4, r32f) uniform readonly image2D gfx_depth_tex;
-layout(set = 0, binding = 5, r11f_g11f_b10f) uniform readonly image2D denoiser_output_tex;
-layout(set = 0, binding = 6, r32f) uniform readonly image2D compute_depth_tex;
-layout(set = 0, binding = 7, r32f) uniform readonly image2D god_ray_output_tex;
-layout(set = 0, binding = 8, r11f_g11f_b10f) uniform writeonly image2D composited_tex;
+layout(set = 0, binding = 4, rgba8) uniform readonly image2D gfx_output_tex;
+layout(set = 0, binding = 5, r32f) uniform readonly image2D gfx_depth_tex;
+layout(set = 0, binding = 6, r11f_g11f_b10f) uniform readonly image2D denoiser_output_tex;
+layout(set = 0, binding = 7, r32f) uniform readonly image2D compute_depth_tex;
+layout(set = 0, binding = 8, r32f) uniform readonly image2D god_ray_output_tex;
+layout(set = 0, binding = 9, r11f_g11f_b10f) uniform writeonly image2D composited_tex;
 
 #include "../include/core/color.glsl"
 #include "../include/core/dither.glsl"
@@ -46,8 +49,8 @@ vec3 combine_colors(float gfx_depth_01, float compute_depth_01, vec3 gfx_color,
                     vec3 denoiser_output_color, vec2 screen_uv, ivec2 uvi) {
     if (gfx_depth_01 == 1.0 && compute_depth_01 == 1.0) {
         Ray ray        = ray_gen(screen_uv, camera_info.view_proj_mat_inv);
-        vec3 sky_color = get_sky_color_with_sun(ray.direction, sky_info.sun_dir, sky_info.sun_color,
-                                                sky_info.sun_luminance, sky_info.sun_size,
+        vec3 sky_color = get_sky_color_with_sun(ray.direction, sun_info.sun_dir, sun_info.sun_color,
+                                                sun_info.sun_luminance, sun_info.sun_size,
                                                 sky_info.use_debug_sky_colors, sky_info.debug_color_1, sky_info.debug_color_2);
         return sky_color;
     }

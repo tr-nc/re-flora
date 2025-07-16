@@ -19,16 +19,13 @@ layout(set = 0, binding = 0) uniform U_GuiInput {
     uint debug_uint;
 }
 gui_input;
-layout(set = 0, binding = 1) uniform U_SkyInfo {
+layout(set = 0, binding = 1) uniform U_SunInfo {
     vec3 sun_dir;
     float sun_size;
     vec3 sun_color;
     float sun_luminance;
-    vec3 debug_color_1;
-    vec3 debug_color_2;
-    uint use_debug_sky_colors;
 }
-sky_info;
+sun_info;
 layout(set = 0, binding = 2) uniform U_CameraInfo {
     vec4 pos;
     mat4 view_mat;
@@ -130,6 +127,6 @@ void main() {
     gl_Position = camera_info.view_proj_mat * vert_pos_ws;
 
     float ambient_light = 0.3;
-    vec3 sun_light = sky_info.sun_color * sky_info.sun_luminance;
+    vec3 sun_light = sun_info.sun_color * sun_info.sun_luminance;
     vert_color = in_color * (sun_light * shadow_weight + ambient_light);
 }

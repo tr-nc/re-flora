@@ -451,7 +451,7 @@ impl Tracer {
     fn update_grass_ds(ds: &DescriptorSet, resources: &TracerResources) {
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.gui_input),
-            WriteDescriptorSet::new_buffer_write(1, &resources.sky_info),
+            WriteDescriptorSet::new_buffer_write(1, &resources.sun_info),
             WriteDescriptorSet::new_buffer_write(2, &resources.camera_info),
             WriteDescriptorSet::new_buffer_write(3, &resources.shadow_camera_info),
             WriteDescriptorSet::new_buffer_write(4, &resources.grass_info),
@@ -619,21 +619,22 @@ impl Tracer {
     ) {
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.gui_input),
-            WriteDescriptorSet::new_buffer_write(1, &resources.sky_info),
-            WriteDescriptorSet::new_buffer_write(2, &resources.camera_info),
-            WriteDescriptorSet::new_buffer_write(3, &resources.camera_info_prev_frame),
-            WriteDescriptorSet::new_buffer_write(4, &resources.shadow_camera_info),
-            WriteDescriptorSet::new_buffer_write(5, &resources.env_info),
-            WriteDescriptorSet::new_buffer_write(6, &node_data),
-            WriteDescriptorSet::new_buffer_write(7, &leaf_data),
+            WriteDescriptorSet::new_buffer_write(1, &resources.sun_info),
+            WriteDescriptorSet::new_buffer_write(2, &resources.sky_info),
+            WriteDescriptorSet::new_buffer_write(3, &resources.camera_info),
+            WriteDescriptorSet::new_buffer_write(4, &resources.camera_info_prev_frame),
+            WriteDescriptorSet::new_buffer_write(5, &resources.shadow_camera_info),
+            WriteDescriptorSet::new_buffer_write(6, &resources.env_info),
+            WriteDescriptorSet::new_buffer_write(7, &node_data),
+            WriteDescriptorSet::new_buffer_write(8, &leaf_data),
             WriteDescriptorSet::new_texture_write(
-                8,
+                9,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &scene_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
-                9,
+                10,
                 vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
                 &resources.shadow_map_tex,
                 vk::ImageLayout::GENERAL,
@@ -813,30 +814,29 @@ impl Tracer {
     fn update_god_ray_ds_0(ds: &DescriptorSet, resources: &TracerResources) {
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.gui_input),
-            WriteDescriptorSet::new_buffer_write(1, &resources.sky_info),
-            WriteDescriptorSet::new_buffer_write(2, &resources.camera_info),
-            WriteDescriptorSet::new_buffer_write(3, &resources.shadow_camera_info),
-            WriteDescriptorSet::new_buffer_write(4, &resources.env_info),
+            WriteDescriptorSet::new_buffer_write(1, &resources.camera_info),
+            WriteDescriptorSet::new_buffer_write(2, &resources.shadow_camera_info),
+            WriteDescriptorSet::new_buffer_write(3, &resources.env_info),
             WriteDescriptorSet::new_texture_write(
-                5,
+                4,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &resources.extent_dependent_resources.gfx_depth_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
-                6,
+                5,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &resources.extent_dependent_resources.compute_depth_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
-                7,
+                6,
                 vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
                 &resources.shadow_map_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
-                8,
+                7,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &resources.extent_dependent_resources.god_ray_output_tex,
                 vk::ImageLayout::GENERAL,
@@ -847,40 +847,41 @@ impl Tracer {
     fn update_composition_ds(ds: &DescriptorSet, resources: &TracerResources) {
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.gui_input),
-            WriteDescriptorSet::new_buffer_write(1, &resources.sky_info),
-            WriteDescriptorSet::new_buffer_write(2, &resources.camera_info),
+            WriteDescriptorSet::new_buffer_write(1, &resources.sun_info),
+            WriteDescriptorSet::new_buffer_write(2, &resources.sky_info),
+            WriteDescriptorSet::new_buffer_write(3, &resources.camera_info),
             WriteDescriptorSet::new_texture_write(
-                3,
+                4,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &resources.extent_dependent_resources.gfx_output_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
-                4,
+                5,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &resources.extent_dependent_resources.gfx_depth_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
-                5,
+                6,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &resources.denoiser_resources.tex.spatial_pong,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
-                6,
+                7,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &resources.extent_dependent_resources.compute_depth_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
-                7,
+                8,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &resources.extent_dependent_resources.god_ray_output_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
-                8,
+                9,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &resources.extent_dependent_resources.composited_tex,
                 vk::ImageLayout::GENERAL,
@@ -1102,12 +1103,10 @@ impl Tracer {
 
         update_gui_input(&self.resources, debug_float, debug_bool, debug_uint)?;
 
+        update_sun_info(&self.resources, sun_dir, sun_size, sun_color, sun_luminance)?;
+
         update_sky_info(
             &self.resources,
-            sun_dir,
-            sun_size,
-            sun_color,
-            sun_luminance,
             debug_color_1,
             debug_color_2,
             use_debug_sky_colors,
@@ -1235,17 +1234,14 @@ impl Tracer {
             return Ok(());
         }
 
-        fn update_sky_info(
+        fn update_sun_info(
             resources: &TracerResources,
             sun_dir: Vec3,
             sun_size: f32,
             sun_color: Vec3,
             sun_luminance: f32,
-            debug_color_1: Vec3,
-            debug_color_2: Vec3,
-            use_debug_sky_colors: bool,
         ) -> Result<()> {
-            let data = StructMemberDataBuilder::from_buffer(&resources.sky_info)
+            let data = StructMemberDataBuilder::from_buffer(&resources.sun_info)
                 .set_field("sun_dir", PlainMemberTypeWithData::Vec3(sun_dir.to_array()))
                 .set_field("sun_size", PlainMemberTypeWithData::Float(sun_size))
                 .set_field(
@@ -1256,6 +1252,18 @@ impl Tracer {
                     "sun_luminance",
                     PlainMemberTypeWithData::Float(sun_luminance),
                 )
+                .build()?;
+            resources.sun_info.fill_with_raw_u8(&data)?;
+            return Ok(());
+        }
+
+        fn update_sky_info(
+            resources: &TracerResources,
+            debug_color_1: Vec3,
+            debug_color_2: Vec3,
+            use_debug_sky_colors: bool,
+        ) -> Result<()> {
+            let data = StructMemberDataBuilder::from_buffer(&resources.sky_info)
                 .set_field(
                     "debug_color_1",
                     PlainMemberTypeWithData::Vec3(debug_color_1.to_array()),
