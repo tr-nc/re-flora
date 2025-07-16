@@ -113,6 +113,8 @@ rustup update stable
 - **General Graphics & Optimization**:
   - [Other Optimization Techs](https://www.youtube.com/watch?v=PYu1iwjAxWM)
   - [Scratchapixel CG Tutorials](https://www.scratchapixel.com/)
+- **Post Processing**:
+  - [The Art of Dithering](https://blog.maximeheckel.com/posts/the-art-of-dithering-and-retro-shading-web/)
 
 ### Resources
 
