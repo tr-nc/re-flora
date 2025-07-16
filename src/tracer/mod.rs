@@ -280,6 +280,17 @@ impl Tracer {
         let gui_input = resources.get_resource::<Buffer>("gui_input").unwrap();
         log::debug!("gui_input: {:#?}", gui_input);
 
+        // test nested resource access
+        let gfx_depth_tex = resources.get_resource::<Texture>("gfx_depth_tex").unwrap();
+        log::debug!("gfx_depth_tex: {:#?}", gfx_depth_tex);
+
+        let temporal_info = resources.get_resource::<Buffer>("temporal_info").unwrap();
+        log::debug!("temporal_info: {:#?}", temporal_info);
+
+        // test resource names collection for conflict detection
+        let resource_names = TracerResources::get_resource_names();
+        log::debug!("Available resource names: {:?}", resource_names);
+
         let device = vulkan_ctx.device();
 
         let tracer_ppl = ComputePipeline::new(device, &tracer_sm);

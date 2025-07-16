@@ -3,6 +3,7 @@ use std::ops::{Deref, DerefMut};
 
 pub trait ResourceContainer {
     fn get_resource<T: 'static>(&self, name: &str) -> Option<&T>;
+    fn get_resource_names() -> Vec<&'static str>;
 }
 
 pub struct Resource<T> {
