@@ -164,32 +164,37 @@ feat: enhance player collision detection by introducing ring-based distances and
 
 **Proposed Solution**: Implement a centralized buffer definition system with build-time code generation.
 
-#### Implementation Plan:
+#### Implementation Plan
 
 **Phase 1: Single Source of Truth**
+
 - Create `shader/include/uniform_buffers.glsl` containing all buffer definitions
 - All shaders include this file instead of defining their own structures
 - Benefits: One place to change buffer structures, automatic consistency
 
 **Phase 2: Generated Rust Integration**
+
 - Extend `build.rs` to parse the centralized buffer definitions
 - Auto-generate Rust structs that mirror the GLSL structures
 - Auto-generate update functions using procedural macros
 - Benefits: Zero manual Rust code changes when buffers change
 
 **Phase 3: Smart Binding Management**
+
 - Create a binding allocation system that assigns bindings based on usage
 - Use descriptive names instead of hardcoded indices
 - Generate binding constants for both GLSL and Rust
 - Benefits: Automatic binding management, no manual index updates
 
 **Phase 4: Selective Buffer Inclusion**
+
 - Add conditional compilation to include only needed buffers per shader
 - Use shader-specific defines to control which buffers are included
 - Benefits: No performance impact, minimal memory usage
 
-#### Target Structure:
-```
+#### Target Structure
+
+```plaintext
 shader/include/
 ├── uniform_buffers.glsl     # All buffer definitions
 ├── buffer_bindings.glsl     # Generated binding constants
@@ -204,7 +209,8 @@ src/generated/               # Auto-generated Rust code
 └── buffer_bindings.rs      # Binding constants
 ```
 
-#### Benefits:
+#### Benefits
+
 - **Single Point of Change**: Modify buffer structure once, everything updates
 - **Zero Manual Rust Changes**: Update functions generated automatically
 - **Binding Stability**: Automatic binding allocation prevents conflicts
@@ -212,7 +218,8 @@ src/generated/               # Auto-generated Rust code
 - **Type Safety**: Generated code maintains full type safety
 - **Selective Inclusion**: Shaders only include needed buffers
 
-#### Migration Strategy:
+#### Migration Strategy
+
 1. **Stage 1**: Move existing buffer definitions to centralized file
 2. **Stage 2**: Implement build-time parsing and generation
 3. **Stage 3**: Replace manual update functions with generated ones
