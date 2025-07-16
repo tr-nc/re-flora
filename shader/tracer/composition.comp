@@ -39,14 +39,21 @@ layout(set = 0, binding = 7, r32f) uniform readonly image2D god_ray_output_tex;
 layout(set = 0, binding = 8, r11f_g11f_b10f) uniform writeonly image2D composited_tex;
 
 #include "../include/core/color.glsl"
+#include "../include/core/dither.glsl"
 #include "../include/ray.glsl"
 #include "../include/skylight.glsl"
 
 vec3 combine_colors(float gfx_depth_01, float compute_depth_01, vec3 gfx_color,
-                    vec3 denoiser_output_color, vec2 screen_uv) {
+                    vec3 denoiser_output_color, vec2 screen_uv, ivec2 uvi) {
     if (gfx_depth_01 == 1.0 && compute_depth_01 == 1.0) {
-        Ray ray = ray_gen(screen_uv, camera_info.view_proj_mat_inv);
-        return get_sky_color_with_sun(ray.direction, sky_info.sun_dir, sky_info.sun_color, sky_info.sun_luminance, sky_info.sun_size, sky_info.sky_color, sky_info.sky_bottom_color);
+        Ray ray        = ray_gen(screen_uv, camera_info.view_proj_mat_inv);
+        vec3 sky_color = get_sky_color_with_sun(ray.direction, sky_info.sun_dir, sky_info.sun_color,
+                                                sky_info.sun_luminance, sky_info.sun_size,
+                                                sky_info.sky_color, sky_info.sky_bottom_color);
+
+        vec3 dither_mask = get_dither_mask(uvi);
+        sky_color += dither_mask;
+        return sky_color;
     }
 
     if (gfx_depth_01 > compute_depth_01) {
@@ -61,15 +68,15 @@ void main() {
         return;
     }
 
-    vec2 img_size = vec2(imageSize(composited_tex));
+    vec2 img_size  = vec2(imageSize(composited_tex));
     vec2 screen_uv = (vec2(gl_GlobalInvocationID.xy) + vec2(0.5)) / img_size;
 
     float gfx_depth_01       = imageLoad(gfx_depth_tex, uvi).r;
     float compute_depth_01   = imageLoad(compute_depth_tex, uvi).r;
     vec3 gfx_color           = imageLoad(gfx_output_tex, uvi).rgb;
     vec3 denoiser_output_tex = imageLoad(denoiser_output_tex, uvi).rgb;
-    vec3 final_color =
-        combine_colors(gfx_depth_01, compute_depth_01, gfx_color, denoiser_output_tex, screen_uv);
+    vec3 final_color         = combine_colors(gfx_depth_01, compute_depth_01, gfx_color,
+                                              denoiser_output_tex, screen_uv, uvi);
 
     float god_ray_weight = imageLoad(god_ray_output_tex, uvi).r;
 
