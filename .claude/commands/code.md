@@ -1,6 +1,6 @@
 # Claude Command: Code
 
-This command helps you write code and perform checks & formatting.
+This command helps you write code.
 
 ## Usage
 
@@ -10,16 +10,20 @@ To ask claude to write code, just type:
 /code
 ```
 
+## Configurables
+
+WINDOWS_CARGO_PATH: /mnt/c/Users/danny/.cargo/bin/cargo.exe
+
 ## What This Command Does
 
-1. Writes code for you with your repuirements
-2. If given with -u, claude will do ultrathink for task planning stages, and then think with normal effort for code writing to balance the effort and the quality.
-3. After modifying shaders, claude will take extra caution on the changing of signature, to prevent other shader files from failing to compile.
-4. After code is written, claude will preform cargo check and cargo fmt.
+1. Writes code for you with your repuirements. If given with --ultra-think, claude will use ultrathink.
+2. When shaders are modified, claude will take extra caution on the changing of signature, to prevent other shader files from failing to compile.
+3. After all writing is done, Claude will execute `WINDOWS_CARGO_PATH fmt` on any file that Claude have changed during the code writing stage to ensure the code style is consistent.
+4. Claude will then perform a /check command to ensure the code is correct. (See ./check.md for more details.)
 
 ## Example
 
 ```shell
-/code # For normal code writing
-/code -u # For complex code writing and planning
+/code # For code writing
+/code --ultra-think # For code writing with ultrathink planning
 ```
