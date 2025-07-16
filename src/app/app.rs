@@ -62,6 +62,8 @@ pub struct App {
     sun_luminance: f32,
     sky_top_color: egui::Color32,
     sky_bottom_color: egui::Color32,
+    debug_color_1: egui::Color32,
+    debug_color_2: egui::Color32,
     temporal_position_phi: f32,
     temporal_alpha: f32,
     phi_c: f32,
@@ -245,6 +247,8 @@ impl App {
             sun_luminance: 1.0,
             sky_top_color: egui::Color32::from_rgb(135, 206, 235),
             sky_bottom_color: egui::Color32::from_rgb(255, 223, 186),
+            debug_color_1: egui::Color32::from_rgb(255, 0, 0),
+            debug_color_2: egui::Color32::from_rgb(0, 255, 0),
             tree_pos: Vec3::new(512.0, 0.0, 512.0),
             tree_desc: TreeDesc::default(),
             prev_bound: Default::default(),
@@ -598,6 +602,14 @@ impl App {
                                                 &mut self.debug_bool,
                                                 "Debug Bool",
                                             ));
+                                            ui.horizontal(|ui| {
+                                                ui.label("Debug Color 1:");
+                                                ui.color_edit_button_srgba(&mut self.debug_color_1);
+                                            });
+                                            ui.horizontal(|ui| {
+                                                ui.label("Debug Color 2:");
+                                                ui.color_edit_button_srgba(&mut self.debug_color_2);
+                                            });
                                         });
 
                                         ui.collapsing("Sky Settings", |ui| {
@@ -832,6 +844,16 @@ impl App {
                             self.sky_bottom_color.r() as f32 / 255.0,
                             self.sky_bottom_color.g() as f32 / 255.0,
                             self.sky_bottom_color.b() as f32 / 255.0,
+                        ),
+                        Vec3::new(
+                            self.debug_color_1.r() as f32 / 255.0,
+                            self.debug_color_1.g() as f32 / 255.0,
+                            self.debug_color_1.b() as f32 / 255.0,
+                        ),
+                        Vec3::new(
+                            self.debug_color_2.r() as f32 / 255.0,
+                            self.debug_color_2.g() as f32 / 255.0,
+                            self.debug_color_2.b() as f32 / 255.0,
                         ),
                         self.temporal_position_phi,
                         self.temporal_alpha,

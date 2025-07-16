@@ -46,7 +46,7 @@ vec3 combine_colors(float gfx_depth_01, float compute_depth_01, vec3 gfx_color,
                     vec3 denoiser_output_color, vec2 screen_uv) {
     if (gfx_depth_01 == 1.0 && compute_depth_01 == 1.0) {
         Ray ray = ray_gen(screen_uv, camera_info.view_proj_mat_inv);
-        return get_sky_color_with_sun(ray.direction, sky_info.sun_dir, sky_info.sun_color, sky_info.sun_luminance, sky_info.sun_size, sky_info.sky_color);
+        return get_sky_color_with_sun(ray.direction, sky_info.sun_dir, sky_info.sun_color, sky_info.sun_luminance, sky_info.sun_size, sky_info.sky_color, sky_info.sky_bottom_color);
     }
 
     if (gfx_depth_01 > compute_depth_01) {
