@@ -13,6 +13,8 @@ To create a commit, just type:
 ## Description
 
 1. Minimal effort commit, only the staged files will be committed.
+2. Claude will not use git log to see any previous commits, and will only follow the conventional commit messages as demonstrated in the examples. This balances speed, consistency, and accuracy.
+3. When finished, Claude will say: Commit Done! The commit message is: commit-message.
 
 ## Examples
 
