@@ -264,7 +264,7 @@ impl App {
 
     fn add_ambient_sounds(audio_engine: &mut AudioEngine) -> Result<()> {
         let leaf_rustling_sound = "assets/sfx/leaf_rustling.wav";
-        let mut leaf_rustling_clip_cache = ClipCache::from_files(
+        let mut _leaf_rustling_clip_cache = ClipCache::from_files(
             &[leaf_rustling_sound],
             SoundDataConfig {
                 mode: PlayMode::Loop,
