@@ -240,8 +240,8 @@ impl App {
             is_changing_lum_phi: true,
             is_spatial_denoising_skipped: false,
             is_taa_enabled: false,
-            sun_altitude: 14.0,
-            sun_azimuth: 280.0,
+            sun_altitude: 0.25,
+            sun_azimuth: 0.8,
             sun_size: 0.02,
             sun_color: egui::Color32::from_rgb(255, 233, 144),
             sun_luminance: 1.0,
@@ -616,16 +616,13 @@ impl App {
                                             ui.add(
                                                 egui::Slider::new(
                                                     &mut self.sun_altitude,
-                                                    0.0..=180.0,
+                                                    -1.0..=1.0,
                                                 )
-                                                .text("Altitude (degrees)"),
+                                                .text("Altitude (normalized)"),
                                             );
                                             ui.add(
-                                                egui::Slider::new(
-                                                    &mut self.sun_azimuth,
-                                                    0.0..=360.0,
-                                                )
-                                                .text("Azimuth (degrees)"),
+                                                egui::Slider::new(&mut self.sun_azimuth, 0.0..=1.0)
+                                                    .text("Azimuth (normalized)"),
                                             );
                                             ui.add(
                                                 egui::Slider::new(&mut self.sun_size, 0.0..=1.0)
@@ -827,7 +824,10 @@ impl App {
                         self.debug_float,
                         self.debug_bool,
                         self.debug_uint,
-                        get_sun_dir(self.sun_altitude, self.sun_azimuth),
+                        get_sun_dir(
+                            self.sun_altitude.asin().to_degrees(),
+                            self.sun_azimuth * 360.0,
+                        ),
                         self.sun_size,
                         Vec3::new(
                             self.sun_color.r() as f32 / 255.0,
