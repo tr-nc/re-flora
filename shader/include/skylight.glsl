@@ -3,12 +3,12 @@
 
 #include "../include/core/color.glsl"
 
-vec3 get_sky_color(vec3 dir, vec3 sky_color) { 
-    return srgb_to_linear(sky_color); 
+vec3 get_sky_color(vec3 dir, vec3 sky_top_color) { 
+    return srgb_to_linear(sky_top_color); 
 }
 
-vec3 get_sky_color_with_sun(vec3 view_dir, vec3 sun_dir, vec3 sun_color, float sun_luminance, float sun_size, vec3 sky_color) {
-    vec3 sky_color_linear = get_sky_color(view_dir, sky_color);
+vec3 get_sky_color_with_sun(vec3 view_dir, vec3 sun_dir, vec3 sun_color, float sun_luminance, float sun_size, vec3 sky_top_color) {
+    vec3 sky_color_linear = get_sky_color(view_dir, sky_top_color);
 
     vec3 luminance_sun_color = sun_color * sun_luminance;
     float sun_intensity   = max(0.0, dot(view_dir, sun_dir));

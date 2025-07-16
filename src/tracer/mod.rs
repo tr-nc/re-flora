@@ -1054,6 +1054,7 @@ impl Tracer {
         sun_color: Vec3,
         sun_luminance: f32,
         sky_color: Vec3,
+        sky_bottom_color: Vec3,
         temporal_position_phi: f32,
         temporal_alpha: f32,
         phi_c: f32,
@@ -1106,6 +1107,7 @@ impl Tracer {
             sun_color,
             sun_luminance,
             sky_color,
+            sky_bottom_color,
         )?;
 
         update_env_info(&self.resources, time_info.total_frame_count() as u32)?;
@@ -1237,6 +1239,7 @@ impl Tracer {
             sun_color: Vec3,
             sun_luminance: f32,
             sky_color: Vec3,
+            sky_bottom_color: Vec3,
         ) -> Result<()> {
             let data = StructMemberDataBuilder::from_buffer(&resources.sky_info)
                 .set_field("sun_dir", PlainMemberTypeWithData::Vec3(sun_dir.to_array()))
@@ -1252,6 +1255,18 @@ impl Tracer {
                 .set_field(
                     "sky_color",
                     PlainMemberTypeWithData::Vec3(sky_color.to_array()),
+                )
+                .set_field(
+                    "sky_bottom_color",
+                    PlainMemberTypeWithData::Vec3(sky_bottom_color.to_array()),
+                )
+                .set_field(
+                    "debug_color_1",
+                    PlainMemberTypeWithData::Vec3([1.0, 0.0, 0.0]),
+                )
+                .set_field(
+                    "debug_color_2",
+                    PlainMemberTypeWithData::Vec3([0.0, 1.0, 0.0]),
                 )
                 .build()?;
             resources.sky_info.fill_with_raw_u8(&data)?;
