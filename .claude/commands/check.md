@@ -20,13 +20,6 @@ WINDOWS_CARGO_PATH: /mnt/c/Users/danny/.cargo/bin/cargo.exe
 
 2. **Run:** Claude will run the executable using `WINDOWS_CARGO_PATH run` to test for runtime failures.
 
-3. **Correct:** If any mistakes are found during the `check` or `run` steps, Claude will automatically correct the code and repeat the process until it succeeds. If --ultra-think is specified, Claude will do ultrathink planning for the correction stage.
+3. **Correct:** If any mistakes are found during the `check` or `run` steps, Claude will automatically correct the code and repeat the process until it succeeds.
 
 4. **Format:** Executes `WINDOWS_CARGO_PATH fmt` on any file that Claude have changed during the correction stage to ensure the code style is consistent.
-
-## Example
-
-```shell
-/check # Analyzes, runs, and auto-corrects the project.
-/check --ultra-think # Analyzes, runs, and auto-corrects the project with ultrathink planning.
-```
