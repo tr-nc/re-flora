@@ -74,6 +74,7 @@ pub struct App {
     is_taa_enabled: bool,
     tree_pos: Vec3,
     config_panel_visible: bool,
+    is_fly_mode: bool,
 
     tree_desc: TreeDesc,
     prev_bound: UAabb3,
@@ -246,6 +247,7 @@ impl App {
             tree_desc: TreeDesc::default(),
             prev_bound: Default::default(),
             config_panel_visible: false,
+            is_fly_mode: true,
 
             audio_engine,
         };
@@ -729,6 +731,13 @@ impl App {
                                                 "Enable Temporal Anti-Aliasing",
                                             ));
                                         });
+
+                                        ui.collapsing("Camera Movement", |ui| {
+                                            ui.add(egui::Checkbox::new(
+                                                &mut self.is_fly_mode,
+                                                "Fly Mode (unchecked = Walk Mode)",
+                                            ));
+                                        });
                                     });
                                 });
                         }
@@ -888,7 +897,8 @@ impl App {
                     .wait_for_fences(&[self.fence.as_raw()])
                     .unwrap();
 
-                self.tracer.update_camera(frame_delta_time);
+                self.tracer
+                    .update_camera(frame_delta_time, self.is_fly_mode);
             }
             _ => (),
         }

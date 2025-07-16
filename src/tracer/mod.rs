@@ -1796,12 +1796,15 @@ impl Tracer {
         self.camera.handle_mouse(delta);
     }
 
-    pub fn update_camera(&mut self, frame_delta_time: f32) {
-        let collision_result =
-            get_player_collision_result(&self.resources.player_collision_result).unwrap();
-
-        self.camera
-            .update_transform_walk_mode(frame_delta_time, collision_result);
+    pub fn update_camera(&mut self, frame_delta_time: f32, is_fly_mode: bool) {
+        if is_fly_mode {
+            self.camera.update_transform_fly_mode(frame_delta_time);
+        } else {
+            let collision_result =
+                get_player_collision_result(&self.resources.player_collision_result).unwrap();
+            self.camera
+                .update_transform_walk_mode(frame_delta_time, collision_result);
+        }
 
         fn get_player_collision_result(
             player_collision_result: &Buffer,
