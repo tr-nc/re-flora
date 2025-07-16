@@ -2,7 +2,7 @@ use crate::vkn::Extent3D;
 use ash::vk;
 
 /// Responsible for the creation of image and image view.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct ImageDesc {
     pub extent: Extent3D,
     pub array_len: u32,

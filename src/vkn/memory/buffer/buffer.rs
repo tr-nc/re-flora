@@ -8,7 +8,20 @@ use gpu_allocator::{
     vulkan::{Allocation, AllocationCreateDesc, AllocationScheme},
     MemoryLocation,
 };
+use std::fmt;
 use std::ops::Deref;
+
+impl fmt::Debug for BufferDesc {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BufferDesc")
+            .field("layout", &self.layout)
+            .field("size", &self.size)
+            .field("element_length", &self.element_length)
+            .field("usage", &self.usage)
+            .field("location", &self._location)
+            .finish()
+    }
+}
 
 struct BufferDesc {
     pub layout: Option<BufferLayout>,
@@ -24,6 +37,17 @@ pub struct Buffer {
     buffer: vk::Buffer,
     allocated_mem: Allocation,
     desc: BufferDesc,
+}
+
+impl fmt::Debug for Buffer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Buffer")
+            .field("buffer", &self.buffer)
+            .field("size_bytes", &self.get_size_bytes())
+            .field("element_size_bytes", &self.get_element_size_bytes())
+            .field("desc", &self.desc)
+            .finish()
+    }
 }
 
 impl Drop for Buffer {

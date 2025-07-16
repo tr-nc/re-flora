@@ -9,6 +9,7 @@ use gpu_allocator::{
     vulkan::{Allocation, AllocationCreateDesc, AllocationScheme},
     MemoryLocation,
 };
+use std::fmt;
 use std::sync::{Arc, Mutex};
 
 struct ImageInner {
@@ -528,6 +529,17 @@ impl Image {
 
     pub fn get_allocator(&self) -> &Allocator {
         &self.0.allocator
+    }
+}
+
+impl fmt::Debug for Image {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Image")
+            .field("image", &self.0.image)
+            .field("desc", &self.0.desc)
+            .field("size", &self.0.size)
+            .field("current_layout", &self.0.current_layout)
+            .finish()
     }
 }
 

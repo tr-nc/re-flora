@@ -1,4 +1,5 @@
 use ash::vk;
+use std::fmt;
 use std::sync::Arc;
 
 use crate::vkn::Device;
@@ -73,5 +74,13 @@ impl ImageView {
 
     pub fn as_raw(&self) -> vk::ImageView {
         self.0.image_view
+    }
+}
+
+impl fmt::Debug for ImageView {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ImageView")
+            .field("image_view", &self.0.image_view)
+            .finish()
     }
 }

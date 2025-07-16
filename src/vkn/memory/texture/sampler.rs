@@ -1,4 +1,5 @@
 use ash::vk;
+use std::fmt;
 use std::sync::Arc;
 
 use crate::vkn::Device;
@@ -36,6 +37,14 @@ impl Sampler {
 
     pub fn as_raw(&self) -> vk::Sampler {
         self.0.sampler
+    }
+}
+
+impl fmt::Debug for Sampler {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Sampler")
+            .field("sampler", &self.0.sampler)
+            .finish()
     }
 }
 

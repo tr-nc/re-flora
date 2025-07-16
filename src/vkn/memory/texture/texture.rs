@@ -1,6 +1,7 @@
 use super::{Image, ImageDesc, ImageView, ImageViewDesc, Sampler, SamplerDesc};
 use crate::vkn::{Allocator, Device};
 use ash::vk::{self, ImageType};
+use std::fmt;
 
 /// A texture is a combination of an image, image view, and sampler.
 #[derive(Clone)]
@@ -54,6 +55,16 @@ impl Texture {
 
     pub fn get_sampler(&self) -> &Sampler {
         &self.sampler
+    }
+}
+
+impl fmt::Debug for Texture {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Texture")
+            .field("image", &self.image)
+            .field("image_view", &self.image_view)
+            .field("sampler", &self.sampler)
+            .finish()
     }
 }
 
