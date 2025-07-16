@@ -2,6 +2,8 @@ use std::any::Any;
 use std::ops::{Deref, DerefMut};
 
 pub trait ResourceContainer {
+    const RESOURCE_NAMES: &'static [&'static str];
+
     fn get_resource<T: 'static>(&self, name: &str) -> Option<&T>;
     fn get_resource_names() -> Vec<&'static str>;
 }

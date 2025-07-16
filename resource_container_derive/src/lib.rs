@@ -87,8 +87,53 @@ pub fn derive_resource_container(input: TokenStream) -> TokenStream {
         quote! { #ty::get_resource_names() }
     });
 
+    // generate compile-time conflict detection
+    let direct_names_array = if resource_idents.is_empty() {
+        quote! { &[] }
+    } else {
+        let names = resource_idents.iter().map(|ident| {
+            quote! { stringify!(#ident) }
+        });
+        quote! { &[#(#names),*] }
+    };
+
+    // Generate compile-time conflict detection using a different approach
+    let compile_time_assertions = if !other_field_types.is_empty() {
+        let assertion_checks = other_field_types.iter().map(|ty| {
+            quote! {
+                const _: fn() = || {
+                    use crate::resource::ResourceContainer;
+                    
+                    // This will be evaluated at compile time when types are fully defined
+                    let direct_names = #direct_names_array;
+                    let nested_names = <#ty as ResourceContainer>::RESOURCE_NAMES;
+                    
+                    // Check for conflicts at compile time
+                    let mut i = 0;
+                    while i < direct_names.len() {
+                        let mut j = 0;
+                        while j < nested_names.len() {
+                            if const_str_eq(direct_names[i], nested_names[j]) {
+                                panic!("Resource name conflict detected at compile time");
+                            }
+                            j += 1;
+                        }
+                        i += 1;
+                    }
+                };
+            }
+        });
+        quote! {
+            #(#assertion_checks)*
+        }
+    } else {
+        quote! {}
+    };
+
     let expanded = quote! {
         impl crate::resource::ResourceContainer for #struct_name {
+            const RESOURCE_NAMES: &'static [&'static str] = #direct_names_array;
+            
             fn get_resource<T: 'static>(&self, name: &str) -> Option<&T> {
                 match name {
                     // Direct Resource<T> fields take priority
@@ -127,6 +172,25 @@ pub fn derive_resource_container(input: TokenStream) -> TokenStream {
                 names
             }
         }
+        
+        // Compile-time assertions for name conflicts
+        const fn const_str_eq(a: &str, b: &str) -> bool {
+            let a_bytes = a.as_bytes();
+            let b_bytes = b.as_bytes();
+            if a_bytes.len() != b_bytes.len() {
+                return false;
+            }
+            let mut i = 0;
+            while i < a_bytes.len() {
+                if a_bytes[i] != b_bytes[i] {
+                    return false;
+                }
+                i += 1;
+            }
+            true
+        }
+        
+        #compile_time_assertions
     };
     TokenStream::from(expanded)
 }
@@ -161,7 +225,10 @@ fn is_potential_resource_container(ty: &Type) -> bool {
                     "String" | "Vec" | "HashMap" | "HashSet" |
                     "Option" | "Result" | "Arc" | "Rc" | "Box" |
                     "Device" | "Allocator" | // Known VKN types that don't implement ResourceContainer
-                    "DenoiserTextureSet" // Plain struct with textures, not a ResourceContainer
+                    "DenoiserTextureSet" | // Plain struct with textures, not a ResourceContainer
+                    "Texture" | "Buffer" | "CommandBuffer" | "Pipeline" | // VKN types that are resources, not containers
+                    "ShaderModule" | "DescriptorSet" | "RenderPass" | // More VKN types
+                    "Context" | "Queue" | "Surface" | "Instance" | "PhysicalDevice" // VKN context types
                 )
             } else {
                 false
