@@ -4,13 +4,7 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout(set = 0, binding = 0) uniform U_GuiInput {
-    float debug_float;
-    uint debug_bool;
-    uint debug_uint;
-}
-gui_input;
-layout(set = 0, binding = 1) uniform U_CameraInfo {
+layout(set = 0, binding = 0) uniform U_CameraInfo {
     vec4 pos;
     mat4 view_mat;
     mat4 view_mat_inv;
@@ -20,7 +14,7 @@ layout(set = 0, binding = 1) uniform U_CameraInfo {
     mat4 view_proj_mat_inv;
 }
 camera_info;
-layout(set = 0, binding = 2) uniform U_ShadowCameraInfo {
+layout(set = 0, binding = 1) uniform U_ShadowCameraInfo {
     vec4 pos;
     mat4 view_mat;
     mat4 view_mat_inv;
@@ -30,12 +24,12 @@ layout(set = 0, binding = 2) uniform U_ShadowCameraInfo {
     mat4 view_proj_mat_inv;
 }
 shadow_camera_info;
-layout(set = 0, binding = 3) uniform U_EnvInfo { uint frame_serial_idx; }
+layout(set = 0, binding = 2) uniform U_EnvInfo { uint frame_serial_idx; }
 env_info;
-layout(set = 0, binding = 4, r32f) uniform readonly image2D gfx_depth_tex;
-layout(set = 0, binding = 5, r32f) uniform readonly image2D compute_depth_tex;
-layout(set = 0, binding = 6) uniform sampler2D shadow_map_tex;
-layout(set = 0, binding = 7, r32f) uniform writeonly image2D god_ray_output_tex;
+layout(set = 0, binding = 3, r32f) uniform readonly image2D gfx_depth_tex;
+layout(set = 0, binding = 4, r32f) uniform readonly image2D compute_depth_tex;
+layout(set = 0, binding = 5) uniform sampler2D shadow_map_tex;
+layout(set = 0, binding = 6, r32f) uniform writeonly image2D god_ray_output_tex;
 
 layout(set = 1, binding = 0, r8) readonly uniform image2DArray scalar_bn;
 layout(set = 1, binding = 1, rg8) readonly uniform image2DArray unit_vec2_bn;

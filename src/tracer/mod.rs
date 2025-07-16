@@ -813,30 +813,29 @@ impl Tracer {
 
     fn update_god_ray_ds_0(ds: &DescriptorSet, resources: &TracerResources) {
         ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.gui_input),
-            WriteDescriptorSet::new_buffer_write(1, &resources.camera_info),
-            WriteDescriptorSet::new_buffer_write(2, &resources.shadow_camera_info),
-            WriteDescriptorSet::new_buffer_write(3, &resources.env_info),
+            WriteDescriptorSet::new_buffer_write(0, &resources.camera_info),
+            WriteDescriptorSet::new_buffer_write(1, &resources.shadow_camera_info),
+            WriteDescriptorSet::new_buffer_write(2, &resources.env_info),
             WriteDescriptorSet::new_texture_write(
-                4,
+                3,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &resources.extent_dependent_resources.gfx_depth_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
-                5,
+                4,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &resources.extent_dependent_resources.compute_depth_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
-                6,
+                5,
                 vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
                 &resources.shadow_map_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
-                7,
+                6,
                 vk::DescriptorType::STORAGE_IMAGE,
                 &resources.extent_dependent_resources.god_ray_output_tex,
                 vk::ImageLayout::GENERAL,
