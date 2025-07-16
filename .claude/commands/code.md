@@ -14,7 +14,8 @@ To ask claude to write code, just type:
 
 1. Writes code for you with your repuirements
 2. If given with -u, claude will do ultrathink for task planning stages, and then think with normal effort for code writing to balance the effort and the quality.
-3. After code is written, claude will preform cargo check and cargo fmt.
+3. After modifying shaders, claude will take extra caution on the changing of signature, to prevent other shader files from failing to compile.
+4. After code is written, claude will preform cargo check and cargo fmt.
 
 ## Example
 
