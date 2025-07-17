@@ -41,39 +41,6 @@ pub struct PlainBuilder {
 }
 
 impl PlainBuilder {
-    fn update_buffer_setup_ds(ds: &DescriptorSet, resources: &PlainBuilderResources) {
-        ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.region_info),
-            WriteDescriptorSet::new_buffer_write(1, &resources.region_indirect),
-        ]);
-    }
-
-    fn update_chunk_init_ds(ds: &DescriptorSet, resources: &PlainBuilderResources) {
-        ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.region_info),
-            WriteDescriptorSet::new_texture_write(
-                1,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.chunk_atlas,
-                vk::ImageLayout::GENERAL,
-            ),
-        ]);
-    }
-
-    fn update_chunk_modify_ds(ds: &DescriptorSet, resources: &PlainBuilderResources) {
-        ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.chunk_modify_info),
-            WriteDescriptorSet::new_buffer_write(1, &resources.trunk_bvh_nodes),
-            WriteDescriptorSet::new_buffer_write(2, &resources.round_cones),
-            WriteDescriptorSet::new_texture_write(
-                3,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.chunk_atlas,
-                vk::ImageLayout::GENERAL,
-            ),
-        ]);
-    }
-
     pub fn new(
         vulkan_ctx: VulkanContext,
         shader_compiler: &ShaderCompiler,
@@ -178,6 +145,39 @@ impl PlainBuilder {
                 },
             );
         }
+    }
+
+    fn update_buffer_setup_ds(ds: &DescriptorSet, resources: &PlainBuilderResources) {
+        ds.perform_writes(&mut [
+            WriteDescriptorSet::new_buffer_write(0, &resources.region_info),
+            WriteDescriptorSet::new_buffer_write(1, &resources.region_indirect),
+        ]);
+    }
+
+    fn update_chunk_init_ds(ds: &DescriptorSet, resources: &PlainBuilderResources) {
+        ds.perform_writes(&mut [
+            WriteDescriptorSet::new_buffer_write(0, &resources.region_info),
+            WriteDescriptorSet::new_texture_write(
+                1,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.chunk_atlas,
+                vk::ImageLayout::GENERAL,
+            ),
+        ]);
+    }
+
+    fn update_chunk_modify_ds(ds: &DescriptorSet, resources: &PlainBuilderResources) {
+        ds.perform_writes(&mut [
+            WriteDescriptorSet::new_buffer_write(0, &resources.chunk_modify_info),
+            WriteDescriptorSet::new_buffer_write(1, &resources.trunk_bvh_nodes),
+            WriteDescriptorSet::new_buffer_write(2, &resources.round_cones),
+            WriteDescriptorSet::new_texture_write(
+                3,
+                vk::DescriptorType::STORAGE_IMAGE,
+                &resources.chunk_atlas,
+                vk::ImageLayout::GENERAL,
+            ),
+        ]);
     }
 
     fn record_build_cmdbuf(
