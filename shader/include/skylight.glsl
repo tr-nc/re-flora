@@ -8,41 +8,97 @@ struct SkyColors {
     vec3 bottom_color;
 };
 
+// Keyframe structure for time-of-day transitions
+struct TimeOfDayKeyframe {
+    float sun_altitude;
+    vec3 top_color;
+    vec3 bottom_color;
+};
+
+// Keyframe structure for view altitude transitions
+struct ViewAltitudeKeyframe {
+    float view_altitude;
+    float blend_factor; // 0.0 = bottom color, 1.0 = top color
+};
+
+// Time-of-day keyframes (equivalent to current behavior)
+const int TIME_KEYFRAME_COUNT = 3;
+const TimeOfDayKeyframe TIME_KEYFRAMES[TIME_KEYFRAME_COUNT] = {
+    { -0.2, vec3(0.0, 28.0, 56.0) / 255.0, vec3(45.0, 43.0, 60.0) / 255.0 },    // night
+    { -0.1, vec3(59.0, 114.0, 180.0) / 255.0, vec3(191.0, 126.0, 145.0) / 255.0 }, // sunset
+    { 0.2, vec3(88.0, 101.0, 255.0) / 255.0, vec3(186.0, 186.0, 186.0) / 255.0 }   // day
+};
+
+// View altitude keyframes (equivalent to current behavior)
+const int VIEW_KEYFRAME_COUNT = 2;
+const ViewAltitudeKeyframe VIEW_KEYFRAMES[VIEW_KEYFRAME_COUNT] = {
+    { -0.1, 0.0 }, // bottom color
+    { 0.2, 1.0 }   // top color
+};
+
+// Interpolate between time-of-day keyframes
+SkyColors interpolate_time_keyframes(float sun_altitude) {
+    SkyColors result;
+    
+    // Handle edge cases
+    if (sun_altitude <= TIME_KEYFRAMES[0].sun_altitude) {
+        result.top_color = srgb_to_linear(TIME_KEYFRAMES[0].top_color);
+        result.bottom_color = srgb_to_linear(TIME_KEYFRAMES[0].bottom_color);
+        return result;
+    }
+    
+    if (sun_altitude >= TIME_KEYFRAMES[TIME_KEYFRAME_COUNT - 1].sun_altitude) {
+        result.top_color = srgb_to_linear(TIME_KEYFRAMES[TIME_KEYFRAME_COUNT - 1].top_color);
+        result.bottom_color = srgb_to_linear(TIME_KEYFRAMES[TIME_KEYFRAME_COUNT - 1].bottom_color);
+        return result;
+    }
+    
+    // Find the two keyframes to interpolate between
+    for (int i = 0; i < TIME_KEYFRAME_COUNT - 1; i++) {
+        if (sun_altitude >= TIME_KEYFRAMES[i].sun_altitude && sun_altitude < TIME_KEYFRAMES[i + 1].sun_altitude) {
+            float t = (sun_altitude - TIME_KEYFRAMES[i].sun_altitude) / 
+                      (TIME_KEYFRAMES[i + 1].sun_altitude - TIME_KEYFRAMES[i].sun_altitude);
+            
+            result.top_color = srgb_to_linear(mix(TIME_KEYFRAMES[i].top_color, TIME_KEYFRAMES[i + 1].top_color, t));
+            result.bottom_color = srgb_to_linear(mix(TIME_KEYFRAMES[i].bottom_color, TIME_KEYFRAMES[i + 1].bottom_color, t));
+            return result;
+        }
+    }
+    
+    // Fallback (shouldn't reach here)
+    result.top_color = srgb_to_linear(TIME_KEYFRAMES[0].top_color);
+    result.bottom_color = srgb_to_linear(TIME_KEYFRAMES[0].bottom_color);
+    return result;
+}
+
+// Interpolate view altitude blend factor
+float interpolate_view_altitude(float view_altitude) {
+    // Handle edge cases
+    if (view_altitude <= VIEW_KEYFRAMES[0].view_altitude) {
+        return VIEW_KEYFRAMES[0].blend_factor;
+    }
+    
+    if (view_altitude >= VIEW_KEYFRAMES[VIEW_KEYFRAME_COUNT - 1].view_altitude) {
+        return VIEW_KEYFRAMES[VIEW_KEYFRAME_COUNT - 1].blend_factor;
+    }
+    
+    // Find the two keyframes to interpolate between
+    for (int i = 0; i < VIEW_KEYFRAME_COUNT - 1; i++) {
+        if (view_altitude >= VIEW_KEYFRAMES[i].view_altitude && view_altitude < VIEW_KEYFRAMES[i + 1].view_altitude) {
+            float t = (view_altitude - VIEW_KEYFRAMES[i].view_altitude) / 
+                      (VIEW_KEYFRAMES[i + 1].view_altitude - VIEW_KEYFRAMES[i].view_altitude);
+            
+            return mix(VIEW_KEYFRAMES[i].blend_factor, VIEW_KEYFRAMES[i + 1].blend_factor, t);
+        }
+    }
+    
+    // Fallback (shouldn't reach here)
+    return VIEW_KEYFRAMES[0].blend_factor;
+}
+
 // Sun altitude ranges from -1 to 1
 SkyColors get_sky_color_by_sun_altitude(float sun_altitude) {
-    SkyColors result;
-
-    // Define color points for different sun altitudes
-    vec3 day_top    = srgb_to_linear(vec3(0.0, 108.0, 206.0) / 255.0);
-    vec3 day_bottom = srgb_to_linear(vec3(255.0, 195.0, 92.0) / 255.0);
-
-    vec3 sunset_top    = srgb_to_linear(vec3(59.0, 114.0, 180.0) / 255.0);
-    vec3 sunset_bottom = srgb_to_linear(vec3(191.0, 126.0, 145.0) / 255.0);
-
-    vec3 night_top    = srgb_to_linear(vec3(0.0, 28.0, 56.0) / 255.0);
-    vec3 night_bottom = srgb_to_linear(vec3(45.0, 43.0, 60.0) / 255.0);
-
-    if (sun_altitude >= 0.4) {
-        // Full day
-        result.top_color    = day_top;
-        result.bottom_color = day_bottom;
-    } else if (sun_altitude > -0.1) {
-        // Transition from day to sunset
-        float t             = (sun_altitude - 0.1) / (0.4 - 0.1);
-        result.top_color    = mix(sunset_top, day_top, t);
-        result.bottom_color = mix(sunset_bottom, day_bottom, t);
-    } else if (sun_altitude > -0.2) {
-        // Transition from sunset to night
-        float t             = (sun_altitude - (-0.2)) / (0.1 - (-0.2));
-        result.top_color    = mix(night_top, sunset_top, t);
-        result.bottom_color = mix(night_bottom, sunset_bottom, t);
-    } else {
-        // Full night
-        result.top_color    = night_top;
-        result.bottom_color = night_bottom;
-    }
-
-    return result;
+    return interpolate_time_keyframes(sun_altitude);
 }
 
 vec3 get_sky_color(vec3 view_dir, vec3 sun_dir, uint use_debug_sky_colors, vec3 debug_color_1,
@@ -56,21 +112,14 @@ vec3 get_sky_color(vec3 view_dir, vec3 sun_dir, uint use_debug_sky_colors, vec3 
         sky_colors.top_color    = srgb_to_linear(debug_color_1);
         sky_colors.bottom_color = srgb_to_linear(debug_color_2);
     } else {
-        sky_colors              = get_sky_color_by_sun_altitude(sun_altitude);
-        sky_colors.top_color    = srgb_to_linear(sky_colors.top_color);
-        sky_colors.bottom_color = srgb_to_linear(sky_colors.bottom_color);
+        sky_colors = get_sky_color_by_sun_altitude(sun_altitude);
+        // Note: srgb_to_linear is already applied in interpolate_time_keyframes
     }
 
-    vec3 sky_color;
-    if (altitude < -0.2) {
-        sky_color = sky_colors.bottom_color;
-    } else if (altitude < 0.4) {
-        float transition = (altitude - (-0.2)) / (0.4 - (-0.2));
-        transition       = smoothstep(0.0, 1.0, transition);
-        sky_color        = mix(sky_colors.bottom_color, sky_colors.top_color, transition);
-    } else {
-        sky_color = sky_colors.top_color;
-    }
+    // Use keyframe-based view altitude interpolation
+    float blend_factor = interpolate_view_altitude(altitude);
+    blend_factor = smoothstep(0.0, 1.0, blend_factor);
+    vec3 sky_color = mix(sky_colors.bottom_color, sky_colors.top_color, blend_factor);
 
     return sky_color;
 }
