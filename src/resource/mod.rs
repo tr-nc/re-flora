@@ -15,10 +15,6 @@ impl<T> Resource<T> {
     pub fn new(resource: T) -> Self {
         Self { inner: resource }
     }
-
-    pub fn get(&self) -> &T {
-        &self.inner
-    }
 }
 
 impl<T: 'static> Resource<T> {

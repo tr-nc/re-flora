@@ -954,7 +954,11 @@ impl App {
         let window_extent = self.window_state.window_extent();
 
         self.swapchain.on_resize(window_extent);
-        self.tracer.on_resize(window_extent);
+        self.tracer.on_resize(
+            window_extent,
+            &self.contree_builder.get_resources(),
+            &self.scene_accel_builder.get_resources(),
+        );
 
         // the render pass should be rebuilt when the swapchain is recreated
         self.egui_renderer

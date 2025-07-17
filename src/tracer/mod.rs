@@ -62,11 +62,7 @@ pub struct Tracer {
     taa_ppl: ComputePipeline,
     post_processing_ppl: ComputePipeline,
     player_collider_ppl: ComputePipeline,
-
     tracer_shadow_ppl: ComputePipeline,
-    #[allow(dead_code)]
-    tracer_shadow_sets: [DescriptorSet; 1],
-
     vsm_creation_ppl: ComputePipeline,
     vsm_blur_h_ppl: ComputePipeline,
     vsm_blur_v_ppl: ComputePipeline,
@@ -78,20 +74,13 @@ pub struct Tracer {
     grass_framebuffer: Framebuffer,
 
     #[allow(dead_code)]
-    shadow_sets: [DescriptorSet; 1],
-    #[allow(dead_code)]
     shadow_ppl: GraphicsPipeline,
     #[allow(dead_code)]
     shadow_render_pass: RenderPass,
     #[allow(dead_code)]
     shadow_framebuffer: Framebuffer,
 
-    #[allow(dead_code)]
-    fixed_pool: DescriptorPool,
-    #[allow(dead_code)]
-    flexible_pool: DescriptorPool,
-
-    flexible_sets: Vec<DescriptorSet>,
+    pool: DescriptorPool,
 }
 
 impl Drop for Tracer {
@@ -123,8 +112,7 @@ impl Tracer {
             audio_engine,
         )?;
 
-        let fixed_pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
-        let flexible_pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
+        let pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
 
         let tracer_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
@@ -283,122 +271,51 @@ impl Tracer {
         let player_collider_ppl = ComputePipeline::new(device, &player_collider_sm);
         let post_processing_ppl = ComputePipeline::new(device, &post_processing_sm);
 
-        let alloc_fixed_set_fn = |ppl: &ComputePipeline, layout_idx: u32| -> DescriptorSet {
-            fixed_pool
-                .allocate_set(&ppl.get_layout().get_descriptor_set_layouts()[&layout_idx])
-                .unwrap()
-        };
-        let alloc_flexible_set_fn = |ppl: &ComputePipeline, layout_idx: u32| -> DescriptorSet {
-            flexible_pool
-                .allocate_set(&ppl.get_layout().get_descriptor_set_layouts()[&layout_idx])
-                .unwrap()
-        };
-
         tracer_ppl
             .auto_create_descriptor_sets(
-                &fixed_pool,
+                &pool,
                 &[&resources, contree_builder_resources, scene_accel_resources],
             )
             .unwrap();
         tracer_shadow_ppl
             .auto_create_descriptor_sets(
-                &fixed_pool,
+                &pool,
                 &[&resources, contree_builder_resources, scene_accel_resources],
             )
             .unwrap();
         vsm_creation_ppl
-            .auto_create_descriptor_sets(&fixed_pool, &[&resources])
+            .auto_create_descriptor_sets(&pool, &[&resources])
             .unwrap();
         vsm_blur_h_ppl
-            .auto_create_descriptor_sets(&fixed_pool, &[&resources])
+            .auto_create_descriptor_sets(&pool, &[&resources])
             .unwrap();
         vsm_blur_v_ppl
-            .auto_create_descriptor_sets(&fixed_pool, &[&resources])
+            .auto_create_descriptor_sets(&pool, &[&resources])
             .unwrap();
         god_ray_ppl
-            .auto_create_descriptor_sets(&fixed_pool, &[&resources])
+            .auto_create_descriptor_sets(&pool, &[&resources])
             .unwrap();
         temporal_ppl
-            .auto_create_descriptor_sets(&flexible_pool, &[&resources])
+            .auto_create_descriptor_sets(&pool, &[&resources])
             .unwrap();
         spatial_ppl
-            .auto_create_descriptor_sets(&flexible_pool, &[&resources])
+            .auto_create_descriptor_sets(&pool, &[&resources])
             .unwrap();
         composition_ppl
-            .auto_create_descriptor_sets(&flexible_pool, &[&resources])
+            .auto_create_descriptor_sets(&pool, &[&resources])
             .unwrap();
         taa_ppl
-            .auto_create_descriptor_sets(&flexible_pool, &[&resources])
+            .auto_create_descriptor_sets(&pool, &[&resources])
             .unwrap();
         player_collider_ppl
             .auto_create_descriptor_sets(
-                &fixed_pool,
+                &pool,
                 &[&resources, contree_builder_resources, scene_accel_resources],
             )
             .unwrap();
         post_processing_ppl
-            .auto_create_descriptor_sets(&flexible_pool, &[&resources])
+            .auto_create_descriptor_sets(&pool, &[&resources])
             .unwrap();
-
-        let tracer_ds_0 = alloc_fixed_set_fn(&tracer_ppl, 0);
-        let tracer_ds_1 = alloc_flexible_set_fn(&tracer_ppl, 1);
-        let temporal_ds = alloc_flexible_set_fn(&temporal_ppl, 0);
-        let spatial_fixed_set = alloc_fixed_set_fn(&spatial_ppl, 0);
-        let spatial_flexible_set = alloc_flexible_set_fn(&spatial_ppl, 1);
-        let noise_tex_ds = alloc_fixed_set_fn(&tracer_ppl, 2);
-        let tracer_shadow_ds = alloc_fixed_set_fn(&tracer_shadow_ppl, 0);
-        let vsm_ds_0 = alloc_fixed_set_fn(&vsm_creation_ppl, 0);
-        let god_ray_ds_0 = alloc_fixed_set_fn(&god_ray_ppl, 0);
-        let composition_ds = alloc_flexible_set_fn(&composition_ppl, 0);
-        let taa_ds = alloc_flexible_set_fn(&taa_ppl, 0);
-        let post_processing_ds = alloc_flexible_set_fn(&post_processing_ppl, 0);
-        let player_collider_ds = alloc_fixed_set_fn(&player_collider_ppl, 0);
-        let denoiser_ds = alloc_flexible_set_fn(&tracer_ppl, 3);
-
-        // ignore the flexible sets
-        Self::update_tracer_ds_0(
-            &tracer_ds_0,
-            &resources,
-            contree_builder_resources,
-            scene_accel_resources,
-        );
-        Self::update_spatial_fixed_set(&spatial_fixed_set, &resources);
-        Self::update_noise_tex_ds(&noise_tex_ds, &resources);
-        Self::update_tracer_shadow_ds(
-            &tracer_shadow_ds,
-            &resources,
-            contree_builder_resources,
-            scene_accel_resources,
-        );
-        Self::update_vsm_ds_0(&vsm_ds_0, &resources);
-        Self::update_player_collider_ds(
-            &player_collider_ds,
-            &resources,
-            contree_builder_resources,
-            scene_accel_resources,
-        );
-
-        god_ray_ppl.set_descriptor_sets(vec![god_ray_ds_0.clone(), noise_tex_ds.clone()]);
-        temporal_ppl.set_descriptor_sets(vec![temporal_ds.clone(), denoiser_ds.clone()]);
-        spatial_ppl.set_descriptor_sets(vec![
-            spatial_fixed_set.clone(),
-            spatial_flexible_set.clone(),
-            denoiser_ds.clone(),
-        ]);
-        composition_ppl.set_descriptor_sets(vec![composition_ds.clone()]);
-        taa_ppl.set_descriptor_sets(vec![taa_ds.clone()]);
-        post_processing_ppl.set_descriptor_sets(vec![post_processing_ds.clone()]);
-        player_collider_ppl.set_descriptor_sets(vec![player_collider_ds.clone()]);
-        tracer_ppl.set_descriptor_sets(vec![
-            tracer_ds_0.clone(),
-            tracer_ds_1.clone(),
-            noise_tex_ds.clone(),
-            denoiser_ds.clone(),
-        ]);
-        tracer_shadow_ppl.set_descriptor_sets(vec![tracer_shadow_ds.clone()]);
-        vsm_creation_ppl.set_descriptor_sets(vec![vsm_ds_0.clone()]);
-        vsm_blur_h_ppl.set_descriptor_sets(vec![vsm_ds_0.clone()]);
-        vsm_blur_v_ppl.set_descriptor_sets(vec![vsm_ds_0.clone()]);
 
         let (grass_ppl, grass_render_pass) = Self::create_grass_render_pass_and_graphics_pipeline(
             &vulkan_ctx,
@@ -417,12 +334,12 @@ impl Tracer {
             );
 
         // TODO: refac later
-        let grass_ds = fixed_pool
+        let grass_ds = pool
             .allocate_set(&grass_ppl.get_layout().get_descriptor_set_layouts()[&0])
             .unwrap();
         Self::update_grass_ds(&grass_ds, &resources);
 
-        let shadow_ds = fixed_pool
+        let shadow_ds = pool
             .allocate_set(&shadow_ppl.get_layout().get_descriptor_set_layouts()[&0])
             .unwrap();
         Self::update_shadow_ds_0(&shadow_ds, &resources);
@@ -440,7 +357,7 @@ impl Tracer {
             &resources.shadow_map_tex,
         );
 
-        let mut this = Self {
+        Ok(Self {
             vulkan_ctx,
             desc,
             chunk_bound,
@@ -462,41 +379,15 @@ impl Tracer {
             vsm_creation_ppl,
             vsm_blur_h_ppl,
             vsm_blur_v_ppl,
-            tracer_shadow_sets: [tracer_shadow_ds],
             grass_sets: [grass_ds],
-            shadow_sets: [shadow_ds],
             grass_ppl,
             grass_render_pass,
             grass_framebuffer,
             shadow_ppl,
             shadow_render_pass,
             shadow_framebuffer,
-            fixed_pool,
-            flexible_pool,
-            flexible_sets: vec![
-                tracer_ds_1,
-                god_ray_ds_0,
-                composition_ds,
-                taa_ds,
-                post_processing_ds,
-                denoiser_ds,
-                temporal_ds,
-                spatial_flexible_set,
-            ],
-        };
-        this.update_flexible_sets();
-        Ok(this)
-    }
-
-    fn update_flexible_sets(&mut self) {
-        Self::update_tracer_ds_1(&self.flexible_sets[0], &self.resources);
-        Self::update_god_ray_ds_0(&self.flexible_sets[1], &self.resources);
-        Self::update_composition_ds(&self.flexible_sets[2], &self.resources);
-        Self::update_taa_ds(&self.flexible_sets[3], &self.resources);
-        Self::update_post_processing_ds(&self.flexible_sets[4], &self.resources);
-        Self::update_denoiser_ds(&self.flexible_sets[5], &self.resources);
-        Self::update_temporal_ds(&self.flexible_sets[6], &self.resources);
-        Self::update_spatial_flexible_set(&self.flexible_sets[7], &self.resources);
+            pool,
+        })
     }
 
     fn update_grass_ds(ds: &DescriptorSet, resources: &TracerResources) {
@@ -661,404 +552,12 @@ impl Tracer {
         .unwrap()
     }
 
-    fn update_tracer_ds_0(
-        ds: &DescriptorSet,
-        resources: &TracerResources,
+    pub fn on_resize(
+        &mut self,
+        screen_extent: Extent2D,
         contree_builder_resources: &ContreeBuilderResources,
         scene_accel_resources: &SceneAccelResources,
     ) {
-        ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.gui_input),
-            WriteDescriptorSet::new_buffer_write(1, &resources.sun_info),
-            WriteDescriptorSet::new_buffer_write(2, &resources.sky_info),
-            WriteDescriptorSet::new_buffer_write(3, &resources.camera_info),
-            WriteDescriptorSet::new_buffer_write(4, &resources.camera_info_prev_frame),
-            WriteDescriptorSet::new_buffer_write(5, &resources.shadow_camera_info),
-            WriteDescriptorSet::new_buffer_write(6, &resources.env_info),
-            WriteDescriptorSet::new_buffer_write(7, &contree_builder_resources.contree_node_data),
-            WriteDescriptorSet::new_buffer_write(8, &contree_builder_resources.contree_leaf_data),
-            WriteDescriptorSet::new_texture_write(
-                9,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &scene_accel_resources.scene_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                10,
-                vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                &resources.shadow_map_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-        ]);
-    }
-
-    fn update_tracer_ds_1(ds: &DescriptorSet, resources: &TracerResources) {
-        ds.perform_writes(&mut [
-            WriteDescriptorSet::new_texture_write(
-                0,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.extent_dependent_resources.compute_output_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                1,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.extent_dependent_resources.compute_depth_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-        ]);
-    }
-
-    fn update_denoiser_ds(ds: &DescriptorSet, resources: &TracerResources) {
-        ds.perform_writes(&mut [
-            WriteDescriptorSet::new_texture_write(
-                0,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.denoiser_normal_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                1,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.denoiser_normal_tex_prev,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                2,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.denoiser_position_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                3,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.denoiser_position_tex_prev,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                4,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.denoiser_vox_id_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                5,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.denoiser_vox_id_tex_prev,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                6,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.denoiser_accumed_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                7,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.denoiser_accumed_tex_prev,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                8,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.denoiser_motion_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                9,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources
-                    .denoiser_resources
-                    .tex
-                    .denoiser_temporal_hist_len_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                10,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.denoiser_hit_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                11,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.denoiser_spatial_ping_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                12,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.denoiser_spatial_pong_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-        ]);
-    }
-
-    fn update_temporal_ds(ds: &DescriptorSet, resources: &TracerResources) {
-        ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.denoiser_resources.temporal_info),
-            WriteDescriptorSet::new_texture_write(
-                1,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.extent_dependent_resources.compute_output_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-        ]);
-    }
-
-    fn update_spatial_fixed_set(ds: &DescriptorSet, resources: &TracerResources) {
-        ds.perform_writes(&mut [WriteDescriptorSet::new_buffer_write(
-            0,
-            &resources.denoiser_resources.spatial_info,
-        )]);
-    }
-
-    fn update_spatial_flexible_set(ds: &DescriptorSet, resources: &TracerResources) {
-        ds.perform_writes(&mut [WriteDescriptorSet::new_texture_write(
-            0,
-            vk::DescriptorType::STORAGE_IMAGE,
-            &resources.extent_dependent_resources.compute_depth_tex,
-            vk::ImageLayout::GENERAL,
-        )]);
-    }
-
-    fn update_noise_tex_ds(ds: &DescriptorSet, resources: &TracerResources) {
-        ds.perform_writes(&mut [
-            WriteDescriptorSet::new_texture_write(
-                0,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.scalar_bn,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                1,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.unit_vec2_bn,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                2,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.unit_vec3_bn,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                3,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.weighted_cosine_bn,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                4,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.fast_unit_vec3_bn,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                5,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.fast_weighted_cosine_bn,
-                vk::ImageLayout::GENERAL,
-            ),
-        ]);
-    }
-
-    fn update_god_ray_ds_0(ds: &DescriptorSet, resources: &TracerResources) {
-        ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.camera_info),
-            WriteDescriptorSet::new_buffer_write(1, &resources.shadow_camera_info),
-            WriteDescriptorSet::new_buffer_write(2, &resources.env_info),
-            WriteDescriptorSet::new_texture_write(
-                3,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.extent_dependent_resources.gfx_depth_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                4,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.extent_dependent_resources.compute_depth_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                5,
-                vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                &resources.shadow_map_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                6,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.extent_dependent_resources.god_ray_output_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-        ]);
-    }
-
-    fn update_composition_ds(ds: &DescriptorSet, resources: &TracerResources) {
-        ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.gui_input),
-            WriteDescriptorSet::new_buffer_write(1, &resources.sun_info),
-            WriteDescriptorSet::new_buffer_write(2, &resources.sky_info),
-            WriteDescriptorSet::new_buffer_write(3, &resources.camera_info),
-            WriteDescriptorSet::new_texture_write(
-                4,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.extent_dependent_resources.gfx_output_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                5,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.extent_dependent_resources.gfx_depth_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                6,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.denoiser_spatial_pong_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                7,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.extent_dependent_resources.compute_depth_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                8,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.extent_dependent_resources.god_ray_output_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                9,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.extent_dependent_resources.composited_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-        ]);
-    }
-
-    fn update_taa_ds(ds: &DescriptorSet, resources: &TracerResources) {
-        ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.taa_info),
-            WriteDescriptorSet::new_texture_write(
-                1,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.extent_dependent_resources.composited_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                2,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.denoiser_motion_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                3,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.extent_dependent_resources.taa_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                4,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.extent_dependent_resources.taa_tex_prev,
-                vk::ImageLayout::GENERAL,
-            ),
-        ]);
-    }
-
-    fn update_post_processing_ds(ds: &DescriptorSet, resources: &TracerResources) {
-        ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.gui_input),
-            WriteDescriptorSet::new_buffer_write(1, &resources.post_processing_info),
-            WriteDescriptorSet::new_texture_write(
-                2,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.extent_dependent_resources.taa_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                3,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.extent_dependent_resources.screen_output_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-        ]);
-    }
-
-    fn update_tracer_shadow_ds(
-        ds: &DescriptorSet,
-        resources: &TracerResources,
-        contree_builder_resources: &ContreeBuilderResources,
-        scene_accel_resources: &SceneAccelResources,
-    ) {
-        ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.shadow_camera_info),
-            WriteDescriptorSet::new_buffer_write(1, &contree_builder_resources.contree_node_data),
-            WriteDescriptorSet::new_buffer_write(2, &contree_builder_resources.contree_leaf_data),
-            WriteDescriptorSet::new_texture_write(
-                3,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &scene_accel_resources.scene_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                4,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.shadow_map_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-        ]);
-    }
-
-    fn update_vsm_ds_0(ds: &DescriptorSet, resources: &TracerResources) {
-        ds.perform_writes(&mut [
-            WriteDescriptorSet::new_texture_write(
-                0,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.shadow_map_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                1,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.shadow_map_tex_for_vsm_ping,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_texture_write(
-                2,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.shadow_map_tex_for_vsm_pong,
-                vk::ImageLayout::GENERAL,
-            ),
-        ]);
-    }
-
-    fn update_player_collider_ds(
-        ds: &DescriptorSet,
-        resources: &TracerResources,
-        contree_builder_resources: &ContreeBuilderResources,
-        scene_accel_resources: &SceneAccelResources,
-    ) {
-        ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.player_collider_info),
-            WriteDescriptorSet::new_buffer_write(1, &contree_builder_resources.contree_node_data),
-            WriteDescriptorSet::new_buffer_write(2, &contree_builder_resources.contree_leaf_data),
-            WriteDescriptorSet::new_texture_write(
-                3,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &scene_accel_resources.scene_tex,
-                vk::ImageLayout::GENERAL,
-            ),
-            WriteDescriptorSet::new_buffer_write(4, &resources.player_collision_result),
-        ]);
-    }
-
-    pub fn on_resize(&mut self, screen_extent: Extent2D) {
         let render_extent = Self::get_render_extent(screen_extent, self.desc.scaling_factor);
 
         self.camera.on_resize(render_extent);
@@ -1078,7 +577,62 @@ impl Tracer {
             &self.resources.extent_dependent_resources.gfx_depth_tex,
         );
 
-        self.update_flexible_sets();
+        self.update_sets(contree_builder_resources, scene_accel_resources);
+    }
+
+    fn update_sets(
+        &mut self,
+        contree_builder_resources: &ContreeBuilderResources,
+        scene_accel_resources: &SceneAccelResources,
+    ) {
+        self.tracer_ppl
+            .auto_update_descriptor_sets(&[
+                &self.resources,
+                contree_builder_resources,
+                scene_accel_resources,
+            ])
+            .unwrap();
+        self.tracer_shadow_ppl
+            .auto_update_descriptor_sets(&[
+                &self.resources,
+                contree_builder_resources,
+                scene_accel_resources,
+            ])
+            .unwrap();
+        self.vsm_creation_ppl
+            .auto_update_descriptor_sets(&[&self.resources])
+            .unwrap();
+        self.vsm_blur_h_ppl
+            .auto_update_descriptor_sets(&[&self.resources])
+            .unwrap();
+        self.vsm_blur_v_ppl
+            .auto_update_descriptor_sets(&[&self.resources])
+            .unwrap();
+        self.god_ray_ppl
+            .auto_update_descriptor_sets(&[&self.resources])
+            .unwrap();
+        self.temporal_ppl
+            .auto_update_descriptor_sets(&[&self.resources])
+            .unwrap();
+        self.spatial_ppl
+            .auto_update_descriptor_sets(&[&self.resources])
+            .unwrap();
+        self.composition_ppl
+            .auto_update_descriptor_sets(&[&self.resources])
+            .unwrap();
+        self.taa_ppl
+            .auto_update_descriptor_sets(&[&self.resources])
+            .unwrap();
+        self.player_collider_ppl
+            .auto_update_descriptor_sets(&[
+                &self.resources,
+                contree_builder_resources,
+                scene_accel_resources,
+            ])
+            .unwrap();
+        self.post_processing_ppl
+            .auto_update_descriptor_sets(&[&self.resources])
+            .unwrap();
     }
 
     // create a lower resolution texture for rendering, for better performance,

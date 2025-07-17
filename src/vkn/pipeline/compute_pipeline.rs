@@ -100,6 +100,18 @@ impl ComputePipeline {
         *guard = descriptor_sets;
     }
 
+    /// Creates descriptor sets for the compute pipeline.
+    /// 
+    /// This function allocates descriptor sets from the descriptor pool based on the
+    /// pipeline's descriptor set layout. After creation, it calls auto_update_descriptor_sets
+    /// to populate the descriptor sets with the provided resources.
+    /// 
+    /// # Arguments
+    /// * `descriptor_pool` - The descriptor pool to allocate sets from
+    /// * `resource_containers` - Array of resource containers containing buffers and textures
+    /// 
+    /// # Returns
+    /// Result indicating success or failure of descriptor set creation
     pub fn auto_create_descriptor_sets(
         &self,
         descriptor_pool: &DescriptorPool,
@@ -109,12 +121,46 @@ impl ComputePipeline {
         let mut sorted_sets: Vec<_> = self.0.descriptor_sets_bindings.iter().collect();
         sorted_sets.sort_by_key(|(set_no, _)| *set_no);
 
-        for (set_no, bindings) in sorted_sets {
+        // Allocate descriptor sets from the pool
+        for (set_no, _) in sorted_sets {
             let descriptor_set = descriptor_pool
                 .allocate_set(&self.0.pipeline_layout.get_descriptor_set_layouts()[set_no])
                 .unwrap();
+            descriptor_sets.push(descriptor_set);
+        }
+        
+        // Store the allocated descriptor sets
+        self.set_descriptor_sets(descriptor_sets);
+        
+        // Update the descriptor sets with the provided resources
+        self.auto_update_descriptor_sets(resource_containers)?;
+        
+        Ok(())
+    }
 
-            for binding in bindings {
+    /// Updates existing descriptor sets with new resources.
+    /// 
+    /// This function updates the descriptor sets that were previously created with
+    /// auto_create_descriptor_sets. It finds the appropriate resources from the
+    /// resource containers and writes them to the descriptor sets.
+    /// 
+    /// # Arguments
+    /// * `resource_containers` - Array of resource containers containing buffers and textures
+    /// 
+    /// # Returns
+    /// Result indicating success or failure of descriptor set update
+    pub fn auto_update_descriptor_sets(
+        &self,
+        resource_containers: &[&dyn ResourceContainer],
+    ) -> Result<()> {
+        let descriptor_sets = self.0.descriptor_sets.lock().unwrap();
+        let mut sorted_sets: Vec<_> = self.0.descriptor_sets_bindings.iter().collect();
+        sorted_sets.sort_by_key(|(set_no, _)| *set_no);
+
+        for (set_idx, (_, bindings)) in sorted_sets.iter().enumerate() {
+            let descriptor_set = &descriptor_sets[set_idx];
+
+            for binding in bindings.iter() {
                 // Find the exact resource for this binding across all resource containers
                 let mut found_buffer_containers = Vec::new();
                 let mut found_texture_containers = Vec::new();
@@ -169,9 +215,8 @@ impl ComputePipeline {
                     )]);
                 }
             }
-            descriptor_sets.push(descriptor_set);
         }
-        self.set_descriptor_sets(descriptor_sets);
+        
         Ok(())
     }
 
