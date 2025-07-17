@@ -9,7 +9,6 @@ use crate::vkn::ClearValue;
 use crate::vkn::CommandBuffer;
 use crate::vkn::ComputePipeline;
 use crate::vkn::DescriptorPool;
-use crate::vkn::DescriptorSet;
 use crate::vkn::Extent3D;
 use crate::vkn::MemoryBarrier;
 use crate::vkn::PipelineBarrier;
@@ -18,7 +17,6 @@ use crate::vkn::ShaderModule;
 use crate::vkn::StructMemberDataBuilder;
 use crate::vkn::Texture;
 use crate::vkn::VulkanContext;
-use crate::vkn::WriteDescriptorSet;
 use anyhow::Result;
 use ash::vk;
 use glam::UVec3;
@@ -35,7 +33,7 @@ pub struct PlainBuilder {
     chunk_modify_ppl: ComputePipeline,
 
     #[allow(dead_code)]
-    fixed_pool: DescriptorPool,
+    pool: DescriptorPool,
 
     build_cmdbuf: CommandBuffer,
 }
@@ -85,24 +83,17 @@ impl PlainBuilder {
         let chunk_init_ppl = ComputePipeline::new(device, &chunk_init_sm);
         let chunk_modify_ppl = ComputePipeline::new(device, &chunk_modify_sm);
 
-        let fixed_pool = DescriptorPool::new(device).unwrap();
+        let pool = DescriptorPool::new(device).unwrap();
 
-        let alloc_set_fn = |ppl: &ComputePipeline| -> DescriptorSet {
-            fixed_pool
-                .allocate_set(&ppl.get_layout().get_descriptor_set_layouts()[&0])
-                .unwrap()
-        };
-        let buffer_setup_ds = alloc_set_fn(&buffer_setup_ppl);
-        let chunk_init_ds = alloc_set_fn(&chunk_init_ppl);
-        let chunk_modify_ds = alloc_set_fn(&chunk_modify_ppl);
-
-        Self::update_buffer_setup_ds(&buffer_setup_ds, &resources);
-        Self::update_chunk_init_ds(&chunk_init_ds, &resources);
-        Self::update_chunk_modify_ds(&chunk_modify_ds, &resources);
-
-        buffer_setup_ppl.set_descriptor_sets(vec![buffer_setup_ds]);
-        chunk_init_ppl.set_descriptor_sets(vec![chunk_init_ds]);
-        chunk_modify_ppl.set_descriptor_sets(vec![chunk_modify_ds]);
+        buffer_setup_ppl
+            .auto_create_descriptor_sets(&pool, &[&resources])
+            .unwrap();
+        chunk_init_ppl
+            .auto_create_descriptor_sets(&pool, &[&resources])
+            .unwrap();
+        chunk_modify_ppl
+            .auto_create_descriptor_sets(&pool, &[&resources])
+            .unwrap();
 
         init_atlas_images(&vulkan_ctx, &resources);
 
@@ -120,7 +111,7 @@ impl PlainBuilder {
             buffer_setup_ppl,
             chunk_init_ppl,
             chunk_modify_ppl,
-            fixed_pool,
+            pool,
             build_cmdbuf,
         };
 
@@ -145,39 +136,6 @@ impl PlainBuilder {
                 },
             );
         }
-    }
-
-    fn update_buffer_setup_ds(ds: &DescriptorSet, resources: &PlainBuilderResources) {
-        ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.region_info),
-            WriteDescriptorSet::new_buffer_write(1, &resources.region_indirect),
-        ]);
-    }
-
-    fn update_chunk_init_ds(ds: &DescriptorSet, resources: &PlainBuilderResources) {
-        ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.region_info),
-            WriteDescriptorSet::new_texture_write(
-                1,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.chunk_atlas,
-                vk::ImageLayout::GENERAL,
-            ),
-        ]);
-    }
-
-    fn update_chunk_modify_ds(ds: &DescriptorSet, resources: &PlainBuilderResources) {
-        ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.chunk_modify_info),
-            WriteDescriptorSet::new_buffer_write(1, &resources.trunk_bvh_nodes),
-            WriteDescriptorSet::new_buffer_write(2, &resources.round_cones),
-            WriteDescriptorSet::new_texture_write(
-                3,
-                vk::DescriptorType::STORAGE_IMAGE,
-                &resources.chunk_atlas,
-                vk::ImageLayout::GENERAL,
-            ),
-        ]);
     }
 
     fn record_build_cmdbuf(
@@ -236,6 +194,15 @@ impl PlainBuilder {
             return Ok(());
         }
         update_buffers(&self.resources, atlas_offset, atlas_dim)?;
+
+        // Re-record the command buffer with updated descriptor sets
+        self.build_cmdbuf = Self::record_build_cmdbuf(
+            &self.vulkan_ctx,
+            &self.resources.chunk_atlas,
+            &self.resources.region_indirect,
+            &self.buffer_setup_ppl,
+            &self.chunk_init_ppl,
+        );
 
         self.build_cmdbuf
             .submit(&self.vulkan_ctx.get_general_queue(), None);

@@ -101,15 +101,15 @@ impl ComputePipeline {
     }
 
     /// Creates descriptor sets for the compute pipeline.
-    /// 
+    ///
     /// This function allocates descriptor sets from the descriptor pool based on the
     /// pipeline's descriptor set layout. After creation, it calls auto_update_descriptor_sets
     /// to populate the descriptor sets with the provided resources.
-    /// 
+    ///
     /// # Arguments
     /// * `descriptor_pool` - The descriptor pool to allocate sets from
     /// * `resource_containers` - Array of resource containers containing buffers and textures
-    /// 
+    ///
     /// # Returns
     /// Result indicating success or failure of descriptor set creation
     pub fn auto_create_descriptor_sets(
@@ -128,25 +128,25 @@ impl ComputePipeline {
                 .unwrap();
             descriptor_sets.push(descriptor_set);
         }
-        
+
         // Store the allocated descriptor sets
         self.set_descriptor_sets(descriptor_sets);
-        
+
         // Update the descriptor sets with the provided resources
         self.auto_update_descriptor_sets(resource_containers)?;
-        
+
         Ok(())
     }
 
     /// Updates existing descriptor sets with new resources.
-    /// 
+    ///
     /// This function updates the descriptor sets that were previously created with
     /// auto_create_descriptor_sets. It finds the appropriate resources from the
     /// resource containers and writes them to the descriptor sets.
-    /// 
+    ///
     /// # Arguments
     /// * `resource_containers` - Array of resource containers containing buffers and textures
-    /// 
+    ///
     /// # Returns
     /// Result indicating success or failure of descriptor set update
     pub fn auto_update_descriptor_sets(
@@ -216,7 +216,7 @@ impl ComputePipeline {
                 }
             }
         }
-        
+
         Ok(())
     }
 

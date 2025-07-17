@@ -80,6 +80,7 @@ pub struct Tracer {
     #[allow(dead_code)]
     shadow_framebuffer: Framebuffer,
 
+    #[allow(dead_code)]
     pool: DescriptorPool,
 }
 

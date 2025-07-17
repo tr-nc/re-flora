@@ -19,10 +19,10 @@ chunk_modify_info;
 
 #include "../../include/bvh.glsl"
 layout(set = 0, binding = 1) readonly buffer B_BvhNodes { BvhNode data[]; }
-bvh_nodes;
+trunk_bvh_nodes;
 layout(set = 0, binding = 2) readonly buffer B_RoundCones { RoundCone data[]; }
 round_cones;
-layout(set = 0, binding = 3, r8ui) writeonly uniform uimage3D raw_atlas;
+layout(set = 0, binding = 3, r8ui) writeonly uniform uimage3D chunk_atlas;
 
 #include "../../include/config.glsl"
 #include "../../include/core/aabb.glsl"
@@ -50,7 +50,7 @@ void main() {
 
     while (sp > 0) {
         uint node_idx = stack[--sp];
-        BvhNode node  = bvh_nodes.data[node_idx];
+        BvhNode node  = trunk_bvh_nodes.data[node_idx];
 
         if (!in_aabb(world_voxel_pos_f, node.aabb_min, node.aabb_max)) {
             continue;
@@ -65,7 +65,7 @@ void main() {
             float dst    = sd_round_cone(world_voxel_pos_f, rc.center_a, rc.center_b, rc.radius_a,
                                          rc.radius_b);
             if (dst < 0.0) {
-                imageStore(raw_atlas, world_voxel_pos, uvec4(VOXEL_TYPE_TRUNK, 0, 0, 0));
+                imageStore(chunk_atlas, world_voxel_pos, uvec4(VOXEL_TYPE_TRUNK, 0, 0, 0));
                 return;
             }
         } else {
