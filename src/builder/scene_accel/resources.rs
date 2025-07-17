@@ -1,11 +1,12 @@
-use crate::geom::UAabb3;
 use crate::vkn::{Allocator, Buffer, BufferUsage, Device, ImageDesc, ShaderModule, Texture};
+use crate::{geom::UAabb3, resource::Resource};
 use ash::vk;
+use resource_container_derive::ResourceContainer;
 
+#[derive(ResourceContainer)]
 pub struct SceneAccelResources {
-    pub scene_tex_update_info: Buffer,
-
-    pub scene_offset_tex: Texture,
+    pub scene_tex_update_info: Resource<Buffer>,
+    pub scene_offset_tex: Resource<Texture>,
 }
 
 impl SceneAccelResources {
@@ -39,8 +40,8 @@ impl SceneAccelResources {
         );
 
         return Self {
-            scene_offset_tex,
-            scene_tex_update_info,
+            scene_offset_tex: Resource::new(scene_offset_tex),
+            scene_tex_update_info: Resource::new(scene_tex_update_info),
         };
     }
 }

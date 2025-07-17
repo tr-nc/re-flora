@@ -19,7 +19,6 @@ use crate::audio::AudioEngine;
 use crate::builder::SurfaceResources;
 use crate::gameplay::{calculate_directional_light_matrices, Camera, CameraDesc};
 use crate::geom::{Aabb3, UAabb3};
-use crate::resource::ResourceContainer;
 use crate::util::{ShaderCompiler, TimeInfo};
 use crate::vkn::{
     Allocator, AttachmentDesc, AttachmentReference, Buffer, ComputePipeline, DescriptorPool,
@@ -226,8 +225,8 @@ impl Tracer {
 
         // TODO:
         log::debug!(
-            "player_collider_sm descriptor sets bindings: {:#?}",
-            player_collider_sm.get_descriptor_sets_bindings()
+            "tracer descriptor sets bindings: {:#?}",
+            tracer_sm.get_descriptor_sets_bindings()
         );
 
         let grass_vert_sm = ShaderModule::from_glsl(
@@ -276,18 +275,6 @@ impl Tracer {
             Extent2D::new(1024, 1024),
         );
 
-        // let gui_input = resources.get_resource::<Buffer>("gui_input").unwrap();
-        // log::debug!("gui_input: {:#?}", gui_input);
-
-        // let gfx_depth_tex = resources.get_resource::<Texture>("gfx_depth_tex").unwrap();
-        // log::debug!("gfx_depth_tex: {:#?}", gfx_depth_tex);
-
-        // let temporal_info = resources.get_resource::<Buffer>("temporal_info").unwrap();
-        // log::debug!("temporal_info: {:#?}", temporal_info);
-
-        // let resource_names = TracerResources::get_resource_names();
-        // log::debug!("Available resource names: {:?}", resource_names);
-
         let device = vulkan_ctx.device();
 
         let tracer_ppl = ComputePipeline::new(device, &tracer_sm);
@@ -313,6 +300,11 @@ impl Tracer {
                 .allocate_set(&ppl.get_layout().get_descriptor_set_layouts()[&layout_idx])
                 .unwrap()
         };
+
+        // tracer_ppl.test();
+        tracer_ppl
+            .auto_create_descriptor_sets(&fixed_pool, std::slice::from_ref(&resources))
+            .unwrap();
 
         let tracer_ds_0 = alloc_fixed_set_fn(&tracer_ppl, 0);
         let tracer_ds_1 = alloc_flexible_set_fn(&tracer_ppl, 1);

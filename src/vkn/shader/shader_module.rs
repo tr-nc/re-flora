@@ -442,7 +442,7 @@ impl ShaderModule {
         for refl_ds in refl_descriptor_sets {
             bindings.insert(refl_ds.0, self.get_descriptor_set_bindings(&refl_ds.1));
         }
-        bindings
+        return bindings;
     }
 
     pub fn get_descriptor_set_layouts(&self) -> HashMap<u32, DescriptorSetLayout> {

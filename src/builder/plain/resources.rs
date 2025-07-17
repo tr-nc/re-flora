@@ -1,19 +1,21 @@
+use crate::{
+    resource::Resource,
+    vkn::{Allocator, Buffer, BufferUsage, Device, Extent3D, ImageDesc, ShaderModule, Texture},
+};
 use ash::vk;
 use glam::UVec3;
+use resource_container_derive::ResourceContainer;
 
-use crate::vkn::{
-    Allocator, Buffer, BufferUsage, Device, Extent3D, ImageDesc, ShaderModule, Texture,
-};
-
+#[derive(ResourceContainer)]
 pub struct PlainBuilderResources {
-    pub chunk_atlas: Texture,
-    pub free_atlas: Texture,
+    pub chunk_atlas: Resource<Texture>,
+    pub free_atlas: Resource<Texture>,
 
-    pub region_info: Buffer,
-    pub region_indirect: Buffer,
-    pub chunk_modify_info: Buffer,
-    pub round_cones: Buffer,
-    pub trunk_bvh_nodes: Buffer,
+    pub region_info: Resource<Buffer>,
+    pub region_indirect: Resource<Buffer>,
+    pub chunk_modify_info: Resource<Buffer>,
+    pub round_cones: Resource<Buffer>,
+    pub trunk_bvh_nodes: Resource<Buffer>,
 }
 
 impl PlainBuilderResources {
@@ -103,13 +105,13 @@ impl PlainBuilderResources {
         );
 
         return Self {
-            chunk_atlas,
-            free_atlas,
-            chunk_modify_info,
-            round_cones,
-            trunk_bvh_nodes,
-            region_info,
-            region_indirect,
+            chunk_atlas: Resource::new(chunk_atlas),
+            free_atlas: Resource::new(free_atlas),
+            chunk_modify_info: Resource::new(chunk_modify_info),
+            round_cones: Resource::new(round_cones),
+            trunk_bvh_nodes: Resource::new(trunk_bvh_nodes),
+            region_info: Resource::new(region_info),
+            region_indirect: Resource::new(region_indirect),
         };
     }
 }

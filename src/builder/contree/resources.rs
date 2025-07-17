@@ -1,20 +1,25 @@
-use crate::vkn::{Allocator, Buffer, BufferUsage, Device, ShaderModule};
+use crate::{
+    resource::Resource,
+    vkn::{Allocator, Buffer, BufferUsage, Device, ShaderModule},
+};
 use ash::vk;
 use glam::UVec3;
+use resource_container_derive::ResourceContainer;
 
+#[derive(ResourceContainer)]
 pub struct ContreeBuilderResources {
-    pub contree_build_info: Buffer,
-    pub contree_build_state: Buffer,
-    pub level_dispatch_indirect: Buffer,
-    pub concat_dispatch_indirect: Buffer,
-    pub counter_for_levels: Buffer,
-    pub node_offset_for_levels: Buffer,
-    pub sparse_nodes: Buffer,
-    pub dense_nodes: Buffer,
-    pub leaf_data: Buffer,
+    pub contree_build_info: Resource<Buffer>,
+    pub contree_build_state: Resource<Buffer>,
+    pub level_dispatch_indirect: Resource<Buffer>,
+    pub concat_dispatch_indirect: Resource<Buffer>,
+    pub counter_for_levels: Resource<Buffer>,
+    pub node_offset_for_levels: Resource<Buffer>,
+    pub sparse_nodes: Resource<Buffer>,
+    pub dense_nodes: Resource<Buffer>,
+    pub leaf_data: Resource<Buffer>,
 
-    pub node_data: Buffer,
-    pub contree_build_result: Buffer,
+    pub node_data: Resource<Buffer>,
+    pub contree_build_result: Resource<Buffer>,
 }
 
 impl ContreeBuilderResources {
@@ -148,18 +153,17 @@ impl ContreeBuilderResources {
         );
 
         return Self {
-            contree_build_info,
-            contree_build_state,
-            level_dispatch_indirect,
-            concat_dispatch_indirect,
-            counter_for_levels,
-            node_offset_for_levels,
-            sparse_nodes,
-            dense_nodes,
-            leaf_data,
-
-            node_data,
-            contree_build_result,
+            contree_build_info: Resource::new(contree_build_info),
+            contree_build_state: Resource::new(contree_build_state),
+            level_dispatch_indirect: Resource::new(level_dispatch_indirect),
+            concat_dispatch_indirect: Resource::new(concat_dispatch_indirect),
+            counter_for_levels: Resource::new(counter_for_levels),
+            node_offset_for_levels: Resource::new(node_offset_for_levels),
+            sparse_nodes: Resource::new(sparse_nodes),
+            dense_nodes: Resource::new(dense_nodes),
+            leaf_data: Resource::new(leaf_data),
+            node_data: Resource::new(node_data),
+            contree_build_result: Resource::new(contree_build_result),
         };
 
         fn log_4(n: u32) -> u32 {

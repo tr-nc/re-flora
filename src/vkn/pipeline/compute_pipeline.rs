@@ -1,8 +1,14 @@
-use crate::vkn::{
-    Buffer, CommandBuffer, DescriptorSet, Device, Extent3D, PipelineLayout, ShaderModule,
+use crate::{
+    resource::ResourceContainer,
+    vkn::{
+        Buffer, CommandBuffer, DescriptorPool, DescriptorSet, DescriptorSetLayoutBinding, Device,
+        Extent3D, PipelineLayout, ShaderModule, Texture, WriteDescriptorSet,
+    },
 };
+use anyhow::Result;
 use ash::vk;
 use std::{
+    collections::HashMap,
     ops::Deref,
     sync::{Arc, Mutex},
 };
@@ -13,6 +19,7 @@ struct ComputePipelineInner {
     pipeline_layout: PipelineLayout,
     workgroup_size: [u32; 3],
     descriptor_sets: Mutex<Vec<DescriptorSet>>,
+    descriptor_sets_bindings: HashMap<u32, Vec<DescriptorSetLayoutBinding>>,
 }
 
 impl Drop for ComputePipelineInner {
@@ -55,18 +62,117 @@ impl ComputePipeline {
                 .unwrap()[0]
         };
 
+        let descriptor_sets_bindings = shader_module.get_descriptor_sets_bindings();
+
         Self(Arc::new(ComputePipelineInner {
             device: device.clone(),
             pipeline,
             pipeline_layout,
             workgroup_size,
             descriptor_sets: Mutex::new(vec![]),
+            descriptor_sets_bindings,
         }))
+    }
+
+    pub fn test(&self) -> &HashMap<u32, Vec<DescriptorSetLayoutBinding>> {
+        println!("Descriptor Sets Bindings (sorted by set number):");
+        let mut sorted_sets: Vec<_> = self.0.descriptor_sets_bindings.iter().collect();
+        sorted_sets.sort_by_key(|(set_no, _)| *set_no);
+
+        for (set_no, bindings) in sorted_sets {
+            println!("  Set {}: {} bindings", set_no, bindings.len());
+            let mut sorted_bindings = bindings.clone();
+            sorted_bindings.sort_by_key(|binding| binding.no);
+
+            for binding in sorted_bindings {
+                println!(
+                    "    Binding {}: {} (type: {:?})",
+                    binding.no, binding.name, binding.descriptor_type
+                );
+            }
+        }
+
+        &self.0.descriptor_sets_bindings
     }
 
     pub fn set_descriptor_sets(&self, descriptor_sets: Vec<DescriptorSet>) {
         let mut guard = self.0.descriptor_sets.lock().unwrap();
         *guard = descriptor_sets;
+    }
+
+    pub fn auto_create_descriptor_sets<R: ResourceContainer>(
+        &self,
+        descriptor_pool: &DescriptorPool,
+        resource_containers: &[R],
+    ) -> Result<()> {
+        let mut descriptor_sets = Vec::new();
+        let mut sorted_sets: Vec<_> = self.0.descriptor_sets_bindings.iter().collect();
+        sorted_sets.sort_by_key(|(set_no, _)| *set_no);
+
+        for (set_no, bindings) in sorted_sets {
+            let descriptor_set = descriptor_pool
+                .allocate_set(&self.0.pipeline_layout.get_descriptor_set_layouts()[set_no])
+                .unwrap();
+
+            for binding in bindings {
+                // Find the exact resource for this binding across all resource containers
+                let mut found_buffer_containers = Vec::new();
+                let mut found_texture_containers = Vec::new();
+
+                for (i, container) in resource_containers.iter().enumerate() {
+                    if let Some(_) = container.get_resource::<Buffer>(&binding.name) {
+                        found_buffer_containers.push(i);
+                    }
+                    if let Some(_) = container.get_resource::<Texture>(&binding.name) {
+                        found_texture_containers.push(i);
+                    }
+                }
+
+                // Ensure that only one resource container has that resource
+                let total_found = found_buffer_containers.len() + found_texture_containers.len();
+                if total_found == 0 {
+                    return Err(anyhow::anyhow!("Resource not found: {}", binding.name));
+                } else if total_found > 1 {
+                    return Err(anyhow::anyhow!(
+                        "Resource '{}' found in multiple containers: {} buffer containers, {} texture containers",
+                        binding.name,
+                        found_buffer_containers.len(),
+                        found_texture_containers.len()
+                    ));
+                }
+
+                // Each resource may be Buffer or Texture, but not both
+                if !found_buffer_containers.is_empty() && !found_texture_containers.is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "Resource '{}' found as both Buffer and Texture",
+                        binding.name
+                    ));
+                }
+
+                // Write the descriptor set based on the found resource
+                if let Some(container_idx) = found_buffer_containers.first() {
+                    let resource = resource_containers[*container_idx]
+                        .get_resource::<Buffer>(&binding.name)
+                        .unwrap();
+                    descriptor_set.perform_writes(&mut [WriteDescriptorSet::new_buffer_write(
+                        binding.no, resource,
+                    )]);
+                } else if let Some(container_idx) = found_texture_containers.first() {
+                    let resource = resource_containers[*container_idx]
+                        .get_resource::<Texture>(&binding.name)
+                        .unwrap();
+                    descriptor_set.perform_writes(&mut [WriteDescriptorSet::new_texture_write(
+                        binding.no,
+                        binding.descriptor_type,
+                        resource,
+                        vk::ImageLayout::GENERAL,
+                    )]);
+                }
+            }
+            descriptor_sets.push(descriptor_set);
+        }
+        self.set_descriptor_sets(descriptor_sets);
+        Ok(())
     }
 
     pub fn get_layout(&self) -> &PipelineLayout {
