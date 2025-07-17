@@ -173,7 +173,7 @@ impl App {
             allocator.clone(),
             &shader_compiler,
             chunk_bound,
-        );
+        )?;
 
         Self::init(
             &mut plain_builder,
