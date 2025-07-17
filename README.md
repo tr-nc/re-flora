@@ -145,10 +145,12 @@ sudo apt install cmake ninja-build # install build tools
 
 ## TODO list
 
-- [ ] Trees & Leaves
+- [ ] Night Sky <https://www.shadertoy.com/view/mttSWn>
+- [ ] Some Artistic Dithering? <https://www.shadertoy.com/view/csKfzy>
+- [ ] Clouds
+- [ ] Tree Gen Stratagy
+- [ ] Leaves for Trees
+- [ ] Tree Sounds
 - [ ] Dynamic Terrain Edit
-- [ ] Sky Color
 - [ ] Still Water
-- [ ] Other types of plants
-- [ ] Collider
-- [ ] Audio
+- [ ] Flowers
