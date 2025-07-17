@@ -4,12 +4,12 @@ use ash::vk;
 use resource_container_derive::ResourceContainer;
 
 #[derive(ResourceContainer)]
-pub struct SceneAccelResources {
+pub struct SceneAccelBuilderResources {
     pub scene_tex_update_info: Resource<Buffer>,
     pub scene_tex: Resource<Texture>,
 }
 
-impl SceneAccelResources {
+impl SceneAccelBuilderResources {
     pub fn new(
         device: Device,
         allocator: Allocator,

@@ -16,7 +16,7 @@ use glam::{Mat4, UVec3, Vec2, Vec3};
 use winit::event::KeyEvent;
 
 use crate::audio::AudioEngine;
-use crate::builder::{ContreeBuilderResources, SceneAccelResources, SurfaceResources};
+use crate::builder::{ContreeBuilderResources, SceneAccelBuilderResources, SurfaceResources};
 use crate::gameplay::{calculate_directional_light_matrices, Camera, CameraDesc};
 use crate::geom::{Aabb3, UAabb3};
 use crate::util::{ShaderCompiler, TimeInfo};
@@ -96,7 +96,7 @@ impl Tracer {
         chunk_bound: UAabb3,
         screen_extent: Extent2D,
         contree_builder_resources: &ContreeBuilderResources,
-        scene_accel_resources: &SceneAccelResources,
+        scene_accel_resources: &SceneAccelBuilderResources,
         desc: TracerDesc,
         audio_engine: AudioEngine,
     ) -> Result<Self> {
@@ -557,7 +557,7 @@ impl Tracer {
         &mut self,
         screen_extent: Extent2D,
         contree_builder_resources: &ContreeBuilderResources,
-        scene_accel_resources: &SceneAccelResources,
+        scene_accel_resources: &SceneAccelBuilderResources,
     ) {
         let render_extent = Self::get_render_extent(screen_extent, self.desc.scaling_factor);
 
@@ -584,7 +584,7 @@ impl Tracer {
     fn update_sets(
         &mut self,
         contree_builder_resources: &ContreeBuilderResources,
-        scene_accel_resources: &SceneAccelResources,
+        scene_accel_resources: &SceneAccelBuilderResources,
     ) {
         self.tracer_ppl
             .auto_update_descriptor_sets(&[

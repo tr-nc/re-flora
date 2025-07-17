@@ -16,7 +16,7 @@ use crate::{
 
 pub struct SceneAccelBuilder {
     pub vulkan_ctx: VulkanContext,
-    pub resources: SceneAccelResources,
+    pub resources: SceneAccelBuilderResources,
 
     #[allow(dead_code)]
     fixed_pool: DescriptorPool,
@@ -27,7 +27,7 @@ pub struct SceneAccelBuilder {
 }
 
 impl SceneAccelBuilder {
-    fn update_update_scene_tex_ds(ds: &DescriptorSet, resources: &SceneAccelResources) {
+    fn update_update_scene_tex_ds(ds: &DescriptorSet, resources: &SceneAccelBuilderResources) {
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.scene_tex_update_info),
             WriteDescriptorSet::new_texture_write(
@@ -56,8 +56,12 @@ impl SceneAccelBuilder {
         )
         .unwrap();
 
-        let resources =
-            SceneAccelResources::new(device.clone(), allocator, chunk_bound, &update_scene_tex_sm);
+        let resources = SceneAccelBuilderResources::new(
+            device.clone(),
+            allocator,
+            chunk_bound,
+            &update_scene_tex_sm,
+        );
 
         let update_scene_tex_ppl = ComputePipeline::new(device, &update_scene_tex_sm);
 
@@ -109,7 +113,7 @@ impl SceneAccelBuilder {
     /// Clears the scene offset texture to zero.
     ///
     /// Also can be used at init time since it can transfer the image layout to general.
-    fn clear_tex(vulkan_context: &VulkanContext, resources: &SceneAccelResources) {
+    fn clear_tex(vulkan_context: &VulkanContext, resources: &SceneAccelBuilderResources) {
         execute_one_time_command(
             vulkan_context.device(),
             vulkan_context.command_pool(),
@@ -170,7 +174,7 @@ impl SceneAccelBuilder {
         }
     }
 
-    pub fn get_resources(&self) -> &SceneAccelResources {
+    pub fn get_resources(&self) -> &SceneAccelBuilderResources {
         &self.resources
     }
 }
