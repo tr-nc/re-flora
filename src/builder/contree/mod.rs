@@ -87,7 +87,7 @@ impl ContreeBuilder {
             ),
             WriteDescriptorSet::new_buffer_write(3, &resources.node_offset_for_levels),
             WriteDescriptorSet::new_buffer_write(4, &resources.sparse_nodes),
-            WriteDescriptorSet::new_buffer_write(5, &resources.leaf_data),
+            WriteDescriptorSet::new_buffer_write(5, &resources.contree_leaf_data),
             WriteDescriptorSet::new_buffer_write(6, &resources.contree_build_result),
         ]);
     }
@@ -129,7 +129,7 @@ impl ContreeBuilder {
             WriteDescriptorSet::new_buffer_write(1, &resources.node_offset_for_levels),
             WriteDescriptorSet::new_buffer_write(2, &resources.dense_nodes),
             WriteDescriptorSet::new_buffer_write(3, &resources.counter_for_levels),
-            WriteDescriptorSet::new_buffer_write(4, &resources.node_data),
+            WriteDescriptorSet::new_buffer_write(4, &resources.contree_node_data),
             WriteDescriptorSet::new_buffer_write(5, &resources.contree_build_result),
         ]);
     }

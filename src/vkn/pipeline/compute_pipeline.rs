@@ -2,7 +2,7 @@ use crate::{
     resource::ResourceContainer,
     vkn::{
         Buffer, CommandBuffer, DescriptorPool, DescriptorSet, DescriptorSetLayoutBinding, Device,
-        Extent3D, PipelineLayout, ShaderModule, Texture, WriteDescriptorSet,
+        Extent3D, PipelineLayout, ShaderModule, WriteDescriptorSet,
     },
 };
 use anyhow::Result;
@@ -74,36 +74,36 @@ impl ComputePipeline {
         }))
     }
 
-    pub fn test(&self) -> &HashMap<u32, Vec<DescriptorSetLayoutBinding>> {
-        println!("Descriptor Sets Bindings (sorted by set number):");
-        let mut sorted_sets: Vec<_> = self.0.descriptor_sets_bindings.iter().collect();
-        sorted_sets.sort_by_key(|(set_no, _)| *set_no);
+    // pub fn test(&self) -> &HashMap<u32, Vec<DescriptorSetLayoutBinding>> {
+    //     println!("Descriptor Sets Bindings (sorted by set number):");
+    //     let mut sorted_sets: Vec<_> = self.0.descriptor_sets_bindings.iter().collect();
+    //     sorted_sets.sort_by_key(|(set_no, _)| *set_no);
 
-        for (set_no, bindings) in sorted_sets {
-            println!("  Set {}: {} bindings", set_no, bindings.len());
-            let mut sorted_bindings = bindings.clone();
-            sorted_bindings.sort_by_key(|binding| binding.no);
+    //     for (set_no, bindings) in sorted_sets {
+    //         println!("  Set {}: {} bindings", set_no, bindings.len());
+    //         let mut sorted_bindings = bindings.clone();
+    //         sorted_bindings.sort_by_key(|binding| binding.no);
 
-            for binding in sorted_bindings {
-                println!(
-                    "    Binding {}: {} (type: {:?})",
-                    binding.no, binding.name, binding.descriptor_type
-                );
-            }
-        }
+    //         for binding in sorted_bindings {
+    //             println!(
+    //                 "    Binding {}: {} (type: {:?})",
+    //                 binding.no, binding.name, binding.descriptor_type
+    //             );
+    //         }
+    //     }
 
-        &self.0.descriptor_sets_bindings
-    }
+    //     &self.0.descriptor_sets_bindings
+    // }
 
     pub fn set_descriptor_sets(&self, descriptor_sets: Vec<DescriptorSet>) {
         let mut guard = self.0.descriptor_sets.lock().unwrap();
         *guard = descriptor_sets;
     }
 
-    pub fn auto_create_descriptor_sets<R: ResourceContainer>(
+    pub fn auto_create_descriptor_sets(
         &self,
         descriptor_pool: &DescriptorPool,
-        resource_containers: &[R],
+        resource_containers: &[&dyn ResourceContainer],
     ) -> Result<()> {
         let mut descriptor_sets = Vec::new();
         let mut sorted_sets: Vec<_> = self.0.descriptor_sets_bindings.iter().collect();
@@ -120,10 +120,10 @@ impl ComputePipeline {
                 let mut found_texture_containers = Vec::new();
 
                 for (i, container) in resource_containers.iter().enumerate() {
-                    if let Some(_) = container.get_resource::<Buffer>(&binding.name) {
+                    if let Some(_) = container.get_buffer(&binding.name) {
                         found_buffer_containers.push(i);
                     }
-                    if let Some(_) = container.get_resource::<Texture>(&binding.name) {
+                    if let Some(_) = container.get_texture(&binding.name) {
                         found_texture_containers.push(i);
                     }
                 }
@@ -152,14 +152,14 @@ impl ComputePipeline {
                 // Write the descriptor set based on the found resource
                 if let Some(container_idx) = found_buffer_containers.first() {
                     let resource = resource_containers[*container_idx]
-                        .get_resource::<Buffer>(&binding.name)
+                        .get_buffer(&binding.name)
                         .unwrap();
                     descriptor_set.perform_writes(&mut [WriteDescriptorSet::new_buffer_write(
                         binding.no, resource,
                     )]);
                 } else if let Some(container_idx) = found_texture_containers.first() {
                     let resource = resource_containers[*container_idx]
-                        .get_resource::<Texture>(&binding.name)
+                        .get_texture(&binding.name)
                         .unwrap();
                     descriptor_set.perform_writes(&mut [WriteDescriptorSet::new_texture_write(
                         binding.no,

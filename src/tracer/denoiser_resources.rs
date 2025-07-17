@@ -6,20 +6,21 @@ use crate::vkn::{
     Allocator, Buffer, BufferUsage, Device, Extent2D, ImageDesc, ShaderModule, Texture,
 };
 
+#[derive(ResourceContainer)]
 pub struct DenoiserTextureSet {
-    pub normal: Texture,
-    pub normal_prev: Texture,
-    pub position: Texture,
-    pub position_prev: Texture,
-    pub vox_id: Texture,
-    pub vox_id_prev: Texture,
-    pub accumed: Texture,
-    pub accumed_prev: Texture,
-    pub motion: Texture,
-    pub temporal_hist_len: Texture,
-    pub hit: Texture,
-    pub spatial_ping: Texture,
-    pub spatial_pong: Texture,
+    pub denoiser_normal_tex: Resource<Texture>,
+    pub denoiser_normal_tex_prev: Resource<Texture>,
+    pub denoiser_position_tex: Resource<Texture>,
+    pub denoiser_position_tex_prev: Resource<Texture>,
+    pub denoiser_vox_id_tex: Resource<Texture>,
+    pub denoiser_vox_id_tex_prev: Resource<Texture>,
+    pub denoiser_accumed_tex: Resource<Texture>,
+    pub denoiser_accumed_tex_prev: Resource<Texture>,
+    pub denoiser_motion_tex: Resource<Texture>,
+    pub denoiser_temporal_hist_len_tex: Resource<Texture>,
+    pub denoiser_hit_tex: Resource<Texture>,
+    pub denoiser_spatial_ping_tex: Resource<Texture>,
+    pub denoiser_spatial_pong_tex: Resource<Texture>,
 }
 
 #[derive(ResourceContainer)]
@@ -97,49 +98,58 @@ impl DenoiserResources {
         };
 
         DenoiserTextureSet {
-            normal: create_texture(
+            denoiser_normal_tex: Resource::new(create_texture(
                 vk::Format::R32_UINT,
                 vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC,
-            ),
-            normal_prev: create_texture(
+            )),
+            denoiser_normal_tex_prev: Resource::new(create_texture(
                 vk::Format::R32_UINT,
                 vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
-            ),
-            position: create_texture(
+            )),
+            denoiser_position_tex: Resource::new(create_texture(
                 vk::Format::R32G32B32A32_SFLOAT,
                 vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC,
-            ),
-            position_prev: create_texture(
+            )),
+            denoiser_position_tex_prev: Resource::new(create_texture(
                 vk::Format::R32G32B32A32_SFLOAT,
                 vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
-            ),
-            vox_id: create_texture(
+            )),
+            denoiser_vox_id_tex: Resource::new(create_texture(
                 vk::Format::R32_UINT,
                 vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC,
-            ),
-            vox_id_prev: create_texture(
+            )),
+            denoiser_vox_id_tex_prev: Resource::new(create_texture(
                 vk::Format::R32_UINT,
                 vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
-            ),
-            accumed: create_texture(
+            )),
+            denoiser_accumed_tex: Resource::new(create_texture(
                 vk::Format::R32_UINT,
                 vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC,
-            ),
-            accumed_prev: create_texture(
+            )),
+            denoiser_accumed_tex_prev: Resource::new(create_texture(
                 vk::Format::R32_UINT,
                 vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
-            ),
-            motion: create_texture(vk::Format::R16G16_SFLOAT, vk::ImageUsageFlags::STORAGE),
-            temporal_hist_len: create_texture(vk::Format::R8_UINT, vk::ImageUsageFlags::STORAGE),
-            hit: create_texture(vk::Format::R8_UINT, vk::ImageUsageFlags::STORAGE),
-            spatial_ping: create_texture(
+            )),
+            denoiser_motion_tex: Resource::new(create_texture(
+                vk::Format::R16G16_SFLOAT,
+                vk::ImageUsageFlags::STORAGE,
+            )),
+            denoiser_temporal_hist_len_tex: Resource::new(create_texture(
+                vk::Format::R8_UINT,
+                vk::ImageUsageFlags::STORAGE,
+            )),
+            denoiser_hit_tex: Resource::new(create_texture(
+                vk::Format::R8_UINT,
+                vk::ImageUsageFlags::STORAGE,
+            )),
+            denoiser_spatial_ping_tex: Resource::new(create_texture(
                 vk::Format::B10G11R11_UFLOAT_PACK32,
                 vk::ImageUsageFlags::STORAGE,
-            ),
-            spatial_pong: create_texture(
+            )),
+            denoiser_spatial_pong_tex: Resource::new(create_texture(
                 vk::Format::B10G11R11_UFLOAT_PACK32,
                 vk::ImageUsageFlags::STORAGE,
-            ),
+            )),
         }
     }
 }

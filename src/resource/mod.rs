@@ -2,10 +2,9 @@ use std::any::Any;
 use std::ops::{Deref, DerefMut};
 
 pub trait ResourceContainer {
-    const RESOURCE_NAMES: &'static [&'static str];
-
-    fn get_resource<T: 'static>(&self, name: &str) -> Option<&T>;
-    fn get_resource_names() -> Vec<&'static str>;
+    fn get_buffer(&self, name: &str) -> Option<&crate::vkn::Buffer>;
+    fn get_texture(&self, name: &str) -> Option<&crate::vkn::Texture>;
+    fn get_resource_names(&self) -> Vec<&'static str>;
 }
 
 pub struct Resource<T> {

@@ -16,7 +16,7 @@ use glam::{Mat4, UVec3, Vec2, Vec3};
 use winit::event::KeyEvent;
 
 use crate::audio::AudioEngine;
-use crate::builder::SurfaceResources;
+use crate::builder::{ContreeBuilderResources, SceneAccelResources, SurfaceResources};
 use crate::gameplay::{calculate_directional_light_matrices, Camera, CameraDesc};
 use crate::geom::{Aabb3, UAabb3};
 use crate::util::{ShaderCompiler, TimeInfo};
@@ -105,9 +105,8 @@ impl Tracer {
         shader_compiler: &ShaderCompiler,
         chunk_bound: UAabb3,
         screen_extent: Extent2D,
-        node_data: &Buffer,
-        leaf_data: &Buffer,
-        scene_tex: &Texture,
+        contree_builder_resources: &ContreeBuilderResources,
+        scene_accel_resources: &SceneAccelResources,
         desc: TracerDesc,
         audio_engine: AudioEngine,
     ) -> Result<Self> {
@@ -223,12 +222,6 @@ impl Tracer {
         )
         .unwrap();
 
-        // TODO:
-        log::debug!(
-            "tracer descriptor sets bindings: {:#?}",
-            tracer_sm.get_descriptor_sets_bindings()
-        );
-
         let grass_vert_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             shader_compiler,
@@ -301,9 +294,50 @@ impl Tracer {
                 .unwrap()
         };
 
-        // tracer_ppl.test();
         tracer_ppl
-            .auto_create_descriptor_sets(&fixed_pool, std::slice::from_ref(&resources))
+            .auto_create_descriptor_sets(
+                &fixed_pool,
+                &[&resources, contree_builder_resources, scene_accel_resources],
+            )
+            .unwrap();
+        tracer_shadow_ppl
+            .auto_create_descriptor_sets(
+                &fixed_pool,
+                &[&resources, contree_builder_resources, scene_accel_resources],
+            )
+            .unwrap();
+        vsm_creation_ppl
+            .auto_create_descriptor_sets(&fixed_pool, &[&resources])
+            .unwrap();
+        vsm_blur_h_ppl
+            .auto_create_descriptor_sets(&fixed_pool, &[&resources])
+            .unwrap();
+        vsm_blur_v_ppl
+            .auto_create_descriptor_sets(&fixed_pool, &[&resources])
+            .unwrap();
+        god_ray_ppl
+            .auto_create_descriptor_sets(&fixed_pool, &[&resources])
+            .unwrap();
+        temporal_ppl
+            .auto_create_descriptor_sets(&flexible_pool, &[&resources])
+            .unwrap();
+        spatial_ppl
+            .auto_create_descriptor_sets(&flexible_pool, &[&resources])
+            .unwrap();
+        composition_ppl
+            .auto_create_descriptor_sets(&flexible_pool, &[&resources])
+            .unwrap();
+        taa_ppl
+            .auto_create_descriptor_sets(&flexible_pool, &[&resources])
+            .unwrap();
+        player_collider_ppl
+            .auto_create_descriptor_sets(
+                &fixed_pool,
+                &[&resources, contree_builder_resources, scene_accel_resources],
+            )
+            .unwrap();
+        post_processing_ppl
+            .auto_create_descriptor_sets(&flexible_pool, &[&resources])
             .unwrap();
 
         let tracer_ds_0 = alloc_fixed_set_fn(&tracer_ppl, 0);
@@ -322,23 +356,26 @@ impl Tracer {
         let denoiser_ds = alloc_flexible_set_fn(&tracer_ppl, 3);
 
         // ignore the flexible sets
-        Self::update_tracer_ds_0(&tracer_ds_0, &resources, node_data, leaf_data, scene_tex);
+        Self::update_tracer_ds_0(
+            &tracer_ds_0,
+            &resources,
+            contree_builder_resources,
+            scene_accel_resources,
+        );
         Self::update_spatial_fixed_set(&spatial_fixed_set, &resources);
         Self::update_noise_tex_ds(&noise_tex_ds, &resources);
         Self::update_tracer_shadow_ds(
             &tracer_shadow_ds,
             &resources,
-            node_data,
-            leaf_data,
-            scene_tex,
+            contree_builder_resources,
+            scene_accel_resources,
         );
         Self::update_vsm_ds_0(&vsm_ds_0, &resources);
         Self::update_player_collider_ds(
             &player_collider_ds,
             &resources,
-            node_data,
-            leaf_data,
-            scene_tex,
+            contree_builder_resources,
+            scene_accel_resources,
         );
 
         god_ray_ppl.set_descriptor_sets(vec![god_ray_ds_0.clone(), noise_tex_ds.clone()]);
@@ -627,9 +664,8 @@ impl Tracer {
     fn update_tracer_ds_0(
         ds: &DescriptorSet,
         resources: &TracerResources,
-        node_data: &Buffer,
-        leaf_data: &Buffer,
-        scene_tex: &Texture,
+        contree_builder_resources: &ContreeBuilderResources,
+        scene_accel_resources: &SceneAccelResources,
     ) {
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.gui_input),
@@ -639,12 +675,12 @@ impl Tracer {
             WriteDescriptorSet::new_buffer_write(4, &resources.camera_info_prev_frame),
             WriteDescriptorSet::new_buffer_write(5, &resources.shadow_camera_info),
             WriteDescriptorSet::new_buffer_write(6, &resources.env_info),
-            WriteDescriptorSet::new_buffer_write(7, &node_data),
-            WriteDescriptorSet::new_buffer_write(8, &leaf_data),
+            WriteDescriptorSet::new_buffer_write(7, &contree_builder_resources.contree_node_data),
+            WriteDescriptorSet::new_buffer_write(8, &contree_builder_resources.contree_leaf_data),
             WriteDescriptorSet::new_texture_write(
                 9,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &scene_tex,
+                &scene_accel_resources.scene_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
@@ -678,79 +714,82 @@ impl Tracer {
             WriteDescriptorSet::new_texture_write(
                 0,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.normal,
+                &resources.denoiser_resources.tex.denoiser_normal_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 1,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.normal_prev,
+                &resources.denoiser_resources.tex.denoiser_normal_tex_prev,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 2,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.position,
+                &resources.denoiser_resources.tex.denoiser_position_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 3,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.position_prev,
+                &resources.denoiser_resources.tex.denoiser_position_tex_prev,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 4,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.vox_id,
+                &resources.denoiser_resources.tex.denoiser_vox_id_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 5,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.vox_id_prev,
+                &resources.denoiser_resources.tex.denoiser_vox_id_tex_prev,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 6,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.accumed,
+                &resources.denoiser_resources.tex.denoiser_accumed_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 7,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.accumed_prev,
+                &resources.denoiser_resources.tex.denoiser_accumed_tex_prev,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 8,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.motion,
+                &resources.denoiser_resources.tex.denoiser_motion_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 9,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.temporal_hist_len,
+                &resources
+                    .denoiser_resources
+                    .tex
+                    .denoiser_temporal_hist_len_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 10,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.hit,
+                &resources.denoiser_resources.tex.denoiser_hit_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 11,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.spatial_ping,
+                &resources.denoiser_resources.tex.denoiser_spatial_ping_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
                 12,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.spatial_pong,
+                &resources.denoiser_resources.tex.denoiser_spatial_pong_tex,
                 vk::ImageLayout::GENERAL,
             ),
         ]);
@@ -878,7 +917,7 @@ impl Tracer {
             WriteDescriptorSet::new_texture_write(
                 6,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.spatial_pong,
+                &resources.denoiser_resources.tex.denoiser_spatial_pong_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
@@ -914,7 +953,7 @@ impl Tracer {
             WriteDescriptorSet::new_texture_write(
                 2,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.denoiser_resources.tex.motion,
+                &resources.denoiser_resources.tex.denoiser_motion_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
@@ -954,18 +993,17 @@ impl Tracer {
     fn update_tracer_shadow_ds(
         ds: &DescriptorSet,
         resources: &TracerResources,
-        node_data: &Buffer,
-        leaf_data: &Buffer,
-        scene_tex: &Texture,
+        contree_builder_resources: &ContreeBuilderResources,
+        scene_accel_resources: &SceneAccelResources,
     ) {
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.shadow_camera_info),
-            WriteDescriptorSet::new_buffer_write(1, &node_data),
-            WriteDescriptorSet::new_buffer_write(2, &leaf_data),
+            WriteDescriptorSet::new_buffer_write(1, &contree_builder_resources.contree_node_data),
+            WriteDescriptorSet::new_buffer_write(2, &contree_builder_resources.contree_leaf_data),
             WriteDescriptorSet::new_texture_write(
                 3,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &scene_tex,
+                &scene_accel_resources.scene_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_texture_write(
@@ -1003,18 +1041,17 @@ impl Tracer {
     fn update_player_collider_ds(
         ds: &DescriptorSet,
         resources: &TracerResources,
-        node_data: &Buffer,
-        leaf_data: &Buffer,
-        scene_tex: &Texture,
+        contree_builder_resources: &ContreeBuilderResources,
+        scene_accel_resources: &SceneAccelResources,
     ) {
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.player_collider_info),
-            WriteDescriptorSet::new_buffer_write(1, &node_data),
-            WriteDescriptorSet::new_buffer_write(2, &leaf_data),
+            WriteDescriptorSet::new_buffer_write(1, &contree_builder_resources.contree_node_data),
+            WriteDescriptorSet::new_buffer_write(2, &contree_builder_resources.contree_leaf_data),
             WriteDescriptorSet::new_texture_write(
                 3,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &scene_tex,
+                &scene_accel_resources.scene_tex,
                 vk::ImageLayout::GENERAL,
             ),
             WriteDescriptorSet::new_buffer_write(4, &resources.player_collision_result),
@@ -1446,11 +1483,6 @@ impl Tracer {
 
         copy_current_to_prev(&self.resources, cmdbuf);
 
-        // let player_collision_result =
-        //     get_player_collision_result(&self.resources.player_collision_result)?;
-
-        // log::debug!("player_collision_result: {}", player_collision_result);
-
         return Ok(());
 
         fn record_denoiser_resources_transition_barrier(
@@ -1461,19 +1493,19 @@ impl Tracer {
                 tex.get_image()
                     .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
             };
-            tr_fn(&denoiser_resources.tex.normal);
-            tr_fn(&denoiser_resources.tex.normal_prev);
-            tr_fn(&denoiser_resources.tex.position);
-            tr_fn(&denoiser_resources.tex.position_prev);
-            tr_fn(&denoiser_resources.tex.vox_id);
-            tr_fn(&denoiser_resources.tex.vox_id_prev);
-            tr_fn(&denoiser_resources.tex.accumed);
-            tr_fn(&denoiser_resources.tex.accumed_prev);
-            tr_fn(&denoiser_resources.tex.motion);
-            tr_fn(&denoiser_resources.tex.temporal_hist_len);
-            tr_fn(&denoiser_resources.tex.hit);
-            tr_fn(&denoiser_resources.tex.spatial_ping);
-            tr_fn(&denoiser_resources.tex.spatial_pong);
+            tr_fn(&denoiser_resources.tex.denoiser_normal_tex);
+            tr_fn(&denoiser_resources.tex.denoiser_normal_tex_prev);
+            tr_fn(&denoiser_resources.tex.denoiser_position_tex);
+            tr_fn(&denoiser_resources.tex.denoiser_position_tex_prev);
+            tr_fn(&denoiser_resources.tex.denoiser_vox_id_tex);
+            tr_fn(&denoiser_resources.tex.denoiser_vox_id_tex_prev);
+            tr_fn(&denoiser_resources.tex.denoiser_accumed_tex);
+            tr_fn(&denoiser_resources.tex.denoiser_accumed_tex_prev);
+            tr_fn(&denoiser_resources.tex.denoiser_motion_tex);
+            tr_fn(&denoiser_resources.tex.denoiser_temporal_hist_len_tex);
+            tr_fn(&denoiser_resources.tex.denoiser_hit_tex);
+            tr_fn(&denoiser_resources.tex.denoiser_spatial_ping_tex);
+            tr_fn(&denoiser_resources.tex.denoiser_spatial_pong_tex);
         }
 
         fn copy_current_to_prev(resources: &TracerResources, cmdbuf: &CommandBuffer) {
@@ -1486,20 +1518,20 @@ impl Tracer {
                 );
             };
             copy_fn(
-                &resources.denoiser_resources.tex.normal,
-                &resources.denoiser_resources.tex.normal_prev,
+                &resources.denoiser_resources.tex.denoiser_normal_tex,
+                &resources.denoiser_resources.tex.denoiser_normal_tex_prev,
             );
             copy_fn(
-                &resources.denoiser_resources.tex.position,
-                &resources.denoiser_resources.tex.position_prev,
+                &resources.denoiser_resources.tex.denoiser_position_tex,
+                &resources.denoiser_resources.tex.denoiser_position_tex_prev,
             );
             copy_fn(
-                &resources.denoiser_resources.tex.vox_id,
-                &resources.denoiser_resources.tex.vox_id_prev,
+                &resources.denoiser_resources.tex.denoiser_vox_id_tex,
+                &resources.denoiser_resources.tex.denoiser_vox_id_tex_prev,
             );
             copy_fn(
-                &resources.denoiser_resources.tex.accumed,
-                &resources.denoiser_resources.tex.accumed_prev,
+                &resources.denoiser_resources.tex.denoiser_accumed_tex,
+                &resources.denoiser_resources.tex.denoiser_accumed_tex_prev,
             );
             copy_fn(
                 &resources.extent_dependent_resources.taa_tex,

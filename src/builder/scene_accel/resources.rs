@@ -6,7 +6,7 @@ use resource_container_derive::ResourceContainer;
 #[derive(ResourceContainer)]
 pub struct SceneAccelResources {
     pub scene_tex_update_info: Resource<Buffer>,
-    pub scene_offset_tex: Resource<Texture>,
+    pub scene_tex: Resource<Texture>,
 }
 
 impl SceneAccelResources {
@@ -25,8 +25,7 @@ impl SceneAccelResources {
             ..Default::default()
         };
         let sam_desc = Default::default();
-        let scene_offset_tex =
-            Texture::new(device.clone(), allocator.clone(), &tex_desc, &sam_desc);
+        let scene_tex = Texture::new(device.clone(), allocator.clone(), &tex_desc, &sam_desc);
 
         let scene_tex_update_info_layout = update_scene_tex_sm
             .get_buffer_layout("U_SceneTexUpdateInfo")
@@ -40,7 +39,7 @@ impl SceneAccelResources {
         );
 
         return Self {
-            scene_offset_tex: Resource::new(scene_offset_tex),
+            scene_tex: Resource::new(scene_tex),
             scene_tex_update_info: Resource::new(scene_tex_update_info),
         };
     }

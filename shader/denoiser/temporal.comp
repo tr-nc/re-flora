@@ -9,7 +9,7 @@ layout(set = 0, binding = 0) uniform U_TemporalInfo {
     float temporal_alpha;
 }
 temporal_info;
-layout(set = 0, binding = 1, r32ui) uniform uimage2D raw_image;
+layout(set = 0, binding = 1, r32ui) uniform uimage2D compute_output_tex;
 
 layout(set = 1, binding = 0, r32ui) uniform uimage2D denoiser_normal_tex;
 layout(set = 1, binding = 1, r32ui) uniform uimage2D denoiser_normal_tex_prev;
@@ -85,7 +85,7 @@ void main() {
         }
     }
 
-    vec3 raw_color = unpack_rgbe(imageLoad(raw_image, uv).x);
+    vec3 raw_color = unpack_rgbe(imageLoad(compute_output_tex, uv).x);
 
     float hist_len;
     vec3 out_color;

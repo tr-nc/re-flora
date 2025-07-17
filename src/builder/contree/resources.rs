@@ -16,9 +16,9 @@ pub struct ContreeBuilderResources {
     pub node_offset_for_levels: Resource<Buffer>,
     pub sparse_nodes: Resource<Buffer>,
     pub dense_nodes: Resource<Buffer>,
-    pub leaf_data: Resource<Buffer>,
 
-    pub node_data: Resource<Buffer>,
+    pub contree_leaf_data: Resource<Buffer>,
+    pub contree_node_data: Resource<Buffer>,
     pub contree_build_result: Resource<Buffer>,
 }
 
@@ -161,8 +161,8 @@ impl ContreeBuilderResources {
             node_offset_for_levels: Resource::new(node_offset_for_levels),
             sparse_nodes: Resource::new(sparse_nodes),
             dense_nodes: Resource::new(dense_nodes),
-            leaf_data: Resource::new(leaf_data),
-            node_data: Resource::new(node_data),
+            contree_leaf_data: Resource::new(leaf_data),
+            contree_node_data: Resource::new(node_data),
             contree_build_result: Resource::new(contree_build_result),
         };
 

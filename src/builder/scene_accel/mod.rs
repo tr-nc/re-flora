@@ -33,7 +33,7 @@ impl SceneAccelBuilder {
             WriteDescriptorSet::new_texture_write(
                 1,
                 vk::DescriptorType::STORAGE_IMAGE,
-                &resources.scene_offset_tex,
+                &resources.scene_tex,
                 vk::ImageLayout::GENERAL,
             ),
         ]);
@@ -115,7 +115,7 @@ impl SceneAccelBuilder {
             vulkan_context.command_pool(),
             &vulkan_context.get_general_queue(),
             |cmdbuf| {
-                resources.scene_offset_tex.get_image().record_clear(
+                resources.scene_tex.get_image().record_clear(
                     cmdbuf,
                     Some(vk::ImageLayout::GENERAL),
                     0,

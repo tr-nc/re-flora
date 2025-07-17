@@ -18,7 +18,7 @@ layout(set = 0, binding = 0) uniform U_SpatialInfo {
 }
 spatial_info;
 
-layout(set = 1, binding = 0, r32f) readonly uniform image2D depth_tex;
+layout(set = 1, binding = 0, r32f) readonly uniform image2D compute_depth_tex;
 
 layout(set = 2, binding = 0, r32ui) uniform uimage2D denoiser_normal_tex;
 layout(set = 2, binding = 1, r32ui) uniform uimage2D denoiser_normal_tex_prev;
@@ -122,7 +122,7 @@ void main() {
     vec3 n_c, c_c, p_c;
     load_from_pingpong(n_c, c_c, p_c, uv, iter);
     float lum_c   = lum(c_c);
-    float depth_c = imageLoad(depth_tex, uv).x;
+    float depth_c = imageLoad(compute_depth_tex, uv).x;
 
     const int R = 1;
     float w_sum = 0.0;

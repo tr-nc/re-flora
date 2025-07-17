@@ -190,9 +190,8 @@ impl App {
             &shader_compiler,
             chunk_bound,
             window_state.window_extent(),
-            &contree_builder.get_resources().node_data,
-            &contree_builder.get_resources().leaf_data,
-            &scene_accel_builder.get_resources().scene_offset_tex,
+            contree_builder.get_resources(),
+            scene_accel_builder.get_resources(),
             TracerDesc {
                 scaling_factor: 0.5,
             },

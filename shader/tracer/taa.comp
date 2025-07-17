@@ -10,7 +10,7 @@ layout(set = 0, binding = 0) uniform U_TaaInfo { uint is_taa_enabled; }
 taa_info;
 
 layout(set = 0, binding = 1, r11f_g11f_b10f) uniform readonly image2D composited_tex;
-layout(set = 0, binding = 2, rg16f) uniform readonly image2D motion_image;
+layout(set = 0, binding = 2, rg16f) uniform readonly image2D denoiser_motion_tex;
 layout(set = 0, binding = 3, r11f_g11f_b10f) uniform writeonly image2D taa_tex;
 layout(set = 0, binding = 4, r11f_g11f_b10f) uniform readonly image2D taa_tex_prev;
 
@@ -43,7 +43,7 @@ void get_moments(out vec3 mom1, out vec3 mom2, out vec3 center_color, ivec2 uvi,
     mom2 *= inv_samples;
 }
 
-vec2 get_motion(ivec2 uvi) { return imageLoad(motion_image, uvi).xy; }
+vec2 get_motion(ivec2 uvi) { return imageLoad(denoiser_motion_tex, uvi).xy; }
 
 void main() {
     ivec2 uvi      = ivec2(gl_GlobalInvocationID.xy);

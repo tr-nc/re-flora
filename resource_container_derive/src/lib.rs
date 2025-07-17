@@ -58,20 +58,42 @@ pub fn derive_resource_container(input: TokenStream) -> TokenStream {
         .into();
     }
 
-    // generate match arms for direct Resource<T> fields
-    let direct_match_arms = resource_idents.iter().map(|ident| {
+    // generate match arms for direct Resource<Buffer> fields
+    let buffer_match_arms = resource_idents.iter().map(|ident| {
         quote! {
-            stringify!(#ident) => self.#ident.as_any().downcast_ref::<T>(),
+            stringify!(#ident) => self.#ident.as_any().downcast_ref::<crate::vkn::Buffer>(),
         }
     });
 
-    // generate nested lookup code for other fields (let compiler determine if they implement ResourceContainer)
-    let nested_lookup_code = if other_field_idents.is_empty() {
+    // generate match arms for direct Resource<Texture> fields  
+    let texture_match_arms = resource_idents.iter().map(|ident| {
+        quote! {
+            stringify!(#ident) => self.#ident.as_any().downcast_ref::<crate::vkn::Texture>(),
+        }
+    });
+
+    // generate nested lookup code for buffers
+    let nested_buffer_lookup_code = if other_field_idents.is_empty() {
         quote! {}
     } else {
         quote! {
+            // Try nested ResourceContainer fields recursively
             #(
-                if let Some(result) = self.#other_field_idents.get_resource::<T>(name) {
+                if let Some(result) = self.#other_field_idents.get_buffer(name) {
+                    return Some(result);
+                }
+            )*
+        }
+    };
+
+    // generate nested lookup code for textures
+    let nested_texture_lookup_code = if other_field_idents.is_empty() {
+        quote! {}
+    } else {
+        quote! {
+            // Try nested ResourceContainer fields recursively
+            #(
+                if let Some(result) = self.#other_field_idents.get_texture(name) {
                     return Some(result);
                 }
             )*
@@ -83,7 +105,7 @@ pub fn derive_resource_container(input: TokenStream) -> TokenStream {
         quote! { stringify!(#ident) }
     });
 
-    let nested_resource_names = other_field_types.iter().map(|ty| {
+    let _nested_resource_names = other_field_types.iter().map(|ty| {
         quote! { #ty::get_resource_names() }
     });
 
@@ -97,34 +119,21 @@ pub fn derive_resource_container(input: TokenStream) -> TokenStream {
         quote! { &[#(#names),*] }
     };
 
-    // Generate compile-time conflict detection using a different approach
-    let compile_time_assertions = if !other_field_types.is_empty() {
-        let assertion_checks = other_field_types.iter().map(|ty| {
-            quote! {
-                const _: fn() = || {
-                    use crate::resource::ResourceContainer;
-                    
-                    // This will be evaluated at compile time when types are fully defined
-                    let direct_names = #direct_names_array;
-                    let nested_names = <#ty as ResourceContainer>::RESOURCE_NAMES;
-                    
-                    // Check for conflicts at compile time
-                    let mut i = 0;
-                    while i < direct_names.len() {
-                        let mut j = 0;
-                        while j < nested_names.len() {
-                            if const_str_eq(direct_names[i], nested_names[j]) {
-                                panic!("Resource name conflict detected at compile time");
-                            }
-                            j += 1;
-                        }
-                        i += 1;
-                    }
-                };
-            }
-        });
+    // Runtime conflict detection (since we removed the const)
+    let runtime_checks = if !other_field_types.is_empty() {
         quote! {
-            #(#assertion_checks)*
+            // Runtime checks for name conflicts
+            let direct_names = #direct_names_array;
+            #(
+                let nested_names = self.#other_field_idents.get_resource_names();
+                for direct_name in direct_names {
+                    for nested_name in &nested_names {
+                        if direct_name == nested_name {
+                            panic!("Resource name conflict detected: '{}'", direct_name);
+                        }
+                    }
+                }
+            )*
         }
     } else {
         quote! {}
@@ -132,21 +141,32 @@ pub fn derive_resource_container(input: TokenStream) -> TokenStream {
 
     let expanded = quote! {
         impl crate::resource::ResourceContainer for #struct_name {
-            const RESOURCE_NAMES: &'static [&'static str] = #direct_names_array;
-            
-            fn get_resource<T: 'static>(&self, name: &str) -> Option<&T> {
+            fn get_buffer(&self, name: &str) -> Option<&crate::vkn::Buffer> {
+                #runtime_checks
                 match name {
-                    // Direct Resource<T> fields take priority
-                    #(#direct_match_arms)*
+                    // Direct Resource<Buffer> fields take priority
+                    #(#buffer_match_arms)*
                     _ => {
                         // Try nested ResourceContainer fields
-                        #nested_lookup_code
+                        #nested_buffer_lookup_code
                         None
                     }
                 }
             }
 
-            fn get_resource_names() -> Vec<&'static str> {
+            fn get_texture(&self, name: &str) -> Option<&crate::vkn::Texture> {
+                match name {
+                    // Direct Resource<Texture> fields take priority
+                    #(#texture_match_arms)*
+                    _ => {
+                        // Try nested ResourceContainer fields
+                        #nested_texture_lookup_code
+                        None
+                    }
+                }
+            }
+
+            fn get_resource_names(&self) -> Vec<&'static str> {
                 let mut names = Vec::new();
                 let mut seen = std::collections::HashSet::new();
                 
@@ -161,7 +181,7 @@ pub fn derive_resource_container(input: TokenStream) -> TokenStream {
                 
                 // Add nested resource names
                 #(
-                    for nested_name in #nested_resource_names {
+                    for nested_name in self.#other_field_idents.get_resource_names() {
                         if !seen.insert(nested_name) {
                             panic!("Duplicate resource name '{}' found in {} (conflicts with nested resource)", nested_name, stringify!(#struct_name));
                         }
@@ -172,25 +192,6 @@ pub fn derive_resource_container(input: TokenStream) -> TokenStream {
                 names
             }
         }
-        
-        // Compile-time assertions for name conflicts
-        const fn const_str_eq(a: &str, b: &str) -> bool {
-            let a_bytes = a.as_bytes();
-            let b_bytes = b.as_bytes();
-            if a_bytes.len() != b_bytes.len() {
-                return false;
-            }
-            let mut i = 0;
-            while i < a_bytes.len() {
-                if a_bytes[i] != b_bytes[i] {
-                    return false;
-                }
-                i += 1;
-            }
-            true
-        }
-        
-        #compile_time_assertions
     };
     TokenStream::from(expanded)
 }
@@ -225,7 +226,6 @@ fn is_potential_resource_container(ty: &Type) -> bool {
                     "String" | "Vec" | "HashMap" | "HashSet" |
                     "Option" | "Result" | "Arc" | "Rc" | "Box" |
                     "Device" | "Allocator" | // Known VKN types that don't implement ResourceContainer
-                    "DenoiserTextureSet" | // Plain struct with textures, not a ResourceContainer
                     "Texture" | "Buffer" | "CommandBuffer" | "Pipeline" | // VKN types that are resources, not containers
                     "ShaderModule" | "DescriptorSet" | "RenderPass" | // More VKN types
                     "Context" | "Queue" | "Surface" | "Instance" | "PhysicalDevice" // VKN context types
