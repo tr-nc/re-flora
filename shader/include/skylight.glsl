@@ -22,8 +22,7 @@ struct ViewAltitudeKeyframe {
 };
 
 // Time-of-day keyframes - A more vibrant and detailed progression
-// We've increased the number of keyframes for smoother and more colorful transitions.
-const int TIME_KEYFRAME_COUNT                               = 9;
+const int TIME_KEYFRAME_COUNT                               = 10;
 const TimeOfDayKeyframe TIME_KEYFRAMES[TIME_KEYFRAME_COUNT] = {
     // 1. Deep Night: Almost pitch black with a hint of deep, cold blue.
     {-0.4, vec3(4.0, 5.0, 10.0) / 255.0, vec3(8.0, 10.0, 20.0) / 255.0},
@@ -31,30 +30,33 @@ const TimeOfDayKeyframe TIME_KEYFRAMES[TIME_KEYFRAME_COUNT] = {
     // 2. Pre-Dawn: The first light appears as a subtle purple/magenta glow on the horizon.
     {-0.18, vec3(20.0, 25.0, 45.0) / 255.0, vec3(40.0, 30.0, 50.0) / 255.0},
 
-    // 3. Dawn/Dusk Glow: The sky above is a deep blue, while the horizon burns with a vibrant red
+    // 3. Blue Hour: The sky is filled with a deep, saturated blue.
+    // NEW: This keyframe creates a distinct blue-dominated period during twilight.
+    {-0.1, vec3(15.0, 25.0, 60.0) / 255.0, vec3(30.0, 25.0, 60.0) / 255.0},
+
+    // 4. Dawn/Dusk Glow: The sky above is a deep blue, while the horizon burns with a vibrant red
     // glow.
     {-0.05, vec3(30.0, 50.0, 100.0) / 255.0, vec3(180.0, 50.0, 90.0) / 255.0},
 
-    // 4. Sunrise/Sunset: The sun is at the horizon. The top of the sky is a lighter blue, meeting a
+    // 5. Sunrise/Sunset: The sun is at the horizon. The top of the sky is a lighter blue, meeting a
     // fiery orange.
-    // This is the key to the "blue top, colorful bottom" sunset.
     {0.0, vec3(80.0, 100.0, 180.0) / 255.0, vec3(255.0, 100.0, 40.0) / 255.0},
 
-    // 5. Golden Hour: As the sun rises, the fiery reds give way to a warm, golden light.
-    {0.05, vec3(135.0, 170.0, 255.0) / 255.0, vec3(255.0, 180.0, 100.0) / 255.0},
+    // 6. Golden Hour: As the sun rises, the fiery reds give way to a warm, golden light.
+    {0.1, vec3(135.0, 170.0, 255.0) / 255.0, vec3(255.0, 180.0, 100.0) / 255.0},
 
-    // 6. Morning: The sky clears to a crisp, welcoming blue. A pale cyan near the horizon suggests
+    // 7. Morning: The sky clears to a crisp, welcoming blue. A pale cyan near the horizon suggests
     // morning haze.
-    {0.2, vec3(100.0, 160.0, 255.0) / 255.0, vec3(180.0, 210.0, 255.0) / 255.0},
+    {0.3, vec3(100.0, 160.0, 255.0) / 255.0, vec3(180.0, 210.0, 255.0) / 255.0},
 
-    // 7. Mid-day: A classic, bright sky blue. The variation between top and bottom adds depth.
+    // 8. Mid-day: A classic, bright sky blue. The variation between top and bottom adds depth.
     {0.5, vec3(80.0, 150.0, 255.0) / 255.0, vec3(110.0, 170.0, 245.0) / 255.0},
 
-    // 8. High Noon: At its peak, the sun makes the zenith a deep, pure blue, creating a subtle
+    // 9. High Noon: At its peak, the sun makes the zenith a deep, pure blue, creating a subtle
     // daytime gradient.
     {0.8, vec3(60.0, 120.0, 230.0) / 255.0, vec3(90.0, 150.0, 240.0) / 255.0},
 
-    // 9. Late Afternoon: The blue begins to soften and warm up slightly as the sun descends.
+    // 10. Late Afternoon: The blue begins to soften and warm up slightly as the sun descends.
     {1.0, vec3(40.0, 100.0, 220.0) / 255.0, vec3(100.0, 160.0, 255.0) / 255.0}};
 
 // View altitude keyframes - Refined gradient for a more natural horizon
@@ -159,23 +161,23 @@ vec3 get_sky_color(vec3 view_dir, vec3 sun_dir, uint use_debug_sky_colors, vec3 
     }
 
     // Use keyframe-based view altitude interpolation
-    float blend_factor = interpolate_view_altitude(altitude);
-    blend_factor       = smoothstep(0.0, 1.0, blend_factor);
+    float blend_factor  = interpolate_view_altitude(altitude);
+    blend_factor        = smoothstep(0.0, 1.0, blend_factor);
     vec3 base_sky_color = mix(sky_colors.bottom_color, sky_colors.top_color, blend_factor);
 
     // Add sun-halo effect
     float sun_proximity = max(0.0, dot(view_dir, sun_dir));
-    
+
     // Derive halo color from sky color at sun's position
     float sun_blend_factor = interpolate_view_altitude(sun_altitude);
-    sun_blend_factor = smoothstep(0.0, 1.0, sun_blend_factor);
-    vec3 halo_color = mix(sky_colors.bottom_color, sky_colors.top_color, sun_blend_factor);
-    
+    sun_blend_factor       = smoothstep(0.0, 1.0, sun_blend_factor);
+    vec3 halo_color        = mix(sky_colors.bottom_color, sky_colors.top_color, sun_blend_factor);
+
     // Halo falloff - stronger when sun is low, creates nice sunset halos
-    float halo_size = mix(0.1, 0.05, abs(sun_altitude)); // Larger halo when sun is low
+    float halo_size     = mix(0.1, 0.05, abs(sun_altitude)); // Larger halo when sun is low
     float halo_strength = pow(sun_proximity, 1.0 / halo_size);
     halo_strength *= (1.0 - abs(sun_altitude) * 0.5); // Reduce halo at zenith
-    
+
     // Blend halo with base sky color
     vec3 sky_color = mix(base_sky_color, halo_color, halo_strength * 0.4);
 
