@@ -161,7 +161,23 @@ vec3 get_sky_color(vec3 view_dir, vec3 sun_dir, uint use_debug_sky_colors, vec3 
     // Use keyframe-based view altitude interpolation
     float blend_factor = interpolate_view_altitude(altitude);
     blend_factor       = smoothstep(0.0, 1.0, blend_factor);
-    vec3 sky_color     = mix(sky_colors.bottom_color, sky_colors.top_color, blend_factor);
+    vec3 base_sky_color = mix(sky_colors.bottom_color, sky_colors.top_color, blend_factor);
+
+    // Add sun-halo effect
+    float sun_proximity = max(0.0, dot(view_dir, sun_dir));
+    
+    // Derive halo color from sky color at sun's position
+    float sun_blend_factor = interpolate_view_altitude(sun_altitude);
+    sun_blend_factor = smoothstep(0.0, 1.0, sun_blend_factor);
+    vec3 halo_color = mix(sky_colors.bottom_color, sky_colors.top_color, sun_blend_factor);
+    
+    // Halo falloff - stronger when sun is low, creates nice sunset halos
+    float halo_size = mix(0.1, 0.05, abs(sun_altitude)); // Larger halo when sun is low
+    float halo_strength = pow(sun_proximity, 1.0 / halo_size);
+    halo_strength *= (1.0 - abs(sun_altitude) * 0.5); // Reduce halo at zenith
+    
+    // Blend halo with base sky color
+    vec3 sky_color = mix(base_sky_color, halo_color, halo_strength * 0.4);
 
     return sky_color;
 }
