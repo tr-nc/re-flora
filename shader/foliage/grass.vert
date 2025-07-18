@@ -24,6 +24,8 @@ layout(set = 0, binding = 1) uniform U_SunInfo {
     float sun_size;
     vec3 sun_color;
     float sun_luminance;
+    float sun_altitude;
+    float sun_azimuth;
 }
 sun_info;
 layout(set = 0, binding = 2) uniform U_CameraInfo {

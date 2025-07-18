@@ -661,6 +661,8 @@ impl Tracer {
         sun_size: f32,
         sun_color: Vec3,
         sun_luminance: f32,
+        sun_altitude: f32,
+        sun_azimuth: f32,
         debug_color_1: Vec3,
         debug_color_2: Vec3,
         temporal_position_phi: f32,
@@ -720,7 +722,15 @@ impl Tracer {
 
         update_gui_input(&self.resources, debug_float, debug_bool, debug_uint)?;
 
-        update_sun_info(&self.resources, sun_dir, sun_size, sun_color, sun_luminance)?;
+        update_sun_info(
+            &self.resources,
+            sun_dir,
+            sun_size,
+            sun_color,
+            sun_luminance,
+            sun_altitude,
+            sun_azimuth,
+        )?;
 
         update_sky_info(
             &self.resources,
@@ -872,6 +882,8 @@ impl Tracer {
             sun_size: f32,
             sun_color: Vec3,
             sun_luminance: f32,
+            sun_altitude: f32,
+            sun_azimuth: f32,
         ) -> Result<()> {
             let data = StructMemberDataBuilder::from_buffer(&resources.sun_info)
                 .set_field("sun_dir", PlainMemberTypeWithData::Vec3(sun_dir.to_array()))
@@ -884,6 +896,8 @@ impl Tracer {
                     "sun_luminance",
                     PlainMemberTypeWithData::Float(sun_luminance),
                 )
+                .set_field("sun_altitude", PlainMemberTypeWithData::Float(sun_altitude))
+                .set_field("sun_azimuth", PlainMemberTypeWithData::Float(sun_azimuth))
                 .build()?;
             resources.sun_info.fill_with_raw_u8(&data)?;
             return Ok(());

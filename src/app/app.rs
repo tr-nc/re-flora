@@ -939,6 +939,8 @@ impl App {
                             self.sun_color.b() as f32 / 255.0,
                         ),
                         self.sun_luminance,
+                        self.sun_altitude,
+                        self.sun_azimuth,
                         Vec3::new(
                             self.debug_color_1.r() as f32 / 255.0,
                             self.debug_color_1.g() as f32 / 255.0,
