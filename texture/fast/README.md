@@ -1,5 +1,8 @@
-These are all generated using this repo
-[Fastnoise](https://github.com/electronicarts/fastnoise)
+# Fastnoise Generation Guide
+
+These are all generated using this repo: [Fastnoise](https://github.com/electronicarts/fastnoise)
+
+## How to generate
 
 | dir name        | command to generate                                                                          |
 | --------------- | -------------------------------------------------------------------------------------------- |
