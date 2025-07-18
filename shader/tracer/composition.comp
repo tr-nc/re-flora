@@ -148,7 +148,7 @@ void main() {
     vec3 final_color               = combine_colors(gfx_depth_01, compute_depth_01, gfx_color,
                                                     denoiser_spatial_pong_tex, screen_uv, uvi);
 
-    float god_ray_weight = imageLoad(god_ray_output_tex, uvi).r;
+    float god_ray_weight = imageLoad(god_ray_output_tex, uvi).r * 0.2;
 
     vec3 dot_color     = srgb_to_linear(vec3(1.0, 0.945, 0.0));
     vec4 god_ray_color = vec4(dot_color, god_ray_weight);
