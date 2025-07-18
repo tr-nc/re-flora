@@ -155,7 +155,8 @@ vec3 get_shadow_ray_color(Ray ray, ivec3 seed) {
         MarchingResult res_shadow_ray = general_scene_marching(ray);
         return res_shadow_ray.is_hit ? vec3(0.0) : sun_info.sun_color * sun_info.sun_luminance;
     } else {
-        return get_shadow_weight_pcss(ray.origin, seed) * sun_info.sun_color * sun_info.sun_luminance;
+        return get_shadow_weight_pcss(ray.origin, seed) * sun_info.sun_color *
+               sun_info.sun_luminance;
     }
 }
 
@@ -241,8 +242,9 @@ void get_pixel_color(out vec3 o_color, out float o_depth_01, out vec3 o_primary_
 
     MarchingResult res_indirect_ray = general_scene_marching(indirect_ray);
     if (!res_indirect_ray.is_hit) {
-        indirect_color = get_sky_color(indirect_ray.direction, sun_info.sun_dir, 
-                                        sky_info.use_debug_sky_colors, sky_info.debug_color_1, sky_info.debug_color_2);
+        indirect_color =
+            get_sky_color(indirect_ray.direction, sun_info.sun_dir, sky_info.use_debug_sky_colors,
+                          sky_info.debug_color_1, sky_info.debug_color_2);
     } else {
         if (!res_indirect_ray.is_normal_valid) {
             // Use the unique indirect_seed for this random choice as well.
