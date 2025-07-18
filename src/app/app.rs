@@ -638,7 +638,7 @@ impl App {
                                             ui.add(
                                                 egui::Slider::new(
                                                     &mut self.sun_altitude,
-                                                    -1.0..=1.0,
+                                                    -1.0..=-0.9,
                                                 )
                                                 .text("Altitude (normalized)"),
                                             );

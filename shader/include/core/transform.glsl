@@ -7,9 +7,15 @@
 /// Usage: TBN * <tangent_space_vector> = <world_space_vector>
 /// Usage: transpose(TBN) * <world_space_vector> = <tangent_space_vector>
 mat3 make_tbn(vec3 normal) {
-    vec3 up = abs(normal.y) < 0.999 ? vec3(0, 1, 0) : vec3(1, 0, 0);
-    vec3 t  = normalize(cross(up, normal));
-    vec3 b  = cross(normal, t);
+    vec3 up, t;
+    if (abs(normal.y) < 0.99999) {
+        up = vec3(0, 1, 0);
+        t  = normalize(cross(up, normal));
+    } else {
+        up = vec3(1, 0, 0);
+        t  = normalize(cross(normal, up));
+    }
+    vec3 b = cross(normal, t);
     return mat3(t, b, normal);
 }
 
