@@ -40,9 +40,20 @@ vec3 _star_nest_effect(vec3 view_dir, StarlightInfo info) {
         float a  = 0.0;
         for (int i = 0; i < info.iterations; i++) {
             // the magic formula
-            p = abs(p) / dot(p, p) - info.formuparam;
-            // absolute sum of average change
-            a += abs(length(p) - pa);
+            // FIX: Add a small epsilon to the denominator for numerical stability.
+            //      This prevents division by true zero.
+            p = abs(p) / (dot(p, p) + 1e-6) - info.formuparam;
+
+            // FIX: Calculate the change in length for this step.
+            float delta_a = abs(length(p) - pa);
+
+            // FIX: This is the key. We cap the contribution of any single step to 'a'.
+            //      This prevents a numerical explosion from creating a single, super-bright
+            //      pixel. The value '10.0' is a good starting point but can be tuned.
+            //      Higher values -> brighter, sharper details, but more potential for flicker.
+            //      Lower values -> more stable, but softer image.
+            a += min(delta_a, 10.0);
+
             pa = length(p);
         }
 
