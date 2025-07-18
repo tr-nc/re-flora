@@ -73,9 +73,9 @@ vec3 combine_colors(float gfx_depth_01, float compute_depth_01, vec3 gfx_color,
                                                 sky_info.debug_color_1, sky_info.debug_color_2);
         // Star visibility thresholds based on sun altitude
         const float star_cutoff_altitude =
-            0.1; // Stars completely hidden when sun is above this altitude
+            -0.05; // Stars completely hidden when sun is above this altitude
         const float star_fade_altitude =
-            -0.2; // Stars fully visible when sun is below this altitude
+            -0.4; // Stars fully visible when sun is below this altitude
 
         float sun_altitude = sun_info.sun_dir.y;
 

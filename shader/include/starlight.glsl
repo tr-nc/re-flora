@@ -6,6 +6,7 @@
 #include "../include/core/transform.glsl"
 
 // Star Nest by Pablo Roman Andrioli
+// https://www.shadertoy.com/view/XlfGRj
 // License: MIT
 
 struct StarlightInfo {
@@ -41,20 +42,10 @@ vec3 _star_nest_effect(vec3 view_dir, StarlightInfo info) {
         float a  = 0.0;
         for (int i = 0; i < info.iterations; i++) {
             // the magic formula
-            // FIX: Add a small epsilon to the denominator for numerical stability.
-            //      This prevents division by true zero.
             p = abs(p) / (dot(p, p) + 1e-6) - info.formuparam;
 
-            // FIX: Calculate the change in length for this step.
             float delta_a = abs(length(p) - pa);
-
-            // FIX: This is the key. We cap the contribution of any single step to 'a'.
-            //      This prevents a numerical explosion from creating a single, super-bright
-            //      pixel. The value '10.0' is a good starting point but can be tuned.
-            //      Higher values -> brighter, sharper details, but more potential for flicker.
-            //      Lower values -> more stable, but softer image.
             a += min(delta_a, 10.0);
-
             pa = length(p);
         }
 
@@ -83,11 +74,7 @@ vec3 get_starlight_color(vec3 view_dir, StarlightInfo info, vec3 sun_dir) {
 
     // for orthonomal basis, transpose is the same as inverse, but it's faster
     vec3 rotated_view_dir = transpose(make_tbn(sun_dir)) * view_dir;
-
-    vec3 star_color = _star_nest_effect(rotated_view_dir, info);
-
-    float horizon_fade = smoothstep(-0.05, 0.25, view_dir.y);
-    star_color *= horizon_fade;
+    vec3 star_color       = _star_nest_effect(rotated_view_dir, info);
 
     return srgb_to_linear(star_color);
 }
