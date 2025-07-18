@@ -3,7 +3,6 @@
 
 #include "../include/core/color.glsl"
 #include "../include/core/definitions.glsl"
-#include "../include/core/transform.glsl"
 
 // Star Nest by Pablo Roman Andrioli
 // https://www.shadertoy.com/view/XlfGRj
@@ -69,13 +68,8 @@ vec3 _star_nest_effect(vec3 view_dir, StarlightInfo info) {
     return v * 0.01;
 }
 
-vec3 get_starlight_color(vec3 view_dir, StarlightInfo info, vec3 sun_dir) {
-    float time_factor = float(env_info.frame_serial_idx) * 0.016;
-
-    // for orthonomal basis, transpose is the same as inverse, but it's faster
-    vec3 rotated_view_dir = transpose(make_tbn(sun_dir)) * view_dir;
-    vec3 star_color       = _star_nest_effect(rotated_view_dir, info);
-
+vec3 get_starlight_color(vec3 view_dir, StarlightInfo info) {
+    vec3 star_color = _star_nest_effect(view_dir, info);
     return srgb_to_linear(star_color);
 }
 

@@ -61,9 +61,33 @@ layout(set = 0, binding = 12, r8) uniform readonly image2D star_noise_tex;
 
 #include "../include/core/color.glsl"
 #include "../include/core/dither.glsl"
+#include "../include/core/transform.glsl"
 #include "../include/ray.glsl"
 #include "../include/skylight.glsl"
 #include "../include/starlight.glsl"
+
+mat3 _make_tbn(vec3 normal, float sun_azimuth) {
+    if (abs(normal.y) < 0.99999) {
+        vec3 up = vec3(0, 1, 0);
+        vec3 t  = normalize(cross(up, normal));
+        vec3 b  = cross(normal, t);
+        return mat3(t, b, normal);
+    } else {
+        // azimuth ranges from 0-1
+        float angle = sun_azimuth * 2.0 * PI;
+        // To remove the discontinuity, the tangent vector must be defined consistently
+        // with the general case. The coordinate system (azimuth from +Z to +X)
+        // requires a tangent of (cos(angle), 0, -sin(angle)).
+        // The original code's `+sin(angle)` caused the discontinuous flip.
+        vec3 t = vec3(cos(angle), 0.0, -sin(angle));
+
+        // The bitangent 'b' is calculated as before to complete the right-handed basis.
+        vec3 b = cross(normal, t);
+
+        return mat3(t, b, normal);
+
+    }
+}
 
 vec3 combine_colors(float gfx_depth_01, float compute_depth_01, vec3 gfx_color,
                     vec3 denoiser_output_color, vec2 screen_uv, ivec2 uvi) {
@@ -92,7 +116,10 @@ vec3 combine_colors(float gfx_depth_01, float compute_depth_01, vec3 gfx_color,
             starlight_info.stepsize, starlight_info.zoom, starlight_info.tile, starlight_info.speed,
             starlight_info.brightness, starlight_info.darkmatter, starlight_info.distfading,
             starlight_info.saturation);
-        vec3 star_color = get_starlight_color(ray.direction, info, sun_info.sun_dir);
+
+        vec3 rotated_view_dir =
+            transpose(_make_tbn(sun_info.sun_dir, sun_info.sun_azimuth)) * ray.direction;
+        vec3 star_color = get_starlight_color(rotated_view_dir, info);
 
         // Fade stars based on sun altitude
         float star_visibility = smoothstep(star_cutoff_altitude, star_fade_altitude, sun_altitude);
