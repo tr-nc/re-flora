@@ -265,18 +265,17 @@ impl App {
             is_fly_mode: true,
             use_debug_sky_colors: false,
 
-            // starlight parameters with default values from constants
             starlight_iterations: 18,
-            starlight_formuparam: 0.53,
-            starlight_volsteps: 20,
-            starlight_stepsize: 0.1,
-            starlight_zoom: 0.800,
-            starlight_tile: 0.850,
+            starlight_formuparam: 0.50,
+            starlight_volsteps: 10,
+            starlight_stepsize: 0.12,
+            starlight_zoom: 0.880,
+            starlight_tile: 1.10,
             starlight_speed: 0.010,
-            starlight_brightness: 0.0015,
-            starlight_darkmatter: 0.300,
-            starlight_distfading: 0.730,
-            starlight_saturation: 0.850,
+            starlight_brightness: 0.0030,
+            starlight_darkmatter: 0.50,
+            starlight_distfading: 0.78,
+            starlight_saturation: 1.000,
 
             audio_engine,
         };
