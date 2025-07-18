@@ -90,7 +90,7 @@ vec3 combine_colors(float gfx_depth_01, float compute_depth_01, vec3 gfx_color,
             starlight_info.stepsize, starlight_info.zoom, starlight_info.tile, starlight_info.speed,
             starlight_info.brightness, starlight_info.darkmatter, starlight_info.distfading,
             starlight_info.saturation);
-        vec3 star_color = get_starlight_color(ray.direction, info);
+        vec3 star_color = get_starlight_color(ray.direction, info, sun_info.sun_dir);
 
         // Fade stars based on sun altitude
         float star_visibility = smoothstep(star_cutoff_altitude, star_fade_altitude, sun_altitude);
