@@ -22,6 +22,7 @@ pub struct TracerResources {
     pub camera_info_prev_frame: Resource<Buffer>,
     pub shadow_camera_info: Resource<Buffer>,
     pub env_info: Resource<Buffer>,
+    pub starlight_info: Resource<Buffer>,
     pub grass_info: Resource<Buffer>,
     pub taa_info: Resource<Buffer>,
     pub post_processing_info: Resource<Buffer>,
@@ -56,6 +57,7 @@ impl TracerResources {
         vert_sm: &ShaderModule,
         tracer_sm: &ShaderModule,
         tracer_shadow_sm: &ShaderModule,
+        composition_sm: &ShaderModule,
         temporal_sm: &ShaderModule,
         spatial_sm: &ShaderModule,
         taa_sm: &ShaderModule,
@@ -130,6 +132,15 @@ impl TracerResources {
             device.clone(),
             allocator.clone(),
             env_info_layout.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+        );
+
+        let starlight_info_layout = composition_sm.get_buffer_layout("U_StarlightInfo").unwrap();
+        let starlight_info = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            starlight_info_layout.clone(),
             BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
@@ -292,6 +303,7 @@ impl TracerResources {
             camera_info_prev_frame: Resource::new(camera_info_prev_frame),
             shadow_camera_info: Resource::new(shadow_camera_info),
             env_info: Resource::new(env_info),
+            starlight_info: Resource::new(starlight_info),
             grass_info: Resource::new(grass_info),
             taa_info: Resource::new(taa_info),
             post_processing_info: Resource::new(post_processing_info),

@@ -35,13 +35,27 @@ layout(set = 0, binding = 3) uniform U_CameraInfo {
 camera_info;
 layout(set = 0, binding = 4) uniform U_EnvInfo { uint frame_serial_idx; }
 env_info;
-layout(set = 0, binding = 5, rgba8) uniform readonly image2D gfx_output_tex;
-layout(set = 0, binding = 6, r32f) uniform readonly image2D gfx_depth_tex;
-layout(set = 0, binding = 7, r11f_g11f_b10f) uniform readonly image2D denoiser_spatial_pong_tex;
-layout(set = 0, binding = 8, r32f) uniform readonly image2D compute_depth_tex;
-layout(set = 0, binding = 9, r32f) uniform readonly image2D god_ray_output_tex;
-layout(set = 0, binding = 10, r11f_g11f_b10f) uniform writeonly image2D composited_tex;
-layout(set = 0, binding = 11, r8) uniform readonly image2D star_noise_tex;
+layout(set = 0, binding = 5) uniform U_StarlightInfo {
+    int iterations;
+    float formuparam;
+    int volsteps;
+    float stepsize;
+    float zoom;
+    float tile;
+    float speed;
+    float brightness;
+    float darkmatter;
+    float distfading;
+    float saturation;
+}
+starlight_info;
+layout(set = 0, binding = 6, rgba8) uniform readonly image2D gfx_output_tex;
+layout(set = 0, binding = 7, r32f) uniform readonly image2D gfx_depth_tex;
+layout(set = 0, binding = 8, r11f_g11f_b10f) uniform readonly image2D denoiser_spatial_pong_tex;
+layout(set = 0, binding = 9, r32f) uniform readonly image2D compute_depth_tex;
+layout(set = 0, binding = 10, r32f) uniform readonly image2D god_ray_output_tex;
+layout(set = 0, binding = 11, r11f_g11f_b10f) uniform writeonly image2D composited_tex;
+layout(set = 0, binding = 12, r8) uniform readonly image2D star_noise_tex;
 
 #include "../include/core/color.glsl"
 #include "../include/core/dither.glsl"
@@ -57,7 +71,20 @@ vec3 combine_colors(float gfx_depth_01, float compute_depth_01, vec3 gfx_color,
                                                 sun_info.sun_luminance, sun_info.sun_size,
                                                 sky_info.use_debug_sky_colors,
                                                 sky_info.debug_color_1, sky_info.debug_color_2);
-        vec3 star_color = get_starlight_color(ray.direction);
+        StarlightInfo info = StarlightInfo(
+            starlight_info.iterations,
+            starlight_info.formuparam,
+            starlight_info.volsteps,
+            starlight_info.stepsize,
+            starlight_info.zoom,
+            starlight_info.tile,
+            starlight_info.speed,
+            starlight_info.brightness,
+            starlight_info.darkmatter,
+            starlight_info.distfading,
+            starlight_info.saturation
+        );
+        vec3 star_color = get_starlight_color(ray.direction, info);
         return mix(sky_color, star_color, 0.5);
     }
 

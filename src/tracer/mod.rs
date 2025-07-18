@@ -247,6 +247,7 @@ impl Tracer {
             &grass_vert_sm,
             &tracer_sm,
             &tracer_shadow_sm,
+            &composition_sm,
             &temporal_sm,
             &spatial_sm,
             &taa_sm,
@@ -674,6 +675,17 @@ impl Tracer {
         is_spatial_denoising_skipped: bool,
         is_taa_enabled: bool,
         use_debug_sky_colors: bool,
+        starlight_iterations: i32,
+        starlight_formuparam: f32,
+        starlight_volsteps: i32,
+        starlight_stepsize: f32,
+        starlight_zoom: f32,
+        starlight_tile: f32,
+        starlight_speed: f32,
+        starlight_brightness: f32,
+        starlight_darkmatter: f32,
+        starlight_distfading: f32,
+        starlight_saturation: f32,
     ) -> Result<()> {
         // camera info
         let view_mat = self.camera.get_view_mat();
@@ -715,6 +727,21 @@ impl Tracer {
             debug_color_1,
             debug_color_2,
             use_debug_sky_colors,
+        )?;
+
+        update_starlight_info(
+            &self.resources,
+            starlight_iterations,
+            starlight_formuparam,
+            starlight_volsteps,
+            starlight_stepsize,
+            starlight_zoom,
+            starlight_tile,
+            starlight_speed,
+            starlight_brightness,
+            starlight_darkmatter,
+            starlight_distfading,
+            starlight_saturation,
         )?;
 
         update_env_info(&self.resources, time_info.total_frame_count() as u32)?;
@@ -883,6 +910,37 @@ impl Tracer {
                 )
                 .build()?;
             resources.sky_info.fill_with_raw_u8(&data)?;
+            return Ok(());
+        }
+
+        fn update_starlight_info(
+            resources: &TracerResources,
+            iterations: i32,
+            formuparam: f32,
+            volsteps: i32,
+            stepsize: f32,
+            zoom: f32,
+            tile: f32,
+            speed: f32,
+            brightness: f32,
+            darkmatter: f32,
+            distfading: f32,
+            saturation: f32,
+        ) -> Result<()> {
+            let data = StructMemberDataBuilder::from_buffer(&resources.starlight_info)
+                .set_field("iterations", PlainMemberTypeWithData::Int(iterations))
+                .set_field("formuparam", PlainMemberTypeWithData::Float(formuparam))
+                .set_field("volsteps", PlainMemberTypeWithData::Int(volsteps))
+                .set_field("stepsize", PlainMemberTypeWithData::Float(stepsize))
+                .set_field("zoom", PlainMemberTypeWithData::Float(zoom))
+                .set_field("tile", PlainMemberTypeWithData::Float(tile))
+                .set_field("speed", PlainMemberTypeWithData::Float(speed))
+                .set_field("brightness", PlainMemberTypeWithData::Float(brightness))
+                .set_field("darkmatter", PlainMemberTypeWithData::Float(darkmatter))
+                .set_field("distfading", PlainMemberTypeWithData::Float(distfading))
+                .set_field("saturation", PlainMemberTypeWithData::Float(saturation))
+                .build()?;
+            resources.starlight_info.fill_with_raw_u8(&data)?;
             return Ok(());
         }
 

@@ -81,6 +81,19 @@ pub struct App {
     prev_bound: UAabb3,
     use_debug_sky_colors: bool,
 
+    // starlight parameters
+    starlight_iterations: i32,
+    starlight_formuparam: f32,
+    starlight_volsteps: i32,
+    starlight_stepsize: f32,
+    starlight_zoom: f32,
+    starlight_tile: f32,
+    starlight_speed: f32,
+    starlight_brightness: f32,
+    starlight_darkmatter: f32,
+    starlight_distfading: f32,
+    starlight_saturation: f32,
+
     // note: always keep the context to end, as it has to be destroyed last
     vulkan_ctx: VulkanContext,
 
@@ -251,6 +264,19 @@ impl App {
             config_panel_visible: false,
             is_fly_mode: true,
             use_debug_sky_colors: false,
+
+            // starlight parameters with default values from constants
+            starlight_iterations: 18,
+            starlight_formuparam: 0.53,
+            starlight_volsteps: 20,
+            starlight_stepsize: 0.1,
+            starlight_zoom: 0.800,
+            starlight_tile: 0.850,
+            starlight_speed: 0.010,
+            starlight_brightness: 0.0015,
+            starlight_darkmatter: 0.300,
+            starlight_distfading: 0.730,
+            starlight_saturation: 0.850,
 
             audio_engine,
         };
@@ -652,6 +678,86 @@ impl App {
                                             ));
                                         });
 
+                                        ui.collapsing("Starlight Settings", |ui| {
+                                            ui.add(
+                                                egui::Slider::new(
+                                                    &mut self.starlight_iterations,
+                                                    1..=30,
+                                                )
+                                                .text("Iterations"),
+                                            );
+                                            ui.add(
+                                                egui::Slider::new(
+                                                    &mut self.starlight_formuparam,
+                                                    0.0..=1.0,
+                                                )
+                                                .text("Form Parameter"),
+                                            );
+                                            ui.add(
+                                                egui::Slider::new(
+                                                    &mut self.starlight_volsteps,
+                                                    1..=50,
+                                                )
+                                                .text("Volume Steps"),
+                                            );
+                                            ui.add(
+                                                egui::Slider::new(
+                                                    &mut self.starlight_stepsize,
+                                                    0.01..=1.0,
+                                                )
+                                                .text("Step Size"),
+                                            );
+                                            ui.add(
+                                                egui::Slider::new(
+                                                    &mut self.starlight_zoom,
+                                                    0.1..=2.0,
+                                                )
+                                                .text("Zoom"),
+                                            );
+                                            ui.add(
+                                                egui::Slider::new(
+                                                    &mut self.starlight_tile,
+                                                    0.1..=2.0,
+                                                )
+                                                .text("Tile"),
+                                            );
+                                            ui.add(
+                                                egui::Slider::new(
+                                                    &mut self.starlight_speed,
+                                                    0.001..=0.1,
+                                                )
+                                                .text("Speed"),
+                                            );
+                                            ui.add(
+                                                egui::Slider::new(
+                                                    &mut self.starlight_brightness,
+                                                    0.0001..=0.01,
+                                                )
+                                                .text("Brightness"),
+                                            );
+                                            ui.add(
+                                                egui::Slider::new(
+                                                    &mut self.starlight_darkmatter,
+                                                    0.0..=1.0,
+                                                )
+                                                .text("Dark Matter"),
+                                            );
+                                            ui.add(
+                                                egui::Slider::new(
+                                                    &mut self.starlight_distfading,
+                                                    0.0..=1.0,
+                                                )
+                                                .text("Distance Fading"),
+                                            );
+                                            ui.add(
+                                                egui::Slider::new(
+                                                    &mut self.starlight_saturation,
+                                                    0.0..=1.0,
+                                                )
+                                                .text("Saturation"),
+                                            );
+                                        });
+
                                         ui.collapsing("Tree Settings", |ui| {
                                             ui.label("Position:");
                                             tree_desc_changed |= ui
@@ -856,6 +962,17 @@ impl App {
                         self.is_spatial_denoising_skipped,
                         self.is_taa_enabled,
                         self.use_debug_sky_colors,
+                        self.starlight_iterations,
+                        self.starlight_formuparam,
+                        self.starlight_volsteps,
+                        self.starlight_stepsize,
+                        self.starlight_zoom,
+                        self.starlight_tile,
+                        self.starlight_speed,
+                        self.starlight_brightness,
+                        self.starlight_darkmatter,
+                        self.starlight_distfading,
+                        self.starlight_saturation,
                     )
                     .unwrap();
 

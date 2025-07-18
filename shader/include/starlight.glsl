@@ -7,22 +7,21 @@
 // Star Nest by Pablo Roman Andrioli
 // License: MIT
 
-const int iterations   = 18;
-const float formuparam = 0.53;
+struct StarlightInfo {
+    int iterations;
+    float formuparam;
+    int volsteps;
+    float stepsize;
+    float zoom;
+    float tile;
+    float speed;
+    float brightness;
+    float darkmatter;
+    float distfading;
+    float saturation;
+};
 
-const int volsteps   = 20;
-const float stepsize = 0.1;
-
-const float zoom  = 0.800;
-const float tile  = 0.850;
-const float speed = 0.010;
-
-const float brightness = 0.0015;
-const float darkmatter = 0.300;
-const float distfading = 0.730;
-const float saturation = 0.850;
-
-vec3 _star_nest_effect(vec3 view_dir) {
+vec3 _star_nest_effect(vec3 view_dir, StarlightInfo info) {
     vec3 dir  = view_dir;
     vec3 from = vec3(1.0, 0.5, 2.0);
 
@@ -31,24 +30,24 @@ vec3 _star_nest_effect(vec3 view_dir) {
     float fade = 1.0;
     vec3 v     = vec3(0.0);
 
-    for (int r = 0; r < volsteps; r++) {
+    for (int r = 0; r < info.volsteps; r++) {
         vec3 p = from + s * dir * 0.5;
 
         // tiling fold
-        p = abs(vec3(tile) - mod(p, vec3(tile * 2.0)));
+        p = abs(vec3(info.tile) - mod(p, vec3(info.tile * 2.0)));
 
         float pa = 0.0;
         float a  = 0.0;
-        for (int i = 0; i < iterations; i++) {
+        for (int i = 0; i < info.iterations; i++) {
             // the magic formula
-            p = abs(p) / dot(p, p) - formuparam;
+            p = abs(p) / dot(p, p) - info.formuparam;
             // absolute sum of average change
             a += abs(length(p) - pa);
             pa = length(p);
         }
 
         // dark matter
-        float dm = max(0.0, darkmatter - a * a * 0.001);
+        float dm = max(0.0, info.darkmatter - a * a * 0.001);
         // add contrast
         a *= a * a;
 
@@ -57,20 +56,20 @@ vec3 _star_nest_effect(vec3 view_dir) {
 
         v += fade;
         // coloring based on distance
-        v += vec3(s, s * s, s * s * s * s) * a * brightness * fade;
+        v += vec3(s, s * s, s * s * s * s) * a * info.brightness * fade;
         // distance fading
-        fade *= distfading;
-        s += stepsize;
+        fade *= info.distfading;
+        s += info.stepsize;
     }
 
-    v = mix(vec3(length(v)), v, saturation); // color adjust
+    v = mix(vec3(length(v)), v, info.saturation); // color adjust
     return v * 0.01;
 }
 
-vec3 get_starlight_color(vec3 view_dir) {
+vec3 get_starlight_color(vec3 view_dir, StarlightInfo info) {
     float time_factor = float(env_info.frame_serial_idx) * 0.016;
 
-    vec3 star_color = _star_nest_effect(view_dir);
+    vec3 star_color = _star_nest_effect(view_dir, info);
 
     float horizon_fade = smoothstep(-0.05, 0.25, view_dir.y);
     star_color *= horizon_fade;
