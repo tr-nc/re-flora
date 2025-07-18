@@ -33,18 +33,21 @@ layout(set = 0, binding = 3) uniform U_CameraInfo {
     mat4 view_proj_mat_inv;
 }
 camera_info;
-layout(set = 0, binding = 4, rgba8) uniform readonly image2D gfx_output_tex;
-layout(set = 0, binding = 5, r32f) uniform readonly image2D gfx_depth_tex;
-layout(set = 0, binding = 6, r11f_g11f_b10f) uniform readonly image2D denoiser_spatial_pong_tex;
-layout(set = 0, binding = 7, r32f) uniform readonly image2D compute_depth_tex;
-layout(set = 0, binding = 8, r32f) uniform readonly image2D god_ray_output_tex;
-layout(set = 0, binding = 9, r11f_g11f_b10f) uniform writeonly image2D composited_tex;
-layout(set = 0, binding = 10, r8) uniform readonly image2D star_noise_tex;
+layout(set = 0, binding = 4) uniform U_EnvInfo { uint frame_serial_idx; }
+env_info;
+layout(set = 0, binding = 5, rgba8) uniform readonly image2D gfx_output_tex;
+layout(set = 0, binding = 6, r32f) uniform readonly image2D gfx_depth_tex;
+layout(set = 0, binding = 7, r11f_g11f_b10f) uniform readonly image2D denoiser_spatial_pong_tex;
+layout(set = 0, binding = 8, r32f) uniform readonly image2D compute_depth_tex;
+layout(set = 0, binding = 9, r32f) uniform readonly image2D god_ray_output_tex;
+layout(set = 0, binding = 10, r11f_g11f_b10f) uniform writeonly image2D composited_tex;
+layout(set = 0, binding = 11, r8) uniform readonly image2D star_noise_tex;
 
 #include "../include/core/color.glsl"
 #include "../include/core/dither.glsl"
 #include "../include/ray.glsl"
 #include "../include/skylight.glsl"
+#include "../include/starlight.glsl"
 
 vec3 combine_colors(float gfx_depth_01, float compute_depth_01, vec3 gfx_color,
                     vec3 denoiser_output_color, vec2 screen_uv, ivec2 uvi) {
@@ -54,7 +57,8 @@ vec3 combine_colors(float gfx_depth_01, float compute_depth_01, vec3 gfx_color,
                                                 sun_info.sun_luminance, sun_info.sun_size,
                                                 sky_info.use_debug_sky_colors,
                                                 sky_info.debug_color_1, sky_info.debug_color_2);
-        return sky_color;
+        vec3 star_color = get_starlight_color(ray.direction);
+        return mix(sky_color, star_color, 0.5);
     }
 
     if (gfx_depth_01 > compute_depth_01) {
