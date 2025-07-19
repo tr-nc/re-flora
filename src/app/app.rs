@@ -4,6 +4,7 @@ use crate::util::Timer;
 use crate::audio::{AudioEngine, ClipCache, PlayMode, SoundDataConfig};
 use crate::builder::{ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder};
 use crate::geom::{build_bvh, UAabb3};
+use crate::procedual_placer::{generate_positions, PlacerDesc};
 use crate::tracer::{Tracer, TracerDesc};
 use crate::tree_gen::{Tree, TreeDesc};
 use crate::util::{get_sun_dir, ShaderCompiler};
@@ -20,6 +21,7 @@ use egui::{Color32, RichText};
 use glam::{UVec3, Vec2, Vec3};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
 use kira::{StartTime, Tween};
+use rand::Rng;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use winit::event::DeviceEvent;
@@ -29,6 +31,59 @@ use winit::{
     keyboard::KeyCode,
     window::WindowId,
 };
+
+#[derive(Debug, Clone)]
+pub struct TreeVariationConfig {
+    pub size_variance: f32,
+    pub trunk_thickness_variance: f32,
+    pub trunk_thickness_min_variance: f32,
+    pub spread_variance: f32,
+    pub randomness_variance: f32,
+    pub vertical_tendency_variance: f32,
+    pub branch_angle_min_variance: f32,
+    pub branch_angle_max_variance: f32,
+    pub branch_probability_variance: f32,
+    pub branch_count_min_variance: f32,
+    pub branch_count_max_variance: f32,
+    pub leaves_size_level_variance: f32,
+    pub iterations_variance: f32,
+    pub segment_length_variation_variance: f32,
+    pub tree_height_variance: f32,
+    pub length_dropoff_variance: f32,
+    pub thickness_reduction_variance: f32,
+    pub subdivision_threshold_variance: f32,
+    pub subdivision_count_min_variance: f32,
+    pub subdivision_count_max_variance: f32,
+    pub subdivision_randomness_variance: f32,
+}
+
+impl Default for TreeVariationConfig {
+    fn default() -> Self {
+        TreeVariationConfig {
+            size_variance: 0.0,
+            trunk_thickness_variance: 0.0,
+            trunk_thickness_min_variance: 0.0,
+            spread_variance: 0.0,
+            randomness_variance: 0.0,
+            vertical_tendency_variance: 0.0,
+            branch_angle_min_variance: 0.0,
+            branch_angle_max_variance: 0.0,
+            branch_probability_variance: 0.0,
+            branch_count_min_variance: 0.0,
+            branch_count_max_variance: 0.0,
+            leaves_size_level_variance: 0.0,
+            iterations_variance: 0.0,
+            segment_length_variation_variance: 0.0,
+            tree_height_variance: 0.0,
+            length_dropoff_variance: 0.0,
+            thickness_reduction_variance: 0.0,
+            subdivision_threshold_variance: 0.0,
+            subdivision_count_min_variance: 0.0,
+            subdivision_count_max_variance: 0.0,
+            subdivision_randomness_variance: 0.0,
+        }
+    }
+}
 
 pub struct App {
     egui_renderer: EguiRenderer,
@@ -77,6 +132,8 @@ pub struct App {
     is_fly_mode: bool,
 
     tree_desc: TreeDesc,
+    tree_variation_config: TreeVariationConfig,
+    regenerate_trees_requested: bool,
     prev_bound: UAabb3,
 
     // starlight parameters
@@ -257,6 +314,8 @@ impl App {
             ambient_light: egui::Color32::from_rgb(25, 25, 25),
             tree_pos: Vec3::new(512.0, 0.0, 512.0),
             tree_desc: TreeDesc::default(),
+            tree_variation_config: TreeVariationConfig::default(),
+            regenerate_trees_requested: false,
             prev_bound: Default::default(),
             config_panel_visible: false,
             is_fly_mode: true,
@@ -278,6 +337,309 @@ impl App {
 
         app.add_a_tree(app.tree_desc.clone(), app.tree_pos, true)?;
         Ok(app)
+    }
+
+    fn generate_procedural_trees(&mut self) -> Result<()> {
+        self.plain_builder.chunk_init(
+            self.prev_bound.min(),
+            self.prev_bound.max() - self.prev_bound.min(),
+        )?;
+
+        let world_size = CHUNK_DIM * VOXEL_DIM_PER_CHUNK;
+        let map_dimensions = Vec2::new(world_size.x as f32 - 50.0, world_size.z as f32 - 50.0);
+        let grid_size = 120.0;
+        let mut placer_desc = PlacerDesc::new(42);
+        placer_desc.threshold = 0.5;
+
+        let tree_positions = generate_positions(map_dimensions, grid_size, &placer_desc);
+
+        log::info!("Generated {} procedural trees", tree_positions.len());
+
+        let mut rng = rand::rng();
+
+        for (i, pos_2d) in tree_positions.iter().enumerate() {
+            let tree_pos = Vec3::new(pos_2d.x, 0.0, pos_2d.y);
+            let is_first_tree = i == 0;
+
+            let mut tree_desc = self.tree_desc.clone();
+            tree_desc.seed = rng.random_range(1..10000);
+
+            self.apply_tree_variations(&mut tree_desc, &mut rng);
+            self.add_a_tree(tree_desc, tree_pos, is_first_tree)?;
+        }
+
+        Ok(())
+    }
+
+    fn edit_tree_with_variance(
+        tree_desc: &mut TreeDesc,
+        tree_variation_config: &mut TreeVariationConfig,
+        ui: &mut egui::Ui,
+    ) -> (bool, bool) {
+        let mut tree_changed = false;
+        let mut regenerate_pressed = false;
+
+        if ui.button("🌲 Regenerate Procedural Trees").clicked() {
+            regenerate_pressed = true;
+        }
+
+        ui.separator();
+
+        ui.heading("Basic Properties");
+        tree_changed |= ui
+            .add(
+                egui::Slider::new(&mut tree_desc.size, 0.1..=50.0)
+                    .text("Tree Size")
+                    .logarithmic(true),
+            )
+            .changed();
+        ui.add(
+            egui::Slider::new(&mut tree_variation_config.size_variance, 0.0..=1.0)
+                .text("Size Variance"),
+        );
+
+        tree_changed |= ui
+            .add(
+                egui::Slider::new(&mut tree_desc.trunk_thickness, 0.01..=5.0)
+                    .text("Trunk Thickness"),
+            )
+            .changed();
+        ui.add(
+            egui::Slider::new(
+                &mut tree_variation_config.trunk_thickness_variance,
+                0.0..=1.0,
+            )
+            .text("Thickness Variance"),
+        );
+
+        tree_changed |= ui
+            .add(
+                egui::Slider::new(&mut tree_desc.trunk_thickness_min, 0.001..=2.0)
+                    .text("Min Trunk Thickness"),
+            )
+            .changed();
+        ui.add(
+            egui::Slider::new(
+                &mut tree_variation_config.trunk_thickness_min_variance,
+                0.0..=1.0,
+            )
+            .text("Min Thickness Variance"),
+        );
+
+        tree_changed |= ui
+            .add(egui::Slider::new(&mut tree_desc.iterations, 1..=12).text("Iterations"))
+            .changed();
+        ui.add(
+            egui::Slider::new(
+                &mut tree_variation_config.iterations_variance,
+                0.0..=5.0,
+            )
+            .text("Iterations Variance"),
+        );
+
+        ui.separator();
+        ui.heading("Tree Shape");
+
+        tree_changed |= ui
+            .add(egui::Slider::new(&mut tree_desc.tree_height, 0.5..=50.0).text("Tree Height"))
+            .changed();
+        ui.add(
+            egui::Slider::new(
+                &mut tree_variation_config.tree_height_variance,
+                0.0..=1.0,
+            )
+            .text("Height Variance"),
+        );
+
+        tree_changed |= ui
+            .add(egui::Slider::new(&mut tree_desc.spread, 0.0..=2.0).text("Spread"))
+            .changed();
+        ui.add(
+            egui::Slider::new(&mut tree_variation_config.spread_variance, 0.0..=1.0)
+                .text("Spread Variance"),
+        );
+
+        tree_changed |= ui
+            .add(
+                egui::Slider::new(&mut tree_desc.vertical_tendency, -1.0..=1.0)
+                    .text("Vertical Tendency"),
+            )
+            .changed();
+        ui.add(
+            egui::Slider::new(
+                &mut tree_variation_config.vertical_tendency_variance,
+                0.0..=1.0,
+            )
+            .text("Vertical Tendency Variance"),
+        );
+
+        tree_changed |= ui
+            .add(
+                egui::Slider::new(&mut tree_desc.length_dropoff, 0.1..=1.0)
+                    .text("Length Dropoff"),
+            )
+            .changed();
+        ui.add(
+            egui::Slider::new(
+                &mut tree_variation_config.length_dropoff_variance,
+                0.0..=1.0,
+            )
+            .text("Length Dropoff Variance"),
+        );
+
+        tree_changed |= ui
+            .add(
+                egui::Slider::new(&mut tree_desc.thickness_reduction, 0.0..=1.0)
+                    .text("Thickness Reduction"),
+            )
+            .changed();
+        ui.add(
+            egui::Slider::new(
+                &mut tree_variation_config.thickness_reduction_variance,
+                0.0..=1.0,
+            )
+            .text("Thickness Reduction Variance"),
+        );
+
+        ui.separator();
+        ui.heading("Branching Control");
+
+        tree_changed |= ui
+            .add(
+                egui::Slider::new(&mut tree_desc.branch_probability, 0.0..=1.0)
+                    .text("Branch Probability"),
+            )
+            .changed();
+        ui.add(
+            egui::Slider::new(
+                &mut tree_variation_config.branch_probability_variance,
+                0.0..=1.0,
+            )
+            .text("Branch Probability Variance"),
+        );
+
+        ui.separator();
+        ui.heading("Variation");
+
+        tree_changed |= ui
+            .add(egui::Slider::new(&mut tree_desc.randomness, 0.0..=1.0).text("Randomness"))
+            .changed();
+        ui.add(
+            egui::Slider::new(
+                &mut tree_variation_config.randomness_variance,
+                0.0..=1.0,
+            )
+            .text("Randomness Variance"),
+        );
+
+        tree_changed |= ui
+            .add(
+                egui::Slider::new(&mut tree_desc.leaves_size_level, 0..=8)
+                    .text("Leaves Size Level"),
+            )
+            .changed();
+        ui.add(
+            egui::Slider::new(
+                &mut tree_variation_config.leaves_size_level_variance,
+                0.0..=5.0,
+            )
+            .text("Leaves Size Variance"),
+        );
+
+        tree_changed |= ui
+            .add(
+                egui::DragValue::new(&mut tree_desc.seed)
+                    .speed(1.0)
+                    .prefix("Seed: "),
+            )
+            .changed();
+
+        (tree_changed, regenerate_pressed)
+    }
+
+    fn apply_tree_variations(&self, tree_desc: &mut TreeDesc, rng: &mut impl Rng) {
+        let config = &self.tree_variation_config;
+
+        if config.size_variance > 0.0 {
+            tree_desc.size *= 1.0 + rng.random_range(-config.size_variance..=config.size_variance);
+        }
+
+        if config.trunk_thickness_variance > 0.0 {
+            tree_desc.trunk_thickness *= 1.0
+                + rng.random_range(
+                    -config.trunk_thickness_variance..=config.trunk_thickness_variance,
+                );
+        }
+
+        if config.trunk_thickness_min_variance > 0.0 {
+            tree_desc.trunk_thickness_min *= 1.0
+                + rng.random_range(
+                    -config.trunk_thickness_min_variance..=config.trunk_thickness_min_variance,
+                );
+        }
+
+        if config.spread_variance > 0.0 {
+            tree_desc.spread *=
+                1.0 + rng.random_range(-config.spread_variance..=config.spread_variance);
+        }
+
+        if config.randomness_variance > 0.0 {
+            tree_desc.randomness = (tree_desc.randomness
+                + rng.random_range(-config.randomness_variance..=config.randomness_variance))
+            .clamp(0.0, 1.0);
+        }
+
+        if config.vertical_tendency_variance > 0.0 {
+            tree_desc.vertical_tendency = (tree_desc.vertical_tendency
+                + rng.random_range(
+                    -config.vertical_tendency_variance..=config.vertical_tendency_variance,
+                ))
+            .clamp(-1.0, 1.0);
+        }
+
+        if config.branch_probability_variance > 0.0 {
+            tree_desc.branch_probability = (tree_desc.branch_probability
+                + rng.random_range(
+                    -config.branch_probability_variance..=config.branch_probability_variance,
+                ))
+            .clamp(0.0, 1.0);
+        }
+
+        if config.tree_height_variance > 0.0 {
+            tree_desc.tree_height *=
+                1.0 + rng.random_range(-config.tree_height_variance..=config.tree_height_variance);
+        }
+
+        if config.length_dropoff_variance > 0.0 {
+            tree_desc.length_dropoff = (tree_desc.length_dropoff
+                + rng.random_range(
+                    -config.length_dropoff_variance..=config.length_dropoff_variance,
+                ))
+            .clamp(0.1, 1.0);
+        }
+
+        if config.thickness_reduction_variance > 0.0 {
+            tree_desc.thickness_reduction = (tree_desc.thickness_reduction
+                + rng.random_range(
+                    -config.thickness_reduction_variance..=config.thickness_reduction_variance,
+                ))
+            .clamp(0.0, 1.0);
+        }
+
+        if config.iterations_variance > 0.0 {
+            let variation =
+                rng.random_range(-config.iterations_variance..=config.iterations_variance);
+            tree_desc.iterations =
+                ((tree_desc.iterations as f32 + variation).round() as u32).clamp(1, 12);
+        }
+
+        if config.leaves_size_level_variance > 0.0 {
+            let variation = rng.random_range(
+                -config.leaves_size_level_variance..=config.leaves_size_level_variance,
+            );
+            tree_desc.leaves_size_level =
+                ((tree_desc.leaves_size_level as f32 + variation).round() as u32).clamp(0, 8);
+        }
     }
 
     fn add_ambient_sounds(audio_engine: &mut AudioEngine) -> Result<()> {
@@ -773,7 +1135,14 @@ impl App {
                                                 .changed();
 
                                             ui.separator();
-                                            tree_desc_changed |= self.tree_desc.edit_by_gui(ui);
+
+                                            let (tree_changed, regenerate_pressed) =
+                                                Self::edit_tree_with_variance(&mut self.tree_desc, &mut self.tree_variation_config, ui);
+                                            tree_desc_changed |= tree_changed;
+
+                                            if regenerate_pressed {
+                                                self.regenerate_trees_requested = true;
+                                            }
                                         });
 
                                         ui.collapsing("Temporal Settings", |ui| {
@@ -877,6 +1246,18 @@ impl App {
                         true, // clean up before adding a new tree
                     )
                     .unwrap();
+                }
+
+                if self.regenerate_trees_requested {
+                    self.regenerate_trees_requested = false;
+                    match self.generate_procedural_trees() {
+                        Ok(_) => {
+                            log::info!("Procedural trees regenerated successfully");
+                        }
+                        Err(e) => {
+                            log::error!("Failed to regenerate procedural trees: {}", e);
+                        }
+                    }
                 }
 
                 let device = self.vulkan_ctx.device();
