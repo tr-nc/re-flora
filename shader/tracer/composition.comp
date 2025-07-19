@@ -19,12 +19,10 @@ layout(set = 0, binding = 1) uniform U_SunInfo {
     float sun_azimuth;
 }
 sun_info;
-layout(set = 0, binding = 2) uniform U_SkyInfo {
-    vec3 debug_color_1;
-    vec3 debug_color_2;
-    uint use_debug_sky_colors;
+layout(set = 0, binding = 2) uniform U_ShadingInfo {
+    vec3 ambient_light;
 }
-sky_info;
+shading_info;
 layout(set = 0, binding = 3) uniform U_CameraInfo {
     vec4 pos;
     mat4 view_mat;
@@ -94,9 +92,7 @@ vec3 combine_colors(float gfx_depth_01, float compute_depth_01, vec3 gfx_color,
     if (gfx_depth_01 == 1.0 && compute_depth_01 == 1.0) {
         Ray ray        = ray_gen(screen_uv, camera_info.view_proj_mat_inv);
         vec3 sky_color = get_sky_color_with_sun(ray.direction, sun_info.sun_dir, sun_info.sun_color,
-                                                sun_info.sun_luminance, sun_info.sun_size,
-                                                sky_info.use_debug_sky_colors,
-                                                sky_info.debug_color_1, sky_info.debug_color_2);
+                                                sun_info.sun_luminance, sun_info.sun_size);
         // Star visibility thresholds based on sun altitude
         const float star_cutoff_altitude =
             -0.05; // Stars completely hidden when sun is above this altitude

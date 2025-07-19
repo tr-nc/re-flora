@@ -145,19 +145,12 @@ SkyColors get_sky_color_by_sun_altitude(float sun_altitude) {
     return interpolate_time_keyframes(sun_altitude);
 }
 
-vec3 get_sky_color(vec3 view_dir, vec3 sun_dir, uint use_debug_sky_colors, vec3 debug_color_1,
-                   vec3 debug_color_2) {
+vec3 get_sky_color(vec3 view_dir, vec3 sun_dir) {
     // Altitude range now matches sun altitude range (-1 to 1)
     float altitude     = view_dir.y;
     float sun_altitude = sun_dir.y;
 
-    SkyColors sky_colors;
-    if (use_debug_sky_colors != 0) {
-        sky_colors.top_color    = srgb_to_linear(debug_color_1);
-        sky_colors.bottom_color = srgb_to_linear(debug_color_2);
-    } else {
-        sky_colors = get_sky_color_by_sun_altitude(sun_altitude);
-    }
+    SkyColors sky_colors = get_sky_color_by_sun_altitude(sun_altitude);
 
     // Use keyframe-based view altitude interpolation
     float blend_factor  = interpolate_view_altitude(altitude);
@@ -184,11 +177,9 @@ vec3 get_sky_color(vec3 view_dir, vec3 sun_dir, uint use_debug_sky_colors, vec3 
 }
 
 vec3 get_sky_color_with_sun(vec3 view_dir, vec3 sun_dir, vec3 sun_color, float sun_luminance,
-                            float sun_size, uint use_debug_sky_colors, vec3 debug_color_1,
-                            vec3 debug_color_2) {
-    vec3 sky_color_linear =
-        get_sky_color(view_dir, sun_dir, use_debug_sky_colors, debug_color_1, debug_color_2);
-    float sun_dist = 1.0 - dot(view_dir, sun_dir);
+                            float sun_size) {
+    vec3 sky_color_linear = get_sky_color(view_dir, sun_dir);
+    float sun_dist        = 1.0 - dot(view_dir, sun_dir);
     sun_dist /= sun_size;
 
     float sun = 0.05 / max(sun_dist, 0.001) + 0.02;

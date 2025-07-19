@@ -19,12 +19,10 @@ layout(set = 0, binding = 1) uniform U_SunInfo {
     float sun_azimuth;
 }
 sun_info;
-layout(set = 0, binding = 2) uniform U_SkyInfo {
-    vec3 debug_color_1;
-    vec3 debug_color_2;
-    uint use_debug_sky_colors;
+layout(set = 0, binding = 2) uniform U_ShadingInfo {
+    vec3 ambient_light;
 }
-sky_info;
+shading_info;
 layout(set = 0, binding = 3) uniform U_CameraInfo {
     vec4 pos;
     mat4 view_mat;
@@ -146,13 +144,12 @@ vec3 sample_sun_disk(ivec3 seed, float sun_size, vec3 sun_dir) {
 
 /// If the ray hits the scene, no light, otherwise sunlight
 vec3 get_shadow_ray_color(Ray ray, ivec3 seed) {
-    const vec3 ambient_color = vec3(0.1);
     if (gui_input.debug_bool == 0) {
         MarchingResult res_shadow_ray = general_scene_marching(ray);
-        return res_shadow_ray.is_hit ? ambient_color : sun_info.sun_color * sun_info.sun_luminance;
+        return res_shadow_ray.is_hit ? shading_info.ambient_light : sun_info.sun_color * sun_info.sun_luminance;
     } else {
         return get_shadow_weight_pcss(ray.origin, seed) * sun_info.sun_color *
-               sun_info.sun_luminance + ambient_color;
+               sun_info.sun_luminance + shading_info.ambient_light;
     }
 }
 
@@ -238,9 +235,7 @@ void get_pixel_color(out vec3 o_color, out float o_depth_01, out vec3 o_primary_
 
     MarchingResult res_indirect_ray = general_scene_marching(indirect_ray);
     if (!res_indirect_ray.is_hit) {
-        indirect_color =
-            get_sky_color(indirect_ray.direction, sun_info.sun_dir, sky_info.use_debug_sky_colors,
-                          sky_info.debug_color_1, sky_info.debug_color_2);
+        indirect_color = shading_info.ambient_light;
     } else {
         if (!res_indirect_ray.is_normal_valid) {
             // Use the unique indirect_seed for this random choice as well.

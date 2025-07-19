@@ -17,7 +17,7 @@ use resource_container_derive::ResourceContainer;
 pub struct TracerResources {
     pub gui_input: Resource<Buffer>,
     pub sun_info: Resource<Buffer>,
-    pub sky_info: Resource<Buffer>,
+    pub shading_info: Resource<Buffer>,
     pub camera_info: Resource<Buffer>,
     pub camera_info_prev_frame: Resource<Buffer>,
     pub shadow_camera_info: Resource<Buffer>,
@@ -87,11 +87,11 @@ impl TracerResources {
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
-        let sky_info_layout = tracer_sm.get_buffer_layout("U_SkyInfo").unwrap();
-        let sky_info = Buffer::from_buffer_layout(
+        let shading_info_layout = tracer_sm.get_buffer_layout("U_ShadingInfo").unwrap();
+        let shading_info = Buffer::from_buffer_layout(
             device.clone(),
             allocator.clone(),
-            sky_info_layout.clone(),
+            shading_info_layout.clone(),
             BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
@@ -298,7 +298,7 @@ impl TracerResources {
         return Self {
             gui_input: Resource::new(gui_input),
             sun_info: Resource::new(sun_info),
-            sky_info: Resource::new(sky_info),
+            shading_info: Resource::new(shading_info),
             camera_info: Resource::new(camera_info),
             camera_info_prev_frame: Resource::new(camera_info_prev_frame),
             shadow_camera_info: Resource::new(shadow_camera_info),

@@ -396,11 +396,12 @@ impl Tracer {
         ds.perform_writes(&mut [
             WriteDescriptorSet::new_buffer_write(0, &resources.gui_input),
             WriteDescriptorSet::new_buffer_write(1, &resources.sun_info),
-            WriteDescriptorSet::new_buffer_write(2, &resources.camera_info),
-            WriteDescriptorSet::new_buffer_write(3, &resources.shadow_camera_info),
-            WriteDescriptorSet::new_buffer_write(4, &resources.grass_info),
+            WriteDescriptorSet::new_buffer_write(2, &resources.shading_info),
+            WriteDescriptorSet::new_buffer_write(3, &resources.camera_info),
+            WriteDescriptorSet::new_buffer_write(4, &resources.shadow_camera_info),
+            WriteDescriptorSet::new_buffer_write(5, &resources.grass_info),
             WriteDescriptorSet::new_texture_write(
-                5,
+                6,
                 vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
                 &resources.shadow_map_tex_for_vsm_ping,
                 vk::ImageLayout::GENERAL,
@@ -663,8 +664,7 @@ impl Tracer {
         sun_luminance: f32,
         sun_altitude: f32,
         sun_azimuth: f32,
-        debug_color_1: Vec3,
-        debug_color_2: Vec3,
+        ambient_light: Vec3,
         temporal_position_phi: f32,
         temporal_alpha: f32,
         phi_c: f32,
@@ -676,7 +676,6 @@ impl Tracer {
         is_changing_lum_phi: bool,
         is_spatial_denoising_skipped: bool,
         is_taa_enabled: bool,
-        use_debug_sky_colors: bool,
         starlight_iterations: i32,
         starlight_formuparam: f32,
         starlight_volsteps: i32,
@@ -732,12 +731,7 @@ impl Tracer {
             sun_azimuth,
         )?;
 
-        update_sky_info(
-            &self.resources,
-            debug_color_1,
-            debug_color_2,
-            use_debug_sky_colors,
-        )?;
+        update_shading_info(&self.resources, ambient_light)?;
 
         update_starlight_info(
             &self.resources,
@@ -903,27 +897,14 @@ impl Tracer {
             return Ok(());
         }
 
-        fn update_sky_info(
-            resources: &TracerResources,
-            debug_color_1: Vec3,
-            debug_color_2: Vec3,
-            use_debug_sky_colors: bool,
-        ) -> Result<()> {
-            let data = StructMemberDataBuilder::from_buffer(&resources.sky_info)
+        fn update_shading_info(resources: &TracerResources, ambient_light: Vec3) -> Result<()> {
+            let data = StructMemberDataBuilder::from_buffer(&resources.shading_info)
                 .set_field(
-                    "debug_color_1",
-                    PlainMemberTypeWithData::Vec3(debug_color_1.to_array()),
-                )
-                .set_field(
-                    "debug_color_2",
-                    PlainMemberTypeWithData::Vec3(debug_color_2.to_array()),
-                )
-                .set_field(
-                    "use_debug_sky_colors",
-                    PlainMemberTypeWithData::UInt(if use_debug_sky_colors { 1 } else { 0 }),
+                    "ambient_light",
+                    PlainMemberTypeWithData::Vec3(ambient_light.to_array()),
                 )
                 .build()?;
-            resources.sky_info.fill_with_raw_u8(&data)?;
+            resources.shading_info.fill_with_raw_u8(&data)?;
             return Ok(());
         }
 

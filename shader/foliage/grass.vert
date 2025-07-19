@@ -28,7 +28,11 @@ layout(set = 0, binding = 1) uniform U_SunInfo {
     float sun_azimuth;
 }
 sun_info;
-layout(set = 0, binding = 2) uniform U_CameraInfo {
+layout(set = 0, binding = 2) uniform U_ShadingInfo {
+    vec3 ambient_light;
+}
+shading_info;
+layout(set = 0, binding = 3) uniform U_CameraInfo {
     vec4 pos;
     mat4 view_mat;
     mat4 view_mat_inv;
@@ -39,7 +43,7 @@ layout(set = 0, binding = 2) uniform U_CameraInfo {
 }
 camera_info;
 
-layout(set = 0, binding = 3) uniform U_ShadowCameraInfo {
+layout(set = 0, binding = 4) uniform U_ShadowCameraInfo {
     vec4 pos;
     mat4 view_mat;
     mat4 view_mat_inv;
@@ -50,10 +54,10 @@ layout(set = 0, binding = 3) uniform U_ShadowCameraInfo {
 }
 shadow_camera_info;
 
-layout(set = 0, binding = 4) uniform U_GrassInfo { float time; }
+layout(set = 0, binding = 5) uniform U_GrassInfo { float time; }
 grass_info;
 
-layout(set = 0, binding = 5) uniform sampler2D vsm_shadow_map_tex;
+layout(set = 0, binding = 6) uniform sampler2D vsm_shadow_map_tex;
 
 #include "../include/core/fast_noise_lite.glsl"
 #include "../include/core/hash.glsl"
@@ -128,7 +132,6 @@ void main() {
     // transform to clip space
     gl_Position = camera_info.view_proj_mat * vert_pos_ws;
 
-    vec3 ambient_light = vec3(0.1);
-    vec3 sun_light     = sun_info.sun_color * sun_info.sun_luminance;
-    vert_color         = in_color * (sun_light * shadow_weight + ambient_light);
+    vec3 sun_light = sun_info.sun_color * sun_info.sun_luminance;
+    vert_color     = in_color * (sun_light * shadow_weight + shading_info.ambient_light);
 }
