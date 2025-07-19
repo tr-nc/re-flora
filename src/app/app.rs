@@ -253,7 +253,7 @@ impl App {
             is_taa_enabled: false,
             sun_altitude: 0.25,
             sun_azimuth: 0.8,
-            sun_size: 0.02,
+            sun_size: 0.1,
             sun_color: egui::Color32::from_rgb(255, 233, 144),
             sun_luminance: 1.0,
             debug_color_1: egui::Color32::from_rgb(135, 206, 235),

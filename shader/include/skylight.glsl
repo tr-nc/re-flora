@@ -157,7 +157,6 @@ vec3 get_sky_color(vec3 view_dir, vec3 sun_dir, uint use_debug_sky_colors, vec3 
         sky_colors.bottom_color = srgb_to_linear(debug_color_2);
     } else {
         sky_colors = get_sky_color_by_sun_altitude(sun_altitude);
-        // Note: srgb_to_linear is already applied in interpolate_time_keyframes
     }
 
     // Use keyframe-based view altitude interpolation
@@ -189,13 +188,23 @@ vec3 get_sky_color_with_sun(vec3 view_dir, vec3 sun_dir, vec3 sun_color, float s
                             vec3 debug_color_2) {
     vec3 sky_color_linear =
         get_sky_color(view_dir, sun_dir, use_debug_sky_colors, debug_color_1, debug_color_2);
+    float sun_dist = 1.0 - dot(view_dir, sun_dir);
+    sun_dist /= sun_size;
 
-    vec3 luminance_sun_color = sun_color * sun_luminance;
-    float sun_intensity      = max(0.0, dot(view_dir, sun_dir));
-    float sun_power          = max(1.0, 100.0 / max(0.01, sun_size * 10.0));
-    sun_intensity            = pow(sun_intensity, sun_power);
+    float sun = 0.05 / max(sun_dist, 0.001) + 0.02;
 
-    return mix(sky_color_linear, luminance_sun_color, sun_intensity);
+    vec3 sun_contribution = vec3(sun / 0.477, sun + 0.5, sun + 0.8);
+
+    // Scale by sun luminance and apply size factor
+    sun_contribution *= sun_luminance * 0.2;
+
+    // Blend the sun contribution with the base sky color
+    vec3 luminance_sun_color = sun_color * sun_contribution;
+
+    // Use a falloff based on distance for smooth blending
+    float sun_blend_factor = clamp(sun * 0.1, 0.0, 1.0);
+
+    return mix(sky_color_linear, luminance_sun_color, sun_blend_factor);
 }
 
 #endif // SKYLIGHT_GLSL
