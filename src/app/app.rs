@@ -113,6 +113,11 @@ pub struct App {
     sun_altitude: f32,
     sun_azimuth: f32,
     sun_size: f32,
+    auto_daynight_cycle: bool,
+    time_of_day: f32,
+    latitude: f32,
+    season: f32,
+    day_cycle_minutes: f32,
     sun_color: egui::Color32,
     sun_luminance: f32,
     ambient_light: egui::Color32,
@@ -309,6 +314,11 @@ impl App {
             sun_altitude: 0.25,
             sun_azimuth: 0.8,
             sun_size: 0.1,
+            auto_daynight_cycle: true,
+            time_of_day: 0.5,
+            latitude: 0.0,
+            season: 0.0,
+            day_cycle_minutes: 5.0,
             sun_color: egui::Color32::from_rgb(255, 233, 144),
             sun_luminance: 1.0,
             ambient_light: egui::Color32::from_rgb(25, 25, 25),
@@ -430,11 +440,8 @@ impl App {
             .add(egui::Slider::new(&mut tree_desc.iterations, 1..=12).text("Iterations"))
             .changed();
         ui.add(
-            egui::Slider::new(
-                &mut tree_variation_config.iterations_variance,
-                0.0..=5.0,
-            )
-            .text("Iterations Variance"),
+            egui::Slider::new(&mut tree_variation_config.iterations_variance, 0.0..=5.0)
+                .text("Iterations Variance"),
         );
 
         ui.separator();
@@ -444,11 +451,8 @@ impl App {
             .add(egui::Slider::new(&mut tree_desc.tree_height, 0.5..=50.0).text("Tree Height"))
             .changed();
         ui.add(
-            egui::Slider::new(
-                &mut tree_variation_config.tree_height_variance,
-                0.0..=1.0,
-            )
-            .text("Height Variance"),
+            egui::Slider::new(&mut tree_variation_config.tree_height_variance, 0.0..=1.0)
+                .text("Height Variance"),
         );
 
         tree_changed |= ui
@@ -474,10 +478,7 @@ impl App {
         );
 
         tree_changed |= ui
-            .add(
-                egui::Slider::new(&mut tree_desc.length_dropoff, 0.1..=1.0)
-                    .text("Length Dropoff"),
-            )
+            .add(egui::Slider::new(&mut tree_desc.length_dropoff, 0.1..=1.0).text("Length Dropoff"))
             .changed();
         ui.add(
             egui::Slider::new(
@@ -525,11 +526,8 @@ impl App {
             .add(egui::Slider::new(&mut tree_desc.randomness, 0.0..=1.0).text("Randomness"))
             .changed();
         ui.add(
-            egui::Slider::new(
-                &mut tree_variation_config.randomness_variance,
-                0.0..=1.0,
-            )
-            .text("Randomness Variance"),
+            egui::Slider::new(&mut tree_variation_config.randomness_variance, 0.0..=1.0)
+                .text("Randomness Variance"),
         );
 
         tree_changed |= ui
@@ -555,6 +553,48 @@ impl App {
             .changed();
 
         (tree_changed, regenerate_pressed)
+    }
+
+    fn calculate_sun_position(&mut self, time_of_day: f32, latitude: f32, season: f32) {
+        use std::f32::consts::PI;
+
+        // Time of day: 0.0 = midnight, 0.5 = noon, 1.0 = midnight
+        // Latitude: -1.0 = south pole, 0.0 = equator, 1.0 = north pole
+        // Season: 0.0 = winter solstice, 0.25 = spring equinox, 0.5 = summer solstice, 0.75 = autumn equinox
+
+        // Convert time to hour angle (radians)
+        // Solar noon is at time_of_day = 0.5
+        let hour_angle = (time_of_day - 0.5) * 2.0 * PI;
+
+        // Solar declination based on season
+        // Season of 0.0 = winter solstice (max negative declination)
+        // Season of 0.5 = summer solstice (max positive declination)
+        let seasonal_angle = season * 2.0 * PI;
+        let declination = -23.44_f32.to_radians() * (seasonal_angle).cos(); // Earth's axial tilt
+
+        // Calculate solar elevation (altitude)
+        let elevation = (declination.sin() * (latitude * PI * 0.5).sin()
+            + declination.cos() * (latitude * PI * 0.5).cos() * hour_angle.cos())
+        .asin();
+
+        // Calculate solar azimuth
+        let azimuth = if hour_angle.cos() == 0.0 {
+            if hour_angle > 0.0 {
+                PI
+            } else {
+                0.0
+            }
+        } else {
+            (declination.sin() * (latitude * PI * 0.5).cos()
+                - declination.cos() * (latitude * PI * 0.5).sin() * hour_angle.cos())
+            .atan2(hour_angle.sin())
+        };
+
+        // Normalize elevation to -1.0 to 1.0 range (matching current altitude range)
+        self.sun_altitude = (elevation / (PI * 0.5)).clamp(-1.0, 1.0);
+
+        // Normalize azimuth to 0.0 to 1.0 range (matching current azimuth range)
+        self.sun_azimuth = ((azimuth + PI) / (2.0 * PI)) % 1.0;
     }
 
     fn apply_tree_variations(&self, tree_desc: &mut TreeDesc, rng: &mut impl Rng) {
@@ -989,18 +1029,102 @@ impl App {
                                         });
 
                                         ui.collapsing("Sky Settings", |ui| {
-                                            ui.add(
-                                                egui::Slider::new(
-                                                    &mut self.sun_altitude,
-                                                    -1.0..=1.0,
-                                                )
-                                                .text("Altitude (normalized)")
-                                                .smart_aim(false),
-                                            );
-                                            ui.add(
-                                                egui::Slider::new(&mut self.sun_azimuth, 0.0..=1.0)
+                                            ui.add(egui::Checkbox::new(
+                                                &mut self.auto_daynight_cycle,
+                                                "Auto Day/Night Cycle",
+                                            ));
+
+                                            if self.auto_daynight_cycle {
+                                                ui.add(
+                                                    egui::Slider::new(
+                                                        &mut self.time_of_day,
+                                                        0.0..=1.0,
+                                                    )
+                                                    .text("Time of Day (0:00 - 23:59)")
+                                                    .custom_formatter(|n, _| {
+                                                        let hour = (n * 24.0) as u32 % 24;
+                                                        let minute = (n * 24.0 * 60.0) as u32 % 60;
+                                                        format!("{:02}:{:02}", hour, minute)
+                                                    }),
+                                                );
+
+                                                ui.add(
+                                                    egui::Slider::new(
+                                                        &mut self.latitude,
+                                                        -1.0..=1.0,
+                                                    )
+                                                    .text("Latitude (South Pole to North Pole)")
+                                                    .custom_formatter(|n, _| {
+                                                        if n < -0.5 {
+                                                            format!("South ({:.1})", n)
+                                                        } else if n > 0.5 {
+                                                            format!("North ({:.1})", n)
+                                                        } else {
+                                                            format!("Equator ({:.1})", n)
+                                                        }
+                                                    }),
+                                                );
+
+                                                ui.add(
+                                                    egui::Slider::new(&mut self.season, 0.0..=1.0)
+                                                        .text("Season (Winter to Summer)")
+                                                        .custom_formatter(|n, _| {
+                                                            if n < 0.125 {
+                                                                "Winter".to_string()
+                                                            } else if n < 0.375 {
+                                                                "Spring".to_string()
+                                                            } else if n < 0.625 {
+                                                                "Summer".to_string()
+                                                            } else if n < 0.875 {
+                                                                "Autumn".to_string()
+                                                            } else {
+                                                                "Winter".to_string()
+                                                            }
+                                                        }),
+                                                );
+
+                                                ui.add(
+                                                    egui::Slider::new(
+                                                        &mut self.day_cycle_minutes,
+                                                        0.1..=60.0,
+                                                    )
+                                                    .text("Day Cycle Duration (Real Minutes)")
+                                                    .custom_formatter(|n, _| {
+                                                        if n < 1.0 {
+                                                            format!("{:.1}s", n * 60.0)
+                                                        } else {
+                                                            format!("{:.1}m", n)
+                                                        }
+                                                    }),
+                                                );
+
+                                                // Read-only displays for calculated values
+                                                ui.separator();
+                                                ui.label(format!(
+                                                    "Sun Altitude: {:.3}",
+                                                    self.sun_altitude
+                                                ));
+                                                ui.label(format!(
+                                                    "Sun Azimuth: {:.3}",
+                                                    self.sun_azimuth
+                                                ));
+                                            } else {
+                                                ui.add(
+                                                    egui::Slider::new(
+                                                        &mut self.sun_altitude,
+                                                        -1.0..=1.0,
+                                                    )
+                                                    .text("Altitude (normalized)")
+                                                    .smart_aim(false),
+                                                );
+                                                ui.add(
+                                                    egui::Slider::new(
+                                                        &mut self.sun_azimuth,
+                                                        0.0..=1.0,
+                                                    )
                                                     .text("Azimuth (normalized)"),
-                                            );
+                                                );
+                                            }
                                             ui.add(
                                                 egui::Slider::new(&mut self.sun_size, 0.0..=1.0)
                                                     .text("Size (relative)"),
@@ -1137,7 +1261,11 @@ impl App {
                                             ui.separator();
 
                                             let (tree_changed, regenerate_pressed) =
-                                                Self::edit_tree_with_variance(&mut self.tree_desc, &mut self.tree_variation_config, ui);
+                                                Self::edit_tree_with_variance(
+                                                    &mut self.tree_desc,
+                                                    &mut self.tree_variation_config,
+                                                    ui,
+                                                );
                                             tree_desc_changed |= tree_changed;
 
                                             if regenerate_pressed {
@@ -1258,6 +1386,20 @@ impl App {
                             log::error!("Failed to regenerate procedural trees: {}", e);
                         }
                     }
+                }
+
+                // Update sun position if auto day/night cycle is enabled
+                if self.auto_daynight_cycle {
+                    // Update time of day based on delta time and day cycle speed
+                    // day_cycle_minutes is the real-world minutes for a full day cycle
+                    // Convert to time progression per second: 1.0 / (day_cycle_minutes * 60.0)
+                    let time_speed = 1.0 / (self.day_cycle_minutes * 60.0);
+                    self.time_of_day += frame_delta_time * time_speed;
+
+                    // Keep time_of_day in 0.0 to 1.0 range (wrap around)
+                    self.time_of_day = self.time_of_day % 1.0;
+
+                    self.calculate_sun_position(self.time_of_day, self.latitude, self.season);
                 }
 
                 let device = self.vulkan_ctx.device();

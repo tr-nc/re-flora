@@ -147,7 +147,6 @@ sudo apt install cmake ninja-build # install build tools
 
 ### Main Objectives
 
-- [ ] Tree Cluster Generation
 - [ ] Leaves for Trees
 - [ ] Dynamic Terrain Edit
 - [ ] Still Water
