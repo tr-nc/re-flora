@@ -106,6 +106,8 @@ pub struct App {
     temporal_position_phi: f32,
     temporal_alpha: f32,
     god_ray_temporal_alpha: f32,
+    god_ray_max_depth: f32,
+    god_ray_max_checks: u32,
     phi_c: f32,
     phi_n: f32,
     phi_p: f32,
@@ -286,6 +288,8 @@ impl App {
             temporal_position_phi: 0.8,
             temporal_alpha: 0.04,
             god_ray_temporal_alpha: 0.2,
+            god_ray_max_depth: 3.0,
+            god_ray_max_checks: 32,
             phi_c: 0.75,
             phi_n: 20.0,
             phi_p: 0.05,
@@ -1290,6 +1294,23 @@ impl App {
                                             );
                                         });
 
+                                        ui.collapsing("God Ray Settings", |ui| {
+                                            ui.add(
+                                                egui::Slider::new(
+                                                    &mut self.god_ray_max_depth,
+                                                    0.1..=10.0,
+                                                )
+                                                .text("Max Depth"),
+                                            );
+                                            ui.add(
+                                                egui::Slider::new(
+                                                    &mut self.god_ray_max_checks,
+                                                    1..=64,
+                                                )
+                                                .text("Max Checks"),
+                                            );
+                                        });
+
                                         ui.collapsing("Spatial Settings", |ui| {
                                             ui.add(
                                                 egui::Slider::new(&mut self.phi_c, 0.0..=1.0)
@@ -1459,6 +1480,8 @@ impl App {
                         self.is_spatial_denoising_skipped,
                         self.is_taa_enabled,
                         self.god_ray_temporal_alpha,
+                        self.god_ray_max_depth,
+                        self.god_ray_max_checks,
                         self.starlight_iterations,
                         self.starlight_formuparam,
                         self.starlight_volsteps,

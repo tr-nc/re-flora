@@ -26,10 +26,15 @@ layout(set = 0, binding = 1) uniform U_ShadowCameraInfo {
 shadow_camera_info;
 layout(set = 0, binding = 2) uniform U_EnvInfo { uint frame_serial_idx; }
 env_info;
-layout(set = 0, binding = 3, r32f) uniform readonly image2D gfx_depth_tex;
-layout(set = 0, binding = 4, r32f) uniform readonly image2D compute_depth_tex;
-layout(set = 0, binding = 5) uniform sampler2D shadow_map_tex;
-layout(set = 0, binding = 6, r32f) uniform writeonly image2D god_ray_output_tex;
+layout(set = 0, binding = 3) uniform U_GodRayInfo {
+    float max_depth;
+    uint max_checks;
+}
+god_ray_info;
+layout(set = 0, binding = 4, r32f) uniform readonly image2D gfx_depth_tex;
+layout(set = 0, binding = 5, r32f) uniform readonly image2D compute_depth_tex;
+layout(set = 0, binding = 6) uniform sampler2D shadow_map_tex;
+layout(set = 0, binding = 7, r32f) uniform writeonly image2D god_ray_output_tex;
 
 layout(set = 1, binding = 0, r8) readonly uniform image2DArray scalar_bn;
 layout(set = 1, binding = 1, rg8) readonly uniform image2DArray unit_vec2_bn;
@@ -41,8 +46,6 @@ layout(set = 1, binding = 5, rgba8) readonly uniform image2DArray fast_weighted_
 
 #include "../include/ray.glsl"
 
-float MAX_DEPTH       = 3.0;
-const uint MAX_CHECKS = 16;
 
 float get_depth_01(ivec2 uvi) {
     float gfx_depth_01     = imageLoad(gfx_depth_tex, uvi).r;
@@ -70,8 +73,8 @@ void main() {
 
     float real_depth = length(hit_far_point_ws - near_point_ws);
 
-    float step_size   = MAX_DEPTH / MAX_CHECKS;
-    float using_depth = min(real_depth, MAX_DEPTH);
+    float step_size   = god_ray_info.max_depth / float(god_ray_info.max_checks);
+    float using_depth = min(real_depth, god_ray_info.max_depth);
 
     ivec3 seed         = get_seed(env_info.frame_serial_idx);
     float random_float = random_float_bn(seed);
@@ -79,7 +82,7 @@ void main() {
     // accumulate lit length along the ray (Riemann sum)
     float shadow_visibility = 0.0;
 
-    for (uint i = 0; i < MAX_CHECKS; ++i) {
+    for (uint i = 0; i < god_ray_info.max_checks; ++i) {
         float current_depth = (random_float + float(i)) * step_size;
         if (current_depth >= using_depth) break; // past the hit
 

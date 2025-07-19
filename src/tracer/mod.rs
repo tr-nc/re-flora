@@ -259,6 +259,7 @@ impl Tracer {
             &temporal_sm,
             &spatial_sm,
             &taa_sm,
+            &god_ray_sm,
             &god_ray_temporal_sm,
             &post_processing_sm,
             &player_collider_sm,
@@ -642,6 +643,8 @@ impl Tracer {
         is_spatial_denoising_skipped: bool,
         is_taa_enabled: bool,
         god_ray_temporal_alpha: f32,
+        god_ray_max_depth: f32,
+        god_ray_max_checks: u32,
         starlight_iterations: i32,
         starlight_formuparam: f32,
         starlight_volsteps: i32,
@@ -680,6 +683,8 @@ impl Tracer {
         update_taa_info(&self.resources, is_taa_enabled)?;
 
         update_god_ray_temporal_info(&self.resources, god_ray_temporal_alpha)?;
+
+        update_god_ray_info(&self.resources, god_ray_max_depth, god_ray_max_checks)?;
 
         update_post_processing_info(&self.resources, self.desc.scaling_factor)?;
 
@@ -983,6 +988,19 @@ impl Tracer {
                 )
                 .build()?;
             resources.god_ray_temporal_info.fill_with_raw_u8(&data)?;
+            Ok(())
+        }
+
+        fn update_god_ray_info(
+            resources: &TracerResources,
+            max_depth: f32,
+            max_checks: u32,
+        ) -> Result<()> {
+            let data = StructMemberDataBuilder::from_buffer(&resources.god_ray_info)
+                .set_field("max_depth", PlainMemberTypeWithData::Float(max_depth))
+                .set_field("max_checks", PlainMemberTypeWithData::UInt(max_checks))
+                .build()?;
+            resources.god_ray_info.fill_with_raw_u8(&data)?;
             Ok(())
         }
 

@@ -26,6 +26,7 @@ pub struct TracerResources {
     pub grass_info: Resource<Buffer>,
     pub taa_info: Resource<Buffer>,
     pub god_ray_temporal_info: Resource<Buffer>,
+    pub god_ray_info: Resource<Buffer>,
     pub post_processing_info: Resource<Buffer>,
     pub player_collider_info: Resource<Buffer>,
     pub player_collision_result: Resource<Buffer>,
@@ -62,6 +63,7 @@ impl TracerResources {
         temporal_sm: &ShaderModule,
         spatial_sm: &ShaderModule,
         taa_sm: &ShaderModule,
+        god_ray_sm: &ShaderModule,
         god_ray_temporal_sm: &ShaderModule,
         post_processing_sm: &ShaderModule,
         player_collider_sm: &ShaderModule,
@@ -172,6 +174,15 @@ impl TracerResources {
             device.clone(),
             allocator.clone(),
             god_ray_temporal_info_layout.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+        );
+
+        let god_ray_info_layout = god_ray_sm.get_buffer_layout("U_GodRayInfo").unwrap();
+        let god_ray_info = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            god_ray_info_layout.clone(),
             BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
@@ -320,6 +331,7 @@ impl TracerResources {
             grass_info: Resource::new(grass_info),
             taa_info: Resource::new(taa_info),
             god_ray_temporal_info: Resource::new(god_ray_temporal_info),
+            god_ray_info: Resource::new(god_ray_info),
             post_processing_info: Resource::new(post_processing_info),
             player_collider_info: Resource::new(player_collider_info),
             player_collision_result: Resource::new(player_collision_result),
