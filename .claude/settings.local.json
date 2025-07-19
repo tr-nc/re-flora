@@ -15,7 +15,8 @@
       "Bash(RUST_BACKTRACE=1 /mnt/c/Users/danny/.cargo/bin/cargo.exe run --release --features \"no_validation_layer\")",
       "Bash(RUST_BACKTRACE=1 /mnt/c/Users/danny/.cargo/bin/cargo.exe run)",
       "Bash(/mnt/c/Users/danny/.cargo/bin/cargo.exe fmt)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(timeout 10 /mnt/c/Users/danny/.cargo/bin/cargo.exe run)"
     ],
     "deny": []
   }

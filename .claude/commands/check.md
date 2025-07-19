@@ -18,7 +18,7 @@ WINDOWS_CARGO_PATH: /mnt/c/Users/danny/.cargo/bin/cargo.exe
 
 1. **Check:** Performs `WINDOWS_CARGO_PATH check` to analyze the project for errors and warnings.
 
-2. **Run:** Claude will run the executable using `WINDOWS_CARGO_PATH run` to test for runtime failures.
+2. **Run:** Claude will run the executable using `timeout 10 WINDOWS_CARGO_PATH run` to test for runtime failures.
 
 3. **Correct:** If any mistakes are found during the `check` or `run` steps, Claude will automatically correct the code and repeat the process until it succeeds.
 
