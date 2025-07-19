@@ -22,10 +22,9 @@ use crate::geom::{Aabb3, UAabb3};
 use crate::util::{ShaderCompiler, TimeInfo};
 use crate::vkn::{
     Allocator, AttachmentDesc, AttachmentReference, Buffer, ComputePipeline, DescriptorPool,
-    DescriptorSet, Extent2D, Extent3D, Framebuffer, GraphicsPipeline, GraphicsPipelineDesc,
-    MemoryBarrier, PipelineBarrier, PlainMemberTypeWithData, RenderPass, RenderPassDesc,
-    ShaderModule, StructMemberDataBuilder, StructMemberDataReader, SubpassDesc, Texture, Viewport,
-    WriteDescriptorSet,
+    Extent2D, Extent3D, Framebuffer, GraphicsPipeline, GraphicsPipelineDesc, MemoryBarrier,
+    PipelineBarrier, PlainMemberTypeWithData, RenderPass, RenderPassDesc, ShaderModule,
+    StructMemberDataBuilder, StructMemberDataReader, SubpassDesc, Texture, Viewport,
 };
 use crate::vkn::{CommandBuffer, VulkanContext};
 use anyhow::Result;
@@ -68,7 +67,6 @@ pub struct Tracer {
     vsm_blur_v_ppl: ComputePipeline,
     god_ray_ppl: ComputePipeline,
 
-    grass_sets: [DescriptorSet; 1],
     grass_ppl: GraphicsPipeline,
     grass_render_pass: RenderPass,
     grass_framebuffer: Framebuffer,
@@ -335,16 +333,14 @@ impl Tracer {
                 resources.shadow_map_tex.clone(),
             );
 
-        // TODO: refac later
-        let grass_ds = pool
-            .allocate_set(&grass_ppl.get_layout().get_descriptor_set_layouts()[&0])
+        grass_ppl
+            .auto_create_descriptor_sets(&pool, &[&resources])
             .unwrap();
-        Self::update_grass_ds(&grass_ds, &resources);
 
-        let shadow_ds = pool
-            .allocate_set(&shadow_ppl.get_layout().get_descriptor_set_layouts()[&0])
-            .unwrap();
-        Self::update_shadow_ds_0(&shadow_ds, &resources);
+        // currently not used
+        // shadow_ppl
+        //     .auto_create_descriptor_sets(&pool, &[&resources])
+        //     .unwrap();
 
         let grass_framebuffer = Self::create_grass_framebuffer(
             &vulkan_ctx,
@@ -381,7 +377,6 @@ impl Tracer {
             vsm_creation_ppl,
             vsm_blur_h_ppl,
             vsm_blur_v_ppl,
-            grass_sets: [grass_ds],
             grass_ppl,
             grass_render_pass,
             grass_framebuffer,
@@ -390,30 +385,6 @@ impl Tracer {
             shadow_framebuffer,
             pool,
         })
-    }
-
-    fn update_grass_ds(ds: &DescriptorSet, resources: &TracerResources) {
-        ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.gui_input),
-            WriteDescriptorSet::new_buffer_write(1, &resources.sun_info),
-            WriteDescriptorSet::new_buffer_write(2, &resources.shading_info),
-            WriteDescriptorSet::new_buffer_write(3, &resources.camera_info),
-            WriteDescriptorSet::new_buffer_write(4, &resources.shadow_camera_info),
-            WriteDescriptorSet::new_buffer_write(5, &resources.grass_info),
-            WriteDescriptorSet::new_texture_write(
-                6,
-                vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                &resources.shadow_map_tex_for_vsm_ping,
-                vk::ImageLayout::GENERAL,
-            ),
-        ]);
-    }
-
-    fn update_shadow_ds_0(ds: &DescriptorSet, resources: &TracerResources) {
-        ds.perform_writes(&mut [
-            WriteDescriptorSet::new_buffer_write(0, &resources.shadow_camera_info),
-            WriteDescriptorSet::new_buffer_write(1, &resources.grass_info),
-        ]);
     }
 
     fn create_grass_render_pass_and_graphics_pipeline(
@@ -1196,8 +1167,8 @@ impl Tracer {
         };
 
         // must be done before record draw, can be swapped with record_viewport_scissor
-        self.grass_ppl
-            .record_bind_descriptor_sets(cmdbuf, &self.grass_sets, 0);
+        // self.grass_ppl
+        //     .record_bind_descriptor_sets(cmdbuf, &self.grass_sets, 0);
 
         self.grass_ppl
             .record_viewport_scissor(cmdbuf, viewport, scissor);
@@ -1249,7 +1220,7 @@ impl Tracer {
 
             // issue the draw call for the current chunk.
             // No barriers are needed here.
-            self.grass_ppl.record_draw_indexed(
+            self.grass_ppl.record_indexed(
                 cmdbuf,
                 self.resources.indices_len,
                 chunk_resources.grass_instances_len,

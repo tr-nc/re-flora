@@ -28,9 +28,7 @@ layout(set = 0, binding = 1) uniform U_SunInfo {
     float sun_azimuth;
 }
 sun_info;
-layout(set = 0, binding = 2) uniform U_ShadingInfo {
-    vec3 ambient_light;
-}
+layout(set = 0, binding = 2) uniform U_ShadingInfo { vec3 ambient_light; }
 shading_info;
 layout(set = 0, binding = 3) uniform U_CameraInfo {
     vec4 pos;
@@ -57,7 +55,7 @@ shadow_camera_info;
 layout(set = 0, binding = 5) uniform U_GrassInfo { float time; }
 grass_info;
 
-layout(set = 0, binding = 6) uniform sampler2D vsm_shadow_map_tex;
+layout(set = 0, binding = 6) uniform sampler2D shadow_map_tex_for_vsm_ping;
 
 #include "../include/core/fast_noise_lite.glsl"
 #include "../include/core/hash.glsl"

@@ -1,14 +1,26 @@
-use crate::vkn::{
-    Buffer, CommandBuffer, DescriptorSet, Device, FormatOverride, PipelineLayout, RenderPass,
-    ShaderModule, Viewport,
+use crate::util::MergeWithEq;
+use crate::vkn::WriteDescriptorSet;
+use crate::{
+    resource::ResourceContainer,
+    vkn::{
+        CommandBuffer, DescriptorPool, DescriptorSet, DescriptorSetLayoutBinding, Device,
+        FormatOverride, PipelineLayout, RenderPass, ShaderModule, Viewport,
+    },
 };
+use anyhow::Result;
 use ash::vk;
-use std::{ops::Deref, sync::Arc};
+use std::{
+    collections::HashMap,
+    ops::Deref,
+    sync::{Arc, Mutex},
+};
 
 struct GraphicsPipelineInner {
     device: Device,
     pipeline: vk::Pipeline,
     pipeline_layout: PipelineLayout,
+    descriptor_sets: Mutex<Vec<DescriptorSet>>,
+    descriptor_sets_bindings: HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
 }
 
 impl Drop for GraphicsPipelineInner {
@@ -60,9 +72,6 @@ impl GraphicsPipeline {
         desc: &GraphicsPipelineDesc,
         instance_rate_starting_location: Option<u32>,
     ) -> Self {
-        // log::debug!("vert_shader_module: {:#?}", vert_shader_module);
-        // log::debug!("frag_shader_module: {:#?}", frag_shader_module);
-
         let vert_pipeline_layout = PipelineLayout::from_shader_module(device, vert_shader_module);
         let frag_pipeline_layout = PipelineLayout::from_shader_module(device, frag_shader_module);
         let pipeline_layout = vert_pipeline_layout.merge(&frag_pipeline_layout).unwrap();
@@ -75,9 +84,6 @@ impl GraphicsPipeline {
         let (binding_descs, attribute_descs) = vert_shader_module
             .get_vertex_input_state(&desc.format_overrides, instance_rate_starting_location)
             .unwrap();
-
-        // log::debug!("binding_descs: {:#?}", binding_descs);
-        // log::debug!("attribute_descs: {:#?}", attribute_descs);
 
         let vertex_input_info = vk::PipelineVertexInputStateCreateInfo::default()
             .vertex_binding_descriptions(&binding_descs)
@@ -157,11 +163,51 @@ impl GraphicsPipeline {
             .dynamic_state(&dynamic_states_info);
 
         let pipeline = Self::create_pipeline(device, &pipeline_info);
-        Self(Arc::new(GraphicsPipelineInner {
+
+        let vert_descriptor_sets_bindings = vert_shader_module.get_descriptor_sets_bindings();
+        let frag_descriptor_sets_bindings = frag_shader_module.get_descriptor_sets_bindings();
+        let descriptor_sets_bindings = merge_descriptor_sets_bindings(
+            &vert_descriptor_sets_bindings,
+            &frag_descriptor_sets_bindings,
+        )
+        .unwrap();
+
+        return Self(Arc::new(GraphicsPipelineInner {
             device: device.clone(),
             pipeline,
             pipeline_layout,
-        }))
+            descriptor_sets: Mutex::new(Vec::new()),
+            descriptor_sets_bindings,
+        }));
+
+        fn merge_descriptor_sets_bindings(
+            bindings_1: &HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
+            bindings_2: &HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
+        ) -> Result<HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>> {
+            let mut merged = HashMap::new();
+            // for unique set ids, just place the value inside the merged map
+            for (set_id, bindings) in bindings_1 {
+                if !bindings_2.contains_key(set_id) {
+                    merged.insert(*set_id, bindings.clone());
+                }
+                // if the set id is present in both maps, merge the bindings
+                else {
+                    let set_bindings_merged = bindings.merge_with_eq(
+                        bindings_2
+                            .get(set_id)
+                            .ok_or(anyhow::anyhow!("Set id not found"))?,
+                    )?;
+                    merged.insert(*set_id, set_bindings_merged);
+                }
+            }
+            // for unique set ids in bindings_2, just place the value inside the merged map
+            for (set_id, bindings) in bindings_2 {
+                if !bindings_1.contains_key(set_id) {
+                    merged.insert(*set_id, bindings.clone());
+                }
+            }
+            Ok(merged)
+        }
     }
 
     pub fn as_raw(&self) -> vk::Pipeline {
@@ -172,7 +218,7 @@ impl GraphicsPipeline {
         &self.0.pipeline_layout
     }
 
-    pub fn record_bind_descriptor_sets(
+    fn record_bind_descriptor_sets(
         &self,
         cmdbuf: &CommandBuffer,
         descriptor_sets: &[DescriptorSet],
@@ -194,6 +240,7 @@ impl GraphicsPipeline {
             );
         }
     }
+
     fn create_pipeline(
         device: &Device,
         create_info: &vk::GraphicsPipelineCreateInfo,
@@ -236,27 +283,30 @@ impl GraphicsPipeline {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn record_draw(
+    pub fn record_indexed(
         &self,
         cmdbuf: &CommandBuffer,
-        vertex_count: u32,
+        index_count: u32,
         instance_count: u32,
-        first_vertex: u32,
+        first_index: u32,
+        vertex_offset: i32,
         first_instance: u32,
     ) {
-        unsafe {
-            self.0.device.cmd_draw(
-                cmdbuf.as_raw(),
-                vertex_count,
-                instance_count,
-                first_vertex,
-                first_instance,
-            );
+        self.record_bind(cmdbuf);
+        if !self.0.descriptor_sets.lock().unwrap().is_empty() {
+            self.record_bind_descriptor_sets(cmdbuf, &self.0.descriptor_sets.lock().unwrap(), 0);
         }
+        self.record_draw_indexed(
+            cmdbuf,
+            index_count,
+            instance_count,
+            first_index,
+            vertex_offset,
+            first_instance,
+        );
     }
 
-    pub fn record_draw_indexed(
+    fn record_draw_indexed(
         &self,
         cmdbuf: &CommandBuffer,
         index_count: u32,
@@ -277,23 +327,127 @@ impl GraphicsPipeline {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn record_draw_indexed_indirect(
+    pub fn set_descriptor_sets(&self, descriptor_sets: Vec<DescriptorSet>) {
+        let mut guard = self.0.descriptor_sets.lock().unwrap();
+        *guard = descriptor_sets;
+    }
+
+    /// Creates descriptor sets for the compute pipeline.
+    ///
+    /// This function allocates descriptor sets from the descriptor pool based on the
+    /// pipeline's descriptor set layout. After creation, it calls auto_update_descriptor_sets
+    /// to populate the descriptor sets with the provided resources.
+    ///
+    /// # Arguments
+    /// * `descriptor_pool` - The descriptor pool to allocate sets from
+    /// * `resource_containers` - Array of resource containers containing buffers and textures
+    ///
+    /// # Returns
+    /// Result indicating success or failure of descriptor set creation
+    pub fn auto_create_descriptor_sets(
         &self,
-        cmdbuf: &CommandBuffer,
-        buffer: &Buffer,
-        offset: u64,
-        draw_count: u32,
-        stride: u32,
-    ) {
-        unsafe {
-            self.0.device.cmd_draw_indexed_indirect(
-                cmdbuf.as_raw(),
-                buffer.as_raw(),
-                offset,
-                draw_count,
-                stride,
-            );
+        descriptor_pool: &DescriptorPool,
+        resource_containers: &[&dyn ResourceContainer],
+    ) -> Result<()> {
+        let mut descriptor_sets = Vec::new();
+        let mut sorted_sets: Vec<_> = self.0.descriptor_sets_bindings.iter().collect();
+        sorted_sets.sort_by_key(|(set_no, _)| *set_no);
+
+        // Allocate descriptor sets from the pool
+        for (set_no, _) in sorted_sets {
+            let descriptor_set = descriptor_pool
+                .allocate_set(&self.0.pipeline_layout.get_descriptor_set_layouts()[set_no])
+                .unwrap();
+            descriptor_sets.push(descriptor_set);
         }
+
+        // Store the allocated descriptor sets
+        self.set_descriptor_sets(descriptor_sets);
+
+        // Update the descriptor sets with the provided resources
+        self.auto_update_descriptor_sets(resource_containers)?;
+
+        Ok(())
+    }
+
+    /// Updates existing descriptor sets with new resources.
+    ///
+    /// This function updates the descriptor sets that were previously created with
+    /// auto_create_descriptor_sets. It finds the appropriate resources from the
+    /// resource containers and writes them to the descriptor sets.
+    ///
+    /// # Arguments
+    /// * `resource_containers` - Array of resource containers containing buffers and textures
+    ///
+    /// # Returns
+    /// Result indicating success or failure of descriptor set update
+    pub fn auto_update_descriptor_sets(
+        &self,
+        resource_containers: &[&dyn ResourceContainer],
+    ) -> Result<()> {
+        let descriptor_sets = self.0.descriptor_sets.lock().unwrap();
+        let mut sorted_sets: Vec<_> = self.0.descriptor_sets_bindings.iter().collect();
+        sorted_sets.sort_by_key(|(set_no, _)| *set_no);
+
+        for (set_idx, (_, bindings)) in sorted_sets.iter().enumerate() {
+            let descriptor_set = &descriptor_sets[set_idx];
+
+            for (_binding_idx, binding) in bindings.iter() {
+                // Find the exact resource for this binding across all resource containers
+                let mut found_buffer_containers = Vec::new();
+                let mut found_texture_containers = Vec::new();
+
+                for (i, container) in resource_containers.iter().enumerate() {
+                    if let Some(_) = container.get_buffer(&binding.name) {
+                        found_buffer_containers.push(i);
+                    }
+                    if let Some(_) = container.get_texture(&binding.name) {
+                        found_texture_containers.push(i);
+                    }
+                }
+
+                // Ensure that only one resource container has that resource
+                let total_found = found_buffer_containers.len() + found_texture_containers.len();
+                if total_found == 0 {
+                    return Err(anyhow::anyhow!("Resource not found: {}", binding.name));
+                } else if total_found > 1 {
+                    return Err(anyhow::anyhow!(
+                        "Resource '{}' found in multiple containers: {} buffer containers, {} texture containers",
+                        binding.name,
+                        found_buffer_containers.len(),
+                        found_texture_containers.len()
+                    ));
+                }
+
+                // Each resource may be Buffer or Texture, but not both
+                if !found_buffer_containers.is_empty() && !found_texture_containers.is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "Resource '{}' found as both Buffer and Texture",
+                        binding.name
+                    ));
+                }
+
+                // Write the descriptor set based on the found resource
+                if let Some(container_idx) = found_buffer_containers.first() {
+                    let resource = resource_containers[*container_idx]
+                        .get_buffer(&binding.name)
+                        .unwrap();
+                    descriptor_set.perform_writes(&mut [WriteDescriptorSet::new_buffer_write(
+                        binding.no, resource,
+                    )]);
+                } else if let Some(container_idx) = found_texture_containers.first() {
+                    let resource = resource_containers[*container_idx]
+                        .get_texture(&binding.name)
+                        .unwrap();
+                    descriptor_set.perform_writes(&mut [WriteDescriptorSet::new_texture_write(
+                        binding.no,
+                        binding.descriptor_type,
+                        resource,
+                        vk::ImageLayout::GENERAL,
+                    )]);
+                }
+            }
+        }
+        Ok(())
     }
 }

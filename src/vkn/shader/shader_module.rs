@@ -420,23 +420,28 @@ impl ShaderModule {
     fn get_descriptor_set_bindings(
         &self,
         reflect_descriptor_set: &ReflectDescriptorSet,
-    ) -> Vec<DescriptorSetLayoutBinding> {
-        let mut bindings = Vec::new();
+    ) -> HashMap<u32, DescriptorSetLayoutBinding> {
+        let mut bindings = HashMap::new();
         for binding in &reflect_descriptor_set.bindings {
-            bindings.push(DescriptorSetLayoutBinding {
-                no: binding.binding,
-                name: binding.name.clone(),
-                descriptor_type: reflect_descriptor_type_to_descriptor_type(
-                    binding.descriptor_type,
-                ),
-                descriptor_count: binding.count,
-                stage_flags: self.get_stage(),
-            });
+            bindings.insert(
+                binding.binding,
+                DescriptorSetLayoutBinding {
+                    no: binding.binding,
+                    name: binding.name.clone(),
+                    descriptor_type: reflect_descriptor_type_to_descriptor_type(
+                        binding.descriptor_type,
+                    ),
+                    descriptor_count: binding.count,
+                    stage_flags: self.get_stage(),
+                },
+            );
         }
         bindings
     }
 
-    pub fn get_descriptor_sets_bindings(&self) -> HashMap<u32, Vec<DescriptorSetLayoutBinding>> {
+    pub fn get_descriptor_sets_bindings(
+        &self,
+    ) -> HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>> {
         let refl_descriptor_sets = self.get_reflect_descriptor_sets();
         let mut bindings = HashMap::new();
         for refl_ds in refl_descriptor_sets {
@@ -450,9 +455,8 @@ impl ShaderModule {
         let mut layouts = HashMap::new();
         for (set_no, bindings) in bindings {
             let mut builder = DescriptorSetLayoutBuilder::new();
-            for binding in bindings {
-                builder.add_binding(binding);
-            }
+            let binding_vec: Vec<DescriptorSetLayoutBinding> = bindings.values().cloned().collect();
+            builder.add_bindings(&binding_vec);
             layouts.insert(set_no, builder.build(&self.0.device).unwrap());
         }
         layouts

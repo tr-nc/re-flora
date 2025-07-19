@@ -19,7 +19,7 @@ struct ComputePipelineInner {
     pipeline_layout: PipelineLayout,
     workgroup_size: [u32; 3],
     descriptor_sets: Mutex<Vec<DescriptorSet>>,
-    descriptor_sets_bindings: HashMap<u32, Vec<DescriptorSetLayoutBinding>>,
+    descriptor_sets_bindings: HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
 }
 
 impl Drop for ComputePipelineInner {
@@ -73,27 +73,6 @@ impl ComputePipeline {
             descriptor_sets_bindings,
         }))
     }
-
-    // pub fn test(&self) -> &HashMap<u32, Vec<DescriptorSetLayoutBinding>> {
-    //     println!("Descriptor Sets Bindings (sorted by set number):");
-    //     let mut sorted_sets: Vec<_> = self.0.descriptor_sets_bindings.iter().collect();
-    //     sorted_sets.sort_by_key(|(set_no, _)| *set_no);
-
-    //     for (set_no, bindings) in sorted_sets {
-    //         println!("  Set {}: {} bindings", set_no, bindings.len());
-    //         let mut sorted_bindings = bindings.clone();
-    //         sorted_bindings.sort_by_key(|binding| binding.no);
-
-    //         for binding in sorted_bindings {
-    //             println!(
-    //                 "    Binding {}: {} (type: {:?})",
-    //                 binding.no, binding.name, binding.descriptor_type
-    //             );
-    //         }
-    //     }
-
-    //     &self.0.descriptor_sets_bindings
-    // }
 
     pub fn set_descriptor_sets(&self, descriptor_sets: Vec<DescriptorSet>) {
         let mut guard = self.0.descriptor_sets.lock().unwrap();
@@ -160,7 +139,7 @@ impl ComputePipeline {
         for (set_idx, (_, bindings)) in sorted_sets.iter().enumerate() {
             let descriptor_set = &descriptor_sets[set_idx];
 
-            for binding in bindings.iter() {
+            for (_binding_idx, binding) in bindings.iter() {
                 // Find the exact resource for this binding across all resource containers
                 let mut found_buffer_containers = Vec::new();
                 let mut found_texture_containers = Vec::new();
@@ -216,7 +195,6 @@ impl ComputePipeline {
                 }
             }
         }
-
         Ok(())
     }
 

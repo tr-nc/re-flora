@@ -62,13 +62,13 @@ impl EguiRenderer {
 
         let descriptor_set_layout = {
             let mut builder = DescriptorSetLayoutBuilder::new();
-            builder.add_binding(DescriptorSetLayoutBinding {
+            builder.add_bindings(&[DescriptorSetLayoutBinding {
                 no: 0,
                 name: "egui_texture".to_string(),
                 descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
                 descriptor_count: 1,
                 stage_flags: vk::ShaderStageFlags::FRAGMENT,
-            });
+            }]);
             builder.build(device).unwrap()
         };
 

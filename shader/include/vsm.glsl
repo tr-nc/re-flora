@@ -49,7 +49,7 @@ float get_shadow_weight_vsm(mat4 shadow_cam_view_proj_mat, vec4 voxel_pos_ws) {
 
     vec2 evsm_depth = warp_depth(t, get_evsm_exponents());
     // sampled from filtered VSM texture
-    vec4 occluder = texture(vsm_shadow_map_tex, uv);
+    vec4 occluder = texture(shadow_map_tex_for_vsm_ping, uv);
 
     float positive_contrib = chebyshev_upper_bound(occluder.xz, evsm_depth.x);
     float negative_contrib = chebyshev_upper_bound(occluder.yw, evsm_depth.y);
