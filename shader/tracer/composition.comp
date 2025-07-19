@@ -152,7 +152,7 @@ void main() {
 
     vec3 dot_color     = srgb_to_linear(vec3(1.0, 0.945, 0.0));
     vec4 god_ray_color = vec4(dot_color, god_ray_weight);
-    // final_color = mix(final_color, god_ray_color.rgb, god_ray_color.a);
+    final_color = mix(final_color, god_ray_color.rgb, god_ray_color.a);
 
     imageStore(composited_tex, uvi, vec4(final_color, 1.0));
 }

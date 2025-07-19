@@ -128,7 +128,7 @@ void main() {
     // transform to clip space
     gl_Position = camera_info.view_proj_mat * vert_pos_ws;
 
-    float ambient_light = 0.1;
-    vec3 sun_light = sun_info.sun_color * sun_info.sun_luminance;
-    vert_color = in_color * (sun_light * shadow_weight + ambient_light);
+    vec3 ambient_light = vec3(0.1);
+    vec3 sun_light     = sun_info.sun_color * sun_info.sun_luminance;
+    vert_color         = in_color * (sun_light * shadow_weight + ambient_light);
 }

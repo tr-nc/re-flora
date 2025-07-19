@@ -146,12 +146,13 @@ vec3 sample_sun_disk(ivec3 seed, float sun_size, vec3 sun_dir) {
 
 /// If the ray hits the scene, no light, otherwise sunlight
 vec3 get_shadow_ray_color(Ray ray, ivec3 seed) {
+    const vec3 ambient_color = vec3(0.1);
     if (gui_input.debug_bool == 0) {
         MarchingResult res_shadow_ray = general_scene_marching(ray);
-        return res_shadow_ray.is_hit ? vec3(0.0) : sun_info.sun_color * sun_info.sun_luminance;
+        return res_shadow_ray.is_hit ? ambient_color : sun_info.sun_color * sun_info.sun_luminance;
     } else {
         return get_shadow_weight_pcss(ray.origin, seed) * sun_info.sun_color *
-               sun_info.sun_luminance;
+               sun_info.sun_luminance + ambient_color;
     }
 }
 
