@@ -2,7 +2,10 @@
   "command-runner.commands": {
     "cargo run debug": "cargo run",
     "cargo run release": "cargo run --release --features \"no_validation_layer\"",
-    "claude code": "start \"claude\" wsl -e zsh -c \"source ~/.zshrc && claude\"",
+
+    // creates two claude tabs in a new windows terminal
+    "hi claude": "wt.exe -w 0 nt --title \"claude\" wsl -e zsh -c \"source ~/.zshrc && claude\"; new-tab --title \"claude\" wsl -e zsh -c \"source ~/.zshrc && claude\"",
+
     "create test env": "conda create -n re_flora_test_env python=3.9 -y",
     "install test env": "conda activate re_flora_test_env && pip install -r misc/test_env/requirements.txt",
     "run test env": "conda activate re_flora_test_env && python misc/test_env/test.py",
