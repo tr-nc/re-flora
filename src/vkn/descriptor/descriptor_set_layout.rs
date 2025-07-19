@@ -1,4 +1,4 @@
-use crate::vkn::Device;
+use crate::{util::MergeWithEq, vkn::Device};
 use anyhow::Result;
 use ash::vk;
 use std::{collections::HashMap, sync::Arc};
@@ -31,8 +31,8 @@ impl std::ops::Deref for DescriptorSetLayout {
 
 impl DescriptorSetLayout {
     /// Use the builder pattern to create a new DescriptorSetLayout
-    fn new(device: &Device, bindings: &[DescriptorSetLayoutBinding]) -> Result<Self> {
-        let raw_bindings = bindings.iter().map(|b| b.as_raw()).collect::<Vec<_>>();
+    fn new(device: &Device, bindings: &HashMap<u32, DescriptorSetLayoutBinding>) -> Result<Self> {
+        let raw_bindings = bindings.iter().map(|b| b.1.as_raw()).collect::<Vec<_>>();
         let descriptor_set_create_info =
             vk::DescriptorSetLayoutCreateInfo::default().bindings(&raw_bindings);
         let descriptor_set_layout = unsafe {
@@ -41,20 +41,10 @@ impl DescriptorSetLayout {
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?
         };
 
-        let mut bindings_map = HashMap::new();
-        for binding in bindings {
-            if let Some(_) = bindings_map.insert(binding.no, binding.clone()) {
-                return Err(anyhow::anyhow!(
-                    "Duplicate binding no {} found in descriptor set layout",
-                    binding.no
-                ));
-            }
-        }
-
         Ok(Self(Arc::new(DescriptorSetLayoutInner {
             device: device.clone(),
             descriptor_set_layout,
-            bindings: bindings_map,
+            bindings: bindings.clone(),
         })))
     }
 
@@ -73,28 +63,7 @@ impl DescriptorSetLayout {
             ));
         }
 
-        let mut merged_bindings = Vec::new();
-        for binding in self.0.bindings.values() {
-            if !other.0.bindings.contains_key(&binding.no) {
-                merged_bindings.push(binding.clone());
-            } else {
-                let other_binding = other.0.bindings.get(&binding.no).unwrap();
-                if binding != other_binding {
-                    return Err(anyhow::anyhow!(
-                        "Duplicate binding no {} found in descriptor set layout",
-                        binding.no
-                    ));
-                }
-                merged_bindings.push(binding.clone());
-            }
-        }
-
-        for binding in other.0.bindings.values() {
-            if !self.0.bindings.contains_key(&binding.no) {
-                merged_bindings.push(binding.clone());
-            }
-            // skip if they have the same binding number, we already checked this in the previous loop
-        }
+        let merged_bindings = self.0.bindings.merge_with_eq(&other.0.bindings)?;
 
         Self::new(&self.0.device, &merged_bindings)
     }
@@ -120,22 +89,25 @@ impl DescriptorSetLayoutBinding {
 }
 
 pub struct DescriptorSetLayoutBuilder {
-    bindings: Vec<DescriptorSetLayoutBinding>,
+    bindings: HashMap<u32, DescriptorSetLayoutBinding>,
 }
 
 impl DescriptorSetLayoutBuilder {
     pub fn new() -> Self {
         Self {
-            bindings: Vec::new(),
+            bindings: HashMap::new(),
         }
     }
 
-    pub fn add_bindings(&mut self, bindings: &[DescriptorSetLayoutBinding]) -> &mut Self {
-        self.bindings.extend(bindings.iter().cloned());
+    pub fn set_bindings(
+        &mut self,
+        bindings: HashMap<u32, DescriptorSetLayoutBinding>,
+    ) -> &mut Self {
+        self.bindings = bindings;
         self
     }
 
     pub fn build(self, device: &Device) -> Result<DescriptorSetLayout> {
-        DescriptorSetLayout::new(device, &self.bindings)
+        DescriptorSetLayout::new(device, &self.bindings.clone())
     }
 }

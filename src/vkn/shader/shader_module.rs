@@ -455,8 +455,7 @@ impl ShaderModule {
         let mut layouts = HashMap::new();
         for (set_no, bindings) in bindings {
             let mut builder = DescriptorSetLayoutBuilder::new();
-            let binding_vec: Vec<DescriptorSetLayoutBinding> = bindings.values().cloned().collect();
-            builder.add_bindings(&binding_vec);
+            builder.set_bindings(bindings);
             layouts.insert(set_no, builder.build(&self.0.device).unwrap());
         }
         layouts
