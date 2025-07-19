@@ -67,6 +67,7 @@ pub struct Tracer {
     vsm_blur_h_ppl: ComputePipeline,
     vsm_blur_v_ppl: ComputePipeline,
     god_ray_ppl: ComputePipeline,
+    god_ray_temporal_ppl: ComputePipeline,
 
     grass_ppl: GraphicsPipeline,
     grass_render_pass: RenderPass,
@@ -162,6 +163,14 @@ impl Tracer {
         )
         .unwrap();
 
+        let god_ray_temporal_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            &shader_compiler,
+            "shader/tracer/god_ray_temporal.comp",
+            "main",
+        )
+        .unwrap();
+
         let temporal_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             &shader_compiler,
@@ -250,6 +259,7 @@ impl Tracer {
             &temporal_sm,
             &spatial_sm,
             &taa_sm,
+            &god_ray_temporal_sm,
             &post_processing_sm,
             &player_collider_sm,
             render_extent,
@@ -265,6 +275,7 @@ impl Tracer {
         let vsm_blur_h_ppl = ComputePipeline::new(device, &vsm_blur_h_sm);
         let vsm_blur_v_ppl = ComputePipeline::new(device, &vsm_blur_v_sm);
         let god_ray_ppl = ComputePipeline::new(device, &god_ray_sm);
+        let god_ray_temporal_ppl = ComputePipeline::new(device, &god_ray_temporal_sm);
         let temporal_ppl = ComputePipeline::new(device, &temporal_sm);
         let spatial_ppl = ComputePipeline::new(device, &spatial_sm);
         let composition_ppl = ComputePipeline::new(device, &composition_sm);
@@ -294,6 +305,9 @@ impl Tracer {
             .auto_create_descriptor_sets(&pool, &[&resources])
             .unwrap();
         god_ray_ppl
+            .auto_create_descriptor_sets(&pool, &[&resources])
+            .unwrap();
+        god_ray_temporal_ppl
             .auto_create_descriptor_sets(&pool, &[&resources])
             .unwrap();
         temporal_ppl
@@ -369,6 +383,7 @@ impl Tracer {
             tracer_ppl,
             tracer_shadow_ppl,
             god_ray_ppl,
+            god_ray_temporal_ppl,
             temporal_ppl,
             spatial_ppl,
             composition_ppl,
@@ -580,6 +595,7 @@ impl Tracer {
         update_fn(&self.vsm_blur_h_ppl, tracer_resources);
         update_fn(&self.vsm_blur_v_ppl, tracer_resources);
         update_fn(&self.god_ray_ppl, tracer_resources);
+        update_fn(&self.god_ray_temporal_ppl, tracer_resources);
         update_fn(&self.temporal_ppl, tracer_resources);
         update_fn(&self.spatial_ppl, tracer_resources);
         update_fn(&self.composition_ppl, tracer_resources);
@@ -625,6 +641,7 @@ impl Tracer {
         is_changing_lum_phi: bool,
         is_spatial_denoising_skipped: bool,
         is_taa_enabled: bool,
+        god_ray_temporal_alpha: f32,
         starlight_iterations: i32,
         starlight_formuparam: f32,
         starlight_volsteps: i32,
@@ -661,6 +678,8 @@ impl Tracer {
         )?;
 
         update_taa_info(&self.resources, is_taa_enabled)?;
+
+        update_god_ray_temporal_info(&self.resources, god_ray_temporal_alpha)?;
 
         update_post_processing_info(&self.resources, self.desc.scaling_factor)?;
 
@@ -953,6 +972,20 @@ impl Tracer {
             Ok(())
         }
 
+        fn update_god_ray_temporal_info(
+            resources: &TracerResources,
+            temporal_alpha: f32,
+        ) -> Result<()> {
+            let data = StructMemberDataBuilder::from_buffer(&resources.god_ray_temporal_info)
+                .set_field(
+                    "temporal_alpha",
+                    PlainMemberTypeWithData::Float(temporal_alpha),
+                )
+                .build()?;
+            resources.god_ray_temporal_info.fill_with_raw_u8(&data)?;
+            Ok(())
+        }
+
         fn update_post_processing_info(
             resources: &TracerResources,
             scaling_factor: f32,
@@ -1027,6 +1060,9 @@ impl Tracer {
         self.record_god_ray_pass(cmdbuf);
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
+        self.record_god_ray_temporal_pass(cmdbuf);
+        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+
         self.record_denoiser_pass(&cmdbuf);
 
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
@@ -1093,6 +1129,12 @@ impl Tracer {
             copy_fn(
                 &resources.extent_dependent_resources.taa_tex,
                 &resources.extent_dependent_resources.taa_tex_prev,
+            );
+            copy_fn(
+                &resources
+                    .extent_dependent_resources
+                    .god_ray_output_tex_filtered,
+                &resources.extent_dependent_resources.god_ray_output_tex_prev,
             );
         }
     }
@@ -1305,6 +1347,35 @@ impl Tracer {
             self.resources
                 .extent_dependent_resources
                 .compute_depth_tex
+                .get_image()
+                .get_desc()
+                .extent,
+            None,
+        );
+    }
+
+    fn record_god_ray_temporal_pass(&self, cmdbuf: &CommandBuffer) {
+        self.resources
+            .extent_dependent_resources
+            .god_ray_output_tex_prev
+            .get_image()
+            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+        self.resources
+            .extent_dependent_resources
+            .god_ray_output_tex_filtered
+            .get_image()
+            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+        self.resources
+            .extent_dependent_resources
+            .god_ray_hist_len_tex
+            .get_image()
+            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+
+        self.god_ray_temporal_ppl.record(
+            cmdbuf,
+            self.resources
+                .extent_dependent_resources
+                .god_ray_output_tex
                 .get_image()
                 .get_desc()
                 .extent,

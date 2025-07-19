@@ -53,7 +53,7 @@ layout(set = 0, binding = 6, rgba8) uniform readonly image2D gfx_output_tex;
 layout(set = 0, binding = 7, r32f) uniform readonly image2D gfx_depth_tex;
 layout(set = 0, binding = 8, r11f_g11f_b10f) uniform readonly image2D denoiser_spatial_pong_tex;
 layout(set = 0, binding = 9, r32f) uniform readonly image2D compute_depth_tex;
-layout(set = 0, binding = 10, r32f) uniform readonly image2D god_ray_output_tex;
+layout(set = 0, binding = 10, r32f) uniform readonly image2D god_ray_output_tex_filtered;
 layout(set = 0, binding = 11, r11f_g11f_b10f) uniform writeonly image2D composited_tex;
 layout(set = 0, binding = 12, r8) uniform readonly image2D star_noise_tex;
 
@@ -144,7 +144,7 @@ void main() {
     vec3 final_color               = combine_colors(gfx_depth_01, compute_depth_01, gfx_color,
                                                     denoiser_spatial_pong_tex, screen_uv, uvi);
 
-    float god_ray_weight = imageLoad(god_ray_output_tex, uvi).r * 0.2;
+    float god_ray_weight = imageLoad(god_ray_output_tex_filtered, uvi).r * 0.2;
 
     vec3 dot_color     = srgb_to_linear(vec3(1.0, 0.945, 0.0));
     vec4 god_ray_color = vec4(dot_color, god_ray_weight);

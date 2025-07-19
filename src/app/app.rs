@@ -123,6 +123,7 @@ pub struct App {
     ambient_light: egui::Color32,
     temporal_position_phi: f32,
     temporal_alpha: f32,
+    god_ray_temporal_alpha: f32,
     phi_c: f32,
     phi_n: f32,
     phi_p: f32,
@@ -302,6 +303,7 @@ impl App {
             debug_uint: 0,
             temporal_position_phi: 0.8,
             temporal_alpha: 0.04,
+            god_ray_temporal_alpha: 0.1,
             phi_c: 0.75,
             phi_n: 20.0,
             phi_p: 0.05,
@@ -1288,6 +1290,13 @@ impl App {
                                                 )
                                                 .text("Alpha"),
                                             );
+                                            ui.add(
+                                                egui::Slider::new(
+                                                    &mut self.god_ray_temporal_alpha,
+                                                    0.0..=1.0,
+                                                )
+                                                .text("God Ray Temporal Alpha"),
+                                            );
                                         });
 
                                         ui.collapsing("Spatial Settings", |ui| {
@@ -1458,6 +1467,7 @@ impl App {
                         self.is_changing_lum_phi,
                         self.is_spatial_denoising_skipped,
                         self.is_taa_enabled,
+                        self.god_ray_temporal_alpha,
                         self.starlight_iterations,
                         self.starlight_formuparam,
                         self.starlight_volsteps,
