@@ -19,6 +19,7 @@ use crate::audio::AudioEngine;
 use crate::builder::{ContreeBuilderResources, SceneAccelBuilderResources, SurfaceResources};
 use crate::gameplay::{calculate_directional_light_matrices, Camera, CameraDesc};
 use crate::geom::{Aabb3, UAabb3};
+use crate::resource::ResourceContainer;
 use crate::util::{ShaderCompiler, TimeInfo};
 use crate::vkn::{
     Allocator, AttachmentDesc, AttachmentReference, Buffer, ComputePipeline, DescriptorPool,
@@ -559,54 +560,31 @@ impl Tracer {
         contree_builder_resources: &ContreeBuilderResources,
         scene_accel_resources: &SceneAccelBuilderResources,
     ) {
-        self.tracer_ppl
-            .auto_update_descriptor_sets(&[
-                &self.resources,
-                contree_builder_resources,
-                scene_accel_resources,
-            ])
-            .unwrap();
-        self.tracer_shadow_ppl
-            .auto_update_descriptor_sets(&[
-                &self.resources,
-                contree_builder_resources,
-                scene_accel_resources,
-            ])
-            .unwrap();
-        self.vsm_creation_ppl
-            .auto_update_descriptor_sets(&[&self.resources])
-            .unwrap();
-        self.vsm_blur_h_ppl
-            .auto_update_descriptor_sets(&[&self.resources])
-            .unwrap();
-        self.vsm_blur_v_ppl
-            .auto_update_descriptor_sets(&[&self.resources])
-            .unwrap();
-        self.god_ray_ppl
-            .auto_update_descriptor_sets(&[&self.resources])
-            .unwrap();
-        self.temporal_ppl
-            .auto_update_descriptor_sets(&[&self.resources])
-            .unwrap();
-        self.spatial_ppl
-            .auto_update_descriptor_sets(&[&self.resources])
-            .unwrap();
-        self.composition_ppl
-            .auto_update_descriptor_sets(&[&self.resources])
-            .unwrap();
-        self.taa_ppl
-            .auto_update_descriptor_sets(&[&self.resources])
-            .unwrap();
-        self.player_collider_ppl
-            .auto_update_descriptor_sets(&[
-                &self.resources,
-                contree_builder_resources,
-                scene_accel_resources,
-            ])
-            .unwrap();
-        self.post_processing_ppl
-            .auto_update_descriptor_sets(&[&self.resources])
-            .unwrap();
+        let update_fn = |ppl: &ComputePipeline, resources: &[&dyn ResourceContainer]| {
+            ppl.auto_update_descriptor_sets(resources).unwrap()
+        };
+
+        // Pipelines that need all resources (tracer, scene_accel, contree)
+        let all_resources = &[
+            &self.resources as &dyn ResourceContainer,
+            contree_builder_resources as &dyn ResourceContainer,
+            scene_accel_resources as &dyn ResourceContainer,
+        ];
+        update_fn(&self.tracer_ppl, all_resources);
+        update_fn(&self.tracer_shadow_ppl, all_resources);
+        update_fn(&self.player_collider_ppl, all_resources);
+
+        // Pipelines that only need tracer resources
+        let tracer_resources = &[&self.resources as &dyn ResourceContainer];
+        update_fn(&self.vsm_creation_ppl, tracer_resources);
+        update_fn(&self.vsm_blur_h_ppl, tracer_resources);
+        update_fn(&self.vsm_blur_v_ppl, tracer_resources);
+        update_fn(&self.god_ray_ppl, tracer_resources);
+        update_fn(&self.temporal_ppl, tracer_resources);
+        update_fn(&self.spatial_ppl, tracer_resources);
+        update_fn(&self.composition_ppl, tracer_resources);
+        update_fn(&self.taa_ppl, tracer_resources);
+        update_fn(&self.post_processing_ppl, tracer_resources);
     }
 
     // create a lower resolution texture for rendering, for better performance,
