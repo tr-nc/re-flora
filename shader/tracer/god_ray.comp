@@ -29,7 +29,6 @@ env_info;
 layout(set = 0, binding = 3) uniform U_GodRayInfo {
     float max_depth;
     uint max_checks;
-    uint is_using_dynamic_step_size;
 }
 god_ray_info;
 layout(set = 0, binding = 4, r32f) uniform readonly image2D gfx_depth_tex;
@@ -76,14 +75,8 @@ void main() {
 
     float using_depth = min(real_depth, god_ray_info.max_depth);
     
-    float step_size;
-    if (god_ray_info.is_using_dynamic_step_size != 0) {
-        // Dynamic step size: adapt to actual depth
-        step_size = using_depth / float(god_ray_info.max_checks);
-    } else {
-        // Fixed step size: based on max depth
-        step_size = god_ray_info.max_depth / float(god_ray_info.max_checks);
-    }
+    // Dynamic step size: adapt to actual depth
+    float step_size = using_depth / float(god_ray_info.max_checks);
 
     ivec3 seed         = get_seed(env_info.frame_serial_idx);
     float random_float = random_float_bn(seed);

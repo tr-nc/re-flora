@@ -108,7 +108,6 @@ pub struct App {
     god_ray_temporal_alpha: f32,
     god_ray_max_depth: f32,
     god_ray_max_checks: u32,
-    god_ray_is_using_dynamic_step_size: bool,
     phi_c: f32,
     phi_n: f32,
     phi_p: f32,
@@ -291,7 +290,6 @@ impl App {
             god_ray_temporal_alpha: 0.3,
             god_ray_max_depth: 3.0,
             god_ray_max_checks: 32,
-            god_ray_is_using_dynamic_step_size: true,
             phi_c: 0.75,
             phi_n: 20.0,
             phi_p: 0.05,
@@ -1311,10 +1309,6 @@ impl App {
                                                 )
                                                 .text("Max Checks"),
                                             );
-                                            ui.checkbox(
-                                                &mut self.god_ray_is_using_dynamic_step_size,
-                                                "Use Dynamic Step Size",
-                                            );
                                         });
 
                                         ui.collapsing("Spatial Settings", |ui| {
@@ -1488,7 +1482,6 @@ impl App {
                         self.god_ray_temporal_alpha,
                         self.god_ray_max_depth,
                         self.god_ray_max_checks,
-                        self.god_ray_is_using_dynamic_step_size,
                         self.starlight_iterations,
                         self.starlight_formuparam,
                         self.starlight_volsteps,

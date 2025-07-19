@@ -645,7 +645,6 @@ impl Tracer {
         god_ray_temporal_alpha: f32,
         god_ray_max_depth: f32,
         god_ray_max_checks: u32,
-        god_ray_is_using_dynamic_step_size: bool,
         starlight_iterations: i32,
         starlight_formuparam: f32,
         starlight_volsteps: i32,
@@ -685,12 +684,7 @@ impl Tracer {
 
         update_god_ray_temporal_info(&self.resources, god_ray_temporal_alpha)?;
 
-        update_god_ray_info(
-            &self.resources,
-            god_ray_max_depth,
-            god_ray_max_checks,
-            god_ray_is_using_dynamic_step_size,
-        )?;
+        update_god_ray_info(&self.resources, god_ray_max_depth, god_ray_max_checks)?;
 
         update_post_processing_info(&self.resources, self.desc.scaling_factor)?;
 
@@ -1001,15 +995,10 @@ impl Tracer {
             resources: &TracerResources,
             max_depth: f32,
             max_checks: u32,
-            is_using_dynamic_step_size: bool,
         ) -> Result<()> {
             let data = StructMemberDataBuilder::from_buffer(&resources.god_ray_info)
                 .set_field("max_depth", PlainMemberTypeWithData::Float(max_depth))
                 .set_field("max_checks", PlainMemberTypeWithData::UInt(max_checks))
-                .set_field(
-                    "is_using_dynamic_step_size",
-                    PlainMemberTypeWithData::UInt(is_using_dynamic_step_size as u32),
-                )
                 .build()?;
             resources.god_ray_info.fill_with_raw_u8(&data)?;
             Ok(())
