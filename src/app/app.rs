@@ -544,6 +544,10 @@ impl App {
                     self.window_state.toggle_fullscreen();
                 }
 
+                if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyG {
+                    self.is_fly_mode = !self.is_fly_mode;
+                }
+
                 if !self.window_state.is_cursor_visible() {
                     self.tracer.handle_keyboard(&event);
                 }
@@ -831,13 +835,6 @@ impl App {
                                             ui.add(egui::Checkbox::new(
                                                 &mut self.is_taa_enabled,
                                                 "Enable Temporal Anti-Aliasing",
-                                            ));
-                                        });
-
-                                        ui.collapsing("Camera Movement", |ui| {
-                                            ui.add(egui::Checkbox::new(
-                                                &mut self.is_fly_mode,
-                                                "Fly Mode (unchecked = Walk Mode)",
                                             ));
                                         });
                                     });
