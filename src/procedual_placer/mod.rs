@@ -100,7 +100,12 @@ const JITTER_MULTIPLIER: f32 = 0.9;
 /// The function divides the map into a grid. For each grid cell, it samples a noise
 /// value. If the value is above a threshold, it places an object at a
 /// randomly jittered position within that cell.
-pub fn generate_positions(map_dimensions: Vec2, grid_size: f32, desc: &PlacerDesc) -> Vec<Vec2> {
+pub fn generate_positions(
+    map_dimensions: Vec2,
+    map_offset: Vec2,
+    grid_size: f32,
+    desc: &PlacerDesc,
+) -> Vec<Vec2> {
     if grid_size <= 0.0 {
         return Vec::new();
     }
@@ -155,5 +160,6 @@ pub fn generate_positions(map_dimensions: Vec2, grid_size: f32, desc: &PlacerDes
             }
         }
     }
+    positions.iter_mut().for_each(|p| *p += map_offset);
     positions
 }

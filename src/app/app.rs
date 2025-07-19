@@ -40,21 +40,12 @@ pub struct TreeVariationConfig {
     pub spread_variance: f32,
     pub randomness_variance: f32,
     pub vertical_tendency_variance: f32,
-    pub branch_angle_min_variance: f32,
-    pub branch_angle_max_variance: f32,
     pub branch_probability_variance: f32,
-    pub branch_count_min_variance: f32,
-    pub branch_count_max_variance: f32,
     pub leaves_size_level_variance: f32,
     pub iterations_variance: f32,
-    pub segment_length_variation_variance: f32,
     pub tree_height_variance: f32,
     pub length_dropoff_variance: f32,
     pub thickness_reduction_variance: f32,
-    pub subdivision_threshold_variance: f32,
-    pub subdivision_count_min_variance: f32,
-    pub subdivision_count_max_variance: f32,
-    pub subdivision_randomness_variance: f32,
 }
 
 impl Default for TreeVariationConfig {
@@ -66,21 +57,12 @@ impl Default for TreeVariationConfig {
             spread_variance: 0.0,
             randomness_variance: 0.0,
             vertical_tendency_variance: 0.0,
-            branch_angle_min_variance: 0.0,
-            branch_angle_max_variance: 0.0,
             branch_probability_variance: 0.0,
-            branch_count_min_variance: 0.0,
-            branch_count_max_variance: 0.0,
             leaves_size_level_variance: 0.0,
             iterations_variance: 0.0,
-            segment_length_variation_variance: 0.0,
             tree_height_variance: 0.0,
             length_dropoff_variance: 0.0,
             thickness_reduction_variance: 0.0,
-            subdivision_threshold_variance: 0.0,
-            subdivision_count_min_variance: 0.0,
-            subdivision_count_max_variance: 0.0,
-            subdivision_randomness_variance: 0.0,
         }
     }
 }
@@ -303,7 +285,7 @@ impl App {
             debug_uint: 0,
             temporal_position_phi: 0.8,
             temporal_alpha: 0.04,
-            god_ray_temporal_alpha: 0.1,
+            god_ray_temporal_alpha: 0.2,
             phi_c: 0.75,
             phi_n: 20.0,
             phi_p: 0.05,
@@ -347,7 +329,7 @@ impl App {
             audio_engine,
         };
 
-        app.add_a_tree(app.tree_desc.clone(), app.tree_pos, true)?;
+        app.add_tree(app.tree_desc.clone(), app.tree_pos, true)?;
         Ok(app)
     }
 
@@ -358,12 +340,21 @@ impl App {
         )?;
 
         let world_size = CHUNK_DIM * VOXEL_DIM_PER_CHUNK;
-        let map_dimensions = Vec2::new(world_size.x as f32 - 50.0, world_size.z as f32 - 50.0);
+        let map_padding = 50.0;
+        let map_dimensions = Vec2::new(
+            world_size.x as f32 - map_padding * 2.0,
+            world_size.z as f32 - map_padding * 2.0,
+        );
         let grid_size = 120.0;
         let mut placer_desc = PlacerDesc::new(42);
         placer_desc.threshold = 0.5;
 
-        let tree_positions = generate_positions(map_dimensions, grid_size, &placer_desc);
+        let tree_positions = generate_positions(
+            map_dimensions,
+            Vec2::new(map_padding, map_padding),
+            grid_size,
+            &placer_desc,
+        );
 
         log::info!("Generated {} procedural trees", tree_positions.len());
 
@@ -377,7 +368,7 @@ impl App {
             tree_desc.seed = rng.random_range(1..10000);
 
             self.apply_tree_variations(&mut tree_desc, &mut rng);
-            self.add_a_tree(tree_desc, tree_pos, is_first_tree)?;
+            self.add_tree(tree_desc, tree_pos, is_first_tree)?;
         }
 
         Ok(())
@@ -787,7 +778,7 @@ impl App {
         event_loop.exit();
     }
 
-    fn add_a_tree(
+    fn add_tree(
         &mut self,
         tree_desc: TreeDesc,
         tree_pos: Vec3,
@@ -1377,7 +1368,7 @@ impl App {
                     });
 
                 if tree_desc_changed {
-                    self.add_a_tree(
+                    self.add_tree(
                         self.tree_desc.clone(),
                         self.tree_pos,
                         true, // clean up before adding a new tree
