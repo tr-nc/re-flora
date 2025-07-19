@@ -145,12 +145,16 @@ sudo apt install cmake ninja-build # install build tools
 
 ## TODO list
 
-- [ ] Night Sky <https://www.shadertoy.com/view/W3KGDK>
-- [ ] Some Artistic Dithering? <https://www.shadertoy.com/view/csKfzy>
-- [ ] Clouds
-- [ ] Tree Gen Stratagy
+### Main Objectives
+
+- [ ] Tree Cluster Generation
 - [ ] Leaves for Trees
-- [ ] Tree Sounds
 - [ ] Dynamic Terrain Edit
 - [ ] Still Water
 - [ ] Flowers
+
+### Side Quests
+
+- [ ] Tree Sounds
+- [ ] Some Artistic Dithering? <https://www.shadertoy.com/view/csKfzy>
+- [ ] Clouds
