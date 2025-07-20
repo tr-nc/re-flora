@@ -277,11 +277,7 @@ impl TracerResources {
         // 1. Generate the indexed data without colors (colors will be handled in shader).
         let (vertices_data, indices_data) =
             generate_indexed_voxel_grass_blade(GRASS_BLADE_VOXEL_LENGTH).unwrap();
-
         let indices_len = indices_data.len() as u32;
-
-        log::debug!("vertices len: {}", vertices_data.len());
-        log::debug!("indices len: {}", indices_data.len());
 
         // 2. Create and fill the vertex buffer.
         let vertices = Buffer::new_sized(

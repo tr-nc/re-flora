@@ -1218,10 +1218,7 @@ impl Tracer {
             let chunk_world_aabb = Self::compute_chunk_world_aabb(*chunk_id, GRASS_SWAY_MARGIN);
 
             // perform frustum culling
-            let view_proj_mat = self.current_view_proj_mat;
-            let is_inside = chunk_world_aabb.is_inside_frustum(view_proj_mat);
-
-            if !is_inside {
+            if !chunk_world_aabb.is_inside_frustum(self.current_view_proj_mat) {
                 continue;
             }
 
