@@ -78,6 +78,10 @@ pub struct Tracer {
     grass_render_pass: RenderPass,
     grass_framebuffer: Framebuffer,
 
+    leaves_ppl: GraphicsPipeline,
+    leaves_render_pass: RenderPass,
+    leaves_framebuffer: Framebuffer,
+
     #[allow(dead_code)]
     shadow_ppl: GraphicsPipeline,
     #[allow(dead_code)]
@@ -246,6 +250,21 @@ impl Tracer {
         )
         .unwrap();
 
+        let leaves_vert_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            shader_compiler,
+            "shader/foliage/leaves.vert",
+            "main",
+        )
+        .unwrap();
+        let leaves_frag_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            shader_compiler,
+            "shader/foliage/leaves.frag",
+            "main",
+        )
+        .unwrap();
+
         let resources = TracerResources::new(
             &vulkan_ctx,
             allocator.clone(),
@@ -341,7 +360,19 @@ impl Tracer {
                 resources.shadow_map_tex.clone(),
             );
 
+        let (leaves_ppl, leaves_render_pass) = Self::create_grass_render_pass_and_graphics_pipeline(
+            &vulkan_ctx,
+            &leaves_vert_sm,
+            &leaves_frag_sm,
+            resources.extent_dependent_resources.gfx_output_tex.clone(),
+            resources.extent_dependent_resources.gfx_depth_tex.clone(),
+        );
+
         grass_ppl
+            .auto_create_descriptor_sets(&pool, &[&resources])
+            .unwrap();
+
+        leaves_ppl
             .auto_create_descriptor_sets(&pool, &[&resources])
             .unwrap();
 
@@ -361,6 +392,13 @@ impl Tracer {
             &vulkan_ctx,
             &shadow_render_pass,
             &resources.shadow_map_tex,
+        );
+
+        let leaves_framebuffer = Self::create_grass_framebuffer(
+            &vulkan_ctx,
+            &leaves_render_pass,
+            &resources.extent_dependent_resources.gfx_output_tex,
+            &resources.extent_dependent_resources.gfx_depth_tex,
         );
 
         Ok(Self {
@@ -388,6 +426,9 @@ impl Tracer {
             grass_ppl,
             grass_render_pass,
             grass_framebuffer,
+            leaves_ppl,
+            leaves_render_pass,
+            leaves_framebuffer,
             shadow_ppl,
             shadow_render_pass,
             shadow_framebuffer,
@@ -555,6 +596,13 @@ impl Tracer {
         self.grass_framebuffer = Self::create_grass_framebuffer(
             &self.vulkan_ctx,
             &self.grass_render_pass,
+            &self.resources.extent_dependent_resources.gfx_output_tex,
+            &self.resources.extent_dependent_resources.gfx_depth_tex,
+        );
+
+        self.leaves_framebuffer = Self::create_grass_framebuffer(
+            &self.vulkan_ctx,
+            &self.leaves_render_pass,
             &self.resources.extent_dependent_resources.gfx_output_tex,
             &self.resources.extent_dependent_resources.gfx_depth_tex,
         );
@@ -1056,6 +1104,7 @@ impl Tracer {
         b1.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
         self.record_grass_pass(cmdbuf, surface_resources);
+        // self.record_leaves_pass(cmdbuf, surface_resources);
 
         record_denoiser_resources_transition_barrier(&self.resources.denoiser_resources, cmdbuf);
 
@@ -1252,6 +1301,105 @@ impl Tracer {
         self.grass_render_pass.record_end(cmdbuf);
 
         let desc = self.grass_render_pass.get_desc();
+        self.resources
+            .extent_dependent_resources
+            .gfx_output_tex
+            .get_image()
+            .set_layout(0, desc.attachments[0].final_layout);
+        self.resources
+            .extent_dependent_resources
+            .gfx_depth_tex
+            .get_image()
+            .set_layout(0, desc.attachments[1].final_layout);
+    }
+
+    fn record_leaves_pass(&self, cmdbuf: &CommandBuffer, surface_resources: &SurfaceResources) {
+        self.leaves_ppl.record_bind(cmdbuf);
+
+        let clear_values = [
+            vk::ClearValue {
+                color: vk::ClearColorValue {
+                    float32: [0.0, 0.0, 0.0, 1.0],
+                },
+            },
+            vk::ClearValue {
+                depth_stencil: vk::ClearDepthStencilValue {
+                    depth: 1.0,
+                    stencil: 0,
+                },
+            },
+        ];
+
+        self.leaves_render_pass
+            .record_begin(cmdbuf, &self.leaves_framebuffer, &clear_values);
+
+        let render_extent = self
+            .resources
+            .extent_dependent_resources
+            .gfx_output_tex
+            .get_image()
+            .get_desc()
+            .extent;
+        let viewport = Viewport::from_extent(render_extent.as_extent_2d().unwrap());
+        let scissor = vk::Rect2D {
+            offset: vk::Offset2D { x: 0, y: 0 },
+            extent: vk::Extent2D {
+                width: render_extent.width,
+                height: render_extent.height,
+            },
+        };
+
+        self.leaves_ppl
+            .record_viewport_scissor(cmdbuf, viewport, scissor);
+
+        unsafe {
+            // bind the index buffer for leaves
+            self.vulkan_ctx.device().cmd_bind_index_buffer(
+                cmdbuf.as_raw(),
+                self.resources.leaves_resources.indices.as_raw(),
+                0,
+                vk::IndexType::UINT32,
+            );
+        }
+
+        // Use grass instances to place leaves (reusing the same instance data)
+        for (chunk_id, chunk_resources) in &surface_resources.chunk_raster_resources {
+            if chunk_resources.grass_instances_len == 0 {
+                continue;
+            }
+
+            const LEAVES_SWAY_MARGIN: f32 = 0.2;
+            let chunk_world_aabb = Self::compute_chunk_world_aabb(*chunk_id, LEAVES_SWAY_MARGIN);
+
+            if !chunk_world_aabb.is_inside_frustum(self.current_view_proj_mat) {
+                continue;
+            }
+
+            unsafe {
+                self.vulkan_ctx.device().cmd_bind_vertex_buffers(
+                    cmdbuf.as_raw(),
+                    0,
+                    &[
+                        self.resources.leaves_resources.vertices.as_raw(),
+                        chunk_resources.grass_instances.as_raw(),
+                    ],
+                    &[0, 0],
+                );
+            }
+
+            self.leaves_ppl.record_indexed(
+                cmdbuf,
+                self.resources.leaves_resources.indices_len,
+                chunk_resources.grass_instances_len,
+                0,
+                0,
+                0,
+            );
+        }
+
+        self.leaves_render_pass.record_end(cmdbuf);
+
+        let desc = self.leaves_render_pass.get_desc();
         self.resources
             .extent_dependent_resources
             .gfx_output_tex
