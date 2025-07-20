@@ -2,13 +2,14 @@
 
 #extension GL_GOOGLE_include_directive : require
 
+#include "../include/core/packer.glsl"
+
 // these are vertex-rate attributes
-layout(location = 0) in vec3 in_position;
-layout(location = 1) in uint in_height;
+layout(location = 0) in uint in_packed_data;
 
 // these are instance-rate attributes
-layout(location = 2) in uvec3 in_instance_position;
-layout(location = 3) in uint in_instance_grass_type;
+layout(location = 1) in uvec3 in_instance_position;
+layout(location = 2) in uint in_instance_grass_type;
 
 layout(location = 0) out vec3 vert_color;
 
@@ -109,8 +110,39 @@ vec2 random_grass_offset(vec2 grass_instance_pos, float time) {
     return vec2(noise_x, noise_z) * wind_strength + natual_state;
 }
 
+void unpack_vertex_data(out vec3 o_base_pos, out uint o_vertex_offset, out float o_gradient,
+                        uint packed_data) {
+    // Extract base position (24 bits: 8 bits each for x, y, z)
+    o_base_pos = vec3(packed_data & 0xFF, (packed_data >> 8) & 0xFF, (packed_data >> 16) & 0xFF);
+    // Extract vertex offset (3 bits)
+    o_vertex_offset = (packed_data >> 24) & 0x7u;
+    // Extract gradient (5 bits)
+    o_gradient = float((packed_data >> 27) & 0x1F) / 31.0;
+}
+
+// Convert vertex offset index to actual 3D offset
+vec3 decode_vertex_offset(uint vertex_offset) {
+    // The vertex offset is encoded as: x | (y << 1) | (z << 2)
+    // So we need to extract each bit
+    uint x = vertex_offset & 1u;
+    uint y = (vertex_offset >> 1) & 1u;
+    uint z = (vertex_offset >> 2) & 1u;
+    return vec3(float(x), float(y), float(z));
+}
+
 void main() {
-    float height = float(in_height);
+    // Unpack vertex data
+    vec3 base_position;
+    uint vertex_offset_index;
+    float in_color_gradient;
+    unpack_vertex_data(base_position, vertex_offset_index, in_color_gradient, in_packed_data);
+    
+    // Calculate actual vertex position by adding the cube vertex offset
+    vec3 cube_vertex_offset = decode_vertex_offset(vertex_offset_index);
+    vec3 in_position = base_position + cube_vertex_offset;
+
+    // Extract height from the Y component of the base position (voxel height level)
+    float height = base_position.y;
 
     vec2 grass_offset =
         random_grass_offset(vec2(in_instance_position.xz * scaling_factor), grass_info.time);
@@ -118,7 +150,7 @@ void main() {
     vec3 vertex_offset = get_offset_of_vertex(height, voxel_count, grass_offset);
     vec3 vert_pos_ms   = in_position + vertex_offset;
     vec4 vert_pos_ws   = vec4(vert_pos_ms + in_instance_position, 1.0);
-    vec3 voxel_pos_ms  = vec3(0.0, in_height, 0.0) + vec3(0.5) + vertex_offset;
+    vec3 voxel_pos_ms  = vec3(0.0, height, 0.0) + vec3(0.5) + vertex_offset;
     vec4 voxel_pos_ws  = vec4(voxel_pos_ms + in_instance_position, 1.0);
 
     mat4 scale_mat  = mat4(1.0);
@@ -133,9 +165,8 @@ void main() {
     // transform to clip space
     gl_Position = camera_info.view_proj_mat * vert_pos_ws;
 
-    // Interpolate color based on voxel height
-    float t                 = float(in_height) / float(voxel_count - 1u);
-    vec3 interpolated_color = mix(grass_info.bottom_color, grass_info.tip_color, t);
+    // Interpolate color based on color gradient
+    vec3 interpolated_color = mix(grass_info.bottom_color, grass_info.tip_color, in_color_gradient);
 
     vec3 sun_light = sun_info.sun_color * sun_info.sun_luminance;
     vert_color     = interpolated_color * (sun_light * shadow_weight + shading_info.ambient_light);

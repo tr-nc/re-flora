@@ -1358,11 +1358,15 @@ impl App {
                                         ui.collapsing("Grass Settings", |ui| {
                                             ui.horizontal(|ui| {
                                                 ui.label("Bottom Color:");
-                                                ui.color_edit_button_srgba(&mut self.grass_bottom_color);
+                                                ui.color_edit_button_srgba(
+                                                    &mut self.grass_bottom_color,
+                                                );
                                             });
                                             ui.horizontal(|ui| {
                                                 ui.label("Tip Color:");
-                                                ui.color_edit_button_srgba(&mut self.grass_tip_color);
+                                                ui.color_edit_button_srgba(
+                                                    &mut self.grass_tip_color,
+                                                );
                                             });
                                         });
                                     });

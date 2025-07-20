@@ -1,6 +1,5 @@
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct Vertex {
-    pub position: glam::Vec3,
-    pub height: u32,
+    pub packed_data: u32,
 }
