@@ -360,13 +360,14 @@ impl Tracer {
                 resources.shadow_map_tex.clone(),
             );
 
-        let (leaves_ppl, leaves_render_pass) = Self::create_grass_render_pass_and_graphics_pipeline(
-            &vulkan_ctx,
-            &leaves_vert_sm,
-            &leaves_frag_sm,
-            resources.extent_dependent_resources.gfx_output_tex.clone(),
-            resources.extent_dependent_resources.gfx_depth_tex.clone(),
-        );
+        let (leaves_ppl, leaves_render_pass) =
+            Self::create_leaves_render_pass_and_graphics_pipeline(
+                &vulkan_ctx,
+                &leaves_vert_sm,
+                &leaves_frag_sm,
+                resources.extent_dependent_resources.gfx_output_tex.clone(),
+                resources.extent_dependent_resources.gfx_depth_tex.clone(),
+            );
 
         grass_ppl
             .auto_create_descriptor_sets(&pool, &[&resources])
@@ -443,6 +444,98 @@ impl Tracer {
         output_tex: Texture,
         depth_tex: Texture,
     ) -> (GraphicsPipeline, RenderPass) {
+        let render_pass = {
+            RenderPass::with_attachments(
+                vulkan_ctx.device().clone(),
+                output_tex,
+                Some(depth_tex),
+                vk::AttachmentLoadOp::CLEAR,
+                vk::ImageLayout::GENERAL,
+                Some(vk::ImageLayout::GENERAL),
+            )
+        };
+
+        let gfx_ppl = GraphicsPipeline::new(
+            vulkan_ctx.device(),
+            &vert_sm,
+            &frag_sm,
+            &render_pass,
+            &GraphicsPipelineDesc {
+                cull_mode: vk::CullModeFlags::BACK,
+                depth_test_enable: true,
+                depth_write_enable: true,
+                ..Default::default()
+            },
+            Some(1),
+        );
+
+        (gfx_ppl, render_pass)
+    }
+
+    fn create_leaves_render_pass_and_graphics_pipeline(
+        vulkan_ctx: &VulkanContext,
+        vert_sm: &ShaderModule,
+        frag_sm: &ShaderModule,
+        output_tex: Texture,
+        depth_tex: Texture,
+    ) -> (GraphicsPipeline, RenderPass) {
+        // // Create a render pass that loads existing content instead of clearing
+        // // Need to use the more detailed RenderPassDesc to control initial layout
+        // let render_pass_desc = RenderPassDesc {
+        //     attachments: vec![
+        //         AttachmentDesc {
+        //             format: output_tex.get_image().get_desc().format,
+        //             samples: vk::SampleCountFlags::TYPE_1,
+        //             load_op: vk::AttachmentLoadOp::CLEAR, // Change back to CLEAR since no grass pass
+        //             store_op: vk::AttachmentStoreOp::STORE,
+        //             stencil_load_op: vk::AttachmentLoadOp::DONT_CARE,
+        //             stencil_store_op: vk::AttachmentStoreOp::DONT_CARE,
+        //             initial_layout: vk::ImageLayout::UNDEFINED, // Back to UNDEFINED since we're clearing
+        //             final_layout: vk::ImageLayout::GENERAL,
+        //         },
+        //         AttachmentDesc {
+        //             format: depth_tex.get_image().get_desc().format,
+        //             samples: vk::SampleCountFlags::TYPE_1,
+        //             load_op: vk::AttachmentLoadOp::CLEAR, // Clear depth for proper depth testing
+        //             store_op: vk::AttachmentStoreOp::STORE,
+        //             stencil_load_op: vk::AttachmentLoadOp::DONT_CARE,
+        //             stencil_store_op: vk::AttachmentStoreOp::DONT_CARE,
+        //             initial_layout: vk::ImageLayout::UNDEFINED,
+        //             final_layout: vk::ImageLayout::GENERAL,
+        //         },
+        //     ],
+        //     subpasses: vec![SubpassDesc {
+        //         color_attachments: vec![AttachmentReference {
+        //             attachment: 0,
+        //             layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+        //         }],
+        //         depth_stencil_attachment: Some(AttachmentReference {
+        //             attachment: 1,
+        //             layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        //         }),
+        //         ..Default::default()
+        //     }],
+        //     dependencies: vec![],
+        // };
+
+        // let render_pass = RenderPass::from_desc(vulkan_ctx.device().clone(), render_pass_desc);
+
+        // let gfx_ppl = GraphicsPipeline::new(
+        //     vulkan_ctx.device(),
+        //     &vert_sm,
+        //     &frag_sm,
+        //     &render_pass,
+        //     &GraphicsPipelineDesc {
+        //         cull_mode: vk::CullModeFlags::BACK,
+        //         depth_test_enable: true,
+        //         depth_write_enable: true,
+        //         ..Default::default()
+        //     },
+        //     Some(1),
+        // );
+
+        // (gfx_ppl, render_pass)
+
         let render_pass = {
             RenderPass::with_attachments(
                 vulkan_ctx.device().clone(),
@@ -1103,8 +1196,8 @@ impl Tracer {
         );
         b1.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
-        self.record_grass_pass(cmdbuf, surface_resources);
-        // self.record_leaves_pass(cmdbuf, surface_resources);
+        // self.record_grass_pass(cmdbuf, surface_resources);
+        self.record_leaves_pass(cmdbuf, surface_resources);
 
         record_denoiser_resources_transition_barrier(&self.resources.denoiser_resources, cmdbuf);
 
@@ -1313,13 +1406,15 @@ impl Tracer {
             .set_layout(0, desc.attachments[1].final_layout);
     }
 
-    fn record_leaves_pass(&self, cmdbuf: &CommandBuffer, surface_resources: &SurfaceResources) {
+    fn record_leaves_pass(&self, cmdbuf: &CommandBuffer, _surface_resources: &SurfaceResources) {
         self.leaves_ppl.record_bind(cmdbuf);
 
+        // Don't clear - we want to preserve the grass that was already rendered
+        // Only clear the depth buffer to ensure proper depth testing
         let clear_values = [
             vk::ClearValue {
                 color: vk::ClearColorValue {
-                    float32: [0.0, 0.0, 0.0, 1.0],
+                    float32: [0.0, 0.0, 0.0, 0.0], // Not used since we're loading
                 },
             },
             vk::ClearValue {
@@ -1362,40 +1457,27 @@ impl Tracer {
             );
         }
 
-        // Use grass instances to place leaves (reusing the same instance data)
-        for (chunk_id, chunk_resources) in &surface_resources.chunk_raster_resources {
-            if chunk_resources.grass_instances_len == 0 {
-                continue;
-            }
-
-            const LEAVES_SWAY_MARGIN: f32 = 0.2;
-            let chunk_world_aabb = Self::compute_chunk_world_aabb(*chunk_id, LEAVES_SWAY_MARGIN);
-
-            if !chunk_world_aabb.is_inside_frustum(self.current_view_proj_mat) {
-                continue;
-            }
-
-            unsafe {
-                self.vulkan_ctx.device().cmd_bind_vertex_buffers(
-                    cmdbuf.as_raw(),
-                    0,
-                    &[
-                        self.resources.leaves_resources.vertices.as_raw(),
-                        chunk_resources.grass_instances.as_raw(),
-                    ],
-                    &[0, 0],
-                );
-            }
-
-            self.leaves_ppl.record_indexed(
-                cmdbuf,
-                self.resources.leaves_resources.indices_len,
-                chunk_resources.grass_instances_len,
+        // Use the actual leaves instances buffer
+        unsafe {
+            self.vulkan_ctx.device().cmd_bind_vertex_buffers(
+                cmdbuf.as_raw(),
                 0,
-                0,
-                0,
+                &[
+                    self.resources.leaves_resources.vertices.as_raw(),
+                    self.resources.leaves_instances.as_raw(),
+                ],
+                &[0, 0],
             );
         }
+
+        self.leaves_ppl.record_indexed(
+            cmdbuf,
+            self.resources.leaves_resources.indices_len,
+            self.resources.leaves_instances_len,
+            0,
+            0,
+            0,
+        );
 
         self.leaves_render_pass.record_end(cmdbuf);
 
@@ -1648,5 +1730,56 @@ impl Tracer {
                 ring_distances,
             })
         }
+    }
+
+    pub fn update_leaves_instances(
+        &mut self,
+        leaves: &[crate::geom::Cuboid],
+        tree_pos: Vec3,
+    ) -> Result<()> {
+        // GrassInstance structure: uvec3 position, uint grass_type
+        #[repr(C)]
+        #[derive(Copy, Clone)]
+        struct GrassInstance {
+            position: [u32; 3],
+            grass_type: u32,
+        }
+
+        let mut instances_data = Vec::new();
+
+        // for (i, leaf) in leaves.iter().take(100).enumerate() {
+        //     // Limit to 100 instances
+        //     let leaf_center = leaf.center();
+        //     let world_pos = leaf_center + tree_pos;
+
+        //     let voxel_pos = world_pos.as_uvec3();
+
+        //     // Create instance data matching GrassInstance structure
+        //     let instance = GrassInstance {
+        //         position: [voxel_pos.x, voxel_pos.y, voxel_pos.z],
+        //         grass_type: 0, // grass_type = 0 for leaves
+        //     };
+
+        //     instances_data.push(instance);
+        // }
+
+        let pos = tree_pos.as_uvec3() + UVec3::new(0, 150, 0);
+        let instance = GrassInstance {
+            position: [pos.x, pos.y, pos.z],
+            grass_type: 0,
+        };
+        instances_data.push(instance);
+
+        log::info!("Created {} leaf instances", instances_data.len());
+
+        if !instances_data.is_empty() {
+            self.resources.leaves_instances.fill(&instances_data)?;
+            self.resources.leaves_instances_len = instances_data.len() as u32;
+            log::info!("Successfully filled leaves instance buffer");
+        } else {
+            log::warn!("No leaf instances to render!");
+        }
+
+        Ok(())
     }
 }

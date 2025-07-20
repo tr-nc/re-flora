@@ -36,20 +36,13 @@ pub fn generate_indexed_voxel_leaves(density: f32, radius: f32) -> Result<(Vec<V
     for x in -radius_i..=radius_i {
         for y in -radius_i..=radius_i {
             for z in -radius_i..=radius_i {
-                // Check if we're in a 2x2 grid where we can place a voxel
-                if x % 2 != 0 || y % 2 != 0 || z % 2 != 0 {
-                    continue;
-                }
-
                 let pos = IVec3::new(x, y, z);
                 let distance_from_center = pos.as_vec3().length();
 
-                // Check if point is within the sphere
                 if distance_from_center > radius {
                     continue;
                 }
 
-                // Calculate gradient from center (0) to edge (1)
                 let gradient = if radius > 0.0 {
                     (distance_from_center / radius).min(1.0)
                 } else {
@@ -57,15 +50,20 @@ pub fn generate_indexed_voxel_leaves(density: f32, radius: f32) -> Result<(Vec<V
                 };
 
                 // Use noise to determine if we should place a voxel here
-                let noise_value = noise.get([x as f64 * 0.1, y as f64 * 0.1, z as f64 * 0.1]);
+                let noise_freq = 1.1;
+                let noise_value = noise.get([
+                    x as f64 * noise_freq,
+                    y as f64 * noise_freq,
+                    z as f64 * noise_freq,
+                ]);
                 let noise_threshold = (1.0 - density) as f64; // Higher density = lower threshold
 
                 if noise_value > noise_threshold {
                     let vertex_offset = vertices.len() as u32;
 
                     // Convert to unsigned coordinates with offset
-                    let unsigned_pos =
-                        UVec3::new((x + 128) as u32, (y + 128) as u32, (z + 128) as u32);
+                    let pre_offset = IVec3::new(128, 128, 128);
+                    let unsigned_pos = (IVec3::new(x, y, z) + pre_offset).as_uvec3();
 
                     append_indexed_cube_data(
                         &mut vertices,

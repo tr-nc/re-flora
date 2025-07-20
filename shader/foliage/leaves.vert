@@ -12,7 +12,6 @@ layout(location = 1) in uvec3 in_instance_position;
 layout(location = 2) in uint in_instance_grass_type;
 
 layout(location = 0) out vec3 vert_color;
-layout(location = 1) out vec3 world_normal;
 
 layout(set = 0, binding = 0) uniform U_GuiInput {
     float debug_float;
@@ -89,10 +88,10 @@ vec3 decode_vertex_offset(uint vertex_offset) {
 
 // Calculate normal for a cube face based on vertex position
 vec3 calculate_cube_normal(vec3 vertex_pos, vec3 base_pos) {
-    vec3 offset = vertex_pos - base_pos;
-    vec3 center = base_pos + vec3(0.5);
+    vec3 offset    = vertex_pos - base_pos;
+    vec3 center    = base_pos + vec3(0.5);
     vec3 to_vertex = normalize(vertex_pos + vec3(0.5) - center);
-    
+
     // Determine which face this vertex belongs to
     vec3 abs_offset = abs(to_vertex);
     if (abs_offset.x > abs_offset.y && abs_offset.x > abs_offset.z) {
@@ -110,37 +109,35 @@ void main() {
     uint vertex_offset_index;
     float gradient;
     unpack_vertex_data(base_position, vertex_offset_index, gradient, in_packed_data);
-    
+
     // Calculate actual vertex position by adding the cube vertex offset
     vec3 cube_vertex_offset = decode_vertex_offset(vertex_offset_index);
-    vec3 vertex_pos = base_position + cube_vertex_offset;
+    vec3 vertex_pos         = base_position + cube_vertex_offset;
 
     // Position leaves above the grass instances slightly
-    vec3 leaves_offset = vec3(0.0, 4.0, 0.0);
-    vec4 vert_pos_ws = vec4(vertex_pos + in_instance_position + leaves_offset, 1.0);
+    vec4 vert_pos_ws = vec4(vertex_pos + in_instance_position - vec3(128.0), 1.0);
 
     // Apply scaling
-    mat4 scale_mat = mat4(1.0);
+    mat4 scale_mat  = mat4(1.0);
     scale_mat[0][0] = scaling_factor;
     scale_mat[1][1] = scaling_factor;
     scale_mat[2][2] = scaling_factor;
-    vert_pos_ws = scale_mat * vert_pos_ws;
+    vert_pos_ws     = scale_mat * vert_pos_ws;
 
-    // Calculate normal for lighting
-    world_normal = calculate_cube_normal(vertex_pos, base_position);
-    
     // Shadow calculation
     float shadow_weight = get_shadow_weight_vsm(shadow_camera_info.view_proj_mat, vert_pos_ws);
 
     // Transform to clip space
     gl_Position = camera_info.view_proj_mat * vert_pos_ws;
 
-    // Leaves coloring - use green tones instead of grass colors
-    vec3 leaf_base_color = vec3(0.2, 0.6, 0.1);  // Dark green
-    vec3 leaf_tip_color = vec3(0.4, 0.8, 0.2);   // Bright green
-    vec3 interpolated_color = mix(leaf_base_color, leaf_tip_color, gradient);
+    // // Leaves coloring - use green tones instead of grass colors
+    // vec3 leaf_base_color = vec3(0.2, 0.6, 0.1);  // Dark green
+    // vec3 leaf_tip_color = vec3(0.4, 0.8, 0.2);   // Bright green
+    // vec3 interpolated_color = mix(leaf_base_color, leaf_tip_color, gradient);
 
-    // Apply lighting
-    vec3 sun_light = sun_info.sun_color * sun_info.sun_luminance;
-    vert_color = interpolated_color * (sun_light * shadow_weight + shading_info.ambient_light);
+    // // Apply lighting
+    // vec3 sun_light = sun_info.sun_color * sun_info.sun_luminance;
+    // vert_color = interpolated_color * (sun_light * shadow_weight + shading_info.ambient_light);
+
+    vert_color = vec3(0.2, 0.6, 0.1);
 }

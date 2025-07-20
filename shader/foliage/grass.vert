@@ -139,7 +139,7 @@ void main() {
     
     // Calculate actual vertex position by adding the cube vertex offset
     vec3 cube_vertex_offset = decode_vertex_offset(vertex_offset_index);
-    vec3 in_position = base_position + cube_vertex_offset;
+    vec3 vertex_pos = base_position + cube_vertex_offset;
 
     // Extract height from the Y component of the base position (voxel height level)
     float height = base_position.y;
@@ -148,7 +148,7 @@ void main() {
         random_grass_offset(vec2(in_instance_position.xz * scaling_factor), grass_info.time);
 
     vec3 vertex_offset = get_offset_of_vertex(height, voxel_count, grass_offset);
-    vec3 vert_pos_ms   = in_position + vertex_offset;
+    vec3 vert_pos_ms   = vertex_pos + vertex_offset;
     vec4 vert_pos_ws   = vec4(vert_pos_ms + in_instance_position, 1.0);
     vec3 voxel_pos_ms  = vec3(0.0, height, 0.0) + vec3(0.5) + vertex_offset;
     vec4 voxel_pos_ws  = vec4(voxel_pos_ms + in_instance_position, 1.0);
@@ -157,8 +157,8 @@ void main() {
     scale_mat[0][0] = scaling_factor;
     scale_mat[1][1] = scaling_factor;
     scale_mat[2][2] = scaling_factor;
-    vert_pos_ws     = (scale_mat * vert_pos_ws);
-    voxel_pos_ws    = (scale_mat * voxel_pos_ws);
+    vert_pos_ws     = scale_mat * vert_pos_ws;
+    voxel_pos_ws    = scale_mat * voxel_pos_ws;
 
     float shadow_weight = get_shadow_weight_vsm(shadow_camera_info.view_proj_mat, voxel_pos_ws);
 
