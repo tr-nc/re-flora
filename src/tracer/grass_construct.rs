@@ -34,41 +34,6 @@ pub fn generate_indexed_voxel_grass_blade(voxel_count: u32) -> Result<(Vec<Verte
     Ok((vertices, indices))
 }
 
-/// The output value is guaranteed to take up 24 bits
-fn encode_pos(pos: UVec3) -> Result<u32> {
-    // pos.x (8 bits) | pos.y (8 bits) | pos.z (8 bits)
-    let encoded = pos.x | (pos.y << 8) | (pos.z << 16);
-    if encoded > 0xFFFFFF {
-        return Err(anyhow::anyhow!("Invalid position"));
-    }
-    Ok(encoded)
-}
-
-/// The output value is guaranteed to take up 3 bits
-fn encode_voxel_offset(base_vert: UVec3) -> Result<u32> {
-    // let encoded = base_vert.x * 4 + base_vert.y * 2 + base_vert.z;
-    let encoded = base_vert.x | (base_vert.y << 1) | (base_vert.z << 2);
-    if encoded > 0x7 {
-        return Err(anyhow::anyhow!("Invalid base vert"));
-    }
-    Ok(encoded)
-}
-
-/// The output value is guaranteed to take up 5 bits
-fn encode_gradient(gradient: f32) -> Result<u32> {
-    // input gradient is in [0, 1]
-    // output gradient is in [0, 31]
-    let encoded = (gradient * 31.0) as u32;
-    if encoded > 0x1F {
-        return Err(anyhow::anyhow!("Invalid gradient"));
-    }
-    Ok(encoded)
-}
-
-fn make_value_from_parts(encoded_pos: u32, encoded_offset: u32, encoded_gradient: u32) -> u32 {
-    encoded_pos | (encoded_offset << 24) | (encoded_gradient << 27)
-}
-
 /// Appends 8 vertices and 36 indices for a single cube to the provided lists.
 fn append_indexed_cube_data(
     vertices: &mut Vec<Vertex>,
@@ -113,5 +78,40 @@ fn append_indexed_cube_data(
         indices.push(vertex_offset + index);
     }
 
-    Ok(())
+    return Ok(());
+
+    /// The output value is guaranteed to take up 24 bits
+    fn encode_pos(pos: UVec3) -> Result<u32> {
+        // pos.x (8 bits) | pos.y (8 bits) | pos.z (8 bits)
+        let encoded = pos.x | (pos.y << 8) | (pos.z << 16);
+        if encoded > 0xFFFFFF {
+            return Err(anyhow::anyhow!("Invalid position"));
+        }
+        Ok(encoded)
+    }
+
+    /// The output value is guaranteed to take up 3 bits
+    fn encode_voxel_offset(base_vert: UVec3) -> Result<u32> {
+        // let encoded = base_vert.x * 4 + base_vert.y * 2 + base_vert.z;
+        let encoded = base_vert.x | (base_vert.y << 1) | (base_vert.z << 2);
+        if encoded > 0x7 {
+            return Err(anyhow::anyhow!("Invalid base vert"));
+        }
+        Ok(encoded)
+    }
+
+    /// The output value is guaranteed to take up 5 bits
+    fn encode_gradient(gradient: f32) -> Result<u32> {
+        // input gradient is in [0, 1]
+        // output gradient is in [0, 31]
+        let encoded = (gradient * 31.0) as u32;
+        if encoded > 0x1F {
+            return Err(anyhow::anyhow!("Invalid gradient"));
+        }
+        Ok(encoded)
+    }
+
+    fn make_value_from_parts(encoded_pos: u32, encoded_offset: u32, encoded_gradient: u32) -> u32 {
+        encoded_pos | (encoded_offset << 24) | (encoded_gradient << 27)
+    }
 }
