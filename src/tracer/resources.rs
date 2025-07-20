@@ -1,7 +1,8 @@
 use crate::{
     resource::Resource,
     tracer::{
-        grass_construct::generate_indexed_voxel_grass_blade, DenoiserResources,
+        grass_construct::generate_indexed_voxel_grass_blade,
+        leaves_construct::generate_indexed_voxel_leaves, DenoiserResources,
         ExtentDependentResources, Vertex,
     },
     util::get_project_root,
@@ -12,6 +13,97 @@ use crate::{
 };
 use ash::vk;
 use resource_container_derive::ResourceContainer;
+
+#[derive(ResourceContainer)]
+pub struct GrassBladeResources {
+    pub vertices: Resource<Buffer>,
+    pub indices: Resource<Buffer>,
+    pub indices_len: u32,
+}
+
+impl GrassBladeResources {
+    pub fn new(device: Device, allocator: Allocator) -> Self {
+        // --- Generate and create indexed vertex and index buffers ---
+        const GRASS_BLADE_VOXEL_LENGTH: u32 = 8;
+
+        // 1. Generate the indexed data without colors (colors will be handled in shader).
+        let (vertices_data, indices_data) =
+            generate_indexed_voxel_grass_blade(GRASS_BLADE_VOXEL_LENGTH).unwrap();
+        let indices_len = indices_data.len() as u32;
+
+        // 2. Create and fill the vertex buffer.
+        let vertices = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            (std::mem::size_of::<Vertex>() * vertices_data.len()) as u64,
+        );
+        vertices.fill(&vertices_data).unwrap();
+
+        // 3. Create and fill the index buffer.
+        let indices = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::INDEX_BUFFER),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            (std::mem::size_of::<u32>() * indices_data.len()) as u64,
+        );
+        indices.fill(&indices_data).unwrap();
+
+        Self {
+            vertices: Resource::new(vertices),
+            indices: Resource::new(indices),
+            indices_len,
+        }
+    }
+}
+
+#[derive(ResourceContainer)]
+pub struct LeavesResources {
+    pub vertices: Resource<Buffer>,
+    pub indices: Resource<Buffer>,
+    pub indices_len: u32,
+}
+
+impl LeavesResources {
+    pub fn new(device: Device, allocator: Allocator) -> Self {
+        // --- Generate and create indexed vertex and index buffers for leaves ---
+        const LEAVES_DENSITY: f32 = 0.6;
+        const LEAVES_RADIUS: f32 = 16.0;
+
+        // 1. Generate the indexed data for sphere-shaped leaves.
+        let (vertices_data, indices_data) =
+            generate_indexed_voxel_leaves(LEAVES_DENSITY, LEAVES_RADIUS).unwrap();
+        let indices_len = indices_data.len() as u32;
+
+        // 2. Create and fill the vertex buffer.
+        let vertices = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            (std::mem::size_of::<Vertex>() * vertices_data.len()) as u64,
+        );
+        vertices.fill(&vertices_data).unwrap();
+
+        // 3. Create and fill the index buffer.
+        let indices = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::INDEX_BUFFER),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            (std::mem::size_of::<u32>() * indices_data.len()) as u64,
+        );
+        indices.fill(&indices_data).unwrap();
+
+        Self {
+            vertices: Resource::new(vertices),
+            indices: Resource::new(indices),
+            indices_len,
+        }
+    }
+}
 
 #[derive(ResourceContainer)]
 pub struct TracerResources {
@@ -30,9 +122,8 @@ pub struct TracerResources {
     pub player_collider_info: Resource<Buffer>,
     pub player_collision_result: Resource<Buffer>,
 
-    pub vertices: Resource<Buffer>,
-    pub indices: Resource<Buffer>,
-    pub indices_len: u32,
+    pub grass_blade_resources: GrassBladeResources,
+    pub leaves_resources: LeavesResources,
 
     pub shadow_map_tex: Resource<Texture>,
     pub shadow_map_tex_for_vsm_ping: Resource<Texture>,
@@ -271,33 +362,9 @@ impl TracerResources {
             "fast/weighted_cosine/out_",
         );
 
-        // --- Generate and create indexed vertex and index buffers ---
-        const GRASS_BLADE_VOXEL_LENGTH: u32 = 8;
-
-        // 1. Generate the indexed data without colors (colors will be handled in shader).
-        let (vertices_data, indices_data) =
-            generate_indexed_voxel_grass_blade(GRASS_BLADE_VOXEL_LENGTH).unwrap();
-        let indices_len = indices_data.len() as u32;
-
-        // 2. Create and fill the vertex buffer.
-        let vertices = Buffer::new_sized(
-            device.clone(),
-            allocator.clone(),
-            BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
-            gpu_allocator::MemoryLocation::CpuToGpu,
-            (std::mem::size_of::<Vertex>() * vertices_data.len()) as u64,
-        );
-        vertices.fill(&vertices_data).unwrap();
-
-        // 3. Create and fill the index buffer.
-        let indices = Buffer::new_sized(
-            device.clone(),
-            allocator.clone(),
-            BufferUsage::from_flags(vk::BufferUsageFlags::INDEX_BUFFER),
-            gpu_allocator::MemoryLocation::CpuToGpu,
-            (std::mem::size_of::<u32>() * indices_data.len()) as u64,
-        );
-        indices.fill(&indices_data).unwrap();
+        // TODO:
+        let grass_blade_resources = GrassBladeResources::new(device.clone(), allocator.clone());
+        let leaves_resources = LeavesResources::new(device.clone(), allocator.clone());
 
         return Self {
             gui_input: Resource::new(gui_input),
@@ -314,9 +381,8 @@ impl TracerResources {
             post_processing_info: Resource::new(post_processing_info),
             player_collider_info: Resource::new(player_collider_info),
             player_collision_result: Resource::new(player_collision_result),
-            vertices: Resource::new(vertices),
-            indices: Resource::new(indices),
-            indices_len,
+            grass_blade_resources,
+            leaves_resources,
             extent_dependent_resources,
             shadow_map_tex: Resource::new(shadow_map_tex),
             shadow_map_tex_for_vsm_ping: Resource::new(shadow_map_tex_for_vsm_ping),

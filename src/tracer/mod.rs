@@ -1199,7 +1199,7 @@ impl Tracer {
             // bind the index buffer
             self.vulkan_ctx.device().cmd_bind_index_buffer(
                 cmdbuf.as_raw(),
-                self.resources.indices.as_raw(),
+                self.resources.grass_blade_resources.indices.as_raw(),
                 0,
                 vk::IndexType::UINT32, // Use 32-bit indices
             );
@@ -1230,7 +1230,7 @@ impl Tracer {
                     cmdbuf.as_raw(),
                     0, // firstBinding
                     &[
-                        self.resources.vertices.as_raw(),
+                        self.resources.grass_blade_resources.vertices.as_raw(),
                         chunk_resources.grass_instances.as_raw(),
                     ],
                     &[0, 0], // offsets
@@ -1241,7 +1241,7 @@ impl Tracer {
             // No barriers are needed here.
             self.grass_ppl.record_indexed(
                 cmdbuf,
-                self.resources.indices_len,
+                self.resources.grass_blade_resources.indices_len,
                 chunk_resources.grass_instances_len,
                 0, // firstIndex
                 0, // vertexOffset
