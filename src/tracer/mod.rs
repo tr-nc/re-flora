@@ -10,7 +10,13 @@ pub use extent_dependent_resources::*;
 mod vertex;
 pub use vertex::*;
 
+mod voxel_encoding;
+
+mod voxel_geometry;
+
 mod grass_construct;
+
+mod leaves_construct;
 
 use glam::{Mat4, UVec3, Vec2, Vec3};
 use winit::event::KeyEvent;
