@@ -761,7 +761,10 @@ impl App {
         self.plain_builder.chunk_modify(&bvh_nodes, &round_cones)?;
 
         // Update leaves instances for rendering
-        log::info!("Calling update_leaves_instances with tree_pos: {:?}", tree_pos);
+        log::info!(
+            "Calling update_leaves_instances with tree_pos: {:?}",
+            tree_pos
+        );
         self.tracer
             .update_leaves_instances(tree.leaves(), tree_pos)?;
 

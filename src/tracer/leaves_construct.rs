@@ -10,19 +10,24 @@ use noise::{NoiseFn, Perlin};
 /// Generates indexed voxel data for sphere-shaped leaves.
 ///
 /// # Parameters
-/// - `density`: Controls how dense the leaves are (0.0 to 1.0)
+/// - `density_min`: Minimum density at the sphere boundary (0.0 to 1.0)
+/// - `density_max`: Maximum density at the sphere center (0.0 to 1.0)
 /// - `radius`: Radius of the sphere (max 128 due to encoding constraints)
 ///
 /// # Returns
 /// A tuple of (vertices, indices) for rendering the voxel leaves.
-pub fn generate_indexed_voxel_leaves(density: f32, radius: f32) -> Result<(Vec<Vertex>, Vec<u32>)> {
+pub fn generate_indexed_voxel_leaves(
+    density_min: f32,
+    density_max: f32,
+    radius: f32,
+) -> Result<(Vec<Vertex>, Vec<u32>)> {
     if radius > 128.0 {
         return Err(anyhow::anyhow!(
             "Radius must be <= 128 due to encoding constraints"
         ));
     }
 
-    if density <= 0.0 {
+    if density_max <= 0.0 {
         return Ok((Vec::new(), Vec::new()));
     }
 
@@ -49,6 +54,11 @@ pub fn generate_indexed_voxel_leaves(density: f32, radius: f32) -> Result<(Vec<V
                     0.0
                 };
 
+                // Calculate density falloff: density_max at center, density_min at boundary
+                let distance_ratio = distance_from_center / radius;
+                let falloff_density =
+                    density_max * (1.0 - distance_ratio) + density_min * distance_ratio;
+
                 // Use noise to determine if we should place a voxel here
                 let noise_freq = 1.1;
                 let noise_value = noise.get([
@@ -56,7 +66,7 @@ pub fn generate_indexed_voxel_leaves(density: f32, radius: f32) -> Result<(Vec<V
                     y as f64 * noise_freq,
                     z as f64 * noise_freq,
                 ]);
-                let noise_threshold = (1.0 - density) as f64; // Higher density = lower threshold
+                let noise_threshold = (1.0 - falloff_density) as f64; // Higher density = lower threshold
 
                 if noise_value > noise_threshold {
                     let vertex_offset = vertices.len() as u32;

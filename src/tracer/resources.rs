@@ -69,12 +69,14 @@ pub struct LeavesResources {
 impl LeavesResources {
     pub fn new(device: Device, allocator: Allocator) -> Self {
         // --- Generate and create indexed vertex and index buffers for leaves ---
-        const LEAVES_DENSITY: f32 = 0.6;
+        const LEAVES_DENSITY_MIN: f32 = 0.3;
+        const LEAVES_DENSITY_MAX: f32 = 0.6;
         const LEAVES_RADIUS: f32 = 16.0;
 
         // 1. Generate the indexed data for sphere-shaped leaves.
         let (vertices_data, indices_data) =
-            generate_indexed_voxel_leaves(LEAVES_DENSITY, LEAVES_RADIUS).unwrap();
+            generate_indexed_voxel_leaves(LEAVES_DENSITY_MIN, LEAVES_DENSITY_MAX, LEAVES_RADIUS)
+                .unwrap();
         let indices_len = indices_data.len() as u32;
 
         // 2. Create and fill the vertex buffer.
