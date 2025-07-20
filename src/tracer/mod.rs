@@ -1780,7 +1780,12 @@ impl Tracer {
         Ok(())
     }
 
-    pub fn regenerate_leaves(&mut self, density_min: f32, density_max: f32) -> Result<()> {
+    pub fn regenerate_leaves(
+        &mut self,
+        density_min: f32,
+        density_max: f32,
+        radius: f32,
+    ) -> Result<()> {
         // Regenerate leaves resources with new density parameters
         let device = self.vulkan_ctx.device();
 
@@ -1789,12 +1794,14 @@ impl Tracer {
             self.allocator.clone(),
             density_min,
             density_max,
+            radius,
         );
 
         log::info!(
-            "Regenerated leaves with density_min: {}, density_max: {}",
+            "Regenerated leaves with density_min: {}, density_max: {}, radius: {}",
             density_min,
-            density_max
+            density_max,
+            radius
         );
         Ok(())
     }

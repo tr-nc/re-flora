@@ -67,13 +67,18 @@ pub struct LeavesResources {
 }
 
 impl LeavesResources {
-    pub fn new(device: Device, allocator: Allocator, density_min: f32, density_max: f32) -> Self {
+    pub fn new(
+        device: Device,
+        allocator: Allocator,
+        density_min: f32,
+        density_max: f32,
+        radius: f32,
+    ) -> Self {
         // --- Generate and create indexed vertex and index buffers for leaves ---
-        const LEAVES_RADIUS: f32 = 16.0;
 
         // 1. Generate the indexed data for sphere-shaped leaves.
         let (vertices_data, indices_data) =
-            generate_indexed_voxel_leaves(density_min, density_max, LEAVES_RADIUS).unwrap();
+            generate_indexed_voxel_leaves(density_min, density_max, radius).unwrap();
         let indices_len = indices_data.len() as u32;
 
         // 2. Create and fill the vertex buffer.
@@ -372,6 +377,7 @@ impl TracerResources {
             allocator.clone(),
             leaves_density_min,
             leaves_density_max,
+            16.0, // Default radius
         );
 
         // Create leaves instances buffer - matches GrassInstance structure: uvec3 position, uint grass_type

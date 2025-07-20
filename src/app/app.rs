@@ -183,6 +183,7 @@ pub struct App {
     debug_uint: u32,
     leaves_density_min: f32,
     leaves_density_max: f32,
+    leaves_radius: f32,
     sun_altitude: f32,
     sun_azimuth: f32,
     sun_size: f32,
@@ -381,8 +382,9 @@ impl App {
             debug_float: 0.0,
             debug_bool: true,
             debug_uint: 0,
-            leaves_density_min: 0.3,
-            leaves_density_max: 0.6,
+            leaves_density_min: 0.25,
+            leaves_density_max: 0.3,
+            leaves_radius: 15.0,
             temporal_position_phi: 0.8,
             temporal_alpha: 0.04,
             god_ray_max_depth: 3.0,
@@ -984,7 +986,8 @@ impl App {
                                         });
 
                                         ui.collapsing("Leaves Settings", |ui| {
-                                            let min_changed = ui
+                                            let mut leaves_changed = false;
+                                            leaves_changed |= ui
                                                 .add(
                                                     egui::Slider::new(
                                                         &mut self.leaves_density_min,
@@ -993,7 +996,7 @@ impl App {
                                                     .text("Min Density"),
                                                 )
                                                 .changed();
-                                            let max_changed = ui
+                                            leaves_changed |= ui
                                                 .add(
                                                     egui::Slider::new(
                                                         &mut self.leaves_density_max,
@@ -1002,11 +1005,21 @@ impl App {
                                                     .text("Max Density"),
                                                 )
                                                 .changed();
+                                            leaves_changed |= ui
+                                                .add(
+                                                    egui::Slider::new(
+                                                        &mut self.leaves_radius,
+                                                        1.0..=64.0,
+                                                    )
+                                                    .text("Radius"),
+                                                )
+                                                .changed();
 
-                                            if min_changed || max_changed {
+                                            if leaves_changed {
                                                 if let Err(e) = self.tracer.regenerate_leaves(
                                                     self.leaves_density_min,
                                                     self.leaves_density_max,
+                                                    self.leaves_radius,
                                                 ) {
                                                     log::error!(
                                                         "Failed to regenerate leaves: {}",
