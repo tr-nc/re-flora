@@ -67,16 +67,13 @@ pub struct LeavesResources {
 }
 
 impl LeavesResources {
-    pub fn new(device: Device, allocator: Allocator) -> Self {
+    pub fn new(device: Device, allocator: Allocator, density_min: f32, density_max: f32) -> Self {
         // --- Generate and create indexed vertex and index buffers for leaves ---
-        const LEAVES_DENSITY_MIN: f32 = 0.3;
-        const LEAVES_DENSITY_MAX: f32 = 0.6;
         const LEAVES_RADIUS: f32 = 16.0;
 
         // 1. Generate the indexed data for sphere-shaped leaves.
         let (vertices_data, indices_data) =
-            generate_indexed_voxel_leaves(LEAVES_DENSITY_MIN, LEAVES_DENSITY_MAX, LEAVES_RADIUS)
-                .unwrap();
+            generate_indexed_voxel_leaves(density_min, density_max, LEAVES_RADIUS).unwrap();
         let indices_len = indices_data.len() as u32;
 
         // 2. Create and fill the vertex buffer.
@@ -163,6 +160,8 @@ impl TracerResources {
         rendering_extent: Extent2D,
         screen_extent: Extent2D,
         shadow_map_extent: Extent2D,
+        leaves_density_min: f32,
+        leaves_density_max: f32,
     ) -> Self {
         let device = vulkan_ctx.device();
 
@@ -368,7 +367,12 @@ impl TracerResources {
 
         // TODO:
         let grass_blade_resources = GrassBladeResources::new(device.clone(), allocator.clone());
-        let leaves_resources = LeavesResources::new(device.clone(), allocator.clone());
+        let leaves_resources = LeavesResources::new(
+            device.clone(),
+            allocator.clone(),
+            leaves_density_min,
+            leaves_density_max,
+        );
 
         // Create leaves instances buffer - matches GrassInstance structure: uvec3 position, uint grass_type
         const LEAVES_INSTANCE_SIZE: usize = 16; // 3 * 4 + 4 bytes for uvec3 + uint

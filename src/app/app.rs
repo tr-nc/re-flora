@@ -181,6 +181,8 @@ pub struct App {
     debug_float: f32,
     debug_bool: bool,
     debug_uint: u32,
+    leaves_density_min: f32,
+    leaves_density_max: f32,
     sun_altitude: f32,
     sun_azimuth: f32,
     sun_size: f32,
@@ -346,6 +348,8 @@ impl App {
                 scaling_factor: 0.5,
             },
             audio_engine.clone(),
+            0.3,
+            0.7,
         )?;
 
         Self::add_ambient_sounds(&mut audio_engine)?;
@@ -377,6 +381,8 @@ impl App {
             debug_float: 0.0,
             debug_bool: true,
             debug_uint: 0,
+            leaves_density_min: 0.3,
+            leaves_density_max: 0.6,
             temporal_position_phi: 0.8,
             temporal_alpha: 0.04,
             god_ray_max_depth: 3.0,
@@ -975,6 +981,39 @@ impl App {
                                                 &mut self.debug_bool,
                                                 "Debug Bool",
                                             ));
+                                        });
+
+                                        ui.collapsing("Leaves Settings", |ui| {
+                                            let min_changed = ui
+                                                .add(
+                                                    egui::Slider::new(
+                                                        &mut self.leaves_density_min,
+                                                        0.0..=1.0,
+                                                    )
+                                                    .text("Min Density"),
+                                                )
+                                                .changed();
+                                            let max_changed = ui
+                                                .add(
+                                                    egui::Slider::new(
+                                                        &mut self.leaves_density_max,
+                                                        0.0..=1.0,
+                                                    )
+                                                    .text("Max Density"),
+                                                )
+                                                .changed();
+
+                                            if min_changed || max_changed {
+                                                if let Err(e) = self.tracer.regenerate_leaves(
+                                                    self.leaves_density_min,
+                                                    self.leaves_density_max,
+                                                ) {
+                                                    log::error!(
+                                                        "Failed to regenerate leaves: {}",
+                                                        e
+                                                    );
+                                                }
+                                            }
                                         });
 
                                         ui.collapsing("Sky Settings", |ui| {

@@ -108,6 +108,8 @@ impl Tracer {
         scene_accel_resources: &SceneAccelBuilderResources,
         desc: TracerDesc,
         audio_engine: AudioEngine,
+        leaves_density_min: f32,
+        leaves_density_max: f32,
     ) -> Result<Self> {
         let render_extent = Self::get_render_extent(screen_extent, desc.scaling_factor);
 
@@ -281,6 +283,8 @@ impl Tracer {
             render_extent,
             screen_extent,
             Extent2D::new(1024, 1024),
+            leaves_density_min,
+            leaves_density_max,
         );
 
         let device = vulkan_ctx.device();
@@ -1734,7 +1738,7 @@ impl Tracer {
 
     pub fn update_leaves_instances(
         &mut self,
-        leaves: &[crate::geom::Cuboid],
+        _leaves: &[crate::geom::Cuboid],
         tree_pos: Vec3,
     ) -> Result<()> {
         // GrassInstance structure: uvec3 position, uint grass_type
@@ -1780,6 +1784,21 @@ impl Tracer {
             log::warn!("No leaf instances to render!");
         }
 
+        Ok(())
+    }
+
+    pub fn regenerate_leaves(&mut self, density_min: f32, density_max: f32) -> Result<()> {
+        // Regenerate leaves resources with new density parameters
+        let device = self.vulkan_ctx.device();
+
+        self.resources.leaves_resources =
+            LeavesResources::new(device.clone(), self.allocator.clone(), density_min, density_max);
+
+        log::info!(
+            "Regenerated leaves with density_min: {}, density_max: {}",
+            density_min,
+            density_max
+        );
         Ok(())
     }
 }
