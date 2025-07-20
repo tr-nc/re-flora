@@ -273,13 +273,10 @@ impl TracerResources {
 
         // --- Generate and create indexed vertex and index buffers ---
         const GRASS_BLADE_VOXEL_LENGTH: u32 = 8;
-        // Define bottom and tip colors, converting from [0, 255] RGB to [0.0, 1.0] Vec3.
-        let bottom_color = glam::vec3(52.0 / 255.0, 116.0 / 255.0, 51.0 / 255.0);
-        let tip_color = glam::vec3(182.0 / 255.0, 245.0 / 255.0, 0.0 / 255.0);
 
-        // 1. Generate the indexed data with the color gradient.
+        // 1. Generate the indexed data without colors (colors will be handled in shader).
         let (vertices_data, indices_data) =
-            generate_indexed_voxel_grass_blade(GRASS_BLADE_VOXEL_LENGTH, bottom_color, tip_color);
+            generate_indexed_voxel_grass_blade(GRASS_BLADE_VOXEL_LENGTH);
 
         let indices_len = indices_data.len() as u32;
 

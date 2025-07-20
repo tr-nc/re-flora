@@ -418,7 +418,7 @@ impl Tracer {
                 depth_write_enable: true,
                 ..Default::default()
             },
-            Some(3),
+            Some(2),
         );
 
         (gfx_ppl, render_pass)
@@ -639,6 +639,8 @@ impl Tracer {
         starlight_darkmatter: f32,
         starlight_distfading: f32,
         starlight_saturation: f32,
+        grass_bottom_color: Vec3,
+        grass_tip_color: Vec3,
     ) -> Result<()> {
         // camera info
         let view_mat = self.camera.get_view_mat();
@@ -671,7 +673,7 @@ impl Tracer {
 
         update_player_collider_info(&self.resources, self.camera.position(), self.camera.front())?;
 
-        update_grass_info(&self.resources, time_info.time_since_start())?;
+        update_grass_info(&self.resources, time_info.time_since_start(), grass_bottom_color, grass_tip_color)?;
 
         update_gui_input(&self.resources, debug_float, debug_bool, debug_uint)?;
 
@@ -939,9 +941,11 @@ impl Tracer {
             Ok(())
         }
 
-        fn update_grass_info(resources: &TracerResources, time: f32) -> Result<()> {
+        fn update_grass_info(resources: &TracerResources, time: f32, bottom_color: Vec3, tip_color: Vec3) -> Result<()> {
             let data = StructMemberDataBuilder::from_buffer(&resources.grass_info)
                 .set_field("time", PlainMemberTypeWithData::Float(time))
+                .set_field("bottom_color", PlainMemberTypeWithData::Vec3(bottom_color.to_array()))
+                .set_field("tip_color", PlainMemberTypeWithData::Vec3(tip_color.to_array()))
                 .build()?;
             resources.grass_info.fill_with_raw_u8(&data)?;
             Ok(())

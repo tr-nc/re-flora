@@ -3,8 +3,6 @@ use glam::{vec3, Vec3};
 
 pub fn generate_indexed_voxel_grass_blade(
     voxel_count: u32,
-    bottom_color: Vec3,
-    tip_color: Vec3,
 ) -> (Vec<Vertex>, Vec<u32>) {
     if voxel_count == 0 {
         return (Vec::new(), Vec::new());
@@ -17,20 +15,10 @@ pub fn generate_indexed_voxel_grass_blade(
         let vertex_offset = vertices.len() as u32;
         let base_position = vec3(0.0, i as f32, 0.0);
 
-        // Interpolate the color based on the height (i).
-        // 't' will go from 0.0 for the first voxel to 1.0 for the last one.
-        let t = if voxel_count > 1 {
-            i as f32 / (voxel_count - 1) as f32
-        } else {
-            0.0
-        };
-        let voxel_color = bottom_color.lerp(tip_color, t);
-
         append_indexed_cube_data(
             &mut vertices,
             &mut indices,
             base_position,
-            voxel_color,
             i,
             vertex_offset,
         );
@@ -44,7 +32,6 @@ fn append_indexed_cube_data(
     vertices: &mut Vec<Vertex>,
     indices: &mut Vec<u32>,
     base_position: Vec3,
-    color: Vec3,
     height: u32,
     vertex_offset: u32,
 ) {
@@ -66,7 +53,6 @@ fn append_indexed_cube_data(
         vertices.push(Vertex {
             // The position stored in the buffer is the un-bent, stacked position.
             position: local_pos + base_position,
-            color,
             height, // Store the voxel's height level for shader calculations.
         });
     }

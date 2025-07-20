@@ -4,12 +4,11 @@
 
 // these are vertex-rate attributes
 layout(location = 0) in vec3 in_position;
-layout(location = 1) in vec3 in_color;
-layout(location = 2) in uint in_height; // The voxel's stack level
+layout(location = 1) in uint in_height; // The voxel's stack level
 
 // these are instance-rate attributes
-layout(location = 3) in uvec3 in_instance_position;
-layout(location = 4) in uint in_instance_grass_type;
+layout(location = 2) in uvec3 in_instance_position;
+layout(location = 3) in uint in_instance_grass_type;
 
 layout(location = 0) out vec3 vert_color;
 
@@ -52,7 +51,11 @@ layout(set = 0, binding = 4) uniform U_ShadowCameraInfo {
 }
 shadow_camera_info;
 
-layout(set = 0, binding = 5) uniform U_GrassInfo { float time; }
+layout(set = 0, binding = 5) uniform U_GrassInfo { 
+    float time;
+    vec3 bottom_color;
+    vec3 tip_color;
+}
 grass_info;
 
 layout(set = 0, binding = 6) uniform sampler2D shadow_map_tex_for_vsm_ping;
@@ -130,6 +133,10 @@ void main() {
     // transform to clip space
     gl_Position = camera_info.view_proj_mat * vert_pos_ws;
 
+    // Interpolate color based on voxel height
+    float t = float(in_height) / float(voxel_count - 1u);
+    vec3 interpolated_color = mix(grass_info.bottom_color, grass_info.tip_color, t);
+    
     vec3 sun_light = sun_info.sun_color * sun_info.sun_luminance;
-    vert_color     = in_color * (sun_light * shadow_weight + shading_info.ambient_light);
+    vert_color     = interpolated_color * (sun_light * shadow_weight + shading_info.ambient_light);
 }

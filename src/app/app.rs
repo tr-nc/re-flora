@@ -138,6 +138,10 @@ pub struct App {
     starlight_distfading: f32,
     starlight_saturation: f32,
 
+    // grass colors
+    grass_bottom_color: egui::Color32,
+    grass_tip_color: egui::Color32,
+
     // note: always keep the context to end, as it has to be destroyed last
     vulkan_ctx: VulkanContext,
 
@@ -327,6 +331,10 @@ impl App {
             starlight_darkmatter: 0.8,
             starlight_distfading: 0.885,
             starlight_saturation: 1.0,
+
+            // Default grass colors (converted from resources.rs values)
+            grass_bottom_color: egui::Color32::from_rgb(52, 116, 51),
+            grass_tip_color: egui::Color32::from_rgb(182, 245, 0),
 
             audio_engine,
         };
@@ -1346,6 +1354,17 @@ impl App {
                                                 "Enable Temporal Anti-Aliasing",
                                             ));
                                         });
+
+                                        ui.collapsing("Grass Settings", |ui| {
+                                            ui.horizontal(|ui| {
+                                                ui.label("Bottom Color:");
+                                                ui.color_edit_button_srgba(&mut self.grass_bottom_color);
+                                            });
+                                            ui.horizontal(|ui| {
+                                                ui.label("Tip Color:");
+                                                ui.color_edit_button_srgba(&mut self.grass_tip_color);
+                                            });
+                                        });
                                     });
                                 });
                         }
@@ -1483,6 +1502,16 @@ impl App {
                         self.starlight_darkmatter,
                         self.starlight_distfading,
                         self.starlight_saturation,
+                        Vec3::new(
+                            self.grass_bottom_color.r() as f32 / 255.0,
+                            self.grass_bottom_color.g() as f32 / 255.0,
+                            self.grass_bottom_color.b() as f32 / 255.0,
+                        ),
+                        Vec3::new(
+                            self.grass_tip_color.r() as f32 / 255.0,
+                            self.grass_tip_color.g() as f32 / 255.0,
+                            self.grass_tip_color.b() as f32 / 255.0,
+                        ),
                     )
                     .unwrap();
 
