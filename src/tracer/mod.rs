@@ -1738,7 +1738,7 @@ impl Tracer {
 
     pub fn update_leaves_instances(
         &mut self,
-        _leaves: &[crate::geom::Cuboid],
+        leaves: &[crate::geom::Cuboid],
         tree_pos: Vec3,
     ) -> Result<()> {
         // GrassInstance structure: uvec3 position, uint grass_type
@@ -1751,28 +1751,21 @@ impl Tracer {
 
         let mut instances_data = Vec::new();
 
-        // for (i, leaf) in leaves.iter().take(100).enumerate() {
-        //     // Limit to 100 instances
-        //     let leaf_center = leaf.center();
-        //     let world_pos = leaf_center + tree_pos;
+        for (i, leaf) in leaves.iter().take(100).enumerate() {
+            // Limit to 100 instances
+            let leaf_center = leaf.center();
+            let world_pos = leaf_center + tree_pos;
 
-        //     let voxel_pos = world_pos.as_uvec3();
+            let voxel_pos = world_pos.as_uvec3();
 
-        //     // Create instance data matching GrassInstance structure
-        //     let instance = GrassInstance {
-        //         position: [voxel_pos.x, voxel_pos.y, voxel_pos.z],
-        //         grass_type: 0, // grass_type = 0 for leaves
-        //     };
+            // Create instance data matching GrassInstance structure
+            let instance = GrassInstance {
+                position: [voxel_pos.x, voxel_pos.y, voxel_pos.z],
+                grass_type: 0, // grass_type = 0 for leaves
+            };
 
-        //     instances_data.push(instance);
-        // }
-
-        let pos = tree_pos.as_uvec3() + UVec3::new(0, 150, 0);
-        let instance = GrassInstance {
-            position: [pos.x, pos.y, pos.z],
-            grass_type: 0,
-        };
-        instances_data.push(instance);
+            instances_data.push(instance);
+        }
 
         log::info!("Created {} leaf instances", instances_data.len());
 
@@ -1791,8 +1784,12 @@ impl Tracer {
         // Regenerate leaves resources with new density parameters
         let device = self.vulkan_ctx.device();
 
-        self.resources.leaves_resources =
-            LeavesResources::new(device.clone(), self.allocator.clone(), density_min, density_max);
+        self.resources.leaves_resources = LeavesResources::new(
+            device.clone(),
+            self.allocator.clone(),
+            density_min,
+            density_max,
+        );
 
         log::info!(
             "Regenerated leaves with density_min: {}, density_max: {}",

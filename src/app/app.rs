@@ -348,8 +348,8 @@ impl App {
                 scaling_factor: 0.5,
             },
             audio_engine.clone(),
+            0.2,
             0.3,
-            0.7,
         )?;
 
         Self::add_ambient_sounds(&mut audio_engine)?;
@@ -403,7 +403,7 @@ impl App {
             time_of_day: 0.5,
             latitude: 0.5,
             season: 0.25,
-            day_cycle_minutes: 5.0,
+            day_cycle_minutes: 30.0,
             sun_color: egui::Color32::from_rgb(255, 233, 144),
             sun_luminance: 1.0,
             ambient_light: egui::Color32::from_rgb(25, 25, 25),
