@@ -223,8 +223,7 @@ impl TreeDesc {
 #[derive(Debug)]
 struct BuiltObjects {
     trunks: Vec<RoundCone>,
-    #[allow(dead_code)]
-    leaves: Vec<Cuboid>,
+    leaf_positions: Vec<Vec3>,
 }
 
 #[derive(Debug)]
@@ -253,8 +252,8 @@ impl Tree {
     }
 
     #[allow(dead_code)]
-    pub fn leaves(&self) -> &[Cuboid] {
-        &self.built_objects.leaves
+    pub fn leaf_positions(&self) -> &[Vec3] {
+        &self.built_objects.leaf_positions
     }
 
     fn initial_segment_length(desc: &TreeDesc) -> f32 {
@@ -296,9 +295,10 @@ impl Tree {
             trunks.extend(subdivided_cones);
         }
 
-        let leaves = make_leaves(&leaves_positions, desc.leaves_size_level);
-
-        BuiltObjects { trunks, leaves }
+        BuiltObjects {
+            trunks,
+            leaf_positions: leaves_positions,
+        }
     }
 }
 
@@ -503,11 +503,11 @@ fn add_direction_variation(dir: Vec3, variation: f32, rng: &mut StdRng) -> Vec3 
     (dir + Vec3::new(rand_x, rand_y, rand_z)).normalize_or_zero()
 }
 
-fn make_leaves(leaves_positions: &[Vec3], leaves_size_level: u32) -> Vec<Cuboid> {
-    let mut leaves = Vec::new();
-    let leaf_actual_size = 2_u32.pow(leaves_size_level) as f32;
-    for pos in leaves_positions {
-        leaves.push(Cuboid::new(*pos, Vec3::splat(leaf_actual_size * 0.5)));
-    }
-    leaves
-}
+// fn make_leaves(leaves_positions: &[Vec3], leaves_size_level: u32) -> Vec<Cuboid> {
+//     let mut leaves = Vec::new();
+//     let leaf_actual_size = 2_u32.pow(leaves_size_level) as f32;
+//     for pos in leaves_positions {
+//         leaves.push(Cuboid::new(*pos, Vec3::splat(leaf_actual_size * 0.5)));
+//     }
+//     leaves
+// }

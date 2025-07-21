@@ -28,10 +28,10 @@ use crate::geom::{Aabb3, UAabb3};
 use crate::resource::ResourceContainer;
 use crate::util::{ShaderCompiler, TimeInfo};
 use crate::vkn::{
-    Allocator, AttachmentDesc, AttachmentReference, Buffer, ComputePipeline, DescriptorPool,
-    Extent2D, Extent3D, Framebuffer, GraphicsPipeline, GraphicsPipelineDesc, MemoryBarrier,
-    PipelineBarrier, PlainMemberTypeWithData, RenderPass, RenderPassDesc, ShaderModule,
-    StructMemberDataBuilder, StructMemberDataReader, SubpassDesc, Texture, Viewport,
+    Allocator, Buffer, ComputePipeline, DescriptorPool, Extent2D, Extent3D, Framebuffer,
+    GraphicsPipeline, GraphicsPipelineDesc, MemoryBarrier, PipelineBarrier,
+    PlainMemberTypeWithData, RenderPass, ShaderModule, StructMemberDataBuilder,
+    StructMemberDataReader, Texture, Viewport,
 };
 use crate::vkn::{CommandBuffer, VulkanContext};
 use anyhow::Result;
@@ -498,28 +498,6 @@ impl Tracer {
             &render_pass,
             &[target_view, depth_image_view],
             target_image_extent,
-        )
-        .unwrap()
-    }
-
-    fn create_shadow_framebuffer(
-        vulkan_ctx: &VulkanContext,
-        render_pass: &RenderPass,
-        shadow_depth_tex: &Texture,
-    ) -> Framebuffer {
-        let shadow_depth_image_view = shadow_depth_tex.get_image_view().as_raw();
-        let shadow_depth_image_extent = shadow_depth_tex
-            .get_image()
-            .get_desc()
-            .extent
-            .as_extent_2d()
-            .unwrap();
-
-        Framebuffer::new(
-            vulkan_ctx.clone(),
-            &render_pass,
-            &[shadow_depth_image_view],
-            shadow_depth_image_extent,
         )
         .unwrap()
     }
@@ -1596,7 +1574,7 @@ impl Tracer {
 
     pub fn update_leaves_instances(
         &mut self,
-        leaves: &[crate::geom::Cuboid],
+        leaf_positions: &[Vec3],
         tree_pos: Vec3,
     ) -> Result<()> {
         // GrassInstance structure: uvec3 position, uint grass_type
@@ -1609,9 +1587,9 @@ impl Tracer {
 
         let mut instances_data = Vec::new();
 
-        for (i, leaf) in leaves.iter().take(100).enumerate() {
+        for leaf in leaf_positions.iter().take(100) {
             // Limit to 100 instances
-            let leaf_center = leaf.center();
+            let leaf_center = *leaf;
             let world_pos = leaf_center + tree_pos;
 
             let voxel_pos = world_pos.as_uvec3();

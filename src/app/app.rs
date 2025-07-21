@@ -774,7 +774,7 @@ impl App {
             tree_pos
         );
         self.tracer
-            .update_leaves_instances(tree.leaves(), tree_pos)?;
+            .update_leaves_instances(tree.leaf_positions(), tree_pos)?;
 
         Self::mesh_generate(
             &mut self.surface_builder,
