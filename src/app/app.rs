@@ -471,17 +471,20 @@ impl App {
 
         log::info!("Generated {} procedural trees", tree_positions.len());
 
+        // Batch query all terrain heights at once
+        let tree_positions_3d = self.query_terrain_heights_for_positions(&tree_positions)?;
+
         let mut rng = rand::rng();
 
-        for (i, pos_2d) in tree_positions.iter().enumerate() {
-            let tree_pos = Vec3::new(pos_2d.x, 0.0, pos_2d.y);
-            let is_first_tree = i == 0;
-
+        // Plant all trees with known heights
+        for tree_pos in tree_positions_3d.iter() {
             let mut tree_desc = self.tree_desc.clone();
             tree_desc.seed = rng.random_range(1..10000);
 
             self.apply_tree_variations(&mut tree_desc, &mut rng);
-            self.add_tree(tree_desc, tree_pos, is_first_tree)?;
+            // Use add_tree_at_position since we already have the correct height
+            // No cleanup needed since we already cleaned up at the beginning
+            self.add_tree_at_position(tree_desc, *tree_pos, false)?;
         }
 
         Ok(())
@@ -739,6 +742,30 @@ impl App {
         event_loop.exit();
     }
 
+    fn query_terrain_heights_for_positions(&mut self, positions_2d: &[Vec2]) -> Result<Vec<Vec3>> {
+        if positions_2d.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Convert to query coordinates (divide by 256.0)
+        let query_positions: Vec<Vec2> = positions_2d
+            .iter()
+            .map(|pos| Vec2::new(pos.x / 256.0, pos.y / 256.0))
+            .collect();
+
+        // Batch query all terrain heights
+        let terrain_heights = self.tracer.query_terrain_heights_batch(&query_positions)?;
+
+        // Convert back to world coordinates and create Vec3s
+        let positions_3d = positions_2d
+            .iter()
+            .zip(terrain_heights.iter())
+            .map(|(pos_2d, &height)| Vec3::new(pos_2d.x, height * 256.0, pos_2d.y))
+            .collect();
+
+        Ok(positions_3d)
+    }
+
     fn add_tree(
         &mut self,
         tree_desc: TreeDesc,
@@ -750,9 +777,17 @@ impl App {
             .query_terrain_height(glam::Vec2::new(tree_pos.x / 256.0, tree_pos.z / 256.0))?;
 
         let terrain_height_scaled = terrain_height * 256.0;
-
         let adjusted_tree_pos = Vec3::new(tree_pos.x, terrain_height_scaled, tree_pos.z);
 
+        self.add_tree_at_position(tree_desc, adjusted_tree_pos, clean_up_before_add)
+    }
+
+    fn add_tree_at_position(
+        &mut self,
+        tree_desc: TreeDesc,
+        adjusted_tree_pos: Vec3,
+        clean_up_before_add: bool,
+    ) -> Result<()> {
         let tree = Tree::new(tree_desc);
         let mut round_cones = Vec::new();
         for tree_trunk in tree.trunks() {
