@@ -745,11 +745,30 @@ impl App {
         tree_pos: Vec3,
         clean_up_before_add: bool,
     ) -> Result<()> {
+        // Query terrain height at the tree's XZ position
+        let terrain_height = self
+            .tracer
+            .query_terrain_height(glam::Vec2::new(tree_pos.x / 256.0, tree_pos.z / 256.0))?;
+
+        // Scale terrain height back to world coordinates
+        let terrain_height_scaled = terrain_height * 256.0;
+
+        // Adjust tree position using scaled terrain height + user Y offset
+        let adjusted_tree_pos =
+            Vec3::new(tree_pos.x, terrain_height_scaled + tree_pos.y, tree_pos.z);
+
+        log::info!(
+            "Tree placement - Original Y: {}, Terrain height: {}, Final Y: {}",
+            tree_pos.y,
+            terrain_height_scaled,
+            adjusted_tree_pos.y
+        );
+
         let tree = Tree::new(tree_desc);
         let mut round_cones = Vec::new();
         for tree_trunk in tree.trunks() {
             let mut round_cone = tree_trunk.clone();
-            round_cone.transform(tree_pos);
+            round_cone.transform(adjusted_tree_pos);
             round_cones.push(round_cone);
         }
 
@@ -776,11 +795,11 @@ impl App {
 
         // Update leaves instances for rendering
         log::info!(
-            "Calling update_leaves_instances with tree_pos: {:?}",
-            tree_pos
+            "Calling update_leaves_instances with adjusted_tree_pos: {:?}",
+            adjusted_tree_pos
         );
         self.tracer
-            .update_leaves_instances(tree.leaf_positions(), tree_pos)?;
+            .update_leaves_instances(tree.leaf_positions(), adjusted_tree_pos)?;
 
         Self::mesh_generate(
             &mut self.surface_builder,
@@ -1237,7 +1256,7 @@ impl App {
 
                                         ui.collapsing("Tree Settings", |ui| {
                                             ui.label("Position:");
-                                            tree_desc_changed |= ui
+                                            let x_changed = ui
                                                 .add(
                                                     egui::Slider::new(
                                                         &mut self.tree_pos.x,
@@ -1246,6 +1265,8 @@ impl App {
                                                     .text("X"),
                                                 )
                                                 .changed();
+                                            tree_desc_changed |= x_changed;
+
                                             tree_desc_changed |= ui
                                                 .add(
                                                     egui::Slider::new(
@@ -1255,7 +1276,8 @@ impl App {
                                                     .text("Y"),
                                                 )
                                                 .changed();
-                                            tree_desc_changed |= ui
+
+                                            let z_changed = ui
                                                 .add(
                                                     egui::Slider::new(
                                                         &mut self.tree_pos.z,
@@ -1264,6 +1286,43 @@ impl App {
                                                     .text("Z"),
                                                 )
                                                 .changed();
+                                            tree_desc_changed |= z_changed;
+
+                                            // Debug terrain height when X or Z position changes
+                                            if x_changed || z_changed {
+                                                // Clean up existing tree chunks before querying to avoid blocking the ray
+                                                if let Err(e) = self.plain_builder.chunk_init(
+                                                    self.prev_bound.min(),
+                                                    self.prev_bound.max() - self.prev_bound.min(),
+                                                ) {
+                                                    log::error!("Failed to clean up chunks for terrain query: {}", e);
+                                                } else {
+                                                    // Force mesh regeneration after cleanup
+                                                    if let Err(e) = Self::mesh_generate(
+                                                        &mut self.surface_builder,
+                                                        &mut self.contree_builder,
+                                                        &mut self.scene_accel_builder,
+                                                        self.prev_bound,
+                                                    ) {
+                                                        log::error!("Failed to regenerate mesh after cleanup: {}", e);
+                                                    } else {
+                                                        // Now query terrain height with clean terrain
+                                                        match self.tracer.query_terrain_height(glam::Vec2::new(
+                                                            self.tree_pos.x / 256.0,
+                                                            self.tree_pos.z / 256.0,
+                                                        )) {
+                                                            Ok(terrain_height) => {
+                                                                let terrain_height_scaled = terrain_height * 256.0;
+                                                                log::info!("Debug terrain query - Position: ({}, {}), Terrain height: {}, Y offset: {}, Final Y: {}", 
+                                                                    self.tree_pos.x, self.tree_pos.z, terrain_height_scaled, self.tree_pos.y, terrain_height_scaled + self.tree_pos.y);
+                                                            }
+                                                            Err(e) => {
+                                                                log::error!("Failed to query terrain height: {}", e);
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
 
                                             ui.separator();
 

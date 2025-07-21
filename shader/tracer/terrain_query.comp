@@ -1,0 +1,71 @@
+#version 460
+
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform U_TerrainQueryInfo { vec2 query_pos_xz; }
+terrain_query_info;
+
+#include "../include/contree_node.glsl"
+
+layout(set = 0, binding = 1) readonly buffer B_ContreeNodeData { ContreeNode data[]; }
+contree_node_data;
+
+layout(set = 0, binding = 2) readonly buffer B_ContreeLeafData { uint data[]; }
+contree_leaf_data;
+
+layout(set = 0, binding = 3, rg32ui) readonly uniform uimage3D scene_tex;
+
+layout(set = 0, binding = 4) writeonly buffer B_TerrainQueryResult { float terrain_height; }
+terrain_query_result;
+
+#include "../include/contree_marching.glsl"
+#include "../include/core/packer.glsl"
+#include "../include/marching_result.glsl"
+#include "../include/ray.glsl"
+
+bool scene_hit(inout MarchingResult o_res, vec3 o, vec3 d, ivec3 map_pos, uvec4 scene_tex_read) {
+    if (scene_tex_read.x == 0) {
+        return false;
+    }
+    scene_tex_read -= 1;
+
+    ContreeMarchingResult contree_res =
+        contree_marching(o, d, map_pos, vec3(1.0), false, scene_tex_read.x, scene_tex_read.y);
+    if (contree_res.is_hit) {
+        uint voxel_data       = contree_leaf_data.data[contree_res.voxel_addr];
+        o_res.is_hit          = true;
+        o_res.pos             = contree_res.pos;
+        o_res.center_pos      = contree_res.center_pos;
+        o_res.is_normal_valid = (voxel_data & (1u << 29)) != 0u;
+        o_res.normal          = unpack_normal_v2((voxel_data & 0x1FFFFF00u) >> 8);
+        o_res.voxel_type      = voxel_data & 0xFFu;
+        o_res.voxel_addr      = contree_res.voxel_addr;
+        return true;
+    }
+    return false;
+}
+#include "../include/dda_scene_marching.glsl"
+
+MarchingResult general_scene_marching(Ray ray) {
+    return dda_scene_marching(ray.origin, ray.direction, ray.inv_direction);
+}
+
+void main() {
+    vec3 ray_origin =
+        vec3(terrain_query_info.query_pos_xz.x, 100.0, terrain_query_info.query_pos_xz.y);
+
+    Ray ray;
+    ray.origin        = ray_origin;
+    ray.direction     = vec3(0.0, -1.0, 0.0);
+    ray.inv_direction = 1.0 / ray.direction;
+
+    MarchingResult res = general_scene_marching(ray);
+
+    if (res.is_hit) {
+        terrain_query_result.terrain_height = ray_origin.y - res.t;
+    } else {
+        terrain_query_result.terrain_height = 0.0;
+    }
+}

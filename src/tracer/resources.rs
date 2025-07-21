@@ -128,6 +128,8 @@ pub struct TracerResources {
     pub post_processing_info: Resource<Buffer>,
     pub player_collider_info: Resource<Buffer>,
     pub player_collision_result: Resource<Buffer>,
+    pub terrain_query_info: Resource<Buffer>,
+    pub terrain_query_result: Resource<Buffer>,
 
     pub grass_blade_resources: GrassBladeResources,
     pub leaves_resources: LeavesResources,
@@ -165,6 +167,7 @@ impl TracerResources {
         god_ray_sm: &ShaderModule,
         post_processing_sm: &ShaderModule,
         player_collider_sm: &ShaderModule,
+        terrain_query_sm: &ShaderModule,
         rendering_extent: Extent2D,
         screen_extent: Extent2D,
         shadow_map_extent: Extent2D,
@@ -308,6 +311,28 @@ impl TracerResources {
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
+        let terrain_query_info_layout = terrain_query_sm
+            .get_buffer_layout("U_TerrainQueryInfo")
+            .unwrap();
+        let terrain_query_info = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            terrain_query_info_layout.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+        );
+
+        let terrain_query_result_layout = terrain_query_sm
+            .get_buffer_layout("B_TerrainQueryResult")
+            .unwrap();
+        let terrain_query_result = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            terrain_query_result_layout.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+        );
+
         let shadow_map_tex = Self::create_shadow_map_tex(
             device.clone(),
             allocator.clone(),
@@ -400,6 +425,8 @@ impl TracerResources {
             post_processing_info: Resource::new(post_processing_info),
             player_collider_info: Resource::new(player_collider_info),
             player_collision_result: Resource::new(player_collision_result),
+            terrain_query_info: Resource::new(terrain_query_info),
+            terrain_query_result: Resource::new(terrain_query_result),
             grass_blade_resources,
             leaves_resources,
             leaves_instances: Resource::new(leaves_instances),

@@ -28,12 +28,11 @@ use crate::geom::{Aabb3, UAabb3};
 use crate::resource::ResourceContainer;
 use crate::util::{ShaderCompiler, TimeInfo};
 use crate::vkn::{
-    Allocator, Buffer, ComputePipeline, DescriptorPool, Extent2D, Extent3D, Framebuffer,
-    GraphicsPipeline, GraphicsPipelineDesc, MemoryBarrier, PipelineBarrier,
-    PlainMemberTypeWithData, RenderPass, ShaderModule, StructMemberDataBuilder,
-    StructMemberDataReader, Texture, Viewport,
+    execute_one_time_command, Allocator, Buffer, CommandBuffer, ComputePipeline, DescriptorPool,
+    Extent2D, Extent3D, Framebuffer, GraphicsPipeline, GraphicsPipelineDesc, MemoryBarrier,
+    PipelineBarrier, PlainMemberTypeWithData, RenderPass, ShaderModule, StructMemberDataBuilder,
+    StructMemberDataReader, Texture, Viewport, VulkanContext,
 };
-use crate::vkn::{CommandBuffer, VulkanContext};
 use anyhow::Result;
 use ash::vk;
 
@@ -68,6 +67,7 @@ pub struct Tracer {
     taa_ppl: ComputePipeline,
     post_processing_ppl: ComputePipeline,
     player_collider_ppl: ComputePipeline,
+    terrain_query_ppl: ComputePipeline,
     tracer_shadow_ppl: ComputePipeline,
     vsm_creation_ppl: ComputePipeline,
     vsm_blur_h_ppl: ComputePipeline,
@@ -213,6 +213,14 @@ impl Tracer {
         )
         .unwrap();
 
+        let terrain_query_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            &shader_compiler,
+            "shader/tracer/terrain_query.comp",
+            "main",
+        )
+        .unwrap();
+
         let grass_vert_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             shader_compiler,
@@ -256,6 +264,7 @@ impl Tracer {
             &god_ray_sm,
             &post_processing_sm,
             &player_collider_sm,
+            &terrain_query_sm,
             render_extent,
             screen_extent,
             Extent2D::new(1024, 1024),
@@ -274,6 +283,7 @@ impl Tracer {
         let composition_ppl = ComputePipeline::new(device, &composition_sm);
         let taa_ppl = ComputePipeline::new(device, &taa_sm);
         let player_collider_ppl = ComputePipeline::new(device, &player_collider_sm);
+        let terrain_query_ppl = ComputePipeline::new(device, &terrain_query_sm);
         let post_processing_ppl = ComputePipeline::new(device, &post_processing_sm);
 
         tracer_ppl
@@ -313,6 +323,12 @@ impl Tracer {
             .auto_create_descriptor_sets(&pool, &[&resources])
             .unwrap();
         player_collider_ppl
+            .auto_create_descriptor_sets(
+                &pool,
+                &[&resources, contree_builder_resources, scene_accel_resources],
+            )
+            .unwrap();
+        terrain_query_ppl
             .auto_create_descriptor_sets(
                 &pool,
                 &[&resources, contree_builder_resources, scene_accel_resources],
@@ -380,6 +396,7 @@ impl Tracer {
             taa_ppl,
             post_processing_ppl,
             player_collider_ppl,
+            terrain_query_ppl,
             vsm_creation_ppl,
             vsm_blur_h_ppl,
             vsm_blur_v_ppl,
@@ -551,6 +568,7 @@ impl Tracer {
         update_fn(&self.tracer_ppl, all_resources);
         update_fn(&self.tracer_shadow_ppl, all_resources);
         update_fn(&self.player_collider_ppl, all_resources);
+        update_fn(&self.terrain_query_ppl, all_resources);
 
         // Pipelines that only need tracer resources
         let tracer_resources = &[&self.resources as &dyn ResourceContainer];
@@ -1644,5 +1662,45 @@ impl Tracer {
             radius
         );
         Ok(())
+    }
+
+    pub fn query_terrain_height(&mut self, pos_xz: Vec2) -> Result<f32> {
+        let data = StructMemberDataBuilder::from_buffer(&self.resources.terrain_query_info)
+            .set_field(
+                "query_pos_xz",
+                PlainMemberTypeWithData::Vec2([pos_xz.x, pos_xz.y]),
+            )
+            .build()?;
+        self.resources.terrain_query_info.fill_with_raw_u8(&data)?;
+
+        execute_one_time_command(
+            self.vulkan_ctx.device(),
+            self.vulkan_ctx.command_pool(),
+            &self.vulkan_ctx.get_general_queue(),
+            |cmdbuf| {
+                self.terrain_query_ppl
+                    .record(cmdbuf, Extent3D::new(1, 1, 1), None);
+            },
+        );
+
+        // Read back result
+        let layout = &self
+            .resources
+            .terrain_query_result
+            .get_layout()
+            .unwrap()
+            .root_member;
+        let raw_data = self.resources.terrain_query_result.read_back().unwrap();
+        let reader = StructMemberDataReader::new(layout, &raw_data);
+
+        let terrain_height = if let PlainMemberTypeWithData::Float(val) =
+            reader.get_field("terrain_height").unwrap()
+        {
+            val
+        } else {
+            panic!("Expected Float type for terrain_height");
+        };
+
+        Ok(terrain_height)
     }
 }
