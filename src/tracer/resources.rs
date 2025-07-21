@@ -382,7 +382,7 @@ impl TracerResources {
 
         // Create leaves instances buffer - matches GrassInstance structure: uvec3 position, uint grass_type
         const LEAVES_INSTANCE_SIZE: usize = 16; // 3 * 4 + 4 bytes for uvec3 + uint
-        const MAX_LEAVES_INSTANCES: u64 = 100;
+        const MAX_LEAVES_INSTANCES: u64 = 10000;
         let leaves_instances = Buffer::new_sized(
             device.clone(),
             allocator.clone(),

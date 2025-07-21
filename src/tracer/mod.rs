@@ -1587,8 +1587,7 @@ impl Tracer {
 
         let mut instances_data = Vec::new();
 
-        for leaf in leaf_positions.iter().take(100) {
-            // Limit to 100 instances
+        for leaf in leaf_positions.iter() {
             let leaf_center = *leaf;
             let world_pos = leaf_center + tree_pos;
 
