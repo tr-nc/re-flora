@@ -409,7 +409,7 @@ impl App {
             sun_color: egui::Color32::from_rgb(255, 233, 144),
             sun_luminance: 1.0,
             ambient_light: egui::Color32::from_rgb(25, 25, 25),
-            tree_pos: Vec3::new(512.0, 0.0, 512.0),
+            tree_pos: Vec3::new(512.0, 50.0, 512.0),
             tree_desc: TreeDesc::default(),
             tree_variation_config: TreeVariationConfig::default(),
             regenerate_trees_requested: false,

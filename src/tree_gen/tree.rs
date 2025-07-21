@@ -50,15 +50,15 @@ impl Default for TreeDesc {
             iterations: 7,
 
             /* ───────────────── Tree Shape ──────────────── */
-            tree_height: 16.0,
-            spread: 0.45,
-            vertical_tendency: 1.00,
+            tree_height: 6.0,
+            spread: 0.35,
+            vertical_tendency: -0.45,
             segment_length_variation: 0.15,
-            length_dropoff: 0.39,
-            thickness_reduction: 0.40,
+            length_dropoff: 0.65,
+            thickness_reduction: 0.60,
 
             /* ────────────── Branching Control ──────────── */
-            branch_probability: 0.65,
+            branch_probability: 0.70,
             branch_count_min: 2,
             branch_count_max: 3,
             branch_angle_min: 24.0 * PI / 180.0,
@@ -66,17 +66,17 @@ impl Default for TreeDesc {
 
             /* ───────────── Subdivision Params ──────────── */
             enable_subdivision: true,
-            subdivision_threshold: 7.0,
-            subdivision_count_min: 3,
-            subdivision_count_max: 6,
-            subdivision_randomness: 0.64,
+            subdivision_threshold: 6.5,
+            subdivision_count_min: 6,
+            subdivision_count_max: 9,
+            subdivision_randomness: 0.27,
 
             /* ───────────────── Variation ───────────────── */
-            randomness: 0.27,
+            randomness: 0.35,
             leaves_size_level: 5,
 
             /* ─────────────────── Seed ──────────────────── */
-            seed: 152,
+            seed: 122,
         }
     }
 }
@@ -275,12 +275,24 @@ impl Tree {
         &self.built_objects.leaves
     }
 
+    fn initial_segment_length(desc: &TreeDesc) -> f32 {
+        let d = desc.length_dropoff;
+        // if d is almost 1.0, fall back to the old average-per-level method
+        if (1.0 - d).abs() < 1e-5 {
+            return desc.tree_height * desc.size / (desc.iterations as f32).max(1.0);
+        }
+        let iterations_f = desc.iterations as f32;
+        let numerator = desc.tree_height * desc.size * (1.0 - d);
+        let denominator = 1.0 - d.powf(iterations_f);
+        numerator / denominator
+    }
+
     fn build(desc: &TreeDesc) -> BuiltObjects {
         let mut rng = StdRng::seed_from_u64(desc.seed);
         let mut initial_trunks = Vec::new();
         let mut leaves_positions = Vec::new();
 
-        let base_length = desc.tree_height * desc.size / (desc.iterations as f32);
+        let base_length = Self::initial_segment_length(desc);
         let base_thickness = desc.trunk_thickness * desc.size;
 
         recurse(
