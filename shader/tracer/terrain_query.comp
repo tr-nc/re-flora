@@ -2,22 +2,25 @@
 
 #extension GL_GOOGLE_include_directive : require
 
-layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
-layout(set = 0, binding = 0) uniform U_TerrainQueryInfo { vec2 query_pos_xz; }
+layout(set = 0, binding = 0) uniform U_TerrainQueryCount { uint valid_query_count; }
+terrain_query_count;
+
+layout(set = 0, binding = 1) readonly buffer B_TerrainQueryInfo { vec2 query_pos_xz[]; }
 terrain_query_info;
 
 #include "../include/contree_node.glsl"
 
-layout(set = 0, binding = 1) readonly buffer B_ContreeNodeData { ContreeNode data[]; }
+layout(set = 0, binding = 2) readonly buffer B_ContreeNodeData { ContreeNode data[]; }
 contree_node_data;
 
-layout(set = 0, binding = 2) readonly buffer B_ContreeLeafData { uint data[]; }
+layout(set = 0, binding = 3) readonly buffer B_ContreeLeafData { uint data[]; }
 contree_leaf_data;
 
-layout(set = 0, binding = 3, rg32ui) readonly uniform uimage3D scene_tex;
+layout(set = 0, binding = 4, rg32ui) readonly uniform uimage3D scene_tex;
 
-layout(set = 0, binding = 4) writeonly buffer B_TerrainQueryResult { float terrain_height; }
+layout(set = 0, binding = 5) writeonly buffer B_TerrainQueryResult { float terrain_height[]; }
 terrain_query_result;
 
 #include "../include/contree_marching.glsl"
@@ -53,8 +56,14 @@ MarchingResult general_scene_marching(Ray ray) {
 }
 
 void main() {
-    vec3 ray_origin =
-        vec3(terrain_query_info.query_pos_xz.x, 100.0, terrain_query_info.query_pos_xz.y);
+    uint query_index = gl_GlobalInvocationID.x;
+    
+    if (query_index >= terrain_query_count.valid_query_count) {
+        return;
+    }
+    
+    vec2 query_pos = terrain_query_info.query_pos_xz[query_index];
+    vec3 ray_origin = vec3(query_pos.x, 100.0, query_pos.y);
 
     Ray ray;
     ray.origin        = ray_origin;
@@ -64,8 +73,8 @@ void main() {
     MarchingResult res = general_scene_marching(ray);
 
     if (res.is_hit) {
-        terrain_query_result.terrain_height = ray_origin.y - res.t;
+        terrain_query_result.terrain_height[query_index] = ray_origin.y - res.t;
     } else {
-        terrain_query_result.terrain_height = 0.0;
+        terrain_query_result.terrain_height[query_index] = 0.0;
     }
 }

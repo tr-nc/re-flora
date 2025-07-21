@@ -128,6 +128,7 @@ pub struct TracerResources {
     pub post_processing_info: Resource<Buffer>,
     pub player_collider_info: Resource<Buffer>,
     pub player_collision_result: Resource<Buffer>,
+    pub terrain_query_count: Resource<Buffer>,
     pub terrain_query_info: Resource<Buffer>,
     pub terrain_query_result: Resource<Buffer>,
 
@@ -171,6 +172,7 @@ impl TracerResources {
         rendering_extent: Extent2D,
         screen_extent: Extent2D,
         shadow_map_extent: Extent2D,
+        max_terrain_queries: u32,
     ) -> Self {
         let device = vulkan_ctx.device();
 
@@ -311,26 +313,31 @@ impl TracerResources {
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
-        let terrain_query_info_layout = terrain_query_sm
-            .get_buffer_layout("U_TerrainQueryInfo")
+        let terrain_query_count_layout = terrain_query_sm
+            .get_buffer_layout("U_TerrainQueryCount")
             .unwrap();
-        let terrain_query_info = Buffer::from_buffer_layout(
+        let terrain_query_count = Buffer::from_buffer_layout(
             device.clone(),
             allocator.clone(),
-            terrain_query_info_layout.clone(),
+            terrain_query_count_layout.clone(),
             BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
-        let terrain_query_result_layout = terrain_query_sm
-            .get_buffer_layout("B_TerrainQueryResult")
-            .unwrap();
-        let terrain_query_result = Buffer::from_buffer_layout(
+        let terrain_query_info = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
-            terrain_query_result_layout.clone(),
-            BufferUsage::empty(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
             gpu_allocator::MemoryLocation::CpuToGpu,
+            (max_terrain_queries * 2 * std::mem::size_of::<f32>() as u32) as u64,
+        );
+
+        let terrain_query_result = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            (max_terrain_queries * std::mem::size_of::<f32>() as u32) as u64,
         );
 
         let shadow_map_tex = Self::create_shadow_map_tex(
@@ -425,6 +432,7 @@ impl TracerResources {
             post_processing_info: Resource::new(post_processing_info),
             player_collider_info: Resource::new(player_collider_info),
             player_collision_result: Resource::new(player_collision_result),
+            terrain_query_count: Resource::new(terrain_query_count),
             terrain_query_info: Resource::new(terrain_query_info),
             terrain_query_result: Resource::new(terrain_query_result),
             grass_blade_resources,

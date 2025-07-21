@@ -268,6 +268,7 @@ impl Tracer {
             render_extent,
             screen_extent,
             Extent2D::new(1024, 1024),
+            1000, // max_terrain_queries
         );
 
         let device = vulkan_ctx.device();
@@ -1663,13 +1664,34 @@ impl Tracer {
     }
 
     pub fn query_terrain_height(&mut self, pos_xz: Vec2) -> Result<f32> {
-        let data = StructMemberDataBuilder::from_buffer(&self.resources.terrain_query_info)
+        let heights = self.query_terrain_heights_batch(&[pos_xz])?;
+        Ok(heights[0])
+    }
+
+    pub fn query_terrain_heights_batch(&mut self, positions: &[Vec2]) -> Result<Vec<f32>> {
+        let query_count = positions.len() as u32;
+        if query_count == 0 {
+            return Ok(vec![]);
+        }
+
+        // Update query count
+        let count_data = StructMemberDataBuilder::from_buffer(&self.resources.terrain_query_count)
             .set_field(
-                "query_pos_xz",
-                PlainMemberTypeWithData::Vec2([pos_xz.x, pos_xz.y]),
+                "valid_query_count",
+                PlainMemberTypeWithData::UInt(query_count),
             )
             .build()?;
-        self.resources.terrain_query_info.fill_with_raw_u8(&data)?;
+        self.resources
+            .terrain_query_count
+            .fill_with_raw_u8(&count_data)?;
+
+        // Update query positions
+        let mut position_data = Vec::with_capacity(positions.len() * 2);
+        for pos in positions {
+            position_data.push(pos.x);
+            position_data.push(pos.y);
+        }
+        self.resources.terrain_query_info.fill(&position_data)?;
 
         execute_one_time_command(
             self.vulkan_ctx.device(),
@@ -1677,28 +1699,15 @@ impl Tracer {
             &self.vulkan_ctx.get_general_queue(),
             |cmdbuf| {
                 self.terrain_query_ppl
-                    .record(cmdbuf, Extent3D::new(1, 1, 1), None);
+                    .record(cmdbuf, Extent3D::new(query_count, 1, 1), None);
             },
         );
 
-        // Read back result
-        let layout = &self
-            .resources
-            .terrain_query_result
-            .get_layout()
-            .unwrap()
-            .root_member;
+        // Read back results
         let raw_data = self.resources.terrain_query_result.read_back().unwrap();
-        let reader = StructMemberDataReader::new(layout, &raw_data);
-
-        let terrain_height = if let PlainMemberTypeWithData::Float(val) =
-            reader.get_field("terrain_height").unwrap()
-        {
-            val
-        } else {
-            panic!("Expected Float type for terrain_height");
+        let height_data: &[f32] = unsafe {
+            std::slice::from_raw_parts(raw_data.as_ptr() as *const f32, query_count as usize)
         };
-
-        Ok(terrain_height)
+        Ok(height_data.to_vec())
     }
 }

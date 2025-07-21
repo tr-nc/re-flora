@@ -745,22 +745,13 @@ impl App {
         tree_pos: Vec3,
         clean_up_before_add: bool,
     ) -> Result<()> {
-        // Query terrain height at the tree's XZ position
         let terrain_height = self
             .tracer
             .query_terrain_height(glam::Vec2::new(tree_pos.x / 256.0, tree_pos.z / 256.0))?;
 
-        // Scale terrain height back to world coordinates
         let terrain_height_scaled = terrain_height * 256.0;
 
-        // Adjust tree position using scaled terrain height (no Y offset)
         let adjusted_tree_pos = Vec3::new(tree_pos.x, terrain_height_scaled, tree_pos.z);
-
-        log::info!(
-            "Tree placement - Terrain height: {}, Final Y: {}",
-            terrain_height_scaled,
-            adjusted_tree_pos.y
-        );
 
         let tree = Tree::new(tree_desc);
         let mut round_cones = Vec::new();
