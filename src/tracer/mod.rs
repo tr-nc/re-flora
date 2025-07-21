@@ -1626,10 +1626,8 @@ impl Tracer {
         if !instances_data.is_empty() {
             self.resources.leaves_instances.fill(&instances_data)?;
             self.resources.leaves_instances_len = instances_data.len() as u32;
-            log::info!("Successfully filled leaves instance buffer");
         } else {
             self.resources.leaves_instances_len = 0;
-            log::warn!("No leaf instances to render!");
         }
 
         Ok(())
