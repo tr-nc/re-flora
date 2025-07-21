@@ -407,7 +407,7 @@ impl App {
             sun_color: egui::Color32::from_rgb(255, 233, 144),
             sun_luminance: 1.0,
             ambient_light: egui::Color32::from_rgb(25, 25, 25),
-            tree_pos: Vec3::new(512.0, 50.0, 512.0),
+            tree_pos: Vec3::new(512.0, 0.0, 512.0),
             tree_desc: TreeDesc::default(),
             tree_variation_config: TreeVariationConfig::default(),
             regenerate_trees_requested: false,
@@ -753,13 +753,11 @@ impl App {
         // Scale terrain height back to world coordinates
         let terrain_height_scaled = terrain_height * 256.0;
 
-        // Adjust tree position using scaled terrain height + user Y offset
-        let adjusted_tree_pos =
-            Vec3::new(tree_pos.x, terrain_height_scaled + tree_pos.y, tree_pos.z);
+        // Adjust tree position using scaled terrain height (no Y offset)
+        let adjusted_tree_pos = Vec3::new(tree_pos.x, terrain_height_scaled, tree_pos.z);
 
         log::info!(
-            "Tree placement - Original Y: {}, Terrain height: {}, Final Y: {}",
-            tree_pos.y,
+            "Tree placement - Terrain height: {}, Final Y: {}",
             terrain_height_scaled,
             adjusted_tree_pos.y
         );
@@ -1267,16 +1265,6 @@ impl App {
                                                 .changed();
                                             tree_desc_changed |= x_changed;
 
-                                            tree_desc_changed |= ui
-                                                .add(
-                                                    egui::Slider::new(
-                                                        &mut self.tree_pos.y,
-                                                        0.0..=512.0,
-                                                    )
-                                                    .text("Y"),
-                                                )
-                                                .changed();
-
                                             let z_changed = ui
                                                 .add(
                                                     egui::Slider::new(
@@ -1313,8 +1301,8 @@ impl App {
                                                         )) {
                                                             Ok(terrain_height) => {
                                                                 let terrain_height_scaled = terrain_height * 256.0;
-                                                                log::info!("Debug terrain query - Position: ({}, {}), Terrain height: {}, Y offset: {}, Final Y: {}", 
-                                                                    self.tree_pos.x, self.tree_pos.z, terrain_height_scaled, self.tree_pos.y, terrain_height_scaled + self.tree_pos.y);
+                                                                log::info!("Debug terrain query - Position: ({}, {}), Terrain height: {}", 
+                                                                    self.tree_pos.x, self.tree_pos.z, terrain_height_scaled);
                                                             }
                                                             Err(e) => {
                                                                 log::error!("Failed to query terrain height: {}", e);
