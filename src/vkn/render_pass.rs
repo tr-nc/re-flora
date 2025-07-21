@@ -83,6 +83,7 @@ impl RenderPass {
         color_initial_layout: vk::ImageLayout,
         depth_load_op: vk::AttachmentLoadOp,
         depth_store_op: vk::AttachmentStoreOp,
+        depth_initial_layout: vk::ImageLayout,
         color_final_layout: vk::ImageLayout,
         depth_final_layout: Option<vk::ImageLayout>,
     ) -> Self {
@@ -118,7 +119,7 @@ impl RenderPass {
                 store_op: depth_store_op,
                 stencil_load_op: vk::AttachmentLoadOp::DONT_CARE,
                 stencil_store_op: vk::AttachmentStoreOp::DONT_CARE,
-                initial_layout: vk::ImageLayout::UNDEFINED,
+                initial_layout: depth_initial_layout,
                 final_layout: depth_final_layout
                     .expect("Depth final layout must be provided when depth texture is present"),
             });

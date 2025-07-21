@@ -21,17 +21,12 @@ pub struct TreeDesc {
     pub branch_count_max: u32,
     pub leaves_size_level: u32,
     pub iterations: u32,
-    // CHANGED: Renamed for clarity.
     pub segment_length_variation: f32,
     pub tree_height: f32,
     pub length_dropoff: f32,
     pub thickness_reduction: f32,
     pub seed: u64,
-
-    // NEW: Toggle subdivision on/off
     pub enable_subdivision: bool,
-
-    // Subdivision Parameters
     pub subdivision_threshold: f32,
     pub subdivision_count_min: u32,
     pub subdivision_count_max: u32,
@@ -41,41 +36,28 @@ pub struct TreeDesc {
 impl Default for TreeDesc {
     fn default() -> Self {
         TreeDesc {
-            /* ────────────── Basic Properties ────────────── */
             size: 50.0,
             trunk_thickness: 0.50,
             trunk_thickness_min: 1.05,
-
-            /* ──────────────── Iterations ───────────────── */
             iterations: 7,
-
-            /* ───────────────── Tree Shape ──────────────── */
             tree_height: 6.0,
             spread: 0.35,
             vertical_tendency: -0.45,
             segment_length_variation: 0.15,
             length_dropoff: 0.65,
             thickness_reduction: 0.60,
-
-            /* ────────────── Branching Control ──────────── */
             branch_probability: 0.70,
             branch_count_min: 2,
             branch_count_max: 3,
             branch_angle_min: 24.0 * PI / 180.0,
             branch_angle_max: 48.0 * PI / 180.0,
-
-            /* ───────────── Subdivision Params ──────────── */
             enable_subdivision: true,
             subdivision_threshold: 6.5,
             subdivision_count_min: 6,
             subdivision_count_max: 9,
             subdivision_randomness: 0.27,
-
-            /* ───────────────── Variation ───────────────── */
             randomness: 0.35,
             leaves_size_level: 5,
-
-            /* ─────────────────── Seed ──────────────────── */
             seed: 122,
         }
     }

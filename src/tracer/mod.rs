@@ -414,6 +414,7 @@ impl Tracer {
                 vk::ImageLayout::UNDEFINED,
                 vk::AttachmentLoadOp::CLEAR,
                 vk::AttachmentStoreOp::STORE,
+                vk::ImageLayout::UNDEFINED,
                 vk::ImageLayout::GENERAL,
                 Some(vk::ImageLayout::GENERAL),
             )
@@ -453,6 +454,7 @@ impl Tracer {
                 vk::ImageLayout::GENERAL,
                 vk::AttachmentLoadOp::LOAD,
                 vk::AttachmentStoreOp::STORE,
+                vk::ImageLayout::GENERAL,
                 vk::ImageLayout::GENERAL,
                 Some(vk::ImageLayout::GENERAL),
             )
