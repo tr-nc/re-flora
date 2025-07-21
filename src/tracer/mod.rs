@@ -1203,7 +1203,7 @@ impl Tracer {
         }
 
         // now, iterate over each chunk and issue a draw call for it.
-        for (chunk_id, chunk_resources) in &surface_resources.chunk_raster_resources {
+        for (chunk_id, chunk_resources) in &surface_resources.instances.chunk_grass_instances {
             // only draw if this chunk actually has grass instances.
             if chunk_resources.grass_instances_len == 0 {
                 continue;

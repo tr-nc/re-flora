@@ -116,7 +116,8 @@ impl SurfaceBuilder {
             0,
             &self
                 .resources
-                .chunk_raster_resources
+                .instances
+                .chunk_grass_instances
                 .get(&chunk_id)
                 .unwrap()
                 .grass_instances,
@@ -173,7 +174,8 @@ impl SurfaceBuilder {
             get_result(&self.resources.make_surface_result);
 
         self.resources
-            .chunk_raster_resources
+            .instances
+            .chunk_grass_instances
             .get_mut(&chunk_id)
             .unwrap()
             .grass_instances_len = grass_instance_len;

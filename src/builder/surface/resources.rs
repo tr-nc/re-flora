@@ -6,14 +6,14 @@ use ash::vk;
 use glam::UVec3;
 use std::collections::HashMap;
 
-pub struct ChunkRasterResources {
+pub struct GrassInstanceResources {
     #[allow(dead_code)]
     pub chunk_id: UVec3,
     pub grass_instances: Buffer,
     pub grass_instances_len: u32,
 }
 
-impl ChunkRasterResources {
+impl GrassInstanceResources {
     pub fn new(
         device: Device,
         allocator: Allocator,
@@ -40,11 +40,48 @@ impl ChunkRasterResources {
     }
 }
 
+pub struct InstanceResources {
+    pub chunk_grass_instances: HashMap<UVec3, GrassInstanceResources>,
+}
+
+impl InstanceResources {
+    pub fn new(
+        device: Device,
+        allocator: Allocator,
+        make_surface_sm: &ShaderModule,
+        chunk_dim: UAabb3,
+        grass_instances_capacity_per_chunk: u64,
+    ) -> Self {
+        let mut chunk_grass_instances = HashMap::new();
+        for x in chunk_dim.min().x..chunk_dim.max().x {
+            for y in chunk_dim.min().y..chunk_dim.max().y {
+                for z in chunk_dim.min().z..chunk_dim.max().z {
+                    let chunk_offset = UVec3::new(x, y, z);
+                    chunk_grass_instances.insert(
+                        chunk_offset,
+                        GrassInstanceResources::new(
+                            device.clone(),
+                            allocator.clone(),
+                            make_surface_sm,
+                            chunk_offset,
+                            grass_instances_capacity_per_chunk,
+                        ),
+                    );
+                }
+            }
+        }
+
+        Self {
+            chunk_grass_instances,
+        }
+    }
+}
+
 pub struct SurfaceResources {
     pub surface: Texture,
     pub make_surface_info: Buffer,
     pub make_surface_result: Buffer,
-    pub chunk_raster_resources: HashMap<UVec3, ChunkRasterResources>,
+    pub instances: InstanceResources,
 }
 
 impl SurfaceResources {
@@ -93,30 +130,19 @@ impl SurfaceResources {
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
-        let mut chunk_raster_resources = HashMap::new();
-        for x in chunk_dim.min().x..chunk_dim.max().x {
-            for y in chunk_dim.min().y..chunk_dim.max().y {
-                for z in chunk_dim.min().z..chunk_dim.max().z {
-                    let chunk_offset = UVec3::new(x, y, z);
-                    chunk_raster_resources.insert(
-                        chunk_offset,
-                        ChunkRasterResources::new(
-                            device.clone(),
-                            allocator.clone(),
-                            make_surface_sm,
-                            chunk_offset,
-                            grass_instances_capacity_per_chunk,
-                        ),
-                    );
-                }
-            }
-        }
+        let instances = InstanceResources::new(
+            device.clone(),
+            allocator.clone(),
+            make_surface_sm,
+            chunk_dim,
+            grass_instances_capacity_per_chunk,
+        );
 
         return Self {
             surface,
             make_surface_info,
             make_surface_result,
-            chunk_raster_resources,
+            instances,
         };
     }
 }
