@@ -370,14 +370,13 @@ impl TracerResources {
             "fast/weighted_cosine/out_",
         );
 
-        // TODO:
         let grass_blade_resources = GrassBladeResources::new(device.clone(), allocator.clone());
         let leaves_resources = LeavesResources::new(
             device.clone(),
             allocator.clone(),
             leaves_density_min,
             leaves_density_max,
-            16.0, // Default radius
+            16.0,
         );
 
         // Create leaves instances buffer - matches GrassInstance structure: uvec3 position, uint grass_type
