@@ -284,7 +284,7 @@ impl Tree {
 
         BuiltObjects {
             trunks,
-            leaf_positions: leaf_positions,
+            leaf_positions,
         }
     }
 }
@@ -370,11 +370,11 @@ fn recurse(
     length: f32,
     thickness: f32,
     trunks: &mut Vec<RoundCone>,
-    leaves: &mut Vec<Vec3>,
+    leaf_positions: &mut Vec<Vec3>,
     rng: &mut StdRng,
 ) {
     if level >= desc.iterations {
-        leaves.push(pos);
+        leaf_positions.push(pos);
         return;
     }
 
@@ -428,7 +428,7 @@ fn recurse(
                     length * desc.length_dropoff,
                     thickness_end,
                     trunks,
-                    leaves,
+                    leaf_positions,
                     rng,
                 );
             }
@@ -443,7 +443,7 @@ fn recurse(
             length * desc.length_dropoff,
             thickness_end,
             trunks,
-            leaves,
+            leaf_positions,
             rng,
         );
     }
