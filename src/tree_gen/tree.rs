@@ -1,10 +1,8 @@
+use crate::geom::RoundCone;
 use glam::Vec3;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::f32::consts::PI;
-
-// Assuming Cuboid is defined in crate::geom as per the original code.
-use crate::geom::{Cuboid, RoundCone};
 
 #[derive(Debug, Clone)]
 pub struct TreeDesc {
@@ -228,30 +226,19 @@ struct BuiltObjects {
 
 #[derive(Debug)]
 pub struct Tree {
-    #[allow(dead_code)]
-    desc: TreeDesc,
     built_objects: BuiltObjects,
 }
 
 impl Tree {
     pub fn new(desc: TreeDesc) -> Self {
         let built_objects = Self::build(&desc);
-        Tree {
-            desc,
-            built_objects,
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn desc(&self) -> &TreeDesc {
-        &self.desc
+        Tree { built_objects }
     }
 
     pub fn trunks(&self) -> &[RoundCone] {
         &self.built_objects.trunks
     }
 
-    #[allow(dead_code)]
     pub fn leaf_positions(&self) -> &[Vec3] {
         &self.built_objects.leaf_positions
     }
@@ -271,7 +258,7 @@ impl Tree {
     fn build(desc: &TreeDesc) -> BuiltObjects {
         let mut rng = StdRng::seed_from_u64(desc.seed);
         let mut initial_trunks = Vec::new();
-        let mut leaves_positions = Vec::new();
+        let mut leaf_positions = Vec::new();
 
         let base_length = Self::initial_segment_length(desc);
         let base_thickness = desc.trunk_thickness * desc.size;
@@ -284,7 +271,7 @@ impl Tree {
             base_length,
             base_thickness,
             &mut initial_trunks,
-            &mut leaves_positions,
+            &mut leaf_positions,
             &mut rng,
         );
 
@@ -297,7 +284,7 @@ impl Tree {
 
         BuiltObjects {
             trunks,
-            leaf_positions: leaves_positions,
+            leaf_positions: leaf_positions,
         }
     }
 }
@@ -503,10 +490,10 @@ fn add_direction_variation(dir: Vec3, variation: f32, rng: &mut StdRng) -> Vec3 
     (dir + Vec3::new(rand_x, rand_y, rand_z)).normalize_or_zero()
 }
 
-// fn make_leaves(leaves_positions: &[Vec3], leaves_size_level: u32) -> Vec<Cuboid> {
+// fn make_leaves(leaf_positions: &[Vec3], leaves_size_level: u32) -> Vec<Cuboid> {
 //     let mut leaves = Vec::new();
 //     let leaf_actual_size = 2_u32.pow(leaves_size_level) as f32;
-//     for pos in leaves_positions {
+//     for pos in leaf_positions {
 //         leaves.push(Cuboid::new(*pos, Vec3::splat(leaf_actual_size * 0.5)));
 //     }
 //     leaves
