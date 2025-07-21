@@ -337,10 +337,6 @@ impl App {
 
         let mut audio_engine = AudioEngine::new()?;
 
-        // Define leaf density parameters - single source of truth
-        const LEAVES_DENSITY_MIN: f32 = 0.25;
-        const LEAVES_DENSITY_MAX: f32 = 0.5;
-
         let tracer = Tracer::new(
             vulkan_ctx.clone(),
             allocator.clone(),
@@ -353,8 +349,6 @@ impl App {
                 scaling_factor: 0.5,
             },
             audio_engine.clone(),
-            LEAVES_DENSITY_MIN,
-            LEAVES_DENSITY_MAX,
         )?;
 
         Self::add_ambient_sounds(&mut audio_engine)?;
@@ -386,8 +380,8 @@ impl App {
             debug_float: 0.0,
             debug_bool: true,
             debug_uint: 0,
-            leaves_density_min: LEAVES_DENSITY_MIN,
-            leaves_density_max: LEAVES_DENSITY_MAX,
+            leaves_density_min: 0.25,
+            leaves_density_max: 0.5,
             leaves_radius: 15.0,
             temporal_position_phi: 0.8,
             temporal_alpha: 0.04,
@@ -441,6 +435,14 @@ impl App {
         };
 
         app.add_tree(app.tree_desc.clone(), app.tree_pos, true)?;
+
+        // Configure leaves with the app's actual density values (now that app struct exists)
+        app.tracer.regenerate_leaves(
+            app.leaves_density_min,
+            app.leaves_density_max,
+            app.leaves_radius,
+        )?;
+
         Ok(app)
     }
 

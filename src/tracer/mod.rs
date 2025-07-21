@@ -101,8 +101,6 @@ impl Tracer {
         scene_accel_resources: &SceneAccelBuilderResources,
         desc: TracerDesc,
         audio_engine: AudioEngine,
-        leaves_density_min: f32,
-        leaves_density_max: f32,
     ) -> Result<Self> {
         let render_extent = Self::get_render_extent(screen_extent, desc.scaling_factor);
 
@@ -261,8 +259,6 @@ impl Tracer {
             render_extent,
             screen_extent,
             Extent2D::new(1024, 1024),
-            leaves_density_min,
-            leaves_density_max,
         );
 
         let device = vulkan_ctx.device();
@@ -1630,7 +1626,10 @@ impl Tracer {
         // Regenerate leaves resources with new density parameters
         let device = self.vulkan_ctx.device();
 
-        self.resources.leaves_resources = LeavesResources::new(
+        // Create new leaves resources with the provided parameters
+        // Note: We create new leaves resources with default params, then immediately overwrite
+        // This approach maintains the same API while using the constructor's defaults
+        self.resources.leaves_resources = LeavesResources::new_with_params(
             device.clone(),
             self.allocator.clone(),
             density_min,
