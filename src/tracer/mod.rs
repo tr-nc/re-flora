@@ -83,13 +83,6 @@ pub struct Tracer {
     leaves_framebuffer: Framebuffer,
 
     #[allow(dead_code)]
-    shadow_ppl: GraphicsPipeline,
-    #[allow(dead_code)]
-    shadow_render_pass: RenderPass,
-    #[allow(dead_code)]
-    shadow_framebuffer: Framebuffer,
-
-    #[allow(dead_code)]
     pool: DescriptorPool,
 }
 
@@ -237,21 +230,6 @@ impl Tracer {
         )
         .unwrap();
 
-        let shadow_vert_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            shader_compiler,
-            "shader/foliage/shadow.vert",
-            "main",
-        )
-        .unwrap();
-        let shadow_frag_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            shader_compiler,
-            "shader/foliage/shadow.frag",
-            "main",
-        )
-        .unwrap();
-
         let leaves_vert_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             shader_compiler,
@@ -356,14 +334,6 @@ impl Tracer {
             resources.extent_dependent_resources.gfx_depth_tex.clone(),
         );
 
-        let (shadow_ppl, shadow_render_pass) =
-            Self::create_shadow_render_pass_and_graphics_pipeline(
-                &vulkan_ctx,
-                &shadow_vert_sm,
-                &shadow_frag_sm,
-                resources.shadow_map_tex.clone(),
-            );
-
         let (leaves_ppl, leaves_render_pass) =
             Self::create_leaves_render_pass_and_graphics_pipeline(
                 &vulkan_ctx,
@@ -381,22 +351,11 @@ impl Tracer {
             .auto_create_descriptor_sets(&pool, &[&resources])
             .unwrap();
 
-        // currently not used
-        // shadow_ppl
-        //     .auto_create_descriptor_sets(&pool, &[&resources])
-        //     .unwrap();
-
         let grass_framebuffer = Self::create_grass_framebuffer(
             &vulkan_ctx,
             &grass_render_pass,
             &resources.extent_dependent_resources.gfx_output_tex,
             &resources.extent_dependent_resources.gfx_depth_tex,
-        );
-
-        let shadow_framebuffer = Self::create_shadow_framebuffer(
-            &vulkan_ctx,
-            &shadow_render_pass,
-            &resources.shadow_map_tex,
         );
 
         let leaves_framebuffer = Self::create_grass_framebuffer(
@@ -434,9 +393,6 @@ impl Tracer {
             leaves_ppl,
             leaves_render_pass,
             leaves_framebuffer,
-            shadow_ppl,
-            shadow_render_pass,
-            shadow_framebuffer,
             pool,
         })
     }
@@ -454,6 +410,10 @@ impl Tracer {
                 output_tex,
                 Some(depth_tex),
                 vk::AttachmentLoadOp::CLEAR,
+                vk::AttachmentStoreOp::STORE,
+                vk::ImageLayout::UNDEFINED,
+                vk::AttachmentLoadOp::CLEAR,
+                vk::AttachmentStoreOp::STORE,
                 vk::ImageLayout::GENERAL,
                 Some(vk::ImageLayout::GENERAL),
             )
@@ -483,69 +443,16 @@ impl Tracer {
         output_tex: Texture,
         depth_tex: Texture,
     ) -> (GraphicsPipeline, RenderPass) {
-        // // Create a render pass that loads existing content instead of clearing
-        // // Need to use the more detailed RenderPassDesc to control initial layout
-        // let render_pass_desc = RenderPassDesc {
-        //     attachments: vec![
-        //         AttachmentDesc {
-        //             format: output_tex.get_image().get_desc().format,
-        //             samples: vk::SampleCountFlags::TYPE_1,
-        //             load_op: vk::AttachmentLoadOp::CLEAR, // Change back to CLEAR since no grass pass
-        //             store_op: vk::AttachmentStoreOp::STORE,
-        //             stencil_load_op: vk::AttachmentLoadOp::DONT_CARE,
-        //             stencil_store_op: vk::AttachmentStoreOp::DONT_CARE,
-        //             initial_layout: vk::ImageLayout::UNDEFINED, // Back to UNDEFINED since we're clearing
-        //             final_layout: vk::ImageLayout::GENERAL,
-        //         },
-        //         AttachmentDesc {
-        //             format: depth_tex.get_image().get_desc().format,
-        //             samples: vk::SampleCountFlags::TYPE_1,
-        //             load_op: vk::AttachmentLoadOp::CLEAR, // Clear depth for proper depth testing
-        //             store_op: vk::AttachmentStoreOp::STORE,
-        //             stencil_load_op: vk::AttachmentLoadOp::DONT_CARE,
-        //             stencil_store_op: vk::AttachmentStoreOp::DONT_CARE,
-        //             initial_layout: vk::ImageLayout::UNDEFINED,
-        //             final_layout: vk::ImageLayout::GENERAL,
-        //         },
-        //     ],
-        //     subpasses: vec![SubpassDesc {
-        //         color_attachments: vec![AttachmentReference {
-        //             attachment: 0,
-        //             layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-        //         }],
-        //         depth_stencil_attachment: Some(AttachmentReference {
-        //             attachment: 1,
-        //             layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-        //         }),
-        //         ..Default::default()
-        //     }],
-        //     dependencies: vec![],
-        // };
-
-        // let render_pass = RenderPass::from_desc(vulkan_ctx.device().clone(), render_pass_desc);
-
-        // let gfx_ppl = GraphicsPipeline::new(
-        //     vulkan_ctx.device(),
-        //     &vert_sm,
-        //     &frag_sm,
-        //     &render_pass,
-        //     &GraphicsPipelineDesc {
-        //         cull_mode: vk::CullModeFlags::BACK,
-        //         depth_test_enable: true,
-        //         depth_write_enable: true,
-        //         ..Default::default()
-        //     },
-        //     Some(1),
-        // );
-
-        // (gfx_ppl, render_pass)
-
         let render_pass = {
             RenderPass::with_attachments(
                 vulkan_ctx.device().clone(),
                 output_tex,
                 Some(depth_tex),
-                vk::AttachmentLoadOp::CLEAR,
+                vk::AttachmentLoadOp::LOAD,
+                vk::AttachmentStoreOp::STORE,
+                vk::ImageLayout::GENERAL,
+                vk::AttachmentLoadOp::LOAD,
+                vk::AttachmentStoreOp::STORE,
                 vk::ImageLayout::GENERAL,
                 Some(vk::ImageLayout::GENERAL),
             )
@@ -563,63 +470,6 @@ impl Tracer {
                 ..Default::default()
             },
             Some(1),
-        );
-
-        (gfx_ppl, render_pass)
-    }
-
-    fn create_shadow_render_pass_and_graphics_pipeline(
-        vulkan_ctx: &VulkanContext,
-        vert_sm: &ShaderModule,
-        frag_sm: &ShaderModule,
-        shadow_depth_tex: Texture,
-    ) -> (GraphicsPipeline, RenderPass) {
-        let render_pass_desc = RenderPassDesc {
-            attachments: vec![AttachmentDesc {
-                format: shadow_depth_tex.get_image().get_desc().format,
-                samples: vk::SampleCountFlags::TYPE_1,
-                load_op: vk::AttachmentLoadOp::CLEAR,
-                store_op: vk::AttachmentStoreOp::STORE,
-                stencil_load_op: vk::AttachmentLoadOp::DONT_CARE,
-                stencil_store_op: vk::AttachmentStoreOp::DONT_CARE,
-                initial_layout: vk::ImageLayout::UNDEFINED,
-                final_layout: vk::ImageLayout::DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-            }],
-            subpasses: vec![SubpassDesc {
-                color_attachments: vec![],
-                depth_stencil_attachment: Some(AttachmentReference {
-                    attachment: 0,
-                    layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                }),
-                ..Default::default()
-            }],
-            // Add a dependency to ensure writes to the depth buffer are complete
-            // before any subsequent pass tries to read from it.
-            dependencies: vec![vk::SubpassDependency::default()
-                .src_subpass(vk::SUBPASS_EXTERNAL)
-                .dst_subpass(0)
-                .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT) // Or an earlier stage
-                .dst_stage_mask(vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS)
-                .src_access_mask(vk::AccessFlags::empty())
-                .dst_access_mask(vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE)],
-        };
-
-        // 2. Create the render pass using the flexible `from_desc` constructor.
-        let render_pass = RenderPass::from_desc(vulkan_ctx.device().clone(), render_pass_desc);
-
-        // 3. Create the graphics pipeline for this render pass.
-        let gfx_ppl = GraphicsPipeline::new(
-            vulkan_ctx.device(),
-            &vert_sm,
-            &frag_sm,
-            &render_pass,
-            &GraphicsPipelineDesc {
-                cull_mode: vk::CullModeFlags::BACK, // Or FRONT depending on your shadow bias needs
-                depth_test_enable: true,
-                depth_write_enable: true,
-                ..Default::default()
-            },
-            Some(3),
         );
 
         (gfx_ppl, render_pass)
@@ -1187,6 +1037,11 @@ impl Tracer {
             vk::PipelineStageFlags::COMPUTE_SHADER,
             vec![shader_access_memory_barrier],
         );
+        let frag_to_vert_barrier = PipelineBarrier::new(
+            vk::PipelineStageFlags::FRAGMENT_SHADER,
+            vk::PipelineStageFlags::VERTEX_SHADER,
+            vec![shader_access_memory_barrier],
+        );
 
         self.record_tracer_shadow_pass(cmdbuf);
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
@@ -1200,7 +1055,8 @@ impl Tracer {
         );
         b1.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
-        // self.record_grass_pass(cmdbuf, surface_resources);
+        self.record_grass_pass(cmdbuf, surface_resources);
+        frag_to_vert_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         self.record_leaves_pass(cmdbuf, surface_resources);
 
         record_denoiser_resources_transition_barrier(&self.resources.denoiser_resources, cmdbuf);

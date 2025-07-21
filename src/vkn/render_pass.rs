@@ -78,7 +78,11 @@ impl RenderPass {
         device: Device,
         color_texture: Texture,
         depth_texture: Option<Texture>,
-        load_op: vk::AttachmentLoadOp,
+        color_load_op: vk::AttachmentLoadOp,
+        color_store_op: vk::AttachmentStoreOp,
+        color_initial_layout: vk::ImageLayout,
+        depth_load_op: vk::AttachmentLoadOp,
+        depth_store_op: vk::AttachmentStoreOp,
         color_final_layout: vk::ImageLayout,
         depth_final_layout: Option<vk::ImageLayout>,
     ) -> Self {
@@ -91,11 +95,11 @@ impl RenderPass {
         attachments.push(AttachmentDesc {
             format: color_texture.get_image().get_desc().format,
             samples: vk::SampleCountFlags::TYPE_1,
-            load_op,
-            store_op: vk::AttachmentStoreOp::STORE,
+            load_op: color_load_op,
+            store_op: color_store_op,
             stencil_load_op: vk::AttachmentLoadOp::DONT_CARE,
             stencil_store_op: vk::AttachmentStoreOp::DONT_CARE,
-            initial_layout: vk::ImageLayout::UNDEFINED,
+            initial_layout: color_initial_layout,
             final_layout: color_final_layout,
         });
         subpass_desc.color_attachments.push(AttachmentReference {
@@ -110,8 +114,8 @@ impl RenderPass {
             attachments.push(AttachmentDesc {
                 format: depth.get_image().get_desc().format,
                 samples: vk::SampleCountFlags::TYPE_1,
-                load_op: vk::AttachmentLoadOp::CLEAR,
-                store_op: vk::AttachmentStoreOp::STORE,
+                load_op: depth_load_op,
+                store_op: depth_store_op,
                 stencil_load_op: vk::AttachmentLoadOp::DONT_CARE,
                 stencil_store_op: vk::AttachmentStoreOp::DONT_CARE,
                 initial_layout: vk::ImageLayout::UNDEFINED,
@@ -252,6 +256,7 @@ impl RenderPass {
         }
     }
 
+    /// TODO: refactor this so format transition is handled here
     /// Ends the render pass. The caller is responsible for transitioning image layouts
     /// to their final state as specified in the `RenderPassDesc`.
     pub fn record_end(&self, cmdbuf: &CommandBuffer) {
