@@ -18,6 +18,7 @@ pub struct TreeDesc {
     pub branch_count_min: u32,
     pub branch_count_max: u32,
     pub leaves_size_level: u32,
+    pub leaf_offset: u32,
     pub iterations: u32,
     pub segment_length_variation: f32,
     pub tree_height: f32,
@@ -56,6 +57,7 @@ impl Default for TreeDesc {
             subdivision_randomness: 0.27,
             randomness: 0.35,
             leaves_size_level: 5,
+            leaf_offset: 1,
             seed: 122,
         }
     }
@@ -204,6 +206,12 @@ impl TreeDesc {
             .add(
                 egui::Slider::new(&mut self.leaves_size_level, 0..=8)
                     .text("Leaves Size Level (2^level)"),
+            )
+            .changed();
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.leaf_offset, 0..=self.iterations.max(1))
+                    .text("Leaf Offset (levels from end)"),
             )
             .changed();
         changed |= ui
@@ -374,8 +382,12 @@ fn recurse(
     rng: &mut StdRng,
 ) {
     if level >= desc.iterations {
-        leaf_positions.push(pos);
         return;
+    }
+
+    // Leaf placement: place leaves at (iterations - leaf_offset) levels from the end
+    if level == desc.iterations.saturating_sub(desc.leaf_offset) {
+        leaf_positions.push(pos);
     }
 
     let length_variation_factor = {
@@ -489,12 +501,3 @@ fn add_direction_variation(dir: Vec3, variation: f32, rng: &mut StdRng) -> Vec3 
     let rand_z = rng.random_range(-variation..=variation);
     (dir + Vec3::new(rand_x, rand_y, rand_z)).normalize_or_zero()
 }
-
-// fn make_leaves(leaf_positions: &[Vec3], leaves_size_level: u32) -> Vec<Cuboid> {
-//     let mut leaves = Vec::new();
-//     let leaf_actual_size = 2_u32.pow(leaves_size_level) as f32;
-//     for pos in leaf_positions {
-//         leaves.push(Cuboid::new(*pos, Vec3::splat(leaf_actual_size * 0.5)));
-//     }
-//     leaves
-// }

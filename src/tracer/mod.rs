@@ -1247,6 +1247,11 @@ impl Tracer {
     }
 
     fn record_leaves_pass(&self, cmdbuf: &CommandBuffer, _surface_resources: &SurfaceResources) {
+        // Skip rendering entirely if no leaf instances
+        if self.resources.leaves_instances_len == 0 {
+            return;
+        }
+
         self.leaves_ppl.record_bind(cmdbuf);
 
         // Don't clear - we want to preserve the grass that was already rendered
@@ -1609,6 +1614,7 @@ impl Tracer {
             self.resources.leaves_instances_len = instances_data.len() as u32;
             log::info!("Successfully filled leaves instance buffer");
         } else {
+            self.resources.leaves_instances_len = 0;
             log::warn!("No leaf instances to render!");
         }
 
