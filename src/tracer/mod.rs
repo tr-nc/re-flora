@@ -1138,17 +1138,6 @@ impl Tracer {
         }
     }
 
-    fn compute_chunk_world_aabb(chunk_id: UVec3, margin: f32) -> Aabb3 {
-        let chunk_min = chunk_id.as_vec3();
-        let chunk_max = chunk_min + Vec3::ONE;
-
-        // add margin for grass swaying
-        let min_with_margin = chunk_min - Vec3::splat(margin);
-        let max_with_margin = chunk_max + Vec3::splat(margin);
-
-        Aabb3::new(min_with_margin, max_with_margin)
-    }
-
     fn record_grass_pass(&self, cmdbuf: &CommandBuffer, surface_resources: &SurfaceResources) {
         self.grass_ppl.record_bind(cmdbuf);
 
@@ -1203,16 +1192,13 @@ impl Tracer {
         }
 
         // now, iterate over each chunk and issue a draw call for it.
-        for (chunk_id, chunk_resources) in &surface_resources.instances.chunk_grass_instances {
+        for (chunk_world_aabb, chunk_resources) in
+            &surface_resources.instances.chunk_grass_instances
+        {
             // only draw if this chunk actually has grass instances.
             if chunk_resources.grass_instances_len == 0 {
                 continue;
             }
-
-            const GRASS_SWAY_MARGIN: f32 = 0.2;
-
-            // compute chunk's world AABB with margin for grass swaying
-            let chunk_world_aabb = Self::compute_chunk_world_aabb(*chunk_id, GRASS_SWAY_MARGIN);
 
             // perform frustum culling
             if !chunk_world_aabb.is_inside_frustum(self.current_view_proj_mat) {

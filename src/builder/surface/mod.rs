@@ -112,15 +112,18 @@ impl SurfaceBuilder {
     }
 
     fn update_grass_instance_set(&self, grass_instance_set: &DescriptorSet, chunk_id: UVec3) {
+        let chunk_resources = self
+            .resources
+            .instances
+            .chunk_grass_instances
+            .iter()
+            .find(|(_, resources)| resources.chunk_id == chunk_id)
+            .unwrap()
+            .1;
+        
         grass_instance_set.perform_writes(&mut [WriteDescriptorSet::new_buffer_write(
             0,
-            &self
-                .resources
-                .instances
-                .chunk_grass_instances
-                .get(&chunk_id)
-                .unwrap()
-                .grass_instances,
+            &chunk_resources.grass_instances,
         )]);
     }
 
@@ -173,12 +176,14 @@ impl SurfaceBuilder {
         let (active_voxel_len, grass_instance_len) =
             get_result(&self.resources.make_surface_result);
 
-        self.resources
+        let chunk_resources = self
+            .resources
             .instances
             .chunk_grass_instances
-            .get_mut(&chunk_id)
-            .unwrap()
-            .grass_instances_len = grass_instance_len;
+            .iter_mut()
+            .find(|(_, resources)| resources.chunk_id == chunk_id)
+            .unwrap();
+        chunk_resources.1.grass_instances_len = grass_instance_len;
 
         return Ok(active_voxel_len);
 

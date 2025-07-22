@@ -1,9 +1,9 @@
 use crate::{
-    geom::UAabb3,
+    geom::{Aabb3, UAabb3},
     vkn::{Allocator, Buffer, BufferUsage, Device, Extent3D, ImageDesc, ShaderModule, Texture},
 };
 use ash::vk;
-use glam::UVec3;
+use glam::{UVec3, Vec3};
 use std::collections::HashMap;
 
 pub struct GrassInstanceResources {
@@ -41,7 +41,7 @@ impl GrassInstanceResources {
 }
 
 pub struct InstanceResources {
-    pub chunk_grass_instances: HashMap<UVec3, GrassInstanceResources>,
+    pub chunk_grass_instances: Vec<(Aabb3, GrassInstanceResources)>,
 }
 
 impl InstanceResources {
@@ -52,21 +52,20 @@ impl InstanceResources {
         chunk_dim: UAabb3,
         grass_instances_capacity_per_chunk: u64,
     ) -> Self {
-        let mut chunk_grass_instances = HashMap::new();
+        let mut chunk_grass_instances = Vec::new();
         for x in chunk_dim.min().x..chunk_dim.max().x {
             for y in chunk_dim.min().y..chunk_dim.max().y {
                 for z in chunk_dim.min().z..chunk_dim.max().z {
                     let chunk_offset = UVec3::new(x, y, z);
-                    chunk_grass_instances.insert(
+                    let chunk_aabb = Self::compute_chunk_world_aabb(chunk_offset, 0.2); // Use grass sway margin
+                    let grass_resources = GrassInstanceResources::new(
+                        device.clone(),
+                        allocator.clone(),
+                        make_surface_sm,
                         chunk_offset,
-                        GrassInstanceResources::new(
-                            device.clone(),
-                            allocator.clone(),
-                            make_surface_sm,
-                            chunk_offset,
-                            grass_instances_capacity_per_chunk,
-                        ),
+                        grass_instances_capacity_per_chunk,
                     );
+                    chunk_grass_instances.push((chunk_aabb, grass_resources));
                 }
             }
         }
@@ -74,6 +73,17 @@ impl InstanceResources {
         Self {
             chunk_grass_instances,
         }
+    }
+
+    fn compute_chunk_world_aabb(chunk_id: UVec3, margin: f32) -> Aabb3 {
+        let chunk_min = chunk_id.as_vec3();
+        let chunk_max = chunk_min + Vec3::ONE;
+
+        // add margin for grass swaying
+        let min_with_margin = chunk_min - Vec3::splat(margin);
+        let max_with_margin = chunk_max + Vec3::splat(margin);
+
+        Aabb3::new(min_with_margin, max_with_margin)
     }
 }
 
