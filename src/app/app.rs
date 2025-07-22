@@ -239,6 +239,10 @@ pub struct App {
     grass_bottom_color: egui::Color32,
     grass_tip_color: egui::Color32,
 
+    // leaf colors
+    leaf_bottom_color: egui::Color32,
+    leaf_tip_color: egui::Color32,
+
     // note: always keep the context to end, as it has to be destroyed last
     vulkan_ctx: VulkanContext,
 
@@ -439,6 +443,10 @@ impl App {
             // Default grass colors (converted from resources.rs values)
             grass_bottom_color: egui::Color32::from_rgb(52, 116, 51),
             grass_tip_color: egui::Color32::from_rgb(182, 245, 0),
+
+            // Default leaf colors (dark green to bright green)
+            leaf_bottom_color: egui::Color32::from_rgb(51, 153, 25),
+            leaf_tip_color: egui::Color32::from_rgb(102, 204, 51),
 
             audio_engine,
         };
@@ -880,7 +888,7 @@ impl App {
                 self.prev_bound.min(),
                 self.prev_bound.max() - self.prev_bound.min(),
             )?;
-            
+
             // Force mesh regeneration after cleanup to ensure terrain is properly accessible for querying
             Self::mesh_generate(
                 &mut self.surface_builder,
@@ -900,11 +908,7 @@ impl App {
         self.add_tree_at_position(tree_desc, adjusted_tree_pos)
     }
 
-    fn add_tree_at_position(
-        &mut self,
-        tree_desc: TreeDesc,
-        adjusted_tree_pos: Vec3,
-    ) -> Result<()> {
+    fn add_tree_at_position(&mut self, tree_desc: TreeDesc, adjusted_tree_pos: Vec3) -> Result<()> {
         let tree = Tree::new(tree_desc);
         let mut round_cones = Vec::new();
         for tree_trunk in tree.trunks() {
@@ -1569,6 +1573,21 @@ impl App {
                                                 );
                                             });
                                         });
+
+                                        ui.collapsing("Leaf Settings", |ui| {
+                                            ui.horizontal(|ui| {
+                                                ui.label("Bottom Color:");
+                                                ui.color_edit_button_srgba(
+                                                    &mut self.leaf_bottom_color,
+                                                );
+                                            });
+                                            ui.horizontal(|ui| {
+                                                ui.label("Tip Color:");
+                                                ui.color_edit_button_srgba(
+                                                    &mut self.leaf_tip_color,
+                                                );
+                                            });
+                                        });
                                     });
                                 });
                         }
@@ -1715,6 +1734,16 @@ impl App {
                             self.grass_tip_color.r() as f32 / 255.0,
                             self.grass_tip_color.g() as f32 / 255.0,
                             self.grass_tip_color.b() as f32 / 255.0,
+                        ),
+                        Vec3::new(
+                            self.leaf_bottom_color.r() as f32 / 255.0,
+                            self.leaf_bottom_color.g() as f32 / 255.0,
+                            self.leaf_bottom_color.b() as f32 / 255.0,
+                        ),
+                        Vec3::new(
+                            self.leaf_tip_color.r() as f32 / 255.0,
+                            self.leaf_tip_color.g() as f32 / 255.0,
+                            self.leaf_tip_color.b() as f32 / 255.0,
                         ),
                     )
                     .unwrap();

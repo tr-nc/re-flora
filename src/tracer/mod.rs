@@ -275,6 +275,7 @@ impl Tracer {
             &vulkan_ctx,
             allocator.clone(),
             &grass_vert_sm,
+            &leaves_vert_sm,
             &tracer_sm,
             &tracer_shadow_sm,
             &composition_sm,
@@ -735,6 +736,8 @@ impl Tracer {
         starlight_saturation: f32,
         grass_bottom_color: Vec3,
         grass_tip_color: Vec3,
+        leaf_bottom_color: Vec3,
+        leaf_tip_color: Vec3,
     ) -> Result<()> {
         // camera info
         let view_mat = self.camera.get_view_mat();
@@ -773,6 +776,13 @@ impl Tracer {
             time_info.time_since_start(),
             grass_bottom_color,
             grass_tip_color,
+        )?;
+
+        update_leaf_info(
+            &self.resources,
+            time_info.time_since_start(),
+            leaf_bottom_color,
+            leaf_tip_color,
         )?;
 
         update_gui_input(&self.resources, debug_float, debug_bool, debug_uint)?;
@@ -1059,6 +1069,27 @@ impl Tracer {
                 )
                 .build()?;
             resources.grass_info.fill_with_raw_u8(&data)?;
+            Ok(())
+        }
+
+        fn update_leaf_info(
+            resources: &TracerResources,
+            time: f32,
+            bottom_color: Vec3,
+            tip_color: Vec3,
+        ) -> Result<()> {
+            let data = StructMemberDataBuilder::from_buffer(&resources.leaf_info)
+                .set_field("time", PlainMemberTypeWithData::Float(time))
+                .set_field(
+                    "bottom_color",
+                    PlainMemberTypeWithData::Vec3(bottom_color.to_array()),
+                )
+                .set_field(
+                    "tip_color",
+                    PlainMemberTypeWithData::Vec3(tip_color.to_array()),
+                )
+                .build()?;
+            resources.leaf_info.fill_with_raw_u8(&data)?;
             Ok(())
         }
 

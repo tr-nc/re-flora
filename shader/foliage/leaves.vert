@@ -52,12 +52,12 @@ layout(set = 0, binding = 4) uniform U_ShadowCameraInfo {
 }
 shadow_camera_info;
 
-layout(set = 0, binding = 5) uniform U_GrassInfo {
+layout(set = 0, binding = 5) uniform U_LeafInfo {
     float time;
     vec3 bottom_color;
     vec3 tip_color;
 }
-grass_info;
+leaf_info;
 
 layout(set = 0, binding = 6) uniform sampler2D shadow_map_tex_for_vsm_ping;
 
@@ -132,10 +132,8 @@ void main() {
     // Transform to clip space
     gl_Position = camera_info.view_proj_mat * vert_pos_ws;
 
-    // Leaves coloring - use green tones instead of grass colors
-    vec3 leaf_base_color = vec3(0.2, 0.6, 0.1);  // Dark green
-    vec3 leaf_tip_color = vec3(0.4, 0.8, 0.2);   // Bright green
-    vec3 interpolated_color = mix(leaf_base_color, leaf_tip_color, gradient);
+    // Leaves coloring - use configurable colors from leaf_info
+    vec3 interpolated_color = mix(leaf_info.bottom_color, leaf_info.tip_color, gradient);
 
     // Apply lighting with shadow effect (same as grass.vert)
     vec3 sun_light = sun_info.sun_color * sun_info.sun_luminance;

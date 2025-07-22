@@ -16,7 +16,8 @@
       "Bash(RUST_BACKTRACE=1 /mnt/c/Users/danny/.cargo/bin/cargo.exe run)",
       "Bash(/mnt/c/Users/danny/.cargo/bin/cargo.exe fmt)",
       "Bash(rm:*)",
-      "Bash(timeout 10 /mnt/c/Users/danny/.cargo/bin/cargo.exe run)"
+      "Bash(timeout 10 /mnt/c/Users/danny/.cargo/bin/cargo.exe run)",
+      "Bash(timeout 60 /mnt/c/Users/danny/.cargo/bin/cargo.exe run)"
     ],
     "deny": []
   }

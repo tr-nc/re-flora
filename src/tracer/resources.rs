@@ -123,6 +123,7 @@ pub struct TracerResources {
     pub env_info: Resource<Buffer>,
     pub starlight_info: Resource<Buffer>,
     pub grass_info: Resource<Buffer>,
+    pub leaf_info: Resource<Buffer>,
     pub taa_info: Resource<Buffer>,
     pub god_ray_info: Resource<Buffer>,
     pub post_processing_info: Resource<Buffer>,
@@ -157,6 +158,7 @@ impl TracerResources {
         vulkan_ctx: &VulkanContext,
         allocator: Allocator,
         vert_sm: &ShaderModule,
+        leaves_vert_sm: &ShaderModule,
         tracer_sm: &ShaderModule,
         tracer_shadow_sm: &ShaderModule,
         composition_sm: &ShaderModule,
@@ -255,6 +257,15 @@ impl TracerResources {
             device.clone(),
             allocator.clone(),
             grass_info_layout.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+        );
+
+        let leaf_info_layout = leaves_vert_sm.get_buffer_layout("U_LeafInfo").unwrap();
+        let leaf_info = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            leaf_info_layout.clone(),
             BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
@@ -414,6 +425,7 @@ impl TracerResources {
             env_info: Resource::new(env_info),
             starlight_info: Resource::new(starlight_info),
             grass_info: Resource::new(grass_info),
+            leaf_info: Resource::new(leaf_info),
             taa_info: Resource::new(taa_info),
             god_ray_info: Resource::new(god_ray_info),
             post_processing_info: Resource::new(post_processing_info),
