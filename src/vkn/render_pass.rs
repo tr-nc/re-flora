@@ -63,6 +63,21 @@ impl Deref for RenderPass {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum AttachmentType {
+    Color,
+    Depth,
+}
+
+pub struct AttachmentDescOuter {
+    pub texture: Texture,
+    pub load_op: vk::AttachmentLoadOp,
+    pub store_op: vk::AttachmentStoreOp,
+    pub initial_layout: vk::ImageLayout,
+    pub final_layout: vk::ImageLayout,
+    pub ty: AttachmentType,
+}
+
 impl RenderPass {
     /// Creates a "stateless" RenderPass from an explicit description.
     /// This offers maximum flexibility for defining attachments, subpasses, and dependencies.
@@ -73,59 +88,39 @@ impl RenderPass {
     /// Creates a "stateful" RenderPass that is bound to specific Texture resources.
     /// It derives its format description from the textures. This is a convenience function
     /// for a common pattern of a single subpass with one color and one optional depth attachment.
-    pub fn with_attachments(
-        device: Device,
-        color_texture: Texture,
-        depth_texture: Option<Texture>,
-        color_load_op: vk::AttachmentLoadOp,
-        color_store_op: vk::AttachmentStoreOp,
-        color_initial_layout: vk::ImageLayout,
-        depth_load_op: vk::AttachmentLoadOp,
-        depth_store_op: vk::AttachmentStoreOp,
-        depth_initial_layout: vk::ImageLayout,
-        color_final_layout: vk::ImageLayout,
-        depth_final_layout: Option<vk::ImageLayout>,
-    ) -> Self {
+    pub fn with_attachments(device: Device, attachments: &[AttachmentDescOuter]) -> Self {
         let mut attachment_descs = Vec::new();
         let mut subpass_desc = SubpassDesc::default();
         let mut dst_access_mask = vk::AccessFlags::empty();
         let mut pipeline_stage_mask = vk::PipelineStageFlags::empty();
 
-        attachment_descs.push(AttachmentDesc {
-            format: color_texture.get_image().get_desc().format,
-            samples: vk::SampleCountFlags::TYPE_1,
-            load_op: color_load_op,
-            store_op: color_store_op,
-            stencil_load_op: vk::AttachmentLoadOp::DONT_CARE,
-            stencil_store_op: vk::AttachmentStoreOp::DONT_CARE,
-            initial_layout: color_initial_layout,
-            final_layout: color_final_layout,
-        });
-        subpass_desc.color_attachments.push(AttachmentReference {
-            attachment: 0,
-            layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-        });
-        dst_access_mask |= vk::AccessFlags::COLOR_ATTACHMENT_WRITE;
-        pipeline_stage_mask |= vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT;
-
-        if let Some(ref depth) = depth_texture {
+        for attachment in attachments {
             attachment_descs.push(AttachmentDesc {
-                format: depth.get_image().get_desc().format,
+                format: attachment.texture.get_image().get_desc().format,
                 samples: vk::SampleCountFlags::TYPE_1,
-                load_op: depth_load_op,
-                store_op: depth_store_op,
+                load_op: attachment.load_op,
+                store_op: attachment.store_op,
                 stencil_load_op: vk::AttachmentLoadOp::DONT_CARE,
                 stencil_store_op: vk::AttachmentStoreOp::DONT_CARE,
-                initial_layout: depth_initial_layout,
-                final_layout: depth_final_layout
-                    .expect("Depth final layout must be provided when depth texture is present"),
+                initial_layout: attachment.initial_layout,
+                final_layout: attachment.final_layout,
             });
-            subpass_desc.depth_stencil_attachment = Some(AttachmentReference {
-                attachment: attachment_descs.len() as u32 - 1,
-                layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-            });
-            dst_access_mask |= vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE;
-            pipeline_stage_mask |= vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS;
+
+            if attachment.ty == AttachmentType::Color {
+                subpass_desc.color_attachments.push(AttachmentReference {
+                    attachment: attachment_descs.len() as u32 - 1,
+                    layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                });
+                dst_access_mask |= vk::AccessFlags::COLOR_ATTACHMENT_WRITE;
+                pipeline_stage_mask |= vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT;
+            } else if attachment.ty == AttachmentType::Depth {
+                subpass_desc.depth_stencil_attachment = Some(AttachmentReference {
+                    attachment: attachment_descs.len() as u32 - 1,
+                    layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                });
+                dst_access_mask |= vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE;
+                pipeline_stage_mask |= vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS;
+            }
         }
 
         let subpasses = vec![subpass_desc];
