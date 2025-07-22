@@ -60,6 +60,18 @@ impl Aabb3 {
         ]
     }
 
+    pub fn from_points(points: &[Vec3]) -> Self {
+        // Transform leaf positions to world space and find bounds
+        let mut min = Vec3::splat(f32::INFINITY);
+        let mut max = Vec3::splat(f32::NEG_INFINITY);
+
+        for point in points.iter() {
+            min = min.min(*point);
+            max = max.max(*point);
+        }
+        return Self::new(min, max);
+    }
+
     /// Returns a new `Aabb3` that encloses both `self` and `other`.
     /// If an AABB has no size, it's not considered in the union.
     /// If `self` has no size, `other` is returned (cloned).

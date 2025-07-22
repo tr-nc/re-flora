@@ -1,7 +1,8 @@
 use crate::geom::RoundCone;
-use glam::Vec3;
+use glam::{UVec3, Vec3};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
+use std::collections::HashSet;
 use std::f32::consts::PI;
 
 #[derive(Debug, Clone)]
@@ -247,7 +248,8 @@ impl Tree {
         &self.built_objects.trunks
     }
 
-    pub fn leaf_positions(&self) -> &[Vec3] {
+    /// Obtain the leaf positions relative to the tree position.
+    pub fn relative_leaf_positions(&self) -> &[Vec3] {
         &self.built_objects.leaf_positions
     }
 

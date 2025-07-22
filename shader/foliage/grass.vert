@@ -144,6 +144,7 @@ void main() {
     // Extract height from the Y component of the base position (voxel height level)
     float height = base_position.y;
 
+    // TODO: remove scaling factor
     vec2 grass_offset =
         random_grass_offset(vec2(in_instance_position.xz * scaling_factor), grass_info.time);
 

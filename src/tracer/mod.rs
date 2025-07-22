@@ -1,4 +1,6 @@
 mod resources;
+use std::collections::HashSet;
+
 pub use resources::*;
 
 mod denoiser_resources;
@@ -18,7 +20,7 @@ mod grass_construct;
 
 mod leaves_construct;
 
-use glam::{Mat4, Vec2, Vec3};
+use glam::{Mat4, UVec3, Vec2, Vec3};
 use winit::event::KeyEvent;
 
 use crate::audio::AudioEngine;
@@ -1248,9 +1250,8 @@ impl Tracer {
     }
 
     fn record_leaves_pass(&self, cmdbuf: &CommandBuffer, surface_resources: &SurfaceResources) {
-        // Skip rendering entirely if no leaf instances (get from first leaves instance)
-        let leaves_instance = &surface_resources.instances.leaves_instances[0].1;
-        if leaves_instance.leaves_instances_len == 0 {
+        // Skip rendering entirely if no leaf instances exist
+        if surface_resources.instances.leaves_instances.is_empty() {
             return;
         }
 
@@ -1304,27 +1305,36 @@ impl Tracer {
             );
         }
 
-        // Use the actual leaves instances buffer
-        unsafe {
-            self.vulkan_ctx.device().cmd_bind_vertex_buffers(
-                cmdbuf.as_raw(),
+        // Loop through all leaves instances
+        for (_leaves_aabb, leaves_instance) in &surface_resources.instances.leaves_instances {
+            // Skip instances with no data
+            if leaves_instance.leaves_instances_len == 0 {
+                continue;
+            }
+
+            // Bind vertex buffers for this instance
+            unsafe {
+                self.vulkan_ctx.device().cmd_bind_vertex_buffers(
+                    cmdbuf.as_raw(),
+                    0,
+                    &[
+                        self.resources.leaves_resources.vertices.as_raw(),
+                        leaves_instance.leaves_instances.as_raw(),
+                    ],
+                    &[0, 0],
+                );
+            }
+
+            // Render this instance
+            self.leaves_ppl.record_indexed(
+                cmdbuf,
+                self.resources.leaves_resources.indices_len,
+                leaves_instance.leaves_instances_len,
                 0,
-                &[
-                    self.resources.leaves_resources.vertices.as_raw(),
-                    leaves_instance.leaves_instances.as_raw(),
-                ],
-                &[0, 0],
+                0,
+                0,
             );
         }
-
-        self.leaves_ppl.record_indexed(
-            cmdbuf,
-            self.resources.leaves_resources.indices_len,
-            leaves_instance.leaves_instances_len,
-            0,
-            0,
-            0,
-        );
 
         self.leaves_render_pass.record_end(cmdbuf);
 
@@ -1582,29 +1592,40 @@ impl Tracer {
     pub fn update_leaves_instances(
         &mut self,
         surface_resources: &mut SurfaceResources,
-        leaf_positions: &[Vec3],
-        tree_pos: Vec3,
+        leaf_positions: &[UVec3],
     ) -> Result<()> {
-        // GrassInstance structure: uvec3 position, uint grass_type
+        use crate::builder::LeavesInstanceResources;
+
         #[repr(C)]
         #[derive(Copy, Clone)]
-        struct GrassInstance {
+        struct LeafInstance {
             position: [u32; 3],
-            grass_type: u32,
+            leaf_type: u32,
         }
 
         let mut instances_data = Vec::new();
 
-        for leaf in leaf_positions.iter() {
-            let leaf_center = *leaf;
-            let world_pos = leaf_center + tree_pos;
+        // debug
+        {
+            let distinct_uvec3_leaf_positions =
+                leaf_positions.iter().map(|leaf| *leaf).collect::<Vec<_>>();
+            let distinct_uvec3_leaf_positions_set = distinct_uvec3_leaf_positions
+                .into_iter()
+                .collect::<HashSet<_>>();
+            log::debug!("Input leaf positions count: {}", leaf_positions.len());
+            log::debug!(
+                "Distinct leaf positions count: {}",
+                distinct_uvec3_leaf_positions_set.len()
+            );
+        }
 
-            let voxel_pos = world_pos.as_uvec3();
+        for leaf_pos in leaf_positions.iter() {
+            let voxel_pos = *leaf_pos;
 
             // Create instance data matching GrassInstance structure
-            let instance = GrassInstance {
+            let instance = LeafInstance {
                 position: [voxel_pos.x, voxel_pos.y, voxel_pos.z],
-                grass_type: 0, // grass_type = 0 for leaves
+                leaf_type: 0, // not in use for now
             };
 
             instances_data.push(instance);
@@ -1612,14 +1633,45 @@ impl Tracer {
 
         log::info!("Created {} leaf instances", instances_data.len());
 
-        // Get mutable reference to first leaves instance
-        let leaves_instance = &mut surface_resources.instances.leaves_instances[0].1;
+        // Calculate AABB based on actual leaf positions
+        let scaled_leaf_positions = leaf_positions
+            .iter()
+            .map(|leaf| {
+                Vec3::new(
+                    leaf.x as f32 / 256.0,
+                    leaf.y as f32 / 256.0,
+                    leaf.z as f32 / 256.0,
+                )
+            })
+            .collect::<Vec<_>>();
+        let leaves_aabb = crate::builder::InstanceResources::compute_leaves_aabb(
+            &scaled_leaf_positions,
+            0.2, // Default margin to cover leaf radius
+        );
+
+        log::info!("First leaf position: {:?}", scaled_leaf_positions[0]);
+        log::info!("Leaves AABB: {:?}", leaves_aabb);
+
+        // Clear existing leaves instances and add new one
+        surface_resources.instances.leaves_instances.clear();
+
+        // Create new leaves instance resources
+        let mut leaves_resources =
+            LeavesInstanceResources::new(self.vulkan_ctx.device().clone(), self.allocator.clone());
+
+        // Fill with instance data if we have any
         if !instances_data.is_empty() {
-            leaves_instance.leaves_instances.fill(&instances_data)?;
-            leaves_instance.leaves_instances_len = instances_data.len() as u32;
+            leaves_resources.leaves_instances.fill(&instances_data)?;
+            leaves_resources.leaves_instances_len = instances_data.len() as u32;
         } else {
-            leaves_instance.leaves_instances_len = 0;
+            leaves_resources.leaves_instances_len = 0;
         }
+
+        // Add the new leaves instance with its AABB
+        surface_resources
+            .instances
+            .leaves_instances
+            .push((leaves_aabb, leaves_resources));
 
         Ok(())
     }

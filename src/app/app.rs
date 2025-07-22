@@ -22,6 +22,7 @@ use glam::{UVec3, Vec2, Vec3};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
 use kira::{StartTime, Tween};
 use rand::Rng;
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use winit::event::DeviceEvent;
@@ -817,10 +818,24 @@ impl App {
 
         self.plain_builder.chunk_modify(&bvh_nodes, &round_cones)?;
 
+        let relative_leaf_positions = tree.relative_leaf_positions();
+        let offseted_leaf_positions = relative_leaf_positions
+            .iter()
+            .map(|leaf| *leaf + adjusted_tree_pos)
+            .collect::<Vec<_>>();
+
+        fn quantize(pos: &[Vec3]) -> Vec<UVec3> {
+            let set = pos
+                .iter()
+                .map(|leaf| leaf.as_uvec3())
+                .collect::<HashSet<_>>();
+            return set.into_iter().collect::<Vec<_>>();
+        }
+
+        let quantized_leaf_positions = quantize(&offseted_leaf_positions);
         self.tracer.update_leaves_instances(
             &mut self.surface_builder.resources,
-            tree.leaf_positions(),
-            adjusted_tree_pos,
+            &quantized_leaf_positions,
         )?;
 
         Self::mesh_generate(

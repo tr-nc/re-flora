@@ -82,7 +82,7 @@ impl InstanceResources {
             for y in chunk_dim.min().y..chunk_dim.max().y {
                 for z in chunk_dim.min().z..chunk_dim.max().z {
                     let chunk_offset = UVec3::new(x, y, z);
-                    let chunk_aabb = Self::compute_chunk_world_aabb(chunk_offset, 0.2); // Use grass sway margin
+                    let chunk_aabb = compute_chunk_world_aabb(chunk_offset, 0.2);
                     let grass_resources = GrassInstanceResources::new(
                         device.clone(),
                         allocator.clone(),
@@ -95,25 +95,35 @@ impl InstanceResources {
             }
         }
 
-        // Create single leaves instance for current single tree setup
-        let leaves_aabb = Aabb3::new(Vec3::splat(-50.0), Vec3::splat(50.0)); // Large AABB to cover tree area
-        let leaves_resources = LeavesInstanceResources::new(device.clone(), allocator.clone());
-        let mut leaves_instances = Vec::new();
-        leaves_instances.push((leaves_aabb, leaves_resources));
-
-        Self {
+        return Self {
             chunk_grass_instances,
-            leaves_instances,
+            leaves_instances: Vec::new(),
+        };
+
+        /// A margin is added becaues the boundary grasses can sway out of the chunk to a certain extent.
+        fn compute_chunk_world_aabb(chunk_id: UVec3, margin: f32) -> Aabb3 {
+            let chunk_min = chunk_id.as_vec3();
+            let chunk_max = chunk_min + Vec3::ONE;
+
+            // add margin for grass swaying
+            let min_with_margin = chunk_min - Vec3::splat(margin);
+            let max_with_margin = chunk_max + Vec3::splat(margin);
+
+            Aabb3::new(min_with_margin, max_with_margin)
         }
     }
 
-    fn compute_chunk_world_aabb(chunk_id: UVec3, margin: f32) -> Aabb3 {
-        let chunk_min = chunk_id.as_vec3();
-        let chunk_max = chunk_min + Vec3::ONE;
+    /// A margin is added to cover the leaf radius.
+    /// We don't input the actual leaf radius just for simplicity.
+    pub fn compute_leaves_aabb(leaf_positions: &[Vec3], margin: f32) -> Aabb3 {
+        if leaf_positions.is_empty() {
+            return Aabb3::new(Vec3::ZERO, Vec3::ZERO);
+        }
+        let aabb = Aabb3::from_points(leaf_positions);
 
-        // add margin for grass swaying
-        let min_with_margin = chunk_min - Vec3::splat(margin);
-        let max_with_margin = chunk_max + Vec3::splat(margin);
+        // Add margin to cover leaf radius
+        let min_with_margin = aabb.min() - Vec3::splat(margin);
+        let max_with_margin = aabb.max() + Vec3::splat(margin);
 
         Aabb3::new(min_with_margin, max_with_margin)
     }
