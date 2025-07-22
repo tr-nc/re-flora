@@ -59,6 +59,7 @@ pub struct Tracer {
     camera_view_mat_prev_frame: Mat4,
     camera_proj_mat_prev_frame: Mat4,
     current_view_proj_mat: Mat4,
+    current_shadow_view_proj_mat: Mat4,
 
     tracer_ppl: ComputePipeline,
     temporal_ppl: ComputePipeline,
@@ -81,6 +82,10 @@ pub struct Tracer {
     leaves_ppl: GraphicsPipeline,
     leaves_render_pass: RenderPass,
     leaves_framebuffer: Framebuffer,
+
+    leaves_shadow_ppl: GraphicsPipeline,
+    leaves_shadow_render_pass: RenderPass,
+    leaves_shadow_framebuffer: Framebuffer,
 
     #[allow(dead_code)]
     pool: DescriptorPool,
@@ -251,6 +256,21 @@ impl Tracer {
         )
         .unwrap();
 
+        let leaves_shadow_vert_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            shader_compiler,
+            "shader/foliage/leaves_shadow.vert",
+            "main",
+        )
+        .unwrap();
+        let leaves_shadow_frag_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            shader_compiler,
+            "shader/foliage/leaves_shadow.frag",
+            "main",
+        )
+        .unwrap();
+
         let resources = TracerResources::new(
             &vulkan_ctx,
             allocator.clone(),
@@ -356,11 +376,23 @@ impl Tracer {
                 resources.extent_dependent_resources.gfx_depth_tex.clone(),
             );
 
+        let (leaves_shadow_ppl, leaves_shadow_render_pass) =
+            Self::create_leaves_shadow_render_pass_and_graphics_pipeline(
+                &vulkan_ctx,
+                &leaves_shadow_vert_sm,
+                &leaves_shadow_frag_sm,
+                resources.shadow_map_tex.clone(),
+            );
+
         grass_ppl
             .auto_create_descriptor_sets(&pool, &[&resources])
             .unwrap();
 
         leaves_ppl
+            .auto_create_descriptor_sets(&pool, &[&resources])
+            .unwrap();
+
+        leaves_shadow_ppl
             .auto_create_descriptor_sets(&pool, &[&resources])
             .unwrap();
 
@@ -378,6 +410,12 @@ impl Tracer {
             &resources.extent_dependent_resources.gfx_depth_tex,
         );
 
+        let leaves_shadow_framebuffer = Self::create_leaves_shadow_framebuffer(
+            &vulkan_ctx,
+            &leaves_shadow_render_pass,
+            &resources.shadow_map_tex,
+        );
+
         Ok(Self {
             vulkan_ctx,
             desc,
@@ -388,6 +426,7 @@ impl Tracer {
             camera_view_mat_prev_frame: Mat4::IDENTITY,
             camera_proj_mat_prev_frame: Mat4::IDENTITY,
             current_view_proj_mat: Mat4::IDENTITY,
+            current_shadow_view_proj_mat: Mat4::IDENTITY,
             tracer_ppl,
             tracer_shadow_ppl,
             god_ray_ppl,
@@ -407,6 +446,9 @@ impl Tracer {
             leaves_ppl,
             leaves_render_pass,
             leaves_framebuffer,
+            leaves_shadow_ppl,
+            leaves_shadow_render_pass,
+            leaves_shadow_framebuffer,
             pool,
         })
     }
@@ -491,6 +533,47 @@ impl Tracer {
         (gfx_ppl, render_pass)
     }
 
+    fn create_leaves_shadow_render_pass_and_graphics_pipeline(
+        vulkan_ctx: &VulkanContext,
+        vert_sm: &ShaderModule,
+        frag_sm: &ShaderModule,
+        shadow_tex: Texture,
+    ) -> (GraphicsPipeline, RenderPass) {
+        // Create a temporary color texture for the render pass (won't be used for shadow rendering)
+        let temp_color_tex = shadow_tex.clone(); // Use same texture temporarily
+        let render_pass = {
+            RenderPass::with_attachments(
+                vulkan_ctx.device().clone(),
+                temp_color_tex,                   // Dummy color attachment (unused)
+                Some(shadow_tex),                 // Depth attachment
+                vk::AttachmentLoadOp::DONT_CARE,  // Don't care about color
+                vk::AttachmentStoreOp::DONT_CARE, // Don't care about color
+                vk::ImageLayout::UNDEFINED,       // Color layout (unused)
+                vk::AttachmentLoadOp::LOAD,       // Load existing depth
+                vk::AttachmentStoreOp::STORE,     // Store new depth
+                vk::ImageLayout::GENERAL,         // Depth initial layout
+                vk::ImageLayout::UNDEFINED,       // Color final layout (unused)
+                Some(vk::ImageLayout::GENERAL),   // Depth final layout
+            )
+        };
+
+        let gfx_ppl = GraphicsPipeline::new(
+            vulkan_ctx.device(),
+            &vert_sm,
+            &frag_sm,
+            &render_pass,
+            &GraphicsPipelineDesc {
+                cull_mode: vk::CullModeFlags::BACK,
+                depth_test_enable: true,
+                depth_write_enable: true,
+                ..Default::default()
+            },
+            Some(1),
+        );
+
+        (gfx_ppl, render_pass)
+    }
+
     fn create_grass_framebuffer(
         vulkan_ctx: &VulkanContext,
         render_pass: &RenderPass,
@@ -512,6 +595,29 @@ impl Tracer {
             &render_pass,
             &[target_view, depth_image_view],
             target_image_extent,
+        )
+        .unwrap()
+    }
+
+    fn create_leaves_shadow_framebuffer(
+        vulkan_ctx: &VulkanContext,
+        render_pass: &RenderPass,
+        shadow_texture: &Texture,
+    ) -> Framebuffer {
+        let shadow_image_view = shadow_texture.get_image_view().as_raw();
+
+        let shadow_image_extent = shadow_texture
+            .get_image()
+            .get_desc()
+            .extent
+            .as_extent_2d()
+            .unwrap();
+
+        Framebuffer::new(
+            vulkan_ctx.clone(),
+            &render_pass,
+            &[shadow_image_view],
+            shadow_image_extent,
         )
         .unwrap()
     }
@@ -648,6 +754,7 @@ impl Tracer {
         let world_bound = self.chunk_bound.into();
         let (shadow_view_mat, shadow_proj_mat) =
             calculate_directional_light_matrices(world_bound, sun_dir);
+        self.current_shadow_view_proj_mat = shadow_proj_mat * shadow_view_mat;
         update_cam_info(
             &mut self.resources.shadow_camera_info,
             shadow_view_mat,
@@ -1038,6 +1145,15 @@ impl Tracer {
             vec![shader_access_memory_barrier],
         );
 
+        // // TODO: Fix render pass creation for leaves shadow pass
+        // // self.record_leaves_shadow_pass(cmdbuf, surface_resources);
+        // let frag_to_compute_barrier = PipelineBarrier::new(
+        //     vk::PipelineStageFlags::FRAGMENT_SHADER,
+        //     vk::PipelineStageFlags::COMPUTE_SHADER,
+        //     vec![shader_access_memory_barrier],
+        // );
+        // frag_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+
         self.record_tracer_shadow_pass(cmdbuf);
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         self.record_vsm_filtering_pass(cmdbuf);
@@ -1352,6 +1468,103 @@ impl Tracer {
             .gfx_depth_tex
             .get_image()
             .set_layout(0, desc.attachments[1].final_layout);
+    }
+
+    fn record_leaves_shadow_pass(
+        &self,
+        cmdbuf: &CommandBuffer,
+        surface_resources: &SurfaceResources,
+    ) {
+        // Skip rendering entirely if no leaf instances exist
+        if surface_resources.instances.leaves_instances.is_empty() {
+            return;
+        }
+
+        self.leaves_shadow_ppl.record_bind(cmdbuf);
+
+        // Load existing depth values and clear depth for leaves shadow pass
+        let clear_values = [vk::ClearValue {
+            depth_stencil: vk::ClearDepthStencilValue {
+                depth: 1.0,
+                stencil: 0,
+            },
+        }];
+
+        self.leaves_shadow_render_pass.record_begin(
+            cmdbuf,
+            &self.leaves_shadow_framebuffer,
+            &clear_values,
+        );
+
+        let shadow_extent = self.resources.shadow_map_tex.get_image().get_desc().extent;
+        let viewport = Viewport::from_extent(shadow_extent.as_extent_2d().unwrap());
+        let scissor = vk::Rect2D {
+            offset: vk::Offset2D { x: 0, y: 0 },
+            extent: vk::Extent2D {
+                width: shadow_extent.width,
+                height: shadow_extent.height,
+            },
+        };
+
+        self.leaves_shadow_ppl
+            .record_viewport_scissor(cmdbuf, viewport, scissor);
+
+        unsafe {
+            // bind the index buffer for leaves
+            self.vulkan_ctx.device().cmd_bind_index_buffer(
+                cmdbuf.as_raw(),
+                self.resources.leaves_resources.indices.as_raw(),
+                0,
+                vk::IndexType::UINT32,
+            );
+        }
+
+        // Loop through all tree leaves instances
+        for (_tree_id, tree_instance) in &surface_resources.instances.leaves_instances {
+            if tree_instance.resources.leaves_instances_len == 0 {
+                continue;
+            }
+
+            // perform frustum culling using shadow camera
+            if !tree_instance
+                .aabb
+                .is_inside_frustum(self.current_shadow_view_proj_mat)
+            {
+                continue;
+            }
+            log::debug!("Rendering leaves shadow for tree_id: {}", _tree_id);
+
+            // Bind vertex buffers for this instance
+            unsafe {
+                self.vulkan_ctx.device().cmd_bind_vertex_buffers(
+                    cmdbuf.as_raw(),
+                    0,
+                    &[
+                        self.resources.leaves_resources.vertices.as_raw(),
+                        tree_instance.resources.leaves_instances.as_raw(),
+                    ],
+                    &[0, 0],
+                );
+            }
+
+            // Render this instance for shadow map
+            self.leaves_shadow_ppl.record_indexed(
+                cmdbuf,
+                self.resources.leaves_resources.indices_len,
+                tree_instance.resources.leaves_instances_len,
+                0,
+                0,
+                0,
+            );
+        }
+
+        self.leaves_shadow_render_pass.record_end(cmdbuf);
+
+        let desc = self.leaves_shadow_render_pass.get_desc();
+        self.resources
+            .shadow_map_tex
+            .get_image()
+            .set_layout(0, desc.attachments[0].final_layout);
     }
 
     fn record_tracer_shadow_pass(&self, cmdbuf: &CommandBuffer) {

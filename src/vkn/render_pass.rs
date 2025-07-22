@@ -28,7 +28,6 @@ pub struct AttachmentReference {
 pub struct SubpassDesc {
     pub color_attachments: Vec<AttachmentReference>,
     pub depth_stencil_attachment: Option<AttachmentReference>,
-    // NOTE: Can be extended with input_attachments, resolve_attachments, etc.
 }
 
 /// A complete description of a render pass, its attachments, subpasses, and dependencies.
@@ -87,13 +86,12 @@ impl RenderPass {
         color_final_layout: vk::ImageLayout,
         depth_final_layout: Option<vk::ImageLayout>,
     ) -> Self {
-        let mut attachments = Vec::new();
+        let mut attachment_descs = Vec::new();
         let mut subpass_desc = SubpassDesc::default();
         let mut dst_access_mask = vk::AccessFlags::empty();
         let mut pipeline_stage_mask = vk::PipelineStageFlags::empty();
 
-        // Color Attachment (index 0)
-        attachments.push(AttachmentDesc {
+        attachment_descs.push(AttachmentDesc {
             format: color_texture.get_image().get_desc().format,
             samples: vk::SampleCountFlags::TYPE_1,
             load_op: color_load_op,
@@ -110,9 +108,8 @@ impl RenderPass {
         dst_access_mask |= vk::AccessFlags::COLOR_ATTACHMENT_WRITE;
         pipeline_stage_mask |= vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT;
 
-        // Depth Attachment (index 1, if present)
         if let Some(ref depth) = depth_texture {
-            attachments.push(AttachmentDesc {
+            attachment_descs.push(AttachmentDesc {
                 format: depth.get_image().get_desc().format,
                 samples: vk::SampleCountFlags::TYPE_1,
                 load_op: depth_load_op,
@@ -124,7 +121,7 @@ impl RenderPass {
                     .expect("Depth final layout must be provided when depth texture is present"),
             });
             subpass_desc.depth_stencil_attachment = Some(AttachmentReference {
-                attachment: attachments.len() as u32 - 1,
+                attachment: attachment_descs.len() as u32 - 1,
                 layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
             });
             dst_access_mask |= vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE;
@@ -133,7 +130,6 @@ impl RenderPass {
 
         let subpasses = vec![subpass_desc];
 
-        // Dependency to transition layouts from external to our subpass
         let dependencies = vec![vk::SubpassDependency::default()
             .src_subpass(vk::SUBPASS_EXTERNAL)
             .dst_subpass(0)
@@ -143,7 +139,7 @@ impl RenderPass {
             .dst_access_mask(dst_access_mask)];
 
         let desc = RenderPassDesc {
-            attachments,
+            attachments: attachment_descs,
             subpasses,
             dependencies,
         };

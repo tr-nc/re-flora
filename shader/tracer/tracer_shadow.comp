@@ -20,7 +20,7 @@ contree_node_data;
 layout(set = 0, binding = 2) readonly buffer B_ContreeLeafData { uint data[]; }
 contree_leaf_data;
 layout(set = 0, binding = 3, rg32ui) readonly uniform uimage3D scene_tex;
-layout(set = 0, binding = 4, r32f) writeonly uniform image2D shadow_map_tex;
+layout(set = 0, binding = 4, r32f) uniform image2D shadow_map_tex;
 
 #include "../include/contree_marching.glsl"
 #include "../include/core/packer.glsl"
@@ -78,6 +78,12 @@ void main() {
     vec2 screen_uv = (vec2(gl_GlobalInvocationID.xy) + vec2(0.5)) / vec2(img_size);
     Ray ray        = ray_gen(screen_uv, shadow_camera_info.view_proj_mat_inv);
 
-    float depth = get_pixel_depth(ray);
-    imageStore(shadow_map_tex, uvi, vec4(depth, 0.0, 0.0, 0.0));
+    float terrain_depth = get_pixel_depth(ray);
+
+    // float existing_depth = imageLoad(shadow_map_tex, uvi).r;
+    // float final_depth = min(terrain_depth, existing_depth);
+
+    float final_depth = terrain_depth;
+
+    imageStore(shadow_map_tex, uvi, vec4(final_depth, 0.0, 0.0, 0.0));
 }
