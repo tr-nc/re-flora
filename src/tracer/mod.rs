@@ -1301,14 +1301,17 @@ impl Tracer {
             );
         }
 
-        // Loop through all leaves instances
-        for (aabb, instances) in &surface_resources.instances.leaves_instances {
-            if instances.leaves_instances_len == 0 {
+        // Loop through all tree leaves instances
+        for (_tree_id, tree_instance) in &surface_resources.instances.leaves_instances {
+            if tree_instance.resources.leaves_instances_len == 0 {
                 continue;
             }
 
             // perform frustum culling
-            if !aabb.is_inside_frustum(self.current_view_proj_mat) {
+            if !tree_instance
+                .aabb
+                .is_inside_frustum(self.current_view_proj_mat)
+            {
                 continue;
             }
 
@@ -1319,7 +1322,7 @@ impl Tracer {
                     0,
                     &[
                         self.resources.leaves_resources.vertices.as_raw(),
-                        instances.leaves_instances.as_raw(),
+                        tree_instance.resources.leaves_instances.as_raw(),
                     ],
                     &[0, 0],
                 );
@@ -1329,7 +1332,7 @@ impl Tracer {
             self.leaves_ppl.record_indexed(
                 cmdbuf,
                 self.resources.leaves_resources.indices_len,
-                instances.leaves_instances_len,
+                tree_instance.resources.leaves_instances_len,
                 0,
                 0,
                 0,
@@ -1594,7 +1597,17 @@ impl Tracer {
         surface_resources: &mut SurfaceResources,
         leaf_positions: &[UVec3],
     ) -> Result<()> {
-        use crate::builder::LeavesInstanceResources;
+        // For backwards compatibility, use tree ID 0 for single tree mode
+        self.add_tree_leaves(surface_resources, 0, leaf_positions)
+    }
+
+    pub fn add_tree_leaves(
+        &mut self,
+        surface_resources: &mut SurfaceResources,
+        tree_id: u32,
+        leaf_positions: &[UVec3],
+    ) -> Result<()> {
+        use crate::builder::TreeLeavesInstance;
 
         #[repr(C)]
         #[derive(Copy, Clone)]
@@ -1617,7 +1630,11 @@ impl Tracer {
             instances_data.push(instance);
         }
 
-        log::info!("Created {} leaf instances", instances_data.len());
+        log::info!(
+            "Created {} leaf instances for tree {}",
+            instances_data.len(),
+            tree_id
+        );
 
         // Calculate AABB based on actual leaf positions
         let scaled_leaf_positions = leaf_positions
@@ -1635,30 +1652,77 @@ impl Tracer {
             0.2, // Default margin to cover leaf radius
         );
 
-        log::info!("First leaf position: {:?}", scaled_leaf_positions[0]);
-        log::info!("Leaves AABB: {:?}", leaves_aabb);
-
-        // Clear existing leaves instances and add new one
-        surface_resources.instances.leaves_instances.clear();
-
-        // Create new leaves instance resources
-        let mut leaves_resources =
-            LeavesInstanceResources::new(self.vulkan_ctx.device().clone(), self.allocator.clone());
+        // Create new tree leaves instance
+        let mut tree_leaves_instance = TreeLeavesInstance::new(
+            tree_id,
+            leaves_aabb,
+            self.vulkan_ctx.device().clone(),
+            self.allocator.clone(),
+        );
 
         // Fill with instance data if we have any
         if !instances_data.is_empty() {
-            leaves_resources.leaves_instances.fill(&instances_data)?;
-            leaves_resources.leaves_instances_len = instances_data.len() as u32;
+            tree_leaves_instance
+                .resources
+                .leaves_instances
+                .fill(&instances_data)?;
+            tree_leaves_instance.resources.leaves_instances_len = instances_data.len() as u32;
         } else {
-            leaves_resources.leaves_instances_len = 0;
+            tree_leaves_instance.resources.leaves_instances_len = 0;
         }
 
-        // Add the new leaves instance with its AABB
+        // Add/update the tree instance in HashMap
         surface_resources
             .instances
             .leaves_instances
-            .push((leaves_aabb, leaves_resources));
+            .insert(tree_id, tree_leaves_instance);
 
+        log::info!(
+            "Added/updated tree {} with {} leaves",
+            tree_id,
+            instances_data.len()
+        );
+        Ok(())
+    }
+
+    pub fn remove_tree_leaves(
+        &mut self,
+        surface_resources: &mut SurfaceResources,
+        tree_id: u32,
+    ) -> Result<()> {
+        if let Some(removed_instance) = surface_resources
+            .instances
+            .leaves_instances
+            .remove(&tree_id)
+        {
+            log::info!(
+                "Removed tree {} with {} leaves",
+                tree_id,
+                removed_instance.resources.leaves_instances_len
+            );
+        } else {
+            log::warn!("Attempted to remove non-existent tree {}", tree_id);
+        }
+        Ok(())
+    }
+
+    pub fn update_tree_leaves(
+        &mut self,
+        surface_resources: &mut SurfaceResources,
+        tree_id: u32,
+        leaf_positions: &[UVec3],
+    ) -> Result<()> {
+        // Simply use add_tree_leaves which will overwrite existing entry
+        self.add_tree_leaves(surface_resources, tree_id, leaf_positions)
+    }
+
+    pub fn clear_all_tree_leaves(
+        &mut self,
+        surface_resources: &mut SurfaceResources,
+    ) -> Result<()> {
+        let count = surface_resources.instances.leaves_instances.len();
+        surface_resources.instances.leaves_instances.clear();
+        log::info!("Cleared all {} tree instances", count);
         Ok(())
     }
 

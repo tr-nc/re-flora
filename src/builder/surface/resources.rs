@@ -5,6 +5,7 @@ use crate::{
 };
 use ash::vk;
 use glam::{UVec3, Vec3};
+use std::collections::HashMap;
 
 pub struct GrassInstanceResources {
     #[allow(dead_code)]
@@ -16,6 +17,23 @@ pub struct GrassInstanceResources {
 pub struct LeavesInstanceResources {
     pub leaves_instances: Resource<Buffer>,
     pub leaves_instances_len: u32,
+}
+
+pub struct TreeLeavesInstance {
+    pub tree_id: u32,
+    pub aabb: Aabb3,
+    pub resources: LeavesInstanceResources,
+}
+
+impl TreeLeavesInstance {
+    pub fn new(tree_id: u32, aabb: Aabb3, device: Device, allocator: Allocator) -> Self {
+        let resources = LeavesInstanceResources::new(device, allocator);
+        Self {
+            tree_id,
+            aabb,
+            resources,
+        }
+    }
 }
 
 impl GrassInstanceResources {
@@ -66,7 +84,7 @@ impl LeavesInstanceResources {
 
 pub struct InstanceResources {
     pub chunk_grass_instances: Vec<(Aabb3, GrassInstanceResources)>,
-    pub leaves_instances: Vec<(Aabb3, LeavesInstanceResources)>,
+    pub leaves_instances: HashMap<u32, TreeLeavesInstance>,
 }
 
 impl InstanceResources {
@@ -97,7 +115,7 @@ impl InstanceResources {
 
         return Self {
             chunk_grass_instances,
-            leaves_instances: Vec::new(),
+            leaves_instances: HashMap::new(),
         };
 
         /// A margin is added becaues the boundary grasses can sway out of the chunk to a certain extent.

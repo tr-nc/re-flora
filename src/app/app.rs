@@ -218,6 +218,10 @@ pub struct App {
     regenerate_trees_requested: bool,
     prev_bound: UAabb3,
 
+    // multi-tree management
+    next_tree_id: u32,
+    single_tree_id: u32, // ID for GUI single tree mode
+
     // starlight parameters
     starlight_iterations: i32,
     starlight_formuparam: f32,
@@ -416,6 +420,10 @@ impl App {
             config_panel_visible: false,
             is_fly_mode: true,
 
+            // multi-tree management
+            next_tree_id: 1, // Start from 1, use 0 for GUI single tree
+            single_tree_id: 0,
+
             starlight_iterations: 18,
             starlight_formuparam: 0.5,
             starlight_volsteps: 10,
@@ -448,6 +456,9 @@ impl App {
     }
 
     fn generate_procedural_trees(&mut self) -> Result<()> {
+        // Clear all procedural trees (keep single tree with ID 0)
+        self.clear_procedural_trees()?;
+
         self.plain_builder.chunk_init(
             self.prev_bound.min(),
             self.prev_bound.max() - self.prev_bound.min(),
@@ -477,17 +488,106 @@ impl App {
 
         let mut rng = rand::rng();
 
-        // Plant all trees with known heights
+        // Plant all trees with known heights and unique IDs
         for tree_pos in tree_positions_3d.iter() {
             let mut tree_desc = self.tree_desc.clone();
             tree_desc.seed = rng.random_range(1..10000);
 
             self.apply_tree_variations(&mut tree_desc, &mut rng);
-            // Use add_tree_at_position since we already have the correct height
+            // Use add_procedural_tree_at_position for multi-tree support
             // No cleanup needed since we already cleaned up at the beginning
-            self.add_tree_at_position(tree_desc, *tree_pos, false)?;
+            self.add_procedural_tree_at_position(tree_desc, *tree_pos)?;
         }
 
+        Ok(())
+    }
+
+    fn clear_procedural_trees(&mut self) -> Result<()> {
+        // Remove all procedural tree leaves (IDs >= 1), keep single tree (ID 0)
+        let tree_ids_to_remove: Vec<u32> = self
+            .surface_builder
+            .resources
+            .instances
+            .leaves_instances
+            .keys()
+            .filter(|&&id| id >= 1)
+            .cloned()
+            .collect();
+
+        for tree_id in tree_ids_to_remove {
+            self.tracer
+                .remove_tree_leaves(&mut self.surface_builder.resources, tree_id)?;
+        }
+
+        log::info!("Cleared all procedural trees");
+        Ok(())
+    }
+
+    fn add_procedural_tree_at_position(
+        &mut self,
+        tree_desc: TreeDesc,
+        adjusted_tree_pos: Vec3,
+    ) -> Result<()> {
+        let tree_id = self.next_tree_id;
+        self.next_tree_id += 1; // Increment for next tree
+
+        let tree = Tree::new(tree_desc);
+        let mut round_cones = Vec::new();
+        for tree_trunk in tree.trunks() {
+            let mut round_cone = tree_trunk.clone();
+            round_cone.transform(adjusted_tree_pos);
+            round_cones.push(round_cone);
+        }
+
+        let mut leaves_data_sequential = vec![0; round_cones.len()];
+        for i in 0..round_cones.len() {
+            leaves_data_sequential[i] = i as u32;
+        }
+        let mut aabbs = Vec::new();
+        for round_cone in &round_cones {
+            aabbs.push(round_cone.aabb());
+        }
+        let bvh_nodes = build_bvh(&aabbs, &leaves_data_sequential).unwrap();
+
+        let this_bound = UAabb3::new(bvh_nodes[0].aabb.min_uvec3(), bvh_nodes[0].aabb.max_uvec3());
+
+        self.plain_builder.chunk_modify(&bvh_nodes, &round_cones)?;
+
+        let relative_leaf_positions = tree.relative_leaf_positions();
+        let offseted_leaf_positions = relative_leaf_positions
+            .iter()
+            .map(|leaf| *leaf + adjusted_tree_pos)
+            .collect::<Vec<_>>();
+
+        fn quantize(pos: &[Vec3]) -> Vec<UVec3> {
+            let set = pos
+                .iter()
+                .map(|leaf| leaf.as_uvec3())
+                .collect::<HashSet<_>>();
+            return set.into_iter().collect::<Vec<_>>();
+        }
+
+        let quantized_leaf_positions = quantize(&offseted_leaf_positions);
+        self.tracer.add_tree_leaves(
+            &mut self.surface_builder.resources,
+            tree_id,
+            &quantized_leaf_positions,
+        )?;
+
+        Self::mesh_generate(
+            &mut self.surface_builder,
+            &mut self.contree_builder,
+            &mut self.scene_accel_builder,
+            this_bound.union_with(&self.prev_bound),
+        )?;
+
+        self.prev_bound = this_bound.union_with(&self.prev_bound);
+
+        log::info!(
+            "Added procedural tree {} at {:?}",
+            tree_id,
+            adjusted_tree_pos
+        );
         Ok(())
     }
 
@@ -833,8 +933,9 @@ impl App {
         }
 
         let quantized_leaf_positions = quantize(&offseted_leaf_positions);
-        self.tracer.update_leaves_instances(
+        self.tracer.add_tree_leaves(
             &mut self.surface_builder.resources,
+            self.single_tree_id,
             &quantized_leaf_positions,
         )?;
 
