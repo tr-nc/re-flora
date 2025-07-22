@@ -1,16 +1,21 @@
 use crate::{
     geom::{Aabb3, UAabb3},
+    resource::Resource,
     vkn::{Allocator, Buffer, BufferUsage, Device, Extent3D, ImageDesc, ShaderModule, Texture},
 };
 use ash::vk;
 use glam::{UVec3, Vec3};
-use std::collections::HashMap;
 
 pub struct GrassInstanceResources {
     #[allow(dead_code)]
     pub chunk_id: UVec3,
     pub grass_instances: Buffer,
     pub grass_instances_len: u32,
+}
+
+pub struct LeavesInstanceResources {
+    pub leaves_instances: Resource<Buffer>,
+    pub leaves_instances_len: u32,
 }
 
 impl GrassInstanceResources {
@@ -40,8 +45,28 @@ impl GrassInstanceResources {
     }
 }
 
+impl LeavesInstanceResources {
+    pub fn new(device: Device, allocator: Allocator) -> Self {
+        const LEAVES_INSTANCE_SIZE: usize = 16; // 3 * 4 + 4 bytes for uvec3 + uint
+        const MAX_LEAVES_INSTANCES: u64 = 10000;
+        let leaves_instances = Buffer::new_sized(
+            device,
+            allocator,
+            BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            LEAVES_INSTANCE_SIZE as u64 * MAX_LEAVES_INSTANCES,
+        );
+
+        Self {
+            leaves_instances: Resource::new(leaves_instances),
+            leaves_instances_len: 0,
+        }
+    }
+}
+
 pub struct InstanceResources {
     pub chunk_grass_instances: Vec<(Aabb3, GrassInstanceResources)>,
+    pub leaves_instances: Vec<(Aabb3, LeavesInstanceResources)>,
 }
 
 impl InstanceResources {
@@ -70,8 +95,15 @@ impl InstanceResources {
             }
         }
 
+        // Create single leaves instance for current single tree setup
+        let leaves_aabb = Aabb3::new(Vec3::splat(-50.0), Vec3::splat(50.0)); // Large AABB to cover tree area
+        let leaves_resources = LeavesInstanceResources::new(device.clone(), allocator.clone());
+        let mut leaves_instances = Vec::new();
+        leaves_instances.push((leaves_aabb, leaves_resources));
+
         Self {
             chunk_grass_instances,
+            leaves_instances,
         }
     }
 

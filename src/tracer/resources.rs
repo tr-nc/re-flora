@@ -134,8 +134,6 @@ pub struct TracerResources {
 
     pub grass_blade_resources: GrassBladeResources,
     pub leaves_resources: LeavesResources,
-    pub leaves_instances: Resource<Buffer>,
-    pub leaves_instances_len: u32,
 
     pub shadow_map_tex: Resource<Texture>,
     pub shadow_map_tex_for_vsm_ping: Resource<Texture>,
@@ -406,17 +404,6 @@ impl TracerResources {
         let grass_blade_resources = GrassBladeResources::new(device.clone(), allocator.clone());
         let leaves_resources = LeavesResources::new(device.clone(), allocator.clone());
 
-        // Create leaves instances buffer - matches GrassInstance structure: uvec3 position, uint grass_type
-        const LEAVES_INSTANCE_SIZE: usize = 16; // 3 * 4 + 4 bytes for uvec3 + uint
-        const MAX_LEAVES_INSTANCES: u64 = 10000;
-        let leaves_instances = Buffer::new_sized(
-            device.clone(),
-            allocator.clone(),
-            BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
-            gpu_allocator::MemoryLocation::CpuToGpu,
-            LEAVES_INSTANCE_SIZE as u64 * MAX_LEAVES_INSTANCES,
-        );
-
         return Self {
             gui_input: Resource::new(gui_input),
             sun_info: Resource::new(sun_info),
@@ -437,8 +424,6 @@ impl TracerResources {
             terrain_query_result: Resource::new(terrain_query_result),
             grass_blade_resources,
             leaves_resources,
-            leaves_instances: Resource::new(leaves_instances),
-            leaves_instances_len: 0,
             extent_dependent_resources,
             shadow_map_tex: Resource::new(shadow_map_tex),
             shadow_map_tex_for_vsm_ping: Resource::new(shadow_map_tex_for_vsm_ping),

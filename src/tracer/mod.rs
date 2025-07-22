@@ -18,13 +18,13 @@ mod grass_construct;
 
 mod leaves_construct;
 
-use glam::{Mat4, UVec3, Vec2, Vec3};
+use glam::{Mat4, Vec2, Vec3};
 use winit::event::KeyEvent;
 
 use crate::audio::AudioEngine;
 use crate::builder::{ContreeBuilderResources, SceneAccelBuilderResources, SurfaceResources};
 use crate::gameplay::{calculate_directional_light_matrices, Camera, CameraDesc};
-use crate::geom::{Aabb3, UAabb3};
+use crate::geom::UAabb3;
 use crate::resource::ResourceContainer;
 use crate::util::{ShaderCompiler, TimeInfo};
 use crate::vkn::{
@@ -1247,9 +1247,10 @@ impl Tracer {
             .set_layout(0, desc.attachments[1].final_layout);
     }
 
-    fn record_leaves_pass(&self, cmdbuf: &CommandBuffer, _surface_resources: &SurfaceResources) {
-        // Skip rendering entirely if no leaf instances
-        if self.resources.leaves_instances_len == 0 {
+    fn record_leaves_pass(&self, cmdbuf: &CommandBuffer, surface_resources: &SurfaceResources) {
+        // Skip rendering entirely if no leaf instances (get from first leaves instance)
+        let leaves_instance = &surface_resources.instances.leaves_instances[0].1;
+        if leaves_instance.leaves_instances_len == 0 {
             return;
         }
 
@@ -1310,7 +1311,7 @@ impl Tracer {
                 0,
                 &[
                     self.resources.leaves_resources.vertices.as_raw(),
-                    self.resources.leaves_instances.as_raw(),
+                    leaves_instance.leaves_instances.as_raw(),
                 ],
                 &[0, 0],
             );
@@ -1319,7 +1320,7 @@ impl Tracer {
         self.leaves_ppl.record_indexed(
             cmdbuf,
             self.resources.leaves_resources.indices_len,
-            self.resources.leaves_instances_len,
+            leaves_instance.leaves_instances_len,
             0,
             0,
             0,
@@ -1580,6 +1581,7 @@ impl Tracer {
 
     pub fn update_leaves_instances(
         &mut self,
+        surface_resources: &mut SurfaceResources,
         leaf_positions: &[Vec3],
         tree_pos: Vec3,
     ) -> Result<()> {
@@ -1610,11 +1612,13 @@ impl Tracer {
 
         log::info!("Created {} leaf instances", instances_data.len());
 
+        // Get mutable reference to first leaves instance
+        let leaves_instance = &mut surface_resources.instances.leaves_instances[0].1;
         if !instances_data.is_empty() {
-            self.resources.leaves_instances.fill(&instances_data)?;
-            self.resources.leaves_instances_len = instances_data.len() as u32;
+            leaves_instance.leaves_instances.fill(&instances_data)?;
+            leaves_instance.leaves_instances_len = instances_data.len() as u32;
         } else {
-            self.resources.leaves_instances_len = 0;
+            leaves_instance.leaves_instances_len = 0;
         }
 
         Ok(())

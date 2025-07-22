@@ -817,8 +817,11 @@ impl App {
 
         self.plain_builder.chunk_modify(&bvh_nodes, &round_cones)?;
 
-        self.tracer
-            .update_leaves_instances(tree.leaf_positions(), adjusted_tree_pos)?;
+        self.tracer.update_leaves_instances(
+            &mut self.surface_builder.resources,
+            tree.leaf_positions(),
+            adjusted_tree_pos,
+        )?;
 
         Self::mesh_generate(
             &mut self.surface_builder,

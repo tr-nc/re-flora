@@ -17,7 +17,7 @@ use crate::{
 
 pub struct SurfaceBuilder {
     vulkan_ctx: VulkanContext,
-    resources: SurfaceResources,
+    pub resources: SurfaceResources,
 
     #[allow(dead_code)]
     fixed_pool: DescriptorPool,
@@ -112,7 +112,7 @@ impl SurfaceBuilder {
     }
 
     fn update_grass_instance_set(&self, grass_instance_set: &DescriptorSet, chunk_id: UVec3) {
-        let chunk_resources = self
+        let chunk_resources = &self
             .resources
             .instances
             .chunk_grass_instances
@@ -120,7 +120,7 @@ impl SurfaceBuilder {
             .find(|(_, resources)| resources.chunk_id == chunk_id)
             .unwrap()
             .1;
-        
+
         grass_instance_set.perform_writes(&mut [WriteDescriptorSet::new_buffer_write(
             0,
             &chunk_resources.grass_instances,
