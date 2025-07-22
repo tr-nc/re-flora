@@ -1,6 +1,4 @@
 mod resources;
-use std::collections::HashSet;
-
 pub use resources::*;
 
 mod denoiser_resources;
@@ -1194,16 +1192,14 @@ impl Tracer {
         }
 
         // now, iterate over each chunk and issue a draw call for it.
-        for (chunk_world_aabb, chunk_resources) in
-            &surface_resources.instances.chunk_grass_instances
-        {
+        for (aabb, instances) in &surface_resources.instances.chunk_grass_instances {
             // only draw if this chunk actually has grass instances.
-            if chunk_resources.grass_instances_len == 0 {
+            if instances.grass_instances_len == 0 {
                 continue;
             }
 
             // perform frustum culling
-            if !chunk_world_aabb.is_inside_frustum(self.current_view_proj_mat) {
+            if !aabb.is_inside_frustum(self.current_view_proj_mat) {
                 continue;
             }
 
@@ -1216,7 +1212,7 @@ impl Tracer {
                     0, // firstBinding
                     &[
                         self.resources.grass_blade_resources.vertices.as_raw(),
-                        chunk_resources.grass_instances.as_raw(),
+                        instances.grass_instances.as_raw(),
                     ],
                     &[0, 0], // offsets
                 );
@@ -1227,7 +1223,7 @@ impl Tracer {
             self.grass_ppl.record_indexed(
                 cmdbuf,
                 self.resources.grass_blade_resources.indices_len,
-                chunk_resources.grass_instances_len,
+                instances.grass_instances_len,
                 0, // firstIndex
                 0, // vertexOffset
                 0, // firstInstance
@@ -1306,9 +1302,13 @@ impl Tracer {
         }
 
         // Loop through all leaves instances
-        for (_leaves_aabb, leaves_instance) in &surface_resources.instances.leaves_instances {
-            // Skip instances with no data
-            if leaves_instance.leaves_instances_len == 0 {
+        for (aabb, instances) in &surface_resources.instances.leaves_instances {
+            if instances.leaves_instances_len == 0 {
+                continue;
+            }
+
+            // perform frustum culling
+            if !aabb.is_inside_frustum(self.current_view_proj_mat) {
                 continue;
             }
 
@@ -1319,7 +1319,7 @@ impl Tracer {
                     0,
                     &[
                         self.resources.leaves_resources.vertices.as_raw(),
-                        leaves_instance.leaves_instances.as_raw(),
+                        instances.leaves_instances.as_raw(),
                     ],
                     &[0, 0],
                 );
@@ -1329,7 +1329,7 @@ impl Tracer {
             self.leaves_ppl.record_indexed(
                 cmdbuf,
                 self.resources.leaves_resources.indices_len,
-                leaves_instance.leaves_instances_len,
+                instances.leaves_instances_len,
                 0,
                 0,
                 0,
@@ -1604,20 +1604,6 @@ impl Tracer {
         }
 
         let mut instances_data = Vec::new();
-
-        // debug
-        {
-            let distinct_uvec3_leaf_positions =
-                leaf_positions.iter().map(|leaf| *leaf).collect::<Vec<_>>();
-            let distinct_uvec3_leaf_positions_set = distinct_uvec3_leaf_positions
-                .into_iter()
-                .collect::<HashSet<_>>();
-            log::debug!("Input leaf positions count: {}", leaf_positions.len());
-            log::debug!(
-                "Distinct leaf positions count: {}",
-                distinct_uvec3_leaf_positions_set.len()
-            );
-        }
 
         for leaf_pos in leaf_positions.iter() {
             let voxel_pos = *leaf_pos;
