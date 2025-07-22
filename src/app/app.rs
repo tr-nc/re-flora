@@ -873,6 +873,23 @@ impl App {
         tree_pos: Vec3,
         clean_up_before_add: bool,
     ) -> Result<()> {
+        // If we need to clean up first, do it before querying terrain to avoid
+        // getting the wrong height due to existing tree geometry blocking the terrain query
+        if clean_up_before_add {
+            self.plain_builder.chunk_init(
+                self.prev_bound.min(),
+                self.prev_bound.max() - self.prev_bound.min(),
+            )?;
+            
+            // Force mesh regeneration after cleanup to ensure terrain is properly accessible for querying
+            Self::mesh_generate(
+                &mut self.surface_builder,
+                &mut self.contree_builder,
+                &mut self.scene_accel_builder,
+                self.prev_bound,
+            )?;
+        }
+
         let terrain_height = self
             .tracer
             .query_terrain_height(glam::Vec2::new(tree_pos.x / 256.0, tree_pos.z / 256.0))?;
@@ -880,14 +897,13 @@ impl App {
         let terrain_height_scaled = terrain_height * 256.0;
         let adjusted_tree_pos = Vec3::new(tree_pos.x, terrain_height_scaled, tree_pos.z);
 
-        self.add_tree_at_position(tree_desc, adjusted_tree_pos, clean_up_before_add)
+        self.add_tree_at_position(tree_desc, adjusted_tree_pos)
     }
 
     fn add_tree_at_position(
         &mut self,
         tree_desc: TreeDesc,
         adjusted_tree_pos: Vec3,
-        clean_up_before_add: bool,
     ) -> Result<()> {
         let tree = Tree::new(tree_desc);
         let mut round_cones = Vec::new();
@@ -908,13 +924,6 @@ impl App {
         let bvh_nodes = build_bvh(&aabbs, &leaves_data_sequential).unwrap();
 
         let this_bound = UAabb3::new(bvh_nodes[0].aabb.min_uvec3(), bvh_nodes[0].aabb.max_uvec3());
-
-        if clean_up_before_add {
-            self.plain_builder.chunk_init(
-                self.prev_bound.min(),
-                self.prev_bound.max() - self.prev_bound.min(),
-            )?;
-        }
 
         self.plain_builder.chunk_modify(&bvh_nodes, &round_cones)?;
 
