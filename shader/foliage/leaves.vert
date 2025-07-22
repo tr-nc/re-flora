@@ -109,14 +109,16 @@ void main() {
     uint vertex_offset_index;
     float gradient;
     unpack_vertex_data(base_position, vertex_offset_index, gradient, in_packed_data);
+    base_position = base_position - vec3(128.0);
 
     // Calculate actual vertex position by adding the cube vertex offset
     vec3 cube_vertex_offset = decode_vertex_offset(vertex_offset_index);
     vec3 vertex_pos         = base_position + cube_vertex_offset;
 
     // Position leaves above the grass instances slightly
-    vec4 vert_pos_ws = vec4(vertex_pos + in_instance_position - vec3(128.0), 1.0);
-    vec4 voxel_pos_ws = vec4(vec3(0.0, base_position.y, 0.0) + vec3(0.5) + in_instance_position - vec3(128.0), 1.0);
+    vec4 vert_pos_ws  = vec4(vertex_pos + in_instance_position, 1.0);
+    vec3 voxel_pos_ms = base_position + vec3(0.5);
+    vec4 voxel_pos_ws = vec4(voxel_pos_ms + in_instance_position, 1.0);
 
     // Apply scaling
     mat4 scale_mat  = mat4(1.0);
@@ -137,5 +139,5 @@ void main() {
 
     // Apply lighting with shadow effect (same as grass.vert)
     vec3 sun_light = sun_info.sun_color * sun_info.sun_luminance;
-    vert_color = interpolated_color * (sun_light * shadow_weight + shading_info.ambient_light);
+    vert_color     = interpolated_color * (sun_light * shadow_weight + shading_info.ambient_light);
 }

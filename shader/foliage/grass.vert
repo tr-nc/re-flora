@@ -136,10 +136,10 @@ void main() {
     uint vertex_offset_index;
     float in_color_gradient;
     unpack_vertex_data(base_position, vertex_offset_index, in_color_gradient, in_packed_data);
-    
+
     // Calculate actual vertex position by adding the cube vertex offset
     vec3 cube_vertex_offset = decode_vertex_offset(vertex_offset_index);
-    vec3 vertex_pos = base_position + cube_vertex_offset;
+    vec3 vertex_pos         = base_position + cube_vertex_offset;
 
     // Extract height from the Y component of the base position (voxel height level)
     float height = base_position.y;
@@ -151,7 +151,7 @@ void main() {
     vec3 vertex_offset = get_offset_of_vertex(height, voxel_count, grass_offset);
     vec3 vert_pos_ms   = vertex_pos + vertex_offset;
     vec4 vert_pos_ws   = vec4(vert_pos_ms + in_instance_position, 1.0);
-    vec3 voxel_pos_ms  = vec3(0.0, height, 0.0) + vec3(0.5) + vertex_offset;
+    vec3 voxel_pos_ms  = base_position + vec3(0.5) + vertex_offset;
     vec4 voxel_pos_ws  = vec4(voxel_pos_ms + in_instance_position, 1.0);
 
     mat4 scale_mat  = mat4(1.0);
