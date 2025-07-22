@@ -1160,6 +1160,7 @@ impl Tracer {
         self.record_grass_pass(cmdbuf, surface_resources);
         frag_to_vert_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         self.record_leaves_pass(cmdbuf, surface_resources);
+        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
         record_denoiser_resources_transition_barrier(&self.resources.denoiser_resources, cmdbuf);
 
