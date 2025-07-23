@@ -63,6 +63,7 @@ layout(set = 0, binding = 6) uniform sampler2D shadow_map_tex_for_vsm_ping;
 
 #include "../include/core/hash.glsl"
 #include "../include/vsm.glsl"
+#include "./unpacker.glsl"
 
 const float scaling_factor = 1.0 / 256.0;
 
@@ -74,16 +75,6 @@ void unpack_vertex_data(out vec3 o_base_pos, out uint o_vertex_offset, out float
     o_vertex_offset = (packed_data >> 24) & 0x7u;
     // Extract gradient (5 bits)
     o_gradient = float((packed_data >> 27) & 0x1F) / 31.0;
-}
-
-// Convert vertex offset index to actual 3D offset
-vec3 decode_vertex_offset(uint vertex_offset) {
-    // The vertex offset is encoded as: x | (y << 1) | (z << 2)
-    // So we need to extract each bit
-    uint x = vertex_offset & 1u;
-    uint y = (vertex_offset >> 1) & 1u;
-    uint z = (vertex_offset >> 2) & 1u;
-    return vec3(float(x), float(y), float(z));
 }
 
 // Calculate normal for a cube face based on vertex position
@@ -104,40 +95,28 @@ vec3 calculate_cube_normal(vec3 vertex_pos, vec3 base_pos) {
 }
 
 void main() {
-    // Unpack vertex data
-    vec3 base_position;
-    uint vertex_offset_index;
-    float gradient;
-    unpack_vertex_data(base_position, vertex_offset_index, gradient, in_packed_data);
-    base_position = base_position - vec3(128.0);
+    ivec3 vox_local_pos;
+    uvec3 vert_offset_in_vox;
+    float color_gradient;
+    unpack_vertex_data(vox_local_pos, vert_offset_in_vox, color_gradient, in_packed_data);
+    vox_local_pos = vox_local_pos - ivec3(128);
 
-    // Calculate actual vertex position by adding the cube vertex offset
-    vec3 cube_vertex_offset = decode_vertex_offset(vertex_offset_index);
-    vec3 vertex_pos         = base_position + cube_vertex_offset;
+    vec3 instance_pos = in_instance_position * scaling_factor;
 
-    // Position leaves above the grass instances slightly
-    vec4 vert_pos_ws  = vec4(vertex_pos + in_instance_position, 1.0);
-    vec3 voxel_pos_ms = base_position + vec3(0.5);
-    vec4 voxel_pos_ws = vec4(voxel_pos_ms + in_instance_position, 1.0);
+    vec3 wavy_offset = vec3(0.0);
+    vec3 anchor_pos  = (vox_local_pos + wavy_offset) * scaling_factor + instance_pos;
+    vec3 vert_pos    = anchor_pos + vert_offset_in_vox * scaling_factor;
+    vec3 voxel_pos   = anchor_pos + vec3(0.5) * scaling_factor;
 
-    // Apply scaling
-    mat4 scale_mat  = mat4(1.0);
-    scale_mat[0][0] = scaling_factor;
-    scale_mat[1][1] = scaling_factor;
-    scale_mat[2][2] = scaling_factor;
-    vert_pos_ws     = scale_mat * vert_pos_ws;
-    voxel_pos_ws    = scale_mat * voxel_pos_ws;
+    float shadow_weight =
+        get_shadow_weight_vsm(shadow_camera_info.view_proj_mat, vec4(voxel_pos, 1.0));
 
-    // Shadow calculation using voxel position
-    float shadow_weight = get_shadow_weight_vsm(shadow_camera_info.view_proj_mat, voxel_pos_ws);
+    // transform to clip space
+    gl_Position = camera_info.view_proj_mat * vec4(vert_pos, 1.0);
 
-    // Transform to clip space
-    gl_Position = camera_info.view_proj_mat * vert_pos_ws;
+    // interpolate color based on color gradient
+    vec3 interpolated_color = mix(leaf_info.bottom_color, leaf_info.tip_color, color_gradient);
 
-    // Leaves coloring - use configurable colors from leaf_info
-    vec3 interpolated_color = mix(leaf_info.bottom_color, leaf_info.tip_color, gradient);
-
-    // Apply lighting with shadow effect (same as grass.vert)
     vec3 sun_light = sun_info.sun_color * sun_info.sun_luminance;
     vert_color     = interpolated_color * (sun_light * shadow_weight + shading_info.ambient_light);
 }
