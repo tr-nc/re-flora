@@ -21,7 +21,14 @@ layout(set = 0, binding = 1) uniform U_SunInfo {
 sun_info;
 layout(set = 0, binding = 2) uniform U_ShadingInfo { vec3 ambient_light; }
 shading_info;
-layout(set = 0, binding = 3) uniform U_CameraInfo {
+layout(set = 0, binding = 3) uniform U_GodRayInfo {
+    float max_depth;
+    uint max_checks;
+    float weight;
+    vec3 color;
+}
+god_ray_info;
+layout(set = 0, binding = 4) uniform U_CameraInfo {
     vec4 pos;
     mat4 view_mat;
     mat4 view_mat_inv;
@@ -31,9 +38,9 @@ layout(set = 0, binding = 3) uniform U_CameraInfo {
     mat4 view_proj_mat_inv;
 }
 camera_info;
-layout(set = 0, binding = 4) uniform U_EnvInfo { uint frame_serial_idx; }
+layout(set = 0, binding = 5) uniform U_EnvInfo { uint frame_serial_idx; }
 env_info;
-layout(set = 0, binding = 5) uniform U_StarlightInfo {
+layout(set = 0, binding = 6) uniform U_StarlightInfo {
     int iterations;
     float formuparam;
     int volsteps;
@@ -47,13 +54,13 @@ layout(set = 0, binding = 5) uniform U_StarlightInfo {
     float saturation;
 }
 starlight_info;
-layout(set = 0, binding = 6, rgba8) uniform readonly image2D gfx_output_tex;
-layout(set = 0, binding = 7, r32f) uniform readonly image2D gfx_depth_tex;
-layout(set = 0, binding = 8, r11f_g11f_b10f) uniform readonly image2D denoiser_spatial_pong_tex;
-layout(set = 0, binding = 9, r32f) uniform readonly image2D compute_depth_tex;
-layout(set = 0, binding = 10, r32f) uniform readonly image2D god_ray_output_tex;
-layout(set = 0, binding = 11, r11f_g11f_b10f) uniform writeonly image2D composited_tex;
-layout(set = 0, binding = 12, r8) uniform readonly image2D star_noise_tex;
+layout(set = 0, binding = 7, rgba8) uniform readonly image2D gfx_output_tex;
+layout(set = 0, binding = 8, r32f) uniform readonly image2D gfx_depth_tex;
+layout(set = 0, binding = 9, r11f_g11f_b10f) uniform readonly image2D denoiser_spatial_pong_tex;
+layout(set = 0, binding = 10, r32f) uniform readonly image2D compute_depth_tex;
+layout(set = 0, binding = 11, r32f) uniform readonly image2D god_ray_output_tex;
+layout(set = 0, binding = 12, r11f_g11f_b10f) uniform writeonly image2D composited_tex;
+layout(set = 0, binding = 13, r8) uniform readonly image2D star_noise_tex;
 
 #include "../include/core/color.glsl"
 #include "../include/core/dither.glsl"
@@ -141,11 +148,11 @@ void main() {
     vec3 final_color               = combine_colors(gfx_depth_01, compute_depth_01, gfx_color,
                                                     denoiser_spatial_pong_tex, screen_uv, uvi);
 
-    float god_ray_weight = imageLoad(god_ray_output_tex, uvi).r * 0.3;
-
-    vec3 dot_color     = srgb_to_linear(vec3(1.0, 0.945, 0.0));
-    vec4 god_ray_color = vec4(dot_color, god_ray_weight);
-    final_color        = mix(final_color, god_ray_color.rgb, god_ray_color.a);
+    // TODO:
+    float god_ray_weight   = imageLoad(god_ray_output_tex, uvi).r * god_ray_info.weight;
+    vec3 god_ray_color_rgb = srgb_to_linear(god_ray_info.color);
+    vec4 god_ray_color     = vec4(god_ray_color_rgb, god_ray_weight);
+    final_color            = mix(final_color, god_ray_color.rgb, god_ray_color.a);
 
     imageStore(composited_tex, uvi, vec4(final_color, 1.0));
 }

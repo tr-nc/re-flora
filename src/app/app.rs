@@ -200,6 +200,8 @@ pub struct App {
     temporal_alpha: f32,
     god_ray_max_depth: f32,
     god_ray_max_checks: u32,
+    god_ray_weight: f32,
+    god_ray_color: egui::Color32,
     phi_c: f32,
     phi_n: f32,
     phi_p: f32,
@@ -401,8 +403,10 @@ impl App {
             leaves_radius: 15.0,
             temporal_position_phi: 0.8,
             temporal_alpha: 0.04,
-            god_ray_max_depth: 3.0,
+            god_ray_max_depth: 2.0,
             god_ray_max_checks: 32,
+            god_ray_weight: 0.4,
+            god_ray_color: egui::Color32::from_rgb(255, 240, 178),
             phi_c: 0.75,
             phi_n: 20.0,
             phi_p: 0.05,
@@ -1546,6 +1550,17 @@ impl App {
                                                 )
                                                 .text("Max Checks"),
                                             );
+                                            ui.add(
+                                                egui::Slider::new(
+                                                    &mut self.god_ray_weight,
+                                                    0.0..=2.0,
+                                                )
+                                                .text("Weight"),
+                                            );
+                                            ui.horizontal(|ui| {
+                                                ui.label("Color:");
+                                                ui.color_edit_button_srgba(&mut self.god_ray_color);
+                                            });
                                         });
 
                                         ui.collapsing("Spatial Settings", |ui| {
@@ -1767,6 +1782,12 @@ impl App {
                         self.is_taa_enabled,
                         self.god_ray_max_depth,
                         self.god_ray_max_checks,
+                        self.god_ray_weight,
+                        Vec3::new(
+                            self.god_ray_color.r() as f32 / 255.0,
+                            self.god_ray_color.g() as f32 / 255.0,
+                            self.god_ray_color.b() as f32 / 255.0,
+                        ),
                         self.starlight_iterations,
                         self.starlight_formuparam,
                         self.starlight_volsteps,

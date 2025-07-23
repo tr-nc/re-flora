@@ -29,6 +29,8 @@ env_info;
 layout(set = 0, binding = 3) uniform U_GodRayInfo {
     float max_depth;
     uint max_checks;
+    float weight;
+    vec3 color;
 }
 god_ray_info;
 layout(set = 0, binding = 4, r32f) uniform readonly image2D gfx_depth_tex;

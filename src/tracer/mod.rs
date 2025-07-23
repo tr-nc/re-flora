@@ -723,6 +723,8 @@ impl Tracer {
         is_taa_enabled: bool,
         god_ray_max_depth: f32,
         god_ray_max_checks: u32,
+        god_ray_weight: f32,
+        god_ray_color: Vec3,
         starlight_iterations: i32,
         starlight_formuparam: f32,
         starlight_volsteps: i32,
@@ -770,7 +772,7 @@ impl Tracer {
 
         update_taa_info(&self.resources, is_taa_enabled)?;
 
-        update_god_ray_info(&self.resources, god_ray_max_depth, god_ray_max_checks)?;
+        update_god_ray_info(&self.resources, god_ray_max_depth, god_ray_max_checks, god_ray_weight, god_ray_color)?;
 
         update_post_processing_info(&self.resources, self.desc.scaling_factor)?;
 
@@ -1156,10 +1158,14 @@ impl Tracer {
             resources: &TracerResources,
             max_depth: f32,
             max_checks: u32,
+            weight: f32,
+            color: Vec3,
         ) -> Result<()> {
             let data = StructMemberDataBuilder::from_buffer(&resources.god_ray_info)
                 .set_field("max_depth", PlainMemberTypeWithData::Float(max_depth))
                 .set_field("max_checks", PlainMemberTypeWithData::UInt(max_checks))
+                .set_field("weight", PlainMemberTypeWithData::Float(weight))
+                .set_field("color", PlainMemberTypeWithData::Vec3(color.to_array()))
                 .build()?;
             resources.god_ray_info.fill_with_raw_u8(&data)?;
             Ok(())
