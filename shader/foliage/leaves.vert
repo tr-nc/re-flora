@@ -7,9 +7,9 @@
 // these are vertex-rate attributes
 layout(location = 0) in uint in_packed_data;
 
-// these are instance-rate attributes (reusing grass instance buffer)
+// these are instance-rate attributes (reusing leaves instance buffer)
 layout(location = 1) in uvec3 in_instance_position;
-layout(location = 2) in uint in_instance_grass_type;
+layout(location = 2) in uint in_instance_leaves_type;
 
 layout(location = 0) out vec3 vert_color;
 
@@ -52,15 +52,16 @@ layout(set = 0, binding = 4) uniform U_ShadowCameraInfo {
 }
 shadow_camera_info;
 
-layout(set = 0, binding = 5) uniform U_LeafInfo {
+layout(set = 0, binding = 5) uniform U_LeavesInfo {
     float time;
     vec3 bottom_color;
     vec3 tip_color;
 }
-leaf_info;
+leaves_info;
 
 layout(set = 0, binding = 6) uniform sampler2D shadow_map_tex_for_vsm_ping;
 
+#include "../include/core/fast_noise_lite.glsl"
 #include "../include/core/hash.glsl"
 #include "../include/vsm.glsl"
 #include "./unpacker.glsl"
@@ -94,13 +95,14 @@ void main() {
     // this method creates unstable very unstable shadows when the sun changes direction
     // continuously float shadow_weight =
     //     get_shadow_weight_vsm(shadow_camera_info.view_proj_mat, vec4(voxel_pos, 1.0));
+
     float shadow_weight = get_shadow_weight(vox_local_pos);
 
     // transform to clip space
     gl_Position = camera_info.view_proj_mat * vec4(vert_pos, 1.0);
 
     // interpolate color based on color gradient
-    vec3 interpolated_color = mix(leaf_info.bottom_color, leaf_info.tip_color, color_gradient);
+    vec3 interpolated_color = mix(leaves_info.bottom_color, leaves_info.tip_color, color_gradient);
 
     vec3 sun_light = sun_info.sun_color * sun_info.sun_luminance;
     vert_color     = interpolated_color * (sun_light * shadow_weight + shading_info.ambient_light);

@@ -783,7 +783,7 @@ impl Tracer {
             grass_tip_color,
         )?;
 
-        update_leaf_info(
+        update_leaves_info(
             &self.resources,
             time_info.time_since_start(),
             leaf_bottom_color,
@@ -1086,13 +1086,13 @@ impl Tracer {
             Ok(())
         }
 
-        fn update_leaf_info(
+        fn update_leaves_info(
             resources: &TracerResources,
             time: f32,
             bottom_color: Vec3,
             tip_color: Vec3,
         ) -> Result<()> {
-            let data = StructMemberDataBuilder::from_buffer(&resources.leaf_info)
+            let data = StructMemberDataBuilder::from_buffer(&resources.leaves_info)
                 .set_field("time", PlainMemberTypeWithData::Float(time))
                 .set_field(
                     "bottom_color",
@@ -1103,7 +1103,7 @@ impl Tracer {
                     PlainMemberTypeWithData::Vec3(tip_color.to_array()),
                 )
                 .build()?;
-            resources.leaf_info.fill_with_raw_u8(&data)?;
+            resources.leaves_info.fill_with_raw_u8(&data)?;
             Ok(())
         }
 

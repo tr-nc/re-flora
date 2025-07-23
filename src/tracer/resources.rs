@@ -123,7 +123,7 @@ pub struct TracerResources {
     pub env_info: Resource<Buffer>,
     pub starlight_info: Resource<Buffer>,
     pub grass_info: Resource<Buffer>,
-    pub leaf_info: Resource<Buffer>,
+    pub leaves_info: Resource<Buffer>,
     pub voxel_colors: Resource<Buffer>,
     pub taa_info: Resource<Buffer>,
     pub god_ray_info: Resource<Buffer>,
@@ -262,11 +262,11 @@ impl TracerResources {
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
-        let leaf_info_layout = leaves_vert_sm.get_buffer_layout("U_LeafInfo").unwrap();
-        let leaf_info = Buffer::from_buffer_layout(
+        let leaves_info_layout = leaves_vert_sm.get_buffer_layout("U_LeavesInfo").unwrap();
+        let leaves_info = Buffer::from_buffer_layout(
             device.clone(),
             allocator.clone(),
-            leaf_info_layout.clone(),
+            leaves_info_layout.clone(),
             BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
@@ -435,7 +435,7 @@ impl TracerResources {
             env_info: Resource::new(env_info),
             starlight_info: Resource::new(starlight_info),
             grass_info: Resource::new(grass_info),
-            leaf_info: Resource::new(leaf_info),
+            leaves_info: Resource::new(leaves_info),
             voxel_colors: Resource::new(voxel_colors),
             taa_info: Resource::new(taa_info),
             god_ray_info: Resource::new(god_ray_info),
