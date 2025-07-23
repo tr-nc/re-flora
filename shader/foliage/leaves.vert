@@ -67,33 +67,6 @@ layout(set = 0, binding = 6) uniform sampler2D shadow_map_tex_for_vsm_ping;
 
 const float scaling_factor = 1.0 / 256.0;
 
-void unpack_vertex_data(out vec3 o_base_pos, out uint o_vertex_offset, out float o_gradient,
-                        uint packed_data) {
-    // Extract base position (24 bits: 8 bits each for x, y, z)
-    o_base_pos = vec3(packed_data & 0xFF, (packed_data >> 8) & 0xFF, (packed_data >> 16) & 0xFF);
-    // Extract vertex offset (3 bits)
-    o_vertex_offset = (packed_data >> 24) & 0x7u;
-    // Extract gradient (5 bits)
-    o_gradient = float((packed_data >> 27) & 0x1F) / 31.0;
-}
-
-// Calculate normal for a cube face based on vertex position
-vec3 calculate_cube_normal(vec3 vertex_pos, vec3 base_pos) {
-    vec3 offset    = vertex_pos - base_pos;
-    vec3 center    = base_pos + vec3(0.5);
-    vec3 to_vertex = normalize(vertex_pos + vec3(0.5) - center);
-
-    // Determine which face this vertex belongs to
-    vec3 abs_offset = abs(to_vertex);
-    if (abs_offset.x > abs_offset.y && abs_offset.x > abs_offset.z) {
-        return vec3(sign(to_vertex.x), 0, 0);
-    } else if (abs_offset.y > abs_offset.z) {
-        return vec3(0, sign(to_vertex.y), 0);
-    } else {
-        return vec3(0, 0, sign(to_vertex.z));
-    }
-}
-
 void main() {
     ivec3 vox_local_pos;
     uvec3 vert_offset_in_vox;
@@ -108,8 +81,9 @@ void main() {
     vec3 vert_pos    = anchor_pos + vert_offset_in_vox * scaling_factor;
     vec3 voxel_pos   = anchor_pos + vec3(0.5) * scaling_factor;
 
-    float shadow_weight =
-        get_shadow_weight_vsm(shadow_camera_info.view_proj_mat, vec4(voxel_pos, 1.0));
+    // float shadow_weight =
+    //     get_shadow_weight_vsm(shadow_camera_info.view_proj_mat, vec4(voxel_pos, 1.0));
+    float shadow_weight = 1.0;
 
     // transform to clip space
     gl_Position = camera_info.view_proj_mat * vec4(vert_pos, 1.0);

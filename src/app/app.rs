@@ -1167,7 +1167,7 @@ impl App {
                                             ));
                                         });
 
-                                        ui.collapsing("Leaves Settings", |ui| {
+                                        ui.collapsing("Leaf Settings", |ui| {
                                             let mut leaves_changed = false;
                                             leaves_changed |= ui
                                                 .add(
@@ -1209,6 +1209,20 @@ impl App {
                                                     );
                                                 }
                                             }
+
+                                            ui.separator();
+                                            ui.horizontal(|ui| {
+                                                ui.label("Bottom Color:");
+                                                ui.color_edit_button_srgba(
+                                                    &mut self.leaf_bottom_color,
+                                                );
+                                            });
+                                            ui.horizontal(|ui| {
+                                                ui.label("Tip Color:");
+                                                ui.color_edit_button_srgba(
+                                                    &mut self.leaf_tip_color,
+                                                );
+                                            });
                                         });
 
                                         ui.collapsing("Sky Settings", |ui| {
@@ -1580,20 +1594,6 @@ impl App {
                                             });
                                         });
 
-                                        ui.collapsing("Leaf Settings", |ui| {
-                                            ui.horizontal(|ui| {
-                                                ui.label("Bottom Color:");
-                                                ui.color_edit_button_srgba(
-                                                    &mut self.leaf_bottom_color,
-                                                );
-                                            });
-                                            ui.horizontal(|ui| {
-                                                ui.label("Tip Color:");
-                                                ui.color_edit_button_srgba(
-                                                    &mut self.leaf_tip_color,
-                                                );
-                                            });
-                                        });
                                     });
                                 });
                         }

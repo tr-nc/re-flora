@@ -1,17 +1,13 @@
 #ifndef VOXEL_REGISTRY_GLSL
 #define VOXEL_REGISTRY_GLSL
 
-// all voxel types
-
 const uint VOXEL_TYPE_EMPTY = 0;
 const uint VOXEL_TYPE_SAND  = 1;
 const uint VOXEL_TYPE_DIRT  = 2;
 const uint VOXEL_TYPE_ROCK  = 3;
 
 const uint VOXEL_TYPE_LEAF  = 4;
-const uint VOXEL_TYPE_TRUNK = 6;
-
-// coloring
+const uint VOXEL_TYPE_TRUNK = 5;
 
 #include "./core/color.glsl"
 
