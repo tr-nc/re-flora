@@ -1541,13 +1541,13 @@ impl Tracer {
                 continue;
             }
 
-            // perform frustum culling using shadow camera
-            if !tree_instance
-                .aabb
-                .is_inside_frustum(self.current_shadow_view_proj_mat)
-            {
-                continue;
-            }
+            // culling is disabled here because nothing will be culled
+            // if !tree_instance
+            //     .aabb
+            //     .is_inside_frustum(self.current_shadow_view_proj_mat)
+            // {
+            //     continue;
+            // }
 
             unsafe {
                 self.vulkan_ctx.device().cmd_bind_vertex_buffers(

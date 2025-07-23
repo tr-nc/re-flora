@@ -445,8 +445,8 @@ impl App {
             grass_tip_color: egui::Color32::from_rgb(182, 245, 0),
 
             // Default leaf colors (dark green to bright green)
-            leaf_bottom_color: egui::Color32::from_rgb(51, 153, 25),
-            leaf_tip_color: egui::Color32::from_rgb(102, 204, 51),
+            leaf_bottom_color: egui::Color32::from_rgb(143, 25, 153),
+            leaf_tip_color: egui::Color32::from_rgb(255, 156, 224),
 
             audio_engine,
         };

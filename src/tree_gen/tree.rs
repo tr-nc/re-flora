@@ -36,7 +36,7 @@ impl Default for TreeDesc {
     fn default() -> Self {
         TreeDesc {
             size: 30.0,
-            trunk_thickness: 0.50,
+            trunk_thickness: 0.40,
             trunk_thickness_min: 1.05,
             iterations: 7,
             tree_height: 6.0,
