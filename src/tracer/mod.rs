@@ -738,6 +738,11 @@ impl Tracer {
         grass_tip_color: Vec3,
         leaf_bottom_color: Vec3,
         leaf_tip_color: Vec3,
+        voxel_sand_color: Vec3,
+        voxel_dirt_color: Vec3,
+        voxel_rock_color: Vec3,
+        voxel_leaf_color: Vec3,
+        voxel_trunk_color: Vec3,
     ) -> Result<()> {
         // camera info
         let view_mat = self.camera.get_view_mat();
@@ -783,6 +788,15 @@ impl Tracer {
             time_info.time_since_start(),
             leaf_bottom_color,
             leaf_tip_color,
+        )?;
+
+        update_voxel_colors(
+            &self.resources,
+            voxel_sand_color,
+            voxel_dirt_color,
+            voxel_rock_color,
+            voxel_leaf_color,
+            voxel_trunk_color,
         )?;
 
         update_gui_input(&self.resources, debug_float, debug_bool, debug_uint)?;
@@ -1090,6 +1104,40 @@ impl Tracer {
                 )
                 .build()?;
             resources.leaf_info.fill_with_raw_u8(&data)?;
+            Ok(())
+        }
+
+        fn update_voxel_colors(
+            resources: &TracerResources,
+            sand_color: Vec3,
+            dirt_color: Vec3,
+            rock_color: Vec3,
+            leaf_color: Vec3,
+            trunk_color: Vec3,
+        ) -> Result<()> {
+            let data = StructMemberDataBuilder::from_buffer(&resources.voxel_colors)
+                .set_field(
+                    "sand_color",
+                    PlainMemberTypeWithData::Vec3(sand_color.to_array()),
+                )
+                .set_field(
+                    "dirt_color",
+                    PlainMemberTypeWithData::Vec3(dirt_color.to_array()),
+                )
+                .set_field(
+                    "rock_color",
+                    PlainMemberTypeWithData::Vec3(rock_color.to_array()),
+                )
+                .set_field(
+                    "leaf_color",
+                    PlainMemberTypeWithData::Vec3(leaf_color.to_array()),
+                )
+                .set_field(
+                    "trunk_color",
+                    PlainMemberTypeWithData::Vec3(trunk_color.to_array()),
+                )
+                .build()?;
+            resources.voxel_colors.fill_with_raw_u8(&data)?;
             Ok(())
         }
 

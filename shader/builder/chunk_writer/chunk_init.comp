@@ -13,7 +13,7 @@ layout(set = 0, binding = 1, r8ui) writeonly uniform uimage3D chunk_atlas;
 
 #include "../../include/config.glsl"
 #include "../../include/core/fast_noise_lite.glsl"
-#include "../../include/voxel_registry.glsl"
+#include "../../include/voxel_types.glsl"
 
 float compute_noise(vec3 p) {
     // https://auburn.github.io/FastNoiseLite/

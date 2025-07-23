@@ -243,6 +243,13 @@ pub struct App {
     leaf_bottom_color: egui::Color32,
     leaf_tip_color: egui::Color32,
 
+    // voxel colors
+    voxel_sand_color: egui::Color32,
+    voxel_dirt_color: egui::Color32,
+    voxel_rock_color: egui::Color32,
+    voxel_leaf_color: egui::Color32,
+    voxel_trunk_color: egui::Color32,
+
     // note: always keep the context to end, as it has to be destroyed last
     vulkan_ctx: VulkanContext,
 
@@ -447,6 +454,13 @@ impl App {
             // Default leaf colors (dark green to bright green)
             leaf_bottom_color: egui::Color32::from_rgb(143, 25, 153),
             leaf_tip_color: egui::Color32::from_rgb(255, 156, 224),
+
+            // Default voxel colors (from original shader hardcoded values)
+            voxel_sand_color: egui::Color32::from_rgb(245, 222, 179), // 0.96, 0.87, 0.70
+            voxel_dirt_color: egui::Color32::from_rgb(74, 54, 43),    // 0.29, 0.21, 0.17
+            voxel_rock_color: egui::Color32::from_rgb(235, 92, 0),    // 0.92, 0.36, 0.0
+            voxel_leaf_color: egui::Color32::from_rgb(242, 199, 36),  // 0.95, 0.78, 0.14
+            voxel_trunk_color: egui::Color32::from_rgb(99, 74, 8),    // 0.39, 0.29, 0.03
 
             audio_engine,
         };
@@ -1082,7 +1096,7 @@ impl App {
                 if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyG {
                     let was_fly_mode = self.is_fly_mode;
                     self.is_fly_mode = !self.is_fly_mode;
-                    
+
                     // Reset velocity when switching from fly mode to walk mode
                     if was_fly_mode && !self.is_fly_mode {
                         self.tracer.reset_camera_velocity();
@@ -1594,6 +1608,39 @@ impl App {
                                             });
                                         });
 
+                                        ui.collapsing("Voxel Colors", |ui| {
+                                            ui.horizontal(|ui| {
+                                                ui.label("Sand Color:");
+                                                ui.color_edit_button_srgba(
+                                                    &mut self.voxel_sand_color,
+                                                );
+                                            });
+                                            ui.horizontal(|ui| {
+                                                ui.label("Dirt Color:");
+                                                ui.color_edit_button_srgba(
+                                                    &mut self.voxel_dirt_color,
+                                                );
+                                            });
+                                            ui.horizontal(|ui| {
+                                                ui.label("Rock Color:");
+                                                ui.color_edit_button_srgba(
+                                                    &mut self.voxel_rock_color,
+                                                );
+                                            });
+                                            ui.horizontal(|ui| {
+                                                ui.label("Leaf Color:");
+                                                ui.color_edit_button_srgba(
+                                                    &mut self.voxel_leaf_color,
+                                                );
+                                            });
+                                            ui.horizontal(|ui| {
+                                                ui.label("Trunk Color:");
+                                                ui.color_edit_button_srgba(
+                                                    &mut self.voxel_trunk_color,
+                                                );
+                                            });
+                                        });
+
                                     });
                                 });
                         }
@@ -1750,6 +1797,31 @@ impl App {
                             self.leaf_tip_color.r() as f32 / 255.0,
                             self.leaf_tip_color.g() as f32 / 255.0,
                             self.leaf_tip_color.b() as f32 / 255.0,
+                        ),
+                        Vec3::new(
+                            self.voxel_sand_color.r() as f32 / 255.0,
+                            self.voxel_sand_color.g() as f32 / 255.0,
+                            self.voxel_sand_color.b() as f32 / 255.0,
+                        ),
+                        Vec3::new(
+                            self.voxel_dirt_color.r() as f32 / 255.0,
+                            self.voxel_dirt_color.g() as f32 / 255.0,
+                            self.voxel_dirt_color.b() as f32 / 255.0,
+                        ),
+                        Vec3::new(
+                            self.voxel_rock_color.r() as f32 / 255.0,
+                            self.voxel_rock_color.g() as f32 / 255.0,
+                            self.voxel_rock_color.b() as f32 / 255.0,
+                        ),
+                        Vec3::new(
+                            self.voxel_leaf_color.r() as f32 / 255.0,
+                            self.voxel_leaf_color.g() as f32 / 255.0,
+                            self.voxel_leaf_color.b() as f32 / 255.0,
+                        ),
+                        Vec3::new(
+                            self.voxel_trunk_color.r() as f32 / 255.0,
+                            self.voxel_trunk_color.g() as f32 / 255.0,
+                            self.voxel_trunk_color.b() as f32 / 255.0,
                         ),
                     )
                     .unwrap();
