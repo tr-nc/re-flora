@@ -67,6 +67,16 @@ layout(set = 0, binding = 6) uniform sampler2D shadow_map_tex_for_vsm_ping;
 
 const float scaling_factor = 1.0 / 256.0;
 
+float get_shadow_weight(ivec3 vox_local_pos) {
+    vec3 vox_dir_normalized            = normalize(vec3(vox_local_pos));
+    float shadow_negative_side_dropoff = max(0.0, dot(-vox_dir_normalized, sun_info.sun_dir));
+    shadow_negative_side_dropoff       = pow(shadow_negative_side_dropoff, 2.0);
+    float shadow_weight                = 1.0 - shadow_negative_side_dropoff;
+
+    shadow_weight = max(0.7, shadow_weight);
+    return shadow_weight;
+}
+
 void main() {
     ivec3 vox_local_pos;
     uvec3 vert_offset_in_vox;
@@ -81,9 +91,10 @@ void main() {
     vec3 vert_pos    = anchor_pos + vert_offset_in_vox * scaling_factor;
     vec3 voxel_pos   = anchor_pos + vec3(0.5) * scaling_factor;
 
-    // float shadow_weight =
+    // this method creates unstable very unstable shadows when the sun changes direction
+    // continuously float shadow_weight =
     //     get_shadow_weight_vsm(shadow_camera_info.view_proj_mat, vec4(voxel_pos, 1.0));
-    float shadow_weight = 1.0;
+    float shadow_weight = get_shadow_weight(vox_local_pos);
 
     // transform to clip space
     gl_Position = camera_info.view_proj_mat * vec4(vert_pos, 1.0);
