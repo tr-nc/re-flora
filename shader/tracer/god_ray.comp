@@ -103,9 +103,5 @@ void main() {
         }
     }
 
-    // Convert the path-length sum to the [0,1] range
-    float inv_total_len = 1.0 / max(using_depth, 1e-4); // avoid /0
-    shadow_visibility *= inv_total_len;
-
     imageStore(god_ray_output_tex, uvi, vec4(shadow_visibility, 0.0, 0.0, 1.0));
 }
