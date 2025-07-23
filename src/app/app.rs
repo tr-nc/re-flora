@@ -1080,7 +1080,13 @@ impl App {
                 }
 
                 if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyG {
+                    let was_fly_mode = self.is_fly_mode;
                     self.is_fly_mode = !self.is_fly_mode;
+                    
+                    // Reset velocity when switching from fly mode to walk mode
+                    if was_fly_mode && !self.is_fly_mode {
+                        self.tracer.reset_camera_velocity();
+                    }
                 }
 
                 if !self.window_state.is_cursor_visible() {

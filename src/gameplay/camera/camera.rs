@@ -338,6 +338,12 @@ impl Camera {
         self.was_on_ground = is_on_ground;
     }
 
+    /// Resets the rigidbody velocity and vertical velocity when switching modes
+    pub fn reset_velocity(&mut self) {
+        self.rigidbody.velocity = Vec3::ZERO;
+        self.vertical_velocity = 0.0;
+    }
+
     /// Resolve a single horizontal collision step using the 32-ray collision system
     /// Returns true if a collision was detected and resolved
     fn resolve_horizontal_collision_step(

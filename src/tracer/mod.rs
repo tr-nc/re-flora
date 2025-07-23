@@ -1779,6 +1779,10 @@ impl Tracer {
         self.camera.handle_mouse(delta);
     }
 
+    pub fn reset_camera_velocity(&mut self) {
+        self.camera.reset_velocity();
+    }
+
     pub fn update_camera(&mut self, frame_delta_time: f32, is_fly_mode: bool) {
         if is_fly_mode {
             self.camera.update_transform_fly_mode(frame_delta_time);
