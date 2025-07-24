@@ -399,10 +399,10 @@ impl App {
             debug_float: 0.0,
             debug_bool: true,
             debug_uint: 0,
-            leaves_inner_density: 0.6,
-            leaves_outer_density: 0.15,
-            leaves_inner_radius: 10.0,
-            leaves_outer_radius: 14.0,
+            leaves_inner_density: 0.38,
+            leaves_outer_density: 0.45,
+            leaves_inner_radius: 12.0,
+            leaves_outer_radius: 17.0,
             temporal_position_phi: 0.8,
             temporal_alpha: 0.04,
             god_ray_max_depth: 2.0,
@@ -846,7 +846,7 @@ impl App {
         };
         let window_descriptor = WindowStateDesc {
             title: using_mode.to_owned(),
-            window_mode: WindowMode::Windowed(false),
+            window_mode: WindowMode::BorderlessFullscreen,
             cursor_locked: true,
             cursor_visible: false,
             ..Default::default()

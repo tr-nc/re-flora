@@ -41,29 +41,15 @@ layout(set = 0, binding = 3) uniform U_CameraInfo {
 }
 camera_info;
 
-layout(set = 0, binding = 4) uniform U_ShadowCameraInfo {
-    vec4 pos;
-    mat4 view_mat;
-    mat4 view_mat_inv;
-    mat4 proj_mat;
-    mat4 proj_mat_inv;
-    mat4 view_proj_mat;
-    mat4 view_proj_mat_inv;
-}
-shadow_camera_info;
-
-layout(set = 0, binding = 5) uniform U_LeavesInfo {
+layout(set = 0, binding = 4) uniform U_LeavesInfo {
     float time;
     vec3 bottom_color;
     vec3 tip_color;
 }
 leaves_info;
 
-layout(set = 0, binding = 6) uniform sampler2D shadow_map_tex_for_vsm_ping;
-
 #include "../include/core/fast_noise_lite.glsl"
 #include "../include/core/hash.glsl"
-#include "../include/vsm.glsl"
 #include "./unpacker.glsl"
 
 const float scaling_factor = 1.0 / 256.0;
