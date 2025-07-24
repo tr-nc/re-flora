@@ -6,13 +6,10 @@
       "Bash(claude-code settings list)",
       "Bash(ls:*)",
       "Bash(find:*)",
-      "Bash(/mnt/c/Users/danny/.cargo/bin/cargo.exe fmt)",
-      "Bash(/mnt/c/Users/danny/.cargo/bin/cargo.exe check)",
-      "Bash(/mnt/c/Users/danny/.cargo/bin/cargo.exe run)",
-      "Bash(timeout 60 /mnt/c/Users/danny/.cargo/bin/cargo.exe run)",
       "Bash(grep:*)",
       "Bash(rm:*)",
-      "Bash(timeout 30 /mnt/c/Users/danny/.cargo/bin/cargo.exe run)"
+      "Bash(cargo check:*)",
+      "Bash(cargo run:*)"
     ],
     "deny": []
   }
