@@ -182,9 +182,10 @@ pub struct App {
     debug_float: f32,
     debug_bool: bool,
     debug_uint: u32,
-    leaves_density_min: f32,
-    leaves_density_max: f32,
-    leaves_radius: f32,
+    leaves_inner_density: f32,
+    leaves_outer_density: f32,
+    leaves_inner_radius: f32,
+    leaves_outer_radius: f32,
     sun_altitude: f32,
     sun_azimuth: f32,
     sun_size: f32,
@@ -398,9 +399,10 @@ impl App {
             debug_float: 0.0,
             debug_bool: true,
             debug_uint: 0,
-            leaves_density_min: 0.4,
-            leaves_density_max: 1.0,
-            leaves_radius: 15.0,
+            leaves_inner_density: 1.0,
+            leaves_outer_density: 0.2,
+            leaves_inner_radius: 8.0,
+            leaves_outer_radius: 15.0,
             temporal_position_phi: 0.8,
             temporal_alpha: 0.04,
             god_ray_max_depth: 2.0,
@@ -470,9 +472,10 @@ impl App {
 
         // Configure leaves with the app's actual density values (now that app struct exists)
         app.tracer.regenerate_leaves(
-            app.leaves_density_min,
-            app.leaves_density_max,
-            app.leaves_radius,
+            app.leaves_inner_density,
+            app.leaves_outer_density,
+            app.leaves_inner_radius,
+            app.leaves_outer_radius,
         )?;
 
         Ok(app)
@@ -1187,36 +1190,51 @@ impl App {
                                             leaves_changed |= ui
                                                 .add(
                                                     egui::Slider::new(
-                                                        &mut self.leaves_density_min,
+                                                        &mut self.leaves_inner_density,
                                                         0.0..=1.0,
                                                     )
-                                                    .text("Min Density"),
+                                                    .text("Inner Density"),
                                                 )
                                                 .changed();
                                             leaves_changed |= ui
                                                 .add(
                                                     egui::Slider::new(
-                                                        &mut self.leaves_density_max,
+                                                        &mut self.leaves_outer_density,
                                                         0.0..=1.0,
                                                     )
-                                                    .text("Max Density"),
+                                                    .text("Outer Density"),
                                                 )
                                                 .changed();
                                             leaves_changed |= ui
                                                 .add(
                                                     egui::Slider::new(
-                                                        &mut self.leaves_radius,
+                                                        &mut self.leaves_inner_radius,
                                                         1.0..=64.0,
                                                     )
-                                                    .text("Radius"),
+                                                    .text("Inner Radius"),
+                                                )
+                                                .changed();
+                                            leaves_changed |= ui
+                                                .add(
+                                                    egui::Slider::new(
+                                                        &mut self.leaves_outer_radius,
+                                                        1.0..=64.0,
+                                                    )
+                                                    .text("Outer Radius"),
                                                 )
                                                 .changed();
 
                                             if leaves_changed {
+                                                // Ensure inner_radius is always <= outer_radius
+                                                if self.leaves_inner_radius > self.leaves_outer_radius {
+                                                    self.leaves_outer_radius = self.leaves_inner_radius;
+                                                }
+                                                
                                                 if let Err(e) = self.tracer.regenerate_leaves(
-                                                    self.leaves_density_min,
-                                                    self.leaves_density_max,
-                                                    self.leaves_radius,
+                                                    self.leaves_inner_density,
+                                                    self.leaves_outer_density,
+                                                    self.leaves_inner_radius,
+                                                    self.leaves_outer_radius,
                                                 ) {
                                                     log::error!(
                                                         "Failed to regenerate leaves: {}",

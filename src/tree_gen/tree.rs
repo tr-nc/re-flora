@@ -300,7 +300,12 @@ impl Tree {
 
 /// Subdivides a single RoundCone into multiple, smaller, slightly perturbed cones.
 /// Respects the `enable_subdivision` toggle.
-fn subdivide_trunk_segment(cone: &RoundCone, desc: &TreeDesc, level: u32, rng: &mut StdRng) -> Vec<RoundCone> {
+fn subdivide_trunk_segment(
+    cone: &RoundCone,
+    desc: &TreeDesc,
+    level: u32,
+    rng: &mut StdRng,
+) -> Vec<RoundCone> {
     // NEW: early-out if subdivision is disabled
     if !desc.enable_subdivision {
         return vec![cone.clone()];
@@ -358,9 +363,8 @@ fn subdivide_trunk_segment(cone: &RoundCone, desc: &TreeDesc, level: u32, rng: &
             if iteration_randomness > 0.0 {
                 let random_angle = rng.random_range(0.0..2.0 * PI);
                 let random_dir_perp = perp1 * random_angle.cos() + perp2 * random_angle.sin();
-                let displacement_magnitude = segment_start_radius
-                    * iteration_randomness
-                    * rng.random_range(0.5..=1.0);
+                let displacement_magnitude =
+                    segment_start_radius * iteration_randomness * rng.random_range(0.5..=1.0);
                 next_pos += random_dir_perp * displacement_magnitude;
             }
         }

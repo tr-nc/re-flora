@@ -69,20 +69,35 @@ pub struct LeavesResources {
 impl LeavesResources {
     pub fn new(device: Device, allocator: Allocator) -> Self {
         // use default parameters for initial leaf generation
-        Self::new_with_params(device, allocator, 0.25, 0.5, 16.0)
+        Self::new_with_params(device, allocator, 0.5, 0.25, 8.0, 16.0)
     }
 
     pub fn new_with_params(
         device: Device,
         allocator: Allocator,
-        density_min: f32,
-        density_max: f32,
-        radius: f32,
+        inner_density: f32,
+        outer_density: f32,
+        inner_radius: f32,
+        outer_radius: f32,
     ) -> Self {
-        // 1. Generate the indexed data for sphere-shaped leaves.
-        let (vertices_data, indices_data) =
-            generate_indexed_voxel_leaves(density_min, density_max, radius).unwrap();
-        let indices_len = indices_data.len() as u32;
+        // 1. Generate the indexed data for hollow sphere-shaped leaves.
+        let (mut vertices_data, mut indices_data) =
+            generate_indexed_voxel_leaves(inner_density, outer_density, inner_radius, outer_radius)
+                .unwrap();
+        
+        // Guard against empty data - create minimal buffers to avoid Vulkan validation errors
+        if vertices_data.is_empty() {
+            vertices_data.push(Vertex { packed_data: 0 }); // Dummy vertex
+        }
+        if indices_data.is_empty() {
+            indices_data.push(0); // Dummy index
+        }
+        
+        let indices_len = if indices_data.len() == 1 && indices_data[0] == 0 {
+            0 // Don't render anything if this was a dummy index
+        } else {
+            indices_data.len() as u32
+        };
 
         // 2. Create and fill the vertex buffer.
         let vertices = Buffer::new_sized(

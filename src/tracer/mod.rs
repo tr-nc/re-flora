@@ -772,7 +772,13 @@ impl Tracer {
 
         update_taa_info(&self.resources, is_taa_enabled)?;
 
-        update_god_ray_info(&self.resources, god_ray_max_depth, god_ray_max_checks, god_ray_weight, god_ray_color)?;
+        update_god_ray_info(
+            &self.resources,
+            god_ray_max_depth,
+            god_ray_max_checks,
+            god_ray_weight,
+            god_ray_color,
+        )?;
 
         update_post_processing_info(&self.resources, self.desc.scaling_factor)?;
 
@@ -2006,9 +2012,10 @@ impl Tracer {
 
     pub fn regenerate_leaves(
         &mut self,
-        density_min: f32,
-        density_max: f32,
-        radius: f32,
+        inner_density: f32,
+        outer_density: f32,
+        inner_radius: f32,
+        outer_radius: f32,
     ) -> Result<()> {
         // Regenerate leaves resources with new density parameters
         let device = self.vulkan_ctx.device();
@@ -2019,16 +2026,18 @@ impl Tracer {
         self.resources.leaves_resources = LeavesResources::new_with_params(
             device.clone(),
             self.allocator.clone(),
-            density_min,
-            density_max,
-            radius,
+            inner_density,
+            outer_density,
+            inner_radius,
+            outer_radius,
         );
 
         log::info!(
-            "Regenerated leaves with density_min: {}, density_max: {}, radius: {}",
-            density_min,
-            density_max,
-            radius
+            "Regenerated leaves with inner_density: {}, outer_density: {}, inner_radius: {}, outer_radius: {}",
+            inner_density,
+            outer_density,
+            inner_radius,
+            outer_radius
         );
         Ok(())
     }

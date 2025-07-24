@@ -7,27 +7,33 @@ use anyhow::Result;
 use glam::{IVec3, UVec3};
 use noise::{NoiseFn, Perlin};
 
-/// Generates indexed voxel data for sphere-shaped leaves.
+/// Generates indexed voxel data for hollow sphere-shaped leaves.
 ///
 /// # Parameters
-/// - `density_min`: Minimum density at the sphere boundary (0.0 to 1.0)
-/// - `density_max`: Maximum density at the sphere center (0.0 to 1.0)
-/// - `radius`: Radius of the sphere (max 128 due to encoding constraints)
+/// - `inner_density`: Density at the inner shell edge (0.0 to 1.0)
+/// - `outer_density`: Density at the outer shell edge (0.0 to 1.0)
+/// - `inner_radius`: Inner radius of the hollow sphere (max 128 due to encoding constraints)
+/// - `outer_radius`: Outer radius of the hollow sphere (max 128 due to encoding constraints)
 ///
 /// # Returns
 /// A tuple of (vertices, indices) for rendering the voxel leaves.
 pub fn generate_indexed_voxel_leaves(
-    density_min: f32,
-    density_max: f32,
-    radius: f32,
+    inner_density: f32,
+    outer_density: f32,
+    inner_radius: f32,
+    outer_radius: f32,
 ) -> Result<(Vec<Vertex>, Vec<u32>)> {
-    if radius > 128.0 {
+    if outer_radius > 128.0 {
         return Err(anyhow::anyhow!(
-            "Radius must be <= 128 due to encoding constraints"
+            "Outer radius must be <= 128 due to encoding constraints"
         ));
     }
 
-    if density_max <= 0.0 {
+    if inner_radius > outer_radius {
+        return Err(anyhow::anyhow!("Inner radius must be <= outer radius"));
+    }
+
+    if inner_density.max(outer_density) <= 0.0 {
         return Ok((Vec::new(), Vec::new()));
     }
 
@@ -35,29 +41,35 @@ pub fn generate_indexed_voxel_leaves(
     let mut indices = Vec::new();
 
     let noise = Perlin::new(42); // Fixed seed for consistent results
-    let radius_i = radius as i32;
+    let outer_radius_i = outer_radius as i32;
 
     // Iterate through a bounding box around the sphere
-    for x in -radius_i..=radius_i {
-        for y in -radius_i..=radius_i {
-            for z in -radius_i..=radius_i {
+    for x in -outer_radius_i..=outer_radius_i {
+        for y in -outer_radius_i..=outer_radius_i {
+            for z in -outer_radius_i..=outer_radius_i {
                 let pos = IVec3::new(x, y, z);
                 let distance_from_center = pos.as_vec3().length();
 
-                if distance_from_center > radius {
+                // Skip if outside outer_radius or inside inner_radius (hollow center)
+                if distance_from_center > outer_radius || distance_from_center < inner_radius {
                     continue;
                 }
 
-                let gradient = if radius > 0.0 {
-                    (distance_from_center / radius).min(1.0)
+                // Calculate gradient and density within the shell region only
+                let (gradient, falloff_density) = if outer_radius > inner_radius {
+                    // Shell region: gradient from 0.0 at inner_radius to 1.0 at outer_radius
+                    let shell_ratio =
+                        (distance_from_center - inner_radius) / (outer_radius - inner_radius);
+                    let gradient = shell_ratio.min(1.0);
+                    // Mix density: inner_density at inner edge, outer_density at outer edge
+                    let density = inner_density * (1.0 - shell_ratio) + outer_density * shell_ratio;
+                    (gradient, density)
                 } else {
-                    0.0
+                    // When inner_radius == outer_radius, single shell layer
+                    let gradient = (distance_from_center / outer_radius).min(1.0);
+                    let density = inner_density * (1.0 - gradient) + outer_density * gradient;
+                    (gradient, density)
                 };
-
-                // Calculate density falloff: density_max at center, density_min at boundary
-                let distance_ratio = distance_from_center / radius;
-                let falloff_density =
-                    density_max * (1.0 - distance_ratio) + density_min * distance_ratio;
 
                 // Use noise to determine if we should place a voxel here
                 let noise_freq = 1.1;
