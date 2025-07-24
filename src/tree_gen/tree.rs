@@ -30,6 +30,7 @@ pub struct TreeDesc {
     pub subdivision_count_min: u32,
     pub subdivision_count_max: u32,
     pub subdivision_randomness: f32,
+    pub subdivision_randomness_progression: f32,
 }
 
 impl Default for TreeDesc {
@@ -55,6 +56,7 @@ impl Default for TreeDesc {
             subdivision_count_min: 6,
             subdivision_count_max: 9,
             subdivision_randomness: 0.27,
+            subdivision_randomness_progression: 1.5,
             randomness: 0.35,
             leaves_size_level: 5,
             leaf_offset: 1,
@@ -189,6 +191,12 @@ impl TreeDesc {
                     .text("Subdivision Randomness"),
             )
             .changed();
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.subdivision_randomness_progression, 0.1..=3.0)
+                    .text("Subdivision Randomness Progression"),
+            )
+            .changed();
 
         if changed {
             if self.subdivision_count_min > self.subdivision_count_max {
@@ -285,9 +293,9 @@ impl Tree {
         );
 
         let mut trunks = Vec::new();
-        for cone in &initial_trunks {
+        for (cone, level) in &initial_trunks {
             // subdivision now respects the toggle
-            let subdivided_cones = subdivide_trunk_segment(cone, desc, &mut rng);
+            let subdivided_cones = subdivide_trunk_segment(cone, desc, *level, &mut rng);
             trunks.extend(subdivided_cones);
         }
 
@@ -300,7 +308,7 @@ impl Tree {
 
 /// Subdivides a single RoundCone into multiple, smaller, slightly perturbed cones.
 /// Respects the `enable_subdivision` toggle.
-fn subdivide_trunk_segment(cone: &RoundCone, desc: &TreeDesc, rng: &mut StdRng) -> Vec<RoundCone> {
+fn subdivide_trunk_segment(cone: &RoundCone, desc: &TreeDesc, level: u32, rng: &mut StdRng) -> Vec<RoundCone> {
     // NEW: early-out if subdivision is disabled
     if !desc.enable_subdivision {
         return vec![cone.clone()];
@@ -313,6 +321,14 @@ fn subdivide_trunk_segment(cone: &RoundCone, desc: &TreeDesc, rng: &mut StdRng) 
     if length <= desc.subdivision_threshold || desc.subdivision_count_max <= 1 {
         return vec![cone.clone()];
     }
+
+    // Calculate iteration-based randomness progression, similar to thickness_reduction
+    let level_factor = (level as f32) / (desc.iterations as f32).max(1.0);
+    let iteration_randomness = if desc.subdivision_randomness_progression > 0.0 {
+        desc.subdivision_randomness * desc.subdivision_randomness_progression.powf(level_factor)
+    } else {
+        desc.subdivision_randomness
+    };
 
     let num_segments = if desc.subdivision_count_min >= desc.subdivision_count_max {
         desc.subdivision_count_min
@@ -348,11 +364,11 @@ fn subdivide_trunk_segment(cone: &RoundCone, desc: &TreeDesc, rng: &mut StdRng) 
             next_pos = cone.center_b();
         } else {
             next_pos = current_pos + segment_vec;
-            if desc.subdivision_randomness > 0.0 {
+            if iteration_randomness > 0.0 {
                 let random_angle = rng.random_range(0.0..2.0 * PI);
                 let random_dir_perp = perp1 * random_angle.cos() + perp2 * random_angle.sin();
                 let displacement_magnitude = segment_start_radius
-                    * desc.subdivision_randomness
+                    * iteration_randomness
                     * rng.random_range(0.5..=1.0);
                 next_pos += random_dir_perp * displacement_magnitude;
             }
@@ -378,7 +394,7 @@ fn recurse(
     desc: &TreeDesc,
     length: f32,
     thickness: f32,
-    trunks: &mut Vec<RoundCone>,
+    trunks: &mut Vec<(RoundCone, u32)>,
     leaf_positions: &mut Vec<Vec3>,
     rng: &mut StdRng,
 ) {
@@ -411,11 +427,14 @@ fn recurse(
 
     let end_pos = pos + adjusted_dir * segment_length;
 
-    trunks.push(RoundCone::new(
-        thickness_start.max(desc.trunk_thickness_min),
-        pos,
-        thickness_end.max(desc.trunk_thickness_min),
-        end_pos,
+    trunks.push((
+        RoundCone::new(
+            thickness_start.max(desc.trunk_thickness_min),
+            pos,
+            thickness_end.max(desc.trunk_thickness_min),
+            end_pos,
+        ),
+        level,
     ));
 
     let should_branch = level < desc.iterations - 1
