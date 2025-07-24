@@ -9,7 +9,8 @@
       "Bash(grep:*)",
       "Bash(rm:*)",
       "Bash(cargo check:*)",
-      "Bash(cargo run:*)"
+      "Bash(cargo run:*)",
+      "Bash(cargo fmt)"
     ],
     "deny": []
   }
