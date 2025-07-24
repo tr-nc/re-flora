@@ -26,7 +26,6 @@ pub struct TreeDesc {
     pub thickness_reduction: f32,
     pub seed: u64,
     pub enable_subdivision: bool,
-    pub subdivision_threshold: f32,
     pub subdivision_count_min: u32,
     pub subdivision_count_max: u32,
     pub subdivision_randomness: f32,
@@ -52,10 +51,9 @@ impl Default for TreeDesc {
             branch_angle_min: 24.0 * PI / 180.0,
             branch_angle_max: 48.0 * PI / 180.0,
             enable_subdivision: true,
-            subdivision_threshold: 6.5,
             subdivision_count_min: 6,
             subdivision_count_max: 9,
-            subdivision_randomness: 0.27,
+            subdivision_randomness: 0.18,
             subdivision_randomness_progression: 1.5,
             randomness: 0.35,
             leaves_size_level: 5,
@@ -169,12 +167,6 @@ impl TreeDesc {
             .checkbox(&mut self.enable_subdivision, "Enable Subdivision")
             .changed();
 
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.subdivision_threshold, 0.1..=20.0)
-                    .text("Subdivision Threshold"),
-            )
-            .changed();
         changed |= ui
             .add(
                 egui::Slider::new(&mut self.subdivision_count_min, 1..=10).text("Min Subdivisions"),
@@ -315,10 +307,9 @@ fn subdivide_trunk_segment(cone: &RoundCone, desc: &TreeDesc, level: u32, rng: &
     }
 
     let axis = cone.center_b() - cone.center_a();
-    let length = axis.length();
 
     // Do not subdivide if the segment is too short or if subdivision is effectively disabled.
-    if length <= desc.subdivision_threshold || desc.subdivision_count_max <= 1 {
+    if desc.subdivision_count_max <= 1 {
         return vec![cone.clone()];
     }
 
