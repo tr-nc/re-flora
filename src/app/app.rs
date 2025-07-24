@@ -426,7 +426,7 @@ impl App {
             day_cycle_minutes: 30.0,
             sun_color: egui::Color32::from_rgb(255, 233, 144),
             sun_luminance: 1.0,
-            ambient_light: egui::Color32::from_rgb(25, 25, 25),
+            ambient_light: egui::Color32::from_rgb(35, 35, 35),
             tree_pos: Vec3::new(512.0, 0.0, 512.0),
             tree_desc: TreeDesc::default(),
             tree_variation_config: TreeVariationConfig::default(),
@@ -446,25 +446,22 @@ impl App {
             starlight_zoom: 0.88,
             starlight_tile: 1.1,
             starlight_speed: 0.01,
-            starlight_brightness: 0.001,
+            starlight_brightness: 0.0005,
             starlight_darkmatter: 0.8,
             starlight_distfading: 0.885,
             starlight_saturation: 1.0,
 
-            // Default grass colors (converted from resources.rs values)
             grass_bottom_color: egui::Color32::from_rgb(52, 116, 51),
             grass_tip_color: egui::Color32::from_rgb(182, 245, 0),
 
-            // Default leaf colors (dark green to bright green)
             leaf_bottom_color: egui::Color32::from_rgb(143, 25, 153),
             leaf_tip_color: egui::Color32::from_rgb(255, 156, 224),
 
-            // Default voxel colors (from original shader hardcoded values)
-            voxel_sand_color: egui::Color32::from_rgb(245, 222, 179), // 0.96, 0.87, 0.70
-            voxel_dirt_color: egui::Color32::from_rgb(74, 54, 43),    // 0.29, 0.21, 0.17
-            voxel_rock_color: egui::Color32::from_rgb(235, 92, 0),    // 0.92, 0.36, 0.0
-            voxel_leaf_color: egui::Color32::from_rgb(242, 199, 36),  // 0.95, 0.78, 0.14
-            voxel_trunk_color: egui::Color32::from_rgb(99, 74, 8),    // 0.39, 0.29, 0.03
+            voxel_sand_color: egui::Color32::from_rgb(245, 222, 179),
+            voxel_dirt_color: egui::Color32::from_rgb(74, 54, 43),
+            voxel_rock_color: egui::Color32::from_rgb(235, 92, 0),
+            voxel_leaf_color: egui::Color32::from_rgb(242, 199, 36),
+            voxel_trunk_color: egui::Color32::from_rgb(99, 74, 8),
 
             audio_engine,
         };

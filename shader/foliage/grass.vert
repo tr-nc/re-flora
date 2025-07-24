@@ -103,11 +103,11 @@ vec2 random_grass_offset(vec2 grass_instance_pos, float time) {
     return vec2(noise_x, noise_z) * wind_strength + natual_state;
 }
 
-vec3 get_wavy_offset(uint grass_vox_height, vec2 grass_instance_pos) {
+vec3 get_wavy_offset(float bend_factor, vec2 grass_instance_pos) {
     vec2 grass_offset = random_grass_offset(grass_instance_pos, grass_info.time);
 
     float denom   = float(max(voxel_count - 1u, 1u));
-    float t       = grass_vox_height / denom;
+    float t       = bend_factor / denom;
     float t_curve = t * t;
     return vec3(grass_offset.x * t_curve, 0.0, grass_offset.y * t_curve);
 }
