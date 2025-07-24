@@ -461,7 +461,7 @@ impl App {
             voxel_dirt_color: egui::Color32::from_rgb(74, 54, 43),
             voxel_rock_color: egui::Color32::from_rgb(235, 92, 0),
             voxel_leaf_color: egui::Color32::from_rgb(242, 199, 36),
-            voxel_trunk_color: egui::Color32::from_rgb(99, 74, 8),
+            voxel_trunk_color: egui::Color32::from_rgb(215, 194, 168),
 
             audio_engine,
         };
