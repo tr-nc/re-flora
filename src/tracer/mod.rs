@@ -1392,7 +1392,6 @@ impl Tracer {
             );
         }
 
-        // now, iterate over each chunk and issue a draw call for it.
         for (aabb, instances) in &surface_resources.instances.chunk_grass_instances {
             // only draw if this chunk actually has grass instances.
             if instances.get(FloraType::Grass).instances_len == 0 {
@@ -1425,6 +1424,44 @@ impl Tracer {
                 cmdbuf,
                 self.resources.grass_blade_resources.indices_len,
                 instances.get(FloraType::Grass).instances_len,
+                0, // firstIndex
+                0, // vertexOffset
+                0, // firstInstance
+            );
+        }
+
+        // now, iterate over each chunk and render lavender instances using the same grass pipeline
+        for (aabb, instances) in &surface_resources.instances.chunk_grass_instances {
+            // only draw if this chunk actually has lavender instances.
+            if instances.get(FloraType::Lavender).instances_len == 0 {
+                continue;
+            }
+
+            // perform frustum culling
+            if !aabb.is_inside_frustum(self.current_view_proj_mat) {
+                continue;
+            }
+
+            // bind the vertex buffers for this specific chunk.
+            // binding point 0: common grass blade vertices (reused for lavender).
+            // binding point 1: per-chunk, per-instance data.
+            unsafe {
+                self.vulkan_ctx.device().cmd_bind_vertex_buffers(
+                    cmdbuf.as_raw(),
+                    0, // firstBinding
+                    &[
+                        self.resources.grass_blade_resources.vertices.as_raw(),
+                        instances.get(FloraType::Lavender).instances_buf.as_raw(),
+                    ],
+                    &[0, 0], // offsets
+                );
+            }
+
+            // issue the draw call for the current chunk's lavender instances.
+            self.grass_ppl.record_indexed(
+                cmdbuf,
+                self.resources.grass_blade_resources.indices_len,
+                instances.get(FloraType::Lavender).instances_len,
                 0, // firstIndex
                 0, // vertexOffset
                 0, // firstInstance

@@ -119,10 +119,16 @@ impl SurfaceBuilder {
             .unwrap()
             .1;
 
-        grass_instance_set.perform_writes(&mut [WriteDescriptorSet::new_buffer_write(
-            0,
-            &chunk_resources.get(FloraType::Grass).instances_buf,
-        )]);
+        grass_instance_set.perform_writes(&mut [
+            WriteDescriptorSet::new_buffer_write(
+                0,
+                &chunk_resources.get(FloraType::Grass).instances_buf,
+            ),
+            WriteDescriptorSet::new_buffer_write(
+                1,
+                &chunk_resources.get(FloraType::Lavender).instances_buf,
+            ),
+        ]);
     }
 
     /// Returns active_voxel_len
@@ -171,7 +177,7 @@ impl SurfaceBuilder {
 
         device.wait_queue_idle(&self.vulkan_ctx.get_general_queue());
 
-        let (active_voxel_len, grass_instance_len) =
+        let (active_voxel_len, grass_instance_len, lavender_instance_len) =
             get_result(&self.resources.make_surface_result);
 
         let chunk_resources = self
@@ -182,6 +188,7 @@ impl SurfaceBuilder {
             .find(|(_, resources)| resources.chunk_id == chunk_id)
             .unwrap();
         chunk_resources.1.get_mut(FloraType::Grass).instances_len = grass_instance_len;
+        chunk_resources.1.get_mut(FloraType::Lavender).instances_len = lavender_instance_len;
 
         return Ok(active_voxel_len);
 
@@ -219,8 +226,8 @@ impl SurfaceBuilder {
             Ok(())
         }
 
-        /// Returns: (active_voxel_len, grass_instance_len)
-        fn get_result(frag_img_build_result: &Buffer) -> (u32, u32) {
+        /// Returns: (active_voxel_len, grass_instance_len, lavender_instance_len)
+        fn get_result(frag_img_build_result: &Buffer) -> (u32, u32, u32) {
             let layout = &frag_img_build_result.get_layout().unwrap().root_member;
             let raw_data = frag_img_build_result.read_back().unwrap();
             let reader = StructMemberDataReader::new(layout, &raw_data);
@@ -239,7 +246,14 @@ impl SurfaceBuilder {
             } else {
                 panic!("Expected UInt type for grass_instance_len")
             };
-            (active_voxel_len, grass_instance_len)
+            let lavender_instance_len = if let PlainMemberTypeWithData::UInt(val) =
+                reader.get_field("lavender_instance_len").unwrap()
+            {
+                val
+            } else {
+                panic!("Expected UInt type for lavender_instance_len")
+            };
+            (active_voxel_len, grass_instance_len, lavender_instance_len)
         }
     }
 

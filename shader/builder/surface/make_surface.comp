@@ -236,12 +236,9 @@ void main() {
             // Threshold to control how dense the grass is. Higher = less dense.
             float density_threshold = 0.6;
             if (density_noise > density_threshold) {
-                // --- Noise-based height variation ---
-                // Use a different seed for the height noise to decouple it from placement
-                fnl_state height_noise_state  = fnlCreateState(1337); // Seed for height
+                fnl_state height_noise_state  = fnlCreateState(1337);
                 height_noise_state.noise_type = FNL_NOISE_PERLIN;
-                height_noise_state.frequency =
-                    0.8; // Higher frequency for more local height variation
+                height_noise_state.frequency  = 0.8;
 
                 // Map noise from [-1, 1] to [0, 1]
                 float height_noise = fnlGetNoise2D(height_noise_state, uvi.x, uvi.z) * 0.5 + 0.5;
@@ -250,7 +247,13 @@ void main() {
                 const uint min_grass_height = 4;
                 const uint max_grass_height = 8;
 
-                add_grass_instance(uvi, GRASS_TYPE_NORMAL);
+                // Use density_noise to determine if this should be lavender (15% chance)
+                float lavender_chance = 0.62;
+                if (density_noise < lavender_chance) {
+                    add_lavender_instance(uvi, GRASS_TYPE_NORMAL);
+                } else {
+                    add_grass_instance(uvi, GRASS_TYPE_NORMAL);
+                }
             }
         }
     }
