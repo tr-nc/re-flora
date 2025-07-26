@@ -113,7 +113,7 @@ impl SurfaceBuilder {
         let chunk_resources = &self
             .resources
             .instances
-            .chunk_grass_instances
+            .chunk_flora_instances
             .iter()
             .find(|(_, resources)| resources.chunk_id == chunk_id)
             .unwrap()
@@ -183,7 +183,7 @@ impl SurfaceBuilder {
         let chunk_resources = self
             .resources
             .instances
-            .chunk_grass_instances
+            .chunk_flora_instances
             .iter_mut()
             .find(|(_, resources)| resources.chunk_id == chunk_id)
             .unwrap();

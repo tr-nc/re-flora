@@ -97,30 +97,30 @@ impl FloraInstanceResources {
 }
 
 pub struct InstanceResources {
-    pub chunk_grass_instances: Vec<(Aabb3, FloraInstanceResources)>,
+    pub chunk_flora_instances: Vec<(Aabb3, FloraInstanceResources)>,
     pub leaves_instances: HashMap<u32, TreeLeavesInstance>,
 }
 
 impl InstanceResources {
     pub fn new(device: Device, allocator: Allocator, chunk_dim: UAabb3) -> Self {
-        let mut chunk_grass_instances = Vec::new();
+        let mut chunk_flora_instances = Vec::new();
         for x in chunk_dim.min().x..chunk_dim.max().x {
             for y in chunk_dim.min().y..chunk_dim.max().y {
                 for z in chunk_dim.min().z..chunk_dim.max().z {
                     let chunk_offset = UVec3::new(x, y, z);
                     let chunk_aabb = compute_chunk_world_aabb(chunk_offset, 0.2);
-                    let grass_resources = FloraInstanceResources::new(
+                    let flora_resources = FloraInstanceResources::new(
                         device.clone(),
                         allocator.clone(),
                         chunk_offset,
                     );
-                    chunk_grass_instances.push((chunk_aabb, grass_resources));
+                    chunk_flora_instances.push((chunk_aabb, flora_resources));
                 }
             }
         }
 
         return Self {
-            chunk_grass_instances,
+            chunk_flora_instances,
             leaves_instances: HashMap::new(),
         };
 

@@ -455,8 +455,8 @@ impl App {
             grass_bottom_color: egui::Color32::from_rgb(52, 116, 51),
             grass_tip_color: egui::Color32::from_rgb(182, 245, 0),
 
-            leaf_bottom_color: egui::Color32::from_rgb(143, 25, 153),
-            leaf_tip_color: egui::Color32::from_rgb(255, 156, 224),
+            leaf_bottom_color: egui::Color32::from_rgb(220, 128, 231),
+            leaf_tip_color: egui::Color32::from_rgb(255, 208, 238),
 
             voxel_sand_color: egui::Color32::from_rgb(245, 222, 179),
             voxel_dirt_color: egui::Color32::from_rgb(165, 226, 40),

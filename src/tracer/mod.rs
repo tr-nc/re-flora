@@ -14,7 +14,7 @@ mod voxel_encoding;
 
 mod voxel_geometry;
 
-mod grass_construct;
+mod flora_construct;
 
 mod leaves_construct;
 
@@ -80,6 +80,10 @@ pub struct Tracer {
 
     grass_ppl: GraphicsPipeline,
     grass_render_pass: RenderPass,
+
+    lavender_ppl: GraphicsPipeline,
+    lavender_render_pass: RenderPass,
+
     color_depth_framebuffer: Framebuffer,
 
     leaves_ppl: GraphicsPipeline,
@@ -243,6 +247,21 @@ impl Tracer {
         )
         .unwrap();
 
+        let lavender_vert_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            shader_compiler,
+            "shader/foliage/lavender.vert",
+            "main",
+        )
+        .unwrap();
+        let lavender_frag_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            shader_compiler,
+            "shader/foliage/lavender.frag",
+            "main",
+        )
+        .unwrap();
+
         let leaves_vert_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             shader_compiler,
@@ -370,6 +389,15 @@ impl Tracer {
             resources.extent_dependent_resources.gfx_depth_tex.clone(),
         );
 
+        let (lavender_ppl, lavender_render_pass) =
+            Self::create_lavender_render_pass_and_graphics_pipeline(
+                &vulkan_ctx,
+                &lavender_vert_sm,
+                &lavender_frag_sm,
+                resources.extent_dependent_resources.gfx_output_tex.clone(),
+                resources.extent_dependent_resources.gfx_depth_tex.clone(),
+            );
+
         let (leaves_ppl, leaves_render_pass) =
             Self::create_leaves_render_pass_and_graphics_pipeline(
                 &vulkan_ctx,
@@ -388,6 +416,9 @@ impl Tracer {
             );
 
         grass_ppl
+            .auto_create_descriptor_sets(&pool, &[&resources])
+            .unwrap();
+        lavender_ppl
             .auto_create_descriptor_sets(&pool, &[&resources])
             .unwrap();
         leaves_ppl
@@ -435,6 +466,8 @@ impl Tracer {
             vsm_blur_v_ppl,
             grass_ppl,
             grass_render_pass,
+            lavender_ppl,
+            lavender_render_pass,
             color_depth_framebuffer,
             leaves_ppl,
             leaves_render_pass,
@@ -445,6 +478,7 @@ impl Tracer {
         })
     }
 
+    // TODO: refactor
     fn create_grass_render_pass_and_graphics_pipeline(
         vulkan_ctx: &VulkanContext,
         vert_sm: &ShaderModule,
@@ -469,6 +503,54 @@ impl Tracer {
                         load_op: vk::AttachmentLoadOp::CLEAR,
                         store_op: vk::AttachmentStoreOp::STORE,
                         initial_layout: vk::ImageLayout::UNDEFINED,
+                        final_layout: vk::ImageLayout::GENERAL,
+                        ty: AttachmentType::Depth,
+                    },
+                ],
+            )
+        };
+
+        let gfx_ppl = GraphicsPipeline::new(
+            vulkan_ctx.device(),
+            &vert_sm,
+            &frag_sm,
+            &render_pass,
+            &GraphicsPipelineDesc {
+                cull_mode: vk::CullModeFlags::BACK,
+                depth_test_enable: true,
+                depth_write_enable: true,
+                ..Default::default()
+            },
+            Some(1),
+        );
+
+        (gfx_ppl, render_pass)
+    }
+
+    fn create_lavender_render_pass_and_graphics_pipeline(
+        vulkan_ctx: &VulkanContext,
+        vert_sm: &ShaderModule,
+        frag_sm: &ShaderModule,
+        output_tex: Texture,
+        depth_tex: Texture,
+    ) -> (GraphicsPipeline, RenderPass) {
+        let render_pass = {
+            RenderPass::with_attachments(
+                vulkan_ctx.device().clone(),
+                &[
+                    AttachmentDescOuter {
+                        texture: output_tex,
+                        load_op: vk::AttachmentLoadOp::LOAD,
+                        store_op: vk::AttachmentStoreOp::STORE,
+                        initial_layout: vk::ImageLayout::GENERAL,
+                        final_layout: vk::ImageLayout::GENERAL,
+                        ty: AttachmentType::Color,
+                    },
+                    AttachmentDescOuter {
+                        texture: depth_tex,
+                        load_op: vk::AttachmentLoadOp::LOAD,
+                        store_op: vk::AttachmentStoreOp::STORE,
+                        initial_layout: vk::ImageLayout::GENERAL,
                         final_layout: vk::ImageLayout::GENERAL,
                         ty: AttachmentType::Depth,
                     },
@@ -1252,6 +1334,8 @@ impl Tracer {
 
         self.record_grass_pass(cmdbuf, surface_resources);
         frag_to_vert_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+        self.record_lavender_pass(cmdbuf, surface_resources);
+        frag_to_vert_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         self.record_leaves_pass(cmdbuf, surface_resources);
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
@@ -1375,24 +1459,19 @@ impl Tracer {
             },
         };
 
-        // must be done before record draw, can be swapped with record_viewport_scissor
-        // self.grass_ppl
-        //     .record_bind_descriptor_sets(cmdbuf, &self.grass_sets, 0);
-
         self.grass_ppl
             .record_viewport_scissor(cmdbuf, viewport, scissor);
 
         unsafe {
-            // bind the index buffer
             self.vulkan_ctx.device().cmd_bind_index_buffer(
                 cmdbuf.as_raw(),
                 self.resources.grass_blade_resources.indices.as_raw(),
                 0,
-                vk::IndexType::UINT32, // Use 32-bit indices
+                vk::IndexType::UINT32,
             );
         }
 
-        for (aabb, instances) in &surface_resources.instances.chunk_grass_instances {
+        for (aabb, instances) in &surface_resources.instances.chunk_flora_instances {
             // only draw if this chunk actually has grass instances.
             if instances.get(FloraType::Grass).instances_len == 0 {
                 continue;
@@ -1429,9 +1508,73 @@ impl Tracer {
                 0, // firstInstance
             );
         }
+        self.grass_render_pass.record_end(cmdbuf);
 
-        // now, iterate over each chunk and render lavender instances using the same grass pipeline
-        for (aabb, instances) in &surface_resources.instances.chunk_grass_instances {
+        let desc = self.grass_render_pass.get_desc();
+        self.resources
+            .extent_dependent_resources
+            .gfx_output_tex
+            .get_image()
+            .set_layout(0, desc.attachments[0].final_layout);
+        self.resources
+            .extent_dependent_resources
+            .gfx_depth_tex
+            .get_image()
+            .set_layout(0, desc.attachments[1].final_layout);
+    }
+
+    fn record_lavender_pass(&self, cmdbuf: &CommandBuffer, surface_resources: &SurfaceResources) {
+        self.lavender_ppl.record_bind(cmdbuf);
+
+        let clear_values = [
+            vk::ClearValue {
+                color: vk::ClearColorValue {
+                    float32: [0.0, 0.0, 0.0, 1.0],
+                },
+            },
+            vk::ClearValue {
+                depth_stencil: vk::ClearDepthStencilValue {
+                    depth: 1.0,
+                    stencil: 0,
+                },
+            },
+        ];
+
+        self.lavender_render_pass.record_begin(
+            cmdbuf,
+            &self.color_depth_framebuffer,
+            &clear_values,
+        );
+
+        let render_extent = self
+            .resources
+            .extent_dependent_resources
+            .gfx_output_tex
+            .get_image()
+            .get_desc()
+            .extent;
+        let viewport = Viewport::from_extent(render_extent.as_extent_2d().unwrap());
+        let scissor = vk::Rect2D {
+            offset: vk::Offset2D { x: 0, y: 0 },
+            extent: vk::Extent2D {
+                width: render_extent.width,
+                height: render_extent.height,
+            },
+        };
+
+        self.lavender_ppl
+            .record_viewport_scissor(cmdbuf, viewport, scissor);
+
+        unsafe {
+            self.vulkan_ctx.device().cmd_bind_index_buffer(
+                cmdbuf.as_raw(),
+                self.resources.lavender_resources.indices.as_raw(),
+                0,
+                vk::IndexType::UINT32,
+            );
+        }
+
+        for (aabb, instances) in &surface_resources.instances.chunk_flora_instances {
             // only draw if this chunk actually has lavender instances.
             if instances.get(FloraType::Lavender).instances_len == 0 {
                 continue;
@@ -1443,34 +1586,34 @@ impl Tracer {
             }
 
             // bind the vertex buffers for this specific chunk.
-            // binding point 0: common grass blade vertices (reused for lavender).
+            // binding point 0: common lavender vertices.
             // binding point 1: per-chunk, per-instance data.
             unsafe {
                 self.vulkan_ctx.device().cmd_bind_vertex_buffers(
                     cmdbuf.as_raw(),
                     0, // firstBinding
                     &[
-                        self.resources.grass_blade_resources.vertices.as_raw(),
+                        self.resources.lavender_resources.vertices.as_raw(),
                         instances.get(FloraType::Lavender).instances_buf.as_raw(),
                     ],
                     &[0, 0], // offsets
                 );
             }
 
-            // issue the draw call for the current chunk's lavender instances.
-            self.grass_ppl.record_indexed(
+            // issue the draw call for the current chunk.
+            // No barriers are needed here.
+            self.lavender_ppl.record_indexed(
                 cmdbuf,
-                self.resources.grass_blade_resources.indices_len,
+                self.resources.lavender_resources.indices_len,
                 instances.get(FloraType::Lavender).instances_len,
                 0, // firstIndex
                 0, // vertexOffset
                 0, // firstInstance
             );
         }
+        self.lavender_render_pass.record_end(cmdbuf);
 
-        self.grass_render_pass.record_end(cmdbuf);
-
-        let desc = self.grass_render_pass.get_desc();
+        let desc = self.lavender_render_pass.get_desc();
         self.resources
             .extent_dependent_resources
             .gfx_output_tex
@@ -1491,7 +1634,7 @@ impl Tracer {
 
         self.leaves_ppl.record_bind(cmdbuf);
 
-        // Don't clear - we want to preserve the grass that was already rendered
+        // Don't clear - we want to preserve the flora that has been rendered
         // Only clear the depth buffer to ensure proper depth testing
         let clear_values = [
             vk::ClearValue {

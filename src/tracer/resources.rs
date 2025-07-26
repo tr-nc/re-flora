@@ -1,9 +1,9 @@
 use crate::{
     resource::Resource,
     tracer::{
-        grass_construct::generate_indexed_voxel_grass_blade,
-        leaves_construct::generate_indexed_voxel_leaves, DenoiserResources,
-        ExtentDependentResources, Vertex,
+        flora_construct::{gen_grass, gen_lavender},
+        leaves_construct::generate_indexed_voxel_leaves,
+        DenoiserResources, ExtentDependentResources, Vertex,
     },
     util::get_project_root,
     vkn::{
@@ -23,15 +23,9 @@ pub struct GrassBladeResources {
 
 impl GrassBladeResources {
     pub fn new(device: Device, allocator: Allocator) -> Self {
-        // --- Generate and create indexed vertex and index buffers ---
-        const GRASS_BLADE_VOXEL_LENGTH: u32 = 8;
-
-        // 1. Generate the indexed data without colors (colors will be handled in shader).
-        let (vertices_data, indices_data) =
-            generate_indexed_voxel_grass_blade(GRASS_BLADE_VOXEL_LENGTH).unwrap();
+        let (vertices_data, indices_data) = gen_grass().unwrap();
         let indices_len = indices_data.len() as u32;
 
-        // 2. Create and fill the vertex buffer.
         let vertices = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
@@ -41,7 +35,44 @@ impl GrassBladeResources {
         );
         vertices.fill(&vertices_data).unwrap();
 
-        // 3. Create and fill the index buffer.
+        let indices = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::INDEX_BUFFER),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            (std::mem::size_of::<u32>() * indices_data.len()) as u64,
+        );
+        indices.fill(&indices_data).unwrap();
+
+        Self {
+            vertices: Resource::new(vertices),
+            indices: Resource::new(indices),
+            indices_len,
+        }
+    }
+}
+
+#[derive(ResourceContainer)]
+pub struct LavenderResources {
+    pub vertices: Resource<Buffer>,
+    pub indices: Resource<Buffer>,
+    pub indices_len: u32,
+}
+
+impl LavenderResources {
+    pub fn new(device: Device, allocator: Allocator) -> Self {
+        let (vertices_data, indices_data) = gen_lavender().unwrap();
+        let indices_len = indices_data.len() as u32;
+
+        let vertices = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            (std::mem::size_of::<Vertex>() * vertices_data.len()) as u64,
+        );
+        vertices.fill(&vertices_data).unwrap();
+
         let indices = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
@@ -150,6 +181,7 @@ pub struct TracerResources {
     pub terrain_query_result: Resource<Buffer>,
 
     pub grass_blade_resources: GrassBladeResources,
+    pub lavender_resources: LavenderResources,
     pub leaves_resources: LeavesResources,
 
     pub shadow_map_tex: Resource<Texture>,
@@ -438,6 +470,7 @@ impl TracerResources {
         );
 
         let grass_blade_resources = GrassBladeResources::new(device.clone(), allocator.clone());
+        let lavender_resources = LavenderResources::new(device.clone(), allocator.clone());
         let leaves_resources = LeavesResources::new(device.clone(), allocator.clone());
 
         return Self {
@@ -461,6 +494,7 @@ impl TracerResources {
             terrain_query_info: Resource::new(terrain_query_info),
             terrain_query_result: Resource::new(terrain_query_result),
             grass_blade_resources,
+            lavender_resources,
             leaves_resources,
             extent_dependent_resources,
             shadow_map_tex: Resource::new(shadow_map_tex),
