@@ -169,6 +169,7 @@ pub struct TracerResources {
     pub env_info: Resource<Buffer>,
     pub starlight_info: Resource<Buffer>,
     pub grass_info: Resource<Buffer>,
+    pub lavender_info: Resource<Buffer>,
     pub leaves_info: Resource<Buffer>,
     pub voxel_colors: Resource<Buffer>,
     pub taa_info: Resource<Buffer>,
@@ -206,6 +207,7 @@ impl TracerResources {
         vulkan_ctx: &VulkanContext,
         allocator: Allocator,
         vert_sm: &ShaderModule,
+        lavender_vert_sm: &ShaderModule,
         leaves_vert_sm: &ShaderModule,
         tracer_sm: &ShaderModule,
         tracer_shadow_sm: &ShaderModule,
@@ -305,6 +307,17 @@ impl TracerResources {
             device.clone(),
             allocator.clone(),
             grass_info_layout.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+        );
+
+        let lavender_info_layout = lavender_vert_sm
+            .get_buffer_layout("U_LavenderInfo")
+            .unwrap();
+        let lavender_info = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            lavender_info_layout.clone(),
             BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
@@ -483,6 +496,7 @@ impl TracerResources {
             env_info: Resource::new(env_info),
             starlight_info: Resource::new(starlight_info),
             grass_info: Resource::new(grass_info),
+            lavender_info: Resource::new(lavender_info),
             leaves_info: Resource::new(leaves_info),
             voxel_colors: Resource::new(voxel_colors),
             taa_info: Resource::new(taa_info),

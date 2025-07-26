@@ -243,12 +243,7 @@ void main() {
                 // Map noise from [-1, 1] to [0, 1]
                 float height_noise = fnlGetNoise2D(height_noise_state, uvi.x, uvi.z) * 0.5 + 0.5;
 
-                // Define the min and max possible height for a stalk of grass
-                const uint min_grass_height = 4;
-                const uint max_grass_height = 8;
-
-                // Use density_noise to determine if this should be lavender (15% chance)
-                float lavender_chance = 0.62;
+                float lavender_chance = 0.603;
                 if (density_noise < lavender_chance) {
                     add_lavender_instance(uvi, GRASS_TYPE_NORMAL);
                 } else {

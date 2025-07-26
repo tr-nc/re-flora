@@ -33,7 +33,7 @@ pub fn gen_grass() -> Result<(Vec<Vertex>, Vec<u32>)> {
 }
 
 pub fn gen_lavender() -> Result<(Vec<Vertex>, Vec<u32>)> {
-    const STEM_VOXEL_COUNT: u32 = 10;
+    const STEM_VOXEL_COUNT: u32 = 8;
     const LEAF_BALL_RADIUS: f32 = 2.0;
     const LEAF_BALL_BOUNDARY: i32 = LEAF_BALL_RADIUS as i32;
 
@@ -41,10 +41,22 @@ pub fn gen_lavender() -> Result<(Vec<Vertex>, Vec<u32>)> {
     let mut indices = Vec::new();
 
     // draw the stem
-    for i in 0..(STEM_VOXEL_COUNT - LEAF_BALL_BOUNDARY as u32) {
+    let total_stem_voxel_count = STEM_VOXEL_COUNT - LEAF_BALL_BOUNDARY as u32;
+    for i in 0..total_stem_voxel_count {
         let vertex_offset = vertices.len() as u32;
         let base_pos = IVec3::new(0, i as i32, 0);
-        append_indexed_cube_data(&mut vertices, &mut indices, base_pos, 0.0, vertex_offset)?;
+        // grad from 0 to 1
+        let mut gradient = i as f32 / total_stem_voxel_count as f32;
+        // pow 4.0
+        gradient = gradient.powf(4.0);
+
+        append_indexed_cube_data(
+            &mut vertices,
+            &mut indices,
+            base_pos,
+            gradient,
+            vertex_offset,
+        )?;
     }
 
     // draw the leaf ball at the top of the stem

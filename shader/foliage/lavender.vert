@@ -52,12 +52,12 @@ layout(set = 0, binding = 4) uniform U_ShadowCameraInfo {
 }
 shadow_camera_info;
 
-layout(set = 0, binding = 5) uniform U_GrassInfo {
+layout(set = 0, binding = 5) uniform U_LavenderInfo {
     float time;
     vec3 bottom_color;
     vec3 tip_color;
 }
-grass_info;
+lavender_info;
 
 layout(set = 0, binding = 6) uniform sampler2D shadow_map_tex_for_vsm_ping;
 
@@ -68,7 +68,7 @@ layout(set = 0, binding = 6) uniform sampler2D shadow_map_tex_for_vsm_ping;
 #include "./unpacker.glsl"
 
 
-const uint voxel_count     = 16;
+const uint voxel_count     = 13;
 const float scaling_factor = 1.0 / 256.0;
 
 vec2 random_grass_offset(vec2 grass_instance_pos, float time) {
@@ -106,7 +106,7 @@ vec2 random_grass_offset(vec2 grass_instance_pos, float time) {
 }
 
 vec3 get_wavy_offset(float bend_factor, vec2 grass_instance_pos) {
-    vec2 grass_offset = random_grass_offset(grass_instance_pos, grass_info.time);
+    vec2 grass_offset = random_grass_offset(grass_instance_pos, lavender_info.time);
 
     float denom   = float(max(voxel_count - 1u, 1u));
     float t       = bend_factor / denom;
@@ -134,8 +134,8 @@ void main() {
     gl_Position = camera_info.view_proj_mat * vec4(vert_pos, 1.0);
 
     // interpolate color based on color gradient
-    vec3 interpolated_color = mix(srgb_to_linear(grass_info.bottom_color),
-                                  srgb_to_linear(grass_info.tip_color), color_gradient);
+    vec3 interpolated_color = mix(srgb_to_linear(lavender_info.bottom_color),
+                                  srgb_to_linear(lavender_info.tip_color), color_gradient);
 
     vec3 sun_light = sun_info.sun_color * sun_info.sun_luminance;
     vert_color     = interpolated_color * (sun_light * shadow_weight + shading_info.ambient_light);

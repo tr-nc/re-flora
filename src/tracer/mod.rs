@@ -296,6 +296,7 @@ impl Tracer {
             &vulkan_ctx,
             allocator.clone(),
             &grass_vert_sm,
+            &lavender_vert_sm,
             &leaves_vert_sm,
             &tracer_sm,
             &tracer_shadow_sm,
@@ -822,6 +823,8 @@ impl Tracer {
         starlight_saturation: f32,
         grass_bottom_color: Vec3,
         grass_tip_color: Vec3,
+        lavender_bottom_color: Vec3,
+        lavender_tip_color: Vec3,
         leaf_bottom_color: Vec3,
         leaf_tip_color: Vec3,
         voxel_sand_color: Vec3,
@@ -873,6 +876,13 @@ impl Tracer {
             time_info.time_since_start(),
             grass_bottom_color,
             grass_tip_color,
+        )?;
+
+        update_lavender_info(
+            &self.resources,
+            time_info.time_since_start(),
+            lavender_bottom_color,
+            lavender_tip_color,
         )?;
 
         update_leaves_info(
@@ -1175,6 +1185,27 @@ impl Tracer {
                 )
                 .build()?;
             resources.grass_info.fill_with_raw_u8(&data)?;
+            Ok(())
+        }
+
+        fn update_lavender_info(
+            resources: &TracerResources,
+            time: f32,
+            bottom_color: Vec3,
+            tip_color: Vec3,
+        ) -> Result<()> {
+            let data = StructMemberDataBuilder::from_buffer(&resources.lavender_info)
+                .set_field("time", PlainMemberTypeWithData::Float(time))
+                .set_field(
+                    "bottom_color",
+                    PlainMemberTypeWithData::Vec3(bottom_color.to_array()),
+                )
+                .set_field(
+                    "tip_color",
+                    PlainMemberTypeWithData::Vec3(tip_color.to_array()),
+                )
+                .build()?;
+            resources.lavender_info.fill_with_raw_u8(&data)?;
             Ok(())
         }
 

@@ -242,6 +242,10 @@ pub struct App {
     grass_bottom_color: egui::Color32,
     grass_tip_color: egui::Color32,
 
+    // lavender colors
+    lavender_bottom_color: egui::Color32,
+    lavender_tip_color: egui::Color32,
+
     // leaf colors
     leaf_bottom_color: egui::Color32,
     leaf_tip_color: egui::Color32,
@@ -452,14 +456,17 @@ impl App {
             starlight_distfading: 0.885,
             starlight_saturation: 1.0,
 
-            grass_bottom_color: egui::Color32::from_rgb(52, 116, 51),
+            grass_bottom_color: egui::Color32::from_rgb(61, 163, 59),
             grass_tip_color: egui::Color32::from_rgb(182, 245, 0),
+
+            lavender_bottom_color: egui::Color32::from_rgb(109, 197, 115),
+            lavender_tip_color: egui::Color32::from_rgb(169, 40, 141),
 
             leaf_bottom_color: egui::Color32::from_rgb(220, 128, 231),
             leaf_tip_color: egui::Color32::from_rgb(255, 208, 238),
 
             voxel_sand_color: egui::Color32::from_rgb(245, 222, 179),
-            voxel_dirt_color: egui::Color32::from_rgb(165, 226, 40),
+            voxel_dirt_color: egui::Color32::from_rgb(88, 184, 63),
             voxel_rock_color: egui::Color32::from_rgb(235, 92, 0),
             voxel_leaf_color: egui::Color32::from_rgb(242, 199, 36),
             voxel_trunk_color: egui::Color32::from_rgb(215, 194, 168),
@@ -1637,6 +1644,21 @@ impl App {
                                             });
                                         });
 
+                                        ui.collapsing("Lavender Settings", |ui| {
+                                            ui.horizontal(|ui| {
+                                                ui.label("Bottom Color:");
+                                                ui.color_edit_button_srgba(
+                                                    &mut self.lavender_bottom_color,
+                                                );
+                                            });
+                                            ui.horizontal(|ui| {
+                                                ui.label("Tip Color:");
+                                                ui.color_edit_button_srgba(
+                                                    &mut self.lavender_tip_color,
+                                                );
+                                            });
+                                        });
+
                                         ui.collapsing("Voxel Colors", |ui| {
                                             ui.horizontal(|ui| {
                                                 ui.label("Sand Color:");
@@ -1822,6 +1844,16 @@ impl App {
                             self.grass_tip_color.r() as f32 / 255.0,
                             self.grass_tip_color.g() as f32 / 255.0,
                             self.grass_tip_color.b() as f32 / 255.0,
+                        ),
+                        Vec3::new(
+                            self.lavender_bottom_color.r() as f32 / 255.0,
+                            self.lavender_bottom_color.g() as f32 / 255.0,
+                            self.lavender_bottom_color.b() as f32 / 255.0,
+                        ),
+                        Vec3::new(
+                            self.lavender_tip_color.r() as f32 / 255.0,
+                            self.lavender_tip_color.g() as f32 / 255.0,
+                            self.lavender_tip_color.b() as f32 / 255.0,
                         ),
                         Vec3::new(
                             self.leaf_bottom_color.r() as f32 / 255.0,
