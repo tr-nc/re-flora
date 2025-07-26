@@ -83,7 +83,6 @@ pub fn generate_indexed_voxel_leaves(
                 if noise_value > noise_threshold {
                     let vertex_offset = vertices.len() as u32;
 
-                    // Convert to unsigned coordinates with offset
                     let pre_offset = IVec3::new(128, 128, 128);
                     let unsigned_pos = (IVec3::new(x, y, z) + pre_offset).as_uvec3();
 

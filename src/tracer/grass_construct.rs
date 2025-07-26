@@ -4,7 +4,7 @@ use crate::tracer::voxel_encoding::{
 use crate::tracer::voxel_geometry::{CUBE_INDICES, VOXEL_VERTICES};
 use crate::tracer::Vertex;
 use anyhow::Result;
-use glam::UVec3;
+use glam::{IVec3, UVec3};
 
 pub fn generate_indexed_voxel_grass_blade(voxel_count: u32) -> Result<(Vec<Vertex>, Vec<u32>)> {
     if voxel_count == 0 {
@@ -26,10 +26,13 @@ pub fn generate_indexed_voxel_grass_blade(voxel_count: u32) -> Result<(Vec<Verte
             0.0
         };
 
+        let pre_offset = IVec3::new(128, 128, 128);
+        let unsigned_pos = (base_pos.as_ivec3() + pre_offset).as_uvec3();
+        
         append_indexed_cube_data(
             &mut vertices,
             &mut indices,
-            base_pos,
+            unsigned_pos,
             color_gradient,
             vertex_offset,
         )?;
