@@ -62,7 +62,6 @@ impl SurfaceBuilder {
         plain_builder_resources: &PlainBuilderResources,
         voxel_dim_per_chunk: UVec3,
         chunk_bound: UAabb3,
-        grass_instances_capacity_per_chunk: u64,
     ) -> Self {
         let device = vulkan_ctx.device();
         let fixed_pool = DescriptorPool::new(device).unwrap();
@@ -82,7 +81,6 @@ impl SurfaceBuilder {
             voxel_dim_per_chunk,
             &make_surface_sm,
             chunk_bound,
-            grass_instances_capacity_per_chunk,
         );
 
         let make_surface_ppl = ComputePipeline::new(device, &make_surface_sm);
@@ -123,7 +121,7 @@ impl SurfaceBuilder {
 
         grass_instance_set.perform_writes(&mut [WriteDescriptorSet::new_buffer_write(
             0,
-            &chunk_resources.grass_instances,
+            &chunk_resources.get(FloraType::Grass).instances_buf,
         )]);
     }
 
@@ -145,7 +143,7 @@ impl SurfaceBuilder {
             true,
         )?;
 
-        update_make_surface_result(&self.resources.make_surface_result, 0, 0)?;
+        cleanup_make_surface_result(&self.resources.make_surface_result)?;
 
         self.update_grass_instance_set(&self.flexible_sets[0], chunk_id);
 
@@ -183,7 +181,7 @@ impl SurfaceBuilder {
             .iter_mut()
             .find(|(_, resources)| resources.chunk_id == chunk_id)
             .unwrap();
-        chunk_resources.1.grass_instances_len = grass_instance_len;
+        chunk_resources.1.get_mut(FloraType::Grass).instances_len = grass_instance_len;
 
         return Ok(active_voxel_len);
 
@@ -211,20 +209,11 @@ impl SurfaceBuilder {
             Ok(())
         }
 
-        fn update_make_surface_result(
-            make_surface_result: &Buffer,
-            active_voxel_len: u32,
-            grass_instance_len: u32,
-        ) -> Result<()> {
+        fn cleanup_make_surface_result(make_surface_result: &Buffer) -> Result<()> {
             let data = StructMemberDataBuilder::from_buffer(&make_surface_result)
-                .set_field(
-                    "active_voxel_len",
-                    PlainMemberTypeWithData::UInt(active_voxel_len),
-                )
-                .set_field(
-                    "grass_instance_len",
-                    PlainMemberTypeWithData::UInt(grass_instance_len),
-                )
+                .set_field("active_voxel_len", PlainMemberTypeWithData::UInt(0))
+                .set_field("grass_instance_len", PlainMemberTypeWithData::UInt(0))
+                .set_field("lavender_instance_len", PlainMemberTypeWithData::UInt(0))
                 .build()?;
             make_surface_result.fill_with_raw_u8(&data)?;
             Ok(())

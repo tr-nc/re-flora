@@ -16,6 +16,7 @@ make_surface_info;
 layout(set = 0, binding = 1) buffer B_MakeSurfaceResult {
     uint active_voxel_len;
     uint grass_instance_len;
+    uint lavender_instance_len;
 }
 make_surface_result;
 
@@ -23,9 +24,11 @@ layout(set = 0, binding = 2, r32ui) writeonly uniform uimage3D surface;
 
 layout(set = 0, binding = 3, r8ui) readonly uniform uimage3D atlas;
 
-#include "../../include/frag_elements_registry.glsl"
-layout(set = 1, binding = 0) writeonly buffer B_GrassInstances { GrassInstance data[]; }
+#include "../../include/instance.glsl"
+layout(set = 1, binding = 0) writeonly buffer B_GrassInstances { Instance data[]; }
 grass_instances;
+layout(set = 1, binding = 1) writeonly buffer B_LavenderInstances { Instance data[]; }
+lavender_instances;
 
 #include "../../include/config.glsl"
 #include "../../include/core/definitions.glsl"
@@ -173,10 +176,18 @@ bool is_surface_plantable(uint voxel_type) { return voxel_type != VOXEL_TYPE_TRU
 
 void add_grass_instance(ivec3 uvi, uint grass_type) {
     uint write_idx = atomicAdd(make_surface_result.grass_instance_len, 1);
-    GrassInstance instance;
-    instance.position   = uvec3(make_surface_info.atlas_read_offset + uvi) + uvec3(0, 1, 0);
-    instance.grass_type = GRASS_TYPE_NORMAL;
+    Instance instance;
+    instance.pos = uvec3(make_surface_info.atlas_read_offset + uvi) + uvec3(0, 1, 0);
+    instance.ty  = grass_type;
     grass_instances.data[write_idx] = instance;
+}
+
+void add_lavender_instance(ivec3 uvi, uint lavender_type) {
+    uint write_idx = atomicAdd(make_surface_result.lavender_instance_len, 1);
+    Instance instance;
+    instance.pos = uvec3(make_surface_info.atlas_read_offset + uvi) + uvec3(0, 1, 0);
+    instance.ty  = lavender_type;
+    lavender_instances.data[write_idx] = instance;
 }
 
 void main() {

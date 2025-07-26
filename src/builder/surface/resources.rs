@@ -7,27 +7,55 @@ use ash::vk;
 use glam::{UVec3, Vec3};
 use std::collections::HashMap;
 
-pub struct GrassInstanceResources {
-    #[allow(dead_code)]
-    pub chunk_id: UVec3,
-    pub grass_instances: Buffer,
-    pub grass_instances_len: u32,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FloraType {
+    Grass,
+    Lavender,
 }
 
-pub struct LeavesInstanceResources {
-    pub leaves_instances: Resource<Buffer>,
-    pub leaves_instances_len: u32,
+// TODO: use some reflection from shader side so i don't need to manually define this again
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct Instance {
+    pub pos: [u32; 3],
+    pub ty: u32,
+}
+
+pub struct InstanceResource {
+    pub instances_buf: Resource<Buffer>,
+    pub instances_len: u32,
+}
+
+impl InstanceResource {
+    pub fn new(device: Device, allocator: Allocator, max_instances: u64) -> Self {
+        let instance_size = std::mem::size_of::<Instance>();
+        let instances_buf = Buffer::new_sized(
+            device,
+            allocator,
+            BufferUsage::from_flags(
+                vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::STORAGE_BUFFER,
+            ),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            instance_size as u64 * max_instances,
+        );
+
+        Self {
+            instances_buf: Resource::new(instances_buf),
+            instances_len: 0,
+        }
+    }
 }
 
 pub struct TreeLeavesInstance {
+    #[allow(dead_code)]
     pub tree_id: u32,
     pub aabb: Aabb3,
-    pub resources: LeavesInstanceResources,
+    pub resources: InstanceResource,
 }
 
 impl TreeLeavesInstance {
     pub fn new(tree_id: u32, aabb: Aabb3, device: Device, allocator: Allocator) -> Self {
-        let resources = LeavesInstanceResources::new(device, allocator);
+        let resources = InstanceResource::new(device, allocator, 10000);
         Self {
             tree_id,
             aabb,
@@ -36,77 +64,55 @@ impl TreeLeavesInstance {
     }
 }
 
-impl GrassInstanceResources {
-    pub fn new(
-        device: Device,
-        allocator: Allocator,
-        make_surface_sm: &ShaderModule,
-        chunk_id: UVec3,
-        grass_instances_capacity: u64,
-    ) -> Self {
-        let grass_instances_layout = make_surface_sm
-            .get_buffer_layout("B_GrassInstances")
-            .unwrap();
-        let grass_instances = Buffer::from_buffer_layout_arraylike(
-            device.clone(),
-            allocator.clone(),
-            grass_instances_layout.clone(),
-            BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
-            gpu_allocator::MemoryLocation::GpuOnly,
-            grass_instances_capacity,
+pub struct FloraInstanceResources {
+    #[allow(dead_code)]
+    pub chunk_id: UVec3,
+    pub resources: HashMap<FloraType, InstanceResource>,
+}
+
+impl FloraInstanceResources {
+    pub fn new(device: Device, allocator: Allocator, chunk_id: UVec3) -> Self {
+        let mut resources = HashMap::new();
+        resources.insert(
+            FloraType::Grass,
+            InstanceResource::new(device.clone(), allocator.clone(), 10000),
+        );
+        resources.insert(
+            FloraType::Lavender,
+            InstanceResource::new(device.clone(), allocator.clone(), 10000),
         );
         Self {
             chunk_id,
-            grass_instances,
-            grass_instances_len: 0,
+            resources,
         }
     }
-}
 
-impl LeavesInstanceResources {
-    pub fn new(device: Device, allocator: Allocator) -> Self {
-        const LEAVES_INSTANCE_SIZE: usize = 16; // 3 * 4 + 4 bytes for uvec3 + uint
-        const MAX_LEAVES_INSTANCES: u64 = 10000;
-        let leaves_instances = Buffer::new_sized(
-            device,
-            allocator,
-            BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
-            gpu_allocator::MemoryLocation::CpuToGpu,
-            LEAVES_INSTANCE_SIZE as u64 * MAX_LEAVES_INSTANCES,
-        );
+    pub fn get(&self, flora_type: FloraType) -> &InstanceResource {
+        self.resources.get(&flora_type).unwrap()
+    }
 
-        Self {
-            leaves_instances: Resource::new(leaves_instances),
-            leaves_instances_len: 0,
-        }
+    pub fn get_mut(&mut self, flora_type: FloraType) -> &mut InstanceResource {
+        self.resources.get_mut(&flora_type).unwrap()
     }
 }
 
 pub struct InstanceResources {
-    pub chunk_grass_instances: Vec<(Aabb3, GrassInstanceResources)>,
+    pub chunk_grass_instances: Vec<(Aabb3, FloraInstanceResources)>,
     pub leaves_instances: HashMap<u32, TreeLeavesInstance>,
 }
 
 impl InstanceResources {
-    pub fn new(
-        device: Device,
-        allocator: Allocator,
-        make_surface_sm: &ShaderModule,
-        chunk_dim: UAabb3,
-        grass_instances_capacity_per_chunk: u64,
-    ) -> Self {
+    pub fn new(device: Device, allocator: Allocator, chunk_dim: UAabb3) -> Self {
         let mut chunk_grass_instances = Vec::new();
         for x in chunk_dim.min().x..chunk_dim.max().x {
             for y in chunk_dim.min().y..chunk_dim.max().y {
                 for z in chunk_dim.min().z..chunk_dim.max().z {
                     let chunk_offset = UVec3::new(x, y, z);
                     let chunk_aabb = compute_chunk_world_aabb(chunk_offset, 0.2);
-                    let grass_resources = GrassInstanceResources::new(
+                    let grass_resources = FloraInstanceResources::new(
                         device.clone(),
                         allocator.clone(),
-                        make_surface_sm,
                         chunk_offset,
-                        grass_instances_capacity_per_chunk,
                     );
                     chunk_grass_instances.push((chunk_aabb, grass_resources));
                 }
@@ -161,7 +167,6 @@ impl SurfaceResources {
         voxel_dim_per_chunk: UVec3,
         make_surface_sm: &ShaderModule,
         chunk_dim: UAabb3,
-        grass_instances_capacity_per_chunk: u64,
     ) -> Self {
         let surface_desc = ImageDesc {
             extent: Extent3D::new(
@@ -200,13 +205,7 @@ impl SurfaceResources {
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
-        let instances = InstanceResources::new(
-            device.clone(),
-            allocator.clone(),
-            make_surface_sm,
-            chunk_dim,
-            grass_instances_capacity_per_chunk,
-        );
+        let instances = InstanceResources::new(device.clone(), allocator.clone(), chunk_dim);
 
         return Self {
             surface,

@@ -22,7 +22,9 @@ use glam::{Mat4, UVec3, Vec2, Vec3};
 use winit::event::KeyEvent;
 
 use crate::audio::AudioEngine;
-use crate::builder::{ContreeBuilderResources, SceneAccelBuilderResources, SurfaceResources};
+use crate::builder::{
+    ContreeBuilderResources, FloraType, Instance, SceneAccelBuilderResources, SurfaceResources,
+};
 use crate::gameplay::{calculate_directional_light_matrices, Camera, CameraDesc};
 use crate::geom::UAabb3;
 use crate::resource::ResourceContainer;
@@ -1393,7 +1395,7 @@ impl Tracer {
         // now, iterate over each chunk and issue a draw call for it.
         for (aabb, instances) in &surface_resources.instances.chunk_grass_instances {
             // only draw if this chunk actually has grass instances.
-            if instances.grass_instances_len == 0 {
+            if instances.get(FloraType::Grass).instances_len == 0 {
                 continue;
             }
 
@@ -1411,7 +1413,7 @@ impl Tracer {
                     0, // firstBinding
                     &[
                         self.resources.grass_blade_resources.vertices.as_raw(),
-                        instances.grass_instances.as_raw(),
+                        instances.get(FloraType::Grass).instances_buf.as_raw(),
                     ],
                     &[0, 0], // offsets
                 );
@@ -1422,7 +1424,7 @@ impl Tracer {
             self.grass_ppl.record_indexed(
                 cmdbuf,
                 self.resources.grass_blade_resources.indices_len,
-                instances.grass_instances_len,
+                instances.get(FloraType::Grass).instances_len,
                 0, // firstIndex
                 0, // vertexOffset
                 0, // firstInstance
@@ -1502,7 +1504,7 @@ impl Tracer {
 
         // Loop through all tree leaves instances
         for (_tree_id, tree_instance) in &surface_resources.instances.leaves_instances {
-            if tree_instance.resources.leaves_instances_len == 0 {
+            if tree_instance.resources.instances_len == 0 {
                 continue;
             }
 
@@ -1521,7 +1523,7 @@ impl Tracer {
                     0,
                     &[
                         self.resources.leaves_resources.vertices.as_raw(),
-                        tree_instance.resources.leaves_instances.as_raw(),
+                        tree_instance.resources.instances_buf.as_raw(),
                     ],
                     &[0, 0],
                 );
@@ -1531,7 +1533,7 @@ impl Tracer {
             self.leaves_ppl.record_indexed(
                 cmdbuf,
                 self.resources.leaves_resources.indices_len,
-                tree_instance.resources.leaves_instances_len,
+                tree_instance.resources.instances_len,
                 0,
                 0,
                 0,
@@ -1597,7 +1599,7 @@ impl Tracer {
 
         // Loop through all tree leaves instances
         for (_tree_id, tree_instance) in &surface_resources.instances.leaves_instances {
-            if tree_instance.resources.leaves_instances_len == 0 {
+            if tree_instance.resources.instances_len == 0 {
                 continue;
             }
 
@@ -1615,7 +1617,7 @@ impl Tracer {
                     0,
                     &[
                         self.resources.leaves_resources.vertices.as_raw(),
-                        tree_instance.resources.leaves_instances.as_raw(),
+                        tree_instance.resources.instances_buf.as_raw(),
                     ],
                     &[0, 0],
                 );
@@ -1625,7 +1627,7 @@ impl Tracer {
             self.leaves_shadow_ppl.record_indexed(
                 cmdbuf,
                 self.resources.leaves_resources.indices_len,
-                tree_instance.resources.leaves_instances_len,
+                tree_instance.resources.instances_len,
                 0,
                 0,
                 0,
@@ -1891,22 +1893,15 @@ impl Tracer {
     ) -> Result<()> {
         use crate::builder::TreeLeavesInstance;
 
-        #[repr(C)]
-        #[derive(Copy, Clone)]
-        struct LeafInstance {
-            position: [u32; 3],
-            leaf_type: u32,
-        }
-
         let mut instances_data = Vec::new();
 
         for leaf_pos in leaf_positions.iter() {
             let voxel_pos = *leaf_pos;
 
             // Create instance data matching GrassInstance structure
-            let instance = LeafInstance {
-                position: [voxel_pos.x, voxel_pos.y, voxel_pos.z],
-                leaf_type: 0, // not in use for now
+            let instance = Instance {
+                pos: [voxel_pos.x, voxel_pos.y, voxel_pos.z],
+                ty: 0, // not in use for now
             };
 
             instances_data.push(instance);
@@ -1946,11 +1941,11 @@ impl Tracer {
         if !instances_data.is_empty() {
             tree_leaves_instance
                 .resources
-                .leaves_instances
+                .instances_buf
                 .fill(&instances_data)?;
-            tree_leaves_instance.resources.leaves_instances_len = instances_data.len() as u32;
+            tree_leaves_instance.resources.instances_len = instances_data.len() as u32;
         } else {
-            tree_leaves_instance.resources.leaves_instances_len = 0;
+            tree_leaves_instance.resources.instances_len = 0;
         }
 
         // Add/update the tree instance in HashMap
@@ -1980,7 +1975,7 @@ impl Tracer {
             log::info!(
                 "Removed tree {} with {} leaves",
                 tree_id,
-                removed_instance.resources.leaves_instances_len
+                removed_instance.resources.instances_len
             );
         } else {
             log::warn!("Attempted to remove non-existent tree {}", tree_id);

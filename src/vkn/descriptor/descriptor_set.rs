@@ -1,4 +1,5 @@
 use crate::vkn::{AccelStruct, Buffer, Device, Texture};
+use anyhow::Result;
 use ash::vk;
 use std::sync::Arc;
 
@@ -70,9 +71,12 @@ impl<'a> WriteDescriptorSet<'a> {
             .offset(0)
             .range(buffer.get_size_bytes());
 
+        let descriptor_type =
+            Self::descriptor_type_from_usage(buffer.get_usage().as_raw()).unwrap();
+
         Self {
             binding,
-            descriptor_type: Self::descriptor_type_from_usage(buffer.get_usage().as_raw()),
+            descriptor_type,
             image_infos: None,
             buffer_infos: Some(vec![buffer_info]),
             accel_struct_infos: None,
@@ -99,13 +103,16 @@ impl<'a> WriteDescriptorSet<'a> {
         }
     }
 
-    fn descriptor_type_from_usage(usage: vk::BufferUsageFlags) -> vk::DescriptorType {
+    fn descriptor_type_from_usage(usage: vk::BufferUsageFlags) -> Result<vk::DescriptorType> {
         if usage.contains(vk::BufferUsageFlags::STORAGE_BUFFER) {
-            vk::DescriptorType::STORAGE_BUFFER
+            Ok(vk::DescriptorType::STORAGE_BUFFER)
         } else if usage.contains(vk::BufferUsageFlags::UNIFORM_BUFFER) {
-            vk::DescriptorType::UNIFORM_BUFFER
+            Ok(vk::DescriptorType::UNIFORM_BUFFER)
         } else {
-            panic!("Unsupported buffer usage for descriptor type")
+            Err(anyhow::anyhow!(
+                "Unsupported buffer usage for descriptor type: {:?}",
+                usage
+            ))
         }
     }
 

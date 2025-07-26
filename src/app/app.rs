@@ -327,7 +327,6 @@ impl App {
             plain_builder.get_resources(),
             VOXEL_DIM_PER_CHUNK,
             chunk_bound,
-            VOXEL_DIM_PER_CHUNK.x as u64 * VOXEL_DIM_PER_CHUNK.z as u64,
         );
 
         let mut contree_builder = ContreeBuilder::new(
