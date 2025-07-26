@@ -19,9 +19,7 @@ layout(set = 0, binding = 1) uniform U_SunInfo {
     float sun_azimuth;
 }
 sun_info;
-layout(set = 0, binding = 2) uniform U_ShadingInfo {
-    vec3 ambient_light;
-}
+layout(set = 0, binding = 2) uniform U_ShadingInfo { vec3 ambient_light; }
 shading_info;
 layout(set = 0, binding = 3) uniform U_CameraInfo {
     vec4 pos;
@@ -144,13 +142,8 @@ vec3 sample_sun_disk(ivec3 seed, float sun_size, vec3 sun_dir) {
 
 /// If the ray hits the scene, no light, otherwise sunlight
 vec3 get_shadow_ray_color(Ray ray, ivec3 seed) {
-    if (gui_input.debug_bool == 0) {
-        MarchingResult res_shadow_ray = general_scene_marching(ray);
-        return res_shadow_ray.is_hit ? shading_info.ambient_light : sun_info.sun_color * sun_info.sun_luminance;
-    } else {
-        return get_shadow_weight_pcss(ray.origin, seed) * sun_info.sun_color *
-               sun_info.sun_luminance + shading_info.ambient_light;
-    }
+    return get_shadow_weight_pcss(ray.origin, seed) * sun_info.sun_color * sun_info.sun_luminance +
+           shading_info.ambient_light;
 }
 
 vec3 get_next_tracing_pos(vec3 voxel_center_pos, vec3 voxel_normal) {
