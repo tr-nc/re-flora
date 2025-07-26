@@ -460,7 +460,7 @@ impl App {
             leaf_tip_color: egui::Color32::from_rgb(255, 156, 224),
 
             voxel_sand_color: egui::Color32::from_rgb(245, 222, 179),
-            voxel_dirt_color: egui::Color32::from_rgb(74, 54, 43),
+            voxel_dirt_color: egui::Color32::from_rgb(165, 226, 40),
             voxel_rock_color: egui::Color32::from_rgb(235, 92, 0),
             voxel_leaf_color: egui::Color32::from_rgb(242, 199, 36),
             voxel_trunk_color: egui::Color32::from_rgb(215, 194, 168),
