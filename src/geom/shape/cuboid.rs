@@ -10,6 +10,7 @@ pub struct Cuboid {
 }
 
 impl Cuboid {
+    #[allow(dead_code)]
     pub fn new(center: Vec3, half_size: Vec3) -> Self {
         Cuboid { center, half_size }
     }

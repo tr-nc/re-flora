@@ -1,10 +1,6 @@
-use crate::tracer::voxel_encoding::{
-    encode_gradient, encode_pos_with_offset, encode_voxel_offset, make_value_from_parts,
-};
-use crate::tracer::voxel_geometry::{CUBE_INDICES, VOXEL_VERTICES};
-use crate::tracer::Vertex;
+use crate::tracer::{voxel_encoding::append_indexed_cube_data, Vertex};
 use anyhow::Result;
-use glam::{IVec3, UVec3};
+use glam::IVec3;
 use noise::{NoiseFn, Perlin};
 
 /// Generates indexed voxel data for hollow sphere-shaped leaves.
@@ -83,13 +79,10 @@ pub fn generate_indexed_voxel_leaves(
                 if noise_value > noise_threshold {
                     let vertex_offset = vertices.len() as u32;
 
-                    let pre_offset = IVec3::new(128, 128, 128);
-                    let unsigned_pos = (IVec3::new(x, y, z) + pre_offset).as_uvec3();
-
                     append_indexed_cube_data(
                         &mut vertices,
                         &mut indices,
-                        unsigned_pos,
+                        pos,
                         gradient,
                         vertex_offset,
                     )?;
@@ -99,34 +92,4 @@ pub fn generate_indexed_voxel_leaves(
     }
 
     Ok((vertices, indices))
-}
-
-/// Appends 8 vertices and 36 indices for a single cube to the provided lists.
-fn append_indexed_cube_data(
-    vertices: &mut Vec<Vertex>,
-    indices: &mut Vec<u32>,
-    base_position: UVec3,
-    color_gradient: f32,
-    vertex_offset: u32,
-) -> Result<()> {
-    // Use shared voxel vertices
-    let voxel_verts = VOXEL_VERTICES;
-
-    let encoded_pos = encode_pos_with_offset(base_position, 0)?;
-    let encoded_gradient = encode_gradient(color_gradient)?;
-
-    for voxel_vert in voxel_verts {
-        let encoded_offset = encode_voxel_offset(voxel_vert)?;
-        let packed_data = make_value_from_parts(encoded_pos, encoded_offset, encoded_gradient);
-        vertices.push(Vertex { packed_data });
-    }
-
-    // Use shared cube indices
-    let base_indices = &CUBE_INDICES;
-
-    for &index in base_indices {
-        indices.push(vertex_offset + index);
-    }
-
-    Ok(())
 }
