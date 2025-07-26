@@ -28,7 +28,7 @@ pub fn generate_indexed_voxel_grass_blade(voxel_count: u32) -> Result<(Vec<Verte
 
         let pre_offset = IVec3::new(128, 128, 128);
         let unsigned_pos = (base_pos.as_ivec3() + pre_offset).as_uvec3();
-        
+
         append_indexed_cube_data(
             &mut vertices,
             &mut indices,

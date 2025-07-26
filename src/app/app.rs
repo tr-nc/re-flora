@@ -1228,7 +1228,7 @@ impl App {
                                                 if self.leaves_inner_radius > self.leaves_outer_radius {
                                                     self.leaves_outer_radius = self.leaves_inner_radius;
                                                 }
-                                                
+
                                                 if let Err(e) = self.tracer.regenerate_leaves(
                                                     self.leaves_inner_density,
                                                     self.leaves_outer_density,

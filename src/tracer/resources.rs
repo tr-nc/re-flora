@@ -84,7 +84,7 @@ impl LeavesResources {
         let (mut vertices_data, mut indices_data) =
             generate_indexed_voxel_leaves(inner_density, outer_density, inner_radius, outer_radius)
                 .unwrap();
-        
+
         // Guard against empty data - create minimal buffers to avoid Vulkan validation errors
         if vertices_data.is_empty() {
             vertices_data.push(Vertex { packed_data: 0 }); // Dummy vertex
@@ -92,7 +92,7 @@ impl LeavesResources {
         if indices_data.is_empty() {
             indices_data.push(0); // Dummy index
         }
-        
+
         let indices_len = if indices_data.len() == 1 && indices_data[0] == 0 {
             0 // Don't render anything if this was a dummy index
         } else {
