@@ -1680,7 +1680,7 @@ impl App {
                             .anchor(egui::Align2::RIGHT_BOTTOM, egui::Vec2::new(-10.0, -10.0))
                             .show(ctx, |ui| {
                                 let fps_frame = egui::containers::Frame {
-                                    fill: Color32::from_rgba_premultiplied(0, 0, 0, 128),
+                                    fill: Color32::from_rgba_premultiplied(0, 0, 0, 180),
                                     inner_margin: egui::Margin::same(6),
                                     corner_radius: egui::CornerRadius::same(4),
                                     ..Default::default()
