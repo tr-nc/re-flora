@@ -9,8 +9,6 @@ use crate::tracer::{
 const BIT_PER_POS: u32 = 7;
 const BIT_PER_OFFSET: u32 = 1;
 
-const BIT_PER_CUSTOM_INFO: u32 = 8;
-
 const BIT_PER_COLOR_GRADIENT: u32 = 4;
 const BIT_PER_WIND_GRADIENT: u32 = 4;
 
