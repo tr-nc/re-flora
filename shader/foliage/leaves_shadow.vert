@@ -8,8 +8,8 @@
 layout(location = 0) in uint in_packed_data;
 
 // these are instance-rate attributes (reusing grass instance buffer)
-layout(location = 1) in uvec3 in_instance_position;
-layout(location = 2) in uint in_instance_grass_type;
+layout(location = 1) in uvec3 in_instance_pos;
+layout(location = 2) in uint in_instance_ty;
 
 layout(set = 0, binding = 0) uniform U_GuiInput {
     float debug_float;
@@ -59,51 +59,62 @@ grass_info;
 
 layout(set = 0, binding = 6) uniform sampler2D shadow_map_tex_for_vsm_ping;
 
+#include "../include/core/fast_noise_lite.glsl"
 #include "../include/core/hash.glsl"
+#include "./unpacker.glsl"
 
 const float scaling_factor = 1.0 / 256.0;
 
-void unpack_vertex_data(out vec3 o_base_pos, out uint o_vertex_offset, out float o_gradient,
-                        uint packed_data) {
-    // Extract base position (24 bits: 8 bits each for x, y, z)
-    o_base_pos = vec3(packed_data & 0xFF, (packed_data >> 8) & 0xFF, (packed_data >> 16) & 0xFF);
-    // Extract vertex offset (3 bits)
-    o_vertex_offset = (packed_data >> 24) & 0x7u;
-    // Extract gradient (5 bits)
-    o_gradient = float((packed_data >> 27) & 0x1F) / 31.0;
+vec2 rand_offset(vec2 instance_pos, float time) {
+    const float wind_speed            = 0.6;
+    const float wind_strength         = 5.0;
+    const float wind_scale            = 2.0;
+    const float natual_variance_scale = 1.5;
+
+    // ranges from 0 to 1
+    vec2 natual_state = hash_22(instance_pos);
+    // convert to -1 to 1
+    natual_state = natual_state * 2.0 - 1.0;
+    natual_state = natual_state * natual_variance_scale;
+
+    fnl_state state    = fnlCreateState(469);
+    state.noise_type   = FNL_NOISE_PERLIN;
+    state.fractal_type = FNL_FRACTAL_FBM;
+    state.frequency    = wind_scale;
+    state.octaves      = 2;
+    state.lacunarity   = 2.0;
+    state.gain         = 0.2;
+
+    float time_offset = time * wind_speed;
+
+    float noise_x = fnlGetNoise2D(state, instance_pos.x + time_offset, instance_pos.y);
+
+    // Sample noise for the Z offset from a different location in the noise field to make it look
+    // more natural. Adding a large number to the coordinates ensures we are sampling a different,
+    // uncorrelated noise pattern.
+    float noise_z =
+        fnlGetNoise2D(state, instance_pos.x + 123.4, instance_pos.y - 234.5 + time_offset);
+
+    // The noise is in the range [-1, 1], we scale it by the desired strength.
+    return vec2(noise_x, noise_z) * wind_strength + natual_state;
 }
 
-// Convert vertex offset index to actual 3D offset
-vec3 decode_vertex_offset(uint vertex_offset) {
-    // The vertex offset is encoded as: x | (y << 1) | (z << 2)
-    // So we need to extract each bit
-    uint x = vertex_offset & 1u;
-    uint y = (vertex_offset >> 1) & 1u;
-    uint z = (vertex_offset >> 2) & 1u;
-    return vec3(float(x), float(y), float(z));
+vec3 get_wavy_offset(vec2 instance_pos, float gradient) {
+    vec2 rand_off = rand_offset(instance_pos, grass_info.time) * gradient * gradient;
+    return vec3(rand_off.x, 0.0, rand_off.y);
 }
 
 void main() {
-    // Unpack vertex data
-    vec3 base_position;
-    uint vertex_offset_index;
+    ivec3 vox_local_pos;
+    uvec3 vert_offset_in_vox;
     float gradient;
-    unpack_vertex_data(base_position, vertex_offset_index, gradient, in_packed_data);
+    unpack_vertex_data(vox_local_pos, vert_offset_in_vox, gradient, in_packed_data);
 
-    // Calculate actual vertex position by adding the cube vertex offset
-    vec3 cube_vertex_offset = decode_vertex_offset(vertex_offset_index);
-    vec3 vertex_pos         = base_position + cube_vertex_offset;
+    vec3 instance_pos = in_instance_pos * scaling_factor;
 
-    // Position leaves above the grass instances slightly
-    vec4 vert_pos_ws = vec4(vertex_pos + in_instance_position - vec3(128.0), 1.0);
+    vec3 wavy_offset = get_wavy_offset(instance_pos.xz, gradient);
+    vec3 anchor_pos  = (vox_local_pos + wavy_offset) * scaling_factor + instance_pos;
+    vec3 vert_pos    = anchor_pos + vert_offset_in_vox * scaling_factor;
 
-    // Apply scaling
-    mat4 scale_mat  = mat4(1.0);
-    scale_mat[0][0] = scaling_factor;
-    scale_mat[1][1] = scaling_factor;
-    scale_mat[2][2] = scaling_factor;
-    vert_pos_ws     = scale_mat * vert_pos_ws;
-
-    // Transform to clip space using shadow camera
-    gl_Position = shadow_camera_info.view_proj_mat * vert_pos_ws;
+    gl_Position = shadow_camera_info.view_proj_mat * vec4(vert_pos, 1.0);
 }
