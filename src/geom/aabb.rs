@@ -61,7 +61,7 @@ impl Aabb3 {
     }
 
     pub fn from_points(points: &[Vec3]) -> Self {
-        // Transform leaf positions to world space and find bounds
+        // transform leaf positions to world space and find bounds
         let mut min = Vec3::splat(f32::INFINITY);
         let mut max = Vec3::splat(f32::NEG_INFINITY);
 
@@ -215,7 +215,7 @@ pub struct UAabb3 {
 
 impl Default for UAabb3 {
     fn default() -> Self {
-        // Default to an empty AABB with min at (0, 0, 0) and max at (0, 0, 0)
+        // default to an empty AABB with min at (0, 0, 0) and max at (0, 0, 0)
         Self {
             min: UVec3::ZERO,
             max: UVec3::ZERO,

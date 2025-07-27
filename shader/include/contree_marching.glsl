@@ -1,8 +1,8 @@
 #ifndef CONTREE_MARCHING_GLSL
 #define CONTREE_MARCHING_GLSL
 
-// Shared stack per work-group invocation
-// Notice: the dispatch size is required to be 64 (e.g  8x8x1) for this to work
+// shared stack per work-group invocation
+// notice: the dispatch size is required to be 64 (e.g  8x8x1) for this to work
 shared uint gs_stack[64][11];
 
 #include "../include/contree_node.glsl"
@@ -16,7 +16,7 @@ struct ContreeMarchingResult {
     uint voxel_addr;
 };
 
-// Reverses pos from [1.0,2.0) to (2.0,1.0] if dir>0
+// reverses pos from [1.0,2.0) to (2.0,1.0] if dir>0
 vec3 get_mirrored_pos(vec3 pos, vec3 dir, bool range_check) {
     // although we could reverse float coordinates from range [1.0, 2.0] to [2.0, 1.0] simply by
     // 3.0 - x, our upper bound is exclusive and so this will produce ever so slightly off results,
@@ -36,7 +36,7 @@ vec3 get_mirrored_pos(vec3 pos, vec3 dir, bool range_check) {
     return mix(pos, mirrored, greaterThan(dir, vec3(0.0)));
 }
 
-// Compute child index [0..26) from bits of pos at this scale
+// compute child index [0..26) from bits of pos at this scale
 int get_node_cell_index(vec3 pos, int scale_exp) {
     uvec3 pu      = floatBitsToUint(pos);
     uvec3 cellpos = (pu >> uint(scale_exp)) & 3u;
@@ -74,7 +74,7 @@ ContreeMarchingResult _contree_marching(vec3 origin, vec3 dir, bool coarse, uint
     }
     origin += max(slab.x, 0.0) * dir;
 
-    // Build mirror mask based on ray octant
+    // build mirror mask based on ray octant
     uint mirror_mask = 0u;
     if (dir.x > 0.0) mirror_mask |= 3u << 0;
     if (dir.y > 0.0) mirror_mask |= 3u << 4;
@@ -93,7 +93,7 @@ ContreeMarchingResult _contree_marching(vec3 origin, vec3 dir, bool coarse, uint
 
         uint child_idx = uint(get_node_cell_index(pos, scale_exp)) ^ mirror_mask;
 
-        // Descend as far as possible
+        // descend as far as possible
         while (((node.child_mask >> uint64_t(child_idx)) & 1u) != 0u &&
                (node.packed_0 & 1u) == 0u) {
             uint stk_idx                = uint(scale_exp >> 1);
@@ -112,27 +112,27 @@ ContreeMarchingResult _contree_marching(vec3 origin, vec3 dir, bool coarse, uint
             break;
         }
 
-        // Figure out how far to step (advance exponent by 1 if no cross‐child)
+        // figure out how far to step (advance exponent by 1 if no cross‐child)
         int adv_scale_exp = scale_exp;
         if (((node.child_mask >> uint64_t(child_idx & 0x2Au)) & 0x00330033u) == 0u) {
             adv_scale_exp++;
         }
 
-        // Intersect ray with current cell face
+        // intersect ray with current cell face
         vec3 cell_min = floor_scale(pos, adv_scale_exp);
         side_dist     = (cell_min - origin) * inv_dir;
         float tmax    = min(min(side_dist.x, side_dist.y), side_dist.z);
 
-        // Compute the neighboring cell coordinate
+        // compute the neighboring cell coordinate
         bvec3 side_mask    = bvec3(tmax >= side_dist.x, tmax >= side_dist.y, tmax >= side_dist.z);
         ivec3 base         = ivec3(floatBitsToInt(cell_min));
         ivec3 off          = ivec3((1 << adv_scale_exp) - 1);
         ivec3 neighbor_max = base + mix(off, ivec3(-1), side_mask);
 
-        // Move to the next cell
+        // move to the next cell
         pos = min(origin - abs(dir) * tmax, intBitsToFloat(neighbor_max));
 
-        // If we crossed more than one ancestor level, pop the stack
+        // if we crossed more than one ancestor level, pop the stack
         uvec3 diff_pos = floatBitsToUint(pos) ^ floatBitsToUint(cell_min);
         uint combined  = (diff_pos.x | diff_pos.y | diff_pos.z) & 0xFFAAAAAAu;
         int diff_exp   = findMSB(int(combined));

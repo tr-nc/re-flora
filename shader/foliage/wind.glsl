@@ -25,13 +25,13 @@ vec2 rand_offset(vec2 instance_pos, float time) {
 
     float noise_x = fnlGetNoise2D(state, instance_pos.x + time_offset, instance_pos.y);
 
-    // Sample noise for the Z offset from a different location in the noise field to make it look
+    // sample noise for the Z offset from a different location in the noise field to make it look
     // more natural. Adding a large number to the coordinates ensures we are sampling a different,
     // uncorrelated noise pattern.
     float noise_z =
         fnlGetNoise2D(state, instance_pos.x + 123.4, instance_pos.y - 234.5 + time_offset);
 
-    // The noise is in the range [-1, 1], we scale it by the desired strength.
+    // the noise is in the range [-1, 1], we scale it by the desired strength.
     return vec2(noise_x, noise_z) * wind_strength + natual_state;
 }
 

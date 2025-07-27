@@ -116,7 +116,7 @@ impl LeavesResources {
             generate_indexed_voxel_leaves(inner_density, outer_density, inner_radius, outer_radius)
                 .unwrap();
 
-        // Guard against empty data - create minimal buffers to avoid Vulkan validation errors
+        // guard against empty data - create minimal buffers to avoid Vulkan validation errors
         if vertices_data.is_empty() {
             vertices_data.push(Vertex { packed_data: 0 }); // Dummy vertex
         }

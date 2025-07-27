@@ -159,7 +159,7 @@ impl RenderPass {
             })
             .collect();
 
-        // These collections hold the attachment references for the duration of the subpass creation.
+        // these collections hold the attachment references for the duration of the subpass creation.
         let subpass_color_refs: Vec<Vec<vk::AttachmentReference>> = desc
             .subpasses
             .iter()

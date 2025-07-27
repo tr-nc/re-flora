@@ -188,7 +188,7 @@ unsafe extern "system" fn vulkan_debug_callback(
             ),
         }
     } else {
-        // Raw message output
+        // raw message output
         match flag {
             Flag::VERBOSE => log::debug!("{header} | {message}\n"),
             Flag::INFO => log::info!("{header} | {message}\n"),

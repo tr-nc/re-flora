@@ -47,7 +47,7 @@ pub fn build_or_update_blas(
         vk::BuildAccelerationStructureModeKHR::UPDATE
     };
 
-    // Query sizes for BLAS + scratch
+    // query sizes for BLAS + scratch
     let (as_size, scratch_size) = utils::query_properties(
         &acc_device,
         geom,

@@ -79,7 +79,7 @@ impl ComputePipeline {
             descriptor_sets_bindings,
         }));
 
-        // Auto-create descriptor sets
+        // auto-create descriptor sets
         descriptor_set_utils::auto_create_descriptor_sets(
             descriptor_pool,
             resource_containers,

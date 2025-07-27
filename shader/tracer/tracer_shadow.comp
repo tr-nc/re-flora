@@ -81,7 +81,7 @@ void main() {
     float terrain_depth = get_pixel_depth(ray);
 
     float existing_depth = imageLoad(shadow_map_tex, uvi).r;
-    float final_depth = min(terrain_depth, existing_depth);
+    float final_depth    = min(terrain_depth, existing_depth);
 
     // float final_depth = terrain_depth;
 

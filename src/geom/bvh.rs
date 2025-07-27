@@ -30,7 +30,7 @@ pub fn build_bvh(aabbs: &[Aabb3], leaves_data: &[u32]) -> Result<Vec<BvhNode>, S
         ));
     }
 
-    // An empty input ⇒ an empty BVH.
+    // an empty input ⇒ an empty BVH.
     if aabbs.is_empty() {
         return Err("Cannot build a BVH from an empty slice.".to_string());
     }
@@ -40,12 +40,12 @@ pub fn build_bvh(aabbs: &[Aabb3], leaves_data: &[u32]) -> Result<Vec<BvhNode>, S
         items.push((aabb, leaves_data[i]));
     }
 
-    // Allocate a vector of nodes.
-    // The very first element is a dummy root that will be overwritten later.
+    // allocate a vector of nodes.
+    // the very first element is a dummy root that will be overwritten later.
     let mut nodes = Vec::new();
     nodes.push(dummy_node(&items[0].0)); // index 0 == root
 
-    // Fill the whole tree in-place, starting at that root.
+    // fill the whole tree in-place, starting at that root.
     let len = items.len();
     build_bvh_recursive_in_place(&mut items, &mut nodes, 0, 0, len);
 

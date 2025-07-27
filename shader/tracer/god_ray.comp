@@ -48,7 +48,6 @@ layout(set = 1, binding = 5, rgba8) readonly uniform image2DArray fast_weighted_
 
 #include "../include/ray.glsl"
 
-
 float get_depth_01(ivec2 uvi) {
     float gfx_depth_01     = imageLoad(gfx_depth_tex, uvi).r;
     float compute_depth_01 = imageLoad(compute_depth_tex, uvi).r;
@@ -76,8 +75,8 @@ void main() {
     float real_depth = length(hit_far_point_ws - near_point_ws);
 
     float using_depth = min(real_depth, god_ray_info.max_depth);
-    
-    // Dynamic step size: adapt to actual depth
+
+    // dynamic step size: adapt to actual depth
     float step_size = using_depth / float(god_ray_info.max_checks);
 
     ivec3 seed         = get_seed(env_info.frame_serial_idx);
@@ -98,7 +97,7 @@ void main() {
         float t                = ndc.z;
         float shadow_tex_depth = texture(shadow_map_tex, uv).r;
 
-        // If the current point in the atmosphere can be lit
+        // if the current point in the atmosphere can be lit
         if (shadow_tex_depth > t) {
             float mist_weight = exp(-lookup_pos.y * 2.0);
             shadow_visibility += mist_weight * step_size; // weight by segment length

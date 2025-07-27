@@ -81,7 +81,7 @@ where
     let seed = desc.seed;
 
     if let Some(fractal) = desc.fractal_settings {
-        // If fractal settings are provided, configure and return an Fbm noise function.
+        // if fractal settings are provided, configure and return an Fbm noise function.
         let mut noise = Fbm::<T>::new(seed);
         noise.octaves = fractal.octaves;
         noise.frequency = fractal.frequency;
@@ -122,24 +122,24 @@ pub fn generate_positions(
             let cell_origin_x = ix as f32 * grid_size;
             let cell_origin_y = iy as f32 * grid_size;
 
-            // Get the 2D noise value, casting coordinates to f64 for the noise library.
+            // get the 2D noise value, casting coordinates to f64 for the noise library.
             let noise_val = noise_fn.get([cell_origin_x as f64, cell_origin_y as f64]);
 
-            // Normalize the noise value from [-1.0, 1.0] to [0.0, 1.0].
+            // normalize the noise value from [-1.0, 1.0] to [0.0, 1.0].
             let normalized_noise = (noise_val + 1.0) / 2.0;
 
             if normalized_noise > desc.threshold {
-                // Determine the actual cell dimensions, clamping to map boundaries.
+                // determine the actual cell dimensions, clamping to map boundaries.
                 let effective_cell_end_x = (cell_origin_x + grid_size).min(map_dimensions.x);
                 let effective_cell_end_y = (cell_origin_y + grid_size).min(map_dimensions.y);
                 let actual_cell_width = effective_cell_end_x - cell_origin_x;
                 let actual_cell_height = effective_cell_end_y - cell_origin_y;
 
-                // Calculate the center of the cell.
+                // calculate the center of the cell.
                 let base_x = cell_origin_x + actual_cell_width / 2.0;
                 let base_y = cell_origin_y + actual_cell_height / 2.0;
 
-                // Calculate a random offset (jitter) within the cell.
+                // calculate a random offset (jitter) within the cell.
                 let half_jitter_span_x = actual_cell_width * JITTER_MULTIPLIER / 2.0;
                 let half_jitter_span_y = actual_cell_height * JITTER_MULTIPLIER / 2.0;
 
@@ -149,7 +149,7 @@ pub fn generate_positions(
                 let final_x = base_x + offset_x;
                 let final_y = base_y + offset_y;
 
-                // Ensure the final position is within map bounds before adding it.
+                // ensure the final position is within map bounds before adding it.
                 if final_x >= 0.0
                     && final_x < map_dimensions.x
                     && final_y >= 0.0

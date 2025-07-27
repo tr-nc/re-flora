@@ -656,7 +656,7 @@ impl Tracer {
             ppl.auto_update_descriptor_sets(resources).unwrap()
         };
 
-        // Pipelines that need all resources (tracer, scene_accel, contree)
+        // pipelines that need all resources (tracer, scene_accel, contree)
         let all_resources = &[
             &self.resources as &dyn ResourceContainer,
             contree_builder_resources as &dyn ResourceContainer,
@@ -667,7 +667,7 @@ impl Tracer {
         update_fn(&self.player_collider_ppl, all_resources);
         update_fn(&self.terrain_query_ppl, all_resources);
 
-        // Pipelines that only need tracer resources
+        // pipelines that only need tracer resources
         let tracer_resources = &[&self.resources as &dyn ResourceContainer];
         update_fn(&self.vsm_creation_ppl, tracer_resources);
         update_fn(&self.vsm_blur_h_ppl, tracer_resources);
@@ -1467,7 +1467,7 @@ impl Tracer {
             }
 
             // issue the draw call for the current chunk.
-            // No barriers are needed here.
+            // no barriers are needed here.
             self.flora_ppl_with_clear.record_indexed(
                 cmdbuf,
                 self.resources.grass_blade_resources.indices_len,
@@ -1575,7 +1575,7 @@ impl Tracer {
             }
 
             // issue the draw call for the current chunk.
-            // No barriers are needed here.
+            // no barriers are needed here.
             self.flora_ppl_with_load.record_indexed(
                 cmdbuf,
                 self.resources.lavender_resources.indices_len,
@@ -1601,15 +1601,15 @@ impl Tracer {
     }
 
     fn record_leaves_pass(&self, cmdbuf: &CommandBuffer, surface_resources: &SurfaceResources) {
-        // Skip rendering entirely if no leaf instances exist
+        // skip rendering entirely if no leaf instances exist
         if surface_resources.instances.leaves_instances.is_empty() {
             return;
         }
 
         self.leaves_ppl_with_load.record_bind(cmdbuf);
 
-        // Don't clear - we want to preserve the flora that has been rendered
-        // Only clear the depth buffer to ensure proper depth testing
+        // don't clear - we want to preserve the flora that has been rendered
+        // only clear the depth buffer to ensure proper depth testing
         let clear_values = [
             vk::ClearValue {
                 color: vk::ClearColorValue {
@@ -1659,7 +1659,7 @@ impl Tracer {
             );
         }
 
-        // Loop through all tree leaves instances
+        // loop through all tree leaves instances
         for (_tree_id, tree_instance) in &surface_resources.instances.leaves_instances {
             if tree_instance.resources.instances_len == 0 {
                 continue;
@@ -1673,7 +1673,7 @@ impl Tracer {
                 continue;
             }
 
-            // Bind vertex buffers for this instance
+            // bind vertex buffers for this instance
             unsafe {
                 self.vulkan_ctx.device().cmd_bind_vertex_buffers(
                     cmdbuf.as_raw(),
@@ -1686,7 +1686,7 @@ impl Tracer {
                 );
             }
 
-            // Render this instance
+            // render this instance
             self.leaves_ppl_with_load.record_indexed(
                 cmdbuf,
                 self.resources.leaves_resources.indices_len,
@@ -1754,7 +1754,7 @@ impl Tracer {
             );
         }
 
-        // Loop through all tree leaves instances
+        // loop through all tree leaves instances
         for (_tree_id, tree_instance) in &surface_resources.instances.leaves_instances {
             if tree_instance.resources.instances_len == 0 {
                 continue;
@@ -1772,7 +1772,7 @@ impl Tracer {
                 );
             }
 
-            // Render this instance for shadow map
+            // render this instance for shadow map
             self.leaves_shadow_ppl_with_clear.record_indexed(
                 cmdbuf,
                 self.resources.leaves_resources.indices_len,
@@ -2047,7 +2047,7 @@ impl Tracer {
         for leaf_pos in leaf_positions.iter() {
             let voxel_pos = *leaf_pos;
 
-            // Create instance data matching GrassInstance structure
+            // create instance data matching GrassInstance structure
             let instance = Instance {
                 pos: [voxel_pos.x, voxel_pos.y, voxel_pos.z],
                 ty: 0, // not in use for now
@@ -2062,7 +2062,7 @@ impl Tracer {
             tree_id
         );
 
-        // Calculate AABB based on actual leaf positions
+        // calculate AABB based on actual leaf positions
         let scaled_leaf_positions = leaf_positions
             .iter()
             .map(|leaf| {
@@ -2078,7 +2078,7 @@ impl Tracer {
             0.2, // Default margin to cover leaf radius
         );
 
-        // Create new tree leaves instance
+        // create new tree leaves instance
         let mut tree_leaves_instance = TreeLeavesInstance::new(
             tree_id,
             leaves_aabb,
@@ -2086,7 +2086,7 @@ impl Tracer {
             self.allocator.clone(),
         );
 
-        // Fill with instance data if we have any
+        // fill with instance data if we have any
         if !instances_data.is_empty() {
             tree_leaves_instance
                 .resources
@@ -2097,7 +2097,7 @@ impl Tracer {
             tree_leaves_instance.resources.instances_len = 0;
         }
 
-        // Add/update the tree instance in HashMap
+        // add/update the tree instance in HashMap
         surface_resources
             .instances
             .leaves_instances
@@ -2139,7 +2139,7 @@ impl Tracer {
         tree_id: u32,
         leaf_positions: &[UVec3],
     ) -> Result<()> {
-        // Simply use add_tree_leaves which will overwrite existing entry
+        // simply use add_tree_leaves which will overwrite existing entry
         self.add_tree_leaves(surface_resources, tree_id, leaf_positions)
     }
 
@@ -2161,12 +2161,12 @@ impl Tracer {
         inner_radius: f32,
         outer_radius: f32,
     ) -> Result<()> {
-        // Regenerate leaves resources with new density parameters
+        // regenerate leaves resources with new density parameters
         let device = self.vulkan_ctx.device();
 
-        // Create new leaves resources with the provided parameters
-        // Note: We create new leaves resources with default params, then immediately overwrite
-        // This approach maintains the same API while using the constructor's defaults
+        // create new leaves resources with the provided parameters
+        // note: we create new leaves resources with default params, then immediately overwrite
+        // this approach maintains the same API while using the constructor's defaults
         self.resources.leaves_resources = LeavesResources::new_with_params(
             device.clone(),
             self.allocator.clone(),
@@ -2197,7 +2197,7 @@ impl Tracer {
             return Ok(vec![]);
         }
 
-        // Update query count
+        // update query count
         let count_data = StructMemberDataBuilder::from_buffer(&self.resources.terrain_query_count)
             .set_field(
                 "valid_query_count",
@@ -2208,7 +2208,7 @@ impl Tracer {
             .terrain_query_count
             .fill_with_raw_u8(&count_data)?;
 
-        // Update query positions
+        // update query positions
         let mut position_data = Vec::with_capacity(positions.len() * 2);
         for pos in positions {
             position_data.push(pos.x);
@@ -2226,7 +2226,7 @@ impl Tracer {
             },
         );
 
-        // Read back results
+        // read back results
         let raw_data = self.resources.terrain_query_result.read_back().unwrap();
         let height_data: &[f32] = unsafe {
             std::slice::from_raw_parts(raw_data.as_ptr() as *const f32, query_count as usize)

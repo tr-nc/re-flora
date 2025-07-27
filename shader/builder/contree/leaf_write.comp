@@ -107,11 +107,11 @@ void main() {
         return;
     }
 
-    // If there are valid voxels, write their data to the contree_leaf_data buffer.
+    // if there are valid voxels, write their data to the contree_leaf_data buffer.
     // 'w' tracks the number of voxels written by this invocation.
     uint w = 0;
     for (uint i = 0; i < 64; i++) {
-        // Check if the i-th voxel in the 4x4x4 brick is valid.
+        // check if the i-th voxel in the 4x4x4 brick is valid.
         if ((child_mask & (uint64_t(1) << i)) != 0) {
             contree_leaf_data.data[contree_build_info.leaf_write_offset + base + w] = temp[i];
             w++;

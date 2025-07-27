@@ -226,7 +226,7 @@ void get_pixel_color(out vec3 o_color, out float o_depth_01, out vec3 o_primary_
 
     vec3 indirect_color = vec3(0.0);
 
-    // MODIFICATION: Create a new, unique seed for the indirect bounce to avoid
+    // MODIFICATION: create a new, unique seed for the indirect bounce to avoid
     // reusing the same random numbers as the direct lighting, which prevents correlation.
     ivec3 indirect_seed = ivec3((seed.xy + ivec2(13, 37)) % 128, seed.z);
 
@@ -240,7 +240,7 @@ void get_pixel_color(out vec3 o_color, out float o_depth_01, out vec3 o_primary_
         indirect_color = shading_info.ambient_light;
     } else {
         if (!res_indirect_ray.is_normal_valid) {
-            // Use the unique indirect_seed for this random choice as well.
+            // use the unique indirect_seed for this random choice as well.
             res_indirect_ray.normal = choose_random_normal(indirect_seed);
         }
 

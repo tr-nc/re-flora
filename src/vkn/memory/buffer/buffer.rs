@@ -248,7 +248,7 @@ impl Buffer {
     }
 
     fn map_buffer_mem_and_write(&self, data: &[u8], byte_offset: u64) -> Result<()> {
-        // Try to get the raw mapped pointer
+        // try to get the raw mapped pointer
         if let Some(ptr) = self.allocated_mem.mapped_ptr() {
             unsafe {
                 let base_ptr = ptr.as_ptr();

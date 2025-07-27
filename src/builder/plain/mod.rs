@@ -185,7 +185,7 @@ impl PlainBuilder {
         }
         update_buffers(&self.resources, atlas_offset, atlas_dim)?;
 
-        // Re-record the command buffer with updated descriptor sets
+        // re-record the command buffer with updated descriptor sets
         self.build_cmdbuf = Self::record_build_cmdbuf(
             &self.vulkan_ctx,
             &self.resources.chunk_atlas,

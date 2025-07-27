@@ -39,32 +39,32 @@ pub fn generate_indexed_voxel_leaves(
     let noise = Perlin::new(42); // Fixed seed for consistent results
     let outer_radius_i = outer_radius as i32;
 
-    // Iterate through a bounding box around the sphere
+    // iterate through a bounding box around the sphere
     for x in -outer_radius_i..=outer_radius_i {
         for y in -outer_radius_i..=outer_radius_i {
             for z in -outer_radius_i..=outer_radius_i {
                 let pos = IVec3::new(x, y, z);
                 let distance_from_center = pos.as_vec3().length();
 
-                // Skip if outside outer_radius or inside inner_radius (hollow center)
+                // skip if outside outer_radius or inside inner_radius (hollow center)
                 if distance_from_center > outer_radius || distance_from_center < inner_radius {
                     continue;
                 }
 
-                // Calculate gradient and density within the shell region only
+                // calculate gradient and density within the shell region only
                 let (color_gradient, wind_gradient, falloff_density) = if outer_radius
                     > inner_radius
                 {
-                    // Shell region: gradient from 0.0 at inner_radius to 1.0 at outer_radius
+                    // shell region: gradient from 0.0 at inner_radius to 1.0 at outer_radius
                     let shell_ratio =
                         (distance_from_center - inner_radius) / (outer_radius - inner_radius);
                     let color_gradient = shell_ratio.min(1.0);
-                    // Mix density: inner_density at inner edge, outer_density at outer edge
+                    // mix density: inner_density at inner edge, outer_density at outer edge
                     let density = inner_density * (1.0 - shell_ratio) + outer_density * shell_ratio;
                     let wind_gradient = distance_from_center / outer_radius;
                     (color_gradient, wind_gradient, density)
                 } else {
-                    // When inner_radius == outer_radius, single shell layer
+                    // when inner_radius == outer_radius, single shell layer
                     let color_gradient = (distance_from_center / outer_radius).min(1.0);
                     let density =
                         inner_density * (1.0 - color_gradient) + outer_density * color_gradient;
@@ -72,7 +72,7 @@ pub fn generate_indexed_voxel_leaves(
                     (color_gradient, wind_gradient, density)
                 };
 
-                // Use noise to determine if we should place a voxel here
+                // use noise to determine if we should place a voxel here
                 let noise_freq = 1.1;
                 let noise_value = noise.get([
                     x as f64 * noise_freq,

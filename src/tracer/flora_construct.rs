@@ -13,7 +13,7 @@ pub fn gen_grass() -> Result<(Vec<Vertex>, Vec<u32>)> {
         let vertex_offset = vertices.len() as u32;
         let base_pos = IVec3::new(0, i as i32, 0);
 
-        // Calculate color gradient: 0.0 for bottom (i=0), 1.0 for tip (i=voxel_count-1)
+        // calculate color gradient: 0.0 for bottom (i=0), 1.0 for tip (i=voxel_count-1)
         let gradient = if VOXEL_COUNT > 1 {
             i as f32 / (VOXEL_COUNT - 1) as f32
         } else {

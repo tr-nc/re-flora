@@ -16,12 +16,12 @@ pub struct AtlasAllocation {
 pub struct AtlasAllocator {
     atlas_dim: UVec3,
 
-    // Where the next allocation *could* be placed.
+    // where the next allocation *could* be placed.
     cursor: Cell<UVec3>,
-    // Height (y) of the current shelf inside the current z-slice.
+    // height (y) of the current shelf inside the current z-slice.
     row_height: Cell<u32>,
 
-    // Book keeping.
+    // book keeping.
     next_id: Cell<u64>,
     allocations: RefCell<HashMap<u64, AtlasAllocation>>,
 }
@@ -47,7 +47,7 @@ impl AtlasAllocator {
             return Err("requested block is larger than the whole atlas".into());
         }
 
-        // Try to place it.  `place()` updates internal cursors on success.
+        // try to place it.  `place()` updates internal cursors on success.
         let offset = self
             .place(dim)
             .ok_or_else(|| "atlas is full – no place could be found".to_string())?;
@@ -79,15 +79,15 @@ impl AtlasAllocator {
     ///
     /// The relative order of allocations (by id) is preserved.
     pub fn cleanup(&self) {
-        // Snapshot and sort by id so the result is deterministic.
+        // snapshot and sort by id so the result is deterministic.
         let mut items: Vec<AtlasAllocation> = self.allocations.borrow().values().cloned().collect();
         items.sort_by_key(|a| a.id);
 
-        // Reset packing state.
+        // reset packing state.
         self.cursor.set(UVec3::ZERO);
         self.row_height.set(0);
 
-        // Re-pack one by one.
+        // re-pack one by one.
         let mut map = self.allocations.borrow_mut();
         for mut a in items {
             // `place_no_record` cannot fail because the atlas was big enough
@@ -112,14 +112,14 @@ impl AtlasAllocator {
 
     /// Same algorithm that `allocate()` uses but *without* writing to the map.
     fn place_no_record(&self, dim: UVec3) -> Option<UVec3> {
-        // Temporarily remember old cursor in case we have to roll back.
+        // temporarily remember old cursor in case we have to roll back.
         let saved_cursor = self.cursor.get();
         let saved_row_height = self.row_height.get();
 
         let res = self.place(dim);
 
         if res.is_none() {
-            // Rollback
+            // rollback
             self.cursor.set(saved_cursor);
             self.row_height.set(saved_row_height);
         }
@@ -135,20 +135,20 @@ impl AtlasAllocator {
         let mut row_h = self.row_height.get();
         let atlas_size = self.atlas_dim;
 
-        // Helper that checks whether `size` fits starting at `cur`.
+        // helper that checks whether `size` fits starting at `cur`.
         let fits = |cur: UVec3| {
             cur.x + dim.x <= atlas_size.x
                 && cur.y + dim.y <= atlas_size.y
                 && cur.z + dim.z <= atlas_size.z
         };
 
-        // Start a new row if X overflow.
+        // start a new row if X overflow.
         if cur.x + dim.x > atlas_size.x {
             cur.x = 0;
             cur.y += row_h;
             row_h = 0;
         }
-        // Start a new slice if Y overflow.
+        // start a new slice if Y overflow.
         if cur.y + dim.y > atlas_size.y {
             cur.x = 0;
             cur.y = 0;
@@ -160,7 +160,7 @@ impl AtlasAllocator {
             return None;
         }
 
-        // Success – record new cursor and row height.
+        // success – record new cursor and row height.
         let offset = cur;
         cur.x += dim.x;
         row_h = row_h.max(dim.y);
@@ -208,11 +208,11 @@ mod tests {
 
         atlas.deallocate(b.id).unwrap();
 
-        // After cleanup the remaining allocations should be packed tightly:
+        // after cleanup the remaining allocations should be packed tightly:
         atlas.cleanup();
         let a2 = atlas.lookup(a.id).unwrap();
         assert_eq!(a2.offset, UVec3::ZERO);
-        // The third allocation (`_c`) should now sit right after `a`.
+        // the third allocation (`_c`) should now sit right after `a`.
         let c2 = atlas
             .allocations
             .borrow()
@@ -241,18 +241,18 @@ mod tests {
     /// Filling one whole slice and then spilling into the next.
     #[test]
     fn three_d_spill_to_next_slice() {
-        // Two slices of 4×4 texels each.
+        // two slices of 4×4 texels each.
         let atlas = AtlasAllocator::new(UVec3::new(4, 4, 2));
 
-        // First slice (z == 0).
+        // first slice (z == 0).
         let a0 = atlas.allocate(UVec3::new(4, 4, 1)).unwrap();
         assert_eq!(a0.offset, UVec3::new(0, 0, 0));
 
-        // Second slice (z == 1).
+        // second slice (z == 1).
         let a1 = atlas.allocate(UVec3::new(4, 4, 1)).unwrap();
         assert_eq!(a1.offset, UVec3::new(0, 0, 1));
 
-        // The third identical allocation must fail because the atlas
+        // the third identical allocation must fail because the atlas
         // only has two z-slices.
         assert!(atlas.allocate(UVec3::new(4, 4, 1)).is_err());
     }
@@ -262,8 +262,8 @@ mod tests {
     fn three_d_small_blocks_wrap_every_axis() {
         let atlas = AtlasAllocator::new(UVec3::new(4, 4, 2));
 
-        // Slice 0 ──────────────────────────────────────────────
-        // Row 0
+        // slice 0 ──────────────────────────────────────────────
+        // row 0
         assert_eq!(
             atlas.allocate(UVec3::new(2, 2, 1)).unwrap().offset,
             UVec3::new(0, 0, 0)
@@ -272,7 +272,7 @@ mod tests {
             atlas.allocate(UVec3::new(2, 2, 1)).unwrap().offset,
             UVec3::new(2, 0, 0)
         );
-        // Row 1
+        // row 1
         assert_eq!(
             atlas.allocate(UVec3::new(2, 2, 1)).unwrap().offset,
             UVec3::new(0, 2, 0)
@@ -282,7 +282,7 @@ mod tests {
             UVec3::new(2, 2, 0)
         );
 
-        // Slice 1 ──────────────────────────────────────────────
+        // slice 1 ──────────────────────────────────────────────
         assert_eq!(
             atlas.allocate(UVec3::new(2, 2, 1)).unwrap().offset,
             UVec3::new(0, 0, 1)
@@ -299,10 +299,10 @@ mod tests {
         let b = atlas.allocate(UVec3::new(4, 2, 1)).unwrap(); // z = 1, y-height = 2
         let c = atlas.allocate(UVec3::new(4, 2, 1)).unwrap(); // z = 1, y-offset = 2
 
-        // Remove the first big block in slice 0.
+        // remove the first big block in slice 0.
         atlas.deallocate(a.id).unwrap();
 
-        // After compacting, `b` must now sit at z = 0.
+        // after compacting, `b` must now sit at z = 0.
         atlas.cleanup();
         assert_eq!(atlas.lookup(b.id).unwrap().offset, UVec3::new(0, 0, 0));
         assert_eq!(atlas.lookup(c.id).unwrap().offset, UVec3::new(0, 2, 0));

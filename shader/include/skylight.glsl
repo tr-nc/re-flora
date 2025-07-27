@@ -8,20 +8,20 @@ struct SkyColors {
     vec3 bottom_color;
 };
 
-// Keyframe structure for time-of-day transitions
+// keyframe structure for time-of-day transitions
 struct TimeOfDayKeyframe {
     float sun_altitude;
     vec3 top_color;
     vec3 bottom_color;
 };
 
-// Keyframe structure for view altitude transitions
+// keyframe structure for view altitude transitions
 struct ViewAltitudeKeyframe {
     float view_altitude;
     float blend_factor; // 0.0 = bottom color, 1.0 = top color
 };
 
-// Time-of-day keyframes - A more vibrant and detailed progression
+// time-of-day keyframes - A more vibrant and detailed progression
 const int TIME_KEYFRAME_COUNT                               = 10;
 const TimeOfDayKeyframe TIME_KEYFRAMES[TIME_KEYFRAME_COUNT] = {
     // 1. Deep Night: Almost pitch black with a hint of deep, cold blue.
@@ -59,28 +59,28 @@ const TimeOfDayKeyframe TIME_KEYFRAMES[TIME_KEYFRAME_COUNT] = {
     // 10. Late Afternoon: The blue begins to soften and warm up slightly as the sun descends.
     {1.0, vec3(40.0, 100.0, 220.0) / 255.0, vec3(100.0, 160.0, 255.0) / 255.0}};
 
-// View altitude keyframes - Refined gradient for a more natural horizon
-// More control points are added for a smoother blend from horizon to zenith.
+// view altitude keyframes - Refined gradient for a more natural horizon
+// more control points are added for a smoother blend from horizon to zenith.
 const int VIEW_KEYFRAME_COUNT                                  = 6;
 const ViewAltitudeKeyframe VIEW_KEYFRAMES[VIEW_KEYFRAME_COUNT] = {
-    // Looking straight down - full bottom color
+    // looking straight down - full bottom color
     {-1.0, 0.0},
-    // Below horizon - blend starts subtly
+    // below horizon - blend starts subtly
     {-0.2, 0.05},
-    // At the horizon line - a balanced but sharp transition
+    // at the horizon line - a balanced but sharp transition
     {0.0, 0.4},
-    // Just above the horizon - top color quickly becomes dominant
+    // just above the horizon - top color quickly becomes dominant
     {0.05, 0.6},
-    // Low in the sky - mostly top color with a hint of horizon influence
+    // low in the sky - mostly top color with a hint of horizon influence
     {0.3, 0.9},
-    // Looking straight up (zenith) - full top color
+    // looking straight up (zenith) - full top color
     {1.0, 1.0}};
 
-// Interpolate between time-of-day keyframes
+// interpolate between time-of-day keyframes
 SkyColors interpolate_time_keyframes(float sun_altitude) {
     SkyColors result;
 
-    // Handle edge cases
+    // handle edge cases
     if (sun_altitude <= TIME_KEYFRAMES[0].sun_altitude) {
         result.top_color    = srgb_to_linear(TIME_KEYFRAMES[0].top_color);
         result.bottom_color = srgb_to_linear(TIME_KEYFRAMES[0].bottom_color);
@@ -93,7 +93,7 @@ SkyColors interpolate_time_keyframes(float sun_altitude) {
         return result;
     }
 
-    // Find the two keyframes to interpolate between
+    // find the two keyframes to interpolate between
     for (int i = 0; i < TIME_KEYFRAME_COUNT - 1; i++) {
         if (sun_altitude >= TIME_KEYFRAMES[i].sun_altitude &&
             sun_altitude < TIME_KEYFRAMES[i + 1].sun_altitude) {
@@ -108,15 +108,15 @@ SkyColors interpolate_time_keyframes(float sun_altitude) {
         }
     }
 
-    // Fallback (shouldn't reach here)
+    // fallback (shouldn't reach here)
     result.top_color    = srgb_to_linear(TIME_KEYFRAMES[0].top_color);
     result.bottom_color = srgb_to_linear(TIME_KEYFRAMES[0].bottom_color);
     return result;
 }
 
-// Interpolate view altitude blend factor
+// interpolate view altitude blend factor
 float interpolate_view_altitude(float view_altitude) {
-    // Handle edge cases
+    // handle edge cases
     if (view_altitude <= VIEW_KEYFRAMES[0].view_altitude) {
         return VIEW_KEYFRAMES[0].blend_factor;
     }
@@ -125,7 +125,7 @@ float interpolate_view_altitude(float view_altitude) {
         return VIEW_KEYFRAMES[VIEW_KEYFRAME_COUNT - 1].blend_factor;
     }
 
-    // Find the two keyframes to interpolate between
+    // find the two keyframes to interpolate between
     for (int i = 0; i < VIEW_KEYFRAME_COUNT - 1; i++) {
         if (view_altitude >= VIEW_KEYFRAMES[i].view_altitude &&
             view_altitude < VIEW_KEYFRAMES[i + 1].view_altitude) {
@@ -136,41 +136,41 @@ float interpolate_view_altitude(float view_altitude) {
         }
     }
 
-    // Fallback (shouldn't reach here)
+    // fallback (shouldn't reach here)
     return VIEW_KEYFRAMES[0].blend_factor;
 }
 
-// Sun altitude ranges from -1 to 1
+// sun altitude ranges from -1 to 1
 SkyColors get_sky_color_by_sun_altitude(float sun_altitude) {
     return interpolate_time_keyframes(sun_altitude);
 }
 
 vec3 get_sky_color(vec3 view_dir, vec3 sun_dir) {
-    // Altitude range now matches sun altitude range (-1 to 1)
+    // altitude range now matches sun altitude range (-1 to 1)
     float altitude     = view_dir.y;
     float sun_altitude = sun_dir.y;
 
     SkyColors sky_colors = get_sky_color_by_sun_altitude(sun_altitude);
 
-    // Use keyframe-based view altitude interpolation
+    // use keyframe-based view altitude interpolation
     float blend_factor  = interpolate_view_altitude(altitude);
     blend_factor        = smoothstep(0.0, 1.0, blend_factor);
     vec3 base_sky_color = mix(sky_colors.bottom_color, sky_colors.top_color, blend_factor);
 
-    // Add sun-halo effect
+    // add sun-halo effect
     float sun_proximity = max(0.0, dot(view_dir, sun_dir));
 
-    // Derive halo color from sky color at sun's position
+    // derive halo color from sky color at sun's position
     float sun_blend_factor = interpolate_view_altitude(sun_altitude);
     sun_blend_factor       = smoothstep(0.0, 1.0, sun_blend_factor);
     vec3 halo_color        = mix(sky_colors.bottom_color, sky_colors.top_color, sun_blend_factor);
 
-    // Halo falloff - stronger when sun is low, creates nice sunset halos
+    // halo falloff - stronger when sun is low, creates nice sunset halos
     float halo_size     = mix(0.1, 0.05, abs(sun_altitude)); // Larger halo when sun is low
     float halo_strength = pow(sun_proximity, 1.0 / halo_size);
     halo_strength *= (1.0 - abs(sun_altitude) * 0.5); // Reduce halo at zenith
 
-    // Blend halo with base sky color
+    // blend halo with base sky color
     vec3 sky_color = mix(base_sky_color, halo_color, halo_strength * 0.4);
 
     return sky_color;
@@ -186,13 +186,13 @@ vec3 get_sky_color_with_sun(vec3 view_dir, vec3 sun_dir, vec3 sun_color, float s
 
     vec3 sun_contribution = vec3(sun / 0.477, sun + 0.5, sun + 0.8);
 
-    // Scale by sun luminance and apply size factor
+    // scale by sun luminance and apply size factor
     sun_contribution *= sun_luminance * 0.2;
 
-    // Blend the sun contribution with the base sky color
+    // blend the sun contribution with the base sky color
     vec3 luminance_sun_color = sun_color * sun_contribution;
 
-    // Use a falloff based on distance for smooth blending
+    // use a falloff based on distance for smooth blending
     float sun_blend_factor = clamp(sun * 0.1, 0.0, 1.0);
 
     return mix(sky_color_linear, luminance_sun_color, sun_blend_factor);

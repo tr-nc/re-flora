@@ -26,7 +26,7 @@ vec2 get_evsm_exponents() {
 
 // 对阴影贴图深度应用指数扭曲，输入深度应为[0,1]
 vec2 warp_depth(float depth, vec2 exponents) {
-    // Rescale depth into [-1, 1]
+    // rescale depth into [-1, 1]
     depth     = 2.0f * depth - 1.0f;
     float pos = exp(exponents.x * depth);
     float neg = -exp(-exponents.y * depth);

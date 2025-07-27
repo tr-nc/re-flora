@@ -81,10 +81,10 @@ vec3 get_ring_direction(int ring_index) {
     vec3 up    = normalize(cross(right, flattened_front));
 
     if (ring_index == 0) {
-        // First ray shoots forward
+        // first ray shoots forward
         return flattened_front;
     } else {
-        // Generate clockwise ring around camera position
+        // generate clockwise ring around camera position
         float angle = TWO_PI * float(ring_index - 1) / float(NUM_RING_DISTANCES - 1);
         return normalize(flattened_front * cos(angle) + right * sin(angle));
     }

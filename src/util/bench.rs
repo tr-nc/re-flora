@@ -52,7 +52,7 @@ impl Stat {
 }
 
 pub struct Bench {
-    // IndexMap keeps insertion order
+    // indexMap keeps insertion order
     stats: IndexMap<&'static str, Stat>,
 }
 

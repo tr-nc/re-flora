@@ -476,7 +476,7 @@ impl App {
 
         app.add_tree(app.tree_desc.clone(), app.tree_pos, true)?;
 
-        // Configure leaves with the app's actual density values (now that app struct exists)
+        // configure leaves with the app's actual density values (now that app struct exists)
         app.tracer.regenerate_leaves(
             app.leaves_inner_density,
             app.leaves_outer_density,
@@ -488,7 +488,7 @@ impl App {
     }
 
     fn generate_procedural_trees(&mut self) -> Result<()> {
-        // Clear all procedural trees (keep single tree with ID 0)
+        // clear all procedural trees (keep single tree with ID 0)
         self.clear_procedural_trees()?;
 
         self.plain_builder.chunk_init(
@@ -515,19 +515,19 @@ impl App {
 
         log::info!("Generated {} procedural trees", tree_positions.len());
 
-        // Batch query all terrain heights at once
+        // batch query all terrain heights at once
         let tree_positions_3d = self.query_terrain_heights_for_positions(&tree_positions)?;
 
         let mut rng = rand::rng();
 
-        // Plant all trees with known heights and unique IDs
+        // plant all trees with known heights and unique IDs
         for tree_pos in tree_positions_3d.iter() {
             let mut tree_desc = self.tree_desc.clone();
             tree_desc.seed = rng.random_range(1..10000);
 
             self.apply_tree_variations(&mut tree_desc, &mut rng);
-            // Use add_procedural_tree_at_position for multi-tree support
-            // No cleanup needed since we already cleaned up at the beginning
+            // use add_procedural_tree_at_position for multi-tree support
+            // no cleanup needed since we already cleaned up at the beginning
             self.add_procedural_tree_at_position(tree_desc, *tree_pos)?;
         }
 
@@ -535,7 +535,7 @@ impl App {
     }
 
     fn clear_procedural_trees(&mut self) -> Result<()> {
-        // Remove all procedural tree leaves (IDs >= 1), keep single tree (ID 0)
+        // remove all procedural tree leaves (IDs >= 1), keep single tree (ID 0)
         let tree_ids_to_remove: Vec<u32> = self
             .surface_builder
             .resources
@@ -648,26 +648,26 @@ impl App {
     fn calculate_sun_position(&mut self, time_of_day: f32, latitude: f32, season: f32) {
         use std::f32::consts::PI;
 
-        // Time of day: 0.0 = midnight, 0.5 = noon, 1.0 = midnight
-        // Latitude: -1.0 = south pole, 0.0 = equator, 1.0 = north pole
-        // Season: 0.0 = winter solstice, 0.25 = spring equinox, 0.5 = summer solstice, 0.75 = autumn equinox
+        // time of day: 0.0 = midnight, 0.5 = noon, 1.0 = midnight
+        // latitude: -1.0 = south pole, 0.0 = equator, 1.0 = north pole
+        // season: 0.0 = winter solstice, 0.25 = spring equinox, 0.5 = summer solstice, 0.75 = autumn equinox
 
-        // Convert time to hour angle (radians)
-        // Solar noon is at time_of_day = 0.5
+        // convert time to hour angle (radians)
+        // solar noon is at time_of_day = 0.5
         let hour_angle = (time_of_day - 0.5) * 2.0 * PI;
 
-        // Solar declination based on season
-        // Season of 0.0 = winter solstice (max negative declination)
-        // Season of 0.5 = summer solstice (max positive declination)
+        // solar declination based on season
+        // season of 0.0 = winter solstice (max negative declination)
+        // season of 0.5 = summer solstice (max positive declination)
         let seasonal_angle = season * 2.0 * PI;
         let declination = -23.44_f32.to_radians() * (seasonal_angle).cos(); // Earth's axial tilt
 
-        // Calculate solar elevation (altitude)
+        // calculate solar elevation (altitude)
         let elevation = (declination.sin() * (latitude * PI * 0.5).sin()
             + declination.cos() * (latitude * PI * 0.5).cos() * hour_angle.cos())
         .asin();
 
-        // Calculate solar azimuth
+        // calculate solar azimuth
         let azimuth = if hour_angle.cos() == 0.0 {
             if hour_angle > 0.0 {
                 PI
@@ -680,10 +680,10 @@ impl App {
             .atan2(hour_angle.sin())
         };
 
-        // Normalize elevation to -1.0 to 1.0 range (matching current altitude range)
+        // normalize elevation to -1.0 to 1.0 range (matching current altitude range)
         self.sun_altitude = (elevation / (PI * 0.5)).clamp(-1.0, 1.0);
 
-        // Normalize azimuth to 0.0 to 1.0 range (matching current azimuth range)
+        // normalize azimuth to 0.0 to 1.0 range (matching current azimuth range)
         self.sun_azimuth = ((azimuth + PI) / (2.0 * PI)) % 1.0;
     }
 
@@ -880,16 +880,16 @@ impl App {
             return Ok(vec![]);
         }
 
-        // Convert to query coordinates (divide by 256.0)
+        // convert to query coordinates (divide by 256.0)
         let query_positions: Vec<Vec2> = positions_2d
             .iter()
             .map(|pos| Vec2::new(pos.x / 256.0, pos.y / 256.0))
             .collect();
 
-        // Batch query all terrain heights
+        // batch query all terrain heights
         let terrain_heights = self.tracer.query_terrain_heights_batch(&query_positions)?;
 
-        // Convert back to world coordinates and create Vec3s
+        // convert back to world coordinates and create Vec3s
         let positions_3d = positions_2d
             .iter()
             .zip(terrain_heights.iter())
@@ -905,7 +905,7 @@ impl App {
         tree_pos: Vec3,
         clean_up_before_add: bool,
     ) -> Result<()> {
-        // If we need to clean up first, do it before querying terrain to avoid
+        // if we need to clean up first, do it before querying terrain to avoid
         // getting the wrong height due to existing tree geometry blocking the terrain query
         if clean_up_before_add {
             self.plain_builder.chunk_init(
@@ -913,7 +913,7 @@ impl App {
                 self.prev_bound.max() - self.prev_bound.min(),
             )?;
 
-            // Force mesh regeneration after cleanup to ensure terrain is properly accessible for querying
+            // force mesh regeneration after cleanup to ensure terrain is properly accessible for querying
             Self::mesh_generate(
                 &mut self.surface_builder,
                 &mut self.contree_builder,
@@ -1107,7 +1107,7 @@ impl App {
                     let was_fly_mode = self.is_fly_mode;
                     self.is_fly_mode = !self.is_fly_mode;
 
-                    // Reset velocity when switching from fly mode to walk mode
+                    // reset velocity when switching from fly mode to walk mode
                     if was_fly_mode && !self.is_fly_mode {
                         self.tracer.reset_camera_velocity();
                     }
@@ -1152,7 +1152,7 @@ impl App {
                         style.visuals.override_text_color = Some(egui::Color32::WHITE);
                         ctx.set_style(style);
 
-                        // Config panel - only show if visible
+// config panel - only show if visible
                         if self.config_panel_visible {
                             let config_frame = egui::containers::Frame {
                                 fill: Color32::from_rgba_premultiplied(123, 64, 25, 250),
@@ -1231,7 +1231,7 @@ impl App {
                                                 .changed();
 
                                             if leaves_changed {
-                                                // Ensure inner_radius is always <= outer_radius
+// ensure inner_radius is always <= outer_radius
                                                 if self.leaves_inner_radius > self.leaves_outer_radius {
                                                     self.leaves_outer_radius = self.leaves_inner_radius;
                                                 }
@@ -1334,7 +1334,7 @@ impl App {
                                                     }),
                                                 );
 
-                                                // Read-only displays for calculated values
+// read-only displays for calculated values
                                                 ui.separator();
                                                 ui.label(format!(
                                                     "Sun Altitude: {:.3}",
@@ -1488,16 +1488,16 @@ impl App {
                                                 .changed();
                                             tree_desc_changed |= z_changed;
 
-                                            // Debug terrain height when X or Z position changes
+// debug terrain height when X or Z position changes
                                             if x_changed || z_changed {
-                                                // Clean up existing tree chunks before querying to avoid blocking the ray
+// clean up existing tree chunks before querying to avoid blocking the ray
                                                 if let Err(e) = self.plain_builder.chunk_init(
                                                     self.prev_bound.min(),
                                                     self.prev_bound.max() - self.prev_bound.min(),
                                                 ) {
                                                     log::error!("Failed to clean up chunks for terrain query: {}", e);
                                                 } else {
-                                                    // Force mesh regeneration after cleanup
+// force mesh regeneration after cleanup
                                                     if let Err(e) = Self::mesh_generate(
                                                         &mut self.surface_builder,
                                                         &mut self.contree_builder,
@@ -1506,7 +1506,7 @@ impl App {
                                                     ) {
                                                         log::error!("Failed to regenerate mesh after cleanup: {}", e);
                                                     } else {
-                                                        // Now query terrain height with clean terrain
+// now query terrain height with clean terrain
                                                         match self.tracer.query_terrain_height(glam::Vec2::new(
                                                             self.tree_pos.x / 256.0,
                                                             self.tree_pos.z / 256.0,
@@ -1746,15 +1746,15 @@ impl App {
                     }
                 }
 
-                // Update sun position if auto day/night cycle is enabled
+                // update sun position if auto day/night cycle is enabled
                 if self.auto_daynight_cycle {
-                    // Update time of day based on delta time and day cycle speed
+                    // update time of day based on delta time and day cycle speed
                     // day_cycle_minutes is the real-world minutes for a full day cycle
-                    // Convert to time progression per second: 1.0 / (day_cycle_minutes * 60.0)
+                    // convert to time progression per second: 1.0 / (day_cycle_minutes * 60.0)
                     let time_speed = 1.0 / (self.day_cycle_minutes * 60.0);
                     self.time_of_day += frame_delta_time * time_speed;
 
-                    // Keep time_of_day in 0.0 to 1.0 range (wrap around)
+                    // keep time_of_day in 0.0 to 1.0 range (wrap around)
                     self.time_of_day = self.time_of_day % 1.0;
 
                     self.calculate_sun_position(self.time_of_day, self.latitude, self.season);

@@ -1,14 +1,14 @@
 use std::time::{Duration, Instant};
 
 pub struct TimeInfo {
-    // The moment the TimeInfo struct was created. Used to calculate total elapsed time.
+    // the moment the TimeInfo struct was created. Used to calculate total elapsed time.
     start_instant: Instant,
-    // The time of the last call to `update()`. Used to calculate delta time.
+    // the time of the last call to `update()`. Used to calculate delta time.
     last_update_instant: Instant,
 
-    // Time elapsed since the last frame, in seconds. This is the raw, unscaled delta time.
+    // time elapsed since the last frame, in seconds. This is the raw, unscaled delta time.
     dt: f32,
-    // A factor to scale delta time. Useful for slow-motion (scale < 1.0) or fast-forward (scale > 1.0).
+    // a factor to scale delta time. Useful for slow-motion (scale < 1.0) or fast-forward (scale > 1.0).
     time_scale: f32,
 
     // --- Fields for calculating and displaying smoothed FPS ---
@@ -56,22 +56,22 @@ impl TimeInfo {
     /// - Updates the total frame count.
     pub fn update(&mut self) {
         let now = Instant::now();
-        // Calculate delta time (in seconds) since the last update.
+        // calculate delta time (in seconds) since the last update.
         self.dt = now.duration_since(self.last_update_instant).as_secs_f32();
         self.last_update_instant = now;
 
-        // Increment total frames rendered.
+        // increment total frames rendered.
         self.total_frame_count += 1;
 
-        // Accumulate dt and count frames for display fps calculations.
+        // accumulate dt and count frames for display fps calculations.
         self.fps_accumulator += self.dt;
         self.fps_frame_count += 1;
 
-        // When the accumulated time exceeds the update_interval,
+        // when the accumulated time exceeds the update_interval,
         // calculate an average FPS for display purposes.
         if self.fps_accumulator >= self.display_update_interval {
             self.display_fps_value = self.fps_frame_count as f32 / self.fps_accumulator;
-            // Reset for the next interval.
+            // reset for the next interval.
             self.fps_accumulator = 0.0;
             self.fps_frame_count = 0;
         }

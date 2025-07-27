@@ -40,15 +40,15 @@ pub fn derive_resource_container(input: TokenStream) -> TokenStream {
             if is_resource_type(&field.ty) {
                 resource_idents.push(ident.clone());
             } else if is_potential_resource_container(&field.ty) {
-                // Only include types that could potentially be ResourceContainer implementors
+                // only include types that could potentially be ResourceContainer implementors
                 other_field_idents.push(ident.clone());
                 other_field_types.push(field.ty.clone());
             }
-            // Skip primitive types, standard library types, etc.
+            // skip primitive types, standard library types, etc.
         }
     }
 
-    // Check if we have at least one field that could be a resource
+    // check if we have at least one field that could be a resource
     if resource_idents.is_empty() && other_field_idents.is_empty() {
         return syn::Error::new_spanned(
             struct_name,
@@ -77,7 +77,7 @@ pub fn derive_resource_container(input: TokenStream) -> TokenStream {
         quote! {}
     } else {
         quote! {
-            // Try nested ResourceContainer fields recursively
+            // try nested ResourceContainer fields recursively
             #(
                 if let Some(result) = self.#other_field_idents.get_buffer(name) {
                     return Some(result);
@@ -91,7 +91,7 @@ pub fn derive_resource_container(input: TokenStream) -> TokenStream {
         quote! {}
     } else {
         quote! {
-            // Try nested ResourceContainer fields recursively
+            // try nested ResourceContainer fields recursively
             #(
                 if let Some(result) = self.#other_field_idents.get_texture(name) {
                     return Some(result);
@@ -119,10 +119,10 @@ pub fn derive_resource_container(input: TokenStream) -> TokenStream {
         quote! { &[#(#names),*] }
     };
 
-    // Runtime conflict detection (since we removed the const)
+    // runtime conflict detection (since we removed the const)
     let runtime_checks = if !other_field_types.is_empty() {
         quote! {
-            // Runtime checks for name conflicts
+            // runtime checks for name conflicts
             let direct_names = #direct_names_array;
             #(
                 let nested_names = self.#other_field_idents.get_resource_names();
@@ -144,10 +144,10 @@ pub fn derive_resource_container(input: TokenStream) -> TokenStream {
             fn get_buffer(&self, name: &str) -> Option<&crate::vkn::Buffer> {
                 #runtime_checks
                 match name {
-                    // Direct Resource<Buffer> fields take priority
+                    // direct Resource<Buffer> fields take priority
                     #(#buffer_match_arms)*
                     _ => {
-                        // Try nested ResourceContainer fields
+                        // try nested ResourceContainer fields
                         #nested_buffer_lookup_code
                         None
                     }
@@ -156,10 +156,10 @@ pub fn derive_resource_container(input: TokenStream) -> TokenStream {
 
             fn get_texture(&self, name: &str) -> Option<&crate::vkn::Texture> {
                 match name {
-                    // Direct Resource<Texture> fields take priority
+                    // direct Resource<Texture> fields take priority
                     #(#texture_match_arms)*
                     _ => {
-                        // Try nested ResourceContainer fields
+                        // try nested ResourceContainer fields
                         #nested_texture_lookup_code
                         None
                     }
@@ -170,7 +170,7 @@ pub fn derive_resource_container(input: TokenStream) -> TokenStream {
                 let mut names = Vec::new();
                 let mut seen = std::collections::HashSet::new();
 
-                // Add direct resource names
+                // add direct resource names
                 #(
                     let name = #direct_resource_names;
                     if !seen.insert(name) {
@@ -179,7 +179,7 @@ pub fn derive_resource_container(input: TokenStream) -> TokenStream {
                     names.push(name);
                 )*
 
-                // Add nested resource names
+                // add nested resource names
                 #(
                     for nested_name in self.#other_field_idents.get_resource_names() {
                         if !seen.insert(nested_name) {
@@ -218,7 +218,7 @@ fn is_potential_resource_container(ty: &Type) -> bool {
         Type::Path(TypePath { path, .. }) => {
             if let Some(last) = path.segments.last() {
                 let type_name = last.ident.to_string();
-                // Exclude primitive types and common standard library types
+                // exclude primitive types and common standard library types
                 !matches!(
                     type_name.as_str(),
                     "u8" | "u16" | "u32" | "u64" | "usize" |

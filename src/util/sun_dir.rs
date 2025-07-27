@@ -17,7 +17,7 @@ fn spherical_dir(theta: f32, phi: f32) -> Vec3 {
 /// - alt: altitude angle (radians), measured up from the horizon
 /// - azi: azimuth angle (radians), measured around the Y axis
 fn dir_on_unit_sphere(alt: f32, azi: f32) -> Vec3 {
-    // Convert altitude to polar angle φ = π/2 − alt
+    // convert altitude to polar angle φ = π/2 − alt
     spherical_dir(azi, PI * 0.5 - alt)
 }
 

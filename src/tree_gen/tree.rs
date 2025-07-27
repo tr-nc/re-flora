@@ -162,7 +162,7 @@ impl TreeDesc {
         ui.separator();
         ui.heading("Subdivision");
 
-        // NEW: subdivision toggle
+        // nEW: subdivision toggle
         changed |= ui
             .checkbox(&mut self.enable_subdivision, "Enable Subdivision")
             .changed();
@@ -306,19 +306,19 @@ fn subdivide_trunk_segment(
     level: u32,
     rng: &mut StdRng,
 ) -> Vec<RoundCone> {
-    // NEW: early-out if subdivision is disabled
+    // nEW: early-out if subdivision is disabled
     if !desc.enable_subdivision {
         return vec![cone.clone()];
     }
 
     let axis = cone.center_b() - cone.center_a();
 
-    // Do not subdivide if the segment is too short or if subdivision is effectively disabled.
+    // do not subdivide if the segment is too short or if subdivision is effectively disabled.
     if desc.subdivision_count_max <= 1 {
         return vec![cone.clone()];
     }
 
-    // Calculate iteration-based randomness progression, similar to thickness_reduction
+    // calculate iteration-based randomness progression, similar to thickness_reduction
     let level_factor = (level as f32) / (desc.iterations as f32).max(1.0);
     let iteration_randomness = if desc.subdivision_randomness_progression > 0.0 {
         desc.subdivision_randomness * desc.subdivision_randomness_progression.powf(level_factor)
@@ -397,7 +397,7 @@ fn recurse(
         return;
     }
 
-    // Leaf placement: place leaves at (iterations - leaf_offset) levels from the end
+    // leaf placement: place leaves at (iterations - leaf_offset) levels from the end
     if level == desc.iterations.saturating_sub(desc.leaf_offset) {
         leaf_positions.push(pos);
     }

@@ -78,13 +78,13 @@ mat3 _make_tbn(vec3 normal, float sun_azimuth) {
     } else {
         // azimuth ranges from 0-1
         float angle = sun_azimuth * 2.0 * PI;
-        // To remove the discontinuity, the tangent vector must be defined consistently
+        // to remove the discontinuity, the tangent vector must be defined consistently
         // with the general case. The coordinate system (azimuth from +Z to +X)
         // requires a tangent of (cos(angle), 0, -sin(angle)).
-        // The original code's `+sin(angle)` caused the discontinuous flip.
+        // the original code's `+sin(angle)` caused the discontinuous flip.
         vec3 t = vec3(cos(angle), 0.0, -sin(angle));
 
-        // The bitangent 'b' is calculated as before to complete the right-handed basis.
+        // the bitangent 'b' is calculated as before to complete the right-handed basis.
         vec3 b = cross(normal, t);
 
         return mat3(t, b, normal);
@@ -97,7 +97,7 @@ vec3 combine_colors(float gfx_depth_01, float compute_depth_01, vec3 gfx_color,
         Ray ray        = ray_gen(screen_uv, camera_info.view_proj_mat_inv);
         vec3 sky_color = get_sky_color_with_sun(ray.direction, sun_info.sun_dir, sun_info.sun_color,
                                                 sun_info.sun_luminance, sun_info.sun_size);
-        // Star visibility thresholds based on sun altitude
+        // star visibility thresholds based on sun altitude
         const float star_cutoff_altitude =
             -0.05; // Stars completely hidden when sun is above this altitude
         const float star_fade_altitude =
@@ -105,12 +105,12 @@ vec3 combine_colors(float gfx_depth_01, float compute_depth_01, vec3 gfx_color,
 
         float sun_altitude = sun_info.sun_dir.y;
 
-        // Skip expensive star calculation when sun is too high
+        // skip expensive star calculation when sun is too high
         if (sun_altitude > star_cutoff_altitude) {
             return sky_color;
         }
 
-        // Calculate star light contribution
+        // calculate star light contribution
         StarlightInfo info = StarlightInfo(
             starlight_info.iterations, starlight_info.formuparam, starlight_info.volsteps,
             starlight_info.stepsize, starlight_info.zoom, starlight_info.tile, starlight_info.speed,
@@ -121,7 +121,7 @@ vec3 combine_colors(float gfx_depth_01, float compute_depth_01, vec3 gfx_color,
             transpose(_make_tbn(sun_info.sun_dir, sun_info.sun_azimuth)) * ray.direction;
         vec3 star_color = get_starlight_color(rotated_view_dir, info);
 
-        // Fade stars based on sun altitude
+        // fade stars based on sun altitude
         float star_visibility = smoothstep(star_cutoff_altitude, star_fade_altitude, sun_altitude);
         return mix(sky_color, star_color, star_visibility);
     }

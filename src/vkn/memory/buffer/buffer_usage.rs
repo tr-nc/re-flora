@@ -30,7 +30,7 @@ impl BufferUsage {
                 );
                 vk::BufferUsageFlags::empty()
             }
-            // These descriptor types do not directly map to a buffer usage.
+            // these descriptor types do not directly map to a buffer usage.
             Sampler => {
                 log::error!("ReflectDescriptorType::Sampler does not map to a buffer usage flag.");
                 vk::BufferUsageFlags::empty()
@@ -51,19 +51,19 @@ impl BufferUsage {
                 );
                 vk::BufferUsageFlags::empty()
             }
-            // These variants map directly to buffer usage flags.
+            // these variants map directly to buffer usage flags.
             UniformTexelBuffer => vk::BufferUsageFlags::UNIFORM_TEXEL_BUFFER,
             StorageTexelBuffer => vk::BufferUsageFlags::STORAGE_TEXEL_BUFFER,
             UniformBuffer | UniformBufferDynamic => vk::BufferUsageFlags::UNIFORM_BUFFER,
             StorageBuffer | StorageBufferDynamic => vk::BufferUsageFlags::STORAGE_BUFFER,
-            // Input attachments are intended for images/framebuffers.
+            // input attachments are intended for images/framebuffers.
             InputAttachment => {
                 log::error!(
                     "ReflectDescriptorType::InputAttachment does not map to a buffer usage flag."
                 );
                 vk::BufferUsageFlags::empty()
             }
-            // Unsupported types
+            // unsupported types
             AccelerationStructureKHR => {
                 log::error!(
                     "ReflectDescriptorType::AccelerationStructureKHR is currently not supported."

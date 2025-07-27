@@ -71,7 +71,7 @@ fn pre_compile_shaders() {
         shaderc::CompileOptions::new().expect("Failed to initialize shader compile options.");
     compile_options.set_optimization_level(shaderc::OptimizationLevel::Performance);
 
-    // Recursively compile all shaders
+    // recursively compile all shaders
     visit_shader_files(shader_dir, &shader_extensions, &mut |path| {
         let stage = match path.extension().and_then(|ext| ext.to_str()) {
             Some("vert") => shaderc::ShaderKind::Vertex,
@@ -83,7 +83,7 @@ fn pre_compile_shaders() {
         let source = fs::read_to_string(path)
             .unwrap_or_else(|_| panic!("Failed to read shader source: {}", path.display()));
 
-        // Compile to SPIR-V
+        // compile to SPIR-V
         let compiled_spirv = compiler
             .compile_into_spirv(
                 &source,
@@ -99,7 +99,7 @@ fn pre_compile_shaders() {
         log!("Shader path: {}", path.display());
         let relative_path = path;
 
-        // Construct the final output path inside OUT_DIR/shaders_root
+        // construct the final output path inside OUT_DIR/shaders_root
         let out_path = shader_root_out_dir
             .join(relative_path)
             .with_extension(format!(
@@ -107,13 +107,13 @@ fn pre_compile_shaders() {
                 path.extension().and_then(|x| x.to_str()).unwrap()
             ));
 
-        // Create directories if needed
+        // create directories if needed
         if let Some(parent) = out_path.parent() {
             fs::create_dir_all(parent)
                 .unwrap_or_else(|_| panic!("Failed to create directories for {:?}", parent));
         }
 
-        // Write the compiled SPIR-V
+        // write the compiled SPIR-V
         fs::write(&out_path, &compiled_spirv.as_binary_u8())
             .unwrap_or_else(|_| panic!("Failed to write SPIR-V file: {:?}", out_path));
 

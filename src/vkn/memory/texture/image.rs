@@ -348,11 +348,11 @@ impl Image {
         // data is &[R, G, B, A,  R, G, B, A,  …]
         match fmt {
             Format::R8G8B8A8_UNORM => {
-                // Already in RGBA8 – just clone
+                // already in RGBA8 – just clone
                 Ok(data.to_vec())
             }
             Format::R8_UNORM => {
-                // Keep only R
+                // keep only R
                 if data.len() % 4 != 0 {
                     return Err(anyhow::anyhow!("Input RGBA data length not divisible by 4"));
                 }
@@ -363,7 +363,7 @@ impl Image {
                 Ok(out)
             }
             Format::R8G8_UNORM => {
-                // Keep R and G
+                // keep R and G
                 if data.len() % 4 != 0 {
                     return Err(anyhow::anyhow!("Input RGBA data length not divisible by 4"));
                 }

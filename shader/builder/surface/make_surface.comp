@@ -216,13 +216,13 @@ void main() {
     atomicAdd(make_surface_result.active_voxel_len, 1);
     imageStore(surface, uvi, uvec4(properties, 0, 0, 0));
 
-    // Define the spacing for grass placement. A value of 2 means grass can only
+    // define the spacing for grass placement. A value of 2 means grass can only
     // spawn on a 2x2 grid, ensuring space between potential stalks.
     const uint grid_size = 2;
 
-    // Only consider placing grass on the grid points.
+    // only consider placing grass on the grid points.
     if (uvi.x % grid_size == 0 && uvi.z % grid_size == 0) {
-        // Grass should only grow on top surfaces that are not too steep
+        // grass should only grow on top surfaces that are not too steep
         if (is_surface_top(uvi) && is_normal_valid && normal_not_too_steep(normal, 0.8) &&
             is_surface_plantable(voxel_type)) {
             // --- Noise-based placement (density) ---
@@ -233,14 +233,14 @@ void main() {
             // fnlGetNoise returns [-1, 1], so we map it to [0, 1]
             float density_noise = fnlGetNoise2D(density_noise_state, uvi.x, uvi.z) * 0.5 + 0.5;
 
-            // Threshold to control how dense the grass is. Higher = less dense.
+            // threshold to control how dense the grass is. Higher = less dense.
             float density_threshold = 0.6;
             if (density_noise > density_threshold) {
                 fnl_state height_noise_state  = fnlCreateState(1337);
                 height_noise_state.noise_type = FNL_NOISE_PERLIN;
                 height_noise_state.frequency  = 0.8;
 
-                // Map noise from [-1, 1] to [0, 1]
+                // map noise from [-1, 1] to [0, 1]
                 float height_noise = fnlGetNoise2D(height_noise_state, uvi.x, uvi.z) * 0.5 + 0.5;
 
                 float lavender_chance = 0.603;

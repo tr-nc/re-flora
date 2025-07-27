@@ -47,7 +47,7 @@ pub fn format_to_aspect_mask(format: vk::Format) -> vk::ImageAspectFlags {
         }
 
         // --- Color Formats ---
-        // This large block handles most common color formats to prevent warnings.
+// this large block handles most common color formats to prevent warnings.
         vk::Format::R8_UNORM | vk::Format::R8_SNORM | vk::Format::R8_USCALED | vk::Format::R8_SSCALED | vk::Format::R8_UINT | vk::Format::R8_SINT | vk::Format::R8_SRGB
         | vk::Format::R8G8_UNORM | vk::Format::R8G8_SNORM | vk::Format::R8G8_USCALED | vk::Format::R8G8_SSCALED | vk::Format::R8G8_UINT | vk::Format::R8G8_SINT | vk::Format::R8G8_SRGB
         | vk::Format::R8G8B8_UNORM | vk::Format::R8G8B8_SNORM | vk::Format::R8G8B8_USCALED | vk::Format::R8G8B8_SSCALED | vk::Format::R8G8B8_UINT | vk::Format::R8G8B8_SINT | vk::Format::R8G8B8_SRGB
@@ -79,13 +79,13 @@ pub fn format_to_aspect_mask(format: vk::Format) -> vk::ImageAspectFlags {
         | vk::Format::ETC2_R8G8B8A1_UNORM_BLOCK | vk::Format::ETC2_R8G8B8A1_SRGB_BLOCK
         | vk::Format::ETC2_R8G8B8A8_UNORM_BLOCK | vk::Format::ETC2_R8G8B8A8_SRGB_BLOCK
         | vk::Format::ASTC_4X4_UNORM_BLOCK | vk::Format::ASTC_4X4_SRGB_BLOCK
-        // Add other ASTC block sizes if needed, e.g., ASTC_5x5, etc.
+// add other ASTC block sizes if needed, e.g., ASTC_5x5, etc.
         => {
             vk::ImageAspectFlags::COLOR
         }
 
         // --- Fallback Case ---
-        // This handles any format not explicitly listed above.
+// this handles any format not explicitly listed above.
         _ => {
             log::warn!("Unknown format: {:?}, using COLOR aspect mask as a fallback.", format);
             vk::ImageAspectFlags::COLOR
@@ -266,32 +266,32 @@ impl ImageDesc {
             | vk::Format::R64G64B64A64_SINT
             | vk::Format::R64G64B64A64_SFLOAT => 32,
 
-            // Block compressed formats
-            // BC1 formats (64 bits per 4x4 block = 0.5 bytes per pixel)
+            // block compressed formats
+            // bC1 formats (64 bits per 4x4 block = 0.5 bytes per pixel)
             vk::Format::BC1_RGB_UNORM_BLOCK
             | vk::Format::BC1_RGB_SRGB_BLOCK
             | vk::Format::BC1_RGBA_UNORM_BLOCK
             | vk::Format::BC1_RGBA_SRGB_BLOCK => 8,
 
-            // BC2/BC3 formats (128 bits per 4x4 block = 1 byte per pixel)
+            // bC2/BC3 formats (128 bits per 4x4 block = 1 byte per pixel)
             vk::Format::BC2_UNORM_BLOCK
             | vk::Format::BC2_SRGB_BLOCK
             | vk::Format::BC3_UNORM_BLOCK
             | vk::Format::BC3_SRGB_BLOCK => 16,
 
-            // BC4 formats (64 bits per 4x4 block = 0.5 bytes per pixel)
+            // bC4 formats (64 bits per 4x4 block = 0.5 bytes per pixel)
             vk::Format::BC4_UNORM_BLOCK | vk::Format::BC4_SNORM_BLOCK => 8,
 
-            // BC5 formats (128 bits per 4x4 block = 1 byte per pixel)
+            // bC5 formats (128 bits per 4x4 block = 1 byte per pixel)
             vk::Format::BC5_UNORM_BLOCK | vk::Format::BC5_SNORM_BLOCK => 16,
 
-            // BC6H/BC7 formats (128 bits per 4x4 block = 1 byte per pixel)
+            // bC6H/BC7 formats (128 bits per 4x4 block = 1 byte per pixel)
             vk::Format::BC6H_UFLOAT_BLOCK
             | vk::Format::BC6H_SFLOAT_BLOCK
             | vk::Format::BC7_UNORM_BLOCK
             | vk::Format::BC7_SRGB_BLOCK => 16,
 
-            // ETC2/EAC formats
+            // eTC2/EAC formats
             vk::Format::ETC2_R8G8B8_UNORM_BLOCK
             | vk::Format::ETC2_R8G8B8_SRGB_BLOCK
             | vk::Format::ETC2_R8G8B8A1_UNORM_BLOCK
@@ -303,7 +303,7 @@ impl ImageDesc {
 
             vk::Format::EAC_R11G11_UNORM_BLOCK | vk::Format::EAC_R11G11_SNORM_BLOCK => 16,
 
-            // ASTC formats
+            // aSTC formats
             vk::Format::ASTC_4X4_UNORM_BLOCK
             | vk::Format::ASTC_4X4_SRGB_BLOCK
             | vk::Format::ASTC_5X4_UNORM_BLOCK
@@ -333,7 +333,7 @@ impl ImageDesc {
             | vk::Format::ASTC_12X12_UNORM_BLOCK
             | vk::Format::ASTC_12X12_SRGB_BLOCK => 16,
 
-            // Special cases or undefined
+            // special cases or undefined
             vk::Format::UNDEFINED => 0,
 
             vk::Format::D16_UNORM_S8_UINT => 3, // Special case

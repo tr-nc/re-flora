@@ -26,7 +26,7 @@ impl PhysicalDevice {
     }
 }
 
-// Example device info for scoring / printing
+// example device info for scoring / printing
 #[derive(Debug)]
 pub struct DeviceInfo {
     pub device: vk::PhysicalDevice,
@@ -105,7 +105,7 @@ fn print_queue_family_info(
     for (index, _queue_family) in queue_families.iter().enumerate() {
         let q_index = index as u32;
 
-        // Determine which operations this queue family supports
+        // determine which operations this queue family supports
         let supports_graphics = if queue_family_index_candidates.graphics.contains(&q_index) {
             "Yes"
         } else {
@@ -197,7 +197,7 @@ fn gather_queue_family_candidates(
     let mut sparse_binding = vec![];
 
     for (idx, family) in props.iter().enumerate() {
-        // We ignore families with zero queue_count
+        // we ignore families with zero queue_count
         if family.queue_count == 0 {
             continue;
         }
@@ -294,7 +294,7 @@ fn pick_best_queue_family_indices(
         match maybe_separate {
             Some(&separate_transfer_idx) => separate_transfer_idx,
             None => {
-                // Finally, fall back to the same queue as general if absolutely no separate queue is found.
+                // finally, fall back to the same queue as general if absolutely no separate queue is found.
                 general_idx
             }
         }
@@ -322,10 +322,10 @@ pub fn create_physical_device(
             .expect("Failed to enumerate physical devices")
     };
 
-    // Build a list of device infos for printing / scoring
+    // build a list of device infos for printing / scoring
     let mut device_infos = vec![];
     for &dev in devices.iter() {
-        // Check if it supports required extensions
+        // check if it supports required extensions
         if !device_supports_required_extensions(instance, dev) {
             continue;
         }
@@ -337,7 +337,7 @@ pub fn create_physical_device(
             continue;
         }
 
-        // Get props for device type and name
+        // get props for device type and name
         let props = unsafe { instance.get_physical_device_properties(dev) };
         let device_name = unsafe {
             CStr::from_ptr(props.device_name.as_ptr())
@@ -347,7 +347,7 @@ pub fn create_physical_device(
         let device_type = props.device_type;
 
         let mem_props = unsafe { instance.get_physical_device_memory_properties(dev) };
-        // Sum all device-local heaps as a simple approximation (in MB)
+        // sum all device-local heaps as a simple approximation (in MB)
         let mut total_vram = 0u64;
         for i in 0..mem_props.memory_heap_count {
             let heap = mem_props.memory_heaps[i as usize];
@@ -357,8 +357,8 @@ pub fn create_physical_device(
         }
         let total_memory_mb = (total_vram as f64) / (1024.0 * 1024.0);
 
-        // Discrete GPU: +100, Integrated GPU: +50, others: +10
-        // Then add memory-based bonus: 1 point per 256 MB
+        // discrete GPU: +100, Integrated GPU: +50, others: +10
+        // then add memory-based bonus: 1 point per 256 MB
         let gpu_type_score = match device_type {
             vk::PhysicalDeviceType::DISCRETE_GPU => 100,
             vk::PhysicalDeviceType::INTEGRATED_GPU => 50,
@@ -378,12 +378,12 @@ pub fn create_physical_device(
         });
     }
 
-    // Sort descending by score
+    // sort descending by score
     device_infos.sort_by(|a, b| b.score.cmp(&a.score));
 
     print_all_devices_with_selection(&device_infos, 0);
 
-    // Pick the device with the highest score that can also pick distinct queues
+    // pick the device with the highest score that can also pick distinct queues
     let info = device_infos.get(0).expect("No suitable device found");
 
     let queue_family_index_candidates =
@@ -397,7 +397,7 @@ pub fn create_physical_device(
     // **New Step:** Print the selected queue families
     print_selected_queue_families(&queue_family_indices);
 
-    // Found the best device with a valid set of indices
+    // found the best device with a valid set of indices
     unsafe {
         let props = instance.get_physical_device_properties(info.device);
         let chosen_name = CStr::from_ptr(props.device_name.as_ptr());

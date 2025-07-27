@@ -36,7 +36,7 @@ impl ClipCache {
             })
             .collect::<Result<_>>()?;
 
-        // Prepare an initial play queue (may contain only a single index).
+        // prepare an initial play queue (may contain only a single index).
         let mut play_queue: Vec<usize> = (0..clips.len()).collect();
         play_queue.shuffle(&mut rng);
 
@@ -51,12 +51,12 @@ impl ClipCache {
     /// - If only one clip is cached, always returns that clip.  
     /// - If multiple clips are cached, uses a shuffled queue with no immediate repeats.
     pub fn next(&mut self) -> SoundClip {
-        // Fast path for a single cached clip.
+        // fast path for a single cached clip.
         if self.clips.len() == 1 {
             return self.clips[0].clone();
         }
 
-        // Refill & reshuffle queue when empty.
+        // refill & reshuffle queue when empty.
         if self.play_queue.is_empty() {
             let mut new_queue: Vec<usize> = (0..self.clips.len()).collect();
             let mut rng = rand::rng();

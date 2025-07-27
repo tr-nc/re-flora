@@ -71,7 +71,8 @@ void main() {
     uvec3 vert_offset_in_vox;
     float color_gradient;
     float wind_gradient;
-    unpack_vertex_data(vox_local_pos, vert_offset_in_vox, color_gradient, wind_gradient, in_packed_data);
+    unpack_vertex_data(vox_local_pos, vert_offset_in_vox, color_gradient, wind_gradient,
+                       in_packed_data);
 
     vec3 instance_pos = in_instance_position * scaling_factor;
 

@@ -57,12 +57,12 @@ MarchingResult general_scene_marching(Ray ray) {
 
 void main() {
     uint query_index = gl_GlobalInvocationID.x;
-    
+
     if (query_index >= terrain_query_count.valid_query_count) {
         return;
     }
-    
-    vec2 query_pos = terrain_query_info.query_pos_xz[query_index];
+
+    vec2 query_pos  = terrain_query_info.query_pos_xz[query_index];
     vec3 ray_origin = vec3(query_pos.x, 100.0, query_pos.y);
 
     Ray ray;

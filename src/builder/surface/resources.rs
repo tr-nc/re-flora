@@ -146,7 +146,7 @@ impl InstanceResources {
         }
         let aabb = Aabb3::from_points(leaf_positions);
 
-        // Add margin to cover leaf radius
+        // add margin to cover leaf radius
         let min_with_margin = aabb.min() - Vec3::splat(margin);
         let max_with_margin = aabb.max() + Vec3::splat(margin);
 

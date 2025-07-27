@@ -170,8 +170,8 @@ impl ShaderModule {
         input_vars.sort_by_key(|var| var.location);
 
         let mut attribute_descriptions = Vec::with_capacity(input_vars.len());
-        // Use an array or a small Vec to track offsets for each binding.
-        // Assuming max 2 bindings for simplicity.
+        // use an array or a small Vec to track offsets for each binding.
+        // assuming max 2 bindings for simplicity.
         let mut offsets = [0u32; 2];
 
         let vert_rate_stride;
@@ -195,7 +195,7 @@ impl ShaderModule {
                 .find(|ov| ov.location == loc)
                 .map_or(reflected_format, |ov| ov.format);
 
-            // Check if we've crossed into the instance-rate attributes and update the binding index
+            // check if we've crossed into the instance-rate attributes and update the binding index
             if let Some(start_loc) = instance_rate_starting_location {
                 if loc >= start_loc {
                     binding_index = 1;
@@ -206,16 +206,16 @@ impl ShaderModule {
                 .binding(binding_index as u32)
                 .location(loc)
                 .format(final_format)
-                // Use the offset for the CURRENT binding
+                // use the offset for the CURRENT binding
                 .offset(offsets[binding_index]);
 
             attribute_descriptions.push(description);
 
-            // Increment the offset for the CURRENT binding
+            // increment the offset for the CURRENT binding
             offsets[binding_index] += format_to_size_in_bytes(final_format);
         }
 
-        // Final strides are just the total accumulated offsets for each binding
+        // final strides are just the total accumulated offsets for each binding
         vert_rate_stride = offsets[0];
         if instance_rate_starting_location.is_some() {
             inst_rate_stride = Some(offsets[1]);
@@ -303,7 +303,7 @@ impl ShaderModule {
                 | vk::Format::R64G64B64A64_SINT
                 | vk::Format::R64G64B64A64_SFLOAT => 32,
 
-                // Packed formats
+                // packed formats
                 vk::Format::A2B10G10R10_UNORM_PACK32 | vk::Format::A2B10G10R10_UINT_PACK32 => 4,
 
                 _ => panic!(
@@ -654,7 +654,7 @@ fn extract_buffer_layouts(
                 return Ok(PlainMemberType::Array);
             }
 
-            // Matrices
+            // matrices
             if type_flags.contains(ReflectTypeFlags::MATRIX) {
                 let cols = numeric.matrix.column_count;
                 let rows = numeric.matrix.row_count;
@@ -667,10 +667,10 @@ fn extract_buffer_layouts(
                 };
             }
 
-            // Vectors
+            // vectors
             if type_flags.contains(ReflectTypeFlags::VECTOR) {
                 let comp_count = numeric.vector.component_count;
-                // Distinguish float-based vs int-based vs uint-based
+                // distinguish float-based vs int-based vs uint-based
                 let is_float = type_flags.contains(ReflectTypeFlags::FLOAT);
                 let is_int = type_flags.contains(ReflectTypeFlags::INT);
                 let signedness = numeric.scalar.signedness;
@@ -702,7 +702,7 @@ fn extract_buffer_layouts(
                 }
             }
 
-            // Scalars
+            // scalars
             if type_flags.contains(ReflectTypeFlags::FLOAT) {
                 return Ok(PlainMemberType::Float);
             }

@@ -100,13 +100,13 @@ vec2 random_grass_offset(vec2 grass_instance_pos, float time) {
 
     float noise_x = fnlGetNoise2D(state, grass_instance_pos.x + time_offset, grass_instance_pos.y);
 
-    // Sample noise for the Z offset from a different location in the noise field to make it look
+    // sample noise for the Z offset from a different location in the noise field to make it look
     // more natural. Adding a large number to the coordinates ensures we are sampling a different,
     // uncorrelated noise pattern.
     float noise_z = fnlGetNoise2D(state, grass_instance_pos.x + 123.4,
                                   grass_instance_pos.y - 234.5 + time_offset);
 
-    // The noise is in the range [-1, 1], we scale it by the desired strength.
+    // the noise is in the range [-1, 1], we scale it by the desired strength.
     return vec2(noise_x, noise_z) * wind_strength + natual_state;
 }
 
@@ -118,13 +118,13 @@ void unpack_vertex_data(out vec3 o_voxel_pos, out uint o_vertex_offset, out floa
 }
 
 void main() {
-    // Unpack vertex data
+    // unpack vertex data
     vec3 in_position;
     uint vertex_index;
     float in_color_gradient;
     unpack_vertex_data(in_position, vertex_index, in_color_gradient, in_packed_data);
 
-    // Extract height from the Y component of the position (voxel height level)
+    // extract height from the Y component of the position (voxel height level)
     float height = in_position.y;
 
     vec2 grass_offset =
@@ -148,7 +148,7 @@ void main() {
     // transform to clip space
     gl_Position = camera_info.view_proj_mat * vert_pos_ws;
 
-    // Interpolate color based on color gradient
+    // interpolate color based on color gradient
     vec3 interpolated_color = mix(grass_info.bottom_color, grass_info.tip_color, in_color_gradient);
 
     vec3 sun_light = sun_info.sun_color * sun_info.sun_luminance;

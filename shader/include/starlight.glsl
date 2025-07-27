@@ -4,9 +4,9 @@
 #include "../include/core/color.glsl"
 #include "../include/core/definitions.glsl"
 
-// Star Nest by Pablo Roman Andrioli
+// star Nest by Pablo Roman Andrioli
 // https://www.shadertoy.com/view/XlfGRj
-// License: MIT
+// license: MIT
 
 struct StarlightInfo {
     int iterations;

@@ -21,7 +21,7 @@ pub fn calculate_directional_light_matrices(
     let dir_n = light_direction.normalize();
     let mut up = Vec3::Y;
     if dir_n.dot(up).abs() > PARALLEL_EPS {
-        // If parallel to y, fall back to z.  (z can also be x, any axis works.)
+        // if parallel to y, fall back to z.  (z can also be x, any axis works.)
         up = Vec3::Z;
     }
 

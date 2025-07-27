@@ -21,7 +21,7 @@ pub fn auto_create_descriptor_sets(
     let mut sorted_sets: Vec<_> = descriptor_sets_bindings.iter().collect();
     sorted_sets.sort_by_key(|(set_no, _)| *set_no);
 
-    // Allocate descriptor sets from the pool
+    // allocate descriptor sets from the pool
     for (set_no, _) in sorted_sets {
         let descriptor_set = descriptor_pool
             .allocate_set(&pipeline_layout.get_descriptor_set_layouts()[set_no])
@@ -29,13 +29,13 @@ pub fn auto_create_descriptor_sets(
         descriptor_sets.push(descriptor_set);
     }
 
-    // Store the allocated descriptor sets
+    // store the allocated descriptor sets
     {
         let mut guard = descriptor_sets_storage.lock().unwrap();
         *guard = descriptor_sets;
     }
 
-    // Update the descriptor sets with the provided resources
+    // update the descriptor sets with the provided resources
     auto_update_descriptor_sets(
         resource_containers,
         descriptor_sets_bindings,

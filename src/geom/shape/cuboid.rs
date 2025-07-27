@@ -55,7 +55,7 @@ impl Cuboid {
 
     #[allow(dead_code)]
     pub fn aabb(&self) -> Aabb3 {
-        // The AABB is simply defined by the min and max corners
+        // the AABB is simply defined by the min and max corners
         let min = self.center - self.half_size;
         let max = self.center + self.half_size;
         Aabb3::new(min, max)
