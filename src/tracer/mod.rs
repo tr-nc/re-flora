@@ -405,15 +405,15 @@ impl Tracer {
 
         let clear_render_target_color_and_depth = RenderTarget::new(
             clear_render_pass_color_and_depth,
-            clear_framebuffer_color_and_depth,
+            vec![clear_framebuffer_color_and_depth],
         );
         let load_render_target_color_and_depth = RenderTarget::new(
             load_render_pass_color_and_depth,
-            load_framebuffer_color_and_depth,
+            vec![load_framebuffer_color_and_depth],
         );
         let clear_render_target_depth = RenderTarget::new(
             clear_render_pass_depth,
-            clear_framebuffer_depth,
+            vec![clear_framebuffer_depth],
         );
 
         return Ok(Self {
@@ -651,15 +651,15 @@ impl Tracer {
 
         self.clear_render_target_color_and_depth = RenderTarget::new(
             self.clear_render_target_color_and_depth.get_render_pass().clone(),
-            clear_framebuffer_color_and_depth,
+            vec![clear_framebuffer_color_and_depth],
         );
         self.load_render_target_color_and_depth = RenderTarget::new(
             self.load_render_target_color_and_depth.get_render_pass().clone(),
-            load_framebuffer_color_and_depth,
+            vec![load_framebuffer_color_and_depth],
         );
         self.clear_render_target_depth = RenderTarget::new(
             self.clear_render_target_depth.get_render_pass().clone(),
-            clear_framebuffer_depth,
+            vec![clear_framebuffer_depth],
         );
 
         self.update_sets(contree_builder_resources, scene_accel_resources);
