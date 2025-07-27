@@ -52,19 +52,23 @@ pub fn generate_indexed_voxel_leaves(
                 }
 
                 // Calculate gradient and density within the shell region only
-                let (gradient, falloff_density) = if outer_radius > inner_radius {
+                let (color_gradient, wind_gradient, falloff_density) = if outer_radius
+                    > inner_radius
+                {
                     // Shell region: gradient from 0.0 at inner_radius to 1.0 at outer_radius
                     let shell_ratio =
                         (distance_from_center - inner_radius) / (outer_radius - inner_radius);
-                    let gradient = shell_ratio.min(1.0);
+                    let color_gradient = shell_ratio.min(1.0);
                     // Mix density: inner_density at inner edge, outer_density at outer edge
                     let density = inner_density * (1.0 - shell_ratio) + outer_density * shell_ratio;
-                    (gradient, density)
+                    let wind_gradient = distance_from_center / outer_radius;
+                    (color_gradient, wind_gradient, density)
                 } else {
                     // When inner_radius == outer_radius, single shell layer
-                    let gradient = (distance_from_center / outer_radius).min(1.0);
-                    let density = inner_density * (1.0 - gradient) + outer_density * gradient;
-                    (gradient, density)
+                    let color_gradient = (distance_from_center / outer_radius).min(1.0);
+                    let density = inner_density * (1.0 - color_gradient) + outer_density * color_gradient;
+                    let wind_gradient = distance_from_center / outer_radius;
+                    (color_gradient, wind_gradient, density)
                 };
 
                 // Use noise to determine if we should place a voxel here
@@ -83,8 +87,9 @@ pub fn generate_indexed_voxel_leaves(
                         &mut vertices,
                         &mut indices,
                         pos,
-                        gradient,
                         vertex_offset,
+                        color_gradient,
+                        wind_gradient,
                     )?;
                 }
             }

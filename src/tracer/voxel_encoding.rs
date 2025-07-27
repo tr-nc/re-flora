@@ -7,8 +7,12 @@ use crate::tracer::{
 };
 
 const BIT_PER_POS: u32 = 7;
-const BIT_PER_GRADIENT: u32 = 8;
 const BIT_PER_OFFSET: u32 = 1;
+
+const BIT_PER_CUSTOM_INFO: u32 = 8;
+
+const BIT_PER_COLOR_GRADIENT: u32 = 4;
+const BIT_PER_WIND_GRADIENT: u32 = 4;
 
 /// Encodes a position into BIT_PER_POS * 3 bits.
 fn encode_pos(pos: IVec3) -> Result<u32> {
@@ -50,14 +54,21 @@ fn encode_voxel_offset(base_vert: UVec3) -> Result<u32> {
 }
 
 /// Encodes a gradient value [0, 1] into BIT_PER_GRADIENT bits.
-fn encode_gradient(gradient: f32) -> Result<u32> {
+fn encode_gradients(color_gradient: f32, wind_gradient: f32) -> Result<u32> {
     const LOWER_BOUND: f32 = 0.0;
     const UPPER_BOUND: f32 = 1.0;
-    if gradient < LOWER_BOUND || gradient > UPPER_BOUND {
-        return Err(anyhow::anyhow!("Invalid gradient"));
+    if color_gradient < LOWER_BOUND || color_gradient > UPPER_BOUND {
+        return Err(anyhow::anyhow!("Invalid color gradient"));
     }
-    const MAX_GRADIENT: u32 = (1 << BIT_PER_GRADIENT) - 1;
-    let encoded = (gradient * MAX_GRADIENT as f32) as u32;
+    if wind_gradient < LOWER_BOUND || wind_gradient > UPPER_BOUND {
+        return Err(anyhow::anyhow!("Invalid wind gradient"));
+    }
+
+    const MAX_COLOR_GRADIENT: u32 = (1 << BIT_PER_COLOR_GRADIENT) - 1;
+    const MAX_WIND_GRADIENT: u32 = (1 << BIT_PER_WIND_GRADIENT) - 1;
+    let encoded_color_gradient = (color_gradient * MAX_COLOR_GRADIENT as f32) as u32;
+    let encoded_wind_gradient = (wind_gradient * MAX_WIND_GRADIENT as f32) as u32;
+    let encoded = encoded_color_gradient | (encoded_wind_gradient << BIT_PER_COLOR_GRADIENT);
     Ok(encoded)
 }
 
@@ -73,8 +84,9 @@ pub fn append_indexed_cube_data(
     vertices: &mut Vec<Vertex>,
     indices: &mut Vec<u32>,
     pos: IVec3,
-    color_gradient: f32,
     vertex_offset: u32,
+    color_gradient: f32,
+    wind_gradient: f32,
 ) -> Result<()> {
     const LOWER_BOUND: i32 = -(1 << (BIT_PER_POS - 1));
     const UPPER_BOUND: i32 = (1 << (BIT_PER_POS - 1)) - 1;
@@ -89,7 +101,7 @@ pub fn append_indexed_cube_data(
     }
 
     let encoded_pos = encode_pos(pos)?;
-    let encoded_gradient = encode_gradient(color_gradient)?;
+    let encoded_gradient = encode_gradients(color_gradient, wind_gradient)?;
 
     for voxel_vert in VOXEL_VERTICES {
         let encoded_offset = encode_voxel_offset(voxel_vert)?;

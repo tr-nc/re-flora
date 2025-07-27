@@ -69,13 +69,14 @@ float get_shadow_weight(ivec3 vox_local_pos) {
 void main() {
     ivec3 vox_local_pos;
     uvec3 vert_offset_in_vox;
-    float gradient;
-    unpack_vertex_data(vox_local_pos, vert_offset_in_vox, gradient, in_packed_data);
+    float color_gradient;
+    float wind_gradient;
+    unpack_vertex_data(vox_local_pos, vert_offset_in_vox, color_gradient, wind_gradient, in_packed_data);
 
     vec3 instance_pos = in_instance_position * scaling_factor;
 
     // TODO: make 5.0 configurable inside leaves_info
-    vec3 wind_offset = get_wind_offset(instance_pos.xz, gradient, leaves_info.time);
+    vec3 wind_offset = get_wind_offset(instance_pos.xz, wind_gradient, leaves_info.time);
     vec3 anchor_pos  = (vox_local_pos + wind_offset) * scaling_factor + instance_pos;
     vec3 vert_pos    = anchor_pos + vert_offset_in_vox * scaling_factor;
     vec3 voxel_pos   = anchor_pos + vec3(0.5) * scaling_factor;
@@ -88,7 +89,7 @@ void main() {
 
     // interpolate color based on color gradient
     vec3 interpolated_color = mix(srgb_to_linear(leaves_info.bottom_color),
-                                  srgb_to_linear(leaves_info.tip_color), gradient);
+                                  srgb_to_linear(leaves_info.tip_color), color_gradient);
 
     vec3 sun_light = sun_info.sun_color * sun_info.sun_luminance;
     vert_color     = interpolated_color * (sun_light * shadow_weight + shading_info.ambient_light);
