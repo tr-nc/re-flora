@@ -54,53 +54,6 @@ impl RenderTarget {
         self.render_pass.record_end(cmdbuf);
     }
 
-    /// Sets the current framebuffer index for convenience methods.
-    pub fn set_current_framebuffer(&mut self, index: usize) {
-        assert!(
-            index < self.framebuffers.len(),
-            "Framebuffer index {} out of bounds (max: {})",
-            index,
-            self.framebuffers.len() - 1
-        );
-        self.current_framebuffer_index = index;
-    }
-
-    /// Gets the current framebuffer index.
-    pub fn get_current_framebuffer_index(&self) -> usize {
-        self.current_framebuffer_index
-    }
-
-    /// Gets the number of framebuffers in this render target.
-    pub fn get_framebuffer_count(&self) -> usize {
-        self.framebuffers.len()
-    }
-
-    /// Gets a reference to a specific framebuffer by index.
-    pub fn get_framebuffer_by_index(&self, index: usize) -> &Framebuffer {
-        assert!(
-            index < self.framebuffers.len(),
-            "Framebuffer index {} out of bounds (max: {})",
-            index,
-            self.framebuffers.len() - 1
-        );
-        &self.framebuffers[index]
-    }
-
-    /// Gets a reference to the current framebuffer (backward compatibility).
-    pub fn get_framebuffer(&self) -> &Framebuffer {
-        &self.framebuffers[self.current_framebuffer_index]
-    }
-
-    /// Gets a reference to the current framebuffer.
-    pub fn get_current_framebuffer(&self) -> &Framebuffer {
-        &self.framebuffers[self.current_framebuffer_index]
-    }
-
-    /// Gets all framebuffers as a slice.
-    pub fn get_framebuffers(&self) -> &[Framebuffer] {
-        &self.framebuffers
-    }
-
     /// Gets the render pass description.
     pub fn get_desc(&self) -> &RenderPassDesc {
         self.render_pass.get_desc()
