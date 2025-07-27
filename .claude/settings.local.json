@@ -10,7 +10,8 @@
       "Bash(rm:*)",
       "Bash(cargo check:*)",
       "Bash(cargo run:*)",
-      "Bash(cargo fmt)"
+      "Bash(cargo fmt)",
+      "Bash(sed:*)"
     ],
     "deny": []
   }
