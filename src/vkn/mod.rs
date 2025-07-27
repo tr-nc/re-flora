@@ -34,6 +34,9 @@ pub use render_pass::*;
 mod framebuffer;
 pub use framebuffer::*;
 
+mod render_target;
+pub use render_target::*;
+
 mod extent;
 pub use extent::*;
 

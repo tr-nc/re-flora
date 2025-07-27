@@ -34,7 +34,7 @@ use crate::vkn::{
     execute_one_time_command, Allocator, AttachmentDescOuter, AttachmentType, Buffer,
     CommandBuffer, ComputePipeline, DescriptorPool, Extent2D, Extent3D, Framebuffer,
     GraphicsPipeline, GraphicsPipelineDesc, MemoryBarrier, PipelineBarrier,
-    PlainMemberTypeWithData, RenderPass, ShaderModule, StructMemberDataBuilder,
+    PlainMemberTypeWithData, RenderPass, RenderTarget, ShaderModule, StructMemberDataBuilder,
     StructMemberDataReader, Texture, Viewport, VulkanContext, WriteDescriptorSet,
 };
 use anyhow::Result;
@@ -84,13 +84,9 @@ pub struct Tracer {
     leaves_ppl_with_load: GraphicsPipeline,
     leaves_shadow_ppl_with_clear: GraphicsPipeline,
 
-    clear_render_pass_color_and_depth: RenderPass,
-    load_render_pass_color_and_depth: RenderPass,
-    clear_render_pass_depth: RenderPass,
-
-    clear_framebuffer_color_and_depth: Framebuffer,
-    load_framebuffer_color_and_depth: Framebuffer,
-    clear_framebuffer_depth: Framebuffer,
+    clear_render_target_color_and_depth: RenderTarget,
+    load_render_target_color_and_depth: RenderTarget,
+    clear_render_target_depth: RenderTarget,
 
     #[allow(dead_code)]
     pool: DescriptorPool,
@@ -407,6 +403,19 @@ impl Tracer {
             &resources.shadow_map_tex,
         );
 
+        let clear_render_target_color_and_depth = RenderTarget::new(
+            clear_render_pass_color_and_depth,
+            clear_framebuffer_color_and_depth,
+        );
+        let load_render_target_color_and_depth = RenderTarget::new(
+            load_render_pass_color_and_depth,
+            load_framebuffer_color_and_depth,
+        );
+        let clear_render_target_depth = RenderTarget::new(
+            clear_render_pass_depth,
+            clear_framebuffer_depth,
+        );
+
         return Ok(Self {
             vulkan_ctx,
             desc,
@@ -437,13 +446,9 @@ impl Tracer {
             leaves_ppl_with_load,
             leaves_shadow_ppl_with_clear,
 
-            clear_render_pass_color_and_depth,
-            load_render_pass_color_and_depth,
-            clear_render_pass_depth,
-
-            clear_framebuffer_color_and_depth,
-            load_framebuffer_color_and_depth,
-            clear_framebuffer_depth,
+            clear_render_target_color_and_depth,
+            load_render_target_color_and_depth,
+            clear_render_target_depth,
             pool,
         });
 
@@ -626,22 +631,35 @@ impl Tracer {
             screen_extent,
         );
 
-        self.clear_framebuffer_color_and_depth = Self::create_framebuffer_color_and_depth(
+        let clear_framebuffer_color_and_depth = Self::create_framebuffer_color_and_depth(
             &self.vulkan_ctx,
-            &self.clear_render_pass_color_and_depth,
+            self.clear_render_target_color_and_depth.get_render_pass(),
             &self.resources.extent_dependent_resources.gfx_output_tex,
             &self.resources.extent_dependent_resources.gfx_depth_tex,
         );
-        self.load_framebuffer_color_and_depth = Self::create_framebuffer_color_and_depth(
+        let load_framebuffer_color_and_depth = Self::create_framebuffer_color_and_depth(
             &self.vulkan_ctx,
-            &self.load_render_pass_color_and_depth,
+            self.load_render_target_color_and_depth.get_render_pass(),
             &self.resources.extent_dependent_resources.gfx_output_tex,
             &self.resources.extent_dependent_resources.gfx_depth_tex,
         );
-        self.clear_framebuffer_depth = Self::create_framebuffer_depth(
+        let clear_framebuffer_depth = Self::create_framebuffer_depth(
             &self.vulkan_ctx,
-            &self.clear_render_pass_depth,
+            self.clear_render_target_depth.get_render_pass(),
             &self.resources.shadow_map_tex,
+        );
+
+        self.clear_render_target_color_and_depth = RenderTarget::new(
+            self.clear_render_target_color_and_depth.get_render_pass().clone(),
+            clear_framebuffer_color_and_depth,
+        );
+        self.load_render_target_color_and_depth = RenderTarget::new(
+            self.load_render_target_color_and_depth.get_render_pass().clone(),
+            load_framebuffer_color_and_depth,
+        );
+        self.clear_render_target_depth = RenderTarget::new(
+            self.clear_render_target_depth.get_render_pass().clone(),
+            clear_framebuffer_depth,
         );
 
         self.update_sets(contree_builder_resources, scene_accel_resources);
@@ -1411,9 +1429,8 @@ impl Tracer {
             },
         ];
 
-        self.clear_render_pass_color_and_depth.record_begin(
+        self.clear_render_target_color_and_depth.record_begin(
             cmdbuf,
-            &self.clear_framebuffer_color_and_depth,
             &clear_values,
         );
 
@@ -1477,9 +1494,9 @@ impl Tracer {
                 0, // firstInstance
             );
         }
-        self.clear_render_pass_color_and_depth.record_end(cmdbuf);
+        self.clear_render_target_color_and_depth.record_end(cmdbuf);
 
-        let desc = self.clear_render_pass_color_and_depth.get_desc();
+        let desc = self.clear_render_target_color_and_depth.get_desc();
         self.resources
             .extent_dependent_resources
             .gfx_output_tex
@@ -1519,9 +1536,8 @@ impl Tracer {
             },
         ];
 
-        self.load_render_pass_color_and_depth.record_begin(
+        self.load_render_target_color_and_depth.record_begin(
             cmdbuf,
-            &self.load_framebuffer_color_and_depth,
             &clear_values,
         );
 
@@ -1585,9 +1601,9 @@ impl Tracer {
                 0, // firstInstance
             );
         }
-        self.load_render_pass_color_and_depth.record_end(cmdbuf);
+        self.load_render_target_color_and_depth.record_end(cmdbuf);
 
-        let desc = self.load_render_pass_color_and_depth.get_desc();
+        let desc = self.load_render_target_color_and_depth.get_desc();
         self.resources
             .extent_dependent_resources
             .gfx_output_tex
@@ -1624,9 +1640,8 @@ impl Tracer {
             },
         ];
 
-        self.load_render_pass_color_and_depth.record_begin(
+        self.load_render_target_color_and_depth.record_begin(
             cmdbuf,
-            &self.load_framebuffer_color_and_depth,
             &clear_values,
         );
 
@@ -1697,9 +1712,9 @@ impl Tracer {
             );
         }
 
-        self.load_render_pass_color_and_depth.record_end(cmdbuf);
+        self.load_render_target_color_and_depth.record_end(cmdbuf);
 
-        let desc = self.load_render_pass_color_and_depth.get_desc();
+        let desc = self.load_render_target_color_and_depth.get_desc();
         self.resources
             .extent_dependent_resources
             .gfx_output_tex
@@ -1726,9 +1741,8 @@ impl Tracer {
             },
         }];
 
-        self.clear_render_pass_depth.record_begin(
+        self.clear_render_target_depth.record_begin(
             cmdbuf,
-            &self.clear_framebuffer_depth,
             &clear_values,
         );
 
@@ -1783,9 +1797,9 @@ impl Tracer {
             );
         }
 
-        self.clear_render_pass_depth.record_end(cmdbuf);
+        self.clear_render_target_depth.record_end(cmdbuf);
 
-        let desc = self.clear_render_pass_depth.get_desc();
+        let desc = self.clear_render_target_depth.get_desc();
         self.resources
             .shadow_map_tex
             .get_image()
