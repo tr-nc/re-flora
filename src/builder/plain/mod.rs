@@ -79,21 +79,11 @@ impl PlainBuilder {
             &chunk_modify_sm,
         );
 
-        let buffer_setup_ppl = ComputePipeline::new(device, &buffer_setup_sm);
-        let chunk_init_ppl = ComputePipeline::new(device, &chunk_init_sm);
-        let chunk_modify_ppl = ComputePipeline::new(device, &chunk_modify_sm);
-
         let pool = DescriptorPool::new(device).unwrap();
 
-        buffer_setup_ppl
-            .auto_create_descriptor_sets(&pool, &[&resources])
-            .unwrap();
-        chunk_init_ppl
-            .auto_create_descriptor_sets(&pool, &[&resources])
-            .unwrap();
-        chunk_modify_ppl
-            .auto_create_descriptor_sets(&pool, &[&resources])
-            .unwrap();
+        let buffer_setup_ppl = ComputePipeline::new(device, &buffer_setup_sm, &pool, &[&resources]);
+        let chunk_init_ppl = ComputePipeline::new(device, &chunk_init_sm, &pool, &[&resources]);
+        let chunk_modify_ppl = ComputePipeline::new(device, &chunk_modify_sm, &pool, &[&resources]);
 
         init_atlas_images(&vulkan_ctx, &resources);
 

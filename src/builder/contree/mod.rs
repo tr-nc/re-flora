@@ -210,13 +210,13 @@ impl ContreeBuilder {
         );
 
         // --- Pipelines ---
-        let contree_buffer_setup_ppl = ComputePipeline::new(device, &contree_buffer_setup_sm);
-        let contree_leaf_write_ppl = ComputePipeline::new(device, &contree_leaf_write_sm);
-        let contree_tree_write_ppl = ComputePipeline::new(device, &contree_tree_write_sm);
-        let contree_buffer_update_ppl = ComputePipeline::new(device, &contree_buffer_update_sm);
+        let contree_buffer_setup_ppl = ComputePipeline::new_tmp(device, &contree_buffer_setup_sm);
+        let contree_leaf_write_ppl = ComputePipeline::new_tmp(device, &contree_leaf_write_sm);
+        let contree_tree_write_ppl = ComputePipeline::new_tmp(device, &contree_tree_write_sm);
+        let contree_buffer_update_ppl = ComputePipeline::new_tmp(device, &contree_buffer_update_sm);
         let contree_last_buffer_update_ppl =
-            ComputePipeline::new(device, &contree_last_buffer_update_sm);
-        let contree_concat_ppl = ComputePipeline::new(device, &contree_concat_sm);
+            ComputePipeline::new_tmp(device, &contree_last_buffer_update_sm);
+        let contree_concat_ppl = ComputePipeline::new_tmp(device, &contree_concat_sm);
 
         // --- Descriptor Sets ---
         let fixed_pool = DescriptorPool::new(device).unwrap();

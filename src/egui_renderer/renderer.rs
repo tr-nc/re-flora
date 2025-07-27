@@ -80,7 +80,7 @@ impl EguiRenderer {
         let frag_shader_module =
             ShaderModule::from_glsl(device, compiler, "shader/egui/egui.frag", "main").unwrap();
 
-        let pipeline = GraphicsPipeline::new(
+        let pipeline = GraphicsPipeline::new_tmp(
             device,
             &vert_shader_module,
             &frag_shader_module,
@@ -140,7 +140,7 @@ impl EguiRenderer {
     ///
     /// This is an expensive operation.
     pub fn set_render_pass(&mut self, render_pass: &RenderPass) {
-        self.gui_pipeline = GraphicsPipeline::new(
+        self.gui_pipeline = GraphicsPipeline::new_tmp(
             &self.vulkan_context.device(),
             &self.vert_shader_module,
             &self.frag_shader_module,

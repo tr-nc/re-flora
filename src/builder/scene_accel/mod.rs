@@ -51,8 +51,8 @@ impl SceneAccelBuilder {
             &update_scene_tex_sm,
         );
 
-        let update_scene_tex_ppl = ComputePipeline::new(device, &update_scene_tex_sm);
-        update_scene_tex_ppl.auto_create_descriptor_sets(&pool, &[&resources])?;
+        let update_scene_tex_ppl =
+            ComputePipeline::new(device, &update_scene_tex_sm, &pool, &[&resources]);
 
         let update_scene_tex_cmdbuf =
             Self::record_update_scene_tex_cmdbuf(vulkan_ctx.clone(), &update_scene_tex_ppl);

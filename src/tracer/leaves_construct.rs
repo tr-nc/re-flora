@@ -66,7 +66,8 @@ pub fn generate_indexed_voxel_leaves(
                 } else {
                     // When inner_radius == outer_radius, single shell layer
                     let color_gradient = (distance_from_center / outer_radius).min(1.0);
-                    let density = inner_density * (1.0 - color_gradient) + outer_density * color_gradient;
+                    let density =
+                        inner_density * (1.0 - color_gradient) + outer_density * color_gradient;
                     let wind_gradient = distance_from_center / outer_radius;
                     (color_gradient, wind_gradient, density)
                 };

@@ -299,71 +299,40 @@ impl Tracer {
 
         let device = vulkan_ctx.device();
 
-        let tracer_ppl = ComputePipeline::new(device, &tracer_sm);
-        let tracer_shadow_ppl = ComputePipeline::new(device, &tracer_shadow_sm);
-        let vsm_creation_ppl = ComputePipeline::new(device, &vsm_creation_sm);
-        let vsm_blur_h_ppl = ComputePipeline::new(device, &vsm_blur_h_sm);
-        let vsm_blur_v_ppl = ComputePipeline::new(device, &vsm_blur_v_sm);
-        let god_ray_ppl = ComputePipeline::new(device, &god_ray_sm);
-        let temporal_ppl = ComputePipeline::new(device, &temporal_sm);
-        let spatial_ppl = ComputePipeline::new(device, &spatial_sm);
-        let composition_ppl = ComputePipeline::new(device, &composition_sm);
-        let taa_ppl = ComputePipeline::new(device, &taa_sm);
-        let player_collider_ppl = ComputePipeline::new(device, &player_collider_sm);
-        let terrain_query_ppl = ComputePipeline::new(device, &terrain_query_sm);
-        let post_processing_ppl = ComputePipeline::new(device, &post_processing_sm);
-
-        tracer_ppl
-            .auto_create_descriptor_sets(
-                &pool,
-                &[&resources, contree_builder_resources, scene_accel_resources],
-            )
-            .unwrap();
-        tracer_shadow_ppl
-            .auto_create_descriptor_sets(
-                &pool,
-                &[&resources, contree_builder_resources, scene_accel_resources],
-            )
-            .unwrap();
-        vsm_creation_ppl
-            .auto_create_descriptor_sets(&pool, &[&resources])
-            .unwrap();
-        vsm_blur_h_ppl
-            .auto_create_descriptor_sets(&pool, &[&resources])
-            .unwrap();
-        vsm_blur_v_ppl
-            .auto_create_descriptor_sets(&pool, &[&resources])
-            .unwrap();
-        god_ray_ppl
-            .auto_create_descriptor_sets(&pool, &[&resources])
-            .unwrap();
-        temporal_ppl
-            .auto_create_descriptor_sets(&pool, &[&resources])
-            .unwrap();
-        spatial_ppl
-            .auto_create_descriptor_sets(&pool, &[&resources])
-            .unwrap();
-        composition_ppl
-            .auto_create_descriptor_sets(&pool, &[&resources])
-            .unwrap();
-        taa_ppl
-            .auto_create_descriptor_sets(&pool, &[&resources])
-            .unwrap();
-        player_collider_ppl
-            .auto_create_descriptor_sets(
-                &pool,
-                &[&resources, contree_builder_resources, scene_accel_resources],
-            )
-            .unwrap();
-        terrain_query_ppl
-            .auto_create_descriptor_sets(
-                &pool,
-                &[&resources, contree_builder_resources, scene_accel_resources],
-            )
-            .unwrap();
-        post_processing_ppl
-            .auto_create_descriptor_sets(&pool, &[&resources])
-            .unwrap();
+        let tracer_ppl = ComputePipeline::new(
+            device,
+            &tracer_sm,
+            &pool,
+            &[&resources, contree_builder_resources, scene_accel_resources],
+        );
+        let tracer_shadow_ppl = ComputePipeline::new(
+            device,
+            &tracer_shadow_sm,
+            &pool,
+            &[&resources, contree_builder_resources, scene_accel_resources],
+        );
+        let vsm_creation_ppl = ComputePipeline::new(device, &vsm_creation_sm, &pool, &[&resources]);
+        let vsm_blur_h_ppl = ComputePipeline::new(device, &vsm_blur_h_sm, &pool, &[&resources]);
+        let vsm_blur_v_ppl = ComputePipeline::new(device, &vsm_blur_v_sm, &pool, &[&resources]);
+        let god_ray_ppl = ComputePipeline::new(device, &god_ray_sm, &pool, &[&resources]);
+        let temporal_ppl = ComputePipeline::new(device, &temporal_sm, &pool, &[&resources]);
+        let spatial_ppl = ComputePipeline::new(device, &spatial_sm, &pool, &[&resources]);
+        let composition_ppl = ComputePipeline::new(device, &composition_sm, &pool, &[&resources]);
+        let taa_ppl = ComputePipeline::new(device, &taa_sm, &pool, &[&resources]);
+        let player_collider_ppl = ComputePipeline::new(
+            device,
+            &player_collider_sm,
+            &pool,
+            &[&resources, contree_builder_resources, scene_accel_resources],
+        );
+        let terrain_query_ppl = ComputePipeline::new(
+            device,
+            &terrain_query_sm,
+            &pool,
+            &[&resources, contree_builder_resources, scene_accel_resources],
+        );
+        let post_processing_ppl =
+            ComputePipeline::new(device, &post_processing_sm, &pool, &[&resources]);
 
         let clear_render_pass_color_and_depth = create_render_pass_with_color_and_depth(
             &vulkan_ctx,
@@ -384,6 +353,8 @@ impl Tracer {
             &flora_frag_sm,
             &clear_render_pass_color_and_depth,
             Some(1),
+            &pool,
+            &[&resources],
         );
         let flora_ppl_with_load = create_gfx_pipeline(
             &vulkan_ctx,
@@ -391,6 +362,8 @@ impl Tracer {
             &flora_frag_sm,
             &load_render_pass_color_and_depth,
             Some(1),
+            &pool,
+            &[&resources],
         );
 
         let leaves_ppl_with_load = create_gfx_pipeline(
@@ -399,6 +372,8 @@ impl Tracer {
             &leaves_frag_sm,
             &load_render_pass_color_and_depth,
             Some(1),
+            &pool,
+            &[&resources],
         );
 
         let clear_render_pass_depth =
@@ -410,20 +385,9 @@ impl Tracer {
             &leaves_shadow_frag_sm,
             &clear_render_pass_depth,
             Some(1),
+            &pool,
+            &[&resources],
         );
-
-        flora_ppl_with_clear
-            .auto_create_descriptor_sets(&pool, &[&resources])
-            .unwrap();
-        flora_ppl_with_load
-            .auto_create_descriptor_sets(&pool, &[&resources])
-            .unwrap();
-        leaves_ppl_with_load
-            .auto_create_descriptor_sets(&pool, &[&resources])
-            .unwrap();
-        leaves_shadow_ppl_with_clear
-            .auto_create_descriptor_sets(&pool, &[&resources])
-            .unwrap();
 
         let clear_framebuffer_color_and_depth = Self::create_framebuffer_color_and_depth(
             &vulkan_ctx,
@@ -574,6 +538,8 @@ impl Tracer {
             frag_sm: &ShaderModule,
             render_pass: &RenderPass,
             instance_rate_starting_location: Option<u32>,
+            descriptor_pool: &DescriptorPool,
+            resource_containers: &[&dyn ResourceContainer],
         ) -> GraphicsPipeline {
             let gfx_ppl = GraphicsPipeline::new(
                 vulkan_ctx.device(),
@@ -587,6 +553,8 @@ impl Tracer {
                     ..Default::default()
                 },
                 instance_rate_starting_location,
+                descriptor_pool,
+                resource_containers,
             );
             gfx_ppl
         }

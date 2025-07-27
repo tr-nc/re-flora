@@ -83,7 +83,7 @@ impl SurfaceBuilder {
             chunk_bound,
         );
 
-        let make_surface_ppl = ComputePipeline::new(device, &make_surface_sm);
+        let make_surface_ppl = ComputePipeline::new_tmp(device, &make_surface_sm);
 
         let make_surface_ds_0 = fixed_pool
             .allocate_set(&make_surface_ppl.get_layout().get_descriptor_set_layouts()[&0])
