@@ -342,11 +342,6 @@ impl GraphicsPipeline {
         }
     }
 
-    pub fn set_descriptor_sets(&self, descriptor_sets: Vec<DescriptorSet>) {
-        let mut guard = self.0.descriptor_sets.lock().unwrap();
-        *guard = descriptor_sets;
-    }
-
     pub fn write_descriptor_set(&self, set_no: u32, write: WriteDescriptorSet) {
         let guard = self.0.descriptor_sets.lock().unwrap();
         guard[set_no as usize].perform_writes(&mut [write]);
@@ -499,6 +494,7 @@ impl GraphicsPipeline {
     }
 
     /// Updates existing descriptor sets with new resources.
+    #[allow(dead_code)]
     pub fn auto_update_descriptor_sets(
         &self,
         resource_containers: &[&dyn ResourceContainer],
