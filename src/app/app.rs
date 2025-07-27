@@ -440,10 +440,6 @@ impl App {
             config_panel_visible: false,
             is_fly_mode: true,
 
-            // multi-tree management
-            next_tree_id: 1, // Start from 1, use 0 for GUI single tree
-            single_tree_id: 0,
-
             starlight_iterations: 18,
             starlight_formuparam: 0.5,
             starlight_volsteps: 10,
@@ -470,6 +466,10 @@ impl App {
             voxel_rock_color: egui::Color32::from_rgb(235, 92, 0),
             voxel_leaf_color: egui::Color32::from_rgb(242, 199, 36),
             voxel_trunk_color: egui::Color32::from_rgb(215, 194, 168),
+
+            // multi-tree management
+            next_tree_id: 1, // Start from 1, use 0 for GUI single tree
+            single_tree_id: 0,
 
             audio_engine,
         };
@@ -852,7 +852,7 @@ impl App {
         };
         let window_descriptor = WindowStateDesc {
             title: using_mode.to_owned(),
-            window_mode: WindowMode::BorderlessFullscreen,
+            window_mode: WindowMode::Windowed(true),
             cursor_locked: true,
             cursor_visible: false,
             ..Default::default()

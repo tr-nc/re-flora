@@ -23,10 +23,11 @@ use winit::event::KeyEvent;
 
 use crate::audio::AudioEngine;
 use crate::builder::{
-    ContreeBuilderResources, FloraType, Instance, SceneAccelBuilderResources, SurfaceResources,
+    ContreeBuilderResources, FloraInstanceResources, FloraType, Instance,
+    SceneAccelBuilderResources, SurfaceResources,
 };
 use crate::gameplay::{calculate_directional_light_matrices, Camera, CameraDesc};
-use crate::geom::UAabb3;
+use crate::geom::{Aabb3, UAabb3};
 use crate::resource::ResourceContainer;
 use crate::util::{ShaderCompiler, TimeInfo};
 use crate::vkn::{
@@ -1326,6 +1327,22 @@ impl Tracer {
         }
     }
 
+    /// Returns a list of chunks that need to be drawn this frame.
+    fn chunks_needs_to_draw_this_frame<'a>(
+        &self,
+        surface_resources: &'a SurfaceResources,
+    ) -> Vec<(Aabb3, &'a FloraInstanceResources)> {
+        let mut result = Vec::new();
+        for (aabb, instances) in &surface_resources.instances.chunk_flora_instances {
+            // perform frustum culling
+            if !aabb.is_inside_frustum(self.current_view_proj_mat) {
+                continue;
+            }
+            result.push((aabb.clone(), instances));
+        }
+        result
+    }
+
     pub fn record_trace(
         &mut self,
         cmdbuf: &CommandBuffer,
@@ -1363,10 +1380,13 @@ impl Tracer {
         );
         b1.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
-        self.record_grass_pass(cmdbuf, surface_resources);
+        let chunks_needs_to_draw_this_frame =
+            self.chunks_needs_to_draw_this_frame(surface_resources);
+        self.record_grass_pass(cmdbuf, &chunks_needs_to_draw_this_frame);
         frag_to_vert_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-        self.record_lavender_pass(cmdbuf, surface_resources);
+        self.record_lavender_pass(cmdbuf, &chunks_needs_to_draw_this_frame);
         frag_to_vert_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+
         self.record_leaves_pass(cmdbuf, surface_resources);
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
@@ -1454,7 +1474,11 @@ impl Tracer {
         }
     }
 
-    fn record_grass_pass(&self, cmdbuf: &CommandBuffer, surface_resources: &SurfaceResources) {
+    fn record_grass_pass(
+        &self,
+        cmdbuf: &CommandBuffer,
+        chunks_needs_to_draw_this_frame: &[(Aabb3, &FloraInstanceResources)],
+    ) {
         self.grass_ppl.record_bind(cmdbuf);
 
         let clear_values = [
@@ -1502,14 +1526,9 @@ impl Tracer {
             );
         }
 
-        for (aabb, instances) in &surface_resources.instances.chunk_flora_instances {
+        for (_aabb, instances) in chunks_needs_to_draw_this_frame {
             // only draw if this chunk actually has grass instances.
             if instances.get(FloraType::Grass).instances_len == 0 {
-                continue;
-            }
-
-            // perform frustum culling
-            if !aabb.is_inside_frustum(self.current_view_proj_mat) {
                 continue;
             }
 
@@ -1554,7 +1573,11 @@ impl Tracer {
             .set_layout(0, desc.attachments[1].final_layout);
     }
 
-    fn record_lavender_pass(&self, cmdbuf: &CommandBuffer, surface_resources: &SurfaceResources) {
+    fn record_lavender_pass(
+        &self,
+        cmdbuf: &CommandBuffer,
+        chunks_needs_to_draw_this_frame: &[(Aabb3, &FloraInstanceResources)],
+    ) {
         self.lavender_ppl.record_bind(cmdbuf);
 
         let clear_values = [
@@ -1605,14 +1628,9 @@ impl Tracer {
             );
         }
 
-        for (aabb, instances) in &surface_resources.instances.chunk_flora_instances {
+        for (_aabb, instances) in chunks_needs_to_draw_this_frame {
             // only draw if this chunk actually has lavender instances.
             if instances.get(FloraType::Lavender).instances_len == 0 {
-                continue;
-            }
-
-            // perform frustum culling
-            if !aabb.is_inside_frustum(self.current_view_proj_mat) {
                 continue;
             }
 
@@ -1813,14 +1831,6 @@ impl Tracer {
             if tree_instance.resources.instances_len == 0 {
                 continue;
             }
-
-            // culling is disabled here because nothing will be culled
-            // if !tree_instance
-            //     .aabb
-            //     .is_inside_frustum(self.current_shadow_view_proj_mat)
-            // {
-            //     continue;
-            // }
 
             unsafe {
                 self.vulkan_ctx.device().cmd_bind_vertex_buffers(
