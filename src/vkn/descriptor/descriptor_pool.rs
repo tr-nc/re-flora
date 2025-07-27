@@ -67,6 +67,8 @@ impl DescriptorPool {
     }
 
     /// Creates a pool sized according to the provided descriptor set layouts.
+    /// MARK: this function is archived, it follows a good practice, but it's not handy to use.
+    #[allow(unused)]
     pub fn from_descriptor_set_layouts(
         device: &Device,
         descriptor_set_layouts: &HashMap<u32, DescriptorSetLayout>,
