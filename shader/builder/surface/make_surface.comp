@@ -22,20 +22,20 @@ make_surface_result;
 
 layout(set = 0, binding = 2, r32ui) writeonly uniform uimage3D surface;
 
-layout(set = 0, binding = 3, r8ui) readonly uniform uimage3D atlas;
+layout(set = 0, binding = 3, r8ui) readonly uniform uimage3D chunk_atlas;
 
 #include "../../include/instance.glsl"
-layout(set = 1, binding = 0) writeonly buffer B_GrassInstances { Instance data[]; }
-grass_instances;
-layout(set = 1, binding = 1) writeonly buffer B_LavenderInstances { Instance data[]; }
-lavender_instances;
+layout(set = 1, binding = 0) writeonly buffer B_ManualGrassInstances { Instance data[]; }
+manual_grass_instances;
+layout(set = 1, binding = 1) writeonly buffer B_ManualLavenderInstances { Instance data[]; }
+manual_lavender_instances;
 
 #include "../../include/config.glsl"
 #include "../../include/core/definitions.glsl"
 #include "../../include/core/fast_noise_lite.glsl"
 #include "../../include/core/packer.glsl"
 #include "../../include/grass_type.glsl"
-#include "../../include/voxel_registry.glsl"
+#include "../../include/voxel_types.glsl"
 
 #define SHARED_SIZE (GROUP_SIZE + 4) // 4 for halo
 #define SHARED_SIZE_3 (SHARED_SIZE * SHARED_SIZE * SHARED_SIZE)
@@ -55,13 +55,13 @@ ivec3 local_idx_to_shared_idx(ivec3 local_idx) {
 uint load_atlas(ivec3 atlas_idx, ivec3 atlas_read_offset, ivec3 atlas_read_dim,
                 bool is_crossing_boundary) {
     if (is_crossing_boundary) {
-        return imageLoad(atlas, atlas_idx).r;
+        return imageLoad(chunk_atlas, atlas_idx).r;
     } else {
         if (any(lessThan(atlas_idx, atlas_read_offset)) ||
             any(greaterThanEqual(atlas_idx, atlas_read_offset + atlas_read_dim))) {
             return 0;
         }
-        return imageLoad(atlas, atlas_idx).r;
+        return imageLoad(chunk_atlas, atlas_idx).r;
     }
 }
 
@@ -179,7 +179,7 @@ void add_grass_instance(ivec3 uvi, uint grass_type) {
     Instance instance;
     instance.pos = uvec3(make_surface_info.atlas_read_offset + uvi) + uvec3(0, 1, 0);
     instance.ty  = grass_type;
-    grass_instances.data[write_idx] = instance;
+    manual_grass_instances.data[write_idx] = instance;
 }
 
 void add_lavender_instance(ivec3 uvi, uint lavender_type) {
@@ -187,7 +187,7 @@ void add_lavender_instance(ivec3 uvi, uint lavender_type) {
     Instance instance;
     instance.pos = uvec3(make_surface_info.atlas_read_offset + uvi) + uvec3(0, 1, 0);
     instance.ty  = lavender_type;
-    lavender_instances.data[write_idx] = instance;
+    manual_lavender_instances.data[write_idx] = instance;
 }
 
 void main() {

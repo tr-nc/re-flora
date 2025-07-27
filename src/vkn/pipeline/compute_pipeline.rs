@@ -3,7 +3,7 @@ use crate::{
     resource::ResourceContainer,
     vkn::{
         Buffer, CommandBuffer, DescriptorPool, DescriptorSet, DescriptorSetLayoutBinding, Device,
-        Extent3D, PipelineLayout, ShaderModule,
+        Extent3D, PipelineLayout, ShaderModule, WriteDescriptorSet,
     },
 };
 use anyhow::Result;
@@ -92,43 +92,6 @@ impl ComputePipeline {
         pipeline_instance
     }
 
-    pub fn set_descriptor_sets(&self, descriptor_sets: Vec<DescriptorSet>) {
-        let mut guard = self.0.descriptor_sets.lock().unwrap();
-        *guard = descriptor_sets;
-    }
-
-    pub fn new_tmp(device: &Device, shader_module: &ShaderModule) -> Self {
-        let stage_info = shader_module.get_shader_stage_create_info();
-        let pipeline_layout = PipelineLayout::from_shader_module(device, shader_module);
-        let workgroup_size = shader_module.get_workgroup_size().unwrap();
-
-        let pipeline_info = vk::ComputePipelineCreateInfo::default()
-            .stage(stage_info)
-            .layout(pipeline_layout.as_raw());
-
-        let pipeline = unsafe {
-            device
-                .create_compute_pipelines(
-                    vk::PipelineCache::null(),
-                    std::slice::from_ref(&pipeline_info),
-                    None,
-                )
-                .map_err(|e| e.1)
-                .unwrap()[0]
-        };
-
-        let descriptor_sets_bindings = shader_module.get_descriptor_sets_bindings();
-
-        Self(Arc::new(ComputePipelineInner {
-            device: device.clone(),
-            pipeline,
-            pipeline_layout,
-            workgroup_size,
-            descriptor_sets: Mutex::new(vec![]),
-            descriptor_sets_bindings,
-        }))
-    }
-
     /// Updates existing descriptor sets with new resources.
     pub fn auto_update_descriptor_sets(
         &self,
@@ -141,8 +104,9 @@ impl ComputePipeline {
         )
     }
 
-    pub fn get_layout(&self) -> &PipelineLayout {
-        &self.0.pipeline_layout
+    pub fn write_descriptor_set(&self, set_no: u32, write: WriteDescriptorSet) {
+        let guard = self.0.descriptor_sets.lock().unwrap();
+        guard[set_no as usize].perform_writes(&mut [write]);
     }
 
     fn record_bind_descriptor_sets(

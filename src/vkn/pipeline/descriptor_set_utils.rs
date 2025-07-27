@@ -59,7 +59,7 @@ pub fn auto_update_descriptor_sets(
         let descriptor_set = &descriptor_sets[set_idx];
 
         for (_binding_idx, binding) in bindings.iter() {
-            // Find the exact resource for this binding across all resource containers
+            // find the exact resource for this binding across all resource containers
             let mut found_buffer_containers = Vec::new();
             let mut found_texture_containers = Vec::new();
 
@@ -72,17 +72,13 @@ pub fn auto_update_descriptor_sets(
                 }
             }
 
-            // Ensure that only one resource container has that resource
+            // ensure that only one resource container has that resource
             let total_found = found_buffer_containers.len() + found_texture_containers.len();
             if total_found == 0 {
                 // if binding.name starts with "manual_", ignore it, it's left for manual binding
                 if !binding.name.starts_with("manual_") {
                     return Err(anyhow::anyhow!("Resource not found: {}", binding.name));
                 } else {
-                    log::info!(
-                        "Manual resource skipped, must be bound manually: {}",
-                        binding.name
-                    );
                     continue;
                 }
             } else if total_found > 1 {
@@ -94,7 +90,7 @@ pub fn auto_update_descriptor_sets(
                 ));
             }
 
-            // Each resource may be Buffer or Texture, but not both
+            // each resource may be Buffer or Texture, but not both
             if !found_buffer_containers.is_empty() && !found_texture_containers.is_empty() {
                 return Err(anyhow::anyhow!(
                     "Resource '{}' found as both Buffer and Texture",
@@ -102,7 +98,7 @@ pub fn auto_update_descriptor_sets(
                 ));
             }
 
-            // Write the descriptor set based on the found resource
+            // write the descriptor set based on the found resource
             if let Some(container_idx) = found_buffer_containers.first() {
                 let resource = resource_containers[*container_idx]
                     .get_buffer(&binding.name)

@@ -60,6 +60,14 @@ layout(set = 0, binding = 8) readonly buffer B_ContreeLeafData { uint data[]; }
 contree_leaf_data;
 layout(set = 0, binding = 9, rg32ui) readonly uniform uimage3D scene_tex;
 layout(set = 0, binding = 10) uniform sampler2D shadow_map_tex;
+layout(set = 0, binding = 11) uniform U_VoxelColors {
+    vec3 sand_color;
+    vec3 dirt_color;
+    vec3 rock_color;
+    vec3 leaf_color;
+    vec3 trunk_color;
+}
+voxel_colors;
 
 layout(set = 1, binding = 0, r32ui) writeonly uniform uimage2D compute_output_tex;
 layout(set = 1, binding = 1, r32f) writeonly uniform image2D compute_depth_tex;
@@ -95,7 +103,8 @@ layout(set = 3, binding = 12, r11f_g11f_b10f) uniform image2D denoiser_spatial_p
 #include "../include/pcss.glsl"
 #include "../include/ray.glsl"
 #include "../include/skylight.glsl"
-#include "../include/voxel_registry.glsl"
+#include "../include/voxel_colors.glsl"
+#include "../include/voxel_types.glsl"
 
 bool scene_hit(inout MarchingResult o_res, vec3 o, vec3 d, ivec3 map_pos, uvec4 scene_tex_read) {
     // see update_scene_tex.comp for encoding part
