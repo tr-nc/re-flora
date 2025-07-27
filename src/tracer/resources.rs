@@ -206,8 +206,7 @@ impl TracerResources {
     pub fn new(
         vulkan_ctx: &VulkanContext,
         allocator: Allocator,
-        vert_sm: &ShaderModule,
-        lavender_vert_sm: &ShaderModule,
+        flora_vert_sm: &ShaderModule,
         leaves_vert_sm: &ShaderModule,
         tracer_sm: &ShaderModule,
         tracer_shadow_sm: &ShaderModule,
@@ -302,22 +301,20 @@ impl TracerResources {
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
-        let grass_info_layout = vert_sm.get_buffer_layout("U_GrassInfo").unwrap();
+        let manual_type_specific_info_layout = flora_vert_sm
+            .get_buffer_layout("U_ManualTypeSpecificInfo")
+            .unwrap();
         let grass_info = Buffer::from_buffer_layout(
             device.clone(),
             allocator.clone(),
-            grass_info_layout.clone(),
+            manual_type_specific_info_layout.clone(),
             BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
-
-        let lavender_info_layout = lavender_vert_sm
-            .get_buffer_layout("U_LavenderInfo")
-            .unwrap();
         let lavender_info = Buffer::from_buffer_layout(
             device.clone(),
             allocator.clone(),
-            lavender_info_layout.clone(),
+            manual_type_specific_info_layout.clone(),
             BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
         );

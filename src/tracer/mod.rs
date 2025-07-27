@@ -35,7 +35,7 @@ use crate::vkn::{
     CommandBuffer, ComputePipeline, DescriptorPool, Extent2D, Extent3D, Framebuffer,
     GraphicsPipeline, GraphicsPipelineDesc, MemoryBarrier, PipelineBarrier,
     PlainMemberTypeWithData, RenderPass, ShaderModule, StructMemberDataBuilder,
-    StructMemberDataReader, Texture, Viewport, VulkanContext,
+    StructMemberDataReader, Texture, Viewport, VulkanContext, WriteDescriptorSet,
 };
 use anyhow::Result;
 use ash::vk;
@@ -79,20 +79,18 @@ pub struct Tracer {
     vsm_blur_v_ppl: ComputePipeline,
     god_ray_ppl: ComputePipeline,
 
-    grass_ppl: GraphicsPipeline,
-    grass_render_pass: RenderPass,
+    flora_ppl_with_clear: GraphicsPipeline,
+    flora_ppl_with_load: GraphicsPipeline,
+    leaves_ppl_with_load: GraphicsPipeline,
+    leaves_shadow_ppl_with_clear: GraphicsPipeline,
 
-    lavender_ppl: GraphicsPipeline,
-    lavender_render_pass: RenderPass,
+    clear_render_pass_color_and_depth: RenderPass,
+    load_render_pass_color_and_depth: RenderPass,
+    clear_render_pass_depth: RenderPass,
 
-    color_depth_framebuffer: Framebuffer,
-
-    leaves_ppl: GraphicsPipeline,
-    leaves_render_pass: RenderPass,
-
-    leaves_shadow_ppl: GraphicsPipeline,
-    leaves_shadow_render_pass: RenderPass,
-    leaves_shadow_framebuffer: Framebuffer,
+    clear_framebuffer_color_and_depth: Framebuffer,
+    load_framebuffer_color_and_depth: Framebuffer,
+    clear_framebuffer_depth: Framebuffer,
 
     #[allow(dead_code)]
     pool: DescriptorPool,
@@ -233,32 +231,17 @@ impl Tracer {
         )
         .unwrap();
 
-        let grass_vert_sm = ShaderModule::from_glsl(
+        let flora_vert_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             shader_compiler,
-            "shader/foliage/grass.vert",
+            "shader/foliage/flora.vert",
             "main",
         )
         .unwrap();
-        let grass_frag_sm = ShaderModule::from_glsl(
+        let flora_frag_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             shader_compiler,
-            "shader/foliage/grass.frag",
-            "main",
-        )
-        .unwrap();
-
-        let lavender_vert_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            shader_compiler,
-            "shader/foliage/lavender.vert",
-            "main",
-        )
-        .unwrap();
-        let lavender_frag_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            shader_compiler,
-            "shader/foliage/lavender.frag",
+            "shader/foliage/flora.frag",
             "main",
         )
         .unwrap();
@@ -296,8 +279,7 @@ impl Tracer {
         let resources = TracerResources::new(
             &vulkan_ctx,
             allocator.clone(),
-            &grass_vert_sm,
-            &lavender_vert_sm,
+            &flora_vert_sm,
             &leaves_vert_sm,
             &tracer_sm,
             &tracer_shadow_sm,
@@ -383,66 +365,85 @@ impl Tracer {
             .auto_create_descriptor_sets(&pool, &[&resources])
             .unwrap();
 
-        let (grass_ppl, grass_render_pass) = Self::create_grass_render_pass_and_graphics_pipeline(
+        let clear_render_pass_color_and_depth = create_render_pass_with_color_and_depth(
             &vulkan_ctx,
-            &grass_vert_sm,
-            &grass_frag_sm,
             resources.extent_dependent_resources.gfx_output_tex.clone(),
             resources.extent_dependent_resources.gfx_depth_tex.clone(),
+            true,
+        );
+        let load_render_pass_color_and_depth = create_render_pass_with_color_and_depth(
+            &vulkan_ctx,
+            resources.extent_dependent_resources.gfx_output_tex.clone(),
+            resources.extent_dependent_resources.gfx_depth_tex.clone(),
+            false,
         );
 
-        let (lavender_ppl, lavender_render_pass) =
-            Self::create_lavender_render_pass_and_graphics_pipeline(
-                &vulkan_ctx,
-                &lavender_vert_sm,
-                &lavender_frag_sm,
-                resources.extent_dependent_resources.gfx_output_tex.clone(),
-                resources.extent_dependent_resources.gfx_depth_tex.clone(),
-            );
-
-        let (leaves_ppl, leaves_render_pass) =
-            Self::create_leaves_render_pass_and_graphics_pipeline(
-                &vulkan_ctx,
-                &leaves_vert_sm,
-                &leaves_frag_sm,
-                resources.extent_dependent_resources.gfx_output_tex.clone(),
-                resources.extent_dependent_resources.gfx_depth_tex.clone(),
-            );
-
-        let (leaves_shadow_ppl, leaves_shadow_render_pass) =
-            Self::create_leaves_shadow_render_pass_and_graphics_pipeline(
-                &vulkan_ctx,
-                &leaves_shadow_vert_sm,
-                &leaves_shadow_frag_sm,
-                resources.shadow_map_tex.clone(),
-            );
-
-        grass_ppl
-            .auto_create_descriptor_sets(&pool, &[&resources])
-            .unwrap();
-        lavender_ppl
-            .auto_create_descriptor_sets(&pool, &[&resources])
-            .unwrap();
-        leaves_ppl
-            .auto_create_descriptor_sets(&pool, &[&resources])
-            .unwrap();
-        leaves_shadow_ppl
-            .auto_create_descriptor_sets(&pool, &[&resources])
-            .unwrap();
-
-        let color_depth_framebuffer = Self::create_main_framebuffer(
+        let flora_ppl_with_clear = create_gfx_pipeline(
             &vulkan_ctx,
-            &grass_render_pass,
+            &flora_vert_sm,
+            &flora_frag_sm,
+            &clear_render_pass_color_and_depth,
+            Some(1),
+        );
+        let flora_ppl_with_load = create_gfx_pipeline(
+            &vulkan_ctx,
+            &flora_vert_sm,
+            &flora_frag_sm,
+            &load_render_pass_color_and_depth,
+            Some(1),
+        );
+
+        let leaves_ppl_with_load = create_gfx_pipeline(
+            &vulkan_ctx,
+            &leaves_vert_sm,
+            &leaves_frag_sm,
+            &load_render_pass_color_and_depth,
+            Some(1),
+        );
+
+        let clear_render_pass_depth =
+            create_render_pass_with_depth(&vulkan_ctx, resources.shadow_map_tex.clone(), true);
+
+        let leaves_shadow_ppl_with_clear = create_gfx_pipeline(
+            &vulkan_ctx,
+            &leaves_shadow_vert_sm,
+            &leaves_shadow_frag_sm,
+            &clear_render_pass_depth,
+            Some(1),
+        );
+
+        flora_ppl_with_clear
+            .auto_create_descriptor_sets(&pool, &[&resources])
+            .unwrap();
+        flora_ppl_with_load
+            .auto_create_descriptor_sets(&pool, &[&resources])
+            .unwrap();
+        leaves_ppl_with_load
+            .auto_create_descriptor_sets(&pool, &[&resources])
+            .unwrap();
+        leaves_shadow_ppl_with_clear
+            .auto_create_descriptor_sets(&pool, &[&resources])
+            .unwrap();
+
+        let clear_framebuffer_color_and_depth = Self::create_framebuffer_color_and_depth(
+            &vulkan_ctx,
+            &clear_render_pass_color_and_depth,
             &resources.extent_dependent_resources.gfx_output_tex,
             &resources.extent_dependent_resources.gfx_depth_tex,
         );
-        let leaves_shadow_framebuffer = Self::create_shadow_map_framebuffer(
+        let load_framebuffer_color_and_depth = Self::create_framebuffer_color_and_depth(
             &vulkan_ctx,
-            &leaves_shadow_render_pass,
+            &load_render_pass_color_and_depth,
+            &resources.extent_dependent_resources.gfx_output_tex,
+            &resources.extent_dependent_resources.gfx_depth_tex,
+        );
+        let clear_framebuffer_depth = Self::create_framebuffer_depth(
+            &vulkan_ctx,
+            &clear_render_pass_depth,
             &resources.shadow_map_tex,
         );
 
-        Ok(Self {
+        return Ok(Self {
             vulkan_ctx,
             desc,
             chunk_bound,
@@ -466,202 +467,133 @@ impl Tracer {
             vsm_creation_ppl,
             vsm_blur_h_ppl,
             vsm_blur_v_ppl,
-            grass_ppl,
-            grass_render_pass,
-            lavender_ppl,
-            lavender_render_pass,
-            color_depth_framebuffer,
-            leaves_ppl,
-            leaves_render_pass,
-            leaves_shadow_ppl,
-            leaves_shadow_render_pass,
-            leaves_shadow_framebuffer,
+
+            flora_ppl_with_clear,
+            flora_ppl_with_load,
+            leaves_ppl_with_load,
+            leaves_shadow_ppl_with_clear,
+
+            clear_render_pass_color_and_depth,
+            load_render_pass_color_and_depth,
+            clear_render_pass_depth,
+
+            clear_framebuffer_color_and_depth,
+            load_framebuffer_color_and_depth,
+            clear_framebuffer_depth,
             pool,
-        })
-    }
+        });
 
-    // TODO: refactor
-    fn create_grass_render_pass_and_graphics_pipeline(
-        vulkan_ctx: &VulkanContext,
-        vert_sm: &ShaderModule,
-        frag_sm: &ShaderModule,
-        output_tex: Texture,
-        depth_tex: Texture,
-    ) -> (GraphicsPipeline, RenderPass) {
-        let render_pass = {
-            RenderPass::with_attachments(
-                vulkan_ctx.device().clone(),
-                &[
-                    AttachmentDescOuter {
-                        texture: output_tex,
-                        load_op: vk::AttachmentLoadOp::CLEAR,
-                        store_op: vk::AttachmentStoreOp::STORE,
-                        initial_layout: vk::ImageLayout::UNDEFINED,
-                        final_layout: vk::ImageLayout::GENERAL,
-                        ty: AttachmentType::Color,
-                    },
-                    AttachmentDescOuter {
+        fn create_render_pass_with_color_and_depth(
+            vulkan_ctx: &VulkanContext,
+            output_tex: Texture,
+            depth_tex: Texture,
+            is_starting_with_clear: bool,
+        ) -> RenderPass {
+            if is_starting_with_clear {
+                RenderPass::with_attachments(
+                    vulkan_ctx.device().clone(),
+                    &[
+                        AttachmentDescOuter {
+                            texture: output_tex,
+                            load_op: vk::AttachmentLoadOp::CLEAR,
+                            store_op: vk::AttachmentStoreOp::STORE,
+                            initial_layout: vk::ImageLayout::UNDEFINED,
+                            final_layout: vk::ImageLayout::GENERAL,
+                            ty: AttachmentType::Color,
+                        },
+                        AttachmentDescOuter {
+                            texture: depth_tex,
+                            load_op: vk::AttachmentLoadOp::CLEAR,
+                            store_op: vk::AttachmentStoreOp::STORE,
+                            initial_layout: vk::ImageLayout::UNDEFINED,
+                            final_layout: vk::ImageLayout::GENERAL,
+                            ty: AttachmentType::Depth,
+                        },
+                    ],
+                )
+            } else {
+                RenderPass::with_attachments(
+                    vulkan_ctx.device().clone(),
+                    &[
+                        AttachmentDescOuter {
+                            texture: output_tex,
+                            load_op: vk::AttachmentLoadOp::LOAD,
+                            store_op: vk::AttachmentStoreOp::STORE,
+                            initial_layout: vk::ImageLayout::GENERAL,
+                            final_layout: vk::ImageLayout::GENERAL,
+                            ty: AttachmentType::Color,
+                        },
+                        AttachmentDescOuter {
+                            texture: depth_tex,
+                            load_op: vk::AttachmentLoadOp::LOAD,
+                            store_op: vk::AttachmentStoreOp::STORE,
+                            initial_layout: vk::ImageLayout::GENERAL,
+                            final_layout: vk::ImageLayout::GENERAL,
+                            ty: AttachmentType::Depth,
+                        },
+                    ],
+                )
+            }
+        }
+
+        fn create_render_pass_with_depth(
+            vulkan_ctx: &VulkanContext,
+            depth_tex: Texture,
+            is_starting_with_clear: bool,
+        ) -> RenderPass {
+            if is_starting_with_clear {
+                RenderPass::with_attachments(
+                    vulkan_ctx.device().clone(),
+                    &[AttachmentDescOuter {
                         texture: depth_tex,
                         load_op: vk::AttachmentLoadOp::CLEAR,
                         store_op: vk::AttachmentStoreOp::STORE,
                         initial_layout: vk::ImageLayout::UNDEFINED,
                         final_layout: vk::ImageLayout::GENERAL,
                         ty: AttachmentType::Depth,
-                    },
-                ],
-            )
-        };
-
-        let gfx_ppl = GraphicsPipeline::new(
-            vulkan_ctx.device(),
-            &vert_sm,
-            &frag_sm,
-            &render_pass,
-            &GraphicsPipelineDesc {
-                cull_mode: vk::CullModeFlags::BACK,
-                depth_test_enable: true,
-                depth_write_enable: true,
-                ..Default::default()
-            },
-            Some(1),
-        );
-
-        (gfx_ppl, render_pass)
-    }
-
-    fn create_lavender_render_pass_and_graphics_pipeline(
-        vulkan_ctx: &VulkanContext,
-        vert_sm: &ShaderModule,
-        frag_sm: &ShaderModule,
-        output_tex: Texture,
-        depth_tex: Texture,
-    ) -> (GraphicsPipeline, RenderPass) {
-        let render_pass = {
-            RenderPass::with_attachments(
-                vulkan_ctx.device().clone(),
-                &[
-                    AttachmentDescOuter {
-                        texture: output_tex,
-                        load_op: vk::AttachmentLoadOp::LOAD,
-                        store_op: vk::AttachmentStoreOp::STORE,
-                        initial_layout: vk::ImageLayout::GENERAL,
-                        final_layout: vk::ImageLayout::GENERAL,
-                        ty: AttachmentType::Color,
-                    },
-                    AttachmentDescOuter {
+                    }],
+                )
+            } else {
+                RenderPass::with_attachments(
+                    vulkan_ctx.device().clone(),
+                    &[AttachmentDescOuter {
                         texture: depth_tex,
                         load_op: vk::AttachmentLoadOp::LOAD,
                         store_op: vk::AttachmentStoreOp::STORE,
                         initial_layout: vk::ImageLayout::GENERAL,
                         final_layout: vk::ImageLayout::GENERAL,
                         ty: AttachmentType::Depth,
-                    },
-                ],
-            )
-        };
+                    }],
+                )
+            }
+        }
 
-        let gfx_ppl = GraphicsPipeline::new(
-            vulkan_ctx.device(),
-            &vert_sm,
-            &frag_sm,
-            &render_pass,
-            &GraphicsPipelineDesc {
-                cull_mode: vk::CullModeFlags::BACK,
-                depth_test_enable: true,
-                depth_write_enable: true,
-                ..Default::default()
-            },
-            Some(1),
-        );
-
-        (gfx_ppl, render_pass)
-    }
-
-    fn create_leaves_render_pass_and_graphics_pipeline(
-        vulkan_ctx: &VulkanContext,
-        vert_sm: &ShaderModule,
-        frag_sm: &ShaderModule,
-        output_tex: Texture,
-        depth_tex: Texture,
-    ) -> (GraphicsPipeline, RenderPass) {
-        let render_pass = {
-            RenderPass::with_attachments(
-                vulkan_ctx.device().clone(),
-                &[
-                    AttachmentDescOuter {
-                        texture: output_tex,
-                        load_op: vk::AttachmentLoadOp::LOAD,
-                        store_op: vk::AttachmentStoreOp::STORE,
-                        initial_layout: vk::ImageLayout::GENERAL,
-                        final_layout: vk::ImageLayout::GENERAL,
-                        ty: AttachmentType::Color,
-                    },
-                    AttachmentDescOuter {
-                        texture: depth_tex,
-                        load_op: vk::AttachmentLoadOp::LOAD,
-                        store_op: vk::AttachmentStoreOp::STORE,
-                        initial_layout: vk::ImageLayout::GENERAL,
-                        final_layout: vk::ImageLayout::GENERAL,
-                        ty: AttachmentType::Depth,
-                    },
-                ],
-            )
-        };
-
-        let gfx_ppl = GraphicsPipeline::new(
-            vulkan_ctx.device(),
-            &vert_sm,
-            &frag_sm,
-            &render_pass,
-            &GraphicsPipelineDesc {
-                cull_mode: vk::CullModeFlags::BACK,
-                depth_test_enable: true,
-                depth_write_enable: true,
-                ..Default::default()
-            },
-            Some(1),
-        );
-
-        (gfx_ppl, render_pass)
-    }
-
-    fn create_leaves_shadow_render_pass_and_graphics_pipeline(
-        vulkan_ctx: &VulkanContext,
-        vert_sm: &ShaderModule,
-        frag_sm: &ShaderModule,
-        shadow_map_tex: Texture,
-    ) -> (GraphicsPipeline, RenderPass) {
-        let render_pass = {
-            RenderPass::with_attachments(
-                vulkan_ctx.device().clone(),
-                &[AttachmentDescOuter {
-                    texture: shadow_map_tex,
-                    load_op: vk::AttachmentLoadOp::CLEAR,
-                    store_op: vk::AttachmentStoreOp::STORE,
-                    initial_layout: vk::ImageLayout::UNDEFINED,
-                    final_layout: vk::ImageLayout::GENERAL,
-                    ty: AttachmentType::Depth,
-                }],
-            )
-        };
-        let gfx_ppl = GraphicsPipeline::new(
-            vulkan_ctx.device(),
-            &vert_sm,
-            &frag_sm,
-            &render_pass,
-            &GraphicsPipelineDesc {
-                cull_mode: vk::CullModeFlags::BACK,
-                depth_test_enable: true,
-                depth_write_enable: true,
-                ..Default::default()
-            },
-            Some(1),
-        );
-        (gfx_ppl, render_pass)
+        fn create_gfx_pipeline(
+            vulkan_ctx: &VulkanContext,
+            vert_sm: &ShaderModule,
+            frag_sm: &ShaderModule,
+            render_pass: &RenderPass,
+            instance_rate_starting_location: Option<u32>,
+        ) -> GraphicsPipeline {
+            let gfx_ppl = GraphicsPipeline::new(
+                vulkan_ctx.device(),
+                &vert_sm,
+                &frag_sm,
+                &render_pass,
+                &GraphicsPipelineDesc {
+                    cull_mode: vk::CullModeFlags::BACK,
+                    depth_test_enable: true,
+                    depth_write_enable: true,
+                    ..Default::default()
+                },
+                instance_rate_starting_location,
+            );
+            gfx_ppl
+        }
     }
 
     /// A framebuffer that contains the color and depth textures for the main render pass
-    fn create_main_framebuffer(
+    fn create_framebuffer_color_and_depth(
         vulkan_ctx: &VulkanContext,
         render_pass: &RenderPass,
         target_texture: &Texture,
@@ -687,7 +619,7 @@ impl Tracer {
     }
 
     /// A framebuffer that contains the shadow map texture
-    fn create_shadow_map_framebuffer(
+    fn create_framebuffer_depth(
         vulkan_ctx: &VulkanContext,
         render_pass: &RenderPass,
         shadow_map_tex: &Texture,
@@ -726,11 +658,22 @@ impl Tracer {
             screen_extent,
         );
 
-        self.color_depth_framebuffer = Self::create_main_framebuffer(
+        self.clear_framebuffer_color_and_depth = Self::create_framebuffer_color_and_depth(
             &self.vulkan_ctx,
-            &self.grass_render_pass,
+            &self.clear_render_pass_color_and_depth,
             &self.resources.extent_dependent_resources.gfx_output_tex,
             &self.resources.extent_dependent_resources.gfx_depth_tex,
+        );
+        self.load_framebuffer_color_and_depth = Self::create_framebuffer_color_and_depth(
+            &self.vulkan_ctx,
+            &self.load_render_pass_color_and_depth,
+            &self.resources.extent_dependent_resources.gfx_output_tex,
+            &self.resources.extent_dependent_resources.gfx_depth_tex,
+        );
+        self.clear_framebuffer_depth = Self::create_framebuffer_depth(
+            &self.vulkan_ctx,
+            &self.clear_render_pass_depth,
+            &self.resources.shadow_map_tex,
         );
 
         self.update_sets(contree_builder_resources, scene_accel_resources);
@@ -1479,7 +1422,12 @@ impl Tracer {
         cmdbuf: &CommandBuffer,
         chunks_needs_to_draw_this_frame: &[(Aabb3, &FloraInstanceResources)],
     ) {
-        self.grass_ppl.record_bind(cmdbuf);
+        self.flora_ppl_with_clear.write_descriptor_set(
+            0,
+            WriteDescriptorSet::new_buffer_write(5, &self.resources.grass_info),
+        );
+
+        self.flora_ppl_with_clear.record_bind(cmdbuf);
 
         let clear_values = [
             vk::ClearValue {
@@ -1495,8 +1443,11 @@ impl Tracer {
             },
         ];
 
-        self.grass_render_pass
-            .record_begin(cmdbuf, &self.color_depth_framebuffer, &clear_values);
+        self.clear_render_pass_color_and_depth.record_begin(
+            cmdbuf,
+            &self.clear_framebuffer_color_and_depth,
+            &clear_values,
+        );
 
         let render_extent = self
             .resources
@@ -1514,7 +1465,7 @@ impl Tracer {
             },
         };
 
-        self.grass_ppl
+        self.flora_ppl_with_clear
             .record_viewport_scissor(cmdbuf, viewport, scissor);
 
         unsafe {
@@ -1549,7 +1500,7 @@ impl Tracer {
 
             // issue the draw call for the current chunk.
             // No barriers are needed here.
-            self.grass_ppl.record_indexed(
+            self.flora_ppl_with_clear.record_indexed(
                 cmdbuf,
                 self.resources.grass_blade_resources.indices_len,
                 instances.get(FloraType::Grass).instances_len,
@@ -1558,9 +1509,9 @@ impl Tracer {
                 0, // firstInstance
             );
         }
-        self.grass_render_pass.record_end(cmdbuf);
+        self.clear_render_pass_color_and_depth.record_end(cmdbuf);
 
-        let desc = self.grass_render_pass.get_desc();
+        let desc = self.clear_render_pass_color_and_depth.get_desc();
         self.resources
             .extent_dependent_resources
             .gfx_output_tex
@@ -1573,12 +1524,18 @@ impl Tracer {
             .set_layout(0, desc.attachments[1].final_layout);
     }
 
+    // TODO: merge with grass pass
     fn record_lavender_pass(
         &self,
         cmdbuf: &CommandBuffer,
         chunks_needs_to_draw_this_frame: &[(Aabb3, &FloraInstanceResources)],
     ) {
-        self.lavender_ppl.record_bind(cmdbuf);
+        self.flora_ppl_with_load.write_descriptor_set(
+            0,
+            WriteDescriptorSet::new_buffer_write(5, &self.resources.lavender_info),
+        );
+
+        self.flora_ppl_with_load.record_bind(cmdbuf);
 
         let clear_values = [
             vk::ClearValue {
@@ -1594,9 +1551,9 @@ impl Tracer {
             },
         ];
 
-        self.lavender_render_pass.record_begin(
+        self.load_render_pass_color_and_depth.record_begin(
             cmdbuf,
-            &self.color_depth_framebuffer,
+            &self.load_framebuffer_color_and_depth,
             &clear_values,
         );
 
@@ -1616,7 +1573,7 @@ impl Tracer {
             },
         };
 
-        self.lavender_ppl
+        self.flora_ppl_with_load
             .record_viewport_scissor(cmdbuf, viewport, scissor);
 
         unsafe {
@@ -1651,7 +1608,7 @@ impl Tracer {
 
             // issue the draw call for the current chunk.
             // No barriers are needed here.
-            self.lavender_ppl.record_indexed(
+            self.flora_ppl_with_load.record_indexed(
                 cmdbuf,
                 self.resources.lavender_resources.indices_len,
                 instances.get(FloraType::Lavender).instances_len,
@@ -1660,9 +1617,9 @@ impl Tracer {
                 0, // firstInstance
             );
         }
-        self.lavender_render_pass.record_end(cmdbuf);
+        self.load_render_pass_color_and_depth.record_end(cmdbuf);
 
-        let desc = self.lavender_render_pass.get_desc();
+        let desc = self.load_render_pass_color_and_depth.get_desc();
         self.resources
             .extent_dependent_resources
             .gfx_output_tex
@@ -1681,7 +1638,7 @@ impl Tracer {
             return;
         }
 
-        self.leaves_ppl.record_bind(cmdbuf);
+        self.leaves_ppl_with_load.record_bind(cmdbuf);
 
         // Don't clear - we want to preserve the flora that has been rendered
         // Only clear the depth buffer to ensure proper depth testing
@@ -1699,8 +1656,11 @@ impl Tracer {
             },
         ];
 
-        self.leaves_render_pass
-            .record_begin(cmdbuf, &self.color_depth_framebuffer, &clear_values);
+        self.load_render_pass_color_and_depth.record_begin(
+            cmdbuf,
+            &self.load_framebuffer_color_and_depth,
+            &clear_values,
+        );
 
         let render_extent = self
             .resources
@@ -1718,7 +1678,7 @@ impl Tracer {
             },
         };
 
-        self.leaves_ppl
+        self.leaves_ppl_with_load
             .record_viewport_scissor(cmdbuf, viewport, scissor);
 
         unsafe {
@@ -1759,7 +1719,7 @@ impl Tracer {
             }
 
             // Render this instance
-            self.leaves_ppl.record_indexed(
+            self.leaves_ppl_with_load.record_indexed(
                 cmdbuf,
                 self.resources.leaves_resources.indices_len,
                 tree_instance.resources.instances_len,
@@ -1769,9 +1729,9 @@ impl Tracer {
             );
         }
 
-        self.leaves_render_pass.record_end(cmdbuf);
+        self.load_render_pass_color_and_depth.record_end(cmdbuf);
 
-        let desc = self.leaves_render_pass.get_desc();
+        let desc = self.load_render_pass_color_and_depth.get_desc();
         self.resources
             .extent_dependent_resources
             .gfx_output_tex
@@ -1789,7 +1749,7 @@ impl Tracer {
         cmdbuf: &CommandBuffer,
         surface_resources: &SurfaceResources,
     ) {
-        self.leaves_shadow_ppl.record_bind(cmdbuf);
+        self.leaves_shadow_ppl_with_clear.record_bind(cmdbuf);
 
         let clear_values = [vk::ClearValue {
             depth_stencil: vk::ClearDepthStencilValue {
@@ -1798,9 +1758,9 @@ impl Tracer {
             },
         }];
 
-        self.leaves_shadow_render_pass.record_begin(
+        self.clear_render_pass_depth.record_begin(
             cmdbuf,
-            &self.leaves_shadow_framebuffer,
+            &self.clear_framebuffer_depth,
             &clear_values,
         );
 
@@ -1814,7 +1774,7 @@ impl Tracer {
             },
         };
 
-        self.leaves_shadow_ppl
+        self.leaves_shadow_ppl_with_clear
             .record_viewport_scissor(cmdbuf, viewport, scissor);
 
         unsafe {
@@ -1845,7 +1805,7 @@ impl Tracer {
             }
 
             // Render this instance for shadow map
-            self.leaves_shadow_ppl.record_indexed(
+            self.leaves_shadow_ppl_with_clear.record_indexed(
                 cmdbuf,
                 self.resources.leaves_resources.indices_len,
                 tree_instance.resources.instances_len,
@@ -1855,9 +1815,9 @@ impl Tracer {
             );
         }
 
-        self.leaves_shadow_render_pass.record_end(cmdbuf);
+        self.clear_render_pass_depth.record_end(cmdbuf);
 
-        let desc = self.leaves_shadow_render_pass.get_desc();
+        let desc = self.clear_render_pass_depth.get_desc();
         self.resources
             .shadow_map_tex
             .get_image()

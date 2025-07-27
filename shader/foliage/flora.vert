@@ -52,12 +52,12 @@ layout(set = 0, binding = 4) uniform U_ShadowCameraInfo {
 }
 shadow_camera_info;
 
-layout(set = 0, binding = 5) uniform U_GrassInfo {
+layout(set = 0, binding = 5) uniform U_ManualTypeSpecificInfo {
     float time;
     vec3 bottom_color;
     vec3 tip_color;
 }
-grass_info;
+manual_type_specific_info;
 
 layout(set = 0, binding = 6) uniform sampler2D shadow_map_tex_for_vsm_ping;
 
@@ -75,14 +75,16 @@ void main() {
     uvec3 vert_offset_in_vox;
     float color_gradient;
     float wind_gradient;
-    unpack_vertex_data(vox_local_pos, vert_offset_in_vox, color_gradient, wind_gradient, in_packed_data);
+    unpack_vertex_data(vox_local_pos, vert_offset_in_vox, color_gradient, wind_gradient,
+                       in_packed_data);
 
     vec3 instance_pos = in_instance_pos * scaling_factor;
 
-    vec3 wind_offset = get_wind_offset(instance_pos.xz, wind_gradient, grass_info.time);
-    vec3 anchor_pos  = (vox_local_pos + wind_offset) * scaling_factor + instance_pos;
-    vec3 vert_pos    = anchor_pos + vert_offset_in_vox * scaling_factor;
-    vec3 voxel_pos   = anchor_pos + vec3(0.5) * scaling_factor;
+    vec3 wind_offset =
+        get_wind_offset(instance_pos.xz, wind_gradient, manual_type_specific_info.time);
+    vec3 anchor_pos = (vox_local_pos + wind_offset) * scaling_factor + instance_pos;
+    vec3 vert_pos   = anchor_pos + vert_offset_in_vox * scaling_factor;
+    vec3 voxel_pos  = anchor_pos + vec3(0.5) * scaling_factor;
 
     float shadow_weight =
         get_shadow_weight_vsm(shadow_camera_info.view_proj_mat, vec4(voxel_pos, 1.0));
@@ -91,8 +93,9 @@ void main() {
     gl_Position = camera_info.view_proj_mat * vec4(vert_pos, 1.0);
 
     // interpolate color based on gradient
-    vec3 interpolated_color = mix(srgb_to_linear(grass_info.bottom_color),
-                                  srgb_to_linear(grass_info.tip_color), color_gradient);
+    vec3 interpolated_color =
+        mix(srgb_to_linear(manual_type_specific_info.bottom_color),
+            srgb_to_linear(manual_type_specific_info.tip_color), color_gradient);
 
     vec3 sun_light = sun_info.sun_color * sun_info.sun_luminance;
     vert_color     = interpolated_color * (sun_light * shadow_weight + shading_info.ambient_light);

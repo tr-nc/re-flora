@@ -332,18 +332,12 @@ impl GraphicsPipeline {
         *guard = descriptor_sets;
     }
 
+    pub fn write_descriptor_set(&self, set_no: u32, write: WriteDescriptorSet) {
+        let guard = self.0.descriptor_sets.lock().unwrap();
+        guard[set_no as usize].perform_writes(&mut [write]);
+    }
+
     /// Creates descriptor sets for the compute pipeline.
-    ///
-    /// This function allocates descriptor sets from the descriptor pool based on the
-    /// pipeline's descriptor set layout. After creation, it calls auto_update_descriptor_sets
-    /// to populate the descriptor sets with the provided resources.
-    ///
-    /// # Arguments
-    /// * `descriptor_pool` - The descriptor pool to allocate sets from
-    /// * `resource_containers` - Array of resource containers containing buffers and textures
-    ///
-    /// # Returns
-    /// Result indicating success or failure of descriptor set creation
     pub fn auto_create_descriptor_sets(
         &self,
         descriptor_pool: &DescriptorPool,
@@ -371,16 +365,6 @@ impl GraphicsPipeline {
     }
 
     /// Updates existing descriptor sets with new resources.
-    ///
-    /// This function updates the descriptor sets that were previously created with
-    /// auto_create_descriptor_sets. It finds the appropriate resources from the
-    /// resource containers and writes them to the descriptor sets.
-    ///
-    /// # Arguments
-    /// * `resource_containers` - Array of resource containers containing buffers and textures
-    ///
-    /// # Returns
-    /// Result indicating success or failure of descriptor set update
     pub fn auto_update_descriptor_sets(
         &self,
         resource_containers: &[&dyn ResourceContainer],
@@ -409,7 +393,16 @@ impl GraphicsPipeline {
                 // Ensure that only one resource container has that resource
                 let total_found = found_buffer_containers.len() + found_texture_containers.len();
                 if total_found == 0 {
-                    return Err(anyhow::anyhow!("Resource not found: {}", binding.name));
+                    // if binding.name starts with "manual_", ignore it, it's left for manual binding
+                    if !binding.name.starts_with("manual_") {
+                        return Err(anyhow::anyhow!("Resource not found: {}", binding.name));
+                    } else {
+                        log::info!(
+                            "Manual resource skipped, should be bound manually: {}",
+                            binding.name
+                        );
+                        continue;
+                    }
                 } else if total_found > 1 {
                     return Err(anyhow::anyhow!(
                         "Resource '{}' found in multiple containers: {} buffer containers, {} texture containers",
