@@ -7,7 +7,7 @@ use crate::tracer::{
 };
 
 const BIT_PER_POS: u32 = 7;
-const BIT_PER_GRADIENT: u32 = 5;
+const BIT_PER_GRADIENT: u32 = 8;
 const BIT_PER_OFFSET: u32 = 1;
 
 /// Encodes a position into BIT_PER_POS * 3 bits.
