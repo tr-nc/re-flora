@@ -34,7 +34,7 @@ pub fn derive_resource_container(input: TokenStream) -> TokenStream {
     let mut resource_idents = Vec::<syn::Ident>::new();
     let mut other_field_idents = Vec::<syn::Ident>::new();
     let mut other_field_types = Vec::<Type>::new();
-    
+
     for field in fields {
         if let Some(ident) = &field.ident {
             if is_resource_type(&field.ty) {
@@ -65,7 +65,7 @@ pub fn derive_resource_container(input: TokenStream) -> TokenStream {
         }
     });
 
-    // generate match arms for direct Resource<Texture> fields  
+    // generate match arms for direct Resource<Texture> fields
     let texture_match_arms = resource_idents.iter().map(|ident| {
         quote! {
             stringify!(#ident) => self.#ident.as_any().downcast_ref::<crate::vkn::Texture>(),
@@ -169,7 +169,7 @@ pub fn derive_resource_container(input: TokenStream) -> TokenStream {
             fn get_resource_names(&self) -> Vec<&'static str> {
                 let mut names = Vec::new();
                 let mut seen = std::collections::HashSet::new();
-                
+
                 // Add direct resource names
                 #(
                     let name = #direct_resource_names;
@@ -178,7 +178,7 @@ pub fn derive_resource_container(input: TokenStream) -> TokenStream {
                     }
                     names.push(name);
                 )*
-                
+
                 // Add nested resource names
                 #(
                     for nested_name in self.#other_field_idents.get_resource_names() {
@@ -188,7 +188,7 @@ pub fn derive_resource_container(input: TokenStream) -> TokenStream {
                         names.push(nested_name);
                     }
                 )*
-                
+
                 names
             }
         }
@@ -219,12 +219,13 @@ fn is_potential_resource_container(ty: &Type) -> bool {
             if let Some(last) = path.segments.last() {
                 let type_name = last.ident.to_string();
                 // Exclude primitive types and common standard library types
-                !matches!(type_name.as_str(), 
+                !matches!(
+                    type_name.as_str(),
                     "u8" | "u16" | "u32" | "u64" | "usize" |
                     "i8" | "i16" | "i32" | "i64" | "isize" |
                     "f32" | "f64" | "bool" | "char" |
                     "String" | "Vec" | "HashMap" | "HashSet" |
-                    "Option" | "Result" | "Arc" | "Rc" | "Box" |
+                    "Option" | "Result" | "Arc" | "Rc" | "Box" | "InstanceResources" |
                     "Device" | "Allocator" | // Known VKN types that don't implement ResourceContainer
                     "Texture" | "Buffer" | "CommandBuffer" | "Pipeline" | // VKN types that are resources, not containers
                     "ShaderModule" | "DescriptorSet" | "RenderPass" | // More VKN types
@@ -237,4 +238,3 @@ fn is_potential_resource_container(ty: &Type) -> bool {
         _ => false,
     }
 }
-

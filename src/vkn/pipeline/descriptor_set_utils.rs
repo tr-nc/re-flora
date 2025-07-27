@@ -80,7 +80,7 @@ pub fn auto_update_descriptor_sets(
                     return Err(anyhow::anyhow!("Resource not found: {}", binding.name));
                 } else {
                     log::info!(
-                        "Manual resource skipped, should be bound manually: {}",
+                        "Manual resource skipped, must be bound manually: {}",
                         binding.name
                     );
                     continue;

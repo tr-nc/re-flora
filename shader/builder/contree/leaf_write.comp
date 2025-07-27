@@ -28,8 +28,8 @@ node_offset_for_levels;
 layout(set = 0, binding = 4) writeonly buffer B_SparseNodes { ContreeNode data[]; }
 sparse_nodes;
 
-layout(set = 0, binding = 5) writeonly buffer B_LeafData { uint data[]; }
-leaf_data;
+layout(set = 0, binding = 5) writeonly buffer B_ContreeLeafData { uint data[]; }
+contree_leaf_data;
 
 layout(set = 0, binding = 6) writeonly buffer B_ContreeBuildResult {
     uint node_len;
@@ -107,13 +107,13 @@ void main() {
         return;
     }
 
-    // If there are valid voxels, write their data to the leaf_data buffer.
+    // If there are valid voxels, write their data to the contree_leaf_data buffer.
     // 'w' tracks the number of voxels written by this invocation.
     uint w = 0;
     for (uint i = 0; i < 64; i++) {
         // Check if the i-th voxel in the 4x4x4 brick is valid.
         if ((child_mask & (uint64_t(1) << i)) != 0) {
-            leaf_data.data[contree_build_info.leaf_write_offset + base + w] = temp[i];
+            contree_leaf_data.data[contree_build_info.leaf_write_offset + base + w] = temp[i];
             w++;
         }
     }

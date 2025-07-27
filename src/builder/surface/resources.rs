@@ -5,6 +5,7 @@ use crate::{
 };
 use ash::vk;
 use glam::{UVec3, Vec3};
+use resource_container_derive::ResourceContainer;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -153,10 +154,11 @@ impl InstanceResources {
     }
 }
 
+#[derive(ResourceContainer)]
 pub struct SurfaceResources {
-    pub surface: Texture,
-    pub make_surface_info: Buffer,
-    pub make_surface_result: Buffer,
+    pub surface: Resource<Texture>,
+    pub make_surface_info: Resource<Buffer>,
+    pub make_surface_result: Resource<Buffer>,
     pub instances: InstanceResources,
 }
 
@@ -208,9 +210,9 @@ impl SurfaceResources {
         let instances = InstanceResources::new(device.clone(), allocator.clone(), chunk_dim);
 
         return Self {
-            surface,
-            make_surface_info,
-            make_surface_result,
+            surface: Resource::new(surface),
+            make_surface_info: Resource::new(make_surface_info),
+            make_surface_result: Resource::new(make_surface_result),
             instances,
         };
     }

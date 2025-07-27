@@ -21,8 +21,8 @@ dense_nodes;
 layout(set = 0, binding = 3) readonly buffer B_CounterForLevels { uint data[]; }
 counter_for_levels;
 
-layout(set = 0, binding = 4) writeonly buffer B_NodeData { ContreeNode data[]; }
-node_data;
+layout(set = 0, binding = 4) writeonly buffer B_ContreeNodeData { ContreeNode data[]; }
+contree_node_data;
 
 layout(set = 0, binding = 5) readonly buffer B_ContreeBuildResult {
     uint node_len;
@@ -76,7 +76,7 @@ void main() {
 
             cn.child_mask = fetched.child_mask;
 
-            node_data.data[contree_build_info.node_write_offset + idx] = cn;
+            contree_node_data.data[contree_build_info.node_write_offset + idx] = cn;
             break;
         }
     }
