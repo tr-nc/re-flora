@@ -8,8 +8,8 @@
 layout(location = 0) in uint in_packed_data;
 
 // these are instance-rate attributes
-layout(location = 1) in uvec3 in_instance_position;
-layout(location = 2) in uint in_instance_grass_type;
+layout(location = 1) in uvec3 in_instance_pos;
+layout(location = 2) in uint in_instance_ty;
 
 layout(location = 0) out vec3 vert_color;
 
@@ -67,7 +67,6 @@ layout(set = 0, binding = 6) uniform sampler2D shadow_map_tex_for_vsm_ping;
 #include "../include/vsm.glsl"
 #include "./unpacker.glsl"
 
-
 const uint voxel_count     = 13;
 const float scaling_factor = 1.0 / 256.0;
 
@@ -120,7 +119,7 @@ void main() {
     float color_gradient;
     unpack_vertex_data(vox_local_pos, vert_offset_in_vox, color_gradient, in_packed_data);
 
-    vec3 instance_pos = in_instance_position * scaling_factor;
+    vec3 instance_pos = in_instance_pos * scaling_factor;
 
     vec3 wavy_offset = get_wavy_offset(vox_local_pos.y, instance_pos.xz);
     vec3 anchor_pos  = (vox_local_pos + wavy_offset) * scaling_factor + instance_pos;
