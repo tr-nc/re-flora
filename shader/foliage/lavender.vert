@@ -67,17 +67,16 @@ layout(set = 0, binding = 6) uniform sampler2D shadow_map_tex_for_vsm_ping;
 #include "../include/vsm.glsl"
 #include "./unpacker.glsl"
 
-const uint voxel_count     = 13;
 const float scaling_factor = 1.0 / 256.0;
 
-vec2 random_grass_offset(vec2 grass_instance_pos, float time) {
-    const float wind_speed    = 0.6; // how fast the wind moves
-    const float wind_strength = 5.0; // how much the grass bends
-    const float wind_scale    = 2.0; // the size of the wind gusts. smaller value = larger gusts.
-    const float natual_variance_scale = 1.5; // how much the grass varies naturally
+vec2 rand_offset(vec2 instance_pos, float time) {
+    const float wind_speed            = 0.6;
+    const float wind_strength         = 5.0;
+    const float wind_scale            = 2.0;
+    const float natual_variance_scale = 1.5;
 
     // ranges from 0 to 1
-    vec2 natual_state = hash_22(grass_instance_pos);
+    vec2 natual_state = hash_22(instance_pos);
     // convert to -1 to 1
     natual_state = natual_state * 2.0 - 1.0;
     natual_state = natual_state * natual_variance_scale;
@@ -92,36 +91,32 @@ vec2 random_grass_offset(vec2 grass_instance_pos, float time) {
 
     float time_offset = time * wind_speed;
 
-    float noise_x = fnlGetNoise2D(state, grass_instance_pos.x + time_offset, grass_instance_pos.y);
+    float noise_x = fnlGetNoise2D(state, instance_pos.x + time_offset, instance_pos.y);
 
     // Sample noise for the Z offset from a different location in the noise field to make it look
     // more natural. Adding a large number to the coordinates ensures we are sampling a different,
     // uncorrelated noise pattern.
-    float noise_z = fnlGetNoise2D(state, grass_instance_pos.x + 123.4,
-                                  grass_instance_pos.y - 234.5 + time_offset);
+    float noise_z =
+        fnlGetNoise2D(state, instance_pos.x + 123.4, instance_pos.y - 234.5 + time_offset);
 
     // The noise is in the range [-1, 1], we scale it by the desired strength.
     return vec2(noise_x, noise_z) * wind_strength + natual_state;
 }
 
-vec3 get_wavy_offset(float bend_factor, vec2 grass_instance_pos) {
-    vec2 grass_offset = random_grass_offset(grass_instance_pos, lavender_info.time);
-
-    float denom   = float(max(voxel_count - 1u, 1u));
-    float t       = bend_factor / denom;
-    float t_curve = t * t;
-    return vec3(grass_offset.x * t_curve, 0.0, grass_offset.y * t_curve);
+vec3 get_wavy_offset(vec2 instance_pos, float gradient) {
+    vec2 rand_off = rand_offset(instance_pos, lavender_info.time) * gradient * gradient;
+    return vec3(rand_off.x, 0.0, rand_off.y);
 }
 
 void main() {
     ivec3 vox_local_pos;
     uvec3 vert_offset_in_vox;
-    float color_gradient;
-    unpack_vertex_data(vox_local_pos, vert_offset_in_vox, color_gradient, in_packed_data);
+    float gradient;
+    unpack_vertex_data(vox_local_pos, vert_offset_in_vox, gradient, in_packed_data);
 
     vec3 instance_pos = in_instance_pos * scaling_factor;
 
-    vec3 wavy_offset = get_wavy_offset(vox_local_pos.y, instance_pos.xz);
+    vec3 wavy_offset = get_wavy_offset(instance_pos.xz, gradient);
     vec3 anchor_pos  = (vox_local_pos + wavy_offset) * scaling_factor + instance_pos;
     vec3 vert_pos    = anchor_pos + vert_offset_in_vox * scaling_factor;
     vec3 voxel_pos   = anchor_pos + vec3(0.5) * scaling_factor;
@@ -132,9 +127,9 @@ void main() {
     // transform to clip space
     gl_Position = camera_info.view_proj_mat * vec4(vert_pos, 1.0);
 
-    // interpolate color based on color gradient
+    // interpolate color based on gradient
     vec3 interpolated_color = mix(srgb_to_linear(lavender_info.bottom_color),
-                                  srgb_to_linear(lavender_info.tip_color), color_gradient);
+                                  srgb_to_linear(lavender_info.tip_color), gradient);
 
     vec3 sun_light = sun_info.sun_color * sun_info.sun_luminance;
     vert_color     = interpolated_color * (sun_light * shadow_weight + shading_info.ambient_light);

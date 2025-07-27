@@ -12,12 +12,12 @@ uvec3 decode_vertex_offset(uint vertex_offset) {
 }
 
 void unpack_vertex_data(out ivec3 o_vox_local_pos, out uvec3 o_vert_offset_in_vox,
-                        out float o_color_gradient, uint packed_data) {
+                        out float o_gradient, uint packed_data) {
     o_vox_local_pos =
         ivec3(packed_data & 0xFF, (packed_data >> 8) & 0xFF, (packed_data >> 16) & 0xFF);
     o_vox_local_pos -= ivec3(128);
     o_vert_offset_in_vox = decode_vertex_offset((packed_data >> 24) & 0x7u);
-    o_color_gradient     = float((packed_data >> 27) & 0x1F) / 31.0;
+    o_gradient           = float((packed_data >> 27) & 0x1F) / 31.0;
 }
 
 #endif // UNPACKER_GLSL
