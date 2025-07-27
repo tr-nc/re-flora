@@ -45,10 +45,10 @@ pub fn gen_lavender() -> Result<(Vec<Vertex>, Vec<u32>)> {
     for i in 0..total_stem_voxel_count {
         let vertex_offset = vertices.len() as u32;
         let base_pos = IVec3::new(0, i as i32, 0);
-        // grad from 0 to 1
+
+        // it never reaches 1, because 1 means the leaf ball, and we only need the shadow underneath it
         let mut gradient = i as f32 / total_stem_voxel_count as f32;
-        // pow 4.0
-        gradient = gradient.powf(4.0);
+        gradient = gradient.powf(5.0);
 
         append_indexed_cube_data(
             &mut vertices,

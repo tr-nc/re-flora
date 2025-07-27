@@ -462,8 +462,8 @@ impl App {
             lavender_bottom_color: egui::Color32::from_rgb(109, 197, 115),
             lavender_tip_color: egui::Color32::from_rgb(169, 40, 141),
 
-            leaf_bottom_color: egui::Color32::from_rgb(220, 128, 231),
-            leaf_tip_color: egui::Color32::from_rgb(255, 208, 238),
+            leaf_bottom_color: egui::Color32::from_rgb(246, 184, 255),
+            leaf_tip_color: egui::Color32::from_rgb(255, 229, 245),
 
             voxel_sand_color: egui::Color32::from_rgb(245, 222, 179),
             voxel_dirt_color: egui::Color32::from_rgb(88, 184, 63),
