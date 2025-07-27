@@ -1,7 +1,6 @@
 use super::mesh::Mesh;
 use crate::util::ShaderCompiler;
 use crate::vkn::CommandBuffer;
-use crate::vkn::DescriptorSet;
 use crate::vkn::FormatOverride;
 use crate::vkn::ImageDesc;
 use crate::vkn::RenderPass;
@@ -10,8 +9,7 @@ use crate::vkn::Viewport;
 use crate::vkn::VulkanContext;
 use crate::vkn::WriteDescriptorSet;
 use crate::vkn::{
-    Allocator, DescriptorPool, DescriptorSetLayout, DescriptorSetLayoutBinding,
-    DescriptorSetLayoutBuilder, Device, Extent2D, Extent3D, GraphicsPipeline, GraphicsPipelineDesc,
+    Allocator, DescriptorPool, Device, Extent2D, Extent3D, GraphicsPipeline, GraphicsPipelineDesc,
     ShaderModule, Texture,
 };
 use ash::vk;
@@ -30,14 +28,12 @@ use winit::window::Window;
 pub struct EguiRenderer {
     vulkan_context: VulkanContext,
     allocator: Allocator,
-    gui_pipeline: GraphicsPipeline,
-    vert_shader_module: ShaderModule,
-    frag_shader_module: ShaderModule,
+    gui_ppl: GraphicsPipeline,
+    egui_vert_sm: ShaderModule,
+    egui_frag_sm: ShaderModule,
 
-    descriptor_set_layout: DescriptorSetLayout,
-    descriptor_pool: DescriptorPool,
+    pool: DescriptorPool,
     managed_textures: HashMap<TextureId, Texture>,
-    textures: HashMap<TextureId, DescriptorSet>,
     frames: Option<Mesh>,
 
     textures_to_free: Option<Vec<TextureId>>,
@@ -45,45 +41,31 @@ pub struct EguiRenderer {
     egui_context: egui::Context,
     egui_winit_state: egui_winit::State,
 
-    // late init
     pixels_per_point: Option<f32>,
     clipped_primitives: Option<Vec<ClippedPrimitive>>,
 }
 
 impl EguiRenderer {
     pub fn new(
-        vulkan_context: VulkanContext,
+        vulkan_ctx: VulkanContext,
         window: &Window,
         allocator: Allocator,
         compiler: &ShaderCompiler,
         render_pass: &RenderPass,
     ) -> Self {
-        let device = vulkan_context.device();
+        let device = vulkan_ctx.device();
 
-        let descriptor_set_layout = {
-            let mut builder = DescriptorSetLayoutBuilder::new();
-            builder.set_bindings(HashMap::from([(
-                0,
-                DescriptorSetLayoutBinding {
-                    no: 0,
-                    name: "egui_texture".to_string(),
-                    descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                    descriptor_count: 1,
-                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
-                },
-            )]));
-            builder.build(device).unwrap()
-        };
-
-        let vert_shader_module =
+        let egui_vert_sm =
             ShaderModule::from_glsl(device, compiler, "shader/egui/egui.vert", "main").unwrap();
-        let frag_shader_module =
+        let egui_frag_sm =
             ShaderModule::from_glsl(device, compiler, "shader/egui/egui.frag", "main").unwrap();
 
-        let pipeline = GraphicsPipeline::new_tmp(
+        let pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
+
+        let gui_ppl = GraphicsPipeline::new(
             device,
-            &vert_shader_module,
-            &frag_shader_module,
+            &egui_vert_sm,
+            &egui_frag_sm,
             render_pass,
             &GraphicsPipelineDesc {
                 format_overrides: vec![FormatOverride {
@@ -93,13 +75,9 @@ impl EguiRenderer {
                 ..Default::default()
             },
             None,
+            &pool,
+            &[],
         );
-
-        let descriptor_pool = DescriptorPool::from_descriptor_set_layouts(
-            device,
-            &HashMap::from([(0, descriptor_set_layout.clone())]),
-        )
-        .unwrap();
 
         let egui_context = egui::Context::default();
         let egui_winit_state = egui_winit::State::new(
@@ -112,15 +90,13 @@ impl EguiRenderer {
         );
 
         Self {
-            vulkan_context,
+            vulkan_context: vulkan_ctx,
             allocator,
-            gui_pipeline: pipeline,
-            vert_shader_module,
-            frag_shader_module,
-            descriptor_set_layout,
-            descriptor_pool,
+            gui_ppl,
+            egui_vert_sm,
+            egui_frag_sm,
+            pool,
             managed_textures: HashMap::new(),
-            textures: HashMap::new(),
             frames: None,
             textures_to_free: None,
 
@@ -140,10 +116,10 @@ impl EguiRenderer {
     ///
     /// This is an expensive operation.
     pub fn set_render_pass(&mut self, render_pass: &RenderPass) {
-        self.gui_pipeline = GraphicsPipeline::new_tmp(
+        self.gui_ppl = GraphicsPipeline::new(
             &self.vulkan_context.device(),
-            &self.vert_shader_module,
-            &self.frag_shader_module,
+            &self.egui_vert_sm,
+            &self.egui_frag_sm,
             render_pass,
             &GraphicsPipelineDesc {
                 format_overrides: vec![FormatOverride {
@@ -153,6 +129,8 @@ impl EguiRenderer {
                 ..Default::default()
             },
             None,
+            &self.pool,
+            &[],
         );
     }
 
@@ -223,29 +201,27 @@ impl EguiRenderer {
                     )
                     .unwrap();
 
-                let set = self
-                    .descriptor_pool
-                    .allocate_set(&self.descriptor_set_layout)
-                    .unwrap();
-                set.perform_writes(&mut [WriteDescriptorSet::new_texture_write(
+                self.gui_ppl.write_descriptor_set(
                     0,
-                    vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                    &texture,
-                    vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-                )]);
+                    WriteDescriptorSet::new_texture_write(
+                        0,
+                        vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                        &texture,
+                        vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                    ),
+                );
 
                 self.managed_textures.insert(*id, texture);
-                self.textures.insert(*id, set);
             }
         }
     }
 
     /// Record commands to render the [`egui::Ui`].
     fn cmd_draw(
+        gui_ppl: &GraphicsPipeline,
         device: &Device,
         frames: &mut Option<Mesh>,
         pipeline: &GraphicsPipeline,
-        textures: &mut HashMap<TextureId, DescriptorSet>,
         allocator: &mut Allocator,
         cmdbuf: &CommandBuffer,
         extent: Extent2D,
@@ -325,7 +301,6 @@ impl EguiRenderer {
 
         let mut index_offset = 0u32;
         let mut vertex_offset = 0i32;
-        let mut current_texture_id: Option<TextureId> = None;
 
         for p in primitives {
             let clip_rect = p.clip_rect;
@@ -351,33 +326,9 @@ impl EguiRenderer {
                         device.cmd_set_scissor(cmdbuf.as_raw(), 0, &scissors);
                     }
 
-                    if Some(m.texture_id) != current_texture_id {
-                        let descriptor_set = textures.get(&m.texture_id).unwrap().as_raw();
-
-                        unsafe {
-                            device.cmd_bind_descriptor_sets(
-                                cmdbuf.as_raw(),
-                                vk::PipelineBindPoint::GRAPHICS,
-                                pipeline.get_layout().as_raw(),
-                                0,
-                                &[descriptor_set],
-                                &[],
-                            )
-                        };
-                        current_texture_id = Some(m.texture_id);
-                    }
-
                     let index_count = m.indices.len() as u32;
-                    unsafe {
-                        device.cmd_draw_indexed(
-                            cmdbuf.as_raw(),
-                            index_count,
-                            1,
-                            index_offset,
-                            vertex_offset,
-                            0,
-                        )
-                    };
+
+                    gui_ppl.record_indexed(cmdbuf, index_count, 1, index_offset, vertex_offset, 0);
 
                     index_offset += index_count;
                     vertex_offset += m.vertices.len() as i32;
@@ -424,10 +375,10 @@ impl EguiRenderer {
         render_area: Extent2D,
     ) {
         Self::cmd_draw(
+            &self.gui_ppl,
             device,
             &mut self.frames,
-            &self.gui_pipeline,
-            &mut self.textures,
+            &self.gui_ppl,
             &mut self.allocator,
             cmdbuf,
             render_area,
