@@ -411,10 +411,8 @@ impl Tracer {
             load_render_pass_color_and_depth,
             vec![load_framebuffer_color_and_depth],
         );
-        let clear_render_target_depth = RenderTarget::new(
-            clear_render_pass_depth,
-            vec![clear_framebuffer_depth],
-        );
+        let clear_render_target_depth =
+            RenderTarget::new(clear_render_pass_depth, vec![clear_framebuffer_depth]);
 
         return Ok(Self {
             vulkan_ctx,
@@ -650,11 +648,15 @@ impl Tracer {
         );
 
         self.clear_render_target_color_and_depth = RenderTarget::new(
-            self.clear_render_target_color_and_depth.get_render_pass().clone(),
+            self.clear_render_target_color_and_depth
+                .get_render_pass()
+                .clone(),
             vec![clear_framebuffer_color_and_depth],
         );
         self.load_render_target_color_and_depth = RenderTarget::new(
-            self.load_render_target_color_and_depth.get_render_pass().clone(),
+            self.load_render_target_color_and_depth
+                .get_render_pass()
+                .clone(),
             vec![load_framebuffer_color_and_depth],
         );
         self.clear_render_target_depth = RenderTarget::new(
@@ -1429,10 +1431,8 @@ impl Tracer {
             },
         ];
 
-        self.clear_render_target_color_and_depth.record_begin(
-            cmdbuf,
-            &clear_values,
-        );
+        self.clear_render_target_color_and_depth
+            .record_begin(cmdbuf, &clear_values);
 
         let render_extent = self
             .resources
@@ -1536,10 +1536,8 @@ impl Tracer {
             },
         ];
 
-        self.load_render_target_color_and_depth.record_begin(
-            cmdbuf,
-            &clear_values,
-        );
+        self.load_render_target_color_and_depth
+            .record_begin(cmdbuf, &clear_values);
 
         let render_extent = self
             .resources
@@ -1640,10 +1638,8 @@ impl Tracer {
             },
         ];
 
-        self.load_render_target_color_and_depth.record_begin(
-            cmdbuf,
-            &clear_values,
-        );
+        self.load_render_target_color_and_depth
+            .record_begin(cmdbuf, &clear_values);
 
         let render_extent = self
             .resources
@@ -1741,10 +1737,8 @@ impl Tracer {
             },
         }];
 
-        self.clear_render_target_depth.record_begin(
-            cmdbuf,
-            &clear_values,
-        );
+        self.clear_render_target_depth
+            .record_begin(cmdbuf, &clear_values);
 
         let shadow_extent = self.resources.shadow_map_tex.get_image().get_desc().extent;
         let viewport = Viewport::from_extent(shadow_extent.as_extent_2d().unwrap());

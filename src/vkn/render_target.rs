@@ -14,7 +14,10 @@ impl RenderTarget {
     /// Creates a new RenderTarget with framebuffers.
     /// For single framebuffer use cases, pass a vector with one element: vec![framebuffer].
     pub fn new(render_pass: RenderPass, framebuffers: Vec<Framebuffer>) -> Self {
-        assert!(!framebuffers.is_empty(), "RenderTarget must have at least one framebuffer");
+        assert!(
+            !framebuffers.is_empty(),
+            "RenderTarget must have at least one framebuffer"
+        );
         Self {
             render_pass,
             framebuffers,
@@ -107,5 +110,4 @@ impl RenderTarget {
     pub fn get_render_pass(&self) -> &RenderPass {
         &self.render_pass
     }
-
 }

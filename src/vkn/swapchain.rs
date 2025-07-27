@@ -5,7 +5,8 @@ use ash::{
 };
 
 use crate::vkn::{
-    AttachmentDesc, AttachmentReference, Extent2D, RenderPass, RenderPassDesc, SubpassDesc,
+    AttachmentDesc, AttachmentReference, Extent2D, Framebuffer, RenderPass, RenderPassDesc,
+    RenderTarget, SubpassDesc,
 };
 
 use super::{
@@ -37,8 +38,7 @@ pub struct Swapchain {
 
     swapchain_device: swapchain::Device,
 
-    render_pass: RenderPass,
-    framebuffers: Vec<vk::Framebuffer>,
+    render_target: RenderTarget,
     image_views: Vec<vk::ImageView>,
     swapchain_khr: vk::SwapchainKHR,
 
@@ -53,13 +53,12 @@ impl Drop for Swapchain {
 
 impl Swapchain {
     pub fn new(context: VulkanContext, window_extent: Extent2D, desc: SwapchainDesc) -> Self {
-        let (swapchain_device, swapchain_khr, image_views, render_pass, framebuffers) =
+        let (swapchain_device, swapchain_khr, image_views, render_target) =
             create_vulkan_swapchain(&context, window_extent, &desc);
 
         Self {
             vulkan_context: context,
-            render_pass,
-            framebuffers,
+            render_target,
             image_views,
             swapchain_khr,
             swapchain_device,
@@ -70,13 +69,12 @@ impl Swapchain {
     pub fn on_resize(&mut self, window_extent: Extent2D) {
         self.clean_up();
 
-        let (swapchain_device, swapchain_khr, image_views, render_pass, framebuffers) =
+        let (swapchain_device, swapchain_khr, image_views, render_target) =
             create_vulkan_swapchain(&self.vulkan_context, window_extent, &self.desc);
 
         self.swapchain_device = swapchain_device;
         self.swapchain_khr = swapchain_khr;
-        self.render_pass = render_pass;
-        self.framebuffers = framebuffers;
+        self.render_target = render_target;
         self.image_views = image_views;
     }
 
@@ -91,11 +89,7 @@ impl Swapchain {
     fn clean_up(&mut self) {
         let device = &self.vulkan_context.device();
         unsafe {
-            // frame buffers
-            self.framebuffers
-                .iter()
-                .for_each(|fb| device.destroy_framebuffer(*fb, None));
-            self.framebuffers.clear();
+            // framebuffers are now managed by RenderTarget and will be automatically cleaned up
 
             // image views
             self.image_views
@@ -201,35 +195,23 @@ impl Swapchain {
     }
 
     pub fn get_render_pass(&self) -> &RenderPass {
-        &self.render_pass
+        self.render_target.get_render_pass()
     }
 
     pub fn record_begin_render_pass_cmdbuf(
         &self,
         cmdbuf: &CommandBuffer,
         image_index: u32,
-        render_area: Extent2D,
+        _render_area: Extent2D,
     ) {
-        let render_pass_begin_info = vk::RenderPassBeginInfo::default()
-            .render_pass(self.render_pass.as_raw())
-            .framebuffer(self.framebuffers[image_index as usize])
-            .render_area(vk::Rect2D {
-                offset: vk::Offset2D { x: 0, y: 0 },
-                extent: render_area.as_raw(),
-            })
-            .clear_values(&[vk::ClearValue {
-                color: vk::ClearColorValue {
-                    float32: [0.0, 0.0, 0.0, 0.0],
-                },
-            }]);
+        let clear_values = [vk::ClearValue {
+            color: vk::ClearColorValue {
+                float32: [0.0, 0.0, 0.0, 0.0],
+            },
+        }];
 
-        unsafe {
-            self.vulkan_context.device().cmd_begin_render_pass(
-                cmdbuf.as_raw(),
-                &render_pass_begin_info,
-                vk::SubpassContents::INLINE,
-            )
-        };
+        self.render_target
+            .record_begin_with_index(cmdbuf, image_index as usize, &clear_values);
     }
 }
 
@@ -370,8 +352,7 @@ fn create_vulkan_swapchain(
     swapchain::Device,
     vk::SwapchainKHR,
     Vec<vk::ImageView>,
-    RenderPass,
-    Vec<vk::Framebuffer>,
+    RenderTarget,
 ) {
     let format = choose_surface_format(
         vulkan_context,
@@ -441,19 +422,15 @@ fn create_vulkan_swapchain(
     let render_pass = create_vulkan_render_pass(vulkan_context.device().clone(), format.format);
 
     let framebuffers = create_vulkan_framebuffers(
-        vulkan_context.device(),
-        render_pass.as_raw(),
+        vulkan_context.clone(),
+        &render_pass,
         &image_views,
         window_extent,
     );
 
-    (
-        swapchain_device,
-        swapchain_khr,
-        image_views,
-        render_pass,
-        framebuffers,
-    )
+    let render_target = RenderTarget::new(render_pass, framebuffers);
+
+    (swapchain_device, swapchain_khr, image_views, render_target)
 }
 
 fn create_vulkan_render_pass(device: Device, format: vk::Format) -> RenderPass {
@@ -496,23 +473,16 @@ fn create_vulkan_render_pass(device: Device, format: vk::Format) -> RenderPass {
 }
 
 fn create_vulkan_framebuffers(
-    device: &Device,
-    render_pass: vk::RenderPass,
+    vulkan_context: VulkanContext,
+    render_pass: &RenderPass,
     image_views: &[vk::ImageView],
     window_extent: Extent2D,
-) -> Vec<vk::Framebuffer> {
+) -> Vec<Framebuffer> {
     image_views
         .iter()
-        .map(|view| [*view])
-        .map(|attachments| {
-            let framebuffer_info = vk::FramebufferCreateInfo::default()
-                .render_pass(render_pass)
-                .attachments(&attachments)
-                .width(window_extent.width)
-                .height(window_extent.height)
-                .layers(1);
-            unsafe { device.create_framebuffer(&framebuffer_info, None) }
+        .map(|view| {
+            Framebuffer::new(vulkan_context.clone(), render_pass, &[*view], window_extent)
+                .expect("Failed to create framebuffer")
         })
-        .collect::<VkResult<Vec<vk::Framebuffer>>>()
-        .expect("Failed to create framebuffers")
+        .collect()
 }
