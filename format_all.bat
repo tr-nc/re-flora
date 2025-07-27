@@ -41,7 +41,7 @@ if %errorlevel% neq 0 (
     goto :eof
 )
 
-rem --- NEW: First pass to count the total number of files ---
+rem --- First pass to count the total number of files ---
 echo Counting files to format...
 set total_files=0
 for /R . %%F in (%FILE_EXTENSIONS%) do (
@@ -49,7 +49,7 @@ for /R . %%F in (%FILE_EXTENSIONS%) do (
 )
 echo Found !total_files! files.
 
-rem --- MODIFIED: Main loop to find and format files with progress ---
+rem --- Main loop to find and format files with progress ---
 set current_file=0
 for /R . %%F in (%FILE_EXTENSIONS%) do (
     rem Increment the counter for the current file
