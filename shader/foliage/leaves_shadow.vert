@@ -17,6 +17,7 @@ layout(set = 0, binding = 0) uniform U_GuiInput {
     uint debug_uint;
 }
 gui_input;
+
 layout(set = 0, binding = 1) uniform U_SunInfo {
     vec3 sun_dir;
     float sun_size;
@@ -26,20 +27,11 @@ layout(set = 0, binding = 1) uniform U_SunInfo {
     float sun_azimuth;
 }
 sun_info;
+
 layout(set = 0, binding = 2) uniform U_ShadingInfo { vec3 ambient_light; }
 shading_info;
-layout(set = 0, binding = 3) uniform U_CameraInfo {
-    vec4 pos;
-    mat4 view_mat;
-    mat4 view_mat_inv;
-    mat4 proj_mat;
-    mat4 proj_mat_inv;
-    mat4 view_proj_mat;
-    mat4 view_proj_mat_inv;
-}
-camera_info;
 
-layout(set = 0, binding = 4) uniform U_ShadowCameraInfo {
+layout(set = 0, binding = 3) uniform U_ShadowCameraInfo {
     vec4 pos;
     mat4 view_mat;
     mat4 view_mat_inv;
@@ -50,14 +42,14 @@ layout(set = 0, binding = 4) uniform U_ShadowCameraInfo {
 }
 shadow_camera_info;
 
-layout(set = 0, binding = 5) uniform U_GrassInfo {
+layout(set = 0, binding = 4) uniform U_GrassInfo {
     float time;
     vec3 bottom_color;
     vec3 tip_color;
 }
 grass_info;
 
-layout(set = 0, binding = 6) uniform sampler2D shadow_map_tex_for_vsm_ping;
+layout(set = 0, binding = 5) uniform sampler2D shadow_map_tex_for_vsm_ping;
 
 #include "../include/core/fast_noise_lite.glsl"
 #include "../include/core/hash.glsl"

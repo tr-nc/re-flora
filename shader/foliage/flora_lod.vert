@@ -19,6 +19,7 @@ layout(set = 0, binding = 0) uniform U_GuiInput {
     uint debug_uint;
 }
 gui_input;
+
 layout(set = 0, binding = 1) uniform U_SunInfo {
     vec3 sun_dir;
     float sun_size;
@@ -28,8 +29,10 @@ layout(set = 0, binding = 1) uniform U_SunInfo {
     float sun_azimuth;
 }
 sun_info;
+
 layout(set = 0, binding = 2) uniform U_ShadingInfo { vec3 ambient_light; }
 shading_info;
+
 layout(set = 0, binding = 3) uniform U_CameraInfo {
     vec4 pos;
     mat4 view_mat;
