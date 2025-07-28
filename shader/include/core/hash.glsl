@@ -290,7 +290,7 @@ uvec3 murmur_hash_33(uvec3 src) {
     return h;
 }
 
-// 3 outputs, 3 inputs
+/// Output range: [0, 1]
 vec3 hash_33(vec3 src) {
     uvec3 h = murmur_hash_33(floatBitsToUint(src));
     return uintBitsToFloat(h & 0x007fffffu | 0x3f800000u) - 1.0;
