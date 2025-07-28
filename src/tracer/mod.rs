@@ -39,9 +39,16 @@ use crate::vkn::{
 };
 use anyhow::Result;
 use ash::vk;
+use std::collections::HashMap;
 
 pub struct TracerDesc {
     pub scaling_factor: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LodState {
+    Lod0,
+    Lod1,
 }
 
 #[derive(Debug, Clone)]
@@ -1322,15 +1329,32 @@ impl Tracer {
     fn chunks_needs_to_draw_this_frame<'a>(
         &self,
         surface_resources: &'a SurfaceResources,
-    ) -> Vec<(Aabb3, &'a FloraInstanceResources)> {
-        let mut result = Vec::new();
+        lod_distance: f32,
+    ) -> HashMap<LodState, Vec<&'a FloraInstanceResources>> {
+        let mut lod0_instances = Vec::new();
+        let mut lod1_instances = Vec::new();
+        let camera_pos = self.camera.position();
+
         for (aabb, instances) in &surface_resources.instances.chunk_flora_instances {
             // perform frustum culling
             if !aabb.is_inside_frustum(self.current_view_proj_mat) {
                 continue;
             }
-            result.push((aabb.clone(), instances));
+
+            // calculate distance from camera to chunk center
+            let chunk_center = aabb.center();
+            let distance = (camera_pos - chunk_center).length();
+
+            if distance <= lod_distance {
+                lod0_instances.push(instances);
+            } else {
+                lod1_instances.push(instances);
+            }
         }
+
+        let mut result = HashMap::new();
+        result.insert(LodState::Lod0, lod0_instances);
+        result.insert(LodState::Lod1, lod1_instances);
         result
     }
 
@@ -1338,6 +1362,7 @@ impl Tracer {
         &mut self,
         cmdbuf: &CommandBuffer,
         surface_resources: &SurfaceResources,
+        lod_distance: f32,
     ) -> Result<()> {
         let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
         let compute_to_compute_barrier = PipelineBarrier::new(
@@ -1371,12 +1396,22 @@ impl Tracer {
         );
         b1.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
-        let chunks_needs_to_draw_this_frame =
-            self.chunks_needs_to_draw_this_frame(surface_resources);
-        // self.record_grass_pass(cmdbuf, &chunks_needs_to_draw_this_frame);
-        self.record_flora_lod_pass(cmdbuf, &chunks_needs_to_draw_this_frame);
+        let chunks_by_lod = self.chunks_needs_to_draw_this_frame(surface_resources, lod_distance);
+        self.record_flora_pass(cmdbuf, &chunks_by_lod[&LodState::Lod0], LodState::Lod0);
         frag_to_vert_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-        self.record_lavender_pass(cmdbuf, &chunks_needs_to_draw_this_frame);
+        self.record_flora_pass(cmdbuf, &chunks_by_lod[&LodState::Lod1], LodState::Lod1);
+        frag_to_vert_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+        // Combine both LOD levels for lavender pass (no LOD separation for lavender)
+        let all_instances: Vec<&FloraInstanceResources> = chunks_by_lod[&LodState::Lod0]
+            .iter()
+            .chain(chunks_by_lod[&LodState::Lod1].iter())
+            .copied()
+            .collect();
+        let chunks_for_lavender: Vec<(Aabb3, &FloraInstanceResources)> = all_instances
+            .iter()
+            .map(|instance| (Aabb3::default(), *instance)) // We don't use the AABB in lavender pass
+            .collect();
+        self.record_lavender_pass(cmdbuf, &chunks_for_lavender);
         frag_to_vert_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
         // self.record_leaves_pass(cmdbuf, surface_resources);
@@ -1467,17 +1502,31 @@ impl Tracer {
         }
     }
 
-    fn record_grass_pass(
+    fn record_flora_pass(
         &self,
         cmdbuf: &CommandBuffer,
-        chunks_needs_to_draw_this_frame: &[(Aabb3, &FloraInstanceResources)],
+        flora_instances: &[&FloraInstanceResources],
+        lod_state: LodState,
     ) {
-        self.flora_ppl_with_clear.write_descriptor_set(
+        let (pipeline, grass_resources, render_target) = match lod_state {
+            LodState::Lod0 => (
+                &self.flora_ppl_with_clear,
+                &self.resources.grass_blade_resources,
+                &self.clear_render_target_color_and_depth,
+            ),
+            LodState::Lod1 => (
+                &self.flora_lod_ppl_with_clear,
+                &self.resources.grass_blade_resources_lod,
+                &self.load_render_target_color_and_depth,
+            ),
+        };
+
+        pipeline.write_descriptor_set(
             0,
             WriteDescriptorSet::new_buffer_write(5, &self.resources.grass_info),
         );
 
-        self.flora_ppl_with_clear.record_bind(cmdbuf);
+        pipeline.record_bind(cmdbuf);
 
         let clear_values = [
             vk::ClearValue {
@@ -1493,7 +1542,7 @@ impl Tracer {
             },
         ];
 
-        self.clear_render_target_color_and_depth
+        render_target
             .record_begin(cmdbuf, &clear_values);
 
         let render_extent = self
@@ -1512,19 +1561,18 @@ impl Tracer {
             },
         };
 
-        self.flora_ppl_with_clear
-            .record_viewport_scissor(cmdbuf, viewport, scissor);
+        pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
 
         unsafe {
             self.vulkan_ctx.device().cmd_bind_index_buffer(
                 cmdbuf.as_raw(),
-                self.resources.grass_blade_resources.indices.as_raw(),
+                grass_resources.indices.as_raw(),
                 0,
                 vk::IndexType::UINT32,
             );
         }
 
-        for (_aabb, instances) in chunks_needs_to_draw_this_frame {
+        for instances in flora_instances {
             // only draw if this chunk actually has grass instances.
             if instances.get(FloraType::Grass).instances_len == 0 {
                 continue;
@@ -1538,7 +1586,7 @@ impl Tracer {
                     cmdbuf.as_raw(),
                     0, // firstBinding
                     &[
-                        self.resources.grass_blade_resources.vertices.as_raw(),
+                        grass_resources.vertices.as_raw(),
                         instances.get(FloraType::Grass).instances_buf.as_raw(),
                     ],
                     &[0, 0], // offsets
@@ -1547,18 +1595,18 @@ impl Tracer {
 
             // issue the draw call for the current chunk.
             // no barriers are needed here.
-            self.flora_ppl_with_clear.record_indexed(
+            pipeline.record_indexed(
                 cmdbuf,
-                self.resources.grass_blade_resources.indices_len,
+                grass_resources.indices_len,
                 instances.get(FloraType::Grass).instances_len,
                 0, // firstIndex
                 0, // vertexOffset
                 0, // firstInstance
             );
         }
-        self.clear_render_target_color_and_depth.record_end(cmdbuf);
+        render_target.record_end(cmdbuf);
 
-        let desc = self.clear_render_target_color_and_depth.get_desc();
+        let desc = render_target.get_desc();
         self.resources
             .extent_dependent_resources
             .gfx_output_tex
@@ -1663,110 +1711,6 @@ impl Tracer {
         self.load_render_target_color_and_depth.record_end(cmdbuf);
 
         let desc = self.load_render_target_color_and_depth.get_desc();
-        self.resources
-            .extent_dependent_resources
-            .gfx_output_tex
-            .get_image()
-            .set_layout(0, desc.attachments[0].final_layout);
-        self.resources
-            .extent_dependent_resources
-            .gfx_depth_tex
-            .get_image()
-            .set_layout(0, desc.attachments[1].final_layout);
-    }
-
-    fn record_flora_lod_pass(
-        &self,
-        cmdbuf: &CommandBuffer,
-        chunks_needs_to_draw_this_frame: &[(Aabb3, &FloraInstanceResources)],
-    ) {
-        self.flora_lod_ppl_with_clear.write_descriptor_set(
-            0,
-            WriteDescriptorSet::new_buffer_write(5, &self.resources.grass_info),
-        );
-
-        self.flora_lod_ppl_with_clear.record_bind(cmdbuf);
-
-        let clear_values = [
-            vk::ClearValue {
-                color: vk::ClearColorValue {
-                    float32: [0.0, 0.0, 0.0, 1.0],
-                },
-            },
-            vk::ClearValue {
-                depth_stencil: vk::ClearDepthStencilValue {
-                    depth: 1.0,
-                    stencil: 0,
-                },
-            },
-        ];
-
-        self.clear_render_target_color_and_depth
-            .record_begin(cmdbuf, &clear_values);
-
-        let render_extent = self
-            .resources
-            .extent_dependent_resources
-            .gfx_output_tex
-            .get_image()
-            .get_desc()
-            .extent;
-        let viewport = Viewport::from_extent(render_extent.as_extent_2d().unwrap());
-        let scissor = vk::Rect2D {
-            offset: vk::Offset2D { x: 0, y: 0 },
-            extent: vk::Extent2D {
-                width: render_extent.width,
-                height: render_extent.height,
-            },
-        };
-
-        self.flora_lod_ppl_with_clear
-            .record_viewport_scissor(cmdbuf, viewport, scissor);
-
-        unsafe {
-            self.vulkan_ctx.device().cmd_bind_index_buffer(
-                cmdbuf.as_raw(),
-                self.resources.grass_blade_resources_lod.indices.as_raw(),
-                0,
-                vk::IndexType::UINT32,
-            );
-        }
-
-        for (_aabb, instances) in chunks_needs_to_draw_this_frame {
-            // only draw if this chunk actually has lavender instances.
-            if instances.get(FloraType::Grass).instances_len == 0 {
-                continue;
-            }
-
-            // bind the vertex buffers for this specific chunk.
-            // binding point 0: common lavender vertices.
-            // binding point 1: per-chunk, per-instance data.
-            unsafe {
-                self.vulkan_ctx.device().cmd_bind_vertex_buffers(
-                    cmdbuf.as_raw(),
-                    0, // firstBinding
-                    &[
-                        self.resources.grass_blade_resources_lod.vertices.as_raw(),
-                        instances.get(FloraType::Grass).instances_buf.as_raw(),
-                    ],
-                    &[0, 0], // offsets
-                );
-            }
-
-            // issue the draw call for the current chunk.
-            // no barriers are needed here.
-            self.flora_lod_ppl_with_clear.record_indexed(
-                cmdbuf,
-                self.resources.grass_blade_resources_lod.indices_len,
-                instances.get(FloraType::Grass).instances_len,
-                0, // firstIndex
-                0, // vertexOffset
-                0, // firstInstance
-            );
-        }
-        self.clear_render_target_color_and_depth.record_end(cmdbuf);
-
-        let desc = self.clear_render_target_color_and_depth.get_desc();
         self.resources
             .extent_dependent_resources
             .gfx_output_tex

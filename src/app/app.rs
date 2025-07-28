@@ -182,6 +182,7 @@ pub struct App {
     debug_float: f32,
     debug_bool: bool,
     debug_uint: u32,
+    lod_distance: f32,
     leaves_inner_density: f32,
     leaves_outer_density: f32,
     leaves_inner_radius: f32,
@@ -403,6 +404,7 @@ impl App {
             debug_float: 0.0,
             debug_bool: true,
             debug_uint: 0,
+            lod_distance: 1.5,
             leaves_inner_density: 0.38,
             leaves_outer_density: 0.45,
             leaves_inner_radius: 12.0,
@@ -1187,6 +1189,10 @@ impl App {
                                                 egui::Slider::new(&mut self.debug_uint, 0..=100)
                                                     .text("Debug UInt"),
                                             );
+                                            ui.add(
+                                                egui::Slider::new(&mut self.lod_distance, 0.0..=10.0)
+                                                    .text("LOD Distance"),
+                                            );
                                             ui.add(egui::Checkbox::new(
                                                 &mut self.debug_bool,
                                                 "Debug Bool",
@@ -1908,7 +1914,11 @@ impl App {
                     .unwrap();
 
                 self.tracer
-                    .record_trace(cmdbuf, &self.surface_builder.get_resources())
+                    .record_trace(
+                        cmdbuf,
+                        &self.surface_builder.get_resources(),
+                        self.lod_distance,
+                    )
                     .unwrap();
 
                 self.swapchain.record_blit(
