@@ -51,9 +51,23 @@ layout(set = 0, binding = 3) uniform U_CameraInfo {
 }
 camera_info;
 
+layout(set = 0, binding = 4) uniform U_ShadowCameraInfo {
+    vec4 pos;
+    mat4 view_mat;
+    mat4 view_mat_inv;
+    mat4 proj_mat;
+    mat4 proj_mat_inv;
+    mat4 view_proj_mat;
+    mat4 view_proj_mat_inv;
+}
+shadow_camera_info;
+
+layout(set = 0, binding = 5) uniform sampler2D shadow_map_tex_for_vsm_ping;
+
 #include "../include/core/color.glsl"
 #include "../include/core/fast_noise_lite.glsl"
 #include "../include/core/hash.glsl"
+#include "../include/vsm.glsl"
 #include "./billboard.glsl"
 #include "./unpacker.glsl"
 #include "./wind.glsl"
@@ -86,7 +100,9 @@ void main() {
     vec3 vert_pos = get_vert_pos_with_billboard(camera_info.view_mat, voxel_pos, vert_offset_in_vox,
                                                 scaling_factor);
 
-    float shadow_weight = get_shadow_weight(vox_local_pos);
+    float shadow_weight =
+        get_shadow_weight_vsm(shadow_camera_info.view_proj_mat, vec4(voxel_pos, 1.0));
+    shadow_weight *= get_shadow_weight(vox_local_pos);
 
     // transform to clip space
     gl_Position = camera_info.view_proj_mat * vec4(vert_pos, 1.0);

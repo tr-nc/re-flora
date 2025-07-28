@@ -62,7 +62,7 @@ layout(set = 0, binding = 4) uniform U_ShadowCameraInfo {
 }
 shadow_camera_info;
 
-layout(set = 0, binding = 6) uniform sampler2D shadow_map_tex_for_vsm_ping;
+layout(set = 0, binding = 5) uniform sampler2D shadow_map_tex_for_vsm_ping;
 
 #include "../include/core/color.glsl"
 #include "../include/core/fast_noise_lite.glsl"
