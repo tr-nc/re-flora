@@ -155,8 +155,9 @@ ContreeMarchingResult _contree_marching(vec3 origin, vec3 dir, bool coarse, uint
         float offset = uintBitsToFloat(0x3f800000u | (1u << (scale_exp - 1))) - 1.0;
         centered_pos += offset;
 
-        pos          = get_mirrored_pos(pos, dir, false);
-        centered_pos = get_mirrored_pos(centered_pos, dir, false);
+        bvec3 flip   = greaterThan(dir, vec3(0.0));
+        pos          = get_mirrored_pos(pos, dir, false);           // keep the fast path
+        centered_pos = mix(centered_pos, 3.0 - centered_pos, flip); // exact & direction-independent
 
         uint child_idx = uint(get_node_cell_index(pos, scale_exp));
         uint bits      = bit_count_u64_var(node.child_mask, child_idx);
