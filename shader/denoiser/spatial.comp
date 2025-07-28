@@ -14,7 +14,7 @@ layout(set = 0, binding = 0) uniform U_SpatialInfo {
     float max_phi_z;
     float phi_z_stable_sample_count;
     uint is_changing_lum_phi;
-    uint is_spatial_denoising_skipped;
+    uint is_spatial_denoising_enabled;
 }
 spatial_info;
 
@@ -111,7 +111,7 @@ void main() {
 
     uint iter = pc.iteration;
 
-    if (spatial_info.is_spatial_denoising_skipped != 0u) {
+    if (spatial_info.is_spatial_denoising_enabled == 0u) {
         if (iter != 0u) return;
         vec3 c = imageLoad(denoiser_spatial_ping_tex, uv).rgb;
         imageStore(denoiser_spatial_pong_tex, uv, vec4(c, 0.0));

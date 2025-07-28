@@ -90,6 +90,8 @@ pub struct Tracer {
 
     #[allow(dead_code)]
     pool: DescriptorPool,
+    
+    a_trous_iteration_count: u32,
 }
 
 impl Drop for Tracer {
@@ -448,6 +450,7 @@ impl Tracer {
             load_render_target_color_and_depth,
             clear_render_target_depth,
             pool,
+            a_trous_iteration_count: 3,
         });
 
         fn create_render_pass_with_color_and_depth(
@@ -736,7 +739,8 @@ impl Tracer {
         max_phi_z: f32,
         phi_z_stable_sample_count: f32,
         is_changing_lum_phi: bool,
-        is_spatial_denoising_skipped: bool,
+        is_spatial_denoising_enabled: bool,
+        a_trous_iteration_count: u32,
         is_taa_enabled: bool,
         god_ray_max_depth: f32,
         god_ray_max_checks: u32,
@@ -876,8 +880,11 @@ impl Tracer {
             max_phi_z,
             phi_z_stable_sample_count,
             is_changing_lum_phi,
-            is_spatial_denoising_skipped,
+            is_spatial_denoising_enabled,
         )?;
+
+        // Update the a_trous_iteration_count field
+        self.a_trous_iteration_count = a_trous_iteration_count;
 
         self.camera_view_mat_prev_frame = self.camera.get_view_mat();
         self.camera_proj_mat_prev_frame = self.camera.get_proj_mat();
@@ -896,7 +903,7 @@ impl Tracer {
             max_phi_z: f32,
             phi_z_stable_sample_count: f32,
             is_changing_lum_phi: bool,
-            is_spatial_denoising_skipped: bool,
+            is_spatial_denoising_enabled: bool,
         ) -> Result<()> {
             update_temporal_info(temporal_info, temporal_position_phi, temporal_alpha)?;
             update_spatial_info(
@@ -908,7 +915,7 @@ impl Tracer {
                 max_phi_z,
                 phi_z_stable_sample_count,
                 is_changing_lum_phi,
-                is_spatial_denoising_skipped,
+                is_spatial_denoising_enabled,
             )?;
             return Ok(());
 
@@ -940,7 +947,7 @@ impl Tracer {
                 max_phi_z: f32,
                 phi_z_stable_sample_count: f32,
                 is_changing_lum_phi: bool,
-                is_spatial_denoising_skipped: bool,
+                is_spatial_denoising_enabled: bool,
             ) -> Result<()> {
                 let data = StructMemberDataBuilder::from_buffer(spatial_info)
                     .set_field("phi_c", PlainMemberTypeWithData::Float(phi_c))
@@ -957,8 +964,8 @@ impl Tracer {
                         PlainMemberTypeWithData::UInt(is_changing_lum_phi as u32),
                     )
                     .set_field(
-                        "is_spatial_denoising_skipped",
-                        PlainMemberTypeWithData::UInt(is_spatial_denoising_skipped as u32),
+                        "is_spatial_denoising_enabled",
+                        PlainMemberTypeWithData::UInt(is_spatial_denoising_enabled as u32),
                     )
                     .build()?;
                 spatial_info.fill_with_raw_u8(&data)?;
@@ -1335,7 +1342,7 @@ impl Tracer {
         self.record_god_ray_pass(cmdbuf);
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
-        self.record_denoiser_pass(&cmdbuf);
+        self.record_denoiser_pass(&cmdbuf, self.a_trous_iteration_count)?;
 
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         self.record_composition_pass(cmdbuf);
@@ -1889,7 +1896,11 @@ impl Tracer {
         );
     }
 
-    fn record_denoiser_pass(&self, cmdbuf: &CommandBuffer) {
+    fn record_denoiser_pass(&self, cmdbuf: &CommandBuffer, a_trous_iteration_count: u32) -> anyhow::Result<()> {
+        // Validate iteration count - only 1, 3, or 5 are allowed
+        if a_trous_iteration_count != 1 && a_trous_iteration_count != 3 && a_trous_iteration_count != 5 {
+            return Err(anyhow::anyhow!("A-Trous iteration count must be 1, 3, or 5, got: {}", a_trous_iteration_count));
+        }
         let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
         let compute_to_compute_barrier = PipelineBarrier::new(
             vk::PipelineStageFlags::COMPUTE_SHADER,
@@ -1907,8 +1918,7 @@ impl Tracer {
 
         self.temporal_ppl.record(cmdbuf, extent, None);
 
-        const A_TROUS_ITERATION_COUNT: u32 = 3;
-        for i in 0..A_TROUS_ITERATION_COUNT {
+        for i in 0..a_trous_iteration_count {
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             self.spatial_ppl.record(
                 cmdbuf,
@@ -1921,6 +1931,8 @@ impl Tracer {
                 Some(&i.to_ne_bytes()),
             );
         }
+        
+        Ok(())
     }
 
     fn record_composition_pass(&self, cmdbuf: &CommandBuffer) {

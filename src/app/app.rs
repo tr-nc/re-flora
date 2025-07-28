@@ -210,7 +210,8 @@ pub struct App {
     max_phi_z: f32,
     phi_z_stable_sample_count: f32,
     is_changing_lum_phi: bool,
-    is_spatial_denoising_skipped: bool,
+    is_spatial_denoising_enabled: bool,
+    a_trous_iteration_count: u32,
     is_taa_enabled: bool,
     tree_pos: Vec3,
     config_panel_visible: bool,
@@ -419,7 +420,8 @@ impl App {
             max_phi_z: 0.5,
             phi_z_stable_sample_count: 0.05,
             is_changing_lum_phi: true,
-            is_spatial_denoising_skipped: false,
+            is_spatial_denoising_enabled: true,
+            a_trous_iteration_count: 3,
             is_taa_enabled: false,
             sun_altitude: 0.25,
             sun_azimuth: 0.8,
@@ -462,7 +464,7 @@ impl App {
             leaf_tip_color: egui::Color32::from_rgb(255, 229, 245),
 
             voxel_sand_color: egui::Color32::from_rgb(245, 222, 179),
-            voxel_dirt_color: egui::Color32::from_rgb(88, 184, 63),
+            voxel_dirt_color: egui::Color32::from_rgb(68, 192, 0),
             voxel_rock_color: egui::Color32::from_rgb(235, 92, 0),
             voxel_leaf_color: egui::Color32::from_rgb(242, 199, 36),
             voxel_trunk_color: egui::Color32::from_rgb(215, 194, 168),
@@ -1617,9 +1619,20 @@ impl App {
                                                 "Changing Luminance Phi",
                                             ));
                                             ui.add(egui::Checkbox::new(
-                                                &mut self.is_spatial_denoising_skipped,
-                                                "Skip Spatial Denoising",
+                                                &mut self.is_spatial_denoising_enabled,
+                                                "Enable Spatial Denoising",
                                             ));
+                                            ui.horizontal(|ui| {
+                                                ui.label("A-Trous Iterations:");
+                                                let mut iteration_value = self.a_trous_iteration_count as i32;
+                                                if ui.add(egui::Slider::new(&mut iteration_value, 1..=5).step_by(2.0)).changed() {
+                                                    // Ensure only odd values (1, 3, 5)
+                                                    if iteration_value % 2 == 0 {
+                                                        iteration_value += 1;
+                                                    }
+                                                    self.a_trous_iteration_count = iteration_value as u32;
+                                                }
+                                            });
                                         });
 
                                         ui.collapsing("Anti-Aliasing", |ui| {
@@ -1814,7 +1827,8 @@ impl App {
                         self.max_phi_z,
                         self.phi_z_stable_sample_count,
                         self.is_changing_lum_phi,
-                        self.is_spatial_denoising_skipped,
+                        self.is_spatial_denoising_enabled,
+                        self.a_trous_iteration_count,
                         self.is_taa_enabled,
                         self.god_ray_max_depth,
                         self.god_ray_max_checks,
