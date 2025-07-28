@@ -249,8 +249,8 @@ pub struct App {
     lavender_tip_color: egui::Color32,
 
     // leaf colors
-    leaf_bottom_color: egui::Color32,
-    leaf_tip_color: egui::Color32,
+    leaves_bottom_color: egui::Color32,
+    leaves_tip_color: egui::Color32,
 
     // voxel colors
     voxel_sand_color: egui::Color32,
@@ -435,7 +435,7 @@ impl App {
             day_cycle_minutes: 30.0,
             sun_color: egui::Color32::from_rgb(255, 233, 144),
             sun_luminance: 1.0,
-            ambient_light: egui::Color32::from_rgb(35, 35, 35),
+            ambient_light: egui::Color32::from_rgb(100, 48, 3),
             tree_pos: Vec3::new(512.0, 0.0, 512.0),
             tree_desc: TreeDesc::default(),
             tree_variation_config: TreeVariationConfig::default(),
@@ -460,10 +460,10 @@ impl App {
             grass_tip_color: egui::Color32::from_rgb(182, 245, 0),
 
             lavender_bottom_color: egui::Color32::from_rgb(109, 197, 115),
-            lavender_tip_color: egui::Color32::from_rgb(169, 40, 141),
+            lavender_tip_color: egui::Color32::from_rgb(240, 244, 0),
 
-            leaf_bottom_color: egui::Color32::from_rgb(246, 184, 255),
-            leaf_tip_color: egui::Color32::from_rgb(255, 229, 245),
+            leaves_bottom_color: egui::Color32::from_rgb(232, 142, 0),
+            leaves_tip_color: egui::Color32::from_rgb(255, 219, 71),
 
             voxel_sand_color: egui::Color32::from_rgb(245, 222, 179),
             voxel_dirt_color: egui::Color32::from_rgb(68, 192, 0),
@@ -1199,78 +1199,6 @@ impl App {
                                             ));
                                         });
 
-                                        ui.collapsing("Leaf Settings", |ui| {
-                                            let mut leaves_changed = false;
-                                            leaves_changed |= ui
-                                                .add(
-                                                    egui::Slider::new(
-                                                        &mut self.leaves_inner_density,
-                                                        0.0..=1.0,
-                                                    )
-                                                    .text("Inner Density"),
-                                                )
-                                                .changed();
-                                            leaves_changed |= ui
-                                                .add(
-                                                    egui::Slider::new(
-                                                        &mut self.leaves_outer_density,
-                                                        0.0..=1.0,
-                                                    )
-                                                    .text("Outer Density"),
-                                                )
-                                                .changed();
-                                            leaves_changed |= ui
-                                                .add(
-                                                    egui::Slider::new(
-                                                        &mut self.leaves_inner_radius,
-                                                        1.0..=64.0,
-                                                    )
-                                                    .text("Inner Radius"),
-                                                )
-                                                .changed();
-                                            leaves_changed |= ui
-                                                .add(
-                                                    egui::Slider::new(
-                                                        &mut self.leaves_outer_radius,
-                                                        1.0..=64.0,
-                                                    )
-                                                    .text("Outer Radius"),
-                                                )
-                                                .changed();
-
-                                            if leaves_changed {
-// ensure inner_radius is always <= outer_radius
-                                                if self.leaves_inner_radius > self.leaves_outer_radius {
-                                                    self.leaves_outer_radius = self.leaves_inner_radius;
-                                                }
-
-                                                if let Err(e) = self.tracer.regenerate_leaves(
-                                                    self.leaves_inner_density,
-                                                    self.leaves_outer_density,
-                                                    self.leaves_inner_radius,
-                                                    self.leaves_outer_radius,
-                                                ) {
-                                                    log::error!(
-                                                        "Failed to regenerate leaves: {}",
-                                                        e
-                                                    );
-                                                }
-                                            }
-
-                                            ui.separator();
-                                            ui.horizontal(|ui| {
-                                                ui.label("Bottom Color:");
-                                                ui.color_edit_button_srgba(
-                                                    &mut self.leaf_bottom_color,
-                                                );
-                                            });
-                                            ui.horizontal(|ui| {
-                                                ui.label("Tip Color:");
-                                                ui.color_edit_button_srgba(
-                                                    &mut self.leaf_tip_color,
-                                                );
-                                            });
-                                        });
 
                                         ui.collapsing("Sky Settings", |ui| {
                                             ui.add(egui::Checkbox::new(
@@ -1678,6 +1606,80 @@ impl App {
                                             });
                                         });
 
+                                        
+                                        ui.collapsing("Leaves Settings", |ui| {
+                                            let mut leaves_changed = false;
+                                            leaves_changed |= ui
+                                                .add(
+                                                    egui::Slider::new(
+                                                        &mut self.leaves_inner_density,
+                                                        0.0..=1.0,
+                                                    )
+                                                    .text("Inner Density"),
+                                                )
+                                                .changed();
+                                            leaves_changed |= ui
+                                                .add(
+                                                    egui::Slider::new(
+                                                        &mut self.leaves_outer_density,
+                                                        0.0..=1.0,
+                                                    )
+                                                    .text("Outer Density"),
+                                                )
+                                                .changed();
+                                            leaves_changed |= ui
+                                                .add(
+                                                    egui::Slider::new(
+                                                        &mut self.leaves_inner_radius,
+                                                        1.0..=64.0,
+                                                    )
+                                                    .text("Inner Radius"),
+                                                )
+                                                .changed();
+                                            leaves_changed |= ui
+                                                .add(
+                                                    egui::Slider::new(
+                                                        &mut self.leaves_outer_radius,
+                                                        1.0..=64.0,
+                                                    )
+                                                    .text("Outer Radius"),
+                                                )
+                                                .changed();
+
+                                            if leaves_changed {
+                                                // ensure inner_radius is always <= outer_radius
+                                                if self.leaves_inner_radius > self.leaves_outer_radius {
+                                                    self.leaves_outer_radius = self.leaves_inner_radius;
+                                                }
+
+                                                if let Err(e) = self.tracer.regenerate_leaves(
+                                                    self.leaves_inner_density,
+                                                    self.leaves_outer_density,
+                                                    self.leaves_inner_radius,
+                                                    self.leaves_outer_radius,
+                                                ) {
+                                                    log::error!(
+                                                        "Failed to regenerate leaves: {}",
+                                                        e
+                                                    );
+                                                }
+                                            }
+
+                                            ui.separator();
+                                            ui.horizontal(|ui| {
+                                                ui.label("Bottom Color:");
+                                                ui.color_edit_button_srgba(
+                                                    &mut self.leaves_bottom_color,
+                                                );
+                                            });
+                                            ui.horizontal(|ui| {
+                                                ui.label("Tip Color:");
+                                                ui.color_edit_button_srgba(
+                                                    &mut self.leaves_tip_color,
+                                                );
+                                            });
+                                        });
+
                                         ui.collapsing("Voxel Colors", |ui| {
                                             ui.horizontal(|ui| {
                                                 ui.label("Sand Color:");
@@ -1910,14 +1912,14 @@ impl App {
                             self.lavender_tip_color.b() as f32 / 255.0,
                         ),
                         Vec3::new(
-                            self.leaf_bottom_color.r() as f32 / 255.0,
-                            self.leaf_bottom_color.g() as f32 / 255.0,
-                            self.leaf_bottom_color.b() as f32 / 255.0,
+                            self.leaves_bottom_color.r() as f32 / 255.0,
+                            self.leaves_bottom_color.g() as f32 / 255.0,
+                            self.leaves_bottom_color.b() as f32 / 255.0,
                         ),
                         Vec3::new(
-                            self.leaf_tip_color.r() as f32 / 255.0,
-                            self.leaf_tip_color.g() as f32 / 255.0,
-                            self.leaf_tip_color.b() as f32 / 255.0,
+                            self.leaves_tip_color.r() as f32 / 255.0,
+                            self.leaves_tip_color.g() as f32 / 255.0,
+                            self.leaves_tip_color.b() as f32 / 255.0,
                         ),
                     )
                     .unwrap();
