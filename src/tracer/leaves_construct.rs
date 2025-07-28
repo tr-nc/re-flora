@@ -18,6 +18,7 @@ pub fn generate_indexed_voxel_leaves(
     outer_density: f32,
     inner_radius: f32,
     outer_radius: f32,
+    is_lod_used: bool,
 ) -> Result<(Vec<Vertex>, Vec<u32>)> {
     if outer_radius > 128.0 {
         return Err(anyhow::anyhow!(
@@ -91,6 +92,7 @@ pub fn generate_indexed_voxel_leaves(
                         vertex_offset,
                         color_gradient,
                         wind_gradient,
+                        is_lod_used,
                     )?;
                 }
             }

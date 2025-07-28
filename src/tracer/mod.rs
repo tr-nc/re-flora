@@ -81,6 +81,7 @@ pub struct Tracer {
 
     flora_ppl_with_clear: GraphicsPipeline,
     flora_ppl_with_load: GraphicsPipeline,
+    flora_lod_ppl_with_clear: GraphicsPipeline,
     leaves_ppl_with_load: GraphicsPipeline,
     leaves_shadow_ppl_with_clear: GraphicsPipeline,
 
@@ -90,7 +91,7 @@ pub struct Tracer {
 
     #[allow(dead_code)]
     pool: DescriptorPool,
-    
+
     a_trous_iteration_count: u32,
 }
 
@@ -244,6 +245,21 @@ impl Tracer {
         )
         .unwrap();
 
+        let flora_lod_vert_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            shader_compiler,
+            "shader/foliage/flora_lod.vert",
+            "main",
+        )
+        .unwrap();
+        let flora_lod_frag_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            shader_compiler,
+            "shader/foliage/flora_lod.frag",
+            "main",
+        )
+        .unwrap();
+
         let leaves_vert_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             shader_compiler,
@@ -363,6 +379,15 @@ impl Tracer {
             &pool,
             &[&resources],
         );
+        let flora_lod_ppl_with_clear = create_gfx_pipeline(
+            &vulkan_ctx,
+            &flora_lod_vert_sm,
+            &flora_lod_frag_sm,
+            &clear_render_pass_color_and_depth,
+            Some(1),
+            &pool,
+            &[&resources],
+        );
 
         let leaves_ppl_with_load = create_gfx_pipeline(
             &vulkan_ctx,
@@ -443,6 +468,7 @@ impl Tracer {
 
             flora_ppl_with_clear,
             flora_ppl_with_load,
+            flora_lod_ppl_with_clear,
             leaves_ppl_with_load,
             leaves_shadow_ppl_with_clear,
 
@@ -1320,7 +1346,8 @@ impl Tracer {
 
         let chunks_needs_to_draw_this_frame =
             self.chunks_needs_to_draw_this_frame(surface_resources);
-        self.record_grass_pass(cmdbuf, &chunks_needs_to_draw_this_frame);
+        // self.record_grass_pass(cmdbuf, &chunks_needs_to_draw_this_frame);
+        self.record_flora_lod_pass(cmdbuf, &chunks_needs_to_draw_this_frame);
         frag_to_vert_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         self.record_lavender_pass(cmdbuf, &chunks_needs_to_draw_this_frame);
         frag_to_vert_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
@@ -1516,7 +1543,6 @@ impl Tracer {
             .set_layout(0, desc.attachments[1].final_layout);
     }
 
-    // TODO: merge with grass pass
     fn record_lavender_pass(
         &self,
         cmdbuf: &CommandBuffer,
@@ -1609,6 +1635,110 @@ impl Tracer {
         self.load_render_target_color_and_depth.record_end(cmdbuf);
 
         let desc = self.load_render_target_color_and_depth.get_desc();
+        self.resources
+            .extent_dependent_resources
+            .gfx_output_tex
+            .get_image()
+            .set_layout(0, desc.attachments[0].final_layout);
+        self.resources
+            .extent_dependent_resources
+            .gfx_depth_tex
+            .get_image()
+            .set_layout(0, desc.attachments[1].final_layout);
+    }
+
+    fn record_flora_lod_pass(
+        &self,
+        cmdbuf: &CommandBuffer,
+        chunks_needs_to_draw_this_frame: &[(Aabb3, &FloraInstanceResources)],
+    ) {
+        self.flora_lod_ppl_with_clear.write_descriptor_set(
+            0,
+            WriteDescriptorSet::new_buffer_write(5, &self.resources.grass_info),
+        );
+
+        self.flora_lod_ppl_with_clear.record_bind(cmdbuf);
+
+        let clear_values = [
+            vk::ClearValue {
+                color: vk::ClearColorValue {
+                    float32: [0.0, 0.0, 0.0, 1.0],
+                },
+            },
+            vk::ClearValue {
+                depth_stencil: vk::ClearDepthStencilValue {
+                    depth: 1.0,
+                    stencil: 0,
+                },
+            },
+        ];
+
+        self.clear_render_target_color_and_depth
+            .record_begin(cmdbuf, &clear_values);
+
+        let render_extent = self
+            .resources
+            .extent_dependent_resources
+            .gfx_output_tex
+            .get_image()
+            .get_desc()
+            .extent;
+        let viewport = Viewport::from_extent(render_extent.as_extent_2d().unwrap());
+        let scissor = vk::Rect2D {
+            offset: vk::Offset2D { x: 0, y: 0 },
+            extent: vk::Extent2D {
+                width: render_extent.width,
+                height: render_extent.height,
+            },
+        };
+
+        self.flora_lod_ppl_with_clear
+            .record_viewport_scissor(cmdbuf, viewport, scissor);
+
+        unsafe {
+            self.vulkan_ctx.device().cmd_bind_index_buffer(
+                cmdbuf.as_raw(),
+                self.resources.grass_blade_resources_lod.indices.as_raw(),
+                0,
+                vk::IndexType::UINT32,
+            );
+        }
+
+        for (_aabb, instances) in chunks_needs_to_draw_this_frame {
+            // only draw if this chunk actually has lavender instances.
+            if instances.get(FloraType::Grass).instances_len == 0 {
+                continue;
+            }
+
+            // bind the vertex buffers for this specific chunk.
+            // binding point 0: common lavender vertices.
+            // binding point 1: per-chunk, per-instance data.
+            unsafe {
+                self.vulkan_ctx.device().cmd_bind_vertex_buffers(
+                    cmdbuf.as_raw(),
+                    0, // firstBinding
+                    &[
+                        self.resources.grass_blade_resources_lod.vertices.as_raw(),
+                        instances.get(FloraType::Grass).instances_buf.as_raw(),
+                    ],
+                    &[0, 0], // offsets
+                );
+            }
+
+            // issue the draw call for the current chunk.
+            // no barriers are needed here.
+            self.flora_lod_ppl_with_clear.record_indexed(
+                cmdbuf,
+                self.resources.grass_blade_resources_lod.indices_len,
+                instances.get(FloraType::Grass).instances_len,
+                0, // firstIndex
+                0, // vertexOffset
+                0, // firstInstance
+            );
+        }
+        self.clear_render_target_color_and_depth.record_end(cmdbuf);
+
+        let desc = self.clear_render_target_color_and_depth.get_desc();
         self.resources
             .extent_dependent_resources
             .gfx_output_tex
@@ -1896,10 +2026,20 @@ impl Tracer {
         );
     }
 
-    fn record_denoiser_pass(&self, cmdbuf: &CommandBuffer, a_trous_iteration_count: u32) -> anyhow::Result<()> {
+    fn record_denoiser_pass(
+        &self,
+        cmdbuf: &CommandBuffer,
+        a_trous_iteration_count: u32,
+    ) -> anyhow::Result<()> {
         // Validate iteration count - only 1, 3, or 5 are allowed
-        if a_trous_iteration_count != 1 && a_trous_iteration_count != 3 && a_trous_iteration_count != 5 {
-            return Err(anyhow::anyhow!("A-Trous iteration count must be 1, 3, or 5, got: {}", a_trous_iteration_count));
+        if a_trous_iteration_count != 1
+            && a_trous_iteration_count != 3
+            && a_trous_iteration_count != 5
+        {
+            return Err(anyhow::anyhow!(
+                "A-Trous iteration count must be 1, 3, or 5, got: {}",
+                a_trous_iteration_count
+            ));
         }
         let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
         let compute_to_compute_barrier = PipelineBarrier::new(
@@ -1931,7 +2071,7 @@ impl Tracer {
                 Some(&i.to_ne_bytes()),
             );
         }
-        
+
         Ok(())
     }
 
@@ -2181,12 +2321,7 @@ impl Tracer {
         inner_radius: f32,
         outer_radius: f32,
     ) -> Result<()> {
-        // regenerate leaves resources with new density parameters
         let device = self.vulkan_ctx.device();
-
-        // create new leaves resources with the provided parameters
-        // note: we create new leaves resources with default params, then immediately overwrite
-        // this approach maintains the same API while using the constructor's defaults
         self.resources.leaves_resources = LeavesResources::new_with_params(
             device.clone(),
             self.allocator.clone(),
@@ -2194,14 +2329,17 @@ impl Tracer {
             outer_density,
             inner_radius,
             outer_radius,
+            false,
         );
 
-        log::info!(
-            "Regenerated leaves with inner_density: {}, outer_density: {}, inner_radius: {}, outer_radius: {}",
+        self.resources.leaves_resources_lod = LeavesResources::new_with_params(
+            device.clone(),
+            self.allocator.clone(),
             inner_density,
             outer_density,
             inner_radius,
-            outer_radius
+            outer_radius,
+            true,
         );
         Ok(())
     }

@@ -2,7 +2,7 @@ use anyhow::Result;
 use glam::{IVec3, UVec3};
 
 use crate::tracer::{
-    voxel_geometry::{CUBE_INDICES, VOXEL_VERTICES},
+    voxel_geometry::{CUBE_INDICES, CUBE_INDICES_LOD, VOXEL_VERTICES, VOXEL_VERTICES_LOD},
     Vertex,
 };
 
@@ -85,6 +85,7 @@ pub fn append_indexed_cube_data(
     vertex_offset: u32,
     color_gradient: f32,
     wind_gradient: f32,
+    is_lod_used: bool,
 ) -> Result<()> {
     const LOWER_BOUND: i32 = -(1 << (BIT_PER_POS - 1));
     const UPPER_BOUND: i32 = (1 << (BIT_PER_POS - 1)) - 1;
@@ -101,14 +102,23 @@ pub fn append_indexed_cube_data(
     let encoded_pos = encode_pos(pos)?;
     let encoded_gradient = encode_gradients(color_gradient, wind_gradient)?;
 
-    for voxel_vert in VOXEL_VERTICES {
+    let voxel_verts: Vec<UVec3> = if is_lod_used {
+        VOXEL_VERTICES_LOD.to_vec()
+    } else {
+        VOXEL_VERTICES.to_vec()
+    };
+    let base_indices = if is_lod_used {
+        CUBE_INDICES_LOD.to_vec()
+    } else {
+        CUBE_INDICES.to_vec()
+    };
+
+    for voxel_vert in voxel_verts {
         let encoded_offset = encode_voxel_offset(voxel_vert)?;
         let packed_data = make_value_from_parts(encoded_pos, encoded_offset, encoded_gradient);
         vertices.push(Vertex { packed_data });
     }
-    let base_indices = &CUBE_INDICES;
-
-    for &index in base_indices {
+    for index in base_indices {
         indices.push(vertex_offset + index);
     }
 

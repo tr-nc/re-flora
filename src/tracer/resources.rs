@@ -22,8 +22,8 @@ pub struct GrassBladeResources {
 }
 
 impl GrassBladeResources {
-    pub fn new(device: Device, allocator: Allocator) -> Self {
-        let (vertices_data, indices_data) = gen_grass().unwrap();
+    pub fn new(device: Device, allocator: Allocator, is_lod_used: bool) -> Self {
+        let (vertices_data, indices_data) = gen_grass(is_lod_used).unwrap();
         let indices_len = indices_data.len() as u32;
 
         let vertices = Buffer::new_sized(
@@ -60,8 +60,8 @@ pub struct LavenderResources {
 }
 
 impl LavenderResources {
-    pub fn new(device: Device, allocator: Allocator) -> Self {
-        let (vertices_data, indices_data) = gen_lavender().unwrap();
+    pub fn new(device: Device, allocator: Allocator, is_lod_used: bool) -> Self {
+        let (vertices_data, indices_data) = gen_lavender(is_lod_used).unwrap();
         let indices_len = indices_data.len() as u32;
 
         let vertices = Buffer::new_sized(
@@ -98,9 +98,9 @@ pub struct LeavesResources {
 }
 
 impl LeavesResources {
-    pub fn new(device: Device, allocator: Allocator) -> Self {
+    pub fn new(device: Device, allocator: Allocator, is_lod_used: bool) -> Self {
         // use default parameters for initial leaf generation
-        Self::new_with_params(device, allocator, 0.5, 0.25, 8.0, 16.0)
+        Self::new_with_params(device, allocator, 0.5, 0.25, 8.0, 16.0, is_lod_used)
     }
 
     pub fn new_with_params(
@@ -110,11 +110,17 @@ impl LeavesResources {
         outer_density: f32,
         inner_radius: f32,
         outer_radius: f32,
+        is_lod_used: bool,
     ) -> Self {
         // 1. Generate the indexed data for hollow sphere-shaped leaves.
-        let (mut vertices_data, mut indices_data) =
-            generate_indexed_voxel_leaves(inner_density, outer_density, inner_radius, outer_radius)
-                .unwrap();
+        let (mut vertices_data, mut indices_data) = generate_indexed_voxel_leaves(
+            inner_density,
+            outer_density,
+            inner_radius,
+            outer_radius,
+            is_lod_used,
+        )
+        .unwrap();
 
         // guard against empty data - create minimal buffers to avoid Vulkan validation errors
         if vertices_data.is_empty() {
@@ -184,6 +190,10 @@ pub struct TracerResources {
     pub grass_blade_resources: GrassBladeResources,
     pub lavender_resources: LavenderResources,
     pub leaves_resources: LeavesResources,
+
+    pub grass_blade_resources_lod: GrassBladeResources,
+    pub lavender_resources_lod: LavenderResources,
+    pub leaves_resources_lod: LeavesResources,
 
     pub shadow_map_tex: Resource<Texture>,
     pub shadow_map_tex_for_vsm_ping: Resource<Texture>,
@@ -479,9 +489,15 @@ impl TracerResources {
             "fast/weighted_cosine/out_",
         );
 
-        let grass_blade_resources = GrassBladeResources::new(device.clone(), allocator.clone());
-        let lavender_resources = LavenderResources::new(device.clone(), allocator.clone());
-        let leaves_resources = LeavesResources::new(device.clone(), allocator.clone());
+        let grass_blade_resources =
+            GrassBladeResources::new(device.clone(), allocator.clone(), false);
+        let lavender_resources = LavenderResources::new(device.clone(), allocator.clone(), false);
+        let leaves_resources = LeavesResources::new(device.clone(), allocator.clone(), false);
+        let grass_blade_resources_lod =
+            GrassBladeResources::new(device.clone(), allocator.clone(), true);
+        let lavender_resources_lod =
+            LavenderResources::new(device.clone(), allocator.clone(), true);
+        let leaves_resources_lod = LeavesResources::new(device.clone(), allocator.clone(), true);
 
         return Self {
             gui_input: Resource::new(gui_input),
@@ -507,6 +523,9 @@ impl TracerResources {
             grass_blade_resources,
             lavender_resources,
             leaves_resources,
+            grass_blade_resources_lod,
+            lavender_resources_lod,
+            leaves_resources_lod,
             extent_dependent_resources,
             shadow_map_tex: Resource::new(shadow_map_tex),
             shadow_map_tex_for_vsm_ping: Resource::new(shadow_map_tex_for_vsm_ping),

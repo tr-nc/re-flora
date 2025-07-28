@@ -3,7 +3,7 @@ use crate::tracer::Vertex;
 use anyhow::Result;
 use glam::IVec3;
 
-pub fn gen_grass() -> Result<(Vec<Vertex>, Vec<u32>)> {
+pub fn gen_grass(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
     const VOXEL_COUNT: u32 = 8;
 
     let mut vertices = Vec::new();
@@ -27,13 +27,14 @@ pub fn gen_grass() -> Result<(Vec<Vertex>, Vec<u32>)> {
             vertex_offset,
             gradient,
             gradient,
+            is_lod_used,
         )?;
     }
 
     Ok((vertices, indices))
 }
 
-pub fn gen_lavender() -> Result<(Vec<Vertex>, Vec<u32>)> {
+pub fn gen_lavender(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
     const STEM_VOXEL_COUNT: u32 = 8;
     const LEAF_BALL_RADIUS: f32 = 2.0;
     const LEAF_BALL_BOUNDARY: i32 = LEAF_BALL_RADIUS as i32;
@@ -61,6 +62,7 @@ pub fn gen_lavender() -> Result<(Vec<Vertex>, Vec<u32>)> {
             vertex_offset,
             color_gradient,
             wind_gradient,
+            is_lod_used,
         )?;
     }
 
@@ -84,6 +86,7 @@ pub fn gen_lavender() -> Result<(Vec<Vertex>, Vec<u32>)> {
                     vertex_offset,
                     COLOR_GRADIENT,
                     wind_gradient,
+                    is_lod_used,
                 )?;
             }
         }

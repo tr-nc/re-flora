@@ -23,3 +23,12 @@ pub const CUBE_INDICES: [u32; 36] = [
     0, 3, 7, 0, 7, 4, // Left face (-X)
     1, 6, 2, 1, 5, 6, // Right face (+X)
 ];
+
+pub const VOXEL_VERTICES_LOD: [UVec3; 4] = [
+    UVec3::new(0, 0, 0),
+    UVec3::new(1, 0, 0),
+    UVec3::new(1, 1, 0),
+    UVec3::new(0, 1, 0),
+];
+
+pub const CUBE_INDICES_LOD: [u32; 6] = [0, 1, 3, 1, 2, 3];
