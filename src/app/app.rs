@@ -1856,36 +1856,6 @@ impl App {
                         self.starlight_distfading,
                         self.starlight_saturation,
                         Vec3::new(
-                            self.grass_bottom_color.r() as f32 / 255.0,
-                            self.grass_bottom_color.g() as f32 / 255.0,
-                            self.grass_bottom_color.b() as f32 / 255.0,
-                        ),
-                        Vec3::new(
-                            self.grass_tip_color.r() as f32 / 255.0,
-                            self.grass_tip_color.g() as f32 / 255.0,
-                            self.grass_tip_color.b() as f32 / 255.0,
-                        ),
-                        Vec3::new(
-                            self.lavender_bottom_color.r() as f32 / 255.0,
-                            self.lavender_bottom_color.g() as f32 / 255.0,
-                            self.lavender_bottom_color.b() as f32 / 255.0,
-                        ),
-                        Vec3::new(
-                            self.lavender_tip_color.r() as f32 / 255.0,
-                            self.lavender_tip_color.g() as f32 / 255.0,
-                            self.lavender_tip_color.b() as f32 / 255.0,
-                        ),
-                        Vec3::new(
-                            self.leaf_bottom_color.r() as f32 / 255.0,
-                            self.leaf_bottom_color.g() as f32 / 255.0,
-                            self.leaf_bottom_color.b() as f32 / 255.0,
-                        ),
-                        Vec3::new(
-                            self.leaf_tip_color.r() as f32 / 255.0,
-                            self.leaf_tip_color.g() as f32 / 255.0,
-                            self.leaf_tip_color.b() as f32 / 255.0,
-                        ),
-                        Vec3::new(
                             self.voxel_sand_color.r() as f32 / 255.0,
                             self.voxel_sand_color.g() as f32 / 255.0,
                             self.voxel_sand_color.b() as f32 / 255.0,
@@ -1918,6 +1888,37 @@ impl App {
                         cmdbuf,
                         &self.surface_builder.get_resources(),
                         self.lod_distance,
+                        self.time_info.time_since_start(),
+                        Vec3::new(
+                            self.grass_bottom_color.r() as f32 / 255.0,
+                            self.grass_bottom_color.g() as f32 / 255.0,
+                            self.grass_bottom_color.b() as f32 / 255.0,
+                        ),
+                        Vec3::new(
+                            self.grass_tip_color.r() as f32 / 255.0,
+                            self.grass_tip_color.g() as f32 / 255.0,
+                            self.grass_tip_color.b() as f32 / 255.0,
+                        ),
+                        Vec3::new(
+                            self.lavender_bottom_color.r() as f32 / 255.0,
+                            self.lavender_bottom_color.g() as f32 / 255.0,
+                            self.lavender_bottom_color.b() as f32 / 255.0,
+                        ),
+                        Vec3::new(
+                            self.lavender_tip_color.r() as f32 / 255.0,
+                            self.lavender_tip_color.g() as f32 / 255.0,
+                            self.lavender_tip_color.b() as f32 / 255.0,
+                        ),
+                        Vec3::new(
+                            self.leaf_bottom_color.r() as f32 / 255.0,
+                            self.leaf_bottom_color.g() as f32 / 255.0,
+                            self.leaf_bottom_color.b() as f32 / 255.0,
+                        ),
+                        Vec3::new(
+                            self.leaf_tip_color.r() as f32 / 255.0,
+                            self.leaf_tip_color.g() as f32 / 255.0,
+                            self.leaf_tip_color.b() as f32 / 255.0,
+                        ),
                     )
                     .unwrap();
 

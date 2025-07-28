@@ -4,6 +4,13 @@
 
 #include "../include/core/packer.glsl"
 
+layout(push_constant) uniform PC {
+    float time;
+    vec3 bottom_color;
+    vec3 tip_color;
+}
+pc;
+
 // these are vertex-rate attributes
 layout(location = 0) in uint in_packed_data;
 
@@ -44,13 +51,6 @@ layout(set = 0, binding = 3) uniform U_CameraInfo {
 }
 camera_info;
 
-layout(set = 0, binding = 4) uniform U_LeavesInfo {
-    float time;
-    vec3 bottom_color;
-    vec3 tip_color;
-}
-leaves_info;
-
 #include "../include/core/color.glsl"
 #include "../include/core/fast_noise_lite.glsl"
 #include "../include/core/hash.glsl"
@@ -80,8 +80,7 @@ void main() {
 
     vec3 instance_pos = in_instance_position * scaling_factor;
 
-    // TODO: make 5.0 configurable inside leaves_info
-    vec3 wind_offset = get_wind_offset(instance_pos.xz, wind_gradient, leaves_info.time);
+    vec3 wind_offset = get_wind_offset(instance_pos.xz, wind_gradient, pc.time);
     vec3 anchor_pos  = (vox_local_pos + wind_offset) * scaling_factor + instance_pos;
     vec3 voxel_pos   = anchor_pos + vec3(0.5) * scaling_factor;
     vec3 vert_pos = get_vert_pos_with_billboard(camera_info.view_mat, voxel_pos, vert_offset_in_vox,
@@ -93,8 +92,8 @@ void main() {
     gl_Position = camera_info.view_proj_mat * vec4(vert_pos, 1.0);
 
     // interpolate color based on color gradient
-    vec3 interpolated_color = mix(srgb_to_linear(leaves_info.bottom_color),
-                                  srgb_to_linear(leaves_info.tip_color), color_gradient);
+    vec3 interpolated_color =
+        mix(srgb_to_linear(pc.bottom_color), srgb_to_linear(pc.tip_color), color_gradient);
 
     vec3 sun_light = sun_info.sun_color * sun_info.sun_luminance;
     vert_color     = interpolated_color * (sun_light * shadow_weight + shading_info.ambient_light);

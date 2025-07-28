@@ -4,6 +4,13 @@
 
 #include "../include/core/packer.glsl"
 
+layout(push_constant) uniform PC {
+    float time;
+    vec3 bottom_color;
+    vec3 tip_color;
+}
+pc;
+
 // these are vertex-rate attributes
 layout(location = 0) in uint in_packed_data;
 
@@ -55,14 +62,7 @@ layout(set = 0, binding = 4) uniform U_ShadowCameraInfo {
 }
 shadow_camera_info;
 
-layout(set = 0, binding = 5) uniform U_ManualTypeSpecificInfo {
-    float time;
-    vec3 bottom_color;
-    vec3 tip_color;
-}
-manual_type_specific_info;
-
-layout(set = 0, binding = 6) uniform sampler2D shadow_map_tex_for_vsm_ping;
+layout(set = 0, binding = 5) uniform sampler2D shadow_map_tex_for_vsm_ping;
 
 #include "../include/core/color.glsl"
 #include "../include/core/fast_noise_lite.glsl"
@@ -84,10 +84,9 @@ void main() {
 
     vec3 instance_pos = in_instance_pos * scaling_factor;
 
-    vec3 wind_offset =
-        get_wind_offset(instance_pos.xz, wind_gradient, manual_type_specific_info.time);
-    vec3 anchor_pos = (vox_local_pos + wind_offset) * scaling_factor + instance_pos;
-    vec3 voxel_pos  = anchor_pos + vec3(0.5) * scaling_factor;
+    vec3 wind_offset = get_wind_offset(instance_pos.xz, wind_gradient, pc.time);
+    vec3 anchor_pos  = (vox_local_pos + wind_offset) * scaling_factor + instance_pos;
+    vec3 voxel_pos   = anchor_pos + vec3(0.5) * scaling_factor;
     vec3 vert_pos = get_vert_pos_with_billboard(camera_info.view_mat, voxel_pos, vert_offset_in_vox,
                                                 scaling_factor);
 
@@ -99,8 +98,7 @@ void main() {
 
     // interpolate color based on gradient
     vec3 interpolated_color =
-        mix(srgb_to_linear(manual_type_specific_info.bottom_color),
-            srgb_to_linear(manual_type_specific_info.tip_color), color_gradient);
+        mix(srgb_to_linear(pc.bottom_color), srgb_to_linear(pc.tip_color), color_gradient);
 
     vec3 sun_light = sun_info.sun_color * sun_info.sun_luminance;
     vert_color     = interpolated_color * (sun_light * shadow_weight + shading_info.ambient_light);

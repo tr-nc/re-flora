@@ -1,4 +1,5 @@
 mod resources;
+use bytemuck::{Pod, Zeroable};
 pub use resources::*;
 
 mod denoiser_resources;
@@ -27,19 +28,53 @@ use crate::builder::{
     SceneAccelBuilderResources, SurfaceResources,
 };
 use crate::gameplay::{calculate_directional_light_matrices, Camera, CameraDesc};
-use crate::geom::{Aabb3, UAabb3};
+use crate::geom::UAabb3;
 use crate::resource::ResourceContainer;
 use crate::util::{ShaderCompiler, TimeInfo};
 use crate::vkn::{
     execute_one_time_command, Allocator, AttachmentDescOuter, AttachmentType, Buffer,
     CommandBuffer, ComputePipeline, DescriptorPool, Extent2D, Extent3D, Framebuffer,
     GraphicsPipeline, GraphicsPipelineDesc, MemoryBarrier, PipelineBarrier,
-    PlainMemberTypeWithData, RenderPass, RenderTarget, ShaderModule, StructMemberDataBuilder,
-    StructMemberDataReader, Texture, Viewport, VulkanContext, WriteDescriptorSet,
+    PlainMemberTypeWithData, PushConstantInfo, RenderPass, RenderTarget, ShaderModule,
+    StructMemberDataBuilder, StructMemberDataReader, Texture, Viewport, VulkanContext,
 };
 use anyhow::Result;
 use ash::vk;
 use std::collections::HashMap;
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+struct PushConstantStd140 {
+    time: f32,
+    // `std140` requires a `vec3` to be aligned to 16 bytes.
+    // `time` is 4 bytes, so we need 12 bytes of padding to reach offset 16.
+    _padding1: [u8; 12],
+
+    bottom_color: Vec3,
+    // After `bottom_color` (12 bytes), we are at offset 16 + 12 = 28.
+    // The next field (`tip_color`) must also start on a 16-byte boundary (offset 32).
+    // So we need 4 bytes of padding.
+    _padding2: [u8; 4],
+
+    tip_color: Vec3,
+    // The total size of the block must be a multiple of 16.
+    // We are at offset 32 + 12 = 44. The next multiple of 16 is 48.
+    // So we need 4 final bytes of padding.
+    _padding3: [u8; 4],
+}
+
+impl PushConstantStd140 {
+    pub fn new(time: f32, bottom_color: Vec3, tip_color: Vec3) -> Self {
+        Self {
+            time,
+            _padding1: [0; 12],
+            bottom_color,
+            _padding2: [0; 4],
+            tip_color,
+            _padding3: [0; 4],
+        }
+    }
+}
 
 pub struct TracerDesc {
     pub scaling_factor: f32,
@@ -89,6 +124,8 @@ pub struct Tracer {
     flora_ppl_with_clear: GraphicsPipeline,
     flora_ppl_with_load: GraphicsPipeline,
     flora_lod_ppl_with_clear: GraphicsPipeline,
+    flora_lod_ppl_with_load: GraphicsPipeline,
+
     leaves_ppl_with_load: GraphicsPipeline,
     leaves_lod_ppl_with_load: GraphicsPipeline,
     leaves_shadow_ppl_with_clear: GraphicsPipeline,
@@ -316,8 +353,6 @@ impl Tracer {
         let resources = TracerResources::new(
             &vulkan_ctx,
             allocator.clone(),
-            &flora_vert_sm,
-            &leaves_vert_sm,
             &tracer_sm,
             &tracer_shadow_sm,
             &composition_sm,
@@ -407,6 +442,15 @@ impl Tracer {
             &flora_lod_vert_sm,
             &flora_lod_frag_sm,
             &clear_render_pass_color_and_depth,
+            Some(1),
+            &pool,
+            &[&resources],
+        );
+        let flora_lod_ppl_with_load = create_gfx_pipeline(
+            &vulkan_ctx,
+            &flora_lod_vert_sm,
+            &flora_lod_frag_sm,
+            &load_render_pass_color_and_depth,
             Some(1),
             &pool,
             &[&resources],
@@ -502,6 +546,7 @@ impl Tracer {
             flora_ppl_with_clear,
             flora_ppl_with_load,
             flora_lod_ppl_with_clear,
+            flora_lod_ppl_with_load,
             leaves_ppl_with_load,
             leaves_lod_ppl_with_load,
             leaves_shadow_ppl_with_clear,
@@ -817,12 +862,6 @@ impl Tracer {
         starlight_darkmatter: f32,
         starlight_distfading: f32,
         starlight_saturation: f32,
-        grass_bottom_color: Vec3,
-        grass_tip_color: Vec3,
-        lavender_bottom_color: Vec3,
-        lavender_tip_color: Vec3,
-        leaf_bottom_color: Vec3,
-        leaf_tip_color: Vec3,
         voxel_sand_color: Vec3,
         voxel_dirt_color: Vec3,
         voxel_rock_color: Vec3,
@@ -867,26 +906,26 @@ impl Tracer {
 
         update_player_collider_info(&self.resources, self.camera.position(), self.camera.front())?;
 
-        update_grass_info(
-            &self.resources,
-            time_info.time_since_start(),
-            grass_bottom_color,
-            grass_tip_color,
-        )?;
+        // update_grass_info(
+        //     &self.resources,
+        //     time_info.time_since_start(),
+        //     grass_bottom_color,
+        //     grass_tip_color,
+        // )?;
 
-        update_lavender_info(
-            &self.resources,
-            time_info.time_since_start(),
-            lavender_bottom_color,
-            lavender_tip_color,
-        )?;
+        // update_lavender_info(
+        //     &self.resources,
+        //     time_info.time_since_start(),
+        //     lavender_bottom_color,
+        //     lavender_tip_color,
+        // )?;
 
-        update_leaves_info(
-            &self.resources,
-            time_info.time_since_start(),
-            leaf_bottom_color,
-            leaf_tip_color,
-        )?;
+        // update_leaves_info(
+        //     &self.resources,
+        //     time_info.time_since_start(),
+        //     leaf_bottom_color,
+        //     leaf_tip_color,
+        // )?;
 
         update_voxel_colors(
             &self.resources,
@@ -1166,69 +1205,6 @@ impl Tracer {
             Ok(())
         }
 
-        fn update_grass_info(
-            resources: &TracerResources,
-            time: f32,
-            bottom_color: Vec3,
-            tip_color: Vec3,
-        ) -> Result<()> {
-            let data = StructMemberDataBuilder::from_buffer(&resources.grass_info)
-                .set_field("time", PlainMemberTypeWithData::Float(time))
-                .set_field(
-                    "bottom_color",
-                    PlainMemberTypeWithData::Vec3(bottom_color.to_array()),
-                )
-                .set_field(
-                    "tip_color",
-                    PlainMemberTypeWithData::Vec3(tip_color.to_array()),
-                )
-                .build()?;
-            resources.grass_info.fill_with_raw_u8(&data)?;
-            Ok(())
-        }
-
-        fn update_lavender_info(
-            resources: &TracerResources,
-            time: f32,
-            bottom_color: Vec3,
-            tip_color: Vec3,
-        ) -> Result<()> {
-            let data = StructMemberDataBuilder::from_buffer(&resources.lavender_info)
-                .set_field("time", PlainMemberTypeWithData::Float(time))
-                .set_field(
-                    "bottom_color",
-                    PlainMemberTypeWithData::Vec3(bottom_color.to_array()),
-                )
-                .set_field(
-                    "tip_color",
-                    PlainMemberTypeWithData::Vec3(tip_color.to_array()),
-                )
-                .build()?;
-            resources.lavender_info.fill_with_raw_u8(&data)?;
-            Ok(())
-        }
-
-        fn update_leaves_info(
-            resources: &TracerResources,
-            time: f32,
-            bottom_color: Vec3,
-            tip_color: Vec3,
-        ) -> Result<()> {
-            let data = StructMemberDataBuilder::from_buffer(&resources.leaves_info)
-                .set_field("time", PlainMemberTypeWithData::Float(time))
-                .set_field(
-                    "bottom_color",
-                    PlainMemberTypeWithData::Vec3(bottom_color.to_array()),
-                )
-                .set_field(
-                    "tip_color",
-                    PlainMemberTypeWithData::Vec3(tip_color.to_array()),
-                )
-                .build()?;
-            resources.leaves_info.fill_with_raw_u8(&data)?;
-            Ok(())
-        }
-
         fn update_voxel_colors(
             resources: &TracerResources,
             sand_color: Vec3,
@@ -1363,6 +1339,13 @@ impl Tracer {
         cmdbuf: &CommandBuffer,
         surface_resources: &SurfaceResources,
         lod_distance: f32,
+        time: f32,
+        grass_bottom_color: Vec3,
+        grass_tip_color: Vec3,
+        lavender_bottom_color: Vec3,
+        lavender_tip_color: Vec3,
+        leaf_bottom_color: Vec3,
+        leaf_tip_color: Vec3,
     ) -> Result<()> {
         let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
         let compute_to_compute_barrier = PipelineBarrier::new(
@@ -1376,7 +1359,13 @@ impl Tracer {
             vec![shader_access_memory_barrier],
         );
 
-        self.record_leaves_shadow_pass(cmdbuf, surface_resources);
+        self.record_leaves_shadow_pass(
+            cmdbuf,
+            surface_resources,
+            leaf_bottom_color,
+            leaf_tip_color,
+            time,
+        );
         let frag_to_compute_barrier = PipelineBarrier::new(
             vk::PipelineStageFlags::FRAGMENT_SHADER,
             vk::PipelineStageFlags::COMPUTE_SHADER,
@@ -1397,25 +1386,65 @@ impl Tracer {
         b1.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
         let chunks_by_lod = self.chunks_needs_to_draw_this_frame(surface_resources, lod_distance);
-        self.record_flora_pass(cmdbuf, &chunks_by_lod[&LodState::Lod0], LodState::Lod0);
+        self.record_flora_pass(
+            cmdbuf,
+            &chunks_by_lod[&LodState::Lod0],
+            LodState::Lod0,
+            true,
+            FloraType::Grass,
+            grass_bottom_color,
+            grass_tip_color,
+            time,
+        );
         frag_to_vert_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-        self.record_flora_pass(cmdbuf, &chunks_by_lod[&LodState::Lod1], LodState::Lod1);
+        self.record_flora_pass(
+            cmdbuf,
+            &chunks_by_lod[&LodState::Lod1],
+            LodState::Lod1,
+            false,
+            FloraType::Grass,
+            grass_bottom_color,
+            grass_tip_color,
+            time,
+        );
         frag_to_vert_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-        // Combine both LOD levels for lavender pass (no LOD separation for lavender)
-        let all_instances: Vec<&FloraInstanceResources> = chunks_by_lod[&LodState::Lod0]
-            .iter()
-            .chain(chunks_by_lod[&LodState::Lod1].iter())
-            .copied()
-            .collect();
-        let chunks_for_lavender: Vec<(Aabb3, &FloraInstanceResources)> = all_instances
-            .iter()
-            .map(|instance| (Aabb3::default(), *instance)) // We don't use the AABB in lavender pass
-            .collect();
-        self.record_lavender_pass(cmdbuf, &chunks_for_lavender);
+        self.record_flora_pass(
+            cmdbuf,
+            &chunks_by_lod[&LodState::Lod0],
+            LodState::Lod0,
+            false,
+            FloraType::Lavender,
+            lavender_bottom_color,
+            lavender_tip_color,
+            time,
+        );
+        frag_to_vert_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+        self.record_flora_pass(
+            cmdbuf,
+            &chunks_by_lod[&LodState::Lod1],
+            LodState::Lod1,
+            false,
+            FloraType::Lavender,
+            lavender_bottom_color,
+            lavender_tip_color,
+            time,
+        );
         frag_to_vert_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
-        // self.record_leaves_pass(cmdbuf, surface_resources);
-        self.record_leaves_lod_pass(cmdbuf, surface_resources);
+        // self.record_leaves_pass(
+        //     cmdbuf,
+        //     surface_resources,
+        //     leaf_bottom_color,
+        //     leaf_tip_color,
+        //     time,
+        // );
+        self.record_leaves_lod_pass(
+            cmdbuf,
+            surface_resources,
+            leaf_bottom_color,
+            leaf_tip_color,
+            time,
+        );
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
         record_denoiser_resources_transition_barrier(&self.resources.denoiser_resources, cmdbuf);
@@ -1507,24 +1536,38 @@ impl Tracer {
         cmdbuf: &CommandBuffer,
         flora_instances: &[&FloraInstanceResources],
         lod_state: LodState,
+        is_using_clear: bool,
+        flora_type: FloraType,
+        bottom_color: Vec3,
+        tip_color: Vec3,
+        time: f32,
     ) {
-        let (pipeline, grass_resources, render_target) = match lod_state {
-            LodState::Lod0 => (
-                &self.flora_ppl_with_clear,
-                &self.resources.grass_blade_resources,
-                &self.clear_render_target_color_and_depth,
-            ),
-            LodState::Lod1 => (
-                &self.flora_lod_ppl_with_clear,
-                &self.resources.grass_blade_resources_lod,
-                &self.load_render_target_color_and_depth,
-            ),
+        let pipeline = match (lod_state, is_using_clear) {
+            (LodState::Lod0, true) => &self.flora_ppl_with_clear,
+            (LodState::Lod0, false) => &self.flora_ppl_with_load,
+            (LodState::Lod1, true) => &self.flora_lod_ppl_with_clear,
+            (LodState::Lod1, false) => &self.flora_lod_ppl_with_load,
         };
 
-        pipeline.write_descriptor_set(
-            0,
-            WriteDescriptorSet::new_buffer_write(5, &self.resources.grass_info),
-        );
+        let render_target = match is_using_clear {
+            true => &self.clear_render_target_color_and_depth,
+            false => &self.load_render_target_color_and_depth,
+        };
+
+        let push_constant = PushConstantStd140::new(time, bottom_color, tip_color);
+
+        let (indices_buf, vertices_buf, indices_len) = match flora_type {
+            FloraType::Grass => (
+                &self.resources.grass_blade_resources.indices,
+                &self.resources.grass_blade_resources.vertices,
+                self.resources.grass_blade_resources.indices_len,
+            ),
+            FloraType::Lavender => (
+                &self.resources.lavender_resources.indices,
+                &self.resources.lavender_resources.vertices,
+                self.resources.lavender_resources.indices_len,
+            ),
+        };
 
         pipeline.record_bind(cmdbuf);
 
@@ -1542,8 +1585,7 @@ impl Tracer {
             },
         ];
 
-        render_target
-            .record_begin(cmdbuf, &clear_values);
+        render_target.record_begin(cmdbuf, &clear_values);
 
         let render_extent = self
             .resources
@@ -1566,15 +1608,18 @@ impl Tracer {
         unsafe {
             self.vulkan_ctx.device().cmd_bind_index_buffer(
                 cmdbuf.as_raw(),
-                grass_resources.indices.as_raw(),
+                indices_buf.as_raw(),
                 0,
                 vk::IndexType::UINT32,
             );
         }
 
         for instances in flora_instances {
+            let instances_buf = &instances.get(flora_type).instances_buf;
+            let instances_len = instances.get(flora_type).instances_len;
+
             // only draw if this chunk actually has grass instances.
-            if instances.get(FloraType::Grass).instances_len == 0 {
+            if instances_len == 0 {
                 continue;
             }
 
@@ -1585,10 +1630,7 @@ impl Tracer {
                 self.vulkan_ctx.device().cmd_bind_vertex_buffers(
                     cmdbuf.as_raw(),
                     0, // firstBinding
-                    &[
-                        grass_resources.vertices.as_raw(),
-                        instances.get(FloraType::Grass).instances_buf.as_raw(),
-                    ],
+                    &[vertices_buf.as_raw(), instances_buf.as_raw()],
                     &[0, 0], // offsets
                 );
             }
@@ -1597,11 +1639,15 @@ impl Tracer {
             // no barriers are needed here.
             pipeline.record_indexed(
                 cmdbuf,
-                grass_resources.indices_len,
-                instances.get(FloraType::Grass).instances_len,
+                indices_len,
+                instances_len,
                 0, // firstIndex
                 0, // vertexOffset
                 0, // firstInstance
+                Some(&PushConstantInfo {
+                    shader_stage: vk::ShaderStageFlags::VERTEX,
+                    push_constants: bytemuck::bytes_of(&push_constant).to_vec(),
+                }),
             );
         }
         render_target.record_end(cmdbuf);
@@ -1619,115 +1665,20 @@ impl Tracer {
             .set_layout(0, desc.attachments[1].final_layout);
     }
 
-    fn record_lavender_pass(
+    fn record_leaves_pass(
         &self,
         cmdbuf: &CommandBuffer,
-        chunks_needs_to_draw_this_frame: &[(Aabb3, &FloraInstanceResources)],
+        surface_resources: &SurfaceResources,
+        bottom_color: Vec3,
+        tip_color: Vec3,
+        time: f32,
     ) {
-        self.flora_ppl_with_load.write_descriptor_set(
-            0,
-            WriteDescriptorSet::new_buffer_write(5, &self.resources.lavender_info),
-        );
-
-        self.flora_ppl_with_load.record_bind(cmdbuf);
-
-        let clear_values = [
-            vk::ClearValue {
-                color: vk::ClearColorValue {
-                    float32: [0.0, 0.0, 0.0, 1.0],
-                },
-            },
-            vk::ClearValue {
-                depth_stencil: vk::ClearDepthStencilValue {
-                    depth: 1.0,
-                    stencil: 0,
-                },
-            },
-        ];
-
-        self.load_render_target_color_and_depth
-            .record_begin(cmdbuf, &clear_values);
-
-        let render_extent = self
-            .resources
-            .extent_dependent_resources
-            .gfx_output_tex
-            .get_image()
-            .get_desc()
-            .extent;
-        let viewport = Viewport::from_extent(render_extent.as_extent_2d().unwrap());
-        let scissor = vk::Rect2D {
-            offset: vk::Offset2D { x: 0, y: 0 },
-            extent: vk::Extent2D {
-                width: render_extent.width,
-                height: render_extent.height,
-            },
-        };
-
-        self.flora_ppl_with_load
-            .record_viewport_scissor(cmdbuf, viewport, scissor);
-
-        unsafe {
-            self.vulkan_ctx.device().cmd_bind_index_buffer(
-                cmdbuf.as_raw(),
-                self.resources.lavender_resources.indices.as_raw(),
-                0,
-                vk::IndexType::UINT32,
-            );
-        }
-
-        for (_aabb, instances) in chunks_needs_to_draw_this_frame {
-            // only draw if this chunk actually has lavender instances.
-            if instances.get(FloraType::Lavender).instances_len == 0 {
-                continue;
-            }
-
-            // bind the vertex buffers for this specific chunk.
-            // binding point 0: common lavender vertices.
-            // binding point 1: per-chunk, per-instance data.
-            unsafe {
-                self.vulkan_ctx.device().cmd_bind_vertex_buffers(
-                    cmdbuf.as_raw(),
-                    0, // firstBinding
-                    &[
-                        self.resources.lavender_resources.vertices.as_raw(),
-                        instances.get(FloraType::Lavender).instances_buf.as_raw(),
-                    ],
-                    &[0, 0], // offsets
-                );
-            }
-
-            // issue the draw call for the current chunk.
-            // no barriers are needed here.
-            self.flora_ppl_with_load.record_indexed(
-                cmdbuf,
-                self.resources.lavender_resources.indices_len,
-                instances.get(FloraType::Lavender).instances_len,
-                0, // firstIndex
-                0, // vertexOffset
-                0, // firstInstance
-            );
-        }
-        self.load_render_target_color_and_depth.record_end(cmdbuf);
-
-        let desc = self.load_render_target_color_and_depth.get_desc();
-        self.resources
-            .extent_dependent_resources
-            .gfx_output_tex
-            .get_image()
-            .set_layout(0, desc.attachments[0].final_layout);
-        self.resources
-            .extent_dependent_resources
-            .gfx_depth_tex
-            .get_image()
-            .set_layout(0, desc.attachments[1].final_layout);
-    }
-
-    fn record_leaves_pass(&self, cmdbuf: &CommandBuffer, surface_resources: &SurfaceResources) {
         // skip rendering entirely if no leaf instances exist
         if surface_resources.instances.leaves_instances.is_empty() {
             return;
         }
+
+        let push_constant = PushConstantStd140::new(time, bottom_color, tip_color);
 
         self.leaves_ppl_with_load.record_bind(cmdbuf);
 
@@ -1814,6 +1765,10 @@ impl Tracer {
                 0,
                 0,
                 0,
+                Some(&PushConstantInfo {
+                    shader_stage: vk::ShaderStageFlags::VERTEX,
+                    push_constants: bytemuck::bytes_of(&push_constant).to_vec(),
+                }),
             );
         }
 
@@ -1832,7 +1787,16 @@ impl Tracer {
             .set_layout(0, desc.attachments[1].final_layout);
     }
 
-    fn record_leaves_lod_pass(&self, cmdbuf: &CommandBuffer, surface_resources: &SurfaceResources) {
+    fn record_leaves_lod_pass(
+        &self,
+        cmdbuf: &CommandBuffer,
+        surface_resources: &SurfaceResources,
+        bottom_color: Vec3,
+        tip_color: Vec3,
+        time: f32,
+    ) {
+        let push_constant = PushConstantStd140::new(time, bottom_color, tip_color);
+
         // skip rendering entirely if no leaf instances exist
         if surface_resources.instances.leaves_instances.is_empty() {
             return;
@@ -1923,6 +1887,10 @@ impl Tracer {
                 0,
                 0,
                 0,
+                Some(&PushConstantInfo {
+                    shader_stage: vk::ShaderStageFlags::VERTEX,
+                    push_constants: bytemuck::bytes_of(&push_constant).to_vec(),
+                }),
             );
         }
 
@@ -1945,8 +1913,13 @@ impl Tracer {
         &self,
         cmdbuf: &CommandBuffer,
         surface_resources: &SurfaceResources,
+        bottom_color: Vec3,
+        tip_color: Vec3,
+        time: f32,
     ) {
         self.leaves_shadow_ppl_with_clear.record_bind(cmdbuf);
+
+        let push_constant = PushConstantStd140::new(time, bottom_color, tip_color);
 
         let clear_values = [vk::ClearValue {
             depth_stencil: vk::ClearDepthStencilValue {
@@ -2006,6 +1979,10 @@ impl Tracer {
                 0,
                 0,
                 0,
+                Some(&PushConstantInfo {
+                    shader_stage: vk::ShaderStageFlags::VERTEX,
+                    push_constants: bytemuck::bytes_of(&push_constant).to_vec(),
+                }),
             );
         }
 

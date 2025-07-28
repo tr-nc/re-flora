@@ -43,6 +43,11 @@ impl Deref for GraphicsPipeline {
     }
 }
 
+pub struct PushConstantInfo {
+    pub shader_stage: vk::ShaderStageFlags,
+    pub push_constants: Vec<u8>,
+}
+
 #[derive(Clone, Debug)]
 pub struct GraphicsPipelineDesc {
     pub format_overrides: Vec<FormatOverride>,
@@ -272,6 +277,18 @@ impl GraphicsPipeline {
         }
     }
 
+    fn record_push_constants(&self, cmdbuf: &CommandBuffer, push_constants: &PushConstantInfo) {
+        unsafe {
+            self.0.device.cmd_push_constants(
+                cmdbuf.as_raw(),
+                self.0.pipeline_layout.as_raw(),
+                push_constants.shader_stage,
+                0,
+                &push_constants.push_constants,
+            );
+        }
+    }
+
     pub fn record_bind(&self, cmdbuf: &CommandBuffer) {
         unsafe {
             self.0.device.cmd_bind_pipeline(
@@ -306,10 +323,14 @@ impl GraphicsPipeline {
         first_index: u32,
         vertex_offset: i32,
         first_instance: u32,
+        push_constants: Option<&PushConstantInfo>,
     ) {
         self.record_bind(cmdbuf);
         if !self.0.descriptor_sets.lock().unwrap().is_empty() {
             self.record_bind_descriptor_sets(cmdbuf, &self.0.descriptor_sets.lock().unwrap(), 0);
+        }
+        if let Some(push_constants) = push_constants {
+            self.record_push_constants(cmdbuf, push_constants);
         }
         self.record_draw_indexed(
             cmdbuf,

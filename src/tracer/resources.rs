@@ -174,9 +174,9 @@ pub struct TracerResources {
     pub shadow_camera_info: Resource<Buffer>,
     pub env_info: Resource<Buffer>,
     pub starlight_info: Resource<Buffer>,
-    pub grass_info: Resource<Buffer>,
-    pub lavender_info: Resource<Buffer>,
-    pub leaves_info: Resource<Buffer>,
+    // pub grass_info: Resource<Buffer>,
+    // pub lavender_info: Resource<Buffer>,
+    // pub leaves_info: Resource<Buffer>,
     pub voxel_colors: Resource<Buffer>,
     pub taa_info: Resource<Buffer>,
     pub god_ray_info: Resource<Buffer>,
@@ -216,8 +216,6 @@ impl TracerResources {
     pub fn new(
         vulkan_ctx: &VulkanContext,
         allocator: Allocator,
-        flora_vert_sm: &ShaderModule,
-        leaves_vert_sm: &ShaderModule,
         tracer_sm: &ShaderModule,
         tracer_shadow_sm: &ShaderModule,
         composition_sm: &ShaderModule,
@@ -307,33 +305,6 @@ impl TracerResources {
             device.clone(),
             allocator.clone(),
             starlight_info_layout.clone(),
-            BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
-        );
-
-        let manual_type_specific_info_layout = flora_vert_sm
-            .get_buffer_layout("U_ManualTypeSpecificInfo")
-            .unwrap();
-        let grass_info = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            manual_type_specific_info_layout.clone(),
-            BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
-        );
-        let lavender_info = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            manual_type_specific_info_layout.clone(),
-            BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
-        );
-
-        let leaves_info_layout = leaves_vert_sm.get_buffer_layout("U_LeavesInfo").unwrap();
-        let leaves_info = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            leaves_info_layout.clone(),
             BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
@@ -508,9 +479,9 @@ impl TracerResources {
             shadow_camera_info: Resource::new(shadow_camera_info),
             env_info: Resource::new(env_info),
             starlight_info: Resource::new(starlight_info),
-            grass_info: Resource::new(grass_info),
-            lavender_info: Resource::new(lavender_info),
-            leaves_info: Resource::new(leaves_info),
+            // grass_info: Resource::new(grass_info),
+            // lavender_info: Resource::new(lavender_info),
+            // leaves_info: Resource::new(leaves_info),
             voxel_colors: Resource::new(voxel_colors),
             taa_info: Resource::new(taa_info),
             god_ray_info: Resource::new(god_ray_info),

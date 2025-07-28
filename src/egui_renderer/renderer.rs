@@ -328,7 +328,15 @@ impl EguiRenderer {
 
                     let index_count = m.indices.len() as u32;
 
-                    gui_ppl.record_indexed(cmdbuf, index_count, 1, index_offset, vertex_offset, 0);
+                    gui_ppl.record_indexed(
+                        cmdbuf,
+                        index_count,
+                        1,
+                        index_offset,
+                        vertex_offset,
+                        0,
+                        None,
+                    );
 
                     index_offset += index_count;
                     vertex_offset += m.vertices.len() as i32;

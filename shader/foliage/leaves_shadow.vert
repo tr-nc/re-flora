@@ -4,6 +4,13 @@
 
 #include "../include/core/packer.glsl"
 
+layout(push_constant) uniform PC {
+    float time;
+    vec3 bottom_color;
+    vec3 tip_color;
+}
+pc;
+
 // these are vertex-rate attributes
 layout(location = 0) in uint in_packed_data;
 
@@ -42,13 +49,6 @@ layout(set = 0, binding = 3) uniform U_ShadowCameraInfo {
 }
 shadow_camera_info;
 
-layout(set = 0, binding = 4) uniform U_GrassInfo {
-    float time;
-    vec3 bottom_color;
-    vec3 tip_color;
-}
-grass_info;
-
 layout(set = 0, binding = 5) uniform sampler2D shadow_map_tex_for_vsm_ping;
 
 #include "../include/core/fast_noise_lite.glsl"
@@ -69,7 +69,7 @@ void main() {
 
     vec3 instance_pos = in_instance_pos * scaling_factor;
 
-    vec3 wind_offset = get_wind_offset(instance_pos.xz, wind_gradient, grass_info.time);
+    vec3 wind_offset = get_wind_offset(instance_pos.xz, wind_gradient, pc.time);
     vec3 anchor_pos  = (vox_local_pos + wind_offset) * scaling_factor + instance_pos;
     vec3 voxel_pos   = anchor_pos + vec3(0.5) * scaling_factor;
     vec3 vert_pos    = get_vert_pos_with_billboard(shadow_camera_info.view_mat, voxel_pos,
