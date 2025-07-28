@@ -906,27 +906,6 @@ impl Tracer {
 
         update_player_collider_info(&self.resources, self.camera.position(), self.camera.front())?;
 
-        // update_grass_info(
-        //     &self.resources,
-        //     time_info.time_since_start(),
-        //     grass_bottom_color,
-        //     grass_tip_color,
-        // )?;
-
-        // update_lavender_info(
-        //     &self.resources,
-        //     time_info.time_since_start(),
-        //     lavender_bottom_color,
-        //     lavender_tip_color,
-        // )?;
-
-        // update_leaves_info(
-        //     &self.resources,
-        //     time_info.time_since_start(),
-        //     leaf_bottom_color,
-        //     leaf_tip_color,
-        // )?;
-
         update_voxel_colors(
             &self.resources,
             voxel_sand_color,
