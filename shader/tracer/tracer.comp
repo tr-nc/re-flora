@@ -96,6 +96,7 @@ layout(set = 3, binding = 12, r11f_g11f_b10f) uniform image2D denoiser_spatial_p
 
 #include "../include/contree_marching.glsl"
 #include "../include/core/definitions.glsl"
+#include "../include/core/hash.glsl"
 #include "../include/core/packer.glsl"
 #include "../include/core/shader_clock.glsl"
 #include "../include/core/viridis.glsl"
@@ -156,7 +157,7 @@ vec3 get_shadow_ray_color(Ray ray, ivec3 seed) {
 }
 
 vec3 get_next_tracing_pos(vec3 voxel_center_pos, vec3 voxel_normal) {
-    // gives more accurate shadow
+    // gives more accurate out dir to avoid self shadowing
     vec2 t                = slabs(vec3(-1.0), vec3(1.0), vec3(0.0), 1.0 / voxel_normal);
     float half_voxel_size = 1.0 / 512.0; // assuming the voxel size is 1/512
     // 0.005 is experimental to maintain a good shadow quality
@@ -166,8 +167,25 @@ vec3 get_next_tracing_pos(vec3 voxel_center_pos, vec3 voxel_normal) {
 
 vec3 get_lambertian_brdf(vec3 albedo) { return albedo * INV_PI; }
 
+vec3 offset_color(vec3 input_color, vec3 center_pos) {
+    const float HUE_AMPLITUDE   = 0.15; // max ±0.15
+    const float SAT_AMPLITUDE   = 0.05;
+    const float VALUE_AMPLITUDE = 0.05;
+
+    vec3 hsv = rgb_to_hsv(input_color);
+    vec3 rnd = hash_33(center_pos) - 0.5; // now in (-0.5, 0.5)
+
+    hsv.x += rnd.x * HUE_AMPLITUDE;
+    hsv.y += rnd.y * SAT_AMPLITUDE;
+    hsv.z += rnd.z * VALUE_AMPLITUDE;
+
+    hsv = clamp(hsv, 0.0, 1.0);
+    return hsv_to_rgb(hsv);
+}
+
 void parse_trace_result(out vec3 albedo, out vec3 next_tracing_pos, MarchingResult res) {
-    albedo           = voxel_color_by_type_unorm(res.voxel_type);
+    albedo = voxel_color_by_type_unorm(res.voxel_type);
+    // albedo = offset_color(albedo, res.center_pos);
     next_tracing_pos = get_next_tracing_pos(res.center_pos, res.normal);
 }
 
