@@ -83,6 +83,7 @@ pub struct Tracer {
     flora_ppl_with_load: GraphicsPipeline,
     flora_lod_ppl_with_clear: GraphicsPipeline,
     leaves_ppl_with_load: GraphicsPipeline,
+    leaves_lod_ppl_with_load: GraphicsPipeline,
     leaves_shadow_ppl_with_clear: GraphicsPipeline,
 
     clear_render_target_color_and_depth: RenderTarget,
@@ -275,6 +276,21 @@ impl Tracer {
         )
         .unwrap();
 
+        let leaves_lod_vert_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            shader_compiler,
+            "shader/foliage/leaves_lod.vert",
+            "main",
+        )
+        .unwrap();
+        let leaves_lod_frag_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            shader_compiler,
+            "shader/foliage/leaves_lod.frag",
+            "main",
+        )
+        .unwrap();
+
         let leaves_shadow_vert_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             shader_compiler,
@@ -399,6 +415,16 @@ impl Tracer {
             &[&resources],
         );
 
+        let leaves_lod_ppl_with_load = create_gfx_pipeline(
+            &vulkan_ctx,
+            &leaves_lod_vert_sm,
+            &leaves_lod_frag_sm,
+            &load_render_pass_color_and_depth,
+            Some(1),
+            &pool,
+            &[&resources],
+        );
+
         let clear_render_pass_depth =
             create_render_pass_with_depth(&vulkan_ctx, resources.shadow_map_tex.clone(), true);
 
@@ -470,6 +496,7 @@ impl Tracer {
             flora_ppl_with_load,
             flora_lod_ppl_with_clear,
             leaves_ppl_with_load,
+            leaves_lod_ppl_with_load,
             leaves_shadow_ppl_with_clear,
 
             clear_render_target_color_and_depth,
@@ -1352,7 +1379,8 @@ impl Tracer {
         self.record_lavender_pass(cmdbuf, &chunks_needs_to_draw_this_frame);
         frag_to_vert_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
-        self.record_leaves_pass(cmdbuf, surface_resources);
+        // self.record_leaves_pass(cmdbuf, surface_resources);
+        self.record_leaves_lod_pass(cmdbuf, surface_resources);
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
         record_denoiser_resources_transition_barrier(&self.resources.denoiser_resources, cmdbuf);
@@ -1838,6 +1866,115 @@ impl Tracer {
             self.leaves_ppl_with_load.record_indexed(
                 cmdbuf,
                 self.resources.leaves_resources.indices_len,
+                tree_instance.resources.instances_len,
+                0,
+                0,
+                0,
+            );
+        }
+
+        self.load_render_target_color_and_depth.record_end(cmdbuf);
+
+        let desc = self.load_render_target_color_and_depth.get_desc();
+        self.resources
+            .extent_dependent_resources
+            .gfx_output_tex
+            .get_image()
+            .set_layout(0, desc.attachments[0].final_layout);
+        self.resources
+            .extent_dependent_resources
+            .gfx_depth_tex
+            .get_image()
+            .set_layout(0, desc.attachments[1].final_layout);
+    }
+
+    fn record_leaves_lod_pass(&self, cmdbuf: &CommandBuffer, surface_resources: &SurfaceResources) {
+        // skip rendering entirely if no leaf instances exist
+        if surface_resources.instances.leaves_instances.is_empty() {
+            return;
+        }
+
+        self.leaves_lod_ppl_with_load.record_bind(cmdbuf);
+
+        // don't clear - we want to preserve the flora that has been rendered
+        // only clear the depth buffer to ensure proper depth testing
+        let clear_values = [
+            vk::ClearValue {
+                color: vk::ClearColorValue {
+                    float32: [0.0, 0.0, 0.0, 0.0],
+                },
+            },
+            vk::ClearValue {
+                depth_stencil: vk::ClearDepthStencilValue {
+                    depth: 1.0,
+                    stencil: 0,
+                },
+            },
+        ];
+
+        self.load_render_target_color_and_depth
+            .record_begin(cmdbuf, &clear_values);
+
+        let render_extent = self
+            .resources
+            .extent_dependent_resources
+            .gfx_output_tex
+            .get_image()
+            .get_desc()
+            .extent;
+        let viewport = Viewport::from_extent(render_extent.as_extent_2d().unwrap());
+        let scissor = vk::Rect2D {
+            offset: vk::Offset2D { x: 0, y: 0 },
+            extent: vk::Extent2D {
+                width: render_extent.width,
+                height: render_extent.height,
+            },
+        };
+
+        self.leaves_lod_ppl_with_load
+            .record_viewport_scissor(cmdbuf, viewport, scissor);
+
+        unsafe {
+            // bind the index buffer for leaves
+            self.vulkan_ctx.device().cmd_bind_index_buffer(
+                cmdbuf.as_raw(),
+                self.resources.leaves_resources_lod.indices.as_raw(),
+                0,
+                vk::IndexType::UINT32,
+            );
+        }
+
+        // loop through all tree leaves instances
+        for (_tree_id, tree_instance) in &surface_resources.instances.leaves_instances {
+            if tree_instance.resources.instances_len == 0 {
+                continue;
+            }
+
+            // perform frustum culling
+            if !tree_instance
+                .aabb
+                .is_inside_frustum(self.current_view_proj_mat)
+            {
+                continue;
+            }
+
+            // bind vertex buffers for this instance
+            unsafe {
+                self.vulkan_ctx.device().cmd_bind_vertex_buffers(
+                    cmdbuf.as_raw(),
+                    0,
+                    &[
+                        self.resources.leaves_resources_lod.vertices.as_raw(),
+                        tree_instance.resources.instances_buf.as_raw(),
+                    ],
+                    &[0, 0],
+                );
+            }
+
+            // render this instance
+            self.leaves_lod_ppl_with_load.record_indexed(
+                cmdbuf,
+                self.resources.leaves_resources_lod.indices_len,
                 tree_instance.resources.instances_len,
                 0,
                 0,
