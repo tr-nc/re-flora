@@ -19,6 +19,12 @@ mod flora_construct;
 
 mod leaves_construct;
 
+mod pipeline_builder;
+use pipeline_builder::*;
+
+mod buffer_updater;
+use buffer_updater::*;
+
 use glam::{Mat4, UVec3, Vec2, Vec3};
 use winit::event::KeyEvent;
 
@@ -32,11 +38,10 @@ use crate::geom::UAabb3;
 use crate::resource::ResourceContainer;
 use crate::util::{ShaderCompiler, TimeInfo};
 use crate::vkn::{
-    execute_one_time_command, Allocator, AttachmentDescOuter, AttachmentType, Buffer,
-    CommandBuffer, ComputePipeline, DescriptorPool, Extent2D, Extent3D, Framebuffer,
-    GraphicsPipeline, GraphicsPipelineDesc, MemoryBarrier, PipelineBarrier,
-    PlainMemberTypeWithData, PushConstantInfo, RenderPass, RenderTarget, ShaderModule,
-    StructMemberDataBuilder, StructMemberDataReader, Texture, Viewport, VulkanContext,
+    execute_one_time_command, Allocator, Buffer, CommandBuffer, ComputePipeline, DescriptorPool,
+    Extent2D, Extent3D, Framebuffer, MemoryBarrier, PipelineBarrier, PlainMemberTypeWithData,
+    PushConstantInfo, RenderPass, RenderTarget, StructMemberDataBuilder, StructMemberDataReader,
+    Texture, Viewport, VulkanContext,
 };
 use anyhow::Result;
 use ash::vk;
@@ -107,28 +112,8 @@ pub struct Tracer {
     current_view_proj_mat: Mat4,
     current_shadow_view_proj_mat: Mat4,
 
-    tracer_ppl: ComputePipeline,
-    temporal_ppl: ComputePipeline,
-    spatial_ppl: ComputePipeline,
-    composition_ppl: ComputePipeline,
-    taa_ppl: ComputePipeline,
-    post_processing_ppl: ComputePipeline,
-    player_collider_ppl: ComputePipeline,
-    terrain_query_ppl: ComputePipeline,
-    tracer_shadow_ppl: ComputePipeline,
-    vsm_creation_ppl: ComputePipeline,
-    vsm_blur_h_ppl: ComputePipeline,
-    vsm_blur_v_ppl: ComputePipeline,
-    god_ray_ppl: ComputePipeline,
-
-    flora_ppl_with_clear: GraphicsPipeline,
-    flora_ppl_with_load: GraphicsPipeline,
-    flora_lod_ppl_with_clear: GraphicsPipeline,
-    flora_lod_ppl_with_load: GraphicsPipeline,
-
-    leaves_ppl_with_load: GraphicsPipeline,
-    leaves_lod_ppl_with_load: GraphicsPipeline,
-    leaves_shadow_ppl_with_clear: GraphicsPipeline,
+    compute_pipelines: ComputePipelines,
+    graphics_pipelines: GraphicsPipelines,
 
     clear_render_target_color_and_depth: RenderTarget,
     load_render_target_color_and_depth: RenderTarget,
@@ -171,352 +156,81 @@ impl Tracer {
 
         let pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
 
-        let tracer_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            &shader_compiler,
-            "shader/tracer/tracer.comp",
-            "main",
-        )
-        .unwrap();
-
-        let tracer_shadow_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            &shader_compiler,
-            "shader/tracer/tracer_shadow.comp",
-            "main",
-        )
-        .unwrap();
-
-        let vsm_creation_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            &shader_compiler,
-            "shader/tracer/vsm_creation.comp",
-            "main",
-        )
-        .unwrap();
-
-        let vsm_blur_h_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            &shader_compiler,
-            "shader/tracer/vsm_blur_h.comp",
-            "main",
-        )
-        .unwrap();
-
-        let vsm_blur_v_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            &shader_compiler,
-            "shader/tracer/vsm_blur_v.comp",
-            "main",
-        )
-        .unwrap();
-
-        let god_ray_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            &shader_compiler,
-            "shader/tracer/god_ray.comp",
-            "main",
-        )
-        .unwrap();
-
-        let temporal_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            &shader_compiler,
-            "shader/denoiser/temporal.comp",
-            "main",
-        )
-        .unwrap();
-
-        let spatial_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            &shader_compiler,
-            "shader/denoiser/spatial.comp",
-            "main",
-        )
-        .unwrap();
-
-        let composition_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            &shader_compiler,
-            "shader/tracer/composition.comp",
-            "main",
-        )
-        .unwrap();
-
-        let taa_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            &shader_compiler,
-            "shader/tracer/taa.comp",
-            "main",
-        )
-        .unwrap();
-
-        let post_processing_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            &shader_compiler,
-            "shader/tracer/post_processing.comp",
-            "main",
-        )
-        .unwrap();
-
-        let player_collider_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            &shader_compiler,
-            "shader/tracer/player_collider.comp",
-            "main",
-        )
-        .unwrap();
-
-        let terrain_query_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            &shader_compiler,
-            "shader/tracer/terrain_query.comp",
-            "main",
-        )
-        .unwrap();
-
-        let flora_vert_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            shader_compiler,
-            "shader/foliage/flora.vert",
-            "main",
-        )
-        .unwrap();
-        let flora_frag_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            shader_compiler,
-            "shader/foliage/flora.frag",
-            "main",
-        )
-        .unwrap();
-
-        let flora_lod_vert_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            shader_compiler,
-            "shader/foliage/flora_lod.vert",
-            "main",
-        )
-        .unwrap();
-        let flora_lod_frag_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            shader_compiler,
-            "shader/foliage/flora_lod.frag",
-            "main",
-        )
-        .unwrap();
-
-        let leaves_vert_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            shader_compiler,
-            "shader/foliage/leaves.vert",
-            "main",
-        )
-        .unwrap();
-        let leaves_frag_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            shader_compiler,
-            "shader/foliage/leaves.frag",
-            "main",
-        )
-        .unwrap();
-
-        let leaves_lod_vert_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            shader_compiler,
-            "shader/foliage/leaves_lod.vert",
-            "main",
-        )
-        .unwrap();
-        let leaves_lod_frag_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            shader_compiler,
-            "shader/foliage/leaves_lod.frag",
-            "main",
-        )
-        .unwrap();
-
-        let leaves_shadow_vert_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            shader_compiler,
-            "shader/foliage/leaves_shadow.vert",
-            "main",
-        )
-        .unwrap();
-        let leaves_shadow_frag_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            shader_compiler,
-            "shader/foliage/leaves_shadow.frag",
-            "main",
-        )
-        .unwrap();
+        let shader_modules = PipelineBuilder::create_shader_modules(&vulkan_ctx, &shader_compiler)?;
 
         let resources = TracerResources::new(
             &vulkan_ctx,
             allocator.clone(),
-            &tracer_sm,
-            &tracer_shadow_sm,
-            &composition_sm,
-            &temporal_sm,
-            &spatial_sm,
-            &taa_sm,
-            &god_ray_sm,
-            &post_processing_sm,
-            &player_collider_sm,
-            &terrain_query_sm,
+            &shader_modules.tracer_sm,
+            &shader_modules.tracer_shadow_sm,
+            &shader_modules.composition_sm,
+            &shader_modules.temporal_sm,
+            &shader_modules.spatial_sm,
+            &shader_modules.taa_sm,
+            &shader_modules.god_ray_sm,
+            &shader_modules.post_processing_sm,
+            &shader_modules.player_collider_sm,
+            &shader_modules.terrain_query_sm,
             render_extent,
             screen_extent,
             Extent2D::new(1024, 1024),
             1000, // max_terrain_queries
         );
 
-        let device = vulkan_ctx.device();
+        let compute_pipelines = PipelineBuilder::create_compute_pipelines(
+            &vulkan_ctx,
+            &shader_modules,
+            &pool,
+            &resources,
+            contree_builder_resources,
+            scene_accel_resources,
+        );
 
-        let tracer_ppl = ComputePipeline::new(
-            device,
-            &tracer_sm,
-            &pool,
-            &[&resources, contree_builder_resources, scene_accel_resources],
-        );
-        let tracer_shadow_ppl = ComputePipeline::new(
-            device,
-            &tracer_shadow_sm,
-            &pool,
-            &[&resources, contree_builder_resources, scene_accel_resources],
-        );
-        let vsm_creation_ppl = ComputePipeline::new(device, &vsm_creation_sm, &pool, &[&resources]);
-        let vsm_blur_h_ppl = ComputePipeline::new(device, &vsm_blur_h_sm, &pool, &[&resources]);
-        let vsm_blur_v_ppl = ComputePipeline::new(device, &vsm_blur_v_sm, &pool, &[&resources]);
-        let god_ray_ppl = ComputePipeline::new(device, &god_ray_sm, &pool, &[&resources]);
-        let temporal_ppl = ComputePipeline::new(device, &temporal_sm, &pool, &[&resources]);
-        let spatial_ppl = ComputePipeline::new(device, &spatial_sm, &pool, &[&resources]);
-        let composition_ppl = ComputePipeline::new(device, &composition_sm, &pool, &[&resources]);
-        let taa_ppl = ComputePipeline::new(device, &taa_sm, &pool, &[&resources]);
-        let player_collider_ppl = ComputePipeline::new(
-            device,
-            &player_collider_sm,
-            &pool,
-            &[&resources, contree_builder_resources, scene_accel_resources],
-        );
-        let terrain_query_ppl = ComputePipeline::new(
-            device,
-            &terrain_query_sm,
-            &pool,
-            &[&resources, contree_builder_resources, scene_accel_resources],
-        );
-        let post_processing_ppl =
-            ComputePipeline::new(device, &post_processing_sm, &pool, &[&resources]);
-
-        let clear_render_pass_color_and_depth = create_render_pass_with_color_and_depth(
+        let render_passes = PipelineBuilder::create_render_passes(
             &vulkan_ctx,
             resources.extent_dependent_resources.gfx_output_tex.clone(),
             resources.extent_dependent_resources.gfx_depth_tex.clone(),
-            true,
-        );
-        let load_render_pass_color_and_depth = create_render_pass_with_color_and_depth(
-            &vulkan_ctx,
-            resources.extent_dependent_resources.gfx_output_tex.clone(),
-            resources.extent_dependent_resources.gfx_depth_tex.clone(),
-            false,
+            resources.shadow_map_tex.clone(),
         );
 
-        let flora_ppl_with_clear = create_gfx_pipeline(
+        let graphics_pipelines = PipelineBuilder::create_graphics_pipelines(
             &vulkan_ctx,
-            &flora_vert_sm,
-            &flora_frag_sm,
-            &clear_render_pass_color_and_depth,
-            Some(1),
+            &shader_modules,
+            &render_passes,
             &pool,
-            &[&resources],
-        );
-        let flora_ppl_with_load = create_gfx_pipeline(
-            &vulkan_ctx,
-            &flora_vert_sm,
-            &flora_frag_sm,
-            &load_render_pass_color_and_depth,
-            Some(1),
-            &pool,
-            &[&resources],
-        );
-        let flora_lod_ppl_with_clear = create_gfx_pipeline(
-            &vulkan_ctx,
-            &flora_lod_vert_sm,
-            &flora_lod_frag_sm,
-            &clear_render_pass_color_and_depth,
-            Some(1),
-            &pool,
-            &[&resources],
-        );
-        let flora_lod_ppl_with_load = create_gfx_pipeline(
-            &vulkan_ctx,
-            &flora_lod_vert_sm,
-            &flora_lod_frag_sm,
-            &load_render_pass_color_and_depth,
-            Some(1),
-            &pool,
-            &[&resources],
-        );
-
-        let leaves_ppl_with_load = create_gfx_pipeline(
-            &vulkan_ctx,
-            &leaves_vert_sm,
-            &leaves_frag_sm,
-            &load_render_pass_color_and_depth,
-            Some(1),
-            &pool,
-            &[&resources],
-        );
-
-        let leaves_lod_ppl_with_load = create_gfx_pipeline(
-            &vulkan_ctx,
-            &leaves_lod_vert_sm,
-            &leaves_lod_frag_sm,
-            &load_render_pass_color_and_depth,
-            Some(1),
-            &pool,
-            &[&resources],
-        );
-
-        let clear_render_pass_depth =
-            create_render_pass_with_depth(&vulkan_ctx, resources.shadow_map_tex.clone(), true);
-
-        let leaves_shadow_ppl_with_clear = create_gfx_pipeline(
-            &vulkan_ctx,
-            &leaves_shadow_vert_sm,
-            &leaves_shadow_frag_sm,
-            &clear_render_pass_depth,
-            Some(1),
-            &pool,
-            &[&resources],
+            &resources,
         );
 
         let clear_framebuffer_color_and_depth = Self::create_framebuffer_color_and_depth(
             &vulkan_ctx,
-            &clear_render_pass_color_and_depth,
+            &render_passes.clear_render_pass_color_and_depth,
             &resources.extent_dependent_resources.gfx_output_tex,
             &resources.extent_dependent_resources.gfx_depth_tex,
         );
         let load_framebuffer_color_and_depth = Self::create_framebuffer_color_and_depth(
             &vulkan_ctx,
-            &load_render_pass_color_and_depth,
+            &render_passes.load_render_pass_color_and_depth,
             &resources.extent_dependent_resources.gfx_output_tex,
             &resources.extent_dependent_resources.gfx_depth_tex,
         );
         let clear_framebuffer_depth = Self::create_framebuffer_depth(
             &vulkan_ctx,
-            &clear_render_pass_depth,
+            &render_passes.clear_render_pass_depth,
             &resources.shadow_map_tex,
         );
 
         let clear_render_target_color_and_depth = RenderTarget::new(
-            clear_render_pass_color_and_depth,
+            render_passes.clear_render_pass_color_and_depth,
             vec![clear_framebuffer_color_and_depth],
         );
         let load_render_target_color_and_depth = RenderTarget::new(
-            load_render_pass_color_and_depth,
+            render_passes.load_render_pass_color_and_depth,
             vec![load_framebuffer_color_and_depth],
         );
-        let clear_render_target_depth =
-            RenderTarget::new(clear_render_pass_depth, vec![clear_framebuffer_depth]);
+        let clear_render_target_depth = RenderTarget::new(
+            render_passes.clear_render_pass_depth,
+            vec![clear_framebuffer_depth],
+        );
 
         return Ok(Self {
             vulkan_ctx,
@@ -529,146 +243,14 @@ impl Tracer {
             camera_proj_mat_prev_frame: Mat4::IDENTITY,
             current_view_proj_mat: Mat4::IDENTITY,
             current_shadow_view_proj_mat: Mat4::IDENTITY,
-            tracer_ppl,
-            tracer_shadow_ppl,
-            god_ray_ppl,
-            temporal_ppl,
-            spatial_ppl,
-            composition_ppl,
-            taa_ppl,
-            post_processing_ppl,
-            player_collider_ppl,
-            terrain_query_ppl,
-            vsm_creation_ppl,
-            vsm_blur_h_ppl,
-            vsm_blur_v_ppl,
-
-            flora_ppl_with_clear,
-            flora_ppl_with_load,
-            flora_lod_ppl_with_clear,
-            flora_lod_ppl_with_load,
-            leaves_ppl_with_load,
-            leaves_lod_ppl_with_load,
-            leaves_shadow_ppl_with_clear,
-
+            compute_pipelines,
+            graphics_pipelines,
             clear_render_target_color_and_depth,
             load_render_target_color_and_depth,
             clear_render_target_depth,
             pool,
             a_trous_iteration_count: 3,
         });
-
-        fn create_render_pass_with_color_and_depth(
-            vulkan_ctx: &VulkanContext,
-            output_tex: Texture,
-            depth_tex: Texture,
-            is_starting_with_clear: bool,
-        ) -> RenderPass {
-            if is_starting_with_clear {
-                RenderPass::with_attachments(
-                    vulkan_ctx.device().clone(),
-                    &[
-                        AttachmentDescOuter {
-                            texture: output_tex,
-                            load_op: vk::AttachmentLoadOp::CLEAR,
-                            store_op: vk::AttachmentStoreOp::STORE,
-                            initial_layout: vk::ImageLayout::UNDEFINED,
-                            final_layout: vk::ImageLayout::GENERAL,
-                            ty: AttachmentType::Color,
-                        },
-                        AttachmentDescOuter {
-                            texture: depth_tex,
-                            load_op: vk::AttachmentLoadOp::CLEAR,
-                            store_op: vk::AttachmentStoreOp::STORE,
-                            initial_layout: vk::ImageLayout::UNDEFINED,
-                            final_layout: vk::ImageLayout::GENERAL,
-                            ty: AttachmentType::Depth,
-                        },
-                    ],
-                )
-            } else {
-                RenderPass::with_attachments(
-                    vulkan_ctx.device().clone(),
-                    &[
-                        AttachmentDescOuter {
-                            texture: output_tex,
-                            load_op: vk::AttachmentLoadOp::LOAD,
-                            store_op: vk::AttachmentStoreOp::STORE,
-                            initial_layout: vk::ImageLayout::GENERAL,
-                            final_layout: vk::ImageLayout::GENERAL,
-                            ty: AttachmentType::Color,
-                        },
-                        AttachmentDescOuter {
-                            texture: depth_tex,
-                            load_op: vk::AttachmentLoadOp::LOAD,
-                            store_op: vk::AttachmentStoreOp::STORE,
-                            initial_layout: vk::ImageLayout::GENERAL,
-                            final_layout: vk::ImageLayout::GENERAL,
-                            ty: AttachmentType::Depth,
-                        },
-                    ],
-                )
-            }
-        }
-
-        fn create_render_pass_with_depth(
-            vulkan_ctx: &VulkanContext,
-            depth_tex: Texture,
-            is_starting_with_clear: bool,
-        ) -> RenderPass {
-            if is_starting_with_clear {
-                RenderPass::with_attachments(
-                    vulkan_ctx.device().clone(),
-                    &[AttachmentDescOuter {
-                        texture: depth_tex,
-                        load_op: vk::AttachmentLoadOp::CLEAR,
-                        store_op: vk::AttachmentStoreOp::STORE,
-                        initial_layout: vk::ImageLayout::UNDEFINED,
-                        final_layout: vk::ImageLayout::GENERAL,
-                        ty: AttachmentType::Depth,
-                    }],
-                )
-            } else {
-                RenderPass::with_attachments(
-                    vulkan_ctx.device().clone(),
-                    &[AttachmentDescOuter {
-                        texture: depth_tex,
-                        load_op: vk::AttachmentLoadOp::LOAD,
-                        store_op: vk::AttachmentStoreOp::STORE,
-                        initial_layout: vk::ImageLayout::GENERAL,
-                        final_layout: vk::ImageLayout::GENERAL,
-                        ty: AttachmentType::Depth,
-                    }],
-                )
-            }
-        }
-
-        fn create_gfx_pipeline(
-            vulkan_ctx: &VulkanContext,
-            vert_sm: &ShaderModule,
-            frag_sm: &ShaderModule,
-            render_pass: &RenderPass,
-            instance_rate_starting_location: Option<u32>,
-            descriptor_pool: &DescriptorPool,
-            resource_containers: &[&dyn ResourceContainer],
-        ) -> GraphicsPipeline {
-            let gfx_ppl = GraphicsPipeline::new(
-                vulkan_ctx.device(),
-                &vert_sm,
-                &frag_sm,
-                &render_pass,
-                &GraphicsPipelineDesc {
-                    cull_mode: vk::CullModeFlags::BACK,
-                    depth_test_enable: true,
-                    depth_write_enable: true,
-                    ..Default::default()
-                },
-                instance_rate_starting_location,
-                descriptor_pool,
-                resource_containers,
-            );
-            gfx_ppl
-        }
     }
 
     /// A framebuffer that contains the color and depth textures for the main render pass
@@ -790,22 +372,25 @@ impl Tracer {
             contree_builder_resources as &dyn ResourceContainer,
             scene_accel_resources as &dyn ResourceContainer,
         ];
-        update_fn(&self.tracer_ppl, all_resources);
-        update_fn(&self.tracer_shadow_ppl, all_resources);
-        update_fn(&self.player_collider_ppl, all_resources);
-        update_fn(&self.terrain_query_ppl, all_resources);
+        update_fn(&self.compute_pipelines.tracer_ppl, all_resources);
+        update_fn(&self.compute_pipelines.tracer_shadow_ppl, all_resources);
+        update_fn(&self.compute_pipelines.player_collider_ppl, all_resources);
+        update_fn(&self.compute_pipelines.terrain_query_ppl, all_resources);
 
         // pipelines that only need tracer resources
         let tracer_resources = &[&self.resources as &dyn ResourceContainer];
-        update_fn(&self.vsm_creation_ppl, tracer_resources);
-        update_fn(&self.vsm_blur_h_ppl, tracer_resources);
-        update_fn(&self.vsm_blur_v_ppl, tracer_resources);
-        update_fn(&self.god_ray_ppl, tracer_resources);
-        update_fn(&self.temporal_ppl, tracer_resources);
-        update_fn(&self.spatial_ppl, tracer_resources);
-        update_fn(&self.composition_ppl, tracer_resources);
-        update_fn(&self.taa_ppl, tracer_resources);
-        update_fn(&self.post_processing_ppl, tracer_resources);
+        update_fn(&self.compute_pipelines.vsm_creation_ppl, tracer_resources);
+        update_fn(&self.compute_pipelines.vsm_blur_h_ppl, tracer_resources);
+        update_fn(&self.compute_pipelines.vsm_blur_v_ppl, tracer_resources);
+        update_fn(&self.compute_pipelines.god_ray_ppl, tracer_resources);
+        update_fn(&self.compute_pipelines.temporal_ppl, tracer_resources);
+        update_fn(&self.compute_pipelines.spatial_ppl, tracer_resources);
+        update_fn(&self.compute_pipelines.composition_ppl, tracer_resources);
+        update_fn(&self.compute_pipelines.taa_ppl, tracer_resources);
+        update_fn(
+            &self.compute_pipelines.post_processing_ppl,
+            tracer_resources,
+        );
     }
 
     // create a lower resolution texture for rendering, for better performance,
@@ -872,29 +457,29 @@ impl Tracer {
         let view_mat = self.camera.get_view_mat();
         let proj_mat = self.camera.get_proj_mat();
         self.current_view_proj_mat = proj_mat * view_mat;
-        update_cam_info(&mut self.resources.camera_info, view_mat, proj_mat)?;
+        BufferUpdater::update_camera_info(&mut self.resources.camera_info, view_mat, proj_mat)?;
 
         // shadow cam info
         let world_bound = self.chunk_bound.into();
         let (shadow_view_mat, shadow_proj_mat) =
             calculate_directional_light_matrices(world_bound, sun_dir);
         self.current_shadow_view_proj_mat = shadow_proj_mat * shadow_view_mat;
-        update_cam_info(
+        BufferUpdater::update_camera_info(
             &mut self.resources.shadow_camera_info,
             shadow_view_mat,
             shadow_proj_mat,
         )?;
 
         // camera info prev frame
-        update_cam_info(
+        BufferUpdater::update_camera_info(
             &mut self.resources.camera_info_prev_frame,
             self.camera_view_mat_prev_frame,
             self.camera_proj_mat_prev_frame,
         )?;
 
-        update_taa_info(&self.resources, is_taa_enabled)?;
+        BufferUpdater::update_taa_info(&self.resources, is_taa_enabled)?;
 
-        update_god_ray_info(
+        BufferUpdater::update_god_ray_info(
             &self.resources,
             god_ray_max_depth,
             god_ray_max_checks,
@@ -902,11 +487,15 @@ impl Tracer {
             god_ray_color,
         )?;
 
-        update_post_processing_info(&self.resources, self.desc.scaling_factor)?;
+        BufferUpdater::update_post_processing_info(&self.resources, self.desc.scaling_factor)?;
 
-        update_player_collider_info(&self.resources, self.camera.position(), self.camera.front())?;
+        BufferUpdater::update_player_collider_info(
+            &self.resources,
+            self.camera.position(),
+            self.camera.front(),
+        )?;
 
-        update_voxel_colors(
+        BufferUpdater::update_voxel_colors(
             &self.resources,
             voxel_sand_color,
             voxel_dirt_color,
@@ -915,9 +504,9 @@ impl Tracer {
             voxel_trunk_color,
         )?;
 
-        update_gui_input(&self.resources, debug_float, debug_bool, debug_uint)?;
+        BufferUpdater::update_gui_input(&self.resources, debug_float, debug_bool, debug_uint)?;
 
-        update_sun_info(
+        BufferUpdater::update_sun_info(
             &self.resources,
             sun_dir,
             sun_size,
@@ -927,9 +516,9 @@ impl Tracer {
             sun_azimuth,
         )?;
 
-        update_shading_info(&self.resources, ambient_light)?;
+        BufferUpdater::update_shading_info(&self.resources, ambient_light)?;
 
-        update_starlight_info(
+        BufferUpdater::update_starlight_info(
             &self.resources,
             starlight_iterations,
             starlight_formuparam,
@@ -944,9 +533,9 @@ impl Tracer {
             starlight_saturation,
         )?;
 
-        update_env_info(&self.resources, time_info.total_frame_count() as u32)?;
+        BufferUpdater::update_env_info(&self.resources, time_info.total_frame_count() as u32)?;
 
-        update_denoiser_info(
+        BufferUpdater::update_denoiser_info(
             &mut self.resources.denoiser_resources.temporal_info,
             &mut self.resources.denoiser_resources.spatial_info,
             temporal_position_phi,
@@ -967,317 +556,7 @@ impl Tracer {
         self.camera_view_mat_prev_frame = self.camera.get_view_mat();
         self.camera_proj_mat_prev_frame = self.camera.get_proj_mat();
 
-        return Ok(());
-
-        fn update_denoiser_info(
-            temporal_info: &mut Buffer,
-            spatial_info: &mut Buffer,
-            temporal_position_phi: f32,
-            temporal_alpha: f32,
-            phi_c: f32,
-            phi_n: f32,
-            phi_p: f32,
-            min_phi_z: f32,
-            max_phi_z: f32,
-            phi_z_stable_sample_count: f32,
-            is_changing_lum_phi: bool,
-            is_spatial_denoising_enabled: bool,
-        ) -> Result<()> {
-            update_temporal_info(temporal_info, temporal_position_phi, temporal_alpha)?;
-            update_spatial_info(
-                spatial_info,
-                phi_c,
-                phi_n,
-                phi_p,
-                min_phi_z,
-                max_phi_z,
-                phi_z_stable_sample_count,
-                is_changing_lum_phi,
-                is_spatial_denoising_enabled,
-            )?;
-            return Ok(());
-
-            fn update_temporal_info(
-                temporal_info: &mut Buffer,
-                temporal_position_phi: f32,
-                temporal_alpha: f32,
-            ) -> Result<()> {
-                let data = StructMemberDataBuilder::from_buffer(temporal_info)
-                    .set_field(
-                        "temporal_position_phi",
-                        PlainMemberTypeWithData::Float(temporal_position_phi),
-                    )
-                    .set_field(
-                        "temporal_alpha",
-                        PlainMemberTypeWithData::Float(temporal_alpha),
-                    )
-                    .build()?;
-                temporal_info.fill_with_raw_u8(&data)?;
-                Ok(())
-            }
-
-            fn update_spatial_info(
-                spatial_info: &mut Buffer,
-                phi_c: f32,
-                phi_n: f32,
-                phi_p: f32,
-                min_phi_z: f32,
-                max_phi_z: f32,
-                phi_z_stable_sample_count: f32,
-                is_changing_lum_phi: bool,
-                is_spatial_denoising_enabled: bool,
-            ) -> Result<()> {
-                let data = StructMemberDataBuilder::from_buffer(spatial_info)
-                    .set_field("phi_c", PlainMemberTypeWithData::Float(phi_c))
-                    .set_field("phi_n", PlainMemberTypeWithData::Float(phi_n))
-                    .set_field("phi_p", PlainMemberTypeWithData::Float(phi_p))
-                    .set_field("min_phi_z", PlainMemberTypeWithData::Float(min_phi_z))
-                    .set_field("max_phi_z", PlainMemberTypeWithData::Float(max_phi_z))
-                    .set_field(
-                        "phi_z_stable_sample_count",
-                        PlainMemberTypeWithData::Float(phi_z_stable_sample_count),
-                    )
-                    .set_field(
-                        "is_changing_lum_phi",
-                        PlainMemberTypeWithData::UInt(is_changing_lum_phi as u32),
-                    )
-                    .set_field(
-                        "is_spatial_denoising_enabled",
-                        PlainMemberTypeWithData::UInt(is_spatial_denoising_enabled as u32),
-                    )
-                    .build()?;
-                spatial_info.fill_with_raw_u8(&data)?;
-                Ok(())
-            }
-        }
-
-        fn update_gui_input(
-            resources: &TracerResources,
-            debug_float: f32,
-            debug_bool: bool,
-            debug_uint: u32,
-        ) -> Result<()> {
-            let data = StructMemberDataBuilder::from_buffer(&resources.gui_input)
-                .set_field("debug_float", PlainMemberTypeWithData::Float(debug_float))
-                .set_field(
-                    "debug_bool",
-                    PlainMemberTypeWithData::UInt(debug_bool as u32),
-                )
-                .set_field("debug_uint", PlainMemberTypeWithData::UInt(debug_uint))
-                .build()?;
-            resources.gui_input.fill_with_raw_u8(&data)?;
-            return Ok(());
-        }
-
-        fn update_sun_info(
-            resources: &TracerResources,
-            sun_dir: Vec3,
-            sun_size: f32,
-            sun_color: Vec3,
-            sun_luminance: f32,
-            sun_altitude: f32,
-            sun_azimuth: f32,
-        ) -> Result<()> {
-            let data = StructMemberDataBuilder::from_buffer(&resources.sun_info)
-                .set_field("sun_dir", PlainMemberTypeWithData::Vec3(sun_dir.to_array()))
-                .set_field("sun_size", PlainMemberTypeWithData::Float(sun_size))
-                .set_field(
-                    "sun_color",
-                    PlainMemberTypeWithData::Vec3(sun_color.to_array()),
-                )
-                .set_field(
-                    "sun_luminance",
-                    PlainMemberTypeWithData::Float(sun_luminance),
-                )
-                .set_field("sun_altitude", PlainMemberTypeWithData::Float(sun_altitude))
-                .set_field("sun_azimuth", PlainMemberTypeWithData::Float(sun_azimuth))
-                .build()?;
-            resources.sun_info.fill_with_raw_u8(&data)?;
-            return Ok(());
-        }
-
-        fn update_shading_info(resources: &TracerResources, ambient_light: Vec3) -> Result<()> {
-            let data = StructMemberDataBuilder::from_buffer(&resources.shading_info)
-                .set_field(
-                    "ambient_light",
-                    PlainMemberTypeWithData::Vec3(ambient_light.to_array()),
-                )
-                .build()?;
-            resources.shading_info.fill_with_raw_u8(&data)?;
-            return Ok(());
-        }
-
-        fn update_starlight_info(
-            resources: &TracerResources,
-            iterations: i32,
-            formuparam: f32,
-            volsteps: i32,
-            stepsize: f32,
-            zoom: f32,
-            tile: f32,
-            speed: f32,
-            brightness: f32,
-            darkmatter: f32,
-            distfading: f32,
-            saturation: f32,
-        ) -> Result<()> {
-            let data = StructMemberDataBuilder::from_buffer(&resources.starlight_info)
-                .set_field("iterations", PlainMemberTypeWithData::Int(iterations))
-                .set_field("formuparam", PlainMemberTypeWithData::Float(formuparam))
-                .set_field("volsteps", PlainMemberTypeWithData::Int(volsteps))
-                .set_field("stepsize", PlainMemberTypeWithData::Float(stepsize))
-                .set_field("zoom", PlainMemberTypeWithData::Float(zoom))
-                .set_field("tile", PlainMemberTypeWithData::Float(tile))
-                .set_field("speed", PlainMemberTypeWithData::Float(speed))
-                .set_field("brightness", PlainMemberTypeWithData::Float(brightness))
-                .set_field("darkmatter", PlainMemberTypeWithData::Float(darkmatter))
-                .set_field("distfading", PlainMemberTypeWithData::Float(distfading))
-                .set_field("saturation", PlainMemberTypeWithData::Float(saturation))
-                .build()?;
-            resources.starlight_info.fill_with_raw_u8(&data)?;
-            return Ok(());
-        }
-
-        fn update_cam_info(camera_info: &mut Buffer, view_mat: Mat4, proj_mat: Mat4) -> Result<()> {
-            let view_proj_mat = proj_mat * view_mat;
-
-            let camera_pos = view_mat.inverse().w_axis;
-            let data = StructMemberDataBuilder::from_buffer(camera_info)
-                .set_field("pos", PlainMemberTypeWithData::Vec4(camera_pos.to_array()))
-                .set_field(
-                    "view_mat",
-                    PlainMemberTypeWithData::Mat4(view_mat.to_cols_array_2d()),
-                )
-                .set_field(
-                    "view_mat_inv",
-                    PlainMemberTypeWithData::Mat4(view_mat.inverse().to_cols_array_2d()),
-                )
-                .set_field(
-                    "proj_mat",
-                    PlainMemberTypeWithData::Mat4(proj_mat.to_cols_array_2d()),
-                )
-                .set_field(
-                    "proj_mat_inv",
-                    PlainMemberTypeWithData::Mat4(proj_mat.inverse().to_cols_array_2d()),
-                )
-                .set_field(
-                    "view_proj_mat",
-                    PlainMemberTypeWithData::Mat4(view_proj_mat.to_cols_array_2d()),
-                )
-                .set_field(
-                    "view_proj_mat_inv",
-                    PlainMemberTypeWithData::Mat4(view_proj_mat.inverse().to_cols_array_2d()),
-                )
-                .build()?;
-            camera_info.fill_with_raw_u8(&data)?;
-            Ok(())
-        }
-
-        fn update_env_info(resources: &TracerResources, frame_serial_idx: u32) -> Result<()> {
-            let data = StructMemberDataBuilder::from_buffer(&resources.env_info)
-                .set_field(
-                    "frame_serial_idx",
-                    PlainMemberTypeWithData::UInt(frame_serial_idx),
-                )
-                .build()?;
-            resources.env_info.fill_with_raw_u8(&data)?;
-            Ok(())
-        }
-
-        fn update_voxel_colors(
-            resources: &TracerResources,
-            sand_color: Vec3,
-            dirt_color: Vec3,
-            rock_color: Vec3,
-            leaf_color: Vec3,
-            trunk_color: Vec3,
-        ) -> Result<()> {
-            let data = StructMemberDataBuilder::from_buffer(&resources.voxel_colors)
-                .set_field(
-                    "sand_color",
-                    PlainMemberTypeWithData::Vec3(sand_color.to_array()),
-                )
-                .set_field(
-                    "dirt_color",
-                    PlainMemberTypeWithData::Vec3(dirt_color.to_array()),
-                )
-                .set_field(
-                    "rock_color",
-                    PlainMemberTypeWithData::Vec3(rock_color.to_array()),
-                )
-                .set_field(
-                    "leaf_color",
-                    PlainMemberTypeWithData::Vec3(leaf_color.to_array()),
-                )
-                .set_field(
-                    "trunk_color",
-                    PlainMemberTypeWithData::Vec3(trunk_color.to_array()),
-                )
-                .build()?;
-            resources.voxel_colors.fill_with_raw_u8(&data)?;
-            Ok(())
-        }
-
-        fn update_taa_info(resources: &TracerResources, is_taa_enabled: bool) -> Result<()> {
-            let data = StructMemberDataBuilder::from_buffer(&resources.taa_info)
-                .set_field(
-                    "is_taa_enabled",
-                    PlainMemberTypeWithData::UInt(is_taa_enabled as u32),
-                )
-                .build()?;
-            resources.taa_info.fill_with_raw_u8(&data)?;
-            Ok(())
-        }
-
-        fn update_god_ray_info(
-            resources: &TracerResources,
-            max_depth: f32,
-            max_checks: u32,
-            weight: f32,
-            color: Vec3,
-        ) -> Result<()> {
-            let data = StructMemberDataBuilder::from_buffer(&resources.god_ray_info)
-                .set_field("max_depth", PlainMemberTypeWithData::Float(max_depth))
-                .set_field("max_checks", PlainMemberTypeWithData::UInt(max_checks))
-                .set_field("weight", PlainMemberTypeWithData::Float(weight))
-                .set_field("color", PlainMemberTypeWithData::Vec3(color.to_array()))
-                .build()?;
-            resources.god_ray_info.fill_with_raw_u8(&data)?;
-            Ok(())
-        }
-
-        fn update_post_processing_info(
-            resources: &TracerResources,
-            scaling_factor: f32,
-        ) -> Result<()> {
-            let data = StructMemberDataBuilder::from_buffer(&resources.post_processing_info)
-                .set_field(
-                    "scaling_factor",
-                    PlainMemberTypeWithData::Float(scaling_factor),
-                )
-                .build()?;
-            resources.post_processing_info.fill_with_raw_u8(&data)?;
-            Ok(())
-        }
-
-        fn update_player_collider_info(
-            resources: &TracerResources,
-            player_pos: Vec3,
-            camera_front: Vec3,
-        ) -> Result<()> {
-            let data = StructMemberDataBuilder::from_buffer(&resources.player_collider_info)
-                .set_field(
-                    "player_pos",
-                    PlainMemberTypeWithData::Vec3(player_pos.to_array()),
-                )
-                .set_field(
-                    "camera_front",
-                    PlainMemberTypeWithData::Vec3(camera_front.to_array()),
-                )
-                .build()?;
-            resources.player_collider_info.fill_with_raw_u8(&data)?;
-            Ok(())
-        }
+        Ok(())
     }
 
     /// Returns a list of chunks that need to be drawn this frame.
@@ -1563,10 +842,10 @@ impl Tracer {
         time: f32,
     ) {
         let pipeline = match (lod_state, is_using_clear) {
-            (LodState::Lod0, true) => &self.flora_ppl_with_clear,
-            (LodState::Lod0, false) => &self.flora_ppl_with_load,
-            (LodState::Lod1, true) => &self.flora_lod_ppl_with_clear,
-            (LodState::Lod1, false) => &self.flora_lod_ppl_with_load,
+            (LodState::Lod0, true) => &self.graphics_pipelines.flora_ppl_with_clear,
+            (LodState::Lod0, false) => &self.graphics_pipelines.flora_ppl_with_load,
+            (LodState::Lod1, true) => &self.graphics_pipelines.flora_lod_ppl_with_clear,
+            (LodState::Lod1, false) => &self.graphics_pipelines.flora_lod_ppl_with_load,
         };
 
         let render_target = match is_using_clear {
@@ -1701,10 +980,10 @@ impl Tracer {
         }
 
         let pipeline = match (lod_state, is_using_clear) {
-            (LodState::Lod0, true) => &self.leaves_ppl_with_load, // No clear version for leaves, use load
-            (LodState::Lod0, false) => &self.leaves_ppl_with_load,
-            (LodState::Lod1, true) => &self.leaves_lod_ppl_with_load, // No clear version for leaves LOD, use load
-            (LodState::Lod1, false) => &self.leaves_lod_ppl_with_load,
+            (LodState::Lod0, true) => &self.graphics_pipelines.leaves_ppl_with_load, // No clear version for leaves, use load
+            (LodState::Lod0, false) => &self.graphics_pipelines.leaves_ppl_with_load,
+            (LodState::Lod1, true) => &self.graphics_pipelines.leaves_lod_ppl_with_load, // No clear version for leaves LOD, use load
+            (LodState::Lod1, false) => &self.graphics_pipelines.leaves_lod_ppl_with_load,
         };
 
         let render_target = match is_using_clear {
@@ -1830,7 +1109,9 @@ impl Tracer {
         tip_color: Vec3,
         time: f32,
     ) {
-        self.leaves_shadow_ppl_with_clear.record_bind(cmdbuf);
+        self.graphics_pipelines
+            .leaves_shadow_ppl_with_clear
+            .record_bind(cmdbuf);
 
         let push_constant = PushConstantStd140::new(time, bottom_color, tip_color);
 
@@ -1854,7 +1135,8 @@ impl Tracer {
             },
         };
 
-        self.leaves_shadow_ppl_with_clear
+        self.graphics_pipelines
+            .leaves_shadow_ppl_with_clear
             .record_viewport_scissor(cmdbuf, viewport, scissor);
 
         unsafe {
@@ -1885,18 +1167,20 @@ impl Tracer {
             }
 
             // render this instance for shadow map
-            self.leaves_shadow_ppl_with_clear.record_indexed(
-                cmdbuf,
-                self.resources.leaves_resources_lod.indices_len,
-                tree_instance.resources.instances_len,
-                0,
-                0,
-                0,
-                Some(&PushConstantInfo {
-                    shader_stage: vk::ShaderStageFlags::VERTEX,
-                    push_constants: bytemuck::bytes_of(&push_constant).to_vec(),
-                }),
-            );
+            self.graphics_pipelines
+                .leaves_shadow_ppl_with_clear
+                .record_indexed(
+                    cmdbuf,
+                    self.resources.leaves_resources_lod.indices_len,
+                    tree_instance.resources.instances_len,
+                    0,
+                    0,
+                    0,
+                    Some(&PushConstantInfo {
+                        shader_stage: vk::ShaderStageFlags::VERTEX,
+                        push_constants: bytemuck::bytes_of(&push_constant).to_vec(),
+                    }),
+                );
         }
 
         self.clear_render_target_depth.record_end(cmdbuf);
@@ -1913,7 +1197,7 @@ impl Tracer {
             .shadow_map_tex
             .get_image()
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
-        self.tracer_shadow_ppl.record(
+        self.compute_pipelines.tracer_shadow_ppl.record(
             cmdbuf,
             self.resources.shadow_map_tex.get_image().get_desc().extent,
             None,
@@ -1943,15 +1227,21 @@ impl Tracer {
         );
 
         let extent = self.resources.shadow_map_tex.get_image().get_desc().extent;
-        self.vsm_creation_ppl.record(cmdbuf, extent, None);
+        self.compute_pipelines
+            .vsm_creation_ppl
+            .record(cmdbuf, extent, None);
 
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
-        self.vsm_blur_h_ppl.record(cmdbuf, extent, None);
+        self.compute_pipelines
+            .vsm_blur_h_ppl
+            .record(cmdbuf, extent, None);
 
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
-        self.vsm_blur_v_ppl.record(cmdbuf, extent, None);
+        self.compute_pipelines
+            .vsm_blur_v_ppl
+            .record(cmdbuf, extent, None);
     }
 
     fn record_tracer_pass(&self, cmdbuf: &CommandBuffer) {
@@ -1966,7 +1256,7 @@ impl Tracer {
             .get_image()
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
 
-        self.tracer_ppl.record(
+        self.compute_pipelines.tracer_ppl.record(
             cmdbuf,
             self.resources
                 .extent_dependent_resources
@@ -1985,7 +1275,7 @@ impl Tracer {
             .get_image()
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
 
-        self.god_ray_ppl.record(
+        self.compute_pipelines.god_ray_ppl.record(
             cmdbuf,
             self.resources
                 .extent_dependent_resources
@@ -2027,11 +1317,13 @@ impl Tracer {
             .get_desc()
             .extent;
 
-        self.temporal_ppl.record(cmdbuf, extent, None);
+        self.compute_pipelines
+            .temporal_ppl
+            .record(cmdbuf, extent, None);
 
         for i in 0..a_trous_iteration_count {
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-            self.spatial_ppl.record(
+            self.compute_pipelines.spatial_ppl.record(
                 cmdbuf,
                 self.resources
                     .extent_dependent_resources
@@ -2053,7 +1345,7 @@ impl Tracer {
             .get_image()
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
 
-        self.composition_ppl.record(
+        self.compute_pipelines.composition_ppl.record(
             cmdbuf,
             self.resources
                 .extent_dependent_resources
@@ -2077,7 +1369,7 @@ impl Tracer {
             .get_image()
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
 
-        self.taa_ppl.record(
+        self.compute_pipelines.taa_ppl.record(
             cmdbuf,
             self.resources
                 .extent_dependent_resources
@@ -2096,7 +1388,7 @@ impl Tracer {
             .get_image()
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
 
-        self.post_processing_ppl.record(
+        self.compute_pipelines.post_processing_ppl.record(
             cmdbuf,
             self.resources
                 .extent_dependent_resources
@@ -2109,7 +1401,8 @@ impl Tracer {
     }
 
     fn record_player_collider_pass(&self, cmdbuf: &CommandBuffer) {
-        self.player_collider_ppl
+        self.compute_pipelines
+            .player_collider_ppl
             .record(cmdbuf, Extent3D::new(1, 1, 1), None);
     }
 
@@ -2350,8 +1643,11 @@ impl Tracer {
             self.vulkan_ctx.command_pool(),
             &self.vulkan_ctx.get_general_queue(),
             |cmdbuf| {
-                self.terrain_query_ppl
-                    .record(cmdbuf, Extent3D::new(query_count, 1, 1), None);
+                self.compute_pipelines.terrain_query_ppl.record(
+                    cmdbuf,
+                    Extent3D::new(query_count, 1, 1),
+                    None,
+                );
             },
         );
 
