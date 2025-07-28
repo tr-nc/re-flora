@@ -1893,7 +1893,7 @@ impl Tracer {
         unsafe {
             self.vulkan_ctx.device().cmd_bind_index_buffer(
                 cmdbuf.as_raw(),
-                self.resources.leaves_resources.indices.as_raw(),
+                self.resources.leaves_resources_lod.indices.as_raw(),
                 0,
                 vk::IndexType::UINT32,
             );
@@ -1910,7 +1910,7 @@ impl Tracer {
                     cmdbuf.as_raw(),
                     0,
                     &[
-                        self.resources.leaves_resources.vertices.as_raw(),
+                        self.resources.leaves_resources_lod.vertices.as_raw(),
                         tree_instance.resources.instances_buf.as_raw(),
                     ],
                     &[0, 0],
@@ -1920,7 +1920,7 @@ impl Tracer {
             // render this instance for shadow map
             self.leaves_shadow_ppl_with_clear.record_indexed(
                 cmdbuf,
-                self.resources.leaves_resources.indices_len,
+                self.resources.leaves_resources_lod.indices_len,
                 tree_instance.resources.instances_len,
                 0,
                 0,

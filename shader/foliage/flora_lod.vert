@@ -73,14 +73,12 @@ layout(set = 0, binding = 6) uniform sampler2D shadow_map_tex_for_vsm_ping;
 
 const float scaling_factor = 1.0 / 256.0;
 
-vec3 get_vert_pos_with_billboard(vec3 voxel_pos, uvec3 vert_offset_in_vox) {
+vec3 get_vert_pos_with_billboard(mat4 view_mat, vec3 voxel_pos, uvec3 vert_offset_in_vox) {
     vec3 mapped_vert_offset_in_vox = vec3(vert_offset_in_vox) - 0.5;
     mapped_vert_offset_in_vox *= scaling_factor;
 
-    vec3 right = normalize(
-        vec3(camera_info.view_mat[0][0], camera_info.view_mat[1][0], camera_info.view_mat[2][0]));
-    vec3 up = normalize(
-        vec3(camera_info.view_mat[0][1], camera_info.view_mat[1][1], camera_info.view_mat[2][1]));
+    vec3 right = normalize(vec3(view_mat[0][0], view_mat[1][0], view_mat[2][0]));
+    vec3 up    = normalize(vec3(view_mat[0][1], view_mat[1][1], view_mat[2][1]));
 
     return voxel_pos + right * mapped_vert_offset_in_vox.x + up * mapped_vert_offset_in_vox.y;
 }
@@ -99,7 +97,8 @@ void main() {
         get_wind_offset(instance_pos.xz, wind_gradient, manual_type_specific_info.time);
     vec3 anchor_pos = (vox_local_pos + wind_offset) * scaling_factor + instance_pos;
     vec3 voxel_pos  = anchor_pos + vec3(0.5) * scaling_factor;
-    vec3 vert_pos   = get_vert_pos_with_billboard(voxel_pos, vert_offset_in_vox);
+    vec3 vert_pos =
+        get_vert_pos_with_billboard(camera_info.view_mat, voxel_pos, vert_offset_in_vox);
 
     float shadow_weight =
         get_shadow_weight_vsm(shadow_camera_info.view_proj_mat, vec4(voxel_pos, 1.0));
