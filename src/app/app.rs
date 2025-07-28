@@ -410,7 +410,7 @@ impl App {
             leaves_inner_radius: 12.0,
             leaves_outer_radius: 17.0,
             temporal_position_phi: 0.8,
-            temporal_alpha: 0.04,
+            temporal_alpha: 0.08,
             god_ray_max_depth: 2.0,
             god_ray_max_checks: 32,
             god_ray_weight: 0.4,
