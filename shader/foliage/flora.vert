@@ -83,11 +83,10 @@ void main() {
 
     vec3 instance_pos = in_instance_pos * scaling_factor;
 
-    vec3 wind_offset =
-        get_wind_offset(instance_pos.xz, wind_gradient, pc.time);
-    vec3 anchor_pos = (vox_local_pos + wind_offset) * scaling_factor + instance_pos;
-    vec3 voxel_pos  = anchor_pos + vec3(0.5) * scaling_factor;
-    vec3 vert_pos   = anchor_pos + vert_offset_in_vox * scaling_factor;
+    vec3 wind_offset = get_wind_offset(instance_pos.xz, wind_gradient, pc.time);
+    vec3 anchor_pos  = (vox_local_pos + wind_offset) * scaling_factor + instance_pos;
+    vec3 voxel_pos   = anchor_pos + vec3(0.5) * scaling_factor;
+    vec3 vert_pos    = anchor_pos + vert_offset_in_vox * scaling_factor;
 
     float shadow_weight =
         get_shadow_weight_vsm(shadow_camera_info.view_proj_mat, vec4(voxel_pos, 1.0));

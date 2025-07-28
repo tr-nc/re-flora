@@ -25,7 +25,7 @@ use winit::event::KeyEvent;
 use crate::audio::AudioEngine;
 use crate::builder::{
     ContreeBuilderResources, FloraInstanceResources, FloraType, Instance,
-    SceneAccelBuilderResources, SurfaceResources,
+    SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
 use crate::gameplay::{calculate_directional_light_matrices, Camera, CameraDesc};
 use crate::geom::UAabb3;
@@ -1334,6 +1334,41 @@ impl Tracer {
         result
     }
 
+    fn trees_needs_to_draw_this_frame<'a>(
+        &self,
+        surface_resources: &'a SurfaceResources,
+        lod_distance: f32,
+    ) -> HashMap<LodState, Vec<&'a TreeLeavesInstance>> {
+        let mut lod0_instances = Vec::new();
+        let mut lod1_instances = Vec::new();
+        let camera_pos = self.camera.position();
+
+        for (_tree_id, tree_instance) in &surface_resources.instances.leaves_instances {
+            // perform frustum culling
+            if !tree_instance
+                .aabb
+                .is_inside_frustum(self.current_view_proj_mat)
+            {
+                continue;
+            }
+
+            // calculate distance from camera to tree center
+            let tree_center = tree_instance.aabb.center();
+            let distance = (camera_pos - tree_center).length();
+
+            if distance <= lod_distance {
+                lod0_instances.push(tree_instance);
+            } else {
+                lod1_instances.push(tree_instance);
+            }
+        }
+
+        let mut result = HashMap::new();
+        result.insert(LodState::Lod0, lod0_instances);
+        result.insert(LodState::Lod1, lod1_instances);
+        result
+    }
+
     pub fn record_trace(
         &mut self,
         cmdbuf: &CommandBuffer,
@@ -1431,16 +1466,22 @@ impl Tracer {
         );
         frag_to_vert_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
-        // self.record_leaves_pass(
-        //     cmdbuf,
-        //     surface_resources,
-        //     leaf_bottom_color,
-        //     leaf_tip_color,
-        //     time,
-        // );
-        self.record_leaves_lod_pass(
+        let trees_by_lod = self.trees_needs_to_draw_this_frame(surface_resources, lod_distance);
+        self.record_leaves_pass(
             cmdbuf,
-            surface_resources,
+            &trees_by_lod[&LodState::Lod0],
+            LodState::Lod0,
+            false,
+            leaf_bottom_color,
+            leaf_tip_color,
+            time,
+        );
+        frag_to_vert_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+        self.record_leaves_pass(
+            cmdbuf,
+            &trees_by_lod[&LodState::Lod1],
+            LodState::Lod1,
+            false,
             leaf_bottom_color,
             leaf_tip_color,
             time,
@@ -1668,144 +1709,47 @@ impl Tracer {
     fn record_leaves_pass(
         &self,
         cmdbuf: &CommandBuffer,
-        surface_resources: &SurfaceResources,
+        leaves_instances: &[&TreeLeavesInstance],
+        lod_state: LodState,
+        is_using_clear: bool,
         bottom_color: Vec3,
         tip_color: Vec3,
         time: f32,
     ) {
         // skip rendering entirely if no leaf instances exist
-        if surface_resources.instances.leaves_instances.is_empty() {
+        if leaves_instances.is_empty() {
             return;
         }
 
-        let push_constant = PushConstantStd140::new(time, bottom_color, tip_color);
-
-        self.leaves_ppl_with_load.record_bind(cmdbuf);
-
-        // don't clear - we want to preserve the flora that has been rendered
-        // only clear the depth buffer to ensure proper depth testing
-        let clear_values = [
-            vk::ClearValue {
-                color: vk::ClearColorValue {
-                    float32: [0.0, 0.0, 0.0, 0.0],
-                },
-            },
-            vk::ClearValue {
-                depth_stencil: vk::ClearDepthStencilValue {
-                    depth: 1.0,
-                    stencil: 0,
-                },
-            },
-        ];
-
-        self.load_render_target_color_and_depth
-            .record_begin(cmdbuf, &clear_values);
-
-        let render_extent = self
-            .resources
-            .extent_dependent_resources
-            .gfx_output_tex
-            .get_image()
-            .get_desc()
-            .extent;
-        let viewport = Viewport::from_extent(render_extent.as_extent_2d().unwrap());
-        let scissor = vk::Rect2D {
-            offset: vk::Offset2D { x: 0, y: 0 },
-            extent: vk::Extent2D {
-                width: render_extent.width,
-                height: render_extent.height,
-            },
+        let pipeline = match (lod_state, is_using_clear) {
+            (LodState::Lod0, true) => &self.leaves_ppl_with_load, // No clear version for leaves, use load
+            (LodState::Lod0, false) => &self.leaves_ppl_with_load,
+            (LodState::Lod1, true) => &self.leaves_lod_ppl_with_load, // No clear version for leaves LOD, use load
+            (LodState::Lod1, false) => &self.leaves_lod_ppl_with_load,
         };
 
-        self.leaves_ppl_with_load
-            .record_viewport_scissor(cmdbuf, viewport, scissor);
+        let render_target = match is_using_clear {
+            true => &self.clear_render_target_color_and_depth,
+            false => &self.load_render_target_color_and_depth,
+        };
 
-        unsafe {
-            // bind the index buffer for leaves
-            self.vulkan_ctx.device().cmd_bind_index_buffer(
-                cmdbuf.as_raw(),
-                self.resources.leaves_resources.indices.as_raw(),
-                0,
-                vk::IndexType::UINT32,
-            );
-        }
+        let push_constant = PushConstantStd140::new(time, bottom_color, tip_color);
 
-        // loop through all tree leaves instances
-        for (_tree_id, tree_instance) in &surface_resources.instances.leaves_instances {
-            if tree_instance.resources.instances_len == 0 {
-                continue;
-            }
-
-            // perform frustum culling
-            if !tree_instance
-                .aabb
-                .is_inside_frustum(self.current_view_proj_mat)
-            {
-                continue;
-            }
-
-            // bind vertex buffers for this instance
-            unsafe {
-                self.vulkan_ctx.device().cmd_bind_vertex_buffers(
-                    cmdbuf.as_raw(),
-                    0,
-                    &[
-                        self.resources.leaves_resources.vertices.as_raw(),
-                        tree_instance.resources.instances_buf.as_raw(),
-                    ],
-                    &[0, 0],
-                );
-            }
-
-            // render this instance
-            self.leaves_ppl_with_load.record_indexed(
-                cmdbuf,
+        let (indices_buf, vertices_buf, indices_len) = match lod_state {
+            LodState::Lod0 => (
+                &self.resources.leaves_resources.indices,
+                &self.resources.leaves_resources.vertices,
                 self.resources.leaves_resources.indices_len,
-                tree_instance.resources.instances_len,
-                0,
-                0,
-                0,
-                Some(&PushConstantInfo {
-                    shader_stage: vk::ShaderStageFlags::VERTEX,
-                    push_constants: bytemuck::bytes_of(&push_constant).to_vec(),
-                }),
-            );
-        }
+            ),
+            LodState::Lod1 => (
+                &self.resources.leaves_resources_lod.indices,
+                &self.resources.leaves_resources_lod.vertices,
+                self.resources.leaves_resources_lod.indices_len,
+            ),
+        };
 
-        self.load_render_target_color_and_depth.record_end(cmdbuf);
+        pipeline.record_bind(cmdbuf);
 
-        let desc = self.load_render_target_color_and_depth.get_desc();
-        self.resources
-            .extent_dependent_resources
-            .gfx_output_tex
-            .get_image()
-            .set_layout(0, desc.attachments[0].final_layout);
-        self.resources
-            .extent_dependent_resources
-            .gfx_depth_tex
-            .get_image()
-            .set_layout(0, desc.attachments[1].final_layout);
-    }
-
-    fn record_leaves_lod_pass(
-        &self,
-        cmdbuf: &CommandBuffer,
-        surface_resources: &SurfaceResources,
-        bottom_color: Vec3,
-        tip_color: Vec3,
-        time: f32,
-    ) {
-        let push_constant = PushConstantStd140::new(time, bottom_color, tip_color);
-
-        // skip rendering entirely if no leaf instances exist
-        if surface_resources.instances.leaves_instances.is_empty() {
-            return;
-        }
-
-        self.leaves_lod_ppl_with_load.record_bind(cmdbuf);
-
-        // don't clear - we want to preserve the flora that has been rendered
-        // only clear the depth buffer to ensure proper depth testing
         let clear_values = [
             vk::ClearValue {
                 color: vk::ClearColorValue {
@@ -1820,8 +1764,7 @@ impl Tracer {
             },
         ];
 
-        self.load_render_target_color_and_depth
-            .record_begin(cmdbuf, &clear_values);
+        render_target.record_begin(cmdbuf, &clear_values);
 
         let render_extent = self
             .resources
@@ -1839,30 +1782,21 @@ impl Tracer {
             },
         };
 
-        self.leaves_lod_ppl_with_load
-            .record_viewport_scissor(cmdbuf, viewport, scissor);
+        pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
 
         unsafe {
             // bind the index buffer for leaves
             self.vulkan_ctx.device().cmd_bind_index_buffer(
                 cmdbuf.as_raw(),
-                self.resources.leaves_resources_lod.indices.as_raw(),
+                indices_buf.as_raw(),
                 0,
                 vk::IndexType::UINT32,
             );
         }
 
-        // loop through all tree leaves instances
-        for (_tree_id, tree_instance) in &surface_resources.instances.leaves_instances {
+        // loop through all tree leaves instances for this LOD level
+        for tree_instance in leaves_instances {
             if tree_instance.resources.instances_len == 0 {
-                continue;
-            }
-
-            // perform frustum culling
-            if !tree_instance
-                .aabb
-                .is_inside_frustum(self.current_view_proj_mat)
-            {
                 continue;
             }
 
@@ -1872,7 +1806,7 @@ impl Tracer {
                     cmdbuf.as_raw(),
                     0,
                     &[
-                        self.resources.leaves_resources_lod.vertices.as_raw(),
+                        vertices_buf.as_raw(),
                         tree_instance.resources.instances_buf.as_raw(),
                     ],
                     &[0, 0],
@@ -1880,9 +1814,9 @@ impl Tracer {
             }
 
             // render this instance
-            self.leaves_lod_ppl_with_load.record_indexed(
+            pipeline.record_indexed(
                 cmdbuf,
-                self.resources.leaves_resources_lod.indices_len,
+                indices_len,
                 tree_instance.resources.instances_len,
                 0,
                 0,
@@ -1894,9 +1828,9 @@ impl Tracer {
             );
         }
 
-        self.load_render_target_color_and_depth.record_end(cmdbuf);
+        render_target.record_end(cmdbuf);
 
-        let desc = self.load_render_target_color_and_depth.get_desc();
+        let desc = render_target.get_desc();
         self.resources
             .extent_dependent_resources
             .gfx_output_tex
