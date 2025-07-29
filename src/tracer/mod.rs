@@ -980,10 +980,10 @@ impl Tracer {
         }
 
         let pipeline = match (lod_state, is_using_clear) {
-            (LodState::Lod0, true) => &self.graphics_pipelines.leaves_ppl_with_load, // No clear version for leaves, use load
-            (LodState::Lod0, false) => &self.graphics_pipelines.leaves_ppl_with_load,
-            (LodState::Lod1, true) => &self.graphics_pipelines.leaves_lod_ppl_with_load, // No clear version for leaves LOD, use load
-            (LodState::Lod1, false) => &self.graphics_pipelines.leaves_lod_ppl_with_load,
+            (LodState::Lod0, true) => &self.graphics_pipelines.flora_ppl_with_load,
+            (LodState::Lod0, false) => &self.graphics_pipelines.flora_ppl_with_load,
+            (LodState::Lod1, true) => &self.graphics_pipelines.flora_lod_ppl_with_load,
+            (LodState::Lod1, false) => &self.graphics_pipelines.flora_lod_ppl_with_load,
         };
 
         let render_target = match is_using_clear {

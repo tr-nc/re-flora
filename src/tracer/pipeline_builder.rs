@@ -152,38 +152,6 @@ impl PipelineBuilder {
         )
         .unwrap();
 
-        let leaves_vert_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            shader_compiler,
-            "shader/foliage/leaves.vert",
-            "main",
-        )
-        .unwrap();
-
-        let leaves_frag_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            shader_compiler,
-            "shader/foliage/leaves.frag",
-            "main",
-        )
-        .unwrap();
-
-        let leaves_lod_vert_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            shader_compiler,
-            "shader/foliage/leaves_lod.vert",
-            "main",
-        )
-        .unwrap();
-
-        let leaves_lod_frag_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            shader_compiler,
-            "shader/foliage/leaves_lod.frag",
-            "main",
-        )
-        .unwrap();
-
         let leaves_shadow_vert_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             shader_compiler,
@@ -218,10 +186,6 @@ impl PipelineBuilder {
             flora_frag_sm,
             flora_lod_vert_sm,
             flora_lod_frag_sm,
-            leaves_vert_sm,
-            leaves_frag_sm,
-            leaves_lod_vert_sm,
-            leaves_lod_frag_sm,
             leaves_shadow_vert_sm,
             leaves_shadow_frag_sm,
         })
@@ -382,26 +346,6 @@ impl PipelineBuilder {
             &[resources],
         );
 
-        let leaves_ppl_with_load = Self::create_gfx_pipeline(
-            vulkan_ctx,
-            &shader_modules.leaves_vert_sm,
-            &shader_modules.leaves_frag_sm,
-            &render_passes.load_render_pass_color_and_depth,
-            Some(1),
-            pool,
-            &[resources],
-        );
-
-        let leaves_lod_ppl_with_load = Self::create_gfx_pipeline(
-            vulkan_ctx,
-            &shader_modules.leaves_lod_vert_sm,
-            &shader_modules.leaves_lod_frag_sm,
-            &render_passes.load_render_pass_color_and_depth,
-            Some(1),
-            pool,
-            &[resources],
-        );
-
         let leaves_shadow_ppl_with_clear = Self::create_gfx_pipeline(
             vulkan_ctx,
             &shader_modules.leaves_shadow_vert_sm,
@@ -417,8 +361,6 @@ impl PipelineBuilder {
             flora_ppl_with_load,
             flora_lod_ppl_with_clear,
             flora_lod_ppl_with_load,
-            leaves_ppl_with_load,
-            leaves_lod_ppl_with_load,
             leaves_shadow_ppl_with_clear,
         }
     }
@@ -553,10 +495,6 @@ pub struct ShaderModules {
     pub flora_frag_sm: ShaderModule,
     pub flora_lod_vert_sm: ShaderModule,
     pub flora_lod_frag_sm: ShaderModule,
-    pub leaves_vert_sm: ShaderModule,
-    pub leaves_frag_sm: ShaderModule,
-    pub leaves_lod_vert_sm: ShaderModule,
-    pub leaves_lod_frag_sm: ShaderModule,
     pub leaves_shadow_vert_sm: ShaderModule,
     pub leaves_shadow_frag_sm: ShaderModule,
 }
@@ -588,7 +526,5 @@ pub struct GraphicsPipelines {
     pub flora_ppl_with_load: GraphicsPipeline,
     pub flora_lod_ppl_with_clear: GraphicsPipeline,
     pub flora_lod_ppl_with_load: GraphicsPipeline,
-    pub leaves_ppl_with_load: GraphicsPipeline,
-    pub leaves_lod_ppl_with_load: GraphicsPipeline,
     pub leaves_shadow_ppl_with_clear: GraphicsPipeline,
 }
