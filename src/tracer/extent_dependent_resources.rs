@@ -73,7 +73,9 @@ impl ExtentDependentResources {
         let tex_desc = ImageDesc {
             extent: rendering_extent.into(),
             format: vk::Format::D32_SFLOAT,
-            usage: vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT | vk::ImageUsageFlags::STORAGE,
+            usage: vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT
+                | vk::ImageUsageFlags::STORAGE
+                | vk::ImageUsageFlags::TRANSFER_DST,
             initial_layout: vk::ImageLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::DEPTH,
             ..Default::default()
@@ -121,7 +123,9 @@ impl ExtentDependentResources {
         let tex_desc = ImageDesc {
             extent: rendering_extent.into(),
             format: vk::Format::R8G8B8A8_UNORM,
-            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::COLOR_ATTACHMENT,
+            usage: vk::ImageUsageFlags::STORAGE
+                | vk::ImageUsageFlags::COLOR_ATTACHMENT
+                | vk::ImageUsageFlags::TRANSFER_DST,
             initial_layout: vk::ImageLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()

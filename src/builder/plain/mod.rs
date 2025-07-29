@@ -6,6 +6,7 @@ use crate::vkn::execute_one_time_command;
 use crate::vkn::Allocator;
 use crate::vkn::Buffer;
 use crate::vkn::ClearValue;
+use crate::vkn::ColorClearValue;
 use crate::vkn::CommandBuffer;
 use crate::vkn::ComputePipeline;
 use crate::vkn::DescriptorPool;
@@ -115,13 +116,13 @@ impl PlainBuilder {
                         cmdbuf,
                         Some(vk::ImageLayout::GENERAL),
                         0,
-                        ClearValue::UInt([0, 0, 0, 0]),
+                        ClearValue::Color(ColorClearValue::UInt([0, 0, 0, 0])),
                     );
                     resources.free_atlas.get_image().record_clear(
                         cmdbuf,
                         Some(vk::ImageLayout::GENERAL),
                         0,
-                        ClearValue::UInt([0, 0, 0, 0]),
+                        ClearValue::Color(ColorClearValue::UInt([0, 0, 0, 0])),
                     );
                 },
             );

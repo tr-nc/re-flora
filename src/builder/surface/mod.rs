@@ -4,9 +4,9 @@ use crate::{
     geom::UAabb3,
     util::ShaderCompiler,
     vkn::{
-        Allocator, Buffer, ClearValue, CommandBuffer, ComputePipeline, DescriptorPool, Extent3D,
-        PlainMemberTypeWithData, ShaderModule, StructMemberDataBuilder, StructMemberDataReader,
-        VulkanContext, WriteDescriptorSet,
+        Allocator, Buffer, ClearValue, ColorClearValue, CommandBuffer, ComputePipeline,
+        DescriptorPool, Extent3D, PlainMemberTypeWithData, ShaderModule, StructMemberDataBuilder,
+        StructMemberDataReader, VulkanContext, WriteDescriptorSet,
     },
 };
 use anyhow::Result;
@@ -128,7 +128,7 @@ impl SurfaceBuilder {
             &cmdbuf,
             Some(vk::ImageLayout::GENERAL),
             0,
-            ClearValue::UInt([0, 0, 0, 0]),
+            ClearValue::Color(ColorClearValue::UInt([0, 0, 0, 0])),
         );
 
         let extent = Extent3D {

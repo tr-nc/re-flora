@@ -275,27 +275,15 @@ impl PipelineBuilder {
         gfx_depth_tex: Texture,
         shadow_map_tex: Texture,
     ) -> RenderPasses {
-        let clear_render_pass_color_and_depth = Self::create_render_pass_with_color_and_depth(
+        let render_pass_color_and_depth = Self::create_render_pass_with_color_and_depth(
             vulkan_ctx,
             gfx_output_tex.clone(),
             gfx_depth_tex.clone(),
-            true,
         );
-
-        let load_render_pass_color_and_depth = Self::create_render_pass_with_color_and_depth(
-            vulkan_ctx,
-            gfx_output_tex,
-            gfx_depth_tex,
-            false,
-        );
-
-        let clear_render_pass_depth =
-            Self::create_render_pass_with_depth(vulkan_ctx, shadow_map_tex, true);
-
+        let render_pass_depth = Self::create_render_pass_with_depth(vulkan_ctx, shadow_map_tex);
         RenderPasses {
-            clear_render_pass_color_and_depth,
-            load_render_pass_color_and_depth,
-            clear_render_pass_depth,
+            render_pass_color_and_depth,
+            render_pass_depth,
         }
     }
 
@@ -306,62 +294,39 @@ impl PipelineBuilder {
         pool: &DescriptorPool,
         resources: &TracerResources,
     ) -> GraphicsPipelines {
-        let flora_ppl_with_clear = Self::create_gfx_pipeline(
+        let flora_ppl = Self::create_gfx_pipeline(
             vulkan_ctx,
             &shader_modules.flora_vert_sm,
             &shader_modules.flora_frag_sm,
-            &render_passes.clear_render_pass_color_and_depth,
+            &render_passes.render_pass_color_and_depth,
             Some(1),
             pool,
             &[resources],
         );
 
-        let flora_ppl_with_load = Self::create_gfx_pipeline(
-            vulkan_ctx,
-            &shader_modules.flora_vert_sm,
-            &shader_modules.flora_frag_sm,
-            &render_passes.load_render_pass_color_and_depth,
-            Some(1),
-            pool,
-            &[resources],
-        );
-
-        let flora_lod_ppl_with_clear = Self::create_gfx_pipeline(
+        let flora_lod_ppl = Self::create_gfx_pipeline(
             vulkan_ctx,
             &shader_modules.flora_lod_vert_sm,
             &shader_modules.flora_lod_frag_sm,
-            &render_passes.clear_render_pass_color_and_depth,
+            &render_passes.render_pass_color_and_depth,
             Some(1),
             pool,
             &[resources],
         );
 
-        let flora_lod_ppl_with_load = Self::create_gfx_pipeline(
-            vulkan_ctx,
-            &shader_modules.flora_lod_vert_sm,
-            &shader_modules.flora_lod_frag_sm,
-            &render_passes.load_render_pass_color_and_depth,
-            Some(1),
-            pool,
-            &[resources],
-        );
-
-        let leaves_shadow_ppl_with_clear = Self::create_gfx_pipeline(
+        let leaves_shadow_lod_ppl = Self::create_gfx_pipeline(
             vulkan_ctx,
             &shader_modules.leaves_shadow_vert_sm,
             &shader_modules.leaves_shadow_frag_sm,
-            &render_passes.clear_render_pass_depth,
+            &render_passes.render_pass_depth,
             Some(1),
             pool,
             &[resources],
         );
-
         GraphicsPipelines {
-            flora_ppl_with_clear,
-            flora_ppl_with_load,
-            flora_lod_ppl_with_clear,
-            flora_lod_ppl_with_load,
-            leaves_shadow_ppl_with_clear,
+            flora_ppl,
+            flora_lod_ppl,
+            leaves_shadow_lod_ppl,
         }
     }
 
@@ -369,85 +334,42 @@ impl PipelineBuilder {
         vulkan_ctx: &VulkanContext,
         output_tex: Texture,
         depth_tex: Texture,
-        is_starting_with_clear: bool,
     ) -> RenderPass {
-        if is_starting_with_clear {
-            RenderPass::with_attachments(
-                vulkan_ctx.device().clone(),
-                &[
-                    AttachmentDescOuter {
-                        texture: output_tex,
-                        load_op: vk::AttachmentLoadOp::CLEAR,
-                        store_op: vk::AttachmentStoreOp::STORE,
-                        initial_layout: vk::ImageLayout::UNDEFINED,
-                        final_layout: vk::ImageLayout::GENERAL,
-                        ty: AttachmentType::Color,
-                    },
-                    AttachmentDescOuter {
-                        texture: depth_tex,
-                        load_op: vk::AttachmentLoadOp::CLEAR,
-                        store_op: vk::AttachmentStoreOp::STORE,
-                        initial_layout: vk::ImageLayout::UNDEFINED,
-                        final_layout: vk::ImageLayout::GENERAL,
-                        ty: AttachmentType::Depth,
-                    },
-                ],
-            )
-        } else {
-            RenderPass::with_attachments(
-                vulkan_ctx.device().clone(),
-                &[
-                    AttachmentDescOuter {
-                        texture: output_tex,
-                        load_op: vk::AttachmentLoadOp::LOAD,
-                        store_op: vk::AttachmentStoreOp::STORE,
-                        initial_layout: vk::ImageLayout::GENERAL,
-                        final_layout: vk::ImageLayout::GENERAL,
-                        ty: AttachmentType::Color,
-                    },
-                    AttachmentDescOuter {
-                        texture: depth_tex,
-                        load_op: vk::AttachmentLoadOp::LOAD,
-                        store_op: vk::AttachmentStoreOp::STORE,
-                        initial_layout: vk::ImageLayout::GENERAL,
-                        final_layout: vk::ImageLayout::GENERAL,
-                        ty: AttachmentType::Depth,
-                    },
-                ],
-            )
-        }
-    }
-
-    fn create_render_pass_with_depth(
-        vulkan_ctx: &VulkanContext,
-        depth_tex: Texture,
-        is_starting_with_clear: bool,
-    ) -> RenderPass {
-        if is_starting_with_clear {
-            RenderPass::with_attachments(
-                vulkan_ctx.device().clone(),
-                &[AttachmentDescOuter {
-                    texture: depth_tex,
-                    load_op: vk::AttachmentLoadOp::CLEAR,
+        RenderPass::with_attachments(
+            vulkan_ctx.device().clone(),
+            &[
+                AttachmentDescOuter {
+                    texture: output_tex,
+                    load_op: vk::AttachmentLoadOp::LOAD,
                     store_op: vk::AttachmentStoreOp::STORE,
-                    initial_layout: vk::ImageLayout::UNDEFINED,
+                    initial_layout: vk::ImageLayout::GENERAL,
                     final_layout: vk::ImageLayout::GENERAL,
-                    ty: AttachmentType::Depth,
-                }],
-            )
-        } else {
-            RenderPass::with_attachments(
-                vulkan_ctx.device().clone(),
-                &[AttachmentDescOuter {
+                    ty: AttachmentType::Color,
+                },
+                AttachmentDescOuter {
                     texture: depth_tex,
                     load_op: vk::AttachmentLoadOp::LOAD,
                     store_op: vk::AttachmentStoreOp::STORE,
                     initial_layout: vk::ImageLayout::GENERAL,
                     final_layout: vk::ImageLayout::GENERAL,
                     ty: AttachmentType::Depth,
-                }],
-            )
-        }
+                },
+            ],
+        )
+    }
+
+    fn create_render_pass_with_depth(vulkan_ctx: &VulkanContext, depth_tex: Texture) -> RenderPass {
+        RenderPass::with_attachments(
+            vulkan_ctx.device().clone(),
+            &[AttachmentDescOuter {
+                texture: depth_tex,
+                load_op: vk::AttachmentLoadOp::LOAD,
+                store_op: vk::AttachmentStoreOp::STORE,
+                initial_layout: vk::ImageLayout::GENERAL,
+                final_layout: vk::ImageLayout::GENERAL,
+                ty: AttachmentType::Depth,
+            }],
+        )
     }
 
     fn create_gfx_pipeline(
@@ -516,15 +438,12 @@ pub struct ComputePipelines {
 }
 
 pub struct RenderPasses {
-    pub clear_render_pass_color_and_depth: RenderPass,
-    pub load_render_pass_color_and_depth: RenderPass,
-    pub clear_render_pass_depth: RenderPass,
+    pub render_pass_color_and_depth: RenderPass,
+    pub render_pass_depth: RenderPass,
 }
 
 pub struct GraphicsPipelines {
-    pub flora_ppl_with_clear: GraphicsPipeline,
-    pub flora_ppl_with_load: GraphicsPipeline,
-    pub flora_lod_ppl_with_clear: GraphicsPipeline,
-    pub flora_lod_ppl_with_load: GraphicsPipeline,
-    pub leaves_shadow_ppl_with_clear: GraphicsPipeline,
+    pub flora_ppl: GraphicsPipeline,
+    pub flora_lod_ppl: GraphicsPipeline,
+    pub leaves_shadow_lod_ppl: GraphicsPipeline,
 }

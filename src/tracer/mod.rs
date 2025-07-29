@@ -38,10 +38,11 @@ use crate::geom::UAabb3;
 use crate::resource::ResourceContainer;
 use crate::util::{ShaderCompiler, TimeInfo};
 use crate::vkn::{
-    execute_one_time_command, Allocator, Buffer, CommandBuffer, ComputePipeline, DescriptorPool,
-    Extent2D, Extent3D, Framebuffer, MemoryBarrier, PipelineBarrier, PlainMemberTypeWithData,
-    PushConstantInfo, RenderPass, RenderTarget, StructMemberDataBuilder, StructMemberDataReader,
-    Texture, Viewport, VulkanContext,
+    execute_one_time_command, Allocator, Buffer, ClearValue, ColorClearValue, CommandBuffer,
+    ComputePipeline, DepthOrStencilClearValue, DescriptorPool, Extent2D, Extent3D, Framebuffer,
+    MemoryBarrier, PipelineBarrier, PlainMemberTypeWithData, PushConstantInfo, RenderPass,
+    RenderTarget, StructMemberDataBuilder, StructMemberDataReader, Texture, Viewport,
+    VulkanContext,
 };
 use anyhow::Result;
 use ash::vk;
@@ -115,9 +116,8 @@ pub struct Tracer {
     compute_pipelines: ComputePipelines,
     graphics_pipelines: GraphicsPipelines,
 
-    clear_render_target_color_and_depth: RenderTarget,
-    load_render_target_color_and_depth: RenderTarget,
-    clear_render_target_depth: RenderTarget,
+    render_target_color_and_depth: RenderTarget,
+    render_target_depth_only: RenderTarget,
 
     #[allow(dead_code)]
     pool: DescriptorPool,
@@ -201,35 +201,25 @@ impl Tracer {
             &resources,
         );
 
-        let clear_framebuffer_color_and_depth = Self::create_framebuffer_color_and_depth(
+        let framebuffer_color_and_depth = Self::create_framebuffer_color_and_depth(
             &vulkan_ctx,
-            &render_passes.clear_render_pass_color_and_depth,
+            &render_passes.render_pass_color_and_depth,
             &resources.extent_dependent_resources.gfx_output_tex,
             &resources.extent_dependent_resources.gfx_depth_tex,
         );
-        let load_framebuffer_color_and_depth = Self::create_framebuffer_color_and_depth(
+        let framebuffer_depth_only = Self::create_framebuffer_depth(
             &vulkan_ctx,
-            &render_passes.load_render_pass_color_and_depth,
-            &resources.extent_dependent_resources.gfx_output_tex,
-            &resources.extent_dependent_resources.gfx_depth_tex,
-        );
-        let clear_framebuffer_depth = Self::create_framebuffer_depth(
-            &vulkan_ctx,
-            &render_passes.clear_render_pass_depth,
+            &render_passes.render_pass_depth,
             &resources.shadow_map_tex,
         );
 
-        let clear_render_target_color_and_depth = RenderTarget::new(
-            render_passes.clear_render_pass_color_and_depth,
-            vec![clear_framebuffer_color_and_depth],
+        let render_target_color_and_depth = RenderTarget::new(
+            render_passes.render_pass_color_and_depth,
+            vec![framebuffer_color_and_depth],
         );
-        let load_render_target_color_and_depth = RenderTarget::new(
-            render_passes.load_render_pass_color_and_depth,
-            vec![load_framebuffer_color_and_depth],
-        );
-        let clear_render_target_depth = RenderTarget::new(
-            render_passes.clear_render_pass_depth,
-            vec![clear_framebuffer_depth],
+        let render_target_depth_only = RenderTarget::new(
+            render_passes.render_pass_depth,
+            vec![framebuffer_depth_only],
         );
 
         return Ok(Self {
@@ -245,9 +235,8 @@ impl Tracer {
             current_shadow_view_proj_mat: Mat4::IDENTITY,
             compute_pipelines,
             graphics_pipelines,
-            clear_render_target_color_and_depth,
-            load_render_target_color_and_depth,
-            clear_render_target_depth,
+            render_target_color_and_depth,
+            render_target_depth_only,
             pool,
             a_trous_iteration_count: 3,
         });
@@ -319,39 +308,25 @@ impl Tracer {
             screen_extent,
         );
 
-        let clear_framebuffer_color_and_depth = Self::create_framebuffer_color_and_depth(
+        let framebuffer_color_and_depth = Self::create_framebuffer_color_and_depth(
             &self.vulkan_ctx,
-            self.clear_render_target_color_and_depth.get_render_pass(),
+            self.render_target_color_and_depth.get_render_pass(),
             &self.resources.extent_dependent_resources.gfx_output_tex,
             &self.resources.extent_dependent_resources.gfx_depth_tex,
         );
-        let load_framebuffer_color_and_depth = Self::create_framebuffer_color_and_depth(
+        let framebuffer_depth_only = Self::create_framebuffer_depth(
             &self.vulkan_ctx,
-            self.load_render_target_color_and_depth.get_render_pass(),
-            &self.resources.extent_dependent_resources.gfx_output_tex,
-            &self.resources.extent_dependent_resources.gfx_depth_tex,
-        );
-        let clear_framebuffer_depth = Self::create_framebuffer_depth(
-            &self.vulkan_ctx,
-            self.clear_render_target_depth.get_render_pass(),
+            self.render_target_depth_only.get_render_pass(),
             &self.resources.shadow_map_tex,
         );
 
-        self.clear_render_target_color_and_depth = RenderTarget::new(
-            self.clear_render_target_color_and_depth
-                .get_render_pass()
-                .clone(),
-            vec![clear_framebuffer_color_and_depth],
+        self.render_target_color_and_depth = RenderTarget::new(
+            self.render_target_color_and_depth.get_render_pass().clone(),
+            vec![framebuffer_color_and_depth],
         );
-        self.load_render_target_color_and_depth = RenderTarget::new(
-            self.load_render_target_color_and_depth
-                .get_render_pass()
-                .clone(),
-            vec![load_framebuffer_color_and_depth],
-        );
-        self.clear_render_target_depth = RenderTarget::new(
-            self.clear_render_target_depth.get_render_pass().clone(),
-            vec![clear_framebuffer_depth],
+        self.render_target_depth_only = RenderTarget::new(
+            self.render_target_depth_only.get_render_pass().clone(),
+            vec![framebuffer_depth_only],
         );
 
         self.update_sets(contree_builder_resources, scene_accel_resources);
@@ -652,7 +627,9 @@ impl Tracer {
             vec![shader_access_memory_barrier],
         );
 
-        self.record_leaves_shadow_pass(
+        self.record_clear_render_targets(cmdbuf);
+        
+        self.record_leaves_shadow_lod_pass(
             cmdbuf,
             surface_resources,
             leaf_bottom_color,
@@ -683,7 +660,6 @@ impl Tracer {
             cmdbuf,
             &chunks_by_lod[&LodState::Lod0],
             LodState::Lod0,
-            true,
             FloraType::Grass,
             grass_bottom_color,
             grass_tip_color,
@@ -694,7 +670,6 @@ impl Tracer {
             cmdbuf,
             &chunks_by_lod[&LodState::Lod1],
             LodState::Lod1,
-            false,
             FloraType::Grass,
             grass_bottom_color,
             grass_tip_color,
@@ -705,7 +680,6 @@ impl Tracer {
             cmdbuf,
             &chunks_by_lod[&LodState::Lod0],
             LodState::Lod0,
-            false,
             FloraType::Lavender,
             lavender_bottom_color,
             lavender_tip_color,
@@ -716,7 +690,6 @@ impl Tracer {
             cmdbuf,
             &chunks_by_lod[&LodState::Lod1],
             LodState::Lod1,
-            false,
             FloraType::Lavender,
             lavender_bottom_color,
             lavender_tip_color,
@@ -729,7 +702,6 @@ impl Tracer {
             cmdbuf,
             &trees_by_lod[&LodState::Lod0],
             LodState::Lod0,
-            false,
             leaf_bottom_color,
             leaf_tip_color,
             time,
@@ -739,7 +711,6 @@ impl Tracer {
             cmdbuf,
             &trees_by_lod[&LodState::Lod1],
             LodState::Lod1,
-            false,
             leaf_bottom_color,
             leaf_tip_color,
             time,
@@ -830,28 +801,52 @@ impl Tracer {
         }
     }
 
+    fn record_clear_render_targets(&self, cmdbuf: &CommandBuffer) {
+        self.resources
+            .extent_dependent_resources
+            .gfx_output_tex
+            .get_image()
+            .record_clear(
+                cmdbuf,
+                Some(vk::ImageLayout::GENERAL),
+                0,
+                ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 1.0])),
+            );
+        self.resources
+            .extent_dependent_resources
+            .gfx_depth_tex
+            .get_image()
+            .record_clear(
+                cmdbuf,
+                Some(vk::ImageLayout::GENERAL),
+                0,
+                ClearValue::DepthStencil(DepthOrStencilClearValue::Depth(1.0)),
+            );
+
+        self.resources.shadow_map_tex.get_image().record_clear(
+            cmdbuf,
+            Some(vk::ImageLayout::GENERAL),
+            0,
+            ClearValue::DepthStencil(DepthOrStencilClearValue::Depth(1.0)),
+        );
+    }
+
     fn record_flora_pass(
         &self,
         cmdbuf: &CommandBuffer,
         flora_instances: &[&FloraInstanceResources],
         lod_state: LodState,
-        is_using_clear: bool,
         flora_type: FloraType,
         bottom_color: Vec3,
         tip_color: Vec3,
         time: f32,
     ) {
-        let pipeline = match (lod_state, is_using_clear) {
-            (LodState::Lod0, true) => &self.graphics_pipelines.flora_ppl_with_clear,
-            (LodState::Lod0, false) => &self.graphics_pipelines.flora_ppl_with_load,
-            (LodState::Lod1, true) => &self.graphics_pipelines.flora_lod_ppl_with_clear,
-            (LodState::Lod1, false) => &self.graphics_pipelines.flora_lod_ppl_with_load,
+        let pipeline = match lod_state {
+            LodState::Lod0 => &self.graphics_pipelines.flora_ppl,
+            LodState::Lod1 => &self.graphics_pipelines.flora_lod_ppl,
         };
 
-        let render_target = match is_using_clear {
-            true => &self.clear_render_target_color_and_depth,
-            false => &self.load_render_target_color_and_depth,
-        };
+        let render_target = &self.render_target_color_and_depth;
 
         let push_constant = PushConstantStd140::new(time, bottom_color, tip_color);
 
@@ -969,7 +964,6 @@ impl Tracer {
         cmdbuf: &CommandBuffer,
         leaves_instances: &[&TreeLeavesInstance],
         lod_state: LodState,
-        is_using_clear: bool,
         bottom_color: Vec3,
         tip_color: Vec3,
         time: f32,
@@ -979,17 +973,12 @@ impl Tracer {
             return;
         }
 
-        let pipeline = match (lod_state, is_using_clear) {
-            (LodState::Lod0, true) => &self.graphics_pipelines.flora_ppl_with_load,
-            (LodState::Lod0, false) => &self.graphics_pipelines.flora_ppl_with_load,
-            (LodState::Lod1, true) => &self.graphics_pipelines.flora_lod_ppl_with_load,
-            (LodState::Lod1, false) => &self.graphics_pipelines.flora_lod_ppl_with_load,
+        let pipeline = match lod_state {
+            LodState::Lod0 => &self.graphics_pipelines.flora_ppl,
+            LodState::Lod1 => &self.graphics_pipelines.flora_lod_ppl,
         };
 
-        let render_target = match is_using_clear {
-            true => &self.clear_render_target_color_and_depth,
-            false => &self.load_render_target_color_and_depth,
-        };
+        let render_target = &self.render_target_color_and_depth;
 
         let push_constant = PushConstantStd140::new(time, bottom_color, tip_color);
 
@@ -1101,7 +1090,7 @@ impl Tracer {
             .set_layout(0, desc.attachments[1].final_layout);
     }
 
-    fn record_leaves_shadow_pass(
+    fn record_leaves_shadow_lod_pass(
         &self,
         cmdbuf: &CommandBuffer,
         surface_resources: &SurfaceResources,
@@ -1110,7 +1099,7 @@ impl Tracer {
         time: f32,
     ) {
         self.graphics_pipelines
-            .leaves_shadow_ppl_with_clear
+            .leaves_shadow_lod_ppl
             .record_bind(cmdbuf);
 
         let push_constant = PushConstantStd140::new(time, bottom_color, tip_color);
@@ -1122,7 +1111,7 @@ impl Tracer {
             },
         }];
 
-        self.clear_render_target_depth
+        self.render_target_depth_only
             .record_begin(cmdbuf, &clear_values);
 
         let shadow_extent = self.resources.shadow_map_tex.get_image().get_desc().extent;
@@ -1136,7 +1125,7 @@ impl Tracer {
         };
 
         self.graphics_pipelines
-            .leaves_shadow_ppl_with_clear
+            .leaves_shadow_lod_ppl
             .record_viewport_scissor(cmdbuf, viewport, scissor);
 
         unsafe {
@@ -1168,7 +1157,7 @@ impl Tracer {
 
             // render this instance for shadow map
             self.graphics_pipelines
-                .leaves_shadow_ppl_with_clear
+                .leaves_shadow_lod_ppl
                 .record_indexed(
                     cmdbuf,
                     self.resources.leaves_resources_lod.indices_len,
@@ -1183,9 +1172,9 @@ impl Tracer {
                 );
         }
 
-        self.clear_render_target_depth.record_end(cmdbuf);
+        self.render_target_depth_only.record_end(cmdbuf);
 
-        let desc = self.clear_render_target_depth.get_desc();
+        let desc = self.render_target_depth_only.get_desc();
         self.resources
             .shadow_map_tex
             .get_image()

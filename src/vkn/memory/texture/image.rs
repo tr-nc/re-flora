@@ -29,11 +29,27 @@ impl Drop for ImageInner {
     }
 }
 
-#[allow(dead_code)]
-pub enum ClearValue {
+pub enum ColorClearValue {
+    #[allow(dead_code)]
     UInt([u32; 4]),
+    #[allow(dead_code)]
     Float([f32; 4]),
+    #[allow(dead_code)]
     Int([i32; 4]),
+}
+
+pub enum DepthOrStencilClearValue {
+    #[allow(dead_code)]
+    DepthAndStencil(f32, u32),
+    #[allow(dead_code)]
+    Depth(f32),
+    #[allow(dead_code)]
+    Stencil(u32),
+}
+
+pub enum ClearValue {
+    Color(ColorClearValue),
+    DepthStencil(DepthOrStencilClearValue),
 }
 
 #[derive(Clone)]
@@ -249,29 +265,71 @@ impl Image {
         const LAYOUT_USED_TO_CLEAR: vk::ImageLayout = vk::ImageLayout::TRANSFER_DST_OPTIMAL;
         self.record_transition_barrier(cmdbuf, base_array_layer, LAYOUT_USED_TO_CLEAR);
 
-        let clear_value = match clear_value {
-            ClearValue::UInt(v) => vk::ClearColorValue { uint32: v },
-            ClearValue::Float(v) => vk::ClearColorValue { float32: v },
-            ClearValue::Int(v) => vk::ClearColorValue { int32: v },
-        };
-
-        // imageLayout specifies the current layout of the image subresource ranges to be cleared,
-        // and must be VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR, VK_IMAGE_LAYOUT_GENERAL or VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL.
-        unsafe {
-            self.0.device.cmd_clear_color_image(
-                cmdbuf.as_raw(),
-                self.0.image,
-                LAYOUT_USED_TO_CLEAR,
-                &clear_value,
-                &[vk::ImageSubresourceRange {
-                    aspect_mask: vk::ImageAspectFlags::COLOR,
-                    base_mip_level: 0,
-                    level_count: 1,
-                    base_array_layer,
-                    layer_count: 1,
-                }],
-            );
+        if let ClearValue::Color(color_clear_value) = &clear_value {
+            let clear_value = match color_clear_value {
+                ColorClearValue::UInt(v) => vk::ClearColorValue { uint32: *v },
+                ColorClearValue::Float(v) => vk::ClearColorValue { float32: *v },
+                ColorClearValue::Int(v) => vk::ClearColorValue { int32: *v },
+            };
+            // imageLayout specifies the current layout of the image subresource ranges to be cleared,
+            // and must be VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR, VK_IMAGE_LAYOUT_GENERAL or VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL.
+            unsafe {
+                self.0.device.cmd_clear_color_image(
+                    cmdbuf.as_raw(),
+                    self.0.image,
+                    LAYOUT_USED_TO_CLEAR,
+                    &clear_value,
+                    &[vk::ImageSubresourceRange {
+                        aspect_mask: vk::ImageAspectFlags::COLOR,
+                        base_mip_level: 0,
+                        level_count: 1,
+                        base_array_layer,
+                        layer_count: 1,
+                    }],
+                );
+            }
         }
+        if let ClearValue::DepthStencil(depth_stencil_clear_value) = &clear_value {
+            let (clear_value, aspect_mask) = match depth_stencil_clear_value {
+                DepthOrStencilClearValue::DepthAndStencil(depth, stencil) => (
+                    vk::ClearDepthStencilValue {
+                        depth: *depth,
+                        stencil: *stencil,
+                    },
+                    vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL,
+                ),
+                DepthOrStencilClearValue::Depth(depth) => (
+                    vk::ClearDepthStencilValue {
+                        depth: *depth,
+                        stencil: 0,
+                    },
+                    vk::ImageAspectFlags::DEPTH,
+                ),
+                DepthOrStencilClearValue::Stencil(stencil) => (
+                    vk::ClearDepthStencilValue {
+                        depth: 0.0,
+                        stencil: *stencil,
+                    },
+                    vk::ImageAspectFlags::STENCIL,
+                ),
+            };
+            unsafe {
+                self.0.device.cmd_clear_depth_stencil_image(
+                    cmdbuf.as_raw(),
+                    self.0.image,
+                    LAYOUT_USED_TO_CLEAR,
+                    &clear_value,
+                    &[vk::ImageSubresourceRange {
+                        aspect_mask,
+                        base_mip_level: 0,
+                        level_count: 1,
+                        base_array_layer,
+                        layer_count: 1,
+                    }],
+                );
+            }
+        }
+
         self.record_transition_barrier(cmdbuf, base_array_layer, target_layout);
     }
 

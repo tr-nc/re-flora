@@ -8,9 +8,9 @@ use crate::{
     geom::UAabb3,
     util::ShaderCompiler,
     vkn::{
-        execute_one_time_command, Allocator, Buffer, ClearValue, CommandBuffer, ComputePipeline,
-        DescriptorPool, Extent3D, PlainMemberTypeWithData, ShaderModule, StructMemberDataBuilder,
-        VulkanContext,
+        execute_one_time_command, Allocator, Buffer, ClearValue, ColorClearValue, CommandBuffer,
+        ComputePipeline, DescriptorPool, Extent3D, PlainMemberTypeWithData, ShaderModule,
+        StructMemberDataBuilder, VulkanContext,
     },
 };
 
@@ -100,7 +100,7 @@ impl SceneAccelBuilder {
                     cmdbuf,
                     Some(vk::ImageLayout::GENERAL),
                     0,
-                    ClearValue::UInt([0, 0, 0, 0]),
+                    ClearValue::Color(ColorClearValue::UInt([0, 0, 0, 0])),
                 );
             },
         );
