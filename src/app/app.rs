@@ -1606,7 +1606,6 @@ impl App {
                                             });
                                         });
 
-                                        
                                         ui.collapsing("Leaves Settings", |ui| {
                                             let mut leaves_changed = false;
                                             leaves_changed |= ui
