@@ -21,6 +21,3 @@ The command executes the following steps in order. If any step fails, you must c
     * **Command:** You must execute `cargo run` without a timeout.
 
 3. **Correct:** If any mistakes are found during the `check` or `run` steps, automatically correct the code. After correction, you must return to Step 1.
-
-4. **Format:** Before finishing, run the formatter on any file that you changed during the correction stage.
-    * **Command:** You must execute `cargo fmt`.

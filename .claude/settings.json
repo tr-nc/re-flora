@@ -1,0 +1,35 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd.exe /c tools\\\\format_all.bat"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd.exe /c powershell -NoLogo -Command \"(New-Object Media.SoundPlayer './.claude/sounds/success.wav').PlaySync()\""
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd.exe /c powershell -NoLogo -Command \"(New-Object Media.SoundPlayer './.claude/sounds/notification.wav').PlaySync()\""
+          }
+        ]
+      }
+    ]
+  }
+}
