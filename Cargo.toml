@@ -39,7 +39,6 @@ indexmap = "2.9.0"
 image = "0.25.6"
 anyhow = "1.0.98"
 kira = "0.10.8"
-tobj = "4.0.3"
 bytemuck = "1.23.1"
 
 [features]
@@ -50,4 +49,5 @@ no_validation_layer = []
 shaderc = "0.8.3"
 
 [profile.test]
+# uncomment this line to use release build for tests
 # inherits = "release"
