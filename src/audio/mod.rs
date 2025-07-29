@@ -6,6 +6,8 @@ pub use clip_cache::*;
 
 mod sound_clip;
 
+mod audionimbus_test;
+
 pub use kira::Tween;
 pub use sound_clip::SoundClip;
 

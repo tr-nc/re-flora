@@ -1,4 +1,7 @@
+// build.rs
+
 use std::env;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 #[macro_export]
@@ -19,104 +22,75 @@ fn dump_env() {
     println!("cargo:rustc-env=TARGET_DIR={}/", target_dir);
 }
 
-fn main() {
-    dump_env();
-
-    // this is disabled for now
-    // pre_compile_shaders();
+/// Sets the link-time search path for the native library.
+fn link_native_library(lib_path: &Path) {
+    // tell rustc where to find the native static library (.lib) for linking.
+    println!("cargo:rustc-link-search=native={}", lib_path.display());
 }
 
-#[allow(dead_code)]
-fn pre_compile_shaders() {
-    use shaderc;
-    use std::fs;
+/// Copies the necessary runtime .dll files to the correct output directories.
+fn copy_runtime_dlls(source_path: &Path) {
+    // use the PROFILE env var to determine if we are in "debug" or "release" mode.
+    let profile = env::var("PROFILE").unwrap();
 
-    /// Recursively visits all files in `dir` that match one of the given `extensions`.
-    fn visit_shader_files<F: FnMut(&Path)>(dir: &Path, extensions: &[&str], callback: &mut F) {
-        if !dir.exists() {
-            panic!("Shader directory not found: {}", dir.display());
-        }
+    // the OUT_DIR is deep inside the target directory. we need to find the root of the target folder.
+    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let target_root = out_dir
+        .ancestors()
+        .find(|p| p.ends_with("target"))
+        .expect("failed to find target directory");
 
-        for entry in fs::read_dir(dir).unwrap() {
-            let path = entry.unwrap().path();
+    // the destination for the main executable (from `cargo run`).
+    let exe_dest = target_root.join(&profile);
 
-            if path.is_dir() {
-                visit_shader_files(&path, extensions, callback);
-            } else if let Some(ext) = path.extension().and_then(|x| x.to_str()) {
-                if extensions
-                    .iter()
-                    .any(|e| ext.eq_ignore_ascii_case(e.trim_start_matches('.')))
-                {
-                    callback(&path);
-                }
-            }
+    // the destination for test executables (from `cargo test`).
+    let deps_dest = exe_dest.join("deps");
+
+    // ensure both directories exist.
+    fs::create_dir_all(&exe_dest).unwrap();
+    fs::create_dir_all(&deps_dest).unwrap();
+
+    // iterate over the source directory and copy all dll files.
+    for entry in fs::read_dir(source_path).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        if path.extension().map_or(false, |ext| ext == "dll") {
+            let file_name = path.file_name().unwrap();
+
+            // copy to the main exe directory.
+            fs::copy(&path, exe_dest.join(file_name)).expect("failed to copy dll to exe dir");
+
+            // copy to the deps directory for tests.
+            fs::copy(&path, deps_dest.join(file_name)).expect("failed to copy dll to deps dir");
         }
     }
+}
 
-    let out_dir = env::var("OUT_DIR").expect("Failed to read OUT_DIR.");
-    let shader_root_out_dir = PathBuf::from(&out_dir).join("shaders_root");
-    if shader_root_out_dir.exists() {
-        fs::remove_dir_all(&shader_root_out_dir).expect("Failed to remove old shader_root folder.");
+/// Determines library paths and calls the linking and copying functions.
+fn setup_steam_audio() {
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+
+    let lib_source_path = match (target_os.as_str(), target_arch.as_str()) {
+        ("windows", "x86_64") => manifest_dir.join("deps/steam-audio-4.6.1-windows-x64"),
+        _ => panic!("unsupported target platform for steam audio"),
+    };
+
+    // solve the link-time problem.
+    link_native_library(&lib_source_path);
+
+    // solve the run-time problem for windows.
+    if target_os == "windows" {
+        copy_runtime_dlls(&lib_source_path);
     }
 
-    fs::create_dir_all(&shader_root_out_dir).expect("Failed to recreate empty shader_root folder.");
+    println!("cargo:rerun-if-changed=build.rs");
+    // it's also good practice to tell cargo to rerun if the dlls change.
+    println!("cargo:rerun-if-changed=deps/");
+}
 
-    let shader_dir = Path::new("src/");
-
-    let shader_extensions = [".vert", ".frag", ".comp"];
-
-    let compiler = shaderc::Compiler::new().expect("Failed to create shader compiler.");
-
-    let mut compile_options =
-        shaderc::CompileOptions::new().expect("Failed to initialize shader compile options.");
-    compile_options.set_optimization_level(shaderc::OptimizationLevel::Performance);
-
-    // recursively compile all shaders
-    visit_shader_files(shader_dir, &shader_extensions, &mut |path| {
-        let stage = match path.extension().and_then(|ext| ext.to_str()) {
-            Some("vert") => shaderc::ShaderKind::Vertex,
-            Some("frag") => shaderc::ShaderKind::Fragment,
-            Some("comp") => shaderc::ShaderKind::Compute,
-            _ => return,
-        };
-
-        let source = fs::read_to_string(path)
-            .unwrap_or_else(|_| panic!("Failed to read shader source: {}", path.display()));
-
-        // compile to SPIR-V
-        let compiled_spirv = compiler
-            .compile_into_spirv(
-                &source,
-                stage,
-                path.to_str().unwrap(),
-                "main", // entry point name
-                Some(&compile_options),
-            )
-            .unwrap_or_else(|e| panic!("Failed to compile {}: {}", path.display(), e));
-
-        let project_root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        log!("Project root: {}", project_root.display());
-        log!("Shader path: {}", path.display());
-        let relative_path = path;
-
-        // construct the final output path inside OUT_DIR/shaders_root
-        let out_path = shader_root_out_dir
-            .join(relative_path)
-            .with_extension(format!(
-                "{}.spv",
-                path.extension().and_then(|x| x.to_str()).unwrap()
-            ));
-
-        // create directories if needed
-        if let Some(parent) = out_path.parent() {
-            fs::create_dir_all(parent)
-                .unwrap_or_else(|_| panic!("Failed to create directories for {:?}", parent));
-        }
-
-        // write the compiled SPIR-V
-        fs::write(&out_path, &compiled_spirv.as_binary_u8())
-            .unwrap_or_else(|_| panic!("Failed to write SPIR-V file: {:?}", out_path));
-
-        log!("Compiled: {} -> {}", path.display(), out_path.display());
-    });
+fn main() {
+    dump_env();
+    setup_steam_audio();
 }

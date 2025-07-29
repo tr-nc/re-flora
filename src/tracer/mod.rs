@@ -628,7 +628,7 @@ impl Tracer {
         );
 
         self.record_clear_render_targets(cmdbuf);
-        
+
         self.record_leaves_shadow_lod_pass(
             cmdbuf,
             surface_resources,

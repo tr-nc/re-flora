@@ -11,7 +11,9 @@
       "Bash(cargo check:*)",
       "Bash(cargo run:*)",
       "Bash(cargo fmt)",
-      "Bash(sed:*)"
+      "Bash(sed:*)",
+      "Bash(cargo test:*)",
+      "Bash(echo $PATH)"
     ],
     "deny": []
   }

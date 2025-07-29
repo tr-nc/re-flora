@@ -40,6 +40,7 @@ image = "0.25.6"
 anyhow = "1.0.98"
 kira = "0.10.8"
 bytemuck = "1.23.1"
+audionimbus = "0.7.1"
 
 [features]
 default = []
