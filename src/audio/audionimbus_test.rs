@@ -94,7 +94,7 @@ fn make_static_sound_data(interleaved_frames: Vec<f32>, sample_rate: u32) -> Sta
     }
 }
 
-fn test_binaural(
+fn apply_binaural_effect(
     context: &Context,
     binaural_effect: &BinauralEffect,
     hrtf: &Hrtf,
@@ -391,7 +391,7 @@ fn test_func() {
         number_of_frames,
     );
 
-    let binaural_data = test_binaural(
+    let binaural_data = apply_binaural_effect(
         &context,
         &binaural_effect,
         &hrtf,
