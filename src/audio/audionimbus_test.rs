@@ -1,4 +1,5 @@
 use anyhow::Result;
+use ash::ext::directfb_surface;
 use audionimbus::*;
 use glam::Vec3;
 use kira::sound::static_sound::{StaticSoundData, StaticSoundSettings};
@@ -95,7 +96,7 @@ fn make_static_sound_data(interleaved_frames: Vec<f32>, sample_rate: u32) -> Sta
 
 fn test_binaural(
     context: &Context,
-    audio_settings: &AudioSettings,
+    binaural_effect: &BinauralEffect,
     hrtf: &Hrtf,
     frame_window_size: usize,
     output_number_of_channels: usize,
@@ -104,13 +105,6 @@ fn test_binaural(
     player_position: Vec3,
     target_position: Vec3,
 ) -> Vec<f32> {
-    let binaural_effect = BinauralEffect::try_new(
-        &context,
-        &audio_settings,
-        &BinauralEffectSettings { hrtf: &hrtf },
-    )
-    .unwrap();
-
     let wrapped_output_buffer =
         WrappedAudioBuffer::new(&context, frame_window_size, output_number_of_channels).unwrap();
 
@@ -156,21 +150,7 @@ fn test_binaural(
 //     let order_to_channels = HashMap::from([(1, 4), (2, 9)]);
 //     const ORDER: usize = 2;
 //     let channels = order_to_channels[&ORDER];
-
-//     let ambisonics_encode_settings = AmbisonicsEncodeEffectSettings { max_order: ORDER };
-//     let ambisonics_encode_effect =
-//         AmbisonicsEncodeEffect::try_new(&context, &audio_settings, &ambisonics_encode_settings)
-//             .unwrap();
-
-//     let ambisonics_decode_settings = AmbisonicsDecodeEffectSettings {
-//         max_order: ORDER,
-//         hrtf: &hrtf,
-//         speaker_layout: SpeakerLayout::Stereo,
-//     };
-//     let ambisonics_decode_effect =
-//         AmbisonicsDecodeEffect::try_new(&context, &audio_settings, &ambisonics_decode_settings)
-//             .unwrap();
-
+//
 //     let wrapped_output_buf_encoded =
 //         WrappedAudioBuffer::new(&context, frame_window_size, channels).unwrap();
 //     let wrapped_output_buf_decoded =
@@ -287,21 +267,58 @@ fn test_simulation(
     return Ok(audio_source.get_outputs(SimulationFlags::DIRECT));
 }
 
-fn apply_direct_effect(
+fn create_hrtf(context: &Context, audio_settings: &AudioSettings) -> Result<Hrtf> {
+    let hrtf = Hrtf::try_new(context, audio_settings, &HrtfSettings::default())?;
+    Ok(hrtf)
+}
+
+fn create_effects(
     context: &Context,
     audio_settings: &AudioSettings,
+    hrtf: &Hrtf,
+) -> Result<(DirectEffect, BinauralEffect)> {
+    let direct_effect = DirectEffect::try_new(
+        context,
+        audio_settings,
+        &DirectEffectSettings { num_channels: 1 },
+    )?;
+
+    let binaural_effect = BinauralEffect::try_new(
+        &context,
+        &audio_settings,
+        &BinauralEffectSettings { hrtf: &hrtf },
+    )?;
+
+    // let ambisonics_encode_effect = AmbisonicsEncodeEffect::try_new(
+    //     &context,
+    //     &audio_settings,
+    //     &AmbisonicsEncodeEffectSettings { max_order: ORDER },
+    // )
+    // .unwrap();
+
+    // let ambisonics_decode_effect = AmbisonicsDecodeEffect::try_new(
+    //     &context,
+    //     &audio_settings,
+    //     &AmbisonicsDecodeEffectSettings {
+    //         max_order: ORDER,
+    //         hrtf: &hrtf,
+    //         speaker_layout: SpeakerLayout::Stereo,
+    //     },
+    // )
+    // .unwrap();
+
+    Ok((direct_effect, binaural_effect))
+}
+
+fn apply_direct_effect(
+    context: &Context,
+    direct_effect: &DirectEffect,
     simulation_outputs: &SimulationOutputs,
     frame_window_size: usize,
     output_number_of_channels: usize,
     input: &[Sample],
     number_of_frames: usize,
 ) -> Vec<f32> {
-    let direct_effect_settings = DirectEffectSettings {
-        num_channels: output_number_of_channels,
-    };
-    let direct_effect =
-        DirectEffect::try_new(context, audio_settings, &direct_effect_settings).unwrap();
-
     let wrapped_output_buffer =
         WrappedAudioBuffer::new(&context, frame_window_size, output_number_of_channels).unwrap();
 
@@ -350,16 +367,9 @@ fn test_func() {
         frame_size: FRAME_WINDOW_SIZE,
     };
 
-    let hrtf = Hrtf::try_new(&context, &audio_settings, &HrtfSettings::default()).unwrap();
-
-    // let ambisonics_data = test_ambisonics(
-    //     &context,
-    //     &audio_settings,
-    //     &hrtf,
-    //     FRAME_WINDOW_SIZE,
-    //     &input,
-    //     number_of_frames,
-    // );
+    let hrtf = create_hrtf(&context, &audio_settings).unwrap();
+    let (direct_effect, binaural_effect) =
+        create_effects(&context, &audio_settings, &hrtf).unwrap();
 
     let simulation_outputs = test_simulation(
         &context,
@@ -373,7 +383,7 @@ fn test_func() {
 
     let direct_processed_data = apply_direct_effect(
         &context,
-        &audio_settings,
+        &direct_effect,
         &simulation_outputs,
         FRAME_WINDOW_SIZE,
         1,
@@ -383,7 +393,7 @@ fn test_func() {
 
     let binaural_data = test_binaural(
         &context,
-        &audio_settings,
+        &binaural_effect,
         &hrtf,
         FRAME_WINDOW_SIZE,
         2,
