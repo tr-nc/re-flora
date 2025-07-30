@@ -94,9 +94,9 @@ fn test_func() {
     let apply_effect_start = Instant::now();
     let binaural_effect_params = BinauralEffectParams {
         direction: Direction::new(
-            0.0, // Right
-            0.2, // Up
-            0.4, // Behind
+            -1.0, // Right
+            0.0, // Up
+            -1.0, // Behind
         ),
         interpolation: HrtfInterpolation::Nearest,
         spatial_blend: 1.0,
