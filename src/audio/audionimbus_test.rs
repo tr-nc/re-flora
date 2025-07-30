@@ -1,11 +1,9 @@
 use anyhow::Result;
-use ash::ext::directfb_surface;
 use audionimbus::*;
 use glam::Vec3;
 use kira::sound::static_sound::{StaticSoundData, StaticSoundSettings};
 use kira::Frame;
 use kira::{AudioManager, AudioManagerSettings, DefaultBackend};
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::audio_buffer::AudioBuffer as WrappedAudioBuffer;
@@ -417,4 +415,72 @@ fn test_func() {
     } else {
         println!("Audio manager initialization failed - skipping audio playback");
     }
+}
+
+#[test]
+fn test_real_time_spatial_sound() {
+    use crate::audio::spatial_sound::RealTimeSpatialSound;
+    use crate::audio::spatial_sound::RealTimeSpatialSoundData;
+    use kira::sound::Sound;
+
+    let context = Context::try_new(&ContextSettings::default()).unwrap();
+    const FRAME_WINDOW_SIZE: usize = 1024;
+
+    // Create RealTimeSpatialSound instance
+    let mut spatial_sound = RealTimeSpatialSound::new(context, FRAME_WINDOW_SIZE).unwrap();
+
+    // Test position updates
+    let player_pos = Vec3::new(0.0, 0.0, 0.0);
+    let target_pos = Vec3::new(5.0, 0.0, 0.0);
+    spatial_sound.update_positions(player_pos, target_pos);
+
+    // Test simulation update
+    spatial_sound.update_simulation().unwrap();
+
+    // Test that the sound is not finished (it should loop)
+    assert!(
+        !spatial_sound.finished(),
+        "RealTimeSpatialSound should not be finished (it loops)"
+    );
+
+    let mut audio_manager =
+        AudioManager::<DefaultBackend>::new(AudioManagerSettings::default()).unwrap();
+
+    let context2 = Context::try_new(&ContextSettings::default()).unwrap();
+    let mut spatial_sound_data =
+        RealTimeSpatialSoundData::new(context2, FRAME_WINDOW_SIZE).unwrap();
+
+    spatial_sound_data.update_positions(player_pos, target_pos);
+    spatial_sound_data.update_simulation().unwrap();
+
+    if let Ok(_spatial_handle) = audio_manager.play(spatial_sound_data) {
+        std::thread::sleep(std::time::Duration::from_secs(3));
+    } else {
+        println!("Could not play spatial sound - audio device may not be available");
+    }
+}
+
+// Example of how to properly integrate RealTimeSpatialSound with Kira in a real application
+#[test]
+fn example_spatial_sound_integration() -> Result<()> {
+    use crate::audio::spatial_sound::RealTimeSpatialSoundData;
+    // In a real application, you would do this:
+
+    // 1. Create your audio manager (usually done once at app startup)
+    let mut audio_manager = AudioManager::<DefaultBackend>::new(AudioManagerSettings::default())?;
+
+    // 2. Create your spatial sound data
+    let context = Context::try_new(&ContextSettings::default())?;
+    let mut spatial_sound_data = RealTimeSpatialSoundData::new(context, 1024)?;
+
+    // 3. Update positions from your game state
+    spatial_sound_data.update_positions(Vec3::new(0.0, 0.0, 0.0), Vec3::new(5.0, 0.0, 0.0));
+    spatial_sound_data.update_simulation()?;
+
+    // 4. Play the spatial sound directly with Kira!
+    let _handle = audio_manager.play(spatial_sound_data)?;
+    std::thread::sleep(std::time::Duration::from_secs(8));
+
+    println!("RealTimeSpatialSound can now be played directly with audio_manager.play()!");
+    Ok(())
 }
