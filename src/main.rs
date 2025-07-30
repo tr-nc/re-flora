@@ -28,24 +28,26 @@ fn backtrace_on() {
 
 fn test_function() -> Result<()> {
     use crate::audio::spatial_sound::RealTimeSpatialSoundData;
+    use crate::audio::spatial_sound_calculator::SpatialSoundCalculator;
     // In a real application, you would do this:
 
     // 1. Create your audio manager (usually done once at app startup)
     let mut audio_manager = AudioManager::<DefaultBackend>::new(AudioManagerSettings {
-        internal_buffer_size: 256,
         ..Default::default()
     })?;
 
-    // 2. Create your spatial sound data
+    // 2. Create the audionimbus context and spatial sound calculator
     let context = Context::try_new(&ContextSettings::default())?;
-    let mut spatial_sound_data = RealTimeSpatialSoundData::new(context, 256)?;
+    let mut spatial_sound_calculator = SpatialSoundCalculator::new(10240, context, 1024);
 
     // 3. Update positions from your game state
-    spatial_sound_data.update_positions(Vec3::new(0.0, 0.0, 0.0), Vec3::new(5.0, 0.0, 0.0));
-    spatial_sound_data.update_simulation()?;
+    // spatial_sound_calculator.update_positions(Vec3::new(0.0, 0.0, 0.0), Vec3::new(5.0, 0.0, 0.0));
+    // spatial_sound_calculator.update_simulation()?;
 
-    // 4. Play the spatial sound directly with Kira!
+    // 4. Create spatial sound data and play it
+    let spatial_sound_data = RealTimeSpatialSoundData::new(spatial_sound_calculator)?;
     let _handle = audio_manager.play(spatial_sound_data)?;
+
     std::thread::sleep(std::time::Duration::from_secs(8));
 
     Ok(())

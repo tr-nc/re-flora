@@ -1,4 +1,5 @@
 use anyhow::Result;
+use glam::Vec3;
 use kira::info::Info;
 use kira::sound::Sound;
 use kira::Frame as KiraFrame;
@@ -13,7 +14,7 @@ pub struct RealTimeSpatialSound {
 impl Sound for RealTimeSpatialSound {
     fn process(&mut self, out: &mut [kira::Frame], dt: f64, _info: &Info) {
         log::debug!("out.len(): {}", out.len());
-        
+
         let samples = self.spatial_sound_calculator.get_samples(out.len());
         for i in 0..out.len() {
             out[i] = samples[i].frame;
@@ -43,6 +44,18 @@ impl RealTimeSpatialSoundData {
     pub fn new(spatial_sound_calculator: SpatialSoundCalculator) -> Result<Self> {
         let spatial_sound = RealTimeSpatialSound::new(spatial_sound_calculator)?;
         Ok(Self { spatial_sound })
+    }
+
+    pub fn update_positions(&mut self, player_pos: Vec3, target_pos: Vec3) {
+        self.spatial_sound
+            .spatial_sound_calculator
+            .update_positions(player_pos, target_pos);
+    }
+
+    pub fn update_simulation(&mut self) -> Result<()> {
+        self.spatial_sound
+            .spatial_sound_calculator
+            .update_simulation()
     }
 }
 

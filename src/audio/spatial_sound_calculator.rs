@@ -2,10 +2,9 @@ use crate::audio::audio_buffer::AudioBuffer as WrappedAudioBuffer;
 use anyhow::Result;
 use audionimbus::*;
 use glam::Vec3;
-use kira::info::Info;
 use kira::sound::static_sound::StaticSoundData;
-use kira::sound::Sound;
 use kira::Frame as KiraFrame;
+use ringbuf::traits::*;
 use ringbuf::*;
 use std::sync::{Arc, Mutex};
 
@@ -70,8 +69,9 @@ pub struct RingBufferSample {
 
 pub struct SpatialSoundCalculator {
     ring_buffer: HeapRb<RingBufferSample>,
-    update_cursor_pos: usize,
-    retrieve_cursor_pos: usize,
+    input_cursor_pos: usize,
+    temp_output_buffer: Vec<RingBufferSample>,
+    available_samples: usize, // Track number of samples in ring buffer
 
     update_frame_window_size: usize,
 
@@ -138,6 +138,8 @@ impl SpatialSoundCalculator {
         Self {
             ring_buffer,
             update_frame_window_size,
+            temp_output_buffer: Vec::new(),
+            available_samples: 0,
             context,
             audio_settings,
             hrtf,
@@ -149,8 +151,7 @@ impl SpatialSoundCalculator {
             simulator: Arc::new(Mutex::new(simulator)),
             player_position: Arc::new(Mutex::new(Vec3::ZERO)),
             target_position: Arc::new(Mutex::new(Vec3::ZERO)),
-            update_cursor_pos: 0,
-            retrieve_cursor_pos: 0,
+            input_cursor_pos: 0,
             distance_attenuation: Some(1.0),
             directivity: Some(1.0),
             occlusion: Some(1.0),
@@ -165,21 +166,109 @@ impl SpatialSoundCalculator {
     ///
     /// When the ring buffer has not enough fresh samples, this function will automatically
     /// call the update function to have enough fresh samples.
-    pub fn get_samples(&self, num_samples: usize) -> &[RingBufferSample] {
-        // TODO:
-        todo!()
+    pub fn get_samples(&mut self, num_samples: usize) -> &[RingBufferSample] {
+        // Auto-update if we don't have enough samples
+        while !self.has_enough_samples(num_samples) {
+            log::debug!("not enough samples, updating");
+            let start_time = std::time::Instant::now();
+            self.update();
+            let elapsed = start_time.elapsed();
+            log::debug!("update() took: {:.3}ms", elapsed.as_secs_f64() * 1000.0);
+        }
+
+        // Clear and resize temp buffer
+        self.temp_output_buffer.clear();
+        self.temp_output_buffer.reserve(num_samples);
+
+        let (_, mut consumer) = self.ring_buffer.split_ref();
+
+        // Pop samples from ring buffer into temp buffer
+        for _ in 0..num_samples {
+            if let Some(sample) = consumer.try_pop() {
+                self.temp_output_buffer.push(sample);
+                self.available_samples -= 1;
+            } else {
+                // Shouldn't happen since we checked has_enough_samples
+                break;
+            }
+        }
+
+        &self.temp_output_buffer
     }
 
     pub fn has_enough_samples(&self, num_samples: usize) -> bool {
-        // TODO:
-        todo!()
+        self.available_samples >= num_samples
     }
 
     /// Calling this function will update the ring buffer at the current cursor position, with update_frame_window_size frames.
     pub fn update(&mut self) {
-        // TODO: for simplicity, just carry the input_buf as is to the ring buffer, each time, carry update_frame_window_size frames.
-        // no effect should be applied for now.
-        todo!()
+        // // Calculate how many frames to copy from input_buf
+        // let frames_to_copy = self.update_frame_window_size.min(self.input_buf.len());
+
+        // // Extract input chunk for processing
+        // let mut input_chunk = Vec::with_capacity(frames_to_copy);
+        // log::debug!("input_cursor_pos: {}", self.input_cursor_pos);
+        // for i in 0..frames_to_copy {
+        //     let input_index = (self.input_cursor_pos + i) % self.input_buf.len();
+        //     input_chunk.push(self.input_buf[input_index]);
+        // }
+
+        // // Apply spatial audio effects
+        // let direct_processed = self.apply_direct_effect(1, &input_chunk);
+        // let binaural_processed = self.apply_binaural_effect(&direct_processed);
+
+        // // Now get the ring buffer producer after processing
+        // let (mut producer, _) = self.ring_buffer.split_ref();
+
+        // // Convert processed audio to ring buffer samples
+        // let max_frames = (binaural_processed.len() / 2).min(frames_to_copy);
+        // for i in 0..max_frames {
+        //     let ring_buffer_sample = RingBufferSample {
+        //         frame: KiraFrame {
+        //             left: binaural_processed[i * 2],
+        //             right: binaural_processed[i * 2 + 1],
+        //         },
+        //     };
+
+        //     if producer.try_push(ring_buffer_sample).is_ok() {
+        //         self.available_samples += 1;
+        //     } else {
+        //         break; // Ring buffer is full
+        //     }
+        // }
+
+        // // Update cursor position for next update
+        // self.input_cursor_pos = (self.input_cursor_pos + frames_to_copy) % self.input_buf.len();
+        
+        // MARK:
+        let (mut producer, _) = self.ring_buffer.split_ref();
+
+        // Calculate how many frames to copy from input_buf
+        let frames_to_copy = self.update_frame_window_size.min(self.input_buf.len());
+
+        // Copy frames from input_buf to ring buffer
+        for i in 0..frames_to_copy {
+            let input_index = (self.input_cursor_pos + i) % self.input_buf.len();
+            let sample_value = self.input_buf[input_index];
+
+            let ring_buffer_sample = RingBufferSample {
+                frame: KiraFrame {
+                    left: sample_value,
+                    right: sample_value, // Mono to stereo
+                },
+            };
+
+            if producer.try_push(ring_buffer_sample).is_ok() {
+                self.available_samples += 1;
+            } else {
+                break; // Ring buffer is full
+            }
+        }
+
+        // Update cursor position for next update
+        self.input_cursor_pos = (self.input_cursor_pos + frames_to_copy) % self.input_buf.len();
+
+        
 
         // the following code should be commented out for now, don't change it.
         // // Get current positions (locked briefly)
@@ -221,6 +310,7 @@ impl SpatialSoundCalculator {
         // // Zero out any remaining frames if we didn't fill the entire output buffer
         // for i in max_frames..out.len() {
         //     out[i] = KiraFrame::ZERO;
+        // }
         // }
     }
 

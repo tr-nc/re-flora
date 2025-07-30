@@ -10,7 +10,7 @@ mod audionimbus_test;
 
 mod audio_buffer;
 
-mod spatial_sound_calculator;
+pub mod spatial_sound_calculator;
 
 pub mod spatial_sound;
 pub use spatial_sound::{RealTimeSpatialSound, RealTimeSpatialSoundData};
