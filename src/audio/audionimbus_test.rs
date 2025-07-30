@@ -1,25 +1,79 @@
+use anyhow::Result;
 use audionimbus::*;
+use glam::Vec3;
 use kira::sound::static_sound::{StaticSoundData, StaticSoundSettings};
-use kira::{AudioManager, AudioManagerSettings, DefaultBackend, Frame};
+use kira::Frame;
+use kira::{AudioManager, AudioManagerSettings, DefaultBackend};
+use std::collections::HashMap;
 use std::sync::Arc;
-use std::thread;
-use std::time::{Duration, Instant};
 
-/// Returns: (input, sample_rate, padded_frame_size)
-fn get_audio_data(path: &str, frame_window_size: usize) -> (Vec<Sample>, u32, usize) {
+use super::audio_buffer::AudioBuffer as WrappedAudioBuffer;
+
+/// Generic function to process audio in chunks using any effect that can be applied to AudioBuffer
+/// F is a closure that takes (input_buffer, iteration_index) and applies an effect to the wrapped_output_buffer
+/// Handles cases where the last chunk is smaller than frame_window_size by padding with zeros
+fn process_audio_chunks<F>(
+    input: &[Sample],
+    frame_window_size: usize,
+    number_of_frames: usize,
+    output_number_of_channels: usize,
+    wrapped_output_buffer: &WrappedAudioBuffer,
+    mut effect_fn: F,
+) -> Vec<f32>
+where
+    F: FnMut(&AudioBuffer<&[f32]>, usize),
+{
+    let mut interleaved_output = vec![0.0; number_of_frames * output_number_of_channels];
+    let num_of_iterations = number_of_frames.div_ceil(frame_window_size);
+
+    // Pre-allocate reusable buffer for padding (only used when needed)
+    let mut padded_chunk = vec![0.0; frame_window_size];
+
+    for i in 0..num_of_iterations {
+        let start_idx = i * frame_window_size;
+        let end_idx = (start_idx + frame_window_size).min(number_of_frames);
+        let actual_chunk_size = end_idx - start_idx;
+
+        // Use input slice directly or pad into reusable buffer
+        let input_slice = if actual_chunk_size < frame_window_size {
+            // Clear and copy into reusable padded buffer
+            padded_chunk.fill(0.0);
+            padded_chunk[..actual_chunk_size].copy_from_slice(&input[start_idx..end_idx]);
+            padded_chunk.as_slice()
+        } else {
+            &input[start_idx..end_idx]
+        };
+
+        let input_buffer = AudioBuffer::try_with_data(input_slice).unwrap();
+
+        effect_fn(&input_buffer, i);
+
+        let interleaved_frame_output = wrapped_output_buffer.to_interleaved();
+
+        // Copy only the actual output (not the padded part for the last chunk)
+        let output_start = i * frame_window_size * output_number_of_channels;
+        let output_size = actual_chunk_size * output_number_of_channels;
+        let output_end = output_start + output_size;
+
+        interleaved_output[output_start..output_end]
+            .copy_from_slice(&interleaved_frame_output[..output_size]);
+    }
+
+    interleaved_output
+}
+
+/// Returns: (input, sample_rate, number_of_frames)
+fn get_audio_data(path: &str) -> (Vec<Sample>, u32, usize) {
     let audio_data = StaticSoundData::from_file(path).expect("Failed to load audio file");
     let loaded_frames = &audio_data.frames;
-    let padded_frame_size = loaded_frames.len().div_ceil(frame_window_size) * frame_window_size;
 
-    let mut input: Vec<Sample> = loaded_frames
+    let input: Vec<Sample> = loaded_frames
         .into_iter()
         .map(|frame| frame.left) // use left channel for mono input
         .collect();
 
-    // pad it to the nearest multiple of frame_window_size
-    input.resize(padded_frame_size, 0.0);
-
-    return (input, audio_data.sample_rate, padded_frame_size);
+    let input_len = input.len();
+    return (input, audio_data.sample_rate, input_len);
 }
 
 fn make_static_sound_data(interleaved_frames: Vec<f32>, sample_rate: u32) -> StaticSoundData {
@@ -39,24 +93,255 @@ fn make_static_sound_data(interleaved_frames: Vec<f32>, sample_rate: u32) -> Sta
     }
 }
 
+fn test_binaural(
+    context: &Context,
+    audio_settings: &AudioSettings,
+    hrtf: &Hrtf,
+    frame_window_size: usize,
+    output_number_of_channels: usize,
+    input: &[Sample],
+    number_of_frames: usize,
+    player_position: Vec3,
+    target_position: Vec3,
+) -> Vec<f32> {
+    let binaural_effect = BinauralEffect::try_new(
+        &context,
+        &audio_settings,
+        &BinauralEffectSettings { hrtf: &hrtf },
+    )
+    .unwrap();
+
+    let wrapped_output_buffer =
+        WrappedAudioBuffer::new(&context, frame_window_size, output_number_of_channels).unwrap();
+
+    let normalized_direction = (target_position - player_position).normalize();
+    let binaural_effect_params = BinauralEffectParams {
+        direction: Direction::new(
+            normalized_direction.x,
+            normalized_direction.y,
+            normalized_direction.z,
+        ),
+        interpolation: HrtfInterpolation::Nearest,
+        spatial_blend: 1.0,
+        hrtf: &hrtf,
+        peak_delays: None,
+    };
+
+    let interleaved_output = process_audio_chunks(
+        input,
+        frame_window_size,
+        number_of_frames,
+        output_number_of_channels,
+        &wrapped_output_buffer,
+        |input_buffer, _i| {
+            let _effect_state = binaural_effect.apply(
+                &binaural_effect_params,
+                input_buffer,
+                &wrapped_output_buffer.as_raw(),
+            );
+        },
+    );
+
+    return interleaved_output;
+}
+
+// fn test_ambisonics(
+//     context: &Context,
+//     audio_settings: &AudioSettings,
+//     hrtf: &Hrtf,
+//     frame_window_size: usize,
+//     input: &[Sample],
+//     number_of_frames: usize,
+// ) -> Vec<f32> {
+//     let order_to_channels = HashMap::from([(1, 4), (2, 9)]);
+//     const ORDER: usize = 2;
+//     let channels = order_to_channels[&ORDER];
+
+//     let ambisonics_encode_settings = AmbisonicsEncodeEffectSettings { max_order: ORDER };
+//     let ambisonics_encode_effect =
+//         AmbisonicsEncodeEffect::try_new(&context, &audio_settings, &ambisonics_encode_settings)
+//             .unwrap();
+
+//     let ambisonics_decode_settings = AmbisonicsDecodeEffectSettings {
+//         max_order: ORDER,
+//         hrtf: &hrtf,
+//         speaker_layout: SpeakerLayout::Stereo,
+//     };
+//     let ambisonics_decode_effect =
+//         AmbisonicsDecodeEffect::try_new(&context, &audio_settings, &ambisonics_decode_settings)
+//             .unwrap();
+
+//     let wrapped_output_buf_encoded =
+//         WrappedAudioBuffer::new(&context, frame_window_size, channels).unwrap();
+//     let wrapped_output_buf_decoded =
+//         WrappedAudioBuffer::new(&context, frame_window_size, channels).unwrap();
+
+//     let interleaved_output = process_audio_chunks(
+//         input,
+//         frame_window_size,
+//         number_of_frames,
+//         channels,
+//         &wrapped_output_buf_decoded,
+//         |input_buffer, _i| {
+//             let ambisonics_encode_params = AmbisonicsEncodeEffectParams {
+//                 direction: Direction::new(
+//                     -1.0, // Right
+//                     0.0,  // Up
+//                     -1.0, // Behind
+//                 ),
+//                 order: ORDER,
+//             };
+
+//             let _effect_state = ambisonics_encode_effect.apply(
+//                 &ambisonics_encode_params,
+//                 input_buffer,
+//                 &wrapped_output_buf_encoded.as_raw(),
+//             );
+
+//             let ambisonics_decode_params = AmbisonicsDecodeEffectParams {
+//                 order: ORDER,
+//                 hrtf: &hrtf,
+//                 orientation: CoordinateSystem::default(),
+//                 binaural: true,
+//             };
+//             let _effect_state = ambisonics_decode_effect.apply(
+//                 &ambisonics_decode_params,
+//                 &wrapped_output_buf_encoded.as_raw(),
+//                 &wrapped_output_buf_decoded.as_raw(),
+//             );
+//         },
+//     );
+
+//     return interleaved_output;
+// }
+
+fn create_simulator(
+    context: &Context,
+    frame_window_size: usize,
+    sample_rate: u32,
+) -> Result<Simulator<Direct>> {
+    let simulator = Simulator::builder(
+        SceneParams::Default,
+        sample_rate as usize,
+        frame_window_size,
+    )
+    .with_direct(DirectSimulationSettings {
+        max_num_occlusion_samples: 32,
+    })
+    .try_build(context)?;
+    Ok(simulator)
+}
+
+fn test_simulation(
+    context: &Context,
+    frame_window_size: usize,
+    player_position: Vec3,
+    target_position: Vec3,
+    sample_rate: u32,
+) -> Result<SimulationOutputs> {
+    let mut simulator = create_simulator(context, frame_window_size, sample_rate)?;
+
+    let scene = Scene::try_new(context, &SceneSettings::default()).unwrap();
+
+    simulator.set_scene(&scene);
+    simulator.commit(); // must be called after set_scene
+
+    let source_settings = SourceSettings {
+        flags: SimulationFlags::DIRECT,
+    };
+    let mut audio_source = Source::try_new(&simulator, &source_settings).unwrap();
+
+    let simulation_inputs = SimulationInputs {
+        source: geometry::CoordinateSystem {
+            origin: Point::new(target_position.x, target_position.y, target_position.z),
+            ..Default::default()
+        },
+        direct_simulation: Some(DirectSimulationParameters {
+            distance_attenuation: Some(DistanceAttenuationModel::Default),
+            air_absorption: Some(AirAbsorptionModel::Default),
+            directivity: None,
+            occlusion: None,
+        }),
+        reflections_simulation: None,
+        pathing_simulation: None,
+    };
+    audio_source.set_inputs(SimulationFlags::DIRECT, simulation_inputs);
+
+    simulator.add_source(&audio_source);
+    simulator.commit(); // must be called after add_source
+
+    let simulation_shared_inputs = SimulationSharedInputs {
+        listener: geometry::CoordinateSystem {
+            origin: Point::new(player_position.x, player_position.y, player_position.z),
+            ..Default::default()
+        },
+        num_rays: 1024,
+        num_bounces: 10,
+        duration: 3.0,
+        order: 2,
+        irradiance_min_distance: 1.0,
+        pathing_visualization_callback: None,
+    };
+    simulator.set_shared_inputs(SimulationFlags::DIRECT, &simulation_shared_inputs);
+    simulator.run_direct();
+    return Ok(audio_source.get_outputs(SimulationFlags::DIRECT));
+}
+
+fn apply_direct_effect(
+    context: &Context,
+    audio_settings: &AudioSettings,
+    simulation_outputs: &SimulationOutputs,
+    frame_window_size: usize,
+    output_number_of_channels: usize,
+    input: &[Sample],
+    number_of_frames: usize,
+) -> Vec<f32> {
+    let direct_effect_settings = DirectEffectSettings {
+        num_channels: output_number_of_channels,
+    };
+    let direct_effect =
+        DirectEffect::try_new(context, audio_settings, &direct_effect_settings).unwrap();
+
+    let wrapped_output_buffer =
+        WrappedAudioBuffer::new(&context, frame_window_size, output_number_of_channels).unwrap();
+
+    let direct_outputs = simulation_outputs.direct();
+
+    let direct_effect_params = DirectEffectParams {
+        distance_attenuation: direct_outputs.distance_attenuation,
+        air_absorption: None, // Can't clone Equalizer<3>
+        directivity: direct_outputs.directivity,
+        occlusion: direct_outputs.occlusion,
+        transmission: None, // Can't clone Transmission
+    };
+
+    let interleaved_output = process_audio_chunks(
+        input,
+        frame_window_size,
+        number_of_frames,
+        output_number_of_channels,
+        &wrapped_output_buffer,
+        |input_buffer, _i| {
+            let _effect_state = direct_effect.apply(
+                &direct_effect_params,
+                input_buffer,
+                &wrapped_output_buffer.as_raw(),
+            );
+        },
+    );
+
+    return interleaved_output;
+}
+
 #[test]
 fn test_func() {
-    let test_start = Instant::now();
-
     let context = Context::try_new(&ContextSettings::default()).unwrap();
 
-    const OUTPUT_NUMBER_OF_CHANNELS: usize = 2;
     const FRAME_WINDOW_SIZE: usize = 1024;
+    const PLAYER_POSITION: Vec3 = Vec3::new(0.0, 0.0, 0.0);
+    const TARGET_POSITION: Vec3 = Vec3::new(-3.0, 3.0, -3.0);
 
-    // Audio loading timing
-    let audio_load_start = Instant::now();
-    let (input, sample_rate, number_of_frames) =
-        get_audio_data("assets/sfx/leaf_rustling.wav", FRAME_WINDOW_SIZE);
-    let audio_load_duration = audio_load_start.elapsed();
-    println!(
-        "Audio loading took: {:.3}ms",
-        audio_load_duration.as_secs_f64() * 1000.0
-    );
+    let (input, sample_rate, number_of_frames) = get_audio_data("assets/sfx/leaf_rustling.wav");
 
     println!("using sample_rate: {}", sample_rate);
 
@@ -65,99 +350,61 @@ fn test_func() {
         frame_size: FRAME_WINDOW_SIZE,
     };
 
-    // Create effect timing
-    let effect_create_start = Instant::now();
     let hrtf = Hrtf::try_new(&context, &audio_settings, &HrtfSettings::default()).unwrap();
-    let binaural_effect = BinauralEffect::try_new(
+
+    // let ambisonics_data = test_ambisonics(
+    //     &context,
+    //     &audio_settings,
+    //     &hrtf,
+    //     FRAME_WINDOW_SIZE,
+    //     &input,
+    //     number_of_frames,
+    // );
+
+    let simulation_outputs = test_simulation(
+        &context,
+        FRAME_WINDOW_SIZE,
+        PLAYER_POSITION,
+        TARGET_POSITION,
+        sample_rate,
+    )
+    .unwrap();
+    println!("simulation_outputs: {:?}", simulation_outputs.direct());
+
+    let direct_processed_data = apply_direct_effect(
         &context,
         &audio_settings,
-        &BinauralEffectSettings { hrtf: &hrtf },
-    )
-    .unwrap();
-    let effect_create_duration = effect_create_start.elapsed();
-    println!(
-        "Create effect took: {:.3}ms",
-        effect_create_duration.as_secs_f64() * 1000.0
+        &simulation_outputs,
+        FRAME_WINDOW_SIZE,
+        1,
+        &input,
+        number_of_frames,
     );
 
-    let mut output = vec![0.0; FRAME_WINDOW_SIZE * OUTPUT_NUMBER_OF_CHANNELS];
-    let output_buffer = AudioBuffer::try_with_data_and_settings(
-        &mut output,
-        &AudioBufferSettings {
-            num_channels: Some(OUTPUT_NUMBER_OF_CHANNELS),
-            ..Default::default()
-        },
-    )
-    .unwrap();
+    let binaural_data = test_binaural(
+        &context,
+        &audio_settings,
+        &hrtf,
+        FRAME_WINDOW_SIZE,
+        2,
+        &direct_processed_data,
+        number_of_frames,
+        PLAYER_POSITION,
+        TARGET_POSITION,
+    );
 
-    // Apply effect to clip timing
-    let apply_effect_start = Instant::now();
-    let binaural_effect_params = BinauralEffectParams {
-        direction: Direction::new(
-            -1.0, // Right
-            0.0, // Up
-            -1.0, // Behind
-        ),
-        interpolation: HrtfInterpolation::Nearest,
-        spatial_blend: 1.0,
-        hrtf: &hrtf,
-        peak_delays: None,
-    };
+    let ssd = make_static_sound_data(binaural_data, sample_rate);
 
-    let mut interleaved_output = vec![0.0; number_of_frames * OUTPUT_NUMBER_OF_CHANNELS];
-
-    let num_of_iterations = number_of_frames.div_ceil(FRAME_WINDOW_SIZE);
-    println!("num_of_iterations: {}", num_of_iterations);
-
-    for i in 0..num_of_iterations {
-        let input_slice = &input[i * FRAME_WINDOW_SIZE..(i + 1) * FRAME_WINDOW_SIZE];
-        let input_buffer = AudioBuffer::try_with_data(input_slice).unwrap();
-        let _effect_state =
-            binaural_effect.apply(&binaural_effect_params, &input_buffer, &output_buffer);
-
-        let mut interleaved_frame_output = vec![0.0; FRAME_WINDOW_SIZE * OUTPUT_NUMBER_OF_CHANNELS];
-        output_buffer.interleave(&context, &mut interleaved_frame_output);
-
-        // write interleaved_frame_output to interleaved_output
-        interleaved_output[i * FRAME_WINDOW_SIZE * OUTPUT_NUMBER_OF_CHANNELS
-            ..(i + 1) * FRAME_WINDOW_SIZE * OUTPUT_NUMBER_OF_CHANNELS]
-            .copy_from_slice(&interleaved_frame_output);
+    // Optional audio playback - only if audio hardware is available
+    if let Ok(mut audio_manager) =
+        AudioManager::<DefaultBackend>::new(AudioManagerSettings::default())
+    {
+        if let Ok(_processed_handle) = audio_manager.play(ssd.clone()) {
+            std::thread::sleep(std::time::Duration::from_secs(10));
+        } else {
+            println!("Could not play audio - no audio device available");
+        }
+    } else {
+        println!("Audio manager initialization failed - skipping audio playback");
     }
-
-    let apply_effect_duration = apply_effect_start.elapsed();
-    println!(
-        "Apply effect to clip took: {:.3}ms",
-        apply_effect_duration.as_secs_f64() * 1000.0
-    );
-
-    let mut audio_manager = AudioManager::<DefaultBackend>::new(AudioManagerSettings::default())
-        .expect("Failed to create audio manager");
-
-    // Make static sound data timing
-    let make_static_start = Instant::now();
-    let audio_data = make_static_sound_data(interleaved_output, sample_rate);
-    let make_static_duration = make_static_start.elapsed();
-    println!(
-        "make_static_sound_data took: {:.3}ms",
-        make_static_duration.as_secs_f64() * 1000.0
-    );
-
-    let total_duration = test_start.elapsed();
-    println!(
-        "Total processing time: {:.3}ms",
-        total_duration.as_secs_f64() * 1000.0
-    );
-
-    println!("Audionimbus processing completed successfully!");
-    println!(
-        "Processed {} samples with binaural effect",
-        audio_data.frames.len()
-    );
-
-    // Play the original audio to verify the system works
-    println!("Playing original leaf rustling audio...");
-    let _original_handle = audio_manager
-        .play(audio_data.clone())
-        .expect("Failed to play original audio");
-    thread::sleep(Duration::from_secs(10));
 }

@@ -8,6 +8,8 @@ mod sound_clip;
 
 mod audionimbus_test;
 
+mod audio_buffer;
+
 pub use kira::Tween;
 pub use sound_clip::SoundClip;
 
