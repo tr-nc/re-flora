@@ -1,4 +1,4 @@
-use crate::audio::audio_buffer::AudioBuffer as WrappedAudioBuffer;
+use crate::{audio::audio_buffer::AudioBuffer as WrappedAudioBuffer, util::get_project_root};
 use anyhow::Result;
 use audionimbus::*;
 use glam::Vec3;
@@ -23,10 +23,18 @@ fn get_audio_data(path: &str) -> (Vec<Sample>, u32, usize) {
 }
 
 fn create_hrtf(context: &Context, audio_settings: &AudioSettings) -> Result<Hrtf> {
-    let hrtf = Hrtf::try_new(context, audio_settings, &HrtfSettings {
-        volume_normalization: VolumeNormalization::RootMeanSquared,
-        ..Default::default()
-    })?;
+    let sofa_path = format!("{}assets/hrtf/hrtf_b_nh172.sofa", get_project_root());
+    let hrtf_data = std::fs::read(&sofa_path)?;
+
+    let hrtf = Hrtf::try_new(
+        context,
+        audio_settings,
+        &HrtfSettings {
+            // volume_normalization: VolumeNormalization::RootMeanSquared,
+            sofa_information: Some(Sofa::Buffer(hrtf_data)),
+            ..Default::default()
+        },
+    )?;
     Ok(hrtf)
 }
 
