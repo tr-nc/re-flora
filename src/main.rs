@@ -53,6 +53,26 @@ fn test_function() -> Result<()> {
     Ok(())
 }
 
+fn play_audio_with_cpal() -> Result<()> {
+    use crate::audio::{get_audio_data, play_audio_samples};
+
+    // Step 1: Decode audio data using symphonia
+    let audio_path = "assets/sfx/leaf_rustling.wav";
+    let (samples, sample_rate, frames) = get_audio_data(audio_path)?;
+
+    println!(
+        "Loaded {} frames at {} Hz ({} samples)",
+        frames,
+        sample_rate,
+        samples.len()
+    );
+
+    // Step 2: Play audio data using cpal
+    play_audio_samples(samples, sample_rate)?;
+
+    Ok(())
+}
+
 fn init_env_logger() {
     env_logger::Builder::from_env(
         Env::default().default_filter_or("debug,symphonia_core=warn,symphonia_format_riff=warn"),
@@ -91,5 +111,6 @@ pub fn main() {
     //     Err(e) => log::error!("Application exited with error: {:?}", e),
     // }
 
-    test_function().unwrap();
+    // test_function().unwrap();
+    play_audio_with_cpal().unwrap();
 }
