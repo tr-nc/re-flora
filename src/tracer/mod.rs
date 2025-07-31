@@ -40,8 +40,8 @@ use crate::util::{ShaderCompiler, TimeInfo};
 use crate::vkn::{
     execute_one_time_command, Allocator, Buffer, ClearValue, ColorClearValue, CommandBuffer,
     ComputePipeline, DepthOrStencilClearValue, DescriptorPool, Extent2D, Extent3D, Framebuffer,
-    MemoryBarrier, PipelineBarrier, PlainMemberTypeWithData, PushConstantInfo, RenderPass,
-    RenderTarget, StructMemberDataBuilder, StructMemberDataReader, Texture, Viewport,
+    GraphicsPipeline, MemoryBarrier, PipelineBarrier, PlainMemberTypeWithData, PushConstantInfo,
+    RenderPass, RenderTarget, StructMemberDataBuilder, StructMemberDataReader, Texture, Viewport,
     VulkanContext,
 };
 use anyhow::Result;
@@ -339,7 +339,11 @@ impl Tracer {
         contree_builder_resources: &ContreeBuilderResources,
         scene_accel_resources: &SceneAccelBuilderResources,
     ) {
-        let update_fn = |ppl: &ComputePipeline, resources: &[&dyn ResourceContainer]| {
+        let update_compute_fn = |ppl: &ComputePipeline, resources: &[&dyn ResourceContainer]| {
+            ppl.auto_update_descriptor_sets(resources).unwrap()
+        };
+
+        let update_graphics_fn = |ppl: &GraphicsPipeline, resources: &[&dyn ResourceContainer]| {
             ppl.auto_update_descriptor_sets(resources).unwrap()
         };
 
@@ -349,23 +353,31 @@ impl Tracer {
             contree_builder_resources as &dyn ResourceContainer,
             scene_accel_resources as &dyn ResourceContainer,
         ];
-        update_fn(&self.compute_pipelines.tracer_ppl, all_resources);
-        update_fn(&self.compute_pipelines.tracer_shadow_ppl, all_resources);
-        update_fn(&self.compute_pipelines.player_collider_ppl, all_resources);
-        update_fn(&self.compute_pipelines.terrain_query_ppl, all_resources);
+        update_compute_fn(&self.compute_pipelines.tracer_ppl, all_resources);
+        update_compute_fn(&self.compute_pipelines.tracer_shadow_ppl, all_resources);
+        update_compute_fn(&self.compute_pipelines.player_collider_ppl, all_resources);
+        update_compute_fn(&self.compute_pipelines.terrain_query_ppl, all_resources);
 
         // pipelines that only need tracer resources
         let tracer_resources = &[&self.resources as &dyn ResourceContainer];
-        update_fn(&self.compute_pipelines.vsm_creation_ppl, tracer_resources);
-        update_fn(&self.compute_pipelines.vsm_blur_h_ppl, tracer_resources);
-        update_fn(&self.compute_pipelines.vsm_blur_v_ppl, tracer_resources);
-        update_fn(&self.compute_pipelines.god_ray_ppl, tracer_resources);
-        update_fn(&self.compute_pipelines.temporal_ppl, tracer_resources);
-        update_fn(&self.compute_pipelines.spatial_ppl, tracer_resources);
-        update_fn(&self.compute_pipelines.composition_ppl, tracer_resources);
-        update_fn(&self.compute_pipelines.taa_ppl, tracer_resources);
-        update_fn(
+        update_compute_fn(&self.compute_pipelines.vsm_creation_ppl, tracer_resources);
+        update_compute_fn(&self.compute_pipelines.vsm_blur_h_ppl, tracer_resources);
+        update_compute_fn(&self.compute_pipelines.vsm_blur_v_ppl, tracer_resources);
+        update_compute_fn(&self.compute_pipelines.god_ray_ppl, tracer_resources);
+        update_compute_fn(&self.compute_pipelines.temporal_ppl, tracer_resources);
+        update_compute_fn(&self.compute_pipelines.spatial_ppl, tracer_resources);
+        update_compute_fn(&self.compute_pipelines.composition_ppl, tracer_resources);
+        update_compute_fn(&self.compute_pipelines.taa_ppl, tracer_resources);
+        update_compute_fn(
             &self.compute_pipelines.post_processing_ppl,
+            tracer_resources,
+        );
+
+        // update graphics pipelines descriptor sets
+        update_graphics_fn(&self.graphics_pipelines.flora_ppl, tracer_resources);
+        update_graphics_fn(&self.graphics_pipelines.flora_lod_ppl, tracer_resources);
+        update_graphics_fn(
+            &self.graphics_pipelines.leaves_shadow_lod_ppl,
             tracer_resources,
         );
     }

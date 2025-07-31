@@ -215,6 +215,20 @@ impl PipelineBuilder {
             &[resources, contree_builder_resources, scene_accel_resources],
         );
 
+        let player_collider_ppl = ComputePipeline::new(
+            device,
+            &shader_modules.player_collider_sm,
+            pool,
+            &[resources, contree_builder_resources, scene_accel_resources],
+        );
+
+        let terrain_query_ppl = ComputePipeline::new(
+            device,
+            &shader_modules.terrain_query_sm,
+            pool,
+            &[resources, contree_builder_resources, scene_accel_resources],
+        );
+
         let vsm_creation_ppl =
             ComputePipeline::new(device, &shader_modules.vsm_creation_sm, pool, &[resources]);
         let vsm_blur_h_ppl =
@@ -230,20 +244,6 @@ impl PipelineBuilder {
         let composition_ppl =
             ComputePipeline::new(device, &shader_modules.composition_sm, pool, &[resources]);
         let taa_ppl = ComputePipeline::new(device, &shader_modules.taa_sm, pool, &[resources]);
-
-        let player_collider_ppl = ComputePipeline::new(
-            device,
-            &shader_modules.player_collider_sm,
-            pool,
-            &[resources, contree_builder_resources, scene_accel_resources],
-        );
-
-        let terrain_query_ppl = ComputePipeline::new(
-            device,
-            &shader_modules.terrain_query_sm,
-            pool,
-            &[resources, contree_builder_resources, scene_accel_resources],
-        );
 
         let post_processing_ppl = ComputePipeline::new(
             device,
