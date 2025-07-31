@@ -26,7 +26,7 @@ fn get_audio_data(path: &str) -> (Vec<Sample>, u32, usize) {
 }
 
 fn create_hrtf(context: &Context, audio_settings: &AudioSettings) -> Result<Hrtf> {
-    let sofa_path = format!("{}assets/hrtf/hrtf_b_nh172.sofa", get_project_root());
+    let sofa_path = format!("{}assets/hrtf/HRIR_FULL2DEG.sofa", get_project_root());
     let hrtf_data = std::fs::read(&sofa_path)?;
 
     let hrtf = Hrtf::try_new(
@@ -308,9 +308,19 @@ impl SpatialSoundCalculatorInner {
 
         let player_position = *self.player_position.lock().unwrap();
         let target_position = *self.target_position.lock().unwrap();
+        let player_vectors = self.player_vectors.lock().unwrap();
 
-        // TODO: use the camera vectors to get the real direction
-        let normalized_direction = (target_position - player_position).normalize();
+        // Calculate the direction from player to target in world space
+        let target_direction = (target_position - player_position).normalize();
+
+        // Transform to camera-relative coordinates using camera vectors
+        // The direction should be relative to where the player is looking
+        let normalized_direction = Vec3::new(
+            target_direction.dot(player_vectors.right),
+            target_direction.dot(player_vectors.up),
+            target_direction.dot(player_vectors.front),
+        )
+        .normalize();
 
         let binaural_effect_params = BinauralEffectParams {
             direction: Direction::new(
