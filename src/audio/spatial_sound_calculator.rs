@@ -70,7 +70,6 @@ pub struct RingBufferSample {
 pub struct SpatialSoundCalculator {
     ring_buffer: HeapRb<RingBufferSample>,
     input_cursor_pos: usize,
-    temp_output_buffer: Vec<RingBufferSample>,
     available_samples: usize, // Track number of samples in ring buffer
 
     update_frame_window_size: usize,
@@ -138,7 +137,6 @@ impl SpatialSoundCalculator {
         Self {
             ring_buffer,
             update_frame_window_size,
-            temp_output_buffer: Vec::new(),
             available_samples: 0,
             context,
             audio_settings,
@@ -166,34 +164,30 @@ impl SpatialSoundCalculator {
     ///
     /// When the ring buffer has not enough fresh samples, this function will automatically
     /// call the update function to have enough fresh samples.
-    pub fn get_samples(&mut self, num_samples: usize) -> &[RingBufferSample] {
+    pub fn fill_samples(&mut self, out: &mut [kira::Frame], ratio: f64) {
+        let num_samples = out.len();
+
         // Auto-update if we don't have enough samples
         while !self.has_enough_samples(num_samples) {
-            log::debug!("not enough samples, updating");
-            let start_time = std::time::Instant::now();
+            // log::debug!("not enough samples, updating");
+            // let start_time = std::time::Instant::now();
             self.update();
-            let elapsed = start_time.elapsed();
-            log::debug!("update() took: {:.3}ms", elapsed.as_secs_f64() * 1000.0);
+            // let elapsed = start_time.elapsed();
+            // log::debug!("update() took: {:.3}ms", elapsed.as_secs_f64() * 1000.0);
         }
-
-        // Clear and resize temp buffer
-        self.temp_output_buffer.clear();
-        self.temp_output_buffer.reserve(num_samples);
 
         let (_, mut consumer) = self.ring_buffer.split_ref();
 
         // Pop samples from ring buffer into temp buffer
-        for _ in 0..num_samples {
+        for i in 0..num_samples {
             if let Some(sample) = consumer.try_pop() {
-                self.temp_output_buffer.push(sample);
+                out[i] = sample.frame;
                 self.available_samples -= 1;
             } else {
                 // Shouldn't happen since we checked has_enough_samples
                 break;
             }
         }
-
-        &self.temp_output_buffer
     }
 
     pub fn has_enough_samples(&self, num_samples: usize) -> bool {

@@ -37,7 +37,7 @@ fn test_function() -> Result<()> {
     })?;
     
     // TODO: how to do this?
-    log::debug!("sample rate: {}", audio_manager.sample_rate());
+    // log::debug!("sample rate: {}", audio_manager.sample_rate());
 
     // 2. Create the audionimbus context and spatial sound calculator
     let context = Context::try_new(&ContextSettings::default())?;

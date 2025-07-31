@@ -11,17 +11,15 @@ pub struct RealTimeSpatialSound {
 
 impl Sound for RealTimeSpatialSound {
     fn process(&mut self, out: &mut [kira::Frame], dt: f64, _info: &Info) {
-        let target_sampling_rate = 44100;
-        let device_sampling_rate = out.len() as f64 / dt;
-        // log::debug!("target_sampling_rate: {}", target_sampling_rate);
-        // log::debug!("device_sampling_rate: {}", device_sampling_rate);
-        log::debug!("dt: {}", dt);
-        log::debug!("out.len(): {}", out.len());
+        const TARGET_SAMPLING_RATE: f64 = 44100.0;
+        let device_sampling_rate = 1.0 / dt;
+        let ratio = device_sampling_rate / TARGET_SAMPLING_RATE;
 
-        let samples = self.spatial_sound_calculator.get_samples(out.len());
-        for i in 0..out.len() {
-            out[i] = samples[i].frame;
-        }
+        // let samples = self.spatial_sound_calculator.get_samples(out.len());
+        // for i in 0..out.len() {
+        //     out[i] = samples[i].frame;
+        // }
+        self.spatial_sound_calculator.fill_samples(out, ratio);
     }
 
     fn finished(&self) -> bool {
