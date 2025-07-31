@@ -1,26 +1,11 @@
-use crate::audio::audio_buffer::AudioBuffer as WrappedAudioBuffer;
+use crate::audio::{audio_buffer::AudioBuffer as WrappedAudioBuffer, get_audio_data};
 use anyhow::Result;
 use audionimbus::*;
 use glam::Vec3;
-use kira::sound::static_sound::StaticSoundData;
 use kira::Frame as KiraFrame;
 use ringbuf::traits::*;
 use ringbuf::*;
 use std::sync::{Arc, Mutex};
-
-/// Returns: (input, sample_rate, number_of_frames)
-fn get_audio_data(path: &str) -> (Vec<f32>, u32, usize) {
-    let audio_data = StaticSoundData::from_file(path).expect("Failed to load audio file");
-    let loaded_frames = &audio_data.frames;
-
-    let input: Vec<Sample> = loaded_frames
-        .into_iter()
-        .map(|frame| frame.left) // use left channel for mono input
-        .collect();
-
-    let input_len = input.len();
-    (input, audio_data.sample_rate, input_len)
-}
 
 fn create_hrtf(context: &Context, audio_settings: &AudioSettings) -> Result<Hrtf> {
     let hrtf = Hrtf::try_new(context, audio_settings, &HrtfSettings::default())?;
@@ -105,7 +90,7 @@ impl SpatialSoundCalculator {
         let ring_buffer = HeapRb::<RingBufferSample>::new(ring_buffer_size);
 
         let (input_buf, sample_rate, number_of_frames) =
-            get_audio_data("assets/sfx/leaf_rustling.wav");
+            get_audio_data("assets/sfx/leaf_rustling.wav").unwrap();
 
         log::debug!("using sample_rate: {}", sample_rate);
 

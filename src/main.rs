@@ -35,7 +35,7 @@ fn test_function() -> Result<()> {
     let mut audio_manager = AudioManager::<DefaultBackend>::new(AudioManagerSettings {
         ..Default::default()
     })?;
-    
+
     // 2. Create the audionimbus context and spatial sound calculator
     let context = Context::try_new(&ContextSettings::default())?;
     let mut spatial_sound_calculator = SpatialSoundCalculator::new(10240, context, 1024);
