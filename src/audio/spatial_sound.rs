@@ -1,8 +1,6 @@
 use anyhow::Result;
-use glam::Vec3;
 use kira::info::Info;
 use kira::sound::Sound;
-use kira::Frame as KiraFrame;
 
 use crate::audio::spatial_sound_calculator::SpatialSoundCalculator;
 
@@ -13,6 +11,11 @@ pub struct RealTimeSpatialSound {
 
 impl Sound for RealTimeSpatialSound {
     fn process(&mut self, out: &mut [kira::Frame], dt: f64, _info: &Info) {
+        let target_sampling_rate = 44100;
+        let device_sampling_rate = out.len() as f64 / dt;
+        // log::debug!("target_sampling_rate: {}", target_sampling_rate);
+        // log::debug!("device_sampling_rate: {}", device_sampling_rate);
+        log::debug!("dt: {}", dt);
         log::debug!("out.len(): {}", out.len());
 
         let samples = self.spatial_sound_calculator.get_samples(out.len());
@@ -35,7 +38,6 @@ impl RealTimeSpatialSound {
     }
 }
 
-// Wrapper to implement SoundData trait for RealTimeSpatialSound
 pub struct RealTimeSpatialSoundData {
     spatial_sound: RealTimeSpatialSound,
 }
@@ -44,18 +46,6 @@ impl RealTimeSpatialSoundData {
     pub fn new(spatial_sound_calculator: SpatialSoundCalculator) -> Result<Self> {
         let spatial_sound = RealTimeSpatialSound::new(spatial_sound_calculator)?;
         Ok(Self { spatial_sound })
-    }
-
-    pub fn update_positions(&mut self, player_pos: Vec3, target_pos: Vec3) {
-        self.spatial_sound
-            .spatial_sound_calculator
-            .update_positions(player_pos, target_pos);
-    }
-
-    pub fn update_simulation(&mut self) -> Result<()> {
-        self.spatial_sound
-            .spatial_sound_calculator
-            .update_simulation()
     }
 }
 

@@ -202,59 +202,31 @@ impl SpatialSoundCalculator {
 
     /// Calling this function will update the ring buffer at the current cursor position, with update_frame_window_size frames.
     pub fn update(&mut self) {
-        // // Calculate how many frames to copy from input_buf
-        // let frames_to_copy = self.update_frame_window_size.min(self.input_buf.len());
-
-        // // Extract input chunk for processing
-        // let mut input_chunk = Vec::with_capacity(frames_to_copy);
-        // log::debug!("input_cursor_pos: {}", self.input_cursor_pos);
-        // for i in 0..frames_to_copy {
-        //     let input_index = (self.input_cursor_pos + i) % self.input_buf.len();
-        //     input_chunk.push(self.input_buf[input_index]);
-        // }
-
-        // // Apply spatial audio effects
-        // let direct_processed = self.apply_direct_effect(1, &input_chunk);
-        // let binaural_processed = self.apply_binaural_effect(&direct_processed);
-
-        // // Now get the ring buffer producer after processing
-        // let (mut producer, _) = self.ring_buffer.split_ref();
-
-        // // Convert processed audio to ring buffer samples
-        // let max_frames = (binaural_processed.len() / 2).min(frames_to_copy);
-        // for i in 0..max_frames {
-        //     let ring_buffer_sample = RingBufferSample {
-        //         frame: KiraFrame {
-        //             left: binaural_processed[i * 2],
-        //             right: binaural_processed[i * 2 + 1],
-        //         },
-        //     };
-
-        //     if producer.try_push(ring_buffer_sample).is_ok() {
-        //         self.available_samples += 1;
-        //     } else {
-        //         break; // Ring buffer is full
-        //     }
-        // }
-
-        // // Update cursor position for next update
-        // self.input_cursor_pos = (self.input_cursor_pos + frames_to_copy) % self.input_buf.len();
-        
-        // MARK:
-        let (mut producer, _) = self.ring_buffer.split_ref();
-
         // Calculate how many frames to copy from input_buf
         let frames_to_copy = self.update_frame_window_size.min(self.input_buf.len());
 
-        // Copy frames from input_buf to ring buffer
+        // Extract input chunk for processing
+        let mut input_chunk = Vec::with_capacity(frames_to_copy);
+        log::debug!("input_cursor_pos: {}", self.input_cursor_pos);
         for i in 0..frames_to_copy {
             let input_index = (self.input_cursor_pos + i) % self.input_buf.len();
-            let sample_value = self.input_buf[input_index];
+            input_chunk.push(self.input_buf[input_index]);
+        }
 
+        // Apply spatial audio effects
+        let direct_processed = self.apply_direct_effect(1, &input_chunk);
+        let binaural_processed = self.apply_binaural_effect(&direct_processed);
+
+        // Now get the ring buffer producer after processing
+        let (mut producer, _) = self.ring_buffer.split_ref();
+
+        // Convert processed audio to ring buffer samples
+        let max_frames = (binaural_processed.len() / 2).min(frames_to_copy);
+        for i in 0..max_frames {
             let ring_buffer_sample = RingBufferSample {
                 frame: KiraFrame {
-                    left: sample_value,
-                    right: sample_value, // Mono to stereo
+                    left: binaural_processed[i * 2],
+                    right: binaural_processed[i * 2 + 1],
                 },
             };
 
@@ -267,6 +239,34 @@ impl SpatialSoundCalculator {
 
         // Update cursor position for next update
         self.input_cursor_pos = (self.input_cursor_pos + frames_to_copy) % self.input_buf.len();
+        
+        // MARK:
+        // let (mut producer, _) = self.ring_buffer.split_ref();
+
+        // // Calculate how many frames to copy from input_buf
+        // let frames_to_copy = self.update_frame_window_size.min(self.input_buf.len());
+
+        // // Copy frames from input_buf to ring buffer
+        // for i in 0..frames_to_copy {
+        //     let input_index = (self.input_cursor_pos + i) % self.input_buf.len();
+        //     let sample_value = self.input_buf[input_index];
+
+        //     let ring_buffer_sample = RingBufferSample {
+        //         frame: KiraFrame {
+        //             left: sample_value,
+        //             right: sample_value, // Mono to stereo
+        //         },
+        //     };
+
+        //     if producer.try_push(ring_buffer_sample).is_ok() {
+        //         self.available_samples += 1;
+        //     } else {
+        //         break; // Ring buffer is full
+        //     }
+        // }
+
+        // // Update cursor position for next update
+        // self.input_cursor_pos = (self.input_cursor_pos + frames_to_copy) % self.input_buf.len();
 
         
 

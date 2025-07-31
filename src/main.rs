@@ -35,14 +35,17 @@ fn test_function() -> Result<()> {
     let mut audio_manager = AudioManager::<DefaultBackend>::new(AudioManagerSettings {
         ..Default::default()
     })?;
+    
+    // TODO: how to do this?
+    log::debug!("sample rate: {}", audio_manager.sample_rate());
 
     // 2. Create the audionimbus context and spatial sound calculator
     let context = Context::try_new(&ContextSettings::default())?;
     let mut spatial_sound_calculator = SpatialSoundCalculator::new(10240, context, 1024);
 
     // 3. Update positions from your game state
-    // spatial_sound_calculator.update_positions(Vec3::new(0.0, 0.0, 0.0), Vec3::new(5.0, 0.0, 0.0));
-    // spatial_sound_calculator.update_simulation()?;
+    spatial_sound_calculator.update_positions(Vec3::new(0.0, 0.0, 0.0), Vec3::new(5.0, 0.0, 0.0));
+    spatial_sound_calculator.update_simulation()?;
 
     // 4. Create spatial sound data and play it
     let spatial_sound_data = RealTimeSpatialSoundData::new(spatial_sound_calculator)?;
