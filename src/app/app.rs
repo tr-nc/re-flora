@@ -5,6 +5,7 @@ use crate::audio::spatial_sound::RealTimeSpatialSoundData;
 use crate::audio::spatial_sound_calculator::SpatialSoundCalculator;
 use crate::audio::{AudioEngine, ClipCache, PlayMode, SoundDataConfig};
 use crate::builder::{ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder};
+use crate::gameplay::camera::vectors::CameraVectors;
 use crate::geom::{build_bvh, UAabb3};
 use crate::procedual_placer::{generate_positions, PlacerDesc};
 use crate::tracer::{Tracer, TracerDesc};
@@ -795,7 +796,9 @@ impl App {
         let context = Context::try_new(&ContextSettings::default())?;
         let spatial_sound_calculator = SpatialSoundCalculator::new(10240, context, 1024);
 
-        spatial_sound_calculator.update_player_pos(Vec3::new(0.0, 0.0, 0.0));
+        let mut dummy_vectors = CameraVectors::new();
+        dummy_vectors.update(0.0, 0.0); // Default forward-facing orientation
+        spatial_sound_calculator.update_player_pos(Vec3::new(0.0, 0.0, 0.0), &dummy_vectors);
         spatial_sound_calculator.update_target_pos(tree_pos / 256.0);
 
         let spatial_sound_data = RealTimeSpatialSoundData::new(spatial_sound_calculator.clone())?;

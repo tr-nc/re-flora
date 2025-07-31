@@ -33,7 +33,7 @@ use crate::builder::{
     ContreeBuilderResources, FloraInstanceResources, FloraType, Instance,
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
-use crate::gameplay::{calculate_directional_light_matrices, Camera, CameraDesc};
+use crate::gameplay::{calculate_directional_light_matrices, Camera, CameraDesc, CameraVectors};
 use crate::geom::UAabb3;
 use crate::resource::ResourceContainer;
 use crate::util::{ShaderCompiler, TimeInfo};
@@ -1409,6 +1409,10 @@ impl Tracer {
         self.camera.reset_velocity();
     }
 
+    pub fn camera_vectors(&self) -> &CameraVectors {
+        self.camera.vectors()
+    }
+
     pub fn set_spatial_sound_calculator(
         &mut self,
         spatial_sound_calculator: SpatialSoundCalculator,
@@ -1428,7 +1432,8 @@ impl Tracer {
 
         // update spatial sound calculator with camera position
         if let Some(ref spatial_sound_calculator) = self.spatial_sound_calculator {
-            spatial_sound_calculator.update_player_pos(self.camera.position());
+            spatial_sound_calculator
+                .update_player_pos(self.camera.position(), self.camera.vectors());
         }
 
         fn get_player_collision_result(

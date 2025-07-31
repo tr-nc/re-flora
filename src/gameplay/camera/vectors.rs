@@ -1,5 +1,6 @@
 use glam::Vec3;
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct CameraVectors {
     pub front: Vec3,
     pub up: Vec3,

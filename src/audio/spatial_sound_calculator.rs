@@ -1,4 +1,7 @@
-use crate::{audio::audio_buffer::AudioBuffer as WrappedAudioBuffer, util::get_project_root};
+use crate::{
+    audio::audio_buffer::AudioBuffer as WrappedAudioBuffer,
+    gameplay::camera::vectors::CameraVectors, util::get_project_root,
+};
 use anyhow::Result;
 use audionimbus::*;
 use glam::Vec3;
@@ -105,6 +108,7 @@ struct SpatialSoundCalculatorInner {
     // Dynamic state (updated from game loop)
     player_position: Arc<Mutex<Vec3>>,
     target_position: Arc<Mutex<Vec3>>,
+    player_vectors: Arc<Mutex<CameraVectors>>,
 
     // Buffer for input audio (e.g., from a streaming source)
     input_buf: Vec<Sample>, // Fill this from your audio source (e.g., loop or generate)
@@ -167,6 +171,7 @@ impl SpatialSoundCalculator {
             simulator: Arc::new(Mutex::new(simulator)),
             player_position: Arc::new(Mutex::new(Vec3::ZERO)),
             target_position: Arc::new(Mutex::new(Vec3::ZERO)),
+            player_vectors: Arc::new(Mutex::new(CameraVectors::new())),
             input_cursor_pos: 0,
             distance_attenuation: Some(1.0),
             directivity: Some(1.0),
@@ -304,7 +309,9 @@ impl SpatialSoundCalculatorInner {
         let player_position = *self.player_position.lock().unwrap();
         let target_position = *self.target_position.lock().unwrap();
 
+        // TODO: use the camera vectors to get the real direction
         let normalized_direction = (target_position - player_position).normalize();
+
         let binaural_effect_params = BinauralEffectParams {
             direction: Direction::new(
                 normalized_direction.x,
@@ -330,41 +337,52 @@ impl SpatialSoundCalculatorInner {
 }
 
 impl SpatialSoundCalculator {
-    pub fn update_player_pos(&self, player_pos: Vec3) {
+    pub fn update_player_pos(
+        &self,
+        player_pos: Vec3,
+        camera_vectors: &CameraVectors,
+    ) -> Result<()> {
         let inner = self.0.lock().unwrap();
         let old_pos = *inner.player_position.lock().unwrap();
-        if old_pos != player_pos {
+        let old_vectors = inner.player_vectors.lock().unwrap().clone();
+
+        if old_pos != player_pos || old_vectors != *camera_vectors {
+            // log::debug!(
+            //     "Updating player position: {:?} -> {:?}",
+            //     old_pos,
+            //     player_pos
+            // );
+            // log::debug!(
+            //     "Updating player vectors: {:?} -> {:?}",
+            //     old_vectors,
+            //     camera_vectors
+            // );
+
             *inner.player_position.lock().unwrap() = player_pos;
+            *inner.player_vectors.lock().unwrap() = camera_vectors.clone();
             drop(inner);
-            if let Err(e) = self.update_simulation() {
-                log::error!(
-                    "Failed to update simulation after player position change: {}",
-                    e
-                );
-            }
+            self.update_simulation()?;
         }
+        Ok(())
     }
 
-    pub fn update_target_pos(&self, target_pos: Vec3) {
+    pub fn update_target_pos(&self, target_pos: Vec3) -> Result<()> {
         let inner = self.0.lock().unwrap();
         let old_pos = *inner.target_position.lock().unwrap();
         if old_pos != target_pos {
             *inner.target_position.lock().unwrap() = target_pos;
             log::debug!("Target position updated: {:?} -> {:?}", old_pos, target_pos);
             drop(inner);
-            if let Err(e) = self.update_simulation() {
-                log::error!(
-                    "Failed to update simulation after target position change: {}",
-                    e
-                );
-            }
+            self.update_simulation()?;
         }
+        Ok(())
     }
 
     fn update_simulation(&self) -> Result<()> {
         let mut inner = self.0.lock().unwrap();
         let player_pos = *inner.player_position.lock().unwrap();
         let target_pos = *inner.target_position.lock().unwrap();
+        let player_vectors = inner.player_vectors.lock().unwrap().clone();
 
         let mut simulator = inner.simulator.lock().unwrap();
 
@@ -397,6 +415,21 @@ impl SpatialSoundCalculator {
         let simulation_shared_inputs = SimulationSharedInputs {
             listener: geometry::CoordinateSystem {
                 origin: Point::new(player_pos.x, player_pos.y, player_pos.z),
+                right: Vector3::new(
+                    player_vectors.right.x,
+                    player_vectors.right.y,
+                    player_vectors.right.z,
+                ),
+                up: Vector3::new(
+                    player_vectors.up.x,
+                    player_vectors.up.y,
+                    player_vectors.up.z,
+                ),
+                ahead: Vector3::new(
+                    player_vectors.front.x,
+                    player_vectors.front.y,
+                    player_vectors.front.z,
+                ),
                 ..Default::default()
             },
             num_rays: 1024,

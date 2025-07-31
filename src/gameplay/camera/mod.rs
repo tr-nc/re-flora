@@ -13,5 +13,5 @@ mod audio;
 mod movement;
 // pub use movement::*;
 
-mod vectors;
-// pub use vectors::*;
+pub mod vectors;
+pub use vectors::*;
