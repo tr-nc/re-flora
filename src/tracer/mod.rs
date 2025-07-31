@@ -28,7 +28,7 @@ use buffer_updater::*;
 use glam::{Mat4, UVec3, Vec2, Vec3};
 use winit::event::KeyEvent;
 
-use crate::audio::AudioEngine;
+use crate::audio::{spatial_sound_calculator::SpatialSoundCalculator, AudioEngine};
 use crate::builder::{
     ContreeBuilderResources, FloraInstanceResources, FloraType, Instance,
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
@@ -123,6 +123,7 @@ pub struct Tracer {
     pool: DescriptorPool,
 
     a_trous_iteration_count: u32,
+    spatial_sound_calculator: Option<SpatialSoundCalculator>,
 }
 
 impl Drop for Tracer {
@@ -239,6 +240,7 @@ impl Tracer {
             render_target_depth_only,
             pool,
             a_trous_iteration_count: 3,
+            spatial_sound_calculator: None,
         });
     }
 
@@ -1407,6 +1409,13 @@ impl Tracer {
         self.camera.reset_velocity();
     }
 
+    pub fn set_spatial_sound_calculator(
+        &mut self,
+        spatial_sound_calculator: SpatialSoundCalculator,
+    ) {
+        self.spatial_sound_calculator = Some(spatial_sound_calculator);
+    }
+
     pub fn update_camera(&mut self, frame_delta_time: f32, is_fly_mode: bool) {
         if is_fly_mode {
             self.camera.update_transform_fly_mode(frame_delta_time);
@@ -1415,6 +1424,11 @@ impl Tracer {
                 get_player_collision_result(&self.resources.player_collision_result).unwrap();
             self.camera
                 .update_transform_walk_mode(frame_delta_time, collision_result);
+        }
+
+        // update spatial sound calculator with camera position
+        if let Some(ref spatial_sound_calculator) = self.spatial_sound_calculator {
+            spatial_sound_calculator.update_player_pos(self.camera.position());
         }
 
         fn get_player_collision_result(

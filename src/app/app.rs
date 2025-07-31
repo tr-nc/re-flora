@@ -365,7 +365,7 @@ impl App {
 
         let mut audio_engine = AudioEngine::new()?;
 
-        let tracer = Tracer::new(
+        let mut tracer = Tracer::new(
             vulkan_ctx.clone(),
             allocator.clone(),
             &shader_compiler,
@@ -381,6 +381,9 @@ impl App {
 
         // Self::add_ambient_sounds(&mut audio_engine)?;
         let spatial_sound_calculator = Self::create_spatial_sound_for_test(&mut audio_engine)?;
+
+        // set the spatial sound calculator on the tracer
+        tracer.set_spatial_sound_calculator(spatial_sound_calculator.clone());
 
         let mut app = Self {
             vulkan_ctx,
@@ -788,9 +791,8 @@ impl App {
         let context = Context::try_new(&ContextSettings::default())?;
         let spatial_sound_calculator = SpatialSoundCalculator::new(10240, context, 1024);
 
-        spatial_sound_calculator
-            .update_positions(Vec3::new(0.0, 0.0, 0.0), Vec3::new(512.0, 0.0, 512.0));
-        spatial_sound_calculator.update_simulation()?;
+        spatial_sound_calculator.update_player_pos(Vec3::new(0.0, 0.0, 0.0));
+        spatial_sound_calculator.update_target_pos(Vec3::new(512.0, 0.0, 512.0));
 
         let spatial_sound_data = RealTimeSpatialSoundData::new(spatial_sound_calculator.clone())?;
         let _handle = audio_engine
@@ -884,7 +886,7 @@ impl App {
         };
         let window_descriptor = WindowStateDesc {
             title: using_mode.to_owned(),
-            window_mode: WindowMode::Windowed(true),
+            window_mode: WindowMode::Windowed(false),
             cursor_locked: true,
             cursor_visible: false,
             ..Default::default()
@@ -1783,11 +1785,7 @@ impl App {
 
                     // update spatial sound calculator with new tree position
                     if let Some(ref spatial_sound_calculator) = self.spatial_sound_calculator {
-                        spatial_sound_calculator
-                            .update_positions(Vec3::new(0.0, 0.0, 0.0), self.tree_pos);
-                        if let Err(e) = spatial_sound_calculator.update_simulation() {
-                            log::error!("Failed to update spatial sound simulation: {}", e);
-                        }
+                        spatial_sound_calculator.update_target_pos(self.tree_pos);
                     }
                 }
 

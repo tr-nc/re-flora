@@ -300,7 +300,7 @@ impl SpatialSoundCalculatorInner {
                 normalized_direction.y,
                 normalized_direction.z,
             ),
-            interpolation: HrtfInterpolation::Nearest,
+            interpolation: HrtfInterpolation::Bilinear, // this is a must!
             spatial_blend: 1.0,
             hrtf: &self.hrtf,
             peak_delays: None,
@@ -319,13 +319,39 @@ impl SpatialSoundCalculatorInner {
 }
 
 impl SpatialSoundCalculator {
-    pub fn update_positions(&self, player_pos: Vec3, target_pos: Vec3) {
+    pub fn update_player_pos(&self, player_pos: Vec3) {
         let inner = self.0.lock().unwrap();
-        *inner.player_position.lock().unwrap() = player_pos;
-        *inner.target_position.lock().unwrap() = target_pos;
+        let old_pos = *inner.player_position.lock().unwrap();
+        if old_pos != player_pos {
+            *inner.player_position.lock().unwrap() = player_pos;
+            log::debug!("Player position updated: {:?} -> {:?}", old_pos, player_pos);
+            drop(inner);
+            if let Err(e) = self.update_simulation() {
+                log::error!(
+                    "Failed to update simulation after player position change: {}",
+                    e
+                );
+            }
+        }
     }
 
-    pub fn update_simulation(&self) -> Result<()> {
+    pub fn update_target_pos(&self, target_pos: Vec3) {
+        let inner = self.0.lock().unwrap();
+        let old_pos = *inner.target_position.lock().unwrap();
+        if old_pos != target_pos {
+            *inner.target_position.lock().unwrap() = target_pos;
+            log::debug!("Target position updated: {:?} -> {:?}", old_pos, target_pos);
+            drop(inner);
+            if let Err(e) = self.update_simulation() {
+                log::error!(
+                    "Failed to update simulation after target position change: {}",
+                    e
+                );
+            }
+        }
+    }
+
+    fn update_simulation(&self) -> Result<()> {
         let mut inner = self.0.lock().unwrap();
         let player_pos = *inner.player_position.lock().unwrap();
         let target_pos = *inner.target_position.lock().unwrap();
