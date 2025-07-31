@@ -67,7 +67,7 @@ pub struct RingBufferSample {
     pub frame: kira::Frame,
 }
 
-pub struct SpatialSoundCalculator {
+struct SpatialSoundCalculatorInner {
     ring_buffer: HeapRb<RingBufferSample>,
     input_cursor_pos: usize,
     available_samples: usize, // Track number of samples in ring buffer
@@ -104,6 +104,9 @@ pub struct SpatialSoundCalculator {
     occlusion: Option<f32>,
 }
 
+#[derive(Clone)]
+pub struct SpatialSoundCalculator(Arc<Mutex<SpatialSoundCalculatorInner>>);
+
 impl SpatialSoundCalculator {
     pub fn new(ring_buffer_size: usize, context: Context, update_frame_window_size: usize) -> Self {
         let ring_buffer = HeapRb::<RingBufferSample>::new(ring_buffer_size);
@@ -138,7 +141,7 @@ impl SpatialSoundCalculator {
         simulator.add_source(&source);
         simulator.commit(); // must be called after add_source
 
-        Self {
+        let inner = SpatialSoundCalculatorInner {
             ring_buffer,
             update_frame_window_size,
             available_samples: 0,
@@ -158,7 +161,9 @@ impl SpatialSoundCalculator {
             directivity: Some(1.0),
             occlusion: Some(1.0),
             source,
-        }
+        };
+        
+        Self(Arc::new(Mutex::new(inner)))
     }
 
     /// Calling this function will return a slice of RingBufferSample, obtained from the ring buffer.
@@ -168,7 +173,7 @@ impl SpatialSoundCalculator {
     ///
     /// When the ring buffer has not enough fresh samples, this function will automatically
     /// call the update function to have enough fresh samples.
-    pub fn fill_samples(&mut self, out: &mut [kira::Frame], device_sampling_rate: f64) {
+    pub fn fill_samples(&self, out: &mut [kira::Frame], device_sampling_rate: f64) {
         const TARGET_SAMPLING_RATE: f64 = 44100.0;
         // target sampling rate may be different from the device sampling rate
         // we have to use a resampler like robato later on for this case
@@ -182,44 +187,56 @@ impl SpatialSoundCalculator {
             self.update();
         }
 
-        let (_, mut consumer) = self.ring_buffer.split_ref();
+        let mut inner = self.0.lock().unwrap();
+        let (_, mut consumer) = inner.ring_buffer.split_ref();
 
         // Pop samples from ring buffer into temp buffer
+        let mut samples_consumed = 0;
         for i in 0..num_samples {
             if let Some(sample) = consumer.try_pop() {
                 out[i] = sample.frame;
-                self.available_samples -= 1;
+                samples_consumed += 1;
             } else {
                 // Shouldn't happen since we checked has_enough_samples
                 break;
             }
         }
+        // Drop the consumer to release the borrow before updating available_samples
+        drop(consumer);
+        inner.available_samples = inner.available_samples.saturating_sub(samples_consumed);
     }
 
     pub fn has_enough_samples(&self, num_samples: usize) -> bool {
-        self.available_samples >= num_samples
+        let inner = self.0.lock().unwrap();
+        inner.available_samples >= num_samples
     }
 
     /// Calling this function will update the ring buffer at the current cursor position, with update_frame_window_size frames.
-    pub fn update(&mut self) {
-        let frames_to_copy = self.update_frame_window_size.min(self.input_buf.len());
+    pub fn update(&self) {
+        let mut inner = self.0.lock().unwrap();
+        let frames_to_copy = inner.update_frame_window_size.min(inner.input_buf.len());
 
         let mut input_chunk = Vec::with_capacity(frames_to_copy);
 
         for i in 0..frames_to_copy {
-            let input_index = (self.input_cursor_pos + i) % self.input_buf.len();
-            input_chunk.push(self.input_buf[input_index]);
+            let input_index = (inner.input_cursor_pos + i) % inner.input_buf.len();
+            input_chunk.push(inner.input_buf[input_index]);
         }
 
         // Apply spatial audio effects
-        let direct_processed = self.apply_direct_effect(1, &input_chunk);
-        let binaural_processed = self.apply_binaural_effect(&direct_processed);
+        let direct_processed = inner.apply_direct_effect(1, &input_chunk);
+        let binaural_processed = inner.apply_binaural_effect(&direct_processed);
 
+        // Capture values before borrowing ring buffer
+        let input_buf_len = inner.input_buf.len();
+        let current_cursor = inner.input_cursor_pos;
+        
         // Now get the ring buffer producer after processing
-        let (mut producer, _) = self.ring_buffer.split_ref();
+        let (mut producer, _) = inner.ring_buffer.split_ref();
 
         // Convert processed audio to ring buffer samples
         let max_frames = (binaural_processed.len() / 2).min(frames_to_copy);
+        let mut samples_added = 0;
         for i in 0..max_frames {
             let ring_buffer_sample = RingBufferSample {
                 frame: KiraFrame {
@@ -229,16 +246,21 @@ impl SpatialSoundCalculator {
             };
 
             if producer.try_push(ring_buffer_sample).is_ok() {
-                self.available_samples += 1;
+                samples_added += 1;
             } else {
                 break; // Ring buffer is full
             }
         }
 
-        // Update cursor position for next update
-        self.input_cursor_pos = (self.input_cursor_pos + frames_to_copy) % self.input_buf.len();
+        // Update available samples and cursor position after the ring buffer operations
+        drop(producer);
+        inner.available_samples += samples_added;
+        inner.input_cursor_pos = (current_cursor + frames_to_copy) % input_buf_len;
     }
 
+}
+
+impl SpatialSoundCalculatorInner {
     fn apply_direct_effect(&self, output_number_of_channels: usize, input: &[Sample]) -> Vec<f32> {
         let wrapped_output_buffer = WrappedAudioBuffer::new(
             &self.context,
@@ -296,16 +318,21 @@ impl SpatialSoundCalculator {
         return interleaved_frame_output;
     }
 
+}
+
+impl SpatialSoundCalculator {
     pub fn update_positions(&self, player_pos: Vec3, target_pos: Vec3) {
-        *self.player_position.lock().unwrap() = player_pos;
-        *self.target_position.lock().unwrap() = target_pos;
+        let inner = self.0.lock().unwrap();
+        *inner.player_position.lock().unwrap() = player_pos;
+        *inner.target_position.lock().unwrap() = target_pos;
     }
 
-    pub fn update_simulation(&mut self) -> Result<()> {
-        let player_pos = *self.player_position.lock().unwrap();
-        let target_pos = *self.target_position.lock().unwrap();
+    pub fn update_simulation(&self) -> Result<()> {
+        let mut inner = self.0.lock().unwrap();
+        let player_pos = *inner.player_position.lock().unwrap();
+        let target_pos = *inner.target_position.lock().unwrap();
 
-        let mut simulator = self.simulator.lock().unwrap();
+        let mut simulator = inner.simulator.lock().unwrap();
 
         let simulation_inputs = SimulationInputs {
             source: geometry::CoordinateSystem {
@@ -352,10 +379,18 @@ impl SpatialSoundCalculator {
         let outputs = source.get_outputs(SimulationFlags::DIRECT);
         let direct_outputs = outputs.direct();
 
+        // Capture values before dropping the simulator guard
+        let distance_attenuation = direct_outputs.distance_attenuation;
+        let directivity = direct_outputs.directivity;
+        let occlusion = direct_outputs.occlusion;
+        
+        // Drop the simulator guard to release the borrow
+        drop(simulator);
+
         // Update cached parameters (avoiding storing SimulationOutputs due to Send issues)
-        self.distance_attenuation = direct_outputs.distance_attenuation;
-        self.directivity = direct_outputs.directivity;
-        self.occlusion = direct_outputs.occlusion;
+        inner.distance_attenuation = distance_attenuation;
+        inner.directivity = directivity;
+        inner.occlusion = occlusion;
 
         Ok(())
     }
