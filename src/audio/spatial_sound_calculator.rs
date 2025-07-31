@@ -9,7 +9,7 @@ use ringbuf::*;
 use std::sync::{Arc, Mutex};
 
 /// Returns: (input, sample_rate, number_of_frames)
-fn get_audio_data(path: &str) -> (Vec<Sample>, u32, usize) {
+fn get_audio_data(path: &str) -> (Vec<f32>, u32, usize) {
     let audio_data = StaticSoundData::from_file(path).expect("Failed to load audio file");
     let loaded_frames = &audio_data.frames;
 
