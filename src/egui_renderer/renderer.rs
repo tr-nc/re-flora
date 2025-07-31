@@ -222,6 +222,7 @@ impl EguiRenderer {
         device: &Device,
         frames: &mut Option<Mesh>,
         pipeline: &GraphicsPipeline,
+        managed_textures: &mut HashMap<TextureId, Texture>,
         allocator: &mut Allocator,
         cmdbuf: &CommandBuffer,
         extent: Extent2D,
@@ -301,6 +302,7 @@ impl EguiRenderer {
 
         let mut index_offset = 0u32;
         let mut vertex_offset = 0i32;
+        let mut current_texture_id: Option<TextureId> = None;
 
         for p in primitives {
             let clip_rect = p.clip_rect;
@@ -324,6 +326,20 @@ impl EguiRenderer {
 
                     unsafe {
                         device.cmd_set_scissor(cmdbuf.as_raw(), 0, &scissors);
+                    }
+
+                    if Some(m.texture_id) != current_texture_id {
+                        let texture = managed_textures.get(&m.texture_id).unwrap();
+                        gui_ppl.write_descriptor_set(
+                            0,
+                            WriteDescriptorSet::new_texture_write(
+                                0,
+                                vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                                &texture,
+                                vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                            ),
+                        );
+                        current_texture_id = Some(m.texture_id);
                     }
 
                     let index_count = m.indices.len() as u32;
@@ -387,6 +403,7 @@ impl EguiRenderer {
             device,
             &mut self.frames,
             &self.gui_ppl,
+            &mut self.managed_textures,
             &mut self.allocator,
             cmdbuf,
             render_area,
