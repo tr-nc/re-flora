@@ -12,12 +12,8 @@ mod util;
 mod vkn;
 mod window;
 
-use anyhow::Result;
 use app::AppController;
-use audionimbus::*;
 use env_logger::Env;
-use glam::Vec3;
-use kira::{AudioManager, AudioManagerSettings, DefaultBackend};
 use winit::event_loop::EventLoop;
 
 #[allow(dead_code)]

@@ -23,7 +23,10 @@ fn get_audio_data(path: &str) -> (Vec<Sample>, u32, usize) {
 }
 
 fn create_hrtf(context: &Context, audio_settings: &AudioSettings) -> Result<Hrtf> {
-    let hrtf = Hrtf::try_new(context, audio_settings, &HrtfSettings::default())?;
+    let hrtf = Hrtf::try_new(context, audio_settings, &HrtfSettings {
+        volume_normalization: VolumeNormalization::RootMeanSquared,
+        ..Default::default()
+    })?;
     Ok(hrtf)
 }
 

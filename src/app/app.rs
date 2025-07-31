@@ -379,8 +379,11 @@ impl App {
             audio_engine.clone(),
         )?;
 
+        let tree_pos = Vec3::new(512.0, 0.0, 512.0);
+
         // Self::add_ambient_sounds(&mut audio_engine)?;
-        let spatial_sound_calculator = Self::create_spatial_sound_for_test(&mut audio_engine)?;
+        let spatial_sound_calculator =
+            Self::create_spatial_sound_for_test(&mut audio_engine, tree_pos)?;
 
         // set the spatial sound calculator on the tracer
         tracer.set_spatial_sound_calculator(spatial_sound_calculator.clone());
@@ -444,7 +447,7 @@ impl App {
             sun_color: egui::Color32::from_rgb(255, 233, 144),
             sun_luminance: 1.0,
             ambient_light: egui::Color32::from_rgb(100, 48, 3),
-            tree_pos: Vec3::new(512.0, 0.0, 512.0),
+            tree_pos,
             tree_desc: TreeDesc::default(),
             tree_variation_config: TreeVariationConfig::default(),
             regenerate_trees_requested: false,
@@ -787,12 +790,13 @@ impl App {
 
     fn create_spatial_sound_for_test(
         audio_engine: &mut AudioEngine,
+        tree_pos: Vec3,
     ) -> Result<SpatialSoundCalculator> {
         let context = Context::try_new(&ContextSettings::default())?;
         let spatial_sound_calculator = SpatialSoundCalculator::new(10240, context, 1024);
 
         spatial_sound_calculator.update_player_pos(Vec3::new(0.0, 0.0, 0.0));
-        spatial_sound_calculator.update_target_pos(Vec3::new(512.0, 0.0, 512.0));
+        spatial_sound_calculator.update_target_pos(tree_pos / 256.0);
 
         let spatial_sound_data = RealTimeSpatialSoundData::new(spatial_sound_calculator.clone())?;
         let _handle = audio_engine
@@ -1785,7 +1789,7 @@ impl App {
 
                     // update spatial sound calculator with new tree position
                     if let Some(ref spatial_sound_calculator) = self.spatial_sound_calculator {
-                        spatial_sound_calculator.update_target_pos(self.tree_pos);
+                        spatial_sound_calculator.update_target_pos(self.tree_pos / 256.0);
                     }
                 }
 
