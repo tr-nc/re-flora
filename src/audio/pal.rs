@@ -3,7 +3,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SizedSample};
 use std::sync::{Arc, Mutex};
 
-/// Play audio samples using cpal
+/// Play audio samples using cpal with WASAPI shared mode
 pub fn play_audio_samples(samples: Vec<f32>, sample_rate: u32) -> Result<()> {
     let frames = samples.len();
 
@@ -22,24 +22,45 @@ pub fn play_audio_samples(samples: Vec<f32>, sample_rate: u32) -> Result<()> {
 
     println!("Using audio device: {}", device.name()?);
 
-    // Get the default output config
-    let config = device.default_output_config()?;
-    println!("Default output config: {:?}", config);
+    // Get the default output config to see what the device supports
+    let default_config = device.default_output_config()?;
+    println!("Default output config: {:#?}", default_config);
+
+    // Check if the device supports our desired sample rate
+    let supported_configs: Vec<_> = device.supported_output_configs()?.collect();
+    println!("Supported configs: {:#?}", supported_configs);
+
+    // Try to find a supported config that matches our sample rate
+    let config_to_use = if let Some(supported) = supported_configs.iter().find(|config| {
+        config.min_sample_rate() <= cpal::SampleRate(sample_rate)
+            && config.max_sample_rate() >= cpal::SampleRate(sample_rate)
+    }) {
+        // Found a supported config that can handle our sample rate
+        cpal::StreamConfig {
+            channels: supported.channels(),
+            sample_rate: cpal::SampleRate(sample_rate),
+            buffer_size: cpal::BufferSize::Default,
+        }
+    } else {
+        // Fall back to default config - WASAPI will resample
+        println!(
+            "Sample rate {} Hz not directly supported, using default config",
+            sample_rate
+        );
+        default_config.config()
+    };
+
+    println!("Using config: {:?}", config_to_use);
+    println!("WASAPI shared mode will handle any necessary resampling");
 
     // Prepare audio data
     let audio_data = Arc::new(Mutex::new((samples, 0usize))); // (samples, current_position)
 
-    // Create the audio stream based on the config format
-    let stream = match config.sample_format() {
-        cpal::SampleFormat::F32 => {
-            run_stream::<f32>(&device, &config.into(), audio_data, sample_rate)?
-        }
-        cpal::SampleFormat::I16 => {
-            run_stream::<i16>(&device, &config.into(), audio_data, sample_rate)?
-        }
-        cpal::SampleFormat::U16 => {
-            run_stream::<u16>(&device, &config.into(), audio_data, sample_rate)?
-        }
+    // Create the audio stream based on the default format
+    let stream = match default_config.sample_format() {
+        cpal::SampleFormat::F32 => run_stream::<f32>(&device, &config_to_use, audio_data)?,
+        cpal::SampleFormat::I16 => run_stream::<i16>(&device, &config_to_use, audio_data)?,
+        cpal::SampleFormat::U16 => run_stream::<u16>(&device, &config_to_use, audio_data)?,
         _ => return Err(anyhow::anyhow!("Unsupported sample format")),
     };
 
@@ -61,16 +82,11 @@ fn run_stream<T>(
     device: &cpal::Device,
     config: &cpal::StreamConfig,
     audio_data: Arc<Mutex<(Vec<f32>, usize)>>,
-    target_sample_rate: u32,
 ) -> Result<cpal::Stream>
 where
     T: SizedSample + FromSample<f32>,
 {
     let channels = config.channels as usize;
-    let device_sample_rate = config.sample_rate.0;
-
-    // Calculate resampling ratio if needed
-    let resample_ratio = target_sample_rate as f64 / device_sample_rate as f64;
 
     let stream = device.build_output_stream(
         config,
@@ -78,12 +94,11 @@ where
             let mut audio_guard = audio_data.lock().unwrap();
             let (samples, position) = &mut *audio_guard;
 
-            // Fill the output buffer
+            // Fill the output buffer - WASAPI handles any sample rate conversion
             for frame in data.chunks_mut(channels) {
                 let sample = if *position < samples.len() {
-                    // Simple resampling by adjusting position increment
                     let current_sample = samples[*position];
-                    *position = (*position as f64 + resample_ratio) as usize;
+                    *position += 1; // 1:1 playback - WASAPI resamples as needed
                     current_sample
                 } else {
                     0.0 // Silence when we've played all samples
