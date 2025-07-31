@@ -267,6 +267,7 @@ pub struct App {
 
     #[allow(dead_code)]
     audio_engine: AudioEngine,
+    spatial_sound_calculator: Option<SpatialSoundCalculator>,
 }
 
 const VOXEL_DIM_PER_CHUNK: UVec3 = UVec3::new(256, 256, 256);
@@ -379,7 +380,7 @@ impl App {
         )?;
 
         // Self::add_ambient_sounds(&mut audio_engine)?;
-        Self::add_spatial_sound_for_test(&mut audio_engine)?;
+        let spatial_sound_calculator = Self::create_spatial_sound_for_test(&mut audio_engine)?;
 
         let mut app = Self {
             vulkan_ctx,
@@ -480,6 +481,7 @@ impl App {
             single_tree_id: 0,
 
             audio_engine,
+            spatial_sound_calculator: Some(spatial_sound_calculator),
         };
 
         app.add_tree(app.tree_desc.clone(), app.tree_pos, true)?;
@@ -780,15 +782,17 @@ impl App {
         }
     }
 
-    fn add_spatial_sound_for_test(audio_engine: &mut AudioEngine) -> Result<()> {
+    fn create_spatial_sound_for_test(
+        audio_engine: &mut AudioEngine,
+    ) -> Result<SpatialSoundCalculator> {
         let context = Context::try_new(&ContextSettings::default())?;
-        let mut spatial_sound_calculator = SpatialSoundCalculator::new(10240, context, 1024);
+        let spatial_sound_calculator = SpatialSoundCalculator::new(10240, context, 1024);
 
         spatial_sound_calculator
-            .update_positions(Vec3::new(0.0, 0.0, 0.0), Vec3::new(5.0, 0.0, 0.0));
+            .update_positions(Vec3::new(0.0, 0.0, 0.0), Vec3::new(512.0, 0.0, 512.0));
         spatial_sound_calculator.update_simulation()?;
 
-        let spatial_sound_data = RealTimeSpatialSoundData::new(spatial_sound_calculator)?;
+        let spatial_sound_data = RealTimeSpatialSoundData::new(spatial_sound_calculator.clone())?;
         let _handle = audio_engine
             .get_manager()
             .lock()
@@ -797,7 +801,7 @@ impl App {
 
         log::debug!("Added spatial sound for test");
 
-        Ok(())
+        Ok(spatial_sound_calculator)
     }
 
     fn add_ambient_sounds(audio_engine: &mut AudioEngine) -> Result<()> {
@@ -1776,6 +1780,15 @@ impl App {
                         true, // clean up before adding a new tree
                     )
                     .unwrap();
+
+                    // update spatial sound calculator with new tree position
+                    if let Some(ref spatial_sound_calculator) = self.spatial_sound_calculator {
+                        spatial_sound_calculator
+                            .update_positions(Vec3::new(0.0, 0.0, 0.0), self.tree_pos);
+                        if let Err(e) = spatial_sound_calculator.update_simulation() {
+                            log::error!("Failed to update spatial sound simulation: {}", e);
+                        }
+                    }
                 }
 
                 if self.regenerate_trees_requested {

@@ -162,7 +162,7 @@ impl SpatialSoundCalculator {
             occlusion: Some(1.0),
             source,
         };
-        
+
         Self(Arc::new(Mutex::new(inner)))
     }
 
@@ -230,7 +230,7 @@ impl SpatialSoundCalculator {
         // Capture values before borrowing ring buffer
         let input_buf_len = inner.input_buf.len();
         let current_cursor = inner.input_cursor_pos;
-        
+
         // Now get the ring buffer producer after processing
         let (mut producer, _) = inner.ring_buffer.split_ref();
 
@@ -257,7 +257,6 @@ impl SpatialSoundCalculator {
         inner.available_samples += samples_added;
         inner.input_cursor_pos = (current_cursor + frames_to_copy) % input_buf_len;
     }
-
 }
 
 impl SpatialSoundCalculatorInner {
@@ -317,7 +316,6 @@ impl SpatialSoundCalculatorInner {
 
         return interleaved_frame_output;
     }
-
 }
 
 impl SpatialSoundCalculator {
@@ -383,7 +381,7 @@ impl SpatialSoundCalculator {
         let distance_attenuation = direct_outputs.distance_attenuation;
         let directivity = direct_outputs.directivity;
         let occlusion = direct_outputs.occlusion;
-        
+
         // Drop the simulator guard to release the borrow
         drop(simulator);
 
