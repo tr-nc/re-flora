@@ -23,14 +23,14 @@ fn get_audio_data(path: &str) -> (Vec<Sample>, u32, usize) {
 }
 
 fn create_hrtf(context: &Context, audio_settings: &AudioSettings) -> Result<Hrtf> {
-    let sofa_path = format!("{}assets/hrtf/HRIR_FULL2DEG.sofa", get_project_root());
+    let sofa_path = format!("{}assets/hrtf/hrtf_b_nh172.sofa", get_project_root());
     let hrtf_data = std::fs::read(&sofa_path)?;
 
     let hrtf = Hrtf::try_new(
         context,
         audio_settings,
         &HrtfSettings {
-            // volume_normalization: VolumeNormalization::RootMeanSquared,
+            volume_normalization: VolumeNormalization::RootMeanSquared,
             sofa_information: Some(Sofa::Buffer(hrtf_data)),
             ..Default::default()
         },
@@ -335,7 +335,6 @@ impl SpatialSoundCalculator {
         let old_pos = *inner.player_position.lock().unwrap();
         if old_pos != player_pos {
             *inner.player_position.lock().unwrap() = player_pos;
-            log::debug!("Player position updated: {:?} -> {:?}", old_pos, player_pos);
             drop(inner);
             if let Err(e) = self.update_simulation() {
                 log::error!(
