@@ -36,9 +36,6 @@ fn test_function() -> Result<()> {
         ..Default::default()
     })?;
     
-    // TODO: how to do this?
-    // log::debug!("sample rate: {}", audio_manager.sample_rate());
-
     // 2. Create the audionimbus context and spatial sound calculator
     let context = Context::try_new(&ContextSettings::default())?;
     let mut spatial_sound_calculator = SpatialSoundCalculator::new(10240, context, 1024);

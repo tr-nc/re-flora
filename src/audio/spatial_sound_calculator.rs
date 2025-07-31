@@ -164,16 +164,15 @@ impl SpatialSoundCalculator {
     ///
     /// When the ring buffer has not enough fresh samples, this function will automatically
     /// call the update function to have enough fresh samples.
-    pub fn fill_samples(&mut self, out: &mut [kira::Frame], ratio: f64) {
+    pub fn fill_samples(&mut self, out: &mut [kira::Frame], device_sampling_rate: f64) {
+        const TARGET_SAMPLING_RATE: f64 = 44100.0;
+        // TODO: target sampling rate may be different from the device sampling rate
+
         let num_samples = out.len();
 
         // Auto-update if we don't have enough samples
         while !self.has_enough_samples(num_samples) {
-            // log::debug!("not enough samples, updating");
-            // let start_time = std::time::Instant::now();
             self.update();
-            // let elapsed = start_time.elapsed();
-            // log::debug!("update() took: {:.3}ms", elapsed.as_secs_f64() * 1000.0);
         }
 
         let (_, mut consumer) = self.ring_buffer.split_ref();
@@ -231,79 +230,6 @@ impl SpatialSoundCalculator {
 
         // Update cursor position for next update
         self.input_cursor_pos = (self.input_cursor_pos + frames_to_copy) % self.input_buf.len();
-        
-        // MARK:
-        // let (mut producer, _) = self.ring_buffer.split_ref();
-
-        // // Calculate how many frames to copy from input_buf
-        // let frames_to_copy = self.update_frame_window_size.min(self.input_buf.len());
-
-        // // Copy frames from input_buf to ring buffer
-        // for i in 0..frames_to_copy {
-        //     let input_index = (self.input_cursor_pos + i) % self.input_buf.len();
-        //     let sample_value = self.input_buf[input_index];
-
-        //     let ring_buffer_sample = RingBufferSample {
-        //         frame: KiraFrame {
-        //             left: sample_value,
-        //             right: sample_value, // Mono to stereo
-        //         },
-        //     };
-
-        //     if producer.try_push(ring_buffer_sample).is_ok() {
-        //         self.available_samples += 1;
-        //     } else {
-        //         break; // Ring buffer is full
-        //     }
-        // }
-
-        // // Update cursor position for next update
-        // self.input_cursor_pos = (self.input_cursor_pos + frames_to_copy) % self.input_buf.len();
-
-        
-
-        // the following code should be commented out for now, don't change it.
-        // // Get current positions (locked briefly)
-        // let _player_pos = *self.player_position.lock().unwrap();
-        // let _target_pos = *self.target_position.lock().unwrap();
-
-        // // Use cached simulation parameters
-        // let _sim_outputs = ();
-
-        // // Extract input chunk (pad if needed, as in your process_audio_chunks)
-        // let input_chunk = if num_frames < chunk_size {
-        //     let mut padded = vec![0.0; chunk_size];
-        //     padded[..num_frames]
-        //         .copy_from_slice(&self.input_buf[self.cursor_pos..self.cursor_pos + num_frames]);
-        //     padded
-        // } else {
-        //     self.input_buf[self.cursor_pos..self.cursor_pos + chunk_size].to_vec()
-        // };
-
-        // let direct_processed = self.apply_direct_effect(self.frame_window_size, 1, &input_chunk);
-        // let binaural_processed = self.apply_binaural_effect(&direct_processed);
-
-        // // Advance position (loop if needed)
-        // self.cursor_pos += num_frames;
-        // if self.cursor_pos >= self.input_buf.len() {
-        //     self.cursor_pos = 0; // Loop
-        // }
-
-        // // construct output frames in place - ensure we don't go out of bounds
-        // let max_frames = (binaural_processed.len() / 2)
-        //     .min(num_frames)
-        //     .min(out.len());
-        // for i in 0..max_frames {
-        //     out[i] = KiraFrame {
-        //         left: binaural_processed[i * 2],
-        //         right: binaural_processed[i * 2 + 1],
-        //     };
-        // }
-        // // Zero out any remaining frames if we didn't fill the entire output buffer
-        // for i in max_frames..out.len() {
-        //     out[i] = KiraFrame::ZERO;
-        // }
-        // }
     }
 
     fn apply_direct_effect(&self, output_number_of_channels: usize, input: &[Sample]) -> Vec<f32> {
