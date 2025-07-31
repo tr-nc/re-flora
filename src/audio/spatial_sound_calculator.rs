@@ -74,12 +74,16 @@ pub struct SpatialSoundCalculator {
 
     update_frame_window_size: usize,
 
-    //
     context: Context,
-    audio_settings: AudioSettings,
     hrtf: Hrtf,
-    source: Source, // The audio source in the simulator
+
+    #[allow(dead_code)]
+    audio_settings: AudioSettings,
+    #[allow(dead_code)]
+    source: Source,
+    #[allow(dead_code)]
     number_of_frames: usize,
+    #[allow(dead_code)]
     sample_rate: u32,
 
     direct_effect: DirectEffect,
@@ -166,7 +170,10 @@ impl SpatialSoundCalculator {
     /// call the update function to have enough fresh samples.
     pub fn fill_samples(&mut self, out: &mut [kira::Frame], device_sampling_rate: f64) {
         const TARGET_SAMPLING_RATE: f64 = 44100.0;
-        // TODO: target sampling rate may be different from the device sampling rate
+        // target sampling rate may be different from the device sampling rate
+        // we have to use a resampler like robato later on for this case
+        // but for now, we just assert that the device sampling rate is the same as the target sampling rate
+        assert_eq!(device_sampling_rate, TARGET_SAMPLING_RATE);
 
         let num_samples = out.len();
 

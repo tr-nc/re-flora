@@ -16,7 +16,7 @@ pub struct SoundHandle {
 
 impl SoundHandle {
     /// Stop playback; if `tween` is None, stops immediately.
-    #[allow(unused)]
+    #[allow(dead_code)]
     pub fn stop(&mut self, tween: Option<crate::audio::Tween>) {
         self.inner.stop(tween.unwrap_or_default());
     }
@@ -32,6 +32,7 @@ impl AudioEngine {
     }
 
     /// Play a clip with its baked-in settings
+    #[allow(dead_code)]
     pub fn play(&self, clip: &SoundClip) -> Result<SoundHandle> {
         let mut mgr = self.manager.lock().unwrap();
         let handle = mgr.play(clip.as_kira().clone())?;
@@ -39,11 +40,15 @@ impl AudioEngine {
     }
 
     /// Play a clip with a custom volume
-    #[allow(unused)]
+    #[allow(dead_code)]
     pub fn play_with_volume(&self, clip: &SoundClip, volume: f32) -> Result<SoundHandle> {
         let mut mgr = self.manager.lock().unwrap();
         let data = clip.as_kira().clone().volume(volume);
         let handle = mgr.play(data)?;
         Ok(SoundHandle { inner: handle })
+    }
+
+    pub fn get_manager(&self) -> &Arc<Mutex<AudioManager<DefaultBackend>>> {
+        &self.manager
     }
 }

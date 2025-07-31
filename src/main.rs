@@ -26,33 +26,6 @@ fn backtrace_on() {
     env::set_var("RUST_BACKTRACE", "1");
 }
 
-fn test_function() -> Result<()> {
-    use crate::audio::spatial_sound::RealTimeSpatialSoundData;
-    use crate::audio::spatial_sound_calculator::SpatialSoundCalculator;
-    // In a real application, you would do this:
-
-    // 1. Create your audio manager (usually done once at app startup)
-    let mut audio_manager = AudioManager::<DefaultBackend>::new(AudioManagerSettings {
-        ..Default::default()
-    })?;
-    
-    // 2. Create the audionimbus context and spatial sound calculator
-    let context = Context::try_new(&ContextSettings::default())?;
-    let mut spatial_sound_calculator = SpatialSoundCalculator::new(10240, context, 1024);
-
-    // 3. Update positions from your game state
-    spatial_sound_calculator.update_positions(Vec3::new(0.0, 0.0, 0.0), Vec3::new(5.0, 0.0, 0.0));
-    spatial_sound_calculator.update_simulation()?;
-
-    // 4. Create spatial sound data and play it
-    let spatial_sound_data = RealTimeSpatialSoundData::new(spatial_sound_calculator)?;
-    let _handle = audio_manager.play(spatial_sound_data)?;
-
-    std::thread::sleep(std::time::Duration::from_secs(8));
-
-    Ok(())
-}
-
 fn init_env_logger() {
     env_logger::Builder::from_env(
         Env::default().default_filter_or("debug,symphonia_core=warn,symphonia_format_riff=warn"),
@@ -82,14 +55,12 @@ pub fn main() {
     // backtrace_on();
 
     init_env_logger();
-    // let mut app = AppController::default();
-    // let event_loop = EventLoop::builder().build().unwrap();
-    // let result = event_loop.run_app(&mut app);
+    let mut app = AppController::default();
+    let event_loop = EventLoop::builder().build().unwrap();
+    let result = event_loop.run_app(&mut app);
 
-    // match result {
-    //     Ok(_) => log::info!("Application exited successfully"),
-    //     Err(e) => log::error!("Application exited with error: {:?}", e),
-    // }
-
-    test_function().unwrap();
+    match result {
+        Ok(_) => log::info!("Application exited successfully"),
+        Err(e) => log::error!("Application exited with error: {:?}", e),
+    }
 }

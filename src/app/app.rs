@@ -1,6 +1,8 @@
 #[allow(unused)]
 use crate::util::Timer;
 
+use crate::audio::spatial_sound::RealTimeSpatialSoundData;
+use crate::audio::spatial_sound_calculator::SpatialSoundCalculator;
 use crate::audio::{AudioEngine, ClipCache, PlayMode, SoundDataConfig};
 use crate::builder::{ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder};
 use crate::geom::{build_bvh, UAabb3};
@@ -17,6 +19,7 @@ use crate::{
 };
 use anyhow::Result;
 use ash::vk;
+use audionimbus::{Context, ContextSettings};
 use egui::{Color32, RichText};
 use glam::{UVec3, Vec2, Vec3};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
@@ -375,7 +378,8 @@ impl App {
             audio_engine.clone(),
         )?;
 
-        Self::add_ambient_sounds(&mut audio_engine)?;
+        // Self::add_ambient_sounds(&mut audio_engine)?;
+        Self::add_spatial_sound_for_test(&mut audio_engine)?;
 
         let mut app = Self {
             vulkan_ctx,
@@ -774,6 +778,26 @@ impl App {
             tree_desc.leaves_size_level =
                 ((tree_desc.leaves_size_level as f32 + variation).round() as u32).clamp(0, 8);
         }
+    }
+
+    fn add_spatial_sound_for_test(audio_engine: &mut AudioEngine) -> Result<()> {
+        let context = Context::try_new(&ContextSettings::default())?;
+        let mut spatial_sound_calculator = SpatialSoundCalculator::new(10240, context, 1024);
+
+        spatial_sound_calculator
+            .update_positions(Vec3::new(0.0, 0.0, 0.0), Vec3::new(5.0, 0.0, 0.0));
+        spatial_sound_calculator.update_simulation()?;
+
+        let spatial_sound_data = RealTimeSpatialSoundData::new(spatial_sound_calculator)?;
+        let _handle = audio_engine
+            .get_manager()
+            .lock()
+            .unwrap()
+            .play(spatial_sound_data)?;
+
+        log::debug!("Added spatial sound for test");
+
+        Ok(())
     }
 
     fn add_ambient_sounds(audio_engine: &mut AudioEngine) -> Result<()> {
