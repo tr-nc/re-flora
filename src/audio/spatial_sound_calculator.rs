@@ -190,11 +190,12 @@ impl SpatialSoundCalculator {
     /// When the ring buffer has not enough fresh samples, this function will automatically
     /// call the update function to have enough fresh samples.
     pub fn fill_samples(&self, out: &mut [kira::Frame], device_sampling_rate: f64) {
-        const TARGET_SAMPLING_RATE: f64 = 44100.0;
         // target sampling rate may be different from the device sampling rate
         // we have to use a resampler like robato later on for this case
         // but for now, we just assert that the device sampling rate is the same as the target sampling rate
-        assert_eq!(device_sampling_rate, TARGET_SAMPLING_RATE);
+
+        let inner = self.0.lock().unwrap();
+        assert_eq!(device_sampling_rate, inner.sample_rate as f64);
 
         let num_samples = out.len();
 
