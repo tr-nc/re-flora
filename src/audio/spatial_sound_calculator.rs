@@ -168,7 +168,8 @@ impl SpatialSoundCalculator {
     pub fn new(ring_buffer_size: usize, context: Context, update_frame_window_size: usize) -> Self {
         let ring_buffer = HeapRb::<RingBufferSample>::new(ring_buffer_size);
 
-        let (input_buf, sample_rate, number_of_frames) = get_audio_data("assets/sfx/gust_1.wav");
+        let (input_buf, sample_rate, number_of_frames) =
+            get_audio_data("assets/sfx/leaves_rustling.wav");
 
         log::debug!("using sample_rate: {}", sample_rate);
 
@@ -305,10 +306,11 @@ impl SpatialSoundCalculator {
 
         inner.apply_direct_effect();
         inner.apply_binaural_effect();
-        // inner.apply_ambisonics_encode_effect(&input_chunk, &mut inner.cached_ambisonics_encode_buf);
-        // inner.apply_ambisonics_decode_effect(&inner.cached_ambisonics_encode_buf, &mut inner.cached_ambisonics_decode_buf);
+        // let binaural_processed = inner.cached_binaural_buf.to_interleaved();
 
-        let binaural_processed = inner.cached_binaural_buf.to_interleaved();
+        inner.apply_ambisonics_encode_effect();
+        inner.apply_ambisonics_decode_effect();
+        let binaural_processed = inner.cached_ambisonics_decode_buf.to_interleaved();
 
         // Capture values before borrowing ring buffer
         let input_buf_len = inner.input_buf.len();
@@ -343,7 +345,6 @@ impl SpatialSoundCalculator {
 }
 
 impl SpatialSoundCalculatorInner {
-
     fn apply_direct_effect(&mut self) {
         let direct_effect_params = DirectEffectParams {
             distance_attenuation: self.distance_attenuation,
@@ -361,7 +362,7 @@ impl SpatialSoundCalculatorInner {
     }
 
     fn apply_binaural_effect(&mut self) {
-        let normalized_direction = self.get_target_direction();
+        let normalized_direction = self.get_target_direction().normalize();
 
         let binaural_effect_params = BinauralEffectParams {
             direction: Direction::new(
@@ -382,46 +383,41 @@ impl SpatialSoundCalculatorInner {
         );
     }
 
-    fn apply_ambisonics_encode_effect(
-        &mut self,
-        input: &[Sample],
-        output_buf: &mut WrappedAudioBuffer,
-    ) {
-        let normalized_direction = self.get_target_direction();
+    fn apply_ambisonics_encode_effect(&mut self) {
+        // don't need to normalize here, the lib will do it for us
+        let dir = self.get_target_direction();
 
         let ambisonics_encode_effect_params = AmbisonicsEncodeEffectParams {
             direction: Direction::new(
-                normalized_direction.x,
-                normalized_direction.y,
-                normalized_direction.z,
+                dir.x,
+                dir.y,
+                dir.z,
             ),
             order: 2,
         };
 
-        let input_buffer = AudioBuffer::try_with_data(input).unwrap();
         let _effect_state = self.ambisonics_encode_effect.apply(
             &ambisonics_encode_effect_params,
-            &input_buffer,
-            &output_buf.as_raw(),
+            &self.cached_direct_buf.as_raw(),
+            &self.cached_ambisonics_encode_buf.as_raw(),
         );
     }
 
-    fn apply_ambisonics_decode_effect(
-        &mut self,
-        encoded_buf: &WrappedAudioBuffer,
-        output_buf: &mut WrappedAudioBuffer,
-    ) {
+    fn apply_ambisonics_decode_effect(&mut self) {
         let ambisonics_decode_effect_params = AmbisonicsDecodeEffectParams {
             order: 2,
             hrtf: &self.hrtf,
-            orientation: Default::default(),
+            orientation: CoordinateSystem {
+                // written in the document
+                ahead: Vector3::new(0.0, 0.0, -1.0),
+                ..Default::default()
+            },
             binaural: true,
         };
-
         let _effect_state = self.ambisonics_decode_effect.apply(
             &ambisonics_decode_effect_params,
-            &encoded_buf.as_raw(),
-            &output_buf.as_raw(),
+            &self.cached_ambisonics_encode_buf.as_raw(),
+            &self.cached_ambisonics_decode_buf.as_raw(),
         );
     }
 
@@ -435,14 +431,13 @@ impl SpatialSoundCalculatorInner {
 
         // Transform to camera-relative coordinates using camera vectors
         // The direction should be relative to where the player is looking
-        let normalized_direction = Vec3::new(
+        let dir = Vec3::new(
             target_direction.dot(player_vectors.right),
             target_direction.dot(player_vectors.up),
             target_direction.dot(player_vectors.front),
-        )
-        .normalize();
+        );
 
-        return normalized_direction;
+        return dir;
     }
 }
 
