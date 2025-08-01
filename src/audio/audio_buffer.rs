@@ -62,3 +62,10 @@ impl AudioBuffer {
         output
     }
 }
+
+// SAFETY: AudioBuffer is safe to send between threads because:
+// - The raw pointers point to our owned Vec<f32> data
+// - The Vec<f32> itself is Send + Sync
+// - We never access the raw pointers from different threads simultaneously
+unsafe impl Send for AudioBuffer {}
+unsafe impl Sync for AudioBuffer {}

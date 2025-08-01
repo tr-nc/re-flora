@@ -148,6 +148,13 @@ struct SpatialSoundCalculatorInner {
     // Buffer for input audio (e.g., from a streaming source)
     input_buf: Vec<Sample>, // Fill this from your audio source (e.g., loop or generate)
 
+    // Cached buffers to avoid allocations during processing
+    cached_input_buf: WrappedAudioBuffer,
+    cached_direct_buf: WrappedAudioBuffer,
+    cached_binaural_buf: WrappedAudioBuffer,
+    cached_ambisonics_encode_buf: WrappedAudioBuffer,
+    cached_ambisonics_decode_buf: WrappedAudioBuffer,
+
     // Direct effect params (updated periodically)
     distance_attenuation: Option<f32>,
     directivity: Option<f32>,
@@ -190,6 +197,18 @@ impl SpatialSoundCalculator {
         simulator.add_source(&source);
         simulator.commit(); // must be called after add_source
 
+        // Create cached buffers to avoid allocations during processing
+        let cached_input_buf =
+            WrappedAudioBuffer::new(context.clone(), update_frame_window_size, 1).unwrap();
+        let cached_direct_buf =
+            WrappedAudioBuffer::new(context.clone(), update_frame_window_size, 1).unwrap();
+        let cached_binaural_buf =
+            WrappedAudioBuffer::new(context.clone(), update_frame_window_size, 2).unwrap();
+        let cached_ambisonics_encode_buf =
+            WrappedAudioBuffer::new(context.clone(), update_frame_window_size, 9).unwrap(); // 9 channels for order 2
+        let cached_ambisonics_decode_buf =
+            WrappedAudioBuffer::new(context.clone(), update_frame_window_size, 2).unwrap();
+
         let inner = SpatialSoundCalculatorInner {
             ring_buffer,
             update_frame_window_size,
@@ -200,6 +219,11 @@ impl SpatialSoundCalculator {
             sample_rate,
             input_buf,
             number_of_frames,
+            cached_input_buf,
+            cached_direct_buf,
+            cached_binaural_buf,
+            cached_ambisonics_encode_buf,
+            cached_ambisonics_decode_buf,
             direct_effect,
             binaural_effect,
             ambisonics_encode_effect,
@@ -276,17 +300,15 @@ impl SpatialSoundCalculator {
             input_chunk.push(inner.input_buf[input_index]);
         }
 
-        let mut input_buf =
-            WrappedAudioBuffer::new(inner.context.clone(), frames_to_copy, 1).unwrap();
-        input_buf.set_data(&input_chunk).unwrap();
+        // Use cached input buffer and set its data
+        inner.cached_input_buf.set_data(&input_chunk).unwrap();
 
-        let direct_processed_buf = inner.apply_direct_effect(1, input_buf);
-        let binaural_processed_buf = inner.apply_binaural_effect(&direct_processed_buf);
+        inner.apply_direct_effect();
+        inner.apply_binaural_effect();
+        // inner.apply_ambisonics_encode_effect(&input_chunk, &mut inner.cached_ambisonics_encode_buf);
+        // inner.apply_ambisonics_decode_effect(&inner.cached_ambisonics_encode_buf, &mut inner.cached_ambisonics_decode_buf);
 
-        // let encoded_buf = inner.apply_ambisonics_encode_effect(&input_chunk);
-        // let binaural_processed = inner.apply_ambisonics_decode_effect(&encoded_buf);
-
-        let binaural_processed = binaural_processed_buf.to_interleaved();
+        let binaural_processed = inner.cached_binaural_buf.to_interleaved();
 
         // Capture values before borrowing ring buffer
         let input_buf_len = inner.input_buf.len();
@@ -321,18 +343,8 @@ impl SpatialSoundCalculator {
 }
 
 impl SpatialSoundCalculatorInner {
-    fn apply_direct_effect(
-        &self,
-        output_number_of_channels: usize,
-        input_buf: WrappedAudioBuffer,
-    ) -> WrappedAudioBuffer {
-        let output_buf = WrappedAudioBuffer::new(
-            self.context.clone(),
-            self.update_frame_window_size,
-            output_number_of_channels,
-        )
-        .unwrap();
 
+    fn apply_direct_effect(&mut self) {
         let direct_effect_params = DirectEffectParams {
             distance_attenuation: self.distance_attenuation,
             air_absorption: None, // Can't clone Equalizer<3>
@@ -343,17 +355,12 @@ impl SpatialSoundCalculatorInner {
 
         let _effect_state = self.direct_effect.apply(
             &direct_effect_params,
-            &input_buf.as_raw(),
-            &output_buf.as_raw(),
+            &self.cached_input_buf.as_raw(),
+            &self.cached_direct_buf.as_raw(),
         );
-        return output_buf;
     }
 
-    fn apply_binaural_effect(&self, input_buf: &WrappedAudioBuffer) -> WrappedAudioBuffer {
-        let output_buf =
-            WrappedAudioBuffer::new(self.context.clone(), self.update_frame_window_size, 2)
-                .unwrap();
-
+    fn apply_binaural_effect(&mut self) {
         let normalized_direction = self.get_target_direction();
 
         let binaural_effect_params = BinauralEffectParams {
@@ -370,18 +377,16 @@ impl SpatialSoundCalculatorInner {
 
         let _effect_state = self.binaural_effect.apply(
             &binaural_effect_params,
-            &input_buf.as_raw(),
-            &output_buf.as_raw(),
+            &self.cached_direct_buf.as_raw(),
+            &self.cached_binaural_buf.as_raw(),
         );
-        return output_buf;
     }
 
-    fn apply_ambisonics_encode_effect(&self, input: &[Sample]) -> WrappedAudioBuffer {
-        // 9 channels for ambisonics encode with order 2
-        let encoded_buf =
-            WrappedAudioBuffer::new(self.context.clone(), self.update_frame_window_size, 9)
-                .unwrap();
-
+    fn apply_ambisonics_encode_effect(
+        &mut self,
+        input: &[Sample],
+        output_buf: &mut WrappedAudioBuffer,
+    ) {
         let normalized_direction = self.get_target_direction();
 
         let ambisonics_encode_effect_params = AmbisonicsEncodeEffectParams {
@@ -397,16 +402,15 @@ impl SpatialSoundCalculatorInner {
         let _effect_state = self.ambisonics_encode_effect.apply(
             &ambisonics_encode_effect_params,
             &input_buffer,
-            &encoded_buf.as_raw(),
+            &output_buf.as_raw(),
         );
-        return encoded_buf;
     }
 
-    fn apply_ambisonics_decode_effect(&self, encoded_buf: &WrappedAudioBuffer) -> Vec<f32> {
-        let decoded_buf =
-            WrappedAudioBuffer::new(self.context.clone(), self.update_frame_window_size, 2)
-                .unwrap();
-
+    fn apply_ambisonics_decode_effect(
+        &mut self,
+        encoded_buf: &WrappedAudioBuffer,
+        output_buf: &mut WrappedAudioBuffer,
+    ) {
         let ambisonics_decode_effect_params = AmbisonicsDecodeEffectParams {
             order: 2,
             hrtf: &self.hrtf,
@@ -417,10 +421,8 @@ impl SpatialSoundCalculatorInner {
         let _effect_state = self.ambisonics_decode_effect.apply(
             &ambisonics_decode_effect_params,
             &encoded_buf.as_raw(),
-            &decoded_buf.as_raw(),
+            &output_buf.as_raw(),
         );
-        let interleaved_frame_output = decoded_buf.to_interleaved();
-        return interleaved_frame_output;
     }
 
     fn get_target_direction(&self) -> Vec3 {
