@@ -45,7 +45,12 @@ fn create_effects(
     context: &Context,
     audio_settings: &AudioSettings,
     hrtf: &Hrtf,
-) -> Result<(DirectEffect, BinauralEffect)> {
+) -> Result<(
+    DirectEffect,
+    BinauralEffect,
+    AmbisonicsEncodeEffect,
+    AmbisonicsDecodeEffect,
+)> {
     let direct_effect = DirectEffect::try_new(
         context,
         audio_settings,
@@ -57,7 +62,35 @@ fn create_effects(
         &audio_settings,
         &BinauralEffectSettings { hrtf: &hrtf },
     )?;
-    Ok((direct_effect, binaural_effect))
+
+    log::debug!("Creating ambisonics encode effect");
+
+    let ambisonics_encode_effect = AmbisonicsEncodeEffect::try_new(
+        &context,
+        audio_settings,
+        &AmbisonicsEncodeEffectSettings { max_order: 2 },
+    )?;
+
+    log::debug!("Creating ambisonics decode effect");
+
+    let ambisonics_decode_effect = AmbisonicsDecodeEffect::try_new(
+        &context,
+        audio_settings,
+        &AmbisonicsDecodeEffectSettings {
+            max_order: 2,
+            speaker_layout: SpeakerLayout::Stereo,
+            hrtf: &hrtf,
+        },
+    )?;
+
+    log::debug!("Creating ambisonics encode effect done");
+
+    Ok((
+        direct_effect,
+        binaural_effect,
+        ambisonics_encode_effect,
+        ambisonics_decode_effect,
+    ))
 }
 
 fn create_simulator(
@@ -102,6 +135,8 @@ struct SpatialSoundCalculatorInner {
 
     direct_effect: DirectEffect,
     binaural_effect: BinauralEffect,
+    ambisonics_encode_effect: AmbisonicsEncodeEffect,
+    ambisonics_decode_effect: AmbisonicsDecodeEffect,
 
     simulator: Arc<Mutex<Simulator<Direct>>>, // Shared for updates
 
@@ -127,7 +162,7 @@ impl SpatialSoundCalculator {
         let ring_buffer = HeapRb::<RingBufferSample>::new(ring_buffer_size);
 
         let (input_buf, sample_rate, number_of_frames) =
-            get_audio_data("assets/sfx/leaf_rustling.wav");
+            get_audio_data("assets/sfx/lyric_cicada_2.wav");
 
         log::debug!("using sample_rate: {}", sample_rate);
 
@@ -137,7 +172,7 @@ impl SpatialSoundCalculator {
         };
 
         let hrtf = create_hrtf(&context, &audio_settings).unwrap();
-        let (direct_effect, binaural_effect) =
+        let (direct_effect, binaural_effect, ambisonics_encode_effect, ambisonics_decode_effect) =
             create_effects(&context, &audio_settings, &hrtf).unwrap();
 
         let mut simulator =
@@ -168,6 +203,8 @@ impl SpatialSoundCalculator {
             number_of_frames,
             direct_effect,
             binaural_effect,
+            ambisonics_encode_effect,
+            ambisonics_decode_effect,
             simulator: Arc::new(Mutex::new(simulator)),
             player_position: Arc::new(Mutex::new(Vec3::ZERO)),
             target_position: Arc::new(Mutex::new(Vec3::ZERO)),
@@ -194,8 +231,8 @@ impl SpatialSoundCalculator {
         // we have to use a resampler like robato later on for this case
         // but for now, we just assert that the device sampling rate is the same as the target sampling rate
 
-        let inner = self.0.lock().unwrap();
-        assert_eq!(device_sampling_rate, inner.sample_rate as f64);
+        let sampling_rate = self.0.lock().unwrap().sample_rate;
+        assert_eq!(device_sampling_rate, sampling_rate as f64);
 
         let num_samples = out.len();
 
