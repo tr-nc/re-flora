@@ -161,7 +161,7 @@ impl SpatialSoundCalculator {
         let ring_buffer = HeapRb::<RingBufferSample>::new(ring_buffer_size);
 
         let (input_buf, sample_rate, number_of_frames) =
-            get_audio_data("assets/sfx/lyric_cicada_2.wav");
+            get_audio_data("assets/sfx/Gentle Wind/WINDDsgn_Wind, Gentle, Designed 01_SARM_Wind.wav");
 
         log::debug!("using sample_rate: {}", sample_rate);
 
