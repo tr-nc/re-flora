@@ -161,8 +161,7 @@ impl SpatialSoundCalculator {
     pub fn new(ring_buffer_size: usize, context: Context, update_frame_window_size: usize) -> Self {
         let ring_buffer = HeapRb::<RingBufferSample>::new(ring_buffer_size);
 
-        let (input_buf, sample_rate, number_of_frames) =
-            get_audio_data("assets/sfx/lyric_cicada_2.wav");
+        let (input_buf, sample_rate, number_of_frames) = get_audio_data("assets/sfx/gust_1.wav");
 
         log::debug!("using sample_rate: {}", sample_rate);
 
@@ -277,9 +276,17 @@ impl SpatialSoundCalculator {
             input_chunk.push(inner.input_buf[input_index]);
         }
 
-        // Apply spatial audio effects
-        let direct_processed = inner.apply_direct_effect(1, &input_chunk);
-        let binaural_processed = inner.apply_binaural_effect(&direct_processed);
+        let mut input_buf =
+            WrappedAudioBuffer::new(inner.context.clone(), frames_to_copy, 1).unwrap();
+        input_buf.set_data(&input_chunk).unwrap();
+
+        let direct_processed_buf = inner.apply_direct_effect(1, input_buf);
+        let binaural_processed_buf = inner.apply_binaural_effect(&direct_processed_buf);
+
+        // let encoded_buf = inner.apply_ambisonics_encode_effect(&input_chunk);
+        // let binaural_processed = inner.apply_ambisonics_decode_effect(&encoded_buf);
+
+        let binaural_processed = binaural_processed_buf.to_interleaved();
 
         // Capture values before borrowing ring buffer
         let input_buf_len = inner.input_buf.len();
@@ -314,9 +321,13 @@ impl SpatialSoundCalculator {
 }
 
 impl SpatialSoundCalculatorInner {
-    fn apply_direct_effect(&self, output_number_of_channels: usize, input: &[Sample]) -> Vec<f32> {
-        let wrapped_output_buffer = WrappedAudioBuffer::new(
-            &self.context,
+    fn apply_direct_effect(
+        &self,
+        output_number_of_channels: usize,
+        input_buf: WrappedAudioBuffer,
+    ) -> WrappedAudioBuffer {
+        let output_buf = WrappedAudioBuffer::new(
+            self.context.clone(),
             self.update_frame_window_size,
             output_number_of_channels,
         )
@@ -330,20 +341,89 @@ impl SpatialSoundCalculatorInner {
             transmission: None, // Can't clone Transmission
         };
 
-        let input_buffer = AudioBuffer::try_with_data(input).unwrap();
         let _effect_state = self.direct_effect.apply(
             &direct_effect_params,
-            &input_buffer,
-            &wrapped_output_buffer.as_raw(),
+            &input_buf.as_raw(),
+            &output_buf.as_raw(),
         );
-        let interleaved_frame_output = wrapped_output_buffer.to_interleaved();
+        return output_buf;
+    }
+
+    fn apply_binaural_effect(&self, input_buf: &WrappedAudioBuffer) -> WrappedAudioBuffer {
+        let output_buf =
+            WrappedAudioBuffer::new(self.context.clone(), self.update_frame_window_size, 2)
+                .unwrap();
+
+        let normalized_direction = self.get_target_direction();
+
+        let binaural_effect_params = BinauralEffectParams {
+            direction: Direction::new(
+                normalized_direction.x,
+                normalized_direction.y,
+                normalized_direction.z,
+            ),
+            interpolation: HrtfInterpolation::Bilinear, // this is a must!
+            spatial_blend: 1.0,
+            hrtf: &self.hrtf,
+            peak_delays: None,
+        };
+
+        let _effect_state = self.binaural_effect.apply(
+            &binaural_effect_params,
+            &input_buf.as_raw(),
+            &output_buf.as_raw(),
+        );
+        return output_buf;
+    }
+
+    fn apply_ambisonics_encode_effect(&self, input: &[Sample]) -> WrappedAudioBuffer {
+        // 9 channels for ambisonics encode with order 2
+        let encoded_buf =
+            WrappedAudioBuffer::new(self.context.clone(), self.update_frame_window_size, 9)
+                .unwrap();
+
+        let normalized_direction = self.get_target_direction();
+
+        let ambisonics_encode_effect_params = AmbisonicsEncodeEffectParams {
+            direction: Direction::new(
+                normalized_direction.x,
+                normalized_direction.y,
+                normalized_direction.z,
+            ),
+            order: 2,
+        };
+
+        let input_buffer = AudioBuffer::try_with_data(input).unwrap();
+        let _effect_state = self.ambisonics_encode_effect.apply(
+            &ambisonics_encode_effect_params,
+            &input_buffer,
+            &encoded_buf.as_raw(),
+        );
+        return encoded_buf;
+    }
+
+    fn apply_ambisonics_decode_effect(&self, encoded_buf: &WrappedAudioBuffer) -> Vec<f32> {
+        let decoded_buf =
+            WrappedAudioBuffer::new(self.context.clone(), self.update_frame_window_size, 2)
+                .unwrap();
+
+        let ambisonics_decode_effect_params = AmbisonicsDecodeEffectParams {
+            order: 2,
+            hrtf: &self.hrtf,
+            orientation: Default::default(),
+            binaural: true,
+        };
+
+        let _effect_state = self.ambisonics_decode_effect.apply(
+            &ambisonics_decode_effect_params,
+            &encoded_buf.as_raw(),
+            &decoded_buf.as_raw(),
+        );
+        let interleaved_frame_output = decoded_buf.to_interleaved();
         return interleaved_frame_output;
     }
 
-    fn apply_binaural_effect(&self, input: &[Sample]) -> Vec<f32> {
-        let wrapped_output_buffer =
-            WrappedAudioBuffer::new(&self.context, self.update_frame_window_size, 2).unwrap();
-
+    fn get_target_direction(&self) -> Vec3 {
         let player_position = *self.player_position.lock().unwrap();
         let target_position = *self.target_position.lock().unwrap();
         let player_vectors = self.player_vectors.lock().unwrap();
@@ -360,27 +440,7 @@ impl SpatialSoundCalculatorInner {
         )
         .normalize();
 
-        let binaural_effect_params = BinauralEffectParams {
-            direction: Direction::new(
-                normalized_direction.x,
-                normalized_direction.y,
-                normalized_direction.z,
-            ),
-            interpolation: HrtfInterpolation::Bilinear, // this is a must!
-            spatial_blend: 1.0,
-            hrtf: &self.hrtf,
-            peak_delays: None,
-        };
-
-        let input_buffer = AudioBuffer::try_with_data(input).unwrap();
-        let _effect_state = self.binaural_effect.apply(
-            &binaural_effect_params,
-            &input_buffer,
-            &wrapped_output_buffer.as_raw(),
-        );
-        let interleaved_frame_output = wrapped_output_buffer.to_interleaved();
-
-        return interleaved_frame_output;
+        return normalized_direction;
     }
 }
 

@@ -105,8 +105,12 @@ fn apply_binaural_effect(
     player_position: Vec3,
     target_position: Vec3,
 ) -> Vec<f32> {
-    let wrapped_output_buffer =
-        WrappedAudioBuffer::new(&context, frame_window_size, output_number_of_channels).unwrap();
+    let wrapped_output_buffer = WrappedAudioBuffer::new(
+        context.clone(),
+        frame_window_size,
+        output_number_of_channels,
+    )
+    .unwrap();
 
     let normalized_direction = (target_position - player_position).normalize();
     let binaural_effect_params = BinauralEffectParams {
@@ -319,8 +323,12 @@ fn apply_direct_effect(
     input: &[Sample],
     number_of_frames: usize,
 ) -> Vec<f32> {
-    let wrapped_output_buffer =
-        WrappedAudioBuffer::new(&context, frame_window_size, output_number_of_channels).unwrap();
+    let wrapped_output_buffer = WrappedAudioBuffer::new(
+        context.clone(),
+        frame_window_size,
+        output_number_of_channels,
+    )
+    .unwrap();
 
     let direct_outputs = simulation_outputs.direct();
 

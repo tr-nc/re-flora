@@ -8,7 +8,7 @@ pub struct AudioBuffer<'a> {
 }
 
 impl<'a> AudioBuffer<'a> {
-    pub fn new(context: &Context, frame_size: usize, num_channels: usize) -> Result<Self> {
+    pub fn new(context: Context, frame_size: usize, num_channels: usize) -> Result<Self> {
         let mut data = vec![0.0; frame_size * num_channels];
 
         // We need to create the buffer with a reference to our data
@@ -30,12 +30,32 @@ impl<'a> AudioBuffer<'a> {
         Ok(Self {
             _data: data,
             buffer,
-            context: context.clone(),
+            context,
         })
     }
 
     pub fn as_raw(&self) -> &AudionimbusAudioBuffer<&'a mut [f32]> {
         &self.buffer
+    }
+
+    pub fn set_data(&mut self, data: &[f32]) -> Result<()> {
+        if data.len() > self._data.len() {
+            return Err(anyhow::anyhow!(
+                "Input data size ({}) exceeds buffer capacity ({})",
+                data.len(),
+                self._data.len()
+            ));
+        }
+
+        // Copy data into our internal buffer
+        self._data[..data.len()].copy_from_slice(data);
+
+        // Fill remaining space with zeros if input is smaller
+        if data.len() < self._data.len() {
+            self._data[data.len()..].fill(0.0);
+        }
+
+        Ok(())
     }
 
     pub fn to_interleaved(&self) -> Vec<f32> {
