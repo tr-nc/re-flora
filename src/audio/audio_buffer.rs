@@ -1,58 +1,56 @@
 use anyhow::Result;
-use audionimbus::{AudioBuffer as AudionimbusAudioBuffer, AudioBufferSettings, Context};
+use audionimbus::{AudioBuffer as AudionimbusAudioBuffer, Context};
 
-pub struct AudioBuffer<'a> {
-    _data: Vec<f32>,
-    buffer: AudionimbusAudioBuffer<&'a mut [f32]>,
+pub struct AudioBuffer {
+    data: Vec<f32>,
+    buffer: AudionimbusAudioBuffer<Vec<f32>>,
     context: Context,
 }
 
-impl<'a> AudioBuffer<'a> {
+impl AudioBuffer {
     pub fn new(context: Context, frame_size: usize, num_channels: usize) -> Result<Self> {
         let mut data = vec![0.0; frame_size * num_channels];
 
-        // We need to create the buffer with a reference to our data
-        // This requires unsafe code to tie the lifetime to self
-        let data_ptr = data.as_mut_ptr();
-        let data_len = data.len();
-        let data_slice = unsafe { std::slice::from_raw_parts_mut(data_ptr, data_len) };
-        let data_slice: &'a mut [f32] = unsafe { std::mem::transmute(data_slice) };
+        let num_samples = data.len() / num_channels;
 
-        let buffer = AudionimbusAudioBuffer::try_with_data_and_settings(
-            data_slice,
-            &AudioBufferSettings {
-                num_channels: Some(num_channels),
-                ..Default::default()
-            },
-        )
-        .map_err(|e| anyhow::anyhow!("Failed to create AudioBuffer: {:?}", e))?;
+        let mut channel_ptrs = Vec::with_capacity(num_channels);
+        let base_ptr = data.as_mut_ptr();
+        for ch in 0..num_channels {
+            let ptr = unsafe { base_ptr.add(ch * num_samples) };
+            channel_ptrs.push(ptr);
+        }
+
+        let buffer = unsafe {
+            AudionimbusAudioBuffer::<Vec<f32>>::try_new(channel_ptrs, num_samples)
+                .map_err(|e| anyhow::anyhow!("Failed to create AudioBuffer: {:?}", e))?
+        };
 
         Ok(Self {
-            _data: data,
+            data,
             buffer,
             context,
         })
     }
 
-    pub fn as_raw(&self) -> &AudionimbusAudioBuffer<&'a mut [f32]> {
+    pub fn as_raw(&self) -> &AudionimbusAudioBuffer<Vec<f32>> {
         &self.buffer
     }
 
     pub fn set_data(&mut self, data: &[f32]) -> Result<()> {
-        if data.len() > self._data.len() {
+        if data.len() > self.data.len() {
             return Err(anyhow::anyhow!(
                 "Input data size ({}) exceeds buffer capacity ({})",
                 data.len(),
-                self._data.len()
+                self.data.len()
             ));
         }
 
         // Copy data into our internal buffer
-        self._data[..data.len()].copy_from_slice(data);
+        self.data[..data.len()].copy_from_slice(data);
 
         // Fill remaining space with zeros if input is smaller
-        if data.len() < self._data.len() {
-            self._data[data.len()..].fill(0.0);
+        if data.len() < self.data.len() {
+            self.data[data.len()..].fill(0.0);
         }
 
         Ok(())
