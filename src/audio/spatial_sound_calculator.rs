@@ -63,15 +63,11 @@ fn create_effects(
         &BinauralEffectSettings { hrtf: &hrtf },
     )?;
 
-    log::debug!("Creating ambisonics encode effect");
-
     let ambisonics_encode_effect = AmbisonicsEncodeEffect::try_new(
         &context,
         audio_settings,
         &AmbisonicsEncodeEffectSettings { max_order: 2 },
     )?;
-
-    log::debug!("Creating ambisonics decode effect");
 
     let ambisonics_decode_effect = AmbisonicsDecodeEffect::try_new(
         &context,
@@ -82,8 +78,6 @@ fn create_effects(
             hrtf: &hrtf,
         },
     )?;
-
-    log::debug!("Creating ambisonics encode effect done");
 
     Ok((
         direct_effect,
@@ -117,11 +111,13 @@ pub struct RingBufferSample {
 struct SpatialSoundCalculatorInner {
     ring_buffer: HeapRb<RingBufferSample>,
     input_cursor_pos: usize,
-    available_samples: usize, // Track number of samples in ring buffer
+    available_samples: usize,
 
     update_frame_window_size: usize,
 
+    #[allow(dead_code)]
     context: Context,
+
     hrtf: Hrtf,
 
     #[allow(dead_code)]
@@ -138,24 +134,20 @@ struct SpatialSoundCalculatorInner {
     ambisonics_encode_effect: AmbisonicsEncodeEffect,
     ambisonics_decode_effect: AmbisonicsDecodeEffect,
 
-    simulator: Arc<Mutex<Simulator<Direct>>>, // Shared for updates
+    simulator: Arc<Mutex<Simulator<Direct>>>,
 
-    // Dynamic state (updated from game loop)
     player_position: Arc<Mutex<Vec3>>,
     target_position: Arc<Mutex<Vec3>>,
     player_vectors: Arc<Mutex<CameraVectors>>,
 
-    // Buffer for input audio (e.g., from a streaming source)
-    input_buf: Vec<Sample>, // Fill this from your audio source (e.g., loop or generate)
+    input_buf: Vec<Sample>,
 
-    // Cached buffers to avoid allocations during processing
     cached_input_buf: WrappedAudioBuffer,
     cached_direct_buf: WrappedAudioBuffer,
     cached_binaural_buf: WrappedAudioBuffer,
     cached_ambisonics_encode_buf: WrappedAudioBuffer,
     cached_ambisonics_decode_buf: WrappedAudioBuffer,
 
-    // Direct effect params (updated periodically)
     distance_attenuation: Option<f32>,
     directivity: Option<f32>,
     occlusion: Option<f32>,
@@ -169,7 +161,7 @@ impl SpatialSoundCalculator {
         let ring_buffer = HeapRb::<RingBufferSample>::new(ring_buffer_size);
 
         let (input_buf, sample_rate, number_of_frames) =
-            get_audio_data("assets/sfx/leaves_rustling.wav");
+            get_audio_data("assets/sfx/lyric_cicada_2.wav");
 
         log::debug!("using sample_rate: {}", sample_rate);
 
@@ -198,15 +190,15 @@ impl SpatialSoundCalculator {
         simulator.add_source(&source);
         simulator.commit(); // must be called after add_source
 
-        // Create cached buffers to avoid allocations during processing
         let cached_input_buf =
             WrappedAudioBuffer::new(context.clone(), update_frame_window_size, 1).unwrap();
         let cached_direct_buf =
             WrappedAudioBuffer::new(context.clone(), update_frame_window_size, 1).unwrap();
         let cached_binaural_buf =
             WrappedAudioBuffer::new(context.clone(), update_frame_window_size, 2).unwrap();
+        // 9 channels for order 2
         let cached_ambisonics_encode_buf =
-            WrappedAudioBuffer::new(context.clone(), update_frame_window_size, 9).unwrap(); // 9 channels for order 2
+            WrappedAudioBuffer::new(context.clone(), update_frame_window_size, 9).unwrap();
         let cached_ambisonics_decode_buf =
             WrappedAudioBuffer::new(context.clone(), update_frame_window_size, 2).unwrap();
 
@@ -260,26 +252,29 @@ impl SpatialSoundCalculator {
 
         let num_samples = out.len();
 
-        // Auto-update if we don't have enough samples
         while !self.has_enough_samples(num_samples) {
+            let start_time = std::time::Instant::now();
             self.update();
+            let end_time = std::time::Instant::now();
+            let duration = end_time.duration_since(start_time);
+            // log::debug!("update time: {:?}", duration);
         }
 
         let mut inner = self.0.lock().unwrap();
         let (_, mut consumer) = inner.ring_buffer.split_ref();
 
-        // Pop samples from ring buffer into temp buffer
+        // pop samples from ring buffer into temp buffer
         let mut samples_consumed = 0;
         for i in 0..num_samples {
             if let Some(sample) = consumer.try_pop() {
                 out[i] = sample.frame;
                 samples_consumed += 1;
             } else {
-                // Shouldn't happen since we checked has_enough_samples
+                // shouldn't happen since we checked has_enough_samples
                 break;
             }
         }
-        // Drop the consumer to release the borrow before updating available_samples
+        // drop the consumer to release the borrow before updating available_samples
         drop(consumer);
         inner.available_samples = inner.available_samples.saturating_sub(samples_consumed);
     }
@@ -301,25 +296,25 @@ impl SpatialSoundCalculator {
             input_chunk.push(inner.input_buf[input_index]);
         }
 
-        // Use cached input buffer and set its data
+        // use cached input buffer and set its data
         inner.cached_input_buf.set_data(&input_chunk).unwrap();
 
         inner.apply_direct_effect();
-        inner.apply_binaural_effect();
+        // inner.apply_binaural_effect();
         // let binaural_processed = inner.cached_binaural_buf.to_interleaved();
 
         inner.apply_ambisonics_encode_effect();
         inner.apply_ambisonics_decode_effect();
         let binaural_processed = inner.cached_ambisonics_decode_buf.to_interleaved();
 
-        // Capture values before borrowing ring buffer
+        // capture values before borrowing ring buffer
         let input_buf_len = inner.input_buf.len();
         let current_cursor = inner.input_cursor_pos;
 
-        // Now get the ring buffer producer after processing
+        // now get the ring buffer producer after processing
         let (mut producer, _) = inner.ring_buffer.split_ref();
 
-        // Convert processed audio to ring buffer samples
+        // convert processed audio to ring buffer samples
         let max_frames = (binaural_processed.len() / 2).min(frames_to_copy);
         let mut samples_added = 0;
         for i in 0..max_frames {
@@ -333,11 +328,12 @@ impl SpatialSoundCalculator {
             if producer.try_push(ring_buffer_sample).is_ok() {
                 samples_added += 1;
             } else {
-                break; // Ring buffer is full
+                // ring buffer is full
+                break;
             }
         }
 
-        // Update available samples and cursor position after the ring buffer operations
+        // update available samples and cursor position after the ring buffer operations
         drop(producer);
         inner.available_samples += samples_added;
         inner.input_cursor_pos = (current_cursor + frames_to_copy) % input_buf_len;
@@ -348,10 +344,10 @@ impl SpatialSoundCalculatorInner {
     fn apply_direct_effect(&mut self) {
         let direct_effect_params = DirectEffectParams {
             distance_attenuation: self.distance_attenuation,
-            air_absorption: None, // Can't clone Equalizer<3>
+            air_absorption: None,
             directivity: self.directivity,
             occlusion: self.occlusion,
-            transmission: None, // Can't clone Transmission
+            transmission: None,
         };
 
         let _effect_state = self.direct_effect.apply(
@@ -370,7 +366,7 @@ impl SpatialSoundCalculatorInner {
                 normalized_direction.y,
                 normalized_direction.z,
             ),
-            interpolation: HrtfInterpolation::Bilinear, // this is a must!
+            interpolation: HrtfInterpolation::Bilinear,
             spatial_blend: 1.0,
             hrtf: &self.hrtf,
             peak_delays: None,
@@ -388,11 +384,7 @@ impl SpatialSoundCalculatorInner {
         let dir = self.get_target_direction();
 
         let ambisonics_encode_effect_params = AmbisonicsEncodeEffectParams {
-            direction: Direction::new(
-                dir.x,
-                dir.y,
-                dir.z,
-            ),
+            direction: Direction::new(dir.x, dir.y, dir.z),
             order: 2,
         };
 
@@ -426,11 +418,8 @@ impl SpatialSoundCalculatorInner {
         let target_position = *self.target_position.lock().unwrap();
         let player_vectors = self.player_vectors.lock().unwrap();
 
-        // Calculate the direction from player to target in world space
         let target_direction = (target_position - player_position).normalize();
 
-        // Transform to camera-relative coordinates using camera vectors
-        // The direction should be relative to where the player is looking
         let dir = Vec3::new(
             target_direction.dot(player_vectors.right),
             target_direction.dot(player_vectors.up),
@@ -452,17 +441,6 @@ impl SpatialSoundCalculator {
         let old_vectors = inner.player_vectors.lock().unwrap().clone();
 
         if old_pos != player_pos || old_vectors != *camera_vectors {
-            // log::debug!(
-            //     "Updating player position: {:?} -> {:?}",
-            //     old_pos,
-            //     player_pos
-            // );
-            // log::debug!(
-            //     "Updating player vectors: {:?} -> {:?}",
-            //     old_vectors,
-            //     camera_vectors
-            // );
-
             *inner.player_position.lock().unwrap() = player_pos;
             *inner.player_vectors.lock().unwrap() = camera_vectors.clone();
             drop(inner);
