@@ -7,12 +7,11 @@ use anyhow::Result;
 use audionimbus::{
     geometry, AirAbsorptionModel, AmbisonicsDecodeEffect, AmbisonicsDecodeEffectParams,
     AmbisonicsDecodeEffectSettings, AmbisonicsEncodeEffect, AmbisonicsEncodeEffectParams,
-    AmbisonicsEncodeEffectSettings, AudioSettings, Context, ContextSettings, CoordinateSystem,
-    Direct, DirectEffect, DirectEffectParams, DirectEffectSettings, DirectSimulationParameters,
-    DirectSimulationSettings, Direction, DistanceAttenuationModel, Equalizer, Hrtf, HrtfSettings,
-    Point, Scene, SceneParams, SceneSettings, SimulationFlags, SimulationInputs,
-    SimulationSharedInputs, Simulator, Sofa, Source, SourceSettings, SpeakerLayout, Vector3,
-    VolumeNormalization,
+    AmbisonicsEncodeEffectSettings, AudioSettings, Context, CoordinateSystem, Direct, DirectEffect,
+    DirectEffectParams, DirectEffectSettings, DirectSimulationParameters, DirectSimulationSettings,
+    Direction, DistanceAttenuationModel, Equalizer, Hrtf, HrtfSettings, Point, Scene, SceneParams,
+    SceneSettings, SimulationFlags, SimulationInputs, SimulationSharedInputs, Simulator, Sofa,
+    Source, SourceSettings, SpeakerLayout, Vector3, VolumeNormalization,
 };
 use glam::Vec3;
 use kira::Frame as KiraFrame;
@@ -97,7 +96,6 @@ pub struct SpatialSoundManagerInner {
 
     cached_input_buf: AudioBuffer,
     cached_direct_buf: AudioBuffer,
-    cached_binaural_buf: AudioBuffer,
     cached_summed_encoded_buf: AudioBuffer,
     cached_ambisonics_encode_buf: AudioBuffer,
     cached_ambisonics_decode_buf: AudioBuffer,
@@ -139,7 +137,6 @@ impl SpatialSoundManagerInner {
 
         let cached_input_buf = AudioBuffer::new(context.clone(), frame_window_size, 1).unwrap();
         let cached_direct_buf = AudioBuffer::new(context.clone(), frame_window_size, 1).unwrap();
-        let cached_binaural_buf = AudioBuffer::new(context.clone(), frame_window_size, 2).unwrap();
         // 9 channels for order 2
         let cached_summed_encoded_buf =
             AudioBuffer::new(context.clone(), frame_window_size, 9).unwrap();
@@ -160,7 +157,6 @@ impl SpatialSoundManagerInner {
             ambisonics_decode_effect,
             cached_input_buf,
             cached_direct_buf,
-            cached_binaural_buf,
             cached_summed_encoded_buf,
             cached_ambisonics_encode_buf,
             cached_ambisonics_decode_buf,

@@ -55,7 +55,10 @@ impl AudioEngine {
     #[allow(dead_code)]
     pub fn play_with_volume(&self, clip: &SoundClip, volume: f32) -> Result<SoundHandle> {
         let mut mgr = self.manager.lock().unwrap();
-        let data = clip.as_kira().clone().volume(Self::amplitude_to_decibels(volume));
+        let data = clip
+            .as_kira()
+            .clone()
+            .volume(Self::amplitude_to_decibels(volume));
         let handle = mgr.play(data)?;
         Ok(SoundHandle { inner: handle })
     }
