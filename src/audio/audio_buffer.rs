@@ -36,6 +36,10 @@ impl AudioBuffer {
         &self.buffer
     }
 
+    pub fn get_data(&self) -> &[f32] {
+        &self.data
+    }
+
     pub fn set_data(&mut self, data: &[f32]) -> Result<()> {
         if data.len() > self.data.len() {
             return Err(anyhow::anyhow!(

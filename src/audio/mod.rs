@@ -6,7 +6,7 @@ pub use clip_cache::*;
 
 mod sound_clip;
 
-mod audionimbus_test;
+mod spatial_sound_manager;
 
 mod audio_buffer;
 
