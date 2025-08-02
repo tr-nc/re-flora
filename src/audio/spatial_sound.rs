@@ -2,17 +2,17 @@ use anyhow::Result;
 use kira::info::Info;
 use kira::sound::Sound;
 
-use crate::audio::spatial_sound_calculator::SpatialSoundCalculator;
+use crate::audio::spatial_sound_manager::SpatialSoundManager;
 
 // Custom Sound implementation for real-time processing
 pub struct RealTimeSpatialSound {
-    spatial_sound_calculator: SpatialSoundCalculator,
+    spatial_sound_manager: SpatialSoundManager,
 }
 
 impl Sound for RealTimeSpatialSound {
     fn process(&mut self, out: &mut [kira::Frame], dt: f64, _info: &Info) {
         let device_sampling_rate = 1.0 / dt;
-        self.spatial_sound_calculator
+        self.spatial_sound_manager
             .fill_samples(out, device_sampling_rate);
     }
 
@@ -22,9 +22,9 @@ impl Sound for RealTimeSpatialSound {
 }
 
 impl RealTimeSpatialSound {
-    pub fn new(spatial_sound_calculator: SpatialSoundCalculator) -> Result<Self> {
+    pub fn new(spatial_sound_manager: SpatialSoundManager) -> Result<Self> {
         Ok(Self {
-            spatial_sound_calculator,
+            spatial_sound_manager,
         })
     }
 }
@@ -34,8 +34,8 @@ pub struct RealTimeSpatialSoundData {
 }
 
 impl RealTimeSpatialSoundData {
-    pub fn new(spatial_sound_calculator: SpatialSoundCalculator) -> Result<Self> {
-        let spatial_sound = RealTimeSpatialSound::new(spatial_sound_calculator)?;
+    pub fn new(spatial_sound_manager: SpatialSoundManager) -> Result<Self> {
+        let spatial_sound = RealTimeSpatialSound::new(spatial_sound_manager)?;
         Ok(Self { spatial_sound })
     }
 }

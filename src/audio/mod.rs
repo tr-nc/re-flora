@@ -6,7 +6,8 @@ pub use clip_cache::*;
 
 mod sound_clip;
 
-mod spatial_sound_manager;
+pub mod spatial_sound_manager;
+pub use spatial_sound_manager::SpatialSoundManager;
 
 mod audio_buffer;
 

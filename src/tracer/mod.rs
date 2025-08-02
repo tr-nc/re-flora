@@ -28,7 +28,7 @@ use buffer_updater::*;
 use glam::{Mat4, UVec3, Vec2, Vec3};
 use winit::event::KeyEvent;
 
-use crate::audio::{spatial_sound_calculator::SpatialSoundCalculator, AudioEngine};
+use crate::audio::{spatial_sound_manager::SpatialSoundManager, AudioEngine};
 use crate::builder::{
     ContreeBuilderResources, FloraInstanceResources, FloraType, Instance,
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
@@ -123,7 +123,7 @@ pub struct Tracer {
     pool: DescriptorPool,
 
     a_trous_iteration_count: u32,
-    spatial_sound_calculator: Option<SpatialSoundCalculator>,
+    spatial_sound_manager: Option<SpatialSoundManager>,
 }
 
 impl Drop for Tracer {
@@ -240,7 +240,7 @@ impl Tracer {
             render_target_depth_only,
             pool,
             a_trous_iteration_count: 3,
-            spatial_sound_calculator: None,
+            spatial_sound_manager: None,
         });
     }
 
@@ -1425,11 +1425,8 @@ impl Tracer {
         self.camera.vectors()
     }
 
-    pub fn set_spatial_sound_calculator(
-        &mut self,
-        spatial_sound_calculator: SpatialSoundCalculator,
-    ) {
-        self.spatial_sound_calculator = Some(spatial_sound_calculator);
+    pub fn set_spatial_sound_manager(&mut self, spatial_sound_manager: SpatialSoundManager) {
+        self.spatial_sound_manager = Some(spatial_sound_manager);
     }
 
     pub fn update_camera(&mut self, frame_delta_time: f32, is_fly_mode: bool) {
@@ -1442,10 +1439,11 @@ impl Tracer {
                 .update_transform_walk_mode(frame_delta_time, collision_result);
         }
 
-        // update spatial sound calculator with camera position
-        if let Some(ref spatial_sound_calculator) = self.spatial_sound_calculator {
-            spatial_sound_calculator
-                .update_player_pos(self.camera.position(), self.camera.vectors());
+        // update spatial sound manager with camera position
+        if let Some(ref spatial_sound_manager) = self.spatial_sound_manager {
+            spatial_sound_manager
+                .update_player_pos(self.camera.position(), self.camera.vectors())
+                .unwrap();
         }
 
         fn get_player_collision_result(

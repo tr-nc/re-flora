@@ -2,7 +2,7 @@
 use crate::util::Timer;
 
 use crate::audio::spatial_sound::RealTimeSpatialSoundData;
-use crate::audio::spatial_sound_calculator::SpatialSoundCalculator;
+use crate::audio::spatial_sound_manager::SpatialSoundManager;
 use crate::audio::{AudioEngine, ClipCache, PlayMode, SoundDataConfig};
 use crate::builder::{ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder};
 use crate::gameplay::camera::vectors::CameraVectors;
@@ -268,7 +268,8 @@ pub struct App {
 
     #[allow(dead_code)]
     audio_engine: AudioEngine,
-    spatial_sound_calculator: Option<SpatialSoundCalculator>,
+    spatial_sound_manager: Option<SpatialSoundManager>,
+    tree_sound_source_id: Option<uuid::Uuid>,
 }
 
 const VOXEL_DIM_PER_CHUNK: UVec3 = UVec3::new(256, 256, 256);
@@ -383,11 +384,11 @@ impl App {
         let tree_pos = Vec3::new(512.0, 0.0, 512.0);
 
         // Self::add_ambient_sounds(&mut audio_engine)?;
-        let spatial_sound_calculator =
+        let (spatial_sound_manager, tree_source_id) =
             Self::create_spatial_sound_for_test(&mut audio_engine, tree_pos)?;
 
-        // set the spatial sound calculator on the tracer
-        tracer.set_spatial_sound_calculator(spatial_sound_calculator.clone());
+        // set the spatial sound manager on the tracer
+        tracer.set_spatial_sound_manager(spatial_sound_manager.clone());
 
         let mut app = Self {
             vulkan_ctx,
@@ -488,7 +489,8 @@ impl App {
             single_tree_id: 0,
 
             audio_engine,
-            spatial_sound_calculator: Some(spatial_sound_calculator),
+            spatial_sound_manager: Some(spatial_sound_manager),
+            tree_sound_source_id: Some(tree_source_id),
         };
 
         app.add_tree(app.tree_desc.clone(), app.tree_pos, true)?;
@@ -792,16 +794,18 @@ impl App {
     fn create_spatial_sound_for_test(
         audio_engine: &mut AudioEngine,
         tree_pos: Vec3,
-    ) -> Result<SpatialSoundCalculator> {
+    ) -> Result<(SpatialSoundManager, uuid::Uuid)> {
         let context = Context::try_new(&ContextSettings::default())?;
-        let spatial_sound_calculator = SpatialSoundCalculator::new(10240, context, 1024);
+        let spatial_sound_manager = SpatialSoundManager::new(10240, context, 1024);
+
+        // Add tree gust source at the tree position
+        let tree_source_id = spatial_sound_manager.add_tree_gust_source(tree_pos / 256.0)?;
 
         let mut dummy_vectors = CameraVectors::new();
         dummy_vectors.update(0.0, 0.0); // Default forward-facing orientation
-        spatial_sound_calculator.update_player_pos(Vec3::new(0.0, 0.0, 0.0), &dummy_vectors);
-        spatial_sound_calculator.update_target_pos(tree_pos / 256.0);
+        spatial_sound_manager.update_player_pos(Vec3::new(0.0, 0.0, 0.0), &dummy_vectors)?;
 
-        let spatial_sound_data = RealTimeSpatialSoundData::new(spatial_sound_calculator.clone())?;
+        let spatial_sound_data = RealTimeSpatialSoundData::new(spatial_sound_manager.clone())?;
         let _handle = audio_engine
             .get_manager()
             .lock()
@@ -810,7 +814,7 @@ impl App {
 
         log::debug!("Added spatial sound for test");
 
-        Ok(spatial_sound_calculator)
+        Ok((spatial_sound_manager, tree_source_id))
     }
 
     fn add_ambient_sounds(audio_engine: &mut AudioEngine) -> Result<()> {
@@ -1790,9 +1794,13 @@ impl App {
                     )
                     .unwrap();
 
-                    // update spatial sound calculator with new tree position
-                    if let Some(ref spatial_sound_calculator) = self.spatial_sound_calculator {
-                        spatial_sound_calculator.update_target_pos(self.tree_pos / 256.0);
+                    // update spatial sound manager with new tree position
+                    if let (Some(ref spatial_sound_manager), Some(tree_source_id)) =
+                        (&self.spatial_sound_manager, self.tree_sound_source_id)
+                    {
+                        spatial_sound_manager
+                            .update_source_pos(tree_source_id, self.tree_pos / 256.0)
+                            .unwrap();
                     }
                 }
 

@@ -3,6 +3,7 @@ use crate::{
         audio_buffer::AudioBuffer, audio_decoder::get_audio_data,
         spatial_sound_calculator::RingBufferSample,
     },
+    gameplay::camera::vectors::CameraVectors,
     util::get_project_root,
 };
 use anyhow::Result;
@@ -19,12 +20,14 @@ use audionimbus::{
 use glam::Vec3;
 use kira::Frame as KiraFrame;
 use ringbuf::{
-    traits::{Producer, SplitRef},
+    traits::{Consumer, Producer, SplitRef},
     HeapRb,
 };
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
+#[derive(Clone)]
 struct SimulationResult {
     distance_attenuation: f32,
     air_absorption: Vec3,
@@ -39,6 +42,7 @@ impl Default for SimulationResult {
     }
 }
 
+#[derive(Clone)]
 pub struct SpatialSoundSource {
     position: Vec3,
     volume: f32,
@@ -79,7 +83,7 @@ impl SpatialSoundSource {
     }
 }
 
-pub struct SpatialSoundManager {
+pub struct SpatialSoundManagerInner {
     ring_buffer: HeapRb<RingBufferSample>,
     available_samples: usize,
 
@@ -111,7 +115,10 @@ pub struct SpatialSoundManager {
     scene: Scene,
 }
 
-impl SpatialSoundManager {
+#[derive(Clone)]
+pub struct SpatialSoundManager(Arc<Mutex<SpatialSoundManagerInner>>);
+
+impl SpatialSoundManagerInner {
     pub fn new(
         context: Context,
         ring_buffer_size: usize,
@@ -256,8 +263,9 @@ impl SpatialSoundManager {
             log::warn!("Source with this UUID already exists, generating new UUID");
             id = Uuid::new_v4();
         }
-        let source = self.sources.insert(id, source).unwrap();
-        self.simulator.add_source(&source.source);
+        self.sources.insert(id, source);
+        let source_ref = self.sources.get(&id).unwrap();
+        self.simulator.add_source(&source_ref.source);
         id
     }
 
@@ -497,6 +505,130 @@ impl SpatialSoundManager {
         }
 
         Ok(())
+    }
+}
+
+impl SpatialSoundManager {
+    pub fn new(ring_buffer_size: usize, context: Context, frame_window_size: usize) -> Self {
+        let sample_rate = 48000;
+        let inner = SpatialSoundManagerInner::new(
+            context,
+            ring_buffer_size,
+            frame_window_size,
+            sample_rate,
+        );
+
+        Self(Arc::new(Mutex::new(inner)))
+    }
+
+    pub fn add_tree_gust_source(&self, tree_pos: Vec3) -> Result<Uuid> {
+        let mut inner = self.0.lock().unwrap();
+        let source = SpatialSoundSource::new(
+            &inner.simulator,
+            "assets/sfx/Tree Gusts/WINDGust_Wind, Gust in Trees 01_SARM_Wind.wav",
+            1.0,
+            tree_pos,
+        )?;
+
+        let source_id = inner.add_source(source);
+        Ok(source_id)
+    }
+
+    pub fn fill_samples(&self, out: &mut [kira::Frame], device_sampling_rate: f64) {
+        // Ensure device sampling rate matches our expected rate
+        assert_eq!(
+            device_sampling_rate, 48000.0,
+            "Device sampling rate must be 48000 Hz"
+        );
+
+        let num_samples = out.len();
+
+        while !self.has_enough_samples(num_samples) {
+            self.update();
+        }
+
+        let mut inner = self.0.lock().unwrap();
+        let (_, mut consumer) = inner.ring_buffer.split_ref();
+
+        let mut samples_consumed = 0;
+        for i in 0..num_samples {
+            if let Some(sample) = consumer.try_pop() {
+                out[i] = sample.frame;
+                samples_consumed += 1;
+            } else {
+                break;
+            }
+        }
+        drop(consumer);
+        inner.available_samples = inner.available_samples.saturating_sub(samples_consumed);
+    }
+
+    pub fn has_enough_samples(&self, num_samples: usize) -> bool {
+        let inner = self.0.lock().unwrap();
+        inner.available_samples >= num_samples
+    }
+
+    pub fn update(&self) {
+        let mut inner = self.0.lock().unwrap();
+        inner.update();
+    }
+
+    pub fn update_player_pos(
+        &self,
+        player_pos: Vec3,
+        camera_vectors: &CameraVectors,
+    ) -> Result<()> {
+        let mut inner = self.0.lock().unwrap();
+        let old_pos = inner.listener_position;
+        let old_up = inner.listener_up;
+        let old_front = inner.listener_front;
+        let old_right = inner.listener_right;
+
+        if old_pos != player_pos
+            || old_up != camera_vectors.up
+            || old_front != camera_vectors.front
+            || old_right != camera_vectors.right
+        {
+            inner.listener_position = player_pos;
+            inner.listener_up = camera_vectors.up;
+            inner.listener_front = camera_vectors.front;
+            inner.listener_right = camera_vectors.right;
+            inner.simulate()?;
+        }
+        Ok(())
+    }
+
+    pub fn update_source_pos(&self, source_id: Uuid, target_pos: Vec3) -> Result<()> {
+        let mut inner = self.0.lock().unwrap();
+        if let Some(source) = inner.sources.get_mut(&source_id) {
+            let old_pos = source.position;
+            if old_pos != target_pos {
+                source.position = target_pos;
+                log::debug!(
+                    "Source {:?} position updated: {:?} -> {:?}",
+                    source_id,
+                    old_pos,
+                    target_pos
+                );
+                inner.simulate()?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn add_source(&self, source: SpatialSoundSource) -> Uuid {
+        let mut inner = self.0.lock().unwrap();
+        inner.add_source(source)
+    }
+
+    pub fn get_source(&self, id: Uuid) -> Option<SpatialSoundSource> {
+        let inner = self.0.lock().unwrap();
+        inner.get_source(id).cloned()
+    }
+
+    pub fn remove_source(&self, id: Uuid) {
+        let mut inner = self.0.lock().unwrap();
+        inner.remove_source(id);
     }
 }
 
