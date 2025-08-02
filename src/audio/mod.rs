@@ -12,8 +12,8 @@ mod audio_buffer;
 
 pub mod spatial_sound_calculator;
 
-pub mod sym;
-pub use sym::*;
+pub mod audio_decoder;
+pub use audio_decoder::*;
 
 pub mod pal;
 pub use pal::*;

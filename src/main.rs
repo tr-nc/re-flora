@@ -73,8 +73,6 @@ pub fn main() {
     // backtrace_on();
 
     init_env_logger();
-    play_audio_with_cpal().unwrap();
-    return;
 
     let mut app = AppController::default();
     let event_loop = EventLoop::builder().build().unwrap();

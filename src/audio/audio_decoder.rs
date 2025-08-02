@@ -8,7 +8,7 @@ use symphonia::{
     default::{get_codecs, get_probe},
 };
 
-/// Returns: (input, sample_rate, number_of_frames)
+/// Returns: (samples, sample_rate, number_of_frames)
 pub fn get_audio_data(path: &str) -> Result<(Vec<f32>, u32, usize)> {
     let file = File::open(&path).expect("Failed to open audio file");
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
