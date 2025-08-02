@@ -1,7 +1,8 @@
 use crate::audio::SoundClip;
 use anyhow::Result;
 use kira::{
-    sound::static_sound::StaticSoundHandle, AudioManager, AudioManagerSettings, DefaultBackend,
+    sound::static_sound::StaticSoundHandle, AudioManager, AudioManagerSettings, Decibels,
+    DefaultBackend,
 };
 use std::sync::{Arc, Mutex};
 
@@ -39,11 +40,22 @@ impl AudioEngine {
         Ok(SoundHandle { inner: handle })
     }
 
+    /// Converts a linear amplitude (0.0‒1.0) to decibels.
+    ///
+    /// * `amplitude` – a non-negative linear gain value.
+    /// * returns     – a `Decibels` instance. Values at or below 0.0 map to `SILENCE`.
+    pub fn amplitude_to_decibels(amplitude: f32) -> Decibels {
+        if amplitude <= 0.0 {
+            return Decibels::SILENCE;
+        }
+        return Decibels(20.0 * amplitude.log10());
+    }
+
     /// Play a clip with a custom volume
     #[allow(dead_code)]
     pub fn play_with_volume(&self, clip: &SoundClip, volume: f32) -> Result<SoundHandle> {
         let mut mgr = self.manager.lock().unwrap();
-        let data = clip.as_kira().clone().volume(volume);
+        let data = clip.as_kira().clone().volume(Self::amplitude_to_decibels(volume));
         let handle = mgr.play(data)?;
         Ok(SoundHandle { inner: handle })
     }

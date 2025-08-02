@@ -66,6 +66,8 @@ pub struct PlayerAudioController {
     clip_caches: PlayerClipCaches,
     // time elapsed since last step sound
     time_since_last_step: f32,
+
+    volume_multiplier: f32,
 }
 
 impl PlayerAudioController {
@@ -75,19 +77,24 @@ impl PlayerAudioController {
             audio_engine,
             clip_caches,
             time_since_last_step: 0.0,
+            volume_multiplier: 0.1,
         })
     }
 
     pub fn play_jump(&mut self, speed: f32) {
         let clip = self.clip_caches.jump.next();
         let volume = self.calculate_speed_based_volume(speed, 0.5, 2.0);
-        self.audio_engine.play_with_volume(&clip, volume).unwrap();
+        self.audio_engine
+            .play_with_volume(&clip, volume * self.volume_multiplier)
+            .unwrap();
     }
 
     pub fn play_land(&mut self, speed: f32) {
         let clip = self.clip_caches.land.next();
         let volume = self.calculate_speed_based_volume(speed, 0.7, 1.5);
-        self.audio_engine.play_with_volume(&clip, volume).unwrap();
+        self.audio_engine
+            .play_with_volume(&clip, volume * self.volume_multiplier)
+            .unwrap();
     }
 
     pub fn play_step(&mut self, is_running: bool, speed: f32) {
@@ -102,7 +109,9 @@ impl PlayerAudioController {
         } else {
             self.calculate_speed_based_volume(speed, 0.6, 1.0)
         };
-        self.audio_engine.play_with_volume(&clip, volume).unwrap();
+        self.audio_engine
+            .play_with_volume(&clip, volume * self.volume_multiplier)
+            .unwrap();
     }
 
     pub fn reset_walk_timer(&mut self) {
@@ -150,7 +159,9 @@ impl PlayerAudioController {
             } else {
                 self.calculate_speed_based_volume(speed, 0.6, 1.2)
             };
-            self.audio_engine.play_with_volume(&clip, volume).unwrap();
+            self.audio_engine
+                .play_with_volume(&clip, volume * self.volume_multiplier)
+                .unwrap();
             self.time_since_last_step = 0.0;
         }
     }

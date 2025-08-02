@@ -269,7 +269,8 @@ pub struct App {
     audio_engine: AudioEngine,
     spatial_sound_manager: Option<SpatialSoundManager>,
     spatial_sound_data: Option<RealTimeSpatialSoundData>,
-    tree_sound_source_id: Option<uuid::Uuid>,
+    tree_sound_source_id: Option<uuid::Uuid>, // for the main tree
+    procedural_tree_sound_ids: Vec<uuid::Uuid>, // for procedural trees
 }
 
 const VOXEL_DIM_PER_CHUNK: UVec3 = UVec3::new(256, 256, 256);
@@ -492,6 +493,7 @@ impl App {
             spatial_sound_manager: Some(spatial_sound_manager),
             spatial_sound_data: None,
             tree_sound_source_id: Some(tree_source_id),
+            procedural_tree_sound_ids: Vec::new(),
         };
 
         app.add_tree(app.tree_desc.clone(), app.tree_pos, true)?;
@@ -526,17 +528,17 @@ impl App {
         let mut placer_desc = PlacerDesc::new(42);
         placer_desc.threshold = 0.5;
 
-        let tree_positions = generate_positions(
+        let tree_positions_2d = generate_positions(
             map_dimensions,
             Vec2::new(map_padding, map_padding),
             grid_size,
             &placer_desc,
         );
 
-        log::info!("Generated {} procedural trees", tree_positions.len());
+        log::info!("Generated {} procedural trees", tree_positions_2d.len());
 
         // batch query all terrain heights at once
-        let tree_positions_3d = self.query_terrain_heights_for_positions(&tree_positions)?;
+        let tree_positions_3d = self.query_terrain_heights_for_positions(&tree_positions_2d)?;
 
         let mut rng = rand::rng();
 
@@ -546,8 +548,6 @@ impl App {
             tree_desc.seed = rng.random_range(1..10000);
 
             self.apply_tree_variations(&mut tree_desc, &mut rng);
-            // use add_procedural_tree_at_position for multi-tree support
-            // no cleanup needed since we already cleaned up at the beginning
             self.add_procedural_tree_at_position(tree_desc, *tree_pos)?;
         }
 
@@ -571,7 +571,16 @@ impl App {
                 .remove_tree_leaves(&mut self.surface_builder.resources, tree_id)?;
         }
 
-        log::info!("Cleared all procedural trees");
+        // Remove all procedural tree sound sources
+        if let Some(ref spatial_sound_manager) = self.spatial_sound_manager {
+            for sound_id in &self.procedural_tree_sound_ids {
+                spatial_sound_manager.remove_source(*sound_id);
+                log::debug!("Removed sound source {:?}", sound_id);
+            }
+        }
+        self.procedural_tree_sound_ids.clear();
+
+        log::info!("Cleared all procedural trees and their sound sources");
         Ok(())
     }
 
@@ -635,11 +644,27 @@ impl App {
 
         self.prev_bound = this_bound.union_with(&self.prev_bound);
 
-        log::info!(
-            "Added procedural tree {} at {:?}",
-            tree_id,
-            adjusted_tree_pos
-        );
+        if let Some(ref spatial_sound_manager) = self.spatial_sound_manager {
+            let tree_pos = adjusted_tree_pos / 256.0;
+            match spatial_sound_manager.add_tree_gust_source(tree_pos) {
+                Ok(sound_source_id) => {
+                    self.procedural_tree_sound_ids.push(sound_source_id);
+                    log::debug!(
+                        "Added sound source for procedural tree {} at {:?}",
+                        tree_id,
+                        tree_pos
+                    );
+                }
+                Err(e) => {
+                    log::warn!(
+                        "Failed to add sound source for procedural tree {}: {}",
+                        tree_id,
+                        e
+                    );
+                }
+            }
+        }
+
         Ok(())
     }
 

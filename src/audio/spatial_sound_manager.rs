@@ -261,37 +261,38 @@ impl SpatialSoundManagerInner {
     }
 
     fn update(&mut self) {
-        let mut input_chunk = Vec::with_capacity(self.frame_window_size);
+        let mut input_chunk = vec![0.0; self.frame_window_size];
+
         let all_ids: Vec<Uuid> = self.sources.keys().cloned().collect();
 
         let encoded_buffer_size = self.frame_window_size * 9;
         let mut summed_encoded_buffer = vec![0.0; encoded_buffer_size];
 
-        for id in all_ids {
-            let source = self.get_source(id).unwrap();
+        for id in &all_ids {
+            let source = self.get_source(*id).unwrap();
 
             // make input buffer
             for i in 0..self.frame_window_size {
                 let input_index = (source.cursor_pos + i) % source.samples.len();
-                input_chunk.push(source.samples[input_index]);
+                input_chunk[i] = source.samples[input_index];
             }
             self.cached_input_buf.set_data(&input_chunk).unwrap();
 
-            self.apply_direct_effect(id);
-            self.apply_ambisonics_encode_effect(id);
+            self.apply_direct_effect(*id);
+            self.apply_ambisonics_encode_effect(*id);
 
             // sum encoded buffer
             let data = self.cached_ambisonics_encode_buf.get_data();
-            assert_eq!(data.len(), encoded_buffer_size);
             for i in 0..encoded_buffer_size {
                 summed_encoded_buffer[i] += data[i];
             }
 
             // update cursor position
-            let source_mut = self.sources.get_mut(&id).unwrap();
+            let source_mut = self.sources.get_mut(id).unwrap();
             source_mut.cursor_pos =
                 (source_mut.cursor_pos + self.frame_window_size) % source_mut.samples.len();
         }
+
         self.cached_summed_encoded_buf
             .set_data(&summed_encoded_buffer)
             .unwrap();
@@ -346,28 +347,6 @@ impl SpatialSoundManagerInner {
         );
     }
 
-    // fn apply_binaural_effect(&mut self) {
-    //     let normalized_direction = self.get_target_direction().normalize();
-
-    //     let binaural_effect_params = BinauralEffectParams {
-    //         direction: Direction::new(
-    //             normalized_direction.x,
-    //             normalized_direction.y,
-    //             normalized_direction.z,
-    //         ),
-    //         interpolation: HrtfInterpolation::Bilinear,
-    //         spatial_blend: 1.0,
-    //         hrtf: &self.hrtf,
-    //         peak_delays: None,
-    //     };
-
-    //     let _effect_state = self.binaural_effect.apply(
-    //         &binaural_effect_params,
-    //         &self.cached_direct_buf.as_raw(),
-    //         &self.cached_binaural_buf.as_raw(),
-    //     );
-    // }
-
     fn apply_ambisonics_encode_effect(&mut self, source_id: Uuid) {
         // don't need to normalize here, the lib will do it for us
         let dir = self.get_target_direction(source_id);
@@ -397,7 +376,7 @@ impl SpatialSoundManagerInner {
         };
         let _effect_state = self.ambisonics_decode_effect.apply(
             &ambisonics_decode_effect_params,
-            &self.cached_ambisonics_encode_buf.as_raw(),
+            &self.cached_summed_encoded_buf.as_raw(),
             &self.cached_ambisonics_decode_buf.as_raw(),
         );
     }

@@ -12,7 +12,6 @@ mod util;
 mod vkn;
 mod window;
 
-use anyhow::Result;
 use app::AppController;
 use env_logger::Env;
 use winit::event_loop::EventLoop;
