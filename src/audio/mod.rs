@@ -12,6 +12,12 @@ mod audio_buffer;
 
 pub mod spatial_sound_calculator;
 
+pub mod sym;
+pub use sym::*;
+
+pub mod pal;
+pub use pal::*;
+
 pub mod spatial_sound;
 pub use spatial_sound::{RealTimeSpatialSound, RealTimeSpatialSoundData};
 

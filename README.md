@@ -151,6 +151,7 @@ sudo apt install cmake ninja-build # install build tools
 
 ### Main Objectives
 
+- [ ] Use rubato as the resampler for our audio
 - [ ] Dynamic Terrain Edit
 - [ ] Still Water
 - [ ] Flowers

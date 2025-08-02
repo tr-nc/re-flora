@@ -5,25 +5,10 @@ use crate::{
 use anyhow::Result;
 use audionimbus::*;
 use glam::Vec3;
-use kira::sound::static_sound::StaticSoundData;
 use kira::Frame as KiraFrame;
 use ringbuf::traits::*;
 use ringbuf::*;
 use std::sync::{Arc, Mutex};
-
-/// Returns: (input, sample_rate, number_of_frames)
-fn get_audio_data(path: &str) -> (Vec<Sample>, u32, usize) {
-    let audio_data = StaticSoundData::from_file(path).expect("Failed to load audio file");
-    let loaded_frames = &audio_data.frames;
-
-    let input: Vec<Sample> = loaded_frames
-        .into_iter()
-        .map(|frame| frame.left) // use left channel for mono input
-        .collect();
-
-    let input_len = input.len();
-    (input, audio_data.sample_rate, input_len)
-}
 
 fn create_hrtf(context: &Context, audio_settings: &AudioSettings) -> Result<Hrtf> {
     let sofa_path = format!("{}assets/hrtf/hrtf_b_nh172.sofa", get_project_root());
