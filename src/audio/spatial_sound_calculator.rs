@@ -148,9 +148,8 @@ struct SpatialSoundCalculatorInner {
     cached_ambisonics_encode_buf: WrappedAudioBuffer,
     cached_ambisonics_decode_buf: WrappedAudioBuffer,
 
-    distance_attenuation: Option<f32>,
-    directivity: Option<f32>,
-    occlusion: Option<f32>,
+    distance_attenuation: f32,
+    air_absorption: Vec3,
 }
 
 #[derive(Clone)]
@@ -226,9 +225,8 @@ impl SpatialSoundCalculator {
             target_position: Arc::new(Mutex::new(Vec3::ZERO)),
             player_vectors: Arc::new(Mutex::new(CameraVectors::new())),
             input_cursor_pos: 0,
-            distance_attenuation: Some(1.0),
-            directivity: Some(1.0),
-            occlusion: Some(1.0),
+            distance_attenuation: 1.0,
+            air_absorption: Vec3::ZERO,
             source,
         };
 
@@ -343,10 +341,14 @@ impl SpatialSoundCalculator {
 impl SpatialSoundCalculatorInner {
     fn apply_direct_effect(&mut self) {
         let direct_effect_params = DirectEffectParams {
-            distance_attenuation: self.distance_attenuation,
-            air_absorption: None,
-            directivity: self.directivity,
-            occlusion: self.occlusion,
+            distance_attenuation: Some(self.distance_attenuation),
+            air_absorption: Some(Equalizer([
+                self.air_absorption.x,
+                self.air_absorption.y,
+                self.air_absorption.z,
+            ])),
+            directivity: None,
+            occlusion: None,
             transmission: None,
         };
 
@@ -529,18 +531,18 @@ impl SpatialSoundCalculator {
         let outputs = source.get_outputs(SimulationFlags::DIRECT);
         let direct_outputs = outputs.direct();
 
-        // Capture values before dropping the simulator guard
-        let distance_attenuation = direct_outputs.distance_attenuation;
-        let directivity = direct_outputs.directivity;
-        let occlusion = direct_outputs.occlusion;
-
-        // Drop the simulator guard to release the borrow
+        // drop the simulator guard to release the borrow
         drop(simulator);
 
-        // Update cached parameters (avoiding storing SimulationOutputs due to Send issues)
-        inner.distance_attenuation = distance_attenuation;
-        inner.directivity = directivity;
-        inner.occlusion = occlusion;
+        // update cached parameters
+        inner.distance_attenuation = direct_outputs
+            .distance_attenuation
+            .ok_or(anyhow::anyhow!("Distance attenuation is None"))?;
+        let air_absorption = direct_outputs
+            .air_absorption
+            .as_ref()
+            .ok_or(anyhow::anyhow!("Air absorption is None"))?;
+        inner.air_absorption = Vec3::new(air_absorption[0], air_absorption[1], air_absorption[2]);
 
         Ok(())
     }
