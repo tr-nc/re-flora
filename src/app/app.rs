@@ -6,7 +6,6 @@ use crate::audio::{
     SpatialSoundManager,
 };
 use crate::builder::{ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder};
-use crate::gameplay::camera::vectors::CameraVectors;
 use crate::geom::{build_bvh, UAabb3};
 use crate::procedual_placer::{generate_positions, PlacerDesc};
 use crate::tracer::{Tracer, TracerDesc};
@@ -21,7 +20,6 @@ use crate::{
 };
 use anyhow::Result;
 use ash::vk;
-use audionimbus::{Context, ContextSettings};
 use egui::{Color32, RichText};
 use glam::{UVec3, Vec2, Vec3};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
@@ -270,6 +268,7 @@ pub struct App {
     #[allow(dead_code)]
     audio_engine: AudioEngine,
     spatial_sound_manager: Option<SpatialSoundManager>,
+    spatial_sound_data: Option<RealTimeSpatialSoundData>,
     tree_sound_source_id: Option<uuid::Uuid>,
 }
 
@@ -491,6 +490,7 @@ impl App {
 
             audio_engine,
             spatial_sound_manager: Some(spatial_sound_manager),
+            spatial_sound_data: None,
             tree_sound_source_id: Some(tree_source_id),
         };
 
@@ -796,24 +796,18 @@ impl App {
         audio_engine: &mut AudioEngine,
         tree_pos: Vec3,
     ) -> Result<(SpatialSoundManager, uuid::Uuid)> {
-        let context = Context::try_new(&ContextSettings::default())?;
-        let spatial_sound_manager = SpatialSoundManager::new(10240, context, 1024);
+        let spatial_sound_manager = SpatialSoundManager::new(10240, 1024)?;
 
-        // Add tree gust source at the tree position
+        // add tree gust source at the tree position
         let tree_source_id = spatial_sound_manager.add_tree_gust_source(tree_pos / 256.0)?;
 
-        let mut dummy_vectors = CameraVectors::new();
-        dummy_vectors.update(0.0, 0.0); // Default forward-facing orientation
-        spatial_sound_manager.update_player_pos(Vec3::new(0.0, 0.0, 0.0), &dummy_vectors)?;
-
+        // create and play spatial sound data
         let spatial_sound_data = RealTimeSpatialSoundData::new(spatial_sound_manager.clone())?;
         let _handle = audio_engine
             .get_manager()
             .lock()
             .unwrap()
             .play(spatial_sound_data)?;
-
-        log::debug!("Added spatial sound for test");
 
         Ok((spatial_sound_manager, tree_source_id))
     }

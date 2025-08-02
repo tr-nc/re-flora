@@ -18,7 +18,7 @@ mod pal;
 pub use pal::*;
 
 mod spatial_sound;
-pub use spatial_sound::{RealTimeSpatialSound, RealTimeSpatialSoundData};
+pub use spatial_sound::*;
 
 pub use kira::Tween;
 pub use sound_clip::SoundClip;

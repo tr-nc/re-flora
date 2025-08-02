@@ -7,11 +7,12 @@ use anyhow::Result;
 use audionimbus::{
     geometry, AirAbsorptionModel, AmbisonicsDecodeEffect, AmbisonicsDecodeEffectParams,
     AmbisonicsDecodeEffectSettings, AmbisonicsEncodeEffect, AmbisonicsEncodeEffectParams,
-    AmbisonicsEncodeEffectSettings, AudioSettings, Context, CoordinateSystem, Direct, DirectEffect,
-    DirectEffectParams, DirectEffectSettings, DirectSimulationParameters, DirectSimulationSettings,
-    Direction, DistanceAttenuationModel, Equalizer, Hrtf, HrtfSettings, Point, Scene, SceneParams,
-    SceneSettings, SimulationFlags, SimulationInputs, SimulationSharedInputs, Simulator, Sofa,
-    Source, SourceSettings, SpeakerLayout, Vector3, VolumeNormalization,
+    AmbisonicsEncodeEffectSettings, AudioSettings, Context, ContextSettings, CoordinateSystem,
+    Direct, DirectEffect, DirectEffectParams, DirectEffectSettings, DirectSimulationParameters,
+    DirectSimulationSettings, Direction, DistanceAttenuationModel, Equalizer, Hrtf, HrtfSettings,
+    Point, Scene, SceneParams, SceneSettings, SimulationFlags, SimulationInputs,
+    SimulationSharedInputs, Simulator, Sofa, Source, SourceSettings, SpeakerLayout, Vector3,
+    VolumeNormalization,
 };
 use glam::Vec3;
 use kira::Frame as KiraFrame;
@@ -489,16 +490,26 @@ impl SpatialSoundManagerInner {
 }
 
 impl SpatialSoundManager {
-    pub fn new(ring_buffer_size: usize, context: Context, frame_window_size: usize) -> Self {
+    pub fn new(ring_buffer_size: usize, frame_window_size: usize) -> Result<Self> {
+        let context = Context::try_new(&audionimbus::ContextSettings::default())?;
         let sample_rate = 48000;
-        let inner = SpatialSoundManagerInner::new(
+        let mut inner = SpatialSoundManagerInner::new(
             context,
             ring_buffer_size,
             frame_window_size,
             sample_rate,
         );
 
-        Self(Arc::new(Mutex::new(inner)))
+        // Initialize with default listener position and orientation
+        let mut dummy_vectors = CameraVectors::new();
+        dummy_vectors.update(0.0, 0.0); // Default forward-facing orientation
+        inner.listener_position = Vec3::new(0.0, 0.0, 0.0);
+        inner.listener_up = dummy_vectors.up;
+        inner.listener_front = dummy_vectors.front;
+        inner.listener_right = dummy_vectors.right;
+        inner.simulate()?;
+
+        Ok(Self(Arc::new(Mutex::new(inner))))
     }
 
     pub fn add_tree_gust_source(&self, tree_pos: Vec3) -> Result<Uuid> {
