@@ -12,6 +12,7 @@ mod util;
 mod vkn;
 mod window;
 
+use anyhow::Result;
 use app::AppController;
 use env_logger::Env;
 use winit::event_loop::EventLoop;
@@ -47,10 +48,34 @@ fn init_env_logger() {
     })
     .init();
 }
+
+fn play_audio_with_cpal() -> Result<()> {
+    use crate::audio::{get_audio_data, play_audio_samples};
+
+    // Step 1: Decode audio data using symphonia
+    let audio_path = "assets/sfx/Tree Gusts/WINDGust_Wind, Gust in Trees 01_SARM_Wind.wav";
+    let (samples, sample_rate, frames) = get_audio_data(audio_path)?;
+
+    println!(
+        "Loaded {} frames at {} Hz ({} samples)",
+        frames,
+        sample_rate,
+        samples.len()
+    );
+
+    // Step 2: Play audio data using cpal
+    play_audio_samples(samples, sample_rate)?;
+
+    Ok(())
+}
+
 pub fn main() {
     // backtrace_on();
 
     init_env_logger();
+    play_audio_with_cpal().unwrap();
+    return;
+
     let mut app = AppController::default();
     let event_loop = EventLoop::builder().build().unwrap();
     let result = event_loop.run_app(&mut app);
