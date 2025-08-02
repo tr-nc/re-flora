@@ -1,8 +1,5 @@
 use crate::{
-    audio::{
-        audio_buffer::AudioBuffer, audio_decoder::get_audio_data,
-        spatial_sound_calculator::RingBufferSample,
-    },
+    audio::{audio_buffer::AudioBuffer, audio_decoder::get_audio_data},
     gameplay::camera::vectors::CameraVectors,
     util::get_project_root,
 };
@@ -10,12 +7,11 @@ use anyhow::Result;
 use audionimbus::{
     geometry, AirAbsorptionModel, AmbisonicsDecodeEffect, AmbisonicsDecodeEffectParams,
     AmbisonicsDecodeEffectSettings, AmbisonicsEncodeEffect, AmbisonicsEncodeEffectParams,
-    AmbisonicsEncodeEffectSettings, AudioSettings, BinauralEffect, BinauralEffectSettings, Context,
-    CoordinateSystem, Direct, DirectEffect, DirectEffectParams, DirectEffectSettings,
-    DirectSimulationParameters, DirectSimulationSettings, Direction, DistanceAttenuationModel,
-    Equalizer, Hrtf, HrtfSettings, Point, Scene, SceneParams, SceneSettings, SimulationFlags,
-    SimulationInputs, SimulationSharedInputs, Simulator, Sofa, Source, SourceSettings,
-    SpeakerLayout, Vector3, VolumeNormalization,
+    AmbisonicsEncodeEffectSettings, AudioSettings, Context, CoordinateSystem, Direct, DirectEffect,
+    DirectEffectParams, DirectEffectSettings, DirectSimulationParameters, DirectSimulationSettings,
+    Direction, DistanceAttenuationModel, Equalizer, Hrtf, HrtfSettings, Point, Scene, SceneParams,
+    SceneSettings, SimulationFlags, SimulationInputs, SimulationSharedInputs, Simulator, Sofa,
+    Source, SourceSettings, SpeakerLayout, Vector3, VolumeNormalization,
 };
 use glam::Vec3;
 use kira::Frame as KiraFrame;
@@ -48,7 +44,6 @@ pub struct SpatialSoundSource {
     volume: f32,
     samples: Vec<f32>,
     sample_rate: u32,
-    number_of_frames: usize,
     simulation_result: SimulationResult,
     cursor_pos: usize,
 
@@ -62,7 +57,7 @@ impl SpatialSoundSource {
         volume: f32,
         position: Vec3,
     ) -> Result<Self> {
-        let (samples, sample_rate, number_of_frames) = get_audio_data(path)
+        let (samples, sample_rate) = get_audio_data(path)
             .map_err(|e| anyhow::anyhow!("Failed to load audio file: {}", e))?;
 
         Ok(Self {
@@ -70,7 +65,6 @@ impl SpatialSoundSource {
             volume,
             samples,
             sample_rate,
-            number_of_frames,
             simulation_result: SimulationResult::default(),
             cursor_pos: 0,
             source: Source::try_new(
@@ -84,18 +78,19 @@ impl SpatialSoundSource {
 }
 
 pub struct SpatialSoundManagerInner {
-    ring_buffer: HeapRb<RingBufferSample>,
+    ring_buffer: HeapRb<KiraFrame>,
     available_samples: usize,
 
     sources: HashMap<Uuid, SpatialSoundSource>,
 
+    #[allow(dead_code)]
     context: Context,
+
     frame_window_size: usize,
 
     hrtf: Hrtf,
 
     direct_effect: DirectEffect,
-    binaural_effect: BinauralEffect,
     ambisonics_encode_effect: AmbisonicsEncodeEffect,
     ambisonics_decode_effect: AmbisonicsDecodeEffect,
 
@@ -125,7 +120,7 @@ impl SpatialSoundManagerInner {
         frame_window_size: usize,
         sample_rate: u32,
     ) -> Self {
-        let ring_buffer = HeapRb::<RingBufferSample>::new(ring_buffer_size);
+        let ring_buffer = HeapRb::<KiraFrame>::new(ring_buffer_size);
 
         let audio_settings = AudioSettings {
             sampling_rate: sample_rate as usize,
@@ -133,7 +128,7 @@ impl SpatialSoundManagerInner {
         };
 
         let hrtf = create_hrtf(&context, &audio_settings).unwrap();
-        let (direct_effect, binaural_effect, ambisonics_encode_effect, ambisonics_decode_effect) =
+        let (direct_effect, ambisonics_encode_effect, ambisonics_decode_effect) =
             create_effects(&context, &audio_settings, &hrtf).unwrap();
 
         let mut simulator = create_simulator(&context, frame_window_size, sample_rate).unwrap();
@@ -160,7 +155,6 @@ impl SpatialSoundManagerInner {
             frame_window_size,
             hrtf,
             direct_effect,
-            binaural_effect,
             ambisonics_encode_effect,
             ambisonics_decode_effect,
             cached_input_buf,
@@ -197,22 +191,11 @@ impl SpatialSoundManagerInner {
             context: &Context,
             audio_settings: &AudioSettings,
             hrtf: &Hrtf,
-        ) -> Result<(
-            DirectEffect,
-            BinauralEffect,
-            AmbisonicsEncodeEffect,
-            AmbisonicsDecodeEffect,
-        )> {
+        ) -> Result<(DirectEffect, AmbisonicsEncodeEffect, AmbisonicsDecodeEffect)> {
             let direct_effect = DirectEffect::try_new(
                 context,
                 audio_settings,
                 &DirectEffectSettings { num_channels: 1 },
-            )?;
-
-            let binaural_effect = BinauralEffect::try_new(
-                &context,
-                &audio_settings,
-                &BinauralEffectSettings { hrtf: &hrtf },
             )?;
 
             let ambisonics_encode_effect = AmbisonicsEncodeEffect::try_new(
@@ -233,7 +216,6 @@ impl SpatialSoundManagerInner {
 
             Ok((
                 direct_effect,
-                binaural_effect,
                 ambisonics_encode_effect,
                 ambisonics_decode_effect,
             ))
@@ -323,11 +305,9 @@ impl SpatialSoundManagerInner {
         let max_frames = (binaural_processed.len() / 2).min(self.frame_window_size);
         let mut samples_added = 0;
         for i in 0..max_frames {
-            let ring_buffer_sample = RingBufferSample {
-                frame: KiraFrame {
-                    left: binaural_processed[i * 2],
-                    right: binaural_processed[i * 2 + 1],
-                },
+            let ring_buffer_sample = KiraFrame {
+                left: binaural_processed[i * 2],
+                right: binaural_processed[i * 2 + 1],
             };
 
             if producer.try_push(ring_buffer_sample).is_ok() {
@@ -553,7 +533,7 @@ impl SpatialSoundManager {
         let mut samples_consumed = 0;
         for i in 0..num_samples {
             if let Some(sample) = consumer.try_pop() {
-                out[i] = sample.frame;
+                out[i] = sample;
                 samples_consumed += 1;
             } else {
                 break;
@@ -616,16 +596,19 @@ impl SpatialSoundManager {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn add_source(&self, source: SpatialSoundSource) -> Uuid {
         let mut inner = self.0.lock().unwrap();
         inner.add_source(source)
     }
 
+    #[allow(dead_code)]
     pub fn get_source(&self, id: Uuid) -> Option<SpatialSoundSource> {
         let inner = self.0.lock().unwrap();
         inner.get_source(id).cloned()
     }
 
+    #[allow(dead_code)]
     pub fn remove_source(&self, id: Uuid) {
         let mut inner = self.0.lock().unwrap();
         inner.remove_source(id);

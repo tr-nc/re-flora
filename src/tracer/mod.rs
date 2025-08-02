@@ -28,7 +28,7 @@ use buffer_updater::*;
 use glam::{Mat4, UVec3, Vec2, Vec3};
 use winit::event::KeyEvent;
 
-use crate::audio::{spatial_sound_manager::SpatialSoundManager, AudioEngine};
+use crate::audio::{AudioEngine, SpatialSoundManager};
 use crate::builder::{
     ContreeBuilderResources, FloraInstanceResources, FloraType, Instance,
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,

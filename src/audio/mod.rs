@@ -6,20 +6,18 @@ pub use clip_cache::*;
 
 mod sound_clip;
 
-pub mod spatial_sound_manager;
-pub use spatial_sound_manager::SpatialSoundManager;
+mod spatial_sound_manager;
+pub use spatial_sound_manager::*;
 
 mod audio_buffer;
 
-pub mod spatial_sound_calculator;
-
-pub mod audio_decoder;
+mod audio_decoder;
 pub use audio_decoder::*;
 
-pub mod pal;
+mod pal;
 pub use pal::*;
 
-pub mod spatial_sound;
+mod spatial_sound;
 pub use spatial_sound::{RealTimeSpatialSound, RealTimeSpatialSoundData};
 
 pub use kira::Tween;

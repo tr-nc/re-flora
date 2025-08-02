@@ -49,25 +49,18 @@ fn init_env_logger() {
     .init();
 }
 
-fn play_audio_with_cpal() -> Result<()> {
-    use crate::audio::{get_audio_data, play_audio_samples};
+// fn play_audio_with_cpal() -> Result<()> {
+//     use crate::audio::{get_audio_data, play_audio_samples};
 
-    // Step 1: Decode audio data using symphonia
-    let audio_path = "assets/sfx/Tree Gusts/WINDGust_Wind, Gust in Trees 01_SARM_Wind.wav";
-    let (samples, sample_rate, frames) = get_audio_data(audio_path)?;
+//     // Step 1: Decode audio data using symphonia
+//     let audio_path = "assets/sfx/Tree Gusts/WINDGust_Wind, Gust in Trees 01_SARM_Wind.wav";
+//     let (samples, sample_rate) = get_audio_data(audio_path)?;
 
-    println!(
-        "Loaded {} frames at {} Hz ({} samples)",
-        frames,
-        sample_rate,
-        samples.len()
-    );
+//     // Step 2: Play audio data using cpal
+//     play_audio_samples(samples, sample_rate)?;
 
-    // Step 2: Play audio data using cpal
-    play_audio_samples(samples, sample_rate)?;
-
-    Ok(())
-}
+//     Ok(())
+// }
 
 pub fn main() {
     // backtrace_on();
