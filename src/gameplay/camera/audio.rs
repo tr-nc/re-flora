@@ -107,7 +107,7 @@ impl PlayerAudioController {
             spatial_sound_manager,
             clip_caches,
             time_since_last_step: 0.0,
-            volume_multiplier: 0.1,
+            volume_multiplier: 1.0,
         })
     }
 

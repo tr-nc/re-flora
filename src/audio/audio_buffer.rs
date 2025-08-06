@@ -40,6 +40,11 @@ impl AudioBuffer {
         &self.data
     }
 
+    #[allow(dead_code)]
+    pub fn zero(&mut self) {
+        self.data.fill(0.0);
+    }
+
     pub fn set_data(&mut self, data: &[f32]) -> Result<()> {
         if data.len() > self.data.len() {
             return Err(anyhow::anyhow!(

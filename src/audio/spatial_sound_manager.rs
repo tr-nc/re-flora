@@ -20,16 +20,17 @@ use ringbuf::{
     HeapRb,
 };
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PlayMode {
     Loop,
     SinglePlay,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct SimulationResult {
     distance_attenuation: f32,
     air_absorption: Vec3,
@@ -53,9 +54,15 @@ pub struct SpatialSoundSource {
     simulation_result: SimulationResult,
     cursor_pos: usize,
     play_mode: PlayMode,
-    finished: bool,
 
     source: Source,
+}
+
+impl Debug for SpatialSoundSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // don't write the samples
+        write!(f, "SpatialSoundSource {{ position: {:?}, volume: {:?}, sample_rate: {:?}, simulation_result: {:?}, cursor_pos: {:?}, play_mode: {:?} }}", self.position, self.volume, self.sample_rate, self.simulation_result, self.cursor_pos, self.play_mode)
+    }
 }
 
 impl SpatialSoundSource {
@@ -77,7 +84,6 @@ impl SpatialSoundSource {
             simulation_result: SimulationResult::default(),
             cursor_pos: 0,
             play_mode,
-            finished: false,
             source: Source::try_new(
                 &simulator,
                 &SourceSettings {
@@ -187,7 +193,7 @@ impl SpatialSoundManagerInner {
                 context,
                 audio_settings,
                 &HrtfSettings {
-                    volume_normalization: VolumeNormalization::RootMeanSquared,
+                    volume_normalization: VolumeNormalization::None,
                     sofa_information: Some(Sofa::Buffer(hrtf_data)),
                     ..Default::default()
                 },
@@ -248,6 +254,8 @@ impl SpatialSoundManagerInner {
     }
 
     pub fn add_source(&mut self, source: SpatialSoundSource) -> Uuid {
+        log::debug!("Adding source: {:?}", source);
+
         let mut id = Uuid::new_v4();
         while self.sources.contains_key(&id) {
             log::warn!("Source with this UUID already exists, generating new UUID");
@@ -264,10 +272,13 @@ impl SpatialSoundManagerInner {
     }
 
     pub fn remove_source(&mut self, id: Uuid) {
+        log::debug!("Removing source: {:?}", id);
         self.sources.remove(&id);
     }
 
-    fn update(&mut self) {
+    fn update(&mut self) -> Result<()> {
+        self.simulate()?;
+
         let mut input_chunk = vec![0.0; self.frame_window_size];
 
         let all_ids: Vec<Uuid> = self.sources.keys().cloned().collect();
@@ -279,16 +290,25 @@ impl SpatialSoundManagerInner {
         for id in &all_ids {
             let source = self.get_source(*id).unwrap();
 
-            // Skip finished sources
-            if source.finished {
-                continue;
+            for i in 0..self.frame_window_size {
+                let sample = match source.play_mode {
+                    PlayMode::Loop => {
+                        let idx = (source.cursor_pos + i) % source.samples.len();
+                        source.samples[idx] * source.volume
+                    }
+                    PlayMode::SinglePlay => {
+                        let idx = source.cursor_pos + i;
+                        if idx < source.samples.len() {
+                            source.samples[idx] * source.volume
+                        } else {
+                            0.0
+                        }
+                    }
+                };
+                input_chunk[i] = sample;
             }
 
-            // make input buffer
-            for i in 0..self.frame_window_size {
-                let input_index = (source.cursor_pos + i) % source.samples.len();
-                input_chunk[i] = source.samples[input_index];
-            }
+
             self.cached_input_buf.set_data(&input_chunk).unwrap();
 
             self.apply_direct_effect(*id);
@@ -310,7 +330,6 @@ impl SpatialSoundManagerInner {
                 }
                 PlayMode::SinglePlay => {
                     if new_cursor_pos >= source_mut.samples.len() {
-                        source_mut.finished = true;
                         sources_to_remove.push(*id);
                     } else {
                         source_mut.cursor_pos = new_cursor_pos;
@@ -319,7 +338,6 @@ impl SpatialSoundManagerInner {
             }
         }
 
-        // Remove finished single-play sources
         for id in sources_to_remove {
             self.remove_source(id);
         }
@@ -354,6 +372,8 @@ impl SpatialSoundManagerInner {
         // update available samples and cursor position after the ring buffer operations
         drop(producer);
         self.available_samples += samples_added;
+
+        Ok(())
     }
 
     fn apply_direct_effect(&mut self, source_id: Uuid) {
@@ -569,7 +589,7 @@ impl SpatialSoundManager {
         let num_samples = out.len();
 
         while !self.has_enough_samples(num_samples) {
-            self.update();
+            self.update().unwrap();
         }
 
         let mut inner = self.0.lock().unwrap();
@@ -593,9 +613,9 @@ impl SpatialSoundManager {
         inner.available_samples >= num_samples
     }
 
-    pub fn update(&self) {
+    pub fn update(&self) -> Result<()> {
         let mut inner = self.0.lock().unwrap();
-        inner.update();
+        inner.update()
     }
 
     pub fn update_player_pos(
