@@ -1,7 +1,11 @@
 use super::{
     audio::PlayerAudioController, movement::MovementState, vectors::CameraVectors, CameraDesc,
 };
-use crate::{audio::AudioEngine, tracer::PlayerCollisionResult, vkn::Extent2D};
+use crate::{
+    audio::{AudioEngine, SpatialSoundManager},
+    tracer::PlayerCollisionResult,
+    vkn::Extent2D,
+};
 use anyhow::Result;
 use glam::{Mat4, Vec2, Vec3, Vec4};
 use winit::event::KeyEvent;
@@ -56,6 +60,7 @@ impl Camera {
         initial_pitch: f32,
         desc: CameraDesc,
         audio_engine: AudioEngine,
+        spatial_sound_manager: Option<SpatialSoundManager>,
     ) -> Result<Self> {
         let mut camera = Self {
             position: initial_position,
@@ -68,7 +73,10 @@ impl Camera {
             ),
             desc,
             vertical_velocity: 0.0,
-            player_audio_controller: PlayerAudioController::new(audio_engine)?,
+            player_audio_controller: PlayerAudioController::new(
+                audio_engine,
+                spatial_sound_manager,
+            )?,
             was_on_ground: false,
             rigidbody: PlayerRigidBody::new(),
             pre_landing_speed: 0.0,
@@ -248,7 +256,13 @@ impl Camera {
                 self.rigidbody.velocity.y = JUMP_IMPULSE;
                 // play jump sound once, immediately when leaving the ground
                 let current_speed = self.rigidbody.velocity.length();
-                self.player_audio_controller.play_jumping(current_speed);
+                let foot_position = Vec3::new(
+                    self.position.x,
+                    self.position.y - self.desc.camera_height,
+                    self.position.z,
+                );
+                self.player_audio_controller
+                    .play_jumping(current_speed, foot_position);
             } else {
                 // stick to ground smoothly
                 let ground_level_y = self.position.y - collision_result.ground_distance;
@@ -317,26 +331,42 @@ impl Camera {
             if is_moving {
                 // moving when touching ground: treat as an immediate step
                 let current_speed = self.rigidbody.velocity.length();
+                let foot_position = Vec3::new(
+                    self.position.x,
+                    self.position.y - self.desc.camera_height,
+                    self.position.z,
+                );
                 self.player_audio_controller
-                    .play_step(is_running, current_speed);
+                    .play_step(is_running, current_speed, foot_position);
                 // reset timer so下一次步伐重新计时
                 self.player_audio_controller.reset_walk_timer();
             } else {
                 // still: play landing sound only
+                let foot_position = Vec3::new(
+                    self.position.x,
+                    self.position.y - self.desc.camera_height,
+                    self.position.z,
+                );
                 self.player_audio_controller
-                    .play_landing(self.pre_landing_speed);
+                    .play_landing(self.pre_landing_speed, foot_position);
                 // 不重置计时器，让 update_walk_sound 在静止状态保持间隔满值
             }
         }
 
         // per-frame update for regular walk/run sounds
         let current_speed = self.rigidbody.velocity.length();
+        let foot_position = Vec3::new(
+            self.position.x,
+            self.position.y - self.desc.camera_height,
+            self.position.z,
+        );
         self.player_audio_controller.update_walk_sound(
             is_on_ground,
             is_moving,
             is_running,
             current_speed,
             frame_delta_time,
+            foot_position,
         );
 
         self.was_on_ground = is_on_ground;
@@ -346,6 +376,12 @@ impl Camera {
     pub fn reset_velocity(&mut self) {
         self.rigidbody.velocity = Vec3::ZERO;
         self.vertical_velocity = 0.0;
+    }
+
+    /// Updates the spatial sound manager for the camera's audio controller
+    pub fn set_spatial_sound_manager(&mut self, spatial_sound_manager: SpatialSoundManager) {
+        self.player_audio_controller
+            .set_spatial_sound_manager(spatial_sound_manager);
     }
 
     /// Resolve a single horizontal collision step using the 32-ray collision system

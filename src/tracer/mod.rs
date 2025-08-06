@@ -153,6 +153,7 @@ impl Tracer {
                 ..Default::default()
             },
             audio_engine,
+            None, // No spatial sound manager in test context
         )?;
 
         let pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
@@ -1426,6 +1427,8 @@ impl Tracer {
     }
 
     pub fn set_spatial_sound_manager(&mut self, spatial_sound_manager: SpatialSoundManager) {
+        self.camera
+            .set_spatial_sound_manager(spatial_sound_manager.clone());
         self.spatial_sound_manager = Some(spatial_sound_manager);
     }
 
