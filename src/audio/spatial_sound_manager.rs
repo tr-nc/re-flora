@@ -290,8 +290,10 @@ impl SpatialSoundManagerInner {
         for id in &all_ids {
             let source = self.get_source(*id).unwrap();
 
+            let play_mode = source.play_mode.clone();
+
             for i in 0..self.frame_window_size {
-                let sample = match source.play_mode {
+                let sample = match play_mode {
                     PlayMode::Loop => {
                         let idx = (source.cursor_pos + i) % source.samples.len();
                         source.samples[idx] * source.volume
@@ -308,23 +310,29 @@ impl SpatialSoundManagerInner {
                 input_chunk[i] = sample;
             }
 
-
             self.cached_input_buf.set_data(&input_chunk).unwrap();
 
             self.apply_direct_effect(*id);
+
+            // FIXME: here!
+            self.cached_ambisonics_encode_buf.zero();
+
             self.apply_ambisonics_encode_effect(*id);
 
-            // sum encoded buffer
-            let data = self.cached_ambisonics_encode_buf.get_data();
-            for i in 0..encoded_buffer_size {
-                summed_encoded_buffer[i] += data[i];
+            if play_mode == PlayMode::Loop {
+                // sum encoded buffer
+                let data = self.cached_ambisonics_encode_buf.get_data();
+
+                for i in 0..encoded_buffer_size {
+                    summed_encoded_buffer[i] += data[i];
+                }
             }
 
             // update cursor position
             let source_mut = self.sources.get_mut(id).unwrap();
             let new_cursor_pos = source_mut.cursor_pos + self.frame_window_size;
 
-            match source_mut.play_mode {
+            match play_mode {
                 PlayMode::Loop => {
                     source_mut.cursor_pos = new_cursor_pos % source_mut.samples.len();
                 }
@@ -380,12 +388,14 @@ impl SpatialSoundManagerInner {
         let source = self.get_source(source_id).unwrap();
 
         let direct_effect_params = DirectEffectParams {
-            distance_attenuation: Some(source.simulation_result.distance_attenuation),
-            air_absorption: Some(Equalizer([
-                source.simulation_result.air_absorption.x,
-                source.simulation_result.air_absorption.y,
-                source.simulation_result.air_absorption.z,
-            ])),
+            // distance_attenuation: Some(source.simulation_result.distance_attenuation),
+            // air_absorption: Some(Equalizer([
+            //     source.simulation_result.air_absorption.x,
+            //     source.simulation_result.air_absorption.y,
+            //     source.simulation_result.air_absorption.z,
+            // ])),
+            distance_attenuation: None,
+            air_absorption: None,
             directivity: None,
             occlusion: None,
             transmission: None,
