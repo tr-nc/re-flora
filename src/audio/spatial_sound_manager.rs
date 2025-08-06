@@ -23,6 +23,12 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum PlayMode {
+    Loop,
+    SinglePlay,
+}
+
 #[derive(Clone)]
 struct SimulationResult {
     distance_attenuation: f32,
@@ -46,6 +52,8 @@ pub struct SpatialSoundSource {
     sample_rate: u32,
     simulation_result: SimulationResult,
     cursor_pos: usize,
+    play_mode: PlayMode,
+    finished: bool,
 
     source: Source,
 }
@@ -56,6 +64,7 @@ impl SpatialSoundSource {
         path: &str,
         volume: f32,
         position: Vec3,
+        play_mode: PlayMode,
     ) -> Result<Self> {
         let (samples, sample_rate) = get_audio_data(path)
             .map_err(|e| anyhow::anyhow!("Failed to load audio file: {}", e))?;
@@ -67,6 +76,8 @@ impl SpatialSoundSource {
             sample_rate,
             simulation_result: SimulationResult::default(),
             cursor_pos: 0,
+            play_mode,
+            finished: false,
             source: Source::try_new(
                 &simulator,
                 &SourceSettings {
@@ -260,12 +271,18 @@ impl SpatialSoundManagerInner {
         let mut input_chunk = vec![0.0; self.frame_window_size];
 
         let all_ids: Vec<Uuid> = self.sources.keys().cloned().collect();
+        let mut sources_to_remove = Vec::new();
 
         let encoded_buffer_size = self.frame_window_size * 9;
         let mut summed_encoded_buffer = vec![0.0; encoded_buffer_size];
 
         for id in &all_ids {
             let source = self.get_source(*id).unwrap();
+
+            // Skip finished sources
+            if source.finished {
+                continue;
+            }
 
             // make input buffer
             for i in 0..self.frame_window_size {
@@ -285,8 +302,26 @@ impl SpatialSoundManagerInner {
 
             // update cursor position
             let source_mut = self.sources.get_mut(id).unwrap();
-            source_mut.cursor_pos =
-                (source_mut.cursor_pos + self.frame_window_size) % source_mut.samples.len();
+            let new_cursor_pos = source_mut.cursor_pos + self.frame_window_size;
+
+            match source_mut.play_mode {
+                PlayMode::Loop => {
+                    source_mut.cursor_pos = new_cursor_pos % source_mut.samples.len();
+                }
+                PlayMode::SinglePlay => {
+                    if new_cursor_pos >= source_mut.samples.len() {
+                        source_mut.finished = true;
+                        sources_to_remove.push(*id);
+                    } else {
+                        source_mut.cursor_pos = new_cursor_pos;
+                    }
+                }
+            }
+        }
+
+        // Remove finished single-play sources
+        for id in sources_to_remove {
+            self.remove_source(id);
         }
 
         self.cached_summed_encoded_buf
@@ -494,7 +529,31 @@ impl SpatialSoundManager {
             "assets/sfx/Tree Gusts/WINDGust_Wind, Gust in Trees 01_SARM_Wind.wav",
             1.0,
             tree_pos,
+            PlayMode::Loop,
         )?;
+
+        let source_id = inner.add_source(source);
+        Ok(source_id)
+    }
+
+    pub fn add_single_play_source(&self, path: &str, volume: f32, position: Vec3) -> Result<Uuid> {
+        let mut inner = self.0.lock().unwrap();
+        let source = SpatialSoundSource::new(
+            &inner.simulator,
+            path,
+            volume,
+            position,
+            PlayMode::SinglePlay,
+        )?;
+
+        let source_id = inner.add_source(source);
+        Ok(source_id)
+    }
+
+    pub fn add_loop_source(&self, path: &str, volume: f32, position: Vec3) -> Result<Uuid> {
+        let mut inner = self.0.lock().unwrap();
+        let source =
+            SpatialSoundSource::new(&inner.simulator, path, volume, position, PlayMode::Loop)?;
 
         let source_id = inner.add_source(source);
         Ok(source_id)
