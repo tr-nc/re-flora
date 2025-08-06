@@ -81,7 +81,7 @@ impl PlayerAudioController {
         })
     }
 
-    pub fn play_jump(&mut self, speed: f32) {
+    pub fn play_jumping(&mut self, speed: f32) {
         let clip = self.clip_caches.jump.next();
         let volume = self.calculate_speed_based_volume(speed, 0.5, 2.0);
         self.audio_engine
@@ -89,7 +89,7 @@ impl PlayerAudioController {
             .unwrap();
     }
 
-    pub fn play_land(&mut self, speed: f32) {
+    pub fn play_landing(&mut self, speed: f32) {
         let clip = self.clip_caches.land.next();
         let volume = self.calculate_speed_based_volume(speed, 0.7, 1.5);
         self.audio_engine

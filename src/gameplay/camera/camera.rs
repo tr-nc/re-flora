@@ -248,7 +248,7 @@ impl Camera {
                 self.rigidbody.velocity.y = JUMP_IMPULSE;
                 // play jump sound once, immediately when leaving the ground
                 let current_speed = self.rigidbody.velocity.length();
-                self.player_audio_controller.play_jump(current_speed);
+                self.player_audio_controller.play_jumping(current_speed);
             } else {
                 // stick to ground smoothly
                 let ground_level_y = self.position.y - collision_result.ground_distance;
@@ -324,7 +324,7 @@ impl Camera {
             } else {
                 // still: play landing sound only
                 self.player_audio_controller
-                    .play_land(self.pre_landing_speed);
+                    .play_landing(self.pre_landing_speed);
                 // 不重置计时器，让 update_walk_sound 在静止状态保持间隔满值
             }
         }
