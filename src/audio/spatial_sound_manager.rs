@@ -131,6 +131,7 @@ pub struct SpatialSoundManagerInner {
     cached_summed_encoded_buf: Vec<f32>,
     cached_ambisonics_encode_buf: Vec<f32>,
     cached_ambisonics_decode_buf: Vec<f32>,
+    cached_binaural_processed: Vec<f32>,
 
     listener_position: Vec3,
     listener_up: Vec3,
@@ -189,6 +190,7 @@ impl SpatialSoundManagerInner {
         let cached_summed_encoded_buf = vec![0.0; frame_window_size * 9];
         let cached_ambisonics_encode_buf = vec![0.0; frame_window_size * 9];
         let cached_ambisonics_decode_buf = vec![0.0; frame_window_size * 2];
+        let cached_binaural_processed = vec![0.0; frame_window_size * 2];
 
         return Self {
             ring_buffer,
@@ -204,6 +206,7 @@ impl SpatialSoundManagerInner {
             cached_summed_encoded_buf,
             cached_ambisonics_encode_buf,
             cached_ambisonics_decode_buf,
+            cached_binaural_processed,
             simulator,
             scene,
             listener_position: Vec3::ZERO,
@@ -276,9 +279,7 @@ impl SpatialSoundManagerInner {
         let mut sources_to_remove = Vec::new();
 
         self.cached_summed_encoded_buf.fill(0.0);
-
-        let mut binaural_processed = vec![0.0; self.frame_window_size * 2];
-        let mut binaural_processed_sum = vec![0.0; self.frame_window_size * 2];
+        self.cached_binaural_processed.fill(0.0);
 
         for id in &all_ids {
             let (play_mode, cursor_pos, samples, volume) = {
@@ -311,21 +312,6 @@ impl SpatialSoundManagerInner {
 
             // self.apply_direct_effect(*id);
             self.apply_ambisonics_encode_effect(*id);
-            self.apply_ambisonics_decode_effect();
-
-            let decoded_buf = AudioNimbusAudioBuffer::try_with_data_and_settings(
-                &mut self.cached_ambisonics_decode_buf,
-                &AudioBufferSettings {
-                    num_channels: Some(2),
-                    ..Default::default()
-                },
-            )
-            .unwrap();
-            decoded_buf.interleave(&self.context, &mut binaural_processed);
-
-            for i in 0..binaural_processed.len() {
-                binaural_processed_sum[i] += binaural_processed[i];
-            }
 
             // update cursor position
             let new_cursor_pos = cursor_pos + self.frame_window_size;
@@ -349,16 +335,29 @@ impl SpatialSoundManagerInner {
             self.remove_source(id);
         }
 
+        // Perform single decode operation on all accumulated encoded sources
+        self.apply_ambisonics_decode_effect();
+
+        let decoded_buf = AudioNimbusAudioBuffer::try_with_data_and_settings(
+            &mut self.cached_ambisonics_decode_buf,
+            &AudioBufferSettings {
+                num_channels: Some(2),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        decoded_buf.interleave(&self.context, &mut self.cached_binaural_processed);
+
         // now get the ring buffer producer after processing
         let (mut producer, _) = self.ring_buffer.split_ref();
 
         // convert processed audio to ring buffer samples
-        let max_frames = (binaural_processed_sum.len() / 2).min(self.frame_window_size);
+        let max_frames = (self.cached_binaural_processed.len() / 2).min(self.frame_window_size);
         let mut samples_added = 0;
         for i in 0..max_frames {
             let ring_buffer_sample = KiraFrame {
-                left: binaural_processed_sum[i * 2],
-                right: binaural_processed_sum[i * 2 + 1],
+                left: self.cached_binaural_processed[i * 2],
+                right: self.cached_binaural_processed[i * 2 + 1],
             };
 
             if producer.try_push(ring_buffer_sample).is_ok() {
@@ -448,6 +447,11 @@ impl SpatialSoundManagerInner {
             &input_buf,
             &output_buf,
         );
+
+        // Add encoded output to summed buffer
+        for i in 0..self.cached_ambisonics_encode_buf.len() {
+            self.cached_summed_encoded_buf[i] += self.cached_ambisonics_encode_buf[i];
+        }
     }
 
     fn apply_ambisonics_decode_effect(&mut self) {
@@ -463,7 +467,7 @@ impl SpatialSoundManagerInner {
         };
 
         let input_buf = AudioNimbusAudioBuffer::try_with_data_and_settings(
-            &self.cached_ambisonics_encode_buf,
+            &self.cached_summed_encoded_buf,
             &AudioBufferSettings {
                 num_channels: Some(9),
                 ..Default::default()
