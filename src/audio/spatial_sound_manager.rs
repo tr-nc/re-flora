@@ -57,6 +57,8 @@ pub struct SpatialSoundSource {
 
     source: Source,
 
+    // notice that this effect must be created and stored in every single source! otherwise the encoding will collide!
+    // other effects can be shared however
     ambisonics_encode_effect: AmbisonicsEncodeEffect,
 }
 
@@ -273,7 +275,7 @@ impl SpatialSoundManagerInner {
     }
 
     fn update(&mut self) -> Result<()> {
-        // self.simulate()?;
+        self.simulate()?;
 
         let all_ids: Vec<Uuid> = self.sources.keys().cloned().collect();
         let mut sources_to_remove = Vec::new();
@@ -310,7 +312,7 @@ impl SpatialSoundManagerInner {
                 self.cached_input_buf[i] = sample;
             }
 
-            // self.apply_direct_effect(*id);
+            self.apply_direct_effect(*id);
             self.apply_ambisonics_encode_effect(*id);
 
             // update cursor position
@@ -376,17 +378,17 @@ impl SpatialSoundManagerInner {
     }
 
     fn apply_direct_effect(&mut self, source_id: Uuid) {
-        let _source = self.sources.get(&source_id).unwrap();
+        let source = self.sources.get(&source_id).unwrap();
+
+        log::debug!("simulation result: {:?}", source.simulation_result);
 
         let direct_effect_params = DirectEffectParams {
-            // distance_attenuation: Some(source.simulation_result.distance_attenuation),
-            // air_absorption: Some(Equalizer([
-            //     source.simulation_result.air_absorption.x,
-            //     source.simulation_result.air_absorption.y,
-            //     source.simulation_result.air_absorption.z,
-            // ])),
-            distance_attenuation: None,
-            air_absorption: None,
+            distance_attenuation: Some(source.simulation_result.distance_attenuation),
+            air_absorption: Some(Equalizer([
+                source.simulation_result.air_absorption.x,
+                source.simulation_result.air_absorption.y,
+                source.simulation_result.air_absorption.z,
+            ])),
             directivity: None,
             occlusion: None,
             transmission: None,
