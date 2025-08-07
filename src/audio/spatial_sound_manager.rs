@@ -7,9 +7,9 @@ use audionimbus::{
     audio_buffer::AudioBuffer as AudioNimbusAudioBuffer, geometry, AirAbsorptionModel,
     AmbisonicsDecodeEffect, AmbisonicsDecodeEffectParams, AmbisonicsDecodeEffectSettings,
     AmbisonicsEncodeEffect, AmbisonicsEncodeEffectParams, AmbisonicsEncodeEffectSettings,
-    AudioSettings, Context, CoordinateSystem, Direct, DirectEffect, DirectEffectParams,
-    DirectEffectSettings, DirectSimulationParameters, DirectSimulationSettings, Direction,
-    DistanceAttenuationModel, Equalizer, Hrtf, HrtfSettings, Point, Scene, SceneParams,
+    AudioBufferSettings, AudioSettings, Context, CoordinateSystem, Direct, DirectEffect,
+    DirectEffectParams, DirectEffectSettings, DirectSimulationParameters, DirectSimulationSettings,
+    Direction, DistanceAttenuationModel, Equalizer, Hrtf, HrtfSettings, Point, Scene, SceneParams,
     SceneSettings, SimulationFlags, SimulationInputs, SimulationSharedInputs, Simulator, Sofa,
     Source, SourceSettings, SpeakerLayout, Vector3, VolumeNormalization,
 };
@@ -274,26 +274,37 @@ impl SpatialSoundManagerInner {
     }
 
     fn update(&mut self) -> Result<()> {
-        self.simulate()?;
+        // self.simulate()?;
 
         let all_ids: Vec<Uuid> = self.sources.keys().cloned().collect();
         let mut sources_to_remove = Vec::new();
 
-        for id in &all_ids {
-            let source = self.get_source(*id).unwrap();
+        self.cached_summed_encoded_buf.fill(0.0);
 
-            let play_mode = source.play_mode.clone();
+        let mut binaural_processed = vec![0.0; self.frame_window_size * 2];
+        let mut binaural_processed_sum = vec![0.0; self.frame_window_size * 2];
+
+        for id in &all_ids {
+            let (play_mode, cursor_pos, samples, volume) = {
+                let source = self.get_source(*id).unwrap();
+                (
+                    source.play_mode.clone(),
+                    source.cursor_pos,
+                    source.samples.clone(),
+                    source.volume,
+                )
+            };
 
             for i in 0..self.frame_window_size {
                 let sample = match play_mode {
                     PlayMode::Loop => {
-                        let idx = (source.cursor_pos + i) % source.samples.len();
-                        source.samples[idx] * source.volume
+                        let idx = (cursor_pos + i) % samples.len();
+                        samples[idx] * volume
                     }
                     PlayMode::SinglePlay => {
-                        let idx = source.cursor_pos + i;
-                        if idx < source.samples.len() {
-                            source.samples[idx] * source.volume
+                        let idx = cursor_pos + i;
+                        if idx < samples.len() {
+                            samples[idx] * volume
                         } else {
                             0.0
                         }
@@ -302,51 +313,40 @@ impl SpatialSoundManagerInner {
                 self.cached_input_buf[i] = sample;
             }
 
-            self.apply_direct_effect(*id);
+            // self.apply_direct_effect(*id);
 
-            // TODO: very strange, if decomment this line and comment the next one, the original leaf sound will be wrong, but shouldn't the apply_encode_effect only affact
-            // on the cached_ambisonics_encode_buf? and therefore only affact the summed_encoded_buffer write step? why this creates a difference?
-            self.apply_ambisonics_encode_effect(*id);
-            // sum encoded buffer
-            let data = &self.cached_ambisonics_encode_buf;
+                self.apply_ambisonics_encode_effect(*id);
+            if play_mode == PlayMode::Loop {
 
-            for i in 0..self.cached_summed_encoded_buf.len() {
-                self.cached_summed_encoded_buf[i] += data[i];
+                self.apply_ambisonics_decode_effect();
+
+                let decoded_buf = AudioNimbusAudioBuffer::try_with_data_and_settings(
+                    &mut self.cached_ambisonics_decode_buf,
+                    &AudioBufferSettings {
+                        num_channels: Some(2),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+                decoded_buf.interleave(&self.context, &mut binaural_processed);
+
+                for i in 0..binaural_processed.len() {
+                    binaural_processed_sum[i] += binaural_processed[i];
+                }
             }
 
-            // to be short:
-            // this doesn't work:
-            // self.apply_ambisonics_encode_effect(*id);
-            // if play_mode == PlayMode::Loop {
-            //     // sum encoded buffer
-            //     let data = self.cached_ambisonics_encode_buf.get_data();
-
-            //     for i in 0..encoded_buffer_size {
-            //         summed_encoded_buffer[i] += data[i];
-            //     }
-            // }
-
-            // this works:
-            // if play_mode == PlayMode::Loop {
-            //     self.apply_ambisonics_encode_effect(*id);
-            //     let data = self.cached_ambisonics_encode_buf.get_data();
-            //     for i in 0..encoded_buffer_size {
-            //         summed_encoded_buffer[i] += data[i];
-            //     }
-            // }
-
             // update cursor position
-            let source_mut = self.sources.get_mut(id).unwrap();
-            let new_cursor_pos = source_mut.cursor_pos + self.frame_window_size;
-
+            let new_cursor_pos = cursor_pos + self.frame_window_size;
             match play_mode {
                 PlayMode::Loop => {
-                    source_mut.cursor_pos = new_cursor_pos % source_mut.samples.len();
+                    let source_mut = self.sources.get_mut(id).unwrap();
+                    source_mut.cursor_pos = new_cursor_pos % samples.len();
                 }
                 PlayMode::SinglePlay => {
-                    if new_cursor_pos >= source_mut.samples.len() {
+                    if new_cursor_pos >= samples.len() {
                         sources_to_remove.push(*id);
                     } else {
+                        let source_mut = self.sources.get_mut(id).unwrap();
                         source_mut.cursor_pos = new_cursor_pos;
                     }
                 }
@@ -357,20 +357,16 @@ impl SpatialSoundManagerInner {
             self.remove_source(id);
         }
 
-        self.apply_ambisonics_decode_effect();
-
-        let binaural_processed = &self.cached_ambisonics_decode_buf;
-
         // now get the ring buffer producer after processing
         let (mut producer, _) = self.ring_buffer.split_ref();
 
         // convert processed audio to ring buffer samples
-        let max_frames = (binaural_processed.len() / 2).min(self.frame_window_size);
+        let max_frames = (binaural_processed_sum.len() / 2).min(self.frame_window_size);
         let mut samples_added = 0;
         for i in 0..max_frames {
             let ring_buffer_sample = KiraFrame {
-                left: binaural_processed[i * 2],
-                right: binaural_processed[i * 2 + 1],
+                left: binaural_processed_sum[i * 2],
+                right: binaural_processed_sum[i * 2 + 1],
             };
 
             if producer.try_push(ring_buffer_sample).is_ok() {
@@ -405,9 +401,22 @@ impl SpatialSoundManagerInner {
             transmission: None,
         };
 
-        let input_buf = AudioNimbusAudioBuffer::try_with_data(&self.cached_input_buf).unwrap();
-        let direct_buf =
-            AudioNimbusAudioBuffer::try_with_data(&mut self.cached_direct_buf).unwrap();
+        let input_buf = AudioNimbusAudioBuffer::try_with_data_and_settings(
+            &self.cached_input_buf,
+            &AudioBufferSettings {
+                num_channels: Some(1),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let direct_buf = AudioNimbusAudioBuffer::try_with_data_and_settings(
+            &mut self.cached_direct_buf,
+            &AudioBufferSettings {
+                num_channels: Some(1),
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
         let _effect_state =
             self.direct_effect
@@ -423,9 +432,22 @@ impl SpatialSoundManagerInner {
             order: 2,
         };
 
-        let input_buf = AudioNimbusAudioBuffer::try_with_data(&self.cached_direct_buf).unwrap();
-        let output_buf =
-            AudioNimbusAudioBuffer::try_with_data(&mut self.cached_ambisonics_encode_buf).unwrap();
+        let input_buf = AudioNimbusAudioBuffer::try_with_data_and_settings(
+            &self.cached_input_buf, // TODO:
+            &AudioBufferSettings {
+                num_channels: Some(1),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let output_buf = AudioNimbusAudioBuffer::try_with_data_and_settings(
+            &mut self.cached_ambisonics_encode_buf,
+            &AudioBufferSettings {
+                num_channels: Some(9),
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
         let _effect_state = self.ambisonics_encode_effect.apply(
             &ambisonics_encode_effect_params,
@@ -446,10 +468,22 @@ impl SpatialSoundManagerInner {
             binaural: true,
         };
 
-        let input_buf =
-            AudioNimbusAudioBuffer::try_with_data(&self.cached_summed_encoded_buf).unwrap();
-        let output_buf =
-            AudioNimbusAudioBuffer::try_with_data(&mut self.cached_ambisonics_decode_buf).unwrap();
+        let input_buf = AudioNimbusAudioBuffer::try_with_data_and_settings(
+            &self.cached_ambisonics_encode_buf,
+            &AudioBufferSettings {
+                num_channels: Some(9),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let output_buf = AudioNimbusAudioBuffer::try_with_data_and_settings(
+            &mut self.cached_ambisonics_decode_buf,
+            &AudioBufferSettings {
+                num_channels: Some(2),
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
         let _effect_state = self.ambisonics_decode_effect.apply(
             &ambisonics_decode_effect_params,
@@ -670,6 +704,12 @@ impl SpatialSoundManager {
     }
 
     pub fn update_source_pos(&self, source_id: Uuid, target_pos: Vec3) -> Result<()> {
+        log::debug!(
+            "Updating source {:?} position to {:?}",
+            source_id,
+            target_pos
+        );
+
         let mut inner = self.0.lock().unwrap();
         if let Some(source) = inner.sources.get_mut(&source_id) {
             let old_pos = source.position;
