@@ -57,6 +57,7 @@ pub struct SpatialSoundSource {
 
     source: Source,
 
+    direct_effect: DirectEffect,
     ambisonics_encode_effect: AmbisonicsEncodeEffect,
 }
 
@@ -85,6 +86,12 @@ impl SpatialSoundSource {
             frame_size: frame_window_size,
         };
 
+        let direct_effect = DirectEffect::try_new(
+            context,
+            &audio_settings,
+            &DirectEffectSettings { num_channels: 1 },
+        )?;
+
         let ambisonics_encode_effect = AmbisonicsEncodeEffect::try_new(
             context,
             &audio_settings,
@@ -105,6 +112,7 @@ impl SpatialSoundSource {
                     flags: SimulationFlags::DIRECT,
                 },
             )?,
+            direct_effect,
             ambisonics_encode_effect,
         })
     }
@@ -124,7 +132,6 @@ pub struct SpatialSoundManagerInner {
 
     hrtf: Hrtf,
 
-    direct_effect: DirectEffect,
     ambisonics_decode_effect: AmbisonicsDecodeEffect,
 
     cached_input_buf: Vec<f32>,
@@ -163,13 +170,6 @@ impl SpatialSoundManagerInner {
 
         let hrtf = create_hrtf(&context, &audio_settings).unwrap();
 
-        let direct_effect = DirectEffect::try_new(
-            &context,
-            &audio_settings,
-            &DirectEffectSettings { num_channels: 1 },
-        )
-        .unwrap();
-
         let ambisonics_decode_effect = AmbisonicsDecodeEffect::try_new(
             &context,
             &audio_settings,
@@ -202,7 +202,6 @@ impl SpatialSoundManagerInner {
             frame_window_size,
             distance_scaler,
             hrtf,
-            direct_effect,
             ambisonics_decode_effect,
             cached_input_buf,
             cached_direct_buf,
@@ -379,7 +378,7 @@ impl SpatialSoundManagerInner {
     }
 
     fn apply_direct_effect(&mut self, source_id: Uuid) {
-        let source = self.sources.get(&source_id).unwrap();
+        let source = self.sources.get_mut(&source_id).unwrap();
 
         log::debug!("simulation result: {:?}", source.simulation_result);
 
@@ -413,7 +412,8 @@ impl SpatialSoundManagerInner {
         .unwrap();
 
         let _effect_state =
-            self.direct_effect
+            source
+                .direct_effect
                 .apply(&direct_effect_params, &input_buf, &direct_buf);
     }
 
