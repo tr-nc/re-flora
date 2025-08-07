@@ -56,6 +56,14 @@ pub struct SpatialSoundSource {
     play_mode: PlayMode,
 
     source: Source,
+
+    direct_effect: DirectEffect,
+    ambisonics_encode_effect: AmbisonicsEncodeEffect,
+    ambisonics_decode_effect: AmbisonicsDecodeEffect,
+
+    cached_direct_buf: Vec<f32>,
+    cached_ambisonics_encode_buf: Vec<f32>,
+    cached_ambisonics_decode_buf: Vec<f32>,
 }
 
 impl Debug for SpatialSoundSource {
@@ -68,6 +76,9 @@ impl Debug for SpatialSoundSource {
 impl SpatialSoundSource {
     pub fn new(
         simulator: &Simulator<Direct>,
+        context: &Context,
+        hrtf: &Hrtf,
+        frame_window_size: usize,
         path: &str,
         volume: f32,
         position: Vec3,
@@ -75,6 +86,37 @@ impl SpatialSoundSource {
     ) -> Result<Self> {
         let (samples, sample_rate) = get_audio_data(path)
             .map_err(|e| anyhow::anyhow!("Failed to load audio file: {}", e))?;
+
+        let audio_settings = AudioSettings {
+            sampling_rate: sample_rate as usize,
+            frame_size: frame_window_size,
+        };
+
+        let direct_effect = DirectEffect::try_new(
+            context,
+            &audio_settings,
+            &DirectEffectSettings { num_channels: 1 },
+        )?;
+
+        let ambisonics_encode_effect = AmbisonicsEncodeEffect::try_new(
+            context,
+            &audio_settings,
+            &AmbisonicsEncodeEffectSettings { max_order: 2 },
+        )?;
+
+        let ambisonics_decode_effect = AmbisonicsDecodeEffect::try_new(
+            context,
+            &audio_settings,
+            &AmbisonicsDecodeEffectSettings {
+                max_order: 2,
+                speaker_layout: SpeakerLayout::Stereo,
+                hrtf: hrtf,
+            },
+        )?;
+
+        let cached_direct_buf = vec![0.0; frame_window_size];
+        let cached_ambisonics_encode_buf = vec![0.0; frame_window_size * 9];
+        let cached_ambisonics_decode_buf = vec![0.0; frame_window_size * 2];
 
         Ok(Self {
             position,
@@ -90,6 +132,12 @@ impl SpatialSoundSource {
                     flags: SimulationFlags::DIRECT,
                 },
             )?,
+            direct_effect,
+            ambisonics_encode_effect,
+            ambisonics_decode_effect,
+            cached_direct_buf,
+            cached_ambisonics_encode_buf,
+            cached_ambisonics_decode_buf,
         })
     }
 }
@@ -107,15 +155,8 @@ pub struct SpatialSoundManagerInner {
 
     hrtf: Hrtf,
 
-    direct_effect: DirectEffect,
-    ambisonics_encode_effect: AmbisonicsEncodeEffect,
-    ambisonics_decode_effect: AmbisonicsDecodeEffect,
-
     cached_input_buf: Vec<f32>,
-    cached_direct_buf: Vec<f32>,
     cached_summed_encoded_buf: Vec<f32>,
-    cached_ambisonics_encode_buf: Vec<f32>,
-    cached_ambisonics_decode_buf: Vec<f32>,
 
     listener_position: Vec3,
     listener_up: Vec3,
@@ -144,8 +185,6 @@ impl SpatialSoundManagerInner {
         };
 
         let hrtf = create_hrtf(&context, &audio_settings).unwrap();
-        let (direct_effect, ambisonics_encode_effect, ambisonics_decode_effect) =
-            create_effects(&context, &audio_settings, &hrtf).unwrap();
 
         let mut simulator = create_simulator(&context, frame_window_size, sample_rate).unwrap();
         let scene = Scene::try_new(&context, &SceneSettings::default()).unwrap();
@@ -153,11 +192,8 @@ impl SpatialSoundManagerInner {
         simulator.commit(); // must be called after set_scene
 
         let cached_input_buf = vec![0.0; frame_window_size];
-        let cached_direct_buf = vec![0.0; frame_window_size];
         // 9 channels for order 2
         let cached_summed_encoded_buf = vec![0.0; frame_window_size * 9];
-        let cached_ambisonics_encode_buf = vec![0.0; frame_window_size * 9];
-        let cached_ambisonics_decode_buf = vec![0.0; frame_window_size * 2];
 
         return Self {
             ring_buffer,
@@ -166,14 +202,8 @@ impl SpatialSoundManagerInner {
             context,
             frame_window_size,
             hrtf,
-            direct_effect,
-            ambisonics_encode_effect,
-            ambisonics_decode_effect,
             cached_input_buf,
-            cached_direct_buf,
             cached_summed_encoded_buf,
-            cached_ambisonics_encode_buf,
-            cached_ambisonics_decode_buf,
             simulator,
             scene,
             listener_position: Vec3::ZERO,
@@ -196,40 +226,6 @@ impl SpatialSoundManagerInner {
                 },
             )?;
             Ok(hrtf)
-        }
-
-        fn create_effects(
-            context: &Context,
-            audio_settings: &AudioSettings,
-            hrtf: &Hrtf,
-        ) -> Result<(DirectEffect, AmbisonicsEncodeEffect, AmbisonicsDecodeEffect)> {
-            let direct_effect = DirectEffect::try_new(
-                context,
-                audio_settings,
-                &DirectEffectSettings { num_channels: 1 },
-            )?;
-
-            let ambisonics_encode_effect = AmbisonicsEncodeEffect::try_new(
-                &context,
-                audio_settings,
-                &AmbisonicsEncodeEffectSettings { max_order: 2 },
-            )?;
-
-            let ambisonics_decode_effect = AmbisonicsDecodeEffect::try_new(
-                &context,
-                audio_settings,
-                &AmbisonicsDecodeEffectSettings {
-                    max_order: 2,
-                    speaker_layout: SpeakerLayout::Stereo,
-                    hrtf: &hrtf,
-                },
-            )?;
-
-            Ok((
-                direct_effect,
-                ambisonics_encode_effect,
-                ambisonics_decode_effect,
-            ))
         }
 
         fn create_simulator(
@@ -314,25 +310,22 @@ impl SpatialSoundManagerInner {
             }
 
             // self.apply_direct_effect(*id);
+            self.apply_ambisonics_encode_effect(*id);
+            self.apply_ambisonics_decode_effect(*id);
 
-                self.apply_ambisonics_encode_effect(*id);
-            if play_mode == PlayMode::Loop {
+            let source = self.sources.get_mut(id).unwrap();
+            let decoded_buf = AudioNimbusAudioBuffer::try_with_data_and_settings(
+                &mut source.cached_ambisonics_decode_buf,
+                &AudioBufferSettings {
+                    num_channels: Some(2),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            decoded_buf.interleave(&self.context, &mut binaural_processed);
 
-                self.apply_ambisonics_decode_effect();
-
-                let decoded_buf = AudioNimbusAudioBuffer::try_with_data_and_settings(
-                    &mut self.cached_ambisonics_decode_buf,
-                    &AudioBufferSettings {
-                        num_channels: Some(2),
-                        ..Default::default()
-                    },
-                )
-                .unwrap();
-                decoded_buf.interleave(&self.context, &mut binaural_processed);
-
-                for i in 0..binaural_processed.len() {
-                    binaural_processed_sum[i] += binaural_processed[i];
-                }
+            for i in 0..binaural_processed.len() {
+                binaural_processed_sum[i] += binaural_processed[i];
             }
 
             // update cursor position
@@ -385,7 +378,7 @@ impl SpatialSoundManagerInner {
     }
 
     fn apply_direct_effect(&mut self, source_id: Uuid) {
-        let source = self.get_source(source_id).unwrap();
+        let source = self.sources.get_mut(&source_id).unwrap();
 
         let direct_effect_params = DirectEffectParams {
             // distance_attenuation: Some(source.simulation_result.distance_attenuation),
@@ -410,7 +403,7 @@ impl SpatialSoundManagerInner {
         )
         .unwrap();
         let direct_buf = AudioNimbusAudioBuffer::try_with_data_and_settings(
-            &mut self.cached_direct_buf,
+            &mut source.cached_direct_buf,
             &AudioBufferSettings {
                 num_channels: Some(1),
                 ..Default::default()
@@ -419,7 +412,8 @@ impl SpatialSoundManagerInner {
         .unwrap();
 
         let _effect_state =
-            self.direct_effect
+            source
+                .direct_effect
                 .apply(&direct_effect_params, &input_buf, &direct_buf);
     }
 
@@ -432,6 +426,8 @@ impl SpatialSoundManagerInner {
             order: 2,
         };
 
+        let source = self.sources.get_mut(&source_id).unwrap();
+
         let input_buf = AudioNimbusAudioBuffer::try_with_data_and_settings(
             &self.cached_input_buf, // TODO:
             &AudioBufferSettings {
@@ -441,7 +437,7 @@ impl SpatialSoundManagerInner {
         )
         .unwrap();
         let output_buf = AudioNimbusAudioBuffer::try_with_data_and_settings(
-            &mut self.cached_ambisonics_encode_buf,
+            &mut source.cached_ambisonics_encode_buf,
             &AudioBufferSettings {
                 num_channels: Some(9),
                 ..Default::default()
@@ -449,14 +445,14 @@ impl SpatialSoundManagerInner {
         )
         .unwrap();
 
-        let _effect_state = self.ambisonics_encode_effect.apply(
+        let _effect_state = source.ambisonics_encode_effect.apply(
             &ambisonics_encode_effect_params,
             &input_buf,
             &output_buf,
         );
     }
 
-    fn apply_ambisonics_decode_effect(&mut self) {
+    fn apply_ambisonics_decode_effect(&mut self, source_id: Uuid) {
         let ambisonics_decode_effect_params = AmbisonicsDecodeEffectParams {
             order: 2,
             hrtf: &self.hrtf,
@@ -468,8 +464,10 @@ impl SpatialSoundManagerInner {
             binaural: true,
         };
 
+        let source = self.sources.get_mut(&source_id).unwrap();
+
         let input_buf = AudioNimbusAudioBuffer::try_with_data_and_settings(
-            &self.cached_ambisonics_encode_buf,
+            &source.cached_ambisonics_encode_buf,
             &AudioBufferSettings {
                 num_channels: Some(9),
                 ..Default::default()
@@ -477,7 +475,7 @@ impl SpatialSoundManagerInner {
         )
         .unwrap();
         let output_buf = AudioNimbusAudioBuffer::try_with_data_and_settings(
-            &mut self.cached_ambisonics_decode_buf,
+            &mut source.cached_ambisonics_decode_buf,
             &AudioBufferSettings {
                 num_channels: Some(2),
                 ..Default::default()
@@ -485,7 +483,7 @@ impl SpatialSoundManagerInner {
         )
         .unwrap();
 
-        let _effect_state = self.ambisonics_decode_effect.apply(
+        let _effect_state = source.ambisonics_decode_effect.apply(
             &ambisonics_decode_effect_params,
             &input_buf,
             &output_buf,
@@ -606,6 +604,9 @@ impl SpatialSoundManager {
         let mut inner = self.0.lock().unwrap();
         let source = SpatialSoundSource::new(
             &inner.simulator,
+            &inner.context,
+            &inner.hrtf,
+            inner.frame_window_size,
             "assets/sfx/Tree Gusts/WINDGust_Wind, Gust in Trees 01_SARM_Wind.wav",
             1.0,
             tree_pos,
@@ -620,6 +621,9 @@ impl SpatialSoundManager {
         let mut inner = self.0.lock().unwrap();
         let source = SpatialSoundSource::new(
             &inner.simulator,
+            &inner.context,
+            &inner.hrtf,
+            inner.frame_window_size,
             path,
             volume,
             position,
@@ -632,8 +636,16 @@ impl SpatialSoundManager {
 
     pub fn add_loop_source(&self, path: &str, volume: f32, position: Vec3) -> Result<Uuid> {
         let mut inner = self.0.lock().unwrap();
-        let source =
-            SpatialSoundSource::new(&inner.simulator, path, volume, position, PlayMode::Loop)?;
+        let source = SpatialSoundSource::new(
+            &inner.simulator,
+            &inner.context,
+            &inner.hrtf,
+            inner.frame_window_size,
+            path,
+            volume,
+            position,
+            PlayMode::Loop,
+        )?;
 
         let source_id = inner.add_source(source);
         Ok(source_id)
