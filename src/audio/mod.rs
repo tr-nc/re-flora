@@ -9,8 +9,6 @@ mod sound_clip;
 mod spatial_sound_manager;
 pub use spatial_sound_manager::*;
 
-mod audio_buffer;
-
 mod audio_decoder;
 pub use audio_decoder::*;
 
