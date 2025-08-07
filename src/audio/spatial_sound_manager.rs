@@ -57,8 +57,6 @@ pub struct SpatialSoundSource {
 
     source: Source,
 
-    // notice that this effect must be created and stored in every single source! otherwise the encoding will collide!
-    // other effects can be shared however
     ambisonics_encode_effect: AmbisonicsEncodeEffect,
 }
 
@@ -122,6 +120,7 @@ pub struct SpatialSoundManagerInner {
     context: Context,
 
     frame_window_size: usize,
+    distance_scaler: f32,
 
     hrtf: Hrtf,
 
@@ -153,6 +152,7 @@ impl SpatialSoundManagerInner {
         ring_buffer_size: usize,
         frame_window_size: usize,
         sample_rate: u32,
+        distance_scaler: f32,
     ) -> Self {
         let ring_buffer = HeapRb::<KiraFrame>::new(ring_buffer_size);
 
@@ -200,6 +200,7 @@ impl SpatialSoundManagerInner {
             sources: HashMap::new(),
             context,
             frame_window_size,
+            distance_scaler,
             hrtf,
             direct_effect,
             ambisonics_decode_effect,
@@ -428,7 +429,7 @@ impl SpatialSoundManagerInner {
         let source = self.sources.get_mut(&source_id).unwrap();
 
         let input_buf = AudioNimbusAudioBuffer::try_with_data_and_settings(
-            &self.cached_input_buf,
+            &self.cached_direct_buf,
             &AudioBufferSettings {
                 num_channels: Some(1),
                 ..Default::default()
@@ -507,9 +508,10 @@ impl SpatialSoundManagerInner {
 
     fn simulate(&mut self) -> Result<()> {
         for source in self.sources.values_mut() {
+            let scaled_position = source.position * self.distance_scaler;
             let simulation_inputs = SimulationInputs {
                 source: geometry::CoordinateSystem {
-                    origin: Point::new(source.position.x, source.position.y, source.position.z),
+                    origin: Point::new(scaled_position.x, scaled_position.y, scaled_position.z),
                     ..Default::default()
                 },
                 direct_simulation: Some(DirectSimulationParameters {
@@ -527,12 +529,13 @@ impl SpatialSoundManagerInner {
             self.simulator.commit();
         }
 
+        let scaled_listener_position = self.listener_position * self.distance_scaler;
         let simulation_shared_inputs = SimulationSharedInputs {
             listener: geometry::CoordinateSystem {
                 origin: Point::new(
-                    self.listener_position.x,
-                    self.listener_position.y,
-                    self.listener_position.z,
+                    scaled_listener_position.x,
+                    scaled_listener_position.y,
+                    scaled_listener_position.z,
                 ),
                 right: Vector3::new(
                     self.listener_right.x,
@@ -581,6 +584,14 @@ impl SpatialSoundManagerInner {
 
 impl SpatialSoundManager {
     pub fn new(ring_buffer_size: usize, frame_window_size: usize) -> Result<Self> {
+        Self::with_distance_scaler(ring_buffer_size, frame_window_size, 10.0)
+    }
+
+    pub fn with_distance_scaler(
+        ring_buffer_size: usize,
+        frame_window_size: usize,
+        distance_scaler: f32,
+    ) -> Result<Self> {
         let context = Context::try_new(&audionimbus::ContextSettings::default())?;
         let sample_rate = 48000;
         let mut inner = SpatialSoundManagerInner::new(
@@ -588,6 +599,7 @@ impl SpatialSoundManager {
             ring_buffer_size,
             frame_window_size,
             sample_rate,
+            distance_scaler,
         );
 
         // Initialize with default listener position and orientation
