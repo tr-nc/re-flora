@@ -252,8 +252,6 @@ impl SpatialSoundManagerInner {
     }
 
     pub fn add_source(&mut self, source: SpatialSoundSource) -> Uuid {
-        log::debug!("Adding source: {:?}", source);
-
         let mut id = Uuid::new_v4();
         while self.sources.contains_key(&id) {
             log::warn!("Source with this UUID already exists, generating new UUID");
@@ -270,7 +268,6 @@ impl SpatialSoundManagerInner {
     }
 
     pub fn remove_source(&mut self, id: Uuid) {
-        log::debug!("Removing source: {:?}", id);
         self.sources.remove(&id);
     }
 
@@ -379,8 +376,6 @@ impl SpatialSoundManagerInner {
 
     fn apply_direct_effect(&mut self, source_id: Uuid) {
         let source = self.sources.get_mut(&source_id).unwrap();
-
-        log::debug!("simulation result: {:?}", source.simulation_result);
 
         let direct_effect_params = DirectEffectParams {
             distance_attenuation: Some(source.simulation_result.distance_attenuation),
@@ -672,7 +667,10 @@ impl SpatialSoundManager {
         let num_samples = out.len();
 
         while !self.has_enough_samples(num_samples) {
+            let now = std::time::Instant::now();
             self.update().unwrap();
+            let duration = now.elapsed();
+            log::debug!("Simulation time: {:?}", duration);
         }
 
         let mut inner = self.0.lock().unwrap();

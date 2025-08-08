@@ -4,7 +4,6 @@ use kira::sound::Sound;
 
 use crate::audio::spatial_sound_manager::SpatialSoundManager;
 
-// Custom Sound implementation for real-time processing
 pub struct RealTimeSpatialSound {
     spatial_sound_manager: SpatialSoundManager,
 }
