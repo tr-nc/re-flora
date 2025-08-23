@@ -279,6 +279,9 @@ const FREE_ATLAS_DIM: UVec3 = UVec3::new(512, 512, 512);
 
 impl App {
     pub fn new(_event_loop: &ActiveEventLoop) -> Result<Self> {
+        let sum = fora_audio::add(1, 2);
+        log::info!("sum: {}", sum);
+
         let chunk_bound = UAabb3::new(UVec3::ZERO, CHUNK_DIM);
         let window_state = Self::create_window_state(_event_loop);
         let vulkan_ctx = Self::create_vulkan_context(&window_state);

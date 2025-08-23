@@ -73,7 +73,7 @@ fn setup_steam_audio() {
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
 
     let lib_source_path = match (target_os.as_str(), target_arch.as_str()) {
-        ("windows", "x86_64") => manifest_dir.join("deps/steam-audio-4.6.1-windows-x64"),
+        ("windows", "x86_64") => manifest_dir.join("deps/steam-audio-4.7.0-windows-x64"),
         _ => panic!("unsupported target platform for steam audio"),
     };
 
