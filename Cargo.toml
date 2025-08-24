@@ -46,7 +46,8 @@ image = "0.25.6"
 anyhow = "1.0.98"
 kira = "0.10.8"
 bytemuck = "1.23.1"
-audionimbus = "0.8.0"
+audionimbus-sys = { path = "../audionimbus/audionimbus-sys", features = ["auto-install"] }
+audionimbus = { path = "../audionimbus/audionimbus" }
 ringbuf = "0.4.8"
 cpal = "0.16.0"
 symphonia = "0.5.4"
