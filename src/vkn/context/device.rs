@@ -97,6 +97,8 @@ fn create_device(
 
     let device_extensions_ptrs = [
         vk::KHR_SWAPCHAIN_NAME.as_ptr(),
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        ash::khr::portability_subset::NAME.as_ptr(),
         // vk::KHR_ACCELERATION_STRUCTURE_NAME.as_ptr(),
         vk::KHR_DEFERRED_HOST_OPERATIONS_NAME.as_ptr(), // must be coupled with ACCLERATION_STRUCTURE
         vk::KHR_SHADER_CLOCK_NAME.as_ptr(),
