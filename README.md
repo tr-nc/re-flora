@@ -138,13 +138,16 @@ left for future use
 
 ---
 
-## Build On Linux (Only for cargo check)
+## MacOS Build
+
+- Install LunarG Vulkan SDK: <https://www.lunarg.com/vulkan-sdk/>
+- Config the following env variables in your shell profile:
 
 ```sh
-curl https://sh.rustup.rs -sSf | sh # install rust
-sudo apt install build-essential # install build essentials
-sudo apt install pkg-config libasound2-dev # install dependencies
-sudo apt install cmake ninja-build # install build tools
+export VULKAN_SDK=~/VulkanSDK/<version>/macOS
+export DYLD_FALLBACK_LIBRARY_PATH=$VULKAN_SDK/lib
+export VK_ICD_FILENAMES=$VULKAN_SDK/share/vulkan/icd.d/MoltenVK_icd.json
+export VK_LAYER_PATH=$VULKAN_SDK/share/vulkan/explicit_layer.d
 ```
 
 ## TODO list
