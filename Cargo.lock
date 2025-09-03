@@ -261,7 +261,9 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
 name = "audionimbus"
-version = "0.8.0"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "311c84a35246655dd05c86711530e299d96e8fe15442a28f57cc340003a98d0c"
 dependencies = [
  "audionimbus-sys",
  "bitflags 2.9.3",
@@ -269,7 +271,9 @@ dependencies = [
 
 [[package]]
 name = "audionimbus-sys"
-version = "4.7.0"
+version = "4.7.1-rc.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "967b141aca90344513a2680e0c71cbb2c737c9840e4882cd2c53d6e333160554"
 dependencies = [
  "bindgen 0.71.1",
  "zip",
@@ -2628,7 +2632,6 @@ dependencies = [
  "ash",
  "ash-window",
  "audionimbus",
- "audionimbus-sys",
  "bytemuck",
  "chrono",
  "comfy-table",

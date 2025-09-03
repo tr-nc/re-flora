@@ -32,7 +32,7 @@ thiserror = "2.0.11"
 egui-winit = "0.32.0"
 shaderc = "0.8.3"
 # only enable debug assert for glam during debug builds
-glam = { version = "0.30.0", features = ["debug-glam-assert", "bytemuck"] } 
+glam = { version = "0.30.0", features = ["debug-glam-assert", "bytemuck"] }
 
 uuid = { version = "1.4", features = ["v4"] }
 # the last release is from 2019, so we use the git version for support of the latest spirv-reflect
@@ -46,11 +46,10 @@ image = "0.25.6"
 anyhow = "1.0.98"
 kira = "0.10.8"
 bytemuck = "1.23.1"
-audionimbus-sys = { path = "../audionimbus/audionimbus-sys", features = ["auto-install"] }
-audionimbus = { path = "../audionimbus/audionimbus" }
 ringbuf = "0.4.8"
 cpal = "0.16.0"
 symphonia = "0.5.4"
+audionimbus = { version = "0.8.1", features = ["auto-install"] }
 
 [features]
 default = []
