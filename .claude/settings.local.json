@@ -14,7 +14,9 @@
       "Bash(sed:*)",
       "Bash(cargo test:*)",
       "Bash(echo $PATH)",
-      "Bash(cargo doc:*)"
+      "Bash(cargo doc:*)",
+      "Bash(cargo tree:*)",
+      "Read(//c/Users/danny/Desktop/projects/petalsonic/**)"
     ],
     "deny": []
   }
