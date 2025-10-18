@@ -24,7 +24,9 @@ fn backtrace_on() {
 
 fn init_env_logger() {
     env_logger::Builder::from_env(
-        Env::default().default_filter_or("debug,symphonia_core=warn,symphonia_format_riff=warn"),
+        Env::default().default_filter_or(
+            "debug,symphonia_core=warn,symphonia_format_riff=warn,petalsonic=info",
+        ),
     )
     .format(|buf, record| {
         use std::io::Write;
