@@ -14,12 +14,6 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum PlayMode {
-    Loop,
-    SinglePlay,
-}
-
 /// Source tracking information
 struct SourceInfo {
     source_id: SourceId,
