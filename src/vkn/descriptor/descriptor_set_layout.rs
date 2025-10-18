@@ -79,7 +79,7 @@ pub struct DescriptorSetLayoutBinding {
 }
 
 impl DescriptorSetLayoutBinding {
-    fn as_raw(&self) -> vk::DescriptorSetLayoutBinding {
+    fn as_raw(&self) -> vk::DescriptorSetLayoutBinding<'_> {
         vk::DescriptorSetLayoutBinding::default()
             .binding(self.no)
             .descriptor_type(self.descriptor_type)

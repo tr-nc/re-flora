@@ -18,7 +18,9 @@ pub struct PlayerClipCaches {
     pub jump_paths: Vec<String>,
     pub land_paths: Vec<String>,
     pub run_paths: Vec<String>,
+    #[allow(dead_code)]
     pub sneak_paths: Vec<String>,
+    #[allow(dead_code)]
     pub sprint_paths: Vec<String>,
 
     // foot-step intervals (seconds)

@@ -63,6 +63,7 @@ impl AudioEngine {
         Ok(SoundHandle { inner: handle })
     }
 
+    #[allow(dead_code)]
     pub fn get_manager(&self) -> &Arc<Mutex<AudioManager<DefaultBackend>>> {
         &self.manager
     }

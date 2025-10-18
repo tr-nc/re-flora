@@ -35,7 +35,7 @@ impl MemoryBarrier {
         }
     }
 
-    pub fn as_raw(&self) -> vk::MemoryBarrier {
+    pub fn as_raw(&self) -> vk::MemoryBarrier<'_> {
         vk::MemoryBarrier::default()
             .src_access_mask(self.src_access_mask)
             .dst_access_mask(self.dst_access_mask)

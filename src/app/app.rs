@@ -829,6 +829,7 @@ impl App {
         Ok((spatial_sound_manager, tree_source_id))
     }
 
+    #[allow(dead_code)]
     fn add_ambient_sounds(audio_engine: &mut AudioEngine) -> Result<()> {
         let leaf_rustling_sound = "assets/sfx/leaf_rustling.wav";
         let mut _leaf_rustling_clip_cache = ClipCache::from_files(

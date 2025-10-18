@@ -17,7 +17,7 @@ impl Allocator {
         }
     }
 
-    fn get_allocator(&self) -> MutexGuard<GpuAllocator> {
+    fn get_allocator(&self) -> MutexGuard<'_, GpuAllocator> {
         self.allocator.lock().unwrap()
     }
 

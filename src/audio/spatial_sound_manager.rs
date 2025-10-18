@@ -145,6 +145,7 @@ impl SpatialSoundManager {
         self.add_source(path, volume, position, LoopMode::Once)
     }
 
+    #[allow(dead_code)]
     pub fn add_loop_source(&self, path: &str, volume: f32, position: Vec3) -> Result<Uuid> {
         self.add_source(path, volume, position, LoopMode::Infinite)
     }

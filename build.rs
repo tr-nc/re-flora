@@ -23,12 +23,14 @@ fn dump_env() {
 }
 
 /// Sets the link-time search path for the native library.
+#[allow(dead_code)]
 fn link_native_library(lib_path: &Path) {
     // tell rustc where to find the native static library (.lib) for linking.
     println!("cargo:rustc-link-search=native={}", lib_path.display());
 }
 
 /// Copies the necessary runtime .dll files to the correct output directories.
+#[allow(dead_code)]
 fn copy_runtime_dlls(source_path: &Path) {
     // use the PROFILE env var to determine if we are in "debug" or "release" mode.
     let profile = env::var("PROFILE").unwrap();
@@ -67,6 +69,7 @@ fn copy_runtime_dlls(source_path: &Path) {
 }
 
 /// Determines library paths and calls the linking and copying functions.
+#[allow(dead_code)]
 fn setup_steam_audio() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();

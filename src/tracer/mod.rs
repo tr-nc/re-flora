@@ -1422,6 +1422,7 @@ impl Tracer {
         self.camera.reset_velocity();
     }
 
+    #[allow(dead_code)]
     pub fn camera_vectors(&self) -> &CameraVectors {
         self.camera.vectors()
     }

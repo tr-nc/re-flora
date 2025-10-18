@@ -116,7 +116,7 @@ impl<'a> WriteDescriptorSet<'a> {
         }
     }
 
-    pub fn make_raw(&mut self, descriptor_set: &DescriptorSet) -> vk::WriteDescriptorSet {
+    pub fn make_raw(&mut self, descriptor_set: &DescriptorSet) -> vk::WriteDescriptorSet<'_> {
         assert!(
             self.image_infos.is_some()
                 ^ self.buffer_infos.is_some()

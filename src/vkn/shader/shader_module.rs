@@ -137,7 +137,7 @@ impl ShaderModule {
     }
 
     /// Convenience for creating a stage create info (for pipeline creation).
-    pub fn get_shader_stage_create_info(&self) -> vk::PipelineShaderStageCreateInfo {
+    pub fn get_shader_stage_create_info(&self) -> vk::PipelineShaderStageCreateInfo<'_> {
         vk::PipelineShaderStageCreateInfo::default()
             .stage(self.get_stage())
             .module(self.get_shader_module())
