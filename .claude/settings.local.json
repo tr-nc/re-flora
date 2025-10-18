@@ -16,7 +16,8 @@
       "Bash(echo $PATH)",
       "Bash(cargo doc:*)",
       "Bash(cargo tree:*)",
-      "Read(//c/Users/danny/Desktop/projects/petalsonic/**)"
+      "Read(//c/Users/danny/Desktop/projects/petalsonic/**)",
+      "Bash(cargo clippy:*)"
     ],
     "deny": []
   }
