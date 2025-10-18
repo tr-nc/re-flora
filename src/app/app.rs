@@ -1,10 +1,7 @@
 #[allow(unused)]
 use crate::util::Timer;
 
-use crate::audio::{
-    AudioEngine, ClipCache, PlayMode, RealTimeSpatialSoundData, SoundDataConfig,
-    SpatialSoundManager,
-};
+use crate::audio::{AudioEngine, ClipCache, PlayMode, SoundDataConfig, SpatialSoundManager};
 use crate::builder::{ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder};
 use crate::geom::{build_bvh, UAabb3};
 use crate::procedual_placer::{generate_positions, PlacerDesc};
@@ -268,7 +265,6 @@ pub struct App {
     #[allow(dead_code)]
     audio_engine: AudioEngine,
     spatial_sound_manager: Option<SpatialSoundManager>,
-    spatial_sound_data: Option<RealTimeSpatialSoundData>,
     tree_sound_source_id: Option<uuid::Uuid>, // for the main tree
     procedural_tree_sound_ids: Vec<uuid::Uuid>, // for procedural trees
 }
@@ -494,7 +490,6 @@ impl App {
 
             audio_engine,
             spatial_sound_manager: Some(spatial_sound_manager),
-            spatial_sound_data: None,
             tree_sound_source_id: Some(tree_source_id),
             procedural_tree_sound_ids: Vec::new(),
         };
@@ -821,7 +816,7 @@ impl App {
     }
 
     fn create_spatial_sound_for_test(
-        audio_engine: &mut AudioEngine,
+        _audio_engine: &mut AudioEngine,
         tree_pos: Vec3,
     ) -> Result<(SpatialSoundManager, uuid::Uuid)> {
         let spatial_sound_manager = SpatialSoundManager::new(10240, 1024)?;
@@ -829,13 +824,7 @@ impl App {
         // add tree gust source at the tree position
         let tree_source_id = spatial_sound_manager.add_tree_gust_source(tree_pos / 256.0)?;
 
-        // create and play spatial sound data
-        let spatial_sound_data = RealTimeSpatialSoundData::new(spatial_sound_manager.clone())?;
-        let _handle = audio_engine
-            .get_manager()
-            .lock()
-            .unwrap()
-            .play(spatial_sound_data)?;
+        // PetalSonic manages its own playback - no need to play through Kira
 
         Ok((spatial_sound_manager, tree_source_id))
     }

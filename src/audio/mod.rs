@@ -9,15 +9,6 @@ mod sound_clip;
 mod spatial_sound_manager;
 pub use spatial_sound_manager::*;
 
-mod audio_decoder;
-pub use audio_decoder::*;
-
-mod pal;
-pub use pal::*;
-
-mod spatial_sound;
-pub use spatial_sound::*;
-
 pub use kira::Tween;
 pub use sound_clip::SoundClip;
 
