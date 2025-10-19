@@ -1,7 +1,7 @@
 use anyhow::Result;
 use ash::vk;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub struct Extent2D {
     pub width: u32,
     pub height: u32,
@@ -27,15 +27,6 @@ impl Extent2D {
     }
 }
 
-impl Default for Extent2D {
-    fn default() -> Self {
-        Self {
-            width: 0,
-            height: 0,
-        }
-    }
-}
-
 impl From<vk::Extent2D> for Extent2D {
     fn from(extent: vk::Extent2D) -> Self {
         Self {
@@ -45,7 +36,7 @@ impl From<vk::Extent2D> for Extent2D {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub struct Extent3D {
     pub width: u32,
     pub height: u32,
@@ -97,16 +88,6 @@ impl From<Extent2D> for Extent3D {
             width: extent.width,
             height: extent.height,
             depth: 1,
-        }
-    }
-}
-
-impl Default for Extent3D {
-    fn default() -> Self {
-        Self {
-            width: 0,
-            height: 0,
-            depth: 0,
         }
     }
 }

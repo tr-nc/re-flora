@@ -26,7 +26,7 @@ impl Allocator {
         create_info: &AllocationCreateDesc,
     ) -> Result<Allocation, String> {
         self.get_allocator()
-            .allocate(&create_info)
+            .allocate(create_info)
             .map_err(|e| e.to_string())
     }
 

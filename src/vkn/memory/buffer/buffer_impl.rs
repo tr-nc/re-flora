@@ -72,14 +72,7 @@ impl Buffer {
         additional_usages: BufferUsage,
         location: MemoryLocation,
     ) -> Self {
-        return Self::create_buffer_with_layout(
-            device,
-            allocator,
-            layout,
-            additional_usages,
-            location,
-            1,
-        );
+        Self::create_buffer_with_layout(device, allocator, layout, additional_usages, location, 1)
     }
 
     pub fn from_buffer_layout_arraylike(
@@ -90,14 +83,14 @@ impl Buffer {
         location: MemoryLocation,
         element_length: u64,
     ) -> Self {
-        return Self::create_buffer_with_layout(
+        Self::create_buffer_with_layout(
             device,
             allocator,
             layout,
             additional_usages,
             location,
             element_length,
-        );
+        )
     }
 
     pub fn device_address(&self) -> vk::DeviceAddress {
@@ -110,7 +103,7 @@ impl Buffer {
                     ..Default::default()
                 });
         }
-        return res;
+        res
     }
 
     fn create_buffer_with_layout(
@@ -136,7 +129,7 @@ impl Buffer {
             .allocate_memory(&AllocationCreateDesc {
                 name: "",
                 requirements,
-                location: location,
+                location,
                 linear: true,
                 allocation_scheme: AllocationScheme::GpuAllocatorManaged,
             })
@@ -185,7 +178,7 @@ impl Buffer {
             .allocate_memory(&AllocationCreateDesc {
                 name: "",
                 requirements,
-                location: location,
+                location,
                 linear: true,
                 allocation_scheme: AllocationScheme::GpuAllocatorManaged,
             })
@@ -303,7 +296,7 @@ impl Buffer {
     #[allow(dead_code)]
     pub fn fill_with_raw_u32(&self, data: &[u32]) -> Result<()> {
         let data_u8: &[u8] = unsafe {
-            std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * size_of::<u32>())
+            std::slice::from_raw_parts(data.as_ptr() as *const u8, std::mem::size_of_val(data))
         };
         self.fill_with_raw_u8(data_u8)
     }
@@ -332,7 +325,7 @@ impl Buffer {
             };
             return Ok(());
         }
-        return Err(anyhow::anyhow!("Failed to map buffer memory"));
+        Err(anyhow::anyhow!("Failed to map buffer memory"))
     }
 
     /// Reads raw data from the buffer.

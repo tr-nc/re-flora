@@ -155,11 +155,9 @@ fn create_device(
         .push_next(&mut physical_device_shader_clock_features_khr)
         .push_next(&mut physical_device_shader_atomic_float_features_khr);
 
-    let device = unsafe {
+    unsafe {
         instance
             .create_device(physical_device, &device_create_info, None)
             .expect("Failed to create logical device")
-    };
-
-    device
+    }
 }

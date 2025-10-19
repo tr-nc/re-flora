@@ -334,7 +334,7 @@ fn create_swapchain_device_khr(
             .clipped(true)
     };
 
-    let swapchain_device = swapchain::Device::new(&context.instance().as_raw(), &context.device());
+    let swapchain_device = swapchain::Device::new(context.instance().as_raw(), context.device());
     let swapchain_khr = unsafe {
         swapchain_device
             .create_swapchain(&create_info, None)

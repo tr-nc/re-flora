@@ -4,7 +4,7 @@ use winit::{
     keyboard::{KeyCode, PhysicalKey},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct AxesState {
     pub forward: bool,
     pub backward: bool,
@@ -12,19 +12,6 @@ pub struct AxesState {
     pub right: bool,
     pub up: bool,
     pub down: bool,
-}
-
-impl Default for AxesState {
-    fn default() -> Self {
-        Self {
-            forward: false,
-            backward: false,
-            left: false,
-            right: false,
-            up: false,
-            down: false,
-        }
-    }
 }
 
 /// Stores the current state of the camera's movement.

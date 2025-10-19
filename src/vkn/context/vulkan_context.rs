@@ -71,7 +71,7 @@ impl VulkanContext {
             self.0
                 .device
                 .as_raw()
-                .wait_for_fences(fences, true, std::u64::MAX)
+                .wait_for_fences(fences, true, u64::MAX)
         }
     }
 

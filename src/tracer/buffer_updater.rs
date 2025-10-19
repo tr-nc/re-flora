@@ -45,6 +45,7 @@ impl BufferUpdater {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn update_denoiser_info(
         temporal_info: &mut Buffer,
         spatial_info: &mut Buffer,
@@ -93,6 +94,7 @@ impl BufferUpdater {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn update_spatial_info(
         spatial_info: &mut Buffer,
         phi_c: f32,
@@ -183,6 +185,7 @@ impl BufferUpdater {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn update_starlight_info(
         resources: &TracerResources,
         iterations: i32,

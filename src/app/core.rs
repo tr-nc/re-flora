@@ -599,8 +599,12 @@ impl App {
         }
 
         let mut leaves_data_sequential = vec![0; round_cones.len()];
-        for i in 0..round_cones.len() {
-            leaves_data_sequential[i] = i as u32;
+        for (i, item) in leaves_data_sequential
+            .iter_mut()
+            .enumerate()
+            .take(round_cones.len())
+        {
+            *item = i as u32;
         }
         let mut aabbs = Vec::new();
         for round_cone in &round_cones {
@@ -623,7 +627,7 @@ impl App {
                 .iter()
                 .map(|leaf| leaf.as_uvec3())
                 .collect::<HashSet<_>>();
-            return set.into_iter().collect::<Vec<_>>();
+            set.into_iter().collect::<Vec<_>>()
         }
 
         let quantized_leaf_positions = quantize(&offseted_leaf_positions);
@@ -1000,8 +1004,12 @@ impl App {
         }
 
         let mut leaves_data_sequential = vec![0; round_cones.len()];
-        for i in 0..round_cones.len() {
-            leaves_data_sequential[i] = i as u32;
+        for (i, item) in leaves_data_sequential
+            .iter_mut()
+            .enumerate()
+            .take(round_cones.len())
+        {
+            *item = i as u32;
         }
         let mut aabbs = Vec::new();
         for round_cone in &round_cones {
@@ -1024,7 +1032,7 @@ impl App {
                 .iter()
                 .map(|leaf| leaf.as_uvec3())
                 .collect::<HashSet<_>>();
-            return set.into_iter().collect::<Vec<_>>();
+            set.into_iter().collect::<Vec<_>>()
         }
 
         let quantized_leaf_positions = quantize(&offseted_leaf_positions);
@@ -1099,7 +1107,7 @@ impl App {
                     }
                 }
             }
-            return affacted;
+            affacted
         }
     }
 
@@ -1838,7 +1846,7 @@ impl App {
                     self.time_of_day += frame_delta_time * time_speed;
 
                     // keep time_of_day in 0.0 to 1.0 range (wrap around)
-                    self.time_of_day = self.time_of_day % 1.0;
+                    self.time_of_day %= 1.0;
 
                     self.calculate_sun_position(self.time_of_day, self.latitude, self.season);
                 }
@@ -1950,7 +1958,7 @@ impl App {
                 self.tracer
                     .record_trace(
                         cmdbuf,
-                        &self.surface_builder.get_resources(),
+                        self.surface_builder.get_resources(),
                         self.lod_distance,
                         self.time_info.time_since_start(),
                         Vec3::new(
@@ -2079,8 +2087,8 @@ impl App {
         self.swapchain.on_resize(window_extent);
         self.tracer.on_resize(
             window_extent,
-            &self.contree_builder.get_resources(),
-            &self.scene_accel_builder.get_resources(),
+            self.contree_builder.get_resources(),
+            self.scene_accel_builder.get_resources(),
         );
 
         // the render pass should be rebuilt when the swapchain is recreated

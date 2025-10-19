@@ -15,7 +15,7 @@ impl PhysicalDevice {
     pub fn new(instance: &Instance, surface: &Surface) -> (Self, QueueFamilyIndices) {
         let (device, queue_family_indices) = create_physical_device(
             instance.as_raw(),
-            &surface.surface_instance(),
+            surface.surface_instance(),
             surface.surface_khr(),
         );
         (Self { device }, queue_family_indices)
@@ -70,7 +70,7 @@ fn get_missing_required_extensions(
     };
 
     // If more extensions are required in the future, add them to this list.
-    let required_extensions = vec![swapchain::NAME];
+    let required_extensions = [swapchain::NAME];
     let mut missing = Vec::new();
 
     for &required_ext in required_extensions.iter() {

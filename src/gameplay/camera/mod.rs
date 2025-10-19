@@ -1,8 +1,8 @@
 mod desc;
 pub use desc::*;
 
-mod camera;
-pub use camera::*;
+mod controller;
+pub use controller::*;
 
 mod shadow;
 pub use shadow::*;

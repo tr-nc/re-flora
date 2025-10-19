@@ -35,15 +35,8 @@ fn encode_pos(pos: IVec3) -> Result<u32> {
 
 /// Encodes a voxel offset (within a unit cube) into BIT_PER_OFFSET bits.
 fn encode_voxel_offset(base_vert: UVec3) -> Result<u32> {
-    const LOWER_BOUND: u32 = 0;
     const UPPER_BOUND: u32 = (1 << BIT_PER_OFFSET) - 1;
-    if base_vert.x < LOWER_BOUND
-        || base_vert.x > UPPER_BOUND
-        || base_vert.y < LOWER_BOUND
-        || base_vert.y > UPPER_BOUND
-        || base_vert.z < LOWER_BOUND
-        || base_vert.z > UPPER_BOUND
-    {
+    if base_vert.x > UPPER_BOUND || base_vert.y > UPPER_BOUND || base_vert.z > UPPER_BOUND {
         return Err(anyhow::anyhow!("Invalid base vert"));
     }
     let encoded =
@@ -55,10 +48,10 @@ fn encode_voxel_offset(base_vert: UVec3) -> Result<u32> {
 fn encode_gradients(color_gradient: f32, wind_gradient: f32) -> Result<u32> {
     const LOWER_BOUND: f32 = 0.0;
     const UPPER_BOUND: f32 = 1.0;
-    if color_gradient < LOWER_BOUND || color_gradient > UPPER_BOUND {
+    if !(LOWER_BOUND..=UPPER_BOUND).contains(&color_gradient) {
         return Err(anyhow::anyhow!("Invalid color gradient"));
     }
-    if wind_gradient < LOWER_BOUND || wind_gradient > UPPER_BOUND {
+    if !(LOWER_BOUND..=UPPER_BOUND).contains(&wind_gradient) {
         return Err(anyhow::anyhow!("Invalid wind gradient"));
     }
 

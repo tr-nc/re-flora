@@ -48,7 +48,7 @@ impl AudioEngine {
         if amplitude <= 0.0 {
             return Decibels::SILENCE;
         }
-        return Decibels(20.0 * amplitude.log10());
+        Decibels(20.0 * amplitude.log10())
     }
 
     /// Play a clip with a custom volume

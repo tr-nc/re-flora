@@ -104,6 +104,18 @@ pub struct InstanceResources {
 
 impl InstanceResources {
     pub fn new(device: Device, allocator: Allocator, chunk_dim: UAabb3) -> Self {
+        /// A margin is added becaues the boundary grasses can sway out of the chunk to a certain extent.
+        fn compute_chunk_world_aabb(chunk_id: UVec3, margin: f32) -> Aabb3 {
+            let chunk_min = chunk_id.as_vec3();
+            let chunk_max = chunk_min + Vec3::ONE;
+
+            // add margin for grass swaying
+            let min_with_margin = chunk_min - Vec3::splat(margin);
+            let max_with_margin = chunk_max + Vec3::splat(margin);
+
+            Aabb3::new(min_with_margin, max_with_margin)
+        }
+
         let mut chunk_flora_instances = Vec::new();
         for x in chunk_dim.min().x..chunk_dim.max().x {
             for y in chunk_dim.min().y..chunk_dim.max().y {
@@ -120,21 +132,9 @@ impl InstanceResources {
             }
         }
 
-        return Self {
+        Self {
             chunk_flora_instances,
             leaves_instances: HashMap::new(),
-        };
-
-        /// A margin is added becaues the boundary grasses can sway out of the chunk to a certain extent.
-        fn compute_chunk_world_aabb(chunk_id: UVec3, margin: f32) -> Aabb3 {
-            let chunk_min = chunk_id.as_vec3();
-            let chunk_max = chunk_min + Vec3::ONE;
-
-            // add margin for grass swaying
-            let min_with_margin = chunk_min - Vec3::splat(margin);
-            let max_with_margin = chunk_max + Vec3::splat(margin);
-
-            Aabb3::new(min_with_margin, max_with_margin)
         }
     }
 
@@ -209,11 +209,11 @@ impl SurfaceResources {
 
         let instances = InstanceResources::new(device.clone(), allocator.clone(), chunk_dim);
 
-        return Self {
+        Self {
             surface: Resource::new(surface),
             make_surface_info: Resource::new(make_surface_info),
             make_surface_result: Resource::new(make_surface_result),
             instances,
-        };
+        }
     }
 }

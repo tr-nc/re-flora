@@ -151,21 +151,15 @@ impl Camera {
     /// Clamps the pitch to prevent the camera from flipping.
     fn clamp_pitch(&mut self) {
         const CAMERA_LIM_RAD: f32 = std::f32::consts::FRAC_PI_2 - 0.01;
-        if self.pitch > CAMERA_LIM_RAD {
-            self.pitch = CAMERA_LIM_RAD;
-        }
-        if self.pitch < -CAMERA_LIM_RAD {
-            self.pitch = -CAMERA_LIM_RAD;
-        }
+        self.pitch = self.pitch.clamp(-CAMERA_LIM_RAD, CAMERA_LIM_RAD);
     }
 
     pub fn handle_mouse(&mut self, delta: Vec2) {
         const SENSITIVITY_MULTIPLIER: f32 = 0.001;
         // the delta is positive when moving the mouse to the right / down
         // so we need to invert the pitch delta so that when mouse is going up, pitch increases
-        self.yaw += delta.x as f32 * self.desc.movement.mouse_sensitivity * SENSITIVITY_MULTIPLIER;
-        self.pitch -=
-            delta.y as f32 * self.desc.movement.mouse_sensitivity * SENSITIVITY_MULTIPLIER;
+        self.yaw += delta.x * self.desc.movement.mouse_sensitivity * SENSITIVITY_MULTIPLIER;
+        self.pitch -= delta.y * self.desc.movement.mouse_sensitivity * SENSITIVITY_MULTIPLIER;
 
         self.limit_yaw();
         self.clamp_pitch();

@@ -70,6 +70,7 @@ impl Default for GraphicsPipelineDesc {
 }
 
 impl GraphicsPipeline {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         device: &Device,
         vert_shader_module: &ShaderModule,
@@ -315,6 +316,7 @@ impl GraphicsPipeline {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn record_indexed(
         &self,
         cmdbuf: &CommandBuffer,

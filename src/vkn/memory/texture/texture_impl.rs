@@ -21,7 +21,7 @@ impl Texture {
         img_desc: &ImageDesc,
         sampler_desc: &SamplerDesc,
     ) -> Self {
-        let image = Image::new(device.clone(), allocator, &img_desc).unwrap();
+        let image = Image::new(device.clone(), allocator, img_desc).unwrap();
 
         let image_view_desc = ImageViewDesc {
             image: image.as_raw(),

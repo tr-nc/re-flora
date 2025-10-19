@@ -33,15 +33,15 @@ fn custom_include_callback(
         include_type: shaderc::IncludeType,
         requesting_source: &str,
     ) -> Result<PathBuf, String> {
-        return match include_type {
+        match include_type {
             shaderc::IncludeType::Relative => Ok(Path::new(requesting_source)
                 .parent()
                 .ok_or_else(|| format!("`{requesting_source}` has no parent directory"))?
                 .to_owned()),
             shaderc::IncludeType::Standard => {
-                Err(format!("Standard include not supported for now",))
+                Err("Standard include not supported for now".to_string())
             }
-        };
+        }
     }
 }
 

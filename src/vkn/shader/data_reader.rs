@@ -58,113 +58,113 @@ impl<'a> PlainMemberDataReader<'a> {
             }
             Vec2 => {
                 let mut a = [0.0f32; 2];
-                for i in 0..2 {
+                for (i, item) in a.iter_mut().enumerate() {
                     let start = i * 4;
-                    a[i] = f32::from_ne_bytes(self.bytes[start..start + 4].try_into().unwrap());
+                    *item = f32::from_ne_bytes(self.bytes[start..start + 4].try_into().unwrap());
                 }
                 D::Vec2(a)
             }
             Vec3 => {
                 let mut a = [0.0f32; 3];
-                for i in 0..3 {
+                for (i, item) in a.iter_mut().enumerate() {
                     let start = i * 4;
-                    a[i] = f32::from_ne_bytes(self.bytes[start..start + 4].try_into().unwrap());
+                    *item = f32::from_ne_bytes(self.bytes[start..start + 4].try_into().unwrap());
                 }
                 D::Vec3(a)
             }
             Vec4 => {
                 let mut a = [0.0f32; 4];
-                for i in 0..4 {
+                for (i, item) in a.iter_mut().enumerate() {
                     let start = i * 4;
-                    a[i] = f32::from_ne_bytes(self.bytes[start..start + 4].try_into().unwrap());
+                    *item = f32::from_ne_bytes(self.bytes[start..start + 4].try_into().unwrap());
                 }
                 D::Vec4(a)
             }
             IVec2 => {
                 let mut a = [0i32; 2];
-                for i in 0..2 {
+                for (i, item) in a.iter_mut().enumerate() {
                     let start = i * 4;
-                    a[i] = i32::from_ne_bytes(self.bytes[start..start + 4].try_into().unwrap());
+                    *item = i32::from_ne_bytes(self.bytes[start..start + 4].try_into().unwrap());
                 }
                 D::IVec2(a)
             }
             IVec3 => {
                 let mut a = [0i32; 3];
-                for i in 0..3 {
+                for (i, item) in a.iter_mut().enumerate() {
                     let start = i * 4;
-                    a[i] = i32::from_ne_bytes(self.bytes[start..start + 4].try_into().unwrap());
+                    *item = i32::from_ne_bytes(self.bytes[start..start + 4].try_into().unwrap());
                 }
                 D::IVec3(a)
             }
             IVec4 => {
                 let mut a = [0i32; 4];
-                for i in 0..4 {
+                for (i, item) in a.iter_mut().enumerate() {
                     let start = i * 4;
-                    a[i] = i32::from_ne_bytes(self.bytes[start..start + 4].try_into().unwrap());
+                    *item = i32::from_ne_bytes(self.bytes[start..start + 4].try_into().unwrap());
                 }
                 D::IVec4(a)
             }
             UVec2 => {
                 let mut a = [0u32; 2];
-                for i in 0..2 {
+                for (i, item) in a.iter_mut().enumerate() {
                     let start = i * 4;
-                    a[i] = u32::from_ne_bytes(self.bytes[start..start + 4].try_into().unwrap());
+                    *item = u32::from_ne_bytes(self.bytes[start..start + 4].try_into().unwrap());
                 }
                 D::UVec2(a)
             }
             UVec3 => {
                 let mut a = [0u32; 3];
-                for i in 0..3 {
+                for (i, item) in a.iter_mut().enumerate() {
                     let start = i * 4;
-                    a[i] = u32::from_ne_bytes(self.bytes[start..start + 4].try_into().unwrap());
+                    *item = u32::from_ne_bytes(self.bytes[start..start + 4].try_into().unwrap());
                 }
                 D::UVec3(a)
             }
             UVec4 => {
                 let mut a = [0u32; 4];
-                for i in 0..4 {
+                for (i, item) in a.iter_mut().enumerate() {
                     let start = i * 4;
-                    a[i] = u32::from_ne_bytes(self.bytes[start..start + 4].try_into().unwrap());
+                    *item = u32::from_ne_bytes(self.bytes[start..start + 4].try_into().unwrap());
                 }
                 D::UVec4(a)
             }
             Mat2 => {
                 // a 2×2 matrix is 4 floats in row‑major
                 let mut m = [[0.0f32; 2]; 2];
-                for r in 0..2 {
-                    for c in 0..2 {
+                for (r, row) in m.iter_mut().enumerate() {
+                    for (c, item) in row.iter_mut().enumerate() {
                         let idx = (r * 2 + c) * 4;
-                        m[r][c] = f32::from_ne_bytes(self.bytes[idx..idx + 4].try_into().unwrap());
+                        *item = f32::from_ne_bytes(self.bytes[idx..idx + 4].try_into().unwrap());
                     }
                 }
                 D::Mat2(m)
             }
             Mat3 => {
                 let mut m = [[0.0f32; 3]; 3];
-                for r in 0..3 {
-                    for c in 0..3 {
+                for (r, row) in m.iter_mut().enumerate() {
+                    for (c, item) in row.iter_mut().enumerate() {
                         let idx = (r * 3 + c) * 4;
-                        m[r][c] = f32::from_ne_bytes(self.bytes[idx..idx + 4].try_into().unwrap());
+                        *item = f32::from_ne_bytes(self.bytes[idx..idx + 4].try_into().unwrap());
                     }
                 }
                 D::Mat3(m)
             }
             Mat4 => {
                 let mut m = [[0.0f32; 4]; 4];
-                for r in 0..4 {
-                    for c in 0..4 {
+                for (r, row) in m.iter_mut().enumerate() {
+                    for (c, item) in row.iter_mut().enumerate() {
                         let idx = (r * 4 + c) * 4;
-                        m[r][c] = f32::from_ne_bytes(self.bytes[idx..idx + 4].try_into().unwrap());
+                        *item = f32::from_ne_bytes(self.bytes[idx..idx + 4].try_into().unwrap());
                     }
                 }
                 D::Mat4(m)
             }
             Mat3x4 => {
                 let mut m = [[0.0f32; 4]; 3];
-                for r in 0..3 {
-                    for c in 0..4 {
+                for (r, row) in m.iter_mut().enumerate() {
+                    for (c, item) in row.iter_mut().enumerate() {
                         let idx = (r * 4 + c) * 4;
-                        m[r][c] = f32::from_ne_bytes(self.bytes[idx..idx + 4].try_into().unwrap());
+                        *item = f32::from_ne_bytes(self.bytes[idx..idx + 4].try_into().unwrap());
                     }
                 }
                 D::Mat3x4(m)

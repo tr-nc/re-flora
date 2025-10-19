@@ -104,7 +104,7 @@ impl PlainBuilderResources {
             gpu_allocator::MemoryLocation::GpuOnly,
         );
 
-        return Self {
+        Self {
             chunk_atlas: Resource::new(chunk_atlas),
             free_atlas: Resource::new(free_atlas),
             chunk_modify_info: Resource::new(chunk_modify_info),
@@ -112,6 +112,6 @@ impl PlainBuilderResources {
             trunk_bvh_nodes: Resource::new(trunk_bvh_nodes),
             region_info: Resource::new(region_info),
             region_indirect: Resource::new(region_indirect),
-        };
+        }
     }
 }

@@ -75,9 +75,10 @@ pub fn create_acc(
             .expect("Failed to create BLAS")
     };
 
-    return AccelStruct::new(acc_device, accel_struct, acc_buf);
+    AccelStruct::new(acc_device, accel_struct, acc_buf)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_or_update_acc(
     vulkan_ctx: &VulkanContext,
     allocator: Allocator,
@@ -115,7 +116,7 @@ pub fn build_or_update_acc(
     };
 
     let range_info = vk::AccelerationStructureBuildRangeInfoKHR {
-        primitive_count: primitive_count,
+        primitive_count,
         ..Default::default()
     };
 

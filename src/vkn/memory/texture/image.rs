@@ -114,7 +114,7 @@ impl Image {
         Ok(Self(Arc::new(ImageInner {
             device: device.clone(),
             image,
-            desc: desc.clone(),
+            desc: *desc,
             allocator,
             allocated_mem,
             current_layout: Mutex::new(layouts),
@@ -378,7 +378,7 @@ impl Image {
             image::open(path).map_err(|e| anyhow::anyhow!("Failed to open image: {}", e))?;
         let rgba_image = image.to_rgba8();
         let (width, height) = rgba_image.dimensions();
-        if width != self.0.desc.extent.width as u32 || height != self.0.desc.extent.height as u32 {
+        if width != self.0.desc.extent.width || height != self.0.desc.extent.height {
             return Err(anyhow::anyhow!(
                 "Image size does not match texture size: {}x{} != {}x{}",
                 width,
@@ -411,7 +411,7 @@ impl Image {
             }
             Format::R8_UNORM => {
                 // keep only R
-                if data.len() % 4 != 0 {
+                if !data.len().is_multiple_of(4) {
                     return Err(anyhow::anyhow!("Input RGBA data length not divisible by 4"));
                 }
                 let mut out = Vec::with_capacity(data.len() / 4);
@@ -422,7 +422,7 @@ impl Image {
             }
             Format::R8G8_UNORM => {
                 // keep R and G
-                if data.len() % 4 != 0 {
+                if !data.len().is_multiple_of(4) {
                     return Err(anyhow::anyhow!("Input RGBA data length not divisible by 4"));
                 }
                 let mut out = Vec::with_capacity(data.len() / 2);
@@ -603,6 +603,7 @@ impl fmt::Debug for Image {
 
 /// Record a transition barrier for one subresource‐range of an image
 /// (you now provide base_array_layer + layer_count explicitly).
+#[allow(clippy::too_many_arguments)]
 pub fn record_image_transition_barrier(
     device: &ash::Device,
     cmdbuf: vk::CommandBuffer,
@@ -696,7 +697,7 @@ fn map_src_stage_access_flags(
 ///
 /// - DstStage represents what stage(s) we are blocking.
 /// - DstAccessMask represents which part of available memory to be made visible.
-/// (By invalidating caches)
+///   (By invalidating caches)
 ///
 fn map_dst_stage_access_flags(
     new_layout: vk::ImageLayout,

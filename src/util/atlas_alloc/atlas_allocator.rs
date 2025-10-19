@@ -129,6 +129,7 @@ impl AtlasAllocator {
     /// Shelf allocator:
     /// 1. If it does not fit in the current row, start a new row.
     /// 2. If it does not fit in this z-slice, start a new slice.
+    ///
     /// Updates `cursor` and `row_height` on success.
     fn place(&self, dim: UVec3) -> Option<UVec3> {
         let mut cur = self.cursor.get();

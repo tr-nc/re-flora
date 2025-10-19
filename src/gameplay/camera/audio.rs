@@ -59,14 +59,7 @@ impl PlayerClipCaches {
         let prefix_path =
             "assets/sfx/Footsteps SFX - Undergrowth & Leaves/TomWinandySFX - FS_UndergrowthLeaves_";
         let clip_paths: Vec<String> = (0..sample_count)
-            .map(|i| {
-                format!(
-                    "{}{}_{}.wav",
-                    prefix_path,
-                    sample_name,
-                    format!("{:02}", i + 1)
-                )
-            })
+            .map(|i| format!("{}{}_{:02}.wav", prefix_path, sample_name, i + 1))
             .collect();
         let clip_cache = ClipCache::from_files(
             &clip_paths,
@@ -165,11 +158,7 @@ impl PlayerAudioController {
             &mut self.clip_caches.walk
         };
         let clip = cache.next();
-        let volume = if is_running {
-            self.calculate_speed_based_volume(speed, 0.6, 1.0)
-        } else {
-            self.calculate_speed_based_volume(speed, 0.6, 1.0)
-        };
+        let volume = self.calculate_speed_based_volume(speed, 0.6, 1.0);
         let paths = if is_running {
             &self.clip_caches.run_paths
         } else {

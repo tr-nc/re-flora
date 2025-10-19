@@ -1,5 +1,5 @@
-mod window;
+mod state;
 
-pub use window::WindowMode;
-pub use window::WindowState;
-pub use window::WindowStateDesc;
+pub use state::WindowMode;
+pub use state::WindowState;
+pub use state::WindowStateDesc;

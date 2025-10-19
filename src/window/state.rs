@@ -210,6 +210,6 @@ impl WindowState {
         if !locked {
             return CursorGrabMode::None;
         }
-        return CursorGrabMode::Confined;
+        CursorGrabMode::Confined
     }
 }

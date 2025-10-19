@@ -281,8 +281,7 @@ impl PlainBuilder {
                 resources: &PlainBuilderResources,
                 round_cones: &[RoundCone],
             ) -> Result<()> {
-                for i in 0..round_cones.len() {
-                    let round_cone = &round_cones[i];
+                for (i, round_cone) in round_cones.iter().enumerate() {
                     let data = StructMemberDataBuilder::from_buffer(&resources.round_cones)
                         .set_field(
                             "data.center_a",
@@ -312,9 +311,7 @@ impl PlainBuilder {
                 resources: &PlainBuilderResources,
                 bvh_nodes: &[BvhNode],
             ) -> Result<()> {
-                for i in 0..bvh_nodes.len() {
-                    let bvh_node = &bvh_nodes[i];
-
+                for (i, bvh_node) in bvh_nodes.iter().enumerate() {
                     let combined_offset: u32 = if bvh_node.is_leaf {
                         let primitive_idx = bvh_node.data_offset;
                         0x8000_0000 | primitive_idx

@@ -7,8 +7,8 @@ pub use image_view::*;
 mod sampler;
 pub use sampler::*;
 
-mod texture;
-pub use texture::*;
+mod texture_impl;
+pub use texture_impl::*;
 
 mod region;
 pub use region::*;

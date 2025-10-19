@@ -117,7 +117,7 @@ impl EguiRenderer {
     /// This is an expensive operation.
     pub fn set_render_pass(&mut self, render_pass: &RenderPass) {
         self.gui_ppl = GraphicsPipeline::new(
-            &self.vulkan_context.device(),
+            self.vulkan_context.device(),
             &self.egui_vert_sm,
             &self.egui_frag_sm,
             render_pass,
@@ -194,7 +194,7 @@ impl EguiRenderer {
                     .fill_with_raw_u8(
                         &self.vulkan_context.get_general_queue(),
                         self.vulkan_context.command_pool(),
-                        TextureRegion::from_image(&texture.get_image()),
+                        TextureRegion::from_image(texture.get_image()),
                         data.as_slice(),
                         0,
                         Some(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL),
@@ -217,6 +217,7 @@ impl EguiRenderer {
     }
 
     /// Record commands to render the [`egui::Ui`].
+    #[allow(clippy::too_many_arguments)]
     fn cmd_draw(
         gui_ppl: &GraphicsPipeline,
         device: &Device,
@@ -335,7 +336,7 @@ impl EguiRenderer {
                             WriteDescriptorSet::new_texture_write(
                                 0,
                                 vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                                &texture,
+                                texture,
                                 vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
                             ),
                         );
@@ -408,7 +409,7 @@ impl EguiRenderer {
             cmdbuf,
             render_area,
             self.pixels_per_point.unwrap(),
-            &self.clipped_primitives.as_ref().unwrap(),
+            self.clipped_primitives.as_ref().unwrap(),
         );
     }
 }

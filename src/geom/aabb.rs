@@ -69,7 +69,7 @@ impl Aabb3 {
             min = min.min(*point);
             max = max.max(*point);
         }
-        return Self::new(min, max);
+        Self::new(min, max)
     }
 
     /// Returns a new `Aabb3` that encloses both `self` and `other`.

@@ -7,6 +7,7 @@ use ash::{khr, vk};
 use crate::vkn::{Allocator, Buffer, VulkanContext};
 
 #[allow(dead_code)]
+#[allow(clippy::too_many_arguments)]
 pub fn build_or_update_blas(
     vulkan_ctx: &VulkanContext,
     allocator: Allocator,
@@ -69,7 +70,7 @@ pub fn build_or_update_blas(
 
     // build or update
     utils::build_or_update_acc(
-        &vulkan_ctx,
+        vulkan_ctx,
         allocator.clone(),
         scratch_size,
         geom,
@@ -85,6 +86,7 @@ pub fn build_or_update_blas(
 
     return new_blas;
 
+    #[allow(clippy::needless_return)]
     fn get_vertex_stride(vertices_buf: &Buffer) -> u64 {
         vertices_buf
             .get_layout()
@@ -132,7 +134,27 @@ pub fn build_tlas(
     instance_count: u32,
     geom_flags: vk::GeometryFlagsKHR,
 ) -> AccelStruct {
-    let geom = make_tlas_geom(&instances, geom_flags);
+    fn make_tlas_geom<'a>(
+        instances: &'a Buffer,
+        geom_flags: vk::GeometryFlagsKHR,
+    ) -> vk::AccelerationStructureGeometryKHR<'a> {
+        vk::AccelerationStructureGeometryKHR {
+            geometry_type: vk::GeometryTypeKHR::INSTANCES,
+            flags: geom_flags,
+            geometry: vk::AccelerationStructureGeometryDataKHR {
+                instances: vk::AccelerationStructureGeometryInstancesDataKHR {
+                    array_of_pointers: vk::FALSE,
+                    data: vk::DeviceOrHostAddressConstKHR {
+                        device_address: instances.device_address(),
+                    },
+                    ..Default::default()
+                },
+            },
+            ..Default::default()
+        }
+    }
+
+    let geom = make_tlas_geom(instances, geom_flags);
 
     // TODO: maybe reuse the scratch buffer / tlas handle later
     let (tlas_size, scratch_buf_size) = utils::query_properties(
@@ -147,14 +169,14 @@ pub fn build_tlas(
 
     let dst_tlas = utils::create_acc(
         vulkan_ctx.device(),
-        &allocator,
+        allocator,
         acc_device.clone(),
         tlas_size,
         vk::AccelerationStructureTypeKHR::TOP_LEVEL,
     );
 
     utils::build_or_update_acc(
-        &vulkan_ctx,
+        vulkan_ctx,
         allocator.clone(),
         scratch_buf_size,
         geom,
@@ -168,25 +190,5 @@ pub fn build_tlas(
         1, // one instance
     );
 
-    return dst_tlas;
-
-    fn make_tlas_geom<'a>(
-        instances: &'a Buffer,
-        geom_flags: vk::GeometryFlagsKHR,
-    ) -> vk::AccelerationStructureGeometryKHR<'a> {
-        return vk::AccelerationStructureGeometryKHR {
-            geometry_type: vk::GeometryTypeKHR::INSTANCES,
-            flags: geom_flags,
-            geometry: vk::AccelerationStructureGeometryDataKHR {
-                instances: vk::AccelerationStructureGeometryInstancesDataKHR {
-                    array_of_pointers: vk::FALSE,
-                    data: vk::DeviceOrHostAddressConstKHR {
-                        device_address: instances.device_address(),
-                    },
-                    ..Default::default()
-                },
-            },
-            ..Default::default()
-        };
-    }
+    dst_tlas
 }

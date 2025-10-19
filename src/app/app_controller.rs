@@ -1,4 +1,4 @@
-use super::app::App;
+use super::core::App;
 use winit::{
     application::ApplicationHandler, event::WindowEvent, event_loop::ActiveEventLoop,
     window::WindowId,

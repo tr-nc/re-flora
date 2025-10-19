@@ -17,7 +17,7 @@ impl Framebuffer {
     ) -> Result<Self> {
         let framebuffer_info = vk::FramebufferCreateInfo::default()
             .render_pass(render_pass.as_raw())
-            .attachments(&attachments)
+            .attachments(attachments)
             .width(extent.width)
             .height(extent.height)
             .layers(1);
@@ -28,11 +28,11 @@ impl Framebuffer {
                 .create_framebuffer(&framebuffer_info, None)
                 .map_err(|e| anyhow::anyhow!("Failed to create framebuffer: {}", e))?;
 
-            return Ok(Self {
+            Ok(Self {
                 vulkan_ctx,
                 framebuffer,
                 extent,
-            });
+            })
         }
     }
 

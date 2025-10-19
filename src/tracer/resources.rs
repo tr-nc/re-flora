@@ -213,6 +213,7 @@ pub struct TracerResources {
 }
 
 impl TracerResources {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         vulkan_ctx: &VulkanContext,
         allocator: Allocator,
@@ -414,7 +415,7 @@ impl TracerResources {
         );
 
         let star_noise_tex =
-            Self::create_star_noise_tex(&vulkan_ctx, allocator.clone(), Extent2D::new(128, 128));
+            Self::create_star_noise_tex(vulkan_ctx, allocator.clone(), Extent2D::new(128, 128));
 
         let extent_dependent_resources = ExtentDependentResources::new(
             device.clone(),
@@ -424,37 +425,37 @@ impl TracerResources {
         );
 
         let scalar_bn = create_bn(
-            &vulkan_ctx,
+            vulkan_ctx,
             allocator.clone(),
             vk::Format::R8_UNORM,
             "stbn/scalar_2d_1d_1d/stbn_scalar_2Dx1Dx1D_128x128x64x1_",
         );
         let unit_vec2_bn = create_bn(
-            &vulkan_ctx,
+            vulkan_ctx,
             allocator.clone(),
             vk::Format::R8G8_UNORM,
             "stbn/unitvec2_2d_1d/stbn_unitvec2_2Dx1D_128x128x64_",
         );
         let unit_vec3_bn = create_bn(
-            &vulkan_ctx,
+            vulkan_ctx,
             allocator.clone(),
             vk::Format::R8G8B8A8_UNORM,
             "stbn/unitvec3_2d_1d/stbn_unitvec3_2Dx1D_128x128x64_",
         );
         let weighted_cosine_bn = create_bn(
-            &vulkan_ctx,
+            vulkan_ctx,
             allocator.clone(),
             vk::Format::R8G8B8A8_UNORM,
             "stbn/unitvec3_cosine_2d_1d/stbn_unitvec3_cosine_2Dx1D_128x128x64_",
         );
         let fast_unit_vec3_bn = create_bn(
-            &vulkan_ctx,
+            vulkan_ctx,
             allocator.clone(),
             vk::Format::R8G8B8A8_UNORM,
             "fast/unit_vec3/out_",
         );
         let fast_weighted_cosine_bn = create_bn(
-            &vulkan_ctx,
+            vulkan_ctx,
             allocator.clone(),
             vk::Format::R8G8B8A8_UNORM,
             "fast/weighted_cosine/out_",
@@ -618,8 +619,7 @@ impl TracerResources {
             ..Default::default()
         };
         let sam_desc = Default::default();
-        let tex = Texture::new(device, allocator, &tex_desc, &sam_desc);
-        tex
+        Texture::new(device, allocator, &tex_desc, &sam_desc)
     }
 
     fn create_shadow_map_tex_for_vsm_pingpong(
@@ -636,7 +636,6 @@ impl TracerResources {
             ..Default::default()
         };
         let sam_desc = Default::default();
-        let tex = Texture::new(device, allocator, &tex_desc, &sam_desc);
-        tex
+        Texture::new(device, allocator, &tex_desc, &sam_desc)
     }
 }

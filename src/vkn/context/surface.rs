@@ -50,11 +50,11 @@ pub fn create_surface(
     instance: &ash::Instance,
     window: &winit::window::Window,
 ) -> (vk::SurfaceKHR, surface::Instance) {
-    let surface = surface::Instance::new(&entry, &instance);
+    let surface = surface::Instance::new(entry, instance);
     let surface_khr = unsafe {
         ash_window::create_surface(
-            &entry,
-            &instance,
+            entry,
+            instance,
             window.display_handle().unwrap().as_raw(),
             window.window_handle().unwrap().as_raw(),
             None,

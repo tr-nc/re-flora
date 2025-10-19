@@ -92,6 +92,7 @@ impl SpatialSoundManager {
         let listener_pose = Pose::new(PetalVec3::new(0.0, 0.0, 0.0), PetalQuat::IDENTITY);
         world_arc.set_listener_pose(listener_pose);
 
+        #[allow(clippy::arc_with_non_send_sync)]
         Ok(Self {
             world: world_arc,
             engine: Arc::new(Mutex::new(engine)),

@@ -237,7 +237,7 @@ impl RenderPass {
                 offset: vk::Offset2D { x: 0, y: 0 },
                 extent: framebuffer.get_extent().as_raw(),
             })
-            .clear_values(&clear_values);
+            .clear_values(clear_values);
 
         unsafe {
             self.0.device.cmd_begin_render_pass(

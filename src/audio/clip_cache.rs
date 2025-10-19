@@ -30,7 +30,7 @@ impl ClipCache {
             .map(|path| {
                 Ok(SoundClip {
                     data: Arc::new(
-                        StaticSoundData::from_file(path.as_ref())?.with_settings(settings.clone()),
+                        StaticSoundData::from_file(path.as_ref())?.with_settings(settings),
                     ),
                 })
             })

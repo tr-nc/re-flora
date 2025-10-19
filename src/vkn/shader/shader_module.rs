@@ -86,7 +86,7 @@ impl ShaderModule {
         file_path: &str,
         entry_point_name: &str,
     ) -> Result<Self, String> {
-        let module_name = file_path.split('/').last().unwrap().to_string();
+        let module_name = file_path.split('/').next_back().unwrap().to_string();
         let full_path = full_path_from_relative(file_path);
         let code = read_code_from_path(&full_path)?;
         let shader_kind = predict_shader_kind(file_path).map_err(|e| e.to_string())?;
@@ -156,8 +156,7 @@ impl ShaderModule {
             return Err(anyhow::anyhow!(
                 "Shader module is not a vertex shader, stage: {:?}",
                 self.get_stage()
-            )
-            .into());
+            ));
         }
 
         let mut input_vars = self
@@ -174,7 +173,6 @@ impl ShaderModule {
         // assuming max 2 bindings for simplicity.
         let mut offsets = [0u32; 2];
 
-        let vert_rate_stride;
         let mut inst_rate_stride = None;
 
         let mut binding_index = 0;
@@ -216,7 +214,7 @@ impl ShaderModule {
         }
 
         // final strides are just the total accumulated offsets for each binding
-        vert_rate_stride = offsets[0];
+        let vert_rate_stride = offsets[0];
         if instance_rate_starting_location.is_some() {
             inst_rate_stride = Some(offsets[1]);
         }
@@ -361,6 +359,7 @@ impl ShaderModule {
 
         let buffer_layouts = extract_buffer_layouts(&reflect_sm).map_err(|e| e.to_string())?;
 
+        #[allow(clippy::arc_with_non_send_sync)]
         Ok(Self(Arc::new(ShaderModuleInner {
             device: device.clone(),
             module_name: module_name.to_string(),
@@ -447,7 +446,7 @@ impl ShaderModule {
         for refl_ds in refl_descriptor_sets {
             bindings.insert(refl_ds.0, self.get_descriptor_set_bindings(&refl_ds.1));
         }
-        return bindings;
+        bindings
     }
 
     pub fn get_descriptor_set_layouts(&self) -> HashMap<u32, DescriptorSetLayout> {
@@ -511,7 +510,7 @@ fn read_code_from_path(full_shader_path: &str) -> Result<String, String> {
 
 /// A simple extension-based guess of the shader kind (vert, frag, comp).
 fn predict_shader_kind(file_path: &str) -> Result<shaderc::ShaderKind, String> {
-    match file_path.split('.').last() {
+    match file_path.split('.').next_back() {
         Some("vert") => Ok(shaderc::ShaderKind::Vertex),
         Some("frag") => Ok(shaderc::ShaderKind::Fragment),
         Some("comp") => Ok(shaderc::ShaderKind::Compute),
@@ -592,7 +591,7 @@ fn extract_buffer_layouts(
         reflect_members: &[spirv_reflect::types::ReflectBlockVariable],
     ) -> HashMap<String, MemberLayout> {
         let mut result = HashMap::new();
-        for (_, reflect_member) in reflect_members.iter().enumerate() {
+        for reflect_member in reflect_members.iter() {
             let member_name = reflect_member.name.clone();
             let type_description = reflect_member.type_description.as_ref().unwrap();
             let type_flags = &type_description.type_flags;
@@ -726,7 +725,7 @@ fn extract_buffer_layouts(
                 }
             }
 
-            return Err("Unsupported plain member type".to_string());
+            Err("Unsupported plain member type".to_string())
         }
     }
 }

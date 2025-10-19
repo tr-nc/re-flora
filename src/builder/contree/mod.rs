@@ -24,7 +24,7 @@ use glam::UVec3;
 use std::collections::HashMap;
 
 const SIZE_OF_NODE_ELEMENT: u64 = 3 * std::mem::size_of::<u32>() as u64;
-const SIZE_OF_LEAF_ELEMENT: u64 = 1 * std::mem::size_of::<u32>() as u64;
+const SIZE_OF_LEAF_ELEMENT: u64 = std::mem::size_of::<u32>() as u64;
 
 pub struct ContreeBuilder {
     vulkan_ctx: VulkanContext,
@@ -220,6 +220,7 @@ impl ContreeBuilder {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn record_cmdbuf(
         vulkan_ctx: &VulkanContext,
         resources: &ContreeBuilderResources,

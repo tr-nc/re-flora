@@ -107,6 +107,6 @@ pub fn execute_one_time_command<R, F: FnOnce(&CommandBuffer) -> R>(
     command_buffer.end();
 
     command_buffer.submit(queue, None);
-    device.wait_queue_idle(&queue);
+    device.wait_queue_idle(queue);
     result
 }

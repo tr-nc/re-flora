@@ -190,10 +190,8 @@ impl TreeDesc {
             )
             .changed();
 
-        if changed {
-            if self.subdivision_count_min > self.subdivision_count_max {
-                self.subdivision_count_max = self.subdivision_count_min;
-            }
+        if changed && self.subdivision_count_min > self.subdivision_count_max {
+            self.subdivision_count_max = self.subdivision_count_min;
         }
 
         ui.separator();
@@ -382,6 +380,7 @@ fn subdivide_trunk_segment(
     subdivided_trunks
 }
 
+#[allow(clippy::too_many_arguments)]
 fn recurse(
     pos: Vec3,
     dir: Vec3,

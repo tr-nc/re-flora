@@ -66,10 +66,7 @@ impl ImageView {
 
         let image_view = unsafe { device.create_image_view(&create_info, None).unwrap() };
 
-        Self(Arc::new(ImageViewInner {
-            device: device,
-            image_view,
-        }))
+        Self(Arc::new(ImageViewInner { device, image_view }))
     }
 
     pub fn as_raw(&self) -> vk::ImageView {

@@ -131,6 +131,7 @@ impl Drop for Tracer {
 }
 
 impl Tracer {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         vulkan_ctx: VulkanContext,
         allocator: Allocator,
@@ -158,7 +159,7 @@ impl Tracer {
 
         let pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
 
-        let shader_modules = PipelineBuilder::create_shader_modules(&vulkan_ctx, &shader_compiler)?;
+        let shader_modules = PipelineBuilder::create_shader_modules(&vulkan_ctx, shader_compiler)?;
 
         let resources = TracerResources::new(
             &vulkan_ctx,
@@ -224,7 +225,7 @@ impl Tracer {
             vec![framebuffer_depth_only],
         );
 
-        return Ok(Self {
+        Ok(Self {
             vulkan_ctx,
             desc,
             chunk_bound,
@@ -242,7 +243,7 @@ impl Tracer {
             pool,
             a_trous_iteration_count: 3,
             spatial_sound_manager: None,
-        });
+        })
     }
 
     /// A framebuffer that contains the color and depth textures for the main render pass
@@ -264,7 +265,7 @@ impl Tracer {
 
         Framebuffer::new(
             vulkan_ctx.clone(),
-            &render_pass,
+            render_pass,
             &[target_view, depth_image_view],
             target_image_extent,
         )
@@ -286,7 +287,7 @@ impl Tracer {
             .unwrap();
         Framebuffer::new(
             vulkan_ctx.clone(),
-            &render_pass,
+            render_pass,
             &[shadow_image_view],
             shadow_image_extent,
         )
@@ -386,17 +387,17 @@ impl Tracer {
     // create a lower resolution texture for rendering, for better performance,
     // less memory usage, and stylized rendering
     fn get_render_extent(screen_extent: Extent2D, scaling_factor: f32) -> Extent2D {
-        let extent = Extent2D::new(
+        Extent2D::new(
             (screen_extent.width as f32 * scaling_factor) as u32,
             (screen_extent.height as f32 * scaling_factor) as u32,
-        );
-        extent
+        )
     }
 
     pub fn get_screen_output_tex(&self) -> &Texture {
         &self.resources.extent_dependent_resources.screen_output_tex
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn update_buffers(
         &mut self,
         time_info: &TimeInfo,
@@ -591,7 +592,7 @@ impl Tracer {
         let mut lod1_instances = Vec::new();
         let camera_pos = self.camera.position();
 
-        for (_tree_id, tree_instance) in &surface_resources.instances.leaves_instances {
+        for tree_instance in surface_resources.instances.leaves_instances.values() {
             // perform frustum culling
             if !tree_instance
                 .aabb
@@ -617,6 +618,7 @@ impl Tracer {
         result
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn record_trace(
         &mut self,
         cmdbuf: &CommandBuffer,
@@ -746,7 +748,7 @@ impl Tracer {
         self.record_god_ray_pass(cmdbuf);
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
-        self.record_denoiser_pass(&cmdbuf, self.a_trous_iteration_count)?;
+        self.record_denoiser_pass(cmdbuf, self.a_trous_iteration_count)?;
 
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         self.record_composition_pass(cmdbuf);
@@ -846,6 +848,7 @@ impl Tracer {
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn record_flora_pass(
         &self,
         cmdbuf: &CommandBuffer,
@@ -1153,7 +1156,7 @@ impl Tracer {
         }
 
         // loop through all tree leaves instances
-        for (_tree_id, tree_instance) in &surface_resources.instances.leaves_instances {
+        for tree_instance in surface_resources.instances.leaves_instances.values() {
             if tree_instance.resources.instances_len == 0 {
                 continue;
             }

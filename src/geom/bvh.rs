@@ -49,7 +49,7 @@ pub fn build_bvh(aabbs: &[Aabb3], leaves_data: &[u32]) -> Result<Vec<BvhNode>, S
     let len = items.len();
     build_bvh_recursive_in_place(&mut items, &mut nodes, 0, 0, len);
 
-    return Ok(nodes);
+    Ok(nodes)
 }
 
 /* ------------------------------------------------------------------------- */
@@ -70,8 +70,8 @@ fn build_bvh_recursive_in_place(
     /* ------------------------------------------------- 1) union AABB ----- */
 
     let mut unioned = aabb_idx_pair[start].0.clone();
-    for i in (start + 1)..end {
-        unioned = unioned.union(&aabb_idx_pair[i].0);
+    for (_, item) in aabb_idx_pair.iter().enumerate().take(end).skip(start + 1) {
+        unioned = unioned.union(&item.0);
     }
 
     /* ------------------------------------------------- leaf -------------- */

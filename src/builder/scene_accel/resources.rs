@@ -38,9 +38,9 @@ impl SceneAccelBuilderResources {
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
-        return Self {
+        Self {
             scene_tex: Resource::new(scene_tex),
             scene_tex_update_info: Resource::new(scene_tex_update_info),
-        };
+        }
     }
 }

@@ -24,7 +24,7 @@ impl<'a> PlainMemberDataBuilder<'a> {
         }
 
         self.data = Some(plain_type_with_data);
-        return Ok(());
+        Ok(())
     }
 
     pub fn get_data_u8(&self) -> Option<Vec<u8>> {

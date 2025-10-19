@@ -64,10 +64,10 @@ pub fn auto_update_descriptor_sets(
             let mut found_texture_containers = Vec::new();
 
             for (i, container) in resource_containers.iter().enumerate() {
-                if let Some(_) = container.get_buffer(&binding.name) {
+                if container.get_buffer(&binding.name).is_some() {
                     found_buffer_containers.push(i);
                 }
-                if let Some(_) = container.get_texture(&binding.name) {
+                if container.get_texture(&binding.name).is_some() {
                     found_texture_containers.push(i);
                 }
             }

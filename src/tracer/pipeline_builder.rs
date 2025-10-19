@@ -18,7 +18,7 @@ impl PipelineBuilder {
     ) -> Result<ShaderModules> {
         let tracer_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
-            &shader_compiler,
+            shader_compiler,
             "shader/tracer/tracer.comp",
             "main",
         )
@@ -26,7 +26,7 @@ impl PipelineBuilder {
 
         let tracer_shadow_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
-            &shader_compiler,
+            shader_compiler,
             "shader/tracer/tracer_shadow.comp",
             "main",
         )
@@ -34,7 +34,7 @@ impl PipelineBuilder {
 
         let vsm_creation_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
-            &shader_compiler,
+            shader_compiler,
             "shader/tracer/vsm_creation.comp",
             "main",
         )
@@ -42,7 +42,7 @@ impl PipelineBuilder {
 
         let vsm_blur_h_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
-            &shader_compiler,
+            shader_compiler,
             "shader/tracer/vsm_blur_h.comp",
             "main",
         )
@@ -50,7 +50,7 @@ impl PipelineBuilder {
 
         let vsm_blur_v_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
-            &shader_compiler,
+            shader_compiler,
             "shader/tracer/vsm_blur_v.comp",
             "main",
         )
@@ -58,7 +58,7 @@ impl PipelineBuilder {
 
         let god_ray_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
-            &shader_compiler,
+            shader_compiler,
             "shader/tracer/god_ray.comp",
             "main",
         )
@@ -66,7 +66,7 @@ impl PipelineBuilder {
 
         let temporal_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
-            &shader_compiler,
+            shader_compiler,
             "shader/denoiser/temporal.comp",
             "main",
         )
@@ -74,7 +74,7 @@ impl PipelineBuilder {
 
         let spatial_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
-            &shader_compiler,
+            shader_compiler,
             "shader/denoiser/spatial.comp",
             "main",
         )
@@ -82,7 +82,7 @@ impl PipelineBuilder {
 
         let composition_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
-            &shader_compiler,
+            shader_compiler,
             "shader/tracer/composition.comp",
             "main",
         )
@@ -90,7 +90,7 @@ impl PipelineBuilder {
 
         let taa_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
-            &shader_compiler,
+            shader_compiler,
             "shader/tracer/taa.comp",
             "main",
         )
@@ -98,7 +98,7 @@ impl PipelineBuilder {
 
         let post_processing_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
-            &shader_compiler,
+            shader_compiler,
             "shader/tracer/post_processing.comp",
             "main",
         )
@@ -106,7 +106,7 @@ impl PipelineBuilder {
 
         let player_collider_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
-            &shader_compiler,
+            shader_compiler,
             "shader/tracer/player_collider.comp",
             "main",
         )
@@ -114,7 +114,7 @@ impl PipelineBuilder {
 
         let terrain_query_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
-            &shader_compiler,
+            shader_compiler,
             "shader/tracer/terrain_query.comp",
             "main",
         )

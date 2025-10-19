@@ -23,6 +23,7 @@ pub struct ContreeBuilderResources {
 }
 
 impl ContreeBuilderResources {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         device: Device,
         allocator: Allocator,
@@ -34,6 +35,11 @@ impl ContreeBuilderResources {
         tree_write_sm: &ShaderModule,
         last_buffer_update_sm: &ShaderModule,
     ) -> Self {
+        fn log_4(n: u32) -> u32 {
+            // trailing_zeros gives 2*k, so divide by 2:
+            n.trailing_zeros() / 2
+        }
+
         let contree_build_info_layout = contree_buffer_setup_sm
             .get_buffer_layout("U_ContreeBuildInfo")
             .unwrap();
@@ -85,7 +91,7 @@ impl ContreeBuilderResources {
         // this limit is applied to both the sparse nodes and dense nodes
         let nodes_len_max: usize = {
             // 64.pow(max_level) may overflow u32 for large max_level, so do this in usize
-            let total = 64usize.pow((max_level - 1) as u32);
+            let total = 64usize.pow(max_level - 1);
             (total - 1) / 63
         };
 
@@ -152,7 +158,7 @@ impl ContreeBuilderResources {
             gpu_allocator::MemoryLocation::GpuToCpu,
         );
 
-        return Self {
+        Self {
             contree_build_info: Resource::new(contree_build_info),
             contree_build_state: Resource::new(contree_build_state),
             level_dispatch_indirect: Resource::new(level_dispatch_indirect),
@@ -164,11 +170,6 @@ impl ContreeBuilderResources {
             contree_leaf_data: Resource::new(leaf_data),
             contree_node_data: Resource::new(node_data),
             contree_build_result: Resource::new(contree_build_result),
-        };
-
-        fn log_4(n: u32) -> u32 {
-            // trailing_zeros gives 2*k, so divide by 2:
-            n.trailing_zeros() / 2
         }
     }
 }

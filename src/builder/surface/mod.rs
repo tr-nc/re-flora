@@ -166,7 +166,7 @@ impl SurfaceBuilder {
             atlas_read_dim: UVec3,
             is_crossing_boundary: bool,
         ) -> Result<()> {
-            let data = StructMemberDataBuilder::from_buffer(&make_surface_info)
+            let data = StructMemberDataBuilder::from_buffer(make_surface_info)
                 .set_field(
                     "atlas_read_offset",
                     PlainMemberTypeWithData::UVec3(atlas_read_offset.to_array()),
@@ -185,7 +185,7 @@ impl SurfaceBuilder {
         }
 
         fn cleanup_make_surface_result(make_surface_result: &Buffer) -> Result<()> {
-            let data = StructMemberDataBuilder::from_buffer(&make_surface_result)
+            let data = StructMemberDataBuilder::from_buffer(make_surface_result)
                 .set_field("active_voxel_len", PlainMemberTypeWithData::UInt(0))
                 .set_field("grass_instance_len", PlainMemberTypeWithData::UInt(0))
                 .set_field("lavender_instance_len", PlainMemberTypeWithData::UInt(0))
