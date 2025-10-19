@@ -17,7 +17,8 @@
       "Bash(cargo doc:*)",
       "Bash(cargo tree:*)",
       "Read(//c/Users/danny/Desktop/projects/petalsonic/**)",
-      "Bash(cargo clippy:*)"
+      "Bash(cargo clippy:*)",
+      "Bash(awk:*)"
     ],
     "deny": []
   }
