@@ -121,6 +121,10 @@ impl PlayerAudioController {
         self.spatial_sound_manager = Some(spatial_sound_manager);
     }
 
+    pub fn set_footstep_volume(&mut self, volume: f32) {
+        self.volume_multiplier = volume.clamp(0.0, 2.0);
+    }
+
     pub fn play_jumping(&mut self, speed: f32, _position: Vec3) {
         let clip = self.clip_caches.jump.next();
         let volume = self.calculate_speed_based_volume(speed, 0.5, 2.0);

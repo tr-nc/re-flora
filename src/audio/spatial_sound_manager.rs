@@ -157,10 +157,10 @@ impl SpatialSoundManager {
         // Load audio data
         let audio_data = PetalSonicAudioData::from_path(path)?;
 
-        // Register in PetalSonic world with non-spatial configuration
+        // Register in PetalSonic world with non-spatial configuration and volume
         let source_id = self
             .world
-            .register_audio(audio_data, SourceConfig::non_spatial())?;
+            .register_audio(audio_data, SourceConfig::non_spatial_with_volume(volume))?;
 
         // Start playback with one-shot mode
         self.world.play(source_id, LoopMode::Once)?;

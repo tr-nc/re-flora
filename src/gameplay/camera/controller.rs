@@ -83,6 +83,7 @@ impl Camera {
         };
 
         camera.vectors.update(camera.yaw, camera.pitch);
+        camera.player_audio_controller.set_footstep_volume(0.01);
         Ok(camera)
     }
 
