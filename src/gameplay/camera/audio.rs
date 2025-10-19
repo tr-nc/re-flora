@@ -106,17 +106,13 @@ impl PlayerAudioController {
         })
     }
 
-    fn play_spatial_footstep(&self, clip_path: &str, volume: f32, position: Vec3) -> Result<()> {
+    fn play_non_spatial_footstep(&self, clip_path: &str, volume: f32) -> Result<()> {
         if let Some(ref spatial_manager) = self.spatial_sound_manager {
-            spatial_manager.add_single_play_source(
-                clip_path,
-                volume * self.volume_multiplier,
-                position,
-            )?;
+            spatial_manager.add_non_spatial_source(clip_path, volume * self.volume_multiplier)?;
         } else {
             // Fallback to non-spatial audio if spatial manager is not available
             // This should not happen in normal operation but provides safety
-            log::warn!("Spatial sound manager not available, using fallback non-spatial audio");
+            log::warn!("Spatial sound manager not available, using fallback audio engine");
         }
         Ok(())
     }
@@ -125,12 +121,12 @@ impl PlayerAudioController {
         self.spatial_sound_manager = Some(spatial_sound_manager);
     }
 
-    pub fn play_jumping(&mut self, speed: f32, position: Vec3) {
+    pub fn play_jumping(&mut self, speed: f32, _position: Vec3) {
         let clip = self.clip_caches.jump.next();
         let volume = self.calculate_speed_based_volume(speed, 0.5, 2.0);
         let path = PlayerClipCaches::get_random_path(&self.clip_caches.jump_paths);
-        if let Err(e) = self.play_spatial_footstep(path, volume, position) {
-            log::error!("Failed to play spatial jump sound: {}", e);
+        if let Err(e) = self.play_non_spatial_footstep(path, volume) {
+            log::error!("Failed to play non-spatial jump sound: {}", e);
             // Fallback to regular audio
             self.audio_engine
                 .play_with_volume(&clip, volume * self.volume_multiplier)
@@ -138,12 +134,12 @@ impl PlayerAudioController {
         }
     }
 
-    pub fn play_landing(&mut self, speed: f32, position: Vec3) {
+    pub fn play_landing(&mut self, speed: f32, _position: Vec3) {
         let clip = self.clip_caches.land.next();
         let volume = self.calculate_speed_based_volume(speed, 0.7, 1.5);
         let path = PlayerClipCaches::get_random_path(&self.clip_caches.land_paths);
-        if let Err(e) = self.play_spatial_footstep(path, volume, position) {
-            log::error!("Failed to play spatial landing sound: {}", e);
+        if let Err(e) = self.play_non_spatial_footstep(path, volume) {
+            log::error!("Failed to play non-spatial landing sound: {}", e);
             // Fallback to regular audio
             self.audio_engine
                 .play_with_volume(&clip, volume * self.volume_multiplier)
@@ -151,7 +147,7 @@ impl PlayerAudioController {
         }
     }
 
-    pub fn play_step(&mut self, is_running: bool, speed: f32, position: Vec3) {
+    pub fn play_step(&mut self, is_running: bool, speed: f32, _position: Vec3) {
         let cache = if is_running {
             &mut self.clip_caches.run
         } else {
@@ -165,8 +161,8 @@ impl PlayerAudioController {
             &self.clip_caches.walk_paths
         };
         let path = PlayerClipCaches::get_random_path(paths);
-        if let Err(e) = self.play_spatial_footstep(path, volume, position) {
-            log::error!("Failed to play spatial step sound: {}", e);
+        if let Err(e) = self.play_non_spatial_footstep(path, volume) {
+            log::error!("Failed to play non-spatial step sound: {}", e);
             // Fallback to regular audio
             self.audio_engine
                 .play_with_volume(&clip, volume * self.volume_multiplier)
@@ -194,7 +190,7 @@ impl PlayerAudioController {
         is_running: bool,
         speed: f32,
         frame_delta_time: f32,
-        position: Vec3,
+        _position: Vec3,
     ) {
         let interval = if is_running {
             self.clip_caches.run_interval
@@ -226,8 +222,8 @@ impl PlayerAudioController {
                 &self.clip_caches.walk_paths
             };
             let path = PlayerClipCaches::get_random_path(paths);
-            if let Err(e) = self.play_spatial_footstep(path, volume, position) {
-                log::error!("Failed to play spatial walk sound: {}", e);
+            if let Err(e) = self.play_non_spatial_footstep(path, volume) {
+                log::error!("Failed to play non-spatial walk sound: {}", e);
                 // Fallback to regular audio
                 self.audio_engine
                     .play_with_volume(&clip, volume * self.volume_multiplier)

@@ -142,6 +142,7 @@ impl SpatialSoundManager {
         )
     }
 
+    #[allow(dead_code)]
     pub fn add_single_play_source(&self, path: &str, volume: f32, position: Vec3) -> Result<Uuid> {
         self.add_source(path, volume, position, LoopMode::Once)
     }
@@ -149,6 +150,29 @@ impl SpatialSoundManager {
     #[allow(dead_code)]
     pub fn add_loop_source(&self, path: &str, volume: f32, position: Vec3) -> Result<Uuid> {
         self.add_source(path, volume, position, LoopMode::Infinite)
+    }
+
+    /// Add a non-spatial audio source (e.g., for UI sounds or player footsteps)
+    pub fn add_non_spatial_source(&self, path: &str, volume: f32) -> Result<Uuid> {
+        // Load audio data
+        let audio_data = PetalSonicAudioData::from_path(path)?;
+
+        // Register in PetalSonic world with non-spatial configuration
+        let source_id = self
+            .world
+            .register_audio(audio_data, SourceConfig::non_spatial())?;
+
+        // Start playback with one-shot mode
+        self.world.play(source_id, LoopMode::Once)?;
+
+        // Generate UUID and map to SourceId with metadata
+        let uuid = Uuid::new_v4();
+        self.uuid_to_source
+            .lock()
+            .unwrap()
+            .insert(uuid, SourceInfo { source_id, volume });
+
+        Ok(uuid)
     }
 
     pub fn update_player_pos(
