@@ -112,12 +112,15 @@ impl SpatialSoundManager {
         let audio_data = PetalSonicAudioData::from_path(path)?;
 
         // Convert glam::Vec3 to PetalVec3 for PetalSonic API
-        let petal_pos = PetalVec3::new(position.x, position.y, position.z);
+        let petal_pose = Pose::new(
+            PetalVec3::new(position.x, position.y, position.z),
+            PetalQuat::IDENTITY,
+        );
 
         // Register in PetalSonic world with spatial configuration
         let source_id = self.world.register_audio(
             audio_data,
-            SourceConfig::spatial_with_volume(petal_pos, volume),
+            SourceConfig::spatial_with_volume(petal_pose, volume),
         )?;
 
         // Start playback
@@ -224,12 +227,15 @@ impl SpatialSoundManager {
 
         if let Some(source_info) = uuid_map.get(&source_uuid) {
             // Convert position to PetalVec3
-            let petal_pos = PetalVec3::new(target_pos.x, target_pos.y, target_pos.z);
+            let petal_pose = Pose::new(
+                PetalVec3::new(target_pos.x, target_pos.y, target_pos.z),
+                PetalQuat::IDENTITY,
+            );
 
             // Update the source configuration with new position, preserving volume
             self.world.update_source_config(
                 source_info.source_id,
-                SourceConfig::spatial_with_volume(petal_pos, source_info.volume),
+                SourceConfig::spatial_with_volume(petal_pose, source_info.volume),
             )?;
 
             log::debug!(
