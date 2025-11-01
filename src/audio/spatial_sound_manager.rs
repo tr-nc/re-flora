@@ -234,12 +234,6 @@ impl SpatialSoundManager {
                 source_info.source_id,
                 SourceConfig::spatial_with_volume(petal_pose, source_info.volume),
             )?;
-
-            log::debug!(
-                "Updated source {:?} position to {:?}",
-                source_uuid,
-                target_pos
-            );
         }
 
         Ok(())
