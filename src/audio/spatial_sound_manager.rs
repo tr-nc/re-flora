@@ -200,9 +200,15 @@ impl SpatialSoundManager {
         listener_state.front = camera_vectors.front;
         listener_state.right = camera_vectors.right;
 
-        // Convert camera vectors to quaternion rotation
-        let forward_glam: glam::Vec3 = camera_vectors.front;
-        let rotation_glam = glam::Quat::from_rotation_arc(glam::Vec3::NEG_Z, forward_glam);
+        // Convert camera vectors to quaternion rotation using the full camera basis
+        // Build a rotation matrix from the camera's right, up, and front vectors
+        // glam uses right-handed coordinates where +X=right, +Y=up, +Z=backward (so -Z=forward)
+        let rotation_matrix = glam::Mat3::from_cols(
+            camera_vectors.right,
+            camera_vectors.up,
+            -camera_vectors.front, // Negate because glam's +Z points backward
+        );
+        let rotation_glam = glam::Quat::from_mat3(&rotation_matrix);
 
         // Convert to PetalQuat
         let rotation = PetalQuat::from_xyzw(
