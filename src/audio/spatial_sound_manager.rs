@@ -54,16 +54,7 @@ impl Default for ListenerState {
 }
 
 impl SpatialSoundManager {
-    pub fn new(ring_buffer_size: usize, frame_window_size: usize) -> Result<Self> {
-        Self::with_distance_scaler(ring_buffer_size, frame_window_size, 10.0)
-    }
-
-    pub fn with_distance_scaler(
-        _ring_buffer_size: usize,
-        frame_window_size: usize,
-        _distance_scaler: f32,
-    ) -> Result<Self> {
-        // Note: ring_buffer_size and distance_scaler are handled internally by PetalSonic
+    pub fn new(frame_window_size: usize) -> Result<Self> {
         let sample_rate = 48000;
 
         // Get HRTF path - use the same path structure as before

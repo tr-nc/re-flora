@@ -823,7 +823,7 @@ impl App {
         _audio_engine: &mut AudioEngine,
         tree_pos: Vec3,
     ) -> Result<(SpatialSoundManager, uuid::Uuid)> {
-        let spatial_sound_manager = SpatialSoundManager::new(10240, 1024)?;
+        let spatial_sound_manager = SpatialSoundManager::new(1024)?;
 
         // add tree gust source at the tree position
         let tree_source_id = spatial_sound_manager.add_tree_gust_source(tree_pos / 256.0)?;
