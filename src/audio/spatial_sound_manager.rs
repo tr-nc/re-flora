@@ -281,6 +281,3 @@ impl Clone for SpatialSoundManager {
         }
     }
 }
-
-#[test]
-fn testing() {}
