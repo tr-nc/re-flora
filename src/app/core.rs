@@ -648,7 +648,7 @@ impl App {
 
         if let Some(ref spatial_sound_manager) = self.spatial_sound_manager {
             let tree_pos = adjusted_tree_pos / 256.0;
-            match spatial_sound_manager.add_tree_gust_source(tree_pos) {
+            match spatial_sound_manager.add_tree_gust_source(tree_pos, true) {
                 Ok(sound_source_id) => {
                     self.procedural_tree_sound_ids.push(sound_source_id);
                     log::debug!(
@@ -826,7 +826,7 @@ impl App {
         let spatial_sound_manager = SpatialSoundManager::new(1024)?;
 
         // add tree gust source at the tree position
-        let tree_source_id = spatial_sound_manager.add_tree_gust_source(tree_pos / 256.0)?;
+        let tree_source_id = spatial_sound_manager.add_tree_gust_source(tree_pos / 256.0, false)?;
 
         // PetalSonic manages its own playback - no need to play through Kira
 

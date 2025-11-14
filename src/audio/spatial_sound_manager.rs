@@ -10,6 +10,7 @@ use petalsonic::{
     world::PetalSonicWorld,
     SourceConfig, SourceId,
 };
+use rand::Rng;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
@@ -127,13 +128,26 @@ impl SpatialSoundManager {
         Ok(uuid)
     }
 
-    pub fn add_tree_gust_source(&self, tree_pos: Vec3) -> Result<Uuid> {
-        self.add_source(
+    pub fn add_tree_gust_source(&self, tree_pos: Vec3, shuffle_phase: bool) -> Result<Uuid> {
+        let uuid = self.add_source(
             "assets/sfx/Tree Gusts/WINDGust_Wind, Gust in Trees 01_SARM_Wind.wav",
             1.0,
             tree_pos,
             LoopMode::Infinite,
-        )
+        )?;
+
+        // Apply random phase offset if shuffle_phase is enabled
+        if shuffle_phase {
+            let uuid_map = self.uuid_to_source.lock().unwrap();
+            if let Some(source_info) = uuid_map.get(&uuid) {
+                let random_phase = rand::rng().random_range(0.0..1.0);
+                self.world
+                    .seek(source_info.source_id, random_phase)
+                    .map_err(|e| anyhow::anyhow!("Failed to seek to random phase: {}", e))?;
+            }
+        }
+
+        Ok(uuid)
     }
 
     #[allow(dead_code)]
