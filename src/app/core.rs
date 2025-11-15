@@ -388,7 +388,7 @@ impl App {
 
         let spatial_sound_manager = SpatialSoundManager::new(1024)?;
 
-        let tree_source_id = spatial_sound_manager.add_tree_gust_source(tree_pos / 256.0, false)?;
+        let tree_source_id = spatial_sound_manager.add_tree_gust_source(tree_pos / 256.0, true)?;
 
         // set the spatial sound manager on the tracer
         tracer.set_spatial_sound_manager(spatial_sound_manager.clone());
