@@ -264,8 +264,9 @@ pub struct App {
 
     #[allow(dead_code)]
     audio_engine: AudioEngine,
-    spatial_sound_manager: Option<SpatialSoundManager>,
-    tree_sound_source_id: Option<uuid::Uuid>, // for the main tree
+
+    spatial_sound_manager: SpatialSoundManager,
+    tree_sound_source_id: uuid::Uuid,           // for the main tree
     procedural_tree_sound_ids: Vec<uuid::Uuid>, // for procedural trees
 }
 
@@ -491,8 +492,8 @@ impl App {
             single_tree_id: 0,
 
             audio_engine,
-            spatial_sound_manager: Some(spatial_sound_manager),
-            tree_sound_source_id: Some(tree_source_id),
+            spatial_sound_manager,
+            tree_sound_source_id: tree_source_id,
             procedural_tree_sound_ids: Vec::new(),
         };
 
@@ -572,11 +573,9 @@ impl App {
         }
 
         // Remove all procedural tree sound sources
-        if let Some(ref spatial_sound_manager) = self.spatial_sound_manager {
-            for sound_id in &self.procedural_tree_sound_ids {
-                spatial_sound_manager.remove_source(*sound_id);
-                log::debug!("Removed sound source {:?}", sound_id);
-            }
+        for sound_id in &self.procedural_tree_sound_ids {
+            self.spatial_sound_manager.remove_source(*sound_id);
+            log::debug!("Removed sound source {:?}", sound_id);
         }
         self.procedural_tree_sound_ids.clear();
 
@@ -648,24 +647,25 @@ impl App {
 
         self.prev_bound = this_bound.union_with(&self.prev_bound);
 
-        if let Some(ref spatial_sound_manager) = self.spatial_sound_manager {
-            let tree_pos = adjusted_tree_pos / 256.0;
-            match spatial_sound_manager.add_tree_gust_source(tree_pos, true) {
-                Ok(sound_source_id) => {
-                    self.procedural_tree_sound_ids.push(sound_source_id);
-                    log::debug!(
-                        "Added sound source for procedural tree {} at {:?}",
-                        tree_id,
-                        tree_pos
-                    );
-                }
-                Err(e) => {
-                    log::warn!(
-                        "Failed to add sound source for procedural tree {}: {}",
-                        tree_id,
-                        e
-                    );
-                }
+        let tree_pos = adjusted_tree_pos / 256.0;
+        match self
+            .spatial_sound_manager
+            .add_tree_gust_source(tree_pos, true)
+        {
+            Ok(sound_source_id) => {
+                self.procedural_tree_sound_ids.push(sound_source_id);
+                log::debug!(
+                    "Added sound source for procedural tree {} at {:?}",
+                    tree_id,
+                    tree_pos
+                );
+            }
+            Err(e) => {
+                log::warn!(
+                    "Failed to add sound source for procedural tree {}: {}",
+                    tree_id,
+                    e
+                );
             }
         }
 
@@ -1803,14 +1803,9 @@ impl App {
                     )
                     .unwrap();
 
-                    // update spatial sound manager with new tree position
-                    if let (Some(ref spatial_sound_manager), Some(tree_source_id)) =
-                        (&self.spatial_sound_manager, self.tree_sound_source_id)
-                    {
-                        spatial_sound_manager
-                            .update_source_pos(tree_source_id, self.tree_pos / 256.0)
-                            .unwrap();
-                    }
+                    self.spatial_sound_manager
+                        .update_source_pos(self.tree_sound_source_id, self.tree_pos / 256.0)
+                        .unwrap();
                 }
 
                 if self.regenerate_trees_requested {
