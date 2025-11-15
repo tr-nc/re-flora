@@ -366,7 +366,7 @@ impl App {
             &mut scene_accel_builder,
         )?;
 
-        let mut audio_engine = AudioEngine::new()?;
+        let audio_engine = AudioEngine::new()?;
 
         let mut tracer = Tracer::new(
             vulkan_ctx.clone(),
