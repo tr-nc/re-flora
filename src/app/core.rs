@@ -384,8 +384,10 @@ impl App {
         let tree_pos = Vec3::new(512.0, 0.0, 512.0);
 
         // Self::add_ambient_sounds(&mut audio_engine)?;
-        let (spatial_sound_manager, tree_source_id) =
-            Self::create_spatial_sound_for_test(&mut audio_engine, tree_pos)?;
+
+        let spatial_sound_manager = SpatialSoundManager::new(1024)?;
+
+        let tree_source_id = spatial_sound_manager.add_tree_gust_source(tree_pos / 256.0, false)?;
 
         // set the spatial sound manager on the tracer
         tracer.set_spatial_sound_manager(spatial_sound_manager.clone());
@@ -619,13 +621,13 @@ impl App {
         let relative_leaf_positions = tree.relative_leaf_positions();
         let offseted_leaf_positions = relative_leaf_positions
             .iter()
-            .map(|leaf| *leaf + adjusted_tree_pos)
+            .map(|leaf_pos| *leaf_pos + adjusted_tree_pos)
             .collect::<Vec<_>>();
 
-        fn quantize(pos: &[Vec3]) -> Vec<UVec3> {
-            let set = pos
+        fn quantize(positions: &[Vec3]) -> Vec<UVec3> {
+            let set = positions
                 .iter()
-                .map(|leaf| leaf.as_uvec3())
+                .map(|pos| pos.as_uvec3())
                 .collect::<HashSet<_>>();
             set.into_iter().collect::<Vec<_>>()
         }
@@ -817,20 +819,6 @@ impl App {
             tree_desc.leaves_size_level =
                 ((tree_desc.leaves_size_level as f32 + variation).round() as u32).clamp(0, 8);
         }
-    }
-
-    fn create_spatial_sound_for_test(
-        _audio_engine: &mut AudioEngine,
-        tree_pos: Vec3,
-    ) -> Result<(SpatialSoundManager, uuid::Uuid)> {
-        let spatial_sound_manager = SpatialSoundManager::new(1024)?;
-
-        // add tree gust source at the tree position
-        let tree_source_id = spatial_sound_manager.add_tree_gust_source(tree_pos / 256.0, false)?;
-
-        // PetalSonic manages its own playback - no need to play through Kira
-
-        Ok((spatial_sound_manager, tree_source_id))
     }
 
     #[allow(dead_code)]
