@@ -69,6 +69,7 @@ impl SpatialSoundManager {
             sample_rate,
             block_size: frame_window_size,
             hrtf_path: Some(hrtf_path),
+            hrtf_gain: 20.0,
             ..Default::default()
         };
 
@@ -130,7 +131,7 @@ impl SpatialSoundManager {
 
     pub fn add_tree_gust_source(&self, tree_pos: Vec3, shuffle_phase: bool) -> Result<Uuid> {
         let uuid = self.add_source(
-            "assets/sfx/Tree Gusts/WINDGust_Wind, Gust in Trees 01_SARM_Wind.wav",
+            "assets/sfx/tree_sound_48k.wav",
             1.0,
             tree_pos,
             LoopMode::Infinite,
