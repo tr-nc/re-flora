@@ -1,7 +1,7 @@
 #[allow(unused)]
 use crate::util::Timer;
 
-use crate::audio::{AudioEngine, ClipCache, PlayMode, SoundDataConfig, SpatialSoundManager};
+use crate::audio::{AudioEngine, SpatialSoundManager};
 use crate::builder::{ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder};
 use crate::geom::{build_bvh, UAabb3};
 use crate::procedual_placer::{generate_positions, PlacerDesc};
@@ -20,11 +20,10 @@ use ash::vk;
 use egui::{Color32, RichText};
 use glam::{UVec3, Vec2, Vec3};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
-use kira::{StartTime, Tween};
 use rand::Rng;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use winit::event::DeviceEvent;
 use winit::{
     event::{ElementState, WindowEvent},
@@ -214,11 +213,11 @@ pub struct App {
     is_spatial_denoising_enabled: bool,
     a_trous_iteration_count: u32,
     is_taa_enabled: bool,
-    tree_pos: Vec3,
+    debug_tree_pos: Vec3,
     config_panel_visible: bool,
     is_fly_mode: bool,
 
-    tree_desc: TreeDesc,
+    debug_tree_desc: TreeDesc,
     tree_variation_config: TreeVariationConfig,
     regenerate_trees_requested: bool,
     prev_bound: UAabb3,
@@ -266,7 +265,7 @@ pub struct App {
     audio_engine: AudioEngine,
 
     spatial_sound_manager: SpatialSoundManager,
-    tree_sound_source_id: uuid::Uuid,           // for the main tree
+    tree_sound_source_id: Option<uuid::Uuid>, // for the main tree
     procedural_tree_sound_ids: Vec<uuid::Uuid>, // for procedural trees
 }
 
@@ -382,13 +381,9 @@ impl App {
             audio_engine.clone(),
         )?;
 
-        let tree_pos = Vec3::new(512.0, 0.0, 512.0);
-
-        // Self::add_ambient_sounds(&mut audio_engine)?;
+        let debug_tree_pos = Vec3::new(2.0, 0.2, 2.0);
 
         let spatial_sound_manager = SpatialSoundManager::new(1024)?;
-
-        let tree_source_id = spatial_sound_manager.add_tree_gust_source(tree_pos / 256.0, true)?;
 
         // set the spatial sound manager on the tracer
         tracer.set_spatial_sound_manager(spatial_sound_manager.clone());
@@ -452,8 +447,8 @@ impl App {
             sun_color: egui::Color32::from_rgb(255, 233, 144),
             sun_luminance: 1.0,
             ambient_light: egui::Color32::from_rgb(100, 48, 3),
-            tree_pos,
-            tree_desc: TreeDesc::default(),
+            debug_tree_pos,
+            debug_tree_desc: TreeDesc::default(),
             tree_variation_config: TreeVariationConfig::default(),
             regenerate_trees_requested: false,
             prev_bound: Default::default(),
@@ -493,11 +488,11 @@ impl App {
 
             audio_engine,
             spatial_sound_manager,
-            tree_sound_source_id: tree_source_id,
+            tree_sound_source_id: None,
             procedural_tree_sound_ids: Vec::new(),
         };
 
-        app.add_tree(app.tree_desc.clone(), app.tree_pos, true)?;
+        app.add_tree_at_pos(app.debug_tree_desc.clone(), app.debug_tree_pos, false)?;
 
         // configure leaves with the app's actual density values (now that app struct exists)
         app.tracer.regenerate_leaves(
@@ -545,11 +540,11 @@ impl App {
 
         // plant all trees with known heights and unique IDs
         for tree_pos in tree_positions_3d.iter() {
-            let mut tree_desc = self.tree_desc.clone();
+            let mut tree_desc = self.debug_tree_desc.clone();
             tree_desc.seed = rng.random_range(1..10000);
 
             self.apply_tree_variations(&mut tree_desc, &mut rng);
-            self.add_procedural_tree_at_position(tree_desc, *tree_pos)?;
+            self.add_tree_at_pos(tree_desc, *tree_pos, true)?;
         }
 
         Ok(())
@@ -583,19 +578,25 @@ impl App {
         Ok(())
     }
 
-    fn add_procedural_tree_at_position(
+    fn add_tree_at_pos(
         &mut self,
         tree_desc: TreeDesc,
-        adjusted_tree_pos: Vec3,
+        tree_pos: Vec3,
+        increment: bool,
     ) -> Result<()> {
-        let tree_id = self.next_tree_id;
-        self.next_tree_id += 1; // Increment for next tree
+        let tree_id = if increment {
+            let tree_id = self.next_tree_id;
+            self.next_tree_id += 1; // Increment for next tree
+            tree_id
+        } else {
+            self.single_tree_id
+        };
 
         let tree = Tree::new(tree_desc);
         let mut round_cones = Vec::new();
         for tree_trunk in tree.trunks() {
             let mut round_cone = tree_trunk.clone();
-            round_cone.transform(adjusted_tree_pos);
+            round_cone.transform(tree_pos * 256.0);
             round_cones.push(round_cone);
         }
 
@@ -620,16 +621,8 @@ impl App {
         let relative_leaf_positions = tree.relative_leaf_positions();
         let offseted_leaf_positions = relative_leaf_positions
             .iter()
-            .map(|leaf_pos| *leaf_pos + adjusted_tree_pos)
+            .map(|leaf_pos| *leaf_pos + tree_pos * 256.0)
             .collect::<Vec<_>>();
-
-        fn quantize(positions: &[Vec3]) -> Vec<UVec3> {
-            let set = positions
-                .iter()
-                .map(|pos| pos.as_uvec3())
-                .collect::<HashSet<_>>();
-            set.into_iter().collect::<Vec<_>>()
-        }
 
         let quantized_leaf_positions = quantize(&offseted_leaf_positions);
         self.tracer.add_tree_leaves(
@@ -647,29 +640,42 @@ impl App {
 
         self.prev_bound = this_bound.union_with(&self.prev_bound);
 
-        let tree_pos = adjusted_tree_pos / 256.0;
-        match self
-            .spatial_sound_manager
-            .add_tree_gust_source(tree_pos, true)
-        {
-            Ok(sound_source_id) => {
-                self.procedural_tree_sound_ids.push(sound_source_id);
-                log::debug!(
-                    "Added sound source for procedural tree {} at {:?}",
-                    tree_id,
-                    tree_pos
-                );
+        self.add_tree_audio(true, tree, tree_pos);
+
+        return Ok(());
+
+        fn quantize(positions: &[Vec3]) -> Vec<UVec3> {
+            let set = positions
+                .iter()
+                .map(|pos| pos.as_uvec3())
+                .collect::<HashSet<_>>();
+            set.into_iter().collect::<Vec<_>>()
+        }
+    }
+
+    fn add_tree_audio(&mut self, per_tree_audio: bool, tree: Tree, tree_pos: Vec3) {
+        if per_tree_audio {
+            match self
+                .spatial_sound_manager
+                .add_tree_gust_source(tree_pos, true)
+            {
+                Ok(sound_source_id) => {
+                    self.procedural_tree_sound_ids.push(sound_source_id);
+                }
+                Err(e) => {
+                    log::warn!("Failed to add sound source for tree {:?}: {}", tree, e);
+                }
             }
-            Err(e) => {
-                log::warn!(
-                    "Failed to add sound source for procedural tree {}: {}",
-                    tree_id,
-                    e
-                );
-            }
+            return;
         }
 
-        Ok(())
+        unimplemented!();
+
+        // let relative_leaf_positions = tree.relative_leaf_positions();
+        // let offseted_leaf_positions = relative_leaf_positions
+        //     .iter()
+        //     .map(|leaf_pos| *leaf_pos + adjusted_tree_pos)
+        //     .collect::<Vec<_>>();
     }
 
     fn edit_tree_with_variance(
@@ -821,44 +827,6 @@ impl App {
         }
     }
 
-    #[allow(dead_code)]
-    fn add_ambient_sounds(audio_engine: &mut AudioEngine) -> Result<()> {
-        let leaf_rustling_sound = "assets/sfx/leaf_rustling.wav";
-        let mut _leaf_rustling_clip_cache = ClipCache::from_files(
-            &[leaf_rustling_sound],
-            SoundDataConfig {
-                mode: PlayMode::Loop,
-                volume: -30.0,
-                fade_in_tween: Some(Tween {
-                    start_time: StartTime::Immediate,
-                    duration: Duration::from_secs(2),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            },
-        )?;
-
-        let wind_ambient_sound = "assets/sfx/WINDDsgn_Wind, Gentle, Designed 03_SARM_Wind.wav";
-        let mut wind_ambient_clip_cache = ClipCache::from_files(
-            &[wind_ambient_sound],
-            SoundDataConfig {
-                mode: PlayMode::Loop,
-                volume: -20.0,
-                fade_in_tween: Some(Tween {
-                    start_time: StartTime::Immediate,
-                    duration: Duration::from_secs(2),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            },
-        )?;
-
-        // audio_engine.play(&leaf_rustling_clip_cache.next())?;
-        audio_engine.play(&wind_ambient_clip_cache.next())?;
-
-        Ok(())
-    }
-
     fn init(
         plain_builder: &mut PlainBuilder,
         surface_builder: &mut SurfaceBuilder,
@@ -930,10 +898,9 @@ impl App {
             return Ok(vec![]);
         }
 
-        // convert to query coordinates (divide by 256.0)
         let query_positions: Vec<Vec2> = positions_2d
             .iter()
-            .map(|pos| Vec2::new(pos.x / 256.0, pos.y / 256.0))
+            .map(|pos| Vec2::new(pos.x, pos.y))
             .collect();
 
         // batch query all terrain heights
@@ -943,103 +910,50 @@ impl App {
         let positions_3d = positions_2d
             .iter()
             .zip(terrain_heights.iter())
-            .map(|(pos_2d, &height)| Vec3::new(pos_2d.x, height * 256.0, pos_2d.y))
+            .map(|(pos_2d, &height)| Vec3::new(pos_2d.x, height, pos_2d.y))
             .collect();
 
         Ok(positions_3d)
     }
 
-    fn add_tree(
-        &mut self,
-        tree_desc: TreeDesc,
-        tree_pos: Vec3,
-        clean_up_before_add: bool,
-    ) -> Result<()> {
-        // if we need to clean up first, do it before querying terrain to avoid
-        // getting the wrong height due to existing tree geometry blocking the terrain query
-        if clean_up_before_add {
-            self.plain_builder.chunk_init(
-                self.prev_bound.min(),
-                self.prev_bound.max() - self.prev_bound.min(),
-            )?;
-
-            // force mesh regeneration after cleanup to ensure terrain is properly accessible for querying
-            Self::mesh_generate(
-                &mut self.surface_builder,
-                &mut self.contree_builder,
-                &mut self.scene_accel_builder,
-                self.prev_bound,
-            )?;
-        }
-
-        let terrain_height = self
-            .tracer
-            .query_terrain_height(glam::Vec2::new(tree_pos.x / 256.0, tree_pos.z / 256.0))?;
-
-        let terrain_height_scaled = terrain_height * 256.0;
-        let adjusted_tree_pos = Vec3::new(tree_pos.x, terrain_height_scaled, tree_pos.z);
-
-        self.add_tree_at_position(tree_desc, adjusted_tree_pos)
-    }
-
-    fn add_tree_at_position(&mut self, tree_desc: TreeDesc, adjusted_tree_pos: Vec3) -> Result<()> {
-        let tree = Tree::new(tree_desc);
-        let mut round_cones = Vec::new();
-        for tree_trunk in tree.trunks() {
-            let mut round_cone = tree_trunk.clone();
-            round_cone.transform(adjusted_tree_pos);
-            round_cones.push(round_cone);
-        }
-
-        let mut leaves_data_sequential = vec![0; round_cones.len()];
-        for (i, item) in leaves_data_sequential
-            .iter_mut()
-            .enumerate()
-            .take(round_cones.len())
-        {
-            *item = i as u32;
-        }
-        let mut aabbs = Vec::new();
-        for round_cone in &round_cones {
-            aabbs.push(round_cone.aabb());
-        }
-        let bvh_nodes = build_bvh(&aabbs, &leaves_data_sequential).unwrap();
-
-        let this_bound = UAabb3::new(bvh_nodes[0].aabb.min_uvec3(), bvh_nodes[0].aabb.max_uvec3());
-
-        self.plain_builder.chunk_modify(&bvh_nodes, &round_cones)?;
-
-        let relative_leaf_positions = tree.relative_leaf_positions();
-        let offseted_leaf_positions = relative_leaf_positions
-            .iter()
-            .map(|leaf| *leaf + adjusted_tree_pos)
-            .collect::<Vec<_>>();
-
-        fn quantize(pos: &[Vec3]) -> Vec<UVec3> {
-            let set = pos
-                .iter()
-                .map(|leaf| leaf.as_uvec3())
-                .collect::<HashSet<_>>();
-            set.into_iter().collect::<Vec<_>>()
-        }
-
-        let quantized_leaf_positions = quantize(&offseted_leaf_positions);
-        self.tracer.add_tree_leaves(
-            &mut self.surface_builder.resources,
-            self.single_tree_id,
-            &quantized_leaf_positions,
+    /// If we need to clean up first, do it before querying terrain to avoid
+    /// getting the wrong height due to existing tree geometry blocking the terrain query
+    fn clean_up_prev_tree(&mut self) -> Result<()> {
+        self.plain_builder.chunk_init(
+            self.prev_bound.min(),
+            self.prev_bound.max() - self.prev_bound.min(),
         )?;
 
+        // force mesh regeneration after cleanup to ensure terrain is properly accessible for querying
         Self::mesh_generate(
             &mut self.surface_builder,
             &mut self.contree_builder,
             &mut self.scene_accel_builder,
-            this_bound.union_with(&self.prev_bound),
+            self.prev_bound,
         )?;
 
-        self.prev_bound = this_bound;
+        return Ok(());
+    }
 
-        Ok(())
+    fn add_tree(
+        &mut self,
+        tree_desc: TreeDesc,
+        tree_hori_position: Vec2,
+        clean_up_before_add: bool,
+        increment: bool,
+    ) -> Result<()> {
+        if clean_up_before_add {
+            self.clean_up_prev_tree()?;
+        }
+
+        let terrain_height = self
+            .tracer
+            .query_terrain_height(glam::Vec2::new(tree_hori_position.x, tree_hori_position.y))?;
+
+        let tree_pos = Vec3::new(tree_hori_position.x, terrain_height, tree_hori_position.y);
+        self.add_tree_at_pos(tree_desc, tree_pos, increment)?;
+
+        return Ok(());
     }
 
     fn mesh_generate(
@@ -1455,8 +1369,8 @@ impl App {
                                             let x_changed = ui
                                                 .add(
                                                     egui::Slider::new(
-                                                        &mut self.tree_pos.x,
-                                                        0.0..=1024.0,
+                                                        &mut self.debug_tree_pos.x,
+                                                        0.0..=4.0,
                                                     )
                                                     .text("X"),
                                                 )
@@ -1466,8 +1380,8 @@ impl App {
                                             let z_changed = ui
                                                 .add(
                                                     egui::Slider::new(
-                                                        &mut self.tree_pos.z,
-                                                        0.0..=1024.0,
+                                                        &mut self.debug_tree_pos.z,
+                                                        0.0..=4.0,
                                                     )
                                                     .text("Z"),
                                                 )
@@ -1494,13 +1408,13 @@ impl App {
                                                     } else {
 // now query terrain height with clean terrain
                                                         match self.tracer.query_terrain_height(glam::Vec2::new(
-                                                            self.tree_pos.x / 256.0,
-                                                            self.tree_pos.z / 256.0,
+                                                            self.debug_tree_pos.x,
+                                                            self.debug_tree_pos.z,
                                                         )) {
                                                             Ok(terrain_height) => {
                                                                 let terrain_height_scaled = terrain_height * 256.0;
                                                                 log::info!("Debug terrain query - Position: ({}, {}), Terrain height: {}", 
-                                                                    self.tree_pos.x, self.tree_pos.z, terrain_height_scaled);
+                                                                    self.debug_tree_pos.x, self.debug_tree_pos.z, terrain_height_scaled);
                                                             }
                                                             Err(e) => {
                                                                 log::error!("Failed to query terrain height: {}", e);
@@ -1514,7 +1428,7 @@ impl App {
 
                                             let (tree_changed, regenerate_pressed) =
                                                 Self::edit_tree_with_variance(
-                                                    &mut self.tree_desc,
+                                                    &mut self.debug_tree_desc,
                                                     &mut self.tree_variation_config,
                                                     ui,
                                                 );
@@ -1797,15 +1711,18 @@ impl App {
 
                 if tree_desc_changed {
                     self.add_tree(
-                        self.tree_desc.clone(),
-                        self.tree_pos,
+                        self.debug_tree_desc.clone(),
+                        Vec2::new(self.debug_tree_pos.x, self.debug_tree_pos.z),
                         true, // clean up before adding a new tree
+                        false,
                     )
                     .unwrap();
 
-                    self.spatial_sound_manager
-                        .update_source_pos(self.tree_sound_source_id, self.tree_pos / 256.0)
-                        .unwrap();
+                    if let Some(tree_sound_source_id) = self.tree_sound_source_id {
+                        self.spatial_sound_manager
+                            .update_source_pos(tree_sound_source_id, self.debug_tree_pos)
+                            .unwrap();
+                    }
                 }
 
                 if self.regenerate_trees_requested {

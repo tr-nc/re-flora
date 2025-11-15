@@ -161,5 +161,6 @@ pub fn generate_positions(
         }
     }
     positions.iter_mut().for_each(|p| *p += map_offset);
+    positions.iter_mut().for_each(|p| *p /= 256.0);
     positions
 }
