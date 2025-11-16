@@ -129,10 +129,23 @@ impl SpatialSoundManager {
         Ok(uuid)
     }
 
-    pub fn add_tree_gust_source(&self, tree_pos: Vec3, shuffle_phase: bool) -> Result<Uuid> {
+    /// Add a looping tree gust source at the given position.
+    ///
+    /// `clustered_amount` is how many logical emitters this source represents.
+    /// It is used to scale the volume sublinearly so that larger clusters sound
+    /// stronger without blowing out the mix.
+    pub fn add_tree_gust_source(
+        &self,
+        tree_pos: Vec3,
+        clustered_amount: u32,
+        shuffle_phase: bool,
+    ) -> Result<Uuid> {
+        let base_volume = 1.0_f32;
+        let volume = Self::clustered_volume(base_volume, clustered_amount);
+
         let uuid = self.add_source(
             "assets/sfx/tree_sound_48k.wav",
-            1.0,
+            volume,
             tree_pos,
             LoopMode::Infinite,
         )?;
@@ -149,6 +162,16 @@ impl SpatialSoundManager {
         }
 
         Ok(uuid)
+    }
+
+    /// Compute a volume multiplier for a clustered source.
+    ///
+    /// Uses a sublinear scaling so that many clustered emitters do not
+    /// increase volume too aggressively. This can be tuned as needed.
+    fn clustered_volume(base_volume: f32, clustered_amount: u32) -> f32 {
+        let n = clustered_amount.max(1) as f32;
+        let gain = n.sqrt(); // sublinear scaling
+        base_volume * gain
     }
 
     #[allow(dead_code)]

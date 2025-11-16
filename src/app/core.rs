@@ -667,7 +667,7 @@ impl App {
             // One audio source per tree (original behavior).
             match self
                 .spatial_sound_manager
-                .add_tree_gust_source(tree_pos, true)
+                .add_tree_gust_source(tree_pos, 1, true)
             {
                 Ok(sound_source_id) => {
                     sound_source_ids.push(sound_source_id);
@@ -719,7 +719,10 @@ impl App {
         for cluster in clusters.into_iter() {
             let pos = cluster.pos;
             // For now we do not scale volume by items_count; this can be tuned later.
-            match self.spatial_sound_manager.add_tree_gust_source(pos, true) {
+            match self
+                .spatial_sound_manager
+                .add_tree_gust_source(pos, cluster.items_count, true)
+            {
                 Ok(sound_source_id) => {
                     sound_source_ids.push(sound_source_id);
                 }
