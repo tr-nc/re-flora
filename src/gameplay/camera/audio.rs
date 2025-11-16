@@ -93,7 +93,6 @@ impl PlayerAudioController {
     }
 
     pub fn play_jumping(&mut self, speed: f32, _position: Vec3) {
-        // let clip = self.clip_caches.jump.next();
         let volume = self.calculate_speed_based_volume(speed, -6.0, 6.0);
         let path = PlayerClipCaches::get_random_path(&self.clip_caches.jump_paths);
         if let Err(e) = self.play_footstep(path, volume) {
@@ -102,7 +101,6 @@ impl PlayerAudioController {
     }
 
     pub fn play_landing(&mut self, speed: f32, _position: Vec3) {
-        // let clip = self.clip_caches.land.next();
         let volume = self.calculate_speed_based_volume(speed, -6.0, 6.0);
         let path = PlayerClipCaches::get_random_path(&self.clip_caches.land_paths);
         if let Err(e) = self.play_footstep(path, volume) {
@@ -111,12 +109,6 @@ impl PlayerAudioController {
     }
 
     pub fn play_step(&mut self, is_running: bool, speed: f32, _position: Vec3) {
-        // let cache = if is_running {
-        //     &mut self.clip_caches.run
-        // } else {
-        //     &mut self.clip_caches.walk
-        // };
-        // let clip = cache.next();
         let volume = self.calculate_speed_based_volume(speed, -4.0, 0.0);
         let paths = if is_running {
             &self.clip_caches.run_paths
