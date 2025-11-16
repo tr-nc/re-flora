@@ -735,7 +735,7 @@ impl App {
             }
         }
 
-        return Ok(sound_source_ids);
+        Ok(sound_source_ids)
     }
 
     fn edit_tree_with_variance(
@@ -992,7 +992,7 @@ impl App {
             self.prev_bound,
         )?;
 
-        return Ok(());
+        Ok(())
     }
 
     fn add_tree(
@@ -1013,7 +1013,7 @@ impl App {
         let tree_pos = Vec3::new(tree_hori_position.x, terrain_height, tree_hori_position.y);
         self.add_tree_at_pos(tree_desc, tree_pos, increment)?;
 
-        return Ok(());
+        Ok(())
     }
 
     fn mesh_generate(

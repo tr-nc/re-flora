@@ -136,8 +136,7 @@ impl PlayerAudioController {
     fn calculate_speed_based_volume(&self, speed: f32, min_volume: f32, max_volume: f32) -> f32 {
         let max_speed = 3.0;
         let speed_ratio = (speed / max_speed).clamp(0.0, 1.0);
-        let volume = min_volume + (max_volume - min_volume) * speed_ratio;
-        volume
+        min_volume + (max_volume - min_volume) * speed_ratio
     }
 
     /// Call this once per frame from the camera update.
@@ -163,17 +162,7 @@ impl PlayerAudioController {
 
         self.time_since_last_step += frame_delta_time;
         if self.time_since_last_step >= interval {
-            // let cache = if is_running {
-            //     &mut self.clip_caches.run
-            // } else {
-            //     &mut self.clip_caches.walk
-            // };
-            // let clip = cache.next();
-            let volume = if is_running {
-                self.calculate_speed_based_volume(speed, -4.0, 0.0)
-            } else {
-                self.calculate_speed_based_volume(speed, -4.0, 0.0)
-            };
+            let volume = self.calculate_speed_based_volume(speed, -4.0, 0.0);
             let paths = if is_running {
                 &self.clip_caches.run_paths
             } else {
