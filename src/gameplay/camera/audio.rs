@@ -1,12 +1,16 @@
-use crate::audio::{AudioEngine, ClipCache, SoundDataConfig, SpatialSoundManager};
+use crate::audio::{ClipCache, SoundDataConfig, SpatialSoundManager};
 use anyhow::Result;
 use glam::Vec3;
 use rand::Rng;
 
 pub struct PlayerClipCaches {
+    #[allow(dead_code)]
     pub walk: ClipCache,
+    #[allow(dead_code)]
     pub jump: ClipCache,
+    #[allow(dead_code)]
     pub land: ClipCache,
+    #[allow(dead_code)]
     pub run: ClipCache,
     #[allow(dead_code)]
     pub sneak: ClipCache,
@@ -82,95 +86,73 @@ impl PlayerClipCaches {
 }
 
 pub struct PlayerAudioController {
-    audio_engine: AudioEngine,
-    spatial_sound_manager: Option<SpatialSoundManager>,
+    spatial_sound_manager: SpatialSoundManager,
     clip_caches: PlayerClipCaches,
     // time elapsed since last step sound
     time_since_last_step: f32,
-
-    volume_multiplier: f32,
+    volume_gain: f32,
 }
 
 impl PlayerAudioController {
-    pub fn new(
-        audio_engine: AudioEngine,
-        spatial_sound_manager: Option<SpatialSoundManager>,
-    ) -> Result<Self> {
+    pub fn new(spatial_sound_manager: SpatialSoundManager) -> Result<Self> {
         let clip_caches = PlayerClipCaches::new()?;
         Ok(Self {
-            audio_engine,
             spatial_sound_manager,
             clip_caches,
             time_since_last_step: 0.0,
-            volume_multiplier: 1.0,
+            volume_gain: 0.0,
         })
     }
 
-    fn play_non_spatial_footstep(&self, clip_path: &str, volume: f32) -> Result<()> {
-        if let Some(ref spatial_manager) = self.spatial_sound_manager {
-            spatial_manager.add_non_spatial_source(clip_path, volume * self.volume_multiplier)?;
-        } else {
-            // Fallback to non-spatial audio if spatial manager is not available
-            // This should not happen in normal operation but provides safety
-            log::warn!("Spatial sound manager not available, using fallback audio engine");
-        }
+    fn play_footstep(&self, clip_path: &str, volume: f32) -> Result<()> {
+        log::debug!(
+            "Playing footstep: {} (volume: {})",
+            clip_path,
+            volume + self.volume_gain
+        );
+        self.spatial_sound_manager
+            .add_non_spatial_source(clip_path, volume + self.volume_gain)?;
         Ok(())
     }
 
-    pub fn set_spatial_sound_manager(&mut self, spatial_sound_manager: SpatialSoundManager) {
-        self.spatial_sound_manager = Some(spatial_sound_manager);
-    }
-
-    pub fn set_footstep_volume(&mut self, volume: f32) {
-        self.volume_multiplier = volume.clamp(0.0, 2.0);
+    pub fn set_footstep_volume_gain(&mut self, volume_gain: f32) {
+        self.volume_gain = volume_gain;
     }
 
     pub fn play_jumping(&mut self, speed: f32, _position: Vec3) {
-        let clip = self.clip_caches.jump.next();
-        let volume = self.calculate_speed_based_volume(speed, 0.5, 2.0);
+        // let clip = self.clip_caches.jump.next();
+        let volume = self.calculate_speed_based_volume(speed, -6.0, 6.0);
         let path = PlayerClipCaches::get_random_path(&self.clip_caches.jump_paths);
-        if let Err(e) = self.play_non_spatial_footstep(path, volume) {
+        if let Err(e) = self.play_footstep(path, volume) {
             log::error!("Failed to play non-spatial jump sound: {}", e);
-            // Fallback to regular audio
-            self.audio_engine
-                .play_with_volume(&clip, volume * self.volume_multiplier)
-                .unwrap();
         }
     }
 
     pub fn play_landing(&mut self, speed: f32, _position: Vec3) {
-        let clip = self.clip_caches.land.next();
-        let volume = self.calculate_speed_based_volume(speed, 0.7, 1.5);
+        // let clip = self.clip_caches.land.next();
+        let volume = self.calculate_speed_based_volume(speed, -6.0, 6.0);
         let path = PlayerClipCaches::get_random_path(&self.clip_caches.land_paths);
-        if let Err(e) = self.play_non_spatial_footstep(path, volume) {
+        if let Err(e) = self.play_footstep(path, volume) {
             log::error!("Failed to play non-spatial landing sound: {}", e);
-            // Fallback to regular audio
-            self.audio_engine
-                .play_with_volume(&clip, volume * self.volume_multiplier)
-                .unwrap();
         }
     }
 
     pub fn play_step(&mut self, is_running: bool, speed: f32, _position: Vec3) {
-        let cache = if is_running {
-            &mut self.clip_caches.run
-        } else {
-            &mut self.clip_caches.walk
-        };
-        let clip = cache.next();
-        let volume = self.calculate_speed_based_volume(speed, 0.6, 1.0);
+        // let cache = if is_running {
+        //     &mut self.clip_caches.run
+        // } else {
+        //     &mut self.clip_caches.walk
+        // };
+        // let clip = cache.next();
+        let volume = self.calculate_speed_based_volume(speed, -4.0, 0.0);
         let paths = if is_running {
             &self.clip_caches.run_paths
         } else {
             &self.clip_caches.walk_paths
         };
         let path = PlayerClipCaches::get_random_path(paths);
-        if let Err(e) = self.play_non_spatial_footstep(path, volume) {
+        if let Err(e) = self.play_footstep(path, volume) {
             log::error!("Failed to play non-spatial step sound: {}", e);
-            // Fallback to regular audio
-            self.audio_engine
-                .play_with_volume(&clip, volume * self.volume_multiplier)
-                .unwrap();
         }
     }
 
@@ -182,8 +164,7 @@ impl PlayerAudioController {
         let max_speed = 3.0;
         let speed_ratio = (speed / max_speed).clamp(0.0, 1.0);
         let volume = min_volume + (max_volume - min_volume) * speed_ratio;
-        // in case anything goes wrong
-        volume.clamp(0.0, 2.0)
+        volume
     }
 
     /// Call this once per frame from the camera update.
@@ -209,16 +190,16 @@ impl PlayerAudioController {
 
         self.time_since_last_step += frame_delta_time;
         if self.time_since_last_step >= interval {
-            let cache = if is_running {
-                &mut self.clip_caches.run
-            } else {
-                &mut self.clip_caches.walk
-            };
-            let clip = cache.next();
+            // let cache = if is_running {
+            //     &mut self.clip_caches.run
+            // } else {
+            //     &mut self.clip_caches.walk
+            // };
+            // let clip = cache.next();
             let volume = if is_running {
-                self.calculate_speed_based_volume(speed, 0.8, 1.5)
+                self.calculate_speed_based_volume(speed, -4.0, 0.0)
             } else {
-                self.calculate_speed_based_volume(speed, 0.6, 1.2)
+                self.calculate_speed_based_volume(speed, -4.0, 0.0)
             };
             let paths = if is_running {
                 &self.clip_caches.run_paths
@@ -226,12 +207,8 @@ impl PlayerAudioController {
                 &self.clip_caches.walk_paths
             };
             let path = PlayerClipCaches::get_random_path(paths);
-            if let Err(e) = self.play_non_spatial_footstep(path, volume) {
+            if let Err(e) = self.play_footstep(path, volume) {
                 log::error!("Failed to play non-spatial walk sound: {}", e);
-                // Fallback to regular audio
-                self.audio_engine
-                    .play_with_volume(&clip, volume * self.volume_multiplier)
-                    .unwrap();
             }
             self.time_since_last_step = 0.0;
         }

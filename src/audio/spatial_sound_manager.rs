@@ -113,7 +113,7 @@ impl SpatialSoundManager {
         // Register in PetalSonic world with spatial configuration
         let source_id = self.world.register_audio(
             audio_data,
-            SourceConfig::spatial_with_volume(petal_pose, volume),
+            SourceConfig::spatial_with_volume_db(petal_pose, volume),
         )?;
 
         // Start playback
@@ -140,7 +140,7 @@ impl SpatialSoundManager {
         clustered_amount: u32,
         shuffle_phase: bool,
     ) -> Result<Uuid> {
-        let base_volume = 1.0_f32;
+        let base_volume: f32 = 0.0;
         let volume = Self::clustered_volume(base_volume, clustered_amount);
 
         let uuid = self.add_source(
@@ -174,16 +174,6 @@ impl SpatialSoundManager {
         base_volume * gain
     }
 
-    #[allow(dead_code)]
-    pub fn add_single_play_source(&self, path: &str, volume: f32, position: Vec3) -> Result<Uuid> {
-        self.add_source(path, volume, position, LoopMode::Once)
-    }
-
-    #[allow(dead_code)]
-    pub fn add_loop_source(&self, path: &str, volume: f32, position: Vec3) -> Result<Uuid> {
-        self.add_source(path, volume, position, LoopMode::Infinite)
-    }
-
     /// Add a non-spatial audio source (e.g., for UI sounds or player footsteps)
     pub fn add_non_spatial_source(&self, path: &str, volume: f32) -> Result<Uuid> {
         // Load audio data
@@ -192,7 +182,7 @@ impl SpatialSoundManager {
         // Register in PetalSonic world with non-spatial configuration and volume
         let source_id = self
             .world
-            .register_audio(audio_data, SourceConfig::non_spatial_with_volume(volume))?;
+            .register_audio(audio_data, SourceConfig::non_spatial_with_volume_db(volume))?;
 
         // Start playback with one-shot mode
         self.world.play(source_id, LoopMode::Once)?;
@@ -270,7 +260,7 @@ impl SpatialSoundManager {
             // Update the source configuration with new position, preserving volume
             self.world.update_source_config(
                 source_info.source_id,
-                SourceConfig::spatial_with_volume(petal_pose, source_info.volume),
+                SourceConfig::spatial_with_volume_db(petal_pose, source_info.volume),
             )?;
         }
 

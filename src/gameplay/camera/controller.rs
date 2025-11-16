@@ -1,11 +1,7 @@
 use super::{
     audio::PlayerAudioController, movement::MovementState, vectors::CameraVectors, CameraDesc,
 };
-use crate::{
-    audio::{AudioEngine, SpatialSoundManager},
-    tracer::PlayerCollisionResult,
-    vkn::Extent2D,
-};
+use crate::{audio::SpatialSoundManager, tracer::PlayerCollisionResult, vkn::Extent2D};
 use anyhow::Result;
 use glam::{Mat4, Vec2, Vec3, Vec4};
 use winit::event::KeyEvent;
@@ -59,8 +55,7 @@ impl Camera {
         initial_yaw: f32,
         initial_pitch: f32,
         desc: CameraDesc,
-        audio_engine: AudioEngine,
-        spatial_sound_manager: Option<SpatialSoundManager>,
+        spatial_sound_manager: SpatialSoundManager,
     ) -> Result<Self> {
         let mut camera = Self {
             position: initial_position,
@@ -73,17 +68,16 @@ impl Camera {
             ),
             desc,
             vertical_velocity: 0.0,
-            player_audio_controller: PlayerAudioController::new(
-                audio_engine,
-                spatial_sound_manager,
-            )?,
+            player_audio_controller: PlayerAudioController::new(spatial_sound_manager)?,
             was_on_ground: false,
             rigidbody: PlayerRigidBody::new(),
             pre_landing_speed: 0.0,
         };
 
         camera.vectors.update(camera.yaw, camera.pitch);
-        camera.player_audio_controller.set_footstep_volume(0.01);
+        camera
+            .player_audio_controller
+            .set_footstep_volume_gain(-12.0);
         Ok(camera)
     }
 
@@ -373,11 +367,11 @@ impl Camera {
         self.vertical_velocity = 0.0;
     }
 
-    /// Updates the spatial sound manager for the camera's audio controller
-    pub fn set_spatial_sound_manager(&mut self, spatial_sound_manager: SpatialSoundManager) {
-        self.player_audio_controller
-            .set_spatial_sound_manager(spatial_sound_manager);
-    }
+    // /// Updates the spatial sound manager for the camera's audio controller
+    // pub fn set_spatial_sound_manager(&mut self, spatial_sound_manager: SpatialSoundManager) {
+    //     self.player_audio_controller
+    //         .set_spatial_sound_manager(spatial_sound_manager);
+    // }
 
     /// Resolve a single horizontal collision step using the 32-ray collision system
     /// Returns true if a collision was detected and resolved

@@ -368,7 +368,11 @@ impl App {
 
         let audio_engine = AudioEngine::new()?;
 
-        let mut tracer = Tracer::new(
+        // Shared spatial audio engine (PetalSonic) used by both the tracer (camera)
+        // and the app-level tree ambience sources.
+        let spatial_sound_manager = SpatialSoundManager::new(1024)?;
+
+        let tracer = Tracer::new(
             vulkan_ctx.clone(),
             allocator.clone(),
             &shader_compiler,
@@ -379,15 +383,10 @@ impl App {
             TracerDesc {
                 scaling_factor: 0.5,
             },
-            audio_engine.clone(),
+            spatial_sound_manager.clone(),
         )?;
 
         let debug_tree_pos = Vec3::new(2.0, 0.2, 2.0);
-
-        let spatial_sound_manager = SpatialSoundManager::new(1024)?;
-
-        // set the spatial sound manager on the tracer
-        tracer.set_spatial_sound_manager(spatial_sound_manager.clone());
 
         let mut app = Self {
             vulkan_ctx,

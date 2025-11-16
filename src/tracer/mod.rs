@@ -28,7 +28,7 @@ use buffer_updater::*;
 use glam::{Mat4, UVec3, Vec2, Vec3};
 use winit::event::KeyEvent;
 
-use crate::audio::{AudioEngine, SpatialSoundManager};
+use crate::audio::SpatialSoundManager;
 use crate::builder::{
     ContreeBuilderResources, FloraInstanceResources, FloraType, Instance,
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
@@ -123,7 +123,7 @@ pub struct Tracer {
     pool: DescriptorPool,
 
     a_trous_iteration_count: u32,
-    spatial_sound_manager: Option<SpatialSoundManager>,
+    spatial_sound_manager: SpatialSoundManager,
 }
 
 impl Drop for Tracer {
@@ -141,7 +141,7 @@ impl Tracer {
         contree_builder_resources: &ContreeBuilderResources,
         scene_accel_resources: &SceneAccelBuilderResources,
         desc: TracerDesc,
-        audio_engine: AudioEngine,
+        spatial_sound_manager: SpatialSoundManager,
     ) -> Result<Self> {
         let render_extent = Self::get_render_extent(screen_extent, desc.scaling_factor);
 
@@ -153,8 +153,7 @@ impl Tracer {
                 aspect_ratio: render_extent.get_aspect_ratio(),
                 ..Default::default()
             },
-            audio_engine,
-            None, // No spatial sound manager in test context
+            spatial_sound_manager.clone(),
         )?;
 
         let pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
@@ -242,7 +241,7 @@ impl Tracer {
             render_target_depth_only,
             pool,
             a_trous_iteration_count: 3,
-            spatial_sound_manager: None,
+            spatial_sound_manager,
         })
     }
 
@@ -1430,12 +1429,6 @@ impl Tracer {
         self.camera.vectors()
     }
 
-    pub fn set_spatial_sound_manager(&mut self, spatial_sound_manager: SpatialSoundManager) {
-        self.camera
-            .set_spatial_sound_manager(spatial_sound_manager.clone());
-        self.spatial_sound_manager = Some(spatial_sound_manager);
-    }
-
     pub fn update_camera(&mut self, frame_delta_time: f32, is_fly_mode: bool) {
         if is_fly_mode {
             self.camera.update_transform_fly_mode(frame_delta_time);
@@ -1446,12 +1439,10 @@ impl Tracer {
                 .update_transform_walk_mode(frame_delta_time, collision_result);
         }
 
-        // update spatial sound manager with camera position
-        if let Some(ref spatial_sound_manager) = self.spatial_sound_manager {
-            spatial_sound_manager
-                .update_player_pos(self.camera.position(), self.camera.vectors())
-                .unwrap();
-        }
+        // update spatial sound manager with camera (listener) position
+        self.spatial_sound_manager
+            .update_player_pos(self.camera.position(), self.camera.vectors())
+            .unwrap();
 
         fn get_player_collision_result(
             player_collision_result: &Buffer,

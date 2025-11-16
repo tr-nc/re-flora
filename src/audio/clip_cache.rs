@@ -9,7 +9,9 @@ use std::sync::Arc;
 /// shuffled item with no immediate repeats across shuffle boundaries.
 pub struct ClipCache {
     clips: Vec<SoundClip>,
+    #[allow(dead_code)]
     play_queue: Vec<usize>,
+    #[allow(dead_code)]
     last_played: Option<usize>,
 }
 
@@ -50,6 +52,7 @@ impl ClipCache {
     /// Get the next clip.  
     /// - If only one clip is cached, always returns that clip.  
     /// - If multiple clips are cached, uses a shuffled queue with no immediate repeats.
+    #[allow(dead_code)]
     pub fn next(&mut self) -> SoundClip {
         // fast path for a single cached clip.
         if self.clips.len() == 1 {
