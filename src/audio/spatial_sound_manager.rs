@@ -70,6 +70,7 @@ impl SpatialSoundManager {
             block_size: frame_window_size,
             hrtf_path: Some(hrtf_path),
             hrtf_gain: 20.0,
+            distance_scaler: 15.0,
             ..Default::default()
         };
 
@@ -142,7 +143,7 @@ impl SpatialSoundManager {
     ) -> Result<Uuid> {
         // Base volume for a single logical emitter (in dB).
         // This can be tuned to taste without affecting the relative scaling.
-        let base_volume_db: f32 = -10.0;
+        let base_volume_db: f32 = -16.0;
         let volume_db = Self::clustered_volume_db(base_volume_db, clustered_amount);
 
         let uuid = self.add_source(

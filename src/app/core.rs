@@ -685,8 +685,7 @@ impl App {
             .map(|leaf_pos| *leaf_pos / 256.0 + tree_pos)
             .collect::<Vec<_>>();
 
-        // TODO: tune this distance; currently in world-space units.
-        let cluster_distance = 0.05_f32;
+        let cluster_distance: f32 = 0.08;
 
         let input_count = audio_positions.len();
         let clusters: Vec<ClusterResult> = cluster_positions(&audio_positions, cluster_distance);
