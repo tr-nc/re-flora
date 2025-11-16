@@ -24,6 +24,7 @@ use rand::Rng;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+use uuid::Uuid;
 use winit::event::DeviceEvent;
 use winit::{
     event::{ElementState, WindowEvent},
@@ -640,7 +641,8 @@ impl App {
 
         self.prev_bound = this_bound.union_with(&self.prev_bound);
 
-        self.add_tree_audio(true, tree, tree_pos);
+        let sound_source_ids = self.add_tree_audio(false, tree, tree_pos)?;
+        self.procedural_tree_sound_ids.extend(sound_source_ids);
 
         return Ok(());
 
@@ -653,29 +655,38 @@ impl App {
         }
     }
 
-    fn add_tree_audio(&mut self, per_tree_audio: bool, tree: Tree, tree_pos: Vec3) {
+    fn add_tree_audio(
+        &mut self,
+        per_tree_audio: bool,
+        tree: Tree,
+        tree_pos: Vec3,
+    ) -> Result<Vec<Uuid>> {
+        let mut audio_positions = Vec::new();
+        let mut sound_source_ids = Vec::new();
+
         if per_tree_audio {
-            match self
-                .spatial_sound_manager
-                .add_tree_gust_source(tree_pos, true)
-            {
-                Ok(sound_source_id) => {
-                    self.procedural_tree_sound_ids.push(sound_source_id);
-                }
-                Err(e) => {
-                    log::warn!("Failed to add sound source for tree {:?}: {}", tree, e);
-                }
-            }
-            return;
+            audio_positions.push(tree_pos);
+        } else {
+            let relative_leaf_positions = tree.relative_leaf_positions();
+            let offseted_leaf_positions = relative_leaf_positions
+                .iter()
+                .map(|leaf_pos| *leaf_pos / 256.0 + tree_pos)
+                .collect::<Vec<_>>();
+            audio_positions.extend(offseted_leaf_positions);
         }
 
-        unimplemented!();
+        for pos in audio_positions {
+            match self.spatial_sound_manager.add_tree_gust_source(pos, true) {
+                Ok(sound_source_id) => {
+                    sound_source_ids.push(sound_source_id);
+                }
+                Err(e) => {
+                    log::warn!("Failed to add sound source for tree {:?}: {}", tree_pos, e);
+                }
+            }
+        }
 
-        // let relative_leaf_positions = tree.relative_leaf_positions();
-        // let offseted_leaf_positions = relative_leaf_positions
-        //     .iter()
-        //     .map(|leaf_pos| *leaf_pos + adjusted_tree_pos)
-        //     .collect::<Vec<_>>();
+        return Ok(sound_source_ids);
     }
 
     fn edit_tree_with_variance(
