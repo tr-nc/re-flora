@@ -77,7 +77,7 @@ impl Camera {
         camera.vectors.update(camera.yaw, camera.pitch);
         camera
             .player_audio_controller
-            .set_footstep_volume_gain(-12.0);
+            .set_footstep_volume_gain(-20.0);
         Ok(camera)
     }
 
