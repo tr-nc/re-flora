@@ -1,7 +1,7 @@
 #[allow(unused)]
 use crate::util::Timer;
 
-use crate::audio::{AudioEngine, SpatialSoundManager};
+use crate::audio::{cluster_positions, AudioEngine, ClusterResult, SpatialSoundManager};
 use crate::builder::{ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder};
 use crate::geom::{build_bvh, UAabb3};
 use crate::procedual_placer::{generate_positions, PlacerDesc};
@@ -661,27 +661,74 @@ impl App {
         tree: Tree,
         tree_pos: Vec3,
     ) -> Result<Vec<Uuid>> {
-        let mut audio_positions = Vec::new();
         let mut sound_source_ids = Vec::new();
 
         if per_tree_audio {
-            audio_positions.push(tree_pos);
-        } else {
-            let relative_leaf_positions = tree.relative_leaf_positions();
-            let offseted_leaf_positions = relative_leaf_positions
-                .iter()
-                .map(|leaf_pos| *leaf_pos / 256.0 + tree_pos)
-                .collect::<Vec<_>>();
-            audio_positions.extend(offseted_leaf_positions);
-        }
-
-        for pos in audio_positions {
-            match self.spatial_sound_manager.add_tree_gust_source(pos, true) {
+            // One audio source per tree (original behavior).
+            match self
+                .spatial_sound_manager
+                .add_tree_gust_source(tree_pos, true)
+            {
                 Ok(sound_source_id) => {
                     sound_source_ids.push(sound_source_id);
                 }
                 Err(e) => {
                     log::warn!("Failed to add sound source for tree {:?}: {}", tree_pos, e);
+                }
+            }
+            return Ok(sound_source_ids);
+        }
+
+        // Leaf-based audio: cluster leaf positions to reduce source count.
+        let relative_leaf_positions = tree.relative_leaf_positions();
+        let audio_positions = relative_leaf_positions
+            .iter()
+            .map(|leaf_pos| *leaf_pos / 256.0 + tree_pos)
+            .collect::<Vec<_>>();
+
+        // TODO: tune this distance; currently in world-space units.
+        let cluster_distance = 0.05_f32;
+
+        let input_count = audio_positions.len();
+        let clusters: Vec<ClusterResult> = cluster_positions(&audio_positions, cluster_distance);
+        let output_count = clusters.len();
+
+        if input_count > 0 && output_count > 0 {
+            let compression = input_count as f32 / output_count as f32;
+            log::debug!(
+                "Tree audio clustering at {:?}: input_positions={} clusters={} compression={:.2}x",
+                tree_pos,
+                input_count,
+                output_count,
+                compression
+            );
+
+            // Detailed per-cluster info (can be noisy; use debug level so it is opt-in).
+            for (i, cluster) in clusters.iter().enumerate() {
+                log::debug!(
+                    "  cluster {:03}: pos=({:.3}, {:.3}, {:.3}), items_count={}",
+                    i,
+                    cluster.pos.x,
+                    cluster.pos.y,
+                    cluster.pos.z,
+                    cluster.items_count
+                );
+            }
+        }
+
+        for cluster in clusters.into_iter() {
+            let pos = cluster.pos;
+            // For now we do not scale volume by items_count; this can be tuned later.
+            match self.spatial_sound_manager.add_tree_gust_source(pos, true) {
+                Ok(sound_source_id) => {
+                    sound_source_ids.push(sound_source_id);
+                }
+                Err(e) => {
+                    log::warn!(
+                        "Failed to add clustered sound source for tree {:?}: {}",
+                        tree_pos,
+                        e
+                    );
                 }
             }
         }
