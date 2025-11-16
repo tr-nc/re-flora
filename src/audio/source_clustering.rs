@@ -85,4 +85,3 @@ pub fn cluster_positions(positions: &[Vec3], distance_threshold: f32) -> Vec<Clu
 
     clusters
 }
-

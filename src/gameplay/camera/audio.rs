@@ -1,22 +1,9 @@
-use crate::audio::{ClipCache, SoundDataConfig, SpatialSoundManager};
+use crate::audio::SpatialSoundManager;
 use anyhow::Result;
 use glam::Vec3;
 use rand::Rng;
 
 pub struct PlayerClipCaches {
-    #[allow(dead_code)]
-    pub walk: ClipCache,
-    #[allow(dead_code)]
-    pub jump: ClipCache,
-    #[allow(dead_code)]
-    pub land: ClipCache,
-    #[allow(dead_code)]
-    pub run: ClipCache,
-    #[allow(dead_code)]
-    pub sneak: ClipCache,
-    #[allow(dead_code)]
-    pub sprint: ClipCache,
-
     // Store file paths for spatial audio
     pub walk_paths: Vec<String>,
     pub jump_paths: Vec<String>,
@@ -34,45 +21,31 @@ pub struct PlayerClipCaches {
 
 impl PlayerClipCaches {
     fn new() -> Result<Self> {
-        let jump = Self::load_clip_cache("jump", 10)?;
-        let land = Self::load_clip_cache("land", 10)?;
-        let walk = Self::load_clip_cache("walk", 25)?;
-        let sneak = Self::load_clip_cache("sneak", 25)?;
-        let run = Self::load_clip_cache("run", 25)?;
-        let sprint = Self::load_clip_cache("sprint", 25)?;
+        let jump_paths = Self::load_clip_paths("jump", 10);
+        let land_paths = Self::load_clip_paths("land", 10);
+        let walk_paths = Self::load_clip_paths("walk", 25);
+        let sneak_paths = Self::load_clip_paths("sneak", 25);
+        let run_paths = Self::load_clip_paths("run", 25);
+        let sprint_paths = Self::load_clip_paths("sprint", 25);
 
         Ok(Self {
-            walk: walk.0,
-            jump: jump.0,
-            land: land.0,
-            sneak: sneak.0,
-            run: run.0,
-            sprint: sprint.0,
-            walk_paths: walk.1,
-            jump_paths: jump.1,
-            land_paths: land.1,
-            sneak_paths: sneak.1,
-            run_paths: run.1,
-            sprint_paths: sprint.1,
+            walk_paths,
+            jump_paths,
+            land_paths,
+            sneak_paths,
+            run_paths,
+            sprint_paths,
             walk_interval: 0.35,
             run_interval: 0.25,
         })
     }
 
-    fn load_clip_cache(sample_name: &str, sample_count: usize) -> Result<(ClipCache, Vec<String>)> {
+    fn load_clip_paths(sample_name: &str, sample_count: usize) -> Vec<String> {
         let prefix_path =
             "assets/sfx/Footsteps SFX - Undergrowth & Leaves/TomWinandySFX - FS_UndergrowthLeaves_";
-        let clip_paths: Vec<String> = (0..sample_count)
+        (0..sample_count)
             .map(|i| format!("{}{}_{:02}.wav", prefix_path, sample_name, i + 1))
-            .collect();
-        let clip_cache = ClipCache::from_files(
-            &clip_paths,
-            SoundDataConfig {
-                // volume: -5.0,
-                ..Default::default()
-            },
-        )?;
-        Ok((clip_cache, clip_paths))
+            .collect()
     }
 
     fn get_random_path(paths: &[String]) -> &str {
