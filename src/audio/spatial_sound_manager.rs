@@ -140,12 +140,14 @@ impl SpatialSoundManager {
         clustered_amount: u32,
         shuffle_phase: bool,
     ) -> Result<Uuid> {
-        let base_volume: f32 = 0.0;
-        let volume = Self::clustered_volume(base_volume, clustered_amount);
+        // Base volume for a single logical emitter (in dB).
+        // This can be tuned to taste without affecting the relative scaling.
+        let base_volume_db: f32 = -10.0;
+        let volume_db = Self::clustered_volume_db(base_volume_db, clustered_amount);
 
         let uuid = self.add_source(
             "assets/sfx/tree_sound_48k.wav",
-            volume,
+            volume_db,
             tree_pos,
             LoopMode::Infinite,
         )?;
@@ -164,14 +166,20 @@ impl SpatialSoundManager {
         Ok(uuid)
     }
 
-    /// Compute a volume multiplier for a clustered source.
+    /// Compute a volume (in dB) for a clustered source.
     ///
     /// Uses a sublinear scaling so that many clustered emitters do not
-    /// increase volume too aggressively. This can be tuned as needed.
-    fn clustered_volume(base_volume: f32, clustered_amount: u32) -> f32 {
+    /// increase volume too aggressively. The effective amplitude grows
+    /// ~sqrt(n), which in dB corresponds to +10 * log10(n).
+    fn clustered_volume_db(base_volume_db: f32, clustered_amount: u32) -> f32 {
         let n = clustered_amount.max(1) as f32;
-        let gain = n.sqrt(); // sublinear scaling
-        base_volume * gain
+        if n <= 1.0 {
+            return base_volume_db;
+        }
+
+        // amplitude ~ n^0.5 → gain_db = 10 * log10(n)
+        let gain_db = 10.0 * n.log10();
+        base_volume_db + gain_db
     }
 
     /// Add a non-spatial audio source (e.g., for UI sounds or player footsteps)
