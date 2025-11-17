@@ -440,7 +440,7 @@ impl App {
             sun_azimuth: 0.8,
             sun_size: 0.1,
             auto_daynight_cycle: true,
-            time_of_day: 0.5,
+            time_of_day: 0.65,
             latitude: 0.5,
             season: 0.25,
             day_cycle_minutes: 30.0,
@@ -468,10 +468,10 @@ impl App {
             starlight_saturation: 1.0,
 
             grass_bottom_color: egui::Color32::from_rgb(61, 163, 59),
-            grass_tip_color: egui::Color32::from_rgb(182, 245, 0),
+            grass_tip_color: egui::Color32::from_rgb(168, 227, 0),
 
-            lavender_bottom_color: egui::Color32::from_rgb(109, 197, 115),
-            lavender_tip_color: egui::Color32::from_rgb(240, 244, 0),
+            lavender_bottom_color: egui::Color32::from_rgb(74, 165, 0),
+            lavender_tip_color: egui::Color32::from_rgb(85, 0, 207),
 
             leaves_bottom_color: egui::Color32::from_rgb(232, 142, 0),
             leaves_tip_color: egui::Color32::from_rgb(255, 219, 71),
