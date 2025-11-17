@@ -60,7 +60,7 @@ impl Default for TreeDesc {
             enable_subdivision: true,
             subdivision_count_min: 6,
             subdivision_count_max: 9,
-            subdivision_randomness: 0.50,
+            subdivision_randomness: 2.6,
             subdivision_randomness_progression: 3.0,
 
             // Variation
@@ -190,7 +190,7 @@ impl TreeDesc {
             .changed();
         changed |= ui
             .add(
-                egui::Slider::new(&mut self.subdivision_randomness, 0.0..=1.0)
+                egui::Slider::new(&mut self.subdivision_randomness, 0.0..=10.0)
                     .text("Subdivision Randomness"),
             )
             .changed();
@@ -315,7 +315,7 @@ fn subdivide_trunk_segment(
     level: u32,
     rng: &mut StdRng,
 ) -> Vec<RoundCone> {
-    // nEW: early-out if subdivision is disabled
+    // early-out if subdivision is disabled
     if !desc.enable_subdivision {
         return vec![cone.clone()];
     }
@@ -327,13 +327,25 @@ fn subdivide_trunk_segment(
         return vec![cone.clone()];
     }
 
-    // calculate iteration-based randomness progression, similar to thickness_reduction
-    let level_factor = (level as f32) / (desc.iterations as f32).max(1.0);
-    let iteration_randomness = if desc.subdivision_randomness_progression > 0.0 {
-        desc.subdivision_randomness * desc.subdivision_randomness_progression.powf(level_factor)
-    } else {
-        desc.subdivision_randomness
-    };
+    // 0.0 at root, 1.0 at the deepest level
+    let t = (level as f32) / (desc.iterations as f32).max(1.0);
+
+    // Shape the curve with an exponent:
+    //  - 1.0 => roughly linear
+    //  - >1.0 => more weight toward the tip
+    //  - <1.0 => more weight toward the base
+    let curve_exp = desc.subdivision_randomness_progression.max(0.01);
+    let mut weight = t.powf(curve_exp);
+
+    // Ensure the base still has some randomness:
+    // min_root_factor: 0.0 = allow root to be ~0, 0.2 = root is at least 20% of max.
+    let min_root_factor = 0.2;
+    let min_weight = min_root_factor;
+    // Remap [0..1] into [min_weight..1]
+    weight = min_weight + (1.0 - min_weight) * weight;
+
+    // Final randomness scale for this level
+    let iteration_randomness = desc.subdivision_randomness * weight;
 
     let num_segments = if desc.subdivision_count_min >= desc.subdivision_count_max {
         desc.subdivision_count_min
@@ -357,6 +369,8 @@ fn subdivide_trunk_segment(
     let perp1 = axis.cross(up).normalize_or_zero();
     let perp2 = axis.cross(perp1).normalize_or_zero();
 
+    let root_radius = desc.trunk_thickness * desc.size;
+
     for i in 1..=num_segments {
         let start_t = (i - 1) as f32 / num_segments as f32;
         let end_t = i as f32 / num_segments as f32;
@@ -372,8 +386,16 @@ fn subdivide_trunk_segment(
             if iteration_randomness > 0.0 {
                 let random_angle = rng.random_range(0.0..2.0 * PI);
                 let random_dir_perp = perp1 * random_angle.cos() + perp2 * random_angle.sin();
-                let displacement_magnitude =
-                    segment_start_radius * iteration_randomness * rng.random_range(0.5..=1.0);
+
+                // 0 at root, → 1 as radius gets small
+                let radius_ratio = (segment_start_radius / root_radius).clamp(0.0, 1.0);
+                let tip_bias = 1.0 - radius_ratio; // 0 at base, 1 at tip-ish
+
+                let displacement_magnitude = segment_start_radius
+                    * iteration_randomness
+                    * tip_bias
+                    * rng.random_range(0.5..=1.0);
+
                 next_pos += random_dir_perp * displacement_magnitude;
             }
         }
