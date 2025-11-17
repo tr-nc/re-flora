@@ -1,3 +1,4 @@
+use crate::audio::audio_clip_cache::AudioClipCache;
 use crate::gameplay::camera::vectors::CameraVectors;
 use anyhow::Result;
 use glam::Vec3;
@@ -25,6 +26,9 @@ struct SourceInfo {
 pub struct SpatialSoundManager {
     world: Arc<PetalSonicWorld>,
     engine: Arc<Mutex<PetalSonicEngine>>,
+
+    // Audio clip cache for efficient audio data loading
+    clip_cache: Arc<AudioClipCache>,
 
     // Map UUIDs to PetalSonic SourceIds and their metadata
     uuid_to_source: Arc<Mutex<HashMap<Uuid, SourceInfo>>>,
@@ -58,6 +62,9 @@ impl SpatialSoundManager {
     pub fn new(frame_window_size: usize) -> Result<Self> {
         let sample_rate = 48000;
 
+        // Initialize audio clip cache first
+        let clip_cache = Arc::new(AudioClipCache::new()?);
+
         // Get HRTF path - use the same path structure as before
         let hrtf_path = format!(
             "{}assets/hrtf/hrtf_b_nh172.sofa",
@@ -90,6 +97,7 @@ impl SpatialSoundManager {
         Ok(Self {
             world: world_arc,
             engine: Arc::new(Mutex::new(engine)),
+            clip_cache,
             uuid_to_source: Arc::new(Mutex::new(HashMap::new())),
             listener_state: Arc::new(Mutex::new(ListenerState::default())),
         })
@@ -102,8 +110,11 @@ impl SpatialSoundManager {
         position: Vec3,
         loop_mode: LoopMode,
     ) -> Result<Uuid> {
-        // Load audio data (from_path already returns Arc-wrapped data)
-        let audio_data = PetalSonicAudioData::from_path(path)?;
+        // Get audio data from cache instead of loading from disk
+        let audio_data = self
+            .clip_cache
+            .get(path)
+            .ok_or_else(|| anyhow::anyhow!("Audio clip not found in cache: {}", path))?;
 
         // Convert glam::Vec3 to PetalVec3 for PetalSonic API
         let petal_pose = Pose::new(
@@ -185,8 +196,11 @@ impl SpatialSoundManager {
 
     /// Add a non-spatial audio source (e.g., for UI sounds or player footsteps)
     pub fn add_non_spatial_source(&self, path: &str, volume: f32) -> Result<Uuid> {
-        // Load audio data
-        let audio_data = PetalSonicAudioData::from_path(path)?;
+        // Get audio data from cache instead of loading from disk
+        let audio_data = self
+            .clip_cache
+            .get(path)
+            .ok_or_else(|| anyhow::anyhow!("Audio clip not found in cache: {}", path))?;
 
         // Register in PetalSonic world with non-spatial configuration and volume
         let source_id = self
@@ -298,6 +312,7 @@ impl Clone for SpatialSoundManager {
         Self {
             world: self.world.clone(),
             engine: self.engine.clone(),
+            clip_cache: self.clip_cache.clone(),
             uuid_to_source: self.uuid_to_source.clone(),
             listener_state: self.listener_state.clone(),
         }
