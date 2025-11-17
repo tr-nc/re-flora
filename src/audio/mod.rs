@@ -4,7 +4,6 @@ pub use audio_engine::*;
 mod sound_clip;
 
 mod audio_clip_cache;
-pub use audio_clip_cache::*;
 
 mod spatial_sound_manager;
 pub use spatial_sound_manager::*;

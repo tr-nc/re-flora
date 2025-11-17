@@ -3,7 +3,6 @@ use crate::gameplay::camera::vectors::CameraVectors;
 use anyhow::Result;
 use glam::Vec3;
 use petalsonic::{
-    audio_data::PetalSonicAudioData,
     config::PetalSonicWorldDesc,
     engine::PetalSonicEngine,
     math::{Pose, Quat as PetalQuat, Vec3 as PetalVec3},

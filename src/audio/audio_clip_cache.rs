@@ -60,7 +60,7 @@ impl AudioClipCache {
             if path.is_dir() {
                 // Recursively process subdirectories
                 Self::load_wav_files_recursive(clips, &path, project_root)?;
-            } else if path.is_file() && path.extension().map_or(false, |ext| ext == "wav") {
+            } else if path.is_file() && path.extension().is_some_and(|ext| ext == "wav") {
                 // Process .wav files
                 let full_path_str = path.to_str().ok_or_else(|| {
                     anyhow::anyhow!("Failed to convert path to string: {:?}", path)
