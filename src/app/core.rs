@@ -978,6 +978,17 @@ impl App {
     /// If we need to clean up first, do it before querying terrain to avoid
     /// getting the wrong height due to existing tree geometry blocking the terrain query
     fn clean_up_prev_tree(&mut self) -> Result<()> {
+        // Remove any previously created spatial audio sources for trees so we
+        // don't leak looping sounds when rebuilding the tree geometry.
+        if let Some(tree_sound_source_id) = self.tree_sound_source_id.take() {
+            self.spatial_sound_manager
+                .remove_source(tree_sound_source_id);
+        }
+        for sound_id in &self.procedural_tree_sound_ids {
+            self.spatial_sound_manager.remove_source(*sound_id);
+        }
+        self.procedural_tree_sound_ids.clear();
+
         self.plain_builder.chunk_init(
             self.prev_bound.min(),
             self.prev_bound.max() - self.prev_bound.min(),
