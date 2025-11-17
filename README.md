@@ -6,6 +6,8 @@
 
 **Re: Flora** is an experimental relaxation game that allows players to design and nurture their own island paradise. Using vibrant voxel rendering, players can cultivate a diverse ecosystem of plants, shape terrain, and create a personal sanctuary. The game emphasizes creativity and tranquility with no failure states, focusing instead on the joy of watching your garden evolve.
 
+![Re: Flora](demo/img/title.png)
+
 This project aims to give players:
 > A meditative voxel-based gardening experience where players cultivate their own island ecosystem.
 
@@ -53,10 +55,6 @@ This project draws inspiration from:
 ### Rust Setup
 
 Ensure you are using the latest stable version of Rust.
-
-```sh
-rustup update stable
-```
 
 ### Recommended VSCode Extensions
 
@@ -122,12 +120,6 @@ rustup update stable
 
 ---
 
-## Claude Setups
-
-left for future use
-
----
-
 ## 🙏 Special Thanks To
 
 - **[adrien-ben/egui-ash-renderer](https://github.com/adrien-ben/egui-ash-renderer)** for the implementation of `ash` with `egui`.
@@ -138,29 +130,16 @@ left for future use
 
 ---
 
-## MacOS Build
-
-- Install LunarG Vulkan SDK: <https://www.lunarg.com/vulkan-sdk/>
-- Config the following env variables in your shell profile:
-
-```sh
-export VULKAN_SDK=~/VulkanSDK/<version>/macOS
-export DYLD_FALLBACK_LIBRARY_PATH=$VULKAN_SDK/lib
-export VK_ICD_FILENAMES=$VULKAN_SDK/share/vulkan/icd.d/MoltenVK_icd.json
-export VK_LAYER_PATH=$VULKAN_SDK/share/vulkan/explicit_layer.d
-```
-
 ## TODO list
 
 ### Main Objectives
 
-- [ ] Use rubato as the resampler for our audio
+- [ ] More Flowers
+- [ ] Fallen Leaves
+- [ ] Ponds
 - [ ] Dynamic Terrain Edit
-- [ ] Still Water
-- [ ] Flowers
 
 ### Side Quests
 
-- [ ] Tree Sounds
-- [ ] Some Artistic Dithering? <https://www.shadertoy.com/view/csKfzy>
+- [ ] [Some Artistic Dithering?](https://www.shadertoy.com/view/csKfzy)
 - [ ] Clouds
