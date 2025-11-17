@@ -78,11 +78,6 @@ impl PlayerAudioController {
     }
 
     fn play_footstep(&self, clip_path: &str, volume: f32) -> Result<()> {
-        log::debug!(
-            "Playing footstep: {} (volume: {})",
-            clip_path,
-            volume + self.volume_gain
-        );
         self.spatial_sound_manager
             .add_non_spatial_source(clip_path, volume + self.volume_gain)?;
         Ok(())

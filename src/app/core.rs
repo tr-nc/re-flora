@@ -705,18 +705,6 @@ impl App {
                 output_count,
                 compression
             );
-
-            // Detailed per-cluster info (can be noisy; use debug level so it is opt-in).
-            for (i, cluster) in clusters.iter().enumerate() {
-                log::debug!(
-                    "  cluster {:03}: pos=({:.3}, {:.3}, {:.3}), items_count={}",
-                    i,
-                    cluster.pos.x,
-                    cluster.pos.y,
-                    cluster.pos.z,
-                    cluster.items_count
-                );
-            }
         }
 
         for cluster in clusters.into_iter() {

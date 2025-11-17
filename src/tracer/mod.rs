@@ -1496,12 +1496,6 @@ impl Tracer {
             instances_data.push(instance);
         }
 
-        log::info!(
-            "Created {} leaf instances for tree {}",
-            instances_data.len(),
-            tree_id
-        );
-
         // calculate AABB based on actual leaf positions
         let scaled_leaf_positions = leaf_positions
             .iter()
@@ -1543,11 +1537,6 @@ impl Tracer {
             .leaves_instances
             .insert(tree_id, tree_leaves_instance);
 
-        log::info!(
-            "Added/updated tree {} with {} leaves",
-            tree_id,
-            instances_data.len()
-        );
         Ok(())
     }
 
