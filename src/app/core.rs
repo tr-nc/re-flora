@@ -492,7 +492,12 @@ impl App {
             procedural_tree_sound_ids: Vec::new(),
         };
 
-        app.add_tree_at_pos(app.debug_tree_desc.clone(), app.debug_tree_pos, false)?;
+        app.add_tree(
+            app.debug_tree_desc.clone(),
+            Vec2::new(app.debug_tree_pos.x, app.debug_tree_pos.z),
+            false,
+            false,
+        )?;
 
         // configure leaves with the app's actual density values (now that app struct exists)
         app.tracer.regenerate_leaves(
