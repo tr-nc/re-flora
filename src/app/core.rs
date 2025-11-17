@@ -522,7 +522,7 @@ impl App {
         );
         let grid_size = 120.0;
         let mut placer_desc = PlacerDesc::new(42);
-        placer_desc.threshold = 0.5;
+        placer_desc.threshold = 0.55;
 
         let tree_positions_2d = generate_positions(
             map_dimensions,
