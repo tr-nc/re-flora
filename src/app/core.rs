@@ -1,7 +1,7 @@
 #[allow(unused)]
 use crate::util::Timer;
 
-use crate::audio::{cluster_positions, AudioEngine, ClusterResult, SpatialSoundManager};
+use crate::audio::{cluster_positions, ClusterResult, SpatialSoundManager};
 use crate::builder::{ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder};
 use crate::geom::{build_bvh, UAabb3};
 use crate::procedual_placer::{generate_positions, PlacerDesc};
@@ -262,9 +262,6 @@ pub struct App {
     // note: always keep the context to end, as it has to be destroyed last
     vulkan_ctx: VulkanContext,
 
-    #[allow(dead_code)]
-    audio_engine: AudioEngine,
-
     spatial_sound_manager: SpatialSoundManager,
     tree_sound_source_id: Option<uuid::Uuid>, // for the main tree
     procedural_tree_sound_ids: Vec<uuid::Uuid>, // for procedural trees
@@ -365,8 +362,6 @@ impl App {
             &mut contree_builder,
             &mut scene_accel_builder,
         )?;
-
-        let audio_engine = AudioEngine::new()?;
 
         // Shared spatial audio engine (PetalSonic) used by both the tracer (camera)
         // and the app-level tree ambience sources.
@@ -486,7 +481,6 @@ impl App {
             next_tree_id: 1, // Start from 1, use 0 for GUI single tree
             single_tree_id: 0,
 
-            audio_engine,
             spatial_sound_manager,
             tree_sound_source_id: None,
             procedural_tree_sound_ids: Vec::new(),
