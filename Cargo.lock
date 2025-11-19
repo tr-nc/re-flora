@@ -2215,7 +2215,9 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "petalsonic"
-version = "0.1.6-rc.0"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0786317ab7d0201b13c84242969d5b6c3724246fcc385ca30daca99bb8d4d547"
 dependencies = [
  "anyhow",
  "audionimbus",
@@ -2592,7 +2594,7 @@ dependencies = [
 
 [[package]]
 name = "re-flora"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "ash",
