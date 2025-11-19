@@ -140,28 +140,19 @@ impl SpatialSoundManager {
         Ok(uuid)
     }
 
-    /// Add a looping tree gust source at the given position.
+    /// Add a looping spatial source at the given position.
     ///
-    /// `clustered_amount` is how many logical emitters this source represents.
-    /// It is used to scale the volume sublinearly so that larger clusters sound
-    /// stronger without blowing out the mix.
-    pub fn add_tree_gust_source(
+    /// If `shuffle_phase` is true, the source starts at a random phase in
+    /// the clip. This is useful when spawning many identical looping sounds
+    /// (e.g. ambience beds) to avoid them being perfectly phase-aligned.
+    pub fn add_looping_spatial_source(
         &self,
-        tree_pos: Vec3,
-        clustered_amount: u32,
+        path: &str,
+        volume_db: f32,
+        position: Vec3,
         shuffle_phase: bool,
     ) -> Result<Uuid> {
-        // Base volume for a single logical emitter (in dB).
-        // This can be tuned to taste without affecting the relative scaling.
-        let base_volume_db: f32 = -16.0;
-        let volume_db = Self::clustered_volume_db(base_volume_db, clustered_amount);
-
-        let uuid = self.add_source(
-            "assets/sfx/tree_sound_48k.wav",
-            volume_db,
-            tree_pos,
-            LoopMode::Infinite,
-        )?;
+        let uuid = self.add_source(path, volume_db, position, LoopMode::Infinite)?;
 
         // Apply random phase offset if shuffle_phase is enabled
         if shuffle_phase {
@@ -182,6 +173,7 @@ impl SpatialSoundManager {
     /// Uses a sublinear scaling so that many clustered emitters do not
     /// increase volume too aggressively. The effective amplitude grows
     /// ~sqrt(n), which in dB corresponds to +10 * log10(n).
+    #[allow(dead_code)]
     fn clustered_volume_db(base_volume_db: f32, clustered_amount: u32) -> f32 {
         let n = clustered_amount.max(1) as f32;
         if n <= 1.0 {

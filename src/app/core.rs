@@ -659,6 +659,41 @@ impl App {
         }
     }
 
+    fn add_tree_gust_source(
+        &self,
+        tree_pos: Vec3,
+        clustered_amount: u32,
+        shuffle_phase: bool,
+    ) -> Result<Uuid> {
+        // Base volume for a single logical emitter (in dB).
+        // This can be tuned to taste without affecting the relative scaling.
+        let base_volume_db: f32 = -16.0;
+        let volume_db = Self::clustered_volume_db(base_volume_db, clustered_amount);
+
+        self.spatial_sound_manager.add_looping_spatial_source(
+            "assets/sfx/tree_sound_48k.wav",
+            volume_db,
+            tree_pos,
+            shuffle_phase,
+        )
+    }
+
+    /// Compute a volume (in dB) for a clustered source.
+    ///
+    /// Uses a sublinear scaling so that many clustered emitters do not
+    /// increase volume too aggressively. The effective amplitude grows
+    /// ~sqrt(n), which in dB corresponds to +10 * log10(n).
+    fn clustered_volume_db(base_volume_db: f32, clustered_amount: u32) -> f32 {
+        let n = clustered_amount.max(1) as f32;
+        if n <= 1.0 {
+            return base_volume_db;
+        }
+
+        // amplitude ~ n^0.5 -> gain_db = 10 * log10(n)
+        let gain_db = 10.0 * n.log10();
+        base_volume_db + gain_db
+    }
+
     fn add_tree_audio(
         &mut self,
         per_tree_audio: bool,
@@ -669,10 +704,7 @@ impl App {
 
         if per_tree_audio {
             // One audio source per tree (original behavior).
-            match self
-                .spatial_sound_manager
-                .add_tree_gust_source(tree_pos, 1, true)
-            {
+            match self.add_tree_gust_source(tree_pos, 1, true) {
                 Ok(sound_source_id) => {
                     sound_source_ids.push(sound_source_id);
                 }
@@ -710,10 +742,7 @@ impl App {
         for cluster in clusters.into_iter() {
             let pos = cluster.pos;
             // For now we do not scale volume by items_count; this can be tuned later.
-            match self
-                .spatial_sound_manager
-                .add_tree_gust_source(pos, cluster.items_count, true)
-            {
+            match self.add_tree_gust_source(pos, cluster.items_count, true) {
                 Ok(sound_source_id) => {
                     sound_source_ids.push(sound_source_id);
                 }
