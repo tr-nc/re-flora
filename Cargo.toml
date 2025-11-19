@@ -23,7 +23,7 @@ uuid = { version = "1.4", features = ["v4"] }
 # the last release is from 2019, so we use the git version for support of the latest spirv-reflect
 spirv-reflect = { git = "https://github.com/gwihlidal/spirv-reflect-rs.git", rev = "97298067e3b1c9ce05633d78f1183c14a3cc6acc" }
 
-gpu-allocator = "0.27"
+gpu-allocator = "0.28.0"
 ash-window = "0.13"
 env_logger = "0.11"
 comfy-table = "7.1.3"
