@@ -261,6 +261,7 @@ impl SpatialSoundManager {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn update_source_pos(&self, source_uuid: Uuid, target_pos: Vec3) -> Result<()> {
         let uuid_map = self.uuid_to_source.lock().unwrap();
 

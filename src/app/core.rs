@@ -1,7 +1,7 @@
 #[allow(unused)]
 use crate::util::Timer;
 
-use crate::audio::{cluster_positions, ClusterResult, SpatialSoundManager};
+use crate::audio::{SpatialSoundManager, TreeAudioManager};
 use crate::builder::{ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder};
 use crate::geom::{build_bvh, UAabb3};
 use crate::procedual_placer::{generate_positions, PlacerDesc};
@@ -262,9 +262,10 @@ pub struct App {
     // note: always keep the context to end, as it has to be destroyed last
     vulkan_ctx: VulkanContext,
 
+    // Keep ownership so the shared PetalSonic engine outlives every subsystem.
+    #[allow(dead_code)]
     spatial_sound_manager: SpatialSoundManager,
-    tree_sound_source_id: Option<uuid::Uuid>, // for the main tree
-    procedural_tree_sound_ids: Vec<uuid::Uuid>, // for procedural trees
+    tree_audio_manager: TreeAudioManager,
 }
 
 const VOXEL_DIM_PER_CHUNK: UVec3 = UVec3::new(256, 256, 256);
@@ -366,6 +367,7 @@ impl App {
         // Shared spatial audio engine (PetalSonic) used by both the tracer (camera)
         // and the app-level tree ambience sources.
         let spatial_sound_manager = SpatialSoundManager::new(1024)?;
+        let tree_audio_manager = TreeAudioManager::new(spatial_sound_manager.clone());
 
         let tracer = Tracer::new(
             vulkan_ctx.clone(),
@@ -482,8 +484,7 @@ impl App {
             single_tree_id: 0,
 
             spatial_sound_manager,
-            tree_sound_source_id: None,
-            procedural_tree_sound_ids: Vec::new(),
+            tree_audio_manager,
         };
 
         app.add_tree(
@@ -561,17 +562,11 @@ impl App {
             .cloned()
             .collect();
 
-        for tree_id in tree_ids_to_remove {
+        for &tree_id in tree_ids_to_remove.iter() {
             self.tracer
                 .remove_tree_leaves(&mut self.surface_builder.resources, tree_id)?;
+            self.tree_audio_manager.remove_tree(tree_id);
         }
-
-        // Remove all procedural tree sound sources
-        for sound_id in &self.procedural_tree_sound_ids {
-            self.spatial_sound_manager.remove_source(*sound_id);
-            log::debug!("Removed sound source {:?}", sound_id);
-        }
-        self.procedural_tree_sound_ids.clear();
 
         log::info!("Cleared all procedural trees and their sound sources");
         Ok(())
@@ -639,8 +634,7 @@ impl App {
 
         self.prev_bound = this_bound.union_with(&self.prev_bound);
 
-        let sound_source_ids = self.add_tree_audio(false, tree, tree_pos)?;
-        self.procedural_tree_sound_ids.extend(sound_source_ids);
+        self.add_tree_audio(tree_id, false, tree, tree_pos)?;
 
         return Ok(());
 
@@ -653,63 +647,13 @@ impl App {
         }
     }
 
-    fn add_tree_gust_source(
-        &self,
-        tree_pos: Vec3,
-        clustered_amount: u32,
-        shuffle_phase: bool,
-    ) -> Result<Uuid> {
-        // Base volume for a single logical emitter (in dB).
-        // This can be tuned to taste without affecting the relative scaling.
-        let base_volume_db: f32 = -16.0;
-        let volume_db = Self::clustered_volume_db(base_volume_db, clustered_amount);
-
-        self.spatial_sound_manager.add_looping_spatial_source(
-            "assets/sfx/tree_sound_48k.wav",
-            volume_db,
-            tree_pos,
-            shuffle_phase,
-        )
-    }
-
-    /// Compute a volume (in dB) for a clustered source.
-    ///
-    /// Uses a sublinear scaling so that many clustered emitters do not
-    /// increase volume too aggressively. The effective amplitude grows
-    /// ~sqrt(n), which in dB corresponds to +10 * log10(n).
-    fn clustered_volume_db(base_volume_db: f32, clustered_amount: u32) -> f32 {
-        let n = clustered_amount.max(1) as f32;
-        if n <= 1.0 {
-            return base_volume_db;
-        }
-
-        // amplitude ~ n^0.5 -> gain_db = 10 * log10(n)
-        let gain_db = 10.0 * n.log10();
-        base_volume_db + gain_db
-    }
-
     fn add_tree_audio(
         &mut self,
+        tree_id: u32,
         per_tree_audio: bool,
         tree: Tree,
         tree_pos: Vec3,
     ) -> Result<Vec<Uuid>> {
-        let mut sound_source_ids = Vec::new();
-
-        if per_tree_audio {
-            // One audio source per tree (original behavior).
-            match self.add_tree_gust_source(tree_pos, 1, true) {
-                Ok(sound_source_id) => {
-                    sound_source_ids.push(sound_source_id);
-                }
-                Err(e) => {
-                    log::warn!("Failed to add sound source for tree {:?}: {}", tree_pos, e);
-                }
-            }
-            return Ok(sound_source_ids);
-        }
-
-        // Leaf-based audio: cluster leaf positions to reduce source count.
         let relative_leaf_positions = tree.relative_leaf_positions();
         let audio_positions = relative_leaf_positions
             .iter()
@@ -718,39 +662,14 @@ impl App {
 
         let cluster_distance: f32 = 0.08;
 
-        let input_count = audio_positions.len();
-        let clusters: Vec<ClusterResult> = cluster_positions(&audio_positions, cluster_distance);
-        let output_count = clusters.len();
-
-        if input_count > 0 && output_count > 0 {
-            let compression = input_count as f32 / output_count as f32;
-            log::debug!(
-                "Tree audio clustering at {:?}: input_positions={} clusters={} compression={:.2}x",
-                tree_pos,
-                input_count,
-                output_count,
-                compression
-            );
-        }
-
-        for cluster in clusters.into_iter() {
-            let pos = cluster.pos;
-            // For now we do not scale volume by items_count; this can be tuned later.
-            match self.add_tree_gust_source(pos, cluster.items_count, true) {
-                Ok(sound_source_id) => {
-                    sound_source_ids.push(sound_source_id);
-                }
-                Err(e) => {
-                    log::warn!(
-                        "Failed to add clustered sound source for tree {:?}: {}",
-                        tree_pos,
-                        e
-                    );
-                }
-            }
-        }
-
-        Ok(sound_source_ids)
+        self.tree_audio_manager.add_tree_sources(
+            tree_id,
+            tree_pos,
+            &audio_positions,
+            per_tree_audio,
+            cluster_distance,
+            true,
+        )
     }
 
     fn edit_tree_with_variance(
@@ -996,14 +915,7 @@ impl App {
     fn clean_up_prev_tree(&mut self) -> Result<()> {
         // Remove any previously created spatial audio sources for trees so we
         // don't leak looping sounds when rebuilding the tree geometry.
-        if let Some(tree_sound_source_id) = self.tree_sound_source_id.take() {
-            self.spatial_sound_manager
-                .remove_source(tree_sound_source_id);
-        }
-        for sound_id in &self.procedural_tree_sound_ids {
-            self.spatial_sound_manager.remove_source(*sound_id);
-        }
-        self.procedural_tree_sound_ids.clear();
+        self.tree_audio_manager.remove_all();
 
         self.plain_builder.chunk_init(
             self.prev_bound.min(),
@@ -1803,12 +1715,6 @@ impl App {
                         false,
                     )
                     .unwrap();
-
-                    if let Some(tree_sound_source_id) = self.tree_sound_source_id {
-                        self.spatial_sound_manager
-                            .update_source_pos(tree_sound_source_id, self.debug_tree_pos)
-                            .unwrap();
-                    }
                 }
 
                 if self.regenerate_trees_requested {
