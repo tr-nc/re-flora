@@ -508,6 +508,8 @@ impl App {
     fn generate_procedural_trees(&mut self) -> Result<()> {
         // clear all procedural trees (keep single tree with ID 0)
         self.clear_procedural_trees()?;
+        // remove the standalone debug tree so only procedural forest remains
+        self.remove_tree_resources(self.single_tree_id)?;
 
         self.plain_builder.chunk_init(
             self.prev_bound.min(),
@@ -562,13 +564,18 @@ impl App {
             .cloned()
             .collect();
 
-        for &tree_id in tree_ids_to_remove.iter() {
-            self.tracer
-                .remove_tree_leaves(&mut self.surface_builder.resources, tree_id)?;
-            self.tree_audio_manager.remove_tree(tree_id);
+        for tree_id in tree_ids_to_remove {
+            self.remove_tree_resources(tree_id)?;
         }
 
         log::info!("Cleared all procedural trees and their sound sources");
+        Ok(())
+    }
+
+    fn remove_tree_resources(&mut self, tree_id: u32) -> Result<()> {
+        self.tracer
+            .remove_tree_leaves(&mut self.surface_builder.resources, tree_id)?;
+        self.tree_audio_manager.remove_tree(tree_id);
         Ok(())
     }
 
