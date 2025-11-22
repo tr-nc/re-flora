@@ -1125,27 +1125,46 @@ impl App {
                         style.visuals.override_text_color = Some(egui::Color32::WHITE);
                         ctx.set_style(style);
 
-// config panel - only show if visible
-                        if self.config_panel_visible {
+                        let mut config_panel_open = self.config_panel_visible;
+                        if config_panel_open {
                             let config_frame = egui::containers::Frame {
-                                fill: Color32::from_rgba_premultiplied(123, 64, 25, 250),
-                                inner_margin: egui::Margin::same(10),
+                                fill: Color32::from_rgba_premultiplied(20, 22, 30, 245),
+                                inner_margin: egui::Margin::symmetric(18, 12),
+                                corner_radius: egui::CornerRadius::same(14),
+                                shadow: egui::epaint::Shadow {
+                                    offset: [0, 12],
+                                    blur: 32,
+                                    spread: 6,
+                                    color: Color32::from_rgba_premultiplied(0, 0, 0, 180),
+                                },
+                                stroke: egui::Stroke::new(
+                                    1.0,
+                                    Color32::from_rgba_premultiplied(255, 255, 255, 26),
+                                ),
                                 ..Default::default()
                             };
 
-                            egui::SidePanel::left("config_panel")
+                            egui::Window::new("Configuration")
+                                .id(egui::Id::new("config_panel"))
+                                .open(&mut config_panel_open)
                                 .frame(config_frame)
                                 .resizable(true)
-                                .default_width(320.0)
-                                .min_width(250.0)
+                                .movable(true)
+                                .default_pos(egui::pos2(24.0, 24.0))
+                                .default_width(380.0)
+                                .min_width(280.0)
                                 .show(ctx, |ui| {
                                     ui.horizontal(|ui| {
-                                        ui.heading("Configuration");
+                                        ui.heading(RichText::new("Scene Configuration").size(18.0));
                                     });
 
+                                    ui.add_space(4.0);
                                     ui.separator();
+                                    ui.add_space(4.0);
 
-                                    egui::ScrollArea::vertical().show(ui, |ui| {
+                                    egui::ScrollArea::vertical()
+                                        .auto_shrink([false; 2])
+                                        .show(ui, |ui| {
                                         ui.collapsing("Debug Settings", |ui| {
                                             ui.add(
                                                 egui::Slider::new(
@@ -1684,6 +1703,7 @@ impl App {
                                     });
                                 });
                         }
+                        self.config_panel_visible = config_panel_open;
 
                         // FPS counter in bottom right
                         egui::Area::new("fps_counter".into())
