@@ -55,3 +55,6 @@ shaderc = "0.8.3"
 [profile.test]
 # uncomment this line to use release build for tests
 # inherits = "release"
+
+[profile.dev.package.petalsonic]
+opt-level = 3
