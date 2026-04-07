@@ -4,7 +4,9 @@ __pycache__/
 /resource_container_derive
 .gitnexus
 .claude/skills/gitnexus/
+CLAUDE.md
 CLAUDE.local.md
+AGENTS.md
 *.local
 *.local.*
 .cc2cc-session-id
