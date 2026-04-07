@@ -3,6 +3,7 @@
 __pycache__/
 /resource_container_derive
 .gitnexus
+.claude/skills/gitnexus/
 CLAUDE.local.md
 *.local
 *.local.*

@@ -1,0 +1,74 @@
+# Re-Flora Makefile — Linux
+
+# Phonon (Steam Audio) library path from build artifacts
+PHONON_LIB_DIR := $(shell find target/release/build -path '*/audionimbus-sys-*/out/lib' 2>/dev/null | head -1)
+
+# Vulkan environment — standard system paths on Linux
+export LD_LIBRARY_PATH := /usr/lib:/usr/local/lib$(if $(PHONON_LIB_DIR),:$(PHONON_LIB_DIR))
+export CMAKE_POLICY_VERSION_MINIMUM := 3.5
+
+.PHONY: build build-release build-release-novalidation build-debug build-debug-novalidation run run-release run-windowed run-windowed-novalidation run-debug kill clean test fmt lint typecheck checkall deps
+
+# Default target
+all: build-release
+
+# Build targets
+build: build-release
+
+build-release:
+	cargo build --release
+
+build-debug:
+	cargo build
+
+# Build without validation layers
+build-release-novalidation:
+	cargo build --release --features no_validation_layer
+
+build-debug-novalidation:
+	cargo build --features no_validation_layer
+
+# Run targets (pass CLI args via `make run ARGS="--flag"`)
+# All run targets kill existing instances first to prevent conflicts
+ARGS ?=
+
+kill:
+	@pkill -x re-flora 2>/dev/null || true
+
+run: run-release
+
+run-release: kill build-release
+	./target/release/re-flora $(ARGS)
+
+run-windowed: kill build-release
+	./target/release/re-flora --windowed $(ARGS)
+
+run-windowed-novalidation: kill build-release-novalidation
+	./target/release/re-flora --windowed $(ARGS)
+
+run-debug: kill build-debug
+	RUST_BACKTRACE=1 ./target/debug/re-flora $(ARGS)
+
+# Development targets
+clean:
+	cargo clean
+
+test:
+	cargo test
+
+fmt:
+	cargo fmt
+
+lint:
+	cargo clippy --all-targets --all-features -- -D warnings
+
+typecheck:
+	cargo check --all-targets --all-features
+
+checkall: fmt lint test
+	@echo "All checks passed!"
+
+# Install required packages (Ubuntu/Debian)
+deps:
+	sudo apt install -y libvulkan-dev vulkan-tools vulkan-validationlayers libshaderc-dev cmake
+	@echo "Note: for Arch Linux, use: sudo pacman -S vulkan-headers vulkan-validation-layers shaderc cmake"

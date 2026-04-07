@@ -1,0 +1,78 @@
+# Re-Flora Makefile — Windows (MSYS2/Git Bash/MinGW)
+#
+# Requires: Vulkan SDK installed (https://vulkan.lunarg.com/sdk/home)
+# The SDK installer sets VULKAN_SDK and PATH automatically.
+
+# Phonon (Steam Audio) library path from build artifacts
+PHONON_LIB_DIR := $(shell find target/release/build -path '*/audionimbus-sys-*/out/lib' 2>/dev/null | head -1)
+
+export CMAKE_POLICY_VERSION_MINIMUM := 3.5
+
+.PHONY: build build-release build-release-novalidation build-debug build-debug-novalidation run run-release run-windowed run-windowed-novalidation run-debug kill clean test fmt lint typecheck checkall deps
+
+# Default target
+all: build-release
+
+# Build targets
+build: build-release
+
+build-release:
+	cargo build --release
+
+build-debug:
+	cargo build
+
+# Build without validation layers
+build-release-novalidation:
+	cargo build --release --features no_validation_layer
+
+build-debug-novalidation:
+	cargo build --features no_validation_layer
+
+# Run targets (pass CLI args via `make run ARGS="--flag"`)
+# All run targets kill existing instances first to prevent conflicts
+ARGS ?=
+
+kill:
+	@taskkill /IM re-flora.exe /F 2>NUL || true
+
+run: run-release
+
+run-release: kill build-release
+	./target/release/re-flora.exe $(ARGS)
+
+run-windowed: kill build-release
+	./target/release/re-flora.exe --windowed $(ARGS)
+
+run-windowed-novalidation: kill build-release-novalidation
+	./target/release/re-flora.exe --windowed $(ARGS)
+
+run-debug: kill build-debug
+	RUST_BACKTRACE=1 ./target/debug/re-flora.exe $(ARGS)
+
+# Development targets
+clean:
+	cargo clean
+
+test:
+	cargo test
+
+fmt:
+	cargo fmt
+
+lint:
+	cargo clippy --all-targets --all-features -- -D warnings
+
+typecheck:
+	cargo check --all-targets --all-features
+
+checkall: fmt lint test
+	@echo "All checks passed!"
+
+# Install instructions (no automated package manager target)
+deps:
+	@echo "Windows dependencies:"
+	@echo "  1. Install Vulkan SDK from https://vulkan.lunarg.com/sdk/home"
+	@echo "  2. Install CMake from https://cmake.org/download/"
+	@echo "  3. Ensure VULKAN_SDK environment variable is set (SDK installer does this)"
+	@echo "  4. Verify with: vulkaninfo"
