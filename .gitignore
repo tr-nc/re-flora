@@ -9,3 +9,5 @@ CLAUDE.local.md
 *.local.*
 .cc2cc-session-id
 settings.local.json
+Makefile
+Makefile.*
