@@ -380,11 +380,17 @@ impl App {
         } else {
             vk::PresentModeKHR::MAILBOX
         };
+        let swapchain_optimize = options.swapchain_optimize;
+        if swapchain_optimize {
+            log::info!("Swapchain optimizations enabled (unclamped image count)");
+        }
         let swapchain = Swapchain::new(
             vulkan_ctx.clone(),
             window_state.window_extent(),
             SwapchainDesc {
                 present_mode,
+                unclamped_image_count: swapchain_optimize,
+                image_count_override: options.swapchain_images,
                 ..Default::default()
             },
         );
@@ -799,6 +805,11 @@ impl App {
 
         let render_area = self.window_state.window_extent();
 
+        // On non-macOS platforms the image layout transition is required for
+        // correctness — submitting with UNDEFINED/PRESENT_SRC_KHR instead of
+        // COLOR_ATTACHMENT_OPTIMAL causes validation errors and crashes on
+        // Linux/Windows Vulkan drivers. MoltenVK is lenient about this.
+        #[cfg(not(target_os = "macos"))]
         self.swapchain
             .record_prepare_image_for_render_pass(cmdbuf, image_idx);
 
