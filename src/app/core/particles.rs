@@ -13,7 +13,7 @@ use std::f32::consts::TAU;
 // bird-specific audio and control logic has been removed
 
 #[allow(dead_code)]
-const TERRAIN_HARVEST_MAX_PARTICLES_PER_EDIT: u32 = 24;
+const TERRAIN_HARVEST_MAX_PARTICLES_PER_EDIT: u32 = 4;
 #[allow(dead_code)]
 const TERRAIN_HARVEST_PARTICLE_SIZE: f32 = 1.0 / 256.0;
 
