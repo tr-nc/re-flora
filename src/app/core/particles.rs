@@ -58,6 +58,15 @@ impl App {
 
     #[allow(dead_code)]
     fn terrain_harvest_color_for_voxel(&self, voxel_type: u32) -> Vec4 {
+        fn srgb_to_linear(channel: u8) -> f32 {
+            let srgb = channel as f32 / 255.0;
+            if srgb <= 0.04045 {
+                srgb / 12.92
+            } else {
+                ((srgb + 0.055) / 1.055).powf(2.4)
+            }
+        }
+
         let color32 = match voxel_type {
             crate::builder::VOXEL_TYPE_DIRT => super::ActiveVoxelType::Dirt.color(),
             crate::builder::VOXEL_TYPE_CHERRY_WOOD => super::ActiveVoxelType::CherryWood.color(),
@@ -68,9 +77,9 @@ impl App {
         };
 
         Vec4::new(
-            color32.r() as f32 / 255.0,
-            color32.g() as f32 / 255.0,
-            color32.b() as f32 / 255.0,
+            srgb_to_linear(color32.r()),
+            srgb_to_linear(color32.g()),
+            srgb_to_linear(color32.b()),
             1.0,
         )
     }
