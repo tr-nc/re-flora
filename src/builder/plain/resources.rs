@@ -16,6 +16,7 @@ pub struct PlainBuilderResources {
     pub heightmap: Resource<Buffer>,
     pub chunk_modify_info: Resource<Buffer>,
     pub edit_stats: Resource<Buffer>,
+    pub edit_removal_candidates: Resource<Buffer>,
     pub round_cones: Resource<Buffer>,
     pub cuboids: Resource<Buffer>,
     pub spheres: Resource<Buffer>,
@@ -74,6 +75,18 @@ impl PlainBuilderResources {
             edit_stats_layout.clone(),
             BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
+        );
+
+        let edit_removal_candidates_layout = chunk_modify_sm
+            .get_buffer_layout("B_EditRemovalCandidates")
+            .unwrap();
+        let edit_removal_candidates = Buffer::from_buffer_layout_arraylike(
+            device.clone(),
+            allocator.clone(),
+            edit_removal_candidates_layout.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            super::EDIT_REMOVAL_CANDIDATE_CAPACITY,
         );
 
         let round_cones_layout = chunk_modify_sm.get_buffer_layout("B_RoundCones").unwrap();
@@ -150,6 +163,7 @@ impl PlainBuilderResources {
             free_atlas: Resource::new(free_atlas),
             chunk_modify_info: Resource::new(chunk_modify_info),
             edit_stats: Resource::new(edit_stats),
+            edit_removal_candidates: Resource::new(edit_removal_candidates),
             round_cones: Resource::new(round_cones),
             cuboids: Resource::new(cuboids),
             spheres: Resource::new(spheres),

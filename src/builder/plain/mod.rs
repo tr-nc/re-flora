@@ -35,6 +35,7 @@ const PRIMITIVE_KIND_ROUND_CONE: u32 = 0;
 const PRIMITIVE_KIND_CUBOID: u32 = 1;
 const PRIMITIVE_KIND_SPHERE: u32 = 2;
 const EDIT_STATS_VOXEL_TYPE_COUNT: usize = 8;
+pub(crate) const EDIT_REMOVAL_CANDIDATE_CAPACITY: u64 = 65_536;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ChunkModifyStats {
@@ -319,6 +320,7 @@ impl PlainBuilder {
     ) -> Result<ChunkModifyStats> {
         let (offset, dim) = calculate_offset_and_dim(bvh_nodes);
         clear_edit_stats(&self.resources)?;
+        clear_edit_removal_candidates(&self.resources)?;
         update_chunk_modify_info(
             &self.resources,
             offset,
@@ -465,6 +467,14 @@ fn clear_edit_stats(resources: &PlainBuilderResources) -> Result<()> {
     resources
         .edit_stats
         .fill_with_raw_u32(&[0; EDIT_STATS_VOXEL_TYPE_COUNT * 2])
+}
+
+fn clear_edit_removal_candidates(resources: &PlainBuilderResources) -> Result<()> {
+    resources.edit_removal_candidates.fill_with_raw_u8(&vec![
+        0;
+        resources.edit_removal_candidates.get_size_bytes()
+            as usize
+    ])
 }
 
 fn read_edit_stats(resources: &PlainBuilderResources) -> Result<ChunkModifyStats> {

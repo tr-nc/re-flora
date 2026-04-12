@@ -48,6 +48,8 @@ layout(set = 0, binding = 6) buffer B_EditStats {
     uint added_counts[8];
 }
 edit_stats;
+layout(set = 0, binding = 7) buffer B_EditRemovalCandidates { vec4 positions[]; }
+edit_removal_candidates;
 
 #include "../../include/config.glsl"
 #include "../../include/core/aabb.glsl"
@@ -60,6 +62,7 @@ const uint PRIMITIVE_KIND_ROUND_CONE = 0u;
 const uint PRIMITIVE_KIND_CUBOID     = 1u;
 const uint PRIMITIVE_KIND_SPHERE     = 2u;
 const uint VOXEL_TYPE_ANY            = 0xffffffffu;
+const uint EDIT_REMOVAL_CANDIDATE_CAPACITY = 65536u;
 
 bool is_solid(uint voxel_type) { return voxel_type != VOXEL_TYPE_EMPTY; }
 
@@ -187,6 +190,13 @@ void main() {
                 }
 
                 atomicAdd(edit_stats.removed_counts[old_voxel_type], 1u);
+                if (chunk_modify_info.fill_voxel_type == VOXEL_TYPE_EMPTY) {
+                    uint candidate_idx = edit_stats.added_counts[VOXEL_TYPE_EMPTY] - 1u;
+                    if (candidate_idx < EDIT_REMOVAL_CANDIDATE_CAPACITY) {
+                        edit_removal_candidates.positions[candidate_idx] =
+                            vec4(world_voxel_pos_f / 256.0, 1.0);
+                    }
+                }
                 imageStore(chunk_atlas, world_voxel_pos,
                            uvec4(chunk_modify_info.fill_voxel_type, 0, 0, 0));
                 return;
