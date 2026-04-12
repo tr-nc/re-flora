@@ -366,6 +366,7 @@ impl App {
         );
 
         self.particle_system.update(dt, self.particle_forces);
+        self.update_terrain_harvest_particle_collection(dt);
         let tick_step = self.particle_system.last_tick_step();
         if tick_step.did_step {
             self.particle_animation_time_sec += tick_step.step_seconds;

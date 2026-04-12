@@ -270,6 +270,7 @@ impl App {
                     .map(|stats| {
                         let harvested = stats.count_removed(self.active_voxel_type_id());
                         self.add_active_voxel_to_backpack(harvested);
+                        self.spawn_terrain_harvest_particles(center, &stats);
                     })
                 {
                     log::error!("Failed to apply terrain removal: {}", err);
