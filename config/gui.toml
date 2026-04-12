@@ -792,6 +792,15 @@ max = 5
 name = "Terrain Harvest Particles"
 
 [[section.param]]
+id = "terrain_harvest_particles_enabled"
+kind = "bool"
+label = "Enable Terrain Harvest Particles"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "terrain_harvest_flyback_speed"
 kind = "float"
 label = "Flyback Speed"

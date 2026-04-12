@@ -452,6 +452,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Terrain Harvest Particles",
+        id: "terrain_harvest_particles_enabled",
+        kind: "bool",
+        label: "Enable Terrain Harvest Particles",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Terrain Harvest Particles",
         id: "terrain_harvest_flyback_speed",
         kind: "float",
         label: "Flyback Speed",
@@ -639,6 +645,7 @@ pub struct GuiAdjustables {
     pub leaves_bottom_color: crate::gui_adjustables::ColorParam,
     pub leaves_tip_color: crate::gui_adjustables::ColorParam,
     pub particle_full_update_seconds: crate::gui_adjustables::FloatParam,
+    pub terrain_harvest_particles_enabled: crate::gui_adjustables::BoolParam,
     pub terrain_harvest_flyback_speed: crate::gui_adjustables::FloatParam,
     pub butterflies_enabled: crate::gui_adjustables::BoolParam,
     pub butterflies_per_chunk: crate::gui_adjustables::FloatParam,
@@ -742,6 +749,7 @@ impl GuiAdjustables {
         let mut leaves_bottom_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut leaves_tip_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut particle_full_update_seconds_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut terrain_harvest_particles_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut terrain_harvest_flyback_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut butterflies_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut butterflies_per_chunk_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1230,6 +1238,11 @@ impl GuiAdjustables {
                             particle_full_update_seconds_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
+                    "terrain_harvest_particles_enabled" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            terrain_harvest_particles_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
                     "terrain_harvest_flyback_speed" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -1432,6 +1445,7 @@ impl GuiAdjustables {
             leaves_bottom_color: leaves_bottom_color_field.expect("Missing parameter: leaves_bottom_color"),
             leaves_tip_color: leaves_tip_color_field.expect("Missing parameter: leaves_tip_color"),
             particle_full_update_seconds: particle_full_update_seconds_field.expect("Missing parameter: particle_full_update_seconds"),
+            terrain_harvest_particles_enabled: terrain_harvest_particles_enabled_field.expect("Missing parameter: terrain_harvest_particles_enabled"),
             terrain_harvest_flyback_speed: terrain_harvest_flyback_speed_field.expect("Missing parameter: terrain_harvest_flyback_speed"),
             butterflies_enabled: butterflies_enabled_field.expect("Missing parameter: butterflies_enabled"),
             butterflies_per_chunk: butterflies_per_chunk_field.expect("Missing parameter: butterflies_per_chunk"),
@@ -1553,6 +1567,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "auto_daynight_cycle" => Some(&adjustables.auto_daynight_cycle),
         "is_changing_lum_phi" => Some(&adjustables.is_changing_lum_phi),
         "is_spatial_denoising_enabled" => Some(&adjustables.is_spatial_denoising_enabled),
+        "terrain_harvest_particles_enabled" => Some(&adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&adjustables.butterflies_enabled),
         _ => None,
     }
@@ -1678,6 +1693,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "auto_daynight_cycle" => Some(&mut adjustables.auto_daynight_cycle),
         "is_changing_lum_phi" => Some(&mut adjustables.is_changing_lum_phi),
         "is_spatial_denoising_enabled" => Some(&mut adjustables.is_spatial_denoising_enabled),
+        "terrain_harvest_particles_enabled" => Some(&mut adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&mut adjustables.butterflies_enabled),
         _ => None,
     }

@@ -91,6 +91,10 @@ impl App {
         stats: &ChunkModifyStats,
         sampled_positions_world: &[Vec3],
     ) {
+        if !self.gui_adjustables.terrain_harvest_particles_enabled.value {
+            return;
+        }
+
         let mut removed_total = 0u32;
         for count in stats.removed_counts {
             removed_total = removed_total.saturating_add(count);
@@ -168,7 +172,10 @@ impl App {
 
     #[allow(dead_code)]
     fn update_terrain_harvest_particle_collection(&mut self, dt: f32) {
-        if dt <= 0.0 || self.terrain_harvest_particle_handles.is_empty() {
+        if dt <= 0.0
+            || !self.gui_adjustables.terrain_harvest_particles_enabled.value
+            || self.terrain_harvest_particle_handles.is_empty()
+        {
             return;
         }
 
