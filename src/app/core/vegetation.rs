@@ -4,7 +4,7 @@ use crate::app::world_edits::{
     TreeAddOptions, TreePlacement, TreePlacementEdit, VoxelEdit, WorldEditPlan,
 };
 use crate::app::world_ops;
-use crate::builder::{ChunkModifyStats, VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_OAK_WOOD};
+use crate::builder::{ChunkModifyReadback, VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_OAK_WOOD};
 use crate::geom::{build_bvh, Cuboid, RoundCone, Sphere, UAabb3};
 use crate::procedual_placer::{generate_positions, PlacerDesc};
 use crate::tree_gen::{Tree, TreeDesc};
@@ -688,7 +688,7 @@ impl App {
         edit: TerrainRemovalEdit,
         target_voxel_type: Option<u32>,
         max_write_count: Option<u32>,
-    ) -> Result<ChunkModifyStats> {
+    ) -> Result<ChunkModifyReadback> {
         if let Some(compiled) = TerrainSurfaceRemovalService::compile(edit) {
             let stats = match compiled.voxel_edit {
                 VoxelEdit::StampSurfaceSpheres {
@@ -720,7 +720,7 @@ impl App {
             )?;
             return Ok(stats);
         }
-        Ok(ChunkModifyStats::default())
+        Ok(ChunkModifyReadback::default())
     }
 
     pub(super) fn apply_surface_terrain_placement(
@@ -728,7 +728,7 @@ impl App {
         edit: TerrainRemovalEdit,
         voxel_type: u32,
         max_write_count: u32,
-    ) -> Result<ChunkModifyStats> {
+    ) -> Result<ChunkModifyReadback> {
         if let Some(compiled) =
             TerrainSurfaceRemovalService::compile_with_voxel_type(edit, voxel_type)
         {
@@ -762,7 +762,7 @@ impl App {
             )?;
             return Ok(stats);
         }
-        Ok(ChunkModifyStats::default())
+        Ok(ChunkModifyReadback::default())
     }
 
     pub(super) fn apply_surface_flora_regeneration(

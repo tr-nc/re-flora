@@ -267,10 +267,10 @@ impl App {
                         Some(self.active_voxel_type_id()),
                         Some(remaining_capacity),
                     )
-                    .map(|stats| {
-                        let harvested = stats.count_removed(self.active_voxel_type_id());
+                    .map(|readback| {
+                        let harvested = readback.stats.count_removed(self.active_voxel_type_id());
                         self.add_active_voxel_to_backpack(harvested);
-                        self.spawn_terrain_harvest_particles(center, &stats);
+                        self.spawn_terrain_harvest_particles(center, &readback.stats);
                     })
                 {
                     log::error!("Failed to apply terrain removal: {}", err);
@@ -359,9 +359,9 @@ impl App {
                         active_voxel_type,
                         active_voxel_count,
                     )
-                    .map(|stats| {
+                    .map(|readback| {
                         self.remove_active_voxel_from_backpack(
-                            stats.count_added(self.active_voxel_type_id()),
+                            readback.stats.count_added(self.active_voxel_type_id()),
                         );
                     })
                 {

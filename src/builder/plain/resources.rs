@@ -17,6 +17,7 @@ pub struct PlainBuilderResources {
     pub chunk_modify_info: Resource<Buffer>,
     pub edit_stats: Resource<Buffer>,
     pub edit_removal_candidates: Resource<Buffer>,
+    pub edit_removal_sample: Resource<Buffer>,
     pub round_cones: Resource<Buffer>,
     pub cuboids: Resource<Buffer>,
     pub spheres: Resource<Buffer>,
@@ -31,6 +32,7 @@ impl PlainBuilderResources {
         free_atlas_dim: UVec3,
         buffer_setup_sm: &ShaderModule,
         chunk_modify_sm: &ShaderModule,
+        chunk_modify_sample_sm: &ShaderModule,
         heightmap_sm: &ShaderModule,
     ) -> Self {
         let tex_desc = ImageDesc {
@@ -87,6 +89,17 @@ impl PlainBuilderResources {
             BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
             super::EDIT_REMOVAL_CANDIDATE_CAPACITY,
+        );
+
+        let edit_removal_sample_layout = chunk_modify_sample_sm
+            .get_buffer_layout("B_EditRemovalSample")
+            .unwrap();
+        let edit_removal_sample = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            edit_removal_sample_layout.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
         let round_cones_layout = chunk_modify_sm.get_buffer_layout("B_RoundCones").unwrap();
@@ -164,6 +177,7 @@ impl PlainBuilderResources {
             chunk_modify_info: Resource::new(chunk_modify_info),
             edit_stats: Resource::new(edit_stats),
             edit_removal_candidates: Resource::new(edit_removal_candidates),
+            edit_removal_sample: Resource::new(edit_removal_sample),
             round_cones: Resource::new(round_cones),
             cuboids: Resource::new(cuboids),
             spheres: Resource::new(spheres),

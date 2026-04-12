@@ -1,6 +1,7 @@
 mod resources;
 use crate::generated::gpu_structs::{
-    BvhNodes, ChunkModifyInfo, Cuboids, RegionInfo, RoundCones, Spheres,
+    BvhNodes, ChunkModifyInfo, Cuboids, PushConstantChunkModifySample, RegionInfo, RoundCones,
+    Spheres,
 };
 use crate::geom::{BvhNode, Cuboid, RoundCone, Sphere};
 use crate::util::ShaderCompiler;
@@ -20,8 +21,8 @@ use crate::vkn::Texture;
 use crate::vkn::VulkanContext;
 use anyhow::Result;
 use ash::vk;
-use bytemuck::Zeroable;
-use glam::UVec3;
+use bytemuck::{Pod, Zeroable};
+use glam::{UVec3, Vec3};
 pub use resources::*;
 use std::convert::TryInto;
 
@@ -36,6 +37,7 @@ const PRIMITIVE_KIND_CUBOID: u32 = 1;
 const PRIMITIVE_KIND_SPHERE: u32 = 2;
 const EDIT_STATS_VOXEL_TYPE_COUNT: usize = 8;
 pub(crate) const EDIT_REMOVAL_CANDIDATE_CAPACITY: u64 = 65_536;
+const EDIT_REMOVAL_SAMPLE_COUNT: usize = 50;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ChunkModifyStats {
@@ -59,6 +61,21 @@ impl ChunkModifyStats {
     }
 }
 
+#[derive(Debug, Default)]
+pub struct ChunkModifyReadback {
+    pub stats: ChunkModifyStats,
+    #[allow(dead_code)]
+    pub sampled_positions_world: Vec<Vec3>,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct EditRemovalSampleReadback {
+    sample_count: u32,
+    _pad0: [u32; 3],
+    positions: [[f32; 4]; EDIT_REMOVAL_SAMPLE_COUNT],
+}
+
 pub struct PlainBuilder {
     vulkan_ctx: VulkanContext,
     resources: PlainBuilderResources,
@@ -69,11 +86,13 @@ pub struct PlainBuilder {
     chunk_init_ppl: ComputePipeline,
     heightmap_ppl: ComputePipeline,
     chunk_modify_ppl: ComputePipeline,
+    chunk_modify_sample_ppl: ComputePipeline,
 
     #[allow(dead_code)]
     pool: DescriptorPool,
 
     build_cmdbuf: CommandBuffer,
+    next_edit_sample_seed: u32,
 }
 
 impl PlainBuilder {
@@ -107,6 +126,13 @@ impl PlainBuilder {
             "main",
         )
         .unwrap();
+        let chunk_modify_sample_sm = ShaderModule::from_glsl(
+            device,
+            shader_compiler,
+            "shader/builder/chunk_writer/chunk_modify_sample.comp",
+            "main",
+        )
+        .unwrap();
         let heightmap_sm = ShaderModule::from_glsl(
             device,
             shader_compiler,
@@ -122,6 +148,7 @@ impl PlainBuilder {
             free_atlas_dim,
             &buffer_setup_sm,
             &chunk_modify_sm,
+            &chunk_modify_sample_sm,
             &heightmap_sm,
         );
 
@@ -131,6 +158,8 @@ impl PlainBuilder {
         let chunk_init_ppl = ComputePipeline::new(device, &chunk_init_sm, &pool, &[&resources]);
         let heightmap_ppl = ComputePipeline::new(device, &heightmap_sm, &pool, &[&resources]);
         let chunk_modify_ppl = ComputePipeline::new(device, &chunk_modify_sm, &pool, &[&resources]);
+        let chunk_modify_sample_ppl =
+            ComputePipeline::new(device, &chunk_modify_sample_sm, &pool, &[&resources]);
 
         init_atlas_images(&vulkan_ctx, &resources);
 
@@ -151,8 +180,10 @@ impl PlainBuilder {
             chunk_init_ppl,
             heightmap_ppl,
             chunk_modify_ppl,
+            chunk_modify_sample_ppl,
             pool,
             build_cmdbuf,
+            next_edit_sample_seed: 1,
         };
 
         fn init_atlas_images(vulkan_context: &VulkanContext, resources: &PlainBuilderResources) {
@@ -317,7 +348,7 @@ impl PlainBuilder {
         fill_voxel_type: u32,
         target_voxel_type: Option<u32>,
         max_write_count: Option<u32>,
-    ) -> Result<ChunkModifyStats> {
+    ) -> Result<ChunkModifyReadback> {
         let (offset, dim) = calculate_offset_and_dim(bvh_nodes);
         clear_edit_stats(&self.resources)?;
         clear_edit_removal_candidates(&self.resources)?;
@@ -333,6 +364,16 @@ impl PlainBuilder {
         )?;
         update_spheres(&self.resources, spheres)?;
         update_trunk_bvh_nodes(&self.resources, bvh_nodes)?;
+        let sample_push = PushConstantChunkModifySample {
+            edit_seed: self.next_edit_sample_seed,
+            _pad0: [0; 12],
+        };
+        self.next_edit_sample_seed = self.next_edit_sample_seed.wrapping_add(1);
+        let shader_access_pipeline_barrier = PipelineBarrier::new(
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vec![MemoryBarrier::new_shader_access()],
+        );
 
         execute_one_time_command(
             self.vulkan_ctx.device(),
@@ -348,9 +389,18 @@ impl PlainBuilder {
                     },
                     None,
                 );
+                shader_access_pipeline_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+                self.chunk_modify_sample_ppl.record(
+                    cmdbuf,
+                    Extent3D::new(EDIT_REMOVAL_SAMPLE_COUNT as u32, 1, 1),
+                    Some(bytemuck::bytes_of(&sample_push)),
+                );
             },
         );
-        read_edit_stats(&self.resources)
+        Ok(ChunkModifyReadback {
+            stats: read_edit_stats(&self.resources)?,
+            sampled_positions_world: read_edit_removal_sample(&self.resources)?,
+        })
     }
 
     fn chunk_modify_round_cones_with_voxel_type(
@@ -506,6 +556,18 @@ fn read_edit_stats(resources: &PlainBuilderResources) -> Result<ChunkModifyStats
         removed_counts,
         added_counts,
     })
+}
+
+fn read_edit_removal_sample(resources: &PlainBuilderResources) -> Result<Vec<Vec3>> {
+    let raw = resources.edit_removal_sample.read_back()?;
+    let readback = bytemuck::try_from_bytes::<EditRemovalSampleReadback>(&raw)
+        .map_err(|err| anyhow::anyhow!("invalid edit removal sample readback: {err}"))?;
+    let sample_count = (readback.sample_count as usize).min(EDIT_REMOVAL_SAMPLE_COUNT);
+    let mut positions = Vec::with_capacity(sample_count);
+    for item in readback.positions.iter().take(sample_count) {
+        positions.push(Vec3::new(item[0], item[1], item[2]));
+    }
+    Ok(positions)
 }
 
 fn update_round_cones(resources: &PlainBuilderResources, round_cones: &[RoundCone]) -> Result<()> {

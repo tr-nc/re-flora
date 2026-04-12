@@ -560,6 +560,10 @@ const SHADER_FILES: &[(&str, shaderc::ShaderKind)] = &[
         shaderc::ShaderKind::Compute,
     ),
     (
+        "shader/builder/chunk_writer/chunk_modify_sample.comp",
+        shaderc::ShaderKind::Compute,
+    ),
+    (
         "shader/builder/contree/buffer_setup.comp",
         shaderc::ShaderKind::Compute,
     ),
