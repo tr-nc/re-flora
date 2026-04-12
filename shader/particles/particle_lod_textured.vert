@@ -93,7 +93,7 @@ void main() {
     float sun_luminance = sun_luminance_from_dir(sun_info.sun_dir, sun_info.sun_luminance);
     vec3 sun_light      = sun_info.sun_color * sun_luminance;
     vec3 lighting       = sun_light * shadow_weight + shading_info.ambient_light;
-    vert_color          = vec4(lighting, in_instance_color.a);
+    vert_color          = vec4(in_instance_color.rgb * lighting, in_instance_color.a);
 
     vert_uv            = vec2(float(vert_offset_in_vox.x), 1.0 - float(vert_offset_in_vox.y));
     bool flip_sprite_x = (in_instance_tex_index & SPRITE_FLIP_BIT) != 0u;

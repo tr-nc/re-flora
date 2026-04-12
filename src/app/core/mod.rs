@@ -155,6 +155,7 @@ pub struct App {
     backpack_rock_count: u32,
     terrain_edit_loop_sound: Option<Uuid>,
     terrain_edit_loop_sound_muted: bool,
+    backpack_summary_panel_screen_pos: Option<Vec2>,
 
     flora_tick: u32,
     flora_tick_accumulator: f32,
@@ -567,6 +568,7 @@ impl App {
             backpack_rock_count: 0,
             terrain_edit_loop_sound: None,
             terrain_edit_loop_sound_muted: true,
+            backpack_summary_panel_screen_pos: None,
             flora_tick: FLORA_FULL_GROWTH_TICKS,
             flora_tick_accumulator: 0.0,
 
@@ -1352,7 +1354,7 @@ impl App {
                             selected_item_panel_slot,
                         );
 
-                        draw_backpack_summary(
+                        let backpack_summary_panel_center = draw_backpack_summary(
                             ctx,
                             backpack_dirt_count,
                             backpack_sand_count,
@@ -1361,6 +1363,10 @@ impl App {
                             backpack_rock_count,
                             terrain_query_debug_text.as_str(),
                         );
+                        self.backpack_summary_panel_screen_pos = Some(Vec2::new(
+                            backpack_summary_panel_center.x,
+                            backpack_summary_panel_center.y,
+                        ));
                         draw_active_voxel_display(ctx, active_voxel_label, active_voxel_color);
 
                         if self.left_mouse_held {

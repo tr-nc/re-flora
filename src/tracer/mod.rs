@@ -1653,6 +1653,38 @@ impl Tracer {
         self.camera.front()
     }
 
+    pub fn project_screen_point_to_world(
+        &self,
+        screen_pos: Vec2,
+        screen_extent: Vec2,
+        distance_from_camera: f32,
+    ) -> Option<Vec3> {
+        if screen_extent.x <= 0.0 || screen_extent.y <= 0.0 {
+            return None;
+        }
+
+        let ndc = Vec3::new(
+            (screen_pos.x / screen_extent.x) * 2.0 - 1.0,
+            (screen_pos.y / screen_extent.y) * 2.0 - 1.0,
+            0.0,
+        );
+        let clip = ndc.extend(1.0);
+        let mut world = self.current_view_proj_mat.inverse() * clip;
+        if world.w.abs() <= 1e-6 {
+            return None;
+        }
+        world /= world.w;
+
+        let camera_pos = self.camera.position();
+        let world_pos = Vec3::new(world.x, world.y, world.z);
+        let direction = (world_pos - camera_pos).normalize_or_zero();
+        if direction.length_squared() <= 1e-6 {
+            return None;
+        }
+
+        Some(camera_pos + direction * distance_from_camera)
+    }
+
     #[allow(dead_code)]
     pub fn camera_vectors(&self) -> &CameraVectors {
         self.camera.vectors()

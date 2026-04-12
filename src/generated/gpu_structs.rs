@@ -32,6 +32,22 @@ pub struct Cuboids {
     pub _pad1: f32,
 }
 
+/// Auto-generated from `B_EditRemovalCandidates` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct EditRemovalCandidates {
+    pub positions: [u32; 0],
+}
+
+/// Auto-generated from `B_EditRemovalSample` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct EditRemovalSample {
+    pub sample_count: u32,
+    pub _pad0: [u8; 12],
+    pub positions: [u32; 200],
+}
+
 /// Auto-generated from `B_EditStats` (GLSL source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -130,6 +146,14 @@ pub struct TerrainQueryInfo {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct TerrainQueryResult {
     pub hit_pos_and_valid: [u32; 0],
+}
+
+/// Auto-generated from `PushConstantChunkModifySample` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantChunkModifySample {
+    pub edit_seed: u32,
+    pub _pad0: [u8; 12],
 }
 
 /// Auto-generated from `PushConstantFlora` (GLSL source of truth).
