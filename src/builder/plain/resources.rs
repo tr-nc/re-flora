@@ -82,13 +82,14 @@ impl PlainBuilderResources {
         let edit_removal_candidates_layout = chunk_modify_sm
             .get_buffer_layout("B_EditRemovalCandidates")
             .unwrap();
-        let edit_removal_candidates = Buffer::from_buffer_layout_arraylike(
+        let edit_removal_candidates = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
-            edit_removal_candidates_layout.clone(),
-            BufferUsage::empty(),
+            BufferUsage::from_reflect_descriptor_type(
+                edit_removal_candidates_layout.descriptor_type,
+            ),
             gpu_allocator::MemoryLocation::CpuToGpu,
-            super::EDIT_REMOVAL_CANDIDATE_CAPACITY,
+            std::mem::size_of::<[f32; 4]>() as u64 * super::EDIT_REMOVAL_CANDIDATE_CAPACITY,
         );
 
         let edit_removal_sample_layout = chunk_modify_sample_sm

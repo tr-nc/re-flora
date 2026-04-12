@@ -177,8 +177,9 @@ void main() {
                     return;
                 }
 
+                uint added_idx;
                 if (chunk_modify_info.max_write_count != 0u) {
-                    uint added_idx =
+                    added_idx =
                         atomicAdd(edit_stats.added_counts[chunk_modify_info.fill_voxel_type], 1u);
                     if (added_idx >= chunk_modify_info.max_write_count) {
                         atomicAdd(edit_stats.added_counts[chunk_modify_info.fill_voxel_type],
@@ -186,14 +187,14 @@ void main() {
                         return;
                     }
                 } else {
-                    atomicAdd(edit_stats.added_counts[chunk_modify_info.fill_voxel_type], 1u);
+                    added_idx =
+                        atomicAdd(edit_stats.added_counts[chunk_modify_info.fill_voxel_type], 1u);
                 }
 
                 atomicAdd(edit_stats.removed_counts[old_voxel_type], 1u);
                 if (chunk_modify_info.fill_voxel_type == VOXEL_TYPE_EMPTY) {
-                    uint candidate_idx = edit_stats.added_counts[VOXEL_TYPE_EMPTY] - 1u;
-                    if (candidate_idx < EDIT_REMOVAL_CANDIDATE_CAPACITY) {
-                        edit_removal_candidates.positions[candidate_idx] =
+                    if (added_idx < EDIT_REMOVAL_CANDIDATE_CAPACITY) {
+                        edit_removal_candidates.positions[added_idx] =
                             vec4(world_voxel_pos_f / 256.0, 1.0);
                     }
                 }

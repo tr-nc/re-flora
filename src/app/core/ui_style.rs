@@ -128,7 +128,7 @@ pub(crate) fn draw_backpack_summary(
     oak_wood_count: u32,
     rock_count: u32,
     terrain_query_text: &str,
-) {
+) -> egui::Pos2 {
     egui::Area::new("backpack_summary".into())
         .anchor(egui::Align2::RIGHT_TOP, egui::Vec2::new(-16.0, 80.0))
         .show(ctx, |ui| {
@@ -175,7 +175,10 @@ pub(crate) fn draw_backpack_summary(
                 );
                 draw_voxel_count_progress(ui, "Rock", rock_count, Color32::from_rgb(168, 176, 190));
             });
-        });
+        })
+        .response
+        .rect
+        .center()
 }
 
 fn draw_voxel_count_progress(ui: &mut egui::Ui, label: &str, count: u32, fill: Color32) {

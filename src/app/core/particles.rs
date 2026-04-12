@@ -39,6 +39,23 @@ impl ParticleEmitter for TreeLeafEmitter {
 }
 
 impl App {
+    fn terrain_harvest_collection_target(&self) -> Vec3 {
+        let screen_resolution = self.window_state.resolution();
+        self.backpack_summary_panel_screen_pos
+            .and_then(|screen_pos| {
+                self.tracer.project_screen_point_to_world(
+                    screen_pos,
+                    Vec2::new(screen_resolution[0], screen_resolution[1]),
+                    0.22,
+                )
+            })
+            .unwrap_or_else(|| {
+                let camera_pos = self.tracer.camera_position();
+                let camera_front = self.tracer.camera_front().normalize_or_zero();
+                camera_pos + camera_front * 0.22 + Vec3::new(0.0, -0.04, 0.0)
+            })
+    }
+
     #[allow(dead_code)]
     fn terrain_harvest_color_for_voxel(&self, voxel_type: u32) -> Vec4 {
         let color32 = match voxel_type {
@@ -77,6 +94,12 @@ impl App {
 
         let spawn_count = removed_total.clamp(1, TERRAIN_HARVEST_MAX_PARTICLES_PER_EDIT);
         let fallback_base_pos = center + Vec3::new(0.0, 0.03, 0.0);
+        let collection_target = self.terrain_harvest_collection_target();
+        let flyback_speed = self
+            .gui_adjustables
+            .terrain_harvest_flyback_speed
+            .value
+            .max(0.05);
 
         let mut removed_types = Vec::new();
         let mut cumulative = 0u32;
@@ -92,17 +115,12 @@ impl App {
         }
 
         for i in 0..spawn_count {
-            let t = i as f32 / spawn_count as f32;
-            let angle = t * TAU;
-            let swirl = Vec3::new(angle.cos(), 0.0, angle.sin());
             let base_pos = if sampled_positions_world.is_empty() {
                 fallback_base_pos
             } else {
-                sampled_positions_world[i as usize % sampled_positions_world.len()]
-                    + Vec3::new(swirl.x, 0.0, swirl.z) * 0.01
-                    + Vec3::new(0.0, 0.01, 0.0)
+                sampled_positions_world[i as usize % sampled_positions_world.len()] + Vec3::Y * 0.01
             };
-            let velocity = Vec3::new(swirl.x * 0.18, 0.25 + t * 0.22, swirl.z * 0.18);
+            let velocity = (collection_target - base_pos).normalize_or_zero() * flyback_speed;
             let sample = (((i as f32 + 0.5) / spawn_count as f32) * removed_total as f32)
                 .clamp(0.0, removed_total as f32 - 0.001) as u32;
             let mut sampled_voxel_type = removed_types[removed_types.len() - 1].0;
@@ -113,8 +131,7 @@ impl App {
                 }
             }
             let base_color = self.terrain_harvest_color_for_voxel(sampled_voxel_type);
-            let brightness = 0.9 + 0.2 * ((t * TAU * 2.0).sin() * 0.5 + 0.5);
-            let rgb = base_color.truncate() * brightness;
+            let rgb = base_color.truncate();
 
             let spawn = ParticleSpawn {
                 position: base_pos,
@@ -124,9 +141,9 @@ impl App {
                 lifetime: 1.35,
                 wind_factor: 0.0,
                 gravity_factor: 0.0,
-                drift_direction: Vec3::new(swirl.z, 0.2, -swirl.x),
-                drift_strength: 0.08,
-                drift_frequency: 1.7,
+                drift_direction: Vec3::ZERO,
+                drift_strength: 0.0,
+                drift_frequency: 0.0,
                 speed_noise_offset: i as f32,
                 motion_mode: crate::particles::MotionMode::Free,
                 sink_on_lifetime: false,
@@ -148,9 +165,7 @@ impl App {
             return;
         }
 
-        let camera_pos = self.tracer.camera_position();
-        let camera_front = self.tracer.camera_front().normalize_or_zero();
-        let collection_target = camera_pos + camera_front * 0.16 + Vec3::new(0.0, -0.04, 0.0);
+        let collection_target = self.terrain_harvest_collection_target();
         let flyback_speed = self
             .gui_adjustables
             .terrain_harvest_flyback_speed
@@ -168,19 +183,18 @@ impl App {
 
             let to_target = collection_target - position;
             let distance = to_target.length();
-            if distance <= 0.08 {
+            if distance <= 0.01 || distance <= flyback_speed * dt {
+                let _ = self
+                    .particle_system
+                    .set_position(*handle, collection_target);
                 let _ = self.particle_system.despawn(*handle);
                 return false;
             }
 
             let direction = to_target.normalize_or_zero();
-            let current_velocity = self.particle_system.velocity(*handle).unwrap_or(Vec3::ZERO);
-            let desired_speed = (flyback_speed * (0.85 + (1.5 - distance).max(0.0) * 0.35))
-                .clamp(flyback_speed * 0.85, flyback_speed * 1.2);
-            let desired_velocity = direction * desired_speed;
-            let blend = (3.0 * dt).clamp(0.0, 1.0);
-            let next_velocity = current_velocity.lerp(desired_velocity, blend);
-            let _ = self.particle_system.set_velocity(*handle, next_velocity);
+            let _ = self
+                .particle_system
+                .set_velocity(*handle, direction * flyback_speed);
 
             true
         });
