@@ -10,6 +10,8 @@ const float tall_grass_height_mean_voxels   = 5.0;
 const float tall_grass_height_stddev_voxels = 1.0;
 const float short_grass_height_mean_voxels  = 3.0;
 const float short_grass_height_stddev_voxels = 0.6;
+const float PLAYER_PUSH_RADIUS              = 0.3;
+const float PLAYER_PUSH_STRENGTH            = 0.02;
 
 float sample_standard_normal(uint seed) {
     float sum  = 0.0;
@@ -95,7 +97,15 @@ void prepare_flora_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_l
     vec3 instance_pos = vec3(instance_pos_voxels) * scaling_factor;
     vec3 wind_vec     = sample_wind_volume(instance_pos);
     vec3 wind_offset  = wind_vec * wind_gradient * wind_gradient;
-    anchor_pos        = (vec3(vox_local_pos) + wind_offset) * scaling_factor + instance_pos;
+    vec2 player_delta = instance_pos.xz - camera_info.pos.xz;
+    float player_dist = length(player_delta);
+    vec2 player_push_dir = player_dist > 1e-4 ? player_delta / player_dist : vec2(0.0);
+    float player_push_amount =
+        (1.0 - smoothstep(0.0, PLAYER_PUSH_RADIUS, player_dist)) * wind_gradient * wind_gradient;
+    vec3 player_push =
+        vec3(player_push_dir.x, 0.0, player_push_dir.y) * (PLAYER_PUSH_STRENGTH * player_push_amount);
+
+    anchor_pos = (vec3(vox_local_pos) + wind_offset) * scaling_factor + instance_pos + player_push;
     voxel_pos         = anchor_pos + vec3(0.5) * scaling_factor;
 
     shadow_weight = get_shadow_weight_vsm(shadow_camera_info.view_proj_mat, vec4(voxel_pos, 1.0));
