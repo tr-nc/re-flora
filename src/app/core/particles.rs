@@ -65,6 +65,7 @@ impl App {
         &mut self,
         center: Vec3,
         stats: &ChunkModifyStats,
+        sampled_positions_world: &[Vec3],
     ) {
         let mut removed_total = 0u32;
         for count in stats.removed_counts {
@@ -75,7 +76,7 @@ impl App {
         }
 
         let spawn_count = removed_total.clamp(1, TERRAIN_HARVEST_MAX_PARTICLES_PER_EDIT);
-        let base_pos = center + Vec3::new(0.0, 0.03, 0.0);
+        let fallback_base_pos = center + Vec3::new(0.0, 0.03, 0.0);
 
         let mut removed_types = Vec::new();
         let mut cumulative = 0u32;
@@ -94,6 +95,13 @@ impl App {
             let t = i as f32 / spawn_count as f32;
             let angle = t * TAU;
             let swirl = Vec3::new(angle.cos(), 0.0, angle.sin());
+            let base_pos = if sampled_positions_world.is_empty() {
+                fallback_base_pos
+            } else {
+                sampled_positions_world[i as usize % sampled_positions_world.len()]
+                    + Vec3::new(swirl.x, 0.0, swirl.z) * 0.01
+                    + Vec3::new(0.0, 0.01, 0.0)
+            };
             let velocity = Vec3::new(swirl.x * 0.18, 0.25 + t * 0.22, swirl.z * 0.18);
             let sample = (((i as f32 + 0.5) / spawn_count as f32) * removed_total as f32)
                 .clamp(0.0, removed_total as f32 - 0.001) as u32;
