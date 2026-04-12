@@ -59,13 +59,11 @@ impl App {
     #[allow(dead_code)]
     fn terrain_harvest_color_for_voxel(&self, voxel_type: u32) -> Vec4 {
         let color32 = match voxel_type {
-            crate::builder::VOXEL_TYPE_DIRT => self.gui_adjustables.voxel_dirt_color.value,
-            crate::builder::VOXEL_TYPE_CHERRY_WOOD => {
-                self.gui_adjustables.voxel_cherry_wood_color.value
-            }
-            crate::builder::VOXEL_TYPE_OAK_WOOD => self.gui_adjustables.voxel_oak_wood_color.value,
-            crate::builder::VOXEL_TYPE_SAND => egui::Color32::from_rgb(229, 204, 126),
-            crate::builder::VOXEL_TYPE_ROCK => egui::Color32::from_rgb(168, 176, 190),
+            crate::builder::VOXEL_TYPE_DIRT => super::ActiveVoxelType::Dirt.color(),
+            crate::builder::VOXEL_TYPE_CHERRY_WOOD => super::ActiveVoxelType::CherryWood.color(),
+            crate::builder::VOXEL_TYPE_OAK_WOOD => super::ActiveVoxelType::OakWood.color(),
+            crate::builder::VOXEL_TYPE_SAND => super::ActiveVoxelType::Sand.color(),
+            crate::builder::VOXEL_TYPE_ROCK => super::ActiveVoxelType::Rock.color(),
             _ => egui::Color32::from_rgb(210, 190, 140),
         };
 
