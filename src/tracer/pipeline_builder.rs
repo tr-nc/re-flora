@@ -326,14 +326,15 @@ impl PipelineBuilder {
         vulkan_ctx: &VulkanContext,
         gfx_output_tex: Texture,
         gfx_depth_tex: Texture,
-        shadow_map_tex: Texture,
+        shadow_map_depth_tex: Texture,
     ) -> RenderPasses {
         let render_pass_color_and_depth = Self::create_render_pass_with_color_and_depth(
             vulkan_ctx,
             gfx_output_tex.clone(),
             gfx_depth_tex.clone(),
         );
-        let render_pass_depth = Self::create_render_pass_with_depth(vulkan_ctx, shadow_map_tex);
+        let render_pass_depth =
+            Self::create_render_pass_with_depth(vulkan_ctx, shadow_map_depth_tex);
         RenderPasses {
             render_pass_color_and_depth,
             render_pass_depth,
@@ -400,9 +401,8 @@ impl PipelineBuilder {
         depth_tex: Texture,
     ) -> RenderPass {
         // CLEAR instead of LOAD: on tile-based GPUs (Apple Silicon via MoltenVK),
-        // LOAD forces a full DRAM-to-tile read. For D32_SFLOAT+STORAGE in GENERAL
-        // layout, this triggers an expensive format decompression (~33ms). CLEAR
-        // initializes tile memory directly, avoiding the DRAM read entirely.
+        // LOAD forces a full DRAM-to-tile read. Keeping this pass on CLEAR avoids
+        // pulling previous attachment contents back into tile memory.
         RenderPass::with_attachments(
             vulkan_ctx.device().clone(),
             &[

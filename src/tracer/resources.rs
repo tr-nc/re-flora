@@ -248,6 +248,7 @@ pub struct TracerResources {
     pub flora_meshes_lod: Vec<FloraMeshResources>,
     pub leaves_resources_lod: LeavesResources,
 
+    pub shadow_map_depth_tex: Resource<Texture>,
     pub shadow_map_tex: Resource<Texture>,
     pub shadow_map_tex_for_vsm_ping: Resource<Texture>,
     pub shadow_map_tex_for_vsm_pong: Resource<Texture>,
@@ -476,6 +477,11 @@ impl TracerResources {
             (max_terrain_queries * 4 * std::mem::size_of::<f32>() as u32) as u64,
         );
 
+        let shadow_map_depth_tex = Self::create_shadow_map_depth_tex(
+            device.clone(),
+            allocator.clone(),
+            shadow_map_extent.into(),
+        );
         let shadow_map_tex = Self::create_shadow_map_tex(
             device.clone(),
             allocator.clone(),
@@ -591,6 +597,7 @@ impl TracerResources {
             flora_meshes_lod,
             leaves_resources_lod,
             extent_dependent_resources,
+            shadow_map_depth_tex: Resource::new(shadow_map_depth_tex),
             shadow_map_tex: Resource::new(shadow_map_tex),
             shadow_map_tex_for_vsm_ping: Resource::new(shadow_map_tex_for_vsm_ping),
             shadow_map_tex_for_vsm_pong: Resource::new(shadow_map_tex_for_vsm_pong),
@@ -898,20 +905,42 @@ impl TracerResources {
             .unwrap();
     }
 
+    fn create_shadow_map_depth_tex(
+        device: Device,
+        allocator: Allocator,
+        shadow_map_extent: Extent3D,
+    ) -> Texture {
+        // keep the raster shadow pass on a real depth image; macOS cannot use
+        // D32_SFLOAT as a storage image for the later compute stages.
+        let tex_desc = ImageDesc {
+            extent: shadow_map_extent,
+            format: vk::Format::D32_SFLOAT,
+            usage: vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT
+                | vk::ImageUsageFlags::SAMPLED
+                | vk::ImageUsageFlags::TRANSFER_DST,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::DEPTH,
+            ..Default::default()
+        };
+        let sam_desc = Default::default();
+        Texture::new(device, allocator, &tex_desc, &sam_desc)
+    }
+
     fn create_shadow_map_tex(
         device: Device,
         allocator: Allocator,
         shadow_map_extent: Extent3D,
     ) -> Texture {
+        // the compute shadow path writes and filters a float image so all
+        // platforms use the same storage-compatible shadow source.
         let tex_desc = ImageDesc {
             extent: shadow_map_extent,
-            format: vk::Format::D32_SFLOAT,
-            usage: vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT
-                | vk::ImageUsageFlags::STORAGE
+            format: vk::Format::R32_SFLOAT,
+            usage: vk::ImageUsageFlags::STORAGE
                 | vk::ImageUsageFlags::SAMPLED
                 | vk::ImageUsageFlags::TRANSFER_DST,
             initial_layout: vk::ImageLayout::UNDEFINED,
-            aspect: vk::ImageAspectFlags::DEPTH,
+            aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
         };
         let sam_desc = Default::default();

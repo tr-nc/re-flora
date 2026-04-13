@@ -213,7 +213,7 @@ impl Tracer {
             &vulkan_ctx,
             resources.extent_dependent_resources.gfx_output_tex.clone(),
             resources.extent_dependent_resources.gfx_depth_tex.clone(),
-            resources.shadow_map_tex.clone(),
+            resources.shadow_map_depth_tex.clone(),
         );
 
         let graphics_pipelines = PipelineBuilder::create_graphics_pipelines(
@@ -233,7 +233,7 @@ impl Tracer {
         let framebuffer_depth_only = Self::create_framebuffer_depth(
             &vulkan_ctx,
             &render_passes.render_pass_depth,
-            &resources.shadow_map_tex,
+            &resources.shadow_map_depth_tex,
         );
 
         let render_target_color_and_depth = RenderTarget::new(
@@ -345,7 +345,7 @@ impl Tracer {
         let framebuffer_depth_only = Self::create_framebuffer_depth(
             &self.vulkan_ctx,
             self.render_target_depth_only.get_render_pass(),
-            &self.resources.shadow_map_tex,
+            &self.resources.shadow_map_depth_tex,
         );
 
         self.render_target_color_and_depth = RenderTarget::new(
@@ -938,11 +938,21 @@ impl Tracer {
                 ClearValue::DepthStencil(DepthOrStencilClearValue::Depth(1.0)),
             );
 
+        self.resources
+            .shadow_map_depth_tex
+            .get_image()
+            .record_clear(
+                cmdbuf,
+                Some(vk::ImageLayout::GENERAL),
+                0,
+                ClearValue::DepthStencil(DepthOrStencilClearValue::Depth(1.0)),
+            );
+
         self.resources.shadow_map_tex.get_image().record_clear(
             cmdbuf,
             Some(vk::ImageLayout::GENERAL),
             0,
-            ClearValue::DepthStencil(DepthOrStencilClearValue::Depth(1.0)),
+            ClearValue::Color(ColorClearValue::Float([1.0, 0.0, 0.0, 0.0])),
         );
 
         self.resources
@@ -1283,7 +1293,12 @@ impl Tracer {
         self.render_target_depth_only
             .record_begin(cmdbuf, &clear_values);
 
-        let shadow_extent = self.resources.shadow_map_tex.get_image().get_desc().extent;
+        let shadow_extent = self
+            .resources
+            .shadow_map_depth_tex
+            .get_image()
+            .get_desc()
+            .extent;
         let viewport = Viewport::from_extent(shadow_extent.as_extent_2d().unwrap());
         let scissor = vk::Rect2D {
             offset: vk::Offset2D { x: 0, y: 0 },
@@ -1345,7 +1360,7 @@ impl Tracer {
 
         let desc = self.render_target_depth_only.get_desc();
         self.resources
-            .shadow_map_tex
+            .shadow_map_depth_tex
             .get_image()
             .set_layout(0, desc.attachments[0].final_layout);
     }
