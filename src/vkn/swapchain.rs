@@ -225,7 +225,6 @@ impl Swapchain {
             .record_begin_with_index(cmdbuf, image_index as usize, &clear_values);
     }
 
-    #[cfg(not(target_os = "macos"))]
     pub fn record_prepare_image_for_render_pass(&self, cmdbuf: &CommandBuffer, image_index: u32) {
         let image = self.get_image(image_index);
         record_image_transition_barrier(

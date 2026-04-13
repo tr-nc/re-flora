@@ -805,11 +805,6 @@ impl App {
 
         let render_area = self.window_state.window_extent();
 
-        // On non-macOS platforms the image layout transition is required for
-        // correctness — submitting with UNDEFINED/PRESENT_SRC_KHR instead of
-        // COLOR_ATTACHMENT_OPTIMAL causes validation errors and crashes on
-        // Linux/Windows Vulkan drivers. MoltenVK is lenient about this.
-        #[cfg(not(target_os = "macos"))]
         self.swapchain
             .record_prepare_image_for_render_pass(cmdbuf, image_idx);
 
