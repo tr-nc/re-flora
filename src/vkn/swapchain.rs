@@ -20,7 +20,9 @@ use super::{
 pub struct SwapchainDesc {
     pub format: vk::Format,
     pub color_space: vk::ColorSpaceKHR,
-    pub present_mode: vk::PresentModeKHR,
+    pub present_mode: Option<vk::PresentModeKHR>,
+    /// Override image count. None = auto (max(min_image_count, 3)).
+    pub image_count_override: Option<u32>,
 }
 
 impl Default for SwapchainDesc {
@@ -28,7 +30,8 @@ impl Default for SwapchainDesc {
         Self {
             format: vk::Format::B8G8R8A8_SRGB,
             color_space: vk::ColorSpaceKHR::SRGB_NONLINEAR,
-            present_mode: vk::PresentModeKHR::MAILBOX,
+            present_mode: None,
+            image_count_override: None,
         }
     }
 }
@@ -289,31 +292,61 @@ fn choose_surface_format(
 
 fn choose_present_mode(
     context: &VulkanContext,
-    desired_present_mode: PresentModeKHR,
+    requested_present_mode: Option<PresentModeKHR>,
 ) -> PresentModeKHR {
-    //guaranteed to be available
-    const FALLBACK_PRESENT_MODE: PresentModeKHR = PresentModeKHR::FIFO;
+    let present_modes = unsafe {
+        context
+            .surface()
+            .surface_instance()
+            .get_physical_device_surface_present_modes(
+                context.physical_device().as_raw(),
+                context.surface().surface_khr(),
+            )
+            .expect("Failed to get physical device surface present modes")
+    };
+    let supported_present_modes = present_modes
+        .iter()
+        .copied()
+        .filter(|mode| {
+            matches!(
+                *mode,
+                PresentModeKHR::MAILBOX
+                    | PresentModeKHR::IMMEDIATE
+                    | PresentModeKHR::FIFO
+                    | PresentModeKHR::FIFO_RELAXED
+            )
+        })
+        .collect::<Vec<_>>();
+    log::info!("Available present modes: {:?}", supported_present_modes);
 
-    let present_mode = {
-        let present_modes = unsafe {
-            context
-                .surface()
-                .surface_instance()
-                .get_physical_device_surface_present_modes(
-                    context.physical_device().as_raw(),
-                    context.surface().surface_khr(),
-                )
-                .expect("Failed to get physical device surface present modes")
-        };
-        if present_modes.contains(&desired_present_mode) {
-            desired_present_mode
-        } else {
-            FALLBACK_PRESENT_MODE
+    let chosen_present_mode = if let Some(requested_present_mode) = requested_present_mode {
+        log::info!(
+            "Preferred swapchain present mode: {:?}",
+            requested_present_mode
+        );
+
+        if !supported_present_modes.contains(&requested_present_mode) {
+            panic!(
+                "Preferred swapchain present mode {:?} is not supported by this surface. Available present modes: {:?}",
+                requested_present_mode,
+                supported_present_modes
+            );
         }
+
+        requested_present_mode
+    } else {
+        log::info!("Preferred swapchain present mode: AUTO (MAILBOX -> FIFO -> first supported)");
+
+        supported_present_modes
+            .iter()
+            .copied()
+            .find(|mode| matches!(*mode, PresentModeKHR::MAILBOX | PresentModeKHR::FIFO))
+            .or_else(|| supported_present_modes.first().copied())
+            .expect("No supported common swapchain present mode available")
     };
 
-    log::info!("Swapchain present mode: {:?}", present_mode);
-    present_mode
+    log::info!("Chosen swapchain present mode: {:?}", chosen_present_mode);
+    chosen_present_mode
 }
 
 fn create_swapchain_device_khr(
@@ -395,15 +428,25 @@ fn create_vulkan_swapchain(
             .expect("Failed to get physical device surface capabilities")
     };
 
-    let mut image_count = capabilities.min_image_count.max(3);
+    let mut image_count = if let Some(override_count) = swapchain_preference.image_count_override {
+        override_count.max(capabilities.min_image_count)
+    } else {
+        let preferred_default = if present_mode == PresentModeKHR::MAILBOX {
+            2
+        } else {
+            3
+        };
+        capabilities.min_image_count.max(preferred_default)
+    };
     if capabilities.max_image_count > 0 {
         image_count = image_count.min(capabilities.max_image_count);
     }
     log::info!(
-        "Swapchain image count: min={}, max={}, using={}",
+        "Swapchain image count: min={}, max={}, using={} (override={:?})",
         capabilities.min_image_count,
         capabilities.max_image_count,
-        image_count
+        image_count,
+        swapchain_preference.image_count_override,
     );
 
     let (swapchain_device, swapchain_khr) = create_swapchain_device_khr(
