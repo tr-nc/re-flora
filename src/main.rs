@@ -71,8 +71,8 @@ pub struct AppOptions {
     pub no_particles: bool,
     /// Disable flora/leaves graphics passes (grass, tree leaves).
     pub no_flora: bool,
-    /// Preferred swapchain present mode.
-    pub present_mode: PresentModePreference,
+    /// Preferred swapchain present mode override.
+    pub present_mode: Option<PresentModePreference>,
     /// Enable swapchain optimizations (unclamped image count).
     /// May not work on all platforms.
     pub swapchain_optimize: bool,
@@ -109,18 +109,20 @@ impl AppOptions {
         };
 
         let present_mode = match parse_string_after("--present-mode") {
-            Some(value) => PresentModePreference::from_cli_value(&value).unwrap_or_else(|| {
-                panic!(
-                    "Unsupported --present-mode '{}'. Supported values: mailbox, immediate, fifo, fifo_relaxed",
-                    value
-                )
-            }),
+            Some(value) => {
+                Some(PresentModePreference::from_cli_value(&value).unwrap_or_else(|| {
+                    panic!(
+                        "Unsupported --present-mode '{}'. Supported values: mailbox, immediate, fifo, fifo_relaxed",
+                        value
+                    )
+                }))
+            }
             None if args.iter().any(|a| a == "--present-mode") => {
                 panic!(
                     "Missing value for --present-mode. Supported values: mailbox, immediate, fifo, fifo_relaxed"
                 )
             }
-            None => PresentModePreference::Mailbox,
+            None => None,
         };
 
         Self {
@@ -146,7 +148,7 @@ impl AppOptions {
 
 fn print_help() {
     println!(
-        "Usage:\n  re-flora [options]\n\nOptions:\n  --windowed                  Run in windowed mode (default: borderless fullscreen)\n  --no-shadows                Disable shadow rendering passes\n  --no-denoise                Disable denoiser passes\n  --no-god-rays               Disable god ray pass\n  --no-lens-flare             Disable lens flare passes\n  --no-tracer                 Disable main tracer pass\n  --no-particles              Disable particle simulation and rendering\n  --no-flora                  Disable flora and leaves rendering\n  --present-mode <mode>       Preferred present mode: mailbox, immediate, fifo, fifo_relaxed\n  --swapchain-optimize        Enable swapchain optimizations (may not work on all platforms)\n  --swapchain-images <N>      Override swapchain image count (default: auto)\n  --screenshot <path>         Save one screenshot after rendering starts\n  --screenshot-delay <sec>    Delay before screenshot capture (default: 5.0)\n  --auto-exit <sec>           Exit automatically after rendering starts\n  --perf                      Enable per-frame performance logging\n  --help                      Show this help and exit\n\nExamples:\n  re-flora --windowed\n  re-flora --present-mode fifo\n  re-flora --no-shadows --no-denoise\n  re-flora --screenshot out.png --screenshot-delay 3\n  re-flora --auto-exit 10 --perf"
+        "Usage:\n  re-flora [options]\n\nOptions:\n  --windowed                  Run in windowed mode (default: borderless fullscreen)\n  --no-shadows                Disable shadow rendering passes\n  --no-denoise                Disable denoiser passes\n  --no-god-rays               Disable god ray pass\n  --no-lens-flare             Disable lens flare passes\n  --no-tracer                 Disable main tracer pass\n  --no-particles              Disable particle simulation and rendering\n  --no-flora                  Disable flora and leaves rendering\n  --present-mode <mode>       Override auto present mode selection: mailbox, immediate, fifo, fifo_relaxed\n  --swapchain-optimize        Enable swapchain optimizations (may not work on all platforms)\n  --swapchain-images <N>      Override swapchain image count (default: auto)\n  --screenshot <path>         Save one screenshot after rendering starts\n  --screenshot-delay <sec>    Delay before screenshot capture (default: 5.0)\n  --auto-exit <sec>           Exit automatically after rendering starts\n  --perf                      Enable per-frame performance logging\n  --help                      Show this help and exit\n\nExamples:\n  re-flora --windowed\n  re-flora --present-mode fifo\n  re-flora --no-shadows --no-denoise\n  re-flora --screenshot out.png --screenshot-delay 3\n  re-flora --auto-exit 10 --perf"
     );
 }
 

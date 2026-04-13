@@ -375,7 +375,6 @@ impl App {
         };
         let allocator = Allocator::new(device, Arc::new(Mutex::new(gpu_allocator)));
 
-        let present_mode = options.present_mode.as_vk();
         let swapchain_optimize = options.swapchain_optimize;
         if swapchain_optimize {
             log::info!("Swapchain optimizations enabled (unclamped image count)");
@@ -384,7 +383,7 @@ impl App {
             vulkan_ctx.clone(),
             window_state.window_extent(),
             SwapchainDesc {
-                present_mode,
+                present_mode: options.present_mode.map(|mode| mode.as_vk()),
                 unclamped_image_count: swapchain_optimize,
                 image_count_override: options.swapchain_images,
                 ..Default::default()
