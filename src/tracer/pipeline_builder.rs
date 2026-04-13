@@ -32,6 +32,14 @@ impl PipelineBuilder {
         )
         .unwrap();
 
+        let shadow_depth_copy_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            shader_compiler,
+            "shader/tracer/shadow_depth_copy.comp",
+            "main",
+        )
+        .unwrap();
+
         let vsm_creation_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             shader_compiler,
@@ -201,6 +209,7 @@ impl PipelineBuilder {
         Ok(ShaderModules {
             tracer_sm,
             tracer_shadow_sm,
+            shadow_depth_copy_sm,
             vsm_creation_sm,
             vsm_blur_h_sm,
             vsm_blur_v_sm,
@@ -247,6 +256,13 @@ impl PipelineBuilder {
             &shader_modules.tracer_shadow_sm,
             pool,
             &[resources, contree_builder_resources, scene_accel_resources],
+        );
+
+        let shadow_depth_copy_ppl = ComputePipeline::new(
+            device,
+            &shader_modules.shadow_depth_copy_sm,
+            pool,
+            &[resources],
         );
 
         let player_collider_ppl = ComputePipeline::new(
@@ -305,6 +321,7 @@ impl PipelineBuilder {
         ComputePipelines {
             tracer_ppl,
             tracer_shadow_ppl,
+            shadow_depth_copy_ppl,
             vsm_creation_ppl,
             vsm_blur_h_ppl,
             vsm_blur_v_ppl,
@@ -470,6 +487,7 @@ impl PipelineBuilder {
 pub struct ShaderModules {
     pub tracer_sm: ShaderModule,
     pub tracer_shadow_sm: ShaderModule,
+    pub shadow_depth_copy_sm: ShaderModule,
     pub vsm_creation_sm: ShaderModule,
     pub vsm_blur_h_sm: ShaderModule,
     pub vsm_blur_v_sm: ShaderModule,
@@ -496,6 +514,7 @@ pub struct ShaderModules {
 pub struct ComputePipelines {
     pub tracer_ppl: ComputePipeline,
     pub tracer_shadow_ppl: ComputePipeline,
+    pub shadow_depth_copy_ppl: ComputePipeline,
     pub vsm_creation_ppl: ComputePipeline,
     pub vsm_blur_h_ppl: ComputePipeline,
     pub vsm_blur_v_ppl: ComputePipeline,

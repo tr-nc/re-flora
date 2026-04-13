@@ -387,6 +387,10 @@ impl Tracer {
         // pipelines that only need tracer resources
         let tracer_resources = &[&self.resources as &dyn ResourceContainer];
         update_compute_fn(&self.compute_pipelines.wind_volume_ppl, tracer_resources);
+        update_compute_fn(
+            &self.compute_pipelines.shadow_depth_copy_ppl,
+            tracer_resources,
+        );
         update_compute_fn(&self.compute_pipelines.vsm_creation_ppl, tracer_resources);
         update_compute_fn(&self.compute_pipelines.vsm_blur_h_ppl, tracer_resources);
         update_compute_fn(&self.compute_pipelines.vsm_blur_v_ppl, tracer_resources);
@@ -767,6 +771,8 @@ impl Tracer {
         }
 
         if render_flags.enable_shadows {
+            self.record_shadow_depth_copy_pass(cmdbuf);
+            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             self.record_tracer_shadow_pass(cmdbuf);
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             self.record_vsm_filtering_pass(cmdbuf);
@@ -1371,6 +1377,23 @@ impl Tracer {
             .get_image()
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
         self.compute_pipelines.tracer_shadow_ppl.record(
+            cmdbuf,
+            self.resources.shadow_map_tex.get_image().get_desc().extent,
+            None,
+        );
+    }
+
+    fn record_shadow_depth_copy_pass(&self, cmdbuf: &CommandBuffer) {
+        self.resources
+            .shadow_map_depth_tex
+            .get_image()
+            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+        self.resources
+            .shadow_map_tex
+            .get_image()
+            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+
+        self.compute_pipelines.shadow_depth_copy_ppl.record(
             cmdbuf,
             self.resources.shadow_map_tex.get_image().get_desc().extent,
             None,
