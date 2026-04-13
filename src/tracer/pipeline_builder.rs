@@ -32,6 +32,14 @@ impl PipelineBuilder {
         )
         .unwrap();
 
+        let shadow_depth_copy_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            shader_compiler,
+            "shader/tracer/shadow_depth_copy.comp",
+            "main",
+        )
+        .unwrap();
+
         let vsm_creation_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             shader_compiler,
@@ -201,6 +209,7 @@ impl PipelineBuilder {
         Ok(ShaderModules {
             tracer_sm,
             tracer_shadow_sm,
+            shadow_depth_copy_sm,
             vsm_creation_sm,
             vsm_blur_h_sm,
             vsm_blur_v_sm,
@@ -247,6 +256,13 @@ impl PipelineBuilder {
             &shader_modules.tracer_shadow_sm,
             pool,
             &[resources, contree_builder_resources, scene_accel_resources],
+        );
+
+        let shadow_depth_copy_ppl = ComputePipeline::new(
+            device,
+            &shader_modules.shadow_depth_copy_sm,
+            pool,
+            &[resources],
         );
 
         let player_collider_ppl = ComputePipeline::new(
@@ -305,6 +321,7 @@ impl PipelineBuilder {
         ComputePipelines {
             tracer_ppl,
             tracer_shadow_ppl,
+            shadow_depth_copy_ppl,
             vsm_creation_ppl,
             vsm_blur_h_ppl,
             vsm_blur_v_ppl,
@@ -326,14 +343,15 @@ impl PipelineBuilder {
         vulkan_ctx: &VulkanContext,
         gfx_output_tex: Texture,
         gfx_depth_tex: Texture,
-        shadow_map_tex: Texture,
+        shadow_map_depth_tex: Texture,
     ) -> RenderPasses {
         let render_pass_color_and_depth = Self::create_render_pass_with_color_and_depth(
             vulkan_ctx,
             gfx_output_tex.clone(),
             gfx_depth_tex.clone(),
         );
-        let render_pass_depth = Self::create_render_pass_with_depth(vulkan_ctx, shadow_map_tex);
+        let render_pass_depth =
+            Self::create_render_pass_with_depth(vulkan_ctx, shadow_map_depth_tex);
         RenderPasses {
             render_pass_color_and_depth,
             render_pass_depth,
@@ -400,9 +418,8 @@ impl PipelineBuilder {
         depth_tex: Texture,
     ) -> RenderPass {
         // CLEAR instead of LOAD: on tile-based GPUs (Apple Silicon via MoltenVK),
-        // LOAD forces a full DRAM-to-tile read. For D32_SFLOAT+STORAGE in GENERAL
-        // layout, this triggers an expensive format decompression (~33ms). CLEAR
-        // initializes tile memory directly, avoiding the DRAM read entirely.
+        // LOAD forces a full DRAM-to-tile read. Keeping this pass on CLEAR avoids
+        // pulling previous attachment contents back into tile memory.
         RenderPass::with_attachments(
             vulkan_ctx.device().clone(),
             &[
@@ -470,6 +487,7 @@ impl PipelineBuilder {
 pub struct ShaderModules {
     pub tracer_sm: ShaderModule,
     pub tracer_shadow_sm: ShaderModule,
+    pub shadow_depth_copy_sm: ShaderModule,
     pub vsm_creation_sm: ShaderModule,
     pub vsm_blur_h_sm: ShaderModule,
     pub vsm_blur_v_sm: ShaderModule,
@@ -496,6 +514,7 @@ pub struct ShaderModules {
 pub struct ComputePipelines {
     pub tracer_ppl: ComputePipeline,
     pub tracer_shadow_ppl: ComputePipeline,
+    pub shadow_depth_copy_ppl: ComputePipeline,
     pub vsm_creation_ppl: ComputePipeline,
     pub vsm_blur_h_ppl: ComputePipeline,
     pub vsm_blur_v_ppl: ComputePipeline,

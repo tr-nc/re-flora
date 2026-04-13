@@ -1,0 +1,20 @@
+#version 460
+
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler2D shadow_map_depth_tex;
+layout(set = 0, binding = 1, r32f) writeonly uniform image2D shadow_map_tex;
+
+void main() {
+    ivec2 uvi = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(uvi, imageSize(shadow_map_tex)))) {
+        return;
+    }
+
+    // Copy the rasterized foliage depth into the storage-backed float shadow map
+    // so later compute stages can merge terrain depth on every platform.
+    float depth = texelFetch(shadow_map_depth_tex, uvi, 0).r;
+    imageStore(shadow_map_tex, uvi, vec4(depth, 0.0, 0.0, 0.0));
+}

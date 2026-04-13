@@ -213,7 +213,7 @@ impl Tracer {
             &vulkan_ctx,
             resources.extent_dependent_resources.gfx_output_tex.clone(),
             resources.extent_dependent_resources.gfx_depth_tex.clone(),
-            resources.shadow_map_tex.clone(),
+            resources.shadow_map_depth_tex.clone(),
         );
 
         let graphics_pipelines = PipelineBuilder::create_graphics_pipelines(
@@ -233,7 +233,7 @@ impl Tracer {
         let framebuffer_depth_only = Self::create_framebuffer_depth(
             &vulkan_ctx,
             &render_passes.render_pass_depth,
-            &resources.shadow_map_tex,
+            &resources.shadow_map_depth_tex,
         );
 
         let render_target_color_and_depth = RenderTarget::new(
@@ -345,7 +345,7 @@ impl Tracer {
         let framebuffer_depth_only = Self::create_framebuffer_depth(
             &self.vulkan_ctx,
             self.render_target_depth_only.get_render_pass(),
-            &self.resources.shadow_map_tex,
+            &self.resources.shadow_map_depth_tex,
         );
 
         self.render_target_color_and_depth = RenderTarget::new(
@@ -387,6 +387,10 @@ impl Tracer {
         // pipelines that only need tracer resources
         let tracer_resources = &[&self.resources as &dyn ResourceContainer];
         update_compute_fn(&self.compute_pipelines.wind_volume_ppl, tracer_resources);
+        update_compute_fn(
+            &self.compute_pipelines.shadow_depth_copy_ppl,
+            tracer_resources,
+        );
         update_compute_fn(&self.compute_pipelines.vsm_creation_ppl, tracer_resources);
         update_compute_fn(&self.compute_pipelines.vsm_blur_h_ppl, tracer_resources);
         update_compute_fn(&self.compute_pipelines.vsm_blur_v_ppl, tracer_resources);
@@ -767,6 +771,8 @@ impl Tracer {
         }
 
         if render_flags.enable_shadows {
+            self.record_shadow_depth_copy_pass(cmdbuf);
+            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             self.record_tracer_shadow_pass(cmdbuf);
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             self.record_vsm_filtering_pass(cmdbuf);
@@ -938,11 +944,21 @@ impl Tracer {
                 ClearValue::DepthStencil(DepthOrStencilClearValue::Depth(1.0)),
             );
 
+        self.resources
+            .shadow_map_depth_tex
+            .get_image()
+            .record_clear(
+                cmdbuf,
+                Some(vk::ImageLayout::GENERAL),
+                0,
+                ClearValue::DepthStencil(DepthOrStencilClearValue::Depth(1.0)),
+            );
+
         self.resources.shadow_map_tex.get_image().record_clear(
             cmdbuf,
             Some(vk::ImageLayout::GENERAL),
             0,
-            ClearValue::DepthStencil(DepthOrStencilClearValue::Depth(1.0)),
+            ClearValue::Color(ColorClearValue::Float([1.0, 0.0, 0.0, 0.0])),
         );
 
         self.resources
@@ -1283,7 +1299,12 @@ impl Tracer {
         self.render_target_depth_only
             .record_begin(cmdbuf, &clear_values);
 
-        let shadow_extent = self.resources.shadow_map_tex.get_image().get_desc().extent;
+        let shadow_extent = self
+            .resources
+            .shadow_map_depth_tex
+            .get_image()
+            .get_desc()
+            .extent;
         let viewport = Viewport::from_extent(shadow_extent.as_extent_2d().unwrap());
         let scissor = vk::Rect2D {
             offset: vk::Offset2D { x: 0, y: 0 },
@@ -1345,7 +1366,7 @@ impl Tracer {
 
         let desc = self.render_target_depth_only.get_desc();
         self.resources
-            .shadow_map_tex
+            .shadow_map_depth_tex
             .get_image()
             .set_layout(0, desc.attachments[0].final_layout);
     }
@@ -1356,6 +1377,23 @@ impl Tracer {
             .get_image()
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
         self.compute_pipelines.tracer_shadow_ppl.record(
+            cmdbuf,
+            self.resources.shadow_map_tex.get_image().get_desc().extent,
+            None,
+        );
+    }
+
+    fn record_shadow_depth_copy_pass(&self, cmdbuf: &CommandBuffer) {
+        self.resources
+            .shadow_map_depth_tex
+            .get_image()
+            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+        self.resources
+            .shadow_map_tex
+            .get_image()
+            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+
+        self.compute_pipelines.shadow_depth_copy_ppl.record(
             cmdbuf,
             self.resources.shadow_map_tex.get_image().get_desc().extent,
             None,
