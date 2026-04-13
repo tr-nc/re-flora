@@ -18,9 +18,39 @@ mod vkn;
 mod wind;
 mod window;
 
+use ash::vk;
 use app::AppController;
 use env_logger::Env;
 use winit::event_loop::EventLoop;
+
+#[derive(Clone, Copy, Debug)]
+pub enum PresentModePreference {
+    Mailbox,
+    Immediate,
+    Fifo,
+    FifoRelaxed,
+}
+
+impl PresentModePreference {
+    fn from_cli_value(value: &str) -> Option<Self> {
+        match value {
+            "mailbox" => Some(Self::Mailbox),
+            "immediate" => Some(Self::Immediate),
+            "fifo" => Some(Self::Fifo),
+            "fifo_relaxed" => Some(Self::FifoRelaxed),
+            _ => None,
+        }
+    }
+
+    pub fn as_vk(self) -> vk::PresentModeKHR {
+        match self {
+            Self::Mailbox => vk::PresentModeKHR::MAILBOX,
+            Self::Immediate => vk::PresentModeKHR::IMMEDIATE,
+            Self::Fifo => vk::PresentModeKHR::FIFO,
+            Self::FifoRelaxed => vk::PresentModeKHR::FIFO_RELAXED,
+        }
+    }
+}
 
 /// Application launch options parsed from CLI arguments.
 #[derive(Clone, Debug)]
@@ -41,8 +71,8 @@ pub struct AppOptions {
     pub no_particles: bool,
     /// Disable flora/leaves graphics passes (grass, tree leaves).
     pub no_flora: bool,
-    /// Disable vsync (use IMMEDIATE present mode for uncapped FPS).
-    pub no_vsync: bool,
+    /// Preferred swapchain present mode.
+    pub present_mode: PresentModePreference,
     /// Enable swapchain optimizations (unclamped image count).
     /// May not work on all platforms.
     pub swapchain_optimize: bool,
@@ -78,6 +108,21 @@ impl AppOptions {
                 .cloned()
         };
 
+        let present_mode = match parse_string_after("--present-mode") {
+            Some(value) => PresentModePreference::from_cli_value(&value).unwrap_or_else(|| {
+                panic!(
+                    "Unsupported --present-mode '{}'. Supported values: mailbox, immediate, fifo, fifo_relaxed",
+                    value
+                )
+            }),
+            None if args.iter().any(|a| a == "--present-mode") => {
+                panic!(
+                    "Missing value for --present-mode. Supported values: mailbox, immediate, fifo, fifo_relaxed"
+                )
+            }
+            None => PresentModePreference::Mailbox,
+        };
+
         Self {
             windowed: args.iter().any(|a| a == "--windowed"),
             no_shadows: args.iter().any(|a| a == "--no-shadows"),
@@ -87,7 +132,7 @@ impl AppOptions {
             no_tracer: args.iter().any(|a| a == "--no-tracer"),
             no_particles: args.iter().any(|a| a == "--no-particles"),
             no_flora: args.iter().any(|a| a == "--no-flora"),
-            no_vsync: args.iter().any(|a| a == "--no-vsync"),
+            present_mode,
             swapchain_optimize: args.iter().any(|a| a == "--swapchain-optimize"),
             swapchain_images: parse_f32_after("--swapchain-images").map(|v| v as u32),
             screenshot_path: parse_string_after("--screenshot"),
@@ -101,7 +146,7 @@ impl AppOptions {
 
 fn print_help() {
     println!(
-        "Usage:\n  re-flora [options]\n\nOptions:\n  --windowed                  Run in windowed mode (default: borderless fullscreen)\n  --no-shadows                Disable shadow rendering passes\n  --no-denoise                Disable denoiser passes\n  --no-god-rays               Disable god ray pass\n  --no-lens-flare             Disable lens flare passes\n  --no-tracer                 Disable main tracer pass\n  --no-particles              Disable particle simulation and rendering\n  --no-flora                  Disable flora and leaves rendering\n  --no-vsync                  Disable vsync (IMMEDIATE present mode, uncapped FPS)\n  --swapchain-optimize        Enable swapchain optimizations (may not work on all platforms)\n  --swapchain-images <N>      Override swapchain image count (default: auto)\n  --screenshot <path>         Save one screenshot after rendering starts\n  --screenshot-delay <sec>    Delay before screenshot capture (default: 5.0)\n  --auto-exit <sec>           Exit automatically after rendering starts\n  --perf                      Enable per-frame performance logging\n  --help                      Show this help and exit\n\nExamples:\n  re-flora --windowed\n  re-flora --no-shadows --no-denoise\n  re-flora --screenshot out.png --screenshot-delay 3\n  re-flora --auto-exit 10 --perf"
+        "Usage:\n  re-flora [options]\n\nOptions:\n  --windowed                  Run in windowed mode (default: borderless fullscreen)\n  --no-shadows                Disable shadow rendering passes\n  --no-denoise                Disable denoiser passes\n  --no-god-rays               Disable god ray pass\n  --no-lens-flare             Disable lens flare passes\n  --no-tracer                 Disable main tracer pass\n  --no-particles              Disable particle simulation and rendering\n  --no-flora                  Disable flora and leaves rendering\n  --present-mode <mode>       Preferred present mode: mailbox, immediate, fifo, fifo_relaxed\n  --swapchain-optimize        Enable swapchain optimizations (may not work on all platforms)\n  --swapchain-images <N>      Override swapchain image count (default: auto)\n  --screenshot <path>         Save one screenshot after rendering starts\n  --screenshot-delay <sec>    Delay before screenshot capture (default: 5.0)\n  --auto-exit <sec>           Exit automatically after rendering starts\n  --perf                      Enable per-frame performance logging\n  --help                      Show this help and exit\n\nExamples:\n  re-flora --windowed\n  re-flora --present-mode fifo\n  re-flora --no-shadows --no-denoise\n  re-flora --screenshot out.png --screenshot-delay 3\n  re-flora --auto-exit 10 --perf"
     );
 }
 

@@ -298,30 +298,45 @@ fn choose_present_mode(
     context: &VulkanContext,
     desired_present_mode: PresentModeKHR,
 ) -> PresentModeKHR {
-    //guaranteed to be available
-    const FALLBACK_PRESENT_MODE: PresentModeKHR = PresentModeKHR::FIFO;
-
-    let present_mode = {
-        let present_modes = unsafe {
-            context
-                .surface()
-                .surface_instance()
-                .get_physical_device_surface_present_modes(
-                    context.physical_device().as_raw(),
-                    context.surface().surface_khr(),
-                )
-                .expect("Failed to get physical device surface present modes")
-        };
-        log::info!("Available present modes: {:?}", present_modes);
-        if present_modes.contains(&desired_present_mode) {
-            desired_present_mode
-        } else {
-            FALLBACK_PRESENT_MODE
-        }
+    let present_modes = unsafe {
+        context
+            .surface()
+            .surface_instance()
+            .get_physical_device_surface_present_modes(
+                context.physical_device().as_raw(),
+                context.surface().surface_khr(),
+            )
+            .expect("Failed to get physical device surface present modes")
     };
+    let supported_present_modes = present_modes
+        .iter()
+        .copied()
+        .filter(|mode| {
+            matches!(
+                *mode,
+                PresentModeKHR::MAILBOX
+                    | PresentModeKHR::IMMEDIATE
+                    | PresentModeKHR::FIFO
+                    | PresentModeKHR::FIFO_RELAXED
+            )
+        })
+        .collect::<Vec<_>>();
+    log::info!("Available present modes: {:?}", supported_present_modes);
+    log::info!(
+        "Preferred swapchain present mode: {:?}",
+        desired_present_mode
+    );
 
-    log::info!("Swapchain present mode: {:?}", present_mode);
-    present_mode
+    if !supported_present_modes.contains(&desired_present_mode) {
+        panic!(
+            "Preferred swapchain present mode {:?} is not supported by this surface. Available present modes: {:?}",
+            desired_present_mode,
+            supported_present_modes
+        );
+    }
+
+    log::info!("Chosen swapchain present mode: {:?}", desired_present_mode);
+    desired_present_mode
 }
 
 fn create_swapchain_device_khr(

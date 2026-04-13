@@ -375,11 +375,7 @@ impl App {
         };
         let allocator = Allocator::new(device, Arc::new(Mutex::new(gpu_allocator)));
 
-        let present_mode = if options.no_vsync {
-            vk::PresentModeKHR::IMMEDIATE
-        } else {
-            vk::PresentModeKHR::MAILBOX
-        };
+        let present_mode = options.present_mode.as_vk();
         let swapchain_optimize = options.swapchain_optimize;
         if swapchain_optimize {
             log::info!("Swapchain optimizations enabled (unclamped image count)");
