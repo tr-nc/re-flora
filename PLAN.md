@@ -1,170 +1,89 @@
-# Terrain Edit Voxel Readback Plan
+# shadow map fix plan
 
-## Goal
+## goal
 
-For terrain voxel removal edits, capture updated voxel world positions on GPU, randomly choose up to 50 of them with equal chance, read those 50 positions back on CPU, and use them to guide voxel destruction particle spawn positions.
+Replace the invalid `D32_SFLOAT + STORAGE` shadow path with a cross-platform layout that keeps raster depth rendering and compute shadow processing separate, while preserving one unified soft-shadow path on all platforms.
 
-## Constraints
+## problem summary
 
-- Keep the CPU readback buffer fixed at `len = 50`.
-- Only implement this for the voxel removal path for now.
-- Use a 2-pass GPU approach.
-- Reuse existing removal stats instead of adding a separate candidate counter.
+- `shadow_map_tex` is currently created as `D32_SFLOAT` with `DEPTH_STENCIL_ATTACHMENT | STORAGE | SAMPLED | TRANSFER_DST`.
+- macOS reports that `D32_SFLOAT` does not support `VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT`.
+- the same image is used both as a depth attachment for foliage shadow rendering and as a storage image for compute passes.
+- this likely breaks terrain shadow writes and VSM generation on macOS, causing harder shadows.
 
-## Existing Useful State
+## target design
 
-- Terrain removal currently runs through `chunk_modify.comp`.
-- Successful removals already increment `edit_stats.added_counts[VOXEL_TYPE_EMPTY]`.
-- For removal, that value is the total number of voxels affected by the dispatch.
-- World-space voxel center for a removed voxel is:
+Introduce two shadow textures with distinct responsibilities:
 
-```glsl
-(vec3(world_voxel_pos) + vec3(0.5)) / 256.0
-```
+- `shadow_map_depth_tex: D32_SFLOAT`
+  - used only for the raster foliage shadow pass
+  - bound only as a depth attachment and sampled input if needed
+- `shadow_map_tex: R32_SFLOAT`
+  - used as the unified compute-readable and compute-writable raw shadow texture
+  - receives converted foliage depth data
+  - receives terrain shadow writes from `tracer_shadow.comp`
+  - serves as the source for VSM creation
 
-## Pass 0: Collect All Removal Candidate Positions
+Keep existing VSM ping-pong textures as they are.
 
-### Output
+## frame flow after change
 
-A large GPU-only candidate buffer that stores every removed voxel position for the dispatch.
+1. Clear both `shadow_map_depth_tex` and `shadow_map_tex` to `1.0`.
+2. Render foliage shadow pass into `shadow_map_depth_tex`.
+3. Run a small conversion pass that copies depth values from `shadow_map_depth_tex` into `shadow_map_tex`.
+4. Run `tracer_shadow.comp` to merge terrain depth into `shadow_map_tex` via `min(terrain_depth, existing_depth)`.
+5. Run VSM creation and blur passes from `shadow_map_tex` into the existing VSM ping-pong textures.
+6. Continue sampling filtered VSM in flora and particle shading.
 
-### How it works
+## implementation steps
 
-When a voxel removal succeeds in `chunk_modify.comp`:
+1. Add a dedicated raster shadow depth texture.
+   - update `TracerResources` to store both `shadow_map_depth_tex` and `shadow_map_tex`
+   - keep `shadow_map_depth_tex` as `D32_SFLOAT`
+   - change `shadow_map_tex` to `R32_SFLOAT` with storage-compatible usage
 
-1. Use the existing atomic add on `edit_stats.added_counts[VOXEL_TYPE_EMPTY]` as the append index.
-2. Write the removed voxel world-space center to `candidate_positions[idx]`.
-3. Keep the normal edit stats behavior unchanged.
+2. Update render pass and framebuffer wiring.
+   - make the depth-only shadow render pass use `shadow_map_depth_tex`
+   - keep the compute path and VSM path bound to `shadow_map_tex`
 
-### Notes
+3. Add a depth-to-float conversion pass.
+   - add a tiny compute or fullscreen pass that reads `shadow_map_depth_tex` and writes `shadow_map_tex`
+   - keep the implementation minimal and local
+   - prefer a compute pass if it fits current pipeline infrastructure cleanly
 
-- No separate `candidate_count` buffer is needed.
-- Pass 1 will use `edit_stats.added_counts[VOXEL_TYPE_EMPTY]` as the candidate length.
-- The candidate buffer still needs a fixed capacity and a bounds check before writing.
-- If capacity is exceeded, extra candidates can be dropped for now.
+4. Update shadow compute shaders.
+   - keep `tracer_shadow.comp` writing to `shadow_map_tex` as `r32f`
+   - keep `vsm_creation.comp` reading from `shadow_map_tex` as `r32f`
+   - ensure no shader binds the depth texture as a storage image
 
-## Pass 1: Sample Up To 50 Positions In Parallel
+5. Update clear and barrier sequencing.
+   - clear `shadow_map_depth_tex` as depth
+   - clear `shadow_map_tex` as color float `1.0`
+   - insert the required barriers between raster depth write, conversion pass, terrain shadow pass, and VSM passes
 
-### Input
+6. Validate descriptor usage on macOS.
+   - confirm the `D32_SFLOAT` storage-image validation error is gone
+   - re-check whether the per-stage storage image limit errors remain
+   - if they remain, reduce storage-image bindings in affected compute pipelines as a separate follow-up
 
-- `candidate_positions[0..candidate_len)` from pass 0
-- `candidate_len = edit_stats.added_counts[VOXEL_TYPE_EMPTY]`
+## files likely involved
 
-### Output
+- `src/tracer/resources.rs`
+- `src/tracer/mod.rs`
+- `src/tracer/pipeline_builder.rs`
+- `shader/tracer/tracer_shadow.comp`
+- `shader/tracer/vsm_creation.comp`
+- new shader for depth-to-float conversion
 
-A GPU-to-CPU readback buffer containing:
+## expected outcome
 
-- `sample_count`
-- `sample_positions[50]`
+- no `D32_SFLOAT` storage-image validation error on macOS
+- same shadow architecture on all platforms
+- soft flora shadows restored through the VSM path
+- terrain shadow data merged into the same raw float shadow texture before filtering
 
-### Sampling rule
+## follow-up checks
 
-Use a simple parallel sampling pass with replacement:
-
-1. Launch 50 shader invocations.
-2. Each invocation independently generates a random index in `[0, candidate_len)`.
-3. Each invocation reads that candidate position from the large candidate buffer.
-4. Each invocation writes its result into the corresponding slot in the fixed sample buffer.
-
-This keeps pass 1 fully parallel and keeps the CPU readback buffer fixed at 50 positions.
-
-### Consequence
-
-- Each draw is uniform over all valid candidate indices.
-- Sampling is with replacement.
-- Duplicate sampled positions are allowed.
-- The output is intended to guide particles, so duplicate anchors are acceptable for this first implementation.
-
-### Initial implementation choice
-
-Prefer a simple pass-1 shader first:
-
-- local size or total invocation count of 50
-- one invocation per output slot
-- each invocation hashes `(edit_seed, invocation_id)` to generate a random candidate index
-- invocation 0 writes `sample_count = min(candidate_len, 50)`
-- invocations beyond `sample_count` clear their output slot
-
-## CPU Side Integration
-
-### Builder layer
-
-Extend the terrain removal result path so CPU can read back:
-
-- edit stats
-- sampled removal positions
-
-The builder should:
-
-1. Clear the candidate buffer before pass 0.
-2. Run the existing modify pass.
-3. Run the new sampling pass.
-4. Read back the fixed sample buffer.
-
-### App layer
-
-Update terrain removal particle spawning so it uses sampled voxel positions instead of only the edit center.
-
-Proposed behavior:
-
-- if sampled positions exist, use them as particle spawn anchors
-- if fewer than desired particles are available, reuse/jitter sampled anchors as needed
-- if no sampled positions exist, fall back to the edit center
-
-## Buffers To Add
-
-### GPU-only candidate buffer
-
-Stores all removed voxel positions for the dispatch.
-
-Suggested shape:
-
-```glsl
-layout(set = 0, binding = X) buffer B_EditRemovalCandidates {
-    vec4 positions[];
-} edit_removal_candidates;
-```
-
-Use `vec4` for alignment safety. `xyz` stores world position.
-
-### CPU-visible sample buffer
-
-Stores the final up-to-50 sampled positions.
-
-Suggested shape:
-
-```glsl
-layout(set = 0, binding = Y) buffer B_EditRemovalSample {
-    uint sample_count;
-    vec4 positions[50];
-} edit_removal_sample;
-```
-
-## Seed Source
-
-Pass 1 should use a per-edit random seed so repeated edits do not always choose the same sampled positions.
-
-Possible sources:
-
-- an incrementing terrain edit counter
-- frame counter
-- hashed edit center + counter
-
-An incrementing terrain edit counter is likely the simplest option.
-
-## First Implementation Scope
-
-- removal only
-- 2-pass GPU path
-- fixed `50`-entry CPU readback buffer
-- use sampled positions only for terrain destruction particles
-- no placement/flora edit integration yet
-
-## Follow-up Validation
-
-After implementation, verify:
-
-1. removed voxel candidates are written correctly in pass 0
-2. pass 1 returns at most 50 positions
-3. repeated edits produce varying sampled positions
-4. particles spawn around actual removed voxels rather than only the edit center
+- compare flora, grass, particles, and terrain shadow softness across macOS and non-macOS
+- verify god ray or any direct raw shadow sampling path still reads the intended texture
+- inspect whether `tracer.comp` should remain on PCSS from raw shadow data or be moved to filtered VSM for more consistent softness
