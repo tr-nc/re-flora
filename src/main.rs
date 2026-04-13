@@ -144,7 +144,33 @@ impl AppOptions {
 
 fn print_help() {
     println!(
-        "Usage:\n  re-flora [options]\n\nOptions:\n  --windowed                  Run in windowed mode (default: borderless fullscreen)\n  --no-shadows                Disable shadow rendering passes\n  --no-denoise                Disable denoiser passes\n  --no-god-rays               Disable god ray pass\n  --no-lens-flare             Disable lens flare passes\n  --no-tracer                 Disable main tracer pass\n  --no-particles              Disable particle simulation and rendering\n  --no-flora                  Disable flora and leaves rendering\n  --present-mode <mode>       Override auto present mode selection: mailbox, immediate, fifo, fifo_relaxed\n  --swapchain-images <N>      Override swapchain image count (default: auto)\n  --screenshot <path>         Save one screenshot after rendering starts\n  --screenshot-delay <sec>    Delay before screenshot capture (default: 5.0)\n  --auto-exit <sec>           Exit automatically after rendering starts\n  --perf                      Enable per-frame performance logging\n  --help                      Show this help and exit\n\nExamples:\n  re-flora --windowed\n  re-flora --present-mode fifo\n  re-flora --swapchain-images 2\n  re-flora --no-shadows --no-denoise\n  re-flora --screenshot out.png --screenshot-delay 3\n  re-flora --auto-exit 10 --perf"
+        r#"Usage:
+  re-flora [options]
+
+Options:
+  --windowed                  Run in windowed mode (default: borderless fullscreen)
+  --no-shadows                Disable shadow rendering passes
+  --no-denoise                Disable denoiser passes
+  --no-god-rays               Disable god ray pass
+  --no-lens-flare             Disable lens flare passes
+  --no-tracer                 Disable main tracer pass
+  --no-particles              Disable particle simulation and rendering
+  --no-flora                  Disable flora and leaves rendering
+  --present-mode <mode>       Override auto present mode selection: mailbox, immediate, fifo, fifo_relaxed
+  --swapchain-images <N>      Override swapchain image count (default: auto)
+  --screenshot <path>         Save one screenshot after rendering starts
+  --screenshot-delay <sec>    Delay before screenshot capture (default: 5.0)
+  --auto-exit <sec>           Exit automatically after rendering starts
+  --perf                      Enable per-frame performance logging
+  --help                      Show this help and exit
+
+Examples:
+  re-flora --windowed
+  re-flora --present-mode fifo
+  re-flora --swapchain-images 2
+  re-flora --no-shadows --no-denoise
+  re-flora --screenshot out.png --screenshot-delay 3
+  re-flora --auto-exit 10 --perf"#
     );
 }
 
