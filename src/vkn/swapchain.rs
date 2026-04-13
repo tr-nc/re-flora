@@ -21,9 +21,6 @@ pub struct SwapchainDesc {
     pub format: vk::Format,
     pub color_space: vk::ColorSpaceKHR,
     pub present_mode: Option<vk::PresentModeKHR>,
-    /// When true, skip clamping image count to max_image_count.
-    /// May improve throughput but is not safe on all platforms.
-    pub unclamped_image_count: bool,
     /// Override image count. None = auto (max(min_image_count, 3)).
     pub image_count_override: Option<u32>,
 }
@@ -34,7 +31,6 @@ impl Default for SwapchainDesc {
             format: vk::Format::B8G8R8A8_SRGB,
             color_space: vk::ColorSpaceKHR::SRGB_NONLINEAR,
             present_mode: None,
-            unclamped_image_count: false,
             image_count_override: None,
         }
     }
@@ -442,16 +438,15 @@ fn create_vulkan_swapchain(
         };
         capabilities.min_image_count.max(preferred_default)
     };
-    if !swapchain_preference.unclamped_image_count && capabilities.max_image_count > 0 {
+    if capabilities.max_image_count > 0 {
         image_count = image_count.min(capabilities.max_image_count);
     }
     log::info!(
-        "Swapchain image count: min={}, max={}, using={} (override={:?}, unclamped={})",
+        "Swapchain image count: min={}, max={}, using={} (override={:?})",
         capabilities.min_image_count,
         capabilities.max_image_count,
         image_count,
         swapchain_preference.image_count_override,
-        swapchain_preference.unclamped_image_count,
     );
 
     let (swapchain_device, swapchain_khr) = create_swapchain_device_khr(
