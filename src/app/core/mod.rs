@@ -392,15 +392,23 @@ impl App {
             return;
         }
 
-        let listener_position = self.spatial_sound_manager.listener_position();
+        let Some(request) = self.spatial_sound_manager.poll_latest_occlusion_request() else {
+            return;
+        };
+
+        if request.sources.is_empty() {
+            self.audio_ray_tracing_debug_text = "Audio RT: 0/0 occluded (no spatial sources)".to_owned();
+            return;
+        }
 
         const OCCLUSION_DISTANCE_EPSILON: f32 = 0.05;
 
-        let rays = spatial_sources
+        let rays = request
+            .sources
             .iter()
             .map(|source| TerrainRayQuery {
-                origin: listener_position,
-                direction: source.position - listener_position,
+                origin: request.listener_position,
+                direction: source.position - request.listener_position,
             })
             .collect::<Vec<_>>();
 
@@ -410,16 +418,16 @@ impl App {
                 log::warn!("Failed to update audio ray tracing: {}", err);
                 self.audio_ray_tracing_debug_text = format!(
                     "Audio RT: error for {} sources",
-                    spatial_sources.len()
+                    request.sources.len()
                 );
                 return;
             }
         };
 
         let mut occluded_sources = 0usize;
-        for (source, hit) in spatial_sources.iter().zip(hit_samples.iter()) {
-            let source_distance = source.position.distance(listener_position);
-            let hit_distance = hit.position.distance(listener_position);
+        for (source, hit) in request.sources.iter().zip(hit_samples.iter()) {
+            let source_distance = source.position.distance(request.listener_position);
+            let hit_distance = hit.position.distance(request.listener_position);
             let is_occluded =
                 hit.is_valid && hit_distance + OCCLUSION_DISTANCE_EPSILON < source_distance;
 
@@ -438,7 +446,7 @@ impl App {
         self.audio_ray_tracing_debug_text = format!(
             "Audio RT: {}/{} occluded",
             occluded_sources,
-            spatial_sources.len()
+            request.sources.len()
         );
     }
 

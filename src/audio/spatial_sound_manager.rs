@@ -27,7 +27,18 @@ struct SourceInfo {
 #[derive(Debug, Clone, Copy)]
 pub struct SpatialSourceSnapshot {
     pub uuid: Uuid,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SpatialOcclusionSourceRequest {
+    pub uuid: Uuid,
     pub position: Vec3,
+}
+
+#[derive(Debug, Clone)]
+pub struct SpatialOcclusionRequest {
+    pub listener_position: Vec3,
+    pub sources: Vec<SpatialOcclusionSourceRequest>,
 }
 
 /// Spatial sound manager using PetalSonic
@@ -345,22 +356,64 @@ impl SpatialSoundManager {
         Ok(())
     }
 
-    pub fn listener_position(&self) -> Vec3 {
-        self.listener_state.lock().unwrap().position
-    }
-
     pub fn spatial_sources_snapshot(&self) -> Vec<SpatialSourceSnapshot> {
         self.uuid_to_source
             .lock()
             .unwrap()
             .iter()
             .filter_map(|(uuid, source_info)| {
-                source_info.position.map(|position| SpatialSourceSnapshot {
-                    uuid: *uuid,
-                    position,
-                })
+                source_info
+                    .position
+                    .map(|_| SpatialSourceSnapshot { uuid: *uuid })
             })
             .collect()
+    }
+
+    pub fn poll_latest_occlusion_request(&self) -> Option<SpatialOcclusionRequest> {
+        let events = self.engine.lock().unwrap().poll_events();
+        if events.is_empty() {
+            return None;
+        }
+
+        let source_lookup: HashMap<SourceId, Uuid> = self
+            .uuid_to_source
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(uuid, source_info)| (source_info.source_id, *uuid))
+            .collect();
+
+        let mut latest_request = None;
+        for event in events {
+            if let petalsonic::PetalSonicEvent::OcclusionRefreshRequested {
+                listener_position,
+                sources,
+            } = event
+            {
+                let mapped_sources = sources
+                    .into_iter()
+                    .filter_map(|(source_id, position)| {
+                        source_lookup
+                            .get(&source_id)
+                            .copied()
+                            .map(|uuid| SpatialOcclusionSourceRequest {
+                                uuid,
+                                position: Vec3::new(position.x, position.y, position.z),
+                            })
+                    })
+                    .collect();
+                latest_request = Some(SpatialOcclusionRequest {
+                    listener_position: Vec3::new(
+                        listener_position.x,
+                        listener_position.y,
+                        listener_position.z,
+                    ),
+                    sources: mapped_sources,
+                });
+            }
+        }
+
+        latest_request
     }
 
     pub fn set_source_occlusion(&self, source_uuid: Uuid, is_occluded: bool) -> Result<()> {
@@ -512,11 +565,6 @@ impl SpatialSoundManager {
         }
     }
 
-    /// Poll events from the engine (e.g., for cleanup of completed sources)
-    #[allow(dead_code)]
-    pub fn poll_events(&self) -> Vec<petalsonic::PetalSonicEvent> {
-        self.engine.lock().unwrap().poll_events()
-    }
 }
 
 // Make SpatialSoundManager cloneable
