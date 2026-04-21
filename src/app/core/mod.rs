@@ -1125,6 +1125,9 @@ impl App {
                 .consumed;
 
             if consumed {
+                if let WindowEvent::KeyboardInput { event, .. } = &event {
+                    self.tracer.handle_keyboard(event);
+                }
                 return;
             }
         }
@@ -1168,29 +1171,27 @@ impl App {
                     }
                 }
 
-                if !self.window_state.is_cursor_visible() {
-                    if event.state == ElementState::Pressed {
-                        let target_slot = match event.physical_key {
-                            PhysicalKey::Code(KeyCode::Digit1) => Some(0),
-                            PhysicalKey::Code(KeyCode::Digit2) => Some(1),
-                            PhysicalKey::Code(KeyCode::Digit3) => Some(2),
-                            PhysicalKey::Code(KeyCode::Digit4) => Some(3),
-                            PhysicalKey::Code(KeyCode::Digit5) => Some(4),
-                            _ => None,
-                        };
+                if !self.window_state.is_cursor_visible() && event.state == ElementState::Pressed {
+                    let target_slot = match event.physical_key {
+                        PhysicalKey::Code(KeyCode::Digit1) => Some(0),
+                        PhysicalKey::Code(KeyCode::Digit2) => Some(1),
+                        PhysicalKey::Code(KeyCode::Digit3) => Some(2),
+                        PhysicalKey::Code(KeyCode::Digit4) => Some(3),
+                        PhysicalKey::Code(KeyCode::Digit5) => Some(4),
+                        _ => None,
+                    };
 
-                        if let Some(slot_idx) = target_slot {
-                            if slot_idx < ITEM_PANEL_SLOT_COUNT
-                                && slot_idx != self.selected_item_panel_slot
-                            {
-                                self.selected_item_panel_slot = slot_idx;
-                                self.play_item_panel_scroll_sound();
-                            }
+                    if let Some(slot_idx) = target_slot {
+                        if slot_idx < ITEM_PANEL_SLOT_COUNT
+                            && slot_idx != self.selected_item_panel_slot
+                        {
+                            self.selected_item_panel_slot = slot_idx;
+                            self.play_item_panel_scroll_sound();
                         }
                     }
-
-                    self.tracer.handle_keyboard(&event);
                 }
+
+                self.tracer.handle_keyboard(&event);
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 if button == MouseButton::Left {
