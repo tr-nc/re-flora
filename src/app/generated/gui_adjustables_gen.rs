@@ -67,6 +67,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Master Volume",
     },
     GeneratedGuiParamDescriptor {
+        section: "Audio",
+        id: "audio_ray_tracing_enabled",
+        kind: "bool",
+        label: "Audio Ray Tracing",
+    },
+    GeneratedGuiParamDescriptor {
         section: "Sky",
         id: "sun_size",
         kind: "float",
@@ -581,6 +587,7 @@ pub struct GuiAdjustables {
     pub grass_render_mode: crate::gui_adjustables::UintParam,
     pub debug_bool: crate::gui_adjustables::BoolParam,
     pub master_volume: crate::gui_adjustables::FloatParam,
+    pub audio_ray_tracing_enabled: crate::gui_adjustables::BoolParam,
     pub sun_size: crate::gui_adjustables::FloatParam,
     pub sun_color: crate::gui_adjustables::ColorParam,
     pub sun_luminance: crate::gui_adjustables::FloatParam,
@@ -685,6 +692,7 @@ impl GuiAdjustables {
         let mut grass_render_mode_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut debug_bool_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut master_volume_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut audio_ray_tracing_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut sun_size_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sun_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut sun_luminance_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -818,6 +826,11 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             master_volume_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "audio_ray_tracing_enabled" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            audio_ray_tracing_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "sun_size" => {
@@ -1381,6 +1394,7 @@ impl GuiAdjustables {
             grass_render_mode: grass_render_mode_field.expect("Missing parameter: grass_render_mode"),
             debug_bool: debug_bool_field.expect("Missing parameter: debug_bool"),
             master_volume: master_volume_field.expect("Missing parameter: master_volume"),
+            audio_ray_tracing_enabled: audio_ray_tracing_enabled_field.expect("Missing parameter: audio_ray_tracing_enabled"),
             sun_size: sun_size_field.expect("Missing parameter: sun_size"),
             sun_color: sun_color_field.expect("Missing parameter: sun_color"),
             sun_luminance: sun_luminance_field.expect("Missing parameter: sun_luminance"),
@@ -1564,6 +1578,7 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
 pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::BoolParam> {
     match id {
         "debug_bool" => Some(&adjustables.debug_bool),
+        "audio_ray_tracing_enabled" => Some(&adjustables.audio_ray_tracing_enabled),
         "auto_daynight_cycle" => Some(&adjustables.auto_daynight_cycle),
         "is_changing_lum_phi" => Some(&adjustables.is_changing_lum_phi),
         "is_spatial_denoising_enabled" => Some(&adjustables.is_spatial_denoising_enabled),
@@ -1690,6 +1705,7 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
 pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::BoolParam> {
     match id {
         "debug_bool" => Some(&mut adjustables.debug_bool),
+        "audio_ray_tracing_enabled" => Some(&mut adjustables.audio_ray_tracing_enabled),
         "auto_daynight_cycle" => Some(&mut adjustables.auto_daynight_cycle),
         "is_changing_lum_phi" => Some(&mut adjustables.is_changing_lum_phi),
         "is_spatial_denoising_enabled" => Some(&mut adjustables.is_spatial_denoising_enabled),

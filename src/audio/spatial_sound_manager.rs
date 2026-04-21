@@ -8,7 +8,7 @@ use petalsonic::{
     math::{Pose, Quat as PetalQuat, Vec3 as PetalVec3},
     playback::LoopMode,
     world::PetalSonicWorld,
-    SourceConfig, SourceId,
+    DirectPathOverride, DirectPathTransmission, SourceConfig, SourceId,
 };
 use rand::Rng;
 use std::collections::HashMap;
@@ -21,6 +21,13 @@ struct SourceInfo {
     volume: f32,
     position: Option<Vec3>,
     loop_mode: LoopMode,
+    direct_path_override: Option<DirectPathOverride>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SpatialSourceSnapshot {
+    pub uuid: Uuid,
+    pub position: Vec3,
 }
 
 /// Spatial sound manager using PetalSonic
@@ -151,6 +158,7 @@ impl SpatialSoundManager {
                 volume,
                 position: Some(position),
                 loop_mode,
+                direct_path_override: None,
             },
         );
 
@@ -236,6 +244,7 @@ impl SpatialSoundManager {
                 volume,
                 position: None,
                 loop_mode: LoopMode::Once,
+                direct_path_override: None,
             },
         );
 
@@ -279,6 +288,7 @@ impl SpatialSoundManager {
                 volume,
                 position: None,
                 loop_mode: LoopMode::Infinite,
+                direct_path_override: None,
             },
         );
 
@@ -333,6 +343,55 @@ impl SpatialSoundManager {
         self.world.set_listener_pose(pose);
 
         Ok(())
+    }
+
+    pub fn listener_position(&self) -> Vec3 {
+        self.listener_state.lock().unwrap().position
+    }
+
+    pub fn spatial_sources_snapshot(&self) -> Vec<SpatialSourceSnapshot> {
+        self.uuid_to_source
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|(uuid, source_info)| {
+                source_info.position.map(|position| SpatialSourceSnapshot {
+                    uuid: *uuid,
+                    position,
+                })
+            })
+            .collect()
+    }
+
+    pub fn set_source_occlusion(&self, source_uuid: Uuid, is_occluded: bool) -> Result<()> {
+        let direct_path_override = if is_occluded {
+            Some(DirectPathOverride {
+                occlusion: Some(1.0),
+                transmission: Some(DirectPathTransmission::FrequencyDependent([
+                    0.02, 0.01, 0.0,
+                ])),
+            })
+        } else {
+            None
+        };
+
+        let source_id = {
+            let mut uuid_map = self.uuid_to_source.lock().unwrap();
+            let Some(source_info) = uuid_map.get_mut(&source_uuid) else {
+                return Ok(());
+            };
+
+            if source_info.direct_path_override == direct_path_override {
+                return Ok(());
+            }
+
+            source_info.direct_path_override = direct_path_override;
+            source_info.source_id
+        };
+
+        self.world
+            .update_source_direct_path_override(source_id, direct_path_override)
+            .map_err(|e| anyhow::anyhow!("Failed to update source occlusion: {}", e))
     }
 
     #[allow(dead_code)]
