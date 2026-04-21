@@ -19,9 +19,11 @@ use crate::app::world_edits::{
 use crate::app::world_ops;
 use crate::app::GuiAdjustables;
 use crate::audio::{SpatialSoundManager, TreeAudioManager};
-use crate::builder::{ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder};
+use crate::builder::{
+    ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder, VOXEL_TYPE_ROCK,
+};
 use crate::flora::species;
-use crate::geom::UAabb3;
+use crate::geom::{build_bvh, Aabb3, Cuboid, UAabb3};
 use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, LeafEmitterDesc, ParticleForces, ParticleHandle,
     ParticleSnapshot, ParticleSystem, PARTICLE_CAPACITY,
@@ -277,6 +279,8 @@ const ITEM_PANEL_SCROLL_SFX_PATH: &str =
 const ITEM_PANEL_SCROLL_SFX_VOLUME_DB: f32 = -6.0;
 const FLORA_TICK_RATE_HZ: f32 = 1.0;
 const FLORA_SPROUT_DELAY_TICKS: u32 = 2;
+const DEBUG_AUDIO_WALL_MIN: Vec3 = Vec3::new(300.0, 0.0, 512.0);
+const DEBUG_AUDIO_WALL_MAX: Vec3 = Vec3::new(320.0, 256.0, 600.0);
 const FLORA_FULL_GROWTH_TICKS: u32 = 30;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -329,6 +333,15 @@ impl ActiveVoxelType {
 }
 
 impl App {
+    fn apply_debug_audio_wall(&mut self) -> Result<()> {
+        let wall = Cuboid::from_min_max(DEBUG_AUDIO_WALL_MIN, DEBUG_AUDIO_WALL_MAX);
+        let wall_aabb = Aabb3::new(DEBUG_AUDIO_WALL_MIN, DEBUG_AUDIO_WALL_MAX);
+        let bvh_nodes = build_bvh(&[wall_aabb], &[0]).map_err(anyhow::Error::msg)?;
+
+        self.plain_builder
+            .chunk_modify_cuboids_with_voxel_type(&bvh_nodes, &[wall], VOXEL_TYPE_ROCK)
+    }
+
     fn linear_to_db(linear: f32) -> f32 {
         const MIN_DB: f32 = -80.0;
         const MAX_DB: f32 = 24.0;
@@ -684,6 +697,7 @@ impl App {
     }
 
     fn process_loading_step(&mut self) {
+        let mut should_apply_debug_audio_wall = false;
         let loading = match &mut self.loading_state {
             Some(loading) => loading,
             None => return,
@@ -711,6 +725,7 @@ impl App {
 
                 loading.current += 1;
                 if loading.current >= total {
+                    should_apply_debug_audio_wall = true;
                     loading.current = 0;
                     loading.phase = LoadingPhase::Building;
                 }
@@ -743,6 +758,12 @@ impl App {
                 }
 
                 loading.current += 1;
+            }
+        }
+
+        if should_apply_debug_audio_wall {
+            if let Err(err) = self.apply_debug_audio_wall() {
+                log::error!("Failed to apply debug audio wall: {err}");
             }
         }
     }
