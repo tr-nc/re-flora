@@ -20,7 +20,7 @@ use crate::app::world_ops;
 use crate::app::GuiAdjustables;
 use crate::audio::{SpatialSoundManager, TreeAudioManager};
 use crate::builder::{
-    ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder, VOXEL_TYPE_ROCK,
+    ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder, VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_ROCK
 };
 use crate::flora::species;
 use crate::geom::{build_bvh, Aabb3, Cuboid, UAabb3};
@@ -339,7 +339,7 @@ impl App {
         let bvh_nodes = build_bvh(&[wall_aabb], &[0]).map_err(anyhow::Error::msg)?;
 
         self.plain_builder
-            .chunk_modify_cuboids_with_voxel_type(&bvh_nodes, &[wall], VOXEL_TYPE_ROCK)
+            .chunk_modify_cuboids_with_voxel_type(&bvh_nodes, &[wall], VOXEL_TYPE_CHERRY_WOOD)
     }
 
     fn linear_to_db(linear: f32) -> f32 {
