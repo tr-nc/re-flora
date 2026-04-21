@@ -366,7 +366,9 @@ impl SpatialSoundManager {
     pub fn set_source_occlusion(&self, source_uuid: Uuid, is_occluded: bool) -> Result<()> {
         let direct_path_override = if is_occluded {
             Some(DirectPathOverride {
-                occlusion: Some(1.0),
+                // Steam Audio expects occlusion as direct-path visibility:
+                // 1.0 = fully audible, 0.0 = fully blocked.
+                occlusion: Some(0.0),
                 transmission: Some(DirectPathTransmission::FrequencyDependent([
                     0.02, 0.01, 0.0,
                 ])),
