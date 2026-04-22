@@ -20,7 +20,7 @@ use crate::app::world_ops;
 use crate::app::GuiAdjustables;
 use crate::audio::{SpatialSoundManager, TreeAudioManager};
 use crate::builder::{
-    ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder, VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_ROCK
+    ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder, VOXEL_TYPE_CHERRY_WOOD
 };
 use crate::flora::species;
 use crate::geom::{build_bvh, Aabb3, Cuboid, UAabb3};
@@ -368,86 +368,97 @@ impl App {
     }
 
     fn update_audio_ray_tracing(&mut self) {
-        let spatial_sources = self.spatial_sound_manager.spatial_sources_snapshot();
-        if spatial_sources.is_empty() {
-            self.audio_ray_tracing_debug_text = "Audio RT: 0/0 occluded (no spatial sources)".to_owned();
+        const AUDIO_RAY_ENDPOINT_EPSILON: f32 = 0.05;
+
+        let enabled = self.gui_adjustables.audio_ray_tracing_enabled.value;
+        self.spatial_sound_manager
+            .set_audio_ray_tracing_enabled(enabled);
+
+        if !enabled {
+            self.audio_ray_tracing_debug_text = "Audio RT: disabled".to_owned();
             return;
         }
 
-        if !self.gui_adjustables.audio_ray_tracing_enabled.value {
-            for source in &spatial_sources {
-                if let Err(err) = self.spatial_sound_manager.set_source_occlusion(source.uuid, false)
-                {
-                    log::warn!(
-                        "Failed to clear audio occlusion for {:?}: {}",
-                        source.uuid,
-                        err
-                    );
-                }
-            }
-            self.audio_ray_tracing_debug_text = format!(
-                "Audio RT: 0/{} occluded (disabled)",
-                spatial_sources.len()
-            );
+        let direct_snapshot = self.spatial_sound_manager.direct_occlusion_debug_snapshot();
+        if let Err(err) = self
+            .spatial_sound_manager
+            .service_audio_ray_tracing_requests(|rays, min_distances, max_distances| {
+                let queries = rays
+                    .iter()
+                    .zip(min_distances.iter().zip(max_distances.iter()))
+                    .map(|(ray, (&min_distance, &max_distance))| {
+                        let max_distance = (max_distance - AUDIO_RAY_ENDPOINT_EPSILON)
+                            .max(min_distance)
+                            .max(0.0);
+                        let direction = if max_distance > 0.0 {
+                            Vec3::new(
+                                ray.direction.x * max_distance,
+                                ray.direction.y * max_distance,
+                                ray.direction.z * max_distance,
+                            )
+                        } else {
+                            Vec3::ZERO
+                        };
+                        (TerrainRayQuery {
+                            origin: Vec3::new(ray.origin.x, ray.origin.y, ray.origin.z),
+                            direction,
+                        }, min_distance, max_distance)
+                    })
+                    .collect::<Vec<_>>();
+
+                let raw_queries = queries.iter().map(|(query, _, _)| *query).collect::<Vec<_>>();
+                let hits = self.tracer.query_terrain_rays_batch_with_validity(&raw_queries)?;
+
+                Ok(queries
+                    .iter()
+                    .zip(hits.iter())
+                    .map(|((query, min_distance, max_distance), hit)| {
+                        if !hit.is_valid || *max_distance <= *min_distance {
+                            return false;
+                        }
+
+                        let hit_distance = hit.position.distance(query.origin);
+                        hit_distance >= *min_distance && hit_distance <= *max_distance
+                    })
+                    .collect())
+            }) {
+            log::warn!("Failed to service audio ray tracing requests: {}", err);
+            self.audio_ray_tracing_debug_text = "Audio RT: service error".to_owned();
             return;
         }
 
-        let Some(request) = self.spatial_sound_manager.poll_latest_occlusion_request() else {
-            return;
+        let runtime_snapshot = self
+            .spatial_sound_manager
+            .take_audio_ray_tracing_runtime_snapshot();
+
+        self.audio_ray_tracing_debug_text = match direct_snapshot {
+            Some(snapshot) => format!(
+                "Audio RT: {} callbacks / {} rays\nLast query: {} reused / {} missing / {} queued\nGPU: {} batches / {} rays / {} hits\nDirect occ: {} samples avg {:.3} min {:.3} max {:.3}",
+                runtime_snapshot.callback_batches,
+                runtime_snapshot.callback_rays,
+                runtime_snapshot.reused_last_query_results,
+                runtime_snapshot.missing_last_query_results,
+                runtime_snapshot.queued_requests,
+                runtime_snapshot.serviced_batches,
+                runtime_snapshot.serviced_rays,
+                runtime_snapshot.serviced_hits,
+                snapshot.sample_count,
+                snapshot.avg_occlusion,
+                snapshot.min_occlusion,
+                snapshot.max_occlusion,
+            ),
+            None => format!(
+                "Audio RT: {} callbacks / {} rays\nLast query: {} reused / {} missing / {} queued\nGPU: {} batches / {} rays / {} hits\nDirect occ: no samples",
+                runtime_snapshot.callback_batches,
+                runtime_snapshot.callback_rays,
+                runtime_snapshot.reused_last_query_results,
+                runtime_snapshot.missing_last_query_results,
+                runtime_snapshot.queued_requests,
+                runtime_snapshot.serviced_batches,
+                runtime_snapshot.serviced_rays,
+                runtime_snapshot.serviced_hits,
+            ),
         };
-
-        if request.sources.is_empty() {
-            self.audio_ray_tracing_debug_text = "Audio RT: 0/0 occluded (no spatial sources)".to_owned();
-            return;
-        }
-
-        const OCCLUSION_DISTANCE_EPSILON: f32 = 0.05;
-
-        let rays = request
-            .sources
-            .iter()
-            .map(|source| TerrainRayQuery {
-                origin: request.listener_position,
-                direction: source.position - request.listener_position,
-            })
-            .collect::<Vec<_>>();
-
-        let hit_samples = match self.tracer.query_terrain_rays_batch_with_validity(&rays) {
-            Ok(hit_samples) => hit_samples,
-            Err(err) => {
-                log::warn!("Failed to update audio ray tracing: {}", err);
-                self.audio_ray_tracing_debug_text = format!(
-                    "Audio RT: error for {} sources",
-                    request.sources.len()
-                );
-                return;
-            }
-        };
-
-        let mut occluded_sources = 0usize;
-        for (source, hit) in request.sources.iter().zip(hit_samples.iter()) {
-            let source_distance = source.position.distance(request.listener_position);
-            let hit_distance = hit.position.distance(request.listener_position);
-            let is_occluded =
-                hit.is_valid && hit_distance + OCCLUSION_DISTANCE_EPSILON < source_distance;
-
-            if is_occluded {
-                occluded_sources += 1;
-            }
-
-            if let Err(err) = self
-                .spatial_sound_manager
-                .set_source_occlusion(source.uuid, is_occluded)
-            {
-                log::warn!("Failed to apply audio occlusion for {:?}: {}", source.uuid, err);
-            }
-        }
-
-        self.audio_ray_tracing_debug_text = format!(
-            "Audio RT: {}/{} occluded",
-            occluded_sources,
-            request.sources.len()
-        );
     }
 
     pub fn new(_event_loop: &ActiveEventLoop, options: &crate::AppOptions) -> Result<Self> {
@@ -1434,7 +1445,6 @@ impl App {
                                                     .value,
                                                 "Enable Audio Ray Tracing",
                                             );
-                                            ui.label(audio_ray_tracing_debug_text.as_str());
                                         },
                                     );
                                 });
@@ -1470,7 +1480,6 @@ impl App {
                                         &mut self.gui_adjustables.audio_ray_tracing_enabled.value,
                                         "Audio Ray Tracing",
                                     );
-                                    ui.label(audio_ray_tracing_debug_text.as_str());
                                 });
                         }
 
@@ -1496,6 +1505,41 @@ impl App {
                             backpack_summary_panel_center.y,
                         ));
                         draw_active_voxel_display(ctx, active_voxel_label, active_voxel_color);
+
+                        egui::Area::new("audio_rt_panel".into())
+                            .anchor(egui::Align2::LEFT_BOTTOM, egui::Vec2::new(16.0, -16.0))
+                            .show(ctx, |ui| {
+                                let audio_rt_frame = egui::containers::Frame {
+                                    fill: PANEL_DARK,
+                                    inner_margin: egui::Margin::symmetric(10, 8),
+                                    corner_radius: egui::CornerRadius::same(0),
+                                    shadow: egui::epaint::Shadow {
+                                        offset: [4, 4],
+                                        blur: 0,
+                                        spread: 0,
+                                        color: SHADOW_COLOR,
+                                    },
+                                    stroke: egui::Stroke::new(2.0, FLOWER_ACCENT),
+                                    ..Default::default()
+                                };
+
+                                audio_rt_frame.show(ui, |ui| {
+                                    ui.set_max_width(420.0);
+                                    ui.label(
+                                        RichText::new("Audio RT")
+                                            .color(GOLD_ACCENT)
+                                            .monospace()
+                                            .size(12.0),
+                                    );
+                                    ui.add_space(4.0);
+                                    ui.label(
+                                        RichText::new(audio_ray_tracing_debug_text.as_str())
+                                            .color(SAGE_ACCENT)
+                                            .monospace()
+                                            .size(11.0),
+                                    );
+                                });
+                            });
 
                         if self.left_mouse_held {
                             let center = ctx.content_rect().center();
