@@ -22,8 +22,6 @@ use std::sync::{
 use uuid::Uuid;
 
 const AUDIO_RAY_QUERY_QUANTIZATION: f32 = 20.0;
-const AUDIO_RAY_QUERY_LIMIT: usize = 4096;
-
 /// Source tracking information
 struct SourceInfo {
     source_id: SourceId,
@@ -610,19 +608,14 @@ impl SpatialSoundManager {
         };
 
         let mut query_state = self.audio_ray_tracing_service.query_state.lock().unwrap();
-        let mut latest_valid_results = HashMap::with_capacity(requests.len());
         let mut hit_count = 0usize;
         for (request, result) in requests.into_iter().zip(response.into_iter()) {
             query_state.pending_requests.remove(&request.key);
             if result {
                 hit_count += 1;
             }
-            latest_valid_results.insert(request.key, result);
+            query_state.last_valid_results.insert(request.key, result);
         }
-        if latest_valid_results.len() > AUDIO_RAY_QUERY_LIMIT {
-            latest_valid_results.clear();
-        }
-        query_state.last_valid_results = latest_valid_results;
 
         self.audio_ray_tracing_service
             .runtime_stats
