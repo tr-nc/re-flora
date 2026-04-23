@@ -21,7 +21,8 @@ use std::sync::{
 };
 use uuid::Uuid;
 
-const AUDIO_RAY_QUERY_QUANTIZATION: f32 = 20.0;
+// Coarser buckets reduce direct-occlusion cache churn from small listener motion.
+const AUDIO_RAY_QUERY_QUANTIZATION: f32 = 5.0;
 /// Source tracking information
 struct SourceInfo {
     source_id: SourceId,
