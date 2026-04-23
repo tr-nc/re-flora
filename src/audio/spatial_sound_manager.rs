@@ -19,6 +19,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     mpsc,
 };
+use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 // Coarser buckets reduce direct-occlusion cache churn from small listener motion.
@@ -142,6 +143,11 @@ impl BatchedAnyHitRayTracer for AudioRayTracingBackend {
         if !self.enabled.load(Ordering::Relaxed) {
             return vec![false; rays.len()];
         }
+
+        log_audio_timing_event(&format!(
+            "PetalSonic batch ray tracing callback invoked ({} rays)",
+            rays.len()
+        ));
 
         self.runtime_stats
             .callback_batches
@@ -783,4 +789,16 @@ fn quantize_point(value: petalsonic::math::Vec3) -> [i32; 3] {
         quantize_scalar(value.y),
         quantize_scalar(value.z),
     ]
+}
+
+fn log_audio_timing_event(message: &str) {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    println!(
+        "[audio-timing] {} at {}.{:03}",
+        message,
+        timestamp.as_secs(),
+        timestamp.subsec_millis()
+    );
 }
