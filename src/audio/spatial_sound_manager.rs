@@ -557,6 +557,13 @@ impl SpatialSoundManager {
             .store(enabled, Ordering::Relaxed);
     }
 
+    pub fn pump_audio(&self) -> Result<()> {
+        let mut engine = self.engine.lock().unwrap();
+        engine
+            .pump_audio()
+            .map_err(|err| anyhow::anyhow!("Failed to pump audio: {}", err))
+    }
+
     pub fn direct_occlusion_debug_snapshot(&self) -> Option<DirectOcclusionDebugSnapshot> {
         self.engine
             .lock()

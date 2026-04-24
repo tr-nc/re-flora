@@ -1320,6 +1320,9 @@ impl App {
                 if let Err(err) = self.tree_audio_manager.update(time_since_start) {
                     log::warn!("Failed to update tree audio sources: {}", err);
                 }
+                if let Err(err) = self.spatial_sound_manager.pump_audio() {
+                    log::warn!("Failed to pump audio: {}", err);
+                }
                 self.update_audio_ray_tracing();
 
                 if !self.window_state.is_cursor_visible() {
