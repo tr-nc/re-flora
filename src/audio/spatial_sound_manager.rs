@@ -557,11 +557,26 @@ impl SpatialSoundManager {
             .store(enabled, Ordering::Relaxed);
     }
 
-    pub fn pump_audio(&self) -> Result<()> {
-        let mut engine = self.engine.lock().unwrap();
-        engine
-            .pump_audio()
-            .map_err(|err| anyhow::anyhow!("Failed to pump audio: {}", err))
+    pub fn pump_audio<F>(&self, mut trace_batch: F) -> Result<()>
+    where
+        F: FnMut(&[AcousticRay], &[f32], &[f32]) -> Result<Vec<bool>>,
+    {
+        const MAX_RT_SYNC_PASSES: usize = 3;
+
+        for _ in 0..MAX_RT_SYNC_PASSES {
+            {
+                let mut engine = self.engine.lock().unwrap();
+                engine
+                    .pump_audio()
+                    .map_err(|err| anyhow::anyhow!("Failed to pump audio: {}", err))?;
+            }
+
+            if !self.service_audio_ray_tracing_requests(&mut trace_batch)? {
+                break;
+            }
+        }
+
+        Ok(())
     }
 
     pub fn direct_occlusion_debug_snapshot(&self) -> Option<DirectOcclusionDebugSnapshot> {
@@ -578,7 +593,7 @@ impl SpatialSoundManager {
     pub fn service_audio_ray_tracing_requests<F>(
         &self,
         mut trace_batch: F,
-    ) -> Result<()>
+    ) -> Result<bool>
     where
         F: FnMut(&[AcousticRay], &[f32], &[f32]) -> Result<Vec<bool>>,
     {
@@ -590,7 +605,7 @@ impl SpatialSoundManager {
         drop(request_receiver);
 
         if requests.is_empty() {
-            return Ok(());
+            return Ok(false);
         }
 
         let rays = requests.iter().map(|request| request.ray).collect::<Vec<_>>();
@@ -644,7 +659,7 @@ impl SpatialSoundManager {
             .serviced_hits
             .fetch_add(hit_count, Ordering::Relaxed);
 
-        Ok(())
+        Ok(true)
     }
 
     #[allow(dead_code)]

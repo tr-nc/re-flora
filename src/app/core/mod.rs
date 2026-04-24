@@ -368,8 +368,6 @@ impl App {
     }
 
     fn update_audio_ray_tracing(&mut self) {
-        const AUDIO_RAY_ENDPOINT_EPSILON: f32 = 0.05;
-
         let enabled = self.gui_adjustables.audio_ray_tracing_enabled.value;
         self.spatial_sound_manager
             .set_audio_ray_tracing_enabled(enabled);
@@ -380,52 +378,6 @@ impl App {
         }
 
         let direct_snapshot = self.spatial_sound_manager.direct_occlusion_debug_snapshot();
-        if let Err(err) = self
-            .spatial_sound_manager
-            .service_audio_ray_tracing_requests(|rays, min_distances, max_distances| {
-                let queries = rays
-                    .iter()
-                    .zip(min_distances.iter().zip(max_distances.iter()))
-                    .map(|(ray, (&min_distance, &max_distance))| {
-                        let max_distance = (max_distance - AUDIO_RAY_ENDPOINT_EPSILON)
-                            .max(min_distance)
-                            .max(0.0);
-                        let direction = if max_distance > 0.0 {
-                            Vec3::new(
-                                ray.direction.x * max_distance,
-                                ray.direction.y * max_distance,
-                                ray.direction.z * max_distance,
-                            )
-                        } else {
-                            Vec3::ZERO
-                        };
-                        (TerrainRayQuery {
-                            origin: Vec3::new(ray.origin.x, ray.origin.y, ray.origin.z),
-                            direction,
-                        }, min_distance, max_distance)
-                    })
-                    .collect::<Vec<_>>();
-
-                let raw_queries = queries.iter().map(|(query, _, _)| *query).collect::<Vec<_>>();
-                let hits = self.tracer.query_terrain_rays_batch_with_validity(&raw_queries)?;
-
-                Ok(queries
-                    .iter()
-                    .zip(hits.iter())
-                    .map(|((query, min_distance, max_distance), hit)| {
-                        if !hit.is_valid || *max_distance <= *min_distance {
-                            return false;
-                        }
-
-                        let hit_distance = hit.position.distance(query.origin);
-                        hit_distance >= *min_distance && hit_distance <= *max_distance
-                    })
-                    .collect())
-            }) {
-            log::warn!("Failed to service audio ray tracing requests: {}", err);
-            self.audio_ray_tracing_debug_text = "Audio RT: service error".to_owned();
-            return;
-        }
 
         let runtime_snapshot = self
             .spatial_sound_manager
@@ -1320,7 +1272,55 @@ impl App {
                 if let Err(err) = self.tree_audio_manager.update(time_since_start) {
                     log::warn!("Failed to update tree audio sources: {}", err);
                 }
-                if let Err(err) = self.spatial_sound_manager.pump_audio() {
+                if let Err(err) = self.spatial_sound_manager.pump_audio(
+                    |rays, min_distances, max_distances| {
+                        const AUDIO_RAY_ENDPOINT_EPSILON: f32 = 0.05;
+
+                        let queries = rays
+                            .iter()
+                            .zip(min_distances.iter().zip(max_distances.iter()))
+                            .map(|(ray, (&min_distance, &max_distance))| {
+                                let max_distance = (max_distance - AUDIO_RAY_ENDPOINT_EPSILON)
+                                    .max(min_distance)
+                                    .max(0.0);
+                                let direction = if max_distance > 0.0 {
+                                    Vec3::new(
+                                        ray.direction.x * max_distance,
+                                        ray.direction.y * max_distance,
+                                        ray.direction.z * max_distance,
+                                    )
+                                } else {
+                                    Vec3::ZERO
+                                };
+                                (
+                                    TerrainRayQuery {
+                                        origin: Vec3::new(ray.origin.x, ray.origin.y, ray.origin.z),
+                                        direction,
+                                    },
+                                    min_distance,
+                                    max_distance,
+                                )
+                            })
+                            .collect::<Vec<_>>();
+
+                        let raw_queries =
+                            queries.iter().map(|(query, _, _)| *query).collect::<Vec<_>>();
+                        let hits = self.tracer.query_terrain_rays_batch_with_validity(&raw_queries)?;
+
+                        Ok(queries
+                            .iter()
+                            .zip(hits.iter())
+                            .map(|((query, min_distance, max_distance), hit)| {
+                                if !hit.is_valid || *max_distance <= *min_distance {
+                                    return false;
+                                }
+
+                                let hit_distance = hit.position.distance(query.origin);
+                                hit_distance >= *min_distance && hit_distance <= *max_distance
+                            })
+                            .collect())
+                    },
+                ) {
                     log::warn!("Failed to pump audio: {}", err);
                 }
                 self.update_audio_ray_tracing();
