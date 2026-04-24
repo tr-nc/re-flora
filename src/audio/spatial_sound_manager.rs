@@ -19,7 +19,6 @@ use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     mpsc,
 };
-use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 // Coarser buckets reduce direct-occlusion cache churn from small listener motion.
@@ -814,13 +813,5 @@ fn quantize_point(value: petalsonic::math::Vec3) -> [i32; 3] {
 }
 
 fn log_audio_timing_event(message: &str) {
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    println!(
-        "[audio-timing] {} at {}.{:03}",
-        message,
-        timestamp.as_secs(),
-        timestamp.subsec_millis()
-    );
+    log::trace!("[audio-timing] {}", message);
 }
