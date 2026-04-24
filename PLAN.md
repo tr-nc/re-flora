@@ -1,325 +1,225 @@
-# Main-Thread Audio Pump Refactor Plan
+# Main-Thread Audio Pump Direct RT Plan
 
-## Background
+## Current State
 
-Today, `PetalSonicEngine` owns an internal producer thread (`render_thread_loop`) that continuously fills an audio ring buffer, while the CPAL audio callback consumes from that buffer on the audio device thread.
+The first half of the refactor is already done.
 
-In `re-flora`, audio ray tracing cannot safely call into the terrain tracer from that PetalSonic producer thread, so the current integration uses a deferred request/service model:
+Today:
 
-- PetalSonic's ray tracing callback queues requests.
-- `re-flora` services those requests later from the main thread during frame update.
-- Cached results are reused to bridge the thread boundary.
+- `PetalSonicEngine` no longer owns an internal producer/render thread.
+- The CPAL callback is consumer-only and reads from the ring buffer.
+- `re-flora` explicitly calls `pump_audio()` once per frame from the main thread.
+- Audio ray tracing is serviced during that frame pump rather than in a separate later update.
 
-This avoids unsafe cross-thread tracer access, but it also means:
+However, the ray tracing path is still not truly direct.
 
-- audio ray tracing is not executed in the same call context as audio simulation
-- ray tracing results are delayed and can be stale by up to a frame or more
-- additional synchronization and caching machinery exists for correctness rather than optimization
-- debugging timing is harder because the producer thread and game loop are decoupled
+The current `re-flora` integration still uses an internal bridge:
+
+- PetalSonic invokes the host-provided batched any-hit callback.
+- `AudioRayTracingBackend::trace_any_hit_batch(...)` does not trace immediately.
+- Instead, it hashes rays, checks cached results, and queues misses.
+- `SpatialSoundManager::pump_audio(...)` then drains those requests and calls the terrain tracer.
+- The pump may loop multiple times to converge queued requests.
+
+This means the callback is now frame-synchronous, but it is still not a real in-call terrain trace.
 
 
 ## Problem
 
-The current PetalSonic producer thread introduces a synchronization boundary that does not align well with `re-flora`'s terrain tracer and frame-driven game state updates.
+The remaining queue/cache bridge exists only because the earlier design had to cross a thread boundary safely.
 
-The main issue is not that the CPAL audio callback is asynchronous. That part is expected and correct.
+That thread boundary is now gone.
 
-The issue is that audio production currently happens on PetalSonic's own thread instead of on the game side. Because of that:
+Keeping the bridge has several downsides:
 
-- listener/source updates happen on the main thread
-- audio production happens on a different thread at different times
-- ray tracing callbacks occur on that producer thread
-- `re-flora` must queue and replay work later on the main thread
-
-This creates a synchronization problem that is structural, not incidental.
+- the ray callback does not directly represent terrain visibility at the call site
+- extra request/cache bookkeeping still exists for correctness rather than performance
+- the pump may require multiple sync passes to satisfy one logical audio update
+- debug/runtime stats still describe queued/service behavior instead of direct tracing
 
 
 ## Goal
 
-Remove PetalSonic's internal render thread and switch to a pump-only model where `re-flora` explicitly advances audio production from the main thread once per frame.
+Make the audio ray callback truly synchronous and direct.
 
-The CPAL callback remains unchanged in principle:
+Target behavior:
+
+1. `re-flora` installs the real terrain tracing closure for the duration of `pump_audio()`.
+2. `PetalSonicEngine::pump_audio()` runs on the main thread.
+3. When Steam Audio invokes the batched any-hit callback, the backend immediately calls the installed terrain tracer.
+4. Results are returned directly to the same simulation call.
+5. No queued requests, replay, cached correctness lookup, or multi-pass service loop remains.
+
+
+## Non-Goal
+
+This step is not about changing the CPAL callback model.
+
+The CPAL callback should remain unchanged in principle:
 
 - it stays consumer-only
 - it reads already-generated stereo frames from the ring buffer
-- it never performs heavy work or takes locks on the game side
-
-Audio production becomes app-driven:
-
-- `re-flora` updates listener pose and source state
-- `re-flora` calls `pump_audio()`
-- `pump_audio()` applies internal watermark policy and generates as many frames as needed
-
-
-## Why This Refactor
-
-This refactor is intended to make audio simulation happen in the same thread/context as the rest of `re-flora`'s authoritative world state.
-
-Benefits:
-
-- audio ray tracing callbacks can run synchronously on the main thread
-- the deferred request/service model can be removed
-- listener/source updates affect the same frame's audio pump deterministically
-- debugging becomes simpler because production timing is tied to the game frame
-- synchronization logic becomes performance-oriented rather than correctness-oriented
-
-Tradeoff:
-
-- audio production becomes sensitive to main-thread stalls
-- therefore PetalSonic must keep enough ring buffer headroom via internal watermarks
-
-This tradeoff is acceptable for a real-time exploration game, provided the ring buffer policy keeps enough buffered audio to survive short frame spikes.
+- it never performs heavy terrain tracing work
 
 
 ## Target Runtime Model
 
-After the refactor, the intended per-frame flow in `re-flora` is:
+After this step, the intended per-frame flow in `re-flora` is:
 
 1. Update gameplay state.
-2. Update listener pose.
-3. Update source positions / config / playback state.
-4. Call `pump_audio()`.
-5. Render and present the frame.
-
-Important detail:
-
-- `pump_audio()` does not mean "generate exactly one block".
-- It means "inspect ring buffer occupancy and refill toward the internal high watermark".
-- Each call may generate zero, one, or multiple chunks.
-
-The CPAL callback still runs independently at device pace and consumes from the ring buffer.
+2. Update listener pose and source state.
+3. Call `spatial_sound_manager.pump_audio(trace_batch_closure)`.
+4. `pump_audio(...)` installs the closure into a scoped direct RT callback slot.
+5. `engine.pump_audio()` runs.
+6. Steam Audio invokes the any-hit callback as needed.
+7. The backend directly calls the active terrain tracing closure and returns the results immediately.
+8. The scoped callback is removed before returning.
+9. Render and present the frame.
 
 
-## API Decision
+## Recommended Design
 
-The public pump API should remain simple and return `Result<()>`.
+Use a scoped callback bridge, not a queue.
 
-Proposed shape:
+Reasoning:
 
-```rust
-pub fn pump_audio(&mut self) -> Result<()>;
-```
+- the backend object still must exist because Steam Audio custom ray callbacks are installed when the scene is created
+- but audio pumping is now strictly synchronous on the main thread
+- therefore the backend can consult a temporarily-installed callback that is valid only during `pump_audio()`
 
-Notes:
-
-- internal watermark policy stays inside PetalSonic
-- the caller does not provide a target frame count
-- diagnostics remain separate from the return type
+This preserves the PetalSonic custom-scene integration while removing the request/replay model.
 
 
-## High-Level Design
+## Detailed Plan
 
-### PetalSonic
+## Phase 1: Add Scoped Direct RT Callback Slot in `re-flora`
 
-PetalSonic will stop spawning an internal producer thread.
+In `SpatialSoundManager`, introduce a scoped mechanism for temporarily installing the real batched terrain tracing callback while `pump_audio()` executes.
 
-It will continue to own:
-
-- the ring buffer
-- the CPAL stream
-- the mixer/spatial processor
-- resampler state
-- playback command receiver
-- active playback state
-- event/timing channels
-
-It will expose a synchronous `pump_audio()` entry point that performs the work formerly driven by `render_thread_loop`.
-
-### re-flora
-
-`re-flora` will call the pump entry once per frame after gameplay/audio state updates.
-
-Because pumping now happens on the main thread, audio ray tracing can be executed synchronously and directly against the terrain tracer, removing the deferred service model.
-
-
-## Detailed Implementation Plan
-
-## Phase 1: Refactor PetalSonic Engine Ownership
-
-Move producer-side state from the old render-thread context into `PetalSonicEngine` itself.
-
-`PetalSonicEngine` should directly retain whatever is needed for pumping, including:
-
-- ring buffer producer
-- resampler
-- command receiver
-- active playback
-- spatial processor
-- listener pose
-- event sender
-- timing sender
-- channel/block-size/master-gain configuration
-
-The old `RenderThreadContext` becomes unnecessary once synchronous pumping is in place.
-
-
-## Phase 2: Remove Internal Render Thread
-
-Change `start()` so it still:
-
-- initializes the output device
-- creates the stream config
-- allocates the ring buffer
-- builds and starts the CPAL output stream
-
-But it should no longer:
-
-- spawn `petalsonic-render`
-- run `render_thread_loop`
-- manage render-thread shutdown/join logic
-
-Cleanup items:
-
-- remove `render_thread`
-- remove `render_shutdown`
-- remove `render_thread_loop`
-- remove `RenderThreadContext`
-
-
-## Phase 3: Add `pump_audio()` with Internal Watermark Policy
-
-Implement:
+The callback must support the existing signature shape:
 
 ```rust
-pub fn pump_audio(&mut self) -> Result<()>;
+FnMut(&[AcousticRay], &[f32], &[f32]) -> Result<Vec<bool>>
 ```
 
-Responsibilities of `pump_audio()`:
+Recommended approach:
 
-1. Update listener pose in the spatial processor.
-2. Process pending playback commands.
-3. Inspect ring buffer occupancy.
-4. If occupancy is below the low watermark, generate enough audio to move toward the high watermark.
-5. Emit timing events.
-6. Emit playback events such as `SourceCompleted` / `SourceLooped`.
+- use a thread-local active callback slot
+- install it at the start of `SpatialSoundManager::pump_audio(...)`
+- remove it on scope exit
 
-The refill policy should preserve the current intent:
+Why thread-local:
 
-- low watermark triggers refill
-- high watermark is the target occupancy
-- refill chunk bounds work per pump pass
-
-The exact chunk count per frame may vary.
+- `engine.pump_audio()` is synchronous
+- no producer thread remains
+- the callback only needs to be reachable during the current main-thread pump call
 
 
-## Phase 4: Reuse Existing Generation Path
+## Phase 2: Make `AudioRayTracingBackend::trace_any_hit_batch(...)` Truly Direct
 
-Keep the existing sample generation path as intact as possible.
+Replace the existing request/cache logic with immediate tracing.
 
-In particular, reuse:
+New behavior:
 
-- `process_playback_commands(...)`
-- `generate_samples(...)`
-- existing resampling and event emission behavior
-- existing mixer/spatial processor flow
+- if audio ray tracing is disabled, return `vec![false; rays.len()]`
+- otherwise, look up the currently installed scoped callback
+- invoke it immediately with the provided rays and distance arrays
+- return the results directly to Steam Audio
 
-The safest implementation is a structural refactor rather than rewriting the audio algorithm.
+Fallback behavior:
 
-
-## Phase 5: Wire `re-flora` to Pump Once Per Frame
-
-In the main frame loop, call the new pump function after audio-relevant state has been updated.
-
-Intended location in `re-flora`:
-
-- after tree audio/source/listener updates
-- before render/present
-
-Target order:
-
-1. gameplay updates
-2. listener/source updates
-3. `pump_audio()`
-4. graphics work
+- if no scoped callback is installed, warn once and return `false` for all rays
+- if the callback errors or returns the wrong length, warn and return `false` for all rays
 
 
-## Phase 6: Remove Deferred Audio RT Servicing
+## Phase 3: Remove Queue/Cache Correctness Machinery
 
-Once audio generation runs on the main thread, remove the queue/service synchronization path from `SpatialSoundManager`.
+Delete the now-obsolete synchronization structures from `SpatialSoundManager`.
 
-Remove or simplify:
+Remove:
 
-- queued audio ray tracing requests
-- later servicing in `update_audio_ray_tracing()`
-- request receiver plumbing
-- pending request bookkeeping used only for cross-thread correctness
+- `AudioRayTracingRequest`
+- `AudioRayQueryKey`
+- `AudioRayTracingQueryState`
+- `mpsc` sender/receiver plumbing
+- pending request bookkeeping
+- cached last-result lookup used for cross-thread correctness
+- `MAX_RT_SYNC_PASSES`
+- `service_audio_ray_tracing_requests(...)`
 
-Replace it with direct synchronous tracing during pump-driven audio generation.
-
-Any remaining result cache should only stay if it is a proven performance optimization.
-
-
-## Phase 7: Update Debugging and Timing Instrumentation
-
-After the refactor, the useful timing points are:
-
-- CPAL callback consumes samples
-- main thread calls `pump_audio()`
-- synchronous ray tracing executes during pump
-
-The current request/service timing logs become obsolete and should be removed or replaced with pump-centric instrumentation.
+Any cache should only remain if reintroduced later as a measured performance optimization, not as part of correctness.
 
 
-## Risks
+## Phase 4: Simplify Runtime Stats and Debug Text
 
-### Main-thread stalls can starve audio
+Update audio RT instrumentation so it describes the new direct model.
 
-This is the main cost of removing the internal producer thread.
+Keep only stats that still make sense, for example:
 
-Mitigation:
+- callback batch count
+- callback ray count
+- traced batch count
+- traced ray count
+- hit count
+- direct callback failures or fallback count
 
-- keep a healthy high watermark
-- avoid too-small refill thresholds
-- allow one pump call to generate multiple chunks if occupancy is low
+Remove queued/service-era terminology such as:
 
-### Refactor scope inside PetalSonicEngine
+- reused last query results
+- missing last query results
+- queued requests
 
-This is a structural change, not a small patch.
+Update the debug text in `App::update_audio_ray_tracing()` to match the new meanings.
 
-Mitigation:
 
-- preserve existing generation helpers
-- migrate ownership carefully
-- keep the CPAL callback path minimal and unchanged in behavior
+## Phase 5: Verify Main-Thread Sync Behavior
 
-### Removing the deferred RT path may expose hidden assumptions
+After the cleanup, verify:
 
-The current service model and caches may be doing more than synchronization.
-
-Mitigation:
-
-- remove only the correctness-related parts first
-- keep any performance cache only if profiling justifies it
+- `pump_audio(...)` performs a single synchronous audio update path
+- Steam Audio any-hit callbacks directly execute terrain tracing during the same call
+- no queue draining or replay pass remains
+- no stale result lookup path remains
+- audio still builds and behaves correctly under the current frame loop
 
 
 ## Acceptance Criteria
 
-The refactor is successful when:
+This step is successful when:
 
-- PetalSonic no longer spawns or manages an internal producer/render thread
-- CPAL callback still consumes from the ring buffer without heavy work
-- `re-flora` pumps audio explicitly once per frame
-- listener/source updates can be followed immediately by `pump_audio()`
-- audio ray tracing callbacks execute synchronously on the main thread
-- the deferred request/service synchronization path is removed
-- normal gameplay does not show frequent ring buffer underruns
-
-
-## Suggested Implementation Order
-
-1. Refactor PetalSonic state ownership for synchronous pumping.
-2. Add `pump_audio() -> Result<()>`.
-3. Remove internal render thread creation and shutdown logic.
-4. Wire `re-flora` to call `pump_audio()` once per frame.
-5. Simplify audio ray tracing to direct synchronous tracing.
-6. Remove obsolete timing/service code.
-7. Validate underrun behavior and responsiveness in-game.
+- `AudioRayTracingBackend::trace_any_hit_batch(...)` directly invokes the active terrain tracer callback
+- no request queue or result cache is needed for correctness
+- `SpatialSoundManager::pump_audio(...)` calls `engine.pump_audio()` exactly once per frame pump
+- no multi-pass service loop remains
+- debug/runtime stats no longer refer to queued/service semantics
+- `cargo check` succeeds in both `re-flora` and `petalsonic`
 
 
-## Summary
+## Risks
 
-The refactor replaces PetalSonic's autonomous producer thread with an explicit main-thread pump model.
+### Scoped callback lifetime mistakes
 
-This is the right direction for `re-flora` because it aligns audio generation with the game's authoritative state updates and removes the need for delayed cross-thread ray tracing service.
+The active callback will borrow `&mut self.tracer` from `App`, so the scoped installation must be carefully bounded to the `pump_audio(...)` call.
 
-The CPAL callback remains device-driven and consumer-only, while production pacing moves to a simple per-frame `pump_audio() -> Result<()>` call with internal watermark management.
+Mitigation:
+
+- use a strict scoped helper
+- avoid storing the borrowed callback in long-lived structs
+
+### Error handling in the direct callback path
+
+The terrain tracer closure can fail or return mismatched output lengths.
+
+Mitigation:
+
+- validate result length in the backend
+- fall back to `false` results on error
+- log a concise warning
+
+### Hidden assumptions in current debug/runtime reporting
+
+Some debug output currently assumes queued/service semantics.
+
+Mitigation:
+
+- update stats and labels in the same pass as the backend cleanup
