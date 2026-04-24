@@ -12,17 +12,15 @@ use petalsonic::{
     DirectOcclusionDebugSnapshot, SourceConfig, SourceId,
 };
 use rand::Rng;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
+use std::ptr::NonNull;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, AtomicUsize, Ordering},
-    mpsc,
 };
 use uuid::Uuid;
 
-// Coarser buckets reduce direct-occlusion cache churn from small listener motion.
-const AUDIO_RAY_QUERY_QUANTIZATION: f32 = 5.0;
 /// Source tracking information
 struct SourceInfo {
     source_id: SourceId,
@@ -31,73 +29,95 @@ struct SourceInfo {
     loop_mode: LoopMode,
 }
 
-#[derive(Clone)]
-struct AudioRayTracingRequest {
-    key: AudioRayQueryKey,
-    ray: AcousticRay,
-    min_distance: f32,
-    max_distance: f32,
+trait DirectAudioRayTracerCallback {
+    fn trace_any_hit_batch(
+        &mut self,
+        rays: &[AcousticRay],
+        min_distances: &[f32],
+        max_distances: &[f32],
+    ) -> Result<Vec<bool>>;
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
-struct AudioRayQueryKey {
-    origin: [i32; 3],
-    endpoint: [i32; 3],
-    min_distance: i32,
-}
-
-impl Hash for AudioRayQueryKey {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.origin.hash(state);
-        self.endpoint.hash(state);
-        self.min_distance.hash(state);
+impl<F> DirectAudioRayTracerCallback for F
+where
+    F: FnMut(&[AcousticRay], &[f32], &[f32]) -> Result<Vec<bool>>,
+{
+    fn trace_any_hit_batch(
+        &mut self,
+        rays: &[AcousticRay],
+        min_distances: &[f32],
+        max_distances: &[f32],
+    ) -> Result<Vec<bool>> {
+        self(rays, min_distances, max_distances)
     }
 }
 
-impl AudioRayQueryKey {
-    fn from_ray(ray: AcousticRay, min_distance: f32, max_distance: f32) -> Self {
-        let endpoint = petalsonic::math::Vec3::new(
-            ray.origin.x + ray.direction.x * max_distance,
-            ray.origin.y + ray.direction.y * max_distance,
-            ray.origin.z + ray.direction.z * max_distance,
-        );
+#[derive(Clone, Copy)]
+struct ActiveAudioRayTracingCallback {
+    data: NonNull<()>,
+    trace_any_hit_batch: unsafe fn(*mut (), &[AcousticRay], &[f32], &[f32]) -> Result<Vec<bool>>,
+}
 
-        Self {
-            origin: quantize_point(ray.origin),
-            endpoint: quantize_point(endpoint),
-            min_distance: quantize_scalar(min_distance),
-        }
+impl ActiveAudioRayTracingCallback {
+    unsafe fn trace_any_hit_batch(
+        &mut self,
+        rays: &[AcousticRay],
+        min_distances: &[f32],
+        max_distances: &[f32],
+    ) -> Result<Vec<bool>> {
+        unsafe { (self.trace_any_hit_batch)(self.data.as_ptr(), rays, min_distances, max_distances) }
     }
 }
 
-#[derive(Default)]
-struct AudioRayTracingQueryState {
-    last_valid_results: HashMap<AudioRayQueryKey, bool>,
-    pending_requests: HashMap<AudioRayQueryKey, AudioRayTracingRequest>,
+thread_local! {
+    static ACTIVE_AUDIO_RT_CALLBACK: RefCell<Option<ActiveAudioRayTracingCallback>> = RefCell::new(None);
+    static MISSING_AUDIO_RT_CALLBACK_WARNED: Cell<bool> = const { Cell::new(false) };
+}
+
+struct ActiveAudioRayTracingGuard {
+    previous: Option<ActiveAudioRayTracingCallback>,
+}
+
+impl Drop for ActiveAudioRayTracingGuard {
+    fn drop(&mut self) {
+        ACTIVE_AUDIO_RT_CALLBACK.with(|slot| {
+            slot.replace(self.previous.take());
+        });
+    }
+}
+
+fn install_active_audio_rt_callback<F>(callback: &mut F) -> ActiveAudioRayTracingGuard
+where
+    F: DirectAudioRayTracerCallback,
+{
+    let callback = ActiveAudioRayTracingCallback {
+        data: NonNull::from(callback).cast(),
+        trace_any_hit_batch: |data, rays, min_distances, max_distances| unsafe {
+            (&mut *(data as *mut F)).trace_any_hit_batch(rays, min_distances, max_distances)
+        },
+    };
+    let previous = ACTIVE_AUDIO_RT_CALLBACK.with(|slot| slot.replace(Some(callback)));
+    ActiveAudioRayTracingGuard { previous }
 }
 
 #[derive(Default)]
 struct AudioRayTracingRuntimeStats {
     callback_batches: AtomicUsize,
     callback_rays: AtomicUsize,
-    reused_last_query_results: AtomicUsize,
-    missing_last_query_results: AtomicUsize,
-    queued_requests: AtomicUsize,
-    serviced_batches: AtomicUsize,
-    serviced_rays: AtomicUsize,
-    serviced_hits: AtomicUsize,
+    traced_batches: AtomicUsize,
+    traced_rays: AtomicUsize,
+    traced_hits: AtomicUsize,
+    callback_failures: AtomicUsize,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct AudioRayTracingRuntimeSnapshot {
     pub callback_batches: usize,
     pub callback_rays: usize,
-    pub reused_last_query_results: usize,
-    pub missing_last_query_results: usize,
-    pub queued_requests: usize,
-    pub serviced_batches: usize,
-    pub serviced_rays: usize,
-    pub serviced_hits: usize,
+    pub traced_batches: usize,
+    pub traced_rays: usize,
+    pub traced_hits: usize,
+    pub callback_failures: usize,
 }
 
 struct AudioRayTracingLogger {
@@ -109,26 +129,16 @@ impl AudioRayTracingLogger {
         AudioRayTracingRuntimeSnapshot {
             callback_batches: self.runtime_stats.callback_batches.swap(0, Ordering::Relaxed),
             callback_rays: self.runtime_stats.callback_rays.swap(0, Ordering::Relaxed),
-            reused_last_query_results: self
-                .runtime_stats
-                .reused_last_query_results
-                .swap(0, Ordering::Relaxed),
-            missing_last_query_results: self
-                .runtime_stats
-                .missing_last_query_results
-                .swap(0, Ordering::Relaxed),
-            queued_requests: self.runtime_stats.queued_requests.swap(0, Ordering::Relaxed),
-            serviced_batches: self.runtime_stats.serviced_batches.swap(0, Ordering::Relaxed),
-            serviced_rays: self.runtime_stats.serviced_rays.swap(0, Ordering::Relaxed),
-            serviced_hits: self.runtime_stats.serviced_hits.swap(0, Ordering::Relaxed),
+            traced_batches: self.runtime_stats.traced_batches.swap(0, Ordering::Relaxed),
+            traced_rays: self.runtime_stats.traced_rays.swap(0, Ordering::Relaxed),
+            traced_hits: self.runtime_stats.traced_hits.swap(0, Ordering::Relaxed),
+            callback_failures: self.runtime_stats.callback_failures.swap(0, Ordering::Relaxed),
         }
     }
 }
 
 struct AudioRayTracingBackend {
-    request_sender: mpsc::Sender<AudioRayTracingRequest>,
     enabled: Arc<AtomicBool>,
-    query_state: Arc<Mutex<AudioRayTracingQueryState>>,
     runtime_stats: Arc<AudioRayTracingRuntimeStats>,
 }
 
@@ -155,61 +165,62 @@ impl BatchedAnyHitRayTracer for AudioRayTracingBackend {
             .callback_rays
             .fetch_add(rays.len(), Ordering::Relaxed);
 
-        let mut query_state = self.query_state.lock().unwrap();
-        let mut results = Vec::with_capacity(rays.len());
-        let mut pending_requests = Vec::new();
-
-        for ((ray, &min_distance), &max_distance) in rays
-            .iter()
-            .zip(min_distances.iter())
-            .zip(max_distances.iter())
-        {
-            let key = AudioRayQueryKey::from_ray(*ray, min_distance, max_distance);
-            if let Some(&cached) = query_state.last_valid_results.get(&key) {
+        ACTIVE_AUDIO_RT_CALLBACK.with(|slot| {
+            let Some(mut callback) = *slot.borrow() else {
+                MISSING_AUDIO_RT_CALLBACK_WARNED.with(|warned| {
+                    if !warned.replace(true) {
+                        log::warn!(
+                            "Audio ray tracing callback invoked without an active direct tracer"
+                        );
+                    }
+                });
                 self.runtime_stats
-                    .reused_last_query_results
+                    .callback_failures
                     .fetch_add(1, Ordering::Relaxed);
-                results.push(cached);
-                continue;
+                return vec![false; rays.len()];
+            };
+
+            let results = unsafe { callback.trace_any_hit_batch(rays, min_distances, max_distances) };
+
+            match results {
+                Ok(results) if results.len() == rays.len() => {
+                    let hit_count = results.iter().filter(|&&hit| hit).count();
+                    self.runtime_stats
+                        .traced_batches
+                        .fetch_add(1, Ordering::Relaxed);
+                    self.runtime_stats
+                        .traced_rays
+                        .fetch_add(rays.len(), Ordering::Relaxed);
+                    self.runtime_stats
+                        .traced_hits
+                        .fetch_add(hit_count, Ordering::Relaxed);
+                    results
+                }
+                Ok(results) => {
+                    log::warn!(
+                        "Audio ray tracing callback returned {} hits for {} rays",
+                        results.len(),
+                        rays.len()
+                    );
+                    self.runtime_stats
+                        .callback_failures
+                        .fetch_add(1, Ordering::Relaxed);
+                    vec![false; rays.len()]
+                }
+                Err(err) => {
+                    log::warn!("Direct audio ray tracing callback failed: {}", err);
+                    self.runtime_stats
+                        .callback_failures
+                        .fetch_add(1, Ordering::Relaxed);
+                    vec![false; rays.len()]
+                }
             }
-
-            self.runtime_stats
-                .missing_last_query_results
-                .fetch_add(1, Ordering::Relaxed);
-            results.push(true);
-
-            if let std::collections::hash_map::Entry::Vacant(entry) = query_state.pending_requests.entry(key) {
-                pending_requests.push(AudioRayTracingRequest {
-                    key,
-                    ray: *ray,
-                    min_distance,
-                    max_distance,
-                });
-                entry.insert(AudioRayTracingRequest {
-                    key,
-                    ray: *ray,
-                    min_distance,
-                    max_distance,
-                });
-            }
-        }
-        drop(query_state);
-
-        self.runtime_stats
-            .queued_requests
-            .fetch_add(pending_requests.len(), Ordering::Relaxed);
-        for request in pending_requests {
-            let _ = self.request_sender.send(request);
-        }
-
-        results
+        })
     }
 }
 
 struct AudioRayTracingService {
-    request_receiver: Arc<Mutex<mpsc::Receiver<AudioRayTracingRequest>>>,
     enabled: Arc<AtomicBool>,
-    query_state: Arc<Mutex<AudioRayTracingQueryState>>,
     runtime_stats: Arc<AudioRayTracingRuntimeStats>,
 }
 
@@ -269,17 +280,13 @@ impl SpatialSoundManager {
         );
 
         // Create PetalSonic world configuration
-        let (request_sender, request_receiver) = mpsc::channel();
         let audio_ray_tracing_enabled = Arc::new(AtomicBool::new(true));
-        let audio_ray_tracing_query_state = Arc::new(Mutex::new(AudioRayTracingQueryState::default()));
         let audio_ray_tracing_runtime_stats = Arc::new(AudioRayTracingRuntimeStats::default());
         let audio_ray_tracing_logger = Arc::new(AudioRayTracingLogger {
             runtime_stats: audio_ray_tracing_runtime_stats.clone(),
         });
         let audio_ray_tracing_backend = Arc::new(AudioRayTracingBackend {
-            request_sender,
             enabled: audio_ray_tracing_enabled.clone(),
-            query_state: audio_ray_tracing_query_state.clone(),
             runtime_stats: audio_ray_tracing_runtime_stats.clone(),
         });
 
@@ -314,9 +321,7 @@ impl SpatialSoundManager {
             listener_state: Arc::new(Mutex::new(ListenerState::default())),
             global_volume_gain_db: Arc::new(Mutex::new(0.0)),
             audio_ray_tracing_service: AudioRayTracingService {
-                request_receiver: Arc::new(Mutex::new(request_receiver)),
                 enabled: audio_ray_tracing_enabled,
-                query_state: audio_ray_tracing_query_state,
                 runtime_stats: audio_ray_tracing_runtime_stats,
             },
             audio_ray_tracing_logger,
@@ -560,20 +565,11 @@ impl SpatialSoundManager {
     where
         F: FnMut(&[AcousticRay], &[f32], &[f32]) -> Result<Vec<bool>>,
     {
-        const MAX_RT_SYNC_PASSES: usize = 3;
-
-        for _ in 0..MAX_RT_SYNC_PASSES {
-            {
-                let mut engine = self.engine.lock().unwrap();
-                engine
-                    .pump_audio()
-                    .map_err(|err| anyhow::anyhow!("Failed to pump audio: {}", err))?;
-            }
-
-            if !self.service_audio_ray_tracing_requests(&mut trace_batch)? {
-                break;
-            }
-        }
+        let _active_rt_callback = install_active_audio_rt_callback(&mut trace_batch);
+        let mut engine = self.engine.lock().unwrap();
+        engine
+            .pump_audio()
+            .map_err(|err| anyhow::anyhow!("Failed to pump audio: {}", err))?;
 
         Ok(())
     }
@@ -587,78 +583,6 @@ impl SpatialSoundManager {
 
     pub fn take_audio_ray_tracing_runtime_snapshot(&self) -> AudioRayTracingRuntimeSnapshot {
         self.audio_ray_tracing_logger.take_snapshot()
-    }
-
-    fn service_audio_ray_tracing_requests<F>(
-        &self,
-        mut trace_batch: F,
-    ) -> Result<bool>
-    where
-        F: FnMut(&[AcousticRay], &[f32], &[f32]) -> Result<Vec<bool>>,
-    {
-        let request_receiver = self.audio_ray_tracing_service.request_receiver.lock().unwrap();
-        let mut requests = Vec::new();
-        while let Ok(request) = request_receiver.try_recv() {
-            requests.push(request);
-        }
-        drop(request_receiver);
-
-        if requests.is_empty() {
-            return Ok(false);
-        }
-
-        let rays = requests.iter().map(|request| request.ray).collect::<Vec<_>>();
-        let min_distances = requests
-            .iter()
-            .map(|request| request.min_distance)
-            .collect::<Vec<_>>();
-        let max_distances = requests
-            .iter()
-            .map(|request| request.max_distance)
-            .collect::<Vec<_>>();
-
-        let rays_processed = requests.len();
-
-        let response = match trace_batch(&rays, &min_distances, &max_distances) {
-            Ok(hits) if hits.len() == rays_processed => hits,
-            Ok(hits) => {
-                log::warn!(
-                    "Audio ray tracing backend returned {} hits for {} rays",
-                    hits.len(),
-                    rays_processed
-                );
-                vec![false; rays_processed]
-            }
-            Err(err) => {
-                log::warn!("Failed to service audio ray tracing batch: {}", err);
-                vec![false; rays_processed]
-            }
-        };
-
-        let mut query_state = self.audio_ray_tracing_service.query_state.lock().unwrap();
-        let mut hit_count = 0usize;
-        for (request, result) in requests.into_iter().zip(response.into_iter()) {
-            query_state.pending_requests.remove(&request.key);
-            if result {
-                hit_count += 1;
-            }
-            query_state.last_valid_results.insert(request.key, result);
-        }
-
-        self.audio_ray_tracing_service
-            .runtime_stats
-            .serviced_batches
-            .fetch_add(1, Ordering::Relaxed);
-        self.audio_ray_tracing_service
-            .runtime_stats
-            .serviced_rays
-            .fetch_add(rays_processed, Ordering::Relaxed);
-        self.audio_ray_tracing_service
-            .runtime_stats
-            .serviced_hits
-            .fetch_add(hit_count, Ordering::Relaxed);
-
-        Ok(true)
     }
 
     #[allow(dead_code)]
@@ -790,28 +714,13 @@ impl Clone for SpatialSoundManager {
             listener_state: self.listener_state.clone(),
             global_volume_gain_db: self.global_volume_gain_db.clone(),
             audio_ray_tracing_service: AudioRayTracingService {
-                request_receiver: self.audio_ray_tracing_service.request_receiver.clone(),
                 enabled: self.audio_ray_tracing_service.enabled.clone(),
-                query_state: self.audio_ray_tracing_service.query_state.clone(),
                 runtime_stats: self.audio_ray_tracing_service.runtime_stats.clone(),
             },
             audio_ray_tracing_logger: self.audio_ray_tracing_logger.clone(),
         }
     }
 }
-
-fn quantize_scalar(value: f32) -> i32 {
-    (value * AUDIO_RAY_QUERY_QUANTIZATION).round() as i32
-}
-
-fn quantize_point(value: petalsonic::math::Vec3) -> [i32; 3] {
-    [
-        quantize_scalar(value.x),
-        quantize_scalar(value.y),
-        quantize_scalar(value.z),
-    ]
-}
-
 fn log_audio_timing_event(message: &str) {
     log::trace!("[audio-timing] {}", message);
 }
