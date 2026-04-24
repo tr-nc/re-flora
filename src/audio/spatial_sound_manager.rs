@@ -19,6 +19,7 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
+use std::time::Instant;
 use uuid::Uuid;
 
 /// Source tracking information
@@ -55,6 +56,7 @@ where
 #[derive(Clone, Copy)]
 struct ActiveAudioRayTracingCallback {
     data: NonNull<()>,
+    stats: NonNull<AudioFillTraceStats>,
     trace_any_hit_batch: unsafe fn(*mut (), &[AcousticRay], &[f32], &[f32]) -> Result<Vec<bool>>,
 }
 
@@ -66,6 +68,47 @@ impl ActiveAudioRayTracingCallback {
         max_distances: &[f32],
     ) -> Result<Vec<bool>> {
         unsafe { (self.trace_any_hit_batch)(self.data.as_ptr(), rays, min_distances, max_distances) }
+    }
+}
+
+#[derive(Default)]
+struct AudioFillTraceStats {
+    total_time_us: u64,
+    batch_count: usize,
+    total_rays: usize,
+    min_batch_time_us: u64,
+    max_batch_time_us: u64,
+}
+
+impl AudioFillTraceStats {
+    fn record_batch(&mut self, elapsed_us: u64, rays: usize) {
+        if self.batch_count == 0 {
+            self.min_batch_time_us = elapsed_us;
+            self.max_batch_time_us = elapsed_us;
+        } else {
+            self.min_batch_time_us = self.min_batch_time_us.min(elapsed_us);
+            self.max_batch_time_us = self.max_batch_time_us.max(elapsed_us);
+        }
+
+        self.total_time_us += elapsed_us;
+        self.batch_count += 1;
+        self.total_rays += rays;
+    }
+
+    fn avg_batch_time_us(&self) -> u64 {
+        if self.batch_count == 0 {
+            0
+        } else {
+            self.total_time_us / self.batch_count as u64
+        }
+    }
+
+    fn avg_rays_per_batch(&self) -> f32 {
+        if self.batch_count == 0 {
+            0.0
+        } else {
+            self.total_rays as f32 / self.batch_count as f32
+        }
     }
 }
 
@@ -86,12 +129,16 @@ impl Drop for ActiveAudioRayTracingGuard {
     }
 }
 
-fn install_active_audio_rt_callback<F>(callback: &mut F) -> ActiveAudioRayTracingGuard
+fn install_active_audio_rt_callback<F>(
+    callback: &mut F,
+    stats: &mut AudioFillTraceStats,
+) -> ActiveAudioRayTracingGuard
 where
     F: DirectAudioRayTracerCallback,
 {
     let callback = ActiveAudioRayTracingCallback {
         data: NonNull::from(callback).cast(),
+        stats: NonNull::from(stats),
         trace_any_hit_batch: |data, rays, min_distances, max_distances| unsafe {
             (&mut *(data as *mut F)).trace_any_hit_batch(rays, min_distances, max_distances)
         },
@@ -180,7 +227,15 @@ impl BatchedAnyHitRayTracer for AudioRayTracingBackend {
                 return vec![false; rays.len()];
             };
 
+            let trace_start = Instant::now();
             let results = unsafe { callback.trace_any_hit_batch(rays, min_distances, max_distances) };
+            let elapsed_us = trace_start.elapsed().as_micros() as u64;
+            unsafe {
+                callback
+                    .stats
+                    .as_mut()
+                    .record_batch(elapsed_us, rays.len());
+            }
 
             match results {
                 Ok(results) if results.len() == rays.len() => {
@@ -565,11 +620,45 @@ impl SpatialSoundManager {
     where
         F: FnMut(&[AcousticRay], &[f32], &[f32]) -> Result<Vec<bool>>,
     {
-        let _active_rt_callback = install_active_audio_rt_callback(&mut trace_batch);
+        let mut trace_stats = AudioFillTraceStats::default();
+        let _active_rt_callback = install_active_audio_rt_callback(&mut trace_batch, &mut trace_stats);
+        let pump_start = Instant::now();
         let mut engine = self.engine.lock().unwrap();
         engine
             .pump_audio()
             .map_err(|err| anyhow::anyhow!("Failed to pump audio: {}", err))?;
+        let timing_events = engine.poll_timing_events();
+        drop(engine);
+
+        let wall_time_us = pump_start.elapsed().as_micros() as u64;
+        let engine_batch_count = timing_events.len();
+        let engine_total_time_us: u64 = timing_events.iter().map(|event| event.total_time_us).sum();
+        let engine_spatial_time_us: u64 = timing_events
+            .iter()
+            .map(|event| event.spatial_time_us + event.spatial_simulation_time_us)
+            .sum();
+        let engine_mix_time_us: u64 = timing_events
+            .iter()
+            .map(|event| event.mixing_time_us + event.direct_mixing_time_us)
+            .sum();
+        let engine_resample_time_us: u64 =
+            timing_events.iter().map(|event| event.resampling_time_us).sum();
+
+        log::info!(
+            "[audio-fill] wall={:.3}ms engine_batches={} engine_total={:.3}ms engine_mix={:.3}ms engine_spatial={:.3}ms engine_resample={:.3}ms trace_total={:.3}ms trace_batches={} trace_batch_ms(min/avg/max)={:.3}/{:.3}/{:.3} avg_rays_per_batch={:.2}",
+            wall_time_us as f64 / 1000.0,
+            engine_batch_count,
+            engine_total_time_us as f64 / 1000.0,
+            engine_mix_time_us as f64 / 1000.0,
+            engine_spatial_time_us as f64 / 1000.0,
+            engine_resample_time_us as f64 / 1000.0,
+            trace_stats.total_time_us as f64 / 1000.0,
+            trace_stats.batch_count,
+            trace_stats.min_batch_time_us as f64 / 1000.0,
+            trace_stats.avg_batch_time_us() as f64 / 1000.0,
+            trace_stats.max_batch_time_us as f64 / 1000.0,
+            trace_stats.avg_rays_per_batch(),
+        );
 
         Ok(())
     }
