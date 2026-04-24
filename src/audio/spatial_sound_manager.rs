@@ -590,7 +590,7 @@ impl SpatialSoundManager {
         self.audio_ray_tracing_logger.take_snapshot()
     }
 
-    pub fn service_audio_ray_tracing_requests<F>(
+    fn service_audio_ray_tracing_requests<F>(
         &self,
         mut trace_batch: F,
     ) -> Result<bool>

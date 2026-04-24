@@ -385,7 +385,7 @@ impl App {
 
         self.audio_ray_tracing_debug_text = match direct_snapshot {
             Some(snapshot) => format!(
-                "Audio RT: {} callbacks / {} rays\nLast query: {} reused / {} missing / {} queued\nGPU: {} batches / {} rays / {} hits\nDirect occ: {} samples avg {:.3} min {:.3} max {:.3}",
+                "Audio RT: {} callbacks / {} rays\nPump sync: {} reused / {} missing / {} queued\nTerrain batches: {} / {} rays / {} hits\nDirect occ: {} samples avg {:.3} min {:.3} max {:.3}",
                 runtime_snapshot.callback_batches,
                 runtime_snapshot.callback_rays,
                 runtime_snapshot.reused_last_query_results,
@@ -400,7 +400,7 @@ impl App {
                 snapshot.max_occlusion,
             ),
             None => format!(
-                "Audio RT: {} callbacks / {} rays\nLast query: {} reused / {} missing / {} queued\nGPU: {} batches / {} rays / {} hits\nDirect occ: no samples",
+                "Audio RT: {} callbacks / {} rays\nPump sync: {} reused / {} missing / {} queued\nTerrain batches: {} / {} rays / {} hits\nDirect occ: no samples",
                 runtime_snapshot.callback_batches,
                 runtime_snapshot.callback_rays,
                 runtime_snapshot.reused_last_query_results,
