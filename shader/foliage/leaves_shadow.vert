@@ -94,7 +94,8 @@ void main() {
 
     vec3 instance_pos = in_instance_pos * scaling_factor;
 
-    vec3 wind_vec    = sample_wind_volume(instance_pos);
+    uint instance_seed = decode_instance_seed(in_instance_ty_seed);
+    vec3 wind_vec    = sample_wind_volume(instance_pos, instance_seed);
     vec3 wind_offset = wind_vec * wind_gradient * wind_gradient;
     vec3 anchor_pos  = (vox_local_pos + wind_offset) * scaling_factor + instance_pos;
     vec3 voxel_pos   = anchor_pos + vec3(0.5) * scaling_factor;
@@ -103,7 +104,7 @@ void main() {
 
     gl_Position = shadow_camera_info.view_proj_mat * vec4(vert_pos, 1.0);
 
-    uint palette_seed = combine_color_seed(decode_instance_seed(in_instance_ty_seed));
+    uint palette_seed = combine_color_seed(instance_seed);
     gl_Position.z += float(in_instance_growth_start_tick & 1u) * 0.0;
     gl_Position.z += float(palette_seed & 1u) * 1e-8;
 }

@@ -87,7 +87,9 @@ impl SpatialSoundManager {
             hrtf_path: Some(hrtf_path),
             hrtf_gain: 0.0,
             distance_scaler: 15.0,
-            batched_any_hit_ray_tracer: Some(audio_ray_tracer.clone() as Arc<dyn BatchedAnyHitRayTracer>),
+            batched_any_hit_ray_tracer: Some(
+                audio_ray_tracer.clone() as Arc<dyn BatchedAnyHitRayTracer>
+            ),
             ..Default::default()
         };
 

@@ -180,10 +180,22 @@ impl ContreeAnyHitRayTracer {
     pub fn take_runtime_snapshot(&self) -> ContreeRayTracingRuntimeSnapshot {
         ContreeRayTracingRuntimeSnapshot {
             update_count: self.runtime_stats.update_count.swap(0, Ordering::Relaxed),
-            updated_sources: self.runtime_stats.updated_sources.swap(0, Ordering::Relaxed),
-            occluded_sources: self.runtime_stats.occluded_sources.swap(0, Ordering::Relaxed),
-            update_failures: self.runtime_stats.update_failures.swap(0, Ordering::Relaxed),
-            total_update_time_us: self.runtime_stats.total_update_time_us.swap(0, Ordering::Relaxed),
+            updated_sources: self
+                .runtime_stats
+                .updated_sources
+                .swap(0, Ordering::Relaxed),
+            occluded_sources: self
+                .runtime_stats
+                .occluded_sources
+                .swap(0, Ordering::Relaxed),
+            update_failures: self
+                .runtime_stats
+                .update_failures
+                .swap(0, Ordering::Relaxed),
+            total_update_time_us: self
+                .runtime_stats
+                .total_update_time_us
+                .swap(0, Ordering::Relaxed),
         }
     }
 }
@@ -207,7 +219,8 @@ impl BatchedAnyHitRayTracer for ContreeAnyHitRayTracer {
             return vec![false; rays.len()];
         };
 
-        let results = rays.iter()
+        let results = rays
+            .iter()
             .zip(min_distances.iter().copied())
             .zip(max_distances.iter().copied())
             .map(|((ray, min_distance), max_distance)| {
@@ -1186,7 +1199,8 @@ fn query_terrain_ray_against_state(
         let chunk_idx = map_pos.as_uvec3();
         if scene_chunk_present_in_grid(chunk_dim, cpu_scene_chunks, chunk_idx) {
             if let Some(cache) = cpu_chunk_caches.get(&chunk_idx) {
-                if let Some(hit) = query_cached_chunk_cpu_ray(cache.as_ref(), marched_origin, marched_dir)
+                if let Some(hit) =
+                    query_cached_chunk_cpu_ray(cache.as_ref(), marched_origin, marched_dir)
                 {
                     return Some(hit);
                 }
@@ -1203,7 +1217,11 @@ fn query_terrain_ray_against_state(
     None
 }
 
-fn query_cached_chunk_cpu_ray(cache: &CpuChunkCache, origin: Vec3, direction: Vec3) -> Option<Vec3> {
+fn query_cached_chunk_cpu_ray(
+    cache: &CpuChunkCache,
+    origin: Vec3,
+    direction: Vec3,
+) -> Option<Vec3> {
     if direction.length_squared() <= f32::EPSILON || cache.nodes.is_empty() {
         return None;
     }

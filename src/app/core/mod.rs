@@ -526,7 +526,8 @@ impl App {
 
         // Shared spatial audio engine (PetalSonic) used by both the tracer (camera)
         // and the app-level tree ambience sources.
-        let spatial_sound_manager = SpatialSoundManager::new(1024, contree_builder.audio_ray_tracer())?;
+        let spatial_sound_manager =
+            SpatialSoundManager::new(1024, contree_builder.audio_ray_tracer())?;
         let tree_audio_manager = TreeAudioManager::new(spatial_sound_manager.clone());
 
         let tracer = Tracer::new(

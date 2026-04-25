@@ -55,11 +55,15 @@ use ash::vk;
 use std::collections::HashMap;
 
 const MAX_TERRAIN_QUERIES: usize = 1_000;
+pub(super) const WIND_VOLUME_BUCKET_COUNT_MAX: u32 = 16;
+const FLORA_UPDATE_BUCKET_COUNT_DEFAULT: u32 = 4;
+const FLORA_FULL_UPDATE_SECONDS_DEFAULT: f32 = 0.4;
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct WindVolumePushConstants {
     time: f32,
+    bucket_index: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -134,6 +138,10 @@ pub struct Tracer {
     pool: DescriptorPool,
 
     a_trous_iteration_count: u32,
+    flora_update_bucket_count: u32,
+    flora_full_update_seconds: f32,
+    last_wind_volume_step: Option<u32>,
+    initialized_wind_volume_bucket_count: u32,
     spatial_sound_manager: SpatialSoundManager,
     particle_instance_scratch: Vec<ParticleInstanceGpu>,
 }
@@ -258,6 +266,10 @@ impl Tracer {
             render_target_depth_only,
             pool,
             a_trous_iteration_count: 3,
+            flora_update_bucket_count: FLORA_UPDATE_BUCKET_COUNT_DEFAULT,
+            flora_full_update_seconds: FLORA_FULL_UPDATE_SECONDS_DEFAULT,
+            last_wind_volume_step: None,
+            initialized_wind_volume_bucket_count: 0,
             spatial_sound_manager,
             particle_instance_scratch: Vec::with_capacity(particle_capacity),
         })
@@ -557,6 +569,14 @@ impl Tracer {
             lens_flare_intensity,
             lens_flare_sun_pixel_scale,
         )?;
+
+        self.flora_update_bucket_count =
+            flora_update_bucket_count.clamp(1, WIND_VOLUME_BUCKET_COUNT_MAX);
+        self.flora_full_update_seconds = if flora_full_update_seconds <= 0.0 {
+            FLORA_FULL_UPDATE_SECONDS_DEFAULT
+        } else {
+            flora_full_update_seconds
+        };
 
         BufferUpdater::update_flora_growth_info(
             &self.resources,
@@ -1385,19 +1405,95 @@ impl Tracer {
         );
     }
 
-    fn record_wind_volume_pass(&self, cmdbuf: &CommandBuffer, time: f32) {
+    fn flora_update_bucket_count(&self) -> u32 {
+        self.flora_update_bucket_count
+            .clamp(1, WIND_VOLUME_BUCKET_COUNT_MAX)
+    }
+
+    fn flora_full_update_seconds(&self) -> f32 {
+        if self.flora_full_update_seconds <= 0.0 {
+            FLORA_FULL_UPDATE_SECONDS_DEFAULT
+        } else {
+            self.flora_full_update_seconds
+        }
+    }
+
+    fn wind_volume_bucket_step_seconds(&self) -> f32 {
+        self.flora_full_update_seconds() / self.flora_update_bucket_count() as f32
+    }
+
+    fn wind_volume_bucket_time(
+        step_index: u32,
+        bucket_index: u32,
+        bucket_count: u32,
+        step_seconds: f32,
+    ) -> f32 {
+        if step_index < bucket_index {
+            return 0.0;
+        }
+
+        let last_bucket_step =
+            bucket_index + ((step_index - bucket_index) / bucket_count) * bucket_count;
+        last_bucket_step as f32 * step_seconds
+    }
+
+    fn record_wind_volume_bucket_pass(
+        &self,
+        cmdbuf: &CommandBuffer,
+        dispatch_extent: Extent3D,
+        bucket_index: u32,
+        time: f32,
+    ) {
+        let push_constants = WindVolumePushConstants { time, bucket_index };
+
+        self.compute_pipelines.wind_volume_ppl.record(
+            cmdbuf,
+            dispatch_extent,
+            Some(bytemuck::bytes_of(&push_constants)),
+        );
+    }
+
+    fn record_wind_volume_pass(&mut self, cmdbuf: &CommandBuffer, time: f32) {
         self.resources
             .wind_volume_tex
             .get_image()
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
 
-        let push_constants = WindVolumePushConstants { time };
+        let bucket_count = self.flora_update_bucket_count();
+        let step_seconds = self.wind_volume_bucket_step_seconds();
+        let step_index = (time / step_seconds).floor().max(0.0) as u32;
+        let mut dispatch_extent = self.resources.wind_volume_tex.get_image().get_desc().extent;
+        dispatch_extent.width /= WIND_VOLUME_BUCKET_COUNT_MAX;
 
-        self.compute_pipelines.wind_volume_ppl.record(
-            cmdbuf,
-            self.resources.wind_volume_tex.get_image().get_desc().extent,
-            Some(bytemuck::bytes_of(&push_constants)),
-        );
+        if self.initialized_wind_volume_bucket_count != bucket_count {
+            for bucket_index in 0..bucket_count {
+                let bucket_time = Self::wind_volume_bucket_time(
+                    step_index,
+                    bucket_index,
+                    bucket_count,
+                    step_seconds,
+                );
+                self.record_wind_volume_bucket_pass(
+                    cmdbuf,
+                    dispatch_extent,
+                    bucket_index,
+                    bucket_time,
+                );
+            }
+
+            self.initialized_wind_volume_bucket_count = bucket_count;
+            self.last_wind_volume_step = Some(step_index);
+            return;
+        }
+
+        if self.last_wind_volume_step == Some(step_index) {
+            return;
+        }
+
+        let bucket_index = step_index % bucket_count;
+        let bucket_time = step_index as f32 * step_seconds;
+        self.record_wind_volume_bucket_pass(cmdbuf, dispatch_extent, bucket_index, bucket_time);
+        self.last_wind_volume_step = Some(step_index);
     }
 
     fn record_vsm_filtering_pass(&self, cmdbuf: &CommandBuffer) {

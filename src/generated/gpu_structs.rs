@@ -205,7 +205,8 @@ pub struct PushConstantSpatial {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PushConstantWindVolume {
     pub time: f32,
-    pub _pad0: [u8; 12],
+    pub bucket_index: u32,
+    pub _pad0: [u8; 8],
 }
 
 /// Auto-generated from `U_CameraInfo` (GLSL source of truth).

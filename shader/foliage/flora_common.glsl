@@ -95,7 +95,7 @@ void prepare_flora_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_l
     }
 
     vec3 instance_pos = vec3(instance_pos_voxels) * scaling_factor;
-    vec3 wind_vec     = sample_wind_volume(instance_pos);
+    vec3 wind_vec     = sample_wind_volume(instance_pos, instance_seed);
     vec3 wind_offset  = wind_vec * wind_gradient * wind_gradient;
     vec2 player_delta = instance_pos.xz - camera_info.pos.xz;
     float player_dist = length(player_delta);
