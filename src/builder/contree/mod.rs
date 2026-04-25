@@ -8,6 +8,7 @@ use crate::util::FirstFitAllocator;
 use crate::util::ShaderCompiler;
 use crate::vkn::Allocator;
 use crate::vkn::Buffer;
+use crate::vkn::BufferUsage;
 use crate::vkn::CommandBuffer;
 use crate::vkn::ComputePipeline;
 use crate::vkn::DescriptorPool;
@@ -16,13 +17,16 @@ use crate::vkn::MemoryBarrier;
 use crate::vkn::PipelineBarrier;
 use crate::vkn::ShaderModule;
 use crate::vkn::VulkanContext;
+use crate::vkn::execute_one_time_command_with_fence;
 use anyhow::Result;
 use ash::vk;
-use glam::UVec3;
+use glam::{UVec3, Vec2, Vec3};
 use std::collections::HashMap;
 
 const SIZE_OF_NODE_ELEMENT: u64 = 3 * std::mem::size_of::<u32>() as u64;
 const SIZE_OF_LEAF_ELEMENT: u64 = std::mem::size_of::<u32>() as u64;
+const MAX_NODE_BUFFER_SIZE_IN_BYTES: u64 = 10 * 1024 * 1024;
+const MAX_LEAF_BUFFER_SIZE_IN_BYTES: u64 = 10 * 1024 * 1024;
 
 pub struct ContreeBuilder {
     vulkan_ctx: VulkanContext,
@@ -51,8 +55,29 @@ pub struct ContreeBuilder {
 
     leaf_allocator: FirstFitAllocator,
     node_allocator: FirstFitAllocator,
+    cpu_bridge_buffers: CpuChunkBridgeBuffers,
 
     voxel_dim_per_chunk: UVec3,
+    cpu_chunk_zero_cache: Option<CpuChunkCache>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct CpuContreeNode {
+    packed_0: u32,
+    child_mask_lo: u32,
+    child_mask_hi: u32,
+}
+
+#[derive(Clone, Debug)]
+struct CpuChunkCache {
+    atlas_offset: UVec3,
+    nodes: Vec<CpuContreeNode>,
+    leaves: Vec<u32>,
+}
+
+struct CpuChunkBridgeBuffers {
+    node_readback: Buffer,
+    leaf_readback: Buffer,
 }
 
 impl ContreeBuilder {
@@ -199,6 +224,7 @@ impl ContreeBuilder {
 
         let node_allocator = FirstFitAllocator::new(node_pool_size_in_bytes);
         let leaf_allocator = FirstFitAllocator::new(leaf_pool_size_in_bytes);
+        let cpu_bridge_buffers = CpuChunkBridgeBuffers::new(device.clone(), allocator.clone());
 
         Self {
             vulkan_ctx,
@@ -214,7 +240,9 @@ impl ContreeBuilder {
             contree_cmdbuf,
             node_allocator,
             leaf_allocator,
+            cpu_bridge_buffers,
             voxel_dim_per_chunk,
+            cpu_chunk_zero_cache: None,
         }
     }
 
@@ -313,6 +341,27 @@ impl ContreeBuilder {
         &self.resources
     }
 
+    pub fn debug_query_chunk_zero_cpu_ray(&self, origin: Vec3, direction: Vec3) -> Option<Vec3> {
+        let cache = self.cpu_chunk_zero_cache.as_ref()?;
+        self.query_cached_chunk_cpu_ray(cache, origin, direction)
+    }
+
+    fn query_cached_chunk_cpu_ray(
+        &self,
+        cache: &CpuChunkCache,
+        origin: Vec3,
+        direction: Vec3,
+    ) -> Option<Vec3> {
+        if direction.length_squared() <= f32::EPSILON || cache.nodes.is_empty() {
+            return None;
+        }
+
+        let local_origin = origin - cache.atlas_offset.as_vec3() + Vec3::ONE;
+        let local_dir = direction.normalize();
+        let local_hit = march_contree_cpu(local_origin, local_dir, &cache.nodes, &cache.leaves)?;
+        Some(local_hit + cache.atlas_offset.as_vec3() - Vec3::ONE)
+    }
+
     fn build_contree(
         &mut self,
         contree_dim: UVec3,
@@ -355,9 +404,6 @@ impl ContreeBuilder {
     pub fn build_and_alloc(&mut self, atlas_offset: UVec3) -> Result<Option<(u64, u64)>> {
         let atlas_dim = self.voxel_dim_per_chunk;
 
-        // preallocate 10MB for both the currentl node and leaf buffer to be built
-        const MAX_NODE_BUFFER_SIZE_IN_BYTES: u64 = 10 * 1024 * 1024;
-        const MAX_LEAF_BUFFER_SIZE_IN_BYTES: u64 = 10 * 1024 * 1024;
         let (node_alloc_offset_in_bytes, leaf_alloc_offset_in_bytes) = self.pre_allocate_chunk(
             MAX_NODE_BUFFER_SIZE_IN_BYTES,
             MAX_LEAF_BUFFER_SIZE_IN_BYTES,
@@ -379,7 +425,75 @@ impl ContreeBuilder {
             atlas_offset,
         );
 
+        if atlas_offset == UVec3::ZERO {
+            self.cpu_chunk_zero_cache = Some(self.read_back_chunk_cpu_cache(
+                atlas_offset,
+                node_alloc_offset,
+                leaf_alloc_offset,
+                confirmed_node_buffer_size_in_bytes,
+                confirmed_leaf_buffer_size_in_bytes,
+            )?);
+        }
+
         Ok(Some((node_alloc_offset, leaf_alloc_offset)))
+    }
+
+    fn read_back_chunk_cpu_cache(
+        &self,
+        atlas_offset: UVec3,
+        node_alloc_offset: u64,
+        leaf_alloc_offset: u64,
+        node_size_in_bytes: u64,
+        leaf_size_in_bytes: u64,
+    ) -> Result<CpuChunkCache> {
+        assert!(node_size_in_bytes <= MAX_NODE_BUFFER_SIZE_IN_BYTES);
+        assert!(leaf_size_in_bytes <= MAX_LEAF_BUFFER_SIZE_IN_BYTES);
+
+        execute_one_time_command_with_fence(
+            self.vulkan_ctx.device(),
+            self.vulkan_ctx.command_pool(),
+            &self.vulkan_ctx.get_general_queue(),
+            |cmdbuf| {
+                self.resources.contree_node_data.record_copy_to_buffer(
+                    cmdbuf,
+                    &self.cpu_bridge_buffers.node_readback,
+                    node_size_in_bytes,
+                    node_alloc_offset * SIZE_OF_NODE_ELEMENT,
+                    0,
+                );
+                self.resources.contree_leaf_data.record_copy_to_buffer(
+                    cmdbuf,
+                    &self.cpu_bridge_buffers.leaf_readback,
+                    leaf_size_in_bytes,
+                    leaf_alloc_offset * SIZE_OF_LEAF_ELEMENT,
+                    0,
+                );
+            },
+        );
+
+        let node_bytes = self.cpu_bridge_buffers.node_readback.read_back()?;
+        let leaf_bytes = self.cpu_bridge_buffers.leaf_readback.read_back()?;
+        let node_bytes = &node_bytes[..node_size_in_bytes as usize];
+        let leaf_bytes = &leaf_bytes[..leaf_size_in_bytes as usize];
+
+        let nodes = node_bytes
+            .chunks_exact(SIZE_OF_NODE_ELEMENT as usize)
+            .map(|chunk| CpuContreeNode {
+                packed_0: u32::from_ne_bytes(chunk[0..4].try_into().unwrap()),
+                child_mask_lo: u32::from_ne_bytes(chunk[4..8].try_into().unwrap()),
+                child_mask_hi: u32::from_ne_bytes(chunk[8..12].try_into().unwrap()),
+            })
+            .collect();
+        let leaves = leaf_bytes
+            .chunks_exact(SIZE_OF_LEAF_ELEMENT as usize)
+            .map(|chunk| u32::from_ne_bytes(chunk[0..4].try_into().unwrap()))
+            .collect();
+
+        Ok(CpuChunkCache {
+            atlas_offset,
+            nodes,
+            leaves,
+        })
     }
 
     /// Allocate a chunk of data and store the allocation id in the offset_allocation_table.
@@ -437,6 +551,27 @@ impl ContreeBuilder {
     }
 }
 
+impl CpuChunkBridgeBuffers {
+    fn new(device: crate::vkn::Device, allocator: Allocator) -> Self {
+        Self {
+            node_readback: Buffer::new_sized(
+                device.clone(),
+                allocator.clone(),
+                BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
+                gpu_allocator::MemoryLocation::GpuToCpu,
+                MAX_NODE_BUFFER_SIZE_IN_BYTES,
+            ),
+            leaf_readback: Buffer::new_sized(
+                device,
+                allocator,
+                BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
+                gpu_allocator::MemoryLocation::GpuToCpu,
+                MAX_LEAF_BUFFER_SIZE_IN_BYTES,
+            ),
+        }
+    }
+}
+
 /// Returns true if `n` is a power of four (1, 4, 16, 64, …).
 ///
 /// Uses two bit-tricks:
@@ -456,4 +591,196 @@ fn log_4(n: u32) -> u32 {
 
 fn get_level(contree_dim: UVec3) -> u32 {
     log_4(contree_dim.x) + 1
+}
+
+fn march_contree_cpu(
+    origin: Vec3,
+    dir: Vec3,
+    nodes: &[CpuContreeNode],
+    leaves: &[u32],
+) -> Option<Vec3> {
+    if nodes.is_empty() {
+        return None;
+    }
+
+    let mut stack = [0u32; 11];
+    let mut scale_exp = 21i32;
+    let mut node_idx = 0u32;
+    let mut node = *nodes.get(node_idx as usize)?;
+
+    let slab = slabs(Vec3::ONE, Vec3::splat(1.999_999_9), origin, reciprocal(dir));
+    if slab.x > slab.y || slab.y < 0.0 {
+        return None;
+    }
+    let origin = origin + dir * slab.x.max(0.0);
+
+    let mut mirror_mask = 0u32;
+    if dir.x > 0.0 {
+        mirror_mask |= 3u32 << 0;
+    }
+    if dir.y > 0.0 {
+        mirror_mask |= 3u32 << 4;
+    }
+    if dir.z > 0.0 {
+        mirror_mask |= 3u32 << 2;
+    }
+
+    let origin = get_mirrored_pos(origin, dir, true);
+    let mut pos = origin.clamp(Vec3::ONE, Vec3::splat(1.999_999_9));
+    let inv_dir = -reciprocal(dir.abs());
+
+    for _ in 0..1024 {
+        let mut child_idx = (get_node_cell_index(pos, scale_exp)? as u32) ^ mirror_mask;
+
+        while child_mask_test(node, child_idx) && !is_leaf(node) {
+            stack[(scale_exp >> 1) as usize] = node_idx;
+
+            let bits = child_mask_bitcount_below(node, child_idx);
+            node_idx = (node.packed_0 >> 1) + bits;
+            node = *nodes.get(node_idx as usize)?;
+
+            scale_exp -= 2;
+            child_idx = (get_node_cell_index(pos, scale_exp)? as u32) ^ mirror_mask;
+        }
+
+        if child_mask_test(node, child_idx) && is_leaf(node) {
+            let pos = get_mirrored_pos(pos, dir, false);
+            let child_idx = get_node_cell_index(pos, scale_exp)? as u32;
+            let bits = child_mask_bitcount_below(node, child_idx);
+            let voxel_addr = ((node.packed_0 >> 1) + bits) as usize;
+            if voxel_addr < leaves.len() {
+                return Some(pos);
+            }
+            return None;
+        }
+
+        let mut adv_scale_exp = scale_exp;
+        let shifted_idx = child_idx & 0x2A;
+        let has_neighbor = if shifted_idx < 32 {
+            ((node.child_mask_lo >> shifted_idx) & 0x0033_0033) != 0
+        } else {
+            ((node.child_mask_hi >> (shifted_idx - 32)) & 0x0033_0033) != 0
+        };
+        if !has_neighbor {
+            adv_scale_exp += 1;
+        }
+
+        let cell_min = floor_scale(pos, adv_scale_exp);
+        let side_dist = (cell_min - origin) * inv_dir;
+        let tmax = side_dist.x.min(side_dist.y.min(side_dist.z));
+
+        let side_mask = [tmax >= side_dist.x, tmax >= side_dist.y, tmax >= side_dist.z];
+        let base = [
+            cell_min.x.to_bits() as i32,
+            cell_min.y.to_bits() as i32,
+            cell_min.z.to_bits() as i32,
+        ];
+        let off = (1 << adv_scale_exp) - 1;
+        let neighbor_max = [
+            base[0] + if side_mask[0] { -1 } else { off },
+            base[1] + if side_mask[1] { -1 } else { off },
+            base[2] + if side_mask[2] { -1 } else { off },
+        ];
+
+        pos = (origin - dir.abs() * tmax).min(Vec3::new(
+            f32::from_bits(neighbor_max[0] as u32),
+            f32::from_bits(neighbor_max[1] as u32),
+            f32::from_bits(neighbor_max[2] as u32),
+        ));
+
+        let combined = ((pos.x.to_bits() ^ cell_min.x.to_bits())
+            | (pos.y.to_bits() ^ cell_min.y.to_bits())
+            | (pos.z.to_bits() ^ cell_min.z.to_bits()))
+            & 0xFFAA_AAAA;
+        let diff_exp = find_msb(combined);
+        if diff_exp > scale_exp {
+            scale_exp = diff_exp;
+            if diff_exp > 21 {
+                break;
+            }
+            node_idx = stack[(scale_exp >> 1) as usize];
+            node = *nodes.get(node_idx as usize)?;
+        }
+    }
+
+    None
+}
+
+fn slabs(min_bound: Vec3, max_bound: Vec3, origin: Vec3, inv_dir: Vec3) -> Vec2 {
+    let t0 = (min_bound - origin) * inv_dir;
+    let t1 = (max_bound - origin) * inv_dir;
+    let tmin = t0.min(t1);
+    let tmax = t0.max(t1);
+    Vec2::new(tmin.max_element(), tmax.min_element())
+}
+
+fn reciprocal(v: Vec3) -> Vec3 {
+    Vec3::new(1.0 / v.x, 1.0 / v.y, 1.0 / v.z)
+}
+
+fn get_mirrored_pos(pos: Vec3, dir: Vec3, range_check: bool) -> Vec3 {
+    let mirrored = Vec3::new(
+        f32::from_bits(pos.x.to_bits() ^ 0x007F_FFFF),
+        f32::from_bits(pos.y.to_bits() ^ 0x007F_FFFF),
+        f32::from_bits(pos.z.to_bits() ^ 0x007F_FFFF),
+    );
+
+    let mirrored = if range_check
+        && (pos.cmplt(Vec3::ONE).any() || pos.cmpge(Vec3::splat(2.0)).any())
+    {
+        Vec3::splat(3.0) - pos
+    } else {
+        mirrored
+    };
+
+    Vec3::new(
+        if dir.x > 0.0 { mirrored.x } else { pos.x },
+        if dir.y > 0.0 { mirrored.y } else { pos.y },
+        if dir.z > 0.0 { mirrored.z } else { pos.z },
+    )
+}
+
+fn get_node_cell_index(pos: Vec3, scale_exp: i32) -> Option<i32> {
+    let shift = u32::try_from(scale_exp).ok()?;
+    let px = (pos.x.to_bits() >> shift) & 3;
+    let py = (pos.y.to_bits() >> shift) & 3;
+    let pz = (pos.z.to_bits() >> shift) & 3;
+    Some((px + pz * 4 + py * 16) as i32)
+}
+
+fn floor_scale(pos: Vec3, scale_exp: i32) -> Vec3 {
+    let mask = !0u32 << (scale_exp as u32);
+    Vec3::new(
+        f32::from_bits(pos.x.to_bits() & mask),
+        f32::from_bits(pos.y.to_bits() & mask),
+        f32::from_bits(pos.z.to_bits() & mask),
+    )
+}
+
+fn is_leaf(node: CpuContreeNode) -> bool {
+    (node.packed_0 & 1) != 0
+}
+
+fn child_mask_test(node: CpuContreeNode, idx: u32) -> bool {
+    if idx < 32 {
+        (node.child_mask_lo & (1 << idx)) != 0
+    } else {
+        (node.child_mask_hi & (1 << (idx - 32))) != 0
+    }
+}
+
+fn child_mask_bitcount_below(node: CpuContreeNode, idx: u32) -> u32 {
+    if idx < 32 {
+        (node.child_mask_lo & ((1 << idx) - 1)).count_ones()
+    } else {
+        node.child_mask_lo.count_ones() + (node.child_mask_hi & ((1 << (idx - 32)) - 1)).count_ones()
+    }
+}
+
+fn find_msb(value: u32) -> i32 {
+    if value == 0 {
+        -1
+    } else {
+        31 - value.leading_zeros() as i32
+    }
 }

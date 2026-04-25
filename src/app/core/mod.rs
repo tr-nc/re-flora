@@ -922,6 +922,8 @@ impl App {
         self.vulkan_ctx.device().wait_idle();
         BENCH.lock().unwrap().summary();
 
+        self.validate_startup_terrain_query();
+
         self.ensure_map_butterfly_emitter();
 
         if let Err(err) = self.add_tree(
@@ -942,6 +944,50 @@ impl App {
         }
 
         self.render_start_time = Some(Instant::now());
+    }
+
+    fn validate_startup_terrain_query(&mut self) {
+        let origin = Vec3::new(0.5, 1.0, 0.5);
+        let direction = Vec3::new(0.0, -1.0, 0.0);
+
+        let cpu_start = Instant::now();
+        let cpu_hit = self
+            .contree_builder
+            .debug_query_chunk_zero_cpu_ray(origin, direction);
+        let cpu_elapsed = cpu_start.elapsed();
+
+        let gpu_start = Instant::now();
+        let gpu_hit = self
+            .tracer
+            .query_terrain_ray_with_validity(TerrainRayQuery { origin, direction });
+        let gpu_elapsed = gpu_start.elapsed();
+
+        let format_cpu = |hit: Option<Vec3>| match hit {
+            Some(pos) => format!("hit ({:.3}, {:.3}, {:.3})", pos.x, pos.y, pos.z),
+            None => "miss".to_owned(),
+        };
+        let format_gpu = |result: &anyhow::Result<crate::tracer::TerrainRayHitSample>| match result {
+            Ok(sample) if sample.is_valid => format!(
+                "hit ({:.3}, {:.3}, {:.3})",
+                sample.position.x, sample.position.y, sample.position.z
+            ),
+            Ok(_) => "miss".to_owned(),
+            Err(err) => format!("error: {err}"),
+        };
+
+        log::info!(
+            "Terrain query validation for origin ({:.3}, {:.3}, {:.3}) dir ({:.3}, {:.3}, {:.3}): CPU={} in {:?}, GPU={} in {:?}",
+            origin.x,
+            origin.y,
+            origin.z,
+            direction.x,
+            direction.y,
+            direction.z,
+            format_cpu(cpu_hit),
+            cpu_elapsed,
+            format_gpu(&gpu_hit),
+            gpu_elapsed,
+        );
     }
 
     fn configure_gui_font(&mut self) -> Result<()> {

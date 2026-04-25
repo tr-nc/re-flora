@@ -203,30 +203,44 @@ impl App {
     }
 
     pub(super) fn update_terrain_query_debug_text(&mut self) {
-        let origin = self.tracer.camera_position();
-        let direction = self.tracer.camera_front();
-
-        if direction.length_squared() <= f32::EPSILON {
-            self.terrain_query_debug_text = "not hit".to_owned();
-            return;
-        }
-
+        let origin = Vec3::new(0.5, 1.0, 0.5);
+        let direction = Vec3::new(0.0, -1.0, 0.0);
         match self
-            .tracer
-            .query_terrain_ray_with_validity(TerrainRayQuery { origin, direction })
+            .contree_builder
+            .debug_query_chunk_zero_cpu_ray(origin, direction)
         {
-            Ok(sample) if sample.is_valid => {
+            Some(hit) => {
+                log::info!(
+                    "CPU chunk(0,0,0) sample ray hit at ({:.3}, {:.3}, {:.3}) from origin ({:.3}, {:.3}, {:.3}) dir ({:.3}, {:.3}, {:.3})",
+                    hit.x,
+                    hit.y,
+                    hit.z,
+                    origin.x,
+                    origin.y,
+                    origin.z,
+                    direction.x,
+                    direction.y,
+                    direction.z
+                );
                 self.terrain_query_debug_text = format!(
-                    "hit: ({:.3}, {:.3}, {:.3})",
-                    sample.position.x, sample.position.y, sample.position.z
+                    "cpu chunk(0,0,0) down hit: ({:.3}, {:.3}, {:.3})",
+                    hit.x, hit.y, hit.z
                 );
             }
-            Ok(_) => {
-                self.terrain_query_debug_text = "not hit".to_owned();
-            }
-            Err(err) => {
-                log::error!("Failed terrain ray query for debug panel: {}", err);
-                self.terrain_query_debug_text = "not hit".to_owned();
+            None => {
+                log::info!(
+                    "CPU chunk(0,0,0) sample ray miss from origin ({:.3}, {:.3}, {:.3}) dir ({:.3}, {:.3}, {:.3})",
+                    origin.x,
+                    origin.y,
+                    origin.z,
+                    direction.x,
+                    direction.y,
+                    direction.z
+                );
+                self.terrain_query_debug_text = format!(
+                    "cpu chunk(0,0,0) down miss @ ({:.3}, {:.3}, {:.3})",
+                    origin.x, origin.y, origin.z
+                );
             }
         }
     }
