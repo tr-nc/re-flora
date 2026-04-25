@@ -733,14 +733,6 @@ impl App {
                 .unwrap()
                 .record("terrain_edit_removal_total", total_elapsed);
             crate::util::BENCH.lock().unwrap().summary();
-            log::info!(
-                "[TERRAIN_EDIT] removal total={:.3}ms modify={:.3}ms rebuild={:.3}ms center={:?} radius={:.3}",
-                total_elapsed.as_secs_f64() * 1000.0,
-                modify_elapsed.as_secs_f64() * 1000.0,
-                mesh_elapsed.as_secs_f64() * 1000.0,
-                edit.center,
-                edit.radius,
-            );
             return Ok(stats);
         }
         Ok(ChunkModifyReadback::default())

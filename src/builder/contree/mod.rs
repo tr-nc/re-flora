@@ -611,14 +611,6 @@ impl ContreeBuilder {
                 .unwrap()
                 .record("contree_build_and_alloc_total", total_elapsed);
 
-            log::info!(
-                "[TERRAIN_EDIT] chunk {:?} contree total={:.3}ms alloc={:.3}ms gpu_build={:.3}ms size_readback={:.3}ms cpu_cache_total=0.000ms",
-                chunk_idx,
-                total_elapsed.as_secs_f64() * 1000.0,
-                alloc_elapsed.as_secs_f64() * 1000.0,
-                build_elapsed.as_secs_f64() * 1000.0,
-                size_elapsed.as_secs_f64() * 1000.0,
-            );
             return Ok(None);
         }
 
@@ -647,16 +639,6 @@ impl ContreeBuilder {
             .lock()
             .unwrap()
             .record("contree_build_and_alloc_total", total_elapsed);
-
-        log::info!(
-            "[TERRAIN_EDIT] chunk {:?} contree total={:.3}ms alloc={:.3}ms gpu_build={:.3}ms size_readback={:.3}ms confirm={:.3}ms cpu_cache_total=async",
-            chunk_idx,
-            total_elapsed.as_secs_f64() * 1000.0,
-            alloc_elapsed.as_secs_f64() * 1000.0,
-            build_elapsed.as_secs_f64() * 1000.0,
-            size_elapsed.as_secs_f64() * 1000.0,
-            confirm_elapsed.as_secs_f64() * 1000.0,
-        );
 
         Ok(Some((node_alloc_offset, leaf_alloc_offset)))
     }
@@ -807,13 +789,6 @@ impl ContreeBuilder {
                 self.cpu_chunk_caches.insert(result.chunk_idx, result.cache);
                 self.publish_chunk_cache_revision(result.chunk_idx, result.revision);
                 self.set_scene_chunk(result.chunk_idx, Some(result.chunk_idx));
-                log::info!(
-                    "[TERRAIN_EDIT] chunk {:?} published CPU cache rev={} latest={} lag={}",
-                    result.chunk_idx,
-                    result.revision,
-                    latest_revision,
-                    latest_revision.saturating_sub(result.revision),
-                );
             } else if let Some(state) = self.cpu_chunk_cache_states.get_mut(&result.chunk_idx) {
                 if state.inflight_revision == Some(result.revision) {
                     state.inflight_revision = None;
@@ -1075,17 +1050,6 @@ fn decode_cpu_chunk_cache_job(job: CpuChunkCacheWorkerJob) -> Result<CpuChunkCac
         .lock()
         .unwrap()
         .record("contree_cpu_cache_decode", decode_elapsed);
-
-    log::info!(
-        "[TERRAIN_EDIT] chunk {:?} CPU cache node {:.1} KiB leaf {:.1} KiB copy={:.3}ms map_copy={:.3}ms decode={:.3}ms rev={}",
-        job.chunk_idx,
-        job.source.node_size_in_bytes as f64 / 1024.0,
-        job.source.leaf_size_in_bytes as f64 / 1024.0,
-        job.gpu_copy_elapsed.as_secs_f64() * 1000.0,
-        readback_elapsed.as_secs_f64() * 1000.0,
-        decode_elapsed.as_secs_f64() * 1000.0,
-        job.revision,
-    );
 
     Ok(CpuChunkCacheWorkerResult {
         chunk_idx: job.chunk_idx,

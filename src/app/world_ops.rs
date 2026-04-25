@@ -171,13 +171,6 @@ pub(crate) fn mesh_generate(
         }
         let scene_elapsed = scene_start.elapsed();
 
-        log::info!(
-            "[TERRAIN_EDIT] chunk {:?} rebuild surface={:.3}ms contree={:.3}ms scene_tex={:.3}ms",
-            chunk_id,
-            surface_elapsed.as_secs_f64() * 1000.0,
-            contree_elapsed.as_secs_f64() * 1000.0,
-            scene_elapsed.as_secs_f64() * 1000.0,
-        );
     }
 
     Ok(())
@@ -235,13 +228,6 @@ pub(crate) fn mesh_generate_preserve_flora_for_sphere_edit(
         }
         let scene_elapsed = scene_start.elapsed();
 
-        log::info!(
-            "[TERRAIN_EDIT] chunk {:?} rebuild surface={:.3}ms contree={:.3}ms scene_tex={:.3}ms",
-            chunk_id,
-            surface_elapsed.as_secs_f64() * 1000.0,
-            contree_elapsed.as_secs_f64() * 1000.0,
-            scene_elapsed.as_secs_f64() * 1000.0,
-        );
     }
 
     Ok(())
