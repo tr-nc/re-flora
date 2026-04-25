@@ -157,13 +157,11 @@ pub(crate) fn mesh_generate(
 
         if let Some(res) = res {
             let (node_buffer_offset, leaf_buffer_offset) = res;
-            scene_accel_builder.update_scene_tex(
-                chunk_id,
-                node_buffer_offset,
-                leaf_buffer_offset,
-            )?;
+            scene_accel_builder
+                .update_scene_tex(chunk_id, Some((node_buffer_offset, leaf_buffer_offset)))?;
         } else {
-            log::debug!("Don't need to update scene tex because the chunk is empty");
+            scene_accel_builder.update_scene_tex(chunk_id, None)?;
+            log::debug!("Cleared scene tex because the chunk is empty");
         }
     }
 
@@ -208,13 +206,11 @@ pub(crate) fn mesh_generate_preserve_flora_for_sphere_edit(
 
         if let Some(res) = res {
             let (node_buffer_offset, leaf_buffer_offset) = res;
-            scene_accel_builder.update_scene_tex(
-                chunk_id,
-                node_buffer_offset,
-                leaf_buffer_offset,
-            )?;
+            scene_accel_builder
+                .update_scene_tex(chunk_id, Some((node_buffer_offset, leaf_buffer_offset)))?;
         } else {
-            log::debug!("Don't need to update scene tex because the chunk is empty");
+            scene_accel_builder.update_scene_tex(chunk_id, None)?;
+            log::debug!("Cleared scene tex because the chunk is empty");
         }
     }
 

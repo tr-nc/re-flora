@@ -410,7 +410,8 @@ pub struct SceneTexUpdateInfo {
     pub chunk_idx: [u32; 3],
     pub node_offset_for_chunk: u32,
     pub leaf_offset_for_chunk: u32,
-    pub _pad0: [u8; 12],
+    pub is_valid: u32,
+    pub _pad0: [u8; 8],
 }
 
 /// Auto-generated from `U_ShadingInfo` (GLSL source of truth).

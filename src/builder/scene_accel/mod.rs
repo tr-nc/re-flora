@@ -110,14 +110,19 @@ impl SceneAccelBuilder {
     pub fn update_scene_tex(
         &mut self,
         chunk_idx: UVec3,
-        node_offset_for_chunk: u64,
-        node_count_for_chunk: u64,
+        chunk_data: Option<(u64, u64)>,
     ) -> Result<()> {
+        let (node_offset_for_chunk, leaf_offset_for_chunk, is_valid) = match chunk_data {
+            Some((node_offset, leaf_offset)) => (node_offset as u32, leaf_offset as u32, 1),
+            None => (0, 0, 0),
+        };
+
         update_buffers(
             &self.resources.scene_tex_update_info,
             chunk_idx,
-            node_offset_for_chunk as u32,
-            node_count_for_chunk as u32,
+            node_offset_for_chunk,
+            leaf_offset_for_chunk,
+            is_valid,
         )?;
 
         self.update_scene_tex_cmdbuf
@@ -132,11 +137,13 @@ impl SceneAccelBuilder {
             chunk_idx: UVec3,
             node_offset_for_chunk: u32,
             leaf_offset_for_chunk: u32,
+            is_valid: u32,
         ) -> Result<()> {
             scene_tex_update_info.fill_uniform(&SceneTexUpdateInfo {
                 chunk_idx: chunk_idx.to_array(),
                 node_offset_for_chunk,
                 leaf_offset_for_chunk,
+                is_valid,
                 ..SceneTexUpdateInfo::zeroed()
             })
         }

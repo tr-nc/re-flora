@@ -58,7 +58,7 @@ pub struct ContreeBuilder {
     cpu_bridge_buffers: CpuChunkBridgeBuffers,
 
     voxel_dim_per_chunk: UVec3,
-    cpu_chunk_zero_cache: Option<CpuChunkCache>,
+    cpu_chunk_caches: HashMap<UVec3, CpuChunkCache>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -242,7 +242,7 @@ impl ContreeBuilder {
             leaf_allocator,
             cpu_bridge_buffers,
             voxel_dim_per_chunk,
-            cpu_chunk_zero_cache: None,
+            cpu_chunk_caches: HashMap::new(),
         }
     }
 
@@ -342,8 +342,12 @@ impl ContreeBuilder {
     }
 
     pub fn debug_query_chunk_zero_cpu_ray(&self, origin: Vec3, direction: Vec3) -> Option<Vec3> {
-        let cache = self.cpu_chunk_zero_cache.as_ref()?;
+        let cache = self.cpu_chunk_caches.get(&UVec3::ZERO)?;
         self.query_cached_chunk_cpu_ray(cache, origin, direction)
+    }
+
+    pub fn cpu_cached_chunk_count(&self) -> usize {
+        self.cpu_chunk_caches.len()
     }
 
     fn query_cached_chunk_cpu_ray(
@@ -403,6 +407,7 @@ impl ContreeBuilder {
     /// Returns: (node_alloc_offset, leaf_alloc_offset)
     pub fn build_and_alloc(&mut self, atlas_offset: UVec3) -> Result<Option<(u64, u64)>> {
         let atlas_dim = self.voxel_dim_per_chunk;
+        let chunk_idx = atlas_offset / self.voxel_dim_per_chunk;
 
         let (node_alloc_offset_in_bytes, leaf_alloc_offset_in_bytes) = self.pre_allocate_chunk(
             MAX_NODE_BUFFER_SIZE_IN_BYTES,
@@ -419,21 +424,26 @@ impl ContreeBuilder {
         let (confirmed_node_buffer_size_in_bytes, confirmed_leaf_buffer_size_in_bytes) =
             self.get_contree_size_info(&self.resources);
 
+        if confirmed_node_buffer_size_in_bytes == 0 || confirmed_leaf_buffer_size_in_bytes == 0 {
+            self.cpu_chunk_caches.remove(&chunk_idx);
+            self.deallocate_chunk_allocation(atlas_offset);
+            return Ok(None);
+        }
+
         self.confirm_allocation_of_chunk(
             confirmed_node_buffer_size_in_bytes,
             confirmed_leaf_buffer_size_in_bytes,
             atlas_offset,
         );
 
-        if atlas_offset == UVec3::ZERO {
-            self.cpu_chunk_zero_cache = Some(self.read_back_chunk_cpu_cache(
-                atlas_offset,
-                node_alloc_offset,
-                leaf_alloc_offset,
-                confirmed_node_buffer_size_in_bytes,
-                confirmed_leaf_buffer_size_in_bytes,
-            )?);
-        }
+        let cache = self.read_back_chunk_cpu_cache(
+            atlas_offset,
+            node_alloc_offset,
+            leaf_alloc_offset,
+            confirmed_node_buffer_size_in_bytes,
+            confirmed_leaf_buffer_size_in_bytes,
+        )?;
+        self.cpu_chunk_caches.insert(chunk_idx, cache);
 
         Ok(Some((node_alloc_offset, leaf_alloc_offset)))
     }
@@ -496,6 +506,13 @@ impl ContreeBuilder {
         })
     }
 
+    fn deallocate_chunk_allocation(&mut self, atlas_offset: UVec3) {
+        if let Some((node_alloc_id, leaf_alloc_id)) = self.chunk_offset_allocation_table.remove(&atlas_offset) {
+            self.node_allocator.deallocate(node_alloc_id).unwrap();
+            self.leaf_allocator.deallocate(leaf_alloc_id).unwrap();
+        }
+    }
+
     /// Allocate a chunk of data and store the allocation id in the offset_allocation_table.
     ///
     /// Returns: (node_alloc_offset_in_bytes, leaf_alloc_offset_in_bytes)
@@ -506,17 +523,7 @@ impl ContreeBuilder {
         max_leaf_buffer_size_in_bytes: u64,
         atlas_offset: UVec3,
     ) -> (u64, u64) {
-        if self
-            .chunk_offset_allocation_table
-            .contains_key(&atlas_offset)
-        {
-            let (node_alloc_id, leaf_alloc_id) = self
-                .chunk_offset_allocation_table
-                .remove(&atlas_offset)
-                .unwrap();
-            self.node_allocator.deallocate(node_alloc_id).unwrap();
-            self.leaf_allocator.deallocate(leaf_alloc_id).unwrap();
-        }
+        self.deallocate_chunk_allocation(atlas_offset);
         let node_allocation = self
             .node_allocator
             .allocate(max_node_buffer_size_in_bytes)

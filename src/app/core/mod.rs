@@ -710,13 +710,16 @@ impl App {
                     Ok(Some((node_buffer_offset, leaf_buffer_offset))) => {
                         if let Err(err) = self.scene_accel_builder.update_scene_tex(
                             chunk_id,
-                            node_buffer_offset,
-                            leaf_buffer_offset,
+                            Some((node_buffer_offset, leaf_buffer_offset)),
                         ) {
                             log::error!("update_scene_tex failed for {chunk_id:?}: {err}");
                         }
                     }
-                    Ok(None) => {}
+                    Ok(None) => {
+                        if let Err(err) = self.scene_accel_builder.update_scene_tex(chunk_id, None) {
+                            log::error!("clear_scene_tex failed for {chunk_id:?}: {err}");
+                        }
+                    }
                     Err(err) => {
                         log::error!("build_and_alloc failed for {chunk_id:?}: {err}");
                     }
@@ -976,13 +979,14 @@ impl App {
         };
 
         log::info!(
-            "Terrain query validation for origin ({:.3}, {:.3}, {:.3}) dir ({:.3}, {:.3}, {:.3}): CPU={} in {:?}, GPU={} in {:?}",
+            "Terrain query validation for origin ({:.3}, {:.3}, {:.3}) dir ({:.3}, {:.3}, {:.3}): cached_chunks={}, CPU={} in {:?}, GPU={} in {:?}",
             origin.x,
             origin.y,
             origin.z,
             direction.x,
             direction.y,
             direction.z,
+            self.contree_builder.cpu_cached_chunk_count(),
             format_cpu(cpu_hit),
             cpu_elapsed,
             format_gpu(&gpu_hit),

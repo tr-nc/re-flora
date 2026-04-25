@@ -8,15 +8,21 @@ layout(set = 0, binding = 0) uniform U_SceneTexUpdateInfo {
     uvec3 chunk_idx;
     uint node_offset_for_chunk;
     uint leaf_offset_for_chunk;
+    uint is_valid;
 }
 scene_tex_update_info;
 
 layout(set = 0, binding = 1, rg32ui) writeonly uniform uimage3D scene_tex;
 
 void main() {
+    if (scene_tex_update_info.is_valid == 0u) {
+        imageStore(scene_tex, ivec3(scene_tex_update_info.chunk_idx), uvec4(0u));
+        return;
+    }
+
     // we offset the chunk index by 1 to leave the default value, 0, as invalid chunk idx
     imageStore(scene_tex, ivec3(scene_tex_update_info.chunk_idx),
                uvec4(scene_tex_update_info.node_offset_for_chunk,
                      scene_tex_update_info.leaf_offset_for_chunk, 0, 0) +
-                   1);
+                    1);
 }
