@@ -380,14 +380,13 @@ impl App {
         }
 
         let direct_snapshot = self.spatial_sound_manager.direct_occlusion_debug_snapshot();
-
         let runtime_snapshot = self
             .spatial_sound_manager
             .take_audio_ray_tracing_runtime_snapshot();
 
         self.audio_ray_tracing_debug_text = match direct_snapshot {
             Some(snapshot) => format!(
-                "Audio RT: {} updates / {} sources / {} occluded\nDirect update: {:.3}ms total, failures {}\nDirect occ: {} samples avg {:.3} min {:.3} max {:.3}",
+                "Audio RT: {} updates / {} rays / {} occluded\nDirect query: {:.3}ms total, failures {}\nDirect occ: {} samples avg {:.3} min {:.3} max {:.3}",
                 runtime_snapshot.update_count,
                 runtime_snapshot.updated_sources,
                 runtime_snapshot.occluded_sources,
@@ -399,7 +398,7 @@ impl App {
                 snapshot.max_occlusion,
             ),
             None => format!(
-                "Audio RT: {} updates / {} sources / {} occluded\nDirect update: {:.3}ms total, failures {}\nDirect occ: no samples",
+                "Audio RT: {} updates / {} rays / {} occluded\nDirect query: {:.3}ms total, failures {}\nDirect occ: no samples",
                 runtime_snapshot.update_count,
                 runtime_snapshot.updated_sources,
                 runtime_snapshot.occluded_sources,
@@ -407,44 +406,6 @@ impl App {
                 runtime_snapshot.update_failures,
             ),
         };
-    }
-
-    fn resolve_audio_direct_path_queries(
-        &self,
-        queries: &[crate::audio::DirectPathQuery],
-    ) -> Vec<crate::audio::DirectPathQueryResult> {
-        const AUDIO_RAY_ENDPOINT_EPSILON: f32 = 0.05;
-        const AUDIO_RAY_START_EPSILON: f32 = 0.05;
-
-        queries
-            .iter()
-            .map(|query| {
-                let direction_to_listener = query.listener_position - query.source_position;
-                let listener_distance = direction_to_listener.length();
-                let trace_distance =
-                    (listener_distance - AUDIO_RAY_START_EPSILON - AUDIO_RAY_ENDPOINT_EPSILON)
-                        .max(0.0);
-
-                let Some(direction) = (listener_distance > 1e-6 && trace_distance > 0.0)
-                    .then_some(direction_to_listener / listener_distance)
-                else {
-                    return crate::audio::DirectPathQueryResult {
-                        occlusion: Some(1.0),
-                        transmission: None,
-                    };
-                };
-
-                let origin = query.source_position + direction * AUDIO_RAY_START_EPSILON;
-                let is_occluded = self
-                    .query_terrain_ray_cpu(origin, direction)
-                    .is_some_and(|hit| hit.distance(origin) <= trace_distance);
-
-                crate::audio::DirectPathQueryResult {
-                    occlusion: Some(if is_occluded { 0.0 } else { 1.0 }),
-                    transmission: None,
-                }
-            })
-            .collect()
     }
 
     pub fn new(_event_loop: &ActiveEventLoop, options: &crate::AppOptions) -> Result<Self> {
@@ -549,7 +510,7 @@ impl App {
 
         // Shared spatial audio engine (PetalSonic) used by both the tracer (camera)
         // and the app-level tree ambience sources.
-        let spatial_sound_manager = SpatialSoundManager::new(1024)?;
+        let spatial_sound_manager = SpatialSoundManager::new(1024, contree_builder.audio_ray_tracer())?;
         let tree_audio_manager = TreeAudioManager::new(spatial_sound_manager.clone());
 
         let tracer = Tracer::new(
@@ -1383,15 +1344,6 @@ impl App {
                 if let Err(err) = self.tree_audio_manager.update(time_since_start) {
                     log::warn!("Failed to update tree audio sources: {}", err);
                 }
-                if let Err(err) =
-                    self.spatial_sound_manager
-                        .update_direct_path_overrides(|queries| {
-                            Ok(self.resolve_audio_direct_path_queries(queries))
-                        })
-                {
-                    log::warn!("Failed to update direct audio paths: {}", err);
-                }
-
                 if let Err(err) = self.spatial_sound_manager.pump_audio() {
                     log::warn!("Failed to pump audio: {}", err);
                 }

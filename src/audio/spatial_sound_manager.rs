@@ -1,4 +1,5 @@
 use crate::audio::audio_clip_cache::AudioClipCache;
+use crate::builder::{ContreeAnyHitRayTracer, ContreeRayTracingRuntimeSnapshot};
 use crate::gameplay::camera::vectors::CameraVectors;
 use anyhow::Result;
 use glam::Vec3;
@@ -8,16 +9,11 @@ use petalsonic::{
     math::{Pose, Quat as PetalQuat, Vec3 as PetalVec3},
     playback::LoopMode,
     world::PetalSonicWorld,
-    DirectOcclusionDebugSnapshot, DirectPathOverride, DirectPathTransmission, SourceConfig,
-    SourceId,
+    BatchedAnyHitRayTracer, DirectOcclusionDebugSnapshot, SourceConfig, SourceId,
 };
 use rand::Rng;
 use std::collections::HashMap;
-use std::sync::{
-    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
-    Arc, Mutex,
-};
-use std::time::Instant;
+use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 /// Source tracking information
@@ -28,74 +24,11 @@ struct SourceInfo {
     loop_mode: LoopMode,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct DirectPathQuery {
-    pub source_id: SourceId,
-    pub source_position: Vec3,
-    pub listener_position: Vec3,
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct DirectPathQueryResult {
-    pub occlusion: Option<f32>,
-    pub transmission: Option<DirectPathTransmission>,
-}
-
-#[derive(Default)]
-struct AudioRayTracingRuntimeStats {
-    update_count: AtomicUsize,
-    updated_sources: AtomicUsize,
-    occluded_sources: AtomicUsize,
-    update_failures: AtomicUsize,
-    total_update_time_us: AtomicU64,
-}
-
-#[derive(Debug, Default, Clone, Copy)]
-pub struct AudioRayTracingRuntimeSnapshot {
-    pub update_count: usize,
-    pub updated_sources: usize,
-    pub occluded_sources: usize,
-    pub update_failures: usize,
-    pub total_update_time_us: u64,
-}
-
-struct AudioRayTracingLogger {
-    runtime_stats: Arc<AudioRayTracingRuntimeStats>,
-}
-
-impl AudioRayTracingLogger {
-    fn take_snapshot(&self) -> AudioRayTracingRuntimeSnapshot {
-        AudioRayTracingRuntimeSnapshot {
-            update_count: self.runtime_stats.update_count.swap(0, Ordering::Relaxed),
-            updated_sources: self
-                .runtime_stats
-                .updated_sources
-                .swap(0, Ordering::Relaxed),
-            occluded_sources: self
-                .runtime_stats
-                .occluded_sources
-                .swap(0, Ordering::Relaxed),
-            update_failures: self
-                .runtime_stats
-                .update_failures
-                .swap(0, Ordering::Relaxed),
-            total_update_time_us: self
-                .runtime_stats
-                .total_update_time_us
-                .swap(0, Ordering::Relaxed),
-        }
-    }
-}
-
-struct AudioRayTracingService {
-    enabled: Arc<AtomicBool>,
-    runtime_stats: Arc<AudioRayTracingRuntimeStats>,
-}
-
 /// Spatial sound manager using PetalSonic
 pub struct SpatialSoundManager {
     world: Arc<PetalSonicWorld>,
     engine: Arc<Mutex<PetalSonicEngine>>,
+    audio_ray_tracer: Arc<ContreeAnyHitRayTracer>,
 
     // Audio clip cache for efficient audio data loading
     clip_cache: Arc<AudioClipCache>,
@@ -108,9 +41,6 @@ pub struct SpatialSoundManager {
 
     // Global master gain (dB) applied to all sources.
     global_volume_gain_db: Arc<Mutex<f32>>,
-
-    audio_ray_tracing_service: AudioRayTracingService,
-    audio_ray_tracing_logger: Arc<AudioRayTracingLogger>,
 }
 
 #[derive(Clone, Debug)]
@@ -135,7 +65,10 @@ impl Default for ListenerState {
 }
 
 impl SpatialSoundManager {
-    pub fn new(frame_window_size: usize) -> Result<Self> {
+    pub fn new(
+        frame_window_size: usize,
+        audio_ray_tracer: Arc<ContreeAnyHitRayTracer>,
+    ) -> Result<Self> {
         let sample_rate = 48000;
 
         // Initialize audio clip cache first
@@ -148,18 +81,13 @@ impl SpatialSoundManager {
         );
 
         // Create PetalSonic world configuration
-        let audio_ray_tracing_enabled = Arc::new(AtomicBool::new(true));
-        let audio_ray_tracing_runtime_stats = Arc::new(AudioRayTracingRuntimeStats::default());
-        let audio_ray_tracing_logger = Arc::new(AudioRayTracingLogger {
-            runtime_stats: audio_ray_tracing_runtime_stats.clone(),
-        });
         let world_desc = PetalSonicWorldDesc {
             sample_rate,
             block_size: frame_window_size,
             hrtf_path: Some(hrtf_path),
             hrtf_gain: 0.0,
             distance_scaler: 15.0,
-            batched_any_hit_ray_tracer: None,
+            batched_any_hit_ray_tracer: Some(audio_ray_tracer.clone() as Arc<dyn BatchedAnyHitRayTracer>),
             ..Default::default()
         };
 
@@ -179,15 +107,11 @@ impl SpatialSoundManager {
         Ok(Self {
             world: world_arc,
             engine: Arc::new(Mutex::new(engine)),
+            audio_ray_tracer,
             clip_cache,
             uuid_to_source: Arc::new(Mutex::new(HashMap::new())),
             listener_state: Arc::new(Mutex::new(ListenerState::default())),
             global_volume_gain_db: Arc::new(Mutex::new(0.0)),
-            audio_ray_tracing_service: AudioRayTracingService {
-                enabled: audio_ray_tracing_enabled,
-                runtime_stats: audio_ray_tracing_runtime_stats,
-            },
-            audio_ray_tracing_logger,
         })
     }
 
@@ -419,95 +343,7 @@ impl SpatialSoundManager {
     }
 
     pub fn set_audio_ray_tracing_enabled(&self, enabled: bool) {
-        self.audio_ray_tracing_service
-            .enabled
-            .store(enabled, Ordering::Relaxed);
-    }
-
-    pub fn update_direct_path_overrides<F>(&self, mut resolve_queries: F) -> Result<()>
-    where
-        F: FnMut(&[DirectPathQuery]) -> Result<Vec<DirectPathQueryResult>>,
-    {
-        let source_queries = self.collect_direct_path_queries();
-
-        if source_queries.is_empty() {
-            return Ok(());
-        }
-
-        if !self
-            .audio_ray_tracing_service
-            .enabled
-            .load(Ordering::Relaxed)
-        {
-            self.clear_direct_path_overrides(&source_queries)?;
-            return Ok(());
-        }
-
-        let trace_start = Instant::now();
-        let results = resolve_queries(&source_queries);
-        let elapsed_us = trace_start.elapsed().as_micros() as u64;
-
-        let results = match results {
-            Ok(results) if results.len() == source_queries.len() => results,
-            Ok(results) => {
-                self.audio_ray_tracing_service
-                    .runtime_stats
-                    .update_failures
-                    .fetch_add(1, Ordering::Relaxed);
-                return Err(anyhow::anyhow!(
-                    "Direct path resolver returned {} results for {} queries",
-                    results.len(),
-                    source_queries.len()
-                ));
-            }
-            Err(err) => {
-                self.audio_ray_tracing_service
-                    .runtime_stats
-                    .update_failures
-                    .fetch_add(1, Ordering::Relaxed);
-                return Err(err);
-            }
-        };
-
-        let mut occluded_sources = 0usize;
-        for (query, result) in source_queries.iter().zip(results.into_iter()) {
-            if let Some(occlusion) = result.occlusion {
-                if occlusion < 0.5 {
-                    occluded_sources += 1;
-                }
-            }
-
-            let override_data = if result.occlusion.is_some() || result.transmission.is_some() {
-                Some(DirectPathOverride {
-                    occlusion: result.occlusion,
-                    transmission: result.transmission,
-                })
-            } else {
-                None
-            };
-
-            self.world
-                .update_source_direct_path_override(query.source_id, override_data)?;
-        }
-
-        self.audio_ray_tracing_service
-            .runtime_stats
-            .update_count
-            .fetch_add(1, Ordering::Relaxed);
-        self.audio_ray_tracing_service
-            .runtime_stats
-            .updated_sources
-            .fetch_add(source_queries.len(), Ordering::Relaxed);
-        self.audio_ray_tracing_service
-            .runtime_stats
-            .occluded_sources
-            .fetch_add(occluded_sources, Ordering::Relaxed);
-        self.audio_ray_tracing_service
-            .runtime_stats
-            .total_update_time_us
-            .fetch_add(elapsed_us, Ordering::Relaxed);
-
-        Ok(())
+        self.audio_ray_tracer.set_enabled(enabled);
     }
 
     pub fn pump_audio(&self) -> Result<()> {
@@ -526,36 +362,8 @@ impl SpatialSoundManager {
             .and_then(|engine| engine.direct_occlusion_debug_snapshot())
     }
 
-    pub fn take_audio_ray_tracing_runtime_snapshot(&self) -> AudioRayTracingRuntimeSnapshot {
-        self.audio_ray_tracing_logger.take_snapshot()
-    }
-
-    fn collect_direct_path_queries(&self) -> Vec<DirectPathQuery> {
-        let listener_position = self.listener_state.lock().unwrap().position;
-        let mut queries = self
-            .uuid_to_source
-            .lock()
-            .unwrap()
-            .values()
-            .filter_map(|source_info| {
-                source_info.position.map(|source_position| DirectPathQuery {
-                    source_id: source_info.source_id,
-                    source_position,
-                    listener_position,
-                })
-            })
-            .collect::<Vec<_>>();
-        queries.sort_by_key(|query| query.source_id.to_string());
-        queries
-    }
-
-    fn clear_direct_path_overrides(&self, source_queries: &[DirectPathQuery]) -> Result<()> {
-        for query in source_queries {
-            self.world
-                .update_source_direct_path_override(query.source_id, None)?;
-        }
-
-        Ok(())
+    pub fn take_audio_ray_tracing_runtime_snapshot(&self) -> ContreeRayTracingRuntimeSnapshot {
+        self.audio_ray_tracer.take_runtime_snapshot()
     }
 
     #[allow(dead_code)]
@@ -681,15 +489,11 @@ impl Clone for SpatialSoundManager {
         Self {
             world: self.world.clone(),
             engine: self.engine.clone(),
+            audio_ray_tracer: self.audio_ray_tracer.clone(),
             clip_cache: self.clip_cache.clone(),
             uuid_to_source: self.uuid_to_source.clone(),
             listener_state: self.listener_state.clone(),
             global_volume_gain_db: self.global_volume_gain_db.clone(),
-            audio_ray_tracing_service: AudioRayTracingService {
-                enabled: self.audio_ray_tracing_service.enabled.clone(),
-                runtime_stats: self.audio_ray_tracing_service.runtime_stats.clone(),
-            },
-            audio_ray_tracing_logger: self.audio_ray_tracing_logger.clone(),
         }
     }
 }
