@@ -160,7 +160,6 @@ pub(crate) fn mesh_generate(
             .unwrap()
             .record("build_and_alloc", contree_elapsed);
 
-        let scene_start = Instant::now();
         if let Some(res) = res {
             let (node_buffer_offset, leaf_buffer_offset) = res;
             scene_accel_builder
@@ -169,8 +168,6 @@ pub(crate) fn mesh_generate(
             scene_accel_builder.update_scene_tex(chunk_id, None)?;
             log::debug!("Cleared scene tex because the chunk is empty");
         }
-        let scene_elapsed = scene_start.elapsed();
-
     }
 
     Ok(())
@@ -217,7 +214,6 @@ pub(crate) fn mesh_generate_preserve_flora_for_sphere_edit(
             .unwrap()
             .record("build_and_alloc", contree_elapsed);
 
-        let scene_start = Instant::now();
         if let Some(res) = res {
             let (node_buffer_offset, leaf_buffer_offset) = res;
             scene_accel_builder
@@ -226,8 +222,6 @@ pub(crate) fn mesh_generate_preserve_flora_for_sphere_edit(
             scene_accel_builder.update_scene_tex(chunk_id, None)?;
             log::debug!("Cleared scene tex because the chunk is empty");
         }
-        let scene_elapsed = scene_start.elapsed();
-
     }
 
     Ok(())

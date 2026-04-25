@@ -118,7 +118,6 @@ struct CpuChunkCacheFenceJob {
     revision: u64,
     source: CpuChunkCacheBuildSource,
     readback_buffers: CpuChunkReadbackBuffers,
-    gpu_copy_elapsed: Duration,
 }
 
 struct CpuChunkCacheWorkerJob {
@@ -126,7 +125,6 @@ struct CpuChunkCacheWorkerJob {
     revision: u64,
     source: CpuChunkCacheBuildSource,
     readback_buffers: CpuChunkReadbackBuffers,
-    gpu_copy_elapsed: Duration,
 }
 
 struct CpuChunkCacheWorkerResult {
@@ -137,6 +135,7 @@ struct CpuChunkCacheWorkerResult {
 }
 
 impl ContreeBuilder {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         vulkan_ctx: VulkanContext,
         allocator: Allocator,
@@ -577,7 +576,6 @@ impl ContreeBuilder {
             .lock()
             .unwrap()
             .record("contree_pre_allocate", alloc_start.elapsed());
-        let alloc_elapsed = alloc_start.elapsed();
         // the offset's unit is in bytes, we need to convert it to array idx, each element is a 3*u32
         let node_alloc_offset = node_alloc_offset_in_bytes / SIZE_OF_NODE_ELEMENT;
         // the element of leaf data is a u32
@@ -712,7 +710,6 @@ impl ContreeBuilder {
             revision,
             source,
             readback_buffers,
-            gpu_copy_elapsed,
         });
     }
 
@@ -752,7 +749,6 @@ impl ContreeBuilder {
             revision: job.revision,
             source: job.source,
             readback_buffers: job.readback_buffers,
-            gpu_copy_elapsed: job.gpu_copy_elapsed,
         };
         if let Err(err) = self.cpu_chunk_cache_job_tx.send(worker_job) {
             log::error!(
@@ -944,9 +940,8 @@ impl ContreeBuilder {
             return;
         }
 
-        while let Some((chunk_idx, revision, source)) = self.next_pending_cpu_chunk_cache_job() {
+        if let Some((chunk_idx, revision, source)) = self.next_pending_cpu_chunk_cache_job() {
             self.submit_chunk_cpu_cache_rebuild(chunk_idx, revision, source);
-            break;
         }
     }
 
@@ -1107,7 +1102,7 @@ fn march_contree_cpu(
 
     let mut mirror_mask = 0u32;
     if dir.x > 0.0 {
-        mirror_mask |= 3u32 << 0;
+        mirror_mask |= 3u32;
     }
     if dir.y > 0.0 {
         mirror_mask |= 3u32 << 4;

@@ -695,7 +695,6 @@ impl App {
     ) -> Result<ChunkModifyReadback> {
         let total_start = Instant::now();
         if let Some(compiled) = TerrainSurfaceRemovalService::compile(edit) {
-            let modify_start = Instant::now();
             let stats = match compiled.voxel_edit {
                 VoxelEdit::StampSurfaceSpheres {
                     bvh_nodes,
@@ -712,8 +711,6 @@ impl App {
                     )?,
                 _ => unreachable!("terrain surface removal compiled into unexpected edit type"),
             };
-            let modify_elapsed = modify_start.elapsed();
-            let mesh_start = Instant::now();
             world_ops::mesh_generate_preserve_flora_for_sphere_edit(
                 &mut self.surface_builder,
                 &mut self.contree_builder,
@@ -726,7 +723,6 @@ impl App {
                     tick: self.flora_tick,
                 },
             )?;
-            let mesh_elapsed = mesh_start.elapsed();
             let total_elapsed = total_start.elapsed();
             crate::util::BENCH
                 .lock()
