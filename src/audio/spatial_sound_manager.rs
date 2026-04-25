@@ -499,38 +499,11 @@ impl SpatialSoundManager {
     }
 
     pub fn pump_audio(&self) -> Result<()> {
-        let pump_start = Instant::now();
         let mut engine = self.engine.lock().unwrap();
         engine
             .pump_audio()
             .map_err(|err| anyhow::anyhow!("Failed to pump audio: {}", err))?;
-        let timing_events = engine.poll_timing_events();
         drop(engine);
-
-        let wall_time_us = pump_start.elapsed().as_micros() as u64;
-        let engine_batch_count = timing_events.len();
-        let engine_total_time_us: u64 = timing_events.iter().map(|event| event.total_time_us).sum();
-        let engine_spatial_time_us: u64 = timing_events
-            .iter()
-            .map(|event| event.spatial_time_us + event.spatial_simulation_time_us)
-            .sum();
-        let engine_mix_time_us: u64 = timing_events
-            .iter()
-            .map(|event| event.mixing_time_us + event.direct_mixing_time_us)
-            .sum();
-        let engine_resample_time_us: u64 =
-            timing_events.iter().map(|event| event.resampling_time_us).sum();
-
-        log::info!(
-            "[audio-fill] wall={:.3}ms engine_batches={} engine_total={:.3}ms engine_mix={:.3}ms engine_spatial={:.3}ms engine_resample={:.3}ms",
-            wall_time_us as f64 / 1000.0,
-            engine_batch_count,
-            engine_total_time_us as f64 / 1000.0,
-            engine_mix_time_us as f64 / 1000.0,
-            engine_spatial_time_us as f64 / 1000.0,
-            engine_resample_time_us as f64 / 1000.0,
-        );
-
         Ok(())
     }
 
