@@ -33,6 +33,7 @@ const MAX_DDA_ITERATION: usize = 256;
 const DDA_EPSILON: f32 = 1e-4;
 
 pub struct ContreeBuilder {
+    allocator: Allocator,
     vulkan_ctx: VulkanContext,
     resources: ContreeBuilderResources,
 
@@ -59,7 +60,6 @@ pub struct ContreeBuilder {
 
     leaf_allocator: FirstFitAllocator,
     node_allocator: FirstFitAllocator,
-    cpu_bridge_buffers: CpuChunkBridgeBuffers,
 
     chunk_dim: UVec3,
     voxel_dim_per_chunk: UVec3,
@@ -90,7 +90,7 @@ struct CpuChunkCacheState {
     dirty_again: bool,
 }
 
-struct CpuChunkBridgeBuffers {
+struct OwnedCpuChunkReadbackBuffers {
     node_readback: Buffer,
     leaf_readback: Buffer,
 }
@@ -240,9 +240,8 @@ impl ContreeBuilder {
 
         let node_allocator = FirstFitAllocator::new(node_pool_size_in_bytes);
         let leaf_allocator = FirstFitAllocator::new(leaf_pool_size_in_bytes);
-        let cpu_bridge_buffers = CpuChunkBridgeBuffers::new(device.clone(), allocator.clone());
-
         Self {
+            allocator,
             vulkan_ctx,
             resources,
             contree_buffer_setup_ppl,
@@ -256,7 +255,6 @@ impl ContreeBuilder {
             contree_cmdbuf,
             node_allocator,
             leaf_allocator,
-            cpu_bridge_buffers,
             chunk_dim,
             voxel_dim_per_chunk,
             cpu_scene_chunks: vec![None; (chunk_dim.x * chunk_dim.y * chunk_dim.z) as usize],
@@ -602,6 +600,10 @@ impl ContreeBuilder {
     ) -> Result<CpuChunkCache> {
         assert!(node_size_in_bytes <= MAX_NODE_BUFFER_SIZE_IN_BYTES);
         assert!(leaf_size_in_bytes <= MAX_LEAF_BUFFER_SIZE_IN_BYTES);
+        let readback_buffers = OwnedCpuChunkReadbackBuffers::new(
+            self.vulkan_ctx.device().clone(),
+            self.allocator.clone(),
+        );
 
         let gpu_copy_start = Instant::now();
         execute_one_time_command_with_fence(
@@ -611,14 +613,14 @@ impl ContreeBuilder {
             |cmdbuf| {
                 self.resources.contree_node_data.record_copy_to_buffer(
                     cmdbuf,
-                    &self.cpu_bridge_buffers.node_readback,
+                    &readback_buffers.node_readback,
                     node_size_in_bytes,
                     node_alloc_offset * SIZE_OF_NODE_ELEMENT,
                     0,
                 );
                 self.resources.contree_leaf_data.record_copy_to_buffer(
                     cmdbuf,
-                    &self.cpu_bridge_buffers.leaf_readback,
+                    &readback_buffers.leaf_readback,
                     leaf_size_in_bytes,
                     leaf_alloc_offset * SIZE_OF_LEAF_ELEMENT,
                     0,
@@ -632,8 +634,8 @@ impl ContreeBuilder {
             .record("contree_cpu_cache_copy_to_readback", gpu_copy_elapsed);
 
         let readback_start = Instant::now();
-        let node_bytes = self.cpu_bridge_buffers.node_readback.read_back()?;
-        let leaf_bytes = self.cpu_bridge_buffers.leaf_readback.read_back()?;
+        let node_bytes = readback_buffers.node_readback.read_back()?;
+        let leaf_bytes = readback_buffers.leaf_readback.read_back()?;
         let readback_elapsed = readback_start.elapsed();
         crate::util::BENCH
             .lock()
@@ -766,7 +768,7 @@ impl ContreeBuilder {
     }
 }
 
-impl CpuChunkBridgeBuffers {
+impl OwnedCpuChunkReadbackBuffers {
     fn new(device: crate::vkn::Device, allocator: Allocator) -> Self {
         Self {
             node_readback: Buffer::new_sized(
