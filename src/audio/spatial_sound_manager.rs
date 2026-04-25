@@ -547,7 +547,8 @@ impl SpatialSoundManager {
 
     fn collect_direct_path_queries(&self) -> Vec<DirectPathQuery> {
         let listener_position = self.listener_state.lock().unwrap().position;
-        self.uuid_to_source
+        let mut queries = self
+            .uuid_to_source
             .lock()
             .unwrap()
             .values()
@@ -558,7 +559,9 @@ impl SpatialSoundManager {
                     listener_position,
                 })
             })
-            .collect()
+            .collect::<Vec<_>>();
+        queries.sort_by_key(|query| query.source_id.to_string());
+        queries
     }
 
     fn clear_direct_path_overrides(&self, source_queries: &[DirectPathQuery]) -> Result<()> {

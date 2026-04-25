@@ -1300,7 +1300,7 @@ impl App {
 
                     let hits = self
                         .tracer
-                        .query_terrain_rays_batch_with_validity(&terrain_queries)?;
+                        .query_audio_terrain_rays_batch_with_validity(&terrain_queries)?;
 
                     Ok(queries
                         .iter()
