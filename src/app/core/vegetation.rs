@@ -13,6 +13,7 @@ use anyhow::Result;
 use glam::{UVec3, Vec2, Vec3};
 use rand::Rng;
 use std::collections::HashSet;
+use std::time::Instant;
 
 #[derive(Debug, Clone)]
 pub(super) struct TreeVariationConfig {
@@ -692,7 +693,9 @@ impl App {
         target_voxel_type: Option<u32>,
         max_write_count: Option<u32>,
     ) -> Result<ChunkModifyReadback> {
+        let total_start = Instant::now();
         if let Some(compiled) = TerrainSurfaceRemovalService::compile(edit) {
+            let modify_start = Instant::now();
             let stats = match compiled.voxel_edit {
                 VoxelEdit::StampSurfaceSpheres {
                     bvh_nodes,
@@ -709,6 +712,8 @@ impl App {
                     )?,
                 _ => unreachable!("terrain surface removal compiled into unexpected edit type"),
             };
+            let modify_elapsed = modify_start.elapsed();
+            let mesh_start = Instant::now();
             world_ops::mesh_generate_preserve_flora_for_sphere_edit(
                 &mut self.surface_builder,
                 &mut self.contree_builder,
@@ -721,6 +726,21 @@ impl App {
                     tick: self.flora_tick,
                 },
             )?;
+            let mesh_elapsed = mesh_start.elapsed();
+            let total_elapsed = total_start.elapsed();
+            crate::util::BENCH
+                .lock()
+                .unwrap()
+                .record("terrain_edit_removal_total", total_elapsed);
+            crate::util::BENCH.lock().unwrap().summary();
+            log::info!(
+                "[TERRAIN_EDIT] removal total={:.3}ms modify={:.3}ms rebuild={:.3}ms center={:?} radius={:.3}",
+                total_elapsed.as_secs_f64() * 1000.0,
+                modify_elapsed.as_secs_f64() * 1000.0,
+                mesh_elapsed.as_secs_f64() * 1000.0,
+                edit.center,
+                edit.radius,
+            );
             return Ok(stats);
         }
         Ok(ChunkModifyReadback::default())
@@ -732,9 +752,11 @@ impl App {
         voxel_type: u32,
         max_write_count: u32,
     ) -> Result<ChunkModifyReadback> {
+        let total_start = Instant::now();
         if let Some(compiled) =
             TerrainSurfaceRemovalService::compile_with_voxel_type(edit, voxel_type)
         {
+            let modify_start = Instant::now();
             let stats = match compiled.voxel_edit {
                 VoxelEdit::StampSurfaceSpheres {
                     bvh_nodes,
@@ -751,6 +773,8 @@ impl App {
                     )?,
                 _ => unreachable!("terrain surface placement compiled into unexpected edit type"),
             };
+            let modify_elapsed = modify_start.elapsed();
+            let mesh_start = Instant::now();
             world_ops::mesh_generate_preserve_flora_for_sphere_edit(
                 &mut self.surface_builder,
                 &mut self.contree_builder,
@@ -763,6 +787,21 @@ impl App {
                     tick: self.flora_tick,
                 },
             )?;
+            let mesh_elapsed = mesh_start.elapsed();
+            let total_elapsed = total_start.elapsed();
+            crate::util::BENCH
+                .lock()
+                .unwrap()
+                .record("terrain_edit_placement_total", total_elapsed);
+            crate::util::BENCH.lock().unwrap().summary();
+            log::info!(
+                "[TERRAIN_EDIT] placement total={:.3}ms modify={:.3}ms rebuild={:.3}ms center={:?} radius={:.3}",
+                total_elapsed.as_secs_f64() * 1000.0,
+                modify_elapsed.as_secs_f64() * 1000.0,
+                mesh_elapsed.as_secs_f64() * 1000.0,
+                edit.center,
+                edit.radius,
+            );
             return Ok(stats);
         }
         Ok(ChunkModifyReadback::default())

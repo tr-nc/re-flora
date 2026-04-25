@@ -139,22 +139,25 @@ pub(crate) fn mesh_generate(
     for chunk_id in affected_chunk_indices {
         let atlas_offset = chunk_id * voxel_dim_per_chunk;
 
-        let now = Instant::now();
+        let surface_start = Instant::now();
         let res = surface_builder.build_surface(chunk_id, true);
         if let Err(e) = res {
             log::error!("Failed to build surface for chunk {}: {}", chunk_id, e);
             continue;
         }
 
-        BENCH.lock().unwrap().record("build_surface", now.elapsed());
+        let surface_elapsed = surface_start.elapsed();
+        BENCH.lock().unwrap().record("build_surface", surface_elapsed);
 
-        let now = Instant::now();
+        let contree_start = Instant::now();
         let res = contree_builder.build_and_alloc(atlas_offset).unwrap();
+        let contree_elapsed = contree_start.elapsed();
         BENCH
             .lock()
             .unwrap()
-            .record("build_and_alloc", now.elapsed());
+            .record("build_and_alloc", contree_elapsed);
 
+        let scene_start = Instant::now();
         if let Some(res) = res {
             let (node_buffer_offset, leaf_buffer_offset) = res;
             scene_accel_builder
@@ -163,6 +166,15 @@ pub(crate) fn mesh_generate(
             scene_accel_builder.update_scene_tex(chunk_id, None)?;
             log::debug!("Cleared scene tex because the chunk is empty");
         }
+        let scene_elapsed = scene_start.elapsed();
+
+        log::info!(
+            "[TERRAIN_EDIT] chunk {:?} rebuild surface={:.3}ms contree={:.3}ms scene_tex={:.3}ms",
+            chunk_id,
+            surface_elapsed.as_secs_f64() * 1000.0,
+            contree_elapsed.as_secs_f64() * 1000.0,
+            scene_elapsed.as_secs_f64() * 1000.0,
+        );
     }
 
     Ok(())
@@ -182,13 +194,14 @@ pub(crate) fn mesh_generate_preserve_flora_for_sphere_edit(
     for chunk_id in affected_chunk_indices {
         let atlas_offset = chunk_id * voxel_dim_per_chunk;
 
-        let now = Instant::now();
+        let surface_start = Instant::now();
         let res = surface_builder.build_surface(chunk_id, false);
         if let Err(e) = res {
             log::error!("Failed to build surface for chunk {}: {}", chunk_id, e);
             continue;
         }
-        BENCH.lock().unwrap().record("build_surface", now.elapsed());
+        let surface_elapsed = surface_start.elapsed();
+        BENCH.lock().unwrap().record("build_surface", surface_elapsed);
 
         surface_builder.edit_flora_instances(
             chunk_id,
@@ -197,13 +210,15 @@ pub(crate) fn mesh_generate_preserve_flora_for_sphere_edit(
             flora_edit.tick,
         )?;
 
-        let now = Instant::now();
+        let contree_start = Instant::now();
         let res = contree_builder.build_and_alloc(atlas_offset).unwrap();
+        let contree_elapsed = contree_start.elapsed();
         BENCH
             .lock()
             .unwrap()
-            .record("build_and_alloc", now.elapsed());
+            .record("build_and_alloc", contree_elapsed);
 
+        let scene_start = Instant::now();
         if let Some(res) = res {
             let (node_buffer_offset, leaf_buffer_offset) = res;
             scene_accel_builder
@@ -212,6 +227,15 @@ pub(crate) fn mesh_generate_preserve_flora_for_sphere_edit(
             scene_accel_builder.update_scene_tex(chunk_id, None)?;
             log::debug!("Cleared scene tex because the chunk is empty");
         }
+        let scene_elapsed = scene_start.elapsed();
+
+        log::info!(
+            "[TERRAIN_EDIT] chunk {:?} rebuild surface={:.3}ms contree={:.3}ms scene_tex={:.3}ms",
+            chunk_id,
+            surface_elapsed.as_secs_f64() * 1000.0,
+            contree_elapsed.as_secs_f64() * 1000.0,
+            scene_elapsed.as_secs_f64() * 1000.0,
+        );
     }
 
     Ok(())

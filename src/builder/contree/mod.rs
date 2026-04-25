@@ -13,6 +13,7 @@ use crate::vkn::CommandBuffer;
 use crate::vkn::ComputePipeline;
 use crate::vkn::DescriptorPool;
 use crate::vkn::Extent3D;
+use crate::vkn::Fence;
 use crate::vkn::MemoryBarrier;
 use crate::vkn::PipelineBarrier;
 use crate::vkn::ShaderModule;
@@ -22,6 +23,7 @@ use anyhow::Result;
 use ash::vk;
 use glam::{UVec3, Vec2, Vec3};
 use std::collections::HashMap;
+use std::time::Instant;
 
 const SIZE_OF_NODE_ELEMENT: u64 = 3 * std::mem::size_of::<u32>() as u64;
 const SIZE_OF_LEAF_ELEMENT: u64 = std::mem::size_of::<u32>() as u64;
@@ -330,7 +332,12 @@ impl ContreeBuilder {
 
     /// Returns: (node_size_in_bytes, leaf_size_in_bytes)
     pub fn get_contree_size_info(&self, resources: &ContreeBuilderResources) -> (u64, u64) {
+        let readback_start = Instant::now();
         let raw_data = resources.contree_build_result.read_back().unwrap();
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("contree_size_readback", readback_start.elapsed());
         assert!(
             raw_data.len() >= 8,
             "contree_build_result buffer too small: expected at least 8 bytes, got {}",
@@ -432,8 +439,6 @@ impl ContreeBuilder {
         node_write_offset: u64,
         leaf_write_offset: u64,
     ) -> Result<()> {
-        let device = self.vulkan_ctx.device();
-
         update_buffers(
             &self.resources.contree_build_info,
             contree_dim,
@@ -443,8 +448,9 @@ impl ContreeBuilder {
         )?;
 
         let cmdbuf = self.contree_cmdbuf.clone();
-        cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), None);
-        device.wait_queue_idle(&self.vulkan_ctx.get_general_queue());
+        let fence = Fence::new(self.vulkan_ctx.device(), false);
+        cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), Some(&fence));
+        self.vulkan_ctx.wait_for_fences(&[fence.as_raw()]).unwrap();
 
         return Ok(());
 
@@ -466,37 +472,77 @@ impl ContreeBuilder {
 
     /// Returns: (node_alloc_offset, leaf_alloc_offset)
     pub fn build_and_alloc(&mut self, atlas_offset: UVec3) -> Result<Option<(u64, u64)>> {
+        let total_start = Instant::now();
         let atlas_dim = self.voxel_dim_per_chunk;
         let chunk_idx = atlas_offset / self.voxel_dim_per_chunk;
 
+        let alloc_start = Instant::now();
         let (node_alloc_offset_in_bytes, leaf_alloc_offset_in_bytes) = self.pre_allocate_chunk(
             MAX_NODE_BUFFER_SIZE_IN_BYTES,
             MAX_LEAF_BUFFER_SIZE_IN_BYTES,
             atlas_offset,
         );
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("contree_pre_allocate", alloc_start.elapsed());
+        let alloc_elapsed = alloc_start.elapsed();
         // the offset's unit is in bytes, we need to convert it to array idx, each element is a 3*u32
         let node_alloc_offset = node_alloc_offset_in_bytes / SIZE_OF_NODE_ELEMENT;
         // the element of leaf data is a u32
         let leaf_alloc_offset = leaf_alloc_offset_in_bytes / SIZE_OF_LEAF_ELEMENT;
 
+        let build_start = Instant::now();
         self.build_contree(atlas_dim, node_alloc_offset, leaf_alloc_offset)?;
+        let build_elapsed = build_start.elapsed();
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("contree_build_gpu", build_elapsed);
 
+        let size_start = Instant::now();
         let (confirmed_node_buffer_size_in_bytes, confirmed_leaf_buffer_size_in_bytes) =
             self.get_contree_size_info(&self.resources);
+        let size_elapsed = size_start.elapsed();
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("contree_size_total", size_elapsed);
 
         if confirmed_node_buffer_size_in_bytes == 0 || confirmed_leaf_buffer_size_in_bytes == 0 {
             self.cpu_chunk_caches.remove(&chunk_idx);
             self.set_scene_chunk(chunk_idx, None);
             self.deallocate_chunk_allocation(atlas_offset);
+            let total_elapsed = total_start.elapsed();
+            crate::util::BENCH
+                .lock()
+                .unwrap()
+                .record("contree_build_and_alloc_total", total_elapsed);
+
+            log::info!(
+                "[TERRAIN_EDIT] chunk {:?} contree total={:.3}ms alloc={:.3}ms gpu_build={:.3}ms size_readback={:.3}ms cpu_cache_total=0.000ms",
+                chunk_idx,
+                total_elapsed.as_secs_f64() * 1000.0,
+                alloc_elapsed.as_secs_f64() * 1000.0,
+                build_elapsed.as_secs_f64() * 1000.0,
+                size_elapsed.as_secs_f64() * 1000.0,
+            );
             return Ok(None);
         }
 
+        let confirm_start = Instant::now();
         self.confirm_allocation_of_chunk(
             confirmed_node_buffer_size_in_bytes,
             confirmed_leaf_buffer_size_in_bytes,
             atlas_offset,
         );
+        let confirm_elapsed = confirm_start.elapsed();
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("contree_confirm_allocation", confirm_elapsed);
 
+        let cache_start = Instant::now();
         let cache = self.read_back_chunk_cpu_cache(
             chunk_idx,
             node_alloc_offset,
@@ -504,8 +550,29 @@ impl ContreeBuilder {
             confirmed_node_buffer_size_in_bytes,
             confirmed_leaf_buffer_size_in_bytes,
         )?;
+        let cache_elapsed = cache_start.elapsed();
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("contree_cpu_cache_total", cache_elapsed);
         self.cpu_chunk_caches.insert(chunk_idx, cache);
         self.set_scene_chunk(chunk_idx, Some(chunk_idx));
+        let total_elapsed = total_start.elapsed();
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("contree_build_and_alloc_total", total_elapsed);
+
+        log::info!(
+            "[TERRAIN_EDIT] chunk {:?} contree total={:.3}ms alloc={:.3}ms gpu_build={:.3}ms size_readback={:.3}ms confirm={:.3}ms cpu_cache_total={:.3}ms",
+            chunk_idx,
+            total_elapsed.as_secs_f64() * 1000.0,
+            alloc_elapsed.as_secs_f64() * 1000.0,
+            build_elapsed.as_secs_f64() * 1000.0,
+            size_elapsed.as_secs_f64() * 1000.0,
+            confirm_elapsed.as_secs_f64() * 1000.0,
+            cache_elapsed.as_secs_f64() * 1000.0,
+        );
 
         Ok(Some((node_alloc_offset, leaf_alloc_offset)))
     }
@@ -521,6 +588,7 @@ impl ContreeBuilder {
         assert!(node_size_in_bytes <= MAX_NODE_BUFFER_SIZE_IN_BYTES);
         assert!(leaf_size_in_bytes <= MAX_LEAF_BUFFER_SIZE_IN_BYTES);
 
+        let gpu_copy_start = Instant::now();
         execute_one_time_command_with_fence(
             self.vulkan_ctx.device(),
             self.vulkan_ctx.command_pool(),
@@ -542,12 +610,24 @@ impl ContreeBuilder {
                 );
             },
         );
+        let gpu_copy_elapsed = gpu_copy_start.elapsed();
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("contree_cpu_cache_copy_to_readback", gpu_copy_elapsed);
 
+        let readback_start = Instant::now();
         let node_bytes = self.cpu_bridge_buffers.node_readback.read_back()?;
         let leaf_bytes = self.cpu_bridge_buffers.leaf_readback.read_back()?;
+        let readback_elapsed = readback_start.elapsed();
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("contree_cpu_cache_readback", readback_elapsed);
         let node_bytes = &node_bytes[..node_size_in_bytes as usize];
         let leaf_bytes = &leaf_bytes[..leaf_size_in_bytes as usize];
 
+        let decode_start = Instant::now();
         let nodes = node_bytes
             .chunks_exact(SIZE_OF_NODE_ELEMENT as usize)
             .map(|chunk| CpuContreeNode {
@@ -560,6 +640,21 @@ impl ContreeBuilder {
             .chunks_exact(SIZE_OF_LEAF_ELEMENT as usize)
             .map(|chunk| u32::from_ne_bytes(chunk[0..4].try_into().unwrap()))
             .collect();
+        let decode_elapsed = decode_start.elapsed();
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("contree_cpu_cache_decode", decode_elapsed);
+
+        log::info!(
+            "[TERRAIN_EDIT] chunk {:?} CPU cache node {:.1} KiB leaf {:.1} KiB copy={:.3}ms map_copy={:.3}ms decode={:.3}ms",
+            chunk_idx,
+            node_size_in_bytes as f64 / 1024.0,
+            leaf_size_in_bytes as f64 / 1024.0,
+            gpu_copy_elapsed.as_secs_f64() * 1000.0,
+            readback_elapsed.as_secs_f64() * 1000.0,
+            decode_elapsed.as_secs_f64() * 1000.0,
+        );
 
         Ok(CpuChunkCache {
             chunk_idx,

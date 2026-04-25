@@ -6,6 +6,7 @@ use crate::generated::gpu_structs::{
 use crate::geom::{BvhNode, Cuboid, RoundCone, Sphere};
 use crate::util::ShaderCompiler;
 use crate::vkn::execute_one_time_command;
+use crate::vkn::execute_one_time_command_with_fence;
 use crate::vkn::Allocator;
 use crate::vkn::Buffer;
 use crate::vkn::ClearValue;
@@ -25,6 +26,7 @@ use bytemuck::{Pod, Zeroable};
 use glam::{UVec3, Vec3};
 pub use resources::*;
 use std::convert::TryInto;
+use std::time::Instant;
 
 pub const VOXEL_TYPE_CHERRY_WOOD: u32 = 5;
 pub const VOXEL_TYPE_OAK_WOOD: u32 = 6;
@@ -349,7 +351,9 @@ impl PlainBuilder {
         target_voxel_type: Option<u32>,
         max_write_count: Option<u32>,
     ) -> Result<ChunkModifyReadback> {
+        let total_start = Instant::now();
         let (offset, dim) = calculate_offset_and_dim(bvh_nodes);
+        let prep_start = Instant::now();
         clear_edit_stats(&self.resources)?;
         clear_edit_removal_candidates(&self.resources)?;
         update_chunk_modify_info(
@@ -364,6 +368,10 @@ impl PlainBuilder {
         )?;
         update_spheres(&self.resources, spheres)?;
         update_trunk_bvh_nodes(&self.resources, bvh_nodes)?;
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("terrain_edit_prepare_buffers", prep_start.elapsed());
         let sample_push = PushConstantChunkModifySample {
             edit_seed: self.next_edit_sample_seed,
             _pad0: [0; 12],
@@ -375,7 +383,8 @@ impl PlainBuilder {
             vec![MemoryBarrier::new_shader_access()],
         );
 
-        execute_one_time_command(
+        let gpu_start = Instant::now();
+        execute_one_time_command_with_fence(
             self.vulkan_ctx.device(),
             self.vulkan_ctx.command_pool(),
             &self.vulkan_ctx.get_general_queue(),
@@ -397,9 +406,32 @@ impl PlainBuilder {
                 );
             },
         );
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("terrain_edit_gpu_modify_and_sample", gpu_start.elapsed());
+
+        let stats_start = Instant::now();
+        let stats = read_edit_stats(&self.resources)?;
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("terrain_edit_stats_readback", stats_start.elapsed());
+
+        let sample_start = Instant::now();
+        let sampled_positions_world = read_edit_removal_sample(&self.resources)?;
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("terrain_edit_sample_readback", sample_start.elapsed());
+
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("terrain_edit_plain_builder_total", total_start.elapsed());
         Ok(ChunkModifyReadback {
-            stats: read_edit_stats(&self.resources)?,
-            sampled_positions_world: read_edit_removal_sample(&self.resources)?,
+            stats,
+            sampled_positions_world,
         })
     }
 
