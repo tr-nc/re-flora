@@ -406,6 +406,44 @@ impl App {
         };
     }
 
+    fn resolve_audio_direct_path_queries(
+        &self,
+        queries: &[crate::audio::DirectPathQuery],
+    ) -> Vec<crate::audio::DirectPathQueryResult> {
+        const AUDIO_RAY_ENDPOINT_EPSILON: f32 = 0.05;
+        const AUDIO_RAY_START_EPSILON: f32 = 0.05;
+
+        queries
+            .iter()
+            .map(|query| {
+                let direction_to_listener = query.listener_position - query.source_position;
+                let listener_distance = direction_to_listener.length();
+                let trace_distance =
+                    (listener_distance - AUDIO_RAY_START_EPSILON - AUDIO_RAY_ENDPOINT_EPSILON)
+                        .max(0.0);
+
+                let Some(direction) = (listener_distance > 1e-6 && trace_distance > 0.0)
+                    .then_some(direction_to_listener / listener_distance)
+                else {
+                    return crate::audio::DirectPathQueryResult {
+                        occlusion: Some(1.0),
+                        transmission: None,
+                    };
+                };
+
+                let origin = query.source_position + direction * AUDIO_RAY_START_EPSILON;
+                let is_occluded = self
+                    .query_terrain_ray_cpu(origin, direction)
+                    .is_some_and(|hit| hit.distance(origin) <= trace_distance);
+
+                crate::audio::DirectPathQueryResult {
+                    occlusion: Some(if is_occluded { 0.0 } else { 1.0 }),
+                    transmission: None,
+                }
+            })
+            .collect()
+    }
+
     pub fn new(_event_loop: &ActiveEventLoop, options: &crate::AppOptions) -> Result<Self> {
         let chunk_bound = UAabb3::new(UVec3::ZERO, CHUNK_DIM);
         let window_state = Self::create_window_state(_event_loop, options);
@@ -1338,63 +1376,10 @@ impl App {
                 if let Err(err) = self.tree_audio_manager.update(time_since_start) {
                     log::warn!("Failed to update tree audio sources: {}", err);
                 }
-                if let Err(err) = self.spatial_sound_manager.update_direct_path_overrides(|queries| {
-                    const AUDIO_RAY_ENDPOINT_EPSILON: f32 = 0.05;
-                    const AUDIO_RAY_START_EPSILON: f32 = 0.05;
-
-                    let terrain_queries = queries
-                        .iter()
-                        .map(|query| {
-                            let direction_to_listener =
-                                query.listener_position - query.source_position;
-                            let listener_distance = direction_to_listener.length();
-                            let trace_distance =
-                                (listener_distance - AUDIO_RAY_START_EPSILON - AUDIO_RAY_ENDPOINT_EPSILON)
-                                    .max(0.0);
-                            let direction = if trace_distance > 0.0 && listener_distance > 1e-6 {
-                                direction_to_listener / listener_distance * trace_distance
-                            } else {
-                                Vec3::ZERO
-                            };
-                            let origin = if trace_distance > 0.0 && listener_distance > 1e-6 {
-                                query.source_position
-                                    + direction_to_listener / listener_distance * AUDIO_RAY_START_EPSILON
-                            } else {
-                                query.source_position
-                            };
-
-                            TerrainRayQuery {
-                                origin,
-                                direction,
-                            }
-                        })
-                        .collect::<Vec<_>>();
-
-                    let hits = self
-                        .tracer
-                        .query_audio_terrain_rays_batch_with_validity(&terrain_queries)?;
-
-                    Ok(queries
-                        .iter()
-                        .zip(terrain_queries.iter().zip(hits.iter()))
-                        .map(|(query, (terrain_query, hit))| {
-                            let listener_distance =
-                                query.listener_position.distance(query.source_position);
-                            let max_hit_distance =
-                                (listener_distance - AUDIO_RAY_START_EPSILON - AUDIO_RAY_ENDPOINT_EPSILON)
-                                    .max(0.0);
-                            let is_occluded = hit.is_valid
-                                && max_hit_distance > 0.0
-                                && hit.position.distance(terrain_query.origin)
-                                    <= max_hit_distance;
-
-                            crate::audio::DirectPathQueryResult {
-                                occlusion: Some(if is_occluded { 0.0 } else { 1.0 }),
-                                transmission: None,
-                            }
-                        })
-                        .collect())
-                }) {
+                if let Err(err) = self
+                    .spatial_sound_manager
+                    .update_direct_path_overrides(|queries| Ok(self.resolve_audio_direct_path_queries(queries)))
+                {
                     log::warn!("Failed to update direct audio paths: {}", err);
                 }
 

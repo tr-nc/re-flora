@@ -45,14 +45,13 @@ use crate::particles::{ParticleSnapshot, PARTICLE_CAPACITY};
 use crate::resource::ResourceContainer;
 use crate::util::{ShaderCompiler, TimeInfo};
 use crate::vkn::{
-    execute_one_time_command_with_fence, Allocator, Buffer, ClearValue, ColorClearValue,
-    CommandBuffer, ComputePipeline, DepthOrStencilClearValue, DescriptorPool, Extent2D,
-    Extent3D, Fence, Framebuffer, GraphicsPipeline, MemoryBarrier, PipelineBarrier,
+    execute_one_time_command_with_fence, Allocator, ClearValue, ColorClearValue, CommandBuffer,
+    ComputePipeline, DepthOrStencilClearValue, DescriptorPool, Extent2D, Extent3D, Framebuffer,
+    GraphicsPipeline, MemoryBarrier, PipelineBarrier,
     PushConstantInfo, RenderPass, RenderTarget, Texture, Viewport, VulkanContext,
 };
 use anyhow::Result;
 use ash::vk;
-use resource_container_derive::ResourceContainer;
 use std::collections::HashMap;
 
 const MAX_TERRAIN_QUERIES: usize = 1_000;
@@ -81,72 +80,6 @@ fn should_render_grass_species(species_index: usize, grass_render_mode: u32) -> 
 pub struct TerrainRayHitSample {
     pub position: Vec3,
     pub is_valid: bool,
-}
-
-#[derive(ResourceContainer)]
-struct AudioTerrainQueryResources {
-    terrain_query_count: crate::resource::Resource<Buffer>,
-    terrain_query_info: crate::resource::Resource<Buffer>,
-    terrain_query_result: crate::resource::Resource<Buffer>,
-}
-
-impl AudioTerrainQueryResources {
-    fn new(
-        device: &crate::vkn::Device,
-        allocator: &Allocator,
-        terrain_query_sm: &crate::vkn::ShaderModule,
-    ) -> Self {
-        let terrain_query_count_layout = terrain_query_sm
-            .get_buffer_layout("U_TerrainQueryCount")
-            .unwrap();
-        let terrain_query_count = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            terrain_query_count_layout.clone(),
-            crate::vkn::BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
-        );
-
-        let terrain_query_info = Buffer::new_sized(
-            device.clone(),
-            allocator.clone(),
-            crate::vkn::BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
-            gpu_allocator::MemoryLocation::CpuToGpu,
-            (MAX_TERRAIN_QUERIES * 8 * std::mem::size_of::<f32>()) as u64,
-        );
-
-        let terrain_query_result = Buffer::new_sized(
-            device.clone(),
-            allocator.clone(),
-            crate::vkn::BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
-            gpu_allocator::MemoryLocation::CpuToGpu,
-            (MAX_TERRAIN_QUERIES * 4 * std::mem::size_of::<f32>()) as u64,
-        );
-
-        Self {
-            terrain_query_count: crate::resource::Resource::new(terrain_query_count),
-            terrain_query_info: crate::resource::Resource::new(terrain_query_info),
-            terrain_query_result: crate::resource::Resource::new(terrain_query_result),
-        }
-    }
-}
-
-struct AudioTerrainQuerySlot {
-    resources: AudioTerrainQueryResources,
-    pipeline: ComputePipeline,
-    command_buffer: CommandBuffer,
-    fence: Fence,
-    in_flight: bool,
-    query_count: usize,
-    submit_id: u64,
-}
-
-struct AudioTerrainQueryState {
-    slots: [AudioTerrainQuerySlot; 2],
-    next_submit_slot: usize,
-    next_submit_id: u64,
-    last_completed_submit_id: u64,
-    last_completed_results: Vec<TerrainRayHitSample>,
 }
 
 fn flora_push_constant(time: f32, bottom_color: Vec3, tip_color: Vec3) -> PushConstantFlora {
@@ -203,7 +136,6 @@ pub struct Tracer {
     a_trous_iteration_count: u32,
     spatial_sound_manager: SpatialSoundManager,
     particle_instance_scratch: Vec<ParticleInstanceGpu>,
-    audio_terrain_query_state: AudioTerrainQueryState,
 }
 
 impl Drop for Tracer {
@@ -270,41 +202,6 @@ impl Tracer {
             contree_builder_resources,
             scene_accel_resources,
         );
-        let make_audio_slot = || {
-            let slot_resources = AudioTerrainQueryResources::new(
-                vulkan_ctx.device(),
-                &allocator,
-                &shader_modules.terrain_query_sm,
-            );
-            let slot_pipeline = ComputePipeline::new(
-                vulkan_ctx.device(),
-                &shader_modules.terrain_query_sm,
-                &pool,
-                &[
-                    &slot_resources as &dyn ResourceContainer,
-                    contree_builder_resources as &dyn ResourceContainer,
-                    scene_accel_resources as &dyn ResourceContainer,
-                ],
-            );
-
-            AudioTerrainQuerySlot {
-                resources: slot_resources,
-                pipeline: slot_pipeline,
-                command_buffer: CommandBuffer::new(vulkan_ctx.device(), vulkan_ctx.command_pool()),
-                fence: Fence::new(vulkan_ctx.device(), false),
-                in_flight: false,
-                query_count: 0,
-                submit_id: 0,
-            }
-        };
-        let audio_terrain_query_state = AudioTerrainQueryState {
-            slots: [make_audio_slot(), make_audio_slot()],
-            next_submit_slot: 0,
-            next_submit_id: 1,
-            last_completed_submit_id: 0,
-            last_completed_results: Vec::new(),
-        };
-
         let render_passes = PipelineBuilder::create_render_passes(
             &vulkan_ctx,
             resources.extent_dependent_resources.gfx_output_tex.clone(),
@@ -363,7 +260,6 @@ impl Tracer {
             a_trous_iteration_count: 3,
             spatial_sound_manager,
             particle_instance_scratch: Vec::with_capacity(particle_capacity),
-            audio_terrain_query_state,
         })
     }
 
@@ -2094,154 +1990,6 @@ impl Tracer {
             all_hits.extend(self.query_terrain_rays_chunk_with_validity(chunk)?);
         }
         Ok(all_hits)
-    }
-
-    pub fn query_audio_terrain_rays_batch_with_validity(
-        &mut self,
-        rays: &[TerrainRayQuery],
-    ) -> Result<Vec<TerrainRayHitSample>> {
-        self.poll_audio_terrain_query_results()?;
-
-        let previous_results = if self.audio_terrain_query_state.last_completed_results.len() == rays.len()
-        {
-            self.audio_terrain_query_state.last_completed_results.clone()
-        } else {
-            vec![Self::invalid_terrain_ray_hit_sample(); rays.len()]
-        };
-
-        if rays.len() > MAX_TERRAIN_QUERIES {
-            return self.query_terrain_rays_batch_with_validity(rays);
-        }
-
-        if !rays.is_empty() {
-            self.submit_audio_terrain_query_batch(rays)?;
-        }
-
-        Ok(previous_results)
-    }
-
-    fn poll_audio_terrain_query_results(&mut self) -> Result<()> {
-        let mut newest_completion: Option<(u64, Vec<TerrainRayHitSample>)> = None;
-
-        for slot in &mut self.audio_terrain_query_state.slots {
-            if !slot.in_flight {
-                continue;
-            }
-
-            let is_signaled = unsafe {
-                self.vulkan_ctx
-                    .device()
-                    .get_fence_status(slot.fence.as_raw())
-                    .unwrap_or(false)
-            };
-            if !is_signaled {
-                continue;
-            }
-
-            let raw_data = slot.resources.terrain_query_result.read_back()?;
-            let hit_data: &[f32] = unsafe {
-                std::slice::from_raw_parts(raw_data.as_ptr() as *const f32, slot.query_count * 4)
-            };
-
-            let mut hits = Vec::with_capacity(slot.query_count);
-            for item in hit_data.chunks_exact(4) {
-                hits.push(TerrainRayHitSample {
-                    position: Vec3::new(item[0], item[1], item[2]),
-                    is_valid: item[3] >= 0.5,
-                });
-            }
-
-            slot.in_flight = false;
-
-            if newest_completion
-                .as_ref()
-                .map(|(submit_id, _)| slot.submit_id > *submit_id)
-                .unwrap_or(true)
-            {
-                newest_completion = Some((slot.submit_id, hits));
-            }
-        }
-
-        if let Some((submit_id, hits)) = newest_completion {
-            if submit_id >= self.audio_terrain_query_state.last_completed_submit_id {
-                self.audio_terrain_query_state.last_completed_submit_id = submit_id;
-                self.audio_terrain_query_state.last_completed_results = hits;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn submit_audio_terrain_query_batch(&mut self, rays: &[TerrainRayQuery]) -> Result<()> {
-        debug_assert!(!rays.is_empty());
-        debug_assert!(rays.len() <= MAX_TERRAIN_QUERIES);
-
-        let start_index = self.audio_terrain_query_state.next_submit_slot;
-        let slot_index = (0..self.audio_terrain_query_state.slots.len())
-            .map(|offset| (start_index + offset) % self.audio_terrain_query_state.slots.len())
-            .find(|&index| !self.audio_terrain_query_state.slots[index].in_flight);
-
-        let Some(slot_index) = slot_index else {
-            return Ok(());
-        };
-
-        self.audio_terrain_query_state.next_submit_slot =
-            (slot_index + 1) % self.audio_terrain_query_state.slots.len();
-
-        let query_count = rays.len() as u32;
-        let submit_id = self.audio_terrain_query_state.next_submit_id;
-        self.audio_terrain_query_state.next_submit_id += 1;
-
-        let slot = &mut self.audio_terrain_query_state.slots[slot_index];
-        slot.resources.terrain_query_count.fill_uniform(
-            &crate::generated::gpu_structs::TerrainQueryCount {
-                valid_query_count: query_count,
-                ..bytemuck::Zeroable::zeroed()
-            },
-        )?;
-
-        let mut ray_data = Vec::with_capacity(rays.len() * 8);
-        for ray in rays {
-            ray_data.push(ray.origin.x);
-            ray_data.push(ray.origin.y);
-            ray_data.push(ray.origin.z);
-            ray_data.push(0.0);
-            ray_data.push(ray.direction.x);
-            ray_data.push(ray.direction.y);
-            ray_data.push(ray.direction.z);
-            ray_data.push(0.0);
-        }
-        slot.resources.terrain_query_info.fill(&ray_data)?;
-
-        unsafe {
-            self.vulkan_ctx
-                .device()
-                .reset_fences(&[slot.fence.as_raw()])
-                .unwrap();
-        }
-
-        slot.command_buffer.begin(true);
-        slot.pipeline.record(
-            &slot.command_buffer,
-            Extent3D::new(query_count, 1, 1),
-            None,
-        );
-        slot.command_buffer.end();
-        slot.command_buffer
-            .submit(&self.vulkan_ctx.get_general_queue(), Some(&slot.fence));
-
-        slot.in_flight = true;
-        slot.query_count = query_count as usize;
-        slot.submit_id = submit_id;
-
-        Ok(())
-    }
-
-    fn invalid_terrain_ray_hit_sample() -> TerrainRayHitSample {
-        TerrainRayHitSample {
-            position: Vec3::ZERO,
-            is_valid: false,
-        }
     }
 
     fn query_terrain_rays_chunk_with_validity(
