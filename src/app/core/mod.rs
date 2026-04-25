@@ -44,6 +44,7 @@ use ash::vk;
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
+use petalsonic::DirectOcclusionDebugSnapshot;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -143,6 +144,8 @@ pub struct App {
     selected_item_panel_slot: usize,
     active_voxel_type: ActiveVoxelType,
     audio_ray_tracing_debug_text: String,
+    audio_ray_tracing_last_direct_snapshot: Option<DirectOcclusionDebugSnapshot>,
+    audio_ray_tracing_last_runtime_snapshot: crate::builder::ContreeRayTracingRuntimeSnapshot,
     left_mouse_held: bool,
     right_mouse_held: bool,
     shovel_dig_held: bool,
@@ -375,6 +378,8 @@ impl App {
             .set_audio_ray_tracing_enabled(enabled);
 
         if !enabled {
+            self.audio_ray_tracing_last_direct_snapshot = None;
+            self.audio_ray_tracing_last_runtime_snapshot = Default::default();
             self.audio_ray_tracing_debug_text = "Audio RT: disabled".to_owned();
             return;
         }
@@ -383,6 +388,17 @@ impl App {
         let runtime_snapshot = self
             .spatial_sound_manager
             .take_audio_ray_tracing_runtime_snapshot();
+
+        if let Some(snapshot) = direct_snapshot {
+            self.audio_ray_tracing_last_direct_snapshot = Some(snapshot);
+        }
+
+        if runtime_snapshot.update_count > 0 || runtime_snapshot.update_failures > 0 {
+            self.audio_ray_tracing_last_runtime_snapshot = runtime_snapshot;
+        }
+
+        let direct_snapshot = self.audio_ray_tracing_last_direct_snapshot;
+        let runtime_snapshot = self.audio_ray_tracing_last_runtime_snapshot;
 
         self.audio_ray_tracing_debug_text = match direct_snapshot {
             Some(snapshot) => format!(
@@ -606,6 +622,8 @@ impl App {
             selected_item_panel_slot: 0,
             active_voxel_type: ActiveVoxelType::Dirt,
             audio_ray_tracing_debug_text: "Audio RT: not sampled yet".to_owned(),
+            audio_ray_tracing_last_direct_snapshot: None,
+            audio_ray_tracing_last_runtime_snapshot: Default::default(),
             left_mouse_held: false,
             right_mouse_held: false,
             shovel_dig_held: false,
