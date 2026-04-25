@@ -243,7 +243,8 @@ impl App {
         for ring_index in 1..Self::PLAYER_COLLISION_RING_RAY_COUNT {
             let angle = 2.0 * std::f32::consts::PI * (ring_index - 1) as f32
                 / (Self::PLAYER_COLLISION_RING_RAY_COUNT - 1) as f32;
-            let direction = (horizontal_front * angle.cos() + right * angle.sin()).normalize_or_zero();
+            let direction =
+                (horizontal_front * angle.cos() + right * angle.sin()).normalize_or_zero();
             let direction = if direction.length_squared() <= f32::EPSILON {
                 horizontal_front
             } else {
@@ -269,7 +270,8 @@ impl App {
     }
 
     pub(super) fn query_terrain_ray_cpu(&self, origin: Vec3, direction: Vec3) -> Option<Vec3> {
-        self.contree_builder.query_terrain_ray_cpu(origin, direction)
+        self.contree_builder
+            .query_terrain_ray_cpu(origin, direction)
     }
 
     pub(super) fn query_terrain_height_cpu(&self, pos_xz: Vec2) -> f32 {

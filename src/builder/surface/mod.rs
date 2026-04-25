@@ -10,8 +10,8 @@ use crate::{
     util::ShaderCompiler,
     vkn::{
         Buffer, ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DescriptorPool,
-        Extent3D, MemoryBarrier, PipelineBarrier, ShaderModule, VulkanContext, WriteDescriptorSet,
-        Fence,
+        Extent3D, Fence, MemoryBarrier, PipelineBarrier, ShaderModule, VulkanContext,
+        WriteDescriptorSet,
     },
 };
 use anyhow::Result;

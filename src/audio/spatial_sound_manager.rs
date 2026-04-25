@@ -14,8 +14,8 @@ use petalsonic::{
 use rand::Rng;
 use std::collections::HashMap;
 use std::sync::{
-    Arc, Mutex,
     atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+    Arc, Mutex,
 };
 use std::time::Instant;
 use uuid::Uuid;
@@ -67,10 +67,22 @@ impl AudioRayTracingLogger {
     fn take_snapshot(&self) -> AudioRayTracingRuntimeSnapshot {
         AudioRayTracingRuntimeSnapshot {
             update_count: self.runtime_stats.update_count.swap(0, Ordering::Relaxed),
-            updated_sources: self.runtime_stats.updated_sources.swap(0, Ordering::Relaxed),
-            occluded_sources: self.runtime_stats.occluded_sources.swap(0, Ordering::Relaxed),
-            update_failures: self.runtime_stats.update_failures.swap(0, Ordering::Relaxed),
-            total_update_time_us: self.runtime_stats.total_update_time_us.swap(0, Ordering::Relaxed),
+            updated_sources: self
+                .runtime_stats
+                .updated_sources
+                .swap(0, Ordering::Relaxed),
+            occluded_sources: self
+                .runtime_stats
+                .occluded_sources
+                .swap(0, Ordering::Relaxed),
+            update_failures: self
+                .runtime_stats
+                .update_failures
+                .swap(0, Ordering::Relaxed),
+            total_update_time_us: self
+                .runtime_stats
+                .total_update_time_us
+                .swap(0, Ordering::Relaxed),
         }
     }
 }
@@ -661,7 +673,6 @@ impl SpatialSoundManager {
             let _ = self.world.remove_audio_data(source_info.source_id);
         }
     }
-
 }
 
 // Make SpatialSoundManager cloneable

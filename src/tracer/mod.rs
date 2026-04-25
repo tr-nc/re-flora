@@ -47,8 +47,8 @@ use crate::util::{ShaderCompiler, TimeInfo};
 use crate::vkn::{
     execute_one_time_command_with_fence, Allocator, ClearValue, ColorClearValue, CommandBuffer,
     ComputePipeline, DepthOrStencilClearValue, DescriptorPool, Extent2D, Extent3D, Framebuffer,
-    GraphicsPipeline, MemoryBarrier, PipelineBarrier,
-    PushConstantInfo, RenderPass, RenderTarget, Texture, Viewport, VulkanContext,
+    GraphicsPipeline, MemoryBarrier, PipelineBarrier, PushConstantInfo, RenderPass, RenderTarget,
+    Texture, Viewport, VulkanContext,
 };
 use anyhow::Result;
 use ash::vk;
@@ -1723,15 +1723,14 @@ impl Tracer {
         if is_fly_mode {
             self.camera.update_transform_fly_mode(frame_delta_time);
         } else {
-            self.camera
-                .update_transform_walk_mode(
-                    frame_delta_time,
-                    collision_result.unwrap_or_else(|| PlayerCollisionResult {
-                        ground_distance: f32::INFINITY,
-                        ceiling_distance: f32::INFINITY,
-                        ring_distances: vec![],
-                    }),
-                );
+            self.camera.update_transform_walk_mode(
+                frame_delta_time,
+                collision_result.unwrap_or_else(|| PlayerCollisionResult {
+                    ground_distance: f32::INFINITY,
+                    ceiling_distance: f32::INFINITY,
+                    ring_distances: vec![],
+                }),
+            );
         }
 
         // update spatial sound manager with camera (listener) position

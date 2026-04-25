@@ -18,8 +18,8 @@ mod vkn;
 mod wind;
 mod window;
 
-use ash::vk;
 use app::AppController;
+use ash::vk;
 use env_logger::Env;
 use winit::event_loop::EventLoop;
 

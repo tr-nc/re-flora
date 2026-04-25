@@ -147,7 +147,10 @@ pub(crate) fn mesh_generate(
         }
 
         let surface_elapsed = surface_start.elapsed();
-        BENCH.lock().unwrap().record("build_surface", surface_elapsed);
+        BENCH
+            .lock()
+            .unwrap()
+            .record("build_surface", surface_elapsed);
 
         let contree_start = Instant::now();
         let res = contree_builder.build_and_alloc(atlas_offset).unwrap();
@@ -201,7 +204,10 @@ pub(crate) fn mesh_generate_preserve_flora_for_sphere_edit(
             continue;
         }
         let surface_elapsed = surface_start.elapsed();
-        BENCH.lock().unwrap().record("build_surface", surface_elapsed);
+        BENCH
+            .lock()
+            .unwrap()
+            .record("build_surface", surface_elapsed);
 
         surface_builder.edit_flora_instances(
             chunk_id,

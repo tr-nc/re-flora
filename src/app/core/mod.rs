@@ -20,7 +20,7 @@ use crate::app::world_ops;
 use crate::app::GuiAdjustables;
 use crate::audio::{SpatialSoundManager, TreeAudioManager};
 use crate::builder::{
-    ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder, VOXEL_TYPE_CHERRY_WOOD
+    ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder, VOXEL_TYPE_CHERRY_WOOD,
 };
 use crate::flora::species;
 use crate::geom::{build_bvh, Aabb3, Cuboid, UAabb3};
@@ -337,8 +337,11 @@ impl App {
         let wall_aabb = Aabb3::new(DEBUG_AUDIO_WALL_MIN, DEBUG_AUDIO_WALL_MAX);
         let bvh_nodes = build_bvh(&[wall_aabb], &[0]).map_err(anyhow::Error::msg)?;
 
-        self.plain_builder
-            .chunk_modify_cuboids_with_voxel_type(&bvh_nodes, &[wall], VOXEL_TYPE_CHERRY_WOOD)
+        self.plain_builder.chunk_modify_cuboids_with_voxel_type(
+            &bvh_nodes,
+            &[wall],
+            VOXEL_TYPE_CHERRY_WOOD,
+        )
     }
 
     fn linear_to_db(linear: f32) -> f32 {
@@ -753,7 +756,8 @@ impl App {
                         }
                     }
                     Ok(None) => {
-                        if let Err(err) = self.scene_accel_builder.update_scene_tex(chunk_id, None) {
+                        if let Err(err) = self.scene_accel_builder.update_scene_tex(chunk_id, None)
+                        {
                             log::error!("clear_scene_tex failed for {chunk_id:?}: {err}");
                         }
                     }
@@ -1026,14 +1030,15 @@ impl App {
                 Ok(sample) if sample.is_valid => Some(sample.position),
                 _ => None,
             };
-            let format_gpu = |result: &anyhow::Result<crate::tracer::TerrainRayHitSample>| match result {
-                Ok(sample) if sample.is_valid => format!(
-                    "hit ({:.3}, {:.3}, {:.3})",
-                    sample.position.x, sample.position.y, sample.position.z
-                ),
-                Ok(_) => "miss".to_owned(),
-                Err(err) => format!("error: {err}"),
-            };
+            let format_gpu =
+                |result: &anyhow::Result<crate::tracer::TerrainRayHitSample>| match result {
+                    Ok(sample) if sample.is_valid => format!(
+                        "hit ({:.3}, {:.3}, {:.3})",
+                        sample.position.x, sample.position.y, sample.position.z
+                    ),
+                    Ok(_) => "miss".to_owned(),
+                    Err(err) => format!("error: {err}"),
+                };
             let position_delta = match (cpu_hit, gpu_position) {
                 (Some(cpu_pos), Some(gpu_pos)) => format!("{:.6}", cpu_pos.distance(gpu_pos)),
                 _ => "n/a".to_owned(),
@@ -1378,9 +1383,11 @@ impl App {
                 if let Err(err) = self.tree_audio_manager.update(time_since_start) {
                     log::warn!("Failed to update tree audio sources: {}", err);
                 }
-                if let Err(err) = self
-                    .spatial_sound_manager
-                    .update_direct_path_overrides(|queries| Ok(self.resolve_audio_direct_path_queries(queries)))
+                if let Err(err) =
+                    self.spatial_sound_manager
+                        .update_direct_path_overrides(|queries| {
+                            Ok(self.resolve_audio_direct_path_queries(queries))
+                        })
                 {
                     log::warn!("Failed to update direct audio paths: {}", err);
                 }
@@ -1412,9 +1419,8 @@ impl App {
                 let backpack_cherry_wood_count = self.backpack_cherry_wood_count;
                 let backpack_oak_wood_count = self.backpack_oak_wood_count;
                 let backpack_rock_count = self.backpack_rock_count;
-                        let audio_ray_tracing_debug_text =
-                            self.audio_ray_tracing_debug_text.clone();
-                        let active_voxel_label = self.active_voxel_type.label();
+                let audio_ray_tracing_debug_text = self.audio_ray_tracing_debug_text.clone();
+                let active_voxel_label = self.active_voxel_type.label();
                 let active_voxel_color = self.active_voxel_type.color();
                 let egui_start = Instant::now();
                 self.egui_renderer
