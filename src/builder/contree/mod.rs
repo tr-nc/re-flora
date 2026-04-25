@@ -827,7 +827,7 @@ impl ContreeBuilder {
         while let Ok(result) = self.cpu_chunk_cache_result_rx.try_recv() {
             self.cpu_chunk_cache_decode_inflight = false;
             self.cpu_chunk_readback_buffers = Some(result.readback_buffers);
-            let (should_publish, latest_revision) = self
+            let (should_publish, _latest_revision) = self
                 .cpu_chunk_cache_states
                 .get(&result.chunk_idx)
                 .map(|state| {
@@ -848,35 +848,6 @@ impl ContreeBuilder {
                 if state.inflight_revision == Some(result.revision) {
                     state.inflight_revision = None;
                 }
-            }
-
-            let follow_up = {
-                let state = self
-                    .cpu_chunk_cache_states
-                    .get_mut(&result.chunk_idx)
-                    .expect("chunk cache state missing for completed job");
-                if state.dirty_again {
-                    if let Some(source) = state.latest_source {
-                        state.inflight_revision = Some(state.latest_revision);
-                        state.dirty_again = false;
-                        Some((state.latest_revision, source))
-                    } else {
-                        state.dirty_again = false;
-                        None
-                    }
-                } else {
-                    None
-                }
-            };
-
-            if let Some((revision, _source)) = follow_up {
-                log::info!(
-                    "[TERRAIN_EDIT] chunk {:?} scheduling CPU cache follow-up rev={} latest={}",
-                    result.chunk_idx,
-                    revision,
-                    latest_revision,
-                );
-                self.enqueue_cpu_chunk_cache_job(result.chunk_idx);
             }
 
             self.try_submit_next_cpu_chunk_cache_job();
