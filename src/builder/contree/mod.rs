@@ -6,6 +6,7 @@ use crate::generated::gpu_structs::ContreeBuildInfo;
 use crate::util::AllocationStrategy;
 use crate::util::FirstFitAllocator;
 use crate::util::ShaderCompiler;
+use crate::vkn::execute_one_time_command_with_fence;
 use crate::vkn::Allocator;
 use crate::vkn::Buffer;
 use crate::vkn::BufferUsage;
@@ -18,7 +19,6 @@ use crate::vkn::MemoryBarrier;
 use crate::vkn::PipelineBarrier;
 use crate::vkn::ShaderModule;
 use crate::vkn::VulkanContext;
-use crate::vkn::execute_one_time_command_with_fence;
 use anyhow::Result;
 use ash::vk;
 use glam::{UVec3, Vec2, Vec3};
@@ -65,6 +65,7 @@ pub struct ContreeBuilder {
     voxel_dim_per_chunk: UVec3,
     cpu_scene_chunks: Vec<Option<UVec3>>,
     cpu_chunk_caches: HashMap<UVec3, CpuChunkCache>,
+    cpu_chunk_cache_states: HashMap<UVec3, CpuChunkCacheState>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -79,6 +80,14 @@ struct CpuChunkCache {
     chunk_idx: UVec3,
     nodes: Vec<CpuContreeNode>,
     leaves: Vec<u32>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct CpuChunkCacheState {
+    latest_revision: u64,
+    published_revision: u64,
+    inflight_revision: Option<u64>,
+    dirty_again: bool,
 }
 
 struct CpuChunkBridgeBuffers {
@@ -252,6 +261,7 @@ impl ContreeBuilder {
             voxel_dim_per_chunk,
             cpu_scene_chunks: vec![None; (chunk_dim.x * chunk_dim.y * chunk_dim.z) as usize],
             cpu_chunk_caches: HashMap::new(),
+            cpu_chunk_cache_states: HashMap::new(),
         }
     }
 
@@ -402,7 +412,9 @@ impl ContreeBuilder {
             let chunk_idx = map_pos.as_uvec3();
             if self.scene_chunk_present(chunk_idx) {
                 if let Some(cache) = self.cpu_chunk_caches.get(&chunk_idx) {
-                    if let Some(hit) = self.query_cached_chunk_cpu_ray(cache, marched_origin, marched_dir) {
+                    if let Some(hit) =
+                        self.query_cached_chunk_cpu_ray(cache, marched_origin, marched_dir)
+                    {
                         return Some(hit);
                     }
                 }
@@ -475,6 +487,7 @@ impl ContreeBuilder {
         let total_start = Instant::now();
         let atlas_dim = self.voxel_dim_per_chunk;
         let chunk_idx = atlas_offset / self.voxel_dim_per_chunk;
+        let revision = self.bump_chunk_cache_revision(chunk_idx);
 
         let alloc_start = Instant::now();
         let (node_alloc_offset_in_bytes, leaf_alloc_offset_in_bytes) = self.pre_allocate_chunk(
@@ -511,6 +524,7 @@ impl ContreeBuilder {
 
         if confirmed_node_buffer_size_in_bytes == 0 || confirmed_leaf_buffer_size_in_bytes == 0 {
             self.cpu_chunk_caches.remove(&chunk_idx);
+            self.publish_empty_chunk_cache_revision(chunk_idx, revision);
             self.set_scene_chunk(chunk_idx, None);
             self.deallocate_chunk_allocation(atlas_offset);
             let total_elapsed = total_start.elapsed();
@@ -556,6 +570,7 @@ impl ContreeBuilder {
             .unwrap()
             .record("contree_cpu_cache_total", cache_elapsed);
         self.cpu_chunk_caches.insert(chunk_idx, cache);
+        self.publish_chunk_cache_revision(chunk_idx, revision);
         self.set_scene_chunk(chunk_idx, Some(chunk_idx));
         let total_elapsed = total_start.elapsed();
         crate::util::BENCH
@@ -664,7 +679,9 @@ impl ContreeBuilder {
     }
 
     fn deallocate_chunk_allocation(&mut self, atlas_offset: UVec3) {
-        if let Some((node_alloc_id, leaf_alloc_id)) = self.chunk_offset_allocation_table.remove(&atlas_offset) {
+        if let Some((node_alloc_id, leaf_alloc_id)) =
+            self.chunk_offset_allocation_table.remove(&atlas_offset)
+        {
             self.node_allocator.deallocate(node_alloc_id).unwrap();
             self.leaf_allocator.deallocate(leaf_alloc_id).unwrap();
         }
@@ -680,8 +697,9 @@ impl ContreeBuilder {
     }
 
     fn scene_chunk_flat_index(&self, chunk_idx: UVec3) -> usize {
-        (chunk_idx.x + chunk_idx.z * self.chunk_dim.x + chunk_idx.y * self.chunk_dim.x * self.chunk_dim.z)
-            as usize
+        (chunk_idx.x
+            + chunk_idx.z * self.chunk_dim.x
+            + chunk_idx.y * self.chunk_dim.x * self.chunk_dim.z) as usize
     }
 
     /// Allocate a chunk of data and store the allocation id in the offset_allocation_table.
@@ -726,6 +744,25 @@ impl ContreeBuilder {
         self.leaf_allocator
             .resize(*leaf_alloc_id, confirmed_leaf_buffer_size_in_bytes)
             .unwrap();
+    }
+
+    fn bump_chunk_cache_revision(&mut self, chunk_idx: UVec3) -> u64 {
+        let state = self.cpu_chunk_cache_states.entry(chunk_idx).or_default();
+        state.latest_revision += 1;
+        state.latest_revision
+    }
+
+    fn publish_chunk_cache_revision(&mut self, chunk_idx: UVec3, revision: u64) {
+        let state = self.cpu_chunk_cache_states.entry(chunk_idx).or_default();
+        state.published_revision = revision;
+        state.inflight_revision = None;
+        state.dirty_again = false;
+    }
+
+    fn publish_empty_chunk_cache_revision(&mut self, chunk_idx: UVec3, revision: u64) {
+        let state = self.cpu_chunk_cache_states.entry(chunk_idx).or_default();
+        state.published_revision = revision;
+        state.dirty_again = false;
     }
 }
 
@@ -847,7 +884,11 @@ fn march_contree_cpu(
         let side_dist = (cell_min - origin) * inv_dir;
         let tmax = side_dist.x.min(side_dist.y.min(side_dist.z));
 
-        let side_mask = [tmax >= side_dist.x, tmax >= side_dist.y, tmax >= side_dist.z];
+        let side_mask = [
+            tmax >= side_dist.x,
+            tmax >= side_dist.y,
+            tmax >= side_dist.z,
+        ];
         let base = [
             cell_min.x.to_bits() as i32,
             cell_min.y.to_bits() as i32,
@@ -912,13 +953,12 @@ fn get_mirrored_pos(pos: Vec3, dir: Vec3, range_check: bool) -> Vec3 {
         f32::from_bits(pos.z.to_bits() ^ 0x007F_FFFF),
     );
 
-    let mirrored = if range_check
-        && (pos.cmplt(Vec3::ONE).any() || pos.cmpge(Vec3::splat(2.0)).any())
-    {
-        Vec3::splat(3.0) - pos
-    } else {
-        mirrored
-    };
+    let mirrored =
+        if range_check && (pos.cmplt(Vec3::ONE).any() || pos.cmpge(Vec3::splat(2.0)).any()) {
+            Vec3::splat(3.0) - pos
+        } else {
+            mirrored
+        };
 
     Vec3::new(
         if dir.x > 0.0 { mirrored.x } else { pos.x },
@@ -960,7 +1000,8 @@ fn child_mask_bitcount_below(node: CpuContreeNode, idx: u32) -> u32 {
     if idx < 32 {
         (node.child_mask_lo & ((1 << idx) - 1)).count_ones()
     } else {
-        node.child_mask_lo.count_ones() + (node.child_mask_hi & ((1 << (idx - 32)) - 1)).count_ones()
+        node.child_mask_lo.count_ones()
+            + (node.child_mask_hi & ((1 << (idx - 32)) - 1)).count_ones()
     }
 }
 
