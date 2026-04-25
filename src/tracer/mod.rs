@@ -64,13 +64,6 @@ struct WindVolumePushConstants {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct TerrainHeightSample {
-    #[allow(dead_code)]
-    pub height: f32,
-    pub is_valid: bool,
-}
-
-#[derive(Debug, Clone, Copy)]
 pub struct TerrainRayQuery {
     pub origin: Vec3,
     pub direction: Vec3,
@@ -2086,35 +2079,6 @@ impl Tracer {
             true,
         );
         Ok(())
-    }
-
-    pub fn query_terrain_heights_batch_with_validity(
-        &mut self,
-        positions: &[Vec2],
-    ) -> Result<Vec<TerrainHeightSample>> {
-        if positions.is_empty() {
-            return Ok(vec![]);
-        }
-
-        let rays = positions
-            .iter()
-            .map(|pos| TerrainRayQuery {
-                origin: Vec3::new(pos.x, 10.0, pos.y),
-                direction: Vec3::new(0.0, -1.0, 0.0),
-            })
-            .collect::<Vec<_>>();
-        let hit_samples = self.query_terrain_rays_batch_with_validity(&rays)?;
-        Ok(hit_samples
-            .into_iter()
-            .map(|sample| TerrainHeightSample {
-                height: if sample.is_valid {
-                    sample.position.y
-                } else {
-                    0.0
-                },
-                is_valid: sample.is_valid,
-            })
-            .collect())
     }
 
     pub fn query_terrain_rays_batch_with_validity(
