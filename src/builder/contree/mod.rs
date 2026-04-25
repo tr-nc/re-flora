@@ -22,7 +22,7 @@ use anyhow::Result;
 use ash::vk;
 use glam::{UVec3, Vec2, Vec3};
 use std::collections::HashMap;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -34,7 +34,6 @@ const MAX_DDA_ITERATION: usize = 256;
 const DDA_EPSILON: f32 = 1e-4;
 
 pub struct ContreeBuilder {
-    allocator: Allocator,
     vulkan_ctx: VulkanContext,
     resources: ContreeBuilderResources,
 
@@ -67,7 +66,9 @@ pub struct ContreeBuilder {
     cpu_scene_chunks: Vec<Option<UVec3>>,
     cpu_chunk_caches: HashMap<UVec3, CpuChunkCache>,
     cpu_chunk_cache_states: HashMap<UVec3, CpuChunkCacheState>,
-    pending_cpu_chunk_cache_jobs: Vec<CpuChunkCacheFenceJob>,
+    cpu_chunk_readback_buffers: Option<CpuChunkReadbackBuffers>,
+    active_cpu_chunk_cache_job: Option<CpuChunkCacheFenceJob>,
+    cpu_chunk_cache_decode_inflight: bool,
     cpu_chunk_cache_job_tx: mpsc::Sender<CpuChunkCacheWorkerJob>,
     cpu_chunk_cache_result_rx: mpsc::Receiver<CpuChunkCacheWorkerResult>,
 }
@@ -103,7 +104,7 @@ struct CpuChunkCacheState {
     latest_source: Option<CpuChunkCacheBuildSource>,
 }
 
-struct OwnedCpuChunkReadbackBuffers {
+struct CpuChunkReadbackBuffers {
     node_readback: Buffer,
     leaf_readback: Buffer,
 }
@@ -114,7 +115,7 @@ struct CpuChunkCacheFenceJob {
     chunk_idx: UVec3,
     revision: u64,
     source: CpuChunkCacheBuildSource,
-    readback_buffers: OwnedCpuChunkReadbackBuffers,
+    readback_buffers: CpuChunkReadbackBuffers,
     gpu_copy_elapsed: Duration,
 }
 
@@ -122,7 +123,7 @@ struct CpuChunkCacheWorkerJob {
     chunk_idx: UVec3,
     revision: u64,
     source: CpuChunkCacheBuildSource,
-    readback_buffers: OwnedCpuChunkReadbackBuffers,
+    readback_buffers: CpuChunkReadbackBuffers,
     gpu_copy_elapsed: Duration,
 }
 
@@ -130,6 +131,7 @@ struct CpuChunkCacheWorkerResult {
     chunk_idx: UVec3,
     revision: u64,
     cache: CpuChunkCache,
+    readback_buffers: CpuChunkReadbackBuffers,
 }
 
 impl ContreeBuilder {
@@ -279,9 +281,12 @@ impl ContreeBuilder {
         let leaf_allocator = FirstFitAllocator::new(leaf_pool_size_in_bytes);
         let (cpu_chunk_cache_job_tx, cpu_chunk_cache_result_rx) =
             Self::spawn_cpu_chunk_cache_workers();
+        let cpu_chunk_readback_buffers = Some(CpuChunkReadbackBuffers::new(
+            device.clone(),
+            allocator.clone(),
+        ));
 
         Self {
-            allocator,
             vulkan_ctx,
             resources,
             contree_buffer_setup_ppl,
@@ -300,7 +305,9 @@ impl ContreeBuilder {
             cpu_scene_chunks: vec![None; (chunk_dim.x * chunk_dim.y * chunk_dim.z) as usize],
             cpu_chunk_caches: HashMap::new(),
             cpu_chunk_cache_states: HashMap::new(),
-            pending_cpu_chunk_cache_jobs: Vec::new(),
+            cpu_chunk_readback_buffers,
+            active_cpu_chunk_cache_job: None,
+            cpu_chunk_cache_decode_inflight: false,
             cpu_chunk_cache_job_tx,
             cpu_chunk_cache_result_rx,
         }
@@ -413,6 +420,7 @@ impl ContreeBuilder {
     pub fn poll_cpu_chunk_cache_jobs(&mut self) {
         self.dispatch_completed_cpu_chunk_cache_jobs();
         self.publish_completed_cpu_chunk_cache_jobs();
+        self.try_submit_next_cpu_chunk_cache_job();
     }
 
     pub fn flush_cpu_chunk_cache_jobs(&mut self) {
@@ -422,7 +430,7 @@ impl ContreeBuilder {
                 break;
             }
 
-            if let Some(job) = self.pending_cpu_chunk_cache_jobs.first() {
+            if let Some(job) = self.active_cpu_chunk_cache_job.as_ref() {
                 if let Err(err) = self.vulkan_ctx.wait_for_fences(&[job.fence.as_raw()]) {
                     log::error!(
                         "Failed to wait for CPU cache fence for {:?}: {err}",
@@ -656,22 +664,18 @@ impl ContreeBuilder {
         revision: u64,
         source: CpuChunkCacheBuildSource,
     ) {
-        let should_submit = {
+        {
             let state = self.cpu_chunk_cache_states.entry(chunk_idx).or_default();
             state.latest_source = Some(source);
             if state.inflight_revision.is_none() {
                 state.inflight_revision = Some(revision);
                 state.dirty_again = false;
-                true
             } else {
                 state.dirty_again = true;
-                false
             }
-        };
-
-        if should_submit {
-            self.submit_chunk_cpu_cache_rebuild(chunk_idx, revision, source);
         }
+
+        self.try_submit_next_cpu_chunk_cache_job();
     }
 
     fn submit_chunk_cpu_cache_rebuild(
@@ -683,10 +687,10 @@ impl ContreeBuilder {
         assert!(source.node_size_in_bytes <= MAX_NODE_BUFFER_SIZE_IN_BYTES);
         assert!(source.leaf_size_in_bytes <= MAX_LEAF_BUFFER_SIZE_IN_BYTES);
 
-        let readback_buffers = OwnedCpuChunkReadbackBuffers::new(
-            self.vulkan_ctx.device().clone(),
-            self.allocator.clone(),
-        );
+        let readback_buffers = self
+            .cpu_chunk_readback_buffers
+            .take()
+            .expect("CPU chunk readback buffers should be available before submit");
         let command_buffer =
             CommandBuffer::new(self.vulkan_ctx.device(), self.vulkan_ctx.command_pool());
         let fence = Fence::new(self.vulkan_ctx.device(), false);
@@ -715,62 +719,66 @@ impl ContreeBuilder {
             .unwrap()
             .record("contree_cpu_cache_copy_to_readback", gpu_copy_elapsed);
 
-        self.pending_cpu_chunk_cache_jobs
-            .push(CpuChunkCacheFenceJob {
-                _command_buffer: command_buffer,
-                fence,
-                chunk_idx,
-                revision,
-                source,
-                readback_buffers,
-                gpu_copy_elapsed,
-            });
+        self.active_cpu_chunk_cache_job = Some(CpuChunkCacheFenceJob {
+            _command_buffer: command_buffer,
+            fence,
+            chunk_idx,
+            revision,
+            source,
+            readback_buffers,
+            gpu_copy_elapsed,
+        });
     }
 
     fn dispatch_completed_cpu_chunk_cache_jobs(&mut self) {
-        let mut idx = 0;
-        while idx < self.pending_cpu_chunk_cache_jobs.len() {
-            let fence_done = match unsafe {
-                self.vulkan_ctx
-                    .device()
-                    .as_raw()
-                    .get_fence_status(self.pending_cpu_chunk_cache_jobs[idx].fence.as_raw())
-            } {
-                Ok(done) => done,
-                Err(err) => {
-                    let job = &self.pending_cpu_chunk_cache_jobs[idx];
-                    log::error!(
-                        "Failed to poll CPU cache fence for {:?} rev {}: {err}",
-                        job.chunk_idx,
-                        job.revision,
-                    );
-                    idx += 1;
-                    continue;
-                }
-            };
+        let Some(job) = self.active_cpu_chunk_cache_job.as_ref() else {
+            return;
+        };
 
-            if !fence_done {
-                idx += 1;
-                continue;
-            }
-
-            let job = self.pending_cpu_chunk_cache_jobs.swap_remove(idx);
-            if let Err(err) = self.cpu_chunk_cache_job_tx.send(CpuChunkCacheWorkerJob {
-                chunk_idx: job.chunk_idx,
-                revision: job.revision,
-                source: job.source,
-                readback_buffers: job.readback_buffers,
-                gpu_copy_elapsed: job.gpu_copy_elapsed,
-            }) {
+        let fence_done = match unsafe {
+            self.vulkan_ctx
+                .device()
+                .as_raw()
+                .get_fence_status(job.fence.as_raw())
+        } {
+            Ok(done) => done,
+            Err(err) => {
                 log::error!(
-                    "Failed to dispatch CPU cache worker job for {:?} rev {}: {err}",
+                    "Failed to poll CPU cache fence for {:?} rev {}: {err}",
                     job.chunk_idx,
                     job.revision,
                 );
-                if let Some(state) = self.cpu_chunk_cache_states.get_mut(&job.chunk_idx) {
-                    if state.inflight_revision == Some(job.revision) {
-                        state.inflight_revision = None;
-                    }
+                return;
+            }
+        };
+
+        if !fence_done {
+            return;
+        }
+
+        let job = self
+            .active_cpu_chunk_cache_job
+            .take()
+            .expect("active CPU chunk cache job disappeared after fence poll");
+        self.cpu_chunk_cache_decode_inflight = true;
+        let worker_job = CpuChunkCacheWorkerJob {
+            chunk_idx: job.chunk_idx,
+            revision: job.revision,
+            source: job.source,
+            readback_buffers: job.readback_buffers,
+            gpu_copy_elapsed: job.gpu_copy_elapsed,
+        };
+        if let Err(err) = self.cpu_chunk_cache_job_tx.send(worker_job) {
+            log::error!(
+                "Failed to dispatch CPU cache worker job for {:?} rev {}: {err}",
+                job.chunk_idx,
+                job.revision,
+            );
+            self.cpu_chunk_cache_decode_inflight = false;
+            self.cpu_chunk_readback_buffers = Some(err.0.readback_buffers);
+            if let Some(state) = self.cpu_chunk_cache_states.get_mut(&job.chunk_idx) {
+                if state.inflight_revision == Some(job.revision) {
+                    state.inflight_revision = None;
                 }
             }
         }
@@ -778,6 +786,8 @@ impl ContreeBuilder {
 
     fn publish_completed_cpu_chunk_cache_jobs(&mut self) {
         while let Ok(result) = self.cpu_chunk_cache_result_rx.try_recv() {
+            self.cpu_chunk_cache_decode_inflight = false;
+            self.cpu_chunk_readback_buffers = Some(result.readback_buffers);
             let (should_publish, latest_revision) = self
                 .cpu_chunk_cache_states
                 .get(&result.chunk_idx)
@@ -825,15 +835,16 @@ impl ContreeBuilder {
                 }
             };
 
-            if let Some((revision, source)) = follow_up {
+            if let Some((revision, _source)) = follow_up {
                 log::info!(
                     "[TERRAIN_EDIT] chunk {:?} scheduling CPU cache follow-up rev={} latest={}",
                     result.chunk_idx,
                     revision,
                     latest_revision,
                 );
-                self.submit_chunk_cpu_cache_rebuild(result.chunk_idx, revision, source);
             }
+
+            self.try_submit_next_cpu_chunk_cache_job();
         }
     }
 
@@ -920,16 +931,41 @@ impl ContreeBuilder {
     fn publish_empty_chunk_cache_revision(&mut self, chunk_idx: UVec3, revision: u64) {
         let state = self.cpu_chunk_cache_states.entry(chunk_idx).or_default();
         state.published_revision = revision;
+        state.inflight_revision = None;
         state.latest_source = None;
         state.dirty_again = false;
     }
 
     fn cpu_chunk_cache_jobs_idle(&self) -> bool {
-        self.pending_cpu_chunk_cache_jobs.is_empty()
+        self.active_cpu_chunk_cache_job.is_none()
+            && !self.cpu_chunk_cache_decode_inflight
             && self
                 .cpu_chunk_cache_states
                 .values()
                 .all(|state| state.inflight_revision.is_none())
+    }
+
+    fn try_submit_next_cpu_chunk_cache_job(&mut self) {
+        if self.active_cpu_chunk_cache_job.is_some()
+            || self.cpu_chunk_cache_decode_inflight
+            || self.cpu_chunk_readback_buffers.is_none()
+        {
+            return;
+        }
+
+        if let Some((chunk_idx, revision, source)) = self.next_pending_cpu_chunk_cache_job() {
+            self.submit_chunk_cpu_cache_rebuild(chunk_idx, revision, source);
+        }
+    }
+
+    fn next_pending_cpu_chunk_cache_job(&self) -> Option<(UVec3, u64, CpuChunkCacheBuildSource)> {
+        self.cpu_chunk_cache_states
+            .iter()
+            .find_map(|(chunk_idx, state)| {
+                let revision = state.inflight_revision?;
+                let source = state.latest_source?;
+                (revision > state.published_revision).then_some((*chunk_idx, revision, source))
+            })
     }
 
     fn spawn_cpu_chunk_cache_workers() -> (
@@ -938,39 +974,29 @@ impl ContreeBuilder {
     ) {
         let (job_tx, job_rx) = mpsc::channel();
         let (result_tx, result_rx) = mpsc::channel();
-        let shared_job_rx = Arc::new(Mutex::new(job_rx));
-        let worker_count = thread::available_parallelism()
-            .map(|count| count.get().min(4))
-            .unwrap_or(1)
-            .max(1);
+        thread::spawn(move || loop {
+            let job = match job_rx.recv() {
+                Ok(job) => job,
+                Err(_) => break,
+            };
 
-        for _ in 0..worker_count {
-            let job_rx = Arc::clone(&shared_job_rx);
-            let result_tx = result_tx.clone();
-            thread::spawn(move || loop {
-                let job = match job_rx.lock().unwrap().recv() {
-                    Ok(job) => job,
-                    Err(_) => break,
-                };
-
-                match decode_cpu_chunk_cache_job(job) {
-                    Ok(result) => {
-                        if result_tx.send(result).is_err() {
-                            break;
-                        }
-                    }
-                    Err(err) => {
-                        log::error!("Failed to decode CPU chunk cache job: {err}");
+            match decode_cpu_chunk_cache_job(job) {
+                Ok(result) => {
+                    if result_tx.send(result).is_err() {
+                        break;
                     }
                 }
-            });
-        }
+                Err(err) => {
+                    log::error!("Failed to decode CPU chunk cache job: {err}");
+                }
+            }
+        });
 
         (job_tx, result_rx)
     }
 }
 
-impl OwnedCpuChunkReadbackBuffers {
+impl CpuChunkReadbackBuffers {
     fn new(device: crate::vkn::Device, allocator: Allocator) -> Self {
         Self {
             node_readback: Buffer::new_sized(
@@ -1041,6 +1067,7 @@ fn decode_cpu_chunk_cache_job(job: CpuChunkCacheWorkerJob) -> Result<CpuChunkCac
             nodes,
             leaves,
         },
+        readback_buffers: job.readback_buffers,
     })
 }
 
