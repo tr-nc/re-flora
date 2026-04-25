@@ -778,16 +778,28 @@ impl ContreeBuilder {
 
     fn publish_completed_cpu_chunk_cache_jobs(&mut self) {
         while let Ok(result) = self.cpu_chunk_cache_result_rx.try_recv() {
-            let should_publish = self
+            let (should_publish, latest_revision) = self
                 .cpu_chunk_cache_states
                 .get(&result.chunk_idx)
-                .map(|state| result.revision > state.published_revision)
-                .unwrap_or(true);
+                .map(|state| {
+                    (
+                        result.revision > state.published_revision,
+                        state.latest_revision,
+                    )
+                })
+                .unwrap_or((true, result.revision));
 
             if should_publish {
                 self.cpu_chunk_caches.insert(result.chunk_idx, result.cache);
                 self.publish_chunk_cache_revision(result.chunk_idx, result.revision);
                 self.set_scene_chunk(result.chunk_idx, Some(result.chunk_idx));
+                log::info!(
+                    "[TERRAIN_EDIT] chunk {:?} published CPU cache rev={} latest={} lag={}",
+                    result.chunk_idx,
+                    result.revision,
+                    latest_revision,
+                    latest_revision.saturating_sub(result.revision),
+                );
             } else if let Some(state) = self.cpu_chunk_cache_states.get_mut(&result.chunk_idx) {
                 if state.inflight_revision == Some(result.revision) {
                     state.inflight_revision = None;
@@ -814,6 +826,12 @@ impl ContreeBuilder {
             };
 
             if let Some((revision, source)) = follow_up {
+                log::info!(
+                    "[TERRAIN_EDIT] chunk {:?} scheduling CPU cache follow-up rev={} latest={}",
+                    result.chunk_idx,
+                    revision,
+                    latest_revision,
+                );
                 self.submit_chunk_cpu_cache_rebuild(result.chunk_idx, revision, source);
             }
         }
