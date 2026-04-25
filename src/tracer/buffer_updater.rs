@@ -86,6 +86,7 @@ impl BufferUpdater {
         })
     }
 
+    #[allow(dead_code)]
     pub fn update_player_collider_info(
         resources: &TracerResources,
         player_pos: Vec3,

@@ -348,11 +348,6 @@ impl ContreeBuilder {
         &self.resources
     }
 
-    pub fn debug_query_chunk_zero_cpu_ray(&self, origin: Vec3, direction: Vec3) -> Option<Vec3> {
-        let cache = self.cpu_chunk_caches.get(&UVec3::ZERO)?;
-        self.query_cached_chunk_cpu_ray(cache, origin, direction)
-    }
-
     pub fn cpu_cached_chunk_count(&self) -> usize {
         self.cpu_chunk_caches.len()
     }

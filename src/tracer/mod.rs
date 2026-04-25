@@ -65,6 +65,7 @@ struct WindVolumePushConstants {
 
 #[derive(Debug, Clone, Copy)]
 pub struct TerrainHeightSample {
+    #[allow(dead_code)]
     pub height: f32,
     pub is_valid: bool,
 }
@@ -637,12 +638,6 @@ impl Tracer {
 
         BufferUpdater::update_post_processing_info(&self.resources, self.desc.scaling_factor)?;
 
-        BufferUpdater::update_player_collider_info(
-            &self.resources,
-            self.camera.position(),
-            self.camera.front(),
-        )?;
-
         BufferUpdater::update_voxel_colors(
             &self.resources,
             voxel_dirt_color,
@@ -962,8 +957,6 @@ impl Tracer {
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         self.record_post_processing_pass(cmdbuf);
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-        self.record_player_collider_pass(cmdbuf);
-
         if render_flags.enable_denoiser {
             copy_current_to_prev(&self.resources, cmdbuf);
         }
@@ -1764,6 +1757,7 @@ impl Tracer {
         );
     }
 
+    #[allow(dead_code)]
     fn record_player_collider_pass(&self, cmdbuf: &CommandBuffer) {
         self.compute_pipelines
             .player_collider_ppl
@@ -1831,39 +1825,30 @@ impl Tracer {
         self.camera.vectors()
     }
 
-    pub fn update_camera(&mut self, frame_delta_time: f32, is_fly_mode: bool) {
+    pub fn update_camera(
+        &mut self,
+        frame_delta_time: f32,
+        is_fly_mode: bool,
+        collision_result: Option<PlayerCollisionResult>,
+    ) {
         if is_fly_mode {
             self.camera.update_transform_fly_mode(frame_delta_time);
         } else {
-            let collision_result =
-                get_player_collision_result(&self.resources.player_collision_result).unwrap();
             self.camera
-                .update_transform_walk_mode(frame_delta_time, collision_result);
+                .update_transform_walk_mode(
+                    frame_delta_time,
+                    collision_result.unwrap_or_else(|| PlayerCollisionResult {
+                        ground_distance: f32::INFINITY,
+                        ceiling_distance: f32::INFINITY,
+                        ring_distances: vec![],
+                    }),
+                );
         }
 
         // update spatial sound manager with camera (listener) position
         self.spatial_sound_manager
             .update_player_pos(self.camera.position(), self.camera.vectors())
             .unwrap();
-
-        fn get_player_collision_result(
-            player_collision_result: &Buffer,
-        ) -> Result<PlayerCollisionResult> {
-            use crate::generated::gpu_structs::PlayerCollisionResult as GpuResult;
-            let raw_data = player_collision_result.read_back()?;
-            let gpu: GpuResult = *bytemuck::from_bytes(&raw_data);
-            // ring_distances is stored as u32 bits in the GPU struct; reinterpret as f32
-            let ring_distances = gpu
-                .ring_distances
-                .iter()
-                .map(|&bits| f32::from_bits(bits))
-                .collect();
-            Ok(PlayerCollisionResult {
-                ground_distance: gpu.ground_distance,
-                ceiling_distance: gpu.ceiling_distance,
-                ring_distances,
-            })
-        }
     }
 
     pub fn upload_particles(&mut self, snapshots: &[ParticleSnapshot]) -> Result<()> {
@@ -2101,19 +2086,6 @@ impl Tracer {
             true,
         );
         Ok(())
-    }
-
-    pub fn query_terrain_height(&mut self, pos_xz: Vec2) -> Result<f32> {
-        let sample = self.query_terrain_heights_batch_with_validity(&[pos_xz])?[0];
-        Ok(if sample.is_valid { sample.height } else { 0.0 })
-    }
-
-    pub fn query_terrain_heights_batch(&mut self, positions: &[Vec2]) -> Result<Vec<f32>> {
-        let samples = self.query_terrain_heights_batch_with_validity(positions)?;
-        Ok(samples
-            .into_iter()
-            .map(|sample| if sample.is_valid { sample.height } else { 0.0 })
-            .collect())
     }
 
     pub fn query_terrain_heights_batch_with_validity(

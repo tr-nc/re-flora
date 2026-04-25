@@ -555,7 +555,10 @@ impl App {
             .map(|pos| Vec2::new(pos.x, pos.y))
             .collect();
 
-        let terrain_heights = self.tracer.query_terrain_heights_batch(&query_positions)?;
+        let terrain_heights = query_positions
+            .iter()
+            .map(|&pos| self.query_terrain_height_cpu(pos))
+            .collect::<Vec<_>>();
 
         let positions_3d = positions_2d
             .iter()
@@ -665,7 +668,7 @@ impl App {
         edit: FencePostPlacementEdit,
         voxel_type: u32,
     ) -> Result<()> {
-        let terrain_height = self.tracer.query_terrain_height(edit.horizontal)?;
+        let terrain_height = self.query_terrain_height_cpu(edit.horizontal);
         let compiled = FencePostPlacementService::compile(edit, terrain_height, voxel_type);
 
         self.execute_edit_plan(WorldEditPlan::with_voxel_and_build(
@@ -827,9 +830,7 @@ impl App {
 
         let tree_pos = match placement {
             TreePlacement::Terrain(horizontal) => {
-                let terrain_height = self
-                    .tracer
-                    .query_terrain_height(Vec2::new(horizontal.x, horizontal.y))?;
+                let terrain_height = self.query_terrain_height_cpu(horizontal);
                 Vec3::new(horizontal.x, terrain_height, horizontal.y)
             }
             TreePlacement::World(world) => world,

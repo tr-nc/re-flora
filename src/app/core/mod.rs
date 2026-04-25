@@ -142,7 +142,6 @@ pub struct App {
     item_panel_hoe_icon: Option<TextureHandle>,
     selected_item_panel_slot: usize,
     active_voxel_type: ActiveVoxelType,
-    terrain_query_debug_text: String,
     audio_ray_tracing_debug_text: String,
     left_mouse_held: bool,
     right_mouse_held: bool,
@@ -604,7 +603,6 @@ impl App {
             item_panel_hoe_icon: None,
             selected_item_panel_slot: 0,
             active_voxel_type: ActiveVoxelType::Dirt,
-            terrain_query_debug_text: "not hit".to_owned(),
             audio_ray_tracing_debug_text: "Audio RT: not sampled yet".to_owned(),
             left_mouse_held: false,
             right_mouse_held: false,
@@ -1247,7 +1245,6 @@ impl App {
                 {
                     match state {
                         ElementState::Pressed => {
-                            self.update_terrain_query_debug_text();
                             self.shovel_dig_held = true;
                             let now = Instant::now();
                             if self.is_shovel_selected() && button == MouseButton::Left {
@@ -1318,7 +1315,6 @@ impl App {
                 }
 
                 if self.shovel_dig_held {
-                    self.update_terrain_query_debug_text();
                     let now = Instant::now();
                     if self.is_shovel_selected() && self.left_mouse_held {
                         self.try_shovel_dig(now);
@@ -1429,7 +1425,6 @@ impl App {
                 let backpack_cherry_wood_count = self.backpack_cherry_wood_count;
                 let backpack_oak_wood_count = self.backpack_oak_wood_count;
                 let backpack_rock_count = self.backpack_rock_count;
-                        let terrain_query_debug_text = self.terrain_query_debug_text.clone();
                         let audio_ray_tracing_debug_text =
                             self.audio_ray_tracing_debug_text.clone();
                         let active_voxel_label = self.active_voxel_type.label();
@@ -1583,7 +1578,6 @@ impl App {
                             backpack_cherry_wood_count,
                             backpack_oak_wood_count,
                             backpack_rock_count,
-                            terrain_query_debug_text.as_str(),
                         );
                         self.backpack_summary_panel_screen_pos = Some(Vec2::new(
                             backpack_summary_panel_center.x,
@@ -2020,8 +2014,13 @@ impl App {
                     self.gui_adjustables.headbob_sprint_amp_mul.value,
                 );
 
+                let player_collision = if self.is_fly_mode {
+                    None
+                } else {
+                    Some(self.query_player_collision_cpu())
+                };
                 self.tracer
-                    .update_camera(frame_delta_time, self.is_fly_mode);
+                    .update_camera(frame_delta_time, self.is_fly_mode, player_collision);
 
                 if self.perf_logging && self.time_info.total_frame_count().is_multiple_of(30) {
                     let total_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
