@@ -27,6 +27,8 @@ const SIZE_OF_NODE_ELEMENT: u64 = 3 * std::mem::size_of::<u32>() as u64;
 const SIZE_OF_LEAF_ELEMENT: u64 = std::mem::size_of::<u32>() as u64;
 const MAX_NODE_BUFFER_SIZE_IN_BYTES: u64 = 10 * 1024 * 1024;
 const MAX_LEAF_BUFFER_SIZE_IN_BYTES: u64 = 10 * 1024 * 1024;
+const MAX_DDA_ITERATION: usize = 256;
+const DDA_EPSILON: f32 = 1e-4;
 
 pub struct ContreeBuilder {
     vulkan_ctx: VulkanContext,
@@ -57,7 +59,9 @@ pub struct ContreeBuilder {
     node_allocator: FirstFitAllocator,
     cpu_bridge_buffers: CpuChunkBridgeBuffers,
 
+    chunk_dim: UVec3,
     voxel_dim_per_chunk: UVec3,
+    cpu_scene_chunks: Vec<Option<UVec3>>,
     cpu_chunk_caches: HashMap<UVec3, CpuChunkCache>,
 }
 
@@ -70,7 +74,7 @@ struct CpuContreeNode {
 
 #[derive(Clone, Debug)]
 struct CpuChunkCache {
-    atlas_offset: UVec3,
+    chunk_idx: UVec3,
     nodes: Vec<CpuContreeNode>,
     leaves: Vec<u32>,
 }
@@ -86,6 +90,7 @@ impl ContreeBuilder {
         allocator: Allocator,
         shader_compiler: &ShaderCompiler,
         surfacer_resources: &SurfaceResources,
+        chunk_dim: UVec3,
         voxel_dim_per_chunk: UVec3,
         node_pool_size_in_bytes: u64,
         leaf_pool_size_in_bytes: u64,
@@ -241,7 +246,9 @@ impl ContreeBuilder {
             node_allocator,
             leaf_allocator,
             cpu_bridge_buffers,
+            chunk_dim,
             voxel_dim_per_chunk,
+            cpu_scene_chunks: vec![None; (chunk_dim.x * chunk_dim.y * chunk_dim.z) as usize],
             cpu_chunk_caches: HashMap::new(),
         }
     }
@@ -350,6 +357,65 @@ impl ContreeBuilder {
         self.cpu_chunk_caches.len()
     }
 
+    pub fn query_terrain_ray_cpu(&self, origin: Vec3, direction: Vec3) -> Option<Vec3> {
+        if direction.length_squared() <= f32::EPSILON {
+            return None;
+        }
+
+        let normalized_dir = direction.normalize();
+        let inv_dir = reciprocal(normalized_dir);
+        let marched_dir = sanitize_dda_direction(normalized_dir);
+
+        let slab = slabs(Vec3::ZERO, self.chunk_dim.as_vec3(), origin, inv_dir);
+        if slab.x > slab.y || slab.y < 0.0 {
+            return None;
+        }
+
+        let march_extent = slab.x.max(0.0) + DDA_EPSILON;
+        let marched_origin = origin + march_extent * marched_dir;
+        let delta_dist = reciprocal(marched_dir.abs());
+        let ray_step = marched_dir.signum().as_ivec3();
+        let mut map_pos = marched_origin.floor().as_ivec3();
+        let ray_sign = marched_dir.signum();
+        let mut side_dist = (((ray_sign * 0.5) + Vec3::splat(0.5))
+            + ray_sign * (map_pos.as_vec3() - marched_origin))
+            * delta_dist;
+
+        for _ in 0..MAX_DDA_ITERATION {
+            let min_mask = [
+                side_dist.x <= side_dist.y.min(side_dist.z),
+                side_dist.y <= side_dist.z.min(side_dist.x),
+                side_dist.z <= side_dist.x.min(side_dist.y),
+            ];
+            side_dist += Vec3::new(
+                if min_mask[0] { delta_dist.x } else { 0.0 },
+                if min_mask[1] { delta_dist.y } else { 0.0 },
+                if min_mask[2] { delta_dist.z } else { 0.0 },
+            );
+
+            if !in_aabb_i(map_pos, glam::IVec3::ZERO, self.chunk_dim.as_ivec3()) {
+                break;
+            }
+
+            let chunk_idx = map_pos.as_uvec3();
+            if self.scene_chunk_present(chunk_idx) {
+                if let Some(cache) = self.cpu_chunk_caches.get(&chunk_idx) {
+                    if let Some(hit) = self.query_cached_chunk_cpu_ray(cache, marched_origin, marched_dir) {
+                        return Some(hit);
+                    }
+                }
+            }
+
+            map_pos += glam::IVec3::new(
+                if min_mask[0] { ray_step.x } else { 0 },
+                if min_mask[1] { ray_step.y } else { 0 },
+                if min_mask[2] { ray_step.z } else { 0 },
+            );
+        }
+
+        None
+    }
+
     fn query_cached_chunk_cpu_ray(
         &self,
         cache: &CpuChunkCache,
@@ -360,10 +426,9 @@ impl ContreeBuilder {
             return None;
         }
 
-        let local_origin = origin - cache.atlas_offset.as_vec3() + Vec3::ONE;
-        let local_dir = direction.normalize();
-        let local_hit = march_contree_cpu(local_origin, local_dir, &cache.nodes, &cache.leaves)?;
-        Some(local_hit + cache.atlas_offset.as_vec3() - Vec3::ONE)
+        let local_origin = origin - cache.chunk_idx.as_vec3() + Vec3::ONE;
+        let local_hit = march_contree_cpu(local_origin, direction, &cache.nodes, &cache.leaves)?;
+        Some(local_hit + cache.chunk_idx.as_vec3() - Vec3::ONE)
     }
 
     fn build_contree(
@@ -426,6 +491,7 @@ impl ContreeBuilder {
 
         if confirmed_node_buffer_size_in_bytes == 0 || confirmed_leaf_buffer_size_in_bytes == 0 {
             self.cpu_chunk_caches.remove(&chunk_idx);
+            self.set_scene_chunk(chunk_idx, None);
             self.deallocate_chunk_allocation(atlas_offset);
             return Ok(None);
         }
@@ -437,20 +503,21 @@ impl ContreeBuilder {
         );
 
         let cache = self.read_back_chunk_cpu_cache(
-            atlas_offset,
+            chunk_idx,
             node_alloc_offset,
             leaf_alloc_offset,
             confirmed_node_buffer_size_in_bytes,
             confirmed_leaf_buffer_size_in_bytes,
         )?;
         self.cpu_chunk_caches.insert(chunk_idx, cache);
+        self.set_scene_chunk(chunk_idx, Some(chunk_idx));
 
         Ok(Some((node_alloc_offset, leaf_alloc_offset)))
     }
 
     fn read_back_chunk_cpu_cache(
         &self,
-        atlas_offset: UVec3,
+        chunk_idx: UVec3,
         node_alloc_offset: u64,
         leaf_alloc_offset: u64,
         node_size_in_bytes: u64,
@@ -500,7 +567,7 @@ impl ContreeBuilder {
             .collect();
 
         Ok(CpuChunkCache {
-            atlas_offset,
+            chunk_idx,
             nodes,
             leaves,
         })
@@ -511,6 +578,20 @@ impl ContreeBuilder {
             self.node_allocator.deallocate(node_alloc_id).unwrap();
             self.leaf_allocator.deallocate(leaf_alloc_id).unwrap();
         }
+    }
+
+    fn scene_chunk_present(&self, chunk_idx: UVec3) -> bool {
+        self.cpu_scene_chunks[self.scene_chunk_flat_index(chunk_idx)].is_some()
+    }
+
+    fn set_scene_chunk(&mut self, chunk_idx: UVec3, chunk: Option<UVec3>) {
+        let index = self.scene_chunk_flat_index(chunk_idx);
+        self.cpu_scene_chunks[index] = chunk;
+    }
+
+    fn scene_chunk_flat_index(&self, chunk_idx: UVec3) -> usize {
+        (chunk_idx.x + chunk_idx.z * self.chunk_dim.x + chunk_idx.y * self.chunk_dim.x * self.chunk_dim.z)
+            as usize
     }
 
     /// Allocate a chunk of data and store the allocation id in the offset_allocation_table.
@@ -723,6 +804,15 @@ fn slabs(min_bound: Vec3, max_bound: Vec3, origin: Vec3, inv_dir: Vec3) -> Vec2 
 
 fn reciprocal(v: Vec3) -> Vec3 {
     Vec3::new(1.0 / v.x, 1.0 / v.y, 1.0 / v.z)
+}
+
+fn sanitize_dda_direction(direction: Vec3) -> Vec3 {
+    let abs_dir = direction.abs().max(Vec3::splat(DDA_EPSILON));
+    abs_dir * direction.signum()
+}
+
+fn in_aabb_i(point: glam::IVec3, box_min: glam::IVec3, box_max: glam::IVec3) -> bool {
+    point.cmpge(box_min).all() && point.cmplt(box_max).all()
 }
 
 fn get_mirrored_pos(pos: Vec3, dir: Vec3, range_check: bool) -> Vec3 {

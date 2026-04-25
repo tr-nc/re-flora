@@ -482,6 +482,7 @@ impl App {
             allocator.clone(),
             &shader_compiler,
             surface_builder.get_resources(),
+            CHUNK_DIM,
             VOXEL_DIM_PER_CHUNK,
             512 * 1024 * 1024, // node buffer pool size
             512 * 1024 * 1024, // leaf buffer pool size
@@ -950,48 +951,73 @@ impl App {
     }
 
     fn validate_startup_terrain_query(&mut self) {
-        let origin = Vec3::new(0.5, 1.0, 0.5);
-        let direction = Vec3::new(0.0, -1.0, 0.0);
+        let rays = [
+            TerrainRayQuery {
+                origin: Vec3::new(0.5, 1.0, 0.5),
+                direction: Vec3::new(0.0, -1.0, 0.0),
+            },
+            TerrainRayQuery {
+                origin: Vec3::new(1.5, 1.0, 1.5),
+                direction: Vec3::new(0.0, -1.0, 0.0),
+            },
+            TerrainRayQuery {
+                origin: Vec3::new(2.5, 1.0, 3.5),
+                direction: Vec3::new(0.0, -1.0, 0.0),
+            },
+            TerrainRayQuery {
+                origin: Vec3::new(4.5, 1.0, 4.5),
+                direction: Vec3::new(0.0, -1.0, 0.0),
+            },
+        ];
 
-        let cpu_start = Instant::now();
-        let cpu_hit = self
-            .contree_builder
-            .debug_query_chunk_zero_cpu_ray(origin, direction);
-        let cpu_elapsed = cpu_start.elapsed();
+        for ray in rays {
+            let cpu_start = Instant::now();
+            let cpu_hit = self
+                .contree_builder
+                .query_terrain_ray_cpu(ray.origin, ray.direction);
+            let cpu_elapsed = cpu_start.elapsed();
 
-        let gpu_start = Instant::now();
-        let gpu_hit = self
-            .tracer
-            .query_terrain_ray_with_validity(TerrainRayQuery { origin, direction });
-        let gpu_elapsed = gpu_start.elapsed();
+            let gpu_start = Instant::now();
+            let gpu_hit = self.tracer.query_terrain_ray_with_validity(ray);
+            let gpu_elapsed = gpu_start.elapsed();
 
-        let format_cpu = |hit: Option<Vec3>| match hit {
-            Some(pos) => format!("hit ({:.3}, {:.3}, {:.3})", pos.x, pos.y, pos.z),
-            None => "miss".to_owned(),
-        };
-        let format_gpu = |result: &anyhow::Result<crate::tracer::TerrainRayHitSample>| match result {
-            Ok(sample) if sample.is_valid => format!(
-                "hit ({:.3}, {:.3}, {:.3})",
-                sample.position.x, sample.position.y, sample.position.z
-            ),
-            Ok(_) => "miss".to_owned(),
-            Err(err) => format!("error: {err}"),
-        };
+            let format_cpu = |hit: Option<Vec3>| match hit {
+                Some(pos) => format!("hit ({:.3}, {:.3}, {:.3})", pos.x, pos.y, pos.z),
+                None => "miss".to_owned(),
+            };
+            let gpu_position = match &gpu_hit {
+                Ok(sample) if sample.is_valid => Some(sample.position),
+                _ => None,
+            };
+            let format_gpu = |result: &anyhow::Result<crate::tracer::TerrainRayHitSample>| match result {
+                Ok(sample) if sample.is_valid => format!(
+                    "hit ({:.3}, {:.3}, {:.3})",
+                    sample.position.x, sample.position.y, sample.position.z
+                ),
+                Ok(_) => "miss".to_owned(),
+                Err(err) => format!("error: {err}"),
+            };
+            let position_delta = match (cpu_hit, gpu_position) {
+                (Some(cpu_pos), Some(gpu_pos)) => format!("{:.6}", cpu_pos.distance(gpu_pos)),
+                _ => "n/a".to_owned(),
+            };
 
-        log::info!(
-            "Terrain query validation for origin ({:.3}, {:.3}, {:.3}) dir ({:.3}, {:.3}, {:.3}): cached_chunks={}, CPU={} in {:?}, GPU={} in {:?}",
-            origin.x,
-            origin.y,
-            origin.z,
-            direction.x,
-            direction.y,
-            direction.z,
-            self.contree_builder.cpu_cached_chunk_count(),
-            format_cpu(cpu_hit),
-            cpu_elapsed,
-            format_gpu(&gpu_hit),
-            gpu_elapsed,
-        );
+            log::info!(
+                "Terrain query validation for origin ({:.3}, {:.3}, {:.3}) dir ({:.3}, {:.3}, {:.3}): cached_chunks={}, CPU={} in {:?}, GPU={} in {:?}, delta={}",
+                ray.origin.x,
+                ray.origin.y,
+                ray.origin.z,
+                ray.direction.x,
+                ray.direction.y,
+                ray.direction.z,
+                self.contree_builder.cpu_cached_chunk_count(),
+                format_cpu(cpu_hit),
+                cpu_elapsed,
+                format_gpu(&gpu_hit),
+                gpu_elapsed,
+                position_delta,
+            );
+        }
     }
 
     fn configure_gui_font(&mut self) -> Result<()> {
