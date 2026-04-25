@@ -45,10 +45,10 @@ use crate::particles::{ParticleSnapshot, PARTICLE_CAPACITY};
 use crate::resource::ResourceContainer;
 use crate::util::{ShaderCompiler, TimeInfo};
 use crate::vkn::{
-    execute_one_time_command, Allocator, Buffer, ClearValue, ColorClearValue, CommandBuffer,
-    ComputePipeline, DepthOrStencilClearValue, DescriptorPool, Extent2D, Extent3D, Framebuffer,
-    GraphicsPipeline, MemoryBarrier, PipelineBarrier, PushConstantInfo, RenderPass, RenderTarget,
-    Texture, Viewport, VulkanContext,
+    execute_one_time_command_with_fence, Allocator, Buffer, ClearValue, ColorClearValue,
+    CommandBuffer, ComputePipeline, DepthOrStencilClearValue, DescriptorPool, Extent2D,
+    Extent3D, Framebuffer, GraphicsPipeline, MemoryBarrier, PipelineBarrier, PushConstantInfo,
+    RenderPass, RenderTarget, Texture, Viewport, VulkanContext,
 };
 use anyhow::Result;
 use ash::vk;
@@ -2086,7 +2086,7 @@ impl Tracer {
         }
         self.resources.terrain_query_info.fill(&ray_data)?;
 
-        execute_one_time_command(
+        execute_one_time_command_with_fence(
             self.vulkan_ctx.device(),
             self.vulkan_ctx.command_pool(),
             &self.vulkan_ctx.get_general_queue(),

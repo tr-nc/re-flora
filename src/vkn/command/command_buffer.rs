@@ -113,3 +113,29 @@ pub fn execute_one_time_command<R, F: FnOnce(&CommandBuffer) -> R>(
     device.wait_queue_idle(queue);
     result
 }
+
+/// Execute a one-time command buffer and wait only for its submission fence.
+///
+/// This avoids idling the entire queue, which is useful for small compute jobs
+/// like batched terrain queries that need synchronous CPU readback.
+pub fn execute_one_time_command_with_fence<R, F: FnOnce(&CommandBuffer) -> R>(
+    device: &Device,
+    pool: &CommandPool,
+    queue: &Queue,
+    executor: F,
+) -> R {
+    let command_buffer = CommandBuffer::new(device, pool);
+    let fence = Fence::new(device, false);
+
+    command_buffer.begin(true);
+    let result = executor(&command_buffer);
+    command_buffer.end();
+
+    command_buffer.submit(queue, Some(&fence));
+    unsafe {
+        device
+            .wait_for_fences(&[fence.as_raw()], true, u64::MAX)
+            .unwrap();
+    }
+    result
+}
