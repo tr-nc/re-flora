@@ -1268,6 +1268,7 @@ impl App {
                 }
                 if let Err(err) = self.spatial_sound_manager.update_direct_path_overrides(|queries| {
                     const AUDIO_RAY_ENDPOINT_EPSILON: f32 = 0.05;
+                    const AUDIO_RAY_START_EPSILON: f32 = 0.05;
 
                     let terrain_queries = queries
                         .iter()
@@ -1275,15 +1276,23 @@ impl App {
                             let direction_to_listener =
                                 query.listener_position - query.source_position;
                             let listener_distance = direction_to_listener.length();
-                            let ray_extent = (listener_distance - AUDIO_RAY_ENDPOINT_EPSILON).max(0.0);
-                            let direction = if ray_extent > 0.0 && listener_distance > 1e-6 {
-                                direction_to_listener / listener_distance * ray_extent
+                            let trace_distance =
+                                (listener_distance - AUDIO_RAY_START_EPSILON - AUDIO_RAY_ENDPOINT_EPSILON)
+                                    .max(0.0);
+                            let direction = if trace_distance > 0.0 && listener_distance > 1e-6 {
+                                direction_to_listener / listener_distance * trace_distance
                             } else {
                                 Vec3::ZERO
                             };
+                            let origin = if trace_distance > 0.0 && listener_distance > 1e-6 {
+                                query.source_position
+                                    + direction_to_listener / listener_distance * AUDIO_RAY_START_EPSILON
+                            } else {
+                                query.source_position
+                            };
 
                             TerrainRayQuery {
-                                origin: query.source_position,
+                                origin,
                                 direction,
                             }
                         })
@@ -1299,10 +1308,13 @@ impl App {
                         .map(|(query, (terrain_query, hit))| {
                             let listener_distance =
                                 query.listener_position.distance(query.source_position);
+                            let max_hit_distance =
+                                (listener_distance - AUDIO_RAY_START_EPSILON - AUDIO_RAY_ENDPOINT_EPSILON)
+                                    .max(0.0);
                             let is_occluded = hit.is_valid
-                                && listener_distance > AUDIO_RAY_ENDPOINT_EPSILON
+                                && max_hit_distance > 0.0
                                 && hit.position.distance(terrain_query.origin)
-                                    <= (listener_distance - AUDIO_RAY_ENDPOINT_EPSILON).max(0.0);
+                                    <= max_hit_distance;
 
                             crate::audio::DirectPathQueryResult {
                                 occlusion: Some(if is_occluded { 0.0 } else { 1.0 }),
