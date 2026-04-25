@@ -21,7 +21,7 @@ use crate::vkn::VulkanContext;
 use anyhow::Result;
 use ash::vk;
 use glam::{UVec3, Vec2, Vec3};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -66,6 +66,7 @@ pub struct ContreeBuilder {
     cpu_scene_chunks: Vec<Option<UVec3>>,
     cpu_chunk_caches: HashMap<UVec3, CpuChunkCache>,
     cpu_chunk_cache_states: HashMap<UVec3, CpuChunkCacheState>,
+    pending_cpu_chunk_cache_queue: VecDeque<UVec3>,
     cpu_chunk_readback_buffers: Option<CpuChunkReadbackBuffers>,
     active_cpu_chunk_cache_job: Option<CpuChunkCacheFenceJob>,
     cpu_chunk_cache_decode_inflight: bool,
@@ -101,6 +102,7 @@ struct CpuChunkCacheState {
     published_revision: u64,
     inflight_revision: Option<u64>,
     dirty_again: bool,
+    queued: bool,
     latest_source: Option<CpuChunkCacheBuildSource>,
 }
 
@@ -305,6 +307,7 @@ impl ContreeBuilder {
             cpu_scene_chunks: vec![None; (chunk_dim.x * chunk_dim.y * chunk_dim.z) as usize],
             cpu_chunk_caches: HashMap::new(),
             cpu_chunk_cache_states: HashMap::new(),
+            pending_cpu_chunk_cache_queue: VecDeque::new(),
             cpu_chunk_readback_buffers,
             active_cpu_chunk_cache_job: None,
             cpu_chunk_cache_decode_inflight: false,
@@ -670,6 +673,7 @@ impl ContreeBuilder {
             if state.inflight_revision.is_none() {
                 state.inflight_revision = Some(revision);
                 state.dirty_again = false;
+                self.enqueue_cpu_chunk_cache_job(chunk_idx);
             } else {
                 state.dirty_again = true;
             }
@@ -842,6 +846,7 @@ impl ContreeBuilder {
                     revision,
                     latest_revision,
                 );
+                self.enqueue_cpu_chunk_cache_job(result.chunk_idx);
             }
 
             self.try_submit_next_cpu_chunk_cache_job();
@@ -932,17 +937,28 @@ impl ContreeBuilder {
         let state = self.cpu_chunk_cache_states.entry(chunk_idx).or_default();
         state.published_revision = revision;
         state.inflight_revision = None;
+        state.queued = false;
         state.latest_source = None;
         state.dirty_again = false;
     }
 
     fn cpu_chunk_cache_jobs_idle(&self) -> bool {
-        self.active_cpu_chunk_cache_job.is_none()
+        self.pending_cpu_chunk_cache_queue.is_empty()
+            && self.active_cpu_chunk_cache_job.is_none()
             && !self.cpu_chunk_cache_decode_inflight
             && self
                 .cpu_chunk_cache_states
                 .values()
                 .all(|state| state.inflight_revision.is_none())
+    }
+
+    fn enqueue_cpu_chunk_cache_job(&mut self, chunk_idx: UVec3) {
+        let state = self.cpu_chunk_cache_states.entry(chunk_idx).or_default();
+        if state.queued {
+            return;
+        }
+        state.queued = true;
+        self.pending_cpu_chunk_cache_queue.push_back(chunk_idx);
     }
 
     fn try_submit_next_cpu_chunk_cache_job(&mut self) {
@@ -953,19 +969,31 @@ impl ContreeBuilder {
             return;
         }
 
-        if let Some((chunk_idx, revision, source)) = self.next_pending_cpu_chunk_cache_job() {
+        while let Some((chunk_idx, revision, source)) = self.next_pending_cpu_chunk_cache_job() {
             self.submit_chunk_cpu_cache_rebuild(chunk_idx, revision, source);
+            break;
         }
     }
 
-    fn next_pending_cpu_chunk_cache_job(&self) -> Option<(UVec3, u64, CpuChunkCacheBuildSource)> {
-        self.cpu_chunk_cache_states
-            .iter()
-            .find_map(|(chunk_idx, state)| {
-                let revision = state.inflight_revision?;
-                let source = state.latest_source?;
-                (revision > state.published_revision).then_some((*chunk_idx, revision, source))
-            })
+    fn next_pending_cpu_chunk_cache_job(
+        &mut self,
+    ) -> Option<(UVec3, u64, CpuChunkCacheBuildSource)> {
+        while let Some(chunk_idx) = self.pending_cpu_chunk_cache_queue.pop_front() {
+            let Some(state) = self.cpu_chunk_cache_states.get_mut(&chunk_idx) else {
+                continue;
+            };
+            state.queued = false;
+            let Some(revision) = state.inflight_revision else {
+                continue;
+            };
+            let Some(source) = state.latest_source else {
+                continue;
+            };
+            if revision > state.published_revision {
+                return Some((chunk_idx, revision, source));
+            }
+        }
+        None
     }
 
     fn spawn_cpu_chunk_cache_workers() -> (
