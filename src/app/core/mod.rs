@@ -960,6 +960,7 @@ impl App {
 
     fn finalize_loading(&mut self) {
         self.vulkan_ctx.device().wait_idle();
+        self.contree_builder.flush_cpu_chunk_cache_jobs();
         BENCH.lock().unwrap().summary();
 
         self.validate_startup_terrain_query();
@@ -1345,6 +1346,7 @@ impl App {
                 self.window_state.maintain_cursor_grab();
 
                 self.time_info.update(self.perf_logging);
+                self.contree_builder.poll_cpu_chunk_cache_jobs();
 
                 if self.loading_state.is_some() {
                     self.process_loading_step();

@@ -6,7 +6,6 @@ use crate::generated::gpu_structs::ContreeBuildInfo;
 use crate::util::AllocationStrategy;
 use crate::util::FirstFitAllocator;
 use crate::util::ShaderCompiler;
-use crate::vkn::execute_one_time_command_with_fence;
 use crate::vkn::Allocator;
 use crate::vkn::Buffer;
 use crate::vkn::BufferUsage;
@@ -23,7 +22,9 @@ use anyhow::Result;
 use ash::vk;
 use glam::{UVec3, Vec2, Vec3};
 use std::collections::HashMap;
-use std::time::Instant;
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread;
+use std::time::{Duration, Instant};
 
 const SIZE_OF_NODE_ELEMENT: u64 = 3 * std::mem::size_of::<u32>() as u64;
 const SIZE_OF_LEAF_ELEMENT: u64 = std::mem::size_of::<u32>() as u64;
@@ -66,6 +67,9 @@ pub struct ContreeBuilder {
     cpu_scene_chunks: Vec<Option<UVec3>>,
     cpu_chunk_caches: HashMap<UVec3, CpuChunkCache>,
     cpu_chunk_cache_states: HashMap<UVec3, CpuChunkCacheState>,
+    pending_cpu_chunk_cache_jobs: Vec<CpuChunkCacheFenceJob>,
+    cpu_chunk_cache_job_tx: mpsc::Sender<CpuChunkCacheWorkerJob>,
+    cpu_chunk_cache_result_rx: mpsc::Receiver<CpuChunkCacheWorkerResult>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -82,17 +86,50 @@ struct CpuChunkCache {
     leaves: Vec<u32>,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct CpuChunkCacheBuildSource {
+    node_alloc_offset: u64,
+    leaf_alloc_offset: u64,
+    node_size_in_bytes: u64,
+    leaf_size_in_bytes: u64,
+}
+
 #[derive(Clone, Debug, Default)]
 struct CpuChunkCacheState {
     latest_revision: u64,
     published_revision: u64,
     inflight_revision: Option<u64>,
     dirty_again: bool,
+    latest_source: Option<CpuChunkCacheBuildSource>,
 }
 
 struct OwnedCpuChunkReadbackBuffers {
     node_readback: Buffer,
     leaf_readback: Buffer,
+}
+
+struct CpuChunkCacheFenceJob {
+    _command_buffer: CommandBuffer,
+    fence: Fence,
+    chunk_idx: UVec3,
+    revision: u64,
+    source: CpuChunkCacheBuildSource,
+    readback_buffers: OwnedCpuChunkReadbackBuffers,
+    gpu_copy_elapsed: Duration,
+}
+
+struct CpuChunkCacheWorkerJob {
+    chunk_idx: UVec3,
+    revision: u64,
+    source: CpuChunkCacheBuildSource,
+    readback_buffers: OwnedCpuChunkReadbackBuffers,
+    gpu_copy_elapsed: Duration,
+}
+
+struct CpuChunkCacheWorkerResult {
+    chunk_idx: UVec3,
+    revision: u64,
+    cache: CpuChunkCache,
 }
 
 impl ContreeBuilder {
@@ -240,6 +277,9 @@ impl ContreeBuilder {
 
         let node_allocator = FirstFitAllocator::new(node_pool_size_in_bytes);
         let leaf_allocator = FirstFitAllocator::new(leaf_pool_size_in_bytes);
+        let (cpu_chunk_cache_job_tx, cpu_chunk_cache_result_rx) =
+            Self::spawn_cpu_chunk_cache_workers();
+
         Self {
             allocator,
             vulkan_ctx,
@@ -260,6 +300,9 @@ impl ContreeBuilder {
             cpu_scene_chunks: vec![None; (chunk_dim.x * chunk_dim.y * chunk_dim.z) as usize],
             cpu_chunk_caches: HashMap::new(),
             cpu_chunk_cache_states: HashMap::new(),
+            pending_cpu_chunk_cache_jobs: Vec::new(),
+            cpu_chunk_cache_job_tx,
+            cpu_chunk_cache_result_rx,
         }
     }
 
@@ -365,6 +408,32 @@ impl ContreeBuilder {
 
     pub fn cpu_cached_chunk_count(&self) -> usize {
         self.cpu_chunk_caches.len()
+    }
+
+    pub fn poll_cpu_chunk_cache_jobs(&mut self) {
+        self.dispatch_completed_cpu_chunk_cache_jobs();
+        self.publish_completed_cpu_chunk_cache_jobs();
+    }
+
+    pub fn flush_cpu_chunk_cache_jobs(&mut self) {
+        loop {
+            self.poll_cpu_chunk_cache_jobs();
+            if self.cpu_chunk_cache_jobs_idle() {
+                break;
+            }
+
+            if let Some(job) = self.pending_cpu_chunk_cache_jobs.first() {
+                if let Err(err) = self.vulkan_ctx.wait_for_fences(&[job.fence.as_raw()]) {
+                    log::error!(
+                        "Failed to wait for CPU cache fence for {:?}: {err}",
+                        job.chunk_idx
+                    );
+                    break;
+                }
+            } else {
+                thread::sleep(Duration::from_millis(1));
+            }
+        }
     }
 
     pub fn query_terrain_ray_cpu(&self, origin: Vec3, direction: Vec3) -> Option<Vec3> {
@@ -554,21 +623,13 @@ impl ContreeBuilder {
             .unwrap()
             .record("contree_confirm_allocation", confirm_elapsed);
 
-        let cache_start = Instant::now();
-        let cache = self.read_back_chunk_cpu_cache(
-            chunk_idx,
+        let cpu_cache_source = CpuChunkCacheBuildSource {
             node_alloc_offset,
             leaf_alloc_offset,
-            confirmed_node_buffer_size_in_bytes,
-            confirmed_leaf_buffer_size_in_bytes,
-        )?;
-        let cache_elapsed = cache_start.elapsed();
-        crate::util::BENCH
-            .lock()
-            .unwrap()
-            .record("contree_cpu_cache_total", cache_elapsed);
-        self.cpu_chunk_caches.insert(chunk_idx, cache);
-        self.publish_chunk_cache_revision(chunk_idx, revision);
+            node_size_in_bytes: confirmed_node_buffer_size_in_bytes,
+            leaf_size_in_bytes: confirmed_leaf_buffer_size_in_bytes,
+        };
+        self.queue_chunk_cpu_cache_rebuild(chunk_idx, revision, cpu_cache_source);
         self.set_scene_chunk(chunk_idx, Some(chunk_idx));
         let total_elapsed = total_start.elapsed();
         crate::util::BENCH
@@ -577,107 +638,185 @@ impl ContreeBuilder {
             .record("contree_build_and_alloc_total", total_elapsed);
 
         log::info!(
-            "[TERRAIN_EDIT] chunk {:?} contree total={:.3}ms alloc={:.3}ms gpu_build={:.3}ms size_readback={:.3}ms confirm={:.3}ms cpu_cache_total={:.3}ms",
+            "[TERRAIN_EDIT] chunk {:?} contree total={:.3}ms alloc={:.3}ms gpu_build={:.3}ms size_readback={:.3}ms confirm={:.3}ms cpu_cache_total=async",
             chunk_idx,
             total_elapsed.as_secs_f64() * 1000.0,
             alloc_elapsed.as_secs_f64() * 1000.0,
             build_elapsed.as_secs_f64() * 1000.0,
             size_elapsed.as_secs_f64() * 1000.0,
             confirm_elapsed.as_secs_f64() * 1000.0,
-            cache_elapsed.as_secs_f64() * 1000.0,
         );
 
         Ok(Some((node_alloc_offset, leaf_alloc_offset)))
     }
 
-    fn read_back_chunk_cpu_cache(
-        &self,
+    fn queue_chunk_cpu_cache_rebuild(
+        &mut self,
         chunk_idx: UVec3,
-        node_alloc_offset: u64,
-        leaf_alloc_offset: u64,
-        node_size_in_bytes: u64,
-        leaf_size_in_bytes: u64,
-    ) -> Result<CpuChunkCache> {
-        assert!(node_size_in_bytes <= MAX_NODE_BUFFER_SIZE_IN_BYTES);
-        assert!(leaf_size_in_bytes <= MAX_LEAF_BUFFER_SIZE_IN_BYTES);
+        revision: u64,
+        source: CpuChunkCacheBuildSource,
+    ) {
+        let should_submit = {
+            let state = self.cpu_chunk_cache_states.entry(chunk_idx).or_default();
+            state.latest_source = Some(source);
+            if state.inflight_revision.is_none() {
+                state.inflight_revision = Some(revision);
+                state.dirty_again = false;
+                true
+            } else {
+                state.dirty_again = true;
+                false
+            }
+        };
+
+        if should_submit {
+            self.submit_chunk_cpu_cache_rebuild(chunk_idx, revision, source);
+        }
+    }
+
+    fn submit_chunk_cpu_cache_rebuild(
+        &mut self,
+        chunk_idx: UVec3,
+        revision: u64,
+        source: CpuChunkCacheBuildSource,
+    ) {
+        assert!(source.node_size_in_bytes <= MAX_NODE_BUFFER_SIZE_IN_BYTES);
+        assert!(source.leaf_size_in_bytes <= MAX_LEAF_BUFFER_SIZE_IN_BYTES);
+
         let readback_buffers = OwnedCpuChunkReadbackBuffers::new(
             self.vulkan_ctx.device().clone(),
             self.allocator.clone(),
         );
+        let command_buffer =
+            CommandBuffer::new(self.vulkan_ctx.device(), self.vulkan_ctx.command_pool());
+        let fence = Fence::new(self.vulkan_ctx.device(), false);
 
         let gpu_copy_start = Instant::now();
-        execute_one_time_command_with_fence(
-            self.vulkan_ctx.device(),
-            self.vulkan_ctx.command_pool(),
-            &self.vulkan_ctx.get_general_queue(),
-            |cmdbuf| {
-                self.resources.contree_node_data.record_copy_to_buffer(
-                    cmdbuf,
-                    &readback_buffers.node_readback,
-                    node_size_in_bytes,
-                    node_alloc_offset * SIZE_OF_NODE_ELEMENT,
-                    0,
-                );
-                self.resources.contree_leaf_data.record_copy_to_buffer(
-                    cmdbuf,
-                    &readback_buffers.leaf_readback,
-                    leaf_size_in_bytes,
-                    leaf_alloc_offset * SIZE_OF_LEAF_ELEMENT,
-                    0,
-                );
-            },
+        command_buffer.begin(true);
+        self.resources.contree_node_data.record_copy_to_buffer(
+            &command_buffer,
+            &readback_buffers.node_readback,
+            source.node_size_in_bytes,
+            source.node_alloc_offset * SIZE_OF_NODE_ELEMENT,
+            0,
         );
+        self.resources.contree_leaf_data.record_copy_to_buffer(
+            &command_buffer,
+            &readback_buffers.leaf_readback,
+            source.leaf_size_in_bytes,
+            source.leaf_alloc_offset * SIZE_OF_LEAF_ELEMENT,
+            0,
+        );
+        command_buffer.end();
+        command_buffer.submit(&self.vulkan_ctx.get_general_queue(), Some(&fence));
         let gpu_copy_elapsed = gpu_copy_start.elapsed();
         crate::util::BENCH
             .lock()
             .unwrap()
             .record("contree_cpu_cache_copy_to_readback", gpu_copy_elapsed);
 
-        let readback_start = Instant::now();
-        let node_bytes = readback_buffers.node_readback.read_back()?;
-        let leaf_bytes = readback_buffers.leaf_readback.read_back()?;
-        let readback_elapsed = readback_start.elapsed();
-        crate::util::BENCH
-            .lock()
-            .unwrap()
-            .record("contree_cpu_cache_readback", readback_elapsed);
-        let node_bytes = &node_bytes[..node_size_in_bytes as usize];
-        let leaf_bytes = &leaf_bytes[..leaf_size_in_bytes as usize];
+        self.pending_cpu_chunk_cache_jobs
+            .push(CpuChunkCacheFenceJob {
+                _command_buffer: command_buffer,
+                fence,
+                chunk_idx,
+                revision,
+                source,
+                readback_buffers,
+                gpu_copy_elapsed,
+            });
+    }
 
-        let decode_start = Instant::now();
-        let nodes = node_bytes
-            .chunks_exact(SIZE_OF_NODE_ELEMENT as usize)
-            .map(|chunk| CpuContreeNode {
-                packed_0: u32::from_ne_bytes(chunk[0..4].try_into().unwrap()),
-                child_mask_lo: u32::from_ne_bytes(chunk[4..8].try_into().unwrap()),
-                child_mask_hi: u32::from_ne_bytes(chunk[8..12].try_into().unwrap()),
-            })
-            .collect();
-        let leaves = leaf_bytes
-            .chunks_exact(SIZE_OF_LEAF_ELEMENT as usize)
-            .map(|chunk| u32::from_ne_bytes(chunk[0..4].try_into().unwrap()))
-            .collect();
-        let decode_elapsed = decode_start.elapsed();
-        crate::util::BENCH
-            .lock()
-            .unwrap()
-            .record("contree_cpu_cache_decode", decode_elapsed);
+    fn dispatch_completed_cpu_chunk_cache_jobs(&mut self) {
+        let mut idx = 0;
+        while idx < self.pending_cpu_chunk_cache_jobs.len() {
+            let fence_done = match unsafe {
+                self.vulkan_ctx
+                    .device()
+                    .as_raw()
+                    .get_fence_status(self.pending_cpu_chunk_cache_jobs[idx].fence.as_raw())
+            } {
+                Ok(done) => done,
+                Err(err) => {
+                    let job = &self.pending_cpu_chunk_cache_jobs[idx];
+                    log::error!(
+                        "Failed to poll CPU cache fence for {:?} rev {}: {err}",
+                        job.chunk_idx,
+                        job.revision,
+                    );
+                    idx += 1;
+                    continue;
+                }
+            };
 
-        log::info!(
-            "[TERRAIN_EDIT] chunk {:?} CPU cache node {:.1} KiB leaf {:.1} KiB copy={:.3}ms map_copy={:.3}ms decode={:.3}ms",
-            chunk_idx,
-            node_size_in_bytes as f64 / 1024.0,
-            leaf_size_in_bytes as f64 / 1024.0,
-            gpu_copy_elapsed.as_secs_f64() * 1000.0,
-            readback_elapsed.as_secs_f64() * 1000.0,
-            decode_elapsed.as_secs_f64() * 1000.0,
-        );
+            if !fence_done {
+                idx += 1;
+                continue;
+            }
 
-        Ok(CpuChunkCache {
-            chunk_idx,
-            nodes,
-            leaves,
-        })
+            let job = self.pending_cpu_chunk_cache_jobs.swap_remove(idx);
+            if let Err(err) = self.cpu_chunk_cache_job_tx.send(CpuChunkCacheWorkerJob {
+                chunk_idx: job.chunk_idx,
+                revision: job.revision,
+                source: job.source,
+                readback_buffers: job.readback_buffers,
+                gpu_copy_elapsed: job.gpu_copy_elapsed,
+            }) {
+                log::error!(
+                    "Failed to dispatch CPU cache worker job for {:?} rev {}: {err}",
+                    job.chunk_idx,
+                    job.revision,
+                );
+                if let Some(state) = self.cpu_chunk_cache_states.get_mut(&job.chunk_idx) {
+                    if state.inflight_revision == Some(job.revision) {
+                        state.inflight_revision = None;
+                    }
+                }
+            }
+        }
+    }
+
+    fn publish_completed_cpu_chunk_cache_jobs(&mut self) {
+        while let Ok(result) = self.cpu_chunk_cache_result_rx.try_recv() {
+            let should_publish = self
+                .cpu_chunk_cache_states
+                .get(&result.chunk_idx)
+                .map(|state| result.revision > state.published_revision)
+                .unwrap_or(true);
+
+            if should_publish {
+                self.cpu_chunk_caches.insert(result.chunk_idx, result.cache);
+                self.publish_chunk_cache_revision(result.chunk_idx, result.revision);
+                self.set_scene_chunk(result.chunk_idx, Some(result.chunk_idx));
+            } else if let Some(state) = self.cpu_chunk_cache_states.get_mut(&result.chunk_idx) {
+                if state.inflight_revision == Some(result.revision) {
+                    state.inflight_revision = None;
+                }
+            }
+
+            let follow_up = {
+                let state = self
+                    .cpu_chunk_cache_states
+                    .get_mut(&result.chunk_idx)
+                    .expect("chunk cache state missing for completed job");
+                if state.dirty_again {
+                    if let Some(source) = state.latest_source {
+                        state.inflight_revision = Some(state.latest_revision);
+                        state.dirty_again = false;
+                        Some((state.latest_revision, source))
+                    } else {
+                        state.dirty_again = false;
+                        None
+                    }
+                } else {
+                    None
+                }
+            };
+
+            if let Some((revision, source)) = follow_up {
+                self.submit_chunk_cpu_cache_rebuild(result.chunk_idx, revision, source);
+            }
+        }
     }
 
     fn deallocate_chunk_allocation(&mut self, atlas_offset: UVec3) {
@@ -758,13 +897,58 @@ impl ContreeBuilder {
         let state = self.cpu_chunk_cache_states.entry(chunk_idx).or_default();
         state.published_revision = revision;
         state.inflight_revision = None;
-        state.dirty_again = false;
     }
 
     fn publish_empty_chunk_cache_revision(&mut self, chunk_idx: UVec3, revision: u64) {
         let state = self.cpu_chunk_cache_states.entry(chunk_idx).or_default();
         state.published_revision = revision;
+        state.latest_source = None;
         state.dirty_again = false;
+    }
+
+    fn cpu_chunk_cache_jobs_idle(&self) -> bool {
+        self.pending_cpu_chunk_cache_jobs.is_empty()
+            && self
+                .cpu_chunk_cache_states
+                .values()
+                .all(|state| state.inflight_revision.is_none())
+    }
+
+    fn spawn_cpu_chunk_cache_workers() -> (
+        mpsc::Sender<CpuChunkCacheWorkerJob>,
+        mpsc::Receiver<CpuChunkCacheWorkerResult>,
+    ) {
+        let (job_tx, job_rx) = mpsc::channel();
+        let (result_tx, result_rx) = mpsc::channel();
+        let shared_job_rx = Arc::new(Mutex::new(job_rx));
+        let worker_count = thread::available_parallelism()
+            .map(|count| count.get().min(4))
+            .unwrap_or(1)
+            .max(1);
+
+        for _ in 0..worker_count {
+            let job_rx = Arc::clone(&shared_job_rx);
+            let result_tx = result_tx.clone();
+            thread::spawn(move || loop {
+                let job = match job_rx.lock().unwrap().recv() {
+                    Ok(job) => job,
+                    Err(_) => break,
+                };
+
+                match decode_cpu_chunk_cache_job(job) {
+                    Ok(result) => {
+                        if result_tx.send(result).is_err() {
+                            break;
+                        }
+                    }
+                    Err(err) => {
+                        log::error!("Failed to decode CPU chunk cache job: {err}");
+                    }
+                }
+            });
+        }
+
+        (job_tx, result_rx)
     }
 }
 
@@ -787,6 +971,59 @@ impl OwnedCpuChunkReadbackBuffers {
             ),
         }
     }
+}
+
+fn decode_cpu_chunk_cache_job(job: CpuChunkCacheWorkerJob) -> Result<CpuChunkCacheWorkerResult> {
+    let readback_start = Instant::now();
+    let node_bytes = job.readback_buffers.node_readback.read_back()?;
+    let leaf_bytes = job.readback_buffers.leaf_readback.read_back()?;
+    let readback_elapsed = readback_start.elapsed();
+    crate::util::BENCH
+        .lock()
+        .unwrap()
+        .record("contree_cpu_cache_readback", readback_elapsed);
+    let node_bytes = &node_bytes[..job.source.node_size_in_bytes as usize];
+    let leaf_bytes = &leaf_bytes[..job.source.leaf_size_in_bytes as usize];
+
+    let decode_start = Instant::now();
+    let nodes = node_bytes
+        .chunks_exact(SIZE_OF_NODE_ELEMENT as usize)
+        .map(|chunk| CpuContreeNode {
+            packed_0: u32::from_ne_bytes(chunk[0..4].try_into().unwrap()),
+            child_mask_lo: u32::from_ne_bytes(chunk[4..8].try_into().unwrap()),
+            child_mask_hi: u32::from_ne_bytes(chunk[8..12].try_into().unwrap()),
+        })
+        .collect();
+    let leaves = leaf_bytes
+        .chunks_exact(SIZE_OF_LEAF_ELEMENT as usize)
+        .map(|chunk| u32::from_ne_bytes(chunk[0..4].try_into().unwrap()))
+        .collect();
+    let decode_elapsed = decode_start.elapsed();
+    crate::util::BENCH
+        .lock()
+        .unwrap()
+        .record("contree_cpu_cache_decode", decode_elapsed);
+
+    log::info!(
+        "[TERRAIN_EDIT] chunk {:?} CPU cache node {:.1} KiB leaf {:.1} KiB copy={:.3}ms map_copy={:.3}ms decode={:.3}ms rev={}",
+        job.chunk_idx,
+        job.source.node_size_in_bytes as f64 / 1024.0,
+        job.source.leaf_size_in_bytes as f64 / 1024.0,
+        job.gpu_copy_elapsed.as_secs_f64() * 1000.0,
+        readback_elapsed.as_secs_f64() * 1000.0,
+        decode_elapsed.as_secs_f64() * 1000.0,
+        job.revision,
+    );
+
+    Ok(CpuChunkCacheWorkerResult {
+        chunk_idx: job.chunk_idx,
+        revision: job.revision,
+        cache: CpuChunkCache {
+            chunk_idx: job.chunk_idx,
+            nodes,
+            leaves,
+        },
+    })
 }
 
 /// Returns true if `n` is a power of four (1, 4, 16, 64, …).
