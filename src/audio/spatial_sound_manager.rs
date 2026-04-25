@@ -3,21 +3,19 @@ use crate::gameplay::camera::vectors::CameraVectors;
 use anyhow::Result;
 use glam::Vec3;
 use petalsonic::{
-    AcousticRay, BatchedAnyHitRayTracer,
     config::PetalSonicWorldDesc,
     engine::PetalSonicEngine,
     math::{Pose, Quat as PetalQuat, Vec3 as PetalVec3},
     playback::LoopMode,
     world::PetalSonicWorld,
-    DirectOcclusionDebugSnapshot, SourceConfig, SourceId,
+    DirectOcclusionDebugSnapshot, DirectPathOverride, DirectPathTransmission, SourceConfig,
+    SourceId,
 };
 use rand::Rng;
-use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
-use std::ptr::NonNull;
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicBool, AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
 };
 use std::time::Instant;
 use uuid::Uuid;
@@ -30,141 +28,35 @@ struct SourceInfo {
     loop_mode: LoopMode,
 }
 
-trait DirectAudioRayTracerCallback {
-    fn trace_any_hit_batch(
-        &mut self,
-        rays: &[AcousticRay],
-        min_distances: &[f32],
-        max_distances: &[f32],
-    ) -> Result<Vec<bool>>;
+#[derive(Debug, Clone, Copy)]
+pub struct DirectPathQuery {
+    pub source_id: SourceId,
+    pub source_position: Vec3,
+    pub listener_position: Vec3,
 }
 
-impl<F> DirectAudioRayTracerCallback for F
-where
-    F: FnMut(&[AcousticRay], &[f32], &[f32]) -> Result<Vec<bool>>,
-{
-    fn trace_any_hit_batch(
-        &mut self,
-        rays: &[AcousticRay],
-        min_distances: &[f32],
-        max_distances: &[f32],
-    ) -> Result<Vec<bool>> {
-        self(rays, min_distances, max_distances)
-    }
-}
-
-#[derive(Clone, Copy)]
-struct ActiveAudioRayTracingCallback {
-    data: NonNull<()>,
-    stats: NonNull<AudioFillTraceStats>,
-    trace_any_hit_batch: unsafe fn(*mut (), &[AcousticRay], &[f32], &[f32]) -> Result<Vec<bool>>,
-}
-
-impl ActiveAudioRayTracingCallback {
-    unsafe fn trace_any_hit_batch(
-        &mut self,
-        rays: &[AcousticRay],
-        min_distances: &[f32],
-        max_distances: &[f32],
-    ) -> Result<Vec<bool>> {
-        unsafe { (self.trace_any_hit_batch)(self.data.as_ptr(), rays, min_distances, max_distances) }
-    }
-}
-
-#[derive(Default)]
-struct AudioFillTraceStats {
-    total_time_us: u64,
-    batch_count: usize,
-    total_rays: usize,
-    min_batch_time_us: u64,
-    max_batch_time_us: u64,
-}
-
-impl AudioFillTraceStats {
-    fn record_batch(&mut self, elapsed_us: u64, rays: usize) {
-        if self.batch_count == 0 {
-            self.min_batch_time_us = elapsed_us;
-            self.max_batch_time_us = elapsed_us;
-        } else {
-            self.min_batch_time_us = self.min_batch_time_us.min(elapsed_us);
-            self.max_batch_time_us = self.max_batch_time_us.max(elapsed_us);
-        }
-
-        self.total_time_us += elapsed_us;
-        self.batch_count += 1;
-        self.total_rays += rays;
-    }
-
-    fn avg_batch_time_us(&self) -> u64 {
-        if self.batch_count == 0 {
-            0
-        } else {
-            self.total_time_us / self.batch_count as u64
-        }
-    }
-
-    fn avg_rays_per_batch(&self) -> f32 {
-        if self.batch_count == 0 {
-            0.0
-        } else {
-            self.total_rays as f32 / self.batch_count as f32
-        }
-    }
-}
-
-thread_local! {
-    static ACTIVE_AUDIO_RT_CALLBACK: RefCell<Option<ActiveAudioRayTracingCallback>> = RefCell::new(None);
-    static MISSING_AUDIO_RT_CALLBACK_WARNED: Cell<bool> = const { Cell::new(false) };
-}
-
-struct ActiveAudioRayTracingGuard {
-    previous: Option<ActiveAudioRayTracingCallback>,
-}
-
-impl Drop for ActiveAudioRayTracingGuard {
-    fn drop(&mut self) {
-        ACTIVE_AUDIO_RT_CALLBACK.with(|slot| {
-            slot.replace(self.previous.take());
-        });
-    }
-}
-
-fn install_active_audio_rt_callback<F>(
-    callback: &mut F,
-    stats: &mut AudioFillTraceStats,
-) -> ActiveAudioRayTracingGuard
-where
-    F: DirectAudioRayTracerCallback,
-{
-    let callback = ActiveAudioRayTracingCallback {
-        data: NonNull::from(callback).cast(),
-        stats: NonNull::from(stats),
-        trace_any_hit_batch: |data, rays, min_distances, max_distances| unsafe {
-            (&mut *(data as *mut F)).trace_any_hit_batch(rays, min_distances, max_distances)
-        },
-    };
-    let previous = ACTIVE_AUDIO_RT_CALLBACK.with(|slot| slot.replace(Some(callback)));
-    ActiveAudioRayTracingGuard { previous }
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DirectPathQueryResult {
+    pub occlusion: Option<f32>,
+    pub transmission: Option<DirectPathTransmission>,
 }
 
 #[derive(Default)]
 struct AudioRayTracingRuntimeStats {
-    callback_batches: AtomicUsize,
-    callback_rays: AtomicUsize,
-    traced_batches: AtomicUsize,
-    traced_rays: AtomicUsize,
-    traced_hits: AtomicUsize,
-    callback_failures: AtomicUsize,
+    update_count: AtomicUsize,
+    updated_sources: AtomicUsize,
+    occluded_sources: AtomicUsize,
+    update_failures: AtomicUsize,
+    total_update_time_us: AtomicU64,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct AudioRayTracingRuntimeSnapshot {
-    pub callback_batches: usize,
-    pub callback_rays: usize,
-    pub traced_batches: usize,
-    pub traced_rays: usize,
-    pub traced_hits: usize,
-    pub callback_failures: usize,
+    pub update_count: usize,
+    pub updated_sources: usize,
+    pub occluded_sources: usize,
+    pub update_failures: usize,
+    pub total_update_time_us: u64,
 }
 
 struct AudioRayTracingLogger {
@@ -174,103 +66,12 @@ struct AudioRayTracingLogger {
 impl AudioRayTracingLogger {
     fn take_snapshot(&self) -> AudioRayTracingRuntimeSnapshot {
         AudioRayTracingRuntimeSnapshot {
-            callback_batches: self.runtime_stats.callback_batches.swap(0, Ordering::Relaxed),
-            callback_rays: self.runtime_stats.callback_rays.swap(0, Ordering::Relaxed),
-            traced_batches: self.runtime_stats.traced_batches.swap(0, Ordering::Relaxed),
-            traced_rays: self.runtime_stats.traced_rays.swap(0, Ordering::Relaxed),
-            traced_hits: self.runtime_stats.traced_hits.swap(0, Ordering::Relaxed),
-            callback_failures: self.runtime_stats.callback_failures.swap(0, Ordering::Relaxed),
+            update_count: self.runtime_stats.update_count.swap(0, Ordering::Relaxed),
+            updated_sources: self.runtime_stats.updated_sources.swap(0, Ordering::Relaxed),
+            occluded_sources: self.runtime_stats.occluded_sources.swap(0, Ordering::Relaxed),
+            update_failures: self.runtime_stats.update_failures.swap(0, Ordering::Relaxed),
+            total_update_time_us: self.runtime_stats.total_update_time_us.swap(0, Ordering::Relaxed),
         }
-    }
-}
-
-struct AudioRayTracingBackend {
-    enabled: Arc<AtomicBool>,
-    runtime_stats: Arc<AudioRayTracingRuntimeStats>,
-}
-
-impl BatchedAnyHitRayTracer for AudioRayTracingBackend {
-    fn trace_any_hit_batch(
-        &self,
-        rays: &[AcousticRay],
-        min_distances: &[f32],
-        max_distances: &[f32],
-    ) -> Vec<bool> {
-        if !self.enabled.load(Ordering::Relaxed) {
-            return vec![false; rays.len()];
-        }
-
-        log_audio_timing_event(&format!(
-            "PetalSonic batch ray tracing callback invoked ({} rays)",
-            rays.len()
-        ));
-
-        self.runtime_stats
-            .callback_batches
-            .fetch_add(1, Ordering::Relaxed);
-        self.runtime_stats
-            .callback_rays
-            .fetch_add(rays.len(), Ordering::Relaxed);
-
-        ACTIVE_AUDIO_RT_CALLBACK.with(|slot| {
-            let Some(mut callback) = *slot.borrow() else {
-                MISSING_AUDIO_RT_CALLBACK_WARNED.with(|warned| {
-                    if !warned.replace(true) {
-                        log::warn!(
-                            "Audio ray tracing callback invoked without an active direct tracer"
-                        );
-                    }
-                });
-                self.runtime_stats
-                    .callback_failures
-                    .fetch_add(1, Ordering::Relaxed);
-                return vec![false; rays.len()];
-            };
-
-            let trace_start = Instant::now();
-            let results = unsafe { callback.trace_any_hit_batch(rays, min_distances, max_distances) };
-            let elapsed_us = trace_start.elapsed().as_micros() as u64;
-            unsafe {
-                callback
-                    .stats
-                    .as_mut()
-                    .record_batch(elapsed_us, rays.len());
-            }
-
-            match results {
-                Ok(results) if results.len() == rays.len() => {
-                    let hit_count = results.iter().filter(|&&hit| hit).count();
-                    self.runtime_stats
-                        .traced_batches
-                        .fetch_add(1, Ordering::Relaxed);
-                    self.runtime_stats
-                        .traced_rays
-                        .fetch_add(rays.len(), Ordering::Relaxed);
-                    self.runtime_stats
-                        .traced_hits
-                        .fetch_add(hit_count, Ordering::Relaxed);
-                    results
-                }
-                Ok(results) => {
-                    log::warn!(
-                        "Audio ray tracing callback returned {} hits for {} rays",
-                        results.len(),
-                        rays.len()
-                    );
-                    self.runtime_stats
-                        .callback_failures
-                        .fetch_add(1, Ordering::Relaxed);
-                    vec![false; rays.len()]
-                }
-                Err(err) => {
-                    log::warn!("Direct audio ray tracing callback failed: {}", err);
-                    self.runtime_stats
-                        .callback_failures
-                        .fetch_add(1, Ordering::Relaxed);
-                    vec![false; rays.len()]
-                }
-            }
-        })
     }
 }
 
@@ -340,18 +141,13 @@ impl SpatialSoundManager {
         let audio_ray_tracing_logger = Arc::new(AudioRayTracingLogger {
             runtime_stats: audio_ray_tracing_runtime_stats.clone(),
         });
-        let audio_ray_tracing_backend = Arc::new(AudioRayTracingBackend {
-            enabled: audio_ray_tracing_enabled.clone(),
-            runtime_stats: audio_ray_tracing_runtime_stats.clone(),
-        });
-
         let world_desc = PetalSonicWorldDesc {
             sample_rate,
             block_size: frame_window_size,
             hrtf_path: Some(hrtf_path),
             hrtf_gain: 0.0,
             distance_scaler: 15.0,
-            batched_any_hit_ray_tracer: Some(audio_ray_tracing_backend),
+            batched_any_hit_ray_tracer: None,
             ..Default::default()
         };
 
@@ -616,12 +412,93 @@ impl SpatialSoundManager {
             .store(enabled, Ordering::Relaxed);
     }
 
-    pub fn pump_audio<F>(&self, mut trace_batch: F) -> Result<()>
+    pub fn update_direct_path_overrides<F>(&self, mut resolve_queries: F) -> Result<()>
     where
-        F: FnMut(&[AcousticRay], &[f32], &[f32]) -> Result<Vec<bool>>,
+        F: FnMut(&[DirectPathQuery]) -> Result<Vec<DirectPathQueryResult>>,
     {
-        let mut trace_stats = AudioFillTraceStats::default();
-        let _active_rt_callback = install_active_audio_rt_callback(&mut trace_batch, &mut trace_stats);
+        let source_queries = self.collect_direct_path_queries();
+
+        if source_queries.is_empty() {
+            return Ok(());
+        }
+
+        if !self
+            .audio_ray_tracing_service
+            .enabled
+            .load(Ordering::Relaxed)
+        {
+            self.clear_direct_path_overrides(&source_queries)?;
+            return Ok(());
+        }
+
+        let trace_start = Instant::now();
+        let results = resolve_queries(&source_queries);
+        let elapsed_us = trace_start.elapsed().as_micros() as u64;
+
+        let results = match results {
+            Ok(results) if results.len() == source_queries.len() => results,
+            Ok(results) => {
+                self.audio_ray_tracing_service
+                    .runtime_stats
+                    .update_failures
+                    .fetch_add(1, Ordering::Relaxed);
+                return Err(anyhow::anyhow!(
+                    "Direct path resolver returned {} results for {} queries",
+                    results.len(),
+                    source_queries.len()
+                ));
+            }
+            Err(err) => {
+                self.audio_ray_tracing_service
+                    .runtime_stats
+                    .update_failures
+                    .fetch_add(1, Ordering::Relaxed);
+                return Err(err);
+            }
+        };
+
+        let mut occluded_sources = 0usize;
+        for (query, result) in source_queries.iter().zip(results.into_iter()) {
+            if let Some(occlusion) = result.occlusion {
+                if occlusion < 0.5 {
+                    occluded_sources += 1;
+                }
+            }
+
+            let override_data = if result.occlusion.is_some() || result.transmission.is_some() {
+                Some(DirectPathOverride {
+                    occlusion: result.occlusion,
+                    transmission: result.transmission,
+                })
+            } else {
+                None
+            };
+
+            self.world
+                .update_source_direct_path_override(query.source_id, override_data)?;
+        }
+
+        self.audio_ray_tracing_service
+            .runtime_stats
+            .update_count
+            .fetch_add(1, Ordering::Relaxed);
+        self.audio_ray_tracing_service
+            .runtime_stats
+            .updated_sources
+            .fetch_add(source_queries.len(), Ordering::Relaxed);
+        self.audio_ray_tracing_service
+            .runtime_stats
+            .occluded_sources
+            .fetch_add(occluded_sources, Ordering::Relaxed);
+        self.audio_ray_tracing_service
+            .runtime_stats
+            .total_update_time_us
+            .fetch_add(elapsed_us, Ordering::Relaxed);
+
+        Ok(())
+    }
+
+    pub fn pump_audio(&self) -> Result<()> {
         let pump_start = Instant::now();
         let mut engine = self.engine.lock().unwrap();
         engine
@@ -645,19 +522,13 @@ impl SpatialSoundManager {
             timing_events.iter().map(|event| event.resampling_time_us).sum();
 
         log::info!(
-            "[audio-fill] wall={:.3}ms engine_batches={} engine_total={:.3}ms engine_mix={:.3}ms engine_spatial={:.3}ms engine_resample={:.3}ms trace_total={:.3}ms trace_batches={} trace_batch_ms(min/avg/max)={:.3}/{:.3}/{:.3} avg_rays_per_batch={:.2}",
+            "[audio-fill] wall={:.3}ms engine_batches={} engine_total={:.3}ms engine_mix={:.3}ms engine_spatial={:.3}ms engine_resample={:.3}ms",
             wall_time_us as f64 / 1000.0,
             engine_batch_count,
             engine_total_time_us as f64 / 1000.0,
             engine_mix_time_us as f64 / 1000.0,
             engine_spatial_time_us as f64 / 1000.0,
             engine_resample_time_us as f64 / 1000.0,
-            trace_stats.total_time_us as f64 / 1000.0,
-            trace_stats.batch_count,
-            trace_stats.min_batch_time_us as f64 / 1000.0,
-            trace_stats.avg_batch_time_us() as f64 / 1000.0,
-            trace_stats.max_batch_time_us as f64 / 1000.0,
-            trace_stats.avg_rays_per_batch(),
         );
 
         Ok(())
@@ -672,6 +543,31 @@ impl SpatialSoundManager {
 
     pub fn take_audio_ray_tracing_runtime_snapshot(&self) -> AudioRayTracingRuntimeSnapshot {
         self.audio_ray_tracing_logger.take_snapshot()
+    }
+
+    fn collect_direct_path_queries(&self) -> Vec<DirectPathQuery> {
+        let listener_position = self.listener_state.lock().unwrap().position;
+        self.uuid_to_source
+            .lock()
+            .unwrap()
+            .values()
+            .filter_map(|source_info| {
+                source_info.position.map(|source_position| DirectPathQuery {
+                    source_id: source_info.source_id,
+                    source_position,
+                    listener_position,
+                })
+            })
+            .collect()
+    }
+
+    fn clear_direct_path_overrides(&self, source_queries: &[DirectPathQuery]) -> Result<()> {
+        for query in source_queries {
+            self.world
+                .update_source_direct_path_override(query.source_id, None)?;
+        }
+
+        Ok(())
     }
 
     #[allow(dead_code)]
@@ -809,7 +705,4 @@ impl Clone for SpatialSoundManager {
             audio_ray_tracing_logger: self.audio_ray_tracing_logger.clone(),
         }
     }
-}
-fn log_audio_timing_event(message: &str) {
-    log::trace!("[audio-timing] {}", message);
 }

@@ -385,26 +385,24 @@ impl App {
 
         self.audio_ray_tracing_debug_text = match direct_snapshot {
             Some(snapshot) => format!(
-                "Audio RT: {} callbacks / {} rays\nDirect trace: {} batches / {} rays / {} hits\nFallbacks: {}\nDirect occ: {} samples avg {:.3} min {:.3} max {:.3}",
-                runtime_snapshot.callback_batches,
-                runtime_snapshot.callback_rays,
-                runtime_snapshot.traced_batches,
-                runtime_snapshot.traced_rays,
-                runtime_snapshot.traced_hits,
-                runtime_snapshot.callback_failures,
+                "Audio RT: {} updates / {} sources / {} occluded\nDirect update: {:.3}ms total, failures {}\nDirect occ: {} samples avg {:.3} min {:.3} max {:.3}",
+                runtime_snapshot.update_count,
+                runtime_snapshot.updated_sources,
+                runtime_snapshot.occluded_sources,
+                runtime_snapshot.total_update_time_us as f64 / 1000.0,
+                runtime_snapshot.update_failures,
                 snapshot.sample_count,
                 snapshot.avg_occlusion,
                 snapshot.min_occlusion,
                 snapshot.max_occlusion,
             ),
             None => format!(
-                "Audio RT: {} callbacks / {} rays\nDirect trace: {} batches / {} rays / {} hits\nFallbacks: {}\nDirect occ: no samples",
-                runtime_snapshot.callback_batches,
-                runtime_snapshot.callback_rays,
-                runtime_snapshot.traced_batches,
-                runtime_snapshot.traced_rays,
-                runtime_snapshot.traced_hits,
-                runtime_snapshot.callback_failures,
+                "Audio RT: {} updates / {} sources / {} occluded\nDirect update: {:.3}ms total, failures {}\nDirect occ: no samples",
+                runtime_snapshot.update_count,
+                runtime_snapshot.updated_sources,
+                runtime_snapshot.occluded_sources,
+                runtime_snapshot.total_update_time_us as f64 / 1000.0,
+                runtime_snapshot.update_failures,
             ),
         };
     }
@@ -1268,55 +1266,55 @@ impl App {
                 if let Err(err) = self.tree_audio_manager.update(time_since_start) {
                     log::warn!("Failed to update tree audio sources: {}", err);
                 }
-                if let Err(err) = self.spatial_sound_manager.pump_audio(
-                    |rays, min_distances, max_distances| {
-                        const AUDIO_RAY_ENDPOINT_EPSILON: f32 = 0.05;
+                if let Err(err) = self.spatial_sound_manager.update_direct_path_overrides(|queries| {
+                    const AUDIO_RAY_ENDPOINT_EPSILON: f32 = 0.05;
 
-                        let queries = rays
-                            .iter()
-                            .zip(min_distances.iter().zip(max_distances.iter()))
-                            .map(|(ray, (&min_distance, &max_distance))| {
-                                let max_distance = (max_distance - AUDIO_RAY_ENDPOINT_EPSILON)
-                                    .max(min_distance)
-                                    .max(0.0);
-                                let direction = if max_distance > 0.0 {
-                                    Vec3::new(
-                                        ray.direction.x * max_distance,
-                                        ray.direction.y * max_distance,
-                                        ray.direction.z * max_distance,
-                                    )
-                                } else {
-                                    Vec3::ZERO
-                                };
-                                (
-                                    TerrainRayQuery {
-                                        origin: Vec3::new(ray.origin.x, ray.origin.y, ray.origin.z),
-                                        direction,
-                                    },
-                                    min_distance,
-                                    max_distance,
-                                )
-                            })
-                            .collect::<Vec<_>>();
+                    let terrain_queries = queries
+                        .iter()
+                        .map(|query| {
+                            let direction_to_listener =
+                                query.listener_position - query.source_position;
+                            let listener_distance = direction_to_listener.length();
+                            let ray_extent = (listener_distance - AUDIO_RAY_ENDPOINT_EPSILON).max(0.0);
+                            let direction = if ray_extent > 0.0 && listener_distance > 1e-6 {
+                                direction_to_listener / listener_distance * ray_extent
+                            } else {
+                                Vec3::ZERO
+                            };
 
-                        let raw_queries =
-                            queries.iter().map(|(query, _, _)| *query).collect::<Vec<_>>();
-                        let hits = self.tracer.query_terrain_rays_batch_with_validity(&raw_queries)?;
+                            TerrainRayQuery {
+                                origin: query.source_position,
+                                direction,
+                            }
+                        })
+                        .collect::<Vec<_>>();
 
-                        Ok(queries
-                            .iter()
-                            .zip(hits.iter())
-                            .map(|((query, min_distance, max_distance), hit)| {
-                                if !hit.is_valid || *max_distance <= *min_distance {
-                                    return false;
-                                }
+                    let hits = self
+                        .tracer
+                        .query_terrain_rays_batch_with_validity(&terrain_queries)?;
 
-                                let hit_distance = hit.position.distance(query.origin);
-                                hit_distance >= *min_distance && hit_distance <= *max_distance
-                            })
-                            .collect())
-                    },
-                ) {
+                    Ok(queries
+                        .iter()
+                        .zip(terrain_queries.iter().zip(hits.iter()))
+                        .map(|(query, (terrain_query, hit))| {
+                            let listener_distance =
+                                query.listener_position.distance(query.source_position);
+                            let is_occluded = hit.is_valid
+                                && listener_distance > AUDIO_RAY_ENDPOINT_EPSILON
+                                && hit.position.distance(terrain_query.origin)
+                                    <= (listener_distance - AUDIO_RAY_ENDPOINT_EPSILON).max(0.0);
+
+                            crate::audio::DirectPathQueryResult {
+                                occlusion: Some(if is_occluded { 0.0 } else { 1.0 }),
+                                transmission: None,
+                            }
+                        })
+                        .collect())
+                }) {
+                    log::warn!("Failed to update direct audio paths: {}", err);
+                }
+
+                if let Err(err) = self.spatial_sound_manager.pump_audio() {
                     log::warn!("Failed to pump audio: {}", err);
                 }
                 self.update_audio_ray_tracing();
