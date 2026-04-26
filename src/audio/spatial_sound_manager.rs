@@ -13,6 +13,7 @@ use petalsonic::{
 };
 use rand::Rng;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
@@ -41,6 +42,7 @@ pub struct SpatialSoundManager {
 
     // Global master gain (dB) applied to all sources.
     global_volume_gain_db: Arc<Mutex<f32>>,
+    engine_started: Arc<AtomicBool>,
 }
 
 #[derive(Clone, Debug)]
@@ -96,10 +98,7 @@ impl SpatialSoundManager {
         // Create world and engine
         let world = PetalSonicWorld::new(world_desc.clone())?;
         let world_arc = Arc::new(world);
-        let mut engine = PetalSonicEngine::new(world_desc, world_arc.clone())?;
-
-        // Start the engine
-        engine.start()?;
+        let engine = PetalSonicEngine::new(world_desc, world_arc.clone())?;
 
         // Initialize with default listener position and orientation
         let listener_pose = Pose::new(PetalVec3::new(0.0, 0.0, 0.0), PetalQuat::IDENTITY);
@@ -114,6 +113,7 @@ impl SpatialSoundManager {
             uuid_to_source: Arc::new(Mutex::new(HashMap::new())),
             listener_state: Arc::new(Mutex::new(ListenerState::default())),
             global_volume_gain_db: Arc::new(Mutex::new(0.0)),
+            engine_started: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -349,11 +349,40 @@ impl SpatialSoundManager {
     }
 
     pub fn pump_audio(&self) -> Result<()> {
+        if !self.engine_started.load(Ordering::Acquire) {
+            return Ok(());
+        }
+
         let mut engine = self.engine.lock().unwrap();
         engine
             .pump_audio()
             .map_err(|err| anyhow::anyhow!("Failed to pump audio: {}", err))?;
         drop(engine);
+        Ok(())
+    }
+
+    pub fn start(&self) -> Result<()> {
+        if self.engine_started.load(Ordering::Acquire) {
+            return Ok(());
+        }
+
+        let mut engine = self.engine.lock().unwrap();
+        if self.engine_started.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+
+        engine.start()?;
+        self.engine_started.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    pub fn stop(&self) -> Result<()> {
+        if !self.engine_started.swap(false, Ordering::AcqRel) {
+            return Ok(());
+        }
+
+        let mut engine = self.engine.lock().unwrap();
+        engine.stop()?;
         Ok(())
     }
 
@@ -496,6 +525,7 @@ impl Clone for SpatialSoundManager {
             uuid_to_source: self.uuid_to_source.clone(),
             listener_state: self.listener_state.clone(),
             global_volume_gain_db: self.global_volume_gain_db.clone(),
+            engine_started: self.engine_started.clone(),
         }
     }
 }

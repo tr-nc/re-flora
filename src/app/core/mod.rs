@@ -65,7 +65,6 @@ use winit::{
 };
 
 const LEAF_CLUSTER_DISTANCE: f32 = 0.08;
-
 struct FrameSync {
     image_available: Semaphore,
     fence: Fence,
@@ -204,6 +203,10 @@ pub struct App {
 
 impl Drop for App {
     fn drop(&mut self) {
+        if let Err(err) = self.spatial_sound_manager.stop() {
+            log::warn!("Failed to stop audio engine during shutdown: {}", err);
+        }
+
         // Ensure GPU work is done before resources begin destructing
         self.vulkan_ctx.device().wait_idle();
     }
@@ -966,6 +969,10 @@ impl App {
             self.gui_adjustables.leaves_outer_radius.value,
         ) {
             log::error!("Failed to regenerate leaves: {}", err);
+        }
+
+        if let Err(err) = self.spatial_sound_manager.start() {
+            log::error!("Failed to start audio engine: {}", err);
         }
 
         self.render_start_time = Some(Instant::now());
