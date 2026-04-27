@@ -1381,9 +1381,11 @@ impl App {
                     self.gui_adjustables.world_tick_seconds.value,
                 );
                 self.flora_tick_accumulator += frame_delta_time / world_tick_seconds;
+                let mut world_tick_steps = 0;
                 while self.flora_tick_accumulator >= 1.0 {
                     self.flora_tick = self.flora_tick.wrapping_add(1);
                     self.flora_tick_accumulator -= 1.0;
+                    world_tick_steps += 1;
                 }
                 if let Err(err) = self.tree_audio_manager.update(time_since_start) {
                     log::warn!("Failed to update tree audio sources: {}", err);
@@ -1699,12 +1701,13 @@ impl App {
                 }
 
                 // update sun position if auto day/night cycle is enabled
-                if self.gui_adjustables.auto_daynight_cycle.value {
+                if self.gui_adjustables.auto_daynight_cycle.value && world_tick_steps > 0 {
                     // update time of day based on delta time and day cycle speed
                     // day_cycle_minutes is the real-world minutes for a full day cycle
                     // convert to time progression per second: 1.0 / (day_cycle_minutes * 60.0)
                     let time_speed = 1.0 / (self.gui_adjustables.day_cycle_minutes.value * 60.0);
-                    self.gui_adjustables.time_of_day.value += frame_delta_time * time_speed;
+                    self.gui_adjustables.time_of_day.value +=
+                        world_tick_steps as f32 * world_tick_seconds * time_speed;
 
                     // keep time_of_day in 0.0 to 1.0 range (wrap around)
                     self.gui_adjustables.time_of_day.value %= 1.0;
