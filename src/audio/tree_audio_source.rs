@@ -1,5 +1,5 @@
 use crate::audio::SpatialSoundManager;
-use crate::wind::Wind;
+use crate::wind::{Wind, WindResponseCurve};
 use anyhow::Result;
 use glam::Vec3;
 use uuid::Uuid;
@@ -16,6 +16,7 @@ pub struct TreeAudioSource {
     pub cluster_size: u32,
     base_volume_db: f32,
     current_volume_db: f32,
+    wind_response_curve: WindResponseCurve,
 }
 
 impl TreeAudioSource {
@@ -25,6 +26,7 @@ impl TreeAudioSource {
         position: Vec3,
         cluster_size: u32,
         base_volume_db: f32,
+        wind_response_curve: WindResponseCurve,
     ) -> Self {
         Self {
             uuid,
@@ -33,6 +35,7 @@ impl TreeAudioSource {
             cluster_size,
             base_volume_db,
             current_volume_db: base_volume_db,
+            wind_response_curve,
         }
     }
 
@@ -45,10 +48,7 @@ impl TreeAudioSource {
         time_seconds: f32,
         spatial_sound_manager: &SpatialSoundManager,
     ) -> Result<()> {
-        let normalized = wind
-            .sample_normalized(self.position, time_seconds)
-            .length()
-            .clamp(0.0, 1.0);
+        let normalized = wind.sample_response(self.position, time_seconds, self.wind_response_curve);
 
         let target_volume_db = self.base_volume_db + normalized * WIND_VOLUME_SWING_DB;
         if (target_volume_db - self.current_volume_db).abs() <= VOLUME_EPSILON {

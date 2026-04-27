@@ -531,7 +531,6 @@ impl App {
         // and the app-level tree ambience sources.
         let spatial_sound_manager =
             SpatialSoundManager::new(1024, contree_builder.audio_ray_tracer())?;
-        let tree_audio_manager = TreeAudioManager::new(spatial_sound_manager.clone());
 
         let tracer = Tracer::new(
             vulkan_ctx.clone(),
@@ -568,6 +567,10 @@ impl App {
             color_high: color_to_vec4(gui_adjustables.leaves_tip_color.value),
             ..LeafEmitterDesc::default()
         };
+        let tree_audio_manager = TreeAudioManager::new(
+            spatial_sound_manager.clone(),
+            leaf_emitter_desc.wind_response_curve(),
+        );
         let butterfly_emitters = Vec::new();
         let butterfly_emitter_desc = Self::butterfly_desc_from_gui_adjustables(&gui_adjustables);
         let particle_snapshots = Vec::with_capacity(PARTICLE_CAPACITY);

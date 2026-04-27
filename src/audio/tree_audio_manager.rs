@@ -1,6 +1,6 @@
 use crate::audio::{SpatialSoundManager, TreeAudioSource};
 use crate::util::{cluster_positions, ClusterResult};
-use crate::wind::Wind;
+use crate::wind::{Wind, WindResponseCurve};
 use anyhow::Result;
 use glam::Vec3;
 use log::{debug, warn};
@@ -15,16 +15,21 @@ const DEFAULT_BASE_VOLUME_DB: f32 = -20.0;
 pub struct TreeAudioManager {
     spatial_sound_manager: SpatialSoundManager,
     base_volume_db: f32,
+    wind_response_curve: WindResponseCurve,
     sources_by_tree: HashMap<u32, Vec<Uuid>>,
     sources: HashMap<Uuid, TreeAudioSource>,
     wind: Wind,
 }
 
 impl TreeAudioManager {
-    pub fn new(spatial_sound_manager: SpatialSoundManager) -> Self {
+    pub fn new(
+        spatial_sound_manager: SpatialSoundManager,
+        wind_response_curve: WindResponseCurve,
+    ) -> Self {
         Self {
             spatial_sound_manager,
             base_volume_db: DEFAULT_BASE_VOLUME_DB,
+            wind_response_curve,
             sources_by_tree: HashMap::new(),
             sources: HashMap::new(),
             wind: Wind::new(),
@@ -228,7 +233,14 @@ impl TreeAudioManager {
         cluster_size: u32,
         base_volume_db: f32,
     ) {
-        let entry = TreeAudioSource::new(uuid, tree_id, position, cluster_size, base_volume_db);
+        let entry = TreeAudioSource::new(
+            uuid,
+            tree_id,
+            position,
+            cluster_size,
+            base_volume_db,
+            self.wind_response_curve,
+        );
         self.sources_by_tree.entry(tree_id).or_default().push(uuid);
         self.sources.insert(uuid, entry);
     }
