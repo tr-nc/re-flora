@@ -2532,7 +2532,9 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "petalsonic"
-version = "0.3.0"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "42f8485132bced607e4dc56d0d85998da7c8440437a69aa055eaad524ddf9e26"
 dependencies = [
  "anyhow",
  "audionimbus",
