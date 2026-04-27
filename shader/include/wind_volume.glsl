@@ -7,6 +7,14 @@ uint get_wind_volume_bucket_index(uint instance_seed) {
     return instance_seed % WIND_VOLUME_BUCKET_COUNT;
 }
 
+uint get_wind_volume_voxel_seed(uint instance_seed, ivec3 vox_local_pos) {
+    uint seed = instance_seed ^ 0x9E3779B9u;
+    seed ^= uint(vox_local_pos.x) * 0x85EBCA6Bu;
+    seed ^= uint(vox_local_pos.y) * 0xC2B2AE35u;
+    seed ^= uint(vox_local_pos.z) * 0x27D4EB2Fu;
+    return seed ^ (seed >> 16u);
+}
+
 vec3 sample_wind_volume(vec3 world_pos, uint instance_seed) {
     vec3 local_uv      = clamp(world_pos / wind_volume_info.world_chunk_extent, vec3(0.0), vec3(1.0));
     ivec3 volume_size  = textureSize(wind_volume_tex, 0);

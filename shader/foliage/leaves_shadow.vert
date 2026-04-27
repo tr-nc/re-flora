@@ -93,7 +93,9 @@ void main() {
     vec3 instance_pos = in_instance_pos * scaling_factor;
 
     uint instance_seed = decode_instance_seed(in_instance_ty_seed);
-    vec3 wind_vec    = sample_wind_volume(instance_pos, instance_seed);
+    vec3 wind_sample_pos = instance_pos + vec3(vox_local_pos) * scaling_factor;
+    uint wind_seed = get_wind_volume_voxel_seed(instance_seed, vox_local_pos);
+    vec3 wind_vec    = sample_wind_volume(wind_sample_pos, wind_seed);
     vec3 wind_offset = wind_vec * wind_gradient * wind_gradient;
     vec3 anchor_pos  = (vox_local_pos + wind_offset) * scaling_factor + instance_pos;
     vec3 voxel_pos   = anchor_pos + vec3(0.5) * scaling_factor;
