@@ -290,6 +290,7 @@ const FLORA_FULL_GROWTH_TICKS: u32 = 30;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ActiveVoxelType {
+    All,
     Dirt,
     Sand,
     CherryWood,
@@ -297,7 +298,16 @@ pub(super) enum ActiveVoxelType {
     Rock,
 }
 
-const ACTIVE_VOXEL_TYPES: [ActiveVoxelType; 5] = [
+const ACTIVE_VOXEL_TYPES: [ActiveVoxelType; 6] = [
+    ActiveVoxelType::All,
+    ActiveVoxelType::Dirt,
+    ActiveVoxelType::Sand,
+    ActiveVoxelType::CherryWood,
+    ActiveVoxelType::OakWood,
+    ActiveVoxelType::Rock,
+];
+
+const BACKPACK_VOXEL_TYPES: [ActiveVoxelType; 5] = [
     ActiveVoxelType::Dirt,
     ActiveVoxelType::Sand,
     ActiveVoxelType::CherryWood,
@@ -306,18 +316,20 @@ const ACTIVE_VOXEL_TYPES: [ActiveVoxelType; 5] = [
 ];
 
 impl ActiveVoxelType {
-    pub(super) fn voxel_type(self) -> u32 {
+    pub(super) fn voxel_type(self) -> Option<u32> {
         match self {
-            ActiveVoxelType::Dirt => crate::builder::VOXEL_TYPE_DIRT,
-            ActiveVoxelType::Sand => crate::builder::VOXEL_TYPE_SAND,
-            ActiveVoxelType::CherryWood => crate::builder::VOXEL_TYPE_CHERRY_WOOD,
-            ActiveVoxelType::OakWood => crate::builder::VOXEL_TYPE_OAK_WOOD,
-            ActiveVoxelType::Rock => crate::builder::VOXEL_TYPE_ROCK,
+            ActiveVoxelType::All => None,
+            ActiveVoxelType::Dirt => Some(crate::builder::VOXEL_TYPE_DIRT),
+            ActiveVoxelType::Sand => Some(crate::builder::VOXEL_TYPE_SAND),
+            ActiveVoxelType::CherryWood => Some(crate::builder::VOXEL_TYPE_CHERRY_WOOD),
+            ActiveVoxelType::OakWood => Some(crate::builder::VOXEL_TYPE_OAK_WOOD),
+            ActiveVoxelType::Rock => Some(crate::builder::VOXEL_TYPE_ROCK),
         }
     }
 
     pub(super) fn label(self) -> &'static str {
         match self {
+            ActiveVoxelType::All => "All",
             ActiveVoxelType::Dirt => "Dirt",
             ActiveVoxelType::Sand => "Sand",
             ActiveVoxelType::CherryWood => "Cherry wood",
@@ -328,6 +340,7 @@ impl ActiveVoxelType {
 
     pub(super) fn color(self) -> Color32 {
         match self {
+            ActiveVoxelType::All => Color32::from_rgb(235, 230, 215),
             ActiveVoxelType::Dirt => Color32::from_rgb(178, 124, 80),
             ActiveVoxelType::Sand => Color32::from_rgb(229, 204, 126),
             ActiveVoxelType::CherryWood => Color32::from_rgb(219, 128, 152),
@@ -627,7 +640,7 @@ impl App {
             item_panel_staff_icon: None,
             item_panel_hoe_icon: None,
             selected_item_panel_slot: 0,
-            active_voxel_type: ActiveVoxelType::Dirt,
+            active_voxel_type: ActiveVoxelType::All,
             audio_ray_tracing_debug_text: "Audio RT: not sampled yet".to_owned(),
             audio_ray_tracing_last_direct_snapshot: None,
             audio_ray_tracing_last_runtime_snapshot: Default::default(),

@@ -38,12 +38,16 @@ impl App {
         self.selected_item_panel_slot == HOE_SLOT_INDEX
     }
 
-    fn active_voxel_type_id(&self) -> u32 {
+    fn active_voxel_type_id(&self) -> Option<u32> {
         self.active_voxel_type.voxel_type()
     }
 
-    fn active_voxel_count(&self) -> u32 {
-        match self.active_voxel_type {
+    fn voxel_count(&self, voxel_type: super::ActiveVoxelType) -> u32 {
+        match voxel_type {
+            super::ActiveVoxelType::All => super::BACKPACK_VOXEL_TYPES
+                .iter()
+                .map(|voxel_type| self.voxel_count(*voxel_type))
+                .sum(),
             super::ActiveVoxelType::Dirt => self.backpack_dirt_count,
             super::ActiveVoxelType::Sand => self.backpack_sand_count,
             super::ActiveVoxelType::CherryWood => self.backpack_cherry_wood_count,
@@ -52,16 +56,36 @@ impl App {
         }
     }
 
+    fn active_voxel_count(&self) -> u32 {
+        self.voxel_count(self.active_voxel_type)
+    }
+
     fn is_active_voxel_storage_full(&self) -> bool {
+        if self.active_voxel_type == super::ActiveVoxelType::All {
+            return super::BACKPACK_VOXEL_TYPES
+                .iter()
+                .all(|voxel_type| self.voxel_count(*voxel_type) >= MAX_VOXEL_STORAGE_PER_TYPE);
+        }
+
         self.active_voxel_count() >= MAX_VOXEL_STORAGE_PER_TYPE
     }
 
     fn active_voxel_storage_remaining(&self) -> u32 {
+        if self.active_voxel_type == super::ActiveVoxelType::All {
+            return super::BACKPACK_VOXEL_TYPES
+                .iter()
+                .map(|voxel_type| {
+                    MAX_VOXEL_STORAGE_PER_TYPE.saturating_sub(self.voxel_count(*voxel_type))
+                })
+                .sum();
+        }
+
         MAX_VOXEL_STORAGE_PER_TYPE.saturating_sub(self.active_voxel_count())
     }
 
-    fn add_active_voxel_to_backpack(&mut self, amount: u32) {
-        match self.active_voxel_type {
+    fn add_voxel_to_backpack(&mut self, voxel_type: super::ActiveVoxelType, amount: u32) {
+        match voxel_type {
+            super::ActiveVoxelType::All => unreachable!("All is not a concrete backpack voxel"),
             super::ActiveVoxelType::Dirt => {
                 self.backpack_dirt_count = self
                     .backpack_dirt_count
@@ -95,8 +119,21 @@ impl App {
         }
     }
 
-    fn remove_active_voxel_from_backpack(&mut self, amount: u32) {
-        match self.active_voxel_type {
+    fn add_active_voxel_to_backpack(&mut self, amount: u32) {
+        self.add_voxel_to_backpack(self.active_voxel_type, amount);
+    }
+
+    fn add_removed_voxels_to_backpack(&mut self, stats: &crate::builder::ChunkModifyStats) {
+        for voxel_type in super::BACKPACK_VOXEL_TYPES {
+            if let Some(voxel_type_id) = voxel_type.voxel_type() {
+                self.add_voxel_to_backpack(voxel_type, stats.count_removed(voxel_type_id));
+            }
+        }
+    }
+
+    fn remove_voxel_from_backpack(&mut self, voxel_type: super::ActiveVoxelType, amount: u32) {
+        match voxel_type {
+            super::ActiveVoxelType::All => unreachable!("All is not a concrete backpack voxel"),
             super::ActiveVoxelType::Dirt => {
                 self.backpack_dirt_count = self.backpack_dirt_count.saturating_sub(amount)
             }
@@ -114,6 +151,17 @@ impl App {
                 self.backpack_rock_count = self.backpack_rock_count.saturating_sub(amount)
             }
         }
+    }
+
+    fn first_placeable_voxel_type(&self) -> Option<super::ActiveVoxelType> {
+        if self.active_voxel_type != super::ActiveVoxelType::All {
+            return (self.active_voxel_count() > 0).then_some(self.active_voxel_type);
+        }
+
+        super::BACKPACK_VOXEL_TYPES
+            .iter()
+            .copied()
+            .find(|voxel_type| self.voxel_count(*voxel_type) > 0)
     }
 
     pub(super) fn start_terrain_edit_loop_sound(&mut self, position: Vec3) {
@@ -319,12 +367,16 @@ impl App {
                             center,
                             radius: super::SHOVEL_REMOVE_RADIUS,
                         },
-                        Some(self.active_voxel_type_id()),
+                        self.active_voxel_type_id(),
                         Some(remaining_capacity),
                     )
                     .map(|readback| {
-                        let harvested = readback.stats.count_removed(self.active_voxel_type_id());
-                        self.add_active_voxel_to_backpack(harvested);
+                        if let Some(active_voxel_type_id) = self.active_voxel_type_id() {
+                            let harvested = readback.stats.count_removed(active_voxel_type_id);
+                            self.add_active_voxel_to_backpack(harvested);
+                        } else {
+                            self.add_removed_voxels_to_backpack(&readback.stats);
+                        }
                         self.spawn_terrain_harvest_particles(
                             center,
                             &readback.stats,
@@ -391,13 +443,15 @@ impl App {
             return;
         }
 
-        if self.active_voxel_count() == 0 {
+        let Some(place_voxel_type) = self.first_placeable_voxel_type() else {
             self.stop_terrain_edit_loop_sound();
             return;
-        }
+        };
 
-        let active_voxel_type = self.active_voxel_type_id();
-        let active_voxel_count = self.active_voxel_count();
+        let place_voxel_type_id = place_voxel_type
+            .voxel_type()
+            .expect("placeable voxel type should be concrete");
+        let place_voxel_count = self.voxel_count(place_voxel_type);
 
         match self.query_camera_ray_terrain_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
@@ -415,12 +469,13 @@ impl App {
                             center,
                             radius: super::SHOVEL_REMOVE_RADIUS,
                         },
-                        active_voxel_type,
-                        active_voxel_count,
+                        place_voxel_type_id,
+                        place_voxel_count,
                     )
                     .map(|readback| {
-                        self.remove_active_voxel_from_backpack(
-                            readback.stats.count_added(self.active_voxel_type_id()),
+                        self.remove_voxel_from_backpack(
+                            place_voxel_type,
+                            readback.stats.count_added(place_voxel_type_id),
                         );
                     })
                 {
