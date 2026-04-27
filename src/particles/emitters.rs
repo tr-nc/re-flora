@@ -2,7 +2,7 @@ use std::{f32::consts::TAU, ops::RangeInclusive};
 
 use fastnoise_lite::{FastNoiseLite, NoiseType};
 use glam::{Vec3, Vec4};
-use rand::{rngs::SmallRng, Rng, SeedableRng};
+use rand::{rngs::SmallRng, RngExt, SeedableRng};
 
 use super::{MotionMode, ParticleHandle, ParticleRenderKind, ParticleSpawn, ParticleSystem};
 use crate::tracer::ButterflyPalettePreset;

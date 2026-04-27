@@ -11,7 +11,7 @@ use petalsonic::{
     world::PetalSonicWorld,
     BatchedAnyHitRayTracer, DirectOcclusionDebugSnapshot, SourceConfig, SourceId,
 };
-use rand::Rng;
+use rand::RngExt;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};

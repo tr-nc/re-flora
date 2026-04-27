@@ -1,7 +1,7 @@
 use crate::geom::RoundCone;
 use glam::Vec3;
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 use std::f32::consts::PI;
 
 #[derive(Debug, Clone)]

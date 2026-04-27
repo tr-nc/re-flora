@@ -1,7 +1,7 @@
 use crate::audio::SpatialSoundManager;
 use anyhow::Result;
 use glam::Vec3;
-use rand::Rng;
+use rand::RngExt;
 
 pub struct PlayerClipCaches {
     // Store file paths for spatial audio
