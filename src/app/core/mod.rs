@@ -965,8 +965,6 @@ impl App {
         self.contree_builder.flush_cpu_chunk_cache_jobs();
         BENCH.lock().unwrap().summary();
 
-        self.validate_startup_terrain_query();
-
         self.ensure_map_butterfly_emitter();
 
         if let Err(err) = self.add_tree(
@@ -993,6 +991,7 @@ impl App {
         self.render_start_time = Some(Instant::now());
     }
 
+    #[allow(dead_code)]
     fn validate_startup_terrain_query(&mut self) {
         let rays = [
             TerrainRayQuery {
