@@ -1,6 +1,35 @@
 use fastnoise_lite::{FastNoiseLite, FractalType, NoiseType};
 use glam::{Vec2, Vec3};
 
+#[derive(Clone, Copy, Debug)]
+pub struct WindResponseCurve {
+    pub min_strength: f32,
+    pub max_strength: f32,
+    pub power: f32,
+}
+
+impl WindResponseCurve {
+    pub fn factor(self, normalized_strength: f32) -> f32 {
+        let normalized_strength = normalized_strength.clamp(0.0, 1.0);
+        let (min_strength, max_strength) = if self.min_strength <= self.max_strength {
+            (self.min_strength, self.max_strength)
+        } else {
+            (self.max_strength, self.min_strength)
+        };
+        let range = max_strength - min_strength;
+        if range <= f32::EPSILON {
+            return if normalized_strength >= max_strength {
+                1.0
+            } else {
+                0.0
+            };
+        }
+
+        let scaled = ((normalized_strength - min_strength) / range).clamp(0.0, 1.0);
+        scaled.powf(self.power.max(0.001))
+    }
+}
+
 const WIND_DIRECTION_SEED: i32 = 1729;
 const WIND_STRENGTH_SEED: i32 = 2843;
 const WIND_DIRECTION_FREQUENCY: f32 = 0.0025;
@@ -72,5 +101,14 @@ impl Wind {
 
         let wind_planar = direction * normalized_strength;
         Vec3::new(wind_planar.x, 0.0, wind_planar.y)
+    }
+
+    pub fn sample_response(
+        &self,
+        world_pos: Vec3,
+        time: f32,
+        response_curve: WindResponseCurve,
+    ) -> f32 {
+        response_curve.factor(self.sample_normalized(world_pos, time).length())
     }
 }

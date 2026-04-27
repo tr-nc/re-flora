@@ -6,7 +6,7 @@ use rand::{rngs::SmallRng, Rng, SeedableRng};
 
 use super::{MotionMode, ParticleHandle, ParticleRenderKind, ParticleSpawn, ParticleSystem};
 use crate::tracer::ButterflyPalettePreset;
-use crate::wind::Wind;
+use crate::wind::{Wind, WindResponseCurve};
 
 pub const WORM_STEP_LEN: f32 = 0.15;
 
@@ -108,6 +108,16 @@ impl Default for LeafEmitterDesc {
     }
 }
 
+impl LeafEmitterDesc {
+    pub fn wind_response_curve(&self) -> WindResponseCurve {
+        WindResponseCurve {
+            min_strength: self.wind_spawn_min_strength,
+            max_strength: self.wind_spawn_max_strength,
+            power: self.wind_spawn_power,
+        }
+    }
+}
+
 pub struct FallenLeafEmitter {
     pub center: Vec3,
     pub spawn_rate: f32,
@@ -197,28 +207,15 @@ impl FallenLeafEmitter {
     }
 
     fn wind_spawn_multiplier(&self, time: f32) -> f32 {
-        let normalized_strength = self
-            .wind
-            .sample_normalized(self.center, time)
-            .length()
-            .clamp(0.0, 1.0);
-        let (min_strength, max_strength) =
-            if self.wind_spawn_min_strength <= self.wind_spawn_max_strength {
-                (self.wind_spawn_min_strength, self.wind_spawn_max_strength)
-            } else {
-                (self.wind_spawn_max_strength, self.wind_spawn_min_strength)
-            };
-        let range = max_strength - min_strength;
-        if range <= f32::EPSILON {
-            return if normalized_strength >= max_strength {
-                1.0
-            } else {
-                0.0
-            };
-        }
-        let scaled = ((normalized_strength - min_strength) / range).clamp(0.0, 1.0);
-        let exponent = self.wind_spawn_power.max(0.001);
-        scaled.powf(exponent)
+        self.wind.sample_response(
+            self.center,
+            time,
+            WindResponseCurve {
+                min_strength: self.wind_spawn_min_strength,
+                max_strength: self.wind_spawn_max_strength,
+                power: self.wind_spawn_power,
+            },
+        )
     }
 }
 

@@ -205,7 +205,8 @@ pub struct PushConstantSpatial {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PushConstantWindVolume {
     pub time: f32,
-    pub _pad0: [u8; 12],
+    pub bucket_index: u32,
+    pub _pad0: [u8; 8],
 }
 
 /// Auto-generated from `U_CameraInfo` (GLSL source of truth).
@@ -337,11 +338,9 @@ pub struct GuiInput {
     pub ocean_noise_frequency: f32,
     pub ocean_time_multiplier: f32,
     pub ocean_sea_level_shift: f32,
-    pub flora_update_bucket_count: u32,
-    pub flora_full_update_seconds: f32,
     pub lens_flare_intensity: f32,
     pub lens_flare_sun_pixel_scale: f32,
-    pub _pad8: [u8; 4],
+    pub _pad8: [u8; 12],
 }
 
 /// Auto-generated from `U_InstancesToOccupancyInfo` (GLSL source of truth).
@@ -410,7 +409,8 @@ pub struct SceneTexUpdateInfo {
     pub chunk_idx: [u32; 3],
     pub node_offset_for_chunk: u32,
     pub leaf_offset_for_chunk: u32,
-    pub _pad0: [u8; 12],
+    pub is_valid: u32,
+    pub _pad0: [u8; 8],
 }
 
 /// Auto-generated from `U_ShadingInfo` (GLSL source of truth).

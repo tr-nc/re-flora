@@ -19,14 +19,16 @@ use crate::app::world_edits::{
 use crate::app::world_ops;
 use crate::app::GuiAdjustables;
 use crate::audio::{SpatialSoundManager, TreeAudioManager};
-use crate::builder::{ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder};
+use crate::builder::{
+    ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder, VOXEL_TYPE_CHERRY_WOOD,
+};
 use crate::flora::species;
-use crate::geom::UAabb3;
+use crate::geom::{build_bvh, Aabb3, Cuboid, UAabb3};
 use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, LeafEmitterDesc, ParticleForces, ParticleHandle,
     ParticleSnapshot, ParticleSystem, PARTICLE_CAPACITY,
 };
-use crate::tracer::{Tracer, TracerDesc};
+use crate::tracer::{TerrainRayQuery, Tracer, TracerDesc};
 use crate::tree_gen::TreeDesc;
 use crate::util::TimeInfo;
 use crate::util::{get_sun_dir, ShaderCompiler, BENCH};
@@ -42,6 +44,7 @@ use ash::vk;
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
+use petalsonic::DirectOcclusionDebugSnapshot;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -62,7 +65,6 @@ use winit::{
 };
 
 const LEAF_CLUSTER_DISTANCE: f32 = 0.08;
-
 struct FrameSync {
     image_available: Semaphore,
     fence: Fence,
@@ -140,7 +142,9 @@ pub struct App {
     item_panel_hoe_icon: Option<TextureHandle>,
     selected_item_panel_slot: usize,
     active_voxel_type: ActiveVoxelType,
-    terrain_query_debug_text: String,
+    audio_ray_tracing_debug_text: String,
+    audio_ray_tracing_last_direct_snapshot: Option<DirectOcclusionDebugSnapshot>,
+    audio_ray_tracing_last_runtime_snapshot: crate::builder::ContreeRayTracingRuntimeSnapshot,
     left_mouse_held: bool,
     right_mouse_held: bool,
     shovel_dig_held: bool,
@@ -199,6 +203,10 @@ pub struct App {
 
 impl Drop for App {
     fn drop(&mut self) {
+        if let Err(err) = self.spatial_sound_manager.stop() {
+            log::warn!("Failed to stop audio engine during shutdown: {}", err);
+        }
+
         // Ensure GPU work is done before resources begin destructing
         self.vulkan_ctx.device().wait_idle();
     }
@@ -274,12 +282,14 @@ const TERRAIN_EDIT_LOOP_MUTED_VOLUME_DB: f32 = -80.0;
 const ITEM_PANEL_SCROLL_SFX_PATH: &str =
     "assets/sfx/MECHSwtch_Game Boy Advance SP, B Button, On 05_SARM_BTNS.wav";
 const ITEM_PANEL_SCROLL_SFX_VOLUME_DB: f32 = -6.0;
-const FLORA_TICK_RATE_HZ: f32 = 1.0;
 const FLORA_SPROUT_DELAY_TICKS: u32 = 2;
+const DEBUG_AUDIO_WALL_MIN: Vec3 = Vec3::new(300.0, 0.0, 512.0);
+const DEBUG_AUDIO_WALL_MAX: Vec3 = Vec3::new(320.0, 256.0, 600.0);
 const FLORA_FULL_GROWTH_TICKS: u32 = 30;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ActiveVoxelType {
+    All,
     Dirt,
     Sand,
     CherryWood,
@@ -287,7 +297,16 @@ pub(super) enum ActiveVoxelType {
     Rock,
 }
 
-const ACTIVE_VOXEL_TYPES: [ActiveVoxelType; 5] = [
+const ACTIVE_VOXEL_TYPES: [ActiveVoxelType; 6] = [
+    ActiveVoxelType::All,
+    ActiveVoxelType::Dirt,
+    ActiveVoxelType::Sand,
+    ActiveVoxelType::CherryWood,
+    ActiveVoxelType::OakWood,
+    ActiveVoxelType::Rock,
+];
+
+const BACKPACK_VOXEL_TYPES: [ActiveVoxelType; 5] = [
     ActiveVoxelType::Dirt,
     ActiveVoxelType::Sand,
     ActiveVoxelType::CherryWood,
@@ -296,18 +315,20 @@ const ACTIVE_VOXEL_TYPES: [ActiveVoxelType; 5] = [
 ];
 
 impl ActiveVoxelType {
-    pub(super) fn voxel_type(self) -> u32 {
+    pub(super) fn voxel_type(self) -> Option<u32> {
         match self {
-            ActiveVoxelType::Dirt => crate::builder::VOXEL_TYPE_DIRT,
-            ActiveVoxelType::Sand => crate::builder::VOXEL_TYPE_SAND,
-            ActiveVoxelType::CherryWood => crate::builder::VOXEL_TYPE_CHERRY_WOOD,
-            ActiveVoxelType::OakWood => crate::builder::VOXEL_TYPE_OAK_WOOD,
-            ActiveVoxelType::Rock => crate::builder::VOXEL_TYPE_ROCK,
+            ActiveVoxelType::All => None,
+            ActiveVoxelType::Dirt => Some(crate::builder::VOXEL_TYPE_DIRT),
+            ActiveVoxelType::Sand => Some(crate::builder::VOXEL_TYPE_SAND),
+            ActiveVoxelType::CherryWood => Some(crate::builder::VOXEL_TYPE_CHERRY_WOOD),
+            ActiveVoxelType::OakWood => Some(crate::builder::VOXEL_TYPE_OAK_WOOD),
+            ActiveVoxelType::Rock => Some(crate::builder::VOXEL_TYPE_ROCK),
         }
     }
 
     pub(super) fn label(self) -> &'static str {
         match self {
+            ActiveVoxelType::All => "All",
             ActiveVoxelType::Dirt => "Dirt",
             ActiveVoxelType::Sand => "Sand",
             ActiveVoxelType::CherryWood => "Cherry wood",
@@ -318,6 +339,7 @@ impl ActiveVoxelType {
 
     pub(super) fn color(self) -> Color32 {
         match self {
+            ActiveVoxelType::All => Color32::from_rgb(235, 230, 215),
             ActiveVoxelType::Dirt => Color32::from_rgb(178, 124, 80),
             ActiveVoxelType::Sand => Color32::from_rgb(229, 204, 126),
             ActiveVoxelType::CherryWood => Color32::from_rgb(219, 128, 152),
@@ -328,6 +350,18 @@ impl ActiveVoxelType {
 }
 
 impl App {
+    fn apply_debug_audio_wall(&mut self) -> Result<()> {
+        let wall = Cuboid::from_min_max(DEBUG_AUDIO_WALL_MIN, DEBUG_AUDIO_WALL_MAX);
+        let wall_aabb = Aabb3::new(DEBUG_AUDIO_WALL_MIN, DEBUG_AUDIO_WALL_MAX);
+        let bvh_nodes = build_bvh(&[wall_aabb], &[0]).map_err(anyhow::Error::msg)?;
+
+        self.plain_builder.chunk_modify_cuboids_with_voxel_type(
+            &bvh_nodes,
+            &[wall],
+            VOXEL_TYPE_CHERRY_WOOD,
+        )
+    }
+
     fn linear_to_db(linear: f32) -> f32 {
         const MIN_DB: f32 = -80.0;
         const MAX_DB: f32 = 24.0;
@@ -351,6 +385,58 @@ impl App {
         };
 
         (20.0 * gain.log10()).clamp(MIN_DB, MAX_DB)
+    }
+
+    fn update_audio_ray_tracing(&mut self) {
+        let enabled = self.gui_adjustables.audio_ray_tracing_enabled.value;
+        self.spatial_sound_manager
+            .set_audio_ray_tracing_enabled(enabled);
+
+        if !enabled {
+            self.audio_ray_tracing_last_direct_snapshot = None;
+            self.audio_ray_tracing_last_runtime_snapshot = Default::default();
+            self.audio_ray_tracing_debug_text = "Audio RT: disabled".to_owned();
+            return;
+        }
+
+        let direct_snapshot = self.spatial_sound_manager.direct_occlusion_debug_snapshot();
+        let runtime_snapshot = self
+            .spatial_sound_manager
+            .take_audio_ray_tracing_runtime_snapshot();
+
+        if let Some(snapshot) = direct_snapshot {
+            self.audio_ray_tracing_last_direct_snapshot = Some(snapshot);
+        }
+
+        if runtime_snapshot.update_count > 0 || runtime_snapshot.update_failures > 0 {
+            self.audio_ray_tracing_last_runtime_snapshot = runtime_snapshot;
+        }
+
+        let direct_snapshot = self.audio_ray_tracing_last_direct_snapshot;
+        let runtime_snapshot = self.audio_ray_tracing_last_runtime_snapshot;
+
+        self.audio_ray_tracing_debug_text = match direct_snapshot {
+            Some(snapshot) => format!(
+                "Audio RT: {} updates / {} rays / {} occluded\nDirect query: {:.3}ms total, failures {}\nDirect occ: {} samples avg {:.3} min {:.3} max {:.3}",
+                runtime_snapshot.update_count,
+                runtime_snapshot.updated_sources,
+                runtime_snapshot.occluded_sources,
+                runtime_snapshot.total_update_time_us as f64 / 1000.0,
+                runtime_snapshot.update_failures,
+                snapshot.sample_count,
+                snapshot.avg_occlusion,
+                snapshot.min_occlusion,
+                snapshot.max_occlusion,
+            ),
+            None => format!(
+                "Audio RT: {} updates / {} rays / {} occluded\nDirect query: {:.3}ms total, failures {}\nDirect occ: no samples",
+                runtime_snapshot.update_count,
+                runtime_snapshot.updated_sources,
+                runtime_snapshot.occluded_sources,
+                runtime_snapshot.total_update_time_us as f64 / 1000.0,
+                runtime_snapshot.update_failures,
+            ),
+        };
     }
 
     pub fn new(_event_loop: &ActiveEventLoop, options: &crate::AppOptions) -> Result<Self> {
@@ -428,6 +514,7 @@ impl App {
             allocator.clone(),
             &shader_compiler,
             surface_builder.get_resources(),
+            CHUNK_DIM,
             VOXEL_DIM_PER_CHUNK,
             512 * 1024 * 1024, // node buffer pool size
             512 * 1024 * 1024, // leaf buffer pool size
@@ -454,8 +541,8 @@ impl App {
 
         // Shared spatial audio engine (PetalSonic) used by both the tracer (camera)
         // and the app-level tree ambience sources.
-        let spatial_sound_manager = SpatialSoundManager::new(1024)?;
-        let tree_audio_manager = TreeAudioManager::new(spatial_sound_manager.clone());
+        let spatial_sound_manager =
+            SpatialSoundManager::new(1024, contree_builder.audio_ray_tracer())?;
 
         let tracer = Tracer::new(
             vulkan_ctx.clone(),
@@ -492,6 +579,10 @@ impl App {
             color_high: color_to_vec4(gui_adjustables.leaves_tip_color.value),
             ..LeafEmitterDesc::default()
         };
+        let tree_audio_manager = TreeAudioManager::new(
+            spatial_sound_manager.clone(),
+            leaf_emitter_desc.wind_response_curve(),
+        );
         let butterfly_emitters = Vec::new();
         let butterfly_emitter_desc = Self::butterfly_desc_from_gui_adjustables(&gui_adjustables);
         let particle_snapshots = Vec::with_capacity(PARTICLE_CAPACITY);
@@ -548,8 +639,10 @@ impl App {
             item_panel_staff_icon: None,
             item_panel_hoe_icon: None,
             selected_item_panel_slot: 0,
-            active_voxel_type: ActiveVoxelType::Dirt,
-            terrain_query_debug_text: "not hit".to_owned(),
+            active_voxel_type: ActiveVoxelType::All,
+            audio_ray_tracing_debug_text: "Audio RT: not sampled yet".to_owned(),
+            audio_ray_tracing_last_direct_snapshot: None,
+            audio_ray_tracing_last_runtime_snapshot: Default::default(),
             left_mouse_held: false,
             right_mouse_held: false,
             shovel_dig_held: false,
@@ -607,6 +700,7 @@ impl App {
     }
 
     fn process_loading_step(&mut self) {
+        let mut should_apply_debug_audio_wall = false;
         let loading = match &mut self.loading_state {
             Some(loading) => loading,
             None => return,
@@ -634,6 +728,7 @@ impl App {
 
                 loading.current += 1;
                 if loading.current >= total {
+                    should_apply_debug_audio_wall = true;
                     loading.current = 0;
                     loading.phase = LoadingPhase::Building;
                 }
@@ -653,19 +748,29 @@ impl App {
                     Ok(Some((node_buffer_offset, leaf_buffer_offset))) => {
                         if let Err(err) = self.scene_accel_builder.update_scene_tex(
                             chunk_id,
-                            node_buffer_offset,
-                            leaf_buffer_offset,
+                            Some((node_buffer_offset, leaf_buffer_offset)),
                         ) {
                             log::error!("update_scene_tex failed for {chunk_id:?}: {err}");
                         }
                     }
-                    Ok(None) => {}
+                    Ok(None) => {
+                        if let Err(err) = self.scene_accel_builder.update_scene_tex(chunk_id, None)
+                        {
+                            log::error!("clear_scene_tex failed for {chunk_id:?}: {err}");
+                        }
+                    }
                     Err(err) => {
                         log::error!("build_and_alloc failed for {chunk_id:?}: {err}");
                     }
                 }
 
                 loading.current += 1;
+            }
+        }
+
+        if should_apply_debug_audio_wall {
+            if let Err(err) = self.apply_debug_audio_wall() {
+                log::error!("Failed to apply debug audio wall: {err}");
             }
         }
     }
@@ -857,6 +962,7 @@ impl App {
 
     fn finalize_loading(&mut self) {
         self.vulkan_ctx.device().wait_idle();
+        self.contree_builder.flush_cpu_chunk_cache_jobs();
         BENCH.lock().unwrap().summary();
 
         self.ensure_map_butterfly_emitter();
@@ -878,7 +984,83 @@ impl App {
             log::error!("Failed to regenerate leaves: {}", err);
         }
 
+        if let Err(err) = self.spatial_sound_manager.start() {
+            log::error!("Failed to start audio engine: {}", err);
+        }
+
         self.render_start_time = Some(Instant::now());
+    }
+
+    #[allow(dead_code)]
+    fn validate_startup_terrain_query(&mut self) {
+        let rays = [
+            TerrainRayQuery {
+                origin: Vec3::new(0.5, 1.0, 0.5),
+                direction: Vec3::new(0.0, -1.0, 0.0),
+            },
+            TerrainRayQuery {
+                origin: Vec3::new(1.5, 1.0, 1.5),
+                direction: Vec3::new(0.0, -1.0, 0.0),
+            },
+            TerrainRayQuery {
+                origin: Vec3::new(2.5, 1.0, 3.5),
+                direction: Vec3::new(0.0, -1.0, 0.0),
+            },
+            TerrainRayQuery {
+                origin: Vec3::new(4.5, 1.0, 4.5),
+                direction: Vec3::new(0.0, -1.0, 0.0),
+            },
+        ];
+
+        for ray in rays {
+            let cpu_start = Instant::now();
+            let cpu_hit = self
+                .contree_builder
+                .query_terrain_ray_cpu(ray.origin, ray.direction);
+            let cpu_elapsed = cpu_start.elapsed();
+
+            let gpu_start = Instant::now();
+            let gpu_hit = self.tracer.query_terrain_ray_with_validity(ray);
+            let gpu_elapsed = gpu_start.elapsed();
+
+            let format_cpu = |hit: Option<Vec3>| match hit {
+                Some(pos) => format!("hit ({:.3}, {:.3}, {:.3})", pos.x, pos.y, pos.z),
+                None => "miss".to_owned(),
+            };
+            let gpu_position = match &gpu_hit {
+                Ok(sample) if sample.is_valid => Some(sample.position),
+                _ => None,
+            };
+            let format_gpu =
+                |result: &anyhow::Result<crate::tracer::TerrainRayHitSample>| match result {
+                    Ok(sample) if sample.is_valid => format!(
+                        "hit ({:.3}, {:.3}, {:.3})",
+                        sample.position.x, sample.position.y, sample.position.z
+                    ),
+                    Ok(_) => "miss".to_owned(),
+                    Err(err) => format!("error: {err}"),
+                };
+            let position_delta = match (cpu_hit, gpu_position) {
+                (Some(cpu_pos), Some(gpu_pos)) => format!("{:.6}", cpu_pos.distance(gpu_pos)),
+                _ => "n/a".to_owned(),
+            };
+
+            log::info!(
+                "Terrain query validation for origin ({:.3}, {:.3}, {:.3}) dir ({:.3}, {:.3}, {:.3}): cached_chunks={}, CPU={} in {:?}, GPU={} in {:?}, delta={}",
+                ray.origin.x,
+                ray.origin.y,
+                ray.origin.z,
+                ray.direction.x,
+                ray.direction.y,
+                ray.direction.z,
+                self.contree_builder.cpu_cached_chunk_count(),
+                format_cpu(cpu_hit),
+                cpu_elapsed,
+                format_gpu(&gpu_hit),
+                gpu_elapsed,
+                position_delta,
+            );
+        }
     }
 
     fn configure_gui_font(&mut self) -> Result<()> {
@@ -1027,6 +1209,9 @@ impl App {
                 .consumed;
 
             if consumed {
+                if let WindowEvent::KeyboardInput { event, .. } = &event {
+                    self.tracer.handle_keyboard(event);
+                }
                 return;
             }
         }
@@ -1070,29 +1255,27 @@ impl App {
                     }
                 }
 
-                if !self.window_state.is_cursor_visible() {
-                    if event.state == ElementState::Pressed {
-                        let target_slot = match event.physical_key {
-                            PhysicalKey::Code(KeyCode::Digit1) => Some(0),
-                            PhysicalKey::Code(KeyCode::Digit2) => Some(1),
-                            PhysicalKey::Code(KeyCode::Digit3) => Some(2),
-                            PhysicalKey::Code(KeyCode::Digit4) => Some(3),
-                            PhysicalKey::Code(KeyCode::Digit5) => Some(4),
-                            _ => None,
-                        };
+                if !self.window_state.is_cursor_visible() && event.state == ElementState::Pressed {
+                    let target_slot = match event.physical_key {
+                        PhysicalKey::Code(KeyCode::Digit1) => Some(0),
+                        PhysicalKey::Code(KeyCode::Digit2) => Some(1),
+                        PhysicalKey::Code(KeyCode::Digit3) => Some(2),
+                        PhysicalKey::Code(KeyCode::Digit4) => Some(3),
+                        PhysicalKey::Code(KeyCode::Digit5) => Some(4),
+                        _ => None,
+                    };
 
-                        if let Some(slot_idx) = target_slot {
-                            if slot_idx < ITEM_PANEL_SLOT_COUNT
-                                && slot_idx != self.selected_item_panel_slot
-                            {
-                                self.selected_item_panel_slot = slot_idx;
-                                self.play_item_panel_scroll_sound();
-                            }
+                    if let Some(slot_idx) = target_slot {
+                        if slot_idx < ITEM_PANEL_SLOT_COUNT
+                            && slot_idx != self.selected_item_panel_slot
+                        {
+                            self.selected_item_panel_slot = slot_idx;
+                            self.play_item_panel_scroll_sound();
                         }
                     }
-
-                    self.tracer.handle_keyboard(&event);
                 }
+
+                self.tracer.handle_keyboard(&event);
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 if button == MouseButton::Left {
@@ -1107,7 +1290,6 @@ impl App {
                 {
                     match state {
                         ElementState::Pressed => {
-                            self.update_terrain_query_debug_text();
                             self.shovel_dig_held = true;
                             let now = Instant::now();
                             if self.is_shovel_selected() && button == MouseButton::Left {
@@ -1170,6 +1352,7 @@ impl App {
                 self.window_state.maintain_cursor_grab();
 
                 self.time_info.update(self.perf_logging);
+                self.contree_builder.poll_cpu_chunk_cache_jobs();
 
                 if self.loading_state.is_some() {
                     self.process_loading_step();
@@ -1178,7 +1361,6 @@ impl App {
                 }
 
                 if self.shovel_dig_held {
-                    self.update_terrain_query_debug_text();
                     let now = Instant::now();
                     if self.is_shovel_selected() && self.left_mouse_held {
                         self.try_shovel_dig(now);
@@ -1194,14 +1376,23 @@ impl App {
                 }
                 let frame_delta_time = self.time_info.delta_time();
                 let time_since_start = self.time_info.time_since_start();
-                self.flora_tick_accumulator += frame_delta_time * FLORA_TICK_RATE_HZ;
+                let world_tick_seconds = crate::game_time::clamp_world_tick_seconds(
+                    self.gui_adjustables.world_tick_seconds.value,
+                );
+                self.flora_tick_accumulator += frame_delta_time / world_tick_seconds;
+                let mut world_tick_steps = 0;
                 while self.flora_tick_accumulator >= 1.0 {
                     self.flora_tick = self.flora_tick.wrapping_add(1);
                     self.flora_tick_accumulator -= 1.0;
+                    world_tick_steps += 1;
                 }
                 if let Err(err) = self.tree_audio_manager.update(time_since_start) {
                     log::warn!("Failed to update tree audio sources: {}", err);
                 }
+                if let Err(err) = self.spatial_sound_manager.pump_audio() {
+                    log::warn!("Failed to pump audio: {}", err);
+                }
+                self.update_audio_ray_tracing();
 
                 if !self.window_state.is_cursor_visible() {
                     // grab the value and immediately reset the accumulator
@@ -1225,7 +1416,7 @@ impl App {
                 let backpack_cherry_wood_count = self.backpack_cherry_wood_count;
                 let backpack_oak_wood_count = self.backpack_oak_wood_count;
                 let backpack_rock_count = self.backpack_rock_count;
-                let terrain_query_debug_text = self.terrain_query_debug_text.clone();
+                let audio_ray_tracing_debug_text = self.audio_ray_tracing_debug_text.clone();
                 let active_voxel_label = self.active_voxel_type.label();
                 let active_voxel_color = self.active_voxel_type.color();
                 let egui_start = Instant::now();
@@ -1308,6 +1499,22 @@ impl App {
                                                 &self.gui_config,
                                                 &mut self.gui_adjustables,
                                             );
+
+                                            ui.add_space(8.0);
+                                            ui.separator();
+                                            ui.add_space(8.0);
+                                            ui.heading(
+                                                RichText::new("Audio Ray Tracing")
+                                                    .size(16.0)
+                                                    .color(GOLD_ACCENT),
+                                            );
+                                            ui.checkbox(
+                                                &mut self
+                                                    .gui_adjustables
+                                                    .audio_ray_tracing_enabled
+                                                    .value,
+                                                "Enable Audio Ray Tracing",
+                                            );
                                         },
                                     );
                                 });
@@ -1339,6 +1546,10 @@ impl App {
                                         )
                                         .text("Master Volume"),
                                     );
+                                    ui.checkbox(
+                                        &mut self.gui_adjustables.audio_ray_tracing_enabled.value,
+                                        "Audio Ray Tracing",
+                                    );
                                 });
                         }
 
@@ -1357,13 +1568,47 @@ impl App {
                             backpack_cherry_wood_count,
                             backpack_oak_wood_count,
                             backpack_rock_count,
-                            terrain_query_debug_text.as_str(),
                         );
                         self.backpack_summary_panel_screen_pos = Some(Vec2::new(
                             backpack_summary_panel_center.x,
                             backpack_summary_panel_center.y,
                         ));
                         draw_active_voxel_display(ctx, active_voxel_label, active_voxel_color);
+
+                        egui::Area::new("audio_rt_panel".into())
+                            .anchor(egui::Align2::LEFT_BOTTOM, egui::Vec2::new(16.0, -16.0))
+                            .show(ctx, |ui| {
+                                let audio_rt_frame = egui::containers::Frame {
+                                    fill: PANEL_DARK,
+                                    inner_margin: egui::Margin::symmetric(10, 8),
+                                    corner_radius: egui::CornerRadius::same(0),
+                                    shadow: egui::epaint::Shadow {
+                                        offset: [4, 4],
+                                        blur: 0,
+                                        spread: 0,
+                                        color: SHADOW_COLOR,
+                                    },
+                                    stroke: egui::Stroke::new(2.0, FLOWER_ACCENT),
+                                    ..Default::default()
+                                };
+
+                                audio_rt_frame.show(ui, |ui| {
+                                    ui.set_max_width(420.0);
+                                    ui.label(
+                                        RichText::new("Audio RT")
+                                            .color(GOLD_ACCENT)
+                                            .monospace()
+                                            .size(12.0),
+                                    );
+                                    ui.add_space(4.0);
+                                    ui.label(
+                                        RichText::new(audio_ray_tracing_debug_text.as_str())
+                                            .color(SAGE_ACCENT)
+                                            .monospace()
+                                            .size(11.0),
+                                    );
+                                });
+                            });
 
                         if self.left_mouse_held {
                             let center = ctx.content_rect().center();
@@ -1455,12 +1700,13 @@ impl App {
                 }
 
                 // update sun position if auto day/night cycle is enabled
-                if self.gui_adjustables.auto_daynight_cycle.value {
+                if self.gui_adjustables.auto_daynight_cycle.value && world_tick_steps > 0 {
                     // update time of day based on delta time and day cycle speed
                     // day_cycle_minutes is the real-world minutes for a full day cycle
                     // convert to time progression per second: 1.0 / (day_cycle_minutes * 60.0)
                     let time_speed = 1.0 / (self.gui_adjustables.day_cycle_minutes.value * 60.0);
-                    self.gui_adjustables.time_of_day.value += frame_delta_time * time_speed;
+                    self.gui_adjustables.time_of_day.value +=
+                        world_tick_steps as f32 * world_tick_seconds * time_speed;
 
                     // keep time_of_day in 0.0 to 1.0 range (wrap around)
                     self.gui_adjustables.time_of_day.value %= 1.0;
@@ -1568,8 +1814,7 @@ impl App {
                         self.gui_adjustables.ocean_noise_frequency.value,
                         self.gui_adjustables.ocean_time_multiplier.value,
                         self.gui_adjustables.ocean_sea_level_shift.value,
-                        self.gui_adjustables.flora_update_bucket_count.value,
-                        self.gui_adjustables.flora_full_update_seconds.value,
+                        world_tick_seconds,
                         self.gui_adjustables.lens_flare_intensity.value,
                         self.gui_adjustables.lens_flare_sun_pixel_scale.value,
                         self.flora_tick,
@@ -1759,8 +2004,13 @@ impl App {
                     self.gui_adjustables.headbob_sprint_amp_mul.value,
                 );
 
+                let player_collision = if self.is_fly_mode {
+                    None
+                } else {
+                    Some(self.query_player_collision_cpu())
+                };
                 self.tracer
-                    .update_camera(frame_delta_time, self.is_fly_mode);
+                    .update_camera(frame_delta_time, self.is_fly_mode, player_collision);
 
                 if self.perf_logging && self.time_info.total_frame_count().is_multiple_of(30) {
                     let total_ms = frame_start.elapsed().as_secs_f32() * 1000.0;

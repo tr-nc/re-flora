@@ -25,6 +25,7 @@ pub struct PlainBuilderResources {
 }
 
 impl PlainBuilderResources {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         device: &Device,
         allocator: Allocator,

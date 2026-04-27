@@ -8,21 +8,36 @@ use crate::util::FirstFitAllocator;
 use crate::util::ShaderCompiler;
 use crate::vkn::Allocator;
 use crate::vkn::Buffer;
+use crate::vkn::BufferUsage;
 use crate::vkn::CommandBuffer;
 use crate::vkn::ComputePipeline;
 use crate::vkn::DescriptorPool;
 use crate::vkn::Extent3D;
+use crate::vkn::Fence;
 use crate::vkn::MemoryBarrier;
 use crate::vkn::PipelineBarrier;
 use crate::vkn::ShaderModule;
 use crate::vkn::VulkanContext;
 use anyhow::Result;
 use ash::vk;
-use glam::UVec3;
-use std::collections::HashMap;
+use glam::{UVec3, Vec2, Vec3};
+use petalsonic::{AcousticRay, BatchedAnyHitRayTracer};
+use std::collections::{HashMap, VecDeque};
+use std::sync::{
+    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+    mpsc, Arc, RwLock,
+};
+use std::thread;
+use std::time::{Duration, Instant};
 
 const SIZE_OF_NODE_ELEMENT: u64 = 3 * std::mem::size_of::<u32>() as u64;
 const SIZE_OF_LEAF_ELEMENT: u64 = std::mem::size_of::<u32>() as u64;
+const MAX_NODE_BUFFER_SIZE_IN_BYTES: u64 = 10 * 1024 * 1024;
+const MAX_LEAF_BUFFER_SIZE_IN_BYTES: u64 = 10 * 1024 * 1024;
+const MAX_DDA_ITERATION: usize = 256;
+const DDA_EPSILON: f32 = 1e-4;
+const AUDIO_RAY_START_EPSILON: f32 = 0.05;
+const AUDIO_RAY_ENDPOINT_EPSILON: f32 = 0.05;
 
 pub struct ContreeBuilder {
     vulkan_ctx: VulkanContext,
@@ -52,15 +67,199 @@ pub struct ContreeBuilder {
     leaf_allocator: FirstFitAllocator,
     node_allocator: FirstFitAllocator,
 
+    chunk_dim: UVec3,
     voxel_dim_per_chunk: UVec3,
+    cpu_scene_chunks: Vec<Option<UVec3>>,
+    cpu_chunk_caches: HashMap<UVec3, Arc<CpuChunkCache>>,
+    cpu_chunk_cache_states: HashMap<UVec3, CpuChunkCacheState>,
+    pending_cpu_chunk_cache_queue: VecDeque<UVec3>,
+    cpu_chunk_readback_buffers: Option<CpuChunkReadbackBuffers>,
+    active_cpu_chunk_cache_job: Option<CpuChunkCacheFenceJob>,
+    cpu_chunk_cache_decode_inflight: bool,
+    cpu_chunk_cache_job_tx: mpsc::Sender<CpuChunkCacheWorkerJob>,
+    cpu_chunk_cache_result_rx: mpsc::Receiver<CpuChunkCacheWorkerResult>,
+    shared_ray_query_state: Arc<RwLock<ContreeRayQueryState>>,
+    audio_ray_tracer: Arc<ContreeAnyHitRayTracer>,
+}
+
+pub struct ContreeAnyHitRayTracer {
+    enabled: Arc<AtomicBool>,
+    shared_state: Arc<RwLock<ContreeRayQueryState>>,
+    runtime_stats: Arc<ContreeRayTracingRuntimeStats>,
+}
+
+#[derive(Default)]
+struct ContreeRayTracingRuntimeStats {
+    update_count: AtomicUsize,
+    updated_sources: AtomicUsize,
+    occluded_sources: AtomicUsize,
+    update_failures: AtomicUsize,
+    total_update_time_us: AtomicU64,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ContreeRayTracingRuntimeSnapshot {
+    pub update_count: usize,
+    pub updated_sources: usize,
+    pub occluded_sources: usize,
+    pub update_failures: usize,
+    pub total_update_time_us: u64,
+}
+
+struct ContreeRayQueryState {
+    chunk_dim: UVec3,
+    cpu_scene_chunks: Vec<Option<UVec3>>,
+    cpu_chunk_caches: HashMap<UVec3, Arc<CpuChunkCache>>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct CpuContreeNode {
+    packed_0: u32,
+    child_mask_lo: u32,
+    child_mask_hi: u32,
+}
+
+#[derive(Clone, Debug)]
+struct CpuChunkCache {
+    chunk_idx: UVec3,
+    nodes: Vec<CpuContreeNode>,
+    leaves: Vec<u32>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct CpuChunkCacheBuildSource {
+    node_alloc_offset: u64,
+    leaf_alloc_offset: u64,
+    node_size_in_bytes: u64,
+    leaf_size_in_bytes: u64,
+}
+
+#[derive(Clone, Debug, Default)]
+struct CpuChunkCacheState {
+    latest_revision: u64,
+    published_revision: u64,
+    inflight_revision: Option<u64>,
+    dirty_again: bool,
+    queued: bool,
+    latest_source: Option<CpuChunkCacheBuildSource>,
+}
+
+struct CpuChunkReadbackBuffers {
+    node_readback: Buffer,
+    leaf_readback: Buffer,
+}
+
+struct CpuChunkCacheFenceJob {
+    _command_buffer: CommandBuffer,
+    fence: Fence,
+    chunk_idx: UVec3,
+    revision: u64,
+    source: CpuChunkCacheBuildSource,
+    readback_buffers: CpuChunkReadbackBuffers,
+}
+
+struct CpuChunkCacheWorkerJob {
+    chunk_idx: UVec3,
+    revision: u64,
+    source: CpuChunkCacheBuildSource,
+    readback_buffers: CpuChunkReadbackBuffers,
+}
+
+struct CpuChunkCacheWorkerResult {
+    chunk_idx: UVec3,
+    revision: u64,
+    cache: Arc<CpuChunkCache>,
+    readback_buffers: CpuChunkReadbackBuffers,
+}
+
+impl ContreeAnyHitRayTracer {
+    pub fn set_enabled(&self, enabled: bool) {
+        self.enabled.store(enabled, Ordering::Relaxed);
+    }
+
+    pub fn take_runtime_snapshot(&self) -> ContreeRayTracingRuntimeSnapshot {
+        ContreeRayTracingRuntimeSnapshot {
+            update_count: self.runtime_stats.update_count.swap(0, Ordering::Relaxed),
+            updated_sources: self
+                .runtime_stats
+                .updated_sources
+                .swap(0, Ordering::Relaxed),
+            occluded_sources: self
+                .runtime_stats
+                .occluded_sources
+                .swap(0, Ordering::Relaxed),
+            update_failures: self
+                .runtime_stats
+                .update_failures
+                .swap(0, Ordering::Relaxed),
+            total_update_time_us: self
+                .runtime_stats
+                .total_update_time_us
+                .swap(0, Ordering::Relaxed),
+        }
+    }
+}
+
+impl BatchedAnyHitRayTracer for ContreeAnyHitRayTracer {
+    fn trace_any_hit_batch(
+        &self,
+        rays: &[AcousticRay],
+        min_distances: &[f32],
+        max_distances: &[f32],
+    ) -> Vec<bool> {
+        if !self.enabled.load(Ordering::Relaxed) {
+            return vec![false; rays.len()];
+        }
+
+        let trace_start = Instant::now();
+        let Ok(shared_state) = self.shared_state.read() else {
+            self.runtime_stats
+                .update_failures
+                .fetch_add(1, Ordering::Relaxed);
+            return vec![false; rays.len()];
+        };
+
+        let results = rays
+            .iter()
+            .zip(min_distances.iter().copied())
+            .zip(max_distances.iter().copied())
+            .map(|((ray, min_distance), max_distance)| {
+                query_terrain_any_hit(
+                    &shared_state,
+                    Vec3::new(ray.origin.x, ray.origin.y, ray.origin.z),
+                    Vec3::new(ray.direction.x, ray.direction.y, ray.direction.z),
+                    min_distance,
+                    max_distance,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let occluded_sources = results.iter().filter(|is_occluded| **is_occluded).count();
+        self.runtime_stats
+            .update_count
+            .fetch_add(1, Ordering::Relaxed);
+        self.runtime_stats
+            .updated_sources
+            .fetch_add(results.len(), Ordering::Relaxed);
+        self.runtime_stats
+            .occluded_sources
+            .fetch_add(occluded_sources, Ordering::Relaxed);
+        self.runtime_stats
+            .total_update_time_us
+            .fetch_add(trace_start.elapsed().as_micros() as u64, Ordering::Relaxed);
+
+        results
+    }
 }
 
 impl ContreeBuilder {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         vulkan_ctx: VulkanContext,
         allocator: Allocator,
         shader_compiler: &ShaderCompiler,
         surfacer_resources: &SurfaceResources,
+        chunk_dim: UVec3,
         voxel_dim_per_chunk: UVec3,
         node_pool_size_in_bytes: u64,
         leaf_pool_size_in_bytes: u64,
@@ -199,6 +398,23 @@ impl ContreeBuilder {
 
         let node_allocator = FirstFitAllocator::new(node_pool_size_in_bytes);
         let leaf_allocator = FirstFitAllocator::new(leaf_pool_size_in_bytes);
+        let (cpu_chunk_cache_job_tx, cpu_chunk_cache_result_rx) =
+            Self::spawn_cpu_chunk_cache_workers();
+        let cpu_chunk_readback_buffers = Some(CpuChunkReadbackBuffers::new(
+            device.clone(),
+            allocator.clone(),
+        ));
+
+        let shared_ray_query_state = Arc::new(RwLock::new(ContreeRayQueryState {
+            chunk_dim,
+            cpu_scene_chunks: vec![None; (chunk_dim.x * chunk_dim.y * chunk_dim.z) as usize],
+            cpu_chunk_caches: HashMap::new(),
+        }));
+        let audio_ray_tracer = Arc::new(ContreeAnyHitRayTracer {
+            enabled: Arc::new(AtomicBool::new(true)),
+            shared_state: shared_ray_query_state.clone(),
+            runtime_stats: Arc::new(ContreeRayTracingRuntimeStats::default()),
+        });
 
         Self {
             vulkan_ctx,
@@ -214,7 +430,19 @@ impl ContreeBuilder {
             contree_cmdbuf,
             node_allocator,
             leaf_allocator,
+            chunk_dim,
             voxel_dim_per_chunk,
+            cpu_scene_chunks: vec![None; (chunk_dim.x * chunk_dim.y * chunk_dim.z) as usize],
+            cpu_chunk_caches: HashMap::new(),
+            cpu_chunk_cache_states: HashMap::new(),
+            pending_cpu_chunk_cache_queue: VecDeque::new(),
+            cpu_chunk_readback_buffers,
+            active_cpu_chunk_cache_job: None,
+            cpu_chunk_cache_decode_inflight: false,
+            cpu_chunk_cache_job_tx,
+            cpu_chunk_cache_result_rx,
+            shared_ray_query_state,
+            audio_ray_tracer,
         }
     }
 
@@ -295,7 +523,12 @@ impl ContreeBuilder {
 
     /// Returns: (node_size_in_bytes, leaf_size_in_bytes)
     pub fn get_contree_size_info(&self, resources: &ContreeBuilderResources) -> (u64, u64) {
+        let readback_start = Instant::now();
         let raw_data = resources.contree_build_result.read_back().unwrap();
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("contree_size_readback", readback_start.elapsed());
         assert!(
             raw_data.len() >= 8,
             "contree_build_result buffer too small: expected at least 8 bytes, got {}",
@@ -313,14 +546,57 @@ impl ContreeBuilder {
         &self.resources
     }
 
+    pub fn cpu_cached_chunk_count(&self) -> usize {
+        self.cpu_chunk_caches.len()
+    }
+
+    pub fn audio_ray_tracer(&self) -> Arc<ContreeAnyHitRayTracer> {
+        self.audio_ray_tracer.clone()
+    }
+
+    pub fn poll_cpu_chunk_cache_jobs(&mut self) {
+        self.dispatch_completed_cpu_chunk_cache_jobs();
+        self.publish_completed_cpu_chunk_cache_jobs();
+        self.try_submit_next_cpu_chunk_cache_job();
+    }
+
+    pub fn flush_cpu_chunk_cache_jobs(&mut self) {
+        loop {
+            self.poll_cpu_chunk_cache_jobs();
+            if self.cpu_chunk_cache_jobs_idle() {
+                break;
+            }
+
+            if let Some(job) = self.active_cpu_chunk_cache_job.as_ref() {
+                if let Err(err) = self.vulkan_ctx.wait_for_fences(&[job.fence.as_raw()]) {
+                    log::error!(
+                        "Failed to wait for CPU cache fence for {:?}: {err}",
+                        job.chunk_idx
+                    );
+                    break;
+                }
+            } else {
+                thread::sleep(Duration::from_millis(1));
+            }
+        }
+    }
+
+    pub fn query_terrain_ray_cpu(&self, origin: Vec3, direction: Vec3) -> Option<Vec3> {
+        query_terrain_ray_against_state(
+            self.chunk_dim,
+            &self.cpu_scene_chunks,
+            &self.cpu_chunk_caches,
+            origin,
+            direction,
+        )
+    }
+
     fn build_contree(
         &mut self,
         contree_dim: UVec3,
         node_write_offset: u64,
         leaf_write_offset: u64,
     ) -> Result<()> {
-        let device = self.vulkan_ctx.device();
-
         update_buffers(
             &self.resources.contree_build_info,
             contree_dim,
@@ -330,8 +606,9 @@ impl ContreeBuilder {
         )?;
 
         let cmdbuf = self.contree_cmdbuf.clone();
-        cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), None);
-        device.wait_queue_idle(&self.vulkan_ctx.get_general_queue());
+        let fence = Fence::new(self.vulkan_ctx.device(), false);
+        cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), Some(&fence));
+        self.vulkan_ctx.wait_for_fences(&[fence.as_raw()]).unwrap();
 
         return Ok(());
 
@@ -353,33 +630,275 @@ impl ContreeBuilder {
 
     /// Returns: (node_alloc_offset, leaf_alloc_offset)
     pub fn build_and_alloc(&mut self, atlas_offset: UVec3) -> Result<Option<(u64, u64)>> {
+        let total_start = Instant::now();
         let atlas_dim = self.voxel_dim_per_chunk;
+        let chunk_idx = atlas_offset / self.voxel_dim_per_chunk;
+        let revision = self.bump_chunk_cache_revision(chunk_idx);
 
-        // preallocate 10MB for both the currentl node and leaf buffer to be built
-        const MAX_NODE_BUFFER_SIZE_IN_BYTES: u64 = 10 * 1024 * 1024;
-        const MAX_LEAF_BUFFER_SIZE_IN_BYTES: u64 = 10 * 1024 * 1024;
+        let alloc_start = Instant::now();
         let (node_alloc_offset_in_bytes, leaf_alloc_offset_in_bytes) = self.pre_allocate_chunk(
             MAX_NODE_BUFFER_SIZE_IN_BYTES,
             MAX_LEAF_BUFFER_SIZE_IN_BYTES,
             atlas_offset,
         );
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("contree_pre_allocate", alloc_start.elapsed());
         // the offset's unit is in bytes, we need to convert it to array idx, each element is a 3*u32
         let node_alloc_offset = node_alloc_offset_in_bytes / SIZE_OF_NODE_ELEMENT;
         // the element of leaf data is a u32
         let leaf_alloc_offset = leaf_alloc_offset_in_bytes / SIZE_OF_LEAF_ELEMENT;
 
+        let build_start = Instant::now();
         self.build_contree(atlas_dim, node_alloc_offset, leaf_alloc_offset)?;
+        let build_elapsed = build_start.elapsed();
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("contree_build_gpu", build_elapsed);
 
+        let size_start = Instant::now();
         let (confirmed_node_buffer_size_in_bytes, confirmed_leaf_buffer_size_in_bytes) =
             self.get_contree_size_info(&self.resources);
+        let size_elapsed = size_start.elapsed();
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("contree_size_total", size_elapsed);
 
+        if confirmed_node_buffer_size_in_bytes == 0 || confirmed_leaf_buffer_size_in_bytes == 0 {
+            self.cpu_chunk_caches.remove(&chunk_idx);
+            self.remove_shared_chunk_cache(chunk_idx);
+            self.publish_empty_chunk_cache_revision(chunk_idx, revision);
+            self.set_scene_chunk(chunk_idx, None);
+            self.deallocate_chunk_allocation(atlas_offset);
+            let total_elapsed = total_start.elapsed();
+            crate::util::BENCH
+                .lock()
+                .unwrap()
+                .record("contree_build_and_alloc_total", total_elapsed);
+
+            return Ok(None);
+        }
+
+        let confirm_start = Instant::now();
         self.confirm_allocation_of_chunk(
             confirmed_node_buffer_size_in_bytes,
             confirmed_leaf_buffer_size_in_bytes,
             atlas_offset,
         );
+        let confirm_elapsed = confirm_start.elapsed();
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("contree_confirm_allocation", confirm_elapsed);
+
+        let cpu_cache_source = CpuChunkCacheBuildSource {
+            node_alloc_offset,
+            leaf_alloc_offset,
+            node_size_in_bytes: confirmed_node_buffer_size_in_bytes,
+            leaf_size_in_bytes: confirmed_leaf_buffer_size_in_bytes,
+        };
+        self.queue_chunk_cpu_cache_rebuild(chunk_idx, revision, cpu_cache_source);
+        self.set_scene_chunk(chunk_idx, Some(chunk_idx));
+        let total_elapsed = total_start.elapsed();
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("contree_build_and_alloc_total", total_elapsed);
 
         Ok(Some((node_alloc_offset, leaf_alloc_offset)))
+    }
+
+    fn queue_chunk_cpu_cache_rebuild(
+        &mut self,
+        chunk_idx: UVec3,
+        revision: u64,
+        source: CpuChunkCacheBuildSource,
+    ) {
+        {
+            let state = self.cpu_chunk_cache_states.entry(chunk_idx).or_default();
+            state.latest_source = Some(source);
+            if state.inflight_revision.is_none() {
+                state.inflight_revision = Some(revision);
+                state.dirty_again = false;
+                self.enqueue_cpu_chunk_cache_job(chunk_idx);
+            } else {
+                state.dirty_again = true;
+            }
+        }
+
+        self.try_submit_next_cpu_chunk_cache_job();
+    }
+
+    fn submit_chunk_cpu_cache_rebuild(
+        &mut self,
+        chunk_idx: UVec3,
+        revision: u64,
+        source: CpuChunkCacheBuildSource,
+    ) {
+        assert!(source.node_size_in_bytes <= MAX_NODE_BUFFER_SIZE_IN_BYTES);
+        assert!(source.leaf_size_in_bytes <= MAX_LEAF_BUFFER_SIZE_IN_BYTES);
+
+        let readback_buffers = self
+            .cpu_chunk_readback_buffers
+            .take()
+            .expect("CPU chunk readback buffers should be available before submit");
+        let command_buffer =
+            CommandBuffer::new(self.vulkan_ctx.device(), self.vulkan_ctx.command_pool());
+        let fence = Fence::new(self.vulkan_ctx.device(), false);
+
+        let gpu_copy_start = Instant::now();
+        command_buffer.begin(true);
+        self.resources.contree_node_data.record_copy_to_buffer(
+            &command_buffer,
+            &readback_buffers.node_readback,
+            source.node_size_in_bytes,
+            source.node_alloc_offset * SIZE_OF_NODE_ELEMENT,
+            0,
+        );
+        self.resources.contree_leaf_data.record_copy_to_buffer(
+            &command_buffer,
+            &readback_buffers.leaf_readback,
+            source.leaf_size_in_bytes,
+            source.leaf_alloc_offset * SIZE_OF_LEAF_ELEMENT,
+            0,
+        );
+        command_buffer.end();
+        command_buffer.submit(&self.vulkan_ctx.get_general_queue(), Some(&fence));
+        let gpu_copy_elapsed = gpu_copy_start.elapsed();
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("contree_cpu_cache_copy_to_readback", gpu_copy_elapsed);
+
+        self.active_cpu_chunk_cache_job = Some(CpuChunkCacheFenceJob {
+            _command_buffer: command_buffer,
+            fence,
+            chunk_idx,
+            revision,
+            source,
+            readback_buffers,
+        });
+    }
+
+    fn dispatch_completed_cpu_chunk_cache_jobs(&mut self) {
+        let Some(job) = self.active_cpu_chunk_cache_job.as_ref() else {
+            return;
+        };
+
+        let fence_done = match unsafe {
+            self.vulkan_ctx
+                .device()
+                .as_raw()
+                .get_fence_status(job.fence.as_raw())
+        } {
+            Ok(done) => done,
+            Err(err) => {
+                log::error!(
+                    "Failed to poll CPU cache fence for {:?} rev {}: {err}",
+                    job.chunk_idx,
+                    job.revision,
+                );
+                return;
+            }
+        };
+
+        if !fence_done {
+            return;
+        }
+
+        let job = self
+            .active_cpu_chunk_cache_job
+            .take()
+            .expect("active CPU chunk cache job disappeared after fence poll");
+        self.cpu_chunk_cache_decode_inflight = true;
+        let worker_job = CpuChunkCacheWorkerJob {
+            chunk_idx: job.chunk_idx,
+            revision: job.revision,
+            source: job.source,
+            readback_buffers: job.readback_buffers,
+        };
+        if let Err(err) = self.cpu_chunk_cache_job_tx.send(worker_job) {
+            log::error!(
+                "Failed to dispatch CPU cache worker job for {:?} rev {}: {err}",
+                job.chunk_idx,
+                job.revision,
+            );
+            self.cpu_chunk_cache_decode_inflight = false;
+            self.cpu_chunk_readback_buffers = Some(err.0.readback_buffers);
+            if let Some(state) = self.cpu_chunk_cache_states.get_mut(&job.chunk_idx) {
+                if state.inflight_revision == Some(job.revision) {
+                    state.inflight_revision = None;
+                }
+            }
+        }
+    }
+
+    fn publish_completed_cpu_chunk_cache_jobs(&mut self) {
+        while let Ok(result) = self.cpu_chunk_cache_result_rx.try_recv() {
+            self.cpu_chunk_cache_decode_inflight = false;
+            self.cpu_chunk_readback_buffers = Some(result.readback_buffers);
+            let (should_publish, _latest_revision) = self
+                .cpu_chunk_cache_states
+                .get(&result.chunk_idx)
+                .map(|state| {
+                    (
+                        result.revision > state.published_revision,
+                        state.latest_revision,
+                    )
+                })
+                .unwrap_or((true, result.revision));
+
+            if should_publish {
+                self.cpu_chunk_caches
+                    .insert(result.chunk_idx, result.cache.clone());
+                self.publish_shared_chunk_cache(result.chunk_idx, result.cache);
+                self.publish_chunk_cache_revision(result.chunk_idx, result.revision);
+                self.set_scene_chunk(result.chunk_idx, Some(result.chunk_idx));
+            } else if let Some(state) = self.cpu_chunk_cache_states.get_mut(&result.chunk_idx) {
+                if state.inflight_revision == Some(result.revision) {
+                    state.inflight_revision = None;
+                }
+            }
+
+            self.try_submit_next_cpu_chunk_cache_job();
+        }
+    }
+
+    fn deallocate_chunk_allocation(&mut self, atlas_offset: UVec3) {
+        if let Some((node_alloc_id, leaf_alloc_id)) =
+            self.chunk_offset_allocation_table.remove(&atlas_offset)
+        {
+            self.node_allocator.deallocate(node_alloc_id).unwrap();
+            self.leaf_allocator.deallocate(leaf_alloc_id).unwrap();
+        }
+    }
+
+    fn set_scene_chunk(&mut self, chunk_idx: UVec3, chunk: Option<UVec3>) {
+        let index = self.scene_chunk_flat_index(chunk_idx);
+        self.cpu_scene_chunks[index] = chunk;
+
+        if let Ok(mut shared_state) = self.shared_ray_query_state.write() {
+            shared_state.cpu_scene_chunks[index] = chunk;
+        }
+    }
+
+    fn publish_shared_chunk_cache(&self, chunk_idx: UVec3, cache: Arc<CpuChunkCache>) {
+        if let Ok(mut shared_state) = self.shared_ray_query_state.write() {
+            shared_state.cpu_chunk_caches.insert(chunk_idx, cache);
+        }
+    }
+
+    fn remove_shared_chunk_cache(&self, chunk_idx: UVec3) {
+        if let Ok(mut shared_state) = self.shared_ray_query_state.write() {
+            shared_state.cpu_chunk_caches.remove(&chunk_idx);
+        }
+    }
+
+    fn scene_chunk_flat_index(&self, chunk_idx: UVec3) -> usize {
+        scene_chunk_flat_index(self.chunk_dim, chunk_idx)
     }
 
     /// Allocate a chunk of data and store the allocation id in the offset_allocation_table.
@@ -392,17 +911,7 @@ impl ContreeBuilder {
         max_leaf_buffer_size_in_bytes: u64,
         atlas_offset: UVec3,
     ) -> (u64, u64) {
-        if self
-            .chunk_offset_allocation_table
-            .contains_key(&atlas_offset)
-        {
-            let (node_alloc_id, leaf_alloc_id) = self
-                .chunk_offset_allocation_table
-                .remove(&atlas_offset)
-                .unwrap();
-            self.node_allocator.deallocate(node_alloc_id).unwrap();
-            self.leaf_allocator.deallocate(leaf_alloc_id).unwrap();
-        }
+        self.deallocate_chunk_allocation(atlas_offset);
         let node_allocation = self
             .node_allocator
             .allocate(max_node_buffer_size_in_bytes)
@@ -435,6 +944,303 @@ impl ContreeBuilder {
             .resize(*leaf_alloc_id, confirmed_leaf_buffer_size_in_bytes)
             .unwrap();
     }
+
+    fn bump_chunk_cache_revision(&mut self, chunk_idx: UVec3) -> u64 {
+        let state = self.cpu_chunk_cache_states.entry(chunk_idx).or_default();
+        state.latest_revision += 1;
+        state.latest_revision
+    }
+
+    fn publish_chunk_cache_revision(&mut self, chunk_idx: UVec3, revision: u64) {
+        let state = self.cpu_chunk_cache_states.entry(chunk_idx).or_default();
+        state.published_revision = revision;
+        state.inflight_revision = None;
+    }
+
+    fn publish_empty_chunk_cache_revision(&mut self, chunk_idx: UVec3, revision: u64) {
+        let state = self.cpu_chunk_cache_states.entry(chunk_idx).or_default();
+        state.published_revision = revision;
+        state.inflight_revision = None;
+        state.queued = false;
+        state.latest_source = None;
+        state.dirty_again = false;
+    }
+
+    fn cpu_chunk_cache_jobs_idle(&self) -> bool {
+        self.pending_cpu_chunk_cache_queue.is_empty()
+            && self.active_cpu_chunk_cache_job.is_none()
+            && !self.cpu_chunk_cache_decode_inflight
+            && self
+                .cpu_chunk_cache_states
+                .values()
+                .all(|state| state.inflight_revision.is_none())
+    }
+
+    fn enqueue_cpu_chunk_cache_job(&mut self, chunk_idx: UVec3) {
+        let state = self.cpu_chunk_cache_states.entry(chunk_idx).or_default();
+        if state.queued {
+            return;
+        }
+        state.queued = true;
+        self.pending_cpu_chunk_cache_queue.push_back(chunk_idx);
+    }
+
+    fn try_submit_next_cpu_chunk_cache_job(&mut self) {
+        if self.active_cpu_chunk_cache_job.is_some()
+            || self.cpu_chunk_cache_decode_inflight
+            || self.cpu_chunk_readback_buffers.is_none()
+        {
+            return;
+        }
+
+        if let Some((chunk_idx, revision, source)) = self.next_pending_cpu_chunk_cache_job() {
+            self.submit_chunk_cpu_cache_rebuild(chunk_idx, revision, source);
+        }
+    }
+
+    fn next_pending_cpu_chunk_cache_job(
+        &mut self,
+    ) -> Option<(UVec3, u64, CpuChunkCacheBuildSource)> {
+        while let Some(chunk_idx) = self.pending_cpu_chunk_cache_queue.pop_front() {
+            let Some(state) = self.cpu_chunk_cache_states.get_mut(&chunk_idx) else {
+                continue;
+            };
+            state.queued = false;
+            let Some(revision) = state.inflight_revision else {
+                continue;
+            };
+            let Some(source) = state.latest_source else {
+                continue;
+            };
+            if revision > state.published_revision {
+                return Some((chunk_idx, revision, source));
+            }
+        }
+        None
+    }
+
+    fn spawn_cpu_chunk_cache_workers() -> (
+        mpsc::Sender<CpuChunkCacheWorkerJob>,
+        mpsc::Receiver<CpuChunkCacheWorkerResult>,
+    ) {
+        let (job_tx, job_rx) = mpsc::channel();
+        let (result_tx, result_rx) = mpsc::channel();
+        thread::spawn(move || loop {
+            let job = match job_rx.recv() {
+                Ok(job) => job,
+                Err(_) => break,
+            };
+
+            match decode_cpu_chunk_cache_job(job) {
+                Ok(result) => {
+                    if result_tx.send(result).is_err() {
+                        break;
+                    }
+                }
+                Err(err) => {
+                    log::error!("Failed to decode CPU chunk cache job: {err}");
+                }
+            }
+        });
+
+        (job_tx, result_rx)
+    }
+}
+
+impl CpuChunkReadbackBuffers {
+    fn new(device: crate::vkn::Device, allocator: Allocator) -> Self {
+        Self {
+            node_readback: Buffer::new_sized(
+                device.clone(),
+                allocator.clone(),
+                BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
+                gpu_allocator::MemoryLocation::GpuToCpu,
+                MAX_NODE_BUFFER_SIZE_IN_BYTES,
+            ),
+            leaf_readback: Buffer::new_sized(
+                device,
+                allocator,
+                BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
+                gpu_allocator::MemoryLocation::GpuToCpu,
+                MAX_LEAF_BUFFER_SIZE_IN_BYTES,
+            ),
+        }
+    }
+}
+
+fn decode_cpu_chunk_cache_job(job: CpuChunkCacheWorkerJob) -> Result<CpuChunkCacheWorkerResult> {
+    let readback_start = Instant::now();
+    let node_bytes = job.readback_buffers.node_readback.read_back()?;
+    let leaf_bytes = job.readback_buffers.leaf_readback.read_back()?;
+    let readback_elapsed = readback_start.elapsed();
+    crate::util::BENCH
+        .lock()
+        .unwrap()
+        .record("contree_cpu_cache_readback", readback_elapsed);
+    let node_bytes = &node_bytes[..job.source.node_size_in_bytes as usize];
+    let leaf_bytes = &leaf_bytes[..job.source.leaf_size_in_bytes as usize];
+
+    let decode_start = Instant::now();
+    let nodes = node_bytes
+        .chunks_exact(SIZE_OF_NODE_ELEMENT as usize)
+        .map(|chunk| CpuContreeNode {
+            packed_0: u32::from_ne_bytes(chunk[0..4].try_into().unwrap()),
+            child_mask_lo: u32::from_ne_bytes(chunk[4..8].try_into().unwrap()),
+            child_mask_hi: u32::from_ne_bytes(chunk[8..12].try_into().unwrap()),
+        })
+        .collect();
+    let leaves = leaf_bytes
+        .chunks_exact(SIZE_OF_LEAF_ELEMENT as usize)
+        .map(|chunk| u32::from_ne_bytes(chunk[0..4].try_into().unwrap()))
+        .collect();
+    let decode_elapsed = decode_start.elapsed();
+    crate::util::BENCH
+        .lock()
+        .unwrap()
+        .record("contree_cpu_cache_decode", decode_elapsed);
+
+    Ok(CpuChunkCacheWorkerResult {
+        chunk_idx: job.chunk_idx,
+        revision: job.revision,
+        cache: Arc::new(CpuChunkCache {
+            chunk_idx: job.chunk_idx,
+            nodes,
+            leaves,
+        }),
+        readback_buffers: job.readback_buffers,
+    })
+}
+
+fn query_terrain_any_hit(
+    state: &ContreeRayQueryState,
+    origin: Vec3,
+    direction: Vec3,
+    min_distance: f32,
+    max_distance: f32,
+) -> bool {
+    if direction.length_squared() <= f32::EPSILON {
+        return false;
+    }
+
+    let start_distance = (min_distance + AUDIO_RAY_START_EPSILON).max(0.0);
+    let end_distance = (max_distance - AUDIO_RAY_ENDPOINT_EPSILON).max(start_distance);
+    if end_distance <= start_distance {
+        return false;
+    }
+
+    let normalized_dir = direction.normalize();
+    let segment_origin = origin + normalized_dir * start_distance;
+    let segment_length = end_distance - start_distance;
+
+    query_terrain_ray_from_snapshot(state, segment_origin, normalized_dir)
+        .is_some_and(|hit| hit.distance(segment_origin) <= segment_length)
+}
+
+fn query_terrain_ray_from_snapshot(
+    state: &ContreeRayQueryState,
+    origin: Vec3,
+    direction: Vec3,
+) -> Option<Vec3> {
+    query_terrain_ray_against_state(
+        state.chunk_dim,
+        &state.cpu_scene_chunks,
+        &state.cpu_chunk_caches,
+        origin,
+        direction,
+    )
+}
+
+fn query_terrain_ray_against_state(
+    chunk_dim: UVec3,
+    cpu_scene_chunks: &[Option<UVec3>],
+    cpu_chunk_caches: &HashMap<UVec3, Arc<CpuChunkCache>>,
+    origin: Vec3,
+    direction: Vec3,
+) -> Option<Vec3> {
+    if direction.length_squared() <= f32::EPSILON {
+        return None;
+    }
+
+    let normalized_dir = direction.normalize();
+    let inv_dir = reciprocal(normalized_dir);
+    let marched_dir = sanitize_dda_direction(normalized_dir);
+
+    let slab = slabs(Vec3::ZERO, chunk_dim.as_vec3(), origin, inv_dir);
+    if slab.x > slab.y || slab.y < 0.0 {
+        return None;
+    }
+
+    let march_extent = slab.x.max(0.0) + DDA_EPSILON;
+    let marched_origin = origin + march_extent * marched_dir;
+    let delta_dist = reciprocal(marched_dir.abs());
+    let ray_step = marched_dir.signum().as_ivec3();
+    let mut map_pos = marched_origin.floor().as_ivec3();
+    let ray_sign = marched_dir.signum();
+    let mut side_dist = (((ray_sign * 0.5) + Vec3::splat(0.5))
+        + ray_sign * (map_pos.as_vec3() - marched_origin))
+        * delta_dist;
+
+    for _ in 0..MAX_DDA_ITERATION {
+        let min_mask = [
+            side_dist.x <= side_dist.y.min(side_dist.z),
+            side_dist.y <= side_dist.z.min(side_dist.x),
+            side_dist.z <= side_dist.x.min(side_dist.y),
+        ];
+        side_dist += Vec3::new(
+            if min_mask[0] { delta_dist.x } else { 0.0 },
+            if min_mask[1] { delta_dist.y } else { 0.0 },
+            if min_mask[2] { delta_dist.z } else { 0.0 },
+        );
+
+        if !in_aabb_i(map_pos, glam::IVec3::ZERO, chunk_dim.as_ivec3()) {
+            break;
+        }
+
+        let chunk_idx = map_pos.as_uvec3();
+        if scene_chunk_present_in_grid(chunk_dim, cpu_scene_chunks, chunk_idx) {
+            if let Some(cache) = cpu_chunk_caches.get(&chunk_idx) {
+                if let Some(hit) =
+                    query_cached_chunk_cpu_ray(cache.as_ref(), marched_origin, marched_dir)
+                {
+                    return Some(hit);
+                }
+            }
+        }
+
+        map_pos += glam::IVec3::new(
+            if min_mask[0] { ray_step.x } else { 0 },
+            if min_mask[1] { ray_step.y } else { 0 },
+            if min_mask[2] { ray_step.z } else { 0 },
+        );
+    }
+
+    None
+}
+
+fn query_cached_chunk_cpu_ray(
+    cache: &CpuChunkCache,
+    origin: Vec3,
+    direction: Vec3,
+) -> Option<Vec3> {
+    if direction.length_squared() <= f32::EPSILON || cache.nodes.is_empty() {
+        return None;
+    }
+
+    let local_origin = origin - cache.chunk_idx.as_vec3() + Vec3::ONE;
+    let local_hit = march_contree_cpu(local_origin, direction, &cache.nodes, &cache.leaves)?;
+    Some(local_hit + cache.chunk_idx.as_vec3() - Vec3::ONE)
+}
+
+fn scene_chunk_present_in_grid(
+    chunk_dim: UVec3,
+    cpu_scene_chunks: &[Option<UVec3>],
+    chunk_idx: UVec3,
+) -> bool {
+    cpu_scene_chunks[scene_chunk_flat_index(chunk_dim, chunk_idx)].is_some()
+}
+
+fn scene_chunk_flat_index(chunk_dim: UVec3, chunk_idx: UVec3) -> usize {
+    (chunk_idx.x + chunk_idx.z * chunk_dim.x + chunk_idx.y * chunk_dim.x * chunk_dim.z) as usize
 }
 
 /// Returns true if `n` is a power of four (1, 4, 16, 64, …).
@@ -456,4 +1262,209 @@ fn log_4(n: u32) -> u32 {
 
 fn get_level(contree_dim: UVec3) -> u32 {
     log_4(contree_dim.x) + 1
+}
+
+fn march_contree_cpu(
+    origin: Vec3,
+    dir: Vec3,
+    nodes: &[CpuContreeNode],
+    leaves: &[u32],
+) -> Option<Vec3> {
+    if nodes.is_empty() {
+        return None;
+    }
+
+    let mut stack = [0u32; 11];
+    let mut scale_exp = 21i32;
+    let mut node_idx = 0u32;
+    let mut node = *nodes.get(node_idx as usize)?;
+
+    let slab = slabs(Vec3::ONE, Vec3::splat(1.999_999_9), origin, reciprocal(dir));
+    if slab.x > slab.y || slab.y < 0.0 {
+        return None;
+    }
+    let origin = origin + dir * slab.x.max(0.0);
+
+    let mut mirror_mask = 0u32;
+    if dir.x > 0.0 {
+        mirror_mask |= 3u32;
+    }
+    if dir.y > 0.0 {
+        mirror_mask |= 3u32 << 4;
+    }
+    if dir.z > 0.0 {
+        mirror_mask |= 3u32 << 2;
+    }
+
+    let origin = get_mirrored_pos(origin, dir, true);
+    let mut pos = origin.clamp(Vec3::ONE, Vec3::splat(1.999_999_9));
+    let inv_dir = -reciprocal(dir.abs());
+
+    for _ in 0..1024 {
+        let mut child_idx = (get_node_cell_index(pos, scale_exp)? as u32) ^ mirror_mask;
+
+        while child_mask_test(node, child_idx) && !is_leaf(node) {
+            stack[(scale_exp >> 1) as usize] = node_idx;
+
+            let bits = child_mask_bitcount_below(node, child_idx);
+            node_idx = (node.packed_0 >> 1) + bits;
+            node = *nodes.get(node_idx as usize)?;
+
+            scale_exp -= 2;
+            child_idx = (get_node_cell_index(pos, scale_exp)? as u32) ^ mirror_mask;
+        }
+
+        if child_mask_test(node, child_idx) && is_leaf(node) {
+            let pos = get_mirrored_pos(pos, dir, false);
+            let child_idx = get_node_cell_index(pos, scale_exp)? as u32;
+            let bits = child_mask_bitcount_below(node, child_idx);
+            let voxel_addr = ((node.packed_0 >> 1) + bits) as usize;
+            if voxel_addr < leaves.len() {
+                return Some(pos);
+            }
+            return None;
+        }
+
+        let mut adv_scale_exp = scale_exp;
+        let shifted_idx = child_idx & 0x2A;
+        let has_neighbor = if shifted_idx < 32 {
+            ((node.child_mask_lo >> shifted_idx) & 0x0033_0033) != 0
+        } else {
+            ((node.child_mask_hi >> (shifted_idx - 32)) & 0x0033_0033) != 0
+        };
+        if !has_neighbor {
+            adv_scale_exp += 1;
+        }
+
+        let cell_min = floor_scale(pos, adv_scale_exp);
+        let side_dist = (cell_min - origin) * inv_dir;
+        let tmax = side_dist.x.min(side_dist.y.min(side_dist.z));
+
+        let side_mask = [
+            tmax >= side_dist.x,
+            tmax >= side_dist.y,
+            tmax >= side_dist.z,
+        ];
+        let base = [
+            cell_min.x.to_bits() as i32,
+            cell_min.y.to_bits() as i32,
+            cell_min.z.to_bits() as i32,
+        ];
+        let off = (1 << adv_scale_exp) - 1;
+        let neighbor_max = [
+            base[0] + if side_mask[0] { -1 } else { off },
+            base[1] + if side_mask[1] { -1 } else { off },
+            base[2] + if side_mask[2] { -1 } else { off },
+        ];
+
+        pos = (origin - dir.abs() * tmax).min(Vec3::new(
+            f32::from_bits(neighbor_max[0] as u32),
+            f32::from_bits(neighbor_max[1] as u32),
+            f32::from_bits(neighbor_max[2] as u32),
+        ));
+
+        let combined = ((pos.x.to_bits() ^ cell_min.x.to_bits())
+            | (pos.y.to_bits() ^ cell_min.y.to_bits())
+            | (pos.z.to_bits() ^ cell_min.z.to_bits()))
+            & 0xFFAA_AAAA;
+        let diff_exp = find_msb(combined);
+        if diff_exp > scale_exp {
+            scale_exp = diff_exp;
+            if diff_exp > 21 {
+                break;
+            }
+            node_idx = stack[(scale_exp >> 1) as usize];
+            node = *nodes.get(node_idx as usize)?;
+        }
+    }
+
+    None
+}
+
+fn slabs(min_bound: Vec3, max_bound: Vec3, origin: Vec3, inv_dir: Vec3) -> Vec2 {
+    let t0 = (min_bound - origin) * inv_dir;
+    let t1 = (max_bound - origin) * inv_dir;
+    let tmin = t0.min(t1);
+    let tmax = t0.max(t1);
+    Vec2::new(tmin.max_element(), tmax.min_element())
+}
+
+fn reciprocal(v: Vec3) -> Vec3 {
+    Vec3::new(1.0 / v.x, 1.0 / v.y, 1.0 / v.z)
+}
+
+fn sanitize_dda_direction(direction: Vec3) -> Vec3 {
+    let abs_dir = direction.abs().max(Vec3::splat(DDA_EPSILON));
+    abs_dir * direction.signum()
+}
+
+fn in_aabb_i(point: glam::IVec3, box_min: glam::IVec3, box_max: glam::IVec3) -> bool {
+    point.cmpge(box_min).all() && point.cmplt(box_max).all()
+}
+
+fn get_mirrored_pos(pos: Vec3, dir: Vec3, range_check: bool) -> Vec3 {
+    let mirrored = Vec3::new(
+        f32::from_bits(pos.x.to_bits() ^ 0x007F_FFFF),
+        f32::from_bits(pos.y.to_bits() ^ 0x007F_FFFF),
+        f32::from_bits(pos.z.to_bits() ^ 0x007F_FFFF),
+    );
+
+    let mirrored =
+        if range_check && (pos.cmplt(Vec3::ONE).any() || pos.cmpge(Vec3::splat(2.0)).any()) {
+            Vec3::splat(3.0) - pos
+        } else {
+            mirrored
+        };
+
+    Vec3::new(
+        if dir.x > 0.0 { mirrored.x } else { pos.x },
+        if dir.y > 0.0 { mirrored.y } else { pos.y },
+        if dir.z > 0.0 { mirrored.z } else { pos.z },
+    )
+}
+
+fn get_node_cell_index(pos: Vec3, scale_exp: i32) -> Option<i32> {
+    let shift = u32::try_from(scale_exp).ok()?;
+    let px = (pos.x.to_bits() >> shift) & 3;
+    let py = (pos.y.to_bits() >> shift) & 3;
+    let pz = (pos.z.to_bits() >> shift) & 3;
+    Some((px + pz * 4 + py * 16) as i32)
+}
+
+fn floor_scale(pos: Vec3, scale_exp: i32) -> Vec3 {
+    let mask = !0u32 << (scale_exp as u32);
+    Vec3::new(
+        f32::from_bits(pos.x.to_bits() & mask),
+        f32::from_bits(pos.y.to_bits() & mask),
+        f32::from_bits(pos.z.to_bits() & mask),
+    )
+}
+
+fn is_leaf(node: CpuContreeNode) -> bool {
+    (node.packed_0 & 1) != 0
+}
+
+fn child_mask_test(node: CpuContreeNode, idx: u32) -> bool {
+    if idx < 32 {
+        (node.child_mask_lo & (1 << idx)) != 0
+    } else {
+        (node.child_mask_hi & (1 << (idx - 32))) != 0
+    }
+}
+
+fn child_mask_bitcount_below(node: CpuContreeNode, idx: u32) -> u32 {
+    if idx < 32 {
+        (node.child_mask_lo & ((1 << idx) - 1)).count_ones()
+    } else {
+        node.child_mask_lo.count_ones()
+            + (node.child_mask_hi & ((1 << (idx - 32)) - 1)).count_ones()
+    }
+}
+
+fn find_msb(value: u32) -> i32 {
+    if value == 0 {
+        -1
+    } else {
+        31 - value.leading_zeros() as i32
+    }
 }

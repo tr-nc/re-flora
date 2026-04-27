@@ -58,7 +58,7 @@ float compute_base_shape_2d(vec2 world_xz) {
 float compute_surface_height_2d(vec2 world_xz) {
     float base_shape      = compute_base_shape_2d(world_xz);
     float island_shape_01 = compute_island_shape_2d(world_xz);
-    return island_shape_01 * base_shape;
+    return base_shape;
 }
 
 void main() {

@@ -39,10 +39,6 @@ impl ParticleTextureLayout {
         self.leaf_layer
     }
 
-    pub const fn leaf_layer_count(self) -> u32 {
-        self.leaf_layer_count
-    }
-
     pub const fn butterfly_base_layer(self) -> u32 {
         self.butterfly_base_layer
     }

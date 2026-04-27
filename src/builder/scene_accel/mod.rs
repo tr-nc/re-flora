@@ -3,6 +3,7 @@ use anyhow::Result;
 use ash::vk;
 use glam::UVec3;
 pub use resources::*;
+use std::time::Instant;
 
 use crate::{
     generated::gpu_structs::SceneTexUpdateInfo,
@@ -10,7 +11,7 @@ use crate::{
     util::ShaderCompiler,
     vkn::{
         execute_one_time_command, Allocator, Buffer, ClearValue, ColorClearValue, CommandBuffer,
-        ComputePipeline, DescriptorPool, Extent3D, ShaderModule, VulkanContext,
+        ComputePipeline, DescriptorPool, Extent3D, Fence, ShaderModule, VulkanContext,
     },
 };
 use bytemuck::Zeroable;
@@ -110,21 +111,40 @@ impl SceneAccelBuilder {
     pub fn update_scene_tex(
         &mut self,
         chunk_idx: UVec3,
-        node_offset_for_chunk: u64,
-        node_count_for_chunk: u64,
+        chunk_data: Option<(u64, u64)>,
     ) -> Result<()> {
+        let total_start = Instant::now();
+        let (node_offset_for_chunk, leaf_offset_for_chunk, is_valid) = match chunk_data {
+            Some((node_offset, leaf_offset)) => (node_offset as u32, leaf_offset as u32, 1),
+            None => (0, 0, 0),
+        };
+
+        let uniform_start = Instant::now();
         update_buffers(
             &self.resources.scene_tex_update_info,
             chunk_idx,
-            node_offset_for_chunk as u32,
-            node_count_for_chunk as u32,
+            node_offset_for_chunk,
+            leaf_offset_for_chunk,
+            is_valid,
         )?;
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("scene_tex_update_uniform", uniform_start.elapsed());
 
+        let gpu_start = Instant::now();
+        let fence = Fence::new(self.vulkan_ctx.device(), false);
         self.update_scene_tex_cmdbuf
-            .submit(&self.vulkan_ctx.get_general_queue(), None);
-        self.vulkan_ctx
-            .device()
-            .wait_queue_idle(&self.vulkan_ctx.get_general_queue());
+            .submit(&self.vulkan_ctx.get_general_queue(), Some(&fence));
+        self.vulkan_ctx.wait_for_fences(&[fence.as_raw()]).unwrap();
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("scene_tex_update_gpu", gpu_start.elapsed());
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("scene_tex_update_total", total_start.elapsed());
         return Ok(());
 
         fn update_buffers(
@@ -132,11 +152,13 @@ impl SceneAccelBuilder {
             chunk_idx: UVec3,
             node_offset_for_chunk: u32,
             leaf_offset_for_chunk: u32,
+            is_valid: u32,
         ) -> Result<()> {
             scene_tex_update_info.fill_uniform(&SceneTexUpdateInfo {
                 chunk_idx: chunk_idx.to_array(),
                 node_offset_for_chunk,
                 leaf_offset_for_chunk,
+                is_valid,
                 ..SceneTexUpdateInfo::zeroed()
             })
         }

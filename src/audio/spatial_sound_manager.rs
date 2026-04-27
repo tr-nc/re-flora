@@ -1,4 +1,5 @@
 use crate::audio::audio_clip_cache::AudioClipCache;
+use crate::builder::{ContreeAnyHitRayTracer, ContreeRayTracingRuntimeSnapshot};
 use crate::gameplay::camera::vectors::CameraVectors;
 use anyhow::Result;
 use glam::Vec3;
@@ -8,10 +9,11 @@ use petalsonic::{
     math::{Pose, Quat as PetalQuat, Vec3 as PetalVec3},
     playback::LoopMode,
     world::PetalSonicWorld,
-    SourceConfig, SourceId,
+    BatchedAnyHitRayTracer, DirectOcclusionDebugSnapshot, SourceConfig, SourceId,
 };
 use rand::Rng;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
@@ -27,6 +29,7 @@ struct SourceInfo {
 pub struct SpatialSoundManager {
     world: Arc<PetalSonicWorld>,
     engine: Arc<Mutex<PetalSonicEngine>>,
+    audio_ray_tracer: Arc<ContreeAnyHitRayTracer>,
 
     // Audio clip cache for efficient audio data loading
     clip_cache: Arc<AudioClipCache>,
@@ -39,6 +42,7 @@ pub struct SpatialSoundManager {
 
     // Global master gain (dB) applied to all sources.
     global_volume_gain_db: Arc<Mutex<f32>>,
+    engine_started: Arc<AtomicBool>,
 }
 
 #[derive(Clone, Debug)]
@@ -63,7 +67,10 @@ impl Default for ListenerState {
 }
 
 impl SpatialSoundManager {
-    pub fn new(frame_window_size: usize) -> Result<Self> {
+    pub fn new(
+        frame_window_size: usize,
+        audio_ray_tracer: Arc<ContreeAnyHitRayTracer>,
+    ) -> Result<Self> {
         let sample_rate = 48000;
 
         // Initialize audio clip cache first
@@ -82,16 +89,16 @@ impl SpatialSoundManager {
             hrtf_path: Some(hrtf_path),
             hrtf_gain: 0.0,
             distance_scaler: 15.0,
+            batched_any_hit_ray_tracer: Some(
+                audio_ray_tracer.clone() as Arc<dyn BatchedAnyHitRayTracer>
+            ),
             ..Default::default()
         };
 
         // Create world and engine
         let world = PetalSonicWorld::new(world_desc.clone())?;
         let world_arc = Arc::new(world);
-        let mut engine = PetalSonicEngine::new(world_desc, world_arc.clone())?;
-
-        // Start the engine
-        engine.start()?;
+        let engine = PetalSonicEngine::new(world_desc, world_arc.clone())?;
 
         // Initialize with default listener position and orientation
         let listener_pose = Pose::new(PetalVec3::new(0.0, 0.0, 0.0), PetalQuat::IDENTITY);
@@ -101,10 +108,12 @@ impl SpatialSoundManager {
         Ok(Self {
             world: world_arc,
             engine: Arc::new(Mutex::new(engine)),
+            audio_ray_tracer,
             clip_cache,
             uuid_to_source: Arc::new(Mutex::new(HashMap::new())),
             listener_state: Arc::new(Mutex::new(ListenerState::default())),
             global_volume_gain_db: Arc::new(Mutex::new(0.0)),
+            engine_started: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -335,6 +344,59 @@ impl SpatialSoundManager {
         Ok(())
     }
 
+    pub fn set_audio_ray_tracing_enabled(&self, enabled: bool) {
+        self.audio_ray_tracer.set_enabled(enabled);
+    }
+
+    pub fn pump_audio(&self) -> Result<()> {
+        if !self.engine_started.load(Ordering::Acquire) {
+            return Ok(());
+        }
+
+        let mut engine = self.engine.lock().unwrap();
+        engine
+            .pump_audio()
+            .map_err(|err| anyhow::anyhow!("Failed to pump audio: {}", err))?;
+        drop(engine);
+        Ok(())
+    }
+
+    pub fn start(&self) -> Result<()> {
+        if self.engine_started.load(Ordering::Acquire) {
+            return Ok(());
+        }
+
+        let mut engine = self.engine.lock().unwrap();
+        if self.engine_started.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+
+        engine.start()?;
+        self.engine_started.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    pub fn stop(&self) -> Result<()> {
+        if !self.engine_started.swap(false, Ordering::AcqRel) {
+            return Ok(());
+        }
+
+        let mut engine = self.engine.lock().unwrap();
+        engine.stop()?;
+        Ok(())
+    }
+
+    pub fn direct_occlusion_debug_snapshot(&self) -> Option<DirectOcclusionDebugSnapshot> {
+        self.engine
+            .lock()
+            .ok()
+            .and_then(|engine| engine.direct_occlusion_debug_snapshot())
+    }
+
+    pub fn take_audio_ray_tracing_runtime_snapshot(&self) -> ContreeRayTracingRuntimeSnapshot {
+        self.audio_ray_tracer.take_runtime_snapshot()
+    }
+
     #[allow(dead_code)]
     pub fn update_source_pos(&self, source_uuid: Uuid, target_pos: Vec3) -> Result<()> {
         let global_gain_db = self.global_gain_db();
@@ -450,12 +512,6 @@ impl SpatialSoundManager {
             let _ = self.world.remove_audio_data(source_info.source_id);
         }
     }
-
-    /// Poll events from the engine (e.g., for cleanup of completed sources)
-    #[allow(dead_code)]
-    pub fn poll_events(&self) -> Vec<petalsonic::PetalSonicEvent> {
-        self.engine.lock().unwrap().poll_events()
-    }
 }
 
 // Make SpatialSoundManager cloneable
@@ -464,10 +520,12 @@ impl Clone for SpatialSoundManager {
         Self {
             world: self.world.clone(),
             engine: self.engine.clone(),
+            audio_ray_tracer: self.audio_ray_tracer.clone(),
             clip_cache: self.clip_cache.clone(),
             uuid_to_source: self.uuid_to_source.clone(),
             listener_state: self.listener_state.clone(),
             global_volume_gain_db: self.global_volume_gain_db.clone(),
+            engine_started: self.engine_started.clone(),
         }
     }
 }

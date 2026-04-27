@@ -45,7 +45,7 @@ use crate::particles::{ParticleSnapshot, PARTICLE_CAPACITY};
 use crate::resource::ResourceContainer;
 use crate::util::{ShaderCompiler, TimeInfo};
 use crate::vkn::{
-    execute_one_time_command, Allocator, Buffer, ClearValue, ColorClearValue, CommandBuffer,
+    execute_one_time_command_with_fence, Allocator, ClearValue, ColorClearValue, CommandBuffer,
     ComputePipeline, DepthOrStencilClearValue, DescriptorPool, Extent2D, Extent3D, Framebuffer,
     GraphicsPipeline, MemoryBarrier, PipelineBarrier, PushConstantInfo, RenderPass, RenderTarget,
     Texture, Viewport, VulkanContext,
@@ -55,17 +55,13 @@ use ash::vk;
 use std::collections::HashMap;
 
 const MAX_TERRAIN_QUERIES: usize = 1_000;
+pub(super) const WIND_VOLUME_BUCKET_COUNT: u32 = 4;
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct WindVolumePushConstants {
     time: f32,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct TerrainHeightSample {
-    pub height: f32,
-    pub is_valid: bool,
+    bucket_index: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -140,6 +136,9 @@ pub struct Tracer {
     pool: DescriptorPool,
 
     a_trous_iteration_count: u32,
+    world_tick_seconds: f32,
+    last_wind_volume_step: Option<u32>,
+    initialized_wind_volume_bucket_count: u32,
     spatial_sound_manager: SpatialSoundManager,
     particle_instance_scratch: Vec<ParticleInstanceGpu>,
 }
@@ -208,7 +207,6 @@ impl Tracer {
             contree_builder_resources,
             scene_accel_resources,
         );
-
         let render_passes = PipelineBuilder::create_render_passes(
             &vulkan_ctx,
             resources.extent_dependent_resources.gfx_output_tex.clone(),
@@ -265,6 +263,9 @@ impl Tracer {
             render_target_depth_only,
             pool,
             a_trous_iteration_count: 3,
+            world_tick_seconds: crate::game_time::WORLD_TICK_SECONDS_DEFAULT,
+            last_wind_volume_step: None,
+            initialized_wind_volume_bucket_count: 0,
             spatial_sound_manager,
             particle_instance_scratch: Vec::with_capacity(particle_capacity),
         })
@@ -454,8 +455,7 @@ impl Tracer {
         ocean_noise_frequency: f32,
         ocean_time_multiplier: f32,
         ocean_sea_level_shift: f32,
-        flora_update_bucket_count: u32,
-        flora_full_update_seconds: f32,
+        world_tick_seconds: f32,
         lens_flare_intensity: f32,
         lens_flare_sun_pixel_scale: f32,
         flora_tick: u32,
@@ -534,12 +534,6 @@ impl Tracer {
 
         BufferUpdater::update_post_processing_info(&self.resources, self.desc.scaling_factor)?;
 
-        BufferUpdater::update_player_collider_info(
-            &self.resources,
-            self.camera.position(),
-            self.camera.front(),
-        )?;
-
         BufferUpdater::update_voxel_colors(
             &self.resources,
             voxel_dirt_color,
@@ -565,11 +559,11 @@ impl Tracer {
             ocean_noise_frequency,
             ocean_time_multiplier,
             ocean_sea_level_shift,
-            flora_update_bucket_count,
-            flora_full_update_seconds,
             lens_flare_intensity,
             lens_flare_sun_pixel_scale,
         )?;
+
+        self.world_tick_seconds = crate::game_time::clamp_world_tick_seconds(world_tick_seconds);
 
         BufferUpdater::update_flora_growth_info(
             &self.resources,
@@ -859,8 +853,6 @@ impl Tracer {
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         self.record_post_processing_pass(cmdbuf);
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-        self.record_player_collider_pass(cmdbuf);
-
         if render_flags.enable_denoiser {
             copy_current_to_prev(&self.resources, cmdbuf);
         }
@@ -1400,19 +1392,82 @@ impl Tracer {
         );
     }
 
-    fn record_wind_volume_pass(&self, cmdbuf: &CommandBuffer, time: f32) {
+    fn wind_volume_bucket_step_seconds(&self) -> f32 {
+        self.world_tick_seconds
+    }
+
+    fn wind_volume_bucket_time(
+        step_index: u32,
+        bucket_index: u32,
+        bucket_count: u32,
+        step_seconds: f32,
+    ) -> f32 {
+        if step_index < bucket_index {
+            return 0.0;
+        }
+
+        let last_bucket_step =
+            bucket_index + ((step_index - bucket_index) / bucket_count) * bucket_count;
+        last_bucket_step as f32 * step_seconds
+    }
+
+    fn record_wind_volume_bucket_pass(
+        &self,
+        cmdbuf: &CommandBuffer,
+        dispatch_extent: Extent3D,
+        bucket_index: u32,
+        time: f32,
+    ) {
+        let push_constants = WindVolumePushConstants { time, bucket_index };
+
+        self.compute_pipelines.wind_volume_ppl.record(
+            cmdbuf,
+            dispatch_extent,
+            Some(bytemuck::bytes_of(&push_constants)),
+        );
+    }
+
+    fn record_wind_volume_pass(&mut self, cmdbuf: &CommandBuffer, time: f32) {
         self.resources
             .wind_volume_tex
             .get_image()
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
 
-        let push_constants = WindVolumePushConstants { time };
+        let bucket_count = WIND_VOLUME_BUCKET_COUNT;
+        let step_seconds = self.wind_volume_bucket_step_seconds();
+        let step_index = (time / step_seconds).floor().max(0.0) as u32;
+        let mut dispatch_extent = self.resources.wind_volume_tex.get_image().get_desc().extent;
+        dispatch_extent.width /= WIND_VOLUME_BUCKET_COUNT;
 
-        self.compute_pipelines.wind_volume_ppl.record(
-            cmdbuf,
-            self.resources.wind_volume_tex.get_image().get_desc().extent,
-            Some(bytemuck::bytes_of(&push_constants)),
-        );
+        if self.initialized_wind_volume_bucket_count != bucket_count {
+            for bucket_index in 0..bucket_count {
+                let bucket_time = Self::wind_volume_bucket_time(
+                    step_index,
+                    bucket_index,
+                    bucket_count,
+                    step_seconds,
+                );
+                self.record_wind_volume_bucket_pass(
+                    cmdbuf,
+                    dispatch_extent,
+                    bucket_index,
+                    bucket_time,
+                );
+            }
+
+            self.initialized_wind_volume_bucket_count = bucket_count;
+            self.last_wind_volume_step = Some(step_index);
+            return;
+        }
+
+        if self.last_wind_volume_step == Some(step_index) {
+            return;
+        }
+
+        let bucket_index = step_index % bucket_count;
+        let bucket_time = step_index as f32 * step_seconds;
+        self.record_wind_volume_bucket_pass(cmdbuf, dispatch_extent, bucket_index, bucket_time);
+        self.last_wind_volume_step = Some(step_index);
     }
 
     fn record_vsm_filtering_pass(&self, cmdbuf: &CommandBuffer) {
@@ -1661,6 +1716,7 @@ impl Tracer {
         );
     }
 
+    #[allow(dead_code)]
     fn record_player_collider_pass(&self, cmdbuf: &CommandBuffer) {
         self.compute_pipelines
             .player_collider_ppl
@@ -1728,39 +1784,29 @@ impl Tracer {
         self.camera.vectors()
     }
 
-    pub fn update_camera(&mut self, frame_delta_time: f32, is_fly_mode: bool) {
+    pub fn update_camera(
+        &mut self,
+        frame_delta_time: f32,
+        is_fly_mode: bool,
+        collision_result: Option<PlayerCollisionResult>,
+    ) {
         if is_fly_mode {
             self.camera.update_transform_fly_mode(frame_delta_time);
         } else {
-            let collision_result =
-                get_player_collision_result(&self.resources.player_collision_result).unwrap();
-            self.camera
-                .update_transform_walk_mode(frame_delta_time, collision_result);
+            self.camera.update_transform_walk_mode(
+                frame_delta_time,
+                collision_result.unwrap_or_else(|| PlayerCollisionResult {
+                    ground_distance: f32::INFINITY,
+                    ceiling_distance: f32::INFINITY,
+                    ring_distances: vec![],
+                }),
+            );
         }
 
         // update spatial sound manager with camera (listener) position
         self.spatial_sound_manager
             .update_player_pos(self.camera.position(), self.camera.vectors())
             .unwrap();
-
-        fn get_player_collision_result(
-            player_collision_result: &Buffer,
-        ) -> Result<PlayerCollisionResult> {
-            use crate::generated::gpu_structs::PlayerCollisionResult as GpuResult;
-            let raw_data = player_collision_result.read_back()?;
-            let gpu: GpuResult = *bytemuck::from_bytes(&raw_data);
-            // ring_distances is stored as u32 bits in the GPU struct; reinterpret as f32
-            let ring_distances = gpu
-                .ring_distances
-                .iter()
-                .map(|&bits| f32::from_bits(bits))
-                .collect();
-            Ok(PlayerCollisionResult {
-                ground_distance: gpu.ground_distance,
-                ceiling_distance: gpu.ceiling_distance,
-                ring_distances,
-            })
-        }
     }
 
     pub fn upload_particles(&mut self, snapshots: &[ParticleSnapshot]) -> Result<()> {
@@ -2000,48 +2046,6 @@ impl Tracer {
         Ok(())
     }
 
-    pub fn query_terrain_height(&mut self, pos_xz: Vec2) -> Result<f32> {
-        let sample = self.query_terrain_heights_batch_with_validity(&[pos_xz])?[0];
-        Ok(if sample.is_valid { sample.height } else { 0.0 })
-    }
-
-    pub fn query_terrain_heights_batch(&mut self, positions: &[Vec2]) -> Result<Vec<f32>> {
-        let samples = self.query_terrain_heights_batch_with_validity(positions)?;
-        Ok(samples
-            .into_iter()
-            .map(|sample| if sample.is_valid { sample.height } else { 0.0 })
-            .collect())
-    }
-
-    pub fn query_terrain_heights_batch_with_validity(
-        &mut self,
-        positions: &[Vec2],
-    ) -> Result<Vec<TerrainHeightSample>> {
-        if positions.is_empty() {
-            return Ok(vec![]);
-        }
-
-        let rays = positions
-            .iter()
-            .map(|pos| TerrainRayQuery {
-                origin: Vec3::new(pos.x, 10.0, pos.y),
-                direction: Vec3::new(0.0, -1.0, 0.0),
-            })
-            .collect::<Vec<_>>();
-        let hit_samples = self.query_terrain_rays_batch_with_validity(&rays)?;
-        Ok(hit_samples
-            .into_iter()
-            .map(|sample| TerrainHeightSample {
-                height: if sample.is_valid {
-                    sample.position.y
-                } else {
-                    0.0
-                },
-                is_valid: sample.is_valid,
-            })
-            .collect())
-    }
-
     pub fn query_terrain_rays_batch_with_validity(
         &mut self,
         rays: &[TerrainRayQuery],
@@ -2086,7 +2090,7 @@ impl Tracer {
         }
         self.resources.terrain_query_info.fill(&ray_data)?;
 
-        execute_one_time_command(
+        execute_one_time_command_with_fence(
             self.vulkan_ctx.device(),
             self.vulkan_ctx.command_pool(),
             &self.vulkan_ctx.get_general_queue(),

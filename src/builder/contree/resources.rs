@@ -129,18 +129,22 @@ impl ContreeBuilderResources {
             nodes_len_max as u64,
         );
 
+        let mut leaf_data_usage = BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER);
+        leaf_data_usage.union_with(&BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_SRC));
         let leaf_data = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
-            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            leaf_data_usage,
             gpu_allocator::MemoryLocation::GpuOnly,
             leaf_pool_size_in_bytes,
         );
 
+        let mut node_data_usage = BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER);
+        node_data_usage.union_with(&BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_SRC));
         let node_data = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
-            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            node_data_usage,
             gpu_allocator::MemoryLocation::GpuOnly,
             node_pool_size_in_bytes,
         );

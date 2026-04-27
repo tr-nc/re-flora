@@ -6,7 +6,7 @@ use crate::{
     tracer::{
         leaves_construct::generate_indexed_voxel_leaves, load_butterfly_and_remap,
         ButterflyPalettePreset, DenoiserResources, ExtentDependentResources, ParticleTextureLayout,
-        Vertex,
+        Vertex, WIND_VOLUME_BUCKET_COUNT,
     },
     util::get_project_root,
     vkn::{
@@ -717,14 +717,6 @@ impl TracerResources {
         let frame_dim = PARTICLE_SPRITE_FRAME_DIM;
         let layout = ParticleTextureLayout::new();
         layout.assert_valid();
-        log::info!(
-            "Particle LUT layout: leaf [{}..={}], butterfly [{}..={}], total {} layers",
-            layout.leaf_layer(),
-            layout.leaf_layer() + layout.leaf_layer_count() - 1,
-            layout.butterfly_base_layer(),
-            layout.butterfly_base_layer() + layout.butterfly_layer_count() - 1,
-            layout.total_layer_count()
-        );
 
         let white = [255u8, 255u8, 255u8, 255u8];
         let white_layer = white
@@ -972,7 +964,7 @@ impl TracerResources {
         let chunk_extent = chunk_bound.get_extent();
         let tex_desc = ImageDesc {
             extent: Extent3D::new(
-                chunk_extent.width * WIND_VOLUME_TEXELS_PER_CHUNK.x,
+                chunk_extent.width * WIND_VOLUME_TEXELS_PER_CHUNK.x * WIND_VOLUME_BUCKET_COUNT,
                 chunk_extent.height * WIND_VOLUME_TEXELS_PER_CHUNK.y,
                 chunk_extent.depth * WIND_VOLUME_TEXELS_PER_CHUNK.z,
             ),

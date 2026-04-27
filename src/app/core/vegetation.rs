@@ -13,6 +13,7 @@ use anyhow::Result;
 use glam::{UVec3, Vec2, Vec3};
 use rand::Rng;
 use std::collections::HashSet;
+use std::time::Instant;
 
 #[derive(Debug, Clone)]
 pub(super) struct TreeVariationConfig {
@@ -555,7 +556,10 @@ impl App {
             .map(|pos| Vec2::new(pos.x, pos.y))
             .collect();
 
-        let terrain_heights = self.tracer.query_terrain_heights_batch(&query_positions)?;
+        let terrain_heights = query_positions
+            .iter()
+            .map(|&pos| self.query_terrain_height_cpu(pos))
+            .collect::<Vec<_>>();
 
         let positions_3d = positions_2d
             .iter()
@@ -665,7 +669,7 @@ impl App {
         edit: FencePostPlacementEdit,
         voxel_type: u32,
     ) -> Result<()> {
-        let terrain_height = self.tracer.query_terrain_height(edit.horizontal)?;
+        let terrain_height = self.query_terrain_height_cpu(edit.horizontal);
         let compiled = FencePostPlacementService::compile(edit, terrain_height, voxel_type);
 
         self.execute_edit_plan(WorldEditPlan::with_voxel_and_build(
@@ -689,6 +693,7 @@ impl App {
         target_voxel_type: Option<u32>,
         max_write_count: Option<u32>,
     ) -> Result<ChunkModifyReadback> {
+        let total_start = Instant::now();
         if let Some(compiled) = TerrainSurfaceRemovalService::compile(edit) {
             let stats = match compiled.voxel_edit {
                 VoxelEdit::StampSurfaceSpheres {
@@ -718,6 +723,12 @@ impl App {
                     tick: self.flora_tick,
                 },
             )?;
+            let total_elapsed = total_start.elapsed();
+            crate::util::BENCH
+                .lock()
+                .unwrap()
+                .record("terrain_edit_removal_total", total_elapsed);
+            crate::util::BENCH.lock().unwrap().summary();
             return Ok(stats);
         }
         Ok(ChunkModifyReadback::default())
@@ -729,9 +740,11 @@ impl App {
         voxel_type: u32,
         max_write_count: u32,
     ) -> Result<ChunkModifyReadback> {
+        let total_start = Instant::now();
         if let Some(compiled) =
             TerrainSurfaceRemovalService::compile_with_voxel_type(edit, voxel_type)
         {
+            let modify_start = Instant::now();
             let stats = match compiled.voxel_edit {
                 VoxelEdit::StampSurfaceSpheres {
                     bvh_nodes,
@@ -748,6 +761,8 @@ impl App {
                     )?,
                 _ => unreachable!("terrain surface placement compiled into unexpected edit type"),
             };
+            let _modify_elapsed = modify_start.elapsed();
+            let mesh_start = Instant::now();
             world_ops::mesh_generate_preserve_flora_for_sphere_edit(
                 &mut self.surface_builder,
                 &mut self.contree_builder,
@@ -760,6 +775,14 @@ impl App {
                     tick: self.flora_tick,
                 },
             )?;
+            let _mesh_elapsed = mesh_start.elapsed();
+            let total_elapsed = total_start.elapsed();
+            crate::util::BENCH
+                .lock()
+                .unwrap()
+                .record("terrain_edit_placement_total", total_elapsed);
+            crate::util::BENCH.lock().unwrap().summary();
+
             return Ok(stats);
         }
         Ok(ChunkModifyReadback::default())
@@ -827,9 +850,7 @@ impl App {
 
         let tree_pos = match placement {
             TreePlacement::Terrain(horizontal) => {
-                let terrain_height = self
-                    .tracer
-                    .query_terrain_height(Vec2::new(horizontal.x, horizontal.y))?;
+                let terrain_height = self.query_terrain_height_cpu(horizontal);
                 Vec3::new(horizontal.x, terrain_height, horizontal.y)
             }
             TreePlacement::World(world) => world,

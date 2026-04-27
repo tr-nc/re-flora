@@ -36,6 +36,29 @@ pub struct DeviceInfo {
     pub device_type: vk::PhysicalDeviceType,
 }
 
+fn print_titled_table(title: &str, table: &comfy_table::Table) {
+    let rendered = table.to_string();
+    let Some(border) = rendered.lines().next() else {
+        println!("{}", title);
+        return;
+    };
+
+    let border_width = border.chars().count();
+    let title_width = border_width.saturating_sub(4);
+    let title_len = title.chars().count();
+    let left_padding = title_width.saturating_sub(title_len) / 2;
+    let right_padding = title_width.saturating_sub(title_len + left_padding);
+    let title_row = format!(
+        "| {}{}{} |",
+        " ".repeat(left_padding),
+        title,
+        " ".repeat(right_padding)
+    );
+    let body = rendered.lines().skip(1).collect::<Vec<_>>().join("\n");
+
+    println!("{}\n{}\n{}\n{}", border, title_row, border, body);
+}
+
 fn print_all_devices_with_selection(device_infos: &[DeviceInfo], selection_idx: usize) {
     println!("\n--- Suitable Physical Devices ---");
     let mut table = comfy_table::Table::new();
@@ -321,7 +344,6 @@ pub fn create_physical_device(
 
     // A helper function to print the detailed evaluation report.
     fn print_device_evaluation_table(evaluations: &[DeviceEvaluation]) {
-        println!("--- Physical Device Evaluation Report ---");
         let mut table = comfy_table::Table::new();
         table.set_header(vec![
             "Device",
@@ -376,7 +398,7 @@ pub fn create_physical_device(
                 ]);
             }
         }
-        println!("{}", table);
+        print_titled_table("Physical Device Evaluation Report", &table);
     }
 
     let devices = unsafe {

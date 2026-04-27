@@ -3,13 +3,19 @@ use super::ui_style::{
 };
 use super::App;
 use crate::app::world_edits::TerrainRemovalEdit;
-use crate::tracer::TerrainRayQuery;
+use crate::tracer::PlayerCollisionResult;
 use glam::{Vec2, Vec3};
 use std::time::Instant;
 use winit::event::DeviceEvent;
 use winit::event_loop::ActiveEventLoop;
 
 impl App {
+    const PLAYER_COLLISION_RAY_DISTANCE: f32 = 2.0;
+    const PLAYER_COLLISION_RING_RAY_COUNT: usize = 32;
+    const PLAYER_COLLISION_RAY_HALF_KERNEL_SIZE: i32 = 1;
+    const PLAYER_COLLISION_RAY_OFFSET: f32 = 1.0 / 256.0;
+    const PLAYER_COLLISION_GROUND_MISS_DISTANCE: f32 = 1.0e10;
+
     pub(super) fn sync_cursor_with_panels(&mut self) {
         let any_panel_open = self.config_panel_visible || self.settings_panel_visible;
         self.window_state.set_cursor_visibility(any_panel_open);
@@ -32,12 +38,16 @@ impl App {
         self.selected_item_panel_slot == HOE_SLOT_INDEX
     }
 
-    fn active_voxel_type_id(&self) -> u32 {
+    fn active_voxel_type_id(&self) -> Option<u32> {
         self.active_voxel_type.voxel_type()
     }
 
-    fn active_voxel_count(&self) -> u32 {
-        match self.active_voxel_type {
+    fn voxel_count(&self, voxel_type: super::ActiveVoxelType) -> u32 {
+        match voxel_type {
+            super::ActiveVoxelType::All => super::BACKPACK_VOXEL_TYPES
+                .iter()
+                .map(|voxel_type| self.voxel_count(*voxel_type))
+                .sum(),
             super::ActiveVoxelType::Dirt => self.backpack_dirt_count,
             super::ActiveVoxelType::Sand => self.backpack_sand_count,
             super::ActiveVoxelType::CherryWood => self.backpack_cherry_wood_count,
@@ -46,16 +56,36 @@ impl App {
         }
     }
 
+    fn active_voxel_count(&self) -> u32 {
+        self.voxel_count(self.active_voxel_type)
+    }
+
     fn is_active_voxel_storage_full(&self) -> bool {
+        if self.active_voxel_type == super::ActiveVoxelType::All {
+            return super::BACKPACK_VOXEL_TYPES
+                .iter()
+                .all(|voxel_type| self.voxel_count(*voxel_type) >= MAX_VOXEL_STORAGE_PER_TYPE);
+        }
+
         self.active_voxel_count() >= MAX_VOXEL_STORAGE_PER_TYPE
     }
 
     fn active_voxel_storage_remaining(&self) -> u32 {
+        if self.active_voxel_type == super::ActiveVoxelType::All {
+            return super::BACKPACK_VOXEL_TYPES
+                .iter()
+                .map(|voxel_type| {
+                    MAX_VOXEL_STORAGE_PER_TYPE.saturating_sub(self.voxel_count(*voxel_type))
+                })
+                .sum();
+        }
+
         MAX_VOXEL_STORAGE_PER_TYPE.saturating_sub(self.active_voxel_count())
     }
 
-    fn add_active_voxel_to_backpack(&mut self, amount: u32) {
-        match self.active_voxel_type {
+    fn add_voxel_to_backpack(&mut self, voxel_type: super::ActiveVoxelType, amount: u32) {
+        match voxel_type {
+            super::ActiveVoxelType::All => unreachable!("All is not a concrete backpack voxel"),
             super::ActiveVoxelType::Dirt => {
                 self.backpack_dirt_count = self
                     .backpack_dirt_count
@@ -89,8 +119,21 @@ impl App {
         }
     }
 
-    fn remove_active_voxel_from_backpack(&mut self, amount: u32) {
-        match self.active_voxel_type {
+    fn add_active_voxel_to_backpack(&mut self, amount: u32) {
+        self.add_voxel_to_backpack(self.active_voxel_type, amount);
+    }
+
+    fn add_removed_voxels_to_backpack(&mut self, stats: &crate::builder::ChunkModifyStats) {
+        for voxel_type in super::BACKPACK_VOXEL_TYPES {
+            if let Some(voxel_type_id) = voxel_type.voxel_type() {
+                self.add_voxel_to_backpack(voxel_type, stats.count_removed(voxel_type_id));
+            }
+        }
+    }
+
+    fn remove_voxel_from_backpack(&mut self, voxel_type: super::ActiveVoxelType, amount: u32) {
+        match voxel_type {
+            super::ActiveVoxelType::All => unreachable!("All is not a concrete backpack voxel"),
             super::ActiveVoxelType::Dirt => {
                 self.backpack_dirt_count = self.backpack_dirt_count.saturating_sub(amount)
             }
@@ -108,6 +151,17 @@ impl App {
                 self.backpack_rock_count = self.backpack_rock_count.saturating_sub(amount)
             }
         }
+    }
+
+    fn first_placeable_voxel_type(&self) -> Option<super::ActiveVoxelType> {
+        if self.active_voxel_type != super::ActiveVoxelType::All {
+            return (self.active_voxel_count() > 0).then_some(self.active_voxel_type);
+        }
+
+        super::BACKPACK_VOXEL_TYPES
+            .iter()
+            .copied()
+            .find(|voxel_type| self.voxel_count(*voxel_type) > 0)
     }
 
     pub(super) fn start_terrain_edit_loop_sound(&mut self, position: Vec3) {
@@ -185,50 +239,99 @@ impl App {
             return Ok(None);
         }
 
-        let sample = self
-            .tracer
-            .query_terrain_ray_with_validity(TerrainRayQuery { origin, direction })?;
-
-        let distance = if sample.is_valid {
-            (sample.position - origin).length()
-        } else {
-            f32::INFINITY
-        };
-
-        if sample.is_valid && distance <= max_distance {
-            return Ok(Some(sample.position));
-        }
-
-        Ok(None)
+        Ok(self
+            .query_terrain_ray_cpu(origin, direction)
+            .filter(|hit| (*hit - origin).length() <= max_distance))
     }
 
-    pub(super) fn update_terrain_query_debug_text(&mut self) {
-        let origin = self.tracer.camera_position();
-        let direction = self.tracer.camera_front();
+    pub(super) fn query_player_collision_cpu(&self) -> PlayerCollisionResult {
+        let player_pos = self.tracer.camera_position();
+        let camera_front = self.tracer.camera_front();
+        let flattened_front = Vec3::new(camera_front.x, 0.0, camera_front.z).normalize_or_zero();
+        let horizontal_front = if flattened_front.length_squared() <= f32::EPSILON {
+            Vec3::Z
+        } else {
+            flattened_front
+        };
+        let right = horizontal_front.cross(Vec3::Y).normalize_or_zero();
 
-        if direction.length_squared() <= f32::EPSILON {
-            self.terrain_query_debug_text = "not hit".to_owned();
-            return;
+        let kernel_radius = Self::PLAYER_COLLISION_RAY_HALF_KERNEL_SIZE;
+        let mut weighted_sum = 0.0;
+        let mut sum_of_weights = 0.0;
+        let mut ceiling_distance = Self::PLAYER_COLLISION_RAY_DISTANCE;
+
+        for x in -kernel_radius..=kernel_radius {
+            for y in -kernel_radius..=kernel_radius {
+                let offset = Vec2::new(x as f32, y as f32) * Self::PLAYER_COLLISION_RAY_OFFSET;
+                let ray_origin = player_pos + Vec3::new(offset.x, 0.0, offset.y);
+
+                let ground_distance = self
+                    .query_terrain_ray_cpu(ray_origin, Vec3::NEG_Y)
+                    .map(|hit| (hit - ray_origin).length())
+                    .unwrap_or(Self::PLAYER_COLLISION_GROUND_MISS_DISTANCE);
+                let weight = Self::player_collision_gaussian_weight(x, y);
+                weighted_sum += ground_distance * weight;
+                sum_of_weights += weight;
+
+                let ceiling_hit_distance = self
+                    .query_terrain_ray_cpu(ray_origin, Vec3::Y)
+                    .map(|hit| (hit - ray_origin).length())
+                    .unwrap_or(Self::PLAYER_COLLISION_RAY_DISTANCE)
+                    .min(Self::PLAYER_COLLISION_RAY_DISTANCE);
+                ceiling_distance = ceiling_distance.min(ceiling_hit_distance);
+            }
         }
 
-        match self
-            .tracer
-            .query_terrain_ray_with_validity(TerrainRayQuery { origin, direction })
-        {
-            Ok(sample) if sample.is_valid => {
-                self.terrain_query_debug_text = format!(
-                    "hit: ({:.3}, {:.3}, {:.3})",
-                    sample.position.x, sample.position.y, sample.position.z
-                );
-            }
-            Ok(_) => {
-                self.terrain_query_debug_text = "not hit".to_owned();
-            }
-            Err(err) => {
-                log::error!("Failed terrain ray query for debug panel: {}", err);
-                self.terrain_query_debug_text = "not hit".to_owned();
-            }
+        let mut ring_distances = Vec::with_capacity(Self::PLAYER_COLLISION_RING_RAY_COUNT);
+        ring_distances.push(
+            self.query_player_collision_ring_distance(player_pos, horizontal_front)
+                .min(Self::PLAYER_COLLISION_RAY_DISTANCE),
+        );
+
+        for ring_index in 1..Self::PLAYER_COLLISION_RING_RAY_COUNT {
+            let angle = 2.0 * std::f32::consts::PI * (ring_index - 1) as f32
+                / (Self::PLAYER_COLLISION_RING_RAY_COUNT - 1) as f32;
+            let direction =
+                (horizontal_front * angle.cos() + right * angle.sin()).normalize_or_zero();
+            let direction = if direction.length_squared() <= f32::EPSILON {
+                horizontal_front
+            } else {
+                direction
+            };
+            ring_distances.push(
+                self.query_player_collision_ring_distance(player_pos, direction)
+                    .min(Self::PLAYER_COLLISION_RAY_DISTANCE),
+            );
         }
+
+        PlayerCollisionResult {
+            ground_distance: weighted_sum / sum_of_weights.max(1e-8),
+            ceiling_distance,
+            ring_distances,
+        }
+    }
+
+    fn query_player_collision_ring_distance(&self, origin: Vec3, direction: Vec3) -> f32 {
+        self.query_terrain_ray_cpu(origin, direction)
+            .map(|hit| (hit - origin).length())
+            .unwrap_or(Self::PLAYER_COLLISION_RAY_DISTANCE)
+    }
+
+    pub(super) fn query_terrain_ray_cpu(&self, origin: Vec3, direction: Vec3) -> Option<Vec3> {
+        self.contree_builder
+            .query_terrain_ray_cpu(origin, direction)
+    }
+
+    pub(super) fn query_terrain_height_cpu(&self, pos_xz: Vec2) -> f32 {
+        self.query_terrain_ray_cpu(Vec3::new(pos_xz.x, 10.0, pos_xz.y), Vec3::NEG_Y)
+            .map(|hit| hit.y)
+            .unwrap_or(0.0)
+    }
+
+    fn player_collision_gaussian_weight(x: i32, y: i32) -> f32 {
+        let sigma = Self::PLAYER_COLLISION_RAY_HALF_KERNEL_SIZE as f32 * 0.5 + 0.5;
+        let sigma2 = sigma * sigma;
+        (-(x * x + y * y) as f32 / (2.0 * sigma2)).exp()
     }
 
     pub(super) fn try_shovel_dig(&mut self, now: Instant) {
@@ -264,12 +367,16 @@ impl App {
                             center,
                             radius: super::SHOVEL_REMOVE_RADIUS,
                         },
-                        Some(self.active_voxel_type_id()),
+                        self.active_voxel_type_id(),
                         Some(remaining_capacity),
                     )
                     .map(|readback| {
-                        let harvested = readback.stats.count_removed(self.active_voxel_type_id());
-                        self.add_active_voxel_to_backpack(harvested);
+                        if let Some(active_voxel_type_id) = self.active_voxel_type_id() {
+                            let harvested = readback.stats.count_removed(active_voxel_type_id);
+                            self.add_active_voxel_to_backpack(harvested);
+                        } else {
+                            self.add_removed_voxels_to_backpack(&readback.stats);
+                        }
                         self.spawn_terrain_harvest_particles(
                             center,
                             &readback.stats,
@@ -336,13 +443,15 @@ impl App {
             return;
         }
 
-        if self.active_voxel_count() == 0 {
+        let Some(place_voxel_type) = self.first_placeable_voxel_type() else {
             self.stop_terrain_edit_loop_sound();
             return;
-        }
+        };
 
-        let active_voxel_type = self.active_voxel_type_id();
-        let active_voxel_count = self.active_voxel_count();
+        let place_voxel_type_id = place_voxel_type
+            .voxel_type()
+            .expect("placeable voxel type should be concrete");
+        let place_voxel_count = self.voxel_count(place_voxel_type);
 
         match self.query_camera_ray_terrain_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
@@ -360,12 +469,13 @@ impl App {
                             center,
                             radius: super::SHOVEL_REMOVE_RADIUS,
                         },
-                        active_voxel_type,
-                        active_voxel_count,
+                        place_voxel_type_id,
+                        place_voxel_count,
                     )
                     .map(|readback| {
-                        self.remove_active_voxel_from_backpack(
-                            readback.stats.count_added(self.active_voxel_type_id()),
+                        self.remove_voxel_from_backpack(
+                            place_voxel_type,
+                            readback.stats.count_added(place_voxel_type_id),
                         );
                     })
                 {

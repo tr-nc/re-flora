@@ -10,7 +10,8 @@ use crate::{
     util::ShaderCompiler,
     vkn::{
         Buffer, ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DescriptorPool,
-        Extent3D, MemoryBarrier, PipelineBarrier, ShaderModule, VulkanContext, WriteDescriptorSet,
+        Extent3D, Fence, MemoryBarrier, PipelineBarrier, ShaderModule, VulkanContext,
+        WriteDescriptorSet,
     },
 };
 use anyhow::Result;
@@ -206,8 +207,9 @@ impl SurfaceBuilder {
         self.make_surface_ppl.record(&cmdbuf, extent, None);
 
         cmdbuf.end();
-        cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), None);
-        device.wait_queue_idle(&self.vulkan_ctx.get_general_queue());
+        let fence = Fence::new(device, false);
+        cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), Some(&fence));
+        self.vulkan_ctx.wait_for_fences(&[fence.as_raw()]).unwrap();
 
         let active_voxel_len = get_make_surface_result(&self.resources.make_surface_result);
         if place_flora {

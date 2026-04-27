@@ -22,6 +22,10 @@ Goals matter - even for a small cozy game that could keep evolving forever. They
 
 ## 2) High-Priority Features
 
+- **Audio reflections follow-up**
+  - Extend the current direct-path-only spatial audio with reflection/reverb support later.
+  - Keep occlusion scheduling decoupled from render FPS while adding the indirect path.
+
 - **Trading system**
   - Add a docked ship that enables resource exchange. (Draw the docked ship, the port, with primitives during world init time
   - Support buy/sell interactions for player inventory.

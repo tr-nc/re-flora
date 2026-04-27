@@ -139,31 +139,34 @@ pub(crate) fn mesh_generate(
     for chunk_id in affected_chunk_indices {
         let atlas_offset = chunk_id * voxel_dim_per_chunk;
 
-        let now = Instant::now();
+        let surface_start = Instant::now();
         let res = surface_builder.build_surface(chunk_id, true);
         if let Err(e) = res {
             log::error!("Failed to build surface for chunk {}: {}", chunk_id, e);
             continue;
         }
 
-        BENCH.lock().unwrap().record("build_surface", now.elapsed());
-
-        let now = Instant::now();
-        let res = contree_builder.build_and_alloc(atlas_offset).unwrap();
+        let surface_elapsed = surface_start.elapsed();
         BENCH
             .lock()
             .unwrap()
-            .record("build_and_alloc", now.elapsed());
+            .record("build_surface", surface_elapsed);
+
+        let contree_start = Instant::now();
+        let res = contree_builder.build_and_alloc(atlas_offset).unwrap();
+        let contree_elapsed = contree_start.elapsed();
+        BENCH
+            .lock()
+            .unwrap()
+            .record("build_and_alloc", contree_elapsed);
 
         if let Some(res) = res {
             let (node_buffer_offset, leaf_buffer_offset) = res;
-            scene_accel_builder.update_scene_tex(
-                chunk_id,
-                node_buffer_offset,
-                leaf_buffer_offset,
-            )?;
+            scene_accel_builder
+                .update_scene_tex(chunk_id, Some((node_buffer_offset, leaf_buffer_offset)))?;
         } else {
-            log::debug!("Don't need to update scene tex because the chunk is empty");
+            scene_accel_builder.update_scene_tex(chunk_id, None)?;
+            log::debug!("Cleared scene tex because the chunk is empty");
         }
     }
 
@@ -184,13 +187,17 @@ pub(crate) fn mesh_generate_preserve_flora_for_sphere_edit(
     for chunk_id in affected_chunk_indices {
         let atlas_offset = chunk_id * voxel_dim_per_chunk;
 
-        let now = Instant::now();
+        let surface_start = Instant::now();
         let res = surface_builder.build_surface(chunk_id, false);
         if let Err(e) = res {
             log::error!("Failed to build surface for chunk {}: {}", chunk_id, e);
             continue;
         }
-        BENCH.lock().unwrap().record("build_surface", now.elapsed());
+        let surface_elapsed = surface_start.elapsed();
+        BENCH
+            .lock()
+            .unwrap()
+            .record("build_surface", surface_elapsed);
 
         surface_builder.edit_flora_instances(
             chunk_id,
@@ -199,22 +206,21 @@ pub(crate) fn mesh_generate_preserve_flora_for_sphere_edit(
             flora_edit.tick,
         )?;
 
-        let now = Instant::now();
+        let contree_start = Instant::now();
         let res = contree_builder.build_and_alloc(atlas_offset).unwrap();
+        let contree_elapsed = contree_start.elapsed();
         BENCH
             .lock()
             .unwrap()
-            .record("build_and_alloc", now.elapsed());
+            .record("build_and_alloc", contree_elapsed);
 
         if let Some(res) = res {
             let (node_buffer_offset, leaf_buffer_offset) = res;
-            scene_accel_builder.update_scene_tex(
-                chunk_id,
-                node_buffer_offset,
-                leaf_buffer_offset,
-            )?;
+            scene_accel_builder
+                .update_scene_tex(chunk_id, Some((node_buffer_offset, leaf_buffer_offset)))?;
         } else {
-            log::debug!("Don't need to update scene tex because the chunk is empty");
+            scene_accel_builder.update_scene_tex(chunk_id, None)?;
+            log::debug!("Cleared scene tex because the chunk is empty");
         }
     }
 

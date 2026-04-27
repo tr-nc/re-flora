@@ -94,8 +94,10 @@ void prepare_flora_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_l
         }
     }
 
-    vec3 instance_pos = vec3(instance_pos_voxels) * scaling_factor;
-    vec3 wind_vec     = sample_wind_volume(instance_pos);
+    vec3 instance_pos    = vec3(instance_pos_voxels) * scaling_factor;
+    vec3 wind_sample_pos = is_grass ? instance_pos : instance_pos + vec3(vox_local_pos) * scaling_factor;
+    uint wind_seed = is_grass ? instance_seed : get_wind_volume_voxel_seed(instance_seed, vox_local_pos);
+    vec3 wind_vec     = sample_wind_volume(wind_sample_pos, wind_seed);
     vec3 wind_offset  = wind_vec * wind_gradient * wind_gradient;
     vec2 player_delta = instance_pos.xz - camera_info.pos.xz;
     float player_dist = length(player_delta);

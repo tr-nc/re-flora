@@ -127,7 +127,6 @@ pub(crate) fn draw_backpack_summary(
     cherry_wood_count: u32,
     oak_wood_count: u32,
     rock_count: u32,
-    terrain_query_text: &str,
 ) -> egui::Pos2 {
     egui::Area::new("backpack_summary".into())
         .anchor(egui::Align2::RIGHT_TOP, egui::Vec2::new(-16.0, 80.0))
@@ -153,10 +152,6 @@ pub(crate) fn draw_backpack_summary(
                         .size(12.0)
                         .strong(),
                 );
-                ui.add_space(4.0);
-                ui.label(egui::RichText::new(format!(
-                    "Terrain query: {terrain_query_text}"
-                )));
                 ui.separator();
 
                 draw_voxel_count_progress(ui, "Dirt", dirt_count, Color32::from_rgb(178, 124, 80));

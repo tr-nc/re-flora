@@ -67,6 +67,17 @@ type = "Bool"
 [section.param.data]
 value = true
 
+[[section.param]]
+id = "world_tick_seconds"
+kind = "float"
+label = "World Tick Time (s)"
+type = "Float"
+
+[section.param.data]
+value = 0.05
+min = 0
+max = 0.1
+
 [[section]]
 name = "Audio"
 
@@ -77,9 +88,18 @@ label = "Master Volume"
 type = "Float"
 
 [section.param.data]
-value = 0.5
+value = 1
 min = 0
 max = 1
+
+[[section.param]]
+id = "audio_ray_tracing_enabled"
+kind = "bool"
+label = "Audio Ray Tracing"
+type = "Bool"
+
+[section.param.data]
+value = true
 
 [[section]]
 name = "Sky"
@@ -633,28 +653,6 @@ min = 0
 max = 1
 
 [[section.param]]
-id = "flora_update_bucket_count"
-kind = "uint"
-label = "Flora Update Bucket Count"
-type = "Uint"
-
-[section.param.data]
-value = 15
-min = 1
-max = 16
-
-[[section.param]]
-id = "flora_full_update_seconds"
-kind = "float"
-label = "Flora Full Update Time (s)"
-type = "Float"
-
-[section.param.data]
-value = 0.255
-min = 0.01
-max = 1
-
-[[section.param]]
 id = "flora_instance_saturation_offset"
 kind = "float"
 label = "Instance Saturation Offset Max"
@@ -773,20 +771,6 @@ type = "Color"
 
 [section.param.data]
 value = "#FF89F1"
-
-[[section]]
-name = "Particles"
-
-[[section.param]]
-id = "particle_full_update_seconds"
-kind = "float"
-label = "Full Update Time (s)"
-type = "Float"
-
-[section.param.data]
-value = 0.1
-min = 0.05
-max = 5
 
 [[section]]
 name = "Terrain Harvest Particles"

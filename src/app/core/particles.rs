@@ -386,7 +386,7 @@ impl App {
         self.ensure_map_butterfly_emitter();
         let wind_time = self.time_info.time_since_start();
         self.particle_system
-            .set_full_update_seconds(self.gui_adjustables.particle_full_update_seconds.value);
+            .set_bucket_step_seconds(self.gui_adjustables.world_tick_seconds.value);
 
         Self::drive_emitters(
             &mut self.butterfly_emitters,
@@ -417,8 +417,6 @@ impl App {
     }
 
     pub(super) fn plan_butterflies(&mut self, tick_step: ParticleTickStep) {
-        use crate::tracer::{TerrainRayHitSample, TerrainRayQuery};
-
         const MAX_RETRIES: usize = 3;
         const MAX_SPAWN_XZ_RETRIES: usize = 16;
         const STEP_LEN: f32 = crate::particles::emitters::WORM_STEP_LEN;
@@ -444,22 +442,10 @@ impl App {
                 let mut last_attempt_position = resolved_position;
 
                 if let Some(position) = resolved_position {
-                    let sample =
-                        match self
-                            .tracer
-                            .query_terrain_heights_batch_with_validity(&[Vec2::new(
-                                position.x, position.z,
-                            )]) {
-                            Ok(samples) => samples,
-                            Err(err) => {
-                                log::error!(
-                                    "Failed terrain height query for butterfly placement: {}",
-                                    err
-                                );
-                                return;
-                            }
-                        };
-                    if sample[0].is_valid {
+                    if self
+                        .query_terrain_ray_cpu(Vec3::new(position.x, 10.0, position.z), Vec3::NEG_Y)
+                        .is_some()
+                    {
                         found_valid_xz = true;
                     }
                 }
@@ -468,20 +454,14 @@ impl App {
                     for _ in 0..MAX_SPAWN_XZ_RETRIES {
                         let candidate =
                             self.butterfly_emitters[emitter_idx].random_spawn_position_candidate();
-                        let sample = match self.tracer.query_terrain_heights_batch_with_validity(&[
-                            Vec2::new(candidate.x, candidate.z),
-                        ]) {
-                            Ok(samples) => samples,
-                            Err(err) => {
-                                log::error!(
-                                    "Failed terrain height query for butterfly placement retry: {}",
-                                    err
-                                );
-                                return;
-                            }
-                        };
 
-                        if sample[0].is_valid {
+                        if self
+                            .query_terrain_ray_cpu(
+                                Vec3::new(candidate.x, 10.0, candidate.z),
+                                Vec3::NEG_Y,
+                            )
+                            .is_some()
+                        {
                             found_valid_xz = true;
                             resolved_position = Some(candidate);
                             break;
@@ -583,24 +563,7 @@ impl App {
                 continue;
             }
 
-            let mut rays: Vec<TerrainRayQuery> = Vec::with_capacity(batch.len());
-            for &(_, origin, ref dir) in &batch {
-                rays.push(TerrainRayQuery {
-                    origin: origin + Vec3::new(0.0, RAY_EPSILON, 0.0),
-                    direction: dir.normalize_or_zero(),
-                });
-            }
-
-            let hits: Vec<TerrainRayHitSample> =
-                match self.tracer.query_terrain_rays_batch_with_validity(&rays) {
-                    Ok(h) => h,
-                    Err(err) => {
-                        log::error!("Failed terrain ray query for butterflies: {}", err);
-                        return;
-                    }
-                };
-
-            for ((idx, origin, dir), hit) in batch.into_iter().zip(hits.into_iter()) {
+            for (idx, origin, dir) in batch.into_iter() {
                 if successes[idx] {
                     continue;
                 }
@@ -642,8 +605,11 @@ impl App {
                     continue;
                 }
 
-                let blocked = if hit.is_valid {
-                    let hit_dist = (hit.position - origin).length();
+                let blocked = if let Some(hit) = self.query_terrain_ray_cpu(
+                    origin + Vec3::new(0.0, RAY_EPSILON, 0.0),
+                    dir.normalize_or_zero(),
+                ) {
+                    let hit_dist = (hit - origin).length();
                     hit_dist < STEP_LEN - RAY_EPSILON
                 } else {
                     false

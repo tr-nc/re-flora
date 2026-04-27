@@ -6,6 +6,7 @@ layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 
 layout(push_constant) uniform PC {
     float time;
+    uint bucket_index;
 }
 pc;
 
@@ -16,15 +17,21 @@ layout(set = 0, binding = 1, rg16f) uniform writeonly image3D wind_volume_tex;
 
 #include "./wind_volume_sample.glsl"
 
+const uint WIND_VOLUME_BUCKET_COUNT = 4u;
+
 void main() {
     ivec3 coord = ivec3(gl_GlobalInvocationID.xyz);
     ivec3 size = imageSize(wind_volume_tex);
-    if (any(greaterThanEqual(coord, size))) {
+    ivec3 bucket_size = ivec3(size.x / int(WIND_VOLUME_BUCKET_COUNT), size.y, size.z);
+    if (any(greaterThanEqual(coord, bucket_size))) {
         return;
     }
 
-    vec3 uvw = (vec3(coord) + vec3(0.5)) / vec3(size);
+    ivec3 target_coord = coord;
+    target_coord.x += int(pc.bucket_index) * bucket_size.x;
+
+    vec3 uvw = (vec3(coord) + vec3(0.5)) / vec3(bucket_size);
     vec3 world_pos = uvw * wind_volume_info.world_chunk_extent;
     vec3 wind = sample_procedural_wind(world_pos, pc.time);
-    imageStore(wind_volume_tex, coord, vec4(wind.xz, 0.0, 0.0));
+    imageStore(wind_volume_tex, target_coord, vec4(wind.xz, 0.0, 0.0));
 }
