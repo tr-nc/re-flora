@@ -55,9 +55,7 @@ use ash::vk;
 use std::collections::HashMap;
 
 const MAX_TERRAIN_QUERIES: usize = 1_000;
-pub(super) const WIND_VOLUME_BUCKET_COUNT_MAX: u32 = 16;
-const FLORA_UPDATE_BUCKET_COUNT_DEFAULT: u32 = 4;
-const FLORA_FULL_UPDATE_SECONDS_DEFAULT: f32 = 0.4;
+pub(super) const WIND_VOLUME_BUCKET_COUNT: u32 = 4;
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -138,8 +136,7 @@ pub struct Tracer {
     pool: DescriptorPool,
 
     a_trous_iteration_count: u32,
-    flora_update_bucket_count: u32,
-    flora_full_update_seconds: f32,
+    world_tick_seconds: f32,
     last_wind_volume_step: Option<u32>,
     initialized_wind_volume_bucket_count: u32,
     spatial_sound_manager: SpatialSoundManager,
@@ -266,8 +263,7 @@ impl Tracer {
             render_target_depth_only,
             pool,
             a_trous_iteration_count: 3,
-            flora_update_bucket_count: FLORA_UPDATE_BUCKET_COUNT_DEFAULT,
-            flora_full_update_seconds: FLORA_FULL_UPDATE_SECONDS_DEFAULT,
+            world_tick_seconds: crate::game_time::WORLD_TICK_SECONDS_DEFAULT,
             last_wind_volume_step: None,
             initialized_wind_volume_bucket_count: 0,
             spatial_sound_manager,
@@ -459,8 +455,7 @@ impl Tracer {
         ocean_noise_frequency: f32,
         ocean_time_multiplier: f32,
         ocean_sea_level_shift: f32,
-        flora_update_bucket_count: u32,
-        flora_full_update_seconds: f32,
+        world_tick_seconds: f32,
         lens_flare_intensity: f32,
         lens_flare_sun_pixel_scale: f32,
         flora_tick: u32,
@@ -564,19 +559,11 @@ impl Tracer {
             ocean_noise_frequency,
             ocean_time_multiplier,
             ocean_sea_level_shift,
-            flora_update_bucket_count,
-            flora_full_update_seconds,
             lens_flare_intensity,
             lens_flare_sun_pixel_scale,
         )?;
 
-        self.flora_update_bucket_count =
-            flora_update_bucket_count.clamp(1, WIND_VOLUME_BUCKET_COUNT_MAX);
-        self.flora_full_update_seconds = if flora_full_update_seconds <= 0.0 {
-            FLORA_FULL_UPDATE_SECONDS_DEFAULT
-        } else {
-            flora_full_update_seconds
-        };
+        self.world_tick_seconds = crate::game_time::clamp_world_tick_seconds(world_tick_seconds);
 
         BufferUpdater::update_flora_growth_info(
             &self.resources,
@@ -1405,21 +1392,8 @@ impl Tracer {
         );
     }
 
-    fn flora_update_bucket_count(&self) -> u32 {
-        self.flora_update_bucket_count
-            .clamp(1, WIND_VOLUME_BUCKET_COUNT_MAX)
-    }
-
-    fn flora_full_update_seconds(&self) -> f32 {
-        if self.flora_full_update_seconds <= 0.0 {
-            FLORA_FULL_UPDATE_SECONDS_DEFAULT
-        } else {
-            self.flora_full_update_seconds
-        }
-    }
-
     fn wind_volume_bucket_step_seconds(&self) -> f32 {
-        self.flora_full_update_seconds() / self.flora_update_bucket_count() as f32
+        self.world_tick_seconds
     }
 
     fn wind_volume_bucket_time(
@@ -1459,11 +1433,11 @@ impl Tracer {
             .get_image()
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
 
-        let bucket_count = self.flora_update_bucket_count();
+        let bucket_count = WIND_VOLUME_BUCKET_COUNT;
         let step_seconds = self.wind_volume_bucket_step_seconds();
         let step_index = (time / step_seconds).floor().max(0.0) as u32;
         let mut dispatch_extent = self.resources.wind_volume_tex.get_image().get_desc().extent;
-        dispatch_extent.width /= WIND_VOLUME_BUCKET_COUNT_MAX;
+        dispatch_extent.width /= WIND_VOLUME_BUCKET_COUNT;
 
         if self.initialized_wind_volume_bucket_count != bucket_count {
             for bucket_index in 0..bucket_count {

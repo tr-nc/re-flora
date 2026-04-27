@@ -223,8 +223,6 @@ impl BufferUpdater {
         ocean_noise_frequency: f32,
         ocean_time_multiplier: f32,
         ocean_sea_level_shift: f32,
-        flora_update_bucket_count: u32,
-        flora_full_update_seconds: f32,
         lens_flare_intensity: f32,
         lens_flare_sun_pixel_scale: f32,
     ) -> Result<()> {
@@ -244,8 +242,6 @@ impl BufferUpdater {
             ocean_noise_frequency,
             ocean_time_multiplier,
             ocean_sea_level_shift,
-            flora_update_bucket_count,
-            flora_full_update_seconds,
             lens_flare_intensity,
             lens_flare_sun_pixel_scale,
             ..GuiInput::zeroed()

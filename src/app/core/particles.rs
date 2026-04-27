@@ -386,7 +386,7 @@ impl App {
         self.ensure_map_butterfly_emitter();
         let wind_time = self.time_info.time_since_start();
         self.particle_system
-            .set_full_update_seconds(self.gui_adjustables.particle_full_update_seconds.value);
+            .set_bucket_step_seconds(self.gui_adjustables.world_tick_seconds.value);
 
         Self::drive_emitters(
             &mut self.butterfly_emitters,

@@ -61,6 +61,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Debug Bool",
     },
     GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "world_tick_seconds",
+        kind: "float",
+        label: "World Tick Time (s)",
+    },
+    GeneratedGuiParamDescriptor {
         section: "Audio",
         id: "master_volume",
         kind: "float",
@@ -374,18 +380,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "FloraVariation",
-        id: "flora_update_bucket_count",
-        kind: "uint",
-        label: "Flora Update Bucket Count",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "FloraVariation",
-        id: "flora_full_update_seconds",
-        kind: "float",
-        label: "Flora Full Update Time (s)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "FloraVariation",
         id: "flora_instance_saturation_offset",
         kind: "float",
         label: "Instance Saturation Offset Max",
@@ -449,12 +443,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         id: "leaves_tip_color",
         kind: "color",
         label: "Tip Color",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Particles",
-        id: "particle_full_update_seconds",
-        kind: "float",
-        label: "Full Update Time (s)",
     },
     GeneratedGuiParamDescriptor {
         section: "Terrain Harvest Particles",
@@ -586,6 +574,7 @@ pub struct GuiAdjustables {
     pub flora_draw_distance: crate::gui_adjustables::FloatParam,
     pub grass_render_mode: crate::gui_adjustables::UintParam,
     pub debug_bool: crate::gui_adjustables::BoolParam,
+    pub world_tick_seconds: crate::gui_adjustables::FloatParam,
     pub master_volume: crate::gui_adjustables::FloatParam,
     pub audio_ray_tracing_enabled: crate::gui_adjustables::BoolParam,
     pub sun_size: crate::gui_adjustables::FloatParam,
@@ -638,8 +627,6 @@ pub struct GuiAdjustables {
     pub ember_bloom_bottom_color: crate::gui_adjustables::ColorParam,
     pub ember_bloom_tip_color: crate::gui_adjustables::ColorParam,
     pub flora_instance_hue_offset: crate::gui_adjustables::FloatParam,
-    pub flora_update_bucket_count: crate::gui_adjustables::UintParam,
-    pub flora_full_update_seconds: crate::gui_adjustables::FloatParam,
     pub flora_instance_saturation_offset: crate::gui_adjustables::FloatParam,
     pub flora_instance_value_offset: crate::gui_adjustables::FloatParam,
     pub flora_voxel_hue_offset: crate::gui_adjustables::FloatParam,
@@ -651,7 +638,6 @@ pub struct GuiAdjustables {
     pub leaves_outer_radius: crate::gui_adjustables::FloatParam,
     pub leaves_bottom_color: crate::gui_adjustables::ColorParam,
     pub leaves_tip_color: crate::gui_adjustables::ColorParam,
-    pub particle_full_update_seconds: crate::gui_adjustables::FloatParam,
     pub terrain_harvest_particles_enabled: crate::gui_adjustables::BoolParam,
     pub terrain_harvest_flyback_speed: crate::gui_adjustables::FloatParam,
     pub butterflies_enabled: crate::gui_adjustables::BoolParam,
@@ -691,6 +677,7 @@ impl GuiAdjustables {
         let mut flora_draw_distance_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut grass_render_mode_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut debug_bool_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut world_tick_seconds_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut master_volume_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut audio_ray_tracing_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut sun_size_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -743,8 +730,6 @@ impl GuiAdjustables {
         let mut ember_bloom_bottom_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut ember_bloom_tip_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut flora_instance_hue_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut flora_update_bucket_count_field: Option<crate::gui_adjustables::UintParam> = None;
-        let mut flora_full_update_seconds_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_instance_saturation_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_instance_value_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_voxel_hue_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -756,7 +741,6 @@ impl GuiAdjustables {
         let mut leaves_outer_radius_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaves_bottom_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut leaves_tip_color_field: Option<crate::gui_adjustables::ColorParam> = None;
-        let mut particle_full_update_seconds_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut terrain_harvest_particles_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut terrain_harvest_flyback_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut butterflies_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
@@ -819,6 +803,13 @@ impl GuiAdjustables {
                     "debug_bool" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             debug_bool_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "world_tick_seconds" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            world_tick_seconds_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "master_volume" => {
@@ -1157,20 +1148,6 @@ impl GuiAdjustables {
                             flora_instance_hue_offset_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "flora_update_bucket_count" => {
-                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0);
-                            let max = max.unwrap_or(100);
-                            flora_update_bucket_count_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
-                        }
-                    }
-                    "flora_full_update_seconds" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            flora_full_update_seconds_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
                     "flora_instance_saturation_offset" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -1242,13 +1219,6 @@ impl GuiAdjustables {
                     "leaves_tip_color" => {
                         if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
                             leaves_tip_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
-                        }
-                    }
-                    "particle_full_update_seconds" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            particle_full_update_seconds_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "terrain_harvest_particles_enabled" => {
@@ -1393,6 +1363,7 @@ impl GuiAdjustables {
             flora_draw_distance: flora_draw_distance_field.expect("Missing parameter: flora_draw_distance"),
             grass_render_mode: grass_render_mode_field.expect("Missing parameter: grass_render_mode"),
             debug_bool: debug_bool_field.expect("Missing parameter: debug_bool"),
+            world_tick_seconds: world_tick_seconds_field.expect("Missing parameter: world_tick_seconds"),
             master_volume: master_volume_field.expect("Missing parameter: master_volume"),
             audio_ray_tracing_enabled: audio_ray_tracing_enabled_field.expect("Missing parameter: audio_ray_tracing_enabled"),
             sun_size: sun_size_field.expect("Missing parameter: sun_size"),
@@ -1445,8 +1416,6 @@ impl GuiAdjustables {
             ember_bloom_bottom_color: ember_bloom_bottom_color_field.expect("Missing parameter: ember_bloom_bottom_color"),
             ember_bloom_tip_color: ember_bloom_tip_color_field.expect("Missing parameter: ember_bloom_tip_color"),
             flora_instance_hue_offset: flora_instance_hue_offset_field.expect("Missing parameter: flora_instance_hue_offset"),
-            flora_update_bucket_count: flora_update_bucket_count_field.expect("Missing parameter: flora_update_bucket_count"),
-            flora_full_update_seconds: flora_full_update_seconds_field.expect("Missing parameter: flora_full_update_seconds"),
             flora_instance_saturation_offset: flora_instance_saturation_offset_field.expect("Missing parameter: flora_instance_saturation_offset"),
             flora_instance_value_offset: flora_instance_value_offset_field.expect("Missing parameter: flora_instance_value_offset"),
             flora_voxel_hue_offset: flora_voxel_hue_offset_field.expect("Missing parameter: flora_voxel_hue_offset"),
@@ -1458,7 +1427,6 @@ impl GuiAdjustables {
             leaves_outer_radius: leaves_outer_radius_field.expect("Missing parameter: leaves_outer_radius"),
             leaves_bottom_color: leaves_bottom_color_field.expect("Missing parameter: leaves_bottom_color"),
             leaves_tip_color: leaves_tip_color_field.expect("Missing parameter: leaves_tip_color"),
-            particle_full_update_seconds: particle_full_update_seconds_field.expect("Missing parameter: particle_full_update_seconds"),
             terrain_harvest_particles_enabled: terrain_harvest_particles_enabled_field.expect("Missing parameter: terrain_harvest_particles_enabled"),
             terrain_harvest_flyback_speed: terrain_harvest_flyback_speed_field.expect("Missing parameter: terrain_harvest_flyback_speed"),
             butterflies_enabled: butterflies_enabled_field.expect("Missing parameter: butterflies_enabled"),
@@ -1489,6 +1457,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "debug_float" => Some(&adjustables.debug_float),
         "lod_distance" => Some(&adjustables.lod_distance),
         "flora_draw_distance" => Some(&adjustables.flora_draw_distance),
+        "world_tick_seconds" => Some(&adjustables.world_tick_seconds),
         "master_volume" => Some(&adjustables.master_volume),
         "sun_size" => Some(&adjustables.sun_size),
         "sun_luminance" => Some(&adjustables.sun_luminance),
@@ -1523,7 +1492,6 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "ocean_time_multiplier" => Some(&adjustables.ocean_time_multiplier),
         "ocean_sea_level_shift" => Some(&adjustables.ocean_sea_level_shift),
         "flora_instance_hue_offset" => Some(&adjustables.flora_instance_hue_offset),
-        "flora_full_update_seconds" => Some(&adjustables.flora_full_update_seconds),
         "flora_instance_saturation_offset" => Some(&adjustables.flora_instance_saturation_offset),
         "flora_instance_value_offset" => Some(&adjustables.flora_instance_value_offset),
         "flora_voxel_hue_offset" => Some(&adjustables.flora_voxel_hue_offset),
@@ -1533,7 +1501,6 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "leaves_outer_density" => Some(&adjustables.leaves_outer_density),
         "leaves_inner_radius" => Some(&adjustables.leaves_inner_radius),
         "leaves_outer_radius" => Some(&adjustables.leaves_outer_radius),
-        "particle_full_update_seconds" => Some(&adjustables.particle_full_update_seconds),
         "terrain_harvest_flyback_speed" => Some(&adjustables.terrain_harvest_flyback_speed),
         "butterflies_per_chunk" => Some(&adjustables.butterflies_per_chunk),
         "butterfly_height_offset_min" => Some(&adjustables.butterfly_height_offset_min),
@@ -1569,7 +1536,6 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "grass_render_mode" => Some(&adjustables.grass_render_mode),
         "god_ray_max_checks" => Some(&adjustables.god_ray_max_checks),
         "a_trous_iteration_count" => Some(&adjustables.a_trous_iteration_count),
-        "flora_update_bucket_count" => Some(&adjustables.flora_update_bucket_count),
         _ => None,
     }
 }
@@ -1616,6 +1582,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "debug_float" => Some(&mut adjustables.debug_float),
         "lod_distance" => Some(&mut adjustables.lod_distance),
         "flora_draw_distance" => Some(&mut adjustables.flora_draw_distance),
+        "world_tick_seconds" => Some(&mut adjustables.world_tick_seconds),
         "master_volume" => Some(&mut adjustables.master_volume),
         "sun_size" => Some(&mut adjustables.sun_size),
         "sun_luminance" => Some(&mut adjustables.sun_luminance),
@@ -1650,7 +1617,6 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "ocean_time_multiplier" => Some(&mut adjustables.ocean_time_multiplier),
         "ocean_sea_level_shift" => Some(&mut adjustables.ocean_sea_level_shift),
         "flora_instance_hue_offset" => Some(&mut adjustables.flora_instance_hue_offset),
-        "flora_full_update_seconds" => Some(&mut adjustables.flora_full_update_seconds),
         "flora_instance_saturation_offset" => Some(&mut adjustables.flora_instance_saturation_offset),
         "flora_instance_value_offset" => Some(&mut adjustables.flora_instance_value_offset),
         "flora_voxel_hue_offset" => Some(&mut adjustables.flora_voxel_hue_offset),
@@ -1660,7 +1626,6 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "leaves_outer_density" => Some(&mut adjustables.leaves_outer_density),
         "leaves_inner_radius" => Some(&mut adjustables.leaves_inner_radius),
         "leaves_outer_radius" => Some(&mut adjustables.leaves_outer_radius),
-        "particle_full_update_seconds" => Some(&mut adjustables.particle_full_update_seconds),
         "terrain_harvest_flyback_speed" => Some(&mut adjustables.terrain_harvest_flyback_speed),
         "butterflies_per_chunk" => Some(&mut adjustables.butterflies_per_chunk),
         "butterfly_height_offset_min" => Some(&mut adjustables.butterfly_height_offset_min),
@@ -1696,7 +1661,6 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "grass_render_mode" => Some(&mut adjustables.grass_render_mode),
         "god_ray_max_checks" => Some(&mut adjustables.god_ray_max_checks),
         "a_trous_iteration_count" => Some(&mut adjustables.a_trous_iteration_count),
-        "flora_update_bucket_count" => Some(&mut adjustables.flora_update_bucket_count),
         _ => None,
     }
 }

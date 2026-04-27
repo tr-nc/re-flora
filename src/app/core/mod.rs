@@ -282,7 +282,6 @@ const TERRAIN_EDIT_LOOP_MUTED_VOLUME_DB: f32 = -80.0;
 const ITEM_PANEL_SCROLL_SFX_PATH: &str =
     "assets/sfx/MECHSwtch_Game Boy Advance SP, B Button, On 05_SARM_BTNS.wav";
 const ITEM_PANEL_SCROLL_SFX_VOLUME_DB: f32 = -6.0;
-const FLORA_TICK_RATE_HZ: f32 = 1.0;
 const FLORA_SPROUT_DELAY_TICKS: u32 = 2;
 const DEBUG_AUDIO_WALL_MIN: Vec3 = Vec3::new(300.0, 0.0, 512.0);
 const DEBUG_AUDIO_WALL_MAX: Vec3 = Vec3::new(320.0, 256.0, 600.0);
@@ -1378,7 +1377,10 @@ impl App {
                 }
                 let frame_delta_time = self.time_info.delta_time();
                 let time_since_start = self.time_info.time_since_start();
-                self.flora_tick_accumulator += frame_delta_time * FLORA_TICK_RATE_HZ;
+                let world_tick_seconds = crate::game_time::clamp_world_tick_seconds(
+                    self.gui_adjustables.world_tick_seconds.value,
+                );
+                self.flora_tick_accumulator += frame_delta_time / world_tick_seconds;
                 while self.flora_tick_accumulator >= 1.0 {
                     self.flora_tick = self.flora_tick.wrapping_add(1);
                     self.flora_tick_accumulator -= 1.0;
@@ -1810,8 +1812,7 @@ impl App {
                         self.gui_adjustables.ocean_noise_frequency.value,
                         self.gui_adjustables.ocean_time_multiplier.value,
                         self.gui_adjustables.ocean_sea_level_shift.value,
-                        self.gui_adjustables.flora_update_bucket_count.value,
-                        self.gui_adjustables.flora_full_update_seconds.value,
+                        world_tick_seconds,
                         self.gui_adjustables.lens_flare_intensity.value,
                         self.gui_adjustables.lens_flare_sun_pixel_scale.value,
                         self.flora_tick,

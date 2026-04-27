@@ -17,12 +17,12 @@ layout(set = 0, binding = 1, rg16f) uniform writeonly image3D wind_volume_tex;
 
 #include "./wind_volume_sample.glsl"
 
-const uint WIND_VOLUME_BUCKET_COUNT_MAX = 16u;
+const uint WIND_VOLUME_BUCKET_COUNT = 4u;
 
 void main() {
     ivec3 coord = ivec3(gl_GlobalInvocationID.xyz);
     ivec3 size = imageSize(wind_volume_tex);
-    ivec3 bucket_size = ivec3(size.x / int(WIND_VOLUME_BUCKET_COUNT_MAX), size.y, size.z);
+    ivec3 bucket_size = ivec3(size.x / int(WIND_VOLUME_BUCKET_COUNT), size.y, size.z);
     if (any(greaterThanEqual(coord, bucket_size))) {
         return;
     }

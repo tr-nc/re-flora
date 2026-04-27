@@ -6,7 +6,6 @@ use super::{BUTTERFLY_ANIM_FRAME_DURATION_SEC, BUTTERFLY_FRAMES_PER_VARIANT};
 /// Default maximum particle capacity shared between the CPU simulation and GPU buffer.
 pub const PARTICLE_CAPACITY: usize = 16_384;
 pub const PARTICLE_UPDATE_BUCKET_COUNT: usize = 4;
-pub const PARTICLE_FULL_UPDATE_SECONDS_DEFAULT: f32 = 0.15;
 
 #[derive(Clone, Copy, Debug)]
 pub struct ParticleTickStep {
@@ -193,7 +192,7 @@ pub struct ParticleSystem {
     pending_sim_dt: Vec<f32>,
     update_bucket_phase: u32,
     update_bucket_elapsed: f32,
-    update_full_cycle_seconds: f32,
+    update_bucket_step_seconds: f32,
     last_tick_step: ParticleTickStep,
     speed_noise: FastNoiseLite,
 }
@@ -244,23 +243,21 @@ impl ParticleSystem {
             pending_sim_dt: vec![0.0; max_particles],
             update_bucket_phase: 0,
             update_bucket_elapsed: 0.0,
-            update_full_cycle_seconds: PARTICLE_FULL_UPDATE_SECONDS_DEFAULT,
+            update_bucket_step_seconds: crate::game_time::WORLD_TICK_SECONDS_DEFAULT,
             last_tick_step: ParticleTickStep {
                 did_step: false,
                 active_bucket: 0,
-                step_seconds: PARTICLE_FULL_UPDATE_SECONDS_DEFAULT,
+                step_seconds: crate::game_time::WORLD_TICK_SECONDS_DEFAULT,
                 bucket_count: PARTICLE_UPDATE_BUCKET_COUNT as u32,
             },
             speed_noise,
         }
     }
 
-    pub fn set_full_update_seconds(&mut self, seconds: f32) {
-        let clamped = seconds.max(1.0 / 240.0);
-        self.update_full_cycle_seconds = clamped;
+    pub fn set_bucket_step_seconds(&mut self, seconds: f32) {
+        self.update_bucket_step_seconds = crate::game_time::clamp_world_tick_seconds(seconds);
 
-        let bucket_count = PARTICLE_UPDATE_BUCKET_COUNT.max(1) as u32;
-        let step_seconds = self.bucket_step_seconds(bucket_count);
+        let step_seconds = self.bucket_step_seconds();
         if self.update_bucket_elapsed >= step_seconds {
             self.update_bucket_elapsed %= step_seconds;
         }
@@ -392,12 +389,8 @@ impl ParticleSystem {
         (seed ^ (seed >> 16)).wrapping_mul(0x7FEB_352D) % (PARTICLE_UPDATE_BUCKET_COUNT as u32)
     }
 
-    fn bucket_step_seconds(&self, bucket_count: u32) -> f32 {
-        if bucket_count <= 1 {
-            return self.update_full_cycle_seconds.max(1.0 / 240.0);
-        }
-
-        (self.update_full_cycle_seconds / bucket_count as f32).max(1.0 / 240.0)
+    fn bucket_step_seconds(&self) -> f32 {
+        self.update_bucket_step_seconds
     }
 
     fn step_animation_frame(
@@ -423,7 +416,7 @@ impl ParticleSystem {
     pub fn update(&mut self, dt: f32, forces: ParticleForces) {
         if dt <= 0.0 || self.alive_indices.is_empty() {
             let bucket_count = PARTICLE_UPDATE_BUCKET_COUNT.max(1) as u32;
-            let step_seconds = self.bucket_step_seconds(bucket_count);
+            let step_seconds = self.bucket_step_seconds();
             self.last_tick_step = ParticleTickStep {
                 did_step: false,
                 active_bucket: self.update_bucket_phase % bucket_count.max(1),
@@ -434,7 +427,7 @@ impl ParticleSystem {
         }
 
         let bucket_count = PARTICLE_UPDATE_BUCKET_COUNT.max(1) as u32;
-        let bucket_step_seconds = self.bucket_step_seconds(bucket_count);
+        let bucket_step_seconds = self.bucket_step_seconds();
         let mut active_bucket = 0;
         let mut should_step_bucket = false;
         if bucket_count > 1 {

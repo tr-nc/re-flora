@@ -338,11 +338,9 @@ pub struct GuiInput {
     pub ocean_noise_frequency: f32,
     pub ocean_time_multiplier: f32,
     pub ocean_sea_level_shift: f32,
-    pub flora_update_bucket_count: u32,
-    pub flora_full_update_seconds: f32,
     pub lens_flare_intensity: f32,
     pub lens_flare_sun_pixel_scale: f32,
-    pub _pad8: [u8; 4],
+    pub _pad8: [u8; 12],
 }
 
 /// Auto-generated from `U_InstancesToOccupancyInfo` (GLSL source of truth).
