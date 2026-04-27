@@ -11,7 +11,7 @@ use crate::tree_gen::{Tree, TreeDesc};
 use crate::util::cluster_positions;
 use anyhow::Result;
 use glam::{UVec3, Vec2, Vec3};
-use rand::Rng;
+use rand::{Rng, RngExt};
 use std::collections::HashSet;
 use std::time::Instant;
 

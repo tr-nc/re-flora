@@ -51,7 +51,7 @@ fn generate_gui_adjustables() {
         )
     });
 
-    let parsed: toml::Value = content.parse().unwrap_or_else(|e| {
+    let parsed: toml::Value = toml::from_str(&content).unwrap_or_else(|e| {
         panic!(
             "GUI config generation failed: unable to parse {}: {}",
             config_path.display(),

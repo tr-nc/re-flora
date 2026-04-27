@@ -2,7 +2,7 @@
 
 use glam::Vec2;
 use noise::{Fbm, NoiseFn, OpenSimplex, Perlin, Seedable};
-use rand::{rng, Rng};
+use rand::{rng, RngExt};
 
 /// The base algorithm for generating noise.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
