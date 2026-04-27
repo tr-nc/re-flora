@@ -48,16 +48,26 @@ impl ButterflyPaletteConfig {
 #[repr(u32)]
 pub enum ButterflyPalettePreset {
     Yellow = 0,
-    Cyan = 1,
+    Purple = 1,
+    Orange = 2,
+    White = 3,
+    Red = 4,
+    Blue = 5,
+    Brown = 6,
 }
 
 impl ButterflyPalettePreset {
-    pub const COUNT: u32 = 2;
+    pub const COUNT: u32 = 7;
 
     pub fn from_index(index: u32) -> Self {
         match index {
             0 => Self::Yellow,
-            1 => Self::Cyan,
+            1 => Self::Purple,
+            2 => Self::Orange,
+            3 => Self::White,
+            4 => Self::Red,
+            5 => Self::Blue,
+            6 => Self::Brown,
             _ => Self::Yellow,
         }
     }
@@ -65,14 +75,24 @@ impl ButterflyPalettePreset {
     pub fn config(&self) -> ButterflyPaletteConfig {
         match self {
             Self::Yellow => ButterflyPaletteConfig::yellow(),
-            Self::Cyan => ButterflyPaletteConfig::cyan(),
+            Self::Purple => ButterflyPaletteConfig::purple(),
+            Self::Orange => ButterflyPaletteConfig::orange(),
+            Self::White => ButterflyPaletteConfig::white(),
+            Self::Red => ButterflyPaletteConfig::red(),
+            Self::Blue => ButterflyPaletteConfig::blue(),
+            Self::Brown => ButterflyPaletteConfig::brown(),
         }
     }
 
     pub fn name(&self) -> &'static str {
         match self {
             Self::Yellow => "yellow",
-            Self::Cyan => "cyan",
+            Self::Purple => "purple",
+            Self::Orange => "orange",
+            Self::White => "white",
+            Self::Red => "red",
+            Self::Blue => "blue",
+            Self::Brown => "brown",
         }
     }
 }
@@ -87,12 +107,57 @@ impl ButterflyPaletteConfig {
         }
     }
 
-    pub fn cyan() -> Self {
+    pub fn purple() -> Self {
         Self {
-            border: [0, 25, 35, 255],
-            dark_shade: [0, 110, 130, 255],
-            mid_shade: [40, 170, 190, 255],
-            light_shade: [160, 230, 240, 255],
+            border: [30, 12, 45, 255],
+            dark_shade: [85, 40, 125, 255],
+            mid_shade: [145, 82, 190, 255],
+            light_shade: [220, 175, 245, 255],
+        }
+    }
+
+    pub fn orange() -> Self {
+        Self {
+            border: [55, 24, 8, 255],
+            dark_shade: [160, 68, 18, 255],
+            mid_shade: [225, 118, 32, 255],
+            light_shade: [255, 190, 90, 255],
+        }
+    }
+
+    pub fn white() -> Self {
+        Self {
+            border: [36, 38, 42, 255],
+            dark_shade: [130, 135, 145, 255],
+            mid_shade: [205, 210, 218, 255],
+            light_shade: [250, 248, 235, 255],
+        }
+    }
+
+    pub fn red() -> Self {
+        Self {
+            border: [50, 8, 10, 255],
+            dark_shade: [135, 24, 28, 255],
+            mid_shade: [205, 48, 54, 255],
+            light_shade: [255, 132, 120, 255],
+        }
+    }
+
+    pub fn blue() -> Self {
+        Self {
+            border: [8, 18, 55, 255],
+            dark_shade: [30, 70, 150, 255],
+            mid_shade: [70, 130, 220, 255],
+            light_shade: [160, 210, 255, 255],
+        }
+    }
+
+    pub fn brown() -> Self {
+        Self {
+            border: [38, 22, 10, 255],
+            dark_shade: [105, 62, 28, 255],
+            mid_shade: [165, 105, 50, 255],
+            light_shade: [225, 170, 95, 255],
         }
     }
 }
