@@ -717,14 +717,6 @@ impl TracerResources {
         let frame_dim = PARTICLE_SPRITE_FRAME_DIM;
         let layout = ParticleTextureLayout::new();
         layout.assert_valid();
-        log::info!(
-            "Particle LUT layout: leaf [{}..={}], butterfly [{}..={}], total {} layers",
-            layout.leaf_layer(),
-            layout.leaf_layer() + layout.leaf_layer_count() - 1,
-            layout.butterfly_base_layer(),
-            layout.butterfly_base_layer() + layout.butterfly_layer_count() - 1,
-            layout.total_layer_count()
-        );
 
         let white = [255u8, 255u8, 255u8, 255u8];
         let white_layer = white
