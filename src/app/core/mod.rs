@@ -289,7 +289,7 @@ const FLORA_SPROUT_DELAY_TICKS: u32 = 2;
 const DEBUG_AUDIO_WALL_MIN: Vec3 = Vec3::new(300.0, 0.0, 512.0);
 const DEBUG_AUDIO_WALL_MAX: Vec3 = Vec3::new(320.0, 256.0, 600.0);
 const FLORA_FULL_GROWTH_TICKS: u32 = 30;
-const SUN_POSITION_UPDATE_INTERVAL_TICKS: u32 = 4;
+const SUN_POSITION_UPDATE_INTERVAL_TICKS: u32 = 1;
 const REQUESTED_SHADOW_MAP_UPDATE_INTERVAL_TICKS: u32 = 1;
 const SHADOW_MAP_UPDATE_INTERVAL_TICKS: u32 =
     if REQUESTED_SHADOW_MAP_UPDATE_INTERVAL_TICKS < SUN_POSITION_UPDATE_INTERVAL_TICKS {
@@ -1421,6 +1421,7 @@ impl App {
                 }
 
                 let tree_desc_changed = false;
+                let time_of_day_before_gui = self.gui_adjustables.time_of_day.value;
                 let item_panel_shovel_icon = self.item_panel_shovel_icon.clone();
                 let item_panel_staff_icon = self.item_panel_staff_icon.clone();
                 let item_panel_hoe_icon = self.item_panel_hoe_icon.clone();
@@ -1725,6 +1726,9 @@ impl App {
                     }
                 }
 
+                let time_of_day_changed_by_gui =
+                    self.gui_adjustables.time_of_day.value != time_of_day_before_gui;
+
                 // update sun position if auto day/night cycle is enabled
                 let sun_position_updated = sun_update_ticks > 0;
                 if sun_position_updated {
@@ -1955,7 +1959,9 @@ impl App {
                 let leaf_bottom = color_to_vec3(self.gui_adjustables.leaves_bottom_color.value);
                 let leaf_tip = color_to_vec3(self.gui_adjustables.leaves_tip_color.value);
                 let update_shadow_map = self.render_flags.enable_shadows
-                    && (self.shadow_map_update_pending || shadow_map_interval_elapsed);
+                    && (self.shadow_map_update_pending
+                        || shadow_map_interval_elapsed
+                        || time_of_day_changed_by_gui);
 
                 self.tracer
                     .record_trace(
