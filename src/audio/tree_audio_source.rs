@@ -48,7 +48,8 @@ impl TreeAudioSource {
         time_seconds: f32,
         spatial_sound_manager: &SpatialSoundManager,
     ) -> Result<()> {
-        let normalized = wind.sample_response(self.position, time_seconds, self.wind_response_curve);
+        let normalized =
+            wind.sample_response(self.position, time_seconds, self.wind_response_curve);
 
         let target_volume_db = self.base_volume_db + normalized * WIND_VOLUME_SWING_DB;
         if (target_volume_db - self.current_volume_db).abs() <= VOLUME_EPSILON {
