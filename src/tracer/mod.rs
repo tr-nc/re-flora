@@ -718,6 +718,7 @@ impl Tracer {
         leaf_bottom_color: Vec3,
         leaf_tip_color: Vec3,
         render_flags: &crate::RenderFlags,
+        update_shadow_map: bool,
     ) -> Result<()> {
         let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
         let compute_to_compute_barrier = PipelineBarrier::new(
@@ -731,7 +732,7 @@ impl Tracer {
             vec![shader_access_memory_barrier],
         );
 
-        self.record_clear_render_targets(cmdbuf, render_flags);
+        self.record_clear_render_targets(cmdbuf, render_flags, update_shadow_map);
 
         let has_graphics_pass = render_flags.enable_flora || render_flags.enable_particles;
 
@@ -746,7 +747,7 @@ impl Tracer {
             b1.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
 
-        if render_flags.enable_flora && render_flags.enable_shadows {
+        if render_flags.enable_flora && render_flags.enable_shadows && update_shadow_map {
             self.record_leaves_shadow_lod_pass(
                 cmdbuf,
                 surface_resources,
@@ -755,7 +756,7 @@ impl Tracer {
                 time,
             );
         }
-        if has_graphics_pass || render_flags.enable_shadows {
+        if has_graphics_pass || (render_flags.enable_shadows && update_shadow_map) {
             let frag_to_compute_barrier = PipelineBarrier::new(
                 vk::PipelineStageFlags::FRAGMENT_SHADER,
                 vk::PipelineStageFlags::COMPUTE_SHADER,
@@ -764,7 +765,7 @@ impl Tracer {
             frag_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
 
-        if render_flags.enable_shadows {
+        if render_flags.enable_shadows && update_shadow_map {
             self.record_shadow_depth_copy_pass(cmdbuf);
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             self.record_tracer_shadow_pass(cmdbuf);
@@ -914,6 +915,7 @@ impl Tracer {
         &self,
         cmdbuf: &CommandBuffer,
         render_flags: &crate::RenderFlags,
+        update_shadow_map: bool,
     ) {
         self.resources
             .extent_dependent_resources
@@ -936,22 +938,24 @@ impl Tracer {
                 ClearValue::DepthStencil(DepthOrStencilClearValue::Depth(1.0)),
             );
 
-        self.resources
-            .shadow_map_depth_tex
-            .get_image()
-            .record_clear(
+        if update_shadow_map {
+            self.resources
+                .shadow_map_depth_tex
+                .get_image()
+                .record_clear(
+                    cmdbuf,
+                    Some(vk::ImageLayout::GENERAL),
+                    0,
+                    ClearValue::DepthStencil(DepthOrStencilClearValue::Depth(1.0)),
+                );
+
+            self.resources.shadow_map_tex.get_image().record_clear(
                 cmdbuf,
                 Some(vk::ImageLayout::GENERAL),
                 0,
-                ClearValue::DepthStencil(DepthOrStencilClearValue::Depth(1.0)),
+                ClearValue::Color(ColorClearValue::Float([1.0, 0.0, 0.0, 0.0])),
             );
-
-        self.resources.shadow_map_tex.get_image().record_clear(
-            cmdbuf,
-            Some(vk::ImageLayout::GENERAL),
-            0,
-            ClearValue::Color(ColorClearValue::Float([1.0, 0.0, 0.0, 0.0])),
-        );
+        }
 
         self.resources
             .extent_dependent_resources

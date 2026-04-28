@@ -163,6 +163,9 @@ pub struct App {
 
     flora_tick: u32,
     flora_tick_accumulator: f32,
+    sun_position_update_tick_accumulator: u32,
+    shadow_map_update_tick_accumulator: u32,
+    shadow_map_update_pending: bool,
 
     debug_tree_desc: TreeDesc,
     tree_variation_config: TreeVariationConfig,
@@ -286,6 +289,14 @@ const FLORA_SPROUT_DELAY_TICKS: u32 = 2;
 const DEBUG_AUDIO_WALL_MIN: Vec3 = Vec3::new(300.0, 0.0, 512.0);
 const DEBUG_AUDIO_WALL_MAX: Vec3 = Vec3::new(320.0, 256.0, 600.0);
 const FLORA_FULL_GROWTH_TICKS: u32 = 30;
+const SUN_POSITION_UPDATE_INTERVAL_TICKS: u32 = 4;
+const REQUESTED_SHADOW_MAP_UPDATE_INTERVAL_TICKS: u32 = 1;
+const SHADOW_MAP_UPDATE_INTERVAL_TICKS: u32 =
+    if REQUESTED_SHADOW_MAP_UPDATE_INTERVAL_TICKS < SUN_POSITION_UPDATE_INTERVAL_TICKS {
+        SUN_POSITION_UPDATE_INTERVAL_TICKS
+    } else {
+        REQUESTED_SHADOW_MAP_UPDATE_INTERVAL_TICKS
+    };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ActiveVoxelType {
@@ -660,6 +671,9 @@ impl App {
             backpack_summary_panel_screen_pos: None,
             flora_tick: FLORA_FULL_GROWTH_TICKS,
             flora_tick_accumulator: 0.0,
+            sun_position_update_tick_accumulator: 0,
+            shadow_map_update_tick_accumulator: 0,
+            shadow_map_update_pending: true,
 
             // multi-tree management
             next_tree_id: 1, // Start from 1, use 0 for GUI single tree
@@ -1380,7 +1394,7 @@ impl App {
                     self.gui_adjustables.world_tick_seconds.value,
                 );
                 self.flora_tick_accumulator += frame_delta_time / world_tick_seconds;
-                let mut world_tick_steps = 0;
+                let mut world_tick_steps = 0u32;
                 while self.flora_tick_accumulator >= 1.0 {
                     self.flora_tick = self.flora_tick.wrapping_add(1);
                     self.flora_tick_accumulator -= 1.0;
@@ -1699,23 +1713,41 @@ impl App {
                     }
                 }
 
-                // update sun position if auto day/night cycle is enabled
+                let mut sun_update_ticks = 0;
                 if self.gui_adjustables.auto_daynight_cycle.value && world_tick_steps > 0 {
+                    self.sun_position_update_tick_accumulator += world_tick_steps;
+                    while self.sun_position_update_tick_accumulator
+                        >= SUN_POSITION_UPDATE_INTERVAL_TICKS
+                    {
+                        self.sun_position_update_tick_accumulator -=
+                            SUN_POSITION_UPDATE_INTERVAL_TICKS;
+                        sun_update_ticks += SUN_POSITION_UPDATE_INTERVAL_TICKS;
+                    }
+                }
+
+                // update sun position if auto day/night cycle is enabled
+                let sun_position_updated = sun_update_ticks > 0;
+                if sun_position_updated {
                     // update time of day based on delta time and day cycle speed
                     // day_cycle_minutes is the real-world minutes for a full day cycle
                     // convert to time progression per second: 1.0 / (day_cycle_minutes * 60.0)
                     let time_speed = 1.0 / (self.gui_adjustables.day_cycle_minutes.value * 60.0);
                     self.gui_adjustables.time_of_day.value +=
-                        world_tick_steps as f32 * world_tick_seconds * time_speed;
+                        sun_update_ticks as f32 * world_tick_seconds * time_speed;
 
                     // keep time_of_day in 0.0 to 1.0 range (wrap around)
                     self.gui_adjustables.time_of_day.value %= 1.0;
+                }
 
-                    Self::calculate_sun_position(
-                        self.gui_adjustables.time_of_day.value,
-                        self.gui_adjustables.latitude.value,
-                        self.gui_adjustables.season.value,
-                    );
+                let mut shadow_map_interval_elapsed = false;
+                if sun_update_ticks > 0 {
+                    self.shadow_map_update_tick_accumulator += sun_update_ticks;
+                    while self.shadow_map_update_tick_accumulator
+                        >= SHADOW_MAP_UPDATE_INTERVAL_TICKS
+                    {
+                        self.shadow_map_update_tick_accumulator -= SHADOW_MAP_UPDATE_INTERVAL_TICKS;
+                        shadow_map_interval_elapsed = true;
+                    }
                 }
 
                 if self.render_flags.enable_particles {
@@ -1922,6 +1954,8 @@ impl App {
 
                 let leaf_bottom = color_to_vec3(self.gui_adjustables.leaves_bottom_color.value);
                 let leaf_tip = color_to_vec3(self.gui_adjustables.leaves_tip_color.value);
+                let update_shadow_map = self.render_flags.enable_shadows
+                    && (self.shadow_map_update_pending || shadow_map_interval_elapsed);
 
                 self.tracer
                     .record_trace(
@@ -1935,8 +1969,12 @@ impl App {
                         leaf_bottom,
                         leaf_tip,
                         &self.render_flags,
+                        update_shadow_map,
                     )
                     .unwrap();
+                if update_shadow_map {
+                    self.shadow_map_update_pending = false;
+                }
 
                 self.swapchain.record_blit(
                     self.tracer.get_screen_output_tex().get_image(),
