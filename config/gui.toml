@@ -43,7 +43,7 @@ label = "Flora Draw Distance"
 type = "Float"
 
 [section.param.data]
-value = 5
+value = 20
 min = 0.5
 max = 20
 
