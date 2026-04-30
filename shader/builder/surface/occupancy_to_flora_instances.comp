@@ -17,6 +17,7 @@ occupancy_to_instances_info;
 
 layout(set = 0, binding = 1) buffer B_OccupancyToInstancesResult {
     uint flora_instance_len[MAX_FLORA_SPECIES];
+    uint has_growing_flora;
 }
 occupancy_to_instances_result;
 
@@ -59,6 +60,9 @@ void add_flora_instance(ivec3 stem_world_pos, ivec3 base_world_pos, uint species
     uint seed                                           = murmur_hash_13(uvec3(base_world_pos));
     instance.ty_seed                                    = pack_instance_ty_seed(species_idx, seed);
     manual_flora_instances[species_idx].data[write_idx] = instance;
+    if (growth_progress < INSTANCE_GROWTH_PROGRESS_MATURE) {
+        atomicOr(occupancy_to_instances_result.has_growing_flora, 1u);
+    }
 }
 
 void calculate_density_placement(ivec3 world_pos, out bool o_allow_any_flora,

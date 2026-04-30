@@ -24,6 +24,10 @@ uint unpack_instance_growth_progress(uint packed_local_pos) {
     return (packed_local_pos >> 24u) & 0xffu;
 }
 
+uint set_instance_growth_progress(uint packed_local_pos, uint growth_progress) {
+    return (packed_local_pos & 0x00ffffffu) | ((growth_progress & 0xffu) << 24u);
+}
+
 uvec3 get_instance_world_pos(Instance instance, uvec3 chunk_world_offset) {
     return chunk_world_offset + unpack_instance_local_pos(instance.packed_local_pos);
 }

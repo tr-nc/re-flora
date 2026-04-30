@@ -816,7 +816,7 @@ impl App {
     pub(super) fn apply_flora_trim(&mut self, edit: TerrainRemovalEdit) -> Result<()> {
         if let Some(compiled) = TerrainSurfaceRemovalService::compile(edit) {
             let target_age = super::FLORA_FULL_GROWTH_TICKS / 2;
-            world_ops::mesh_trim_flora_for_sphere_edit(
+            let growing_chunks = world_ops::mesh_trim_flora_for_sphere_edit(
                 &mut self.surface_builder,
                 super::VOXEL_DIM_PER_CHUNK,
                 compiled.rebuild_bound,
@@ -827,6 +827,9 @@ impl App {
                 },
                 target_age,
             )?;
+            for chunk_id in growing_chunks {
+                self.track_growing_flora_chunk(chunk_id);
+            }
         } else {
             log::info!(
                 "Flora trim compile skipped: center={:?}, radius={}",

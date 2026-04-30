@@ -1,0 +1,53 @@
+#version 450
+
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly uniform U_InstancesToOccupancyInfo {
+    uvec3 chunk_world_offset;
+    uvec3 chunk_dim;
+    uvec4 species_instance_len;
+}
+instances_to_occupancy_info;
+
+#include "../../include/flora_registry.glsl"
+#include "../../include/instance.glsl"
+
+layout(set = 0, binding = 1) buffer B_OccupancyToInstancesResult {
+    uint flora_instance_len[MAX_FLORA_SPECIES];
+    uint has_growing_flora;
+}
+occupancy_to_instances_result;
+
+layout(set = 1, binding = 0) buffer B_ManualFloraInstances { Instance data[]; }
+manual_flora_instances[MAX_FLORA_SPECIES];
+
+void update_species_growth(uint species_idx, uint idx, uint instance_len) {
+    if (idx >= instance_len) {
+        return;
+    }
+
+    Instance instance = manual_flora_instances[species_idx].data[idx];
+    uint progress     = unpack_instance_growth_progress(instance.packed_local_pos);
+    if (progress >= INSTANCE_GROWTH_PROGRESS_MATURE) {
+        return;
+    }
+
+    progress = min(progress + 1u, INSTANCE_GROWTH_PROGRESS_MATURE);
+    instance.packed_local_pos = set_instance_growth_progress(instance.packed_local_pos, progress);
+    manual_flora_instances[species_idx].data[idx] = instance;
+
+    if (progress < INSTANCE_GROWTH_PROGRESS_MATURE) {
+        atomicOr(occupancy_to_instances_result.has_growing_flora, 1u);
+    }
+}
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+
+    update_species_growth(0u, idx, instances_to_occupancy_info.species_instance_len.x);
+    update_species_growth(1u, idx, instances_to_occupancy_info.species_instance_len.y);
+    update_species_growth(2u, idx, instances_to_occupancy_info.species_instance_len.z);
+    update_species_growth(3u, idx, instances_to_occupancy_info.species_instance_len.w);
+}

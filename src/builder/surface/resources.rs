@@ -199,6 +199,7 @@ impl SurfaceResources {
         instances_to_occupancy_sm: &ShaderModule,
         edit_occupancy_sm: &ShaderModule,
         occupancy_to_instances_sm: &ShaderModule,
+        update_flora_growth_sm: &ShaderModule,
         chunk_dim: UAabb3,
     ) -> Self {
         let surface_desc = ImageDesc {
@@ -293,6 +294,7 @@ impl SurfaceResources {
 
         let occupancy_to_instances_result_layout = occupancy_to_instances_sm
             .get_buffer_layout("B_OccupancyToInstancesResult")
+            .or_else(|_| update_flora_growth_sm.get_buffer_layout("B_OccupancyToInstancesResult"))
             .unwrap();
         let occupancy_to_instances_result = Buffer::from_buffer_layout(
             device.clone(),
