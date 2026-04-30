@@ -53,7 +53,7 @@ void add_flora_instance(ivec3 stem_world_pos, ivec3 base_world_pos, uint species
                         uint growth_start_tick) {
     uint write_idx = atomicAdd(occupancy_to_instances_result.flora_instance_len[species_idx], 1u);
     Instance instance;
-    set_instance_pos(instance, uvec3(stem_world_pos));
+    set_instance_local_pos(instance, uvec3(stem_world_pos) - occupancy_to_instances_info.chunk_world_offset);
     uint seed                                           = murmur_hash_13(uvec3(base_world_pos));
     instance.ty_seed                                    = pack_instance_ty_seed(species_idx, seed);
     instance.growth_start_tick                          = growth_start_tick;

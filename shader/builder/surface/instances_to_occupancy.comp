@@ -31,7 +31,7 @@ void mark_stem_occupied(uint species_idx, uint idx, uint instance_len) {
     }
 
     Instance instance = manual_flora_instances[species_idx].data[idx];
-    uvec3 stem_world  = get_instance_pos(instance);
+    uvec3 stem_world  = get_instance_world_pos(instance, instances_to_occupancy_info.chunk_world_offset);
     if (!in_chunk_world_bound(stem_world)) {
         return;
     }

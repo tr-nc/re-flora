@@ -42,24 +42,41 @@ impl InstanceResource {
 
 pub struct TreeLeavesInstance {
     pub aabb: Aabb3,
+    pub chunk_world_offset: UVec3,
     pub resources: InstanceResource,
 }
 
 impl TreeLeavesInstance {
-    pub fn new(_tree_id: u32, aabb: Aabb3, device: Device, allocator: Allocator) -> Self {
+    pub fn new(
+        _tree_id: u32,
+        aabb: Aabb3,
+        chunk_world_offset: UVec3,
+        device: Device,
+        allocator: Allocator,
+    ) -> Self {
         let resources = InstanceResource::new(device, allocator, 10000);
-        Self { aabb, resources }
+        Self {
+            aabb,
+            chunk_world_offset,
+            resources,
+        }
     }
 }
 
 pub struct FloraInstanceResources {
     #[allow(dead_code)]
     pub chunk_id: UVec3,
+    pub chunk_world_offset: UVec3,
     pub resources: Vec<InstanceResource>,
 }
 
 impl FloraInstanceResources {
-    pub fn new(device: Device, allocator: Allocator, chunk_id: UVec3) -> Self {
+    pub fn new(
+        device: Device,
+        allocator: Allocator,
+        chunk_id: UVec3,
+        voxel_dim_per_chunk: UVec3,
+    ) -> Self {
         let species_count = species::species_count();
         let mut resources = Vec::with_capacity(species_count);
         for _ in 0..species_count {
@@ -71,6 +88,7 @@ impl FloraInstanceResources {
         }
         Self {
             chunk_id,
+            chunk_world_offset: chunk_id * voxel_dim_per_chunk,
             resources,
         }
     }
@@ -99,7 +117,12 @@ pub struct InstanceResources {
 }
 
 impl InstanceResources {
-    pub fn new(device: Device, allocator: Allocator, chunk_dim: UAabb3) -> Self {
+    pub fn new(
+        device: Device,
+        allocator: Allocator,
+        chunk_dim: UAabb3,
+        voxel_dim_per_chunk: UVec3,
+    ) -> Self {
         /// A margin is added becaues the boundary grasses can sway out of the chunk to a certain extent.
         fn compute_chunk_world_aabb(chunk_id: UVec3, margin: f32) -> Aabb3 {
             let chunk_min = chunk_id.as_vec3();
@@ -122,6 +145,7 @@ impl InstanceResources {
                         device.clone(),
                         allocator.clone(),
                         chunk_offset,
+                        voxel_dim_per_chunk,
                     );
                     chunk_flora_instances.push((chunk_aabb, flora_resources));
                 }
@@ -278,7 +302,12 @@ impl SurfaceResources {
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
 
-        let instances = InstanceResources::new(device.clone(), allocator.clone(), chunk_dim);
+        let instances = InstanceResources::new(
+            device.clone(),
+            allocator.clone(),
+            chunk_dim,
+            voxel_dim_per_chunk,
+        );
 
         Self {
             surface: Resource::new(surface),

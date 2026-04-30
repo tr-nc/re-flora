@@ -84,9 +84,15 @@ pub struct TerrainRayHitSample {
     pub is_valid: bool,
 }
 
-fn flora_push_constant(time: f32, bottom_color: Vec3, tip_color: Vec3) -> PushConstantFlora {
+fn flora_push_constant(
+    time: f32,
+    chunk_world_offset: UVec3,
+    bottom_color: Vec3,
+    tip_color: Vec3,
+) -> PushConstantFlora {
     PushConstantFlora {
         time,
+        chunk_world_offset: chunk_world_offset.to_array(),
         bottom_color: bottom_color.to_array(),
         tip_color: tip_color.to_array(),
         ..bytemuck::Zeroable::zeroed()
@@ -1081,8 +1087,6 @@ impl Tracer {
                     continue;
                 }
 
-                let push_constant = flora_push_constant(time, *bottom_color, *tip_color);
-
                 for &lod_state in &[LodState::Lod0, LodState::Lod1] {
                     let pipeline = match lod_state {
                         LodState::Lod0 => &self.graphics_pipelines.flora_ppl,
@@ -1114,6 +1118,12 @@ impl Tracer {
                         if instance_resource.instances_len == 0 {
                             continue;
                         }
+                        let push_constant = flora_push_constant(
+                            time,
+                            instances.chunk_world_offset,
+                            *bottom_color,
+                            *tip_color,
+                        );
 
                         unsafe {
                             self.vulkan_ctx.device().cmd_bind_vertex_buffers(
@@ -1149,8 +1159,6 @@ impl Tracer {
                 lod_distance,
                 flora_draw_distance,
             );
-            let leaf_push = flora_push_constant(time, leaf_bottom_color, leaf_tip_color);
-
             for &lod_state in &[LodState::Lod0, LodState::Lod1] {
                 let pipeline = match lod_state {
                     LodState::Lod0 => &self.graphics_pipelines.flora_ppl,
@@ -1190,6 +1198,12 @@ impl Tracer {
                     if tree_instance.resources.instances_len == 0 {
                         continue;
                     }
+                    let leaf_push = flora_push_constant(
+                        time,
+                        tree_instance.chunk_world_offset,
+                        leaf_bottom_color,
+                        leaf_tip_color,
+                    );
                     unsafe {
                         self.vulkan_ctx.device().cmd_bind_vertex_buffers(
                             cmdbuf.as_raw(),
@@ -1283,8 +1297,6 @@ impl Tracer {
             .leaves_shadow_lod_ppl
             .record_bind(cmdbuf);
 
-        let push_constant = flora_push_constant(time, bottom_color, tip_color);
-
         let clear_values = [vk::ClearValue {
             depth_stencil: vk::ClearDepthStencilValue {
                 depth: 1.0,
@@ -1328,6 +1340,12 @@ impl Tracer {
             if tree_instance.resources.instances_len == 0 {
                 continue;
             }
+            let push_constant = flora_push_constant(
+                time,
+                tree_instance.chunk_world_offset,
+                bottom_color,
+                tip_color,
+            );
 
             unsafe {
                 self.vulkan_ctx.device().cmd_bind_vertex_buffers(
@@ -1930,6 +1948,21 @@ impl Tracer {
 
         let mut instances_data = Vec::new();
         const LEAF_INSTANCE_TYPE: u32 = 4;
+        let chunk_world_offset = leaf_positions
+            .iter()
+            .copied()
+            .reduce(UVec3::min)
+            .unwrap_or(UVec3::ZERO);
+        if let Some(max_leaf_pos) = leaf_positions.iter().copied().reduce(UVec3::max) {
+            anyhow::ensure!(
+                (max_leaf_pos - chunk_world_offset).cmplt(UVec3::splat(256)).all(),
+                "tree leaf instance span exceeds packed local-position range"
+            );
+        }
+        let pack_local_pos = |world_pos: UVec3| -> u32 {
+            let local_pos = world_pos - chunk_world_offset;
+            (local_pos.x & 0xff) | ((local_pos.y & 0xff) << 8) | ((local_pos.z & 0xff) << 16)
+        };
         let leaf_seed = |pos: UVec3, salt: u32| -> u32 {
             let mut seed = pos.x.wrapping_mul(73856093);
             seed ^= pos.y.wrapping_mul(19349663);
@@ -1945,9 +1978,7 @@ impl Tracer {
             let seed = leaf_seed(voxel_pos, 0) & 0xFFFFF;
             let ty_seed = (LEAF_INSTANCE_TYPE & 0x0FFF) | (seed << 12);
             let instance = Instance {
-                pos_x: voxel_pos.x,
-                pos_y: voxel_pos.y,
-                pos_z: voxel_pos.z,
+                packed_local_pos: pack_local_pos(voxel_pos),
                 ty_seed,
                 growth_start_tick: 0,
             };
@@ -1975,6 +2006,7 @@ impl Tracer {
         let mut tree_leaves_instance = TreeLeavesInstance::new(
             tree_id,
             leaves_aabb,
+            chunk_world_offset,
             self.vulkan_ctx.device().clone(),
             self.allocator.clone(),
         );

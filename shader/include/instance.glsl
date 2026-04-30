@@ -2,22 +2,32 @@
 #define INSTANCE_GLSL
 
 struct Instance {
-    uint pos_x;
-    uint pos_y;
-    uint pos_z;
+    uint packed_local_pos;
     // Lower 12 bits: type, upper 20 bits: seed
     uint ty_seed;
     uint growth_start_tick;
 };
 
-uvec3 get_instance_pos(Instance instance) {
-    return uvec3(instance.pos_x, instance.pos_y, instance.pos_z);
+uint pack_instance_local_pos(uvec3 local_pos) {
+    return (local_pos.x & 0xffu) | ((local_pos.y & 0xffu) << 8u) |
+           ((local_pos.z & 0xffu) << 16u);
 }
 
-void set_instance_pos(inout Instance instance, uvec3 pos) {
-    instance.pos_x = pos.x;
-    instance.pos_y = pos.y;
-    instance.pos_z = pos.z;
+uvec3 unpack_instance_local_pos(uint packed_local_pos) {
+    return uvec3(packed_local_pos & 0xffu, (packed_local_pos >> 8u) & 0xffu,
+                 (packed_local_pos >> 16u) & 0xffu);
+}
+
+uvec3 get_instance_world_pos(Instance instance, uvec3 chunk_world_offset) {
+    return chunk_world_offset + unpack_instance_local_pos(instance.packed_local_pos);
+}
+
+uvec3 get_instance_world_pos(uint packed_local_pos, uvec3 chunk_world_offset) {
+    return chunk_world_offset + unpack_instance_local_pos(packed_local_pos);
+}
+
+void set_instance_local_pos(inout Instance instance, uvec3 local_pos) {
+    instance.packed_local_pos = pack_instance_local_pos(local_pos);
 }
 
 const uint INSTANCE_TY_BITS   = 12u;
