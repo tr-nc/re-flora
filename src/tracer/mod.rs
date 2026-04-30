@@ -1955,13 +1955,18 @@ impl Tracer {
             .unwrap_or(UVec3::ZERO);
         if let Some(max_leaf_pos) = leaf_positions.iter().copied().reduce(UVec3::max) {
             anyhow::ensure!(
-                (max_leaf_pos - chunk_world_offset).cmplt(UVec3::splat(256)).all(),
+                (max_leaf_pos - chunk_world_offset)
+                    .cmplt(UVec3::splat(256))
+                    .all(),
                 "tree leaf instance span exceeds packed local-position range"
             );
         }
         let pack_local_pos = |world_pos: UVec3| -> u32 {
             let local_pos = world_pos - chunk_world_offset;
-            (local_pos.x & 0xff) | ((local_pos.y & 0xff) << 8) | ((local_pos.z & 0xff) << 16)
+            (local_pos.x & 0xff)
+                | ((local_pos.y & 0xff) << 8)
+                | ((local_pos.z & 0xff) << 16)
+                | (0xff << 24)
         };
         let leaf_seed = |pos: UVec3, salt: u32| -> u32 {
             let mut seed = pos.x.wrapping_mul(73856093);
@@ -1980,7 +1985,6 @@ impl Tracer {
             let instance = Instance {
                 packed_local_pos: pack_local_pos(voxel_pos),
                 ty_seed,
-                growth_start_tick: 0,
             };
 
             instances_data.push(instance);

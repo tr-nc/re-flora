@@ -78,7 +78,6 @@ pub struct MakeSurfaceResult {
 pub struct ManualFloraInstances {
     pub packed_local_pos: u32,
     pub ty_seed: u32,
-    pub growth_start_tick: u32,
 }
 
 /// Auto-generated from `B_NodeOffsetForLevels` (GLSL source of truth).

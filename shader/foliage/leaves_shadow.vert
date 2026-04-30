@@ -18,7 +18,6 @@ layout(location = 0) in uvec2 in_packed_data;
 // these are instance-rate attributes (reusing grass instance buffer)
 layout(location = 1) in uint in_instance_packed_local_pos;
 layout(location = 2) in uint in_instance_ty_seed;
-layout(location = 3) in uint in_instance_growth_start_tick;
 
 layout(set = 0, binding = 0) uniform U_GuiInput {
     float debug_float;
@@ -107,6 +106,5 @@ void main() {
     gl_Position = shadow_camera_info.view_proj_mat * vec4(vert_pos, 1.0);
 
     uint palette_seed = combine_color_seed(instance_seed);
-    gl_Position.z += float(in_instance_growth_start_tick & 1u) * 0.0;
     gl_Position.z += float(palette_seed & 1u) * 1e-8;
 }
