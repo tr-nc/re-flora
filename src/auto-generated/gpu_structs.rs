@@ -77,7 +77,7 @@ pub struct MakeSurfaceResult {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ManualFloraInstances {
     pub packed_local_pos: u32,
-    pub ty_seed: u32,
+    pub seed: u32,
 }
 
 /// Auto-generated from `B_NodeOffsetForLevels` (GLSL source of truth).
@@ -159,7 +159,8 @@ pub struct PushConstantChunkModifySample {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PushConstantFlora {
     pub time: f32,
-    pub _pad0: [u8; 12],
+    pub instance_ty: u32,
+    pub _pad0: [u8; 8],
     pub chunk_world_offset: [u32; 3],
     pub _pad1: [u8; 4],
     pub bottom_color: [f32; 3],
@@ -173,7 +174,8 @@ pub struct PushConstantFlora {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PushConstantFloraLod {
     pub time: f32,
-    pub _pad0: [u8; 12],
+    pub instance_ty: u32,
+    pub _pad0: [u8; 8],
     pub chunk_world_offset: [u32; 3],
     pub _pad1: [u8; 4],
     pub bottom_color: [f32; 3],
@@ -187,7 +189,8 @@ pub struct PushConstantFloraLod {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PushConstantLeavesShadow {
     pub time: f32,
-    pub _pad0: [u8; 12],
+    pub instance_ty: u32,
+    pub _pad0: [u8; 8],
     pub chunk_world_offset: [u32; 3],
     pub _pad1: [u8; 4],
     pub bottom_color: [f32; 3],

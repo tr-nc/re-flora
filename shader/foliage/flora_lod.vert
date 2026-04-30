@@ -6,6 +6,7 @@
 
 layout(push_constant) uniform PC {
     float time;
+    uint instance_ty;
     uvec3 chunk_world_offset;
     vec3 bottom_color;
     vec3 tip_color;
@@ -17,7 +18,7 @@ layout(location = 0) in uvec2 in_packed_data;
 
 // these are instance-rate attributes
 layout(location = 1) in uint in_instance_packed_local_pos;
-layout(location = 2) in uint in_instance_ty_seed;
+layout(location = 2) in uint in_instance_seed;
 
 layout(location = 0) out vec3 vert_color;
 
@@ -114,8 +115,6 @@ void main() {
     unpack_vertex_data(vox_local_pos, vert_offset_in_vox, gradient_origin, max_length,
                        in_packed_data);
 
-    uint instance_ty;
-    uint instance_seed;
     bool is_grass;
     float color_gradient;
     vec3 voxel_pos;
@@ -125,9 +124,8 @@ void main() {
     uvec3 instance_pos = get_instance_world_pos(in_instance_packed_local_pos, pc.chunk_world_offset);
     uint instance_growth_progress = unpack_instance_growth_progress(in_instance_packed_local_pos);
     prepare_flora_vertex(vox_local_pos, gradient_origin, max_length, instance_pos,
-                          in_instance_ty_seed, instance_growth_progress, instance_ty,
-                          instance_seed, is_grass, color_gradient, voxel_pos, anchor_pos,
-                          shadow_weight, should_trim_voxel);
+                          pc.instance_ty, in_instance_seed, instance_growth_progress, is_grass,
+                          color_gradient, voxel_pos, anchor_pos, shadow_weight, should_trim_voxel);
     vec3 vert_pos = get_vert_pos_with_billboard(camera_info.view_mat, voxel_pos, vert_offset_in_vox,
                                                 scaling_factor);
 
@@ -140,7 +138,7 @@ void main() {
     gl_Position = camera_info.view_proj_mat * vec4(vert_pos, 1.0);
 
     vec3 base_color_linear =
-        sample_flora_base_color(is_grass, instance_ty, instance_seed, vox_local_pos,
+        sample_flora_base_color(is_grass, pc.instance_ty, in_instance_seed, vox_local_pos,
                                 instance_pos, color_gradient);
 
     float sun_luminance = sun_luminance_from_dir(sun_info.sun_dir, sun_info.sun_luminance);

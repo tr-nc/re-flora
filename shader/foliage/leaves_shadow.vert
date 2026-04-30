@@ -6,6 +6,7 @@
 
 layout(push_constant) uniform PC {
     float time;
+    uint instance_ty;
     uvec3 chunk_world_offset;
     vec3 bottom_color;
     vec3 tip_color;
@@ -17,7 +18,7 @@ layout(location = 0) in uvec2 in_packed_data;
 
 // these are instance-rate attributes (reusing grass instance buffer)
 layout(location = 1) in uint in_instance_packed_local_pos;
-layout(location = 2) in uint in_instance_ty_seed;
+layout(location = 2) in uint in_instance_seed;
 
 layout(set = 0, binding = 0) uniform U_GuiInput {
     float debug_float;
@@ -93,7 +94,7 @@ void main() {
     uvec3 instance_pos_voxels = get_instance_world_pos(in_instance_packed_local_pos, pc.chunk_world_offset);
     vec3 instance_pos = instance_pos_voxels * scaling_factor;
 
-    uint instance_seed = decode_instance_seed(in_instance_ty_seed);
+    uint instance_seed = in_instance_seed;
     vec3 wind_sample_pos = instance_pos + vec3(vox_local_pos) * scaling_factor;
     uint wind_seed = get_wind_volume_voxel_seed(instance_seed, vox_local_pos);
     vec3 wind_vec    = sample_wind_volume(wind_sample_pos, wind_seed);

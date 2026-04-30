@@ -54,13 +54,10 @@ float get_shadow_weight(ivec3 vox_local_pos) {
 }
 
 void prepare_flora_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_length,
-                           uvec3 instance_pos_voxels, uint in_instance_ty_seed,
-                           uint in_instance_growth_progress, out uint instance_ty,
-                           out uint instance_seed, out bool is_grass, out float color_gradient,
-                           out vec3 voxel_pos, out vec3 anchor_pos, out float shadow_weight,
-                           out bool should_trim_voxel) {
-    instance_ty   = decode_instance_ty(in_instance_ty_seed);
-    instance_seed = decode_instance_seed(in_instance_ty_seed);
+                           uvec3 instance_pos_voxels, uint instance_ty, uint instance_seed,
+                           uint in_instance_growth_progress, out bool is_grass,
+                           out float color_gradient, out vec3 voxel_pos, out vec3 anchor_pos,
+                           out float shadow_weight, out bool should_trim_voxel) {
     is_grass = instance_ty == FLORA_SPECIES_TALL_GRASS || instance_ty == FLORA_SPECIES_SHORT_GRASS;
 
     float base_gradient = compute_gradient(vox_local_pos, gradient_origin, max_length);

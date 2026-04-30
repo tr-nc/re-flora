@@ -33,6 +33,8 @@ use buffer_updater::*;
 use glam::{Mat4, UVec3, Vec2, Vec3};
 use winit::event::KeyEvent;
 
+const LEAF_INSTANCE_TYPE: u32 = 4;
+
 use crate::audio::SpatialSoundManager;
 use crate::builder::{
     ContreeBuilderResources, FloraInstanceResources, Instance, SceneAccelBuilderResources,
@@ -86,12 +88,14 @@ pub struct TerrainRayHitSample {
 
 fn flora_push_constant(
     time: f32,
+    instance_ty: u32,
     chunk_world_offset: UVec3,
     bottom_color: Vec3,
     tip_color: Vec3,
 ) -> PushConstantFlora {
     PushConstantFlora {
         time,
+        instance_ty,
         chunk_world_offset: chunk_world_offset.to_array(),
         bottom_color: bottom_color.to_array(),
         tip_color: tip_color.to_array(),
@@ -1120,6 +1124,7 @@ impl Tracer {
                         }
                         let push_constant = flora_push_constant(
                             time,
+                            species_index as u32,
                             instances.chunk_world_offset,
                             *bottom_color,
                             *tip_color,
@@ -1200,6 +1205,7 @@ impl Tracer {
                     }
                     let leaf_push = flora_push_constant(
                         time,
+                        LEAF_INSTANCE_TYPE,
                         tree_instance.chunk_world_offset,
                         leaf_bottom_color,
                         leaf_tip_color,
@@ -1342,6 +1348,7 @@ impl Tracer {
             }
             let push_constant = flora_push_constant(
                 time,
+                LEAF_INSTANCE_TYPE,
                 tree_instance.chunk_world_offset,
                 bottom_color,
                 tip_color,
@@ -1947,7 +1954,6 @@ impl Tracer {
         use crate::builder::TreeLeavesInstance;
 
         let mut instances_data = Vec::new();
-        const LEAF_INSTANCE_TYPE: u32 = 4;
         let chunk_world_offset = leaf_positions
             .iter()
             .copied()
@@ -1980,11 +1986,10 @@ impl Tracer {
             let voxel_pos = *leaf_pos;
 
             // create instance data matching GrassInstance structure
-            let seed = leaf_seed(voxel_pos, 0) & 0xFFFFF;
-            let ty_seed = (LEAF_INSTANCE_TYPE & 0x0FFF) | (seed << 12);
+            let seed = leaf_seed(voxel_pos, 0);
             let instance = Instance {
                 packed_local_pos: pack_local_pos(voxel_pos),
-                ty_seed,
+                seed,
             };
 
             instances_data.push(instance);
