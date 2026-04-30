@@ -18,6 +18,8 @@ layout(location = 0) in uvec2 in_packed_data;
 
 // these are instance-rate attributes (reusing grass instance buffer)
 layout(location = 1) in uint in_instance_packed_local_pos;
+// Unused padding keeps the instance vertex binding at an 8-byte stride.
+layout(location = 2) in uint in_instance_padding;
 
 layout(set = 0, binding = 0) uniform U_GuiInput {
     float debug_float;

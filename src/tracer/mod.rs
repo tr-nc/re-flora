@@ -1979,6 +1979,7 @@ impl Tracer {
 
             let instance = Instance {
                 packed_local_pos: pack_local_pos(voxel_pos),
+                padding: 0,
             };
 
             instances_data.push(instance);
