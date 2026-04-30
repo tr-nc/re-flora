@@ -370,7 +370,7 @@ impl PipelineBuilder {
             &shader_modules.flora_vert_sm,
             &shader_modules.flora_frag_sm,
             &render_passes.render_pass_color_and_depth,
-            Some(1),
+            None,
             pool,
             &[resources],
         );
@@ -380,7 +380,7 @@ impl PipelineBuilder {
             &shader_modules.flora_lod_vert_sm,
             &shader_modules.flora_frag_sm,
             &render_passes.render_pass_color_and_depth,
-            Some(1),
+            None,
             pool,
             &[resources],
         );
@@ -390,7 +390,7 @@ impl PipelineBuilder {
             &shader_modules.leaves_shadow_vert_sm,
             &shader_modules.leaves_shadow_frag_sm,
             &render_passes.render_pass_depth,
-            Some(1),
+            None,
             pool,
             &[resources],
         );

@@ -1134,16 +1134,15 @@ impl Tracer {
                             self.vulkan_ctx.device().cmd_bind_vertex_buffers(
                                 cmdbuf.as_raw(),
                                 0,
-                                &[
-                                    mesh.vertices.as_raw(),
-                                    instance_resource.instances_buf.as_raw(),
-                                ],
-                                &[0, 0],
+                                &[mesh.vertices.as_raw()],
+                                &[0],
                             );
                         }
-
-                        pipeline.record_indexed(
+                        pipeline.record_indexed_with_manual_buffer(
                             cmdbuf,
+                            1,
+                            0,
+                            &instance_resource.instances_buf,
                             mesh.indices_len,
                             instance_resource.instances_len,
                             0,
@@ -1214,15 +1213,15 @@ impl Tracer {
                         self.vulkan_ctx.device().cmd_bind_vertex_buffers(
                             cmdbuf.as_raw(),
                             0,
-                            &[
-                                vertices_buf.as_raw(),
-                                tree_instance.resources.instances_buf.as_raw(),
-                            ],
-                            &[0, 0],
+                            &[vertices_buf.as_raw()],
+                            &[0],
                         );
                     }
-                    pipeline.record_indexed(
+                    pipeline.record_indexed_with_manual_buffer(
                         cmdbuf,
+                        1,
+                        0,
+                        &tree_instance.resources.instances_buf,
                         indices_len,
                         tree_instance.resources.instances_len,
                         0,
@@ -1358,19 +1357,18 @@ impl Tracer {
                 self.vulkan_ctx.device().cmd_bind_vertex_buffers(
                     cmdbuf.as_raw(),
                     0,
-                    &[
-                        self.resources.leaves_resources_lod.vertices.as_raw(),
-                        tree_instance.resources.instances_buf.as_raw(),
-                    ],
-                    &[0, 0],
+                    &[self.resources.leaves_resources_lod.vertices.as_raw()],
+                    &[0],
                 );
             }
-
             // render this instance for shadow map
             self.graphics_pipelines
                 .leaves_shadow_lod_ppl
-                .record_indexed(
+                .record_indexed_with_manual_buffer(
                     cmdbuf,
+                    1,
+                    0,
+                    &tree_instance.resources.instances_buf,
                     self.resources.leaves_resources_lod.indices_len,
                     tree_instance.resources.instances_len,
                     0,
@@ -1979,7 +1977,6 @@ impl Tracer {
 
             let instance = Instance {
                 packed_local_pos: pack_local_pos(voxel_pos),
-                padding: 0,
             };
 
             instances_data.push(instance);

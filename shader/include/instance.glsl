@@ -3,8 +3,6 @@
 
 struct Instance {
     uint packed_local_pos;
-    // Keep instance-rate vertex fetches on an 8-byte stride; 4-byte stride is slower on target GPUs.
-    uint padding;
 };
 
 const uint INSTANCE_GROWTH_PROGRESS_MATURE = 0xffu;
@@ -47,7 +45,6 @@ uint get_instance_seed(uvec3 instance_pos_voxels) {
 
 void set_instance_local_pos_growth(inout Instance instance, uvec3 local_pos, uint growth_progress) {
     instance.packed_local_pos = pack_instance_local_pos_growth(local_pos, growth_progress);
-    instance.padding          = 0u;
 }
 
 #endif // INSTANCE_GLSL

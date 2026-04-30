@@ -16,11 +16,6 @@ pc;
 // these are vertex-rate attributes
 layout(location = 0) in uvec2 in_packed_data;
 
-// these are instance-rate attributes (reusing grass instance buffer)
-layout(location = 1) in uint in_instance_packed_local_pos;
-// Unused padding keeps the instance vertex binding at an 8-byte stride.
-layout(location = 2) in uint in_instance_padding;
-
 layout(set = 0, binding = 0) uniform U_GuiInput {
     float debug_float;
     uint debug_bool;
@@ -80,6 +75,9 @@ layout(set = 0, binding = 8) uniform sampler3D wind_volume_tex;
 #include "./palette.glsl"
 #include "./unpacker.glsl"
 
+layout(set = 1, binding = 0) readonly buffer B_ManualFloraInstances { Instance data[]; }
+manual_flora_instances;
+
 const float scaling_factor = 1.0 / 256.0;
 
 void main() {
@@ -92,6 +90,8 @@ void main() {
 
     float wind_gradient = compute_gradient(vox_local_pos, gradient_origin, max_length);
 
+    uint in_instance_packed_local_pos =
+        manual_flora_instances.data[gl_InstanceIndex].packed_local_pos;
     uvec3 instance_pos_voxels = get_instance_world_pos(in_instance_packed_local_pos, pc.chunk_world_offset);
     vec3 instance_pos = instance_pos_voxels * scaling_factor;
 

@@ -4,7 +4,7 @@ use crate::vkn::WriteDescriptorSet;
 use crate::{
     resource::ResourceContainer,
     vkn::{
-        CommandBuffer, DescriptorPool, DescriptorSet, DescriptorSetLayoutBinding, Device,
+        Buffer, CommandBuffer, DescriptorPool, DescriptorSet, DescriptorSetLayoutBinding, Device,
         FormatOverride, PipelineLayout, RenderPass, ShaderModule, Viewport,
     },
 };
@@ -18,9 +18,11 @@ use std::{
 
 struct GraphicsPipelineInner {
     device: Device,
+    descriptor_pool: DescriptorPool,
     pipeline: vk::Pipeline,
     pipeline_layout: PipelineLayout,
     descriptor_sets: Mutex<Vec<DescriptorSet>>,
+    manual_buffer_descriptor_sets: Mutex<HashMap<vk::Buffer, DescriptorSet>>,
     descriptor_sets_bindings: HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
 }
 
@@ -183,9 +185,11 @@ impl GraphicsPipeline {
 
         let pipeline_instance = Self(Arc::new(GraphicsPipelineInner {
             device: device.clone(),
+            descriptor_pool: descriptor_pool.clone(),
             pipeline,
             pipeline_layout,
             descriptor_sets: Mutex::new(Vec::new()),
+            manual_buffer_descriptor_sets: Mutex::new(HashMap::new()),
             descriptor_sets_bindings,
         }));
 
@@ -330,6 +334,73 @@ impl GraphicsPipeline {
             vertex_offset,
             first_instance,
         );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_indexed_with_manual_buffer(
+        &self,
+        cmdbuf: &CommandBuffer,
+        manual_set_no: u32,
+        manual_binding: u32,
+        manual_buffer: &Buffer,
+        index_count: u32,
+        instance_count: u32,
+        first_index: u32,
+        vertex_offset: i32,
+        first_instance: u32,
+        push_constants: Option<&PushConstantInfo>,
+    ) {
+        self.record_bind(cmdbuf);
+        let manual_set = self.get_or_create_manual_buffer_descriptor_set(
+            manual_set_no,
+            manual_binding,
+            manual_buffer,
+        );
+        {
+            let descriptor_sets = self.0.descriptor_sets.lock().unwrap();
+            if manual_set_no > 0 && !descriptor_sets.is_empty() {
+                self.record_bind_descriptor_sets(
+                    cmdbuf,
+                    &descriptor_sets[..manual_set_no as usize],
+                    0,
+                );
+            }
+        }
+        self.record_bind_descriptor_sets(cmdbuf, std::slice::from_ref(&manual_set), manual_set_no);
+        if let Some(push_constants) = push_constants {
+            self.record_push_constants(cmdbuf, push_constants);
+        }
+        self.record_draw_indexed(
+            cmdbuf,
+            index_count,
+            instance_count,
+            first_index,
+            vertex_offset,
+            first_instance,
+        );
+    }
+
+    fn get_or_create_manual_buffer_descriptor_set(
+        &self,
+        set_no: u32,
+        binding: u32,
+        buffer: &Buffer,
+    ) -> DescriptorSet {
+        let mut descriptor_sets = self.0.manual_buffer_descriptor_sets.lock().unwrap();
+        if let Some(descriptor_set) = descriptor_sets.get(&buffer.as_raw()) {
+            return descriptor_set.clone();
+        }
+
+        let layout = self
+            .0
+            .pipeline_layout
+            .get_descriptor_set_layouts()
+            .get(&set_no)
+            .unwrap_or_else(|| panic!("Missing descriptor set layout {}", set_no));
+        let descriptor_set = self.0.descriptor_pool.allocate_set(layout).unwrap();
+        descriptor_set.perform_writes(&mut [WriteDescriptorSet::new_buffer_write(binding, buffer)]);
+        descriptor_sets.insert(buffer.as_raw(), descriptor_set.clone());
+        descriptor_set
     }
 
     fn record_draw_indexed(
