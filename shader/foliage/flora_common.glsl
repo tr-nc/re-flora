@@ -56,14 +56,10 @@ void prepare_flora_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_l
                            out float shadow_weight, out bool should_trim_voxel) {
     is_grass = instance_ty == FLORA_SPECIES_TALL_GRASS || instance_ty == FLORA_SPECIES_SHORT_GRASS;
 
-    float base_gradient = compute_gradient(vox_local_pos, gradient_origin, max_length);
-    color_gradient = instance_ty == FLORA_SPECIES_SHORT_GRASS
-                         ? compute_gradient(vox_local_pos, gradient_origin, tall_grass_height_voxels)
-                         : base_gradient;
-    float wind_gradient = instance_ty == FLORA_SPECIES_SHORT_GRASS
-                              ? compute_gradient(vox_local_pos, gradient_origin,
-                                                 tall_grass_height_voxels)
-                              : base_gradient;
+    bool is_short_grass = instance_ty == FLORA_SPECIES_SHORT_GRASS;
+    uint gradient_length = is_short_grass ? tall_grass_height_voxels : max_length;
+    float wind_gradient = compute_gradient(vox_local_pos, gradient_origin, gradient_length);
+    color_gradient = wind_gradient;
 
     uint grass_height_voxels =
         is_grass ? sample_grass_height(instance_ty, instance_seed) : tall_grass_height_voxels;
