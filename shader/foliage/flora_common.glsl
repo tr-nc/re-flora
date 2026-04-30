@@ -14,13 +14,9 @@ const float PLAYER_PUSH_RADIUS              = 0.3;
 const float PLAYER_PUSH_STRENGTH            = 0.02;
 
 float sample_standard_normal(uint seed) {
-    float sum  = 0.0;
-    uint state = seed ^ 0xA511E9B3u;
-    for (uint i = 0u; i < 12u; ++i) {
-        state = wellons_hash(state + i * 0x9E3779B9u);
-        sum += construct_float_01(state);
-    }
-    return sum - 6.0;
+    uint state_a = wellons_hash(seed ^ 0xA511E9B3u);
+    uint state_b = wellons_hash(seed ^ 0x63D83595u);
+    return (construct_float_01(state_a) + construct_float_01(state_b) - 1.0) * 2.4494898;
 }
 
 uint sample_grass_height(uint instance_ty, uint seed) {
