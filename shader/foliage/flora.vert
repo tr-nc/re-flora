@@ -18,7 +18,6 @@ layout(location = 0) in uvec2 in_packed_data;
 
 // these are instance-rate attributes
 layout(location = 1) in uint in_instance_packed_local_pos;
-layout(location = 2) in uint in_instance_seed;
 
 layout(location = 0) out vec3 vert_color;
 
@@ -122,9 +121,10 @@ void main() {
     float shadow_weight;
     bool should_trim_voxel;
     uvec3 instance_pos = get_instance_world_pos(in_instance_packed_local_pos, pc.chunk_world_offset);
+    uint instance_seed = get_instance_seed(instance_pos);
     uint instance_growth_progress = unpack_instance_growth_progress(in_instance_packed_local_pos);
     prepare_flora_vertex(vox_local_pos, gradient_origin, max_length, instance_pos,
-                          pc.instance_ty, in_instance_seed, instance_growth_progress, is_grass,
+                          pc.instance_ty, instance_seed, instance_growth_progress, is_grass,
                           color_gradient, voxel_pos, anchor_pos, shadow_weight, should_trim_voxel);
     vec3 vert_pos    = anchor_pos + vec3(vert_offset_in_vox) * scaling_factor;
 
@@ -139,7 +139,7 @@ void main() {
         apply_depth_offset(vert_pos, instance_pos, camera_info.view_mat, camera_info.proj_mat);
 
     vec3 base_color_linear =
-        sample_flora_base_color(is_grass, pc.instance_ty, in_instance_seed, vox_local_pos,
+        sample_flora_base_color(is_grass, pc.instance_ty, instance_seed, vox_local_pos,
                                 instance_pos, color_gradient);
 
     float sun_luminance = sun_luminance_from_dir(sun_info.sun_dir, sun_info.sun_luminance);

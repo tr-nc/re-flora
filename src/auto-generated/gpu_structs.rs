@@ -77,7 +77,6 @@ pub struct MakeSurfaceResult {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ManualFloraInstances {
     pub packed_local_pos: u32,
-    pub seed: u32,
 }
 
 /// Auto-generated from `B_NodeOffsetForLevels` (GLSL source of truth).

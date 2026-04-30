@@ -3,7 +3,6 @@
 
 struct Instance {
     uint packed_local_pos;
-    uint seed;
 };
 
 const uint INSTANCE_GROWTH_PROGRESS_MATURE = 0xffu;
@@ -33,6 +32,15 @@ uvec3 get_instance_world_pos(Instance instance, uvec3 chunk_world_offset) {
 
 uvec3 get_instance_world_pos(uint packed_local_pos, uvec3 chunk_world_offset) {
     return chunk_world_offset + unpack_instance_local_pos(packed_local_pos);
+}
+
+uint get_instance_seed(uvec3 instance_pos_voxels) {
+    uint seed = instance_pos_voxels.x ^ (instance_pos_voxels.y << 10u) ^
+                (instance_pos_voxels.z << 20u);
+    seed ^= seed >> 16u;
+    seed ^= seed << 5u;
+    seed ^= seed >> 11u;
+    return seed;
 }
 
 void set_instance_local_pos_growth(inout Instance instance, uvec3 local_pos, uint growth_progress) {

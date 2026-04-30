@@ -57,7 +57,6 @@ void add_flora_instance(ivec3 stem_world_pos, ivec3 base_world_pos, uint species
     set_instance_local_pos_growth(instance,
                                   uvec3(stem_world_pos) - occupancy_to_instances_info.chunk_world_offset,
                                   growth_progress);
-    instance.seed                                       = murmur_hash_13(uvec3(base_world_pos));
     manual_flora_instances[species_idx].data[write_idx] = instance;
     if (growth_progress < INSTANCE_GROWTH_PROGRESS_MATURE) {
         atomicOr(occupancy_to_instances_result.has_growing_flora, 1u);

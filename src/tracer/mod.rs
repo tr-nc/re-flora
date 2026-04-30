@@ -1974,22 +1974,11 @@ impl Tracer {
                 | ((local_pos.z & 0xff) << 16)
                 | (0xff << 24)
         };
-        let leaf_seed = |pos: UVec3, salt: u32| -> u32 {
-            let mut seed = pos.x.wrapping_mul(73856093);
-            seed ^= pos.y.wrapping_mul(19349663);
-            seed ^= pos.z.wrapping_mul(83492791);
-            seed ^= tree_id.wrapping_mul(0x9E3779B9);
-            seed ^ salt.wrapping_mul(0x85EBCA6B)
-        };
-
         for leaf_pos in leaf_positions.iter() {
             let voxel_pos = *leaf_pos;
 
-            // create instance data matching GrassInstance structure
-            let seed = leaf_seed(voxel_pos, 0);
             let instance = Instance {
                 packed_local_pos: pack_local_pos(voxel_pos),
-                seed,
             };
 
             instances_data.push(instance);
