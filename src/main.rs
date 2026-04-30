@@ -5,6 +5,7 @@ mod egui_renderer;
 mod flora;
 mod game_time;
 mod gameplay;
+#[path = "auto-generated/mod.rs"]
 mod generated;
 mod geom;
 #[macro_use]

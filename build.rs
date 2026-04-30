@@ -1052,8 +1052,8 @@ fn emit_struct(layout: &StructLayout) -> String {
 fn generate_gpu_structs() {
     let root = project_root();
     let shader_root = root.join("shader");
-    let out_dir = root.join("src").join("generated");
-    fs::create_dir_all(&out_dir).expect("create src/generated");
+    let out_dir = root.join("src").join("auto-generated");
+    fs::create_dir_all(&out_dir).expect("create src/auto-generated");
 
     // mark all shader source files as inputs so cargo reruns when they change
     for (rel, _) in SHADER_FILES {

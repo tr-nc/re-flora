@@ -163,6 +163,7 @@ pub struct App {
 
     flora_tick: u32,
     flora_tick_accumulator: f32,
+    growing_flora_chunks: Vec<UVec3>,
     sun_position_update_tick_accumulator: u32,
     shadow_map_update_tick_accumulator: u32,
     shadow_map_update_pending: bool,
@@ -216,6 +217,36 @@ impl Drop for App {
 }
 
 impl App {
+    pub(super) fn track_growing_flora_chunk(&mut self, chunk_id: UVec3) {
+        if !self.growing_flora_chunks.contains(&chunk_id) {
+            self.growing_flora_chunks.push(chunk_id);
+        }
+    }
+
+    fn update_growing_flora_chunks(&mut self) {
+        if self.growing_flora_chunks.is_empty() {
+            return;
+        }
+
+        let active_chunks = std::mem::take(&mut self.growing_flora_chunks);
+        let mut still_growing = Vec::with_capacity(active_chunks.len());
+        for chunk_id in active_chunks {
+            match self.surface_builder.update_flora_growth_for_chunk(chunk_id) {
+                Ok(true) => still_growing.push(chunk_id),
+                Ok(false) => {}
+                Err(err) => {
+                    log::warn!(
+                        "Failed to update flora growth for chunk {}: {}",
+                        chunk_id,
+                        err
+                    );
+                    still_growing.push(chunk_id);
+                }
+            }
+        }
+        self.growing_flora_chunks = still_growing;
+    }
+
     fn save_screenshot(&self, path: &str) {
         let output_path = std::path::Path::new(path);
         if let Some(parent) = output_path.parent() {
@@ -272,7 +303,7 @@ impl WorldBuildBackend for App {
 }
 
 const VOXEL_DIM_PER_CHUNK: UVec3 = UVec3::new(256, 256, 256);
-const CHUNK_DIM: UVec3 = UVec3::new(5, 2, 5);
+const CHUNK_DIM: UVec3 = UVec3::new(10, 2, 10);
 const FREE_ATLAS_DIM: UVec3 = UVec3::new(512, 512, 512);
 const MAX_FRAMES_IN_FLIGHT: usize = 1;
 const SHOVEL_REMOVE_RADIUS: f32 = 0.08;
@@ -671,6 +702,7 @@ impl App {
             backpack_summary_panel_screen_pos: None,
             flora_tick: FLORA_FULL_GROWTH_TICKS,
             flora_tick_accumulator: 0.0,
+            growing_flora_chunks: Vec::new(),
             sun_position_update_tick_accumulator: 0,
             shadow_map_update_tick_accumulator: 0,
             shadow_map_update_pending: true,
@@ -1399,6 +1431,7 @@ impl App {
                     self.flora_tick = self.flora_tick.wrapping_add(1);
                     self.flora_tick_accumulator -= 1.0;
                     world_tick_steps += 1;
+                    self.update_growing_flora_chunks();
                 }
                 if let Err(err) = self.tree_audio_manager.update(time_since_start) {
                     log::warn!("Failed to update tree audio sources: {}", err);
@@ -1432,6 +1465,7 @@ impl App {
                 let backpack_oak_wood_count = self.backpack_oak_wood_count;
                 let backpack_rock_count = self.backpack_rock_count;
                 let audio_ray_tracing_debug_text = self.audio_ray_tracing_debug_text.clone();
+                let growing_flora_chunk_count = self.growing_flora_chunks.len();
                 let active_voxel_label = self.active_voxel_type.label();
                 let active_voxel_color = self.active_voxel_type.color();
                 let egui_start = Instant::now();
@@ -1514,6 +1548,19 @@ impl App {
                                                 &self.gui_config,
                                                 &mut self.gui_adjustables,
                                             );
+
+                                            ui.add_space(8.0);
+                                            ui.separator();
+                                            ui.add_space(8.0);
+                                            ui.heading(
+                                                RichText::new("Flora Growth")
+                                                    .size(16.0)
+                                                    .color(GOLD_ACCENT),
+                                            );
+                                            ui.label(format!(
+                                                "Updating chunks: {}",
+                                                growing_flora_chunk_count
+                                            ));
 
                                             ui.add_space(8.0);
                                             ui.separator();

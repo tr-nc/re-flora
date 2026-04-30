@@ -33,6 +33,12 @@ pub struct FloraRegenStats {
     pub before_total: u32,
     pub after_total: u32,
     pub dispatch_dim: UVec3,
+    pub has_growing_flora: bool,
+}
+
+struct OccupancyToInstancesResultReadback {
+    flora_instance_len: Vec<u32>,
+    has_growing_flora: bool,
 }
 
 pub struct SurfaceBuilder {
@@ -47,6 +53,7 @@ pub struct SurfaceBuilder {
     instances_to_occupancy_ppl: ComputePipeline,
     edit_occupancy_ppl: ComputePipeline,
     occupancy_to_instances_ppl: ComputePipeline,
+    update_flora_growth_ppl: ComputePipeline,
 
     chunk_bound: UAabb3,
     voxel_dim_per_chunk: UVec3,
@@ -106,6 +113,14 @@ impl SurfaceBuilder {
         )
         .unwrap();
 
+        let update_flora_growth_sm = ShaderModule::from_glsl(
+            device,
+            shader_compiler,
+            "shader/builder/surface/update_flora_growth.comp",
+            "main",
+        )
+        .unwrap();
+
         let resources = SurfaceResources::new(
             device.clone(),
             allocator,
@@ -115,6 +130,7 @@ impl SurfaceBuilder {
             &instances_to_occupancy_sm,
             &edit_occupancy_sm,
             &occupancy_to_instances_sm,
+            &update_flora_growth_sm,
             chunk_bound,
         );
 
@@ -150,6 +166,12 @@ impl SurfaceBuilder {
             &pool,
             &[&resources, plain_builder_resources],
         );
+        let update_flora_growth_ppl = ComputePipeline::new(
+            device,
+            &update_flora_growth_sm,
+            &pool,
+            &[&resources, plain_builder_resources],
+        );
 
         Self {
             vulkan_ctx,
@@ -160,6 +182,7 @@ impl SurfaceBuilder {
             instances_to_occupancy_ppl,
             edit_occupancy_ppl,
             occupancy_to_instances_ppl,
+            update_flora_growth_ppl,
             chunk_bound,
             voxel_dim_per_chunk,
             flora_species_count,
@@ -355,12 +378,12 @@ impl SurfaceBuilder {
         cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), None);
         device.wait_queue_idle(&self.vulkan_ctx.get_general_queue());
 
-        let lengths = get_occupancy_to_instances_result(
+        let result = get_occupancy_to_instances_result(
             &self.resources.occupancy_to_instances_result,
             self.flora_species_count,
         );
         let chunk_resources_mut = &mut self.resources.instances.chunk_flora_instances[chunk_idx].1;
-        for (species_idx, len) in lengths.iter().enumerate() {
+        for (species_idx, len) in result.flora_instance_len.iter().enumerate() {
             chunk_resources_mut.get_mut(species_idx).instances_len = *len;
         }
 
@@ -491,13 +514,13 @@ impl SurfaceBuilder {
         cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), None);
         device.wait_queue_idle(&self.vulkan_ctx.get_general_queue());
 
-        let lengths = get_occupancy_to_instances_result(
+        let result = get_occupancy_to_instances_result(
             &self.resources.occupancy_to_instances_result,
             self.flora_species_count,
         );
         let chunk_resources_mut = &mut self.resources.instances.chunk_flora_instances[chunk_idx].1;
         let mut after_total = 0_u32;
-        for (species_idx, len) in lengths.iter().enumerate() {
+        for (species_idx, len) in result.flora_instance_len.iter().enumerate() {
             chunk_resources_mut.get_mut(species_idx).instances_len = *len;
             after_total = after_total.saturating_add(*len);
         }
@@ -513,7 +536,63 @@ impl SurfaceBuilder {
             before_total,
             after_total,
             dispatch_dim: self.voxel_dim_per_chunk,
+            has_growing_flora: result.has_growing_flora,
         })
+    }
+
+    pub fn update_flora_growth_for_chunk(&mut self, chunk_id: UVec3) -> Result<bool> {
+        if !self.chunk_bound.in_bound(chunk_id) {
+            return Err(anyhow::anyhow!("Chunk ID out of bounds"));
+        }
+
+        let chunk_idx = self.get_chunk_resource_index(chunk_id)?;
+        let chunk_world_offset = chunk_id * self.voxel_dim_per_chunk;
+        let mut species_len = [0_u32; 4];
+        let mut max_len = 0_u32;
+        for (species_idx, species) in species_len
+            .iter_mut()
+            .enumerate()
+            .take(self.flora_species_count.min(4))
+        {
+            let len = self.resources.instances.chunk_flora_instances[chunk_idx]
+                .1
+                .get(species_idx)
+                .instances_len;
+            *species = len;
+            max_len = max_len.max(len);
+        }
+
+        if max_len == 0 {
+            return Ok(false);
+        }
+
+        update_instances_to_occupancy_info(
+            &self.resources.instances_to_occupancy_info,
+            chunk_world_offset,
+            self.voxel_dim_per_chunk,
+            species_len,
+        )?;
+        cleanup_occupancy_to_instances_result(&self.resources.occupancy_to_instances_result)?;
+
+        let chunk_resources = &self.resources.instances.chunk_flora_instances[chunk_idx]
+            .1
+            .resources;
+        self.bind_manual_instance_buffers(&self.update_flora_growth_ppl, chunk_resources);
+
+        let device = self.vulkan_ctx.device();
+        let cmdbuf = CommandBuffer::new(device, self.vulkan_ctx.command_pool());
+        cmdbuf.begin(true);
+        self.update_flora_growth_ppl
+            .record(&cmdbuf, Extent3D::new(max_len, 1, 1), None);
+        cmdbuf.end();
+        cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), None);
+        device.wait_queue_idle(&self.vulkan_ctx.get_general_queue());
+
+        Ok(get_occupancy_to_instances_result(
+            &self.resources.occupancy_to_instances_result,
+            self.flora_species_count,
+        )
+        .has_growing_flora)
     }
 
     fn get_chunk_resource_index(&self, chunk_id: UVec3) -> Result<usize> {
@@ -655,17 +734,23 @@ fn cleanup_occupancy_to_instances_result(result: &Buffer) -> Result<()> {
     Ok(())
 }
 
-fn get_occupancy_to_instances_result(result: &Buffer, species_count: usize) -> Vec<u32> {
+fn get_occupancy_to_instances_result(
+    result: &Buffer,
+    species_count: usize,
+) -> OccupancyToInstancesResultReadback {
     let raw_data = result.read_back().unwrap();
     let total_u32 = raw_data.len() / std::mem::size_of::<u32>();
     let data = unsafe { std::slice::from_raw_parts(raw_data.as_ptr() as *const u32, total_u32) };
     assert!(
-        total_u32 >= species_count,
-        "occupancy_to_instances_result buffer too small: expected at least {} u32s, got {}",
+        total_u32 > species_count,
+        "occupancy_to_instances_result buffer too small: expected more than {} u32s, got {}",
         species_count,
         total_u32
     );
-    let mut lengths = Vec::with_capacity(species_count);
-    lengths.extend_from_slice(&data[0..species_count]);
-    lengths
+    let mut flora_instance_len = Vec::with_capacity(species_count);
+    flora_instance_len.extend_from_slice(&data[0..species_count]);
+    OccupancyToInstancesResultReadback {
+        flora_instance_len,
+        has_growing_flora: data[species_count] != 0,
+    }
 }

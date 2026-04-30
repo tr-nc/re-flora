@@ -76,11 +76,7 @@ pub struct MakeSurfaceResult {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ManualFloraInstances {
-    pub pos_x: u32,
-    pub pos_y: u32,
-    pub pos_z: u32,
-    pub ty_seed: u32,
-    pub growth_start_tick: u32,
+    pub packed_local_pos: u32,
 }
 
 /// Auto-generated from `B_NodeOffsetForLevels` (GLSL source of truth).
@@ -95,6 +91,7 @@ pub struct NodeOffsetForLevels {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct OccupancyToInstancesResult {
     pub flora_instance_len: [u32; 4],
+    pub has_growing_flora: u32,
 }
 
 /// Auto-generated from `B_PlayerCollisionResult` (GLSL source of truth).
@@ -161,11 +158,14 @@ pub struct PushConstantChunkModifySample {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PushConstantFlora {
     pub time: f32,
-    pub _pad0: [u8; 12],
-    pub bottom_color: [f32; 3],
+    pub instance_ty: u32,
+    pub _pad0: [u8; 8],
+    pub chunk_world_offset: [u32; 3],
     pub _pad1: [u8; 4],
-    pub tip_color: [f32; 3],
+    pub bottom_color: [f32; 3],
     pub _pad2: [u8; 4],
+    pub tip_color: [f32; 3],
+    pub _pad3: [u8; 4],
 }
 
 /// Auto-generated from `PushConstantFloraLod` (GLSL source of truth).
@@ -173,11 +173,14 @@ pub struct PushConstantFlora {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PushConstantFloraLod {
     pub time: f32,
-    pub _pad0: [u8; 12],
-    pub bottom_color: [f32; 3],
+    pub instance_ty: u32,
+    pub _pad0: [u8; 8],
+    pub chunk_world_offset: [u32; 3],
     pub _pad1: [u8; 4],
-    pub tip_color: [f32; 3],
+    pub bottom_color: [f32; 3],
     pub _pad2: [u8; 4],
+    pub tip_color: [f32; 3],
+    pub _pad3: [u8; 4],
 }
 
 /// Auto-generated from `PushConstantLeavesShadow` (GLSL source of truth).
@@ -185,11 +188,14 @@ pub struct PushConstantFloraLod {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PushConstantLeavesShadow {
     pub time: f32,
-    pub _pad0: [u8; 12],
-    pub bottom_color: [f32; 3],
+    pub instance_ty: u32,
+    pub _pad0: [u8; 8],
+    pub chunk_world_offset: [u32; 3],
     pub _pad1: [u8; 4],
-    pub tip_color: [f32; 3],
+    pub bottom_color: [f32; 3],
     pub _pad2: [u8; 4],
+    pub tip_color: [f32; 3],
+    pub _pad3: [u8; 4],
 }
 
 /// Auto-generated from `PushConstantSpatial` (GLSL source of truth).

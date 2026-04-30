@@ -14,13 +14,9 @@ const float PLAYER_PUSH_RADIUS              = 0.3;
 const float PLAYER_PUSH_STRENGTH            = 0.02;
 
 float sample_standard_normal(uint seed) {
-    float sum  = 0.0;
-    uint state = seed ^ 0xA511E9B3u;
-    for (uint i = 0u; i < 12u; ++i) {
-        state = wellons_hash(state + i * 0x9E3779B9u);
-        sum += construct_float_01(state);
-    }
-    return sum - 6.0;
+    uint state_a = wellons_hash(seed ^ 0xA511E9B3u);
+    uint state_b = wellons_hash(seed ^ 0x63D83595u);
+    return (construct_float_01(state_a) + construct_float_01(state_b) - 1.0) * 2.4494898;
 }
 
 uint sample_grass_height(uint instance_ty, uint seed) {
@@ -38,13 +34,9 @@ uint sample_grass_height(uint instance_ty, uint seed) {
     return uint(round(sampled_height));
 }
 
-float flora_growth_factor(uint growth_start_tick) {
-    if (flora_growth_info.full_growth_ticks <= flora_growth_info.sprout_delay_ticks) {
-        return 1.0;
-    }
-    uint age_ticks = flora_growth_info.flora_tick - growth_start_tick;
-    return smoothstep(float(flora_growth_info.sprout_delay_ticks),
-                      float(flora_growth_info.full_growth_ticks), float(age_ticks));
+float flora_growth_factor(uint growth_progress) {
+    // TODO: advance non-mature growth progress over time instead of treating it as static state.
+    return float(growth_progress) / float(INSTANCE_GROWTH_PROGRESS_MATURE);
 }
 
 float get_shadow_weight(ivec3 vox_local_pos) {
@@ -58,27 +50,20 @@ float get_shadow_weight(ivec3 vox_local_pos) {
 }
 
 void prepare_flora_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_length,
-                          uvec3 instance_pos_voxels, uint in_instance_ty_seed,
-                          uint in_instance_growth_start_tick, out uint instance_ty,
-                          out uint instance_seed, out bool is_grass, out float color_gradient,
-                          out vec3 voxel_pos, out vec3 anchor_pos, out float shadow_weight,
-                          out bool should_trim_voxel) {
-    instance_ty   = decode_instance_ty(in_instance_ty_seed);
-    instance_seed = decode_instance_seed(in_instance_ty_seed);
+                           uvec3 instance_pos_voxels, uint instance_ty, uint instance_seed,
+                           uint in_instance_growth_progress, out bool is_grass,
+                           out float color_gradient, out vec3 voxel_pos, out vec3 anchor_pos,
+                           out float shadow_weight, out bool should_trim_voxel) {
     is_grass = instance_ty == FLORA_SPECIES_TALL_GRASS || instance_ty == FLORA_SPECIES_SHORT_GRASS;
 
-    float base_gradient = compute_gradient(vox_local_pos, gradient_origin, max_length);
-    color_gradient = instance_ty == FLORA_SPECIES_SHORT_GRASS
-                         ? compute_gradient(vox_local_pos, gradient_origin, tall_grass_height_voxels)
-                         : base_gradient;
-    float wind_gradient = instance_ty == FLORA_SPECIES_SHORT_GRASS
-                              ? compute_gradient(vox_local_pos, gradient_origin,
-                                                 tall_grass_height_voxels)
-                              : base_gradient;
+    bool is_short_grass = instance_ty == FLORA_SPECIES_SHORT_GRASS;
+    uint gradient_length = is_short_grass ? tall_grass_height_voxels : max_length;
+    float wind_gradient = compute_gradient(vox_local_pos, gradient_origin, gradient_length);
+    color_gradient = wind_gradient;
 
     uint grass_height_voxels =
         is_grass ? sample_grass_height(instance_ty, instance_seed) : tall_grass_height_voxels;
-    float growth_factor    = flora_growth_factor(in_instance_growth_start_tick);
+    float growth_factor    = flora_growth_factor(in_instance_growth_progress);
     should_trim_voxel      = false;
 
     if (is_grass) {

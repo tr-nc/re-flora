@@ -6,6 +6,8 @@
 
 layout(push_constant) uniform PC {
     float time;
+    uint instance_ty;
+    uvec3 chunk_world_offset;
     vec3 bottom_color;
     vec3 tip_color;
 }
@@ -13,11 +15,6 @@ pc;
 
 // these are vertex-rate attributes
 layout(location = 0) in uvec2 in_packed_data;
-
-// these are instance-rate attributes
-layout(location = 1) in uvec3 in_instance_pos;
-layout(location = 2) in uint in_instance_ty_seed;
-layout(location = 3) in uint in_instance_growth_start_tick;
 
 layout(location = 0) out vec3 vert_color;
 
@@ -106,6 +103,9 @@ layout(set = 0, binding = 8) uniform sampler3D wind_volume_tex;
 #include "./unpacker.glsl"
 #include "./flora_common.glsl"
 
+layout(set = 1, binding = 0) readonly buffer B_ManualFloraInstances { Instance data[]; }
+manual_flora_instances;
+
 void main() {
     ivec3 vox_local_pos;
     uvec3 vert_offset_in_vox;
@@ -114,18 +114,20 @@ void main() {
     unpack_vertex_data(vox_local_pos, vert_offset_in_vox, gradient_origin, max_length,
                        in_packed_data);
 
-    uint instance_ty;
-    uint instance_seed;
     bool is_grass;
     float color_gradient;
     vec3 voxel_pos;
     vec3 anchor_pos;
     float shadow_weight;
     bool should_trim_voxel;
-    prepare_flora_vertex(vox_local_pos, gradient_origin, max_length, in_instance_pos,
-                         in_instance_ty_seed, in_instance_growth_start_tick, instance_ty,
-                         instance_seed, is_grass, color_gradient, voxel_pos, anchor_pos,
-                         shadow_weight, should_trim_voxel);
+    uint in_instance_packed_local_pos =
+        manual_flora_instances.data[gl_InstanceIndex].packed_local_pos;
+    uvec3 instance_pos = get_instance_world_pos(in_instance_packed_local_pos, pc.chunk_world_offset);
+    uint instance_seed = get_instance_seed(instance_pos);
+    uint instance_growth_progress = unpack_instance_growth_progress(in_instance_packed_local_pos);
+    prepare_flora_vertex(vox_local_pos, gradient_origin, max_length, instance_pos,
+                          pc.instance_ty, instance_seed, instance_growth_progress, is_grass,
+                          color_gradient, voxel_pos, anchor_pos, shadow_weight, should_trim_voxel);
     vec3 vert_pos = get_vert_pos_with_billboard(camera_info.view_mat, voxel_pos, vert_offset_in_vox,
                                                 scaling_factor);
 
@@ -138,8 +140,8 @@ void main() {
     gl_Position = camera_info.view_proj_mat * vec4(vert_pos, 1.0);
 
     vec3 base_color_linear =
-        sample_flora_base_color(is_grass, instance_ty, instance_seed, vox_local_pos,
-                                in_instance_pos, color_gradient);
+        sample_flora_base_color(is_grass, pc.instance_ty, instance_seed, vox_local_pos,
+                                instance_pos, color_gradient);
 
     float sun_luminance = sun_luminance_from_dir(sun_info.sun_dir, sun_info.sun_luminance);
     vec3 sun_light      = sun_info.sun_color * sun_luminance;

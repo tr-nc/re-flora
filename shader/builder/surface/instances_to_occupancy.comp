@@ -31,14 +31,14 @@ void mark_stem_occupied(uint species_idx, uint idx, uint instance_len) {
     }
 
     Instance instance = manual_flora_instances[species_idx].data[idx];
-    uvec3 stem_world  = get_instance_pos(instance);
+    uvec3 stem_world  = get_instance_world_pos(instance, instances_to_occupancy_info.chunk_world_offset);
     if (!in_chunk_world_bound(stem_world)) {
         return;
     }
 
     uvec3 stem_local = stem_world - instances_to_occupancy_info.chunk_world_offset;
     imageStore(occupancy_data, ivec3(stem_local),
-               uvec4(instance.growth_start_tick + 1u, 0u, 0u, 0u));
+               uvec4(unpack_instance_growth_progress(instance.packed_local_pos) + 1u, 0u, 0u, 0u));
 }
 
 void main() {

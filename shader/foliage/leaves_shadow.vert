@@ -6,6 +6,8 @@
 
 layout(push_constant) uniform PC {
     float time;
+    uint instance_ty;
+    uvec3 chunk_world_offset;
     vec3 bottom_color;
     vec3 tip_color;
 }
@@ -13,11 +15,6 @@ pc;
 
 // these are vertex-rate attributes
 layout(location = 0) in uvec2 in_packed_data;
-
-// these are instance-rate attributes (reusing grass instance buffer)
-layout(location = 1) in uvec3 in_instance_pos;
-layout(location = 2) in uint in_instance_ty_seed;
-layout(location = 3) in uint in_instance_growth_start_tick;
 
 layout(set = 0, binding = 0) uniform U_GuiInput {
     float debug_float;
@@ -78,6 +75,9 @@ layout(set = 0, binding = 8) uniform sampler3D wind_volume_tex;
 #include "./palette.glsl"
 #include "./unpacker.glsl"
 
+layout(set = 1, binding = 0) readonly buffer B_ManualFloraInstances { Instance data[]; }
+manual_flora_instances;
+
 const float scaling_factor = 1.0 / 256.0;
 
 void main() {
@@ -90,9 +90,12 @@ void main() {
 
     float wind_gradient = compute_gradient(vox_local_pos, gradient_origin, max_length);
 
-    vec3 instance_pos = in_instance_pos * scaling_factor;
+    uint in_instance_packed_local_pos =
+        manual_flora_instances.data[gl_InstanceIndex].packed_local_pos;
+    uvec3 instance_pos_voxels = get_instance_world_pos(in_instance_packed_local_pos, pc.chunk_world_offset);
+    vec3 instance_pos = instance_pos_voxels * scaling_factor;
 
-    uint instance_seed = decode_instance_seed(in_instance_ty_seed);
+    uint instance_seed = get_instance_seed(instance_pos_voxels);
     vec3 wind_sample_pos = instance_pos + vec3(vox_local_pos) * scaling_factor;
     uint wind_seed = get_wind_volume_voxel_seed(instance_seed, vox_local_pos);
     vec3 wind_vec    = sample_wind_volume(wind_sample_pos, wind_seed);
@@ -105,6 +108,5 @@ void main() {
     gl_Position = shadow_camera_info.view_proj_mat * vec4(vert_pos, 1.0);
 
     uint palette_seed = combine_color_seed(instance_seed);
-    gl_Position.z += float(in_instance_growth_start_tick & 1u) * 0.0;
     gl_Position.z += float(palette_seed & 1u) * 1e-8;
 }

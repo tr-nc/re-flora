@@ -43,9 +43,9 @@ label = "Flora Draw Distance"
 type = "Float"
 
 [section.param.data]
-value = 5
+value = 20
 min = 0.5
-max = 5
+max = 20
 
 [[section.param]]
 id = "grass_render_mode"

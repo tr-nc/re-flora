@@ -6,7 +6,6 @@ __pycache__/
 .gitnexus
 CLAUDE.md
 CLAUDE.local.md
-AGENTS.md
 *.local
 *.local.*
 .cc2cc-session-id

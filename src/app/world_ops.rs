@@ -262,9 +262,10 @@ pub(crate) fn mesh_trim_flora_for_sphere_edit(
     bound: UAabb3,
     flora_edit: FloraSphereEdit,
     target_age: u32,
-) -> Result<()> {
+) -> Result<Vec<UVec3>> {
     let affected_chunk_indices =
         get_affected_chunk_indices(bound.min(), bound.max(), voxel_dim_per_chunk);
+    let mut growing_chunks = Vec::new();
 
     for chunk_id in affected_chunk_indices {
         let now = Instant::now();
@@ -275,16 +276,19 @@ pub(crate) fn mesh_trim_flora_for_sphere_edit(
         }
         BENCH.lock().unwrap().record("build_surface", now.elapsed());
 
-        let _regen_stats = surface_builder.trim_flora_instances(
+        let regen_stats = surface_builder.trim_flora_instances(
             chunk_id,
             flora_edit.center,
             flora_edit.radius,
             flora_edit.tick,
             target_age,
         )?;
+        if regen_stats.has_growing_flora {
+            growing_chunks.push(chunk_id);
+        }
     }
 
-    Ok(())
+    Ok(growing_chunks)
 }
 
 fn get_affected_chunk_indices(

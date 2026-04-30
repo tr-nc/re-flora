@@ -38,7 +38,7 @@ impl DescriptorPool {
     /// Convenient but large pool, intended for development only.
     pub fn new(device: &Device) -> Result<Self> {
         const MAX_DESCRIPTORS: u32 = 10_000;
-        const MAX_SETS: u32 = 100;
+        const MAX_SETS: u32 = 5_000;
 
         let pool_sizes = [
             vk::DescriptorPoolSize {

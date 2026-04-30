@@ -17,6 +17,7 @@ occupancy_to_instances_info;
 
 layout(set = 0, binding = 1) buffer B_OccupancyToInstancesResult {
     uint flora_instance_len[MAX_FLORA_SPECIES];
+    uint has_growing_flora;
 }
 occupancy_to_instances_result;
 
@@ -50,14 +51,16 @@ float hash(vec2 p) {
 }
 
 void add_flora_instance(ivec3 stem_world_pos, ivec3 base_world_pos, uint species_idx,
-                        uint growth_start_tick) {
+                        uint growth_progress) {
     uint write_idx = atomicAdd(occupancy_to_instances_result.flora_instance_len[species_idx], 1u);
     Instance instance;
-    set_instance_pos(instance, uvec3(stem_world_pos));
-    uint seed                                           = murmur_hash_13(uvec3(base_world_pos));
-    instance.ty_seed                                    = pack_instance_ty_seed(species_idx, seed);
-    instance.growth_start_tick                          = growth_start_tick;
+    set_instance_local_pos_growth(instance,
+                                  uvec3(stem_world_pos) - occupancy_to_instances_info.chunk_world_offset,
+                                  growth_progress);
     manual_flora_instances[species_idx].data[write_idx] = instance;
+    if (growth_progress < INSTANCE_GROWTH_PROGRESS_MATURE) {
+        atomicOr(occupancy_to_instances_result.has_growing_flora, 1u);
+    }
 }
 
 void calculate_density_placement(ivec3 world_pos, out bool o_allow_any_flora,
@@ -192,7 +195,7 @@ void main() {
     if (occupancy_value == 0u) {
         return;
     }
-    uint growth_start_tick = occupancy_value - 1u;
+    uint growth_progress = occupancy_value - 1u;
 
     ivec3 base_local  = stem_local + ivec3(0, -1, 0);
     uint surface_data = imageLoad(surface, base_local).r;
@@ -227,5 +230,5 @@ void main() {
     }
 
     // Exactly one flora instance can be emitted for each occupied stem position.
-    add_flora_instance(world_stem_pos, world_base_pos, flora_type, growth_start_tick);
+    add_flora_instance(world_stem_pos, world_base_pos, flora_type, growth_progress);
 }
