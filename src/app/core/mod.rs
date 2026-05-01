@@ -321,52 +321,15 @@ const ITEM_PANEL_SCROLL_SFX_VOLUME_DB: f32 = -6.0;
 const FLORA_SPROUT_DELAY_TICKS: u32 = 2;
 const DEBUG_AUDIO_WALL_MIN: Vec3 = Vec3::new(300.0, 0.0, 512.0);
 const DEBUG_AUDIO_WALL_MAX: Vec3 = Vec3::new(320.0, 256.0, 600.0);
-const DEBUG_ROCK_MODEL_SCALE: f32 = 0.5;
-const DEBUG_ROCK_MODELS: [(&str, Vec3); 11] = [
-    (
-        "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_01.glb",
-        Vec3::new(0.5, 0.5, 0.5),
-    ),
-    (
-        "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_02.glb",
-        Vec3::new(1.5, 0.5, 0.5),
-    ),
-    (
-        "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_03.glb",
-        Vec3::new(2.5, 0.5, 0.5),
-    ),
-    (
-        "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_04.glb",
-        Vec3::new(3.5, 0.5, 0.5),
-    ),
-    (
-        "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_05.glb",
-        Vec3::new(4.5, 0.5, 0.5),
-    ),
-    (
-        "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_06.glb",
-        Vec3::new(5.5, 0.5, 0.5),
-    ),
-    (
-        "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_07.glb",
-        Vec3::new(6.5, 0.5, 0.5),
-    ),
-    (
-        "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_08.glb",
-        Vec3::new(7.5, 0.5, 0.5),
-    ),
-    (
-        "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_09.glb",
-        Vec3::new(8.5, 0.5, 0.5),
-    ),
-    (
-        "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_10.glb",
-        Vec3::new(9.5, 0.5, 0.5),
-    ),
-    (
-        "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_11.glb",
-        Vec3::new(10.5, 0.5, 0.5),
-    ),
+const DEBUG_MODEL_LONGEST_EDGE: f32 = 0.5;
+const DEBUG_MODEL_LINE_START: Vec3 = Vec3::new(0.5, 0.5, 0.5);
+const DEBUG_MODEL_LINE_STEP: Vec3 = Vec3::new(1.0, 0.0, 0.0);
+const DEBUG_MODEL_PATHS: [&str; 5] = [
+    "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_01.glb",
+    "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_03.glb",
+    "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_04.glb",
+    "assets/models/mitra_statue_2021/glb/Box001.glb",
+    "assets/models/mitra_statue_2021/glb/default.glb",
 ];
 const FLORA_FULL_GROWTH_TICKS: u32 = 30;
 const SUN_POSITION_UPDATE_INTERVAL_TICKS: u32 = 1;
@@ -456,7 +419,13 @@ impl App {
     fn apply_model_placement(&mut self, path: &str, position: Vec3) -> Result<UAabb3> {
         let mut model = load_model(path)
             .with_context(|| format!("failed to load model for placement: {path}"))?;
-        model.scale_uniform(DEBUG_ROCK_MODEL_SCALE)?;
+        let scale = model.scale_to_longest_edge(DEBUG_MODEL_LONGEST_EDGE)?;
+        log::info!(
+            "[MODEL_SCALE] path='{}' target_longest_edge={:.3} scale={:.6}",
+            path,
+            DEBUG_MODEL_LONGEST_EDGE,
+            scale
+        );
         let triangles = model.triangles()?;
         let rebuild_bound =
             self.plain_builder
@@ -471,6 +440,10 @@ impl App {
         )?;
 
         Ok(rebuild_bound)
+    }
+
+    fn debug_model_position(index: usize) -> Vec3 {
+        DEBUG_MODEL_LINE_START + DEBUG_MODEL_LINE_STEP * index as f32
     }
 
     fn linear_to_db(linear: f32) -> f32 {
@@ -1090,7 +1063,8 @@ impl App {
             log::error!("Failed to add debug tree: {}", err);
         }
 
-        for (path, position) in DEBUG_ROCK_MODELS {
+        for (index, path) in DEBUG_MODEL_PATHS.iter().enumerate() {
+            let position = Self::debug_model_position(index);
             if let Err(err) = self.apply_model_placement(path, position) {
                 log::error!(
                     "Failed to place debug rock model '{}' at {:?}: {}",

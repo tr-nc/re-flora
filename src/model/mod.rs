@@ -109,6 +109,24 @@ pub fn load_model(path: impl AsRef<Path>) -> Result<LoadedModel> {
 }
 
 impl LoadedModel {
+    pub fn scale_to_longest_edge(&mut self, longest_edge: f32) -> Result<f32> {
+        if longest_edge <= 0.0 {
+            bail!("model longest edge must be positive, got {longest_edge}");
+        }
+
+        let (min, max) = self
+            .bounds()
+            .ok_or_else(|| anyhow!("cannot scale an empty model"))?;
+        let current_longest_edge = (max - min).max_element();
+        if current_longest_edge <= f32::EPSILON {
+            bail!("cannot scale a model with zero-sized bounds");
+        }
+
+        let scale = longest_edge / current_longest_edge;
+        self.scale_uniform(scale)?;
+        Ok(scale)
+    }
+
     pub fn scale_uniform(&mut self, scale: f32) -> Result<()> {
         if scale <= 0.0 {
             bail!("model scale must be positive, got {scale}");
@@ -216,5 +234,17 @@ mod tests {
         let span = (max - min).max_element();
         assert!(span > 0.0);
         assert!(!model.triangles().unwrap().is_empty());
+    }
+
+    #[test]
+    fn scales_stylized_rock_to_target_longest_edge() {
+        let mut model =
+            load_model("assets/models/free_pack_rocks_stylized/glb/SM_Rocks_01.glb").unwrap();
+        let scale = model.scale_to_longest_edge(0.5).unwrap();
+        let (min, max) = model.bounds().unwrap();
+        let span = (max - min).max_element();
+
+        assert!(scale > 0.0);
+        assert!((span - 0.5).abs() < 0.0001);
     }
 }
