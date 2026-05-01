@@ -456,6 +456,7 @@ impl PlainBuilder {
         position: Vec3,
         fill_voxel_type: u32,
     ) -> Result<UAabb3> {
+        let total_start = Instant::now();
         if triangles.is_empty() {
             return Err(anyhow::anyhow!("cannot voxelize a model with no triangles"));
         }
@@ -477,7 +478,9 @@ impl PlainBuilder {
             self.plain_atlas_dim,
             MODEL_VOXELIZE_SURFACE_THICKNESS_VOX,
         )?;
+        let voxels = dim.x as u64 * dim.y as u64 * dim.z as u64;
 
+        let upload_start = Instant::now();
         let mut triangle_vec4s = Vec::with_capacity(triangle_vec4s_len);
         for triangle in triangles {
             triangle_vec4s.push(triangle.a);
@@ -496,6 +499,7 @@ impl PlainBuilder {
                 position_vox: (position * 256.0).to_array(),
                 surface_thickness_vox: MODEL_VOXELIZE_SURFACE_THICKNESS_VOX,
             })?;
+        let upload_elapsed = upload_start.elapsed();
 
         let shader_access_pipeline_barrier = PipelineBarrier::new(
             vk::PipelineStageFlags::COMPUTE_SHADER,
@@ -503,6 +507,7 @@ impl PlainBuilder {
             vec![MemoryBarrier::new_shader_access()],
         );
 
+        let gpu_start = Instant::now();
         execute_one_time_command(
             self.vulkan_ctx.device(),
             self.vulkan_ctx.command_pool(),
@@ -512,6 +517,17 @@ impl PlainBuilder {
                     .record(cmdbuf, Extent3D::new(dim.x, dim.y, dim.z), None);
                 shader_access_pipeline_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             },
+        );
+        let gpu_elapsed = gpu_start.elapsed();
+
+        log::info!(
+            "[MODEL_VOXELIZE] approach=winding triangles={} dim={:?} voxels={} upload={:.3}ms gpu_dispatch_wait={:.3}ms total={:.3}ms",
+            triangles.len(),
+            dim,
+            voxels,
+            upload_elapsed.as_secs_f64() * 1000.0,
+            gpu_elapsed.as_secs_f64() * 1000.0,
+            total_start.elapsed().as_secs_f64() * 1000.0,
         );
 
         Ok(rebuild_bound)

@@ -23,32 +23,26 @@ bool in_atlas_bound(ivec3 p) {
     return all(greaterThanEqual(p, ivec3(0))) && all(lessThan(p, atlas_dim));
 }
 
-bool intersect_ray_pos_x(vec3 origin, vec3 a, vec3 b, vec3 c) {
-    const float EPS = 1e-5;
-    vec3 dir = vec3(1.0, 0.0, 0.0);
-    vec3 edge1 = b - a;
-    vec3 edge2 = c - a;
-    vec3 pvec = cross(dir, edge2);
-    float det = dot(edge1, pvec);
-    if (abs(det) < EPS) {
-        return false;
+float signed_solid_angle(vec3 p, vec3 a, vec3 b, vec3 c) {
+    const float EPS = 1e-7;
+    vec3 va = a - p;
+    vec3 vb = b - p;
+    vec3 vc = c - p;
+    float la = length(va);
+    float lb = length(vb);
+    float lc = length(vc);
+    if (la < EPS || lb < EPS || lc < EPS) {
+        return 0.0;
     }
 
-    float inv_det = 1.0 / det;
-    vec3 tvec = origin - a;
-    float u = dot(tvec, pvec) * inv_det;
-    if (u < -EPS || u > 1.0 + EPS) {
-        return false;
+    float numerator = dot(va, cross(vb, vc));
+    float denominator = la * lb * lc + dot(va, vb) * lc +
+                        dot(vb, vc) * la + dot(vc, va) * lb;
+    if (abs(numerator) < EPS && abs(denominator) < EPS) {
+        return 0.0;
     }
 
-    vec3 qvec = cross(tvec, edge1);
-    float v = dot(dir, qvec) * inv_det;
-    if (v < -EPS || u + v > 1.0 + EPS) {
-        return false;
-    }
-
-    float t = dot(edge2, qvec) * inv_det;
-    return t > EPS;
+    return 2.0 * atan(numerator, denominator);
 }
 
 float sqr_distance_point_triangle(vec3 p, vec3 a, vec3 b, vec3 c) {
@@ -117,7 +111,8 @@ void main() {
     }
 
     vec3 center = vec3(world_voxel_pos) + vec3(0.5);
-    uint intersections = 0u;
+    const float INSIDE_SOLID_ANGLE_THRESHOLD = 6.28318530718;
+    float total_solid_angle = 0.0;
     bool near_surface = false;
     float surface_threshold_sqr = model_voxelize_info.surface_thickness_vox *
                                   model_voxelize_info.surface_thickness_vox;
@@ -128,15 +123,13 @@ void main() {
         vec3 b = model_triangles.data[base + 1u].xyz * 256.0 + model_voxelize_info.position_vox;
         vec3 c = model_triangles.data[base + 2u].xyz * 256.0 + model_voxelize_info.position_vox;
 
-        if (intersect_ray_pos_x(center, a, b, c)) {
-            intersections++;
-        }
+        total_solid_angle += signed_solid_angle(center, a, b, c);
         if (!near_surface && sqr_distance_point_triangle(center, a, b, c) <= surface_threshold_sqr) {
             near_surface = true;
         }
     }
 
-    if ((intersections & 1u) != 0u || near_surface) {
+    if (abs(total_solid_angle) > INSIDE_SOLID_ANGLE_THRESHOLD || near_surface) {
         imageStore(chunk_atlas, world_voxel_pos, uvec4(model_voxelize_info.fill_voxel_type, 0, 0, 0));
     }
 }
