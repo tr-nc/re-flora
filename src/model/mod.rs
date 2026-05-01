@@ -1,5 +1,8 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
+use glam::Vec3;
 use std::path::{Path, PathBuf};
+
+pub const DEFAULT_MODEL_LONGEST_SPAN: f32 = 0.5;
 
 #[derive(Debug, Clone)]
 pub struct LoadedModel {
@@ -32,6 +35,14 @@ pub struct ModelMaterial {
     pub base_color_factor: [f32; 4],
 }
 
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ModelTriangleGpu {
+    pub a: [f32; 4],
+    pub b: [f32; 4],
+    pub c: [f32; 4],
+}
+
 pub fn load_model(path: impl AsRef<Path>) -> Result<LoadedModel> {
     let path = path.as_ref();
     let (document, buffers, _images) = gltf::import(path)
@@ -41,6 +52,13 @@ pub fn load_model(path: impl AsRef<Path>) -> Result<LoadedModel> {
     for mesh in document.meshes() {
         let mut primitives = Vec::new();
         for primitive in mesh.primitives() {
+            if primitive.mode() != gltf::mesh::Mode::Triangles {
+                bail!(
+                    "unsupported glTF primitive mode {:?}; only triangle primitives are supported",
+                    primitive.mode()
+                );
+            }
+
             let reader =
                 primitive.reader(|buffer| buffers.get(buffer.index()).map(|b| b.0.as_slice()));
 
@@ -92,6 +110,113 @@ pub fn load_model(path: impl AsRef<Path>) -> Result<LoadedModel> {
     })
 }
 
+pub fn load_model_scaled_to_longest_span(
+    path: impl AsRef<Path>,
+    longest_span: f32,
+) -> Result<LoadedModel> {
+    let mut model = load_model(path)?;
+    model.scale_to_longest_span(longest_span)?;
+    Ok(model)
+}
+
+impl LoadedModel {
+    pub fn scale_to_longest_span(&mut self, longest_span: f32) -> Result<()> {
+        if longest_span <= 0.0 {
+            bail!("model longest span must be positive, got {longest_span}");
+        }
+
+        let bounds = self.bounds().context("cannot scale an empty model")?;
+        let span = bounds.1 - bounds.0;
+        let max_span = span.max_element();
+        if max_span <= f32::EPSILON {
+            bail!("cannot scale a model with zero-sized bounds");
+        }
+
+        let center = (bounds.0 + bounds.1) * 0.5;
+        let scale = longest_span / max_span;
+        for vertex in self.vertices_mut() {
+            let position = (Vec3::from(vertex.position) - center) * scale;
+            vertex.position = position.to_array();
+        }
+
+        Ok(())
+    }
+
+    pub fn bounds(&self) -> Option<(Vec3, Vec3)> {
+        let mut min = Vec3::splat(f32::INFINITY);
+        let mut max = Vec3::splat(f32::NEG_INFINITY);
+        let mut found = false;
+
+        for vertex in self.vertices() {
+            let position = Vec3::from(vertex.position);
+            min = min.min(position);
+            max = max.max(position);
+            found = true;
+        }
+
+        found.then_some((min, max))
+    }
+
+    pub fn triangles(&self) -> Result<Vec<ModelTriangleGpu>> {
+        let mut triangles = Vec::new();
+        for mesh in &self.meshes {
+            for primitive in &mesh.primitives {
+                if primitive.indices.len() % 3 != 0 {
+                    bail!(
+                        "model primitive has {} indices, which is not divisible by 3",
+                        primitive.indices.len()
+                    );
+                }
+
+                for index_triplet in primitive.indices.chunks_exact(3) {
+                    let a = primitive
+                        .vertices
+                        .get(index_triplet[0] as usize)
+                        .ok_or_else(|| {
+                            anyhow!("model index {} is out of bounds", index_triplet[0])
+                        })?
+                        .position;
+                    let b = primitive
+                        .vertices
+                        .get(index_triplet[1] as usize)
+                        .ok_or_else(|| {
+                            anyhow!("model index {} is out of bounds", index_triplet[1])
+                        })?
+                        .position;
+                    let c = primitive
+                        .vertices
+                        .get(index_triplet[2] as usize)
+                        .ok_or_else(|| {
+                            anyhow!("model index {} is out of bounds", index_triplet[2])
+                        })?
+                        .position;
+                    triangles.push(ModelTriangleGpu {
+                        a: [a[0], a[1], a[2], 0.0],
+                        b: [b[0], b[1], b[2], 0.0],
+                        c: [c[0], c[1], c[2], 0.0],
+                    });
+                }
+            }
+        }
+
+        Ok(triangles)
+    }
+
+    fn vertices(&self) -> impl Iterator<Item = &ModelVertex> {
+        self.meshes
+            .iter()
+            .flat_map(|mesh| mesh.primitives.iter())
+            .flat_map(|primitive| primitive.vertices.iter())
+    }
+
+    fn vertices_mut(&mut self) -> impl Iterator<Item = &mut ModelVertex> {
+        self.meshes
+            .iter_mut()
+            .flat_map(|mesh| mesh.primitives.iter_mut())
+            .flat_map(|primitive| primitive.vertices.iter_mut())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -101,5 +226,18 @@ mod tests {
         let model = load_model("assets/models/big_stone.glb").unwrap();
         assert!(!model.meshes.is_empty());
         assert!(model.meshes.iter().any(|mesh| !mesh.primitives.is_empty()));
+    }
+
+    #[test]
+    fn scales_big_stone_to_default_span_and_extracts_triangles() {
+        let model = load_model_scaled_to_longest_span(
+            "assets/models/big_stone.glb",
+            DEFAULT_MODEL_LONGEST_SPAN,
+        )
+        .unwrap();
+        let (min, max) = model.bounds().unwrap();
+        let span = (max - min).max_element();
+        assert!((span - DEFAULT_MODEL_LONGEST_SPAN).abs() < 0.0001);
+        assert!(!model.triangles().unwrap().is_empty());
     }
 }
