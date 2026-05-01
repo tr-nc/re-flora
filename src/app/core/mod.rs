@@ -25,7 +25,7 @@ use crate::builder::{
 };
 use crate::flora::species;
 use crate::geom::{build_bvh, Aabb3, Cuboid, UAabb3};
-use crate::model::{load_model_scaled_to_longest_span, DEFAULT_MODEL_LONGEST_SPAN};
+use crate::model::load_model;
 use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, LeafEmitterDesc, ParticleForces, ParticleHandle,
     ParticleSnapshot, ParticleSystem, PARTICLE_CAPACITY,
@@ -321,6 +321,7 @@ const ITEM_PANEL_SCROLL_SFX_VOLUME_DB: f32 = -6.0;
 const FLORA_SPROUT_DELAY_TICKS: u32 = 2;
 const DEBUG_AUDIO_WALL_MIN: Vec3 = Vec3::new(300.0, 0.0, 512.0);
 const DEBUG_AUDIO_WALL_MAX: Vec3 = Vec3::new(320.0, 256.0, 600.0);
+const DEBUG_ROCK_MODEL_SCALE: f32 = 0.5;
 const DEBUG_ROCK_MODELS: [(&str, Vec3); 11] = [
     (
         "assets/models/free_pack_rocks_stylized_glb/SM_Rocks_01.glb",
@@ -453,8 +454,9 @@ impl App {
     }
 
     fn apply_model_placement(&mut self, path: &str, position: Vec3) -> Result<UAabb3> {
-        let model = load_model_scaled_to_longest_span(path, DEFAULT_MODEL_LONGEST_SPAN)
+        let mut model = load_model(path)
             .with_context(|| format!("failed to load model for placement: {path}"))?;
+        model.scale_uniform(DEBUG_ROCK_MODEL_SCALE)?;
         let triangles = model.triangles()?;
         let rebuild_bound =
             self.plain_builder

@@ -2,8 +2,6 @@ use anyhow::{anyhow, bail, Context, Result};
 use glam::Vec3;
 use std::path::{Path, PathBuf};
 
-pub const DEFAULT_MODEL_LONGEST_SPAN: f32 = 0.5;
-
 #[derive(Debug, Clone)]
 pub struct LoadedModel {
     pub path: PathBuf,
@@ -110,33 +108,14 @@ pub fn load_model(path: impl AsRef<Path>) -> Result<LoadedModel> {
     })
 }
 
-pub fn load_model_scaled_to_longest_span(
-    path: impl AsRef<Path>,
-    longest_span: f32,
-) -> Result<LoadedModel> {
-    let mut model = load_model(path)?;
-    model.scale_to_longest_span(longest_span)?;
-    Ok(model)
-}
-
 impl LoadedModel {
-    pub fn scale_to_longest_span(&mut self, longest_span: f32) -> Result<()> {
-        if longest_span <= 0.0 {
-            bail!("model longest span must be positive, got {longest_span}");
+    pub fn scale_uniform(&mut self, scale: f32) -> Result<()> {
+        if scale <= 0.0 {
+            bail!("model scale must be positive, got {scale}");
         }
 
-        let bounds = self.bounds().context("cannot scale an empty model")?;
-        let span = bounds.1 - bounds.0;
-        let max_span = span.max_element();
-        if max_span <= f32::EPSILON {
-            bail!("cannot scale a model with zero-sized bounds");
-        }
-
-        let center = (bounds.0 + bounds.1) * 0.5;
-        let scale = longest_span / max_span;
         for vertex in self.vertices_mut() {
-            let position = (Vec3::from(vertex.position) - center) * scale;
-            vertex.position = position.to_array();
+            vertex.position = (Vec3::from(vertex.position) * scale).to_array();
         }
 
         Ok(())
@@ -223,21 +202,19 @@ mod tests {
 
     #[test]
     fn loads_stylized_rock_glb() {
-        let model = load_model("assets/models/free_pack_rocks_stylized_glb/SM_Rocks_01.glb").unwrap();
+        let model =
+            load_model("assets/models/free_pack_rocks_stylized_glb/SM_Rocks_01.glb").unwrap();
         assert!(!model.meshes.is_empty());
         assert!(model.meshes.iter().any(|mesh| !mesh.primitives.is_empty()));
     }
 
     #[test]
-    fn scales_stylized_rock_to_default_span_and_extracts_triangles() {
-        let model = load_model_scaled_to_longest_span(
-            "assets/models/free_pack_rocks_stylized_glb/SM_Rocks_01.glb",
-            DEFAULT_MODEL_LONGEST_SPAN,
-        )
-        .unwrap();
+    fn extracts_stylized_rock_bounds_and_triangles() {
+        let model =
+            load_model("assets/models/free_pack_rocks_stylized_glb/SM_Rocks_01.glb").unwrap();
         let (min, max) = model.bounds().unwrap();
         let span = (max - min).max_element();
-        assert!((span - DEFAULT_MODEL_LONGEST_SPAN).abs() < 0.0001);
+        assert!(span > 0.0);
         assert!(!model.triangles().unwrap().is_empty());
     }
 }
