@@ -156,16 +156,12 @@ impl PlainBuilderResources {
             model_voxelize_info_layout.clone(),
         );
 
-        let model_triangles_layout = model_voxelize_sm
-            .get_buffer_layout("B_ModelTriangles")
-            .unwrap();
-        let model_triangles = Buffer::from_buffer_layout_arraylike(
+        let model_triangles = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
-            model_triangles_layout.clone(),
-            BufferUsage::empty(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
             gpu_allocator::MemoryLocation::CpuToGpu,
-            300000,
+            std::mem::size_of::<[f32; 4]>() as u64 * 300000,
         );
 
         let region_info_layout = buffer_setup_sm.get_buffer_layout("U_RegionInfo").unwrap();
