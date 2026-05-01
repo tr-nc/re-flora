@@ -29,7 +29,9 @@ Runtime cost:
 
 - Same big-O as current shader: `voxel_count * triangle_count`.
 - Higher per-triangle cost due to vector lengths and `atan`.
-- Expected one-time voxelization cost increase: roughly `3x-10x`, depending on GPU math throughput and triangle count.
+- Measured on `SM_Rocks_01.glb` with `dim=UVec3(118, 87, 133)`, `voxels=1365378`, and `triangles=212`: `7.336ms` total model voxelization time in release mode.
+- The tested 3-axis parity branch measured `5.791ms` total for the same rock, so winding was about `1.27x` slower while being the more robust classifier.
+- The tested CPU flood-fill prototype measured `1746.128ms` total and was rejected for this placement path.
 - No steady-state frame cost after voxelization completes.
 
 Implementation notes:
