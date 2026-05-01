@@ -10,6 +10,7 @@ mod generated;
 mod geom;
 #[macro_use]
 mod gui_adjustables;
+pub mod model;
 mod particles;
 mod procedual_placer;
 mod resource;
