@@ -222,16 +222,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn loads_big_stone_glb() {
-        let model = load_model("assets/models/big_stone.glb").unwrap();
+    fn loads_stylized_rock_glb() {
+        let model = load_model("assets/models/free_pack_rocks_stylized_glb/SM_Rocks_01.glb").unwrap();
         assert!(!model.meshes.is_empty());
         assert!(model.meshes.iter().any(|mesh| !mesh.primitives.is_empty()));
     }
 
     #[test]
-    fn scales_big_stone_to_default_span_and_extracts_triangles() {
+    fn scales_stylized_rock_to_default_span_and_extracts_triangles() {
         let model = load_model_scaled_to_longest_span(
-            "assets/models/big_stone.glb",
+            "assets/models/free_pack_rocks_stylized_glb/SM_Rocks_01.glb",
             DEFAULT_MODEL_LONGEST_SPAN,
         )
         .unwrap();

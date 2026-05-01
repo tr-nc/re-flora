@@ -321,7 +321,8 @@ const ITEM_PANEL_SCROLL_SFX_VOLUME_DB: f32 = -6.0;
 const FLORA_SPROUT_DELAY_TICKS: u32 = 2;
 const DEBUG_AUDIO_WALL_MIN: Vec3 = Vec3::new(300.0, 0.0, 512.0);
 const DEBUG_AUDIO_WALL_MAX: Vec3 = Vec3::new(320.0, 256.0, 600.0);
-const DEBUG_ROCK_MODEL_PATH: &str = "assets/models/big_stone.glb";
+const DEBUG_ROCK_MODEL_PATH: &str =
+    "assets/models/free_pack_rocks_stylized_glb/SM_Rocks_01.glb";
 const DEBUG_ROCK_MODEL_POSITION: Vec3 = Vec3::new(2.8, 1.0, 2.0);
 const FLORA_FULL_GROWTH_TICKS: u32 = 30;
 const SUN_POSITION_UPDATE_INTERVAL_TICKS: u32 = 1;
