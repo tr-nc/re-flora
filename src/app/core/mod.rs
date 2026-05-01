@@ -321,9 +321,52 @@ const ITEM_PANEL_SCROLL_SFX_VOLUME_DB: f32 = -6.0;
 const FLORA_SPROUT_DELAY_TICKS: u32 = 2;
 const DEBUG_AUDIO_WALL_MIN: Vec3 = Vec3::new(300.0, 0.0, 512.0);
 const DEBUG_AUDIO_WALL_MAX: Vec3 = Vec3::new(320.0, 256.0, 600.0);
-const DEBUG_ROCK_MODEL_PATH: &str =
-    "assets/models/free_pack_rocks_stylized_glb/SM_Rocks_01.glb";
-const DEBUG_ROCK_MODEL_POSITION: Vec3 = Vec3::new(2.8, 1.0, 2.0);
+const DEBUG_ROCK_MODELS: [(&str, Vec3); 11] = [
+    (
+        "assets/models/free_pack_rocks_stylized_glb/SM_Rocks_01.glb",
+        Vec3::new(0.5, 0.5, 0.5),
+    ),
+    (
+        "assets/models/free_pack_rocks_stylized_glb/SM_Rocks_02.glb",
+        Vec3::new(1.5, 0.5, 0.5),
+    ),
+    (
+        "assets/models/free_pack_rocks_stylized_glb/SM_Rocks_03.glb",
+        Vec3::new(2.5, 0.5, 0.5),
+    ),
+    (
+        "assets/models/free_pack_rocks_stylized_glb/SM_Rocks_04.glb",
+        Vec3::new(3.5, 0.5, 0.5),
+    ),
+    (
+        "assets/models/free_pack_rocks_stylized_glb/SM_Rocks_05.glb",
+        Vec3::new(4.5, 0.5, 0.5),
+    ),
+    (
+        "assets/models/free_pack_rocks_stylized_glb/SM_Rocks_06.glb",
+        Vec3::new(5.5, 0.5, 0.5),
+    ),
+    (
+        "assets/models/free_pack_rocks_stylized_glb/SM_Rocks_07.glb",
+        Vec3::new(6.5, 0.5, 0.5),
+    ),
+    (
+        "assets/models/free_pack_rocks_stylized_glb/SM_Rocks_08.glb",
+        Vec3::new(7.5, 0.5, 0.5),
+    ),
+    (
+        "assets/models/free_pack_rocks_stylized_glb/SM_Rocks_09.glb",
+        Vec3::new(8.5, 0.5, 0.5),
+    ),
+    (
+        "assets/models/free_pack_rocks_stylized_glb/SM_Rocks_10.glb",
+        Vec3::new(9.5, 0.5, 0.5),
+    ),
+    (
+        "assets/models/free_pack_rocks_stylized_glb/SM_Rocks_11.glb",
+        Vec3::new(10.5, 0.5, 0.5),
+    ),
+];
 const FLORA_FULL_GROWTH_TICKS: u32 = 30;
 const SUN_POSITION_UPDATE_INTERVAL_TICKS: u32 = 1;
 const REQUESTED_SHADOW_MAP_UPDATE_INTERVAL_TICKS: u32 = 1;
@@ -1045,10 +1088,15 @@ impl App {
             log::error!("Failed to add debug tree: {}", err);
         }
 
-        if let Err(err) =
-            self.apply_model_placement(DEBUG_ROCK_MODEL_PATH, DEBUG_ROCK_MODEL_POSITION)
-        {
-            log::error!("Failed to place debug rock model: {}", err);
+        for (path, position) in DEBUG_ROCK_MODELS {
+            if let Err(err) = self.apply_model_placement(path, position) {
+                log::error!(
+                    "Failed to place debug rock model '{}' at {:?}: {}",
+                    path,
+                    position,
+                    err
+                );
+            }
         }
 
         if let Err(err) = self.tracer.regenerate_leaves(
