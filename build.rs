@@ -564,6 +564,10 @@ const SHADER_FILES: &[(&str, shaderc::ShaderKind)] = &[
         shaderc::ShaderKind::Compute,
     ),
     (
+        "shader/builder/chunk_writer/model_voxelize.comp",
+        shaderc::ShaderKind::Compute,
+    ),
+    (
         "shader/builder/contree/buffer_setup.comp",
         shaderc::ShaderKind::Compute,
     ),

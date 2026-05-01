@@ -79,6 +79,13 @@ pub struct ManualFloraInstances {
     pub packed_local_pos: u32,
 }
 
+/// Auto-generated from `B_ModelTriangles` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ModelTriangles {
+    pub data: [u32; 0],
+}
+
 /// Auto-generated from `B_NodeOffsetForLevels` (GLSL source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -368,6 +375,18 @@ pub struct MakeSurfaceInfo {
     pub _pad0: [u8; 4],
     pub atlas_read_dim: [u32; 3],
     pub is_crossing_boundary: u32,
+}
+
+/// Auto-generated from `U_ModelVoxelizeInfo` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ModelVoxelizeInfo {
+    pub offset: [u32; 3],
+    pub triangle_count: u32,
+    pub dim: [u32; 3],
+    pub fill_voxel_type: u32,
+    pub position_vox: [f32; 3],
+    pub surface_thickness_vox: f32,
 }
 
 /// Auto-generated from `U_OccupancyToInstancesInfo` (GLSL source of truth).
