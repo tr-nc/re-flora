@@ -21,9 +21,11 @@ use crate::app::GuiAdjustables;
 use crate::audio::{SpatialSoundManager, TreeAudioManager};
 use crate::builder::{
     ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder, VOXEL_TYPE_CHERRY_WOOD,
+    VOXEL_TYPE_ROCK,
 };
 use crate::flora::species;
 use crate::geom::{build_bvh, Aabb3, Cuboid, UAabb3};
+use crate::model::{load_model_scaled_to_longest_span, DEFAULT_MODEL_LONGEST_SPAN};
 use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, LeafEmitterDesc, ParticleForces, ParticleHandle,
     ParticleSnapshot, ParticleSystem, PARTICLE_CAPACITY,
@@ -319,6 +321,8 @@ const ITEM_PANEL_SCROLL_SFX_VOLUME_DB: f32 = -6.0;
 const FLORA_SPROUT_DELAY_TICKS: u32 = 2;
 const DEBUG_AUDIO_WALL_MIN: Vec3 = Vec3::new(300.0, 0.0, 512.0);
 const DEBUG_AUDIO_WALL_MAX: Vec3 = Vec3::new(320.0, 256.0, 600.0);
+const DEBUG_ROCK_MODEL_PATH: &str = "assets/models/big_stone.glb";
+const DEBUG_ROCK_MODEL_POSITION: Vec3 = Vec3::new(2.8, 0.25, 2.0);
 const FLORA_FULL_GROWTH_TICKS: u32 = 30;
 const SUN_POSITION_UPDATE_INTERVAL_TICKS: u32 = 1;
 const REQUESTED_SHADOW_MAP_UPDATE_INTERVAL_TICKS: u32 = 1;
@@ -402,6 +406,25 @@ impl App {
             &[wall],
             VOXEL_TYPE_CHERRY_WOOD,
         )
+    }
+
+    fn apply_model_placement(&mut self, path: &str, position: Vec3) -> Result<UAabb3> {
+        let model = load_model_scaled_to_longest_span(path, DEFAULT_MODEL_LONGEST_SPAN)
+            .with_context(|| format!("failed to load model for placement: {path}"))?;
+        let triangles = model.triangles()?;
+        let rebuild_bound =
+            self.plain_builder
+                .voxelize_model(&triangles, position, VOXEL_TYPE_ROCK)?;
+
+        world_ops::mesh_generate(
+            &mut self.surface_builder,
+            &mut self.contree_builder,
+            &mut self.scene_accel_builder,
+            VOXEL_DIM_PER_CHUNK,
+            rebuild_bound,
+        )?;
+
+        Ok(rebuild_bound)
     }
 
     fn linear_to_db(linear: f32) -> f32 {
@@ -1019,6 +1042,12 @@ impl App {
             TreeAddOptions::default(),
         ) {
             log::error!("Failed to add debug tree: {}", err);
+        }
+
+        if let Err(err) =
+            self.apply_model_placement(DEBUG_ROCK_MODEL_PATH, DEBUG_ROCK_MODEL_POSITION)
+        {
+            log::error!("Failed to place debug rock model: {}", err);
         }
 
         if let Err(err) = self.tracer.regenerate_leaves(
