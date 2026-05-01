@@ -324,47 +324,47 @@ const DEBUG_AUDIO_WALL_MAX: Vec3 = Vec3::new(320.0, 256.0, 600.0);
 const DEBUG_ROCK_MODEL_SCALE: f32 = 0.5;
 const DEBUG_ROCK_MODELS: [(&str, Vec3); 11] = [
     (
-        "assets/models/free_pack_rocks_stylized_glb/SM_Rocks_01.glb",
+        "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_01.glb",
         Vec3::new(0.5, 0.5, 0.5),
     ),
     (
-        "assets/models/free_pack_rocks_stylized_glb/SM_Rocks_02.glb",
+        "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_02.glb",
         Vec3::new(1.5, 0.5, 0.5),
     ),
     (
-        "assets/models/free_pack_rocks_stylized_glb/SM_Rocks_03.glb",
+        "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_03.glb",
         Vec3::new(2.5, 0.5, 0.5),
     ),
     (
-        "assets/models/free_pack_rocks_stylized_glb/SM_Rocks_04.glb",
+        "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_04.glb",
         Vec3::new(3.5, 0.5, 0.5),
     ),
     (
-        "assets/models/free_pack_rocks_stylized_glb/SM_Rocks_05.glb",
+        "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_05.glb",
         Vec3::new(4.5, 0.5, 0.5),
     ),
     (
-        "assets/models/free_pack_rocks_stylized_glb/SM_Rocks_06.glb",
+        "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_06.glb",
         Vec3::new(5.5, 0.5, 0.5),
     ),
     (
-        "assets/models/free_pack_rocks_stylized_glb/SM_Rocks_07.glb",
+        "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_07.glb",
         Vec3::new(6.5, 0.5, 0.5),
     ),
     (
-        "assets/models/free_pack_rocks_stylized_glb/SM_Rocks_08.glb",
+        "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_08.glb",
         Vec3::new(7.5, 0.5, 0.5),
     ),
     (
-        "assets/models/free_pack_rocks_stylized_glb/SM_Rocks_09.glb",
+        "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_09.glb",
         Vec3::new(8.5, 0.5, 0.5),
     ),
     (
-        "assets/models/free_pack_rocks_stylized_glb/SM_Rocks_10.glb",
+        "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_10.glb",
         Vec3::new(9.5, 0.5, 0.5),
     ),
     (
-        "assets/models/free_pack_rocks_stylized_glb/SM_Rocks_11.glb",
+        "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_11.glb",
         Vec3::new(10.5, 0.5, 0.5),
     ),
 ];

@@ -203,7 +203,7 @@ mod tests {
     #[test]
     fn loads_stylized_rock_glb() {
         let model =
-            load_model("assets/models/free_pack_rocks_stylized_glb/SM_Rocks_01.glb").unwrap();
+            load_model("assets/models/free_pack_rocks_stylized/glb/SM_Rocks_01.glb").unwrap();
         assert!(!model.meshes.is_empty());
         assert!(model.meshes.iter().any(|mesh| !mesh.primitives.is_empty()));
     }
@@ -211,7 +211,7 @@ mod tests {
     #[test]
     fn extracts_stylized_rock_bounds_and_triangles() {
         let model =
-            load_model("assets/models/free_pack_rocks_stylized_glb/SM_Rocks_01.glb").unwrap();
+            load_model("assets/models/free_pack_rocks_stylized/glb/SM_Rocks_01.glb").unwrap();
         let (min, max) = model.bounds().unwrap();
         let span = (max - min).max_element();
         assert!(span > 0.0);
