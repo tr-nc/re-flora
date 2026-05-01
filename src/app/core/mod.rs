@@ -322,7 +322,7 @@ const FLORA_SPROUT_DELAY_TICKS: u32 = 2;
 const DEBUG_AUDIO_WALL_MIN: Vec3 = Vec3::new(300.0, 0.0, 512.0);
 const DEBUG_AUDIO_WALL_MAX: Vec3 = Vec3::new(320.0, 256.0, 600.0);
 const DEBUG_MODEL_LONGEST_EDGE: f32 = 0.5;
-const DEBUG_MODEL_LINE_START: Vec3 = Vec3::new(0.5, 0.5, 0.5);
+const DEBUG_MODEL_LINE_START: Vec3 = Vec3::new(0.5, 0.7, 0.5);
 const DEBUG_MODEL_LINE_STEP: Vec3 = Vec3::new(1.0, 0.0, 0.0);
 const DEBUG_MODEL_PATHS: [&str; 5] = [
     "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_01.glb",
