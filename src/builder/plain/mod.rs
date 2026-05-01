@@ -89,6 +89,7 @@ pub struct PlainBuilder {
     heightmap_ppl: ComputePipeline,
     chunk_modify_ppl: ComputePipeline,
     chunk_modify_sample_ppl: ComputePipeline,
+    model_voxelize_ppl: ComputePipeline,
 
     #[allow(dead_code)]
     pool: DescriptorPool,
@@ -135,6 +136,13 @@ impl PlainBuilder {
             "main",
         )
         .unwrap();
+        let model_voxelize_sm = ShaderModule::from_glsl(
+            device,
+            shader_compiler,
+            "shader/builder/chunk_writer/model_voxelize.comp",
+            "main",
+        )
+        .unwrap();
         let heightmap_sm = ShaderModule::from_glsl(
             device,
             shader_compiler,
@@ -151,6 +159,7 @@ impl PlainBuilder {
             &buffer_setup_sm,
             &chunk_modify_sm,
             &chunk_modify_sample_sm,
+            &model_voxelize_sm,
             &heightmap_sm,
         );
 
@@ -162,6 +171,8 @@ impl PlainBuilder {
         let chunk_modify_ppl = ComputePipeline::new(device, &chunk_modify_sm, &pool, &[&resources]);
         let chunk_modify_sample_ppl =
             ComputePipeline::new(device, &chunk_modify_sample_sm, &pool, &[&resources]);
+        let model_voxelize_ppl =
+            ComputePipeline::new(device, &model_voxelize_sm, &pool, &[&resources]);
 
         init_atlas_images(&vulkan_ctx, &resources);
 
@@ -183,6 +194,7 @@ impl PlainBuilder {
             heightmap_ppl,
             chunk_modify_ppl,
             chunk_modify_sample_ppl,
+            model_voxelize_ppl,
             pool,
             build_cmdbuf,
             next_edit_sample_seed: 1,
