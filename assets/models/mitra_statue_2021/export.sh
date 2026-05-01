@@ -52,6 +52,7 @@ for obj in mesh_objects:
     bpy.ops.export_scene.gltf(
         filepath=filepath,
         export_format="GLB",
+        export_yup=True,
         use_selection=True,
     )
 

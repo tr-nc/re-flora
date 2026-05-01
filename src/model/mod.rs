@@ -1,5 +1,5 @@
 use anyhow::{anyhow, bail, Context, Result};
-use glam::Vec3;
+use glam::{Mat3, Mat4, Vec3};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
@@ -47,65 +47,120 @@ pub fn load_model(path: impl AsRef<Path>) -> Result<LoadedModel> {
         .with_context(|| format!("failed to import glTF model '{}'", path.display()))?;
 
     let mut meshes = Vec::new();
-    for mesh in document.meshes() {
-        let mut primitives = Vec::new();
-        for primitive in mesh.primitives() {
-            if primitive.mode() != gltf::mesh::Mode::Triangles {
-                bail!(
-                    "unsupported glTF primitive mode {:?}; only triangle primitives are supported",
-                    primitive.mode()
-                );
-            }
-
-            let reader =
-                primitive.reader(|buffer| buffers.get(buffer.index()).map(|b| b.0.as_slice()));
-
-            let positions = reader
-                .read_positions()
-                .ok_or_else(|| anyhow!("model primitive is missing POSITION data"))?
-                .collect::<Vec<_>>();
-            let normals = reader.read_normals().map(|n| n.collect::<Vec<_>>());
-            let tex_coords = reader
-                .read_tex_coords(0)
-                .map(|coords| coords.into_f32().collect::<Vec<_>>());
-
-            let vertices = positions
-                .iter()
-                .enumerate()
-                .map(|(index, &position)| ModelVertex {
-                    position,
-                    normal: normals.as_ref().and_then(|n| n.get(index).copied()),
-                    tex_coord: tex_coords.as_ref().and_then(|t| t.get(index).copied()),
-                })
-                .collect::<Vec<_>>();
-
-            let indices = reader
-                .read_indices()
-                .map(|indices| indices.into_u32().collect::<Vec<_>>())
-                .unwrap_or_else(|| (0..vertices.len() as u32).collect());
-
-            primitives.push(ModelPrimitive {
-                vertices,
-                indices,
-                material: ModelMaterial {
-                    base_color_factor: primitive
-                        .material()
-                        .pbr_metallic_roughness()
-                        .base_color_factor(),
-                },
-            });
+    if let Some(scene) = document
+        .default_scene()
+        .or_else(|| document.scenes().next())
+    {
+        for node in scene.nodes() {
+            load_node(&node, Mat4::IDENTITY, &buffers, &mut meshes)?;
         }
-
-        meshes.push(ModelMesh {
-            name: mesh.name().map(str::to_owned),
-            primitives,
-        });
+    } else {
+        for mesh in document.meshes() {
+            meshes.push(load_mesh(&mesh, None, Mat4::IDENTITY, &buffers)?);
+        }
     }
 
     Ok(LoadedModel {
         path: path.to_path_buf(),
         meshes,
     })
+}
+
+fn load_node(
+    node: &gltf::Node<'_>,
+    parent_transform: Mat4,
+    buffers: &[gltf::buffer::Data],
+    meshes: &mut Vec<ModelMesh>,
+) -> Result<()> {
+    let transform = parent_transform * Mat4::from_cols_array_2d(&node.transform().matrix());
+    if let Some(mesh) = node.mesh() {
+        meshes.push(load_mesh(&mesh, node.name(), transform, buffers)?);
+    }
+
+    for child in node.children() {
+        load_node(&child, transform, buffers, meshes)?;
+    }
+
+    Ok(())
+}
+
+fn load_mesh(
+    mesh: &gltf::Mesh<'_>,
+    node_name: Option<&str>,
+    transform: Mat4,
+    buffers: &[gltf::buffer::Data],
+) -> Result<ModelMesh> {
+    let normal_transform = normal_transform(transform);
+    let mut primitives = Vec::new();
+    for primitive in mesh.primitives() {
+        if primitive.mode() != gltf::mesh::Mode::Triangles {
+            bail!(
+                "unsupported glTF primitive mode {:?}; only triangle primitives are supported",
+                primitive.mode()
+            );
+        }
+
+        let reader = primitive.reader(|buffer| buffers.get(buffer.index()).map(|b| b.0.as_slice()));
+
+        let positions = reader
+            .read_positions()
+            .ok_or_else(|| anyhow!("model primitive is missing POSITION data"))?
+            .collect::<Vec<_>>();
+        let normals = reader.read_normals().map(|n| n.collect::<Vec<_>>());
+        let tex_coords = reader
+            .read_tex_coords(0)
+            .map(|coords| coords.into_f32().collect::<Vec<_>>());
+
+        let vertices = positions
+            .iter()
+            .enumerate()
+            .map(|(index, &position)| {
+                let position = transform.transform_point3(Vec3::from(position)).to_array();
+                let normal = normals.as_ref().and_then(|normals| {
+                    normals.get(index).map(|&normal| {
+                        (normal_transform * Vec3::from(normal))
+                            .normalize_or_zero()
+                            .to_array()
+                    })
+                });
+                ModelVertex {
+                    position,
+                    normal,
+                    tex_coord: tex_coords.as_ref().and_then(|t| t.get(index).copied()),
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let indices = reader
+            .read_indices()
+            .map(|indices| indices.into_u32().collect::<Vec<_>>())
+            .unwrap_or_else(|| (0..vertices.len() as u32).collect());
+
+        primitives.push(ModelPrimitive {
+            vertices,
+            indices,
+            material: ModelMaterial {
+                base_color_factor: primitive
+                    .material()
+                    .pbr_metallic_roughness()
+                    .base_color_factor(),
+            },
+        });
+    }
+
+    Ok(ModelMesh {
+        name: node_name.or_else(|| mesh.name()).map(str::to_owned),
+        primitives,
+    })
+}
+
+fn normal_transform(transform: Mat4) -> Mat3 {
+    let mat = Mat3::from_mat4(transform);
+    if mat.determinant().abs() > f32::EPSILON {
+        mat.inverse().transpose()
+    } else {
+        mat
+    }
 }
 
 impl LoadedModel {
