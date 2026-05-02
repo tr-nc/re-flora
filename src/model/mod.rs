@@ -43,8 +43,12 @@ pub struct ModelTriangleGpu {
 
 pub fn load_model(path: impl AsRef<Path>) -> Result<LoadedModel> {
     let path = path.as_ref();
-    let (document, buffers, _images) = gltf::import(path)
-        .with_context(|| format!("failed to import glTF model '{}'", path.display()))?;
+    let gltf = gltf::Gltf::open(path)
+        .with_context(|| format!("failed to open glTF model '{}'", path.display()))?;
+    let base = path.parent().unwrap_or_else(|| Path::new("./"));
+    let buffers = gltf::import_buffers(&gltf.document, Some(base), gltf.blob)
+        .with_context(|| format!("failed to import glTF buffers '{}'", path.display()))?;
+    let document = gltf.document;
 
     let mut meshes = Vec::new();
     if let Some(scene) = document

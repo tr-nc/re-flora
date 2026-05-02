@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 BLEND_FILE="${1:-}"
 if [[ -z "$BLEND_FILE" ]]; then
-  BLEND_FILE="$SCRIPT_DIR/mitra_statue_2021.blend"
+  BLEND_FILE="$SCRIPT_DIR/moai.blend"
 fi
 
 OUT_DIR="$SCRIPT_DIR/glb"

@@ -48,6 +48,8 @@ use glam::{UVec3, Vec2, Vec3, Vec4};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
 use petalsonic::DirectOcclusionDebugSnapshot;
 use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use ui_style::{
@@ -322,15 +324,9 @@ const FLORA_SPROUT_DELAY_TICKS: u32 = 2;
 const DEBUG_AUDIO_WALL_MIN: Vec3 = Vec3::new(300.0, 0.0, 512.0);
 const DEBUG_AUDIO_WALL_MAX: Vec3 = Vec3::new(320.0, 256.0, 600.0);
 const DEBUG_MODEL_LONGEST_EDGE: f32 = 0.5;
+const DEBUG_MODEL_ROOT: &str = "assets/models";
 const DEBUG_MODEL_LINE_START_XZ: Vec2 = Vec2::new(0.5, 0.5);
 const DEBUG_MODEL_LINE_STEP_XZ: Vec2 = Vec2::new(1.0, 0.0);
-const DEBUG_MODEL_PATHS: [&str; 5] = [
-    "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_01.glb",
-    "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_03.glb",
-    "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_04.glb",
-    "assets/models/mitra_statue_2021/glb/Box001.glb",
-    "assets/models/mitra_statue_2021/glb/default.glb",
-];
 const FLORA_FULL_GROWTH_TICKS: u32 = 30;
 const SUN_POSITION_UPDATE_INTERVAL_TICKS: u32 = 1;
 const REQUESTED_SHADOW_MAP_UPDATE_INTERVAL_TICKS: u32 = 1;
@@ -416,13 +412,16 @@ impl App {
         )
     }
 
-    fn apply_model_placement(&mut self, path: &str, position: Vec3) -> Result<UAabb3> {
+    fn apply_model_placement(&mut self, path: &Path, position: Vec3) -> Result<UAabb3> {
+        let load_start = Instant::now();
         let mut model = load_model(path)
-            .with_context(|| format!("failed to load model for placement: {path}"))?;
+            .with_context(|| format!("failed to load model for placement: {}", path.display()))?;
+        let load_elapsed = load_start.elapsed();
         let scale = model.scale_to_longest_edge(DEBUG_MODEL_LONGEST_EDGE)?;
         log::info!(
-            "[MODEL_SCALE] path='{}' target_longest_edge={:.3} scale={:.6}",
-            path,
+            "[MODEL_SCALE] path='{}' load={:.3}ms target_longest_edge={:.3} scale={:.6}",
+            path.display(),
+            load_elapsed.as_secs_f64() * 1000.0,
             DEBUG_MODEL_LONGEST_EDGE,
             scale
         );
@@ -431,6 +430,7 @@ impl App {
             self.plain_builder
                 .voxelize_model(&triangles, position, VOXEL_TYPE_ROCK)?;
 
+        let rebuild_start = Instant::now();
         world_ops::mesh_generate(
             &mut self.surface_builder,
             &mut self.contree_builder,
@@ -438,6 +438,11 @@ impl App {
             VOXEL_DIM_PER_CHUNK,
             rebuild_bound,
         )?;
+        log::info!(
+            "[MODEL_REBUILD] path='{}' total={:.3}ms",
+            path.display(),
+            rebuild_start.elapsed().as_secs_f64() * 1000.0
+        );
 
         Ok(rebuild_bound)
     }
@@ -446,6 +451,38 @@ impl App {
         let position_xz = DEBUG_MODEL_LINE_START_XZ + DEBUG_MODEL_LINE_STEP_XZ * index as f32;
         let y = self.query_terrain_height_cpu(position_xz);
         Vec3::new(position_xz.x, y, position_xz.y)
+    }
+
+    fn debug_model_paths() -> Result<Vec<PathBuf>> {
+        let mut paths = Vec::new();
+        let mut dirs = vec![PathBuf::from(DEBUG_MODEL_ROOT)];
+
+        while let Some(dir) = dirs.pop() {
+            for entry in fs::read_dir(&dir)
+                .with_context(|| format!("failed to read model directory: {}", dir.display()))?
+            {
+                let entry = entry.with_context(|| {
+                    format!("failed to read model directory entry: {}", dir.display())
+                })?;
+                let file_type = entry.file_type().with_context(|| {
+                    format!("failed to read model file type: {}", entry.path().display())
+                })?;
+                let path = entry.path();
+
+                if file_type.is_dir() {
+                    dirs.push(path);
+                } else if file_type.is_file()
+                    && path
+                        .extension()
+                        .is_some_and(|extension| extension.eq_ignore_ascii_case("glb"))
+                {
+                    paths.push(path);
+                }
+            }
+        }
+
+        paths.sort();
+        Ok(paths)
     }
 
     fn linear_to_db(linear: f32) -> f32 {
@@ -1065,15 +1102,22 @@ impl App {
             log::error!("Failed to add debug tree: {}", err);
         }
 
-        for (index, path) in DEBUG_MODEL_PATHS.iter().enumerate() {
-            let position = self.debug_model_position(index);
-            if let Err(err) = self.apply_model_placement(path, position) {
-                log::error!(
-                    "Failed to place debug rock model '{}' at {:?}: {}",
-                    path,
-                    position,
-                    err
-                );
+        match Self::debug_model_paths() {
+            Ok(paths) => {
+                for (index, path) in paths.iter().enumerate() {
+                    let position = self.debug_model_position(index);
+                    if let Err(err) = self.apply_model_placement(path, position) {
+                        log::error!(
+                            "Failed to place debug model '{}' at {:?}: {}",
+                            path.display(),
+                            position,
+                            err
+                        );
+                    }
+                }
+            }
+            Err(err) => {
+                log::error!("Failed to discover debug model GLBs: {err}");
             }
         }
 
