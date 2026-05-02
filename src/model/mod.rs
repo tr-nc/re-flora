@@ -168,34 +168,16 @@ fn normal_transform(transform: Mat4) -> Mat3 {
 }
 
 impl LoadedModel {
-    pub fn scale_to_longest_edge(&mut self, longest_edge: f32) -> Result<f32> {
-        if longest_edge <= 0.0 {
-            bail!("model longest edge must be positive, got {longest_edge}");
-        }
-
+    pub fn longest_edge_span(&self) -> Result<f32> {
         let (min, max) = self
             .bounds()
-            .ok_or_else(|| anyhow!("cannot scale an empty model"))?;
-        let current_longest_edge = (max - min).max_element();
-        if current_longest_edge <= f32::EPSILON {
-            bail!("cannot scale a model with zero-sized bounds");
+            .ok_or_else(|| anyhow!("cannot measure an empty model"))?;
+        let longest_edge = (max - min).max_element();
+        if longest_edge <= f32::EPSILON {
+            bail!("cannot measure a model with zero-sized bounds");
         }
 
-        let scale = longest_edge / current_longest_edge;
-        self.scale_uniform(scale)?;
-        Ok(scale)
-    }
-
-    pub fn scale_uniform(&mut self, scale: f32) -> Result<()> {
-        if scale <= 0.0 {
-            bail!("model scale must be positive, got {scale}");
-        }
-
-        for vertex in self.vertices_mut() {
-            vertex.position = (Vec3::from(vertex.position) * scale).to_array();
-        }
-
-        Ok(())
+        Ok(longest_edge)
     }
 
     pub fn bounds(&self) -> Option<(Vec3, Vec3)> {
@@ -265,12 +247,6 @@ impl LoadedModel {
             .flat_map(|primitive| primitive.vertices.iter())
     }
 
-    fn vertices_mut(&mut self) -> impl Iterator<Item = &mut ModelVertex> {
-        self.meshes
-            .iter_mut()
-            .flat_map(|mesh| mesh.primitives.iter_mut())
-            .flat_map(|primitive| primitive.vertices.iter_mut())
-    }
 }
 
 #[cfg(test)]
@@ -280,7 +256,7 @@ mod tests {
     #[test]
     fn loads_stylized_rock_glb() {
         let model =
-            load_model("assets/models/free_pack_rocks_stylized/glb/SM_Rocks_01.glb").unwrap();
+            load_model("assets/models/free_pack_rocks_stylized/SM_Rocks_01.glb").unwrap();
         assert!(!model.meshes.is_empty());
         assert!(model.meshes.iter().any(|mesh| !mesh.primitives.is_empty()));
     }
@@ -288,7 +264,7 @@ mod tests {
     #[test]
     fn extracts_stylized_rock_bounds_and_triangles() {
         let model =
-            load_model("assets/models/free_pack_rocks_stylized/glb/SM_Rocks_01.glb").unwrap();
+            load_model("assets/models/free_pack_rocks_stylized/SM_Rocks_01.glb").unwrap();
         let (min, max) = model.bounds().unwrap();
         let span = (max - min).max_element();
         assert!(span > 0.0);
@@ -296,14 +272,14 @@ mod tests {
     }
 
     #[test]
-    fn scales_stylized_rock_to_target_longest_edge() {
-        let mut model =
-            load_model("assets/models/free_pack_rocks_stylized/glb/SM_Rocks_01.glb").unwrap();
-        let scale = model.scale_to_longest_edge(0.5).unwrap();
+    fn measures_stylized_rock_longest_edge_span() {
+        let model =
+            load_model("assets/models/free_pack_rocks_stylized/SM_Rocks_01.glb").unwrap();
         let (min, max) = model.bounds().unwrap();
-        let span = (max - min).max_element();
+        let bounds_span = (max - min).max_element();
+        let measured_span = model.longest_edge_span().unwrap();
 
-        assert!(scale > 0.0);
-        assert!((span - 0.5).abs() < 0.0001);
+        assert!(measured_span > 0.0);
+        assert_eq!(measured_span, bounds_span);
     }
 }

@@ -323,7 +323,7 @@ const ITEM_PANEL_SCROLL_SFX_VOLUME_DB: f32 = -6.0;
 const FLORA_SPROUT_DELAY_TICKS: u32 = 2;
 const DEBUG_AUDIO_WALL_MIN: Vec3 = Vec3::new(300.0, 0.0, 512.0);
 const DEBUG_AUDIO_WALL_MAX: Vec3 = Vec3::new(320.0, 256.0, 600.0);
-const DEBUG_MODEL_LONGEST_EDGE: f32 = 0.5;
+const DEBUG_MODEL_MAX_LONGEST_EDGE: f32 = 5.0;
 const DEBUG_MODEL_ROOT: &str = "assets/models";
 const DEBUG_MODEL_LINE_START_XZ: Vec2 = Vec2::new(0.5, 0.5);
 const DEBUG_MODEL_LINE_STEP_XZ: Vec2 = Vec2::new(1.0, 0.0);
@@ -414,16 +414,24 @@ impl App {
 
     fn apply_model_placement(&mut self, path: &Path, position: Vec3) -> Result<UAabb3> {
         let load_start = Instant::now();
-        let mut model = load_model(path)
+        let model = load_model(path)
             .with_context(|| format!("failed to load model for placement: {}", path.display()))?;
         let load_elapsed = load_start.elapsed();
-        let scale = model.scale_to_longest_edge(DEBUG_MODEL_LONGEST_EDGE)?;
+        let longest_edge = model.longest_edge_span()?;
+        if longest_edge > DEBUG_MODEL_MAX_LONGEST_EDGE {
+            anyhow::bail!(
+                "model '{}' longest edge span {:.3} exceeds max {:.3}",
+                path.display(),
+                longest_edge,
+                DEBUG_MODEL_MAX_LONGEST_EDGE
+            );
+        }
         log::info!(
-            "[MODEL_SCALE] path='{}' load={:.3}ms target_longest_edge={:.3} scale={:.6}",
+            "[MODEL_LOAD] path='{}' load={:.3}ms longest_edge={:.3} max_longest_edge={:.3}",
             path.display(),
             load_elapsed.as_secs_f64() * 1000.0,
-            DEBUG_MODEL_LONGEST_EDGE,
-            scale
+            longest_edge,
+            DEBUG_MODEL_MAX_LONGEST_EDGE
         );
         let triangles = model.triangles()?;
         let rebuild_bound =
