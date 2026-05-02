@@ -18,7 +18,7 @@ pub use strategies::*;
 mod tests {
     use super::*;
     use rand::seq::SliceRandom;
-    use rand::Rng;
+    use rand::RngExt;
     use std::time::Instant;
 
     #[test]

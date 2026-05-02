@@ -21,6 +21,8 @@ pub struct PlainBuilderResources {
     pub round_cones: Resource<Buffer>,
     pub cuboids: Resource<Buffer>,
     pub spheres: Resource<Buffer>,
+    pub model_voxelize_info: Resource<Buffer>,
+    pub model_triangles: Resource<Buffer>,
     pub trunk_bvh_nodes: Resource<Buffer>,
 }
 
@@ -34,6 +36,7 @@ impl PlainBuilderResources {
         buffer_setup_sm: &ShaderModule,
         chunk_modify_sm: &ShaderModule,
         chunk_modify_sample_sm: &ShaderModule,
+        model_voxelize_sm: &ShaderModule,
         heightmap_sm: &ShaderModule,
     ) -> Self {
         let tex_desc = ImageDesc {
@@ -144,6 +147,23 @@ impl PlainBuilderResources {
             100000,
         ); // less than 1 MB though, don't worry about the size
 
+        let model_voxelize_info_layout = model_voxelize_sm
+            .get_buffer_layout("U_ModelVoxelizeInfo")
+            .unwrap();
+        let model_voxelize_info = Buffer::from_uniform_layout(
+            device.clone(),
+            allocator.clone(),
+            model_voxelize_info_layout.clone(),
+        );
+
+        let model_triangles = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            std::mem::size_of::<[f32; 4]>() as u64 * 300000,
+        );
+
         let region_info_layout = buffer_setup_sm.get_buffer_layout("U_RegionInfo").unwrap();
         let region_info = Buffer::from_uniform_layout(
             device.clone(),
@@ -183,6 +203,8 @@ impl PlainBuilderResources {
             round_cones: Resource::new(round_cones),
             cuboids: Resource::new(cuboids),
             spheres: Resource::new(spheres),
+            model_voxelize_info: Resource::new(model_voxelize_info),
+            model_triangles: Resource::new(model_triangles),
             trunk_bvh_nodes: Resource::new(trunk_bvh_nodes),
             region_info: Resource::new(region_info),
             region_indirect: Resource::new(region_indirect),

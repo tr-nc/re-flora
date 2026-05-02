@@ -1,9 +1,10 @@
 mod resources;
 use crate::generated::gpu_structs::{
-    BvhNodes, ChunkModifyInfo, Cuboids, PushConstantChunkModifySample, RegionInfo, RoundCones,
-    Spheres,
+    BvhNodes, ChunkModifyInfo, Cuboids, ModelVoxelizeInfo, PushConstantChunkModifySample,
+    RegionInfo, RoundCones, Spheres,
 };
-use crate::geom::{BvhNode, Cuboid, RoundCone, Sphere};
+use crate::geom::{BvhNode, Cuboid, RoundCone, Sphere, UAabb3};
+use crate::model::ModelTriangleGpu;
 use crate::util::ShaderCompiler;
 use crate::vkn::execute_one_time_command;
 use crate::vkn::execute_one_time_command_with_fence;
@@ -23,7 +24,7 @@ use crate::vkn::VulkanContext;
 use anyhow::Result;
 use ash::vk;
 use bytemuck::{Pod, Zeroable};
-use glam::{UVec3, Vec3};
+use glam::{IVec3, UVec3, Vec3};
 pub use resources::*;
 use std::convert::TryInto;
 use std::time::Instant;
@@ -81,6 +82,7 @@ struct EditRemovalSampleReadback {
 pub struct PlainBuilder {
     vulkan_ctx: VulkanContext,
     resources: PlainBuilderResources,
+    plain_atlas_dim: UVec3,
 
     #[allow(dead_code)]
     buffer_setup_ppl: ComputePipeline,
@@ -89,6 +91,7 @@ pub struct PlainBuilder {
     heightmap_ppl: ComputePipeline,
     chunk_modify_ppl: ComputePipeline,
     chunk_modify_sample_ppl: ComputePipeline,
+    model_voxelize_ppl: ComputePipeline,
 
     #[allow(dead_code)]
     pool: DescriptorPool,
@@ -135,6 +138,13 @@ impl PlainBuilder {
             "main",
         )
         .unwrap();
+        let model_voxelize_sm = ShaderModule::from_glsl(
+            device,
+            shader_compiler,
+            "shader/builder/chunk_writer/model_voxelize.comp",
+            "main",
+        )
+        .unwrap();
         let heightmap_sm = ShaderModule::from_glsl(
             device,
             shader_compiler,
@@ -151,6 +161,7 @@ impl PlainBuilder {
             &buffer_setup_sm,
             &chunk_modify_sm,
             &chunk_modify_sample_sm,
+            &model_voxelize_sm,
             &heightmap_sm,
         );
 
@@ -162,6 +173,8 @@ impl PlainBuilder {
         let chunk_modify_ppl = ComputePipeline::new(device, &chunk_modify_sm, &pool, &[&resources]);
         let chunk_modify_sample_ppl =
             ComputePipeline::new(device, &chunk_modify_sample_sm, &pool, &[&resources]);
+        let model_voxelize_ppl =
+            ComputePipeline::new(device, &model_voxelize_sm, &pool, &[&resources]);
 
         init_atlas_images(&vulkan_ctx, &resources);
 
@@ -178,11 +191,13 @@ impl PlainBuilder {
         return Self {
             vulkan_ctx,
             resources,
+            plain_atlas_dim,
             buffer_setup_ppl,
             chunk_init_ppl,
             heightmap_ppl,
             chunk_modify_ppl,
             chunk_modify_sample_ppl,
+            model_voxelize_ppl,
             pool,
             build_cmdbuf,
             next_edit_sample_seed: 1,
@@ -435,6 +450,89 @@ impl PlainBuilder {
         })
     }
 
+    pub fn voxelize_model(
+        &mut self,
+        triangles: &[ModelTriangleGpu],
+        position: Vec3,
+        fill_voxel_type: u32,
+    ) -> Result<UAabb3> {
+        let total_start = Instant::now();
+        if triangles.is_empty() {
+            return Err(anyhow::anyhow!("cannot voxelize a model with no triangles"));
+        }
+
+        let triangle_vec4s_len = triangles.len() * 3;
+        let max_triangle_vec4s = self.resources.model_triangles.get_size_bytes() as usize
+            / std::mem::size_of::<[f32; 4]>();
+        if triangle_vec4s_len > max_triangle_vec4s {
+            return Err(anyhow::anyhow!(
+                "model has {} triangle vec4s, but the upload buffer only holds {}",
+                triangle_vec4s_len,
+                max_triangle_vec4s
+            ));
+        }
+
+        let (offset, dim, rebuild_bound) = calculate_model_voxel_bounds(
+            triangles,
+            position,
+            self.plain_atlas_dim,
+            MODEL_VOXELIZE_SURFACE_THICKNESS_VOX,
+        )?;
+        let voxels = dim.x as u64 * dim.y as u64 * dim.z as u64;
+
+        let upload_start = Instant::now();
+        let mut triangle_vec4s = Vec::with_capacity(triangle_vec4s_len);
+        for triangle in triangles {
+            triangle_vec4s.push(triangle.a);
+            triangle_vec4s.push(triangle.b);
+            triangle_vec4s.push(triangle.c);
+        }
+
+        self.resources.model_triangles.fill(&triangle_vec4s)?;
+        self.resources
+            .model_voxelize_info
+            .fill_uniform(&ModelVoxelizeInfo {
+                offset: offset.to_array(),
+                triangle_count: triangles.len() as u32,
+                dim: dim.to_array(),
+                fill_voxel_type,
+                position_vox: (position * 256.0).to_array(),
+                surface_thickness_vox: MODEL_VOXELIZE_SURFACE_THICKNESS_VOX,
+            })?;
+        let upload_elapsed = upload_start.elapsed();
+
+        let shader_access_pipeline_barrier = PipelineBarrier::new(
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vec![MemoryBarrier::new_shader_access()],
+        );
+
+        let gpu_start = Instant::now();
+        execute_one_time_command(
+            self.vulkan_ctx.device(),
+            self.vulkan_ctx.command_pool(),
+            &self.vulkan_ctx.get_general_queue(),
+            |cmdbuf| {
+                self.model_voxelize_ppl
+                    .record(cmdbuf, Extent3D::new(dim.x, dim.y, dim.z), None);
+                shader_access_pipeline_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            },
+        );
+        let gpu_elapsed = gpu_start.elapsed();
+
+        log::info!(
+            "[MODEL_VOXELIZE] approach=winding triangles={} dim={:?} voxels={} upload={:.3}ms gpu_dispatch_wait={:.3}ms total={:.3}ms",
+            triangles.len(),
+            dim,
+            voxels,
+            upload_elapsed.as_secs_f64() * 1000.0,
+            gpu_elapsed.as_secs_f64() * 1000.0,
+            total_start.elapsed().as_secs_f64() * 1000.0,
+        );
+
+        Ok(rebuild_bound)
+    }
+
     fn chunk_modify_round_cones_with_voxel_type(
         &mut self,
         bvh_nodes: &[BvhNode],
@@ -512,6 +610,54 @@ impl PlainBuilder {
         );
         Ok(())
     }
+}
+
+const MODEL_VOXELIZE_SURFACE_THICKNESS_VOX: f32 = 0.75;
+
+fn calculate_model_voxel_bounds(
+    triangles: &[ModelTriangleGpu],
+    position: Vec3,
+    atlas_dim: UVec3,
+    surface_thickness_vox: f32,
+) -> Result<(UVec3, UVec3, UAabb3)> {
+    let mut min = Vec3::splat(f32::INFINITY);
+    let mut max = Vec3::splat(f32::NEG_INFINITY);
+    for triangle in triangles {
+        for point in [triangle.a, triangle.b, triangle.c] {
+            let world = Vec3::new(point[0], point[1], point[2]) + position;
+            min = min.min(world);
+            max = max.max(world);
+        }
+    }
+
+    if !min.is_finite() || !max.is_finite() {
+        return Err(anyhow::anyhow!("model bounds contain non-finite values"));
+    }
+
+    let pad = surface_thickness_vox + 1.0;
+    let min_vox = (min * 256.0 - Vec3::splat(pad)).floor().as_ivec3();
+    let max_vox_exclusive = (max * 256.0 + Vec3::splat(pad)).ceil().as_ivec3() + IVec3::ONE;
+    let atlas_max = atlas_dim.as_ivec3();
+    let clamped_min = min_vox.clamp(IVec3::ZERO, atlas_max);
+    let clamped_max = max_vox_exclusive.clamp(IVec3::ZERO, atlas_max);
+
+    if any_ivec3_less_equal(clamped_max, clamped_min) {
+        return Err(anyhow::anyhow!(
+            "model voxel bounds are outside the atlas: min={:?}, max={:?}, atlas={:?}",
+            min_vox,
+            max_vox_exclusive,
+            atlas_dim
+        ));
+    }
+
+    let offset = clamped_min.as_uvec3();
+    let max_exclusive = clamped_max.as_uvec3();
+    let dim = max_exclusive - offset;
+    Ok((offset, dim, UAabb3::new(offset, max_exclusive)))
+}
+
+fn any_ivec3_less_equal(a: IVec3, b: IVec3) -> bool {
+    a.x <= b.x || a.y <= b.y || a.z <= b.z
 }
 
 fn calculate_offset_and_dim(bvh_nodes: &[BvhNode]) -> (UVec3, UVec3) {
