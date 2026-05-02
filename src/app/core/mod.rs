@@ -322,8 +322,8 @@ const FLORA_SPROUT_DELAY_TICKS: u32 = 2;
 const DEBUG_AUDIO_WALL_MIN: Vec3 = Vec3::new(300.0, 0.0, 512.0);
 const DEBUG_AUDIO_WALL_MAX: Vec3 = Vec3::new(320.0, 256.0, 600.0);
 const DEBUG_MODEL_LONGEST_EDGE: f32 = 0.5;
-const DEBUG_MODEL_LINE_START: Vec3 = Vec3::new(0.5, 0.7, 0.5);
-const DEBUG_MODEL_LINE_STEP: Vec3 = Vec3::new(1.0, 0.0, 0.0);
+const DEBUG_MODEL_LINE_START_XZ: Vec2 = Vec2::new(0.5, 0.5);
+const DEBUG_MODEL_LINE_STEP_XZ: Vec2 = Vec2::new(1.0, 0.0);
 const DEBUG_MODEL_PATHS: [&str; 5] = [
     "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_01.glb",
     "assets/models/free_pack_rocks_stylized/glb/SM_Rocks_03.glb",
@@ -442,8 +442,10 @@ impl App {
         Ok(rebuild_bound)
     }
 
-    fn debug_model_position(index: usize) -> Vec3 {
-        DEBUG_MODEL_LINE_START + DEBUG_MODEL_LINE_STEP * index as f32
+    fn debug_model_position(&self, index: usize) -> Vec3 {
+        let position_xz = DEBUG_MODEL_LINE_START_XZ + DEBUG_MODEL_LINE_STEP_XZ * index as f32;
+        let y = self.query_terrain_height_cpu(position_xz);
+        Vec3::new(position_xz.x, y, position_xz.y)
     }
 
     fn linear_to_db(linear: f32) -> f32 {
@@ -1064,7 +1066,7 @@ impl App {
         }
 
         for (index, path) in DEBUG_MODEL_PATHS.iter().enumerate() {
-            let position = Self::debug_model_position(index);
+            let position = self.debug_model_position(index);
             if let Err(err) = self.apply_model_placement(path, position) {
                 log::error!(
                     "Failed to place debug rock model '{}' at {:?}: {}",
