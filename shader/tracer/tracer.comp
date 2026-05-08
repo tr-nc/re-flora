@@ -77,8 +77,10 @@ layout(set = 0, binding = 9, rg32ui) readonly uniform uimage3D scene_tex;
 layout(set = 0, binding = 10) uniform sampler2D shadow_map_tex;
 layout(set = 0, binding = 11) uniform U_VoxelColors {
     vec3 dirt_color;
+    vec3 sand_color;
     vec3 cherry_wood_color;
     vec3 oak_wood_color;
+    vec3 rock_color;
     float hash_color_variance;
 }
 voxel_colors;

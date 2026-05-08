@@ -2063,6 +2063,11 @@ impl App {
                             self.gui_adjustables.voxel_dirt_color.value.b() as f32 / 255.0,
                         ),
                         Vec3::new(
+                            self.gui_adjustables.voxel_sand_color.value.r() as f32 / 255.0,
+                            self.gui_adjustables.voxel_sand_color.value.g() as f32 / 255.0,
+                            self.gui_adjustables.voxel_sand_color.value.b() as f32 / 255.0,
+                        ),
+                        Vec3::new(
                             self.gui_adjustables.voxel_cherry_wood_color.value.r() as f32 / 255.0,
                             self.gui_adjustables.voxel_cherry_wood_color.value.g() as f32 / 255.0,
                             self.gui_adjustables.voxel_cherry_wood_color.value.b() as f32 / 255.0,
@@ -2071,6 +2076,11 @@ impl App {
                             self.gui_adjustables.voxel_oak_wood_color.value.r() as f32 / 255.0,
                             self.gui_adjustables.voxel_oak_wood_color.value.g() as f32 / 255.0,
                             self.gui_adjustables.voxel_oak_wood_color.value.b() as f32 / 255.0,
+                        ),
+                        Vec3::new(
+                            self.gui_adjustables.voxel_rock_color.value.r() as f32 / 255.0,
+                            self.gui_adjustables.voxel_rock_color.value.g() as f32 / 255.0,
+                            self.gui_adjustables.voxel_rock_color.value.b() as f32 / 255.0,
                         ),
                         self.gui_adjustables.voxel_color_variance.value,
                     )

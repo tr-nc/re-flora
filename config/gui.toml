@@ -919,6 +919,15 @@ type = "Color"
 value = "#5F5F5F"
 
 [[section.param]]
+id = "voxel_sand_color"
+kind = "color"
+label = "Sand Color"
+type = "Color"
+
+[section.param.data]
+value = "#C2B073"
+
+[[section.param]]
 id = "voxel_cherry_wood_color"
 kind = "color"
 label = "Cherry Wood Color"
@@ -935,6 +944,15 @@ type = "Color"
 
 [section.param.data]
 value = "#A6904B"
+
+[[section.param]]
+id = "voxel_rock_color"
+kind = "color"
+label = "Rock Color"
+type = "Color"
+
+[section.param.data]
+value = "#7A7D80"
 
 [[section.param]]
 id = "voxel_color_variance"

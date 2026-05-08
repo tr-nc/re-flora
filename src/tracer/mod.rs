@@ -506,8 +506,10 @@ impl Tracer {
         starlight_distfading: f32,
         starlight_saturation: f32,
         voxel_dirt_color: Vec3,
+        voxel_sand_color: Vec3,
         voxel_cherry_wood_color: Vec3,
         voxel_oak_wood_color: Vec3,
+        voxel_rock_color: Vec3,
         voxel_color_variance: f32,
     ) -> Result<()> {
         // camera info
@@ -547,8 +549,10 @@ impl Tracer {
         BufferUpdater::update_voxel_colors(
             &self.resources,
             voxel_dirt_color,
+            voxel_sand_color,
             voxel_cherry_wood_color,
             voxel_oak_wood_color,
+            voxel_rock_color,
             voxel_color_variance,
         )?;
 

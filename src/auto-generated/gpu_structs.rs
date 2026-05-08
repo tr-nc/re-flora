@@ -528,9 +528,13 @@ pub struct TerrainQueryCount {
 pub struct VoxelColors {
     pub dirt_color: [f32; 3],
     pub _pad0: [u8; 4],
-    pub cherry_wood_color: [f32; 3],
+    pub sand_color: [f32; 3],
     pub _pad1: [u8; 4],
+    pub cherry_wood_color: [f32; 3],
+    pub _pad2: [u8; 4],
     pub oak_wood_color: [f32; 3],
+    pub _pad3: [u8; 4],
+    pub rock_color: [f32; 3],
     pub hash_color_variance: f32,
 }
 
