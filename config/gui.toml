@@ -761,7 +761,7 @@ label = "Bottom Color"
 type = "Color"
 
 [section.param.data]
-value = "#EFEFEF"
+value = "#2BB100"
 
 [[section.param]]
 id = "leaves_tip_color"
@@ -770,7 +770,7 @@ label = "Tip Color"
 type = "Color"
 
 [section.param.data]
-value = "#FF89F1"
+value = "#92B200"
 
 [[section]]
 name = "Terrain Harvest Particles"
