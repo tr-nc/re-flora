@@ -22,10 +22,6 @@ Goals matter - even for a small cozy game that could keep evolving forever. They
 
 ## 2) High-Priority Features
 
-- **Audio reflections follow-up**
-  - Extend the current direct-path-only spatial audio with reflection/reverb support later.
-  - Keep occlusion scheduling decoupled from render FPS while adding the indirect path.
-
 - **Trading system**
   - Add a docked ship that enables resource exchange. (Draw the docked ship, the port, with primitives during world init time
   - Support buy/sell interactions for player inventory.
@@ -35,7 +31,7 @@ Goals matter - even for a small cozy game that could keep evolving forever. They
   - Emit particles matching voxel color.
   - Animate particles toward the player camera to indicate collection into backpack storage.
 
-- macOS adaption
+- **MacOS adaption**
   - Make sure everything works properly in a reasonable framerate in macOS
   - Make sure bootstrap_macos.sh work properly
 
@@ -48,10 +44,6 @@ Goals matter - even for a small cozy game that could keep evolving forever. They
   - Create a more pixelized ocean look.
   - Continue visual research and prototyping.
 
-- **Procedural rock variants**
-  - Evaluate model import vs. SDF-based generation.
-  - Favor SDF for cleaner procedural control, while validating visual quality.
-
 - **Additional flora types**
   - Expand flora variety to improve biome richness.
 
@@ -59,13 +51,6 @@ Goals matter - even for a small cozy game that could keep evolving forever. They
   - Add clouds with a strong pixel-art aesthetic.
 
 ## 4) Performance Work
-
-- **Pre-culling optimization**
-  - Trace terrain first to update depth buffer early.
-  - Skip shading work for flora/fragments occluded by voxel terrain.
-
-- **Semaphore and Fences checks**
-  - Check if semaphores and fences are setup properly across each frame, for the highest possible performance
 
 ## 5) Low-Priority Tooling
 
