@@ -1102,9 +1102,14 @@ impl App {
 
         self.ensure_map_butterfly_emitter();
 
+        self.debug_tree_pos.y = self.query_terrain_height_cpu(Vec2::new(
+            self.debug_tree_pos.x,
+            self.debug_tree_pos.z,
+        ));
+
         if let Err(err) = self.add_tree(
             self.debug_tree_desc.clone(),
-            TreePlacement::Terrain(Vec2::new(self.debug_tree_pos.x, self.debug_tree_pos.z)),
+            TreePlacement::World(self.debug_tree_pos),
             TreeAddOptions::default(),
         ) {
             log::error!("Failed to add debug tree: {}", err);
@@ -1561,7 +1566,7 @@ impl App {
                     self.tracer.handle_mouse(self.smoothed_mouse_delta);
                 }
 
-                let tree_desc_changed = false;
+                let mut tree_desc_changed = false;
                 let time_of_day_before_gui = self.gui_adjustables.time_of_day.value;
                 let item_panel_shovel_icon = self.item_panel_shovel_icon.clone();
                 let item_panel_staff_icon = self.item_panel_staff_icon.clone();
@@ -1656,6 +1661,14 @@ impl App {
                                                 &self.gui_config,
                                                 &mut self.gui_adjustables,
                                             );
+
+                                            ui.add_space(8.0);
+                                            ui.separator();
+                                            ui.add_space(8.0);
+                                            ui.collapsing("Test Tree", |ui| {
+                                                tree_desc_changed |=
+                                                    self.debug_tree_desc.edit_by_gui(ui);
+                                            });
 
                                             ui.add_space(8.0);
                                             ui.separator();
@@ -1846,13 +1859,9 @@ impl App {
                 }
 
                 if tree_desc_changed {
-                    self.add_tree(
+                    self.replace_single_tree(
                         self.debug_tree_desc.clone(),
-                        TreePlacement::Terrain(Vec2::new(
-                            self.debug_tree_pos.x,
-                            self.debug_tree_pos.z,
-                        )),
-                        TreeAddOptions::default().with_cleanup(),
+                        self.debug_tree_pos,
                     )
                     .unwrap();
                 }

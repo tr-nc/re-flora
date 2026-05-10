@@ -294,7 +294,11 @@ struct CompiledTreePlacement {
 struct TreePlacementService;
 
 impl TreePlacementService {
-    fn compile(tree_desc: TreeDesc, tree_pos: Vec3, prev_bound: UAabb3) -> CompiledTreePlacement {
+    fn compile(
+        tree_desc: TreeDesc,
+        tree_pos: Vec3,
+        extra_rebuild_bound: UAabb3,
+    ) -> CompiledTreePlacement {
         let tree = Tree::new(tree_desc);
         let mut round_cones = Vec::with_capacity(tree.trunks().len());
         for tree_trunk in tree.trunks() {
@@ -332,7 +336,7 @@ impl TreePlacementService {
                 round_cones,
                 voxel_type: VOXEL_TYPE_CHERRY_WOOD,
             },
-            rebuild_bound: this_bound.union_with(&prev_bound),
+            rebuild_bound: this_bound.union_with(&extra_rebuild_bound),
             tree_pos,
             this_bound,
             quantized_leaf_positions,
@@ -432,6 +436,42 @@ impl App {
                 log::debug!("Tree {} was not registered during removal", tree_id);
             }
         }
+        Ok(())
+    }
+
+    pub(super) fn replace_single_tree(
+        &mut self,
+        tree_desc: TreeDesc,
+        tree_pos: Vec3,
+    ) -> Result<()> {
+        let old_bound = if let Some(record) = self.tree_records.remove(&self.single_tree_id) {
+            self.tracer
+                .remove_tree_leaves(&mut self.surface_builder.resources, self.single_tree_id)?;
+            self.tree_audio_manager.remove_tree(self.single_tree_id);
+            self.remove_leaf_emitter(self.single_tree_id);
+
+            if record.bound.has_size() {
+                self.execute_edit_plan(WorldEditPlan {
+                    voxel_edits: vec![VoxelEdit::ClearVoxelRegion(ClearVoxelRegionEdit {
+                        offset: record.bound.min(),
+                        dim: record.bound.max() - record.bound.min(),
+                    })],
+                    build_edits: vec![BuildEdit::RebuildMesh(record.bound)],
+                })?;
+            }
+
+            record.bound
+        } else {
+            UAabb3::default()
+        };
+
+        self.apply_tree_placement(TreePlacementEdit {
+            tree_desc,
+            placement: TreePlacement::World(tree_pos),
+            options: TreeAddOptions::default(),
+        })?;
+        self.prev_bound = self.prev_bound.union_with(&old_bound);
+
         Ok(())
     }
 
@@ -852,10 +892,6 @@ impl App {
         }
 
         let tree_pos = match placement {
-            TreePlacement::Terrain(horizontal) => {
-                let terrain_height = self.query_terrain_height_cpu(horizontal);
-                Vec3::new(horizontal.x, terrain_height, horizontal.y)
-            }
             TreePlacement::World(world) => world,
         };
 
@@ -867,7 +903,7 @@ impl App {
             self.single_tree_id
         };
 
-        let compiled = TreePlacementService::compile(tree_desc, tree_pos, self.prev_bound);
+        let compiled = TreePlacementService::compile(tree_desc, tree_pos, UAabb3::default());
 
         self.execute_edit_plan(WorldEditPlan::with_voxel(compiled.trunk_voxel_edit))?;
         self.tracer.add_tree_leaves(
@@ -879,7 +915,7 @@ impl App {
             compiled.rebuild_bound,
         )))?;
 
-        self.prev_bound = compiled.rebuild_bound;
+        self.prev_bound = self.prev_bound.union_with(&compiled.this_bound);
 
         let leaf_clusters =
             cluster_positions(&compiled.world_leaf_positions, super::LEAF_CLUSTER_DISTANCE);

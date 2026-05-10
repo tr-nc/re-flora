@@ -246,7 +246,6 @@ impl LoadedModel {
             .flat_map(|mesh| mesh.primitives.iter())
             .flat_map(|primitive| primitive.vertices.iter())
     }
-
 }
 
 #[cfg(test)]
@@ -255,16 +254,14 @@ mod tests {
 
     #[test]
     fn loads_stylized_rock_glb() {
-        let model =
-            load_model("assets/models/free_pack_rocks_stylized/SM_Rocks_01.glb").unwrap();
+        let model = load_model("assets/models/free_pack_rocks_stylized/SM_Rocks_01.glb").unwrap();
         assert!(!model.meshes.is_empty());
         assert!(model.meshes.iter().any(|mesh| !mesh.primitives.is_empty()));
     }
 
     #[test]
     fn extracts_stylized_rock_bounds_and_triangles() {
-        let model =
-            load_model("assets/models/free_pack_rocks_stylized/SM_Rocks_01.glb").unwrap();
+        let model = load_model("assets/models/free_pack_rocks_stylized/SM_Rocks_01.glb").unwrap();
         let (min, max) = model.bounds().unwrap();
         let span = (max - min).max_element();
         assert!(span > 0.0);
@@ -273,8 +270,7 @@ mod tests {
 
     #[test]
     fn measures_stylized_rock_longest_edge_span() {
-        let model =
-            load_model("assets/models/free_pack_rocks_stylized/SM_Rocks_01.glb").unwrap();
+        let model = load_model("assets/models/free_pack_rocks_stylized/SM_Rocks_01.glb").unwrap();
         let (min, max) = model.bounds().unwrap();
         let bounds_span = (max - min).max_element();
         let measured_span = model.longest_edge_span().unwrap();
