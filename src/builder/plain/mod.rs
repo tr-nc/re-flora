@@ -367,7 +367,10 @@ impl PlainBuilder {
         max_write_count: Option<u32>,
     ) -> Result<ChunkModifyReadback> {
         let total_start = Instant::now();
-        let (offset, dim) = calculate_offset_and_dim(bvh_nodes);
+        let atlas_dim = chunk_atlas_dim(&self.resources);
+        let Some((offset, dim)) = calculate_clipped_offset_and_dim(bvh_nodes, atlas_dim) else {
+            return Ok(ChunkModifyReadback::default());
+        };
         let prep_start = Instant::now();
         clear_edit_stats(&self.resources)?;
         clear_edit_removal_candidates(&self.resources)?;
@@ -539,7 +542,10 @@ impl PlainBuilder {
         round_cones: &[RoundCone],
         fill_voxel_type: u32,
     ) -> Result<()> {
-        let (offset, dim) = calculate_offset_and_dim(bvh_nodes);
+        let atlas_dim = chunk_atlas_dim(&self.resources);
+        let Some((offset, dim)) = calculate_clipped_offset_and_dim(bvh_nodes, atlas_dim) else {
+            return Ok(());
+        };
         update_chunk_modify_info(
             &self.resources,
             offset,
@@ -578,7 +584,10 @@ impl PlainBuilder {
         cuboids: &[Cuboid],
         fill_voxel_type: u32,
     ) -> Result<()> {
-        let (offset, dim) = calculate_offset_and_dim(bvh_nodes);
+        let atlas_dim = chunk_atlas_dim(&self.resources);
+        let Some((offset, dim)) = calculate_clipped_offset_and_dim(bvh_nodes, atlas_dim) else {
+            return Ok(());
+        };
         update_chunk_modify_info(
             &self.resources,
             offset,
@@ -660,12 +669,29 @@ fn any_ivec3_less_equal(a: IVec3, b: IVec3) -> bool {
     a.x <= b.x || a.y <= b.y || a.z <= b.z
 }
 
-fn calculate_offset_and_dim(bvh_nodes: &[BvhNode]) -> (UVec3, UVec3) {
+fn chunk_atlas_dim(resources: &PlainBuilderResources) -> UVec3 {
+    let extent = resources.chunk_atlas.get_image().get_desc().extent;
+    UVec3::new(extent.width, extent.height, extent.depth)
+}
+
+fn calculate_clipped_offset_and_dim(
+    bvh_nodes: &[BvhNode],
+    atlas_dim: UVec3,
+) -> Option<(UVec3, UVec3)> {
     let root_node = &bvh_nodes[0];
-    (
-        root_node.aabb.min_uvec3(),
-        root_node.aabb.max_uvec3() - root_node.aabb.min_uvec3(),
-    )
+    let atlas_max = atlas_dim.as_ivec3();
+    let min_vox = root_node.aabb.min().floor().as_ivec3();
+    let max_vox = root_node.aabb.max().ceil().as_ivec3();
+    let clamped_min = min_vox.clamp(IVec3::ZERO, atlas_max);
+    let clamped_max = max_vox.clamp(IVec3::ZERO, atlas_max);
+
+    if any_ivec3_less_equal(clamped_max, clamped_min) {
+        return None;
+    }
+
+    let offset = clamped_min.as_uvec3();
+    let dim = clamped_max.as_uvec3() - offset;
+    Some((offset, dim))
 }
 
 #[allow(clippy::too_many_arguments)]
