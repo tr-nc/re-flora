@@ -90,6 +90,13 @@ pub(crate) fn apply_build_edit(
             voxel_dim_per_chunk,
             bound,
         ),
+        BuildEdit::RebuildChunks(chunk_ids) => mesh_generate_chunks(
+            surface_builder,
+            contree_builder,
+            scene_accel_builder,
+            voxel_dim_per_chunk,
+            chunk_ids,
+        ),
     }
 }
 
@@ -133,10 +140,23 @@ pub(crate) fn mesh_generate(
     voxel_dim_per_chunk: UVec3,
     bound: UAabb3,
 ) -> Result<()> {
-    let affected_chunk_indices =
-        get_affected_chunk_indices(bound.min(), bound.max(), voxel_dim_per_chunk);
+    mesh_generate_chunks(
+        surface_builder,
+        contree_builder,
+        scene_accel_builder,
+        voxel_dim_per_chunk,
+        affected_chunk_indices_for_bound(bound, voxel_dim_per_chunk),
+    )
+}
 
-    for chunk_id in affected_chunk_indices {
+pub(crate) fn mesh_generate_chunks(
+    surface_builder: &mut SurfaceBuilder,
+    contree_builder: &mut ContreeBuilder,
+    scene_accel_builder: &mut SceneAccelBuilder,
+    voxel_dim_per_chunk: UVec3,
+    chunk_ids: Vec<UVec3>,
+) -> Result<()> {
+    for chunk_id in chunk_ids {
         let atlas_offset = chunk_id * voxel_dim_per_chunk;
 
         let surface_start = Instant::now();
@@ -289,6 +309,17 @@ pub(crate) fn mesh_trim_flora_for_sphere_edit(
     }
 
     Ok(growing_chunks)
+}
+
+pub(crate) fn affected_chunk_indices_for_bound(
+    bound: UAabb3,
+    voxel_dim_per_chunk: UVec3,
+) -> Vec<UVec3> {
+    if !bound.has_size() {
+        return Vec::new();
+    }
+
+    get_affected_chunk_indices(bound.min(), bound.max(), voxel_dim_per_chunk)
 }
 
 fn get_affected_chunk_indices(

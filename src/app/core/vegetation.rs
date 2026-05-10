@@ -439,6 +439,19 @@ impl App {
         Ok(())
     }
 
+    fn tree_rebuild_chunk_ids(&self, old_bound: UAabb3, new_bound: UAabb3) -> Vec<UVec3> {
+        let mut chunk_ids =
+            world_ops::affected_chunk_indices_for_bound(old_bound, super::VOXEL_DIM_PER_CHUNK);
+        chunk_ids.extend(world_ops::affected_chunk_indices_for_bound(
+            new_bound,
+            super::VOXEL_DIM_PER_CHUNK,
+        ));
+
+        let mut seen = HashSet::new();
+        chunk_ids.retain(|chunk_id| seen.insert(*chunk_id));
+        chunk_ids
+    }
+
     pub(super) fn replace_single_tree(
         &mut self,
         tree_desc: TreeDesc,
@@ -461,7 +474,7 @@ impl App {
         };
 
         let compile_start = Instant::now();
-        let compiled = TreePlacementService::compile(tree_desc, tree_pos, old_bound);
+        let compiled = TreePlacementService::compile(tree_desc, tree_pos, UAabb3::default());
         let compile_elapsed = compile_start.elapsed();
         crate::util::BENCH
             .lock()
@@ -492,9 +505,10 @@ impl App {
             .unwrap()
             .record("tree_gui_trunk_voxel", trunk_elapsed);
 
+        let rebuild_chunk_ids = self.tree_rebuild_chunk_ids(old_bound, compiled.this_bound);
         let rebuild_start = Instant::now();
-        self.execute_edit_plan(WorldEditPlan::with_build(BuildEdit::RebuildMesh(
-            compiled.rebuild_bound,
+        self.execute_edit_plan(WorldEditPlan::with_build(BuildEdit::RebuildChunks(
+            rebuild_chunk_ids.clone(),
         )))?;
         let rebuild_elapsed = rebuild_start.elapsed();
         crate::util::BENCH
@@ -507,6 +521,7 @@ impl App {
             compiled.tree_pos,
             compiled.this_bound,
             compiled.rebuild_bound,
+            rebuild_chunk_ids.len(),
             &compiled.quantized_leaf_positions,
             &compiled.world_leaf_positions,
             total_start,
@@ -940,6 +955,7 @@ impl App {
         tree_pos: Vec3,
         this_bound: UAabb3,
         rebuild_bound: UAabb3,
+        rebuild_chunk_count: usize,
         quantized_leaf_positions: &[UVec3],
         world_leaf_positions: &[Vec3],
         total_start: Instant,
@@ -1009,7 +1025,7 @@ impl App {
                 .record("tree_gui_leaf_emitter", emitter_elapsed);
 
             log::info!(
-                "[PERF][TREE_GUI] add_total {:.2}ms compile {:.2}ms trunk_voxel {:.2}ms add_leaves {:.2}ms rebuild {:.2}ms cluster {:.2}ms audio {:.2}ms emitter {:.2}ms trunks {} leaves {} clusters {} bound {:?}",
+                "[PERF][TREE_GUI] add_total {:.2}ms compile {:.2}ms trunk_voxel {:.2}ms add_leaves {:.2}ms rebuild {:.2}ms cluster {:.2}ms audio {:.2}ms emitter {:.2}ms trunks {} leaves {} clusters {} rebuild_chunks {} bound {:?}",
                 total_start.elapsed().as_secs_f32() * 1000.0,
                 compile_elapsed.as_secs_f32() * 1000.0,
                 trunk_elapsed.as_secs_f32() * 1000.0,
@@ -1021,6 +1037,7 @@ impl App {
                 trunk_count,
                 quantized_leaf_positions.len(),
                 leaf_clusters.len(),
+                rebuild_chunk_count,
                 rebuild_bound,
             );
         }
@@ -1095,6 +1112,11 @@ impl App {
             compiled.tree_pos,
             compiled.this_bound,
             compiled.rebuild_bound,
+            world_ops::affected_chunk_indices_for_bound(
+                compiled.rebuild_bound,
+                super::VOXEL_DIM_PER_CHUNK,
+            )
+            .len(),
             &compiled.quantized_leaf_positions,
             &compiled.world_leaf_positions,
             total_start,
