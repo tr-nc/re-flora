@@ -50,6 +50,15 @@ impl<T> LatestChunkQueue<T> {
         state.latest_revision
     }
 
+    pub(crate) fn clear(&mut self, chunk_id: UVec3) -> u64 {
+        let state = self.states.entry(chunk_id).or_default();
+        state.latest_revision += 1;
+        state.completed_revision = state.latest_revision;
+        state.latest_payload = None;
+        state.queued = false;
+        state.latest_revision
+    }
+
     pub(crate) fn pop_next(&mut self) -> Option<LatestChunkWork<T>> {
         while let Some(chunk_id) = self.pending.pop_front() {
             let Some(state) = self.states.get_mut(&chunk_id) else {
@@ -96,6 +105,21 @@ impl<T> LatestChunkQueue<T> {
         } else if state.active_revision.is_none() {
             state.latest_payload = None;
         }
+    }
+
+    pub(crate) fn is_latest_revision(&self, chunk_id: UVec3, revision: u64) -> bool {
+        self.states
+            .get(&chunk_id)
+            .map(|state| state.latest_revision == revision)
+            .unwrap_or(false)
+    }
+
+    pub(crate) fn is_idle(&self) -> bool {
+        self.pending.is_empty()
+            && self
+                .states
+                .values()
+                .all(|state| state.active_revision.is_none())
     }
 
     #[allow(dead_code)]
@@ -171,6 +195,22 @@ mod tests {
 
         assert!(queue.pop_next().is_none());
         assert!(queue.is_empty());
+        assert!(queue.is_idle());
+    }
+
+    #[test]
+    fn clear_invalidates_active_work_without_requeue() {
+        let mut queue = LatestChunkQueue::default();
+        queue.push(chunk(1), "old");
+        let work = queue.pop_next().unwrap();
+
+        let clear_revision = queue.clear(chunk(1));
+        queue.complete(work.chunk_id, work.revision);
+
+        assert_eq!(clear_revision, 2);
+        assert!(!queue.is_latest_revision(work.chunk_id, work.revision));
+        assert!(queue.pop_next().is_none());
+        assert!(queue.is_idle());
     }
 
     #[test]
