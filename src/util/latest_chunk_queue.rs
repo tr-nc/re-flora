@@ -1,6 +1,8 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 use glam::UVec3;
+
+use crate::util::ChunkWorkQueue;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct LatestChunkWork<T> {
@@ -14,7 +16,6 @@ struct LatestChunkState<T> {
     latest_revision: u64,
     completed_revision: u64,
     active_revision: Option<u64>,
-    queued: bool,
     latest_payload: Option<T>,
 }
 
@@ -24,7 +25,6 @@ impl<T> Default for LatestChunkState<T> {
             latest_revision: 0,
             completed_revision: 0,
             active_revision: None,
-            queued: false,
             latest_payload: None,
         }
     }
@@ -33,14 +33,14 @@ impl<T> Default for LatestChunkState<T> {
 #[derive(Clone, Debug)]
 pub(crate) struct LatestChunkQueue<T> {
     states: HashMap<UVec3, LatestChunkState<T>>,
-    pending: VecDeque<UVec3>,
+    pending: ChunkWorkQueue,
 }
 
 impl<T> Default for LatestChunkQueue<T> {
     fn default() -> Self {
         Self {
             states: HashMap::new(),
-            pending: VecDeque::new(),
+            pending: ChunkWorkQueue::default(),
         }
     }
 }
@@ -51,9 +51,8 @@ impl<T> LatestChunkQueue<T> {
         state.latest_revision += 1;
         state.latest_payload = Some(payload);
 
-        if state.active_revision.is_none() && !state.queued {
-            state.queued = true;
-            self.pending.push_back(chunk_id);
+        if state.active_revision.is_none() {
+            self.pending.push(chunk_id);
         }
 
         state.latest_revision
@@ -64,17 +63,15 @@ impl<T> LatestChunkQueue<T> {
         state.latest_revision += 1;
         state.completed_revision = state.latest_revision;
         state.latest_payload = None;
-        state.queued = false;
+        self.pending.remove(chunk_id);
         state.latest_revision
     }
 
     pub(crate) fn pop_next(&mut self) -> Option<LatestChunkWork<T>> {
-        while let Some(chunk_id) = self.pending.pop_front() {
+        while let Some(chunk_id) = self.pending.pop_next() {
             let Some(state) = self.states.get_mut(&chunk_id) else {
                 continue;
             };
-            state.queued = false;
-
             if state.active_revision.is_some() || state.latest_revision <= state.completed_revision
             {
                 continue;
@@ -107,10 +104,7 @@ impl<T> LatestChunkQueue<T> {
         state.completed_revision = state.completed_revision.max(revision);
 
         if state.latest_revision > revision {
-            if !state.queued {
-                state.queued = true;
-                self.pending.push_back(chunk_id);
-            }
+            self.pending.push(chunk_id);
         } else if state.active_revision.is_none() {
             state.latest_payload = None;
         }

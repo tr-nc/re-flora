@@ -35,7 +35,7 @@ use crate::particles::{
 use crate::tracer::{TerrainRayQuery, Tracer, TracerDesc};
 use crate::tree_gen::TreeDesc;
 use crate::util::TimeInfo;
-use crate::util::{get_sun_dir, LatestChunkQueue, ShaderCompiler, BENCH};
+use crate::util::{get_sun_dir, ChunkWorkQueue, LatestChunkQueue, ShaderCompiler, BENCH};
 use crate::vkn::{Allocator, CommandBuffer, Fence, Semaphore, SwapchainDesc};
 use crate::RenderFlags;
 use crate::{
@@ -172,7 +172,7 @@ pub struct App {
 
     flora_tick: u32,
     flora_tick_accumulator: f32,
-    growing_flora_chunks: Vec<UVec3>,
+    growing_flora_chunks: ChunkWorkQueue,
     sun_position_update_tick_accumulator: u32,
     shadow_map_update_tick_accumulator: u32,
     shadow_map_update_pending: bool,
@@ -282,33 +282,28 @@ impl App {
     }
 
     pub(super) fn track_growing_flora_chunk(&mut self, chunk_id: UVec3) {
-        if !self.growing_flora_chunks.contains(&chunk_id) {
-            self.growing_flora_chunks.push(chunk_id);
-        }
+        self.growing_flora_chunks.push(chunk_id);
     }
 
-    fn update_growing_flora_chunks(&mut self) {
-        if self.growing_flora_chunks.is_empty() {
+    fn update_growing_flora_chunk(&mut self) {
+        let Some(chunk_id) = self.growing_flora_chunks.pop_next() else {
             return;
-        }
+        };
 
-        let active_chunks = std::mem::take(&mut self.growing_flora_chunks);
-        let mut still_growing = Vec::with_capacity(active_chunks.len());
-        for chunk_id in active_chunks {
-            match self.surface_builder.update_flora_growth_for_chunk(chunk_id) {
-                Ok(true) => still_growing.push(chunk_id),
-                Ok(false) => {}
-                Err(err) => {
-                    log::warn!(
-                        "Failed to update flora growth for chunk {}: {}",
-                        chunk_id,
-                        err
-                    );
-                    still_growing.push(chunk_id);
-                }
+        match self.surface_builder.update_flora_growth_for_chunk(chunk_id) {
+            Ok(true) => {
+                self.growing_flora_chunks.push(chunk_id);
+            }
+            Ok(false) => {}
+            Err(err) => {
+                log::warn!(
+                    "Failed to update flora growth for chunk {}: {}",
+                    chunk_id,
+                    err
+                );
+                self.growing_flora_chunks.push(chunk_id);
             }
         }
-        self.growing_flora_chunks = still_growing;
     }
 
     fn save_screenshot(&self, path: &str) {
@@ -851,7 +846,7 @@ impl App {
             backpack_summary_panel_screen_pos: None,
             flora_tick: FLORA_FULL_GROWTH_TICKS,
             flora_tick_accumulator: 0.0,
-            growing_flora_chunks: Vec::new(),
+            growing_flora_chunks: ChunkWorkQueue::default(),
             sun_position_update_tick_accumulator: 0,
             shadow_map_update_tick_accumulator: 0,
             shadow_map_update_pending: true,
@@ -1611,7 +1606,9 @@ impl App {
                     self.flora_tick = self.flora_tick.wrapping_add(1);
                     self.flora_tick_accumulator -= 1.0;
                     world_tick_steps += 1;
-                    self.update_growing_flora_chunks();
+                }
+                if world_tick_steps > 0 {
+                    self.update_growing_flora_chunk();
                 }
                 if let Err(err) = self.tree_audio_manager.update(time_since_start) {
                     log::warn!("Failed to update tree audio sources: {}", err);
