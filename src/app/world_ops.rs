@@ -156,8 +156,16 @@ pub(crate) fn mesh_generate_chunks(
     voxel_dim_per_chunk: UVec3,
     chunk_ids: Vec<UVec3>,
 ) -> Result<()> {
+    let rebuild_start = Instant::now();
+    let chunk_count = chunk_ids.len();
+    let mut rebuilt_chunk_count = 0;
+    let mut surface_total = std::time::Duration::ZERO;
+    let mut contree_total = std::time::Duration::ZERO;
+    let mut scene_total = std::time::Duration::ZERO;
+
     for chunk_id in chunk_ids {
         let atlas_offset = chunk_id * voxel_dim_per_chunk;
+        let chunk_start = Instant::now();
 
         let surface_start = Instant::now();
         let res = surface_builder.build_surface(chunk_id, true);
@@ -167,6 +175,7 @@ pub(crate) fn mesh_generate_chunks(
         }
 
         let surface_elapsed = surface_start.elapsed();
+        surface_total += surface_elapsed;
         BENCH
             .lock()
             .unwrap()
@@ -175,11 +184,13 @@ pub(crate) fn mesh_generate_chunks(
         let contree_start = Instant::now();
         let res = contree_builder.build_and_alloc(atlas_offset).unwrap();
         let contree_elapsed = contree_start.elapsed();
+        contree_total += contree_elapsed;
         BENCH
             .lock()
             .unwrap()
             .record("build_and_alloc", contree_elapsed);
 
+        let scene_start = Instant::now();
         if let Some(res) = res {
             let (node_buffer_offset, leaf_buffer_offset) = res;
             scene_accel_builder
@@ -188,7 +199,29 @@ pub(crate) fn mesh_generate_chunks(
             scene_accel_builder.update_scene_tex(chunk_id, None)?;
             log::debug!("Cleared scene tex because the chunk is empty");
         }
+        let scene_elapsed = scene_start.elapsed();
+        scene_total += scene_elapsed;
+        rebuilt_chunk_count += 1;
+
+        log::debug!(
+            "[PERF][MESH_REBUILD_CHUNK] chunk {:?} total {:.2}ms surface {:.2}ms contree {:.2}ms scene_tex {:.2}ms",
+            chunk_id,
+            chunk_start.elapsed().as_secs_f32() * 1000.0,
+            surface_elapsed.as_secs_f32() * 1000.0,
+            contree_elapsed.as_secs_f32() * 1000.0,
+            scene_elapsed.as_secs_f32() * 1000.0,
+        );
     }
+
+    log::info!(
+        "[PERF][MESH_REBUILD] chunks {} rebuilt {} total {:.2}ms surface {:.2}ms contree {:.2}ms scene_tex {:.2}ms",
+        chunk_count,
+        rebuilt_chunk_count,
+        rebuild_start.elapsed().as_secs_f32() * 1000.0,
+        surface_total.as_secs_f32() * 1000.0,
+        contree_total.as_secs_f32() * 1000.0,
+        scene_total.as_secs_f32() * 1000.0,
+    );
 
     Ok(())
 }
