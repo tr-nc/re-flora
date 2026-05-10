@@ -90,6 +90,10 @@ pub struct AppOptions {
     pub tree_bench: bool,
     /// Number of tree benchmark samples.
     pub tree_bench_samples: u32,
+    /// Sweep Min Trunk Thickness during tree benchmark.
+    pub tree_bench_min_thickness: bool,
+    /// Do not wait for deferred rebuilds between tree benchmark samples.
+    pub tree_bench_rapid: bool,
     /// Print CLI help and exit successfully.
     pub help: bool,
 }
@@ -153,6 +157,8 @@ impl AppOptions {
             perf: args.iter().any(|a| a == "--perf"),
             tree_bench: args.iter().any(|a| a == "--tree-bench"),
             tree_bench_samples: parse_u32_after("--tree-bench-samples").unwrap_or(10),
+            tree_bench_min_thickness: args.iter().any(|a| a == "--tree-bench-min-thickness"),
+            tree_bench_rapid: args.iter().any(|a| a == "--tree-bench-rapid"),
             help: args.iter().any(|a| a == "--help"),
         }
     }
@@ -180,6 +186,8 @@ Options:
   --perf                      Enable per-frame performance logging
   --tree-bench                Run tree replacement benchmark and exit
   --tree-bench-samples <N>    Tree benchmark samples (default: 10)
+  --tree-bench-min-thickness  Sweep Min Trunk Thickness instead of Tree Height
+  --tree-bench-rapid          Do not wait for deferred rebuilds between samples
   --help                      Show this help and exit
 
 Examples:

@@ -10,7 +10,7 @@ mod ui_style;
 mod vegetation;
 
 use self::particles::TreeLeafEmitter;
-use self::tree_bench::TreeBench;
+use self::tree_bench::{TreeBench, TreeBenchMode};
 use self::vegetation::{TreeRecord, TreeVariationConfig};
 use crate::app::environment;
 use crate::app::gui_config_loader::GuiConfigLoader;
@@ -876,9 +876,14 @@ impl App {
             screenshot_delay: options.screenshot_delay,
             screenshot_taken: false,
             auto_exit_delay: options.auto_exit_delay,
-            tree_bench: options
-                .tree_bench
-                .then(|| TreeBench::new(options.tree_bench_samples)),
+            tree_bench: options.tree_bench.then(|| {
+                let mode = if options.tree_bench_min_thickness {
+                    TreeBenchMode::MinTrunkThickness
+                } else {
+                    TreeBenchMode::TreeHeight
+                };
+                TreeBench::new(options.tree_bench_samples, mode, options.tree_bench_rapid)
+            }),
             deferred_chunk_rebuilds: LatestChunkQueue::default(),
 
             spatial_sound_manager,
