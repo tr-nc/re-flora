@@ -247,14 +247,15 @@ impl SurfaceBuilder {
         let active_voxel_len = get_make_surface_result(&self.resources.make_surface_result);
         let readback_elapsed = readback_start.elapsed();
 
+        let should_rebuild_flora = place_flora && active_voxel_len > 0;
         let flora_start = Instant::now();
-        if place_flora {
+        if should_rebuild_flora {
             self.seed_and_rebuild_flora_from_surface(chunk_id, 0)?;
         }
         let flora_elapsed = flora_start.elapsed();
 
         log::debug!(
-            "[PERF][SURFACE_BUILD] chunk {:?} total {:.2}ms setup {:.2}ms record {:.2}ms dispatch_wait {:.2}ms readback {:.2}ms flora {:.2}ms active_voxels {} place_flora {}",
+            "[PERF][SURFACE_BUILD] chunk {:?} total {:.2}ms setup {:.2}ms record {:.2}ms dispatch_wait {:.2}ms readback {:.2}ms flora {:.2}ms active_voxels {} place_flora {} flora_rebuilt {}",
             chunk_id,
             total_start.elapsed().as_secs_f32() * 1000.0,
             setup_elapsed.as_secs_f32() * 1000.0,
@@ -264,6 +265,7 @@ impl SurfaceBuilder {
             flora_elapsed.as_secs_f32() * 1000.0,
             active_voxel_len,
             place_flora,
+            should_rebuild_flora,
         );
 
         Ok(active_voxel_len)
