@@ -1,6 +1,8 @@
 use std::collections::{HashMap, VecDeque};
 
-use glam::UVec3;
+use glam::{UVec3, Vec3};
+
+use crate::util::compare_chunk_nearness;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct GrowingFloraChunk {
@@ -34,8 +36,43 @@ impl GrowingFloraQueue {
     }
 
     /// pop the next chunk and its last tick. Returns None if empty.
+    #[cfg(test)]
     pub(crate) fn pop_next(&mut self) -> Option<GrowingFloraChunk> {
-        while let Some(chunk_id) = self.pending.pop_front() {
+        self.pop_with(|pending, queued| {
+            while let Some(chunk_id) = pending.pop_front() {
+                if queued.contains_key(&chunk_id) {
+                    return Some(chunk_id);
+                }
+            }
+
+            None
+        })
+    }
+
+    pub(crate) fn pop_nearest_to(
+        &mut self,
+        focus: Vec3,
+        chunk_extent: UVec3,
+    ) -> Option<GrowingFloraChunk> {
+        self.pop_with(|pending, queued| {
+            let idx = pending
+                .iter()
+                .enumerate()
+                .filter(|(_, chunk_id)| queued.contains_key(chunk_id))
+                .min_by(|(_, left), (_, right)| {
+                    compare_chunk_nearness(**left, **right, focus, chunk_extent)
+                })
+                .map(|(idx, _)| idx)?;
+
+            pending.remove(idx)
+        })
+    }
+
+    fn pop_with(
+        &mut self,
+        mut pop_chunk: impl FnMut(&mut VecDeque<UVec3>, &HashMap<UVec3, u32>) -> Option<UVec3>,
+    ) -> Option<GrowingFloraChunk> {
+        while let Some(chunk_id) = pop_chunk(&mut self.pending, &self.queued) {
             if let Some(last_tick) = self.queued.remove(&chunk_id) {
                 return Some(GrowingFloraChunk {
                     chunk_id,
@@ -118,5 +155,29 @@ mod tests {
         assert_eq!(queue.len(), 1);
         let popped = queue.pop_next().unwrap();
         assert_eq!(popped.last_flora_tick, 20);
+    }
+
+    #[test]
+    fn pop_nearest_orders_by_distance() {
+        let mut queue = GrowingFloraQueue::default();
+
+        queue.push(chunk(3), 30);
+        queue.push(chunk(1), 10);
+        queue.push(chunk(2), 20);
+
+        let focus = Vec3::new(1.25, 0.5, 0.5);
+
+        assert_eq!(
+            queue.pop_nearest_to(focus, UVec3::ONE).unwrap().chunk_id,
+            chunk(1)
+        );
+        assert_eq!(
+            queue.pop_nearest_to(focus, UVec3::ONE).unwrap().chunk_id,
+            chunk(2)
+        );
+        assert_eq!(
+            queue.pop_nearest_to(focus, UVec3::ONE).unwrap().chunk_id,
+            chunk(3)
+        );
     }
 }

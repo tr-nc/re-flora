@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use glam::UVec3;
+use glam::{UVec3, Vec3};
 
 use crate::util::ChunkWorkQueue;
 
@@ -67,8 +67,24 @@ impl<T> LatestChunkQueue<T> {
         state.latest_revision
     }
 
+    #[cfg(test)]
     pub(crate) fn pop_next(&mut self) -> Option<LatestChunkWork<T>> {
-        while let Some(chunk_id) = self.pending.pop_next() {
+        self.pop_with(|pending| pending.pop_next())
+    }
+
+    pub(crate) fn pop_nearest_to(
+        &mut self,
+        focus: Vec3,
+        chunk_extent: UVec3,
+    ) -> Option<LatestChunkWork<T>> {
+        self.pop_with(|pending| pending.pop_nearest_to(focus, chunk_extent))
+    }
+
+    fn pop_with(
+        &mut self,
+        mut pop_chunk: impl FnMut(&mut ChunkWorkQueue) -> Option<UVec3>,
+    ) -> Option<LatestChunkWork<T>> {
+        while let Some(chunk_id) = pop_chunk(&mut self.pending) {
             let Some(state) = self.states.get_mut(&chunk_id) else {
                 continue;
             };
@@ -231,5 +247,24 @@ mod tests {
         assert_eq!(first.payload, "new-a");
         assert_eq!(second.chunk_id, chunk(2));
         assert_eq!(second.payload, "b");
+    }
+
+    #[test]
+    fn pop_nearest_preserves_latest_payload() {
+        let mut queue = LatestChunkQueue::default();
+        queue.push(chunk(3), "c");
+        queue.push(chunk(1), "old-a");
+        queue.push(chunk(2), "b");
+        queue.push(chunk(1), "new-a");
+
+        let focus = Vec3::new(1.25, 0.5, 0.5);
+        let first = queue.pop_nearest_to(focus, UVec3::ONE).unwrap();
+        let second = queue.pop_nearest_to(focus, UVec3::ONE).unwrap();
+        let third = queue.pop_nearest_to(focus, UVec3::ONE).unwrap();
+
+        assert_eq!(first.chunk_id, chunk(1));
+        assert_eq!(first.payload, "new-a");
+        assert_eq!(second.chunk_id, chunk(2));
+        assert_eq!(third.chunk_id, chunk(3));
     }
 }

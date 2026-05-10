@@ -543,15 +543,15 @@ impl ContreeBuilder {
         self.audio_ray_tracer.clone()
     }
 
-    pub fn poll_cpu_chunk_cache_jobs(&mut self) {
+    pub fn poll_cpu_chunk_cache_jobs(&mut self, focus: Vec3, chunk_extent: UVec3) {
         self.dispatch_completed_cpu_chunk_cache_jobs();
-        self.publish_completed_cpu_chunk_cache_jobs();
-        self.try_submit_next_cpu_chunk_cache_job();
+        self.publish_completed_cpu_chunk_cache_jobs(focus, chunk_extent);
+        self.try_submit_next_cpu_chunk_cache_job(focus, chunk_extent);
     }
 
     pub fn flush_cpu_chunk_cache_jobs(&mut self) {
         loop {
-            self.poll_cpu_chunk_cache_jobs();
+            self.poll_cpu_chunk_cache_jobs(Vec3::ZERO, self.voxel_dim_per_chunk);
             if self.cpu_chunk_cache_jobs_idle() {
                 break;
             }
@@ -705,7 +705,7 @@ impl ContreeBuilder {
         source: CpuChunkCacheBuildSource,
     ) {
         self.cpu_chunk_cache_queue.push(chunk_idx, source);
-        self.try_submit_next_cpu_chunk_cache_job();
+        self.try_submit_next_cpu_chunk_cache_job(Vec3::ZERO, self.voxel_dim_per_chunk);
     }
 
     fn submit_chunk_cpu_cache_rebuild(
@@ -810,7 +810,7 @@ impl ContreeBuilder {
         }
     }
 
-    fn publish_completed_cpu_chunk_cache_jobs(&mut self) {
+    fn publish_completed_cpu_chunk_cache_jobs(&mut self, focus: Vec3, chunk_extent: UVec3) {
         while let Ok(result) = self.cpu_chunk_cache_result_rx.try_recv() {
             self.cpu_chunk_cache_decode_inflight = false;
             self.cpu_chunk_readback_buffers = Some(result.readback_buffers);
@@ -827,7 +827,7 @@ impl ContreeBuilder {
 
             self.cpu_chunk_cache_queue
                 .complete(result.chunk_idx, result.revision);
-            self.try_submit_next_cpu_chunk_cache_job();
+            self.try_submit_next_cpu_chunk_cache_job(focus, chunk_extent);
         }
     }
 
@@ -915,7 +915,7 @@ impl ContreeBuilder {
             && !self.cpu_chunk_cache_decode_inflight
     }
 
-    fn try_submit_next_cpu_chunk_cache_job(&mut self) {
+    fn try_submit_next_cpu_chunk_cache_job(&mut self, focus: Vec3, chunk_extent: UVec3) {
         if self.active_cpu_chunk_cache_job.is_some()
             || self.cpu_chunk_cache_decode_inflight
             || self.cpu_chunk_readback_buffers.is_none()
@@ -923,7 +923,10 @@ impl ContreeBuilder {
             return;
         }
 
-        if let Some(work) = self.cpu_chunk_cache_queue.pop_next() {
+        if let Some(work) = self
+            .cpu_chunk_cache_queue
+            .pop_nearest_to(focus, chunk_extent)
+        {
             self.submit_chunk_cpu_cache_rebuild(work.chunk_id, work.revision, work.payload);
         }
     }

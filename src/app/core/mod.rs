@@ -247,7 +247,11 @@ impl App {
     }
 
     fn process_deferred_chunk_rebuild(&mut self) {
-        let Some(work) = self.deferred_chunk_rebuilds.pop_next() else {
+        let player_pos = self.tracer.camera_position();
+        let Some(work) = self
+            .deferred_chunk_rebuilds
+            .pop_nearest_to(player_pos, VOXEL_DIM_PER_CHUNK)
+        else {
             return;
         };
 
@@ -290,7 +294,9 @@ impl App {
         let Some(GrowingFloraChunk {
             chunk_id,
             last_flora_tick,
-        }) = self.growing_flora_chunks.pop_next()
+        }) = self
+            .growing_flora_chunks
+            .pop_nearest_to(self.tracer.camera_position(), VOXEL_DIM_PER_CHUNK)
         else {
             return;
         };
@@ -1583,7 +1589,8 @@ impl App {
                 self.window_state.maintain_cursor_grab();
 
                 self.time_info.update(self.perf_logging);
-                self.contree_builder.poll_cpu_chunk_cache_jobs();
+                self.contree_builder
+                    .poll_cpu_chunk_cache_jobs(self.tracer.camera_position(), VOXEL_DIM_PER_CHUNK);
 
                 if self.loading_state.is_some() {
                     self.process_loading_step();
