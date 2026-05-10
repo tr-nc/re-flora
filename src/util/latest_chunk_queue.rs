@@ -30,10 +30,19 @@ impl<T> Default for LatestChunkState<T> {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub(crate) struct LatestChunkQueue<T> {
     states: HashMap<UVec3, LatestChunkState<T>>,
     pending: VecDeque<UVec3>,
+}
+
+impl<T> Default for LatestChunkQueue<T> {
+    fn default() -> Self {
+        Self {
+            states: HashMap::new(),
+            pending: VecDeque::new(),
+        }
+    }
 }
 
 impl<T> LatestChunkQueue<T> {
@@ -127,6 +136,7 @@ impl<T> LatestChunkQueue<T> {
         self.pending.len()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn is_empty(&self) -> bool {
         self.pending.is_empty()
     }
