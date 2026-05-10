@@ -152,6 +152,14 @@ pub struct TerrainQueryResult {
     pub hit_pos_and_valid: [u32; 0],
 }
 
+/// Auto-generated from `B_TreeLeafInstances` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct TreeLeafInstances {
+    pub packed_local_pos: u32,
+    pub packed_orientation: u32,
+}
+
 /// Auto-generated from `PushConstantChunkModifySample` (GLSL source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]

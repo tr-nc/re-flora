@@ -37,8 +37,8 @@ const LEAF_INSTANCE_TYPE: u32 = 4;
 
 use crate::audio::SpatialSoundManager;
 use crate::builder::{
-    ContreeBuilderResources, FloraInstanceResources, Instance, SceneAccelBuilderResources,
-    SurfaceResources, TreeLeavesInstance,
+    ContreeBuilderResources, FloraInstanceResources, SceneAccelBuilderResources, SurfaceResources,
+    TreeLeavesInstance,
 };
 use crate::gameplay::{calculate_directional_light_matrices, Camera, CameraDesc, CameraVectors};
 use crate::generated::gpu_structs::PushConstantFlora;
@@ -1169,8 +1169,8 @@ impl Tracer {
             );
             for &lod_state in &[LodState::Lod0, LodState::Lod1] {
                 let pipeline = match lod_state {
-                    LodState::Lod0 => &self.graphics_pipelines.flora_ppl,
-                    LodState::Lod1 => &self.graphics_pipelines.flora_lod_ppl,
+                    LodState::Lod0 => &self.graphics_pipelines.leaves_ppl,
+                    LodState::Lod1 => &self.graphics_pipelines.leaves_lod_ppl,
                 };
                 let (indices_buf, vertices_buf, indices_len) = match lod_state {
                     LodState::Lod0 => (
@@ -1953,7 +1953,7 @@ impl Tracer {
         tree_id: u32,
         leaf_positions: &[UVec3],
     ) -> Result<()> {
-        use crate::builder::TreeLeavesInstance;
+        use crate::builder::{TreeLeafInstance, TreeLeavesInstance};
 
         let mut instances_data = Vec::new();
         let chunk_world_offset = leaf_positions
@@ -1964,23 +1964,21 @@ impl Tracer {
         if let Some(max_leaf_pos) = leaf_positions.iter().copied().reduce(UVec3::max) {
             anyhow::ensure!(
                 (max_leaf_pos - chunk_world_offset)
-                    .cmplt(UVec3::splat(256))
+                    .cmplt(UVec3::splat(1024))
                     .all(),
-                "tree leaf instance span exceeds packed local-position range"
+                "tree leaf instance span exceeds packed 10-bit local-position range"
             );
         }
         let pack_local_pos = |world_pos: UVec3| -> u32 {
             let local_pos = world_pos - chunk_world_offset;
-            (local_pos.x & 0xff)
-                | ((local_pos.y & 0xff) << 8)
-                | ((local_pos.z & 0xff) << 16)
-                | (0xff << 24)
+            (local_pos.x & 0x3ff) | ((local_pos.y & 0x3ff) << 10) | ((local_pos.z & 0x3ff) << 20)
         };
         for leaf_pos in leaf_positions.iter() {
             let voxel_pos = *leaf_pos;
 
-            let instance = Instance {
+            let instance = TreeLeafInstance {
                 packed_local_pos: pack_local_pos(voxel_pos),
+                packed_orientation: 0,
             };
 
             instances_data.push(instance);
@@ -2036,6 +2034,7 @@ impl Tracer {
         surface_resources: &mut SurfaceResources,
         tree_id: u32,
     ) -> Result<()> {
+        self.vulkan_ctx.device().wait_idle();
         if let Some(removed_instance) = surface_resources
             .instances
             .leaves_instances

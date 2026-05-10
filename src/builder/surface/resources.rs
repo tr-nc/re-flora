@@ -12,8 +12,14 @@ use std::collections::HashMap;
 const MAX_FLORA_INSTANCES_PER_SPECIES: u64 = 40_000;
 
 pub type Instance = crate::generated::gpu_structs::ManualFloraInstances;
+pub type TreeLeafInstance = crate::generated::gpu_structs::TreeLeafInstances;
 
 pub struct InstanceResource {
+    pub instances_buf: Resource<Buffer>,
+    pub instances_len: u32,
+}
+
+pub struct TreeLeafInstanceResource {
     pub instances_buf: Resource<Buffer>,
     pub instances_len: u32,
 }
@@ -40,10 +46,32 @@ impl InstanceResource {
     }
 }
 
+impl TreeLeafInstanceResource {
+    pub fn new(device: Device, allocator: Allocator, max_instances: u64) -> Self {
+        let instance_size = std::mem::size_of::<TreeLeafInstance>();
+        let instances_buf = Buffer::new_sized(
+            device,
+            allocator,
+            BufferUsage::from_flags(
+                vk::BufferUsageFlags::VERTEX_BUFFER
+                    | vk::BufferUsageFlags::STORAGE_BUFFER
+                    | vk::BufferUsageFlags::TRANSFER_DST,
+            ),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            instance_size as u64 * max_instances,
+        );
+
+        Self {
+            instances_buf: Resource::new(instances_buf),
+            instances_len: 0,
+        }
+    }
+}
+
 pub struct TreeLeavesInstance {
     pub aabb: Aabb3,
     pub chunk_world_offset: UVec3,
-    pub resources: InstanceResource,
+    pub resources: TreeLeafInstanceResource,
 }
 
 impl TreeLeavesInstance {
@@ -54,7 +82,7 @@ impl TreeLeavesInstance {
         device: Device,
         allocator: Allocator,
     ) -> Self {
-        let resources = InstanceResource::new(device, allocator, 10000);
+        let resources = TreeLeafInstanceResource::new(device, allocator, 10000);
         Self {
             aabb,
             chunk_world_offset,

@@ -1102,10 +1102,8 @@ impl App {
 
         self.ensure_map_butterfly_emitter();
 
-        self.debug_tree_pos.y = self.query_terrain_height_cpu(Vec2::new(
-            self.debug_tree_pos.x,
-            self.debug_tree_pos.z,
-        ));
+        self.debug_tree_pos.y =
+            self.query_terrain_height_cpu(Vec2::new(self.debug_tree_pos.x, self.debug_tree_pos.z));
 
         if let Err(err) = self.add_tree(
             self.debug_tree_desc.clone(),
@@ -1859,11 +1857,11 @@ impl App {
                 }
 
                 if tree_desc_changed {
-                    self.replace_single_tree(
-                        self.debug_tree_desc.clone(),
-                        self.debug_tree_pos,
-                    )
-                    .unwrap();
+                    if let Err(err) =
+                        self.replace_single_tree(self.debug_tree_desc.clone(), self.debug_tree_pos)
+                    {
+                        log::error!("Failed to replace debug tree: {err}");
+                    }
                 }
 
                 if self.regenerate_trees_requested {
