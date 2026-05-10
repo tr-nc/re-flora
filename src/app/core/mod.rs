@@ -241,6 +241,10 @@ impl App {
         );
     }
 
+    pub(super) fn deferred_chunk_rebuilds_idle(&self) -> bool {
+        self.deferred_chunk_rebuilds.is_idle()
+    }
+
     fn process_deferred_chunk_rebuild(&mut self) {
         let Some(work) = self.deferred_chunk_rebuilds.pop_next() else {
             return;

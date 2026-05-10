@@ -5,7 +5,16 @@ use std::time::Instant;
 pub(super) struct TreeBench {
     samples: u32,
     next_sample: u32,
+    active_sample: Option<TreeBenchActiveSample>,
     results: Vec<f32>,
+}
+
+#[derive(Debug)]
+struct TreeBenchActiveSample {
+    sample: u32,
+    start: Instant,
+    tree_height: f32,
+    seed: u64,
 }
 
 impl TreeBench {
@@ -13,6 +22,7 @@ impl TreeBench {
         Self {
             samples: samples.max(1),
             next_sample: 0,
+            active_sample: None,
             results: Vec::new(),
         }
     }
@@ -30,6 +40,24 @@ impl TreeBench {
     }
 
     fn run_sample(&mut self, app: &mut App) -> bool {
+        if let Some(active) = self.active_sample.take() {
+            if !app.deferred_chunk_rebuilds_idle() {
+                self.active_sample = Some(active);
+                return false;
+            }
+
+            let elapsed_ms = active.start.elapsed().as_secs_f32() * 1000.0;
+            self.results.push(elapsed_ms);
+            log::info!(
+                "[PERF][TREE_BENCH] sample {}/{} replace_deferred_total {:.2}ms tree_height {:.2} seed {}",
+                active.sample,
+                self.samples,
+                elapsed_ms,
+                active.tree_height,
+                active.seed,
+            );
+        }
+
         if self.next_sample >= self.samples {
             self.log_summary();
             return true;
@@ -49,29 +77,29 @@ impl TreeBench {
         app.debug_tree_desc = tree_desc;
 
         let start = Instant::now();
-        match app.replace_single_tree(app.debug_tree_desc.clone(), app.debug_tree_pos) {
+        match app.replace_single_tree_deferred(app.debug_tree_desc.clone(), app.debug_tree_pos) {
             Ok(()) => {
-                let elapsed_ms = start.elapsed().as_secs_f32() * 1000.0;
-                self.results.push(elapsed_ms);
+                let enqueue_elapsed_ms = start.elapsed().as_secs_f32() * 1000.0;
                 log::info!(
-                    "[PERF][TREE_BENCH] sample {}/{} replace {:.2}ms tree_height {:.2} seed {}",
+                    "[PERF][TREE_BENCH] sample {}/{} enqueue {:.2}ms tree_height {:.2} seed {}",
                     sample,
                     self.samples,
-                    elapsed_ms,
+                    enqueue_elapsed_ms,
                     app.debug_tree_desc.tree_height,
                     app.debug_tree_desc.seed,
                 );
+                self.active_sample = Some(TreeBenchActiveSample {
+                    sample,
+                    start,
+                    tree_height: app.debug_tree_desc.tree_height,
+                    seed: app.debug_tree_desc.seed,
+                });
             }
             Err(err) => {
                 log::error!("[PERF][TREE_BENCH] sample {sample} failed: {err}");
                 self.log_summary();
                 return true;
             }
-        }
-
-        if self.next_sample >= self.samples {
-            self.log_summary();
-            return true;
         }
 
         false

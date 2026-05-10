@@ -460,6 +460,7 @@ impl App {
         self.replace_single_tree_with_rebuild_mode(tree_desc, tree_pos, true)
     }
 
+    #[allow(dead_code)]
     pub(super) fn replace_single_tree(
         &mut self,
         tree_desc: TreeDesc,
