@@ -1,6 +1,5 @@
 /target
 .claude/
-.pi-team/
 .aider*
 __pycache__/
 /resource_container_derive
