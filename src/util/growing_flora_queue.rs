@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 
 use glam::UVec3;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct GrowingFloraChunk {
     pub chunk_id: UVec3,
     pub last_flora_tick: u32,
@@ -15,9 +15,16 @@ pub(crate) struct GrowingFloraQueue {
 }
 
 impl GrowingFloraQueue {
+    /// push a chunk to the queue. If already queued, refreshes last_flora_tick to the new value.
+    /// returns true if this is a new entry, false if it was already queued (tick refreshed).
     pub(crate) fn push(&mut self, chunk_id: UVec3, last_flora_tick: u32) -> bool {
         match self.queued.entry(chunk_id) {
-            std::collections::hash_map::Entry::Occupied(_) => false,
+            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                // already queued, for example from a fresh edit while still pending
+                // refresh tick so new damage gets the correct start point
+                entry.insert(last_flora_tick);
+                false
+            }
             std::collections::hash_map::Entry::Vacant(entry) => {
                 entry.insert(last_flora_tick);
                 self.pending.push_back(chunk_id);
@@ -26,7 +33,7 @@ impl GrowingFloraQueue {
         }
     }
 
-    /// Pop the next chunk and its last tick. Returns None if empty.
+    /// pop the next chunk and its last tick. Returns None if empty.
     pub(crate) fn pop_next(&mut self) -> Option<GrowingFloraChunk> {
         while let Some(chunk_id) = self.pending.pop_front() {
             if let Some(last_tick) = self.queued.remove(&chunk_id) {
@@ -44,6 +51,7 @@ impl GrowingFloraQueue {
         self.queued.len()
     }
 
+    #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {
         self.queued.is_empty()
     }
@@ -73,17 +81,17 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_push_keeps_one_entry() {
+    fn duplicate_push_refreshes_tick() {
         let mut queue = GrowingFloraQueue::default();
 
-        assert!(queue.push(chunk(1), 0));
-        assert!(!queue.push(chunk(1), 5)); // different tick but same chunk, should be ignored
+        assert!(queue.push(chunk(1), 10));
+        assert!(!queue.push(chunk(1), 20)); // refresh, not duplicate
 
         assert_eq!(queue.len(), 1);
         let popped = queue.pop_next().unwrap();
         assert_eq!(popped.chunk_id, chunk(1));
-        assert_eq!(popped.last_flora_tick, 0); // first tick kept
-        assert_eq!(queue.pop_next(), None);
+        assert_eq!(popped.last_flora_tick, 20); // refreshed to latest
+        assert!(queue.is_empty());
     }
 
     #[test]
@@ -97,5 +105,18 @@ mod tests {
         assert_eq!(queue.pop_next().unwrap().chunk_id, chunk(1));
         assert_eq!(queue.pop_next().unwrap().chunk_id, chunk(2));
         assert_eq!(queue.pop_next().unwrap().chunk_id, chunk(3));
+    }
+
+    #[test]
+    fn push_while_pending_refreshes_tick() {
+        let mut queue = GrowingFloraQueue::default();
+
+        queue.push(chunk(1), 10);
+        // simulate: chunk is still pending but user edits it again at tick 20
+        queue.push(chunk(1), 20);
+
+        assert_eq!(queue.len(), 1);
+        let popped = queue.pop_next().unwrap();
+        assert_eq!(popped.last_flora_tick, 20);
     }
 }

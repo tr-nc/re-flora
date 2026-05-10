@@ -35,7 +35,8 @@ void update_species_growth(uint species_idx, uint idx, uint instance_len) {
         return;
     }
 
-    progress = min(progress + instances_to_occupancy_info.tick_delta, INSTANCE_GROWTH_PROGRESS_MATURE);
+    uint remaining = INSTANCE_GROWTH_PROGRESS_MATURE - progress;
+    progress += min(instances_to_occupancy_info.tick_delta, remaining);
     instance.packed_local_pos = set_instance_growth_progress(instance.packed_local_pos, progress);
     manual_flora_instances[species_idx].data[idx] = instance;
 

@@ -34,8 +34,8 @@ use crate::particles::{
 };
 use crate::tracer::{TerrainRayQuery, Tracer, TracerDesc};
 use crate::tree_gen::TreeDesc;
-use crate::util::TimeInfo;
 use crate::util::get_sun_dir;
+use crate::util::TimeInfo;
 use crate::util::{GrowingFloraChunk, GrowingFloraQueue, LatestChunkQueue, ShaderCompiler, BENCH};
 use crate::vkn::{Allocator, CommandBuffer, Fence, Semaphore, SwapchainDesc};
 use crate::RenderFlags;
@@ -287,14 +287,21 @@ impl App {
     }
 
     fn update_growing_flora_chunk(&mut self) {
-        let Some(GrowingFloraChunk { chunk_id, last_flora_tick }) = self.growing_flora_chunks.pop_next() else {
+        let Some(GrowingFloraChunk {
+            chunk_id,
+            last_flora_tick,
+        }) = self.growing_flora_chunks.pop_next()
+        else {
             return;
         };
 
         let tick_delta = self.flora_tick.wrapping_sub(last_flora_tick);
-        match self.surface_builder.update_flora_growth_for_chunk(chunk_id, tick_delta) {
+        match self
+            .surface_builder
+            .update_flora_growth_for_chunk(chunk_id, tick_delta)
+        {
             Ok(true) => {
-                // Still growing, requeue with current tick
+                // still growing, requeue from the tick we successfully applied through
                 self.growing_flora_chunks.push(chunk_id, self.flora_tick);
             }
             Ok(false) => {}
@@ -304,7 +311,7 @@ impl App {
                     chunk_id,
                     err
                 );
-                self.growing_flora_chunks.push(chunk_id, self.flora_tick);
+                self.growing_flora_chunks.push(chunk_id, last_flora_tick);
             }
         }
     }

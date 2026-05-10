@@ -570,7 +570,11 @@ impl SurfaceBuilder {
         })
     }
 
-    pub fn update_flora_growth_for_chunk(&mut self, chunk_id: UVec3, tick_delta: u32) -> Result<bool> {
+    pub fn update_flora_growth_for_chunk(
+        &mut self,
+        chunk_id: UVec3,
+        tick_delta: u32,
+    ) -> Result<bool> {
         if !self.chunk_bound.in_bound(chunk_id) {
             return Err(anyhow::anyhow!("Chunk ID out of bounds"));
         }
