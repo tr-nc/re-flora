@@ -685,7 +685,24 @@ fn calculate_clipped_offset_and_dim(
     let clamped_min = min_vox.clamp(IVec3::ZERO, atlas_max);
     let clamped_max = max_vox.clamp(IVec3::ZERO, atlas_max);
 
+    if min_vox != clamped_min || max_vox != clamped_max {
+        log::warn!(
+            "voxel edit bounds clipped to atlas: requested min={:?} max={:?}, clipped min={:?} max={:?}, atlas_dim={:?}",
+            min_vox,
+            max_vox,
+            clamped_min,
+            clamped_max,
+            atlas_dim,
+        );
+    }
+
     if any_ivec3_less_equal(clamped_max, clamped_min) {
+        log::warn!(
+            "voxel edit skipped outside atlas: requested min={:?} max={:?}, atlas_dim={:?}",
+            min_vox,
+            max_vox,
+            atlas_dim,
+        );
         return None;
     }
 
