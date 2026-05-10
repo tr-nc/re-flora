@@ -452,10 +452,27 @@ impl App {
         chunk_ids
     }
 
+    pub(super) fn replace_single_tree_deferred(
+        &mut self,
+        tree_desc: TreeDesc,
+        tree_pos: Vec3,
+    ) -> Result<()> {
+        self.replace_single_tree_with_rebuild_mode(tree_desc, tree_pos, true)
+    }
+
     pub(super) fn replace_single_tree(
         &mut self,
         tree_desc: TreeDesc,
         tree_pos: Vec3,
+    ) -> Result<()> {
+        self.replace_single_tree_with_rebuild_mode(tree_desc, tree_pos, false)
+    }
+
+    fn replace_single_tree_with_rebuild_mode(
+        &mut self,
+        tree_desc: TreeDesc,
+        tree_pos: Vec3,
+        defer_rebuild: bool,
     ) -> Result<()> {
         let total_start = Instant::now();
         let mut old_remove_ms = 0.0;
@@ -507,9 +524,13 @@ impl App {
 
         let rebuild_chunk_ids = self.tree_rebuild_chunk_ids(old_bound, compiled.this_bound);
         let rebuild_start = Instant::now();
-        self.execute_edit_plan(WorldEditPlan::with_build(BuildEdit::RebuildChunks(
-            rebuild_chunk_ids.clone(),
-        )))?;
+        if defer_rebuild {
+            self.enqueue_deferred_chunk_rebuilds(&rebuild_chunk_ids);
+        } else {
+            self.execute_edit_plan(WorldEditPlan::with_build(BuildEdit::RebuildChunks(
+                rebuild_chunk_ids.clone(),
+            )))?;
+        }
         let rebuild_elapsed = rebuild_start.elapsed();
         crate::util::BENCH
             .lock()

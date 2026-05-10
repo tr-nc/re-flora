@@ -35,7 +35,7 @@ use crate::particles::{
 use crate::tracer::{TerrainRayQuery, Tracer, TracerDesc};
 use crate::tree_gen::TreeDesc;
 use crate::util::TimeInfo;
-use crate::util::{get_sun_dir, ShaderCompiler, BENCH};
+use crate::util::{get_sun_dir, LatestChunkQueue, ShaderCompiler, BENCH};
 use crate::vkn::{Allocator, CommandBuffer, Fence, Semaphore, SwapchainDesc};
 use crate::RenderFlags;
 use crate::{
@@ -82,6 +82,9 @@ enum LoadingPhase {
     Terrain,
     Building,
 }
+
+#[derive(Clone, Copy, Debug, Default)]
+struct ChunkRebuildRequest;
 
 struct LoadingState {
     chunk_indices: Vec<UVec3>,
@@ -202,6 +205,7 @@ pub struct App {
     screenshot_taken: bool,
     auto_exit_delay: Option<f32>,
     tree_bench: Option<TreeBench>,
+    deferred_chunk_rebuilds: LatestChunkQueue<ChunkRebuildRequest>,
 
     // note: always keep the context to end, as it has to be destroyed last
     vulkan_ctx: VulkanContext,
@@ -224,6 +228,55 @@ impl Drop for App {
 }
 
 impl App {
+    pub(super) fn enqueue_deferred_chunk_rebuilds(&mut self, chunk_ids: &[UVec3]) {
+        for &chunk_id in chunk_ids {
+            self.deferred_chunk_rebuilds
+                .push(chunk_id, ChunkRebuildRequest);
+        }
+
+        log::debug!(
+            "[PERF][DEFERRED_REBUILD_QUEUE] enqueued {} pending {}",
+            chunk_ids.len(),
+            self.deferred_chunk_rebuilds.len(),
+        );
+    }
+
+    fn process_deferred_chunk_rebuild(&mut self) {
+        let Some(work) = self.deferred_chunk_rebuilds.pop_next() else {
+            return;
+        };
+
+        let rebuild_start = Instant::now();
+        let result = world_ops::mesh_generate_chunks(
+            &mut self.surface_builder,
+            &mut self.contree_builder,
+            &mut self.scene_accel_builder,
+            VOXEL_DIM_PER_CHUNK,
+            vec![work.chunk_id],
+        );
+        let elapsed = rebuild_start.elapsed();
+        self.deferred_chunk_rebuilds
+            .complete(work.chunk_id, work.revision);
+
+        match result {
+            Ok(()) => log::info!(
+                "[PERF][DEFERRED_REBUILD] chunk {:?} total {:.2}ms remaining {} revision {}",
+                work.chunk_id,
+                elapsed.as_secs_f32() * 1000.0,
+                self.deferred_chunk_rebuilds.len(),
+                work.revision,
+            ),
+            Err(err) => log::error!(
+                "[PERF][DEFERRED_REBUILD] chunk {:?} failed after {:.2}ms remaining {} revision {}: {}",
+                work.chunk_id,
+                elapsed.as_secs_f32() * 1000.0,
+                self.deferred_chunk_rebuilds.len(),
+                work.revision,
+                err,
+            ),
+        }
+    }
+
     pub(super) fn track_growing_flora_chunk(&mut self, chunk_id: UVec3) {
         if !self.growing_flora_chunks.contains(&chunk_id) {
             self.growing_flora_chunks.push(chunk_id);
@@ -822,6 +875,7 @@ impl App {
             tree_bench: options
                 .tree_bench
                 .then(|| TreeBench::new(options.tree_bench_samples)),
+            deferred_chunk_rebuilds: LatestChunkQueue::default(),
 
             spatial_sound_manager,
             tree_audio_manager,
@@ -1863,9 +1917,10 @@ impl App {
                 }
 
                 if tree_desc_changed {
-                    if let Err(err) =
-                        self.replace_single_tree(self.debug_tree_desc.clone(), self.debug_tree_pos)
-                    {
+                    if let Err(err) = self.replace_single_tree_deferred(
+                        self.debug_tree_desc.clone(),
+                        self.debug_tree_pos,
+                    ) {
                         log::error!("Failed to replace debug tree: {err}");
                     }
                 }
@@ -1874,6 +1929,8 @@ impl App {
                     self.on_terminate(event_loop);
                     return;
                 }
+
+                self.process_deferred_chunk_rebuild();
 
                 if self.regenerate_trees_requested {
                     self.regenerate_trees_requested = false;
