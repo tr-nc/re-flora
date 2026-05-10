@@ -5,10 +5,12 @@ mod boot;
 mod input;
 mod lifecycle;
 mod particles;
+mod tree_bench;
 mod ui_style;
 mod vegetation;
 
 use self::particles::TreeLeafEmitter;
+use self::tree_bench::TreeBench;
 use self::vegetation::{TreeRecord, TreeVariationConfig};
 use crate::app::environment;
 use crate::app::gui_config_loader::GuiConfigLoader;
@@ -199,6 +201,7 @@ pub struct App {
     screenshot_delay: f32,
     screenshot_taken: bool,
     auto_exit_delay: Option<f32>,
+    tree_bench: Option<TreeBench>,
 
     // note: always keep the context to end, as it has to be destroyed last
     vulkan_ctx: VulkanContext,
@@ -816,6 +819,9 @@ impl App {
             screenshot_delay: options.screenshot_delay,
             screenshot_taken: false,
             auto_exit_delay: options.auto_exit_delay,
+            tree_bench: options
+                .tree_bench
+                .then(|| TreeBench::new(options.tree_bench_samples)),
 
             spatial_sound_manager,
             tree_audio_manager,
@@ -1862,6 +1868,11 @@ impl App {
                     {
                         log::error!("Failed to replace debug tree: {err}");
                     }
+                }
+
+                if TreeBench::run_next(self) {
+                    self.on_terminate(event_loop);
+                    return;
                 }
 
                 if self.regenerate_trees_requested {

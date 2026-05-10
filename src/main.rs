@@ -86,6 +86,10 @@ pub struct AppOptions {
     pub auto_exit_delay: Option<f32>,
     /// Enable per-frame performance timing output to console.
     pub perf: bool,
+    /// Run the lightweight tree replacement benchmark and exit after completion.
+    pub tree_bench: bool,
+    /// Number of tree benchmark samples.
+    pub tree_bench_samples: u32,
     /// Print CLI help and exit successfully.
     pub help: bool,
 }
@@ -99,6 +103,13 @@ impl AppOptions {
                 .position(|a| a == flag)
                 .and_then(|i| args.get(i + 1))
                 .and_then(|v| v.parse::<f32>().ok())
+        };
+
+        let parse_u32_after = |flag: &str| -> Option<u32> {
+            args.iter()
+                .position(|a| a == flag)
+                .and_then(|i| args.get(i + 1))
+                .and_then(|v| v.parse::<u32>().ok())
         };
 
         let parse_string_after = |flag: &str| -> Option<String> {
@@ -140,6 +151,8 @@ impl AppOptions {
             screenshot_delay: parse_f32_after("--screenshot-delay").unwrap_or(5.0),
             auto_exit_delay: parse_f32_after("--auto-exit"),
             perf: args.iter().any(|a| a == "--perf"),
+            tree_bench: args.iter().any(|a| a == "--tree-bench"),
+            tree_bench_samples: parse_u32_after("--tree-bench-samples").unwrap_or(10),
             help: args.iter().any(|a| a == "--help"),
         }
     }
@@ -165,6 +178,8 @@ Options:
   --screenshot-delay <sec>    Delay before screenshot capture (default: 5.0)
   --auto-exit <sec>           Exit automatically after rendering starts
   --perf                      Enable per-frame performance logging
+  --tree-bench                Run tree replacement benchmark and exit
+  --tree-bench-samples <N>    Tree benchmark samples (default: 10)
   --help                      Show this help and exit
 
 Examples:
@@ -173,7 +188,8 @@ Examples:
   re-flora --swapchain-images 2
   re-flora --no-shadows --no-denoise
   re-flora --screenshot out.png --screenshot-delay 3
-  re-flora --auto-exit 10 --perf"#
+  re-flora --auto-exit 10 --perf
+  re-flora --windowed --tree-bench --tree-bench-samples 10"#
     );
 }
 
