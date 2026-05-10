@@ -558,6 +558,13 @@ impl PlainBuilder {
         )?;
         update_round_cones(&self.resources, round_cones)?;
         update_trunk_bvh_nodes(&self.resources, bvh_nodes)?;
+        log::info!(
+            "[TREE_DEBUG] round_cone_dispatch cones={} offset={:?} dim={:?} voxels={}",
+            round_cones.len(),
+            offset,
+            dim,
+            dim.x as u64 * dim.y as u64 * dim.z as u64,
+        );
 
         execute_one_time_command(
             self.vulkan_ctx.device(),

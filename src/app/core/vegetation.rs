@@ -293,13 +293,52 @@ struct CompiledTreePlacement {
 
 struct TreePlacementService;
 
+fn analyze_round_cones(round_cones: &[RoundCone]) -> (f32, f32, f32, f32, usize, usize) {
+    let mut radius_min = f32::INFINITY;
+    let mut radius_max = 0.0_f32;
+    let mut length_min = f32::INFINITY;
+    let mut length_max = 0.0_f32;
+    let mut short_count = 0;
+    let mut steep_count = 0;
+
+    for cone in round_cones {
+        let radius_a = cone.radius_a();
+        let radius_b = cone.radius_b();
+        let length = (cone.center_b() - cone.center_a()).length();
+        radius_min = radius_min.min(radius_a).min(radius_b);
+        radius_max = radius_max.max(radius_a).max(radius_b);
+        length_min = length_min.min(length);
+        length_max = length_max.max(length);
+        if length <= 1e-4 {
+            short_count += 1;
+        }
+        if (radius_a - radius_b).abs() > length {
+            steep_count += 1;
+        }
+    }
+
+    if round_cones.is_empty() {
+        radius_min = 0.0;
+        length_min = 0.0;
+    }
+
+    (
+        radius_min,
+        radius_max,
+        length_min,
+        length_max,
+        short_count,
+        steep_count,
+    )
+}
+
 impl TreePlacementService {
     fn compile(
         tree_desc: TreeDesc,
         tree_pos: Vec3,
         extra_rebuild_bound: UAabb3,
     ) -> CompiledTreePlacement {
-        let tree = Tree::new(tree_desc);
+        let tree = Tree::new(tree_desc.clone());
         let mut round_cones = Vec::with_capacity(tree.trunks().len());
         for tree_trunk in tree.trunks() {
             let mut round_cone = tree_trunk.clone();
@@ -307,10 +346,32 @@ impl TreePlacementService {
             round_cones.push(round_cone);
         }
 
+        let (radius_min, radius_max, length_min, length_max, short_count, steep_count) =
+            analyze_round_cones(&round_cones);
+
         let leaves_data_sequential = (0..round_cones.len()).map(|i| i as u32).collect::<Vec<_>>();
         let aabbs = round_cones.iter().map(RoundCone::aabb).collect::<Vec<_>>();
 
         let bvh_nodes = build_bvh(&aabbs, &leaves_data_sequential).unwrap();
+        log::info!(
+            "[TREE_DEBUG] compile trunks={} leaves={} size={:.3} trunk_thickness={:.3} min_trunk_thickness={:.3} thickness_reduction={:.3} iterations={} radius_min={:.3} radius_max={:.3} length_min={:.3} length_max={:.3} short_segments={} radius_delta_gt_length={} bound_min={:?} bound_max={:?}",
+            round_cones.len(),
+            tree.relative_leaf_positions().len(),
+            tree_desc.size,
+            tree_desc.trunk_thickness,
+            tree_desc.trunk_thickness_min,
+            tree_desc.thickness_reduction,
+            tree_desc.iterations,
+            radius_min,
+            radius_max,
+            length_min,
+            length_max,
+            short_count,
+            steep_count,
+            bvh_nodes[0].aabb.min(),
+            bvh_nodes[0].aabb.max(),
+        );
+
         let this_bound = UAabb3::new(bvh_nodes[0].aabb.min_uvec3(), bvh_nodes[0].aabb.max_uvec3());
 
         let relative_leaf_positions = tree.relative_leaf_positions();
