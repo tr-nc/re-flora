@@ -30,3 +30,7 @@ pub use merge_with_eq::*;
 
 mod clustering;
 pub use clustering::*;
+
+mod latest_chunk_queue;
+#[allow(unused_imports)]
+pub(crate) use latest_chunk_queue::*;
