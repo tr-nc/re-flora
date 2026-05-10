@@ -444,13 +444,20 @@ impl App {
         tree_desc: TreeDesc,
         tree_pos: Vec3,
     ) -> Result<()> {
+        let total_start = Instant::now();
+        let mut old_remove_ms = 0.0;
+        let mut old_rebuild_ms = 0.0;
+
         let old_bound = if let Some(record) = self.tree_records.remove(&self.single_tree_id) {
+            let old_remove_start = Instant::now();
             self.tracer
                 .remove_tree_leaves(&mut self.surface_builder.resources, self.single_tree_id)?;
             self.tree_audio_manager.remove_tree(self.single_tree_id);
             self.remove_leaf_emitter(self.single_tree_id);
+            old_remove_ms = old_remove_start.elapsed().as_secs_f32() * 1000.0;
 
             if record.bound.has_size() {
+                let old_rebuild_start = Instant::now();
                 self.execute_edit_plan(WorldEditPlan {
                     voxel_edits: vec![VoxelEdit::ClearVoxelRegion(ClearVoxelRegionEdit {
                         offset: record.bound.min(),
@@ -458,6 +465,7 @@ impl App {
                     })],
                     build_edits: vec![BuildEdit::RebuildMesh(record.bound)],
                 })?;
+                old_rebuild_ms = old_rebuild_start.elapsed().as_secs_f32() * 1000.0;
             }
 
             record.bound
@@ -471,6 +479,13 @@ impl App {
             options: TreeAddOptions::default(),
         })?;
         self.prev_bound = self.prev_bound.union_with(&old_bound);
+
+        log::info!(
+            "[PERF][TREE_GUI] replace_total {:.2}ms old_remove {:.2}ms old_clear_rebuild {:.2}ms",
+            total_start.elapsed().as_secs_f32() * 1000.0,
+            old_remove_ms,
+            old_rebuild_ms,
+        );
 
         Ok(())
     }
@@ -881,11 +896,13 @@ impl App {
     }
 
     pub(super) fn apply_tree_placement(&mut self, edit: TreePlacementEdit) -> Result<()> {
+        let total_start = Instant::now();
         let TreePlacementEdit {
             tree_desc,
             placement,
             options,
         } = edit;
+        let benchmark_gui_tree = !options.assign_new_id;
 
         if options.clean_before_add {
             self.clean_up_prev_tree()?;
@@ -903,23 +920,71 @@ impl App {
             self.single_tree_id
         };
 
+        let compile_start = Instant::now();
         let compiled = TreePlacementService::compile(tree_desc, tree_pos, UAabb3::default());
+        let compile_elapsed = compile_start.elapsed();
+        if benchmark_gui_tree {
+            crate::util::BENCH
+                .lock()
+                .unwrap()
+                .record("tree_gui_compile", compile_elapsed);
+        }
 
+        let trunk_count = match &compiled.trunk_voxel_edit {
+            VoxelEdit::StampRoundCones { round_cones, .. } => round_cones.len(),
+            _ => 0,
+        };
+
+        let trunk_start = Instant::now();
         self.execute_edit_plan(WorldEditPlan::with_voxel(compiled.trunk_voxel_edit))?;
+        let trunk_elapsed = trunk_start.elapsed();
+        if benchmark_gui_tree {
+            crate::util::BENCH
+                .lock()
+                .unwrap()
+                .record("tree_gui_trunk_voxel", trunk_elapsed);
+        }
+
+        let add_leaves_start = Instant::now();
         self.tracer.add_tree_leaves(
             &mut self.surface_builder.resources,
             tree_id,
             &compiled.quantized_leaf_positions,
         )?;
+        let add_leaves_elapsed = add_leaves_start.elapsed();
+        if benchmark_gui_tree {
+            crate::util::BENCH
+                .lock()
+                .unwrap()
+                .record("tree_gui_add_leaves", add_leaves_elapsed);
+        }
+
+        let rebuild_start = Instant::now();
         self.execute_edit_plan(WorldEditPlan::with_build(BuildEdit::RebuildMesh(
             compiled.rebuild_bound,
         )))?;
+        let rebuild_elapsed = rebuild_start.elapsed();
+        if benchmark_gui_tree {
+            crate::util::BENCH
+                .lock()
+                .unwrap()
+                .record("tree_gui_rebuild", rebuild_elapsed);
+        }
 
         self.prev_bound = self.prev_bound.union_with(&compiled.this_bound);
 
+        let cluster_start = Instant::now();
         let leaf_clusters =
             cluster_positions(&compiled.world_leaf_positions, super::LEAF_CLUSTER_DISTANCE);
+        let cluster_elapsed = cluster_start.elapsed();
+        if benchmark_gui_tree {
+            crate::util::BENCH
+                .lock()
+                .unwrap()
+                .record("tree_gui_cluster_leaves", cluster_elapsed);
+        }
 
+        let audio_start = Instant::now();
         self.tree_audio_manager.add_tree_sources_from_clusters(
             tree_id,
             compiled.tree_pos,
@@ -927,6 +992,13 @@ impl App {
             false,
             true,
         )?;
+        let audio_elapsed = audio_start.elapsed();
+        if benchmark_gui_tree {
+            crate::util::BENCH
+                .lock()
+                .unwrap()
+                .record("tree_gui_audio_sources", audio_elapsed);
+        }
 
         self.tree_records.insert(
             tree_id,
@@ -936,12 +1008,36 @@ impl App {
             },
         );
 
+        let emitter_start = Instant::now();
         self.upsert_tree_leaf_emitter(
             tree_id,
             compiled.tree_pos,
             &compiled.this_bound,
             &leaf_clusters,
         );
+        let emitter_elapsed = emitter_start.elapsed();
+        if benchmark_gui_tree {
+            crate::util::BENCH
+                .lock()
+                .unwrap()
+                .record("tree_gui_leaf_emitter", emitter_elapsed);
+
+            log::info!(
+                "[PERF][TREE_GUI] add_total {:.2}ms compile {:.2}ms trunk_voxel {:.2}ms add_leaves {:.2}ms rebuild {:.2}ms cluster {:.2}ms audio {:.2}ms emitter {:.2}ms trunks {} leaves {} clusters {} bound {:?}",
+                total_start.elapsed().as_secs_f32() * 1000.0,
+                compile_elapsed.as_secs_f32() * 1000.0,
+                trunk_elapsed.as_secs_f32() * 1000.0,
+                add_leaves_elapsed.as_secs_f32() * 1000.0,
+                rebuild_elapsed.as_secs_f32() * 1000.0,
+                cluster_elapsed.as_secs_f32() * 1000.0,
+                audio_elapsed.as_secs_f32() * 1000.0,
+                emitter_elapsed.as_secs_f32() * 1000.0,
+                trunk_count,
+                compiled.quantized_leaf_positions.len(),
+                leaf_clusters.len(),
+                compiled.rebuild_bound,
+            );
+        }
 
         Ok(())
     }
