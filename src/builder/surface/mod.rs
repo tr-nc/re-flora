@@ -19,6 +19,7 @@ use ash::vk;
 use bytemuck::Zeroable;
 use glam::{UVec3, Vec3};
 pub use resources::*;
+use std::time::Instant;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 enum OccupancyEditMode {
@@ -194,10 +195,12 @@ impl SurfaceBuilder {
             return Err(anyhow::anyhow!("Chunk ID out of bounds"));
         }
 
+        let total_start = Instant::now();
         let atlas_read_offset = chunk_id * self.voxel_dim_per_chunk;
         let atlas_read_dim = self.voxel_dim_per_chunk;
         let device = self.vulkan_ctx.device();
 
+        let setup_start = Instant::now();
         update_make_surface_info(
             &self.resources.make_surface_info,
             atlas_read_offset,
@@ -205,7 +208,9 @@ impl SurfaceBuilder {
             true,
         )?;
         cleanup_make_surface_result(&self.resources.make_surface_result)?;
+        let setup_elapsed = setup_start.elapsed();
 
+        let record_start = Instant::now();
         let cmdbuf = CommandBuffer::new(device, self.vulkan_ctx.command_pool());
         cmdbuf.begin(true);
 
@@ -230,14 +235,36 @@ impl SurfaceBuilder {
         self.make_surface_ppl.record(&cmdbuf, extent, None);
 
         cmdbuf.end();
+        let record_elapsed = record_start.elapsed();
+
+        let dispatch_start = Instant::now();
         let fence = Fence::new(device, false);
         cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), Some(&fence));
         self.vulkan_ctx.wait_for_fences(&[fence.as_raw()]).unwrap();
+        let dispatch_wait_elapsed = dispatch_start.elapsed();
 
+        let readback_start = Instant::now();
         let active_voxel_len = get_make_surface_result(&self.resources.make_surface_result);
+        let readback_elapsed = readback_start.elapsed();
+
+        let flora_start = Instant::now();
         if place_flora {
             self.seed_and_rebuild_flora_from_surface(chunk_id, 0)?;
         }
+        let flora_elapsed = flora_start.elapsed();
+
+        log::debug!(
+            "[PERF][SURFACE_BUILD] chunk {:?} total {:.2}ms setup {:.2}ms record {:.2}ms dispatch_wait {:.2}ms readback {:.2}ms flora {:.2}ms active_voxels {} place_flora {}",
+            chunk_id,
+            total_start.elapsed().as_secs_f32() * 1000.0,
+            setup_elapsed.as_secs_f32() * 1000.0,
+            record_elapsed.as_secs_f32() * 1000.0,
+            dispatch_wait_elapsed.as_secs_f32() * 1000.0,
+            readback_elapsed.as_secs_f32() * 1000.0,
+            flora_elapsed.as_secs_f32() * 1000.0,
+            active_voxel_len,
+            place_flora,
+        );
 
         Ok(active_voxel_len)
     }
