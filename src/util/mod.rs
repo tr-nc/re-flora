@@ -37,3 +37,6 @@ pub(crate) use chunk_work_queue::*;
 mod latest_chunk_queue;
 #[allow(unused_imports)]
 pub(crate) use latest_chunk_queue::*;
+
+mod growing_flora_queue;
+pub(crate) use growing_flora_queue::{GrowingFloraChunk, GrowingFloraQueue};

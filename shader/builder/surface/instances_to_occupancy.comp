@@ -8,6 +8,7 @@ layout(set = 0, binding = 0) readonly uniform U_InstancesToOccupancyInfo {
     uvec3 chunk_world_offset;
     uvec3 chunk_dim;
     uvec4 species_instance_len;
+    uint tick_delta;
 }
 instances_to_occupancy_info;
 

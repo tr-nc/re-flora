@@ -8,6 +8,7 @@ layout(set = 0, binding = 0) readonly uniform U_InstancesToOccupancyInfo {
     uvec3 chunk_world_offset;
     uvec3 chunk_dim;
     uvec4 species_instance_len;
+    uint tick_delta;
 }
 instances_to_occupancy_info;
 
@@ -34,7 +35,7 @@ void update_species_growth(uint species_idx, uint idx, uint instance_len) {
         return;
     }
 
-    progress = min(progress + 1u, INSTANCE_GROWTH_PROGRESS_MATURE);
+    progress = min(progress + instances_to_occupancy_info.tick_delta, INSTANCE_GROWTH_PROGRESS_MATURE);
     instance.packed_local_pos = set_instance_growth_progress(instance.packed_local_pos, progress);
     manual_flora_instances[species_idx].data[idx] = instance;
 

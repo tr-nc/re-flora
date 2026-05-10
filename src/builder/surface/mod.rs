@@ -466,6 +466,7 @@ impl SurfaceBuilder {
             chunk_world_offset,
             self.voxel_dim_per_chunk,
             species_len,
+            0u32, // tick_delta=0 for rebuild
         )?;
         update_edit_occupancy_info(
             &self.resources.edit_occupancy_info,
@@ -569,7 +570,7 @@ impl SurfaceBuilder {
         })
     }
 
-    pub fn update_flora_growth_for_chunk(&mut self, chunk_id: UVec3) -> Result<bool> {
+    pub fn update_flora_growth_for_chunk(&mut self, chunk_id: UVec3, tick_delta: u32) -> Result<bool> {
         if !self.chunk_bound.in_bound(chunk_id) {
             return Err(anyhow::anyhow!("Chunk ID out of bounds"));
         }
@@ -600,6 +601,7 @@ impl SurfaceBuilder {
             chunk_world_offset,
             self.voxel_dim_per_chunk,
             species_len,
+            tick_delta,
         )?;
         cleanup_occupancy_to_instances_result(&self.resources.occupancy_to_instances_result)?;
 
@@ -707,11 +709,13 @@ fn update_instances_to_occupancy_info(
     chunk_world_offset: UVec3,
     chunk_dim: UVec3,
     species_instance_len: [u32; 4],
+    tick_delta: u32,
 ) -> Result<()> {
     instances_to_occupancy_info.fill_uniform(&InstancesToOccupancyInfo {
         chunk_world_offset: chunk_world_offset.to_array(),
         chunk_dim: chunk_dim.to_array(),
         species_instance_len,
+        tick_delta,
         ..InstancesToOccupancyInfo::zeroed()
     })
 }

@@ -373,6 +373,8 @@ pub struct InstancesToOccupancyInfo {
     pub chunk_dim: [u32; 3],
     pub _pad1: [u8; 4],
     pub species_instance_len: [u32; 4],
+    pub tick_delta: u32,
+    pub _pad2: [u8; 12],
 }
 
 /// Auto-generated from `U_MakeSurfaceInfo` (GLSL source of truth).
