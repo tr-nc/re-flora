@@ -80,6 +80,10 @@ impl<T> LatestChunkQueue<T> {
         self.pop_with(|pending| pending.pop_nearest_to(focus, chunk_extent))
     }
 
+    pub(crate) fn peek_nearest_to(&self, focus: Vec3, chunk_extent: UVec3) -> Option<UVec3> {
+        self.pending.peek_nearest_to(focus, chunk_extent)
+    }
+
     fn pop_with(
         &mut self,
         mut pop_chunk: impl FnMut(&mut ChunkWorkQueue) -> Option<UVec3>,
@@ -144,6 +148,13 @@ impl<T> LatestChunkQueue<T> {
     #[allow(dead_code)]
     pub(crate) fn len(&self) -> usize {
         self.pending.len()
+    }
+
+    pub(crate) fn active_len(&self) -> usize {
+        self.states
+            .values()
+            .filter(|state| state.active_revision.is_some())
+            .count()
     }
 
     #[allow(dead_code)]

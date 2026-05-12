@@ -39,6 +39,11 @@ impl ChunkWorkQueue {
         Some(chunk_id)
     }
 
+    pub(crate) fn peek_nearest_to(&self, focus: Vec3, chunk_extent: UVec3) -> Option<UVec3> {
+        self.nearest_pending_index(focus, chunk_extent)
+            .and_then(|idx| self.pending.get(idx).copied())
+    }
+
     fn nearest_pending_index(&self, focus: Vec3, chunk_extent: UVec3) -> Option<usize> {
         self.pending
             .iter()

@@ -55,17 +55,14 @@ impl GrowingFloraQueue {
         chunk_extent: UVec3,
     ) -> Option<GrowingFloraChunk> {
         self.pop_with(|pending, queued| {
-            let idx = pending
-                .iter()
-                .enumerate()
-                .filter(|(_, chunk_id)| queued.contains_key(chunk_id))
-                .min_by(|(_, left), (_, right)| {
-                    compare_chunk_nearness(**left, **right, focus, chunk_extent)
-                })
-                .map(|(idx, _)| idx)?;
-
+            let idx = nearest_pending_index(pending, queued, focus, chunk_extent)?;
             pending.remove(idx)
         })
+    }
+
+    pub(crate) fn peek_nearest_to(&self, focus: Vec3, chunk_extent: UVec3) -> Option<UVec3> {
+        nearest_pending_index(&self.pending, &self.queued, focus, chunk_extent)
+            .and_then(|idx| self.pending.get(idx).copied())
     }
 
     fn pop_with(
@@ -92,6 +89,22 @@ impl GrowingFloraQueue {
     pub(crate) fn is_empty(&self) -> bool {
         self.queued.is_empty()
     }
+}
+
+fn nearest_pending_index(
+    pending: &VecDeque<UVec3>,
+    queued: &HashMap<UVec3, u32>,
+    focus: Vec3,
+    chunk_extent: UVec3,
+) -> Option<usize> {
+    pending
+        .iter()
+        .enumerate()
+        .filter(|(_, chunk_id)| queued.contains_key(chunk_id))
+        .min_by(|(_, left), (_, right)| {
+            compare_chunk_nearness(**left, **right, focus, chunk_extent)
+        })
+        .map(|(idx, _)| idx)
 }
 
 #[cfg(test)]

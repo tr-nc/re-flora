@@ -81,6 +81,7 @@ pub(crate) enum VoxelEdit {
 #[derive(Clone, Debug)]
 pub(crate) enum BuildEdit {
     RebuildMesh(UAabb3),
+    #[allow(dead_code)]
     RebuildChunks(Vec<UVec3>),
 }
 

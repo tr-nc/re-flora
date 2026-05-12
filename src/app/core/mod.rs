@@ -131,6 +131,7 @@ pub struct App {
     accumulated_mouse_delta: Vec2,
     smoothed_mouse_delta: Vec2,
     perf_logging: bool,
+    last_queue_log_time: Instant,
 
     tracer: Tracer,
 
@@ -235,15 +236,41 @@ impl App {
                 .push(chunk_id, ChunkRebuildRequest);
         }
 
-        log::debug!(
-            "[PERF][DEFERRED_REBUILD_QUEUE] enqueued {} pending {}",
+        log::info!(
+            "[QUEUE][REBUILD] enqueued {} pending={} active={} next_nearest={:?}",
             chunk_ids.len(),
             self.deferred_chunk_rebuilds.len(),
+            self.deferred_chunk_rebuilds.active_len(),
+            self.deferred_chunk_rebuilds
+                .peek_nearest_to(self.tracer.camera_position(), VOXEL_DIM_PER_CHUNK),
         );
     }
 
     pub(super) fn deferred_chunk_rebuilds_idle(&self) -> bool {
         self.deferred_chunk_rebuilds.is_idle()
+    }
+
+    fn log_queue_snapshot(&mut self) {
+        let now = Instant::now();
+        if now.duration_since(self.last_queue_log_time) < Duration::from_secs(1) {
+            return;
+        }
+        self.last_queue_log_time = now;
+
+        let focus = self.tracer.camera_position();
+        log::info!(
+            "[QUEUE][SNAPSHOT] focus={:?} rebuild_pending={} rebuild_active={} rebuild_next={:?} flora_pending={} flora_next={:?}",
+            focus,
+            self.deferred_chunk_rebuilds.len(),
+            self.deferred_chunk_rebuilds.active_len(),
+            self.deferred_chunk_rebuilds
+                .peek_nearest_to(focus, VOXEL_DIM_PER_CHUNK),
+            self.growing_flora_chunks.len(),
+            self.growing_flora_chunks
+                .peek_nearest_to(focus, VOXEL_DIM_PER_CHUNK),
+        );
+        self.contree_builder
+            .log_cpu_chunk_cache_queue_snapshot(focus, VOXEL_DIM_PER_CHUNK);
     }
 
     fn process_deferred_chunk_rebuild(&mut self) {
@@ -254,6 +281,14 @@ impl App {
         else {
             return;
         };
+
+        log::info!(
+            "[QUEUE][REBUILD] pop_nearest chunk {:?} revision {} focus={:?} remaining={}",
+            work.chunk_id,
+            work.revision,
+            player_pos,
+            self.deferred_chunk_rebuilds.len(),
+        );
 
         let rebuild_start = Instant::now();
         let result = world_ops::mesh_generate_chunks(
@@ -287,7 +322,14 @@ impl App {
     }
 
     pub(super) fn track_growing_flora_chunk(&mut self, chunk_id: UVec3) {
-        self.growing_flora_chunks.push(chunk_id, self.flora_tick);
+        let inserted = self.growing_flora_chunks.push(chunk_id, self.flora_tick);
+        log::info!(
+            "[QUEUE][FLORA] {} chunk {:?} pending={} flora_tick={}",
+            if inserted { "enqueue" } else { "refresh" },
+            chunk_id,
+            self.growing_flora_chunks.len(),
+            self.flora_tick,
+        );
     }
 
     fn update_growing_flora_chunk(&mut self) {
@@ -300,6 +342,14 @@ impl App {
         else {
             return;
         };
+
+        log::info!(
+            "[QUEUE][FLORA] pop_nearest chunk {:?} last_tick={} current_tick={} remaining={}",
+            chunk_id,
+            last_flora_tick,
+            self.flora_tick,
+            self.growing_flora_chunks.len(),
+        );
 
         let tick_delta = self.flora_tick.wrapping_sub(last_flora_tick);
         match self
@@ -367,13 +417,26 @@ impl WorldBuildBackend for App {
     }
 
     fn apply_build_edit(&mut self, edit: BuildEdit) -> Result<()> {
-        world_ops::apply_build_edit(
-            &mut self.surface_builder,
-            &mut self.contree_builder,
-            &mut self.scene_accel_builder,
-            VOXEL_DIM_PER_CHUNK,
-            edit,
-        )
+        match edit {
+            BuildEdit::RebuildMesh(bound) => {
+                let chunk_ids =
+                    world_ops::affected_chunk_indices_for_bound(bound, VOXEL_DIM_PER_CHUNK);
+                log::info!(
+                    "[QUEUE][REBUILD] deferring RebuildMesh bound {:?} chunks={}",
+                    bound,
+                    chunk_ids.len(),
+                );
+                self.enqueue_deferred_chunk_rebuilds(&chunk_ids);
+            }
+            BuildEdit::RebuildChunks(chunk_ids) => {
+                log::info!(
+                    "[QUEUE][REBUILD] deferring RebuildChunks chunks={}",
+                    chunk_ids.len(),
+                );
+                self.enqueue_deferred_chunk_rebuilds(&chunk_ids);
+            }
+        }
+        Ok(())
     }
 }
 
@@ -825,6 +888,7 @@ impl App {
             is_resize_pending: false,
             time_info: TimeInfo::default(),
             render_flags: RenderFlags::from(options),
+            last_queue_log_time: Instant::now(),
 
             gui_config,
             gui_adjustables,
@@ -1589,8 +1653,17 @@ impl App {
                 self.window_state.maintain_cursor_grab();
 
                 self.time_info.update(self.perf_logging);
+                let cpu_cache_poll_start = Instant::now();
                 self.contree_builder
                     .poll_cpu_chunk_cache_jobs(self.tracer.camera_position(), VOXEL_DIM_PER_CHUNK);
+                let cpu_cache_poll_ms = cpu_cache_poll_start.elapsed().as_secs_f32() * 1000.0;
+                if cpu_cache_poll_ms > 1.0 {
+                    log::info!(
+                        "[QUEUE][FRAME_WORK] cpu_cache_poll_ms={:.2}",
+                        cpu_cache_poll_ms,
+                    );
+                }
+                self.log_queue_snapshot();
 
                 if self.loading_state.is_some() {
                     self.process_loading_step();
@@ -1953,7 +2026,15 @@ impl App {
                     return;
                 }
 
+                let deferred_rebuild_start = Instant::now();
                 self.process_deferred_chunk_rebuild();
+                let deferred_rebuild_ms = deferred_rebuild_start.elapsed().as_secs_f32() * 1000.0;
+                if deferred_rebuild_ms > 1.0 {
+                    log::info!(
+                        "[QUEUE][FRAME_WORK] deferred_rebuild_step_ms={:.2}",
+                        deferred_rebuild_ms,
+                    );
+                }
 
                 if self.regenerate_trees_requested {
                     self.regenerate_trees_requested = false;
@@ -2319,14 +2400,25 @@ impl App {
                 self.tracer
                     .update_camera(frame_delta_time, self.is_fly_mode, player_collision);
 
+                let total_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
                 if self.perf_logging && self.time_info.total_frame_count().is_multiple_of(30) {
-                    let total_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
                     log::info!(
                         "[PERF] frame {} total {:.2}ms egui {:.2}ms gpu+present {:.2}ms",
                         self.time_info.total_frame_count(),
                         total_ms,
                         egui_ms,
                         gpu_ms
+                    );
+                }
+                if total_ms > 25.0 {
+                    log::info!(
+                        "[QUEUE][FRAME_SLOW] frame={} total_ms={:.2} cpu_cache_poll_ms={:.2} deferred_rebuild_ms={:.2} egui_ms={:.2} gpu_present_ms={:.2}",
+                        self.time_info.total_frame_count(),
+                        total_ms,
+                        cpu_cache_poll_ms,
+                        deferred_rebuild_ms,
+                        egui_ms,
+                        gpu_ms,
                     );
                 }
 

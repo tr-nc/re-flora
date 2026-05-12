@@ -549,6 +549,20 @@ impl ContreeBuilder {
         self.try_submit_next_cpu_chunk_cache_job(focus, chunk_extent);
     }
 
+    pub fn log_cpu_chunk_cache_queue_snapshot(&self, focus: Vec3, chunk_extent: UVec3) {
+        log::info!(
+            "[QUEUE][CPU_CACHE] pending={} active={:?} decode_inflight={} readback_available={} cached={} next_nearest={:?}",
+            self.cpu_chunk_cache_queue.len(),
+            self.active_cpu_chunk_cache_job
+                .as_ref()
+                .map(|job| (job.chunk_idx, job.revision)),
+            self.cpu_chunk_cache_decode_inflight,
+            self.cpu_chunk_readback_buffers.is_some(),
+            self.cpu_chunk_caches.len(),
+            self.cpu_chunk_cache_queue.peek_nearest_to(focus, chunk_extent),
+        );
+    }
+
     pub fn flush_cpu_chunk_cache_jobs(&mut self) {
         loop {
             self.poll_cpu_chunk_cache_jobs(Vec3::ZERO, self.voxel_dim_per_chunk);
@@ -596,8 +610,19 @@ impl ContreeBuilder {
 
         let cmdbuf = self.contree_cmdbuf.clone();
         let fence = Fence::new(self.vulkan_ctx.device(), false);
+        let submit_start = Instant::now();
         cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), Some(&fence));
+        let wait_start = Instant::now();
         self.vulkan_ctx.wait_for_fences(&[fence.as_raw()]).unwrap();
+        let wait_ms = wait_start.elapsed().as_secs_f32() * 1000.0;
+        log::info!(
+            "[QUEUE][CONTREE_BUILD] dim={:?} node_offset={} leaf_offset={} submit_ms={:.2} fence_wait_ms={:.2}",
+            contree_dim,
+            node_write_offset,
+            leaf_write_offset,
+            submit_start.elapsed().as_secs_f32() * 1000.0,
+            wait_ms,
+        );
 
         return Ok(());
 
@@ -666,6 +691,13 @@ impl ContreeBuilder {
                 .lock()
                 .unwrap()
                 .record("contree_build_and_alloc_total", total_elapsed);
+            log::info!(
+                "[QUEUE][CONTREE_REBUILD] chunk {:?} empty total_ms={:.2} build_gpu_ms={:.2} size_ms={:.2}",
+                chunk_idx,
+                total_elapsed.as_secs_f32() * 1000.0,
+                build_elapsed.as_secs_f32() * 1000.0,
+                size_elapsed.as_secs_f32() * 1000.0,
+            );
 
             return Ok(None);
         }
@@ -695,6 +727,17 @@ impl ContreeBuilder {
             .lock()
             .unwrap()
             .record("contree_build_and_alloc_total", total_elapsed);
+        log::info!(
+            "[QUEUE][CONTREE_REBUILD] chunk {:?} total_ms={:.2} prealloc_ms={:.2} build_gpu_ms={:.2} size_ms={:.2} confirm_ms={:.2} node_bytes={} leaf_bytes={}",
+            chunk_idx,
+            total_elapsed.as_secs_f32() * 1000.0,
+            alloc_start.elapsed().as_secs_f32() * 1000.0,
+            build_elapsed.as_secs_f32() * 1000.0,
+            size_elapsed.as_secs_f32() * 1000.0,
+            confirm_elapsed.as_secs_f32() * 1000.0,
+            confirmed_node_buffer_size_in_bytes,
+            confirmed_leaf_buffer_size_in_bytes,
+        );
 
         Ok(Some((node_alloc_offset, leaf_alloc_offset)))
     }
@@ -704,7 +747,15 @@ impl ContreeBuilder {
         chunk_idx: UVec3,
         source: CpuChunkCacheBuildSource,
     ) {
-        self.cpu_chunk_cache_queue.push(chunk_idx, source);
+        let revision = self.cpu_chunk_cache_queue.push(chunk_idx, source);
+        log::info!(
+            "[QUEUE][CPU_CACHE] enqueue chunk {:?} revision {} pending={} active={} decode_inflight={}",
+            chunk_idx,
+            revision,
+            self.cpu_chunk_cache_queue.len(),
+            self.cpu_chunk_cache_queue.active_len(),
+            self.cpu_chunk_cache_decode_inflight,
+        );
         self.try_submit_next_cpu_chunk_cache_job(Vec3::ZERO, self.voxel_dim_per_chunk);
     }
 
@@ -757,6 +808,13 @@ impl ContreeBuilder {
             source,
             readback_buffers,
         });
+        log::info!(
+            "[QUEUE][CPU_CACHE] submit chunk {:?} revision {} pending={} gpu_copy_ms={:.2}",
+            chunk_idx,
+            revision,
+            self.cpu_chunk_cache_queue.len(),
+            gpu_copy_elapsed.as_secs_f32() * 1000.0,
+        );
     }
 
     fn dispatch_completed_cpu_chunk_cache_jobs(&mut self) {
@@ -789,6 +847,12 @@ impl ContreeBuilder {
             .active_cpu_chunk_cache_job
             .take()
             .expect("active CPU chunk cache job disappeared after fence poll");
+        log::info!(
+            "[QUEUE][CPU_CACHE] fence_ready chunk {:?} revision {} pending={}",
+            job.chunk_idx,
+            job.revision,
+            self.cpu_chunk_cache_queue.len(),
+        );
         self.cpu_chunk_cache_decode_inflight = true;
         let worker_job = CpuChunkCacheWorkerJob {
             chunk_idx: job.chunk_idx,
@@ -827,6 +891,14 @@ impl ContreeBuilder {
 
             self.cpu_chunk_cache_queue
                 .complete(result.chunk_idx, result.revision);
+            log::info!(
+                "[QUEUE][CPU_CACHE] publish chunk {:?} revision {} published={} pending={} cached={}",
+                result.chunk_idx,
+                result.revision,
+                should_publish,
+                self.cpu_chunk_cache_queue.len(),
+                self.cpu_chunk_caches.len(),
+            );
             self.try_submit_next_cpu_chunk_cache_job(focus, chunk_extent);
         }
     }
@@ -927,6 +999,13 @@ impl ContreeBuilder {
             .cpu_chunk_cache_queue
             .pop_nearest_to(focus, chunk_extent)
         {
+            log::info!(
+                "[QUEUE][CPU_CACHE] pop_nearest chunk {:?} revision {} focus={:?} remaining={}",
+                work.chunk_id,
+                work.revision,
+                focus,
+                self.cpu_chunk_cache_queue.len(),
+            );
             self.submit_chunk_cpu_cache_rebuild(work.chunk_id, work.revision, work.payload);
         }
     }

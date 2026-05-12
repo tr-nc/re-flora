@@ -589,9 +589,13 @@ impl App {
         if defer_rebuild {
             self.enqueue_deferred_chunk_rebuilds(&rebuild_chunk_ids);
         } else {
-            self.execute_edit_plan(WorldEditPlan::with_build(BuildEdit::RebuildChunks(
+            world_ops::mesh_generate_chunks(
+                &mut self.surface_builder,
+                &mut self.contree_builder,
+                &mut self.scene_accel_builder,
+                super::VOXEL_DIM_PER_CHUNK,
                 rebuild_chunk_ids.clone(),
-            )))?;
+            )?;
         }
         let rebuild_elapsed = rebuild_start.elapsed();
         crate::util::BENCH

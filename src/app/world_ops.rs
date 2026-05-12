@@ -158,6 +158,13 @@ pub(crate) fn mesh_generate_chunks(
 ) -> Result<()> {
     let rebuild_start = Instant::now();
     let chunk_count = chunk_ids.len();
+    if chunk_count > 1 {
+        log::warn!(
+            "[QUEUE][DIRECT_MULTI_REBUILD] rebuilding {} chunks synchronously in one call: {:?}",
+            chunk_count,
+            chunk_ids,
+        );
+    }
     let mut rebuilt_chunk_count = 0;
     let mut surface_total = std::time::Duration::ZERO;
     let mut contree_total = std::time::Duration::ZERO;
@@ -236,6 +243,13 @@ pub(crate) fn mesh_generate_preserve_flora_for_sphere_edit(
 ) -> Result<()> {
     let affected_chunk_indices =
         get_affected_chunk_indices(bound.min(), bound.max(), voxel_dim_per_chunk);
+    if affected_chunk_indices.len() > 1 {
+        log::warn!(
+            "[QUEUE][DIRECT_MULTI_REBUILD] preserve-flora sphere edit rebuilding {} chunks synchronously: {:?}",
+            affected_chunk_indices.len(),
+            affected_chunk_indices,
+        );
+    }
 
     for chunk_id in affected_chunk_indices {
         let atlas_offset = chunk_id * voxel_dim_per_chunk;
