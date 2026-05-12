@@ -8,6 +8,7 @@ use anyhow::Result;
 use glam::{UVec3, Vec3};
 use std::time::Instant;
 
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct FloraSphereEdit {
     pub(crate) center: Vec3,
     pub(crate) radius: f32,
@@ -233,6 +234,7 @@ pub(crate) fn mesh_generate_chunks(
     Ok(())
 }
 
+#[allow(dead_code)]
 pub(crate) fn mesh_generate_preserve_flora_for_sphere_edit(
     surface_builder: &mut SurfaceBuilder,
     contree_builder: &mut ContreeBuilder,
@@ -252,43 +254,62 @@ pub(crate) fn mesh_generate_preserve_flora_for_sphere_edit(
     }
 
     for chunk_id in affected_chunk_indices {
-        let atlas_offset = chunk_id * voxel_dim_per_chunk;
-
-        let surface_start = Instant::now();
-        let res = surface_builder.build_surface(chunk_id, false);
-        if let Err(e) = res {
-            log::error!("Failed to build surface for chunk {}: {}", chunk_id, e);
-            continue;
-        }
-        let surface_elapsed = surface_start.elapsed();
-        BENCH
-            .lock()
-            .unwrap()
-            .record("build_surface", surface_elapsed);
-
-        surface_builder.edit_flora_instances(
+        mesh_generate_chunk_preserve_flora_for_sphere_edit(
+            surface_builder,
+            contree_builder,
+            scene_accel_builder,
+            voxel_dim_per_chunk,
             chunk_id,
-            flora_edit.center,
-            flora_edit.radius,
-            flora_edit.tick,
+            flora_edit,
         )?;
+    }
 
-        let contree_start = Instant::now();
-        let res = contree_builder.build_and_alloc(atlas_offset).unwrap();
-        let contree_elapsed = contree_start.elapsed();
-        BENCH
-            .lock()
-            .unwrap()
-            .record("build_and_alloc", contree_elapsed);
+    Ok(())
+}
 
-        if let Some(res) = res {
-            let (node_buffer_offset, leaf_buffer_offset) = res;
-            scene_accel_builder
-                .update_scene_tex(chunk_id, Some((node_buffer_offset, leaf_buffer_offset)))?;
-        } else {
-            scene_accel_builder.update_scene_tex(chunk_id, None)?;
-            log::debug!("Cleared scene tex because the chunk is empty");
-        }
+pub(crate) fn mesh_generate_chunk_preserve_flora_for_sphere_edit(
+    surface_builder: &mut SurfaceBuilder,
+    contree_builder: &mut ContreeBuilder,
+    scene_accel_builder: &mut SceneAccelBuilder,
+    voxel_dim_per_chunk: UVec3,
+    chunk_id: UVec3,
+    flora_edit: FloraSphereEdit,
+) -> Result<()> {
+    let atlas_offset = chunk_id * voxel_dim_per_chunk;
+
+    let surface_start = Instant::now();
+    let res = surface_builder.build_surface(chunk_id, false);
+    if let Err(e) = res {
+        log::error!("Failed to build surface for chunk {}: {}", chunk_id, e);
+        return Ok(());
+    }
+    let surface_elapsed = surface_start.elapsed();
+    BENCH
+        .lock()
+        .unwrap()
+        .record("build_surface", surface_elapsed);
+
+    surface_builder.edit_flora_instances(
+        chunk_id,
+        flora_edit.center,
+        flora_edit.radius,
+        flora_edit.tick,
+    )?;
+
+    let contree_start = Instant::now();
+    let res = contree_builder.build_and_alloc(atlas_offset).unwrap();
+    let contree_elapsed = contree_start.elapsed();
+    BENCH
+        .lock()
+        .unwrap()
+        .record("build_and_alloc", contree_elapsed);
+
+    if let Some(res) = res {
+        let (node_buffer_offset, leaf_buffer_offset) = res;
+        scene_accel_builder.update_scene_tex(chunk_id, Some((node_buffer_offset, leaf_buffer_offset)))?;
+    } else {
+        scene_accel_builder.update_scene_tex(chunk_id, None)?;
+        log::debug!("Cleared scene tex because the chunk is empty");
     }
 
     Ok(())

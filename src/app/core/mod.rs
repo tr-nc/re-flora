@@ -85,7 +85,11 @@ enum LoadingPhase {
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-struct ChunkRebuildRequest;
+enum ChunkRebuildRequest {
+    #[default]
+    Normal,
+    PreserveFlora(world_ops::FloraSphereEdit),
+}
 
 struct LoadingState {
     chunk_indices: Vec<UVec3>,
@@ -233,11 +237,31 @@ impl App {
     pub(super) fn enqueue_deferred_chunk_rebuilds(&mut self, chunk_ids: &[UVec3]) {
         for &chunk_id in chunk_ids {
             self.deferred_chunk_rebuilds
-                .push(chunk_id, ChunkRebuildRequest);
+                .push(chunk_id, ChunkRebuildRequest::Normal);
         }
 
         log::info!(
             "[QUEUE][REBUILD] enqueued {} pending={} active={} next_nearest={:?}",
+            chunk_ids.len(),
+            self.deferred_chunk_rebuilds.len(),
+            self.deferred_chunk_rebuilds.active_len(),
+            self.deferred_chunk_rebuilds
+                .peek_nearest_to(self.tracer.camera_position(), VOXEL_DIM_PER_CHUNK),
+        );
+    }
+
+    pub(super) fn enqueue_deferred_flora_preserving_chunk_rebuilds(
+        &mut self,
+        chunk_ids: &[UVec3],
+        flora_edit: world_ops::FloraSphereEdit,
+    ) {
+        for &chunk_id in chunk_ids {
+            self.deferred_chunk_rebuilds
+                .push(chunk_id, ChunkRebuildRequest::PreserveFlora(flora_edit));
+        }
+
+        log::info!(
+            "[QUEUE][REBUILD] enqueued preserve-flora {} pending={} active={} next_nearest={:?}",
             chunk_ids.len(),
             self.deferred_chunk_rebuilds.len(),
             self.deferred_chunk_rebuilds.active_len(),
@@ -291,13 +315,25 @@ impl App {
         );
 
         let rebuild_start = Instant::now();
-        let result = world_ops::mesh_generate_chunks(
-            &mut self.surface_builder,
-            &mut self.contree_builder,
-            &mut self.scene_accel_builder,
-            VOXEL_DIM_PER_CHUNK,
-            vec![work.chunk_id],
-        );
+        let result = match work.payload {
+            ChunkRebuildRequest::Normal => world_ops::mesh_generate_chunks(
+                &mut self.surface_builder,
+                &mut self.contree_builder,
+                &mut self.scene_accel_builder,
+                VOXEL_DIM_PER_CHUNK,
+                vec![work.chunk_id],
+            ),
+            ChunkRebuildRequest::PreserveFlora(flora_edit) => {
+                world_ops::mesh_generate_chunk_preserve_flora_for_sphere_edit(
+                    &mut self.surface_builder,
+                    &mut self.contree_builder,
+                    &mut self.scene_accel_builder,
+                    VOXEL_DIM_PER_CHUNK,
+                    work.chunk_id,
+                    flora_edit,
+                )
+            }
+        };
         let elapsed = rebuild_start.elapsed();
         self.deferred_chunk_rebuilds
             .complete(work.chunk_id, work.revision);

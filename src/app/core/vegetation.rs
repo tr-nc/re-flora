@@ -906,18 +906,18 @@ impl App {
                     )?,
                 _ => unreachable!("terrain surface removal compiled into unexpected edit type"),
             };
-            world_ops::mesh_generate_preserve_flora_for_sphere_edit(
-                &mut self.surface_builder,
-                &mut self.contree_builder,
-                &mut self.scene_accel_builder,
-                super::VOXEL_DIM_PER_CHUNK,
+            let rebuild_chunk_ids = world_ops::affected_chunk_indices_for_bound(
                 compiled.rebuild_bound,
+                super::VOXEL_DIM_PER_CHUNK,
+            );
+            self.enqueue_deferred_flora_preserving_chunk_rebuilds(
+                &rebuild_chunk_ids,
                 world_ops::FloraSphereEdit {
                     center: edit.center,
                     radius: edit.radius,
                     tick: self.flora_tick,
                 },
-            )?;
+            );
             let total_elapsed = total_start.elapsed();
             crate::util::BENCH
                 .lock()
@@ -958,18 +958,18 @@ impl App {
             };
             let _modify_elapsed = modify_start.elapsed();
             let mesh_start = Instant::now();
-            world_ops::mesh_generate_preserve_flora_for_sphere_edit(
-                &mut self.surface_builder,
-                &mut self.contree_builder,
-                &mut self.scene_accel_builder,
-                super::VOXEL_DIM_PER_CHUNK,
+            let rebuild_chunk_ids = world_ops::affected_chunk_indices_for_bound(
                 compiled.rebuild_bound,
+                super::VOXEL_DIM_PER_CHUNK,
+            );
+            self.enqueue_deferred_flora_preserving_chunk_rebuilds(
+                &rebuild_chunk_ids,
                 world_ops::FloraSphereEdit {
                     center: edit.center,
                     radius: edit.radius,
                     tick: self.flora_tick,
                 },
-            )?;
+            );
             let _mesh_elapsed = mesh_start.elapsed();
             let total_elapsed = total_start.elapsed();
             crate::util::BENCH
