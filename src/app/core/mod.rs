@@ -5,10 +5,12 @@ mod boot;
 mod input;
 mod lifecycle;
 mod particles;
+mod tree_bench;
 mod ui_style;
 mod vegetation;
 
 use self::particles::TreeLeafEmitter;
+use self::tree_bench::{TreeBench, TreeBenchMode};
 use self::vegetation::{TreeRecord, TreeVariationConfig};
 use crate::app::environment;
 use crate::app::gui_config_loader::GuiConfigLoader;
@@ -32,8 +34,9 @@ use crate::particles::{
 };
 use crate::tracer::{TerrainRayQuery, Tracer, TracerDesc};
 use crate::tree_gen::TreeDesc;
+use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
-use crate::util::{get_sun_dir, ShaderCompiler, BENCH};
+use crate::util::{GrowingFloraChunk, GrowingFloraQueue, LatestChunkQueue, ShaderCompiler, BENCH};
 use crate::vkn::{Allocator, CommandBuffer, Fence, Semaphore, SwapchainDesc};
 use crate::RenderFlags;
 use crate::{
@@ -79,6 +82,13 @@ struct FrameSync {
 enum LoadingPhase {
     Terrain,
     Building,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+enum ChunkRebuildRequest {
+    #[default]
+    Normal,
+    PreserveFlora(world_ops::FloraSphereEdit),
 }
 
 struct LoadingState {
@@ -167,7 +177,7 @@ pub struct App {
 
     flora_tick: u32,
     flora_tick_accumulator: f32,
-    growing_flora_chunks: Vec<UVec3>,
+    growing_flora_chunks: GrowingFloraQueue,
     sun_position_update_tick_accumulator: u32,
     shadow_map_update_tick_accumulator: u32,
     shadow_map_update_pending: bool,
@@ -199,6 +209,8 @@ pub struct App {
     screenshot_delay: f32,
     screenshot_taken: bool,
     auto_exit_delay: Option<f32>,
+    tree_bench: Option<TreeBench>,
+    deferred_chunk_rebuilds: LatestChunkQueue<ChunkRebuildRequest>,
 
     // note: always keep the context to end, as it has to be destroyed last
     vulkan_ctx: VulkanContext,
@@ -221,34 +233,116 @@ impl Drop for App {
 }
 
 impl App {
-    pub(super) fn track_growing_flora_chunk(&mut self, chunk_id: UVec3) {
-        if !self.growing_flora_chunks.contains(&chunk_id) {
-            self.growing_flora_chunks.push(chunk_id);
+    pub(super) fn enqueue_deferred_chunk_rebuilds(&mut self, chunk_ids: &[UVec3]) {
+        for &chunk_id in chunk_ids {
+            self.deferred_chunk_rebuilds
+                .push(chunk_id, ChunkRebuildRequest::Normal);
+        }
+
+    }
+
+    pub(super) fn enqueue_deferred_flora_preserving_chunk_rebuilds(
+        &mut self,
+        chunk_ids: &[UVec3],
+        flora_edit: world_ops::FloraSphereEdit,
+    ) {
+        for &chunk_id in chunk_ids {
+            self.deferred_chunk_rebuilds
+                .push(chunk_id, ChunkRebuildRequest::PreserveFlora(flora_edit));
+        }
+
+    }
+
+    pub(super) fn deferred_chunk_rebuilds_idle(&self) -> bool {
+        self.deferred_chunk_rebuilds.is_idle()
+    }
+
+    fn process_deferred_chunk_rebuild(&mut self) {
+        let player_pos = self.tracer.camera_position();
+        let Some(work) = self
+            .deferred_chunk_rebuilds
+            .pop_nearest_to(player_pos, VOXEL_DIM_PER_CHUNK)
+        else {
+            return;
+        };
+
+        let rebuild_start = Instant::now();
+        let result = match work.payload {
+            ChunkRebuildRequest::Normal => world_ops::mesh_generate_chunks(
+                &mut self.surface_builder,
+                &mut self.contree_builder,
+                &mut self.scene_accel_builder,
+                VOXEL_DIM_PER_CHUNK,
+                vec![work.chunk_id],
+            ),
+            ChunkRebuildRequest::PreserveFlora(flora_edit) => {
+                world_ops::mesh_generate_chunk_preserve_flora_for_sphere_edit(
+                    &mut self.surface_builder,
+                    &mut self.contree_builder,
+                    &mut self.scene_accel_builder,
+                    VOXEL_DIM_PER_CHUNK,
+                    work.chunk_id,
+                    flora_edit,
+                )
+            }
+        };
+        let elapsed = rebuild_start.elapsed();
+        self.deferred_chunk_rebuilds
+            .complete(work.chunk_id, work.revision);
+
+        match result {
+            Ok(()) => log::debug!(
+                "[PERF][DEFERRED_REBUILD] chunk {:?} total {:.2}ms remaining {} revision {}",
+                work.chunk_id,
+                elapsed.as_secs_f32() * 1000.0,
+                self.deferred_chunk_rebuilds.len(),
+                work.revision,
+            ),
+            Err(err) => log::error!(
+                "[PERF][DEFERRED_REBUILD] chunk {:?} failed after {:.2}ms remaining {} revision {}: {}",
+                work.chunk_id,
+                elapsed.as_secs_f32() * 1000.0,
+                self.deferred_chunk_rebuilds.len(),
+                work.revision,
+                err,
+            ),
         }
     }
 
-    fn update_growing_flora_chunks(&mut self) {
-        if self.growing_flora_chunks.is_empty() {
-            return;
-        }
+    pub(super) fn track_growing_flora_chunk(&mut self, chunk_id: UVec3) {
+        self.growing_flora_chunks.push(chunk_id, self.flora_tick);
+    }
 
-        let active_chunks = std::mem::take(&mut self.growing_flora_chunks);
-        let mut still_growing = Vec::with_capacity(active_chunks.len());
-        for chunk_id in active_chunks {
-            match self.surface_builder.update_flora_growth_for_chunk(chunk_id) {
-                Ok(true) => still_growing.push(chunk_id),
-                Ok(false) => {}
-                Err(err) => {
-                    log::warn!(
-                        "Failed to update flora growth for chunk {}: {}",
-                        chunk_id,
-                        err
-                    );
-                    still_growing.push(chunk_id);
-                }
+    fn update_growing_flora_chunk(&mut self) {
+        let Some(GrowingFloraChunk {
+            chunk_id,
+            last_flora_tick,
+        }) = self
+            .growing_flora_chunks
+            .pop_nearest_to(self.tracer.camera_position(), VOXEL_DIM_PER_CHUNK)
+        else {
+            return;
+        };
+
+        let tick_delta = self.flora_tick.wrapping_sub(last_flora_tick);
+        match self
+            .surface_builder
+            .update_flora_growth_for_chunk(chunk_id, tick_delta)
+        {
+            Ok(true) => {
+                // still growing, requeue from the tick we successfully applied through
+                self.growing_flora_chunks.push(chunk_id, self.flora_tick);
+            }
+            Ok(false) => {}
+            Err(err) => {
+                log::warn!(
+                    "Failed to update flora growth for chunk {}: {}",
+                    chunk_id,
+                    err
+                );
+                self.growing_flora_chunks.push(chunk_id, last_flora_tick);
             }
         }
-        self.growing_flora_chunks = still_growing;
     }
 
     fn save_screenshot(&self, path: &str) {
@@ -296,18 +390,22 @@ impl WorldBuildBackend for App {
     }
 
     fn apply_build_edit(&mut self, edit: BuildEdit) -> Result<()> {
-        world_ops::apply_build_edit(
-            &mut self.surface_builder,
-            &mut self.contree_builder,
-            &mut self.scene_accel_builder,
-            VOXEL_DIM_PER_CHUNK,
-            edit,
-        )
+        match edit {
+            BuildEdit::RebuildMesh(bound) => {
+                let chunk_ids =
+                    world_ops::affected_chunk_indices_for_bound(bound, VOXEL_DIM_PER_CHUNK);
+                self.enqueue_deferred_chunk_rebuilds(&chunk_ids);
+            }
+            BuildEdit::RebuildChunks(chunk_ids) => {
+                self.enqueue_deferred_chunk_rebuilds(&chunk_ids);
+            }
+        }
+        Ok(())
     }
 }
 
 const VOXEL_DIM_PER_CHUNK: UVec3 = UVec3::new(256, 256, 256);
-const CHUNK_DIM: UVec3 = UVec3::new(10, 2, 10);
+const CHUNK_DIM: UVec3 = UVec3::new(5, 2, 5);
 const FREE_ATLAS_DIM: UVec3 = UVec3::new(512, 512, 512);
 const MAX_FRAMES_IN_FLIGHT: usize = 1;
 const SHOVEL_REMOVE_RADIUS: f32 = 0.08;
@@ -791,7 +889,7 @@ impl App {
             backpack_summary_panel_screen_pos: None,
             flora_tick: FLORA_FULL_GROWTH_TICKS,
             flora_tick_accumulator: 0.0,
-            growing_flora_chunks: Vec::new(),
+            growing_flora_chunks: GrowingFloraQueue::default(),
             sun_position_update_tick_accumulator: 0,
             shadow_map_update_tick_accumulator: 0,
             shadow_map_update_pending: true,
@@ -816,6 +914,15 @@ impl App {
             screenshot_delay: options.screenshot_delay,
             screenshot_taken: false,
             auto_exit_delay: options.auto_exit_delay,
+            tree_bench: options.tree_bench.then(|| {
+                let mode = if options.tree_bench_min_thickness {
+                    TreeBenchMode::MinTrunkThickness
+                } else {
+                    TreeBenchMode::TreeHeight
+                };
+                TreeBench::new(options.tree_bench_samples, mode, options.tree_bench_rapid)
+            }),
+            deferred_chunk_rebuilds: LatestChunkQueue::default(),
 
             spatial_sound_manager,
             tree_audio_manager,
@@ -1102,9 +1209,12 @@ impl App {
 
         self.ensure_map_butterfly_emitter();
 
+        self.debug_tree_pos.y =
+            self.query_terrain_height_cpu(Vec2::new(self.debug_tree_pos.x, self.debug_tree_pos.z));
+
         if let Err(err) = self.add_tree(
             self.debug_tree_desc.clone(),
-            TreePlacement::Terrain(Vec2::new(self.debug_tree_pos.x, self.debug_tree_pos.z)),
+            TreePlacement::World(self.debug_tree_pos),
             TreeAddOptions::default(),
         ) {
             log::error!("Failed to add debug tree: {}", err);
@@ -1506,7 +1616,8 @@ impl App {
                 self.window_state.maintain_cursor_grab();
 
                 self.time_info.update(self.perf_logging);
-                self.contree_builder.poll_cpu_chunk_cache_jobs();
+                self.contree_builder
+                    .poll_cpu_chunk_cache_jobs(self.tracer.camera_position(), VOXEL_DIM_PER_CHUNK);
 
                 if self.loading_state.is_some() {
                     self.process_loading_step();
@@ -1539,7 +1650,9 @@ impl App {
                     self.flora_tick = self.flora_tick.wrapping_add(1);
                     self.flora_tick_accumulator -= 1.0;
                     world_tick_steps += 1;
-                    self.update_growing_flora_chunks();
+                }
+                if world_tick_steps > 0 {
+                    self.update_growing_flora_chunk();
                 }
                 if let Err(err) = self.tree_audio_manager.update(time_since_start) {
                     log::warn!("Failed to update tree audio sources: {}", err);
@@ -1561,7 +1674,7 @@ impl App {
                     self.tracer.handle_mouse(self.smoothed_mouse_delta);
                 }
 
-                let tree_desc_changed = false;
+                let mut tree_desc_changed = false;
                 let time_of_day_before_gui = self.gui_adjustables.time_of_day.value;
                 let item_panel_shovel_icon = self.item_panel_shovel_icon.clone();
                 let item_panel_staff_icon = self.item_panel_staff_icon.clone();
@@ -1656,6 +1769,14 @@ impl App {
                                                 &self.gui_config,
                                                 &mut self.gui_adjustables,
                                             );
+
+                                            ui.add_space(8.0);
+                                            ui.separator();
+                                            ui.add_space(8.0);
+                                            ui.collapsing("Test Tree", |ui| {
+                                                tree_desc_changed |=
+                                                    self.debug_tree_desc.edit_by_gui(ui);
+                                            });
 
                                             ui.add_space(8.0);
                                             ui.separator();
@@ -1846,16 +1967,20 @@ impl App {
                 }
 
                 if tree_desc_changed {
-                    self.add_tree(
+                    if let Err(err) = self.replace_single_tree_deferred(
                         self.debug_tree_desc.clone(),
-                        TreePlacement::Terrain(Vec2::new(
-                            self.debug_tree_pos.x,
-                            self.debug_tree_pos.z,
-                        )),
-                        TreeAddOptions::default().with_cleanup(),
-                    )
-                    .unwrap();
+                        self.debug_tree_pos,
+                    ) {
+                        log::error!("Failed to replace debug tree: {err}");
+                    }
                 }
+
+                if TreeBench::run_next(self) {
+                    self.on_terminate(event_loop);
+                    return;
+                }
+
+                self.process_deferred_chunk_rebuild();
 
                 if self.regenerate_trees_requested {
                     self.regenerate_trees_requested = false;
@@ -2063,6 +2188,11 @@ impl App {
                             self.gui_adjustables.voxel_dirt_color.value.b() as f32 / 255.0,
                         ),
                         Vec3::new(
+                            self.gui_adjustables.voxel_sand_color.value.r() as f32 / 255.0,
+                            self.gui_adjustables.voxel_sand_color.value.g() as f32 / 255.0,
+                            self.gui_adjustables.voxel_sand_color.value.b() as f32 / 255.0,
+                        ),
+                        Vec3::new(
                             self.gui_adjustables.voxel_cherry_wood_color.value.r() as f32 / 255.0,
                             self.gui_adjustables.voxel_cherry_wood_color.value.g() as f32 / 255.0,
                             self.gui_adjustables.voxel_cherry_wood_color.value.b() as f32 / 255.0,
@@ -2071,6 +2201,11 @@ impl App {
                             self.gui_adjustables.voxel_oak_wood_color.value.r() as f32 / 255.0,
                             self.gui_adjustables.voxel_oak_wood_color.value.g() as f32 / 255.0,
                             self.gui_adjustables.voxel_oak_wood_color.value.b() as f32 / 255.0,
+                        ),
+                        Vec3::new(
+                            self.gui_adjustables.voxel_rock_color.value.r() as f32 / 255.0,
+                            self.gui_adjustables.voxel_rock_color.value.g() as f32 / 255.0,
+                            self.gui_adjustables.voxel_rock_color.value.b() as f32 / 255.0,
                         ),
                         self.gui_adjustables.voxel_color_variance.value,
                     )
@@ -2211,8 +2346,8 @@ impl App {
                 self.tracer
                     .update_camera(frame_delta_time, self.is_fly_mode, player_collision);
 
+                let total_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
                 if self.perf_logging && self.time_info.total_frame_count().is_multiple_of(30) {
-                    let total_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
                     log::info!(
                         "[PERF] frame {} total {:.2}ms egui {:.2}ms gpu+present {:.2}ms",
                         self.time_info.total_frame_count(),
@@ -2221,7 +2356,6 @@ impl App {
                         gpu_ms
                     );
                 }
-
                 if let Some(render_start_time) = self.render_start_time {
                     let elapsed = render_start_time.elapsed().as_secs_f32();
 

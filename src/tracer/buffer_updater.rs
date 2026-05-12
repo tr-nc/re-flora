@@ -192,14 +192,18 @@ impl BufferUpdater {
     pub fn update_voxel_colors(
         resources: &TracerResources,
         dirt_color: Vec3,
+        sand_color: Vec3,
         cherry_wood_color: Vec3,
         oak_wood_color: Vec3,
+        rock_color: Vec3,
         hash_color_variance: f32,
     ) -> Result<()> {
         resources.voxel_colors.fill_uniform(&VoxelColors {
             dirt_color: dirt_color.to_array(),
+            sand_color: sand_color.to_array(),
             cherry_wood_color: cherry_wood_color.to_array(),
             oak_wood_color: oak_wood_color.to_array(),
+            rock_color: rock_color.to_array(),
             hash_color_variance,
             ..VoxelColors::zeroed()
         })

@@ -5,8 +5,6 @@ use glam::{UVec3, Vec2, Vec3};
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum TreePlacement {
-    /// Place the tree at the given horizontal position and query terrain height.
-    Terrain(Vec2),
     /// Place the tree at an exact world position (height already resolved).
     World(Vec3),
 }
@@ -18,11 +16,6 @@ pub(crate) struct TreeAddOptions {
 }
 
 impl TreeAddOptions {
-    pub(crate) fn with_cleanup(mut self) -> Self {
-        self.clean_before_add = true;
-        self
-    }
-
     pub(crate) fn with_new_id(mut self) -> Self {
         self.assign_new_id = true;
         self
@@ -88,6 +81,8 @@ pub(crate) enum VoxelEdit {
 #[derive(Clone, Debug)]
 pub(crate) enum BuildEdit {
     RebuildMesh(UAabb3),
+    #[allow(dead_code)]
+    RebuildChunks(Vec<UVec3>),
 }
 
 #[derive(Clone, Debug, Default)]

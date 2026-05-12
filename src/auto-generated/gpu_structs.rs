@@ -152,6 +152,14 @@ pub struct TerrainQueryResult {
     pub hit_pos_and_valid: [u32; 0],
 }
 
+/// Auto-generated from `B_TreeLeafInstances` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct TreeLeafInstances {
+    pub packed_local_pos: u32,
+    pub packed_orientation: u32,
+}
+
 /// Auto-generated from `PushConstantChunkModifySample` (GLSL source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -365,6 +373,8 @@ pub struct InstancesToOccupancyInfo {
     pub chunk_dim: [u32; 3],
     pub _pad1: [u8; 4],
     pub species_instance_len: [u32; 4],
+    pub tick_delta: u32,
+    pub _pad2: [u8; 12],
 }
 
 /// Auto-generated from `U_MakeSurfaceInfo` (GLSL source of truth).
@@ -528,9 +538,13 @@ pub struct TerrainQueryCount {
 pub struct VoxelColors {
     pub dirt_color: [f32; 3],
     pub _pad0: [u8; 4],
-    pub cherry_wood_color: [f32; 3],
+    pub sand_color: [f32; 3],
     pub _pad1: [u8; 4],
+    pub cherry_wood_color: [f32; 3],
+    pub _pad2: [u8; 4],
     pub oak_wood_color: [f32; 3],
+    pub _pad3: [u8; 4],
+    pub rock_color: [f32; 3],
     pub hash_color_variance: f32,
 }
 

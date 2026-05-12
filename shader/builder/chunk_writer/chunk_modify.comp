@@ -117,6 +117,9 @@ void main() {
     }
 
     const ivec3 world_voxel_pos = uvi + ivec3(chunk_modify_info.offset);
+    if (!in_atlas_bound(world_voxel_pos)) {
+        return;
+    }
     vec3 world_voxel_pos_f      = center_position_of_voxel(world_voxel_pos);
 
     // --- BVH traversal stack ------------------------------------------------

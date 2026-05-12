@@ -524,6 +524,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Voxel",
+        id: "voxel_sand_color",
+        kind: "color",
+        label: "Sand Color",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Voxel",
         id: "voxel_cherry_wood_color",
         kind: "color",
         label: "Cherry Wood Color",
@@ -533,6 +539,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         id: "voxel_oak_wood_color",
         kind: "color",
         label: "Oak Wood Color",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Voxel",
+        id: "voxel_rock_color",
+        kind: "color",
+        label: "Rock Color",
     },
     GeneratedGuiParamDescriptor {
         section: "Voxel",
@@ -651,8 +663,10 @@ pub struct GuiAdjustables {
     pub butterfly_worm_noise_detail_frequency: crate::gui_adjustables::FloatParam,
     pub butterfly_worm_noise_detail_weight: crate::gui_adjustables::FloatParam,
     pub voxel_dirt_color: crate::gui_adjustables::ColorParam,
+    pub voxel_sand_color: crate::gui_adjustables::ColorParam,
     pub voxel_cherry_wood_color: crate::gui_adjustables::ColorParam,
     pub voxel_oak_wood_color: crate::gui_adjustables::ColorParam,
+    pub voxel_rock_color: crate::gui_adjustables::ColorParam,
     pub voxel_color_variance: crate::gui_adjustables::FloatParam,
     pub headbob_vertical_amp: crate::gui_adjustables::FloatParam,
     pub headbob_horizontal_amp: crate::gui_adjustables::FloatParam,
@@ -754,8 +768,10 @@ impl GuiAdjustables {
         let mut butterfly_worm_noise_detail_frequency_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut butterfly_worm_noise_detail_weight_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut voxel_dirt_color_field: Option<crate::gui_adjustables::ColorParam> = None;
+        let mut voxel_sand_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut voxel_cherry_wood_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut voxel_oak_wood_color_field: Option<crate::gui_adjustables::ColorParam> = None;
+        let mut voxel_rock_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut voxel_color_variance_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut headbob_vertical_amp_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut headbob_horizontal_amp_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1306,6 +1322,11 @@ impl GuiAdjustables {
                             voxel_dirt_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
                         }
                     }
+                    "voxel_sand_color" => {
+                        if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
+                            voxel_sand_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
+                        }
+                    }
                     "voxel_cherry_wood_color" => {
                         if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
                             voxel_cherry_wood_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
@@ -1314,6 +1335,11 @@ impl GuiAdjustables {
                     "voxel_oak_wood_color" => {
                         if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
                             voxel_oak_wood_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
+                        }
+                    }
+                    "voxel_rock_color" => {
+                        if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
+                            voxel_rock_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
                         }
                     }
                     "voxel_color_variance" => {
@@ -1440,8 +1466,10 @@ impl GuiAdjustables {
             butterfly_worm_noise_detail_frequency: butterfly_worm_noise_detail_frequency_field.expect("Missing parameter: butterfly_worm_noise_detail_frequency"),
             butterfly_worm_noise_detail_weight: butterfly_worm_noise_detail_weight_field.expect("Missing parameter: butterfly_worm_noise_detail_weight"),
             voxel_dirt_color: voxel_dirt_color_field.expect("Missing parameter: voxel_dirt_color"),
+            voxel_sand_color: voxel_sand_color_field.expect("Missing parameter: voxel_sand_color"),
             voxel_cherry_wood_color: voxel_cherry_wood_color_field.expect("Missing parameter: voxel_cherry_wood_color"),
             voxel_oak_wood_color: voxel_oak_wood_color_field.expect("Missing parameter: voxel_oak_wood_color"),
+            voxel_rock_color: voxel_rock_color_field.expect("Missing parameter: voxel_rock_color"),
             voxel_color_variance: voxel_color_variance_field.expect("Missing parameter: voxel_color_variance"),
             headbob_vertical_amp: headbob_vertical_amp_field.expect("Missing parameter: headbob_vertical_amp"),
             headbob_horizontal_amp: headbob_horizontal_amp_field.expect("Missing parameter: headbob_horizontal_amp"),
@@ -1570,8 +1598,10 @@ pub fn get_color_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "leaves_bottom_color" => Some(&adjustables.leaves_bottom_color),
         "leaves_tip_color" => Some(&adjustables.leaves_tip_color),
         "voxel_dirt_color" => Some(&adjustables.voxel_dirt_color),
+        "voxel_sand_color" => Some(&adjustables.voxel_sand_color),
         "voxel_cherry_wood_color" => Some(&adjustables.voxel_cherry_wood_color),
         "voxel_oak_wood_color" => Some(&adjustables.voxel_oak_wood_color),
+        "voxel_rock_color" => Some(&adjustables.voxel_rock_color),
         _ => None,
     }
 }
@@ -1695,8 +1725,10 @@ pub fn get_color_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "leaves_bottom_color" => Some(&mut adjustables.leaves_bottom_color),
         "leaves_tip_color" => Some(&mut adjustables.leaves_tip_color),
         "voxel_dirt_color" => Some(&mut adjustables.voxel_dirt_color),
+        "voxel_sand_color" => Some(&mut adjustables.voxel_sand_color),
         "voxel_cherry_wood_color" => Some(&mut adjustables.voxel_cherry_wood_color),
         "voxel_oak_wood_color" => Some(&mut adjustables.voxel_oak_wood_color),
+        "voxel_rock_color" => Some(&mut adjustables.voxel_rock_color),
         _ => None,
     }
 }
