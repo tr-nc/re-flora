@@ -80,10 +80,6 @@ impl<T> LatestChunkQueue<T> {
         self.pop_with(|pending| pending.pop_nearest_to(focus, chunk_extent))
     }
 
-    pub(crate) fn peek_nearest_to(&self, focus: Vec3, chunk_extent: UVec3) -> Option<UVec3> {
-        self.pending.peek_nearest_to(focus, chunk_extent)
-    }
-
     fn pop_with(
         &mut self,
         mut pop_chunk: impl FnMut(&mut ChunkWorkQueue) -> Option<UVec3>,

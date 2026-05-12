@@ -53,7 +53,7 @@ impl ChunkWorkQueue {
 
         if aged_idx != nearest_idx {
             if let Some(nearest_chunk) = nearest_chunk_before_pop {
-                log::info!(
+                log::debug!(
                     "[QUEUE][AGING] selected {:?} age={} over nearest {:?} pending={} focus={:?}",
                     chunk_id,
                     age,
@@ -66,11 +66,6 @@ impl ChunkWorkQueue {
 
         self.pop_clock = self.pop_clock.wrapping_add(1);
         Some(chunk_id)
-    }
-
-    pub(crate) fn peek_nearest_to(&self, focus: Vec3, chunk_extent: UVec3) -> Option<UVec3> {
-        self.aged_pending_index(focus, chunk_extent)
-            .and_then(|idx| self.pending.get(idx).copied())
     }
 
     fn nearest_pending_index(&self, focus: Vec3, chunk_extent: UVec3) -> Option<usize> {

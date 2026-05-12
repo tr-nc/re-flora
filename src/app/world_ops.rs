@@ -160,7 +160,7 @@ pub(crate) fn mesh_generate_chunks(
     let rebuild_start = Instant::now();
     let chunk_count = chunk_ids.len();
     if chunk_count > 1 {
-        log::warn!(
+        log::debug!(
             "[QUEUE][DIRECT_MULTI_REBUILD] rebuilding {} chunks synchronously in one call: {:?}",
             chunk_count,
             chunk_ids,
@@ -221,7 +221,7 @@ pub(crate) fn mesh_generate_chunks(
         );
     }
 
-    log::info!(
+    log::debug!(
         "[PERF][MESH_REBUILD] chunks {} rebuilt {} total {:.2}ms surface {:.2}ms contree {:.2}ms scene_tex {:.2}ms",
         chunk_count,
         rebuilt_chunk_count,
@@ -246,7 +246,7 @@ pub(crate) fn mesh_generate_preserve_flora_for_sphere_edit(
     let affected_chunk_indices =
         get_affected_chunk_indices(bound.min(), bound.max(), voxel_dim_per_chunk);
     if affected_chunk_indices.len() > 1 {
-        log::warn!(
+        log::debug!(
             "[QUEUE][DIRECT_MULTI_REBUILD] preserve-flora sphere edit rebuilding {} chunks synchronously: {:?}",
             affected_chunk_indices.len(),
             affected_chunk_indices,

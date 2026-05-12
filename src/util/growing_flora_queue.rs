@@ -60,11 +60,6 @@ impl GrowingFloraQueue {
         })
     }
 
-    pub(crate) fn peek_nearest_to(&self, focus: Vec3, chunk_extent: UVec3) -> Option<UVec3> {
-        nearest_pending_index(&self.pending, &self.queued, focus, chunk_extent)
-            .and_then(|idx| self.pending.get(idx).copied())
-    }
-
     fn pop_with(
         &mut self,
         mut pop_chunk: impl FnMut(&mut VecDeque<UVec3>, &HashMap<UVec3, u32>) -> Option<UVec3>,
