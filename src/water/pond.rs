@@ -131,20 +131,6 @@ impl PondWaterSim {
         self.particles.iter().map(|particle| particle.x)
     }
 
-    pub(crate) fn grid_index(&self, x: u32, y: u32, z: u32) -> usize {
-        debug_assert!(x < self.grid_dim.x && y < self.grid_dim.y && z < self.grid_dim.z);
-        ((z as usize * self.grid_dim.y as usize + y as usize) * self.grid_dim.x as usize)
-            + x as usize
-    }
-
-    pub(crate) fn local_to_world(&self, local: Vec3) -> Vec3 {
-        self.origin_ws + local
-    }
-
-    pub(crate) fn world_to_local(&self, world: Vec3) -> Vec3 {
-        world - self.origin_ws
-    }
-
     fn seed_particles(&mut self) {
         self.particles.clear();
         self.particles.reserve(self.config.particle_count);
@@ -181,7 +167,8 @@ impl PondWaterSim {
 }
 
 fn hash_unit(x: u32, y: u32, z: u32) -> f32 {
-    let mut n = x.wrapping_mul(73_856_093) ^ y.wrapping_mul(19_349_663) ^ z.wrapping_mul(83_492_791);
+    let mut n =
+        x.wrapping_mul(73_856_093) ^ y.wrapping_mul(19_349_663) ^ z.wrapping_mul(83_492_791);
     n ^= n >> 13;
     n = n.wrapping_mul(1_274_126_177);
     ((n & 0x00ff_ffff) as f32) / 0x0100_0000 as f32
@@ -197,7 +184,10 @@ mod tests {
         assert_eq!(sim.particles.len(), DEFAULT_PARTICLE_COUNT);
         assert_eq!(sim.grid_dim, DEFAULT_GRID_DIM);
         for pos in sim.particle_positions_ws() {
-            assert!(sim.config.collider.contains(pos), "particle escaped: {pos:?}");
+            assert!(
+                sim.config.collider.contains(pos),
+                "particle escaped: {pos:?}"
+            );
         }
     }
 }
