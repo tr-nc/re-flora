@@ -1,4 +1,5 @@
 use glam::{IVec3, Mat3, Vec3};
+use std::time::Instant;
 
 use super::pond::PondWaterSim;
 
@@ -7,7 +8,7 @@ const ACTIVE_MASS_EPSILON: f32 = 1.0e-8;
 
 impl PondWaterSim {
     /// Advance the pond by fixed MLS-MPM substeps.
-    pub fn update(&mut self, dt: f32) {
+    pub fn update(&mut self, dt: f32, perf_logging: bool) {
         if dt <= 0.0 || !dt.is_finite() {
             return;
         }
@@ -18,24 +19,90 @@ impl PondWaterSim {
             if self.accumulator < substep_dt {
                 break;
             }
-            self.substep(substep_dt);
+            self.substep_timed(substep_dt, perf_logging);
             self.accumulator -= substep_dt;
         }
 
         // Avoid a long catch-up spiral if a frame stalls while the sim is enabled.
         let max_remainder = substep_dt * MAX_SUBSTEPS_PER_UPDATE as f32;
         self.accumulator = self.accumulator.min(max_remainder);
+
+        if perf_logging {
+            self.perf_report_seconds += dt;
+            if self.perf_report_seconds >= 1.0 {
+                self.log_perf_report();
+            }
+        } else {
+            self.perf_report_seconds = 0.0;
+            self.perf_stats.reset();
+        }
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn substep(&mut self, dt: f32) {
+        self.substep_timed(dt, false);
+    }
+
+    fn substep_timed(&mut self, dt: f32, perf_logging: bool) {
         if dt <= 0.0 || !dt.is_finite() {
             return;
         }
 
+        if !perf_logging {
+            self.clear_grid();
+            self.particle_to_grid(dt);
+            self.update_grid(dt);
+            self.grid_to_particle(dt);
+            return;
+        }
+
+        let total_start = Instant::now();
         self.clear_grid();
+
+        let p2g_start = Instant::now();
         self.particle_to_grid(dt);
-        self.update_grid(dt);
+        let p2g_seconds = p2g_start.elapsed().as_secs_f64();
+
+        let grid_start = Instant::now();
+        let active_nodes = self.update_grid(dt);
+        let grid_seconds = grid_start.elapsed().as_secs_f64();
+
+        let g2p_start = Instant::now();
         self.grid_to_particle(dt);
+        let g2p_seconds = g2p_start.elapsed().as_secs_f64();
+
+        self.perf_stats.substeps += 1;
+        self.perf_stats.p2g_seconds += p2g_seconds;
+        self.perf_stats.grid_seconds += grid_seconds;
+        self.perf_stats.g2p_seconds += g2p_seconds;
+        self.perf_stats.total_seconds += total_start.elapsed().as_secs_f64();
+        self.perf_stats.active_node_visits += active_nodes as u64;
+    }
+
+    fn log_perf_report(&mut self) {
+        let stats = self.perf_stats;
+        if stats.substeps == 0 {
+            return;
+        }
+
+        let substeps = stats.substeps as f64;
+        let grid_nodes = self.grid.len();
+        log::info!(
+            "[PERF][WATER] particles {} grid {:?} nodes {} substeps {} total {:.2}ms avg {:.3}ms/substep p2g {:.2}ms grid {:.2}ms g2p {:.2}ms active_nodes/substep {:.0}",
+            self.particles.len(),
+            self.grid_dim,
+            grid_nodes,
+            stats.substeps,
+            stats.total_seconds * 1000.0,
+            stats.total_seconds * 1000.0 / substeps,
+            stats.p2g_seconds * 1000.0,
+            stats.grid_seconds * 1000.0,
+            stats.g2p_seconds * 1000.0,
+            stats.active_node_visits as f64 / substeps,
+        );
+
+        self.perf_stats.reset();
+        self.perf_report_seconds = 0.0;
     }
 
     fn clear_grid(&mut self) {
@@ -98,11 +165,13 @@ impl PondWaterSim {
         }
     }
 
-    fn update_grid(&mut self, dt: f32) {
+    fn update_grid(&mut self, dt: f32) -> usize {
         let grid_dim = self.grid_dim;
         let gravity = self.config.gravity;
         let wall_cells = self.config.wall_padding_cells.max(1.0);
         let wall_damping = self.config.wall_damping.clamp(0.0, 1.0);
+
+        let mut active_nodes = 0usize;
 
         for z in 0..grid_dim.z {
             for y in 0..grid_dim.y {
@@ -113,6 +182,7 @@ impl PondWaterSim {
                         continue;
                     }
 
+                    active_nodes += 1;
                     node.v /= node.mass;
                     node.v += gravity * dt;
 
@@ -149,6 +219,8 @@ impl PondWaterSim {
                 }
             }
         }
+
+        active_nodes
     }
 
     fn grid_to_particle(&mut self, dt: f32) {

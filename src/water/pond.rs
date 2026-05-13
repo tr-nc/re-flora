@@ -78,6 +78,22 @@ impl Default for WaterGridNode {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+pub struct WaterPerfStats {
+    pub substeps: u32,
+    pub p2g_seconds: f64,
+    pub grid_seconds: f64,
+    pub g2p_seconds: f64,
+    pub total_seconds: f64,
+    pub active_node_visits: u64,
+}
+
+impl WaterPerfStats {
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+}
+
 pub struct PondWaterSim {
     pub config: PondWaterConfig,
     pub origin_ws: Vec3,
@@ -88,6 +104,8 @@ pub struct PondWaterSim {
     pub particles: Vec<WaterParticle>,
     pub grid: Vec<WaterGridNode>,
     pub accumulator: f32,
+    pub perf_stats: WaterPerfStats,
+    pub perf_report_seconds: f32,
 }
 
 impl PondWaterSim {
@@ -117,6 +135,8 @@ impl PondWaterSim {
             particles: Vec::new(),
             grid: vec![WaterGridNode::default(); grid_len],
             accumulator: 0.0,
+            perf_stats: WaterPerfStats::default(),
+            perf_report_seconds: 0.0,
         };
         sim.grid_dim = sim.config.grid_dim;
         sim.seed_particles();

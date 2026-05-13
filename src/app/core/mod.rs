@@ -2039,7 +2039,7 @@ impl App {
                 }
 
                 if self.render_flags.enable_particles {
-                    self.water_sim.update(frame_delta_time);
+                    self.water_sim.update(frame_delta_time, self.perf_logging);
                     self.update_particle_simulation(frame_delta_time);
                 }
 
