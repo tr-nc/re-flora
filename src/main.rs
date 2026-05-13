@@ -18,6 +18,7 @@ mod tracer;
 mod tree_gen;
 mod util;
 mod vkn;
+mod water;
 mod wind;
 mod window;
 
