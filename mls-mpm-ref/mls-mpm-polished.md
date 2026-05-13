@@ -1,14 +1,45 @@
 ## A Moving Least Squares Material Point Method with Displacement Discontinuity and Two-Way Rigid Body Coupling
 
-YUANMING HU y , MIT CSAIL
+> Polished local reference assembled from:
+>
+> - `mls-mpm-paper.md` — raw PDF text extraction, better for equations.
+> - `mls-mpm-docling.md` — Docling extraction, better layout and figures.
+>
+> This file is intended as an implementation reference for this repository, not as a replacement for the official paper. Equations were restored from the raw extraction and lightly normalized to LaTeX.
 
-YU FANG y , Tsinghua University
+## Implementation cheat sheet
 
-ZIHENG GE y , University of Science and Technology of China
+For an explicit APIC/MLS-MPM loop without CPIC, the core particle-to-grid contribution can be implemented as:
+
+$$
+Q_p = \Delta t\,V_p^0 M_p^{-1}\frac{\partial \Psi}{\partial F}(F_p^n)(F_p^n)^T + m_p C_p^n
+$$
+
+$$
+m_i \mathrel{+}= w_{ip}m_p,\qquad
+(mv)_i \mathrel{+}= w_{ip}\left(m_p v_p^n + Q_p(x_i-x_p^n)\right)
+$$
+
+Then update grid velocities with gravity/boundaries, gather APIC velocity and affine matrix back to particles, and update
+
+$$
+F_p^{n+1} = (I + \Delta t\, C_p^{n+1})F_p^n,\qquad
+x_p^{n+1}=x_p^n+\Delta t\,v_p^{n+1}.
+$$
+
+For quadratic B-splines, $M_p = \frac{1}{4}\Delta x^2 I$; for cubic B-splines, $M_p = \frac{1}{3}\Delta x^2 I$.
+
+---
+
+YUANMING HU†, MIT CSAIL
+
+YU FANG†, Tsinghua University
+
+ZIHENG GE†, University of Science and Technology of China
 
 ZIYIN QU, University of Pennsylvania
 
-YIXIN ZHU y , University of California, Los Angeles
+YIXIN ZHU†, University of California, Los Angeles
 
 ANDRE PRADHANA, University of Pennsylvania
 
@@ -18,13 +49,13 @@ Fig. 1. Our method allows MPM to handle world space material cutting, complex th
 
 ![Image](mls-mpm-docling_artifacts/image_000000_7fbe51ff097bda7122c70449bdaff0b2c5aa9e1f5bc37d3f1ad4caa36b33674f.png)
 
-In this paper, we introduce the Moving Least Squares Material Point Method (MLS-MPM). MLS-MPM naturally leads to the formulation of Affine ParticleIn-Cell (APIC) [Jiang et al. 2015] and Polynomial Particle-In-Cell [Fu et al. 2017] in a way that is consistent with a Galerkin-style weak form discretization of the governing equations. Additionally, it enables a new stress divergence discretization that effortlessly allows all MPM simulations to run two times faster than before. We also develop a Compatible Particle-In-Cell (CPIC) algorithm on top of MLS-MPM. Utilizing a colored distance field representation and a novel compatibility condition for particles and grid nodes, our framework enables the simulation of various new phenomena that are not previously supported by MPM, including material cutting, dynamic open boundaries, and two-way coupling with rigid bodies. MLS-MPM with CPIC is easy to implement and friendly to performance optimization.
+In this paper, we introduce the Moving Least Squares Material Point Method (MLS-MPM). MLS-MPM naturally leads to the formulation of Affine Particle-In-Cell (APIC) [Jiang et al. 2015] and Polynomial Particle-In-Cell [Fu et al. 2017] in a way that is consistent with a Galerkin-style weak form discretization of the governing equations. Additionally, it enables a new stress divergence discretization that effortlessly allows all MPM simulations to run two times faster than before. We also develop a Compatible Particle-In-Cell (CPIC) algorithm on top of MLS-MPM. Utilizing a colored distance field representation and a novel compatibility condition for particles and grid nodes, our framework enables the simulation of various new phenomena that are not previously supported by MPM, including material cutting, dynamic open boundaries, and two-way coupling with rigid bodies. MLS-MPM with CPIC is easy to implement and friendly to performance optimization.
 
 CCS Concepts: · Computing methodologies → Physical simulation ;
 
 Additional Key Words and Phrases: Material Point Method (MPM), moving least squares, cutting, discontinuity, distance field, rigid coupling
 
-## ACMReference format:
+## ACM Reference format:
 
 Yuanming Hu y , Yu Fang y , Ziheng Ge y , Ziyin Qu, Yixin Zhu y , Andre Pradhana, and Chenfanfu Jiang. 2018. A Moving Least Squares Material Point
 
@@ -106,9 +137,33 @@ We start with reviewing MLS in purely meshless methods such as element-free Gale
 
 Table 1. Important notations used in the MLS-MPM derivation (§3).
 
-| Variable                                                                                                                                            | Type                                                                                                                                                                        | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| --------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| u x i x p z ; x P ( x ) c ( x ) M ( x ) M p ξ i ( x ) Φ i ( x ) N i ( x ) ρ ( x ; t ) v ( x ) m i v i v n i ˆ v n i m p v p C p q q α ; β σ F p f i | any vector vector vector vector vector matrix matrix scalar scalar scalar vector vector scalar vector vector vector scalar vector matrix vector scalar matrix matrix vector | any continuous function approximated with MLS the location of sample/node i the location of particle p an arbitrary continuous location the polynomial basis all basis coefficients the moment matrix M ( x p ) weighting function centered at x i MLS shape function centered at x i B-spline basis function centered at x i the continuous density field the continuous velocity field mass of node i velocity of node i velocity of node i at time n over domain Ω t n velocity of node i at time n + 1 over domain Ω t n mass of particle p velocity of particle p affine matrix of particle p test function in the weak form derivative of q α wrt. x β Cauchy stress the deformation gradient on particle p the force on grid node i |
+| Variable           | Type   | Meaning                                                     |
+| ------------------ | ------ | ----------------------------------------------------------- |
+| $u$                | any    | continuous function approximated with MLS                   |
+| $x_i$              | vector | location of sample/grid node $i$                            |
+| $x_p$              | vector | location of particle $p$                                    |
+| $z, x$             | vector | arbitrary continuous locations                              |
+| $P(x)$             | vector | polynomial basis                                            |
+| $c(x)$             | vector | basis coefficients                                          |
+| $M(x)$             | matrix | moment matrix                                               |
+| $M_p$              | matrix | $M(x_p)$                                                    |
+| $\xi_i(x)$         | scalar | weighting function centered at $x_i$                        |
+| $\Phi_i(x)$        | scalar | MLS shape function centered at $x_i$                        |
+| $N_i(x)$           | scalar | B-spline basis function centered at $x_i$                   |
+| $\rho(x,t)$        | scalar | continuous density field                                    |
+| $v(x)$             | vector | continuous velocity field                                   |
+| $m_i$              | scalar | grid node mass                                              |
+| $v_i$              | vector | grid node velocity                                          |
+| $v_i^n$            | vector | node velocity at time $n$ over $\Omega_{t^n}$               |
+| $\hat v_i^{n+1}$   | vector | updated node velocity after grid forces over $\Omega_{t^n}$ |
+| $m_p$              | scalar | particle mass                                               |
+| $v_p$              | vector | particle velocity                                           |
+| $C_p$              | matrix | APIC affine velocity matrix for particle $p$                |
+| $q$                | vector | weak-form test function                                     |
+| $q_{\alpha,\beta}$ | scalar | derivative of $q_\alpha$ with respect to $x_\beta$          |
+| $\sigma$           | matrix | Cauchy stress                                               |
+| $F_p$              | matrix | deformation gradient on particle $p$                        |
+| $f_i$              | vector | force on grid node $i$                                      |
 
 Fig. 5. Two dimensional sand inflow is two-way coupled with a wheel. The wheel is made of intersecting thin boundaries, allowing clean separation for materials on different sides and corners.
 
@@ -120,17 +175,26 @@ Fig. 6. Our method enables two-way coupled simulation of splashing water and rig
 
 ![Image](mls-mpm-docling_artifacts/image_000005_825d90d10844ea48f90d2557523e04fe0af3ded2c33e1374ff2782b5270fa008.png)
 
-<!-- formula-not-decoded -->
+$$
+u(z)=P^T(z-x)c(x).
+\tag{1}
+$$
 
 In EFG, c ( x ) is evaluated using weighted least squares that minimizes the functional J x ( c ) = P i 2 B x ξ i ( x ) P T ( x i x ) c ( x ) u i 2 , where ξ i ( x ) is a localized weighting function centered at x i , and B x denotes the set of indices satisfying ξ i ( x ) , 0. The solution is
 
-<!-- formula-not-decoded -->
+$$
+c(x)=M^{-1}(x)b(x),
+\tag{2}
+$$
 
 where b ( x ) = P i 2 B x ξ i ( x ) P ( x i x ) u i and M ( x ) = P i 2 B x ξ i ( x ) P ( x i x ) P T ( x i x ) . Note that when P only contains linear polynomials, a more intuitive form of c ( x ) is given in §3.1.1.
 
 Substituting Eq. 2 back into Eq. 1 gives
 
-<!-- formula-not-decoded -->
+$$
+u(z)=\sum_{i\in B_x}\xi_i(x)P^T(z-x)M^{-1}(x)P(x_i-x)u_i.
+\tag{3}
+$$
 
 which can also be expressed as u ( z ) = P i 2 B x Φ i ( z ) u i , where Φ i ( z ) = ξ i ( x ) P T ( z x ) M 1 ( x ) P ( x i x ) can be defined as the nodal shape function of x i in EFG. Interestingly this is exactly the shape function used in the Reproducing Kernel Particle Method (RKPM) [Liu et al. 1995].
 
@@ -138,7 +202,12 @@ The polynomial subspace is usually composed of monomials up to degree m . In 2D 
 
 3.1.1 The case of a linear polynomial basis. In the simple case of a complete linear polynomial basis ( m = l = 1) as done by Müller et al.[2004] for meshless solids, MLS is a 1 st -order-consistent interpolation scheme for scattered data and derivatives. With P ( x i x ) = [1 ; ( x i x ) T ] T , Eq. 2 gives the reconstructed function value and its gradient estimation at x :
 
-<!-- formula-not-decoded -->
+$$
+\begin{bmatrix}\hat u\\ \nabla\hat u\end{bmatrix}
+= M^{-1}(x)Q^T\Xi(x)
+\begin{bmatrix}u_1\\ \vdots\\ u_N\end{bmatrix}.
+\tag{4}
+$$
 
 where N is the total number of sample data points, Ξ( x ) is the diagonal weighting matrix with Ξ ii = ξ i ( x ) , and Q ( x ) = [ P ( x 1 x ) ; : : : ; P ( x N x ) ] T , M ( x ) = Q T Ξ Q .
 
@@ -156,9 +225,17 @@ In this section we derive the MLS-MPM discretization from the continuous weak fo
 
 3.3.1 Governing equations. Westart with the Eulerian governing equations:
 
-<!-- formula-not-decoded -->
+$$
+\frac{D\rho}{Dt}+\rho\nabla\cdot v=0
+\qquad\text{(conservation of mass)}.
+\tag{5}
+$$
 
-<!-- formula-not-decoded -->
+$$
+\rho\frac{Dv}{Dt}=\nabla\cdot\sigma+\rho g
+\qquad\text{(conservation of momentum)}.
+\tag{6}
+$$
 
 where ρ is mass density, v is velocity, g = ( 0 ; 9 : 8 ; 0 ) T is gravity, σ is Cauchy stress, and Dϕ Dt = @ ϕ @ t + v r ϕ denotes the material derivative of any function ϕ ( x ; t ) .
 
@@ -166,7 +243,15 @@ where ρ is mass density, v is velocity, g = ( 0 ; 9 : 8 ; 0 ) T is gravity, σ 
 
 Denoting the material domain at time t n with Ω t n , an updated Lagrangian time discretization of the weak form of Eq. 6 following [Jiang et al. 2016] leads to (we drop g here for simplicity)
 
-<!-- formula-not-decoded -->
+$$
+\begin{aligned}
+\frac{1}{\Delta t}\int_{\Omega_{t^n}}\rho(x,t^n)
+\left(\hat v_\alpha^{n+1}(x)-v_\alpha^n(x)\right)q_\alpha(x,t^n)\,dx
+&=\int_{\partial\Omega_{t^n}}q_\alpha(x,t^n)T_\alpha(x,t^n)\,ds\\
+&\quad-\int_{\Omega_{t^n}}q_{\alpha,\beta}(x,t^n)\sigma_{\alpha\beta}(x,t^n)\,dx.
+\end{aligned}
+\tag{7}
+$$
 
 where q ( ; t ) : Ω t n ! R d is an arbitrary vector-valued test function that vanishes at the Dirichlet boundary @ Ω D , d = 2 or 3 is the problem dimension, T ( x ; t ) is the traction field along the boundary. Here we have used v n to denote the current Eulerian velocity at time n . ˆ v n + 1 denotes the updated velocity field after forces are applied. Both v n and ˆ v n + 1 are defined for x 2 Ω t n as Ω t n ! R d . Notice that we choose the notation ˆ v n + 1 instead of v n + 1 , since v n + 1 is only defined on the domain of the next time step Ω t n + 1 . The weak form is also expressed using index notations, where v n α ; q α ; T α are α components of v n ; q ; T and q α ; β = @ q α @ x β . Implicit summation on
 
@@ -182,7 +267,10 @@ Typically in FEM, both the unknown variable and the test function can be approxi
 
 3.3.4 MLS-MPM momentum term. In this section we show how MLS-MPM discretizes the left hand side of the weak form Eq. 7. We first divide the continuum domain with particle partitions Ω t n p as
 
-<!-- formula-not-decoded -->
+$$
+\int_{\Omega_{t^n}}\rho v_\alpha^n q_\alpha\,dx
+=\sum_p\int_{\Omega_{p}^{t^n}}\rho v_\alpha^n q_\alpha\,dx.
+$$
 
 Fig. 8. An elastoplastic von-Mises Jello block is two-way coupled with rigid blocks with different density ratios.
 
@@ -190,25 +278,43 @@ Fig. 8. An elastoplastic von-Mises Jello block is two-way coupled with rigid blo
 
 In each integral over Ω t n p since x is near x n p , we can approximate the continuous equations with nodal data samples
 
-<!-- formula-not-decoded -->
+$$
+v_\alpha^n(x)=\sum_j\Phi_j(x)v_{j\alpha}^n.
+\tag{8}
+$$
 
 and
 
-<!-- formula-not-decoded -->
+$$
+q_\alpha(x,t^n)=\sum_i\Phi_i(x)q_{i\alpha}^n.
+\tag{9}
+$$
 
 i
 
 where we used the MLS shape function (§3.1)
 
-<!-- formula-not-decoded -->
+$$
+\Phi_i(x)=\xi_i(x_p^n)P^T(x-x_p^n)M^{-1}(x_p^n)P(x_i-x_p^n).
+\tag{10}
+$$
 
 Therefore
 
-<!-- formula-not-decoded -->
+$$
+\sum_p\int_{\Omega_p^{t^n}}\rho v_\alpha^n q_\alpha\,dx
+=\sum_{p,i,j}q_{i\alpha}^n v_{j\alpha}^n m_{ij},
+\qquad
+m_{ij}=\int_{\Omega_p^{t^n}}\rho\Phi_i\Phi_j\,dx.
+\tag{11}
+$$
 
 where m i j = R Ω t n p ρ ( x ; t n )Φ i ( x )Φ j ( x ) d x is the mass matrix. Mass lumping further approximates it with a diagonal matrix by summing each row. The diagonal entry is
 
-<!-- formula-not-decoded -->
+$$
+m_i^n=\sum_p\int_{\Omega_p^{t^n}}\rho(x,t^n)\Phi_i(x)\,dx
+\approx\sum_p m_p\Phi_i(x_p^n)=\sum_p m_p N_i(x_p^n).
+$$
 
 which is consistent with traditional MPM. See [Jiang et al. 2016] for further derivations which are applicable to MLS-MPM as well.
 
@@ -218,31 +324,59 @@ The grid velocity is evolved from v n i to ˆ v n + 1 i . Intuitively, we can ap
 
 Choose the test function. Similarly to the momentum term, we can express the stress integral through the summation over individual particle domains:
 
-<!-- formula-not-decoded -->
+$$
+-\int_{\Omega_{t^n}}q_{\alpha,\beta}\sigma_{\alpha\beta}\,dx
+= -\sum_p\int_{\Omega_p^{t^n}}q_{\alpha,\beta}\sigma_{\alpha\beta}\,dx.
+\tag{12}
+$$
 
 Recall in Eq. 9, we have chosen to express the test function q ( x ; t ) from a finite-dimensional function space (the discretized test space).
 
 This allows us to apply standard Finite Element procedures [Hughes 2012] to convert Eq. 12 into a system of equations by letting q be, in turn, each of the basis functions in the test space. The resulting system contains N д d equations for all the degrees of freedom, where N д is the total number of grid nodes and d is the problem dimension. For the degree of freedom corresponding to any grid node ˆ i 2 f 1 ; : : : ; N д g and component ˆ α 2 f 1 ; : : : ; d g , we can enforce such a choice of q by setting
 
-<!-- formula-not-decoded -->
+$$
+q_{i\alpha}^n=\delta_{i\hat i}\delta_{\alpha\hat\alpha}
+=\begin{cases}
+1,&\alpha=\hat\alpha\text{ and }i=\hat i,\\
+0,&\text{otherwise.}
+\end{cases}
+$$
 
 in Eq. 9. Combining this with the MLS shape function from Eq. 10 leads to
 
-<!-- formula-not-decoded -->
+$$
+q_\alpha(x,t^n)=P^T(x-x_p^n)M^{-1}(x_p^n)\xi_{\hat i}(x_p^n)P(x_{\hat i}-x_p^n)\delta_{\alpha\hat\alpha}.
+\tag{13}
+$$
 
 for any x 2 Ω t n p . Such test functions will be enumerated over all ˆ i and ˆ α to get the resulting force components f ˆ i ˆ α associated with all degrees of freedom on the grid.
 
 Discretizing the force. To reach the discrete force, Eq. 12 requires the derivative of q . Differentiating Eq. 13 gives
 
-<!-- formula-not-decoded -->
+$$
+q_{\alpha,\beta}(x,t^n)=
+\frac{\partial P^T(x-x_p^n)}{\partial x_\beta}
+M^{-1}(x_p^n)\xi_{\hat i}(x_p^n)P(x_{\hat i}-x_p^n)\delta_{\alpha\hat\alpha}.
+\tag{14}
+$$
 
 To simplify the derivation, we adopt the linear polynomial space P T ( x x n p ) = [1 ; x 1 x n p 1 ; x 2 x n p 2 ; x 3 x n p 3 ]. Note that it is possible to generalize this choice to a higher order polynomial space, and we leave such an extension to future work. We also choose ξ ˆ i = N ˆ i to be quadratic/cubic B-splines (so that M 1 is a constant). Under these assumptions, Eq. 14 becomes
 
-<!-- formula-not-decoded -->
+$$
+q_{\alpha,\beta}(x,t^n)=M_p^{-1}N_i(x_p^n)(x_{\hat i\beta}-x_{p\beta}^n)\delta_{\alpha\hat\alpha}.
+\tag{15}
+$$
 
 where M p = 1 4 ∆ x 2 for quadratic N i ( x ) and 1 3 ∆ x 2 for cubic N i ( x ) . Substituting it back into Eq. 12 reveals the ˆ α component force computation on grid node ˆ i :
 
-<!-- formula-not-decoded -->
+$$
+\begin{aligned}
+f_{\hat i\hat\alpha}
+&=-\sum_p\int_{\Omega_p^{t^n}}q_{\alpha,\beta}(x,t^n)\sigma_{\alpha\beta}(x,t^n)\,dx\\
+&\approx -\sum_p V_p^n M_p^{-1}\sigma_{p\,\hat\alpha\beta}^n N_{\hat i}(x_p^n)(x_{\hat i\beta}^n-x_{p\beta}^n).
+\end{aligned}
+\tag{16}
+$$
 
 where V n p is the current volume of particle p at time n . Here the approximation comes from adopting a one-point quadrature rule to replace σ ( x ; t n ) in Ω t n p with σ n p .
 
@@ -260,11 +394,20 @@ Fig. 9. We stir a bowl of dry sand with two thin plates. Materials from opposite
 
 I + ∆ t @ ˆ v n + 1 @ x ( x n p ) F n p , where traditional MPM uses @ ˆ v n + 1 @ x ( x n p ) = P i ˆ v n + 1 i r N i ( x n p ) T . In the MLS view of v ( x ) we can differentiate Eq. 8. For linear polynomials this leads to
 
-<!-- formula-not-decoded -->
+$$
+\frac{\partial \hat v^{n+1}}{\partial x}=C_p^{n+1},
+\qquad
+F_p^{n+1}=\left(I+\Delta t\,C_p^{n+1}\right)F_p^n.
+\tag{17}
+$$
 
 where C n + 1 p is exactly the affine velocity matrix from APIC. Accordingly if we assume hyperelasticity with total potential energy E = P p V 0 p Ψ p ( F p ) where V 0 p is particle initial volume and Ψ p is the energy density function, it can be shown that
 
-<!-- formula-not-decoded -->
+$$
+f_i=-\frac{\partial E}{\partial x_i}
+=-\sum_p N_i(x_p^n)V_p^0M_p^{-1}\frac{\partial\Psi}{\partial F}(F_p^n)(F_p^n)^T(x_i-x_p^n).
+\tag{18}
+$$
 
 which is consistent with the weak form result from Eq. 16 by noticing σ = 1 det ( F ) @ Ψ @ F F T and det ( F ) V 0 p = V n p .
 
@@ -274,7 +417,17 @@ In contrast to traditional MPM, the MLS-MPM deformation gradient update and forc
 
 As in [Stomakhin et al. 2013], implicit time stepping is naturally supported by MLS-MPM. Implicit MPM with Newton's method [Gast et al. 2015] requires computing the action of the energy Hessian on an arbitrary grid increment δ u . We show in the supplementary document [Hu et al. 2018] that
 
-<!-- formula-not-decoded -->
+$$
+-\delta f_i=\sum_p V_p^0 A_p(F_p^n)^T M_p^{-1}N_i(x_p^n)(x_i^n-x_p^n),
+\tag{19}
+$$
+
+where
+
+$$
+A_p=\frac{\partial^2\Psi}{\partial F\partial F}:
+\sum_j M_p^{-1}N_j(x_p^n)\delta u_j(x_j^n-x_p^n)^T F_p^n.
+$$
 
 where A p = @ 2 Ψ @ F @ F : P j M 1 p N j ( x n p ) δ u j ( x n j x n p ) T F n p : In practice it corresponds to a grid-to-particle gather step (for computing A p ) and a particle-to-grid scatter step (for accumulating δ f i ).
 
@@ -329,7 +482,9 @@ Valid distance. For computing a narrow-band distance field, we allow each rigid 
 
 Distance rasterization. The minimum unsigned distance from x i to the boundary is then
 
-<!-- formula-not-decoded -->
+$$
+d_i=\min_{r,\eta}|u_{i,r_\eta}|.
+$$
 
 During the process of computing all point-plane distances, we also keep track of the closest rigid body to x i using index r ( x i ) . This index will be used in §5.4 for determining which rigid body we apply impulses on from grid velocities. Since each rigid body contains many rigid particles, we also track the rigid particle index r η ( x i ) that results in the smallest point-plane distance for node i and rigid body r . This index will be used in §5.2.2 for uniquely deciding the relative side relationship between them.
 
@@ -339,7 +494,13 @@ Rigid particle seeding. Note that our algorithm is not sensitive to the distribu
 
 5.2.2 Grid color field. The color of each grid node contains its affinity (closeness) to each rigid surface and a tag labeling the side it is on. Affinity A ir for surface r and grid node i is
 
-<!-- formula-not-decoded -->
+$$
+A_{ir}=\begin{cases}
+1,&\exists\eta\text{ with valid }u_{i,r_\eta},\\
+0,&\text{otherwise.}
+\end{cases}
+\tag{20}
+$$
 
 Note that the validity of the signed distance u i ; r η between grid node i and rigid particle r η is defined in §5.2.1. The tag T ir is determined by the signed distance of the closest rigid particle r η ( x i ) , i.e., T ir = sign ( u i ; r η ( x i ) ) .
 
@@ -351,7 +512,10 @@ Once we have the grid CDF ( d i , A ir and T ir ), they can be reconstructed at 
 
 5.3.1 Particle color field. The color information can be reconstructed relatively easily. Specifically, a particle's affinities to rigid surfaces A pr are directly inherited from grid affinity A ir , where grid node i is any node within particle p 's MPM support kernel. For particle tag T pr , we take a distance weighted average
 
-<!-- formula-not-decoded -->
+$$
+T_{pr}=\operatorname{sign}\left(\sum_i N_i(x_p)d_iT_{ir}\right).
+\tag{21}
+$$
 
 where incorporating d i in the weight reduces the influence of grid nodes that are near the rigid body whose tags can be ambiguous due to floating point error.
 
@@ -359,7 +523,10 @@ where incorporating d i in the weight reduces the influence of grid nodes that a
 
 5.3.3 Particle color persistence and penalty force. Particle p 's color A pr and T pr associated with rigid surface r will persist after being obtained, until all nodes in p 's kernel lose affinities with r . This is important since a particle may slightly penetrate a surface due to numerical advection error, in which case we should not flip the tag. When this happens (see Fig. 13), we will then get a negative d p with a correct normal n p along which we could fix the penetration. Specifically, we detect negative d p occurrences and keep track of a weak penalty force on these particles as
 
-<!-- formula-not-decoded -->
+$$
+f_p^{P,n}=-k_h d_p n_p.
+\tag{22}
+$$
 
 where k h is the penalty stiffness parameter.
 
@@ -371,9 +538,15 @@ We use i p + to denote nodes that are compatible with particle p , and i p for t
 
 We will assume the usage of APIC, although the extension to PolyPIC is straightforward. Near rigid surfaces, particles only transfer to compatible grid nodes:
 
-<!-- formula-not-decoded -->
+$$
+m_i^n=\sum_{q\in p_i^+}N_i(x_q^n)m_q.
+\tag{23}
+$$
 
-<!-- formula-not-decoded -->
+$$
+(mv)_i^n=\sum_{q\in p_i^+}N_i(x_q^n)m_q\left(v_q^n+C_q^n(x_i-x_q^n)\right).
+\tag{24}
+$$
 
 Velocity projection operator. For each rigid body, we can compute its world-space velocity at position x as V n r ( x ) = v n r + ω n r ( x x n r ) .
 
@@ -387,7 +560,16 @@ Fig. 14. A vertical Drucker-Prager plastic sand flow is two-way coupled with fou
 
 We also define a boundary projection operator for projecting an input velocity v given normal n and boundary condition B (sticky, slip, or separate):
 
-<!-- formula-not-decoded -->
+$$
+\operatorname{Proj}(v,n,B,\mu)=
+\begin{cases}
+\vec 0,&B\text{ is sticky},\\
+v_t,&B\text{ is slip},\\
+\zeta\hat v_t,&B\text{ is separate and }v\cdot n\le 0,\\
+v,&B\text{ is separate and }v\cdot n>0,
+\end{cases}
+\tag{25}
+$$
 
 where ζ = max ( 0 ; j v t j + µ v n ) , v t = v ( v n ) n , ˆ v t = v t j v t j . Here µ 0 is the dynamic friction coefficient.
 
@@ -395,7 +577,10 @@ Velocity projection and impulses on rigid bodies. Given a particle p and rigid b
 
 MLS-MPM grid momentum update. The grid momentum is updated as (assuming symplectic Euler)
 
-<!-- formula-not-decoded -->
+$$
+(m\hat v)_i^{n+1}=(mv)_i^n+\Delta t\left(m_i^n g+f_i^n\right).
+\tag{26}
+$$
 
 where g is gravity and f n i is the MLS-MPM hyperelastic force given by Eq. 18. Note that we use notation ( m ˆ v ) n + 1 i instead of ( m v ) n + 1 i since the later refers to the grid momentum in time t n + 1 transferred from the particles. Implicit discretization of the hyperelastic force can be achieved similarly to [Stomakhin et al. 2013]. Then we update the velocities by dividing the momentum by mass: ˆ v n + 1 i = ( m ˆ v ) n + 1 = m n .
 
@@ -407,9 +592,19 @@ i
 
 Normally for level set-based collision objects, boundary conditions are applied at grid nodes inside the level set. In our case for each particle, the velocities on incompatible grid nodes are however nonassociated with the particle due to the enforcement of discontinuity. We take a ghost velocity approach, where we assume for any node j 2 i p , its velocity is simply v j = v n p through a constant extrapolation from particle p . Thus the CPIC transfer from grid to particle which gathers contributions from both incompatible and compatible nodes is given by
 
-<!-- formula-not-decoded -->
+$$
+v_p^{n+1}=\sum_{j\in i_p^-}N_j(x_p^n)\tilde v_p+
+\sum_{j\in i_p^+}N_j(x_p^n)\hat v_j^{n+1}.
+\tag{27}
+$$
 
-<!-- formula-not-decoded -->
+$$
+C_p^{n+1}=D_p^{-1}\left(
+\sum_{j\in i_p^-}N_j(x_p^n)\tilde v_p (z_{jp}^n)^T+
+\sum_{j\in i_p^+}N_j(x_p^n)\hat v_j^{n+1}(z_{jp}^n)^T
+\right).
+\tag{28}
+$$
 
 where z n jp = x j x n p . Here we include ghost velocities on incompatible nodes to prevent potential singularity of D p .
 
@@ -421,7 +616,7 @@ Dynamic rigid body velocities can be updated from the impulses computed in §5.4
 
 ## 6 A HIGH PERFORMANCE IMPLEMENTATION
 
-Efficiency is a key concern in MPM since simulating a large number of particles can be time-consuming. The transfer operation from particle to grid (P2G) and that from grid to particle (G2P) are the bottlenecks for traditional MPM, which usually takes more than 85% of time based on our experience. In this section, we discuss our highperformance implementation of these two operations. Particularly, we decompose the performance gain into two parts: performance engineering and algorithmic improvement .
+Efficiency is a key concern in MPM since simulating a large number of particles can be time-consuming. The transfer operation from particle to grid (P2G) and that from grid to particle (G2P) are the bottlenecks for traditional MPM, which usually takes more than 85% of time based on our experience. In this section, we discuss our high-performance implementation of these two operations. Particularly, we decompose the performance gain into two parts: performance engineering and algorithmic improvement .
 
 Performance engineering. We adopt low-level performance optimization techniques to accelerate the program with no algorithmic change. We use SPGrid [Setaluri et al. 2014] for background grid storage, and adopt techniques including blocked transfer and eight-colored P2G for lock-free multi-threading , as detailed in the supplementary document [Hu et al. 2018].
 
@@ -438,9 +633,11 @@ Table 2. Benchmarks of MPM transfer operations. Reliable reference implementatio
 | G2P (1 thread)  | 8255 (1 ) | 7476 (1.10 ) | 1144 (7.21 ) | 589 (14.01 )   |
 | G2P (4 threads) | 2070 (1 ) | 2011 (1.03 ) | 313 (6.61 )  | 163 (12.70 )   |
 
-Algorithmic improvement. MLS-MPMhalvesthenumberofFLOPs needed for each particle. The unification of affine velocity field and deformation gradient eliminates the necessity for evaluating r N i ( x n p ) , which speeds up both P2G and G2P. During P2G, MLSMPMfuses the scattering of the affine momentum and particle force contribution into N i ( x n p ) Q p ( x i x n p ) , where
+Algorithmic improvement. MLS-MPM halves the number of FLOPs needed for each particle. The unification of affine velocity field and deformation gradient eliminates the necessity for evaluating r N i ( x n p ) , which speeds up both P2G and G2P. During P2G, MLS-MPM fuses the scattering of the affine momentum and particle force contribution into N i ( x n p ) Q p ( x i x n p ) , where
 
-<!-- formula-not-decoded -->
+$$
+Q_p=\Delta t\,V_p^0M_p^{-1}\frac{\partial\Psi}{\partial F}(F_p^n)(F_p^n)^T+m_pC_p.
+$$
 
 so that only one matrix-vector multiplication is needed for the inner loop (27 iterations for 3D and quadratic B-spline); and during G2P, it avoids evaluating @ v @ x with r N i ( x ) .
 
@@ -458,13 +655,13 @@ Fig. 16. Our rigid-MPM coupling allows us to simulate terradynamics to predict l
 
 For implicit integration, efficient Krylov-solver-based implicit MPM usually adopts a matrix-free implementation to avoid reconstructing a sparse matrix in every time step. Each Krylov multiplication is essentially equivalent to a grid-to-particle-to-grid transfer cycle for velocity differentials. Transfers therefore remain the bottleneck. Similarly to the explicit force, our force differential also eliminates the necessity of evaluating kernel gradients and allows algorithmic performance gain. The gain is however less significant, because only in explicit time integration it benefits from unifying affine momentum and particle force contribution.
 
-We developed our system based on Taichi [Hu 2018]. Our highperformance code will be open-sourced with the publication of this work. Please refer to our supplementary code and document [Hu et al. 2018] for more detailed discussion on implementation.
+We developed our system based on Taichi [Hu 2018]. Our high-performance code will be open-sourced with the publication of this work. Please refer to our supplementary code and document [Hu et al. 2018] for more detailed discussion on implementation.
 
 ## 7 RESULTS
 
 Our experiments show that MLS-MPM produces visually comparable dynamics with traditional MPM. We also perform two standard hyperelasticity tests: initially stretched oscillating cube and colliding balls . The total energy evolution curves for MLS-MPM and MPM are plotted in Fig. 17 showing almost identical numerical dissipation.
 
-We present various examples to demonstrate the efficacy of MLSMPM with CPIC. Timing, statistics and material parameters are given in Table 3. We show world space cutting of elastic and elastoplastic objects including a progressively cut armadillo (Fig. 7), a dissected bunny (Fig. 4), a banana (Fig. 1) and a goat cheese block (Fig. 3). Similarly, our method handles thin boundary meshes, as demonstrated with sweeping (Fig. 15) and stirring (Fig. 9) granular materials. Two-way coupling with rigid bodies is naturally supported, and shown by dropping rigid blocks onto goo (Fig. 8), testing buoyancy in water (Fig. 6) and hitting paddles with sand (Fig. 14). A sand wheel (Fig. 5) and several water wheels (Fig. 1)
+We present various examples to demonstrate the efficacy of MLS-MPM with CPIC. Timing, statistics and material parameters are given in Table 3. We show world space cutting of elastic and elastoplastic objects including a progressively cut armadillo (Fig. 7), a dissected bunny (Fig. 4), a banana (Fig. 1) and a goat cheese block (Fig. 3). Similarly, our method handles thin boundary meshes, as demonstrated with sweeping (Fig. 15) and stirring (Fig. 9) granular materials. Two-way coupling with rigid bodies is naturally supported, and shown by dropping rigid blocks onto goo (Fig. 8), testing buoyancy in water (Fig. 6) and hitting paddles with sand (Fig. 14). A sand wheel (Fig. 5) and several water wheels (Fig. 1)
 
 Fig. 17. Total energy evolution curves for MPM and MLS-MPM in the oscillating jello (left) and colliding balls (right) test cases. Numerical dissipation from the two methods are nearly identical.
 
@@ -475,6 +672,14 @@ simultaneously demonstrate the robust treatment of infinitely thin boundaries an
 Two-way coupled rigid-MPM simulation is also useful for robotics and terradynamics. In Fig. 16 we simulate and validate locomotion for robot navigating in granular media. We provide more details about the 3D printed robot in the supplementary document [Hu et al. 2018].
 
 CPIC enables powerful new features for MPM at low cost since only a narrow band near the rigid boundaries needs CPIC. In the banana example (Fig. 1), each frame takes around 131 : 9s if the cutter is removed, while it takes 140 : 5s when cutting is enabled, with only 6% CPIC overhead. (For fair comparison in this experiment, CPIC and regular MPM transfers are optimized with equal efforts.)
+
+## 9 Local implementation notes
+
+- Prefer the MLS-MPM/APIC formulation for this project: it avoids explicit kernel-gradient evaluation in both force scatter and deformation-gradient update.
+- Use the fused P2G form from the cheat sheet when possible. It turns affine momentum plus force into one matrix-vector multiply per particle-node pair.
+- Keep the particle instance/data layout aligned for GPU work; this repo already notes that 8-byte aligned flora instance layout benchmarked better than 4-byte stride.
+- CPIC is optional for the first implementation. Start with standard MLS-MPM, then add colored distance fields and compatibility if thin cutting/two-way rigid coupling becomes a goal.
+- For equations in this file, compare against `mls-mpm-paper.md` if a symbol looks suspicious; the original PDF extraction has better math glyphs but worse reading order.
 
 ## 8 LIMITATIONS AND FUTURE WORK
 
