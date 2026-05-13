@@ -61,5 +61,14 @@ no_validation_layer = []
 # uncomment this line to use release build for tests
 # inherits = "release"
 
+# Keep the main game crate debuggable in dev builds, but compile the CPU MLS-MPM
+# solver like hot-path code. The water crate exists specifically for this split:
+# debug app iteration stays fast enough, while P2G/G2P transfer loops avoid the
+# huge slowdown from unoptimized debug code and debug math assertions.
+[profile.dev.package.re-flora-water]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+
 [profile.dev.package.petalsonic]
 opt-level = 3
