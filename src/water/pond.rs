@@ -127,10 +127,6 @@ impl PondWaterSim {
         Self::new(PondWaterConfig::default())
     }
 
-    pub fn particle_positions_ws(&self) -> impl Iterator<Item = Vec3> + '_ {
-        self.particles.iter().map(|particle| particle.x)
-    }
-
     fn seed_particles(&mut self) {
         self.particles.clear();
         self.particles.reserve(self.config.particle_count);
@@ -183,10 +179,11 @@ mod tests {
         let sim = PondWaterSim::fixed_test_box();
         assert_eq!(sim.particles.len(), DEFAULT_PARTICLE_COUNT);
         assert_eq!(sim.grid_dim, DEFAULT_GRID_DIM);
-        for pos in sim.particle_positions_ws() {
+        for particle in &sim.particles {
             assert!(
-                sim.config.collider.contains(pos),
-                "particle escaped: {pos:?}"
+                sim.config.collider.contains(particle.x),
+                "particle escaped: {:?}",
+                particle.x
             );
         }
     }

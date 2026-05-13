@@ -3,7 +3,8 @@ use crate::builder::ChunkModifyStats;
 use crate::geom::UAabb3;
 use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, FallenLeafEmitter, ParticleEmitter, ParticleHandle,
-    ParticleRenderKind, ParticleSpawn, ParticleSystem, ParticleTickStep,
+    ParticleRenderKind, ParticleSnapshot, ParticleSpawn, ParticleSystem, ParticleTickStep,
+    PARTICLE_CAPACITY,
 };
 use crate::util::ClusterResult;
 use egui::Color32;
@@ -16,6 +17,8 @@ use std::f32::consts::TAU;
 const TERRAIN_HARVEST_MAX_PARTICLES_PER_EDIT: u32 = 4;
 #[allow(dead_code)]
 const TERRAIN_HARVEST_PARTICLE_SIZE: f32 = 1.0 / 256.0;
+const WATER_DEBUG_PARTICLE_SIZE: f32 = 0.012;
+const WATER_DEBUG_COLOR: Vec4 = Vec4::new(0.12, 0.45, 1.0, 0.62);
 
 pub(super) struct TreeLeafEmitter {
     tree_id: u32,
@@ -410,9 +413,29 @@ impl App {
         }
         self.particle_system
             .write_snapshots(&mut self.particle_snapshots);
+        self.append_water_debug_snapshots();
 
         if let Err(err) = self.tracer.upload_particles(&self.particle_snapshots) {
             log::error!("Failed to upload particles: {}", err);
+        }
+    }
+
+    fn append_water_debug_snapshots(&mut self) {
+        let remaining_capacity = PARTICLE_CAPACITY.saturating_sub(self.particle_snapshots.len());
+        if remaining_capacity == 0 {
+            return;
+        }
+
+        for particle in self.water_sim.particles.iter().take(remaining_capacity) {
+            self.particle_snapshots.push(ParticleSnapshot {
+                position_ws: particle.x,
+                velocity: particle.v,
+                color: WATER_DEBUG_COLOR,
+                size: WATER_DEBUG_PARTICLE_SIZE,
+                kind: ParticleRenderKind::Leaf,
+                texture_variant: 0,
+                animation_frame_offset: 0,
+            });
         }
     }
 

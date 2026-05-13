@@ -16,6 +16,7 @@ impl WaterBoxCollider {
         self.max_ws - self.min_ws
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn contains(self, point_ws: Vec3) -> bool {
         point_ws.cmpge(self.min_ws).all() && point_ws.cmple(self.max_ws).all()
     }

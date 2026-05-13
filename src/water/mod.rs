@@ -7,4 +7,4 @@ pub mod collider;
 pub mod mls_mpm;
 pub mod pond;
 
-pub use pond::{PondWaterConfig, PondWaterSim, WaterParticle};
+pub use pond::PondWaterSim;
