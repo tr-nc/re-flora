@@ -4,8 +4,9 @@ Goal: add a tiny dynamically simulated pond to Re: Flora using a bounded, single
 
 ## Local references
 
-- Paper PDF: `mls-mpm-ref/mls-mpm.pdf`
-- Paper text extraction: `mls-mpm-ref/mls-mpm-paper.md`
+- Primary implementation reference: `mls-mpm-ref/mls-mpm-final.md`
+- Longer polished paper extraction: `mls-mpm-ref/mls-mpm-polished.md`
+- Paper PDF authority: `mls-mpm-ref/mls-mpm.pdf`
 - Reference codebase: `mls-mpm-ref/taichi_mpm/`
 - Minimal MLS-MPM loop: `mls-mpm-ref/taichi_mpm/mls-mpm88.cpp`
 - Explained MLS-MPM loop: `mls-mpm-ref/taichi_mpm/mls-mpm88-explained.cpp`
@@ -20,6 +21,7 @@ Goal: add a tiny dynamically simulated pond to Re: Flora using a bounded, single
 - Prefer a simple, visible implementation before adding better rendering.
 - Keep the solver independent from the existing decorative `ParticleSystem`.
 - Terrain coupling should be local and incremental.
+- Start with plain explicit MLS-MPM/APIC; defer CPIC until we need thin-boundary compatibility or two-way rigid coupling.
 
 ## Solver shape
 
@@ -69,6 +71,25 @@ particles: 4k-8k
 substep dt: start around 1 / 240 s, clamp by CFL if needed
 ```
 
+## Paper-derived implementation choices
+
+Use the plain explicit APIC/MLS-MPM loop summarized in `mls-mpm-final.md`:
+
+- Quadratic B-spline support over `3 x 3 x 3` grid nodes.
+- Regular-grid moment constant `M_p = 1/4 * dx^2 * I`.
+- Reuse APIC affine matrix `C_p` as the velocity-gradient estimate.
+- Fuse affine momentum and stress/pressure in P2G where practical.
+- Avoid explicit kernel-gradient evaluation.
+
+For a general hyperelastic material, the fused P2G matrix is:
+
+```text
+Q_p = dt * V0_p * M_p^-1 * dPsi/dF(F_p) * F_p^T + m_p * C_p
+mv_i += w_ip * (m_p * v_p + Q_p * (x_i - x_p))
+```
+
+For the tiny pond, we can use the water-specific scalar compression `j` from the reference `WaterParticle` instead of full solid plasticity.
+
 ## MLS-MPM substep
 
 Each fixed substep follows the reference loop:
@@ -78,7 +99,7 @@ Each fixed substep follows the reference loop:
    - Compute base grid coordinate.
    - Compute quadratic B-spline weights over `3 x 3 x 3` nodes.
    - Scatter mass and momentum.
-   - Add pressure/stress affine contribution.
+   - Add fused pressure/stress plus APIC affine contribution.
 3. Grid update.
    - Normalize velocity by mass.
    - Apply gravity.
@@ -87,7 +108,7 @@ Each fixed substep follows the reference loop:
 4. Grid-to-particle gather.
    - Gather velocity.
    - Rebuild APIC affine matrix `c`.
-5. Update water compression `j`.
+5. Update water compression `j` from the gathered affine matrix trace.
 6. Advect particles.
 7. Clamp particles back into the pond volume if numerical drift escapes.
 
@@ -109,7 +130,7 @@ j_min = 0.1
 gravity = Vec3::new(0.0, -9.8, 0.0) scaled for world units
 ```
 
-Implementation note: if this is too stiff for our timestep, begin with the simpler MPM88/Taichi example stress:
+Implementation note: if this is too stiff for our timestep, begin with the simpler Taichi `mpm88.py` fluid stress:
 
 ```text
 stress = -dt * 4 * E * particle_volume * (j - 1) / dx^2
