@@ -63,10 +63,19 @@ struct PondWaterSim {
 }
 ```
 
+Initial test container:
+
+```text
+bounds_min_ws = Vec3::new(1.0, 1.0, 1.0)
+bounds_max_ws = Vec3::new(2.0, 2.0, 2.0)
+origin_ws = bounds_min_ws
+extent_ws = bounds_max_ws - bounds_min_ws
+```
+
 Initial target size:
 
 ```text
-grid_dim: 32 x 16 x 32
+grid_dim: 32 x 32 x 32
 particles: 4k-8k
 substep dt: start around 1 / 240 s, clamp by CFL if needed
 ```
@@ -151,7 +160,7 @@ Convert to world space only for rendering and for terrain height sampling.
 
 ## Terrain coupling
 
-Phase 1 uses only a box collider.
+Phase 1 uses only the fixed world-space box container from `(1, 1, 1)` to `(2, 2, 2)`. All six faces are solid walls for testing; the top can be made open later if we want splashes to leave the pond volume.
 
 Phase 2 samples a local heightfield under the pond:
 
@@ -209,7 +218,7 @@ Expose minimal debug controls in the existing config panel later:
 ### Milestone 1: standalone CPU solver
 
 - Add `src/water` module.
-- Seed a rectangular water volume inside a box.
+- Seed a rectangular water volume inside the fixed `(1, 1, 1)` to `(2, 2, 2)` box.
 - Run fixed substeps.
 - Add smoke test for particle bounds and finite values.
 - No renderer integration yet.
