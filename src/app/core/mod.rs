@@ -38,6 +38,7 @@ use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
 use crate::util::{GrowingFloraChunk, GrowingFloraQueue, LatestChunkQueue, ShaderCompiler, BENCH};
 use crate::vkn::{Allocator, CommandBuffer, Fence, Semaphore, SwapchainDesc};
+use crate::water::PondWaterSim;
 use crate::RenderFlags;
 use crate::{
     egui_renderer::EguiRenderer,
@@ -199,6 +200,7 @@ pub struct App {
     butterfly_emitters: Vec<ButterflyEmitter>,
     butterfly_emitter_desc: ButterflyEmitterDesc,
     particle_animation_time_sec: f32,
+    water_sim: PondWaterSim,
     particle_snapshots: Vec<ParticleSnapshot>,
     #[allow(dead_code)]
     terrain_harvest_particle_handles: Vec<ParticleHandle>,
@@ -815,6 +817,7 @@ impl App {
         let butterfly_emitters = Vec::new();
         let butterfly_emitter_desc = Self::butterfly_desc_from_gui_adjustables(&gui_adjustables);
         let particle_snapshots = Vec::with_capacity(PARTICLE_CAPACITY);
+        let water_sim = PondWaterSim::fixed_test_box();
         let terrain_harvest_particle_handles = Vec::with_capacity(256);
         let particle_forces = ParticleForces {
             linear_damping: 0.08,
@@ -905,6 +908,7 @@ impl App {
             butterfly_emitters,
             butterfly_emitter_desc,
             particle_animation_time_sec: 0.0,
+            water_sim,
             particle_snapshots,
             terrain_harvest_particle_handles,
             particle_forces,
@@ -2035,6 +2039,7 @@ impl App {
                 }
 
                 if self.render_flags.enable_particles {
+                    self.water_sim.update(frame_delta_time);
                     self.update_particle_simulation(frame_delta_time);
                 }
 
