@@ -1,0 +1,8 @@
+[package]
+name = "re-flora-water"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+glam = { version = "0.32.1", features = ["debug-glam-assert"] }
+log = "0.4.29"

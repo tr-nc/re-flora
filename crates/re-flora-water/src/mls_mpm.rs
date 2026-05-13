@@ -352,7 +352,7 @@ fn collide_particle_with_box(
 
 #[cfg(test)]
 mod tests {
-    use crate::water::PondWaterSim;
+    use crate::PondWaterSim;
 
     #[test]
     fn fixed_box_substeps_keep_particles_finite_and_bounded() {

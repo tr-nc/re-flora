@@ -38,8 +38,8 @@ use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
 use crate::util::{GrowingFloraChunk, GrowingFloraQueue, LatestChunkQueue, ShaderCompiler, BENCH};
 use crate::vkn::{Allocator, CommandBuffer, Fence, Semaphore, SwapchainDesc};
-use crate::water::PondWaterSim;
 use crate::RenderFlags;
+use re_flora_water::PondWaterSim;
 use crate::{
     egui_renderer::EguiRenderer,
     vkn::{Swapchain, VulkanContext},
