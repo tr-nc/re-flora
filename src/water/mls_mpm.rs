@@ -285,7 +285,7 @@ mod tests {
     #[test]
     fn fixed_box_substeps_keep_particles_finite_and_bounded() {
         let mut sim = PondWaterSim::fixed_test_box();
-        for _ in 0..8 {
+        for _ in 0..120 {
             sim.substep(sim.config.substep_dt);
         }
 
