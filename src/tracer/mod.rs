@@ -740,6 +740,15 @@ impl Tracer {
             vk::PipelineStageFlags::COMPUTE_SHADER,
             vec![shader_access_memory_barrier],
         );
+        // VSM filtering writes shadow_map_tex_for_vsm_ping in compute, then the
+        // flora vertex shader samples it in the same command buffer. MoltenVK/Metal
+        // needs the write made visible to graphics explicitly; a compute->compute
+        // barrier is not enough and causes close grass shadow flicker on macOS.
+        let compute_to_graphics_barrier = PipelineBarrier::new(
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vk::PipelineStageFlags::VERTEX_SHADER,
+            vec![shader_access_memory_barrier],
+        );
         let frag_to_vert_barrier = PipelineBarrier::new(
             vk::PipelineStageFlags::FRAGMENT_SHADER,
             vk::PipelineStageFlags::VERTEX_SHADER,
@@ -785,7 +794,7 @@ impl Tracer {
             self.record_tracer_shadow_pass(cmdbuf);
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             self.record_vsm_filtering_pass(cmdbuf);
-            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            compute_to_graphics_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
 
         if has_graphics_pass && !render_flags.enable_flora {
