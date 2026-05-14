@@ -1,7 +1,7 @@
 use glam::{IVec3, Mat3, Vec2, Vec3};
 use std::time::Instant;
 
-use super::pond::PondWaterSim;
+use super::{collider::WaterTerrainCollider, pond::PondWaterSim};
 
 const MAX_SUBSTEPS_PER_UPDATE: usize = 8;
 const ACTIVE_MASS_EPSILON: f32 = 1.0e-8;
@@ -246,6 +246,7 @@ impl PondWaterSim {
         let particle_padding = self.dx * self.config.wall_padding_cells.max(1.0);
         let j_min = self.config.j_min;
         let grid = &self.grid;
+        let terrain = self.terrain.as_ref();
 
         for particle in &mut self.particles {
             let local_pos = particle.x - origin_ws;
@@ -288,6 +289,16 @@ impl PondWaterSim {
             particle.j = (particle.j * (1.0 + dt * trace_c)).max(j_min);
             particle.x += particle.v * dt;
             collide_particle_with_box(particle, bounds.min_ws, bounds.max_ws, particle_padding);
+            if particle.x.is_finite() {
+                if let Some(terrain) = terrain {
+                    collide_particle_with_terrain(
+                        particle,
+                        terrain,
+                        bounds.min_ws.y,
+                        bounds.max_ws.y,
+                    );
+                }
+            }
 
             if !particle.x.is_finite() || !particle.v.is_finite() || !particle.j.is_finite() {
                 particle.x = bounds.clamp_point(particle.x, particle_padding);
@@ -363,6 +374,20 @@ fn collide_particle_with_box(
     }
 }
 
+fn collide_particle_with_terrain(
+    particle: &mut super::pond::WaterParticle,
+    terrain: &WaterTerrainCollider,
+    min_y: f32,
+    max_y: f32,
+) {
+    let terrain_y = terrain.sample_height_ws(Vec2::new(particle.x.x, particle.x.z));
+    let surface_y = (terrain_y + terrain.margin).clamp(min_y, max_y);
+    if particle.x.y < surface_y {
+        particle.x.y = surface_y;
+        particle.v.y = particle.v.y.max(0.0);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{PondWaterSim, WaterTerrainCollider};
@@ -386,7 +411,7 @@ mod tests {
             xz_dim: UVec2::new(4, 4),
             bounds_min_ws: bounds.min_ws,
             bounds_max_ws: bounds.max_ws,
-            heights_ws: vec![1.2; 16],
+            heights_ws: vec![0.2; 16],
             margin: sim.dx * 0.5,
         });
 
@@ -394,6 +419,45 @@ mod tests {
             sim.substep(sim.config.substep_dt);
         }
 
+        assert_particles_finite_and_bounded(&sim);
+    }
+
+    #[test]
+    fn terrain_particle_collision_lifts_particles_above_heightfield() {
+        let mut sim = PondWaterSim::fixed_test_box();
+        let bounds = sim.config.collider;
+        let terrain_height = 0.5;
+        let terrain_margin = sim.dx * 0.5;
+        sim.set_terrain_collider(WaterTerrainCollider {
+            xz_dim: UVec2::new(4, 4),
+            bounds_min_ws: bounds.min_ws,
+            bounds_max_ws: bounds.max_ws,
+            heights_ws: vec![terrain_height; 16],
+            margin: terrain_margin,
+        });
+
+        for particle in &mut sim.particles {
+            particle.x.y = terrain_height - 0.25;
+            particle.v.y = -1.0;
+        }
+
+        sim.substep(sim.config.substep_dt);
+
+        let min_particle_y = terrain_height + terrain_margin - 1.0e-5;
+        for particle in &sim.particles {
+            assert!(
+                particle.x.y >= min_particle_y,
+                "particle under terrain: {:?}, terrain {} margin {}",
+                particle.x,
+                terrain_height,
+                terrain_margin
+            );
+            assert!(
+                particle.v.y >= -1.0e-5,
+                "downward velocity after terrain collision: {:?}",
+                particle.v
+            );
+        }
         assert_particles_finite_and_bounded(&sim);
     }
 
