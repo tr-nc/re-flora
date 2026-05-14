@@ -1,4 +1,4 @@
-use glam::{IVec3, Mat3, Vec3};
+use glam::{IVec3, Mat3, Vec2, Vec3};
 use std::time::Instant;
 
 use super::pond::PondWaterSim;
@@ -170,6 +170,9 @@ impl PondWaterSim {
         let gravity = self.config.gravity;
         let wall_cells = self.config.wall_padding_cells.max(1.0);
         let wall_damping = self.config.wall_damping.clamp(0.0, 1.0);
+        let terrain = self.terrain.as_ref();
+        let origin_ws = self.origin_ws;
+        let dx = self.dx;
 
         let mut active_nodes = 0usize;
 
@@ -187,6 +190,16 @@ impl PondWaterSim {
                     node.v += gravity * dt;
 
                     let mut normal = Vec3::ZERO;
+                    if let Some(terrain) = terrain {
+                        let node_world = origin_ws + Vec3::new(x as f32, y as f32, z as f32) * dx;
+                        let terrain_height =
+                            terrain.sample_height_ws(Vec2::new(node_world.x, node_world.z));
+                        if node_world.y <= terrain_height + terrain.margin && node.v.y < 0.0 {
+                            node.v.y = 0.0;
+                            normal += Vec3::Y;
+                        }
+                    }
+
                     if x as f32 <= wall_cells && node.v.x < 0.0 {
                         node.v.x *= -wall_damping;
                         normal += Vec3::X;
@@ -352,7 +365,8 @@ fn collide_particle_with_box(
 
 #[cfg(test)]
 mod tests {
-    use crate::PondWaterSim;
+    use crate::{PondWaterSim, WaterTerrainCollider};
+    use glam::UVec2;
 
     #[test]
     fn fixed_box_substeps_keep_particles_finite_and_bounded() {
@@ -361,6 +375,29 @@ mod tests {
             sim.substep(sim.config.substep_dt);
         }
 
+        assert_particles_finite_and_bounded(&sim);
+    }
+
+    #[test]
+    fn terrain_collider_substeps_keep_particles_finite_and_bounded() {
+        let mut sim = PondWaterSim::fixed_test_box();
+        let bounds = sim.config.collider;
+        sim.set_terrain_collider(WaterTerrainCollider {
+            xz_dim: UVec2::new(4, 4),
+            bounds_min_ws: bounds.min_ws,
+            bounds_max_ws: bounds.max_ws,
+            heights_ws: vec![1.2; 16],
+            margin: sim.dx * 0.5,
+        });
+
+        for _ in 0..120 {
+            sim.substep(sim.config.substep_dt);
+        }
+
+        assert_particles_finite_and_bounded(&sim);
+    }
+
+    fn assert_particles_finite_and_bounded(sim: &PondWaterSim) {
         for particle in &sim.particles {
             assert!(particle.x.is_finite());
             assert!(particle.v.is_finite());
