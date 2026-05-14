@@ -40,7 +40,6 @@ use crate::util::TimeInfo;
 use crate::util::{GrowingFloraChunk, GrowingFloraQueue, LatestChunkQueue, ShaderCompiler, BENCH};
 use crate::vkn::{Allocator, CommandBuffer, Fence, Semaphore, SwapchainDesc};
 use crate::RenderFlags;
-use re_flora_water::PondWaterSim;
 use crate::{
     egui_renderer::EguiRenderer,
     vkn::{Swapchain, VulkanContext},
@@ -52,6 +51,7 @@ use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText,
 use glam::{UVec3, Vec2, Vec3, Vec4};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
 use petalsonic::DirectOcclusionDebugSnapshot;
+use re_flora_water::PondWaterSim;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -242,7 +242,6 @@ impl App {
             self.deferred_chunk_rebuilds
                 .push(chunk_id, ChunkRebuildRequest::Normal);
         }
-
     }
 
     pub(super) fn enqueue_deferred_flora_preserving_chunk_rebuilds(
@@ -254,7 +253,6 @@ impl App {
             self.deferred_chunk_rebuilds
                 .push(chunk_id, ChunkRebuildRequest::PreserveFlora(flora_edit));
         }
-
     }
 
     pub(super) fn deferred_chunk_rebuilds_idle(&self) -> bool {
@@ -270,6 +268,14 @@ impl App {
             return;
         };
 
+        let chunk_id = work.chunk_id;
+        let revision = work.revision;
+        let water_terrain_affected = match &work.payload {
+            ChunkRebuildRequest::Normal => false,
+            ChunkRebuildRequest::PreserveFlora(flora_edit) => {
+                self.water_terrain_sphere_overlaps(flora_edit.center, flora_edit.radius)
+            }
+        };
         let rebuild_start = Instant::now();
         let result = match work.payload {
             ChunkRebuildRequest::Normal => world_ops::mesh_generate_chunks(
@@ -277,7 +283,7 @@ impl App {
                 &mut self.contree_builder,
                 &mut self.scene_accel_builder,
                 VOXEL_DIM_PER_CHUNK,
-                vec![work.chunk_id],
+                vec![chunk_id],
             ),
             ChunkRebuildRequest::PreserveFlora(flora_edit) => {
                 world_ops::mesh_generate_chunk_preserve_flora_for_sphere_edit(
@@ -285,29 +291,32 @@ impl App {
                     &mut self.contree_builder,
                     &mut self.scene_accel_builder,
                     VOXEL_DIM_PER_CHUNK,
-                    work.chunk_id,
+                    chunk_id,
                     flora_edit,
                 )
             }
         };
         let elapsed = rebuild_start.elapsed();
-        self.deferred_chunk_rebuilds
-            .complete(work.chunk_id, work.revision);
+        let rebuild_succeeded = result.is_ok();
+        self.deferred_chunk_rebuilds.complete(chunk_id, revision);
+        if rebuild_succeeded && water_terrain_affected {
+            self.invalidate_water_terrain_collider_for_overlapping_edit();
+        }
 
         match result {
             Ok(()) => log::debug!(
                 "[PERF][DEFERRED_REBUILD] chunk {:?} total {:.2}ms remaining {} revision {}",
-                work.chunk_id,
+                chunk_id,
                 elapsed.as_secs_f32() * 1000.0,
                 self.deferred_chunk_rebuilds.len(),
-                work.revision,
+                revision,
             ),
             Err(err) => log::error!(
                 "[PERF][DEFERRED_REBUILD] chunk {:?} failed after {:.2}ms remaining {} revision {}: {}",
-                work.chunk_id,
+                chunk_id,
                 elapsed.as_secs_f32() * 1000.0,
                 self.deferred_chunk_rebuilds.len(),
-                work.revision,
+                revision,
                 err,
             ),
         }
@@ -2042,7 +2051,7 @@ impl App {
                 }
 
                 if self.render_flags.enable_particles {
-                    if !self.water_terrain_initialized {
+                    if !self.water_terrain_initialized && self.water_terrain_refresh_ready() {
                         self.refresh_water_terrain_collider();
                         self.water_terrain_initialized = true;
                     }

@@ -890,6 +890,7 @@ impl App {
     ) -> Result<ChunkModifyReadback> {
         let total_start = Instant::now();
         if let Some(compiled) = TerrainSurfaceRemovalService::compile(edit) {
+            let rebuild_bound = compiled.rebuild_bound;
             let stats = match compiled.voxel_edit {
                 VoxelEdit::StampSurfaceSpheres {
                     bvh_nodes,
@@ -907,7 +908,7 @@ impl App {
                 _ => unreachable!("terrain surface removal compiled into unexpected edit type"),
             };
             let rebuild_chunk_ids = world_ops::affected_chunk_indices_for_bound(
-                compiled.rebuild_bound,
+                rebuild_bound,
                 super::VOXEL_DIM_PER_CHUNK,
             );
             self.enqueue_deferred_flora_preserving_chunk_rebuilds(
@@ -939,6 +940,7 @@ impl App {
         if let Some(compiled) =
             TerrainSurfaceRemovalService::compile_with_voxel_type(edit, voxel_type)
         {
+            let rebuild_bound = compiled.rebuild_bound;
             let modify_start = Instant::now();
             let stats = match compiled.voxel_edit {
                 VoxelEdit::StampSurfaceSpheres {
@@ -959,7 +961,7 @@ impl App {
             let _modify_elapsed = modify_start.elapsed();
             let mesh_start = Instant::now();
             let rebuild_chunk_ids = world_ops::affected_chunk_indices_for_bound(
-                compiled.rebuild_bound,
+                rebuild_bound,
                 super::VOXEL_DIM_PER_CHUNK,
             );
             self.enqueue_deferred_flora_preserving_chunk_rebuilds(

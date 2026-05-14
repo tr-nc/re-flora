@@ -570,6 +570,10 @@ impl ContreeBuilder {
         }
     }
 
+    pub fn cpu_chunk_cache_jobs_idle(&self) -> bool {
+        self.cpu_chunk_cache_jobs_are_idle()
+    }
+
     pub fn query_terrain_ray_cpu(&self, origin: Vec3, direction: Vec3) -> Option<Vec3> {
         query_terrain_ray_against_state(
             self.chunk_dim,
@@ -967,7 +971,7 @@ impl ContreeBuilder {
             .unwrap();
     }
 
-    fn cpu_chunk_cache_jobs_idle(&self) -> bool {
+    fn cpu_chunk_cache_jobs_are_idle(&self) -> bool {
         self.cpu_chunk_cache_queue.is_idle()
             && self.active_cpu_chunk_cache_job.is_none()
             && !self.cpu_chunk_cache_decode_inflight

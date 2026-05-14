@@ -152,10 +152,21 @@ impl PondWaterSim {
     pub fn set_terrain_collider(&mut self, collider: WaterTerrainCollider) {
         collider.validate();
         self.terrain = Some(collider);
+        self.stabilize_after_terrain_change();
     }
 
     pub fn clear_terrain_collider(&mut self) {
         self.terrain = None;
+        self.stabilize_after_terrain_change();
+    }
+
+    fn stabilize_after_terrain_change(&mut self) {
+        self.accumulator = 0.0;
+        for particle in &mut self.particles {
+            particle.v = Vec3::ZERO;
+            particle.c = Mat3::ZERO;
+            particle.j = 1.0;
+        }
     }
 
     pub fn terrain_collider(&self) -> Option<&WaterTerrainCollider> {
