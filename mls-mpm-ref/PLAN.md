@@ -5,8 +5,8 @@
 Couple the tiny MLS-MPM pond to the existing CPU terrain query by sampling a small
 app-owned heightfield and passing that data into `crates/re-flora-water`. The water
 crate remains independent from the app, renderer, terrain builder, and Vulkan
-internals. The first collision response is deliberately vertical-only so we can
-verify the data path and stability before introducing terrain normals.
+internals. Terrain collision now uses sampled heightfield normals to project
+inward velocity away from sloped surfaces while keeping the fixed pond box active.
 
 ## Current state
 
@@ -14,8 +14,8 @@ verify the data path and stability before introducing terrain normals.
   debuggable while the MLS-MPM hot loops compile optimized in dev builds.
 - The pond is currently bounded by a fixed world-space box from `(1, 0, 1)` to
   `(2, 1, 2)`, matching the current terrain height range of `y = 0..1`.
-- The solver is single-CPU-core, explicit MLS-MPM/APIC, and currently collides
-  only against the box walls.
+- The solver is single-CPU-core, explicit MLS-MPM/APIC, and collides against the
+  fixed box plus the sampled terrain bottom.
 - The main app updates the pond when particles are enabled and renders it as blue
   debug particles through the existing particle path.
 - Runtime water perf logs are available through `--perf` as `[PERF][WATER]`.
@@ -221,7 +221,7 @@ self.water_terrain_initialized = false;
 The next water update refreshes the heightfield. Keep this as a separate commit
 from initial terrain coupling.
 
-## Phase 6: sloped terrain normals later
+## Phase 6: sloped terrain normals
 
 After vertical-only collision is verified, estimate a terrain normal from nearby
 height samples:
@@ -239,8 +239,10 @@ if vn < 0.0 {
 }
 ```
 
-This is deferred because noisy heightfields or scale mismatches can inject lateral
-energy and destabilize the tiny solver.
+Implemented in the water crate by sampling bilinear heightfield gradients and
+projecting inward grid and particle velocity away from the terrain normal. Terrain
+surfaces clamped to the pond box interior fall back to a vertical normal to avoid
+injecting lateral energy from out-of-bounds terrain heights.
 
 ## Commit plan
 

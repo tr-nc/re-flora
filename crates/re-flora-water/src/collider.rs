@@ -79,10 +79,10 @@ impl WaterTerrainCollider {
         let grid_x = u * (self.xz_dim.x - 1) as f32;
         let grid_z = v * (self.xz_dim.y - 1) as f32;
 
-        let x0 = grid_x.floor() as u32;
-        let z0 = grid_z.floor() as u32;
-        let x1 = (x0 + 1).min(self.xz_dim.x - 1);
-        let z1 = (z0 + 1).min(self.xz_dim.y - 1);
+        let x0 = (grid_x.floor() as u32).min(self.xz_dim.x - 2);
+        let z0 = (grid_z.floor() as u32).min(self.xz_dim.y - 2);
+        let x1 = x0 + 1;
+        let z1 = z0 + 1;
         let fx = grid_x - x0 as f32;
         let fz = grid_z - z0 as f32;
 
@@ -93,6 +93,55 @@ impl WaterTerrainCollider {
         let hx0 = h00 + (h10 - h00) * fx;
         let hx1 = h01 + (h11 - h01) * fx;
         hx0 + (hx1 - hx0) * fz
+    }
+
+    pub fn sample_normal_ws(&self, xz_ws: Vec2) -> Vec3 {
+        self.sample_height_and_normal_ws(xz_ws).1
+    }
+
+    fn sample_height_and_normal_ws(&self, xz_ws: Vec2) -> (f32, Vec3) {
+        debug_assert!(self.xz_dim.x >= 2 && self.xz_dim.y >= 2);
+        debug_assert_eq!(
+            self.heights_ws.len(),
+            (self.xz_dim.x as usize) * (self.xz_dim.y as usize)
+        );
+
+        let extent_x = self.bounds_max_ws.x - self.bounds_min_ws.x;
+        let extent_z = self.bounds_max_ws.z - self.bounds_min_ws.z;
+        debug_assert!(extent_x > 0.0 && extent_z > 0.0);
+
+        let u = ((xz_ws.x - self.bounds_min_ws.x) / extent_x).clamp(0.0, 1.0);
+        let v = ((xz_ws.y - self.bounds_min_ws.z) / extent_z).clamp(0.0, 1.0);
+        let grid_x = u * (self.xz_dim.x - 1) as f32;
+        let grid_z = v * (self.xz_dim.y - 1) as f32;
+
+        let x0 = (grid_x.floor() as u32).min(self.xz_dim.x - 2);
+        let z0 = (grid_z.floor() as u32).min(self.xz_dim.y - 2);
+        let x1 = x0 + 1;
+        let z1 = z0 + 1;
+        let fx = grid_x - x0 as f32;
+        let fz = grid_z - z0 as f32;
+
+        let h00 = self.height_at(x0, z0);
+        let h10 = self.height_at(x1, z0);
+        let h01 = self.height_at(x0, z1);
+        let h11 = self.height_at(x1, z1);
+        let hx0 = h00 + (h10 - h00) * fx;
+        let hx1 = h01 + (h11 - h01) * fx;
+        let height = hx0 + (hx1 - hx0) * fz;
+
+        let cell_dx = extent_x / (self.xz_dim.x - 1) as f32;
+        let cell_dz = extent_z / (self.xz_dim.y - 1) as f32;
+        let dh_dx = ((h10 - h00) * (1.0 - fz) + (h11 - h01) * fz) / cell_dx;
+        let dh_dz = ((h01 - h00) * (1.0 - fx) + (h11 - h10) * fx) / cell_dz;
+        let normal = Vec3::new(-dh_dx, 1.0, -dh_dz).normalize_or_zero();
+        let normal = if normal.is_finite() && normal.length_squared() > 0.0 {
+            normal
+        } else {
+            Vec3::Y
+        };
+
+        (height, normal)
     }
 
     fn height_at(&self, x: u32, z: u32) -> f32 {
@@ -132,6 +181,35 @@ mod tests {
     }
 
     #[test]
+    fn terrain_collider_samples_flat_normal() {
+        let collider = WaterTerrainCollider {
+            xz_dim: UVec2::new(2, 2),
+            bounds_min_ws: Vec3::ZERO,
+            bounds_max_ws: Vec3::new(1.0, 1.0, 1.0),
+            heights_ws: vec![0.25; 4],
+            margin: 0.0,
+        };
+
+        assert_vec3_near(collider.sample_normal_ws(Vec2::new(0.5, 0.5)), Vec3::Y);
+    }
+
+    #[test]
+    fn terrain_collider_samples_sloped_normal() {
+        let collider = WaterTerrainCollider {
+            xz_dim: UVec2::new(2, 2),
+            bounds_min_ws: Vec3::ZERO,
+            bounds_max_ws: Vec3::new(1.0, 1.0, 1.0),
+            heights_ws: vec![0.0, 1.0, 0.0, 1.0],
+            margin: 0.0,
+        };
+
+        assert_vec3_near(
+            collider.sample_normal_ws(Vec2::new(0.5, 0.5)),
+            Vec3::new(-1.0, 1.0, 0.0).normalize(),
+        );
+    }
+
+    #[test]
     #[should_panic]
     fn terrain_collider_rejects_invalid_height_count() {
         WaterTerrainCollider {
@@ -142,5 +220,12 @@ mod tests {
             margin: 0.0,
         }
         .validate();
+    }
+
+    fn assert_vec3_near(actual: Vec3, expected: Vec3) {
+        assert!(
+            (actual - expected).length() < 1.0e-6,
+            "actual {actual:?} expected {expected:?}"
+        );
     }
 }

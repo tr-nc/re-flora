@@ -207,13 +207,17 @@ impl PondWaterSim {
                     let mut normal = Vec3::ZERO;
                     if let Some(terrain) = terrain {
                         let node_world = origin_ws + Vec3::new(x as f32, y as f32, z as f32) * dx;
-                        let terrain_height =
-                            terrain.sample_height_ws(Vec2::new(node_world.x, node_world.z));
-                        let terrain_surface_y =
-                            (terrain_height + terrain.margin).min(terrain_max_y);
-                        if node_world.y <= terrain_surface_y && node.v.y < 0.0 {
-                            node.v.y = 0.0;
-                            normal += Vec3::Y;
+                        let node_xz = Vec2::new(node_world.x, node_world.z);
+                        let raw_surface_y = terrain.sample_height_ws(node_xz) + terrain.margin;
+                        let terrain_surface_y = raw_surface_y.min(terrain_max_y);
+                        if node_world.y <= terrain_surface_y {
+                            let terrain_normal = if raw_surface_y >= terrain_max_y {
+                                Vec3::Y
+                            } else {
+                                terrain.sample_normal_ws(node_xz)
+                            };
+                            node.v = project_velocity_away_from_surface(node.v, terrain_normal);
+                            normal += terrain_normal;
                         }
                     }
 
@@ -365,6 +369,27 @@ fn outer_product(a: Vec3, b: Vec3) -> Mat3 {
     Mat3::from_cols(a * b.x, a * b.y, a * b.z)
 }
 
+fn project_velocity_away_from_surface(velocity: Vec3, normal: Vec3) -> Vec3 {
+    if !velocity.is_finite() {
+        return Vec3::ZERO;
+    }
+    if !normal.is_finite() {
+        return velocity;
+    }
+
+    let normal = normal.normalize_or_zero();
+    if normal.length_squared() <= f32::EPSILON {
+        return velocity;
+    }
+
+    let inward_speed = velocity.dot(normal);
+    if inward_speed < 0.0 {
+        velocity - normal * inward_speed
+    } else {
+        velocity
+    }
+}
+
 fn repair_particle_state(
     particle: &mut super::pond::WaterParticle,
     min_ws: Vec3,
@@ -476,19 +501,26 @@ fn collide_particle_with_terrain(
     max_y: f32,
     max_correction: f32,
 ) {
-    let terrain_y = terrain.sample_height_ws(Vec2::new(particle.x.x, particle.x.z));
-    let surface_y = (terrain_y + terrain.margin).clamp(min_y, max_y);
+    let particle_xz = Vec2::new(particle.x.x, particle.x.z);
+    let raw_surface_y = terrain.sample_height_ws(particle_xz) + terrain.margin;
+    let surface_y = raw_surface_y.clamp(min_y, max_y);
     if particle.x.y < surface_y {
         let correction = (surface_y - particle.x.y).min(max_correction.max(0.0));
         particle.x.y += correction;
-        particle.v.y = particle.v.y.max(0.0);
+        let terrain_normal = if raw_surface_y <= min_y || raw_surface_y >= max_y {
+            Vec3::Y
+        } else {
+            terrain.sample_normal_ws(particle_xz)
+        };
+        particle.v = project_velocity_away_from_surface(particle.v, terrain_normal);
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::project_velocity_away_from_surface;
     use crate::{PondWaterSim, WaterTerrainCollider};
-    use glam::UVec2;
+    use glam::{UVec2, Vec3};
 
     #[test]
     fn fixed_box_substeps_keep_particles_finite_and_bounded() {
@@ -509,6 +541,42 @@ mod tests {
             bounds_min_ws: bounds.min_ws,
             bounds_max_ws: bounds.max_ws,
             heights_ws: vec![0.2; 16],
+            margin: sim.dx * 0.5,
+        });
+
+        for _ in 0..120 {
+            sim.substep(sim.config.substep_dt);
+        }
+
+        assert_particles_finite_and_bounded(&sim);
+    }
+
+    #[test]
+    fn terrain_normal_projection_removes_inward_velocity() {
+        let normal = Vec3::new(-1.0, 1.0, 0.0).normalize();
+        let projected = project_velocity_away_from_surface(Vec3::new(0.0, -2.0, 0.0), normal);
+
+        assert!(projected.dot(normal) >= -1.0e-6);
+        assert!(projected.x < 0.0, "expected downhill tangent velocity: {projected:?}");
+    }
+
+    #[test]
+    fn sloped_terrain_collider_substeps_keep_particles_finite_and_bounded() {
+        let mut sim = PondWaterSim::fixed_test_box();
+        let bounds = sim.config.collider;
+        let xz_dim = UVec2::new(4, 4);
+        let mut heights_ws = Vec::new();
+        for _z in 0..xz_dim.y {
+            for x in 0..xz_dim.x {
+                let tx = x as f32 / (xz_dim.x - 1) as f32;
+                heights_ws.push(0.1 + tx * 0.35);
+            }
+        }
+        sim.set_terrain_collider(WaterTerrainCollider {
+            xz_dim,
+            bounds_min_ws: bounds.min_ws,
+            bounds_max_ws: bounds.max_ws,
+            heights_ws,
             margin: sim.dx * 0.5,
         });
 
