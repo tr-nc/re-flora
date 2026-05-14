@@ -12,8 +12,8 @@ verify the data path and stability before introducing terrain normals.
 
 - Water simulation lives in `crates/re-flora-water`, allowing the main app to stay
   debuggable while the MLS-MPM hot loops compile optimized in dev builds.
-- The pond is currently bounded by a fixed world-space box from `(1, 1, 1)` to
-  `(2, 2, 2)`.
+- The pond is currently bounded by a fixed world-space box from `(1, 0, 1)` to
+  `(2, 1, 2)`, matching the current terrain height range of `y = 0..1`.
 - The solver is single-CPU-core, explicit MLS-MPM/APIC, and currently collides
   only against the box walls.
 - The main app updates the pond when particles are enabled and renders it as blue
@@ -49,7 +49,7 @@ verify the data path and stability before introducing terrain normals.
 - **One-time refresh:** The initial pond is static and tiny. Refreshing every frame
   would add noise to profiling and complexity without improving the first milestone.
 - **Diagnostic logging:** The pond sits at small world coordinates (`x,z = 1..2`,
-  `y = 1..2`). A sampled min/max/avg log is needed to confirm terrain heights are
+  `y = 0..1`). A sampled min/max/avg log is needed to confirm terrain heights are
   actually near the pond volume.
 
 ## Phase 1: water-crate heightfield collider
@@ -146,8 +146,8 @@ impl App {
 Initial sampling target:
 
 ```text
-bounds_min_ws = (1, 1, 1)
-bounds_max_ws = (2, 2, 2)
+bounds_min_ws = (1, 0, 1)
+bounds_max_ws = (2, 1, 2)
 xz_dim = 32 x 32
 ```
 
@@ -172,10 +172,10 @@ self.water_sim.set_terrain_collider(WaterTerrainCollider {
 Log one diagnostic line on refresh:
 
 ```text
-[WATER][TERRAIN] sampled 32x32 heights min ... max ... avg ... pond_y 1.0..2.0
+[WATER][TERRAIN] sampled 32x32 heights min ... max ... avg ... pond_y 0.0..1.0
 ```
 
-This is important: if sampled terrain is far below or above `y = 1..2`, the
+This is important: if sampled terrain is far below or above `y = 0..1`, the
 terrain collider may appear to do nothing or may turn the whole pond box into a
 solid bottom region.
 

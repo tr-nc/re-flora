@@ -31,7 +31,7 @@ impl WaterBoxCollider {
 
 impl Default for WaterBoxCollider {
     fn default() -> Self {
-        Self::new(Vec3::new(1.0, 1.0, 1.0), Vec3::new(2.0, 2.0, 2.0))
+        Self::new(Vec3::new(1.0, 0.0, 1.0), Vec3::new(2.0, 1.0, 2.0))
     }
 }
 

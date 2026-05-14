@@ -230,8 +230,8 @@ mod tests {
 
         sim.set_terrain_collider(WaterTerrainCollider {
             xz_dim: glam::UVec2::new(2, 2),
-            bounds_min_ws: Vec3::new(1.0, 1.0, 1.0),
-            bounds_max_ws: Vec3::new(2.0, 2.0, 2.0),
+            bounds_min_ws: Vec3::new(1.0, 0.0, 1.0),
+            bounds_max_ws: Vec3::new(2.0, 1.0, 2.0),
             heights_ws: vec![1.0, 1.0, 1.0, 1.0],
             margin: 0.0,
         });
