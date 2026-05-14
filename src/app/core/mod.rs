@@ -8,6 +8,7 @@ mod particles;
 mod tree_bench;
 mod ui_style;
 mod vegetation;
+mod water;
 
 use self::particles::TreeLeafEmitter;
 use self::tree_bench::{TreeBench, TreeBenchMode};
@@ -201,6 +202,7 @@ pub struct App {
     butterfly_emitter_desc: ButterflyEmitterDesc,
     particle_animation_time_sec: f32,
     water_sim: PondWaterSim,
+    water_terrain_initialized: bool,
     particle_snapshots: Vec<ParticleSnapshot>,
     #[allow(dead_code)]
     terrain_harvest_particle_handles: Vec<ParticleHandle>,
@@ -909,6 +911,7 @@ impl App {
             butterfly_emitter_desc,
             particle_animation_time_sec: 0.0,
             water_sim,
+            water_terrain_initialized: false,
             particle_snapshots,
             terrain_harvest_particle_handles,
             particle_forces,
@@ -2039,6 +2042,10 @@ impl App {
                 }
 
                 if self.render_flags.enable_particles {
+                    if !self.water_terrain_initialized {
+                        self.refresh_water_terrain_collider();
+                        self.water_terrain_initialized = true;
+                    }
                     self.water_sim.update(frame_delta_time, self.perf_logging);
                     self.update_particle_simulation(frame_delta_time);
                 }
