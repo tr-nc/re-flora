@@ -1,26 +1,58 @@
-# Tiny Pond MLS-MPM Plan
+# Tiny Pond MLS-MPM Terrain Coupling Plan
+
+## Summary
+
+Couple the tiny MLS-MPM pond to the existing CPU terrain query by sampling a small
+app-owned heightfield and passing that data into `crates/re-flora-water`. The water
+crate remains independent from the app, renderer, terrain builder, and Vulkan
+internals. The first collision response is deliberately vertical-only so we can
+verify the data path and stability before introducing terrain normals.
 
 ## Current state
 
-- Water solver lives in `crates/re-flora-water` so the main game can stay debuggable while the MLS-MPM hot loops compile optimized in dev builds.
-- The initial pond is bounded by the fixed world-space box from `(1, 1, 1)` to `(2, 2, 2)`.
-- The solver is single-CPU-core, explicit MLS-MPM/APIC, and currently uses only box-wall collision.
-- The main app updates the pond when particles are enabled and renders water as blue debug particles through the existing particle path.
-- Runtime perf logs are available with `--perf` as `[PERF][WATER]`.
+- Water simulation lives in `crates/re-flora-water`, allowing the main app to stay
+  debuggable while the MLS-MPM hot loops compile optimized in dev builds.
+- The pond is currently bounded by a fixed world-space box from `(1, 1, 1)` to
+  `(2, 2, 2)`.
+- The solver is single-CPU-core, explicit MLS-MPM/APIC, and currently collides
+  only against the box walls.
+- The main app updates the pond when particles are enabled and renders it as blue
+  debug particles through the existing particle path.
+- Runtime water perf logs are available through `--perf` as `[PERF][WATER]`.
 
-## Terrain query coupling goal
+## Goals and constraints
 
-Use the app's existing CPU terrain height query to give the tiny pond a terrain-shaped bottom while keeping `re-flora-water` independent from app, renderer, terrain-builder, and Vulkan internals.
+- Use the existing app-side CPU terrain query:
 
-App-side terrain API:
+  ```rust
+  App::query_terrain_height_cpu(Vec2)
+  ```
 
-```rust
-App::query_terrain_height_cpu(Vec2)
-```
+- Keep `re-flora-water` app-agnostic. It should receive sampled height data, not
+  call app APIs directly.
+- Keep the fixed box collider active for all six faces. The terrain collider adds
+  only a shaped bottom for now.
+- Avoid simulation-time allocation. Height allocation happens only when the app
+  refreshes the collider.
+- Refresh the collider once at startup initially; terrain-edit invalidation comes
+  later.
+- Add tests at the water-crate level before integrating the app-side bridge.
 
-The water crate should receive already-sampled heightfield data and should not call app APIs directly.
+## Why this shape
 
-## Phase 1: water crate terrain collider data
+- **Sampled data boundary:** Passing a plain heightfield into the water crate keeps
+  solver code reusable and avoids coupling physics to app, renderer, or terrain
+  implementation details.
+- **Vertical-only first response:** Clamping downward velocity is stable, easy to
+  reason about, and enough to prove that terrain data is affecting the solver.
+  Slope normals can be added after the heightfield path is verified.
+- **One-time refresh:** The initial pond is static and tiny. Refreshing every frame
+  would add noise to profiling and complexity without improving the first milestone.
+- **Diagnostic logging:** The pond sits at small world coordinates (`x,z = 1..2`,
+  `y = 1..2`). A sampled min/max/avg log is needed to confirm terrain heights are
+  actually near the pond volume.
+
+## Phase 1: water-crate heightfield collider
 
 Add a heightfield collider type to `crates/re-flora-water`:
 
@@ -34,7 +66,7 @@ pub struct WaterTerrainCollider {
 }
 ```
 
-Add optional terrain collider state to `PondWaterSim`:
+Add optional terrain state to `PondWaterSim`:
 
 ```rust
 terrain: Option<WaterTerrainCollider>
@@ -52,59 +84,58 @@ impl PondWaterSim {
 
 Implementation notes:
 
-- Validate `heights_ws.len() == xz_dim.x * xz_dim.y`.
-- Use bilinear height sampling by world `x,z` inside the collider bounds.
-- Clamp sampling coordinates at the heightfield edges.
-- Keep the type plain and allocation-free during simulation; all height allocation happens when the app refreshes the collider.
+- Validate `heights_ws.len() == xz_dim.x * xz_dim.y` when setting the collider.
+- Require practical dimensions (`xz_dim.x >= 2`, `xz_dim.y >= 2`) so bilinear
+  sampling is well-defined.
+- Sample heights bilinearly by world `x,z` inside the collider bounds.
+- Clamp sample coordinates at heightfield edges.
+- Keep the collider plain data; all allocation is owned by refresh/setup, not by
+  the simulation loop.
 
-## Phase 2: water crate terrain collision
+## Phase 2: water-crate terrain collision
 
-During `PondWaterSim::update_grid`, after mass normalization and gravity, apply terrain collision to active grid nodes.
+In `PondWaterSim::update_grid`, after mass normalization and gravity, apply the
+terrain bottom response to active grid nodes.
 
 For each active grid node:
 
-1. Convert grid node coordinate to world position.
-2. Sample terrain height at node `x,z`.
+1. Convert the grid node coordinate to world position.
+2. Sample terrain height at the node's `x,z`.
 3. If the node is below the terrain surface plus margin:
 
-```rust
-node_world_y <= terrain_height + margin
-```
+   ```rust
+   node_world_y <= terrain_height + margin
+   ```
 
-then apply a first-pass vertical bottom response:
+   then apply the first-pass vertical response:
 
-```rust
-if node.v.y < 0.0 {
-    node.v.y = 0.0;
-}
-```
+   ```rust
+   if node.v.y < 0.0 {
+       node.v.y = 0.0;
+   }
+   ```
 
-Keep fixed box collision active on all six faces for now. The terrain collider only adds a shaped bottom; it does not replace the test box.
+Keep the fixed box collision active. The terrain collider only augments the lower
+boundary; it does not replace the test box.
 
-Why vertical-only first:
+Add water-crate smoke tests with synthetic flat or sloped heightfields:
 
-- It is stable and simple.
-- It avoids injecting lateral energy from noisy heightfield normals.
-- It is enough to confirm that app terrain data is correctly coupled into the solver.
-
-Add a water crate smoke test with a synthetic flat or sloped heightfield:
-
-- create `PondWaterSim::fixed_test_box()`
-- set a terrain collider with height around `1.2`
-- run substeps
-- assert particles remain finite and inside the box
+- create `PondWaterSim::fixed_test_box()`;
+- set a collider with heights around `1.2`;
+- run several substeps;
+- assert all particles remain finite and inside the box.
 
 ## Phase 3: app-side terrain sampling bridge
 
 Add `src/app/core/water.rs` for app-specific glue.
 
-Add state to `App`:
+Add app state:
 
 ```rust
 water_terrain_initialized: bool,
 ```
 
-Add method:
+Add a refresh method:
 
 ```rust
 impl App {
@@ -144,14 +175,17 @@ Log one diagnostic line on refresh:
 [WATER][TERRAIN] sampled 32x32 heights min ... max ... avg ... pond_y 1.0..2.0
 ```
 
-This diagnostic is important because the current fixed box is at small world coordinates. We need to confirm that terrain height near `x,z = 1..2` is actually near the pond volume. If terrain is far below or above `y = 1..2`, the collider may appear to do nothing or may fill the whole box as solid.
+This is important: if sampled terrain is far below or above `y = 1..2`, the
+terrain collider may appear to do nothing or may turn the whole pond box into a
+solid bottom region.
 
 ## Phase 4: refresh timing
 
 First implementation:
 
-- Refresh once, lazily, before the first water update after the app finishes loading.
+- Refresh lazily before the first water update after app loading.
 - Guard with `water_terrain_initialized`.
+- Do not refresh every frame.
 
 Pseudo-flow in the redraw/update path:
 
@@ -166,11 +200,10 @@ if self.render_flags.enable_particles {
 }
 ```
 
-Do not refresh every frame.
-
 ## Phase 5: terrain edit invalidation later
 
-After static sampling works, invalidate the water collider when terrain edits overlap the pond XZ footprint.
+After static sampling works, invalidate the water collider when terrain edits
+overlap the pond XZ footprint.
 
 Pond XZ footprint:
 
@@ -179,19 +212,19 @@ x: 1.0..2.0
 z: 1.0..2.0
 ```
 
-When an edit AABB overlaps that XZ box:
+When an edit AABB overlaps that footprint:
 
 ```rust
 self.water_terrain_initialized = false;
 ```
 
-The next update refreshes the heightfield.
-
-This should be a separate commit from initial terrain coupling.
+The next water update refreshes the heightfield. Keep this as a separate commit
+from initial terrain coupling.
 
 ## Phase 6: sloped terrain normals later
 
-After vertical-only collision is verified, estimate a normal from neighboring sampled heights:
+After vertical-only collision is verified, estimate a terrain normal from nearby
+height samples:
 
 ```rust
 normal = normalize(Vec3::new(-dh_dx, 1.0, -dh_dz));
@@ -206,25 +239,26 @@ if vn < 0.0 {
 }
 ```
 
-This is deferred because terrain normals can introduce instability if the heightfield is noisy or mismatched to water scale.
+This is deferred because noisy heightfields or scale mismatches can inject lateral
+energy and destabilize the tiny solver.
 
 ## Commit plan
 
 1. `add water terrain collider`
-   - add `WaterTerrainCollider`
-   - add setter/clearer/sampler
-   - add water crate tests
+   - add `WaterTerrainCollider`;
+   - add setter/clearer/accessor and bilinear sampler;
+   - add water-crate tests.
 
 2. `apply terrain collider to water grid`
-   - use sampled heights in `update_grid`
-   - vertical-only collision response
-   - synthetic heightfield smoke test
+   - sample terrain heights in `update_grid`;
+   - add vertical-only collision response;
+   - add synthetic heightfield smoke test.
 
 3. `sample pond terrain collider`
-   - add app-side `core/water.rs`
-   - call `query_terrain_height_cpu`
-   - refresh once before water update
-   - log sampled min/max/avg
+   - add app-side `core/water.rs`;
+   - call `query_terrain_height_cpu` over the pond footprint;
+   - refresh once before water update;
+   - log sampled min/max/avg.
 
 ## Validation
 
@@ -245,5 +279,5 @@ Look for:
 
 - `[WATER][TERRAIN] sampled ...`
 - `[PERF][WATER] ...`
-- water particles still visible and bounded
-- no large regression in water `avg ms/substep`
+- water particles still visible and bounded;
+- no large regression in water `avg ms/substep`.
