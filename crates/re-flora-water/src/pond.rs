@@ -1,6 +1,6 @@
 use glam::{Mat3, UVec3, Vec3};
 
-use super::collider::WaterBoxCollider;
+use super::collider::{WaterBoxCollider, WaterTerrainCollider};
 
 const DEFAULT_GRID_DIM: UVec3 = UVec3::new(32, 32, 32);
 const DEFAULT_PARTICLE_COUNT: usize = 4_096;
@@ -96,6 +96,7 @@ impl WaterPerfStats {
 
 pub struct PondWaterSim {
     pub config: PondWaterConfig,
+    pub(crate) terrain: Option<WaterTerrainCollider>,
     pub origin_ws: Vec3,
     pub extent_ws: Vec3,
     pub grid_dim: UVec3,
@@ -127,6 +128,7 @@ impl PondWaterSim {
             .saturating_mul(config.grid_dim.z as usize);
         let mut sim = Self {
             config,
+            terrain: None,
             origin_ws,
             extent_ws,
             grid_dim: DEFAULT_GRID_DIM,
@@ -145,6 +147,19 @@ impl PondWaterSim {
 
     pub fn fixed_test_box() -> Self {
         Self::new(PondWaterConfig::default())
+    }
+
+    pub fn set_terrain_collider(&mut self, collider: WaterTerrainCollider) {
+        collider.validate();
+        self.terrain = Some(collider);
+    }
+
+    pub fn clear_terrain_collider(&mut self) {
+        self.terrain = None;
+    }
+
+    pub fn terrain_collider(&self) -> Option<&WaterTerrainCollider> {
+        self.terrain.as_ref()
     }
 
     fn seed_particles(&mut self) {
@@ -206,5 +221,23 @@ mod tests {
                 particle.x
             );
         }
+    }
+
+    #[test]
+    fn terrain_collider_state_round_trips() {
+        let mut sim = PondWaterSim::fixed_test_box();
+        assert!(sim.terrain_collider().is_none());
+
+        sim.set_terrain_collider(WaterTerrainCollider {
+            xz_dim: glam::UVec2::new(2, 2),
+            bounds_min_ws: Vec3::new(1.0, 1.0, 1.0),
+            bounds_max_ws: Vec3::new(2.0, 2.0, 2.0),
+            heights_ws: vec![1.0, 1.0, 1.0, 1.0],
+            margin: 0.0,
+        });
+        assert!(sim.terrain_collider().is_some());
+
+        sim.clear_terrain_collider();
+        assert!(sim.terrain_collider().is_none());
     }
 }
