@@ -52,7 +52,7 @@ use glam::{UVec3, Vec2, Vec3, Vec4};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
 use petalsonic::DirectOcclusionDebugSnapshot;
 use re_flora_water::PondWaterSim;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -207,6 +207,7 @@ pub struct App {
     water_sim: PondWaterSim,
     water_terrain_initialized: bool,
     deferred_water_terrain_collider_rebuilds: LatestChunkQueue<WaterTerrainColliderRebuildRequest>,
+    pending_water_terrain_source_chunks: HashSet<UVec3>,
     water_terrain_collider_build_inflight: bool,
     water_terrain_collider_job_tx: std::sync::mpsc::Sender<water::WaterTerrainColliderWorkerJob>,
     water_terrain_collider_result_rx:
@@ -304,7 +305,7 @@ impl App {
         let rebuild_succeeded = result.is_ok();
         self.deferred_chunk_rebuilds.complete(chunk_id, revision);
         if rebuild_succeeded && should_rebuild_water_terrain {
-            self.enqueue_deferred_water_terrain_collider_rebuild(chunk_id);
+            self.mark_water_terrain_source_chunk_dirty(chunk_id);
         }
 
         match result {
@@ -928,6 +929,7 @@ impl App {
             water_sim,
             water_terrain_initialized: false,
             deferred_water_terrain_collider_rebuilds: LatestChunkQueue::default(),
+            pending_water_terrain_source_chunks: HashSet::new(),
             water_terrain_collider_build_inflight: false,
             water_terrain_collider_job_tx,
             water_terrain_collider_result_rx,
@@ -1645,6 +1647,7 @@ impl App {
                 self.time_info.update(self.perf_logging);
                 self.contree_builder
                     .poll_cpu_chunk_cache_jobs(self.tracer.camera_position(), VOXEL_DIM_PER_CHUNK);
+                self.process_water_terrain_source_updates();
 
                 if self.loading_state.is_some() {
                     self.process_loading_step();
@@ -2008,6 +2011,7 @@ impl App {
                 }
 
                 self.process_deferred_chunk_rebuild();
+                self.process_water_terrain_source_updates();
                 self.process_deferred_water_terrain_collider_rebuild();
 
                 if self.regenerate_trees_requested {

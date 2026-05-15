@@ -51,6 +51,36 @@ impl App {
         );
     }
 
+    pub(super) fn mark_water_terrain_source_chunk_dirty(&mut self, chunk_id: UVec3) {
+        let was_new = self.pending_water_terrain_source_chunks.insert(chunk_id);
+        log::debug!(
+            "[QUEUE][WATER_TERRAIN] await CPU source chunk {:?} new={} pending_sources={}",
+            chunk_id,
+            was_new,
+            self.pending_water_terrain_source_chunks.len(),
+        );
+    }
+
+    pub(super) fn process_water_terrain_source_updates(&mut self) {
+        for update in self.contree_builder.take_cpu_chunk_source_updates() {
+            if !self
+                .pending_water_terrain_source_chunks
+                .remove(&update.chunk_idx)
+            {
+                continue;
+            }
+
+            log::debug!(
+                "[QUEUE][WATER_TERRAIN] CPU source ready chunk {:?} source_rev={} present={} pending_sources={}",
+                update.chunk_idx,
+                update.revision,
+                update.is_present,
+                self.pending_water_terrain_source_chunks.len(),
+            );
+            self.enqueue_deferred_water_terrain_collider_rebuild(update.chunk_idx);
+        }
+    }
+
     pub(super) fn process_deferred_water_terrain_collider_rebuild(&mut self) {
         self.publish_completed_water_terrain_collider_rebuilds();
         self.try_submit_next_water_terrain_collider_rebuild();
