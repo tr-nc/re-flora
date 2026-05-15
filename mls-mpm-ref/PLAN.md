@@ -68,12 +68,13 @@ The app builds water terrain collider chunks at `32^3` resolution. The stable
 solid-mask-to-SDF hot path now lives in the `re-flora-terrain-collider` crate so
 it can be compiled with release-style optimization during debug game builds.
 Startup queues the initial pond chunk `(1, 0, 1)`. Terrain edit chunk rebuild completion
-now also queues that rebuilt chunk for water collider rebuild through a separate
-`LatestChunkQueue`, without testing whether the chunk is currently needed by
-water. Non-terrain-edit rebuilds, such as debug tree/model mesh rebuilds, do not
-enqueue water collider work. The water queue follows the terrain GPU->CPU cache
-pipeline: a queued collider chunk is submitted once its required CPU contree
-cache work is complete, not after all editing stops. For the current vertical
+now marks that rebuilt chunk's CPU terrain source as dirty; the water collider
+rebuild is enqueued only after the contree GPU->CPU query cache publishes or
+clears that chunk's CPU source. Non-terrain-edit rebuilds, such as debug
+tree/model mesh rebuilds, do not enqueue water collider work. The water queue
+follows the terrain GPU->CPU cache pipeline: a queued collider chunk is submitted
+once its required CPU contree cache work is complete, not after all editing
+stops. For the current vertical
 parity source, those dependencies are the chunk's `(x, z)` column from the
 collider chunk upward, because downward raycasts can cross chunks above the
 collider chunk. Collider construction runs on a background worker from a
@@ -149,7 +150,8 @@ terrain_sdf_min 0.0002 penetrating 0 no_sdf 0
 11. Added a dedicated delayed water terrain collider rebuild queue using
     `LatestChunkQueue`.
 12. Startup now enqueues the initial pond chunk collider build, and terrain edit
-    rebuild completion enqueues the rebuilt chunk's collider build.
+    rebuild completion marks the rebuilt chunk's CPU terrain source dirty for
+    later water collider enqueue after GPU->CPU cache publication.
 13. Water collider construction moved off the main thread. The queue now waits
     for the collider chunk's vertical-column CPU contree cache dependencies to
     be ready, takes a CPU-query snapshot, and submits one background collider
@@ -170,6 +172,12 @@ terrain_sdf_min 0.0002 penetrating 0 no_sdf 0
     `re-flora-terrain-collider` crate and compiled with `opt-level = 3` in dev
     builds. This preserves the current collider field while reducing debug-build
     water collider rebuild latency.
+17. Contree CPU query source updates now carry per-chunk source revisions when a
+    chunk's GPU->CPU cache is published or cleared. Terrain edits mark the source
+    chunk dirty, and the water collider queue is enqueued only after that CPU
+    source update event arrives.
+18. Water collider builds now record their dependency source revision vector and
+    skip queued rebuilds when the CPU terrain source revisions have not changed.
 
 ## Known issues
 
@@ -197,18 +205,13 @@ terrain_sdf_min 0.0002 penetrating 0 no_sdf 0
 
 ## Next implementation steps
 
-1. Finish rebuild suppression by tracking source revisions.
-   - Track the last built terrain/CPU-cache revision for each collider chunk.
-   - Only rebuild a collider when the underlying terrain chunk revision changed.
-   - Keep the previous valid collider active while a dirty chunk waits.
-
-2. Make collider generation incremental or faster.
+1. Make collider generation incremental or faster.
    - The build now runs off the main thread, but it still performs a full
      `32^3` parity classification and heap/Dijkstra SDF propagation per chunk.
    - Preserve the previous valid collider until the new
      `Arc<WaterTerrainColliderChunk>` is ready to publish.
 
-3. Replace the single `water_terrain_initialized: bool` with per-chunk dirty
+2. Replace the single `water_terrain_initialized: bool` with per-chunk dirty
    state, for example:
 
    ```rust
@@ -217,17 +220,21 @@ terrain_sdf_min 0.0002 penetrating 0 no_sdf 0
    water_terrain_built_revisions: HashMap<glam::IVec3, u64>
    ```
 
-4. Add a stronger per-chunk publish policy:
+3. Add a stronger per-chunk publish policy:
    - preserve unrelated collider chunks;
    - avoid publishing all-empty chunks;
    - optionally prioritize startup/active-water chunks over unrelated chunks.
 
-5. Replace the current heap/Dijkstra SDF propagation with a faster regular-grid
+4. Replace the current heap/Dijkstra SDF propagation with a faster regular-grid
    distance transform. This should keep or improve quality while reducing build
    time.
 
-6. Keep the startup/first-water chunk hardcoded to `{ (1, 0, 1) }` until the
+5. Keep the startup/first-water chunk hardcoded to `{ (1, 0, 1) }` until the
    queued multi-chunk path is stable.
+
+6. Expand source-update-to-collider invalidation from the current edited-chunk
+   mapping to all active/needed collider chunks whose dependency set includes the
+   updated CPU terrain source chunk.
 
 7. Then expand active-water chunk selection beyond the startup pond chunk.
 
