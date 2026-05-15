@@ -64,8 +64,10 @@ pub struct WaterTerrainColliderSet {
 
 ## Current app-side collider source
 
-The app builds water terrain collider chunks at `32^3` resolution. Startup
-queues the initial pond chunk `(1, 0, 1)`. Terrain edit chunk rebuild completion
+The app builds water terrain collider chunks at `32^3` resolution. The stable
+solid-mask-to-SDF hot path now lives in the `re-flora-terrain-collider` crate so
+it can be compiled with release-style optimization during debug game builds.
+Startup queues the initial pond chunk `(1, 0, 1)`. Terrain edit chunk rebuild completion
 now also queues that rebuilt chunk for water collider rebuild through a separate
 `LatestChunkQueue`, without testing whether the chunk is currently needed by
 water. Non-terrain-edit rebuilds, such as debug tree/model mesh rebuilds, do not
@@ -164,15 +166,22 @@ terrain_sdf_min 0.0002 penetrating 0 no_sdf 0
     during edits no longer zeroes water velocities every build, so water can
     respond continuously to progressive collider updates. Unrelated cached chunks
     also do not reset/nudge the live particles.
+16. The stable heap/Dijkstra solid-mask-to-SDF builder was extracted into the
+    `re-flora-terrain-collider` crate and compiled with `opt-level = 3` in dev
+    builds. This preserves the current collider field while reducing debug-build
+    water collider rebuild latency.
 
 ## Known issues
 
 1. Collider build is still the dominant source of edit-to-collider latency in
-   debug builds. Phase timing on the startup/edit chunk showed about `106.6ms`
-   total in debug (`~22.2ms` solid classification, `~83.7ms` heap/Dijkstra SDF,
-   negligible counting/stats). The same auto-exit run in release averaged about
-   `6.0ms` total (`~1.2ms` solid, `~4.7ms` SDF), so the large `~100ms` delay is
-   mostly a debug-build artifact. The work happens on a background worker
+   debug builds. Before extracting the SDF builder crate, phase timing on the
+   startup/edit chunk showed about `106.6ms` total in debug (`~22.2ms` solid
+   classification, `~83.7ms` heap/Dijkstra SDF, negligible counting/stats). The
+   same auto-exit run in release averaged about `6.0ms` total (`~1.2ms` solid,
+   `~4.7ms` SDF), so the large delay was mostly a debug-build artifact. The SDF
+   phase now comes from `re-flora-terrain-collider`, which is optimized in dev
+   builds; the remaining debug latency should mostly be the app-side solid
+   classification/contree query phase. The work happens on a background worker
    instead of the main thread.
 2. The dedicated queue coalesces repeated dirty requests and tracks latest
    revisions, but only one water collider worker job runs at a time. Rapid edits

@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 resource_container_derive = { path = "./resource_container_derive" }
 re-flora-water = { path = "crates/re-flora-water" }
+re-flora-terrain-collider = { path = "crates/re-flora-terrain-collider" }
 ash = { version = "0.38", default-features = false, features = [
     "debug",
     "linked",
@@ -66,6 +67,11 @@ no_validation_layer = []
 # debug app iteration stays fast enough, while P2G/G2P transfer loops avoid the
 # huge slowdown from unoptimized debug code and debug math assertions.
 [profile.dev.package.re-flora-water]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+
+[profile.dev.package.re-flora-terrain-collider]
 opt-level = 3
 debug-assertions = false
 overflow-checks = false
