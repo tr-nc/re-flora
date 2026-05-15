@@ -13,6 +13,7 @@ mod water;
 use self::particles::TreeLeafEmitter;
 use self::tree_bench::{TreeBench, TreeBenchMode};
 use self::vegetation::{TreeRecord, TreeVariationConfig};
+use crate::app::cpu_solid_voxels::CpuSolidVoxelStore;
 use crate::app::environment;
 use crate::app::gui_config_loader::GuiConfigLoader;
 use crate::app::gui_config_model::GuiConfigFile;
@@ -52,7 +53,7 @@ use glam::{UVec3, Vec2, Vec3, Vec4};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
 use petalsonic::DirectOcclusionDebugSnapshot;
 use re_flora_water::PondWaterSim;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -206,8 +207,8 @@ pub struct App {
     particle_animation_time_sec: f32,
     water_sim: PondWaterSim,
     water_terrain_initialized: bool,
+    cpu_solid_voxels: CpuSolidVoxelStore,
     deferred_water_terrain_collider_rebuilds: LatestChunkQueue<WaterTerrainColliderRebuildRequest>,
-    pending_water_terrain_source_chunks: HashSet<UVec3>,
     water_terrain_built_source_revisions: HashMap<UVec3, water::WaterTerrainColliderSourceRevision>,
     water_terrain_collider_build_inflight: bool,
     water_terrain_collider_job_tx: std::sync::mpsc::Sender<water::WaterTerrainColliderWorkerJob>,
@@ -929,8 +930,8 @@ impl App {
             particle_animation_time_sec: 0.0,
             water_sim,
             water_terrain_initialized: false,
+            cpu_solid_voxels: CpuSolidVoxelStore::default(),
             deferred_water_terrain_collider_rebuilds: LatestChunkQueue::default(),
-            pending_water_terrain_source_chunks: HashSet::new(),
             water_terrain_built_source_revisions: HashMap::new(),
             water_terrain_collider_build_inflight: false,
             water_terrain_collider_job_tx,

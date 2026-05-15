@@ -121,12 +121,14 @@ pub struct ContreeCpuChunkSourceUpdate {
     pub is_present: bool,
 }
 
+#[allow(dead_code)]
 pub struct ContreeCpuRayQuerySnapshot {
     chunk_dim: UVec3,
     cpu_scene_chunks: Vec<Option<UVec3>>,
     cpu_chunk_caches: HashMap<UVec3, Arc<CpuChunkCache>>,
 }
 
+#[allow(dead_code)]
 impl ContreeCpuRayQuerySnapshot {
     pub fn query_terrain_ray_cpu(&self, origin: Vec3, direction: Vec3) -> Option<Vec3> {
         query_terrain_ray_against_state(
@@ -612,10 +614,12 @@ impl ContreeBuilder {
         self.cpu_chunk_cache_jobs_are_idle()
     }
 
+    #[allow(dead_code)]
     pub fn cpu_chunk_query_source_ready(&self, chunk_idx: UVec3) -> bool {
         !self.cpu_chunk_cache_queue.has_unfinished_work(chunk_idx)
     }
 
+    #[allow(dead_code)]
     pub fn cpu_chunk_query_source_revision(&self, chunk_idx: UVec3) -> Option<u64> {
         self.cpu_chunk_source_revisions.get(&chunk_idx).copied()
     }
@@ -624,6 +628,7 @@ impl ContreeBuilder {
         std::mem::take(&mut self.cpu_chunk_source_updates)
     }
 
+    #[allow(dead_code)]
     pub fn cpu_ray_query_snapshot(&self) -> ContreeCpuRayQuerySnapshot {
         ContreeCpuRayQuerySnapshot {
             chunk_dim: self.chunk_dim,

@@ -80,6 +80,7 @@ impl<T> LatestChunkQueue<T> {
         self.pop_with(|pending| pending.pop_nearest_to(focus, chunk_extent))
     }
 
+    #[allow(dead_code)]
     pub(crate) fn pop_nearest_to_if(
         &mut self,
         focus: Vec3,
@@ -142,6 +143,7 @@ impl<T> LatestChunkQueue<T> {
             .unwrap_or(false)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn has_unfinished_work(&self, chunk_id: UVec3) -> bool {
         self.states
             .get(&chunk_id)

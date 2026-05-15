@@ -1,5 +1,6 @@
 mod app_controller;
 mod core;
+mod cpu_solid_voxels;
 mod environment;
 mod gui_config;
 mod gui_config_loader;

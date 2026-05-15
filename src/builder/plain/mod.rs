@@ -10,6 +10,7 @@ use crate::vkn::execute_one_time_command;
 use crate::vkn::execute_one_time_command_with_fence;
 use crate::vkn::Allocator;
 use crate::vkn::Buffer;
+use crate::vkn::BufferUsage;
 use crate::vkn::ClearValue;
 use crate::vkn::ColorClearValue;
 use crate::vkn::CommandBuffer;
@@ -20,6 +21,7 @@ use crate::vkn::MemoryBarrier;
 use crate::vkn::PipelineBarrier;
 use crate::vkn::ShaderModule;
 use crate::vkn::Texture;
+use crate::vkn::TextureRegion;
 use crate::vkn::VulkanContext;
 use anyhow::Result;
 use ash::vk;
@@ -289,6 +291,55 @@ impl PlainBuilder {
 
     pub fn get_resources(&self) -> &PlainBuilderResources {
         &self.resources
+    }
+
+    pub fn read_chunk_atlas_region(
+        &self,
+        atlas_offset: UVec3,
+        atlas_dim: UVec3,
+    ) -> Result<Vec<u8>> {
+        let atlas_extent = self.resources.chunk_atlas.get_image().get_desc().extent;
+        let atlas_size = UVec3::new(atlas_extent.width, atlas_extent.height, atlas_extent.depth);
+        if atlas_dim.x == 0 || atlas_dim.y == 0 || atlas_dim.z == 0 {
+            return Ok(Vec::new());
+        }
+        if (atlas_offset + atlas_dim).cmpgt(atlas_size).any() {
+            anyhow::bail!(
+                "chunk atlas read outside bounds: offset={:?} dim={:?} atlas={:?}",
+                atlas_offset,
+                atlas_dim,
+                atlas_size
+            );
+        }
+
+        let byte_count = atlas_dim.x as u64 * atlas_dim.y as u64 * atlas_dim.z as u64;
+        let mut buffer = Buffer::new_sized(
+            self.vulkan_ctx.device().clone(),
+            self.resources
+                .chunk_atlas
+                .get_image()
+                .get_allocator()
+                .clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
+            gpu_allocator::MemoryLocation::GpuToCpu,
+            byte_count,
+        );
+        self.resources.chunk_atlas.get_image().copy_image_to_buffer(
+            &mut buffer,
+            &self.vulkan_ctx.get_general_queue(),
+            self.vulkan_ctx.command_pool(),
+            vk::ImageLayout::GENERAL,
+            0,
+            TextureRegion {
+                offset: [
+                    atlas_offset.x as i32,
+                    atlas_offset.y as i32,
+                    atlas_offset.z as i32,
+                ],
+                extent: Extent3D::new(atlas_dim.x, atlas_dim.y, atlas_dim.z),
+            },
+        );
+        buffer.read_back()
     }
 
     pub fn chunk_init(&mut self, atlas_offset: UVec3, atlas_dim: UVec3) -> Result<()> {

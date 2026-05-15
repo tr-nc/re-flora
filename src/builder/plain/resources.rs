@@ -42,7 +42,9 @@ impl PlainBuilderResources {
         let tex_desc = ImageDesc {
             extent: Extent3D::new(plain_atlas_dim.x, plain_atlas_dim.y, plain_atlas_dim.z),
             format: vk::Format::R8_UINT,
-            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
+            usage: vk::ImageUsageFlags::STORAGE
+                | vk::ImageUsageFlags::TRANSFER_DST
+                | vk::ImageUsageFlags::TRANSFER_SRC,
             initial_layout: vk::ImageLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
