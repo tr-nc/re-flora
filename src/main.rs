@@ -162,7 +162,7 @@ impl AppOptions {
             tree_bench_samples: parse_u32_after("--tree-bench-samples").unwrap_or(10),
             tree_bench_min_thickness: args.iter().any(|a| a == "--tree-bench-min-thickness"),
             tree_bench_rapid: args.iter().any(|a| a == "--tree-bench-rapid"),
-            help: args.iter().any(|a| a == "--help"),
+            help: args.iter().any(|a| a == "--help" || a == "-h"),
         }
     }
 }
@@ -192,11 +192,12 @@ Options:
   --tree-bench-samples <N>    Tree benchmark samples (default: 10)
   --tree-bench-min-thickness  Sweep Min Trunk Thickness instead of Tree Height
   --tree-bench-rapid          Do not wait for deferred rebuilds between samples
-  --help                      Show this help and exit
+  -h, --help                  Show this help and exit
 
 Examples:
   re-flora --windowed
   re-flora --hidden --auto-exit 20 --perf
+  re-flora --hidden --screenshot screenshots/check.png --screenshot-delay 5 --auto-exit 7
   re-flora --present-mode fifo
   re-flora --swapchain-images 2
   re-flora --no-shadows --no-denoise
