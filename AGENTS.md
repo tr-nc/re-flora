@@ -15,6 +15,14 @@ Use the built-in CLI perf path:
 cargo run --release -- --windowed --auto-exit 20 --perf
 ```
 
+For background verification that should not pop a visible window, use the hidden-window path:
+
+```bash
+cargo run --release -- --hidden --auto-exit 20 --perf
+```
+
+`--hidden` still creates the normal native window, Vulkan surface, and swapchain; it only keeps the window invisible. By default it sizes the hidden window to the primary monitor to keep fullscreen-like render cost. Combine with `--windowed` only when testing the windowed extent specifically.
+
 Do not pass `--present-mode` by default. The app auto-selects the best supported mode, preferring `MAILBOX`, then `FIFO`, then the first supported mode.
 
 Useful log lines:
