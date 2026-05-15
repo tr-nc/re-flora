@@ -9,31 +9,20 @@
 
 ## Basic Perf Test
 
-Use the built-in CLI perf path:
-
-```bash
-cargo run --release -- --windowed --auto-exit 20 --perf
-```
-
-For background verification that should not pop a visible window, source the shell environment first, then use the hidden-window path:
+Before running the app, source the shell environment:
 
 ```bash
 source ~/.zshrc
-cargo run --release -- --hidden --auto-exit 20 --perf
 ```
 
-`--hidden` still creates the normal native window, Vulkan surface, and swapchain; it only keeps the window invisible. By default it sizes the hidden window to the primary monitor to keep fullscreen-like render cost. Combine with `--windowed` only when testing the windowed extent specifically.
+Discover CLI usage and testing recipes from the binary:
 
-Do not pass `--present-mode` by default. The app auto-selects the best supported mode, preferring `MAILBOX`, then `FIFO`, then the first supported mode.
-
-Useful log lines:
-
-```text
-[PERF] 60.0 fps at frame 1020
-[PERF] frame 1020 total 17.82ms egui 0.11ms gpu+present 16.60ms
+```bash
+cargo run --release -- --help
+cargo run --release -- -h
 ```
 
-The windowed run may be display-capped near 60 FPS, so it is best for smoke tests and large regressions. For small GPU perf changes, prefer a dedicated benchmark path or GPU timestamps when available.
+Prefer `--hidden` for background validation; it keeps the normal native window, Vulkan surface, and swapchain path, but leaves the window invisible. Do not pass `--present-mode` by default; let the app auto-select it.
 
 ## Flora Instance Perf Note
 
