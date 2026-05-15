@@ -67,52 +67,41 @@ pub struct WaterTerrainColliderSet {
 The app builds water terrain collider chunks at `32^3` resolution. The stable
 solid-mask-to-SDF hot path now lives in the `re-flora-terrain-collider` crate so
 it can be compiled with release-style optimization during debug game builds.
-Startup queues the initial pond chunk `(1, 0, 1)`. Terrain edit chunk rebuild completion
-now marks that rebuilt chunk's CPU terrain source as dirty; the water collider
-rebuild is enqueued only after the contree GPU->CPU query cache publishes or
-clears that chunk's CPU source. Non-terrain-edit rebuilds, such as debug
-tree/model mesh rebuilds, do not enqueue water collider work. The water queue
-follows the terrain GPU->CPU cache pipeline: a queued collider chunk is submitted
-once its required CPU contree cache work is complete, not after all editing
-stops. For the current vertical
-parity source, those dependencies are the chunk's `(x, z)` column from the
-collider chunk upward, because downward raycasts can cross chunks above the
-collider chunk. Collider construction runs on a background worker from a
-CPU-query snapshot. Completed worker results are published even when a newer
-revision is already queued, then the queued latest revision is processed next;
-this gives progressive collider updates during continuous edits instead of
-waiting for the edit stream to stop. The water sim still waits for the initial
-pond chunk collider before it starts stepping or rendering water debug
-particles.
+Startup queues the initial pond chunk `(1, 0, 1)`. Terrain edit chunk rebuild
+completion refreshes the rebuilt chunk's CPU solid voxel source from the GPU
+plain atlas and then enqueues that same chunk's water collider rebuild.
+Non-terrain-edit rebuilds, such as debug tree/model mesh rebuilds, do not
+enqueue water collider work.
 
-It no longer uses a heightfield fallback.
+Collider construction runs on a background worker from an `Arc` to the refreshed
+CPU solid voxel chunk. The worker classifies each `32^3` collider sample by
+sampling the chunk-local `256^3` solid occupancy bitset, then builds the SDF.
+Completed worker results are published even when a newer revision is already
+queued, then the queued latest revision is processed next; this gives
+progressive collider updates during continuous edits instead of waiting for the
+edit stream to stop. The water sim still waits for the initial pond chunk
+collider before it starts stepping or rendering water debug particles.
 
-Important detail: the CPU contree cache currently represents terrain surface
-voxels, not a filled solid volume. Direct point occupancy against that surface
-cache produced a thin-shell SDF and allowed water to fall through gaps. The app
-therefore classifies collider grid samples with a pure-3D vertical
-surface-crossing parity pass:
+It no longer uses a heightfield fallback or vertical ray/parity classification.
+Each water collider chunk now depends only on the matching CPU solid voxel chunk:
 
 ```text
-for each collider (x, z) column:
-    raycast downward through terrain surfaces
-    collect crossing y values
-    classify sample y by odd/even crossing parity
+terrain chunk C GPU atlas voxels -> CPU solid bitset C -> water SDF collider C
 ```
 
-Direct surface occupancy is still ORed in so exact surface samples remain solid.
-This keeps the collider 3D and supports floors, ceilings, walls, caves, and
-overhangs better than the old pond heightfield path.
+This keeps rebuild/use independent per chunk while supporting true 3D terrain
+features represented in the chunk voxel volume, including floors, ceilings,
+walls, caves, and overhangs.
 
 Runtime diagnostics now log:
 
 ```text
 [WATER][TERRAIN] built collider ...
   solid_samples ...
-  source surface-contree-vertical-parity
-  columns_with_hits ...
-  crossings total/max ...
-  direct_surface_samples ...
+  source cpu-solid-voxel-atlas
+  source_chunk ...
+  source_dim ...
+  source_solid_voxels ...
   center_sdf ...
   build_ms ...
   phases solid/count/sdf/stats ...
@@ -139,6 +128,10 @@ zsh -lc 'source ~/.zshrc && cargo run --release -- --hidden --auto-exit 60 --per
 Application exited successfully
 ```
 
+After switching collider input to CPU solid voxel chunks, a 20s hidden release
+smoke run built the startup collider from `source cpu-solid-voxel-atlas` and
+kept `penetrating 0 no_sdf 0` throughout.
+
 ## Completed in the first per-chunk pass
 
 1. Added `WaterTerrainColliderChunk` and `WaterTerrainColliderSet` to
@@ -154,17 +147,16 @@ Application exited successfully
 7. Added tests for SDF floor, ceiling, and wall collision paths.
 8. Prevent water simulation/rendering before the first terrain collider exists.
 9. Added 3D surface-crossing parity classification to avoid thin-shell
-   falling-through from surface-only CPU terrain caches.
+   falling-through from surface-only CPU terrain caches. This was later replaced
+   by the CPU solid voxel source in item 20.
 10. Added runtime logs for collider quality and particle terrain penetration.
 11. Added a dedicated delayed water terrain collider rebuild queue using
     `LatestChunkQueue`.
 12. Startup now enqueues the initial pond chunk collider build, and terrain edit
     rebuild completion marks the rebuilt chunk's CPU terrain source dirty for
-    later water collider enqueue after GPU->CPU cache publication.
-13. Water collider construction moved off the main thread. The queue now waits
-    for the collider chunk's vertical-column CPU contree cache dependencies to
-    be ready, takes a CPU-query snapshot, and submits one background collider
-    build at a time.
+    later water collider enqueue.
+13. Water collider construction moved off the main thread. The queue submits one
+    background collider build at a time.
 14. Worker completion now publishes intermediate collider revisions during
     continuous edits, then immediately requeues/processes the latest pending
     revision. This avoids the previous behavior where every in-flight build was
@@ -182,37 +174,35 @@ Application exited successfully
     builds. This preserves the current collider field while reducing debug-build
     water collider rebuild latency.
 17. Contree CPU query source updates now carry per-chunk source revisions when a
-    chunk's GPU->CPU cache is published or cleared. Terrain edits mark the source
-    chunk dirty, and the water collider queue is enqueued only after that CPU
-    source update event arrives.
+    chunk's GPU->CPU cache is published or cleared. This supported the former
+    surface-contree/parity water source.
 18. Water collider builds now record their dependency source revision vector and
     skip queued rebuilds when the CPU terrain source revisions have not changed.
 19. Water terrain collision now uses bounded iterative SDF correction, repairs
     terrain contact before P2G, clamps G2P particle velocity to a substep CFL
     limit, and uses a compact default water rest volume. A 60s hidden release
     soak kept `penetrating 0 no_sdf 0` throughout.
+20. Added a CPU solid voxel mirror for plain-atlas terrain chunks. Water
+    collider builds now read a chunk-local `256^3` solid occupancy bitset instead
+    of surface-contree vertical parity, so each collider chunk depends only on
+    the matching terrain chunk source.
 
 ## Known issues
 
-1. Collider build is still the dominant source of edit-to-collider latency in
-   debug builds. Before extracting the SDF builder crate, phase timing on the
-   startup/edit chunk showed about `106.6ms` total in debug (`~22.2ms` solid
-   classification, `~83.7ms` heap/Dijkstra SDF, negligible counting/stats). The
-   same auto-exit run in release averaged about `6.0ms` total (`~1.2ms` solid,
-   `~4.7ms` SDF), so the large delay was mostly a debug-build artifact. The SDF
-   phase now comes from `re-flora-terrain-collider`, which is optimized in dev
-   builds. A follow-up debug auto-exit run averaged about `28.6ms` total
-   (`~22.7ms` solid classification, `~5.2ms` SDF), with `penetrating 0` in the
-   water perf log. The remaining debug latency is now mostly the app-side solid
-   classification/contree query phase. The work happens on a background worker
-   instead of the main thread.
+1. Collider build is still a source of edit-to-collider latency in debug builds,
+   but the solid classification phase is now cheap because it samples the CPU
+   solid bitset directly. A 20s release smoke run built the startup collider in
+   about `5.0ms` total (`~0.07ms` solid classification, `~4.9ms` SDF). The SDF
+   phase still comes from `re-flora-terrain-collider`, which is optimized in dev
+   builds. The work happens on a background worker instead of the main thread.
 2. The dedicated queue coalesces repeated dirty requests and tracks latest
    revisions, but only one water collider worker job runs at a time. Rapid edits
    update progressively at roughly one collider-build cadence, so the collider
    can still lag behind the latest brush stroke by about a build duration.
-3. The current vertical parity pass is a correctness bridge for the existing
-   surface contree cache. A better long-term source is a chunk-local filled
-   occupancy representation or direct SDF generation from voxel volume data.
+3. The CPU solid mirror is currently refreshed by reading the affected chunk's
+   `256^3` `R8_UINT` GPU atlas region and packing it into a bitset. This is exact
+   and simple, but direct CPU-side mirroring of edits would avoid readback cost
+   for frequent edits.
 4. The app still treats `{ (1, 0, 1) }` as the startup/first-water chunk even
    though the collider set can now receive additional rebuilt chunks.
 
@@ -220,9 +210,11 @@ Application exited successfully
 
 1. Make collider generation incremental or faster.
    - The build now runs off the main thread, but it still performs a full
-     `32^3` parity classification and heap/Dijkstra SDF propagation per chunk.
+     `32^3` solid sampling pass and heap/Dijkstra SDF propagation per chunk.
    - Preserve the previous valid collider until the new
      `Arc<WaterTerrainColliderChunk>` is ready to publish.
+   - Consider direct CPU-side edit mirroring to avoid GPU atlas readback for
+     high-frequency terrain edits.
 
 2. Replace the single `water_terrain_initialized: bool` with per-chunk dirty
    state, for example:
@@ -245,13 +237,11 @@ Application exited successfully
 5. Keep the startup/first-water chunk hardcoded to `{ (1, 0, 1) }` until the
    queued multi-chunk path is stable.
 
-6. Expand source-update-to-collider invalidation from the current edited-chunk
-   mapping to all active/needed collider chunks whose dependency set includes the
-   updated CPU terrain source chunk.
+6. Expand active-water chunk selection beyond the startup pond chunk. With the
+   CPU solid source, invalidation remains simple: changed terrain chunk `C`
+   rebuilds water collider chunk `C`.
 
-7. Then expand active-water chunk selection beyond the startup pond chunk.
-
-8. Validate against real terrain overhangs/caves: ceiling, wall, and floor
+7. Validate against real terrain overhangs/caves: ceiling, wall, and floor
    surfaces should all collide through the same 3D SDF path.
 
 Keep the fluid grid at `32^3` during this work. The collider representation can
