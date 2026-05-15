@@ -180,7 +180,9 @@ terrain_sdf_min 0.0002 penetrating 0 no_sdf 0
    same auto-exit run in release averaged about `6.0ms` total (`~1.2ms` solid,
    `~4.7ms` SDF), so the large delay was mostly a debug-build artifact. The SDF
    phase now comes from `re-flora-terrain-collider`, which is optimized in dev
-   builds; the remaining debug latency should mostly be the app-side solid
+   builds. A follow-up debug auto-exit run averaged about `28.6ms` total
+   (`~22.7ms` solid classification, `~5.2ms` SDF), with `penetrating 0` in the
+   water perf log. The remaining debug latency is now mostly the app-side solid
    classification/contree query phase. The work happens on a background worker
    instead of the main thread.
 2. The dedicated queue coalesces repeated dirty requests and tracks latest
