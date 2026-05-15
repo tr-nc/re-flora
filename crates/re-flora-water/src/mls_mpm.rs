@@ -7,6 +7,7 @@ const MAX_SUBSTEPS_PER_UPDATE: usize = 8;
 const ACTIVE_MASS_EPSILON: f32 = 1.0e-8;
 const MAX_J: f32 = 8.0;
 const MAX_PARTICLE_SPEED: f32 = 20.0;
+const MAX_PARTICLE_CFL_CELLS_PER_SUBSTEP: f32 = 0.5;
 const MAX_AFFINE_COMPONENT: f32 = 100.0;
 // A particle can end a substep deeper than one capped correction can resolve.
 // Iterate bounded SDF corrections so the next P2G pass does not deposit mass
@@ -55,7 +56,7 @@ impl PondWaterSim {
             return;
         }
 
-        self.repair_particles();
+        self.repair_particles(dt);
 
         if !perf_logging {
             self.clear_grid();
@@ -121,7 +122,7 @@ impl PondWaterSim {
         self.perf_report_seconds = 0.0;
     }
 
-    fn repair_particles(&mut self) {
+    fn repair_particles(&mut self, dt: f32) {
         let bounds = self.config.collider;
         let padding = self.dx * self.config.wall_padding_cells.max(1.0);
         let min_padding = Vec3::splat(padding);
@@ -129,6 +130,7 @@ impl PondWaterSim {
         let terrain_collision_margin = self.dx * 0.5;
         let terrain_max_correction = padding;
         let j_min = self.config.j_min;
+        let max_particle_speed = max_particle_speed_for_substep(self.dx, dt);
         let terrain = self.terrain.as_ref();
         for particle in &mut self.particles {
             repair_particle_state_with_padding(
@@ -138,6 +140,7 @@ impl PondWaterSim {
                 min_padding,
                 max_padding,
                 j_min,
+                max_particle_speed,
             );
             if let Some(terrain) = terrain {
                 collide_particle_with_terrain_iterative(
@@ -300,6 +303,7 @@ impl PondWaterSim {
         let particle_min_padding = Vec3::splat(particle_padding);
         let particle_max_padding = Vec3::splat(particle_padding);
         let j_min = self.config.j_min;
+        let max_particle_speed = max_particle_speed_for_substep(dx, dt);
         let grid = &self.grid;
         let terrain = self.terrain.as_ref();
         let terrain_collision_margin = self.dx * 0.5;
@@ -340,7 +344,7 @@ impl PondWaterSim {
                 }
             }
 
-            particle.v = clamp_vec3_length(new_v, MAX_PARTICLE_SPEED);
+            particle.v = clamp_vec3_length(new_v, max_particle_speed);
             particle.c = clamp_mat3_components(new_c, MAX_AFFINE_COMPONENT);
             let trace_c = particle.c.x_axis.x + particle.c.y_axis.y + particle.c.z_axis.z;
             particle.j = (particle.j * (1.0 + dt * trace_c)).max(j_min);
@@ -375,6 +379,7 @@ impl PondWaterSim {
                 particle_min_padding,
                 particle_max_padding,
                 j_min,
+                max_particle_speed,
             );
         }
     }
@@ -438,6 +443,7 @@ fn repair_particle_state_with_padding(
     min_padding: Vec3,
     max_padding: Vec3,
     j_min: f32,
+    max_speed: f32,
 ) {
     let min = min_ws + min_padding;
     let max = max_ws - max_padding;
@@ -447,7 +453,7 @@ fn repair_particle_state_with_padding(
     if !particle.v.is_finite() {
         particle.v = Vec3::ZERO;
     }
-    particle.v = clamp_vec3_length(particle.v, MAX_PARTICLE_SPEED);
+    particle.v = clamp_vec3_length(particle.v, max_speed);
 
     if !mat3_is_finite(particle.c) {
         particle.c = Mat3::ZERO;
@@ -457,6 +463,14 @@ fn repair_particle_state_with_padding(
         particle.j = 1.0;
     }
     particle.j = particle.j.clamp(j_min, MAX_J);
+}
+
+fn max_particle_speed_for_substep(dx: f32, dt: f32) -> f32 {
+    if dx > 0.0 && dt > 0.0 && dx.is_finite() && dt.is_finite() {
+        MAX_PARTICLE_SPEED.min(MAX_PARTICLE_CFL_CELLS_PER_SUBSTEP * dx / dt)
+    } else {
+        MAX_PARTICLE_SPEED
+    }
 }
 
 fn finite_or(value: Vec3, fallback: Vec3) -> Vec3 {
