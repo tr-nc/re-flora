@@ -93,6 +93,9 @@ enum ChunkRebuildRequest {
     PreserveFlora(world_ops::FloraSphereEdit),
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+struct WaterTerrainColliderRebuildRequest;
+
 struct LoadingState {
     chunk_indices: Vec<UVec3>,
     current: usize,
@@ -203,6 +206,7 @@ pub struct App {
     particle_animation_time_sec: f32,
     water_sim: PondWaterSim,
     water_terrain_initialized: bool,
+    deferred_water_terrain_collider_rebuilds: LatestChunkQueue<WaterTerrainColliderRebuildRequest>,
     particle_snapshots: Vec<ParticleSnapshot>,
     #[allow(dead_code)]
     terrain_harvest_particle_handles: Vec<ParticleHandle>,
@@ -270,12 +274,8 @@ impl App {
 
         let chunk_id = work.chunk_id;
         let revision = work.revision;
-        let water_terrain_affected = match &work.payload {
-            ChunkRebuildRequest::Normal => false,
-            ChunkRebuildRequest::PreserveFlora(flora_edit) => {
-                self.water_terrain_sphere_overlaps(flora_edit.center, flora_edit.radius)
-            }
-        };
+        let should_rebuild_water_terrain =
+            matches!(work.payload, ChunkRebuildRequest::PreserveFlora(_));
         let rebuild_start = Instant::now();
         let result = match work.payload {
             ChunkRebuildRequest::Normal => world_ops::mesh_generate_chunks(
@@ -299,8 +299,8 @@ impl App {
         let elapsed = rebuild_start.elapsed();
         let rebuild_succeeded = result.is_ok();
         self.deferred_chunk_rebuilds.complete(chunk_id, revision);
-        if rebuild_succeeded && water_terrain_affected {
-            self.invalidate_water_terrain_collider_for_overlapping_edit();
+        if rebuild_succeeded && should_rebuild_water_terrain {
+            self.enqueue_deferred_water_terrain_collider_rebuild(chunk_id);
         }
 
         match result {
@@ -921,6 +921,7 @@ impl App {
             particle_animation_time_sec: 0.0,
             water_sim,
             water_terrain_initialized: false,
+            deferred_water_terrain_collider_rebuilds: LatestChunkQueue::default(),
             particle_snapshots,
             terrain_harvest_particle_handles,
             particle_forces,
@@ -1268,6 +1269,7 @@ impl App {
             log::error!("Failed to start audio engine: {}", err);
         }
 
+        self.enqueue_startup_water_terrain_collider_rebuild();
         self.render_start_time = Some(Instant::now());
     }
 
@@ -1997,6 +1999,7 @@ impl App {
                 }
 
                 self.process_deferred_chunk_rebuild();
+                self.process_deferred_water_terrain_collider_rebuild();
 
                 if self.regenerate_trees_requested {
                     self.regenerate_trees_requested = false;
@@ -2051,12 +2054,7 @@ impl App {
                 }
 
                 if self.render_flags.enable_particles {
-                    if !self.water_terrain_initialized && self.water_terrain_refresh_ready() {
-                        self.water_terrain_initialized = self.refresh_water_terrain_collider();
-                    }
-                    if self.water_terrain_initialized
-                        || self.water_sim.terrain_collider_set().is_some()
-                    {
+                    if self.water_terrain_initialized {
                         self.water_sim.update(frame_delta_time, self.perf_logging);
                     }
                     self.update_particle_simulation(frame_delta_time);

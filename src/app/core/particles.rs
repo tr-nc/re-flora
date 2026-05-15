@@ -421,7 +421,7 @@ impl App {
     }
 
     fn append_water_debug_snapshots(&mut self) {
-        if self.water_sim.terrain_collider_set().is_none() {
+        if !self.water_terrain_initialized {
             return;
         }
 
@@ -430,7 +430,14 @@ impl App {
             return;
         }
 
-        for particle in self.water_sim.particles.iter().take(remaining_capacity) {
+        let bounds = self.water_sim.config.collider;
+        for particle in self
+            .water_sim
+            .particles
+            .iter()
+            .filter(|particle| particle.x.is_finite() && bounds.contains(particle.x))
+            .take(remaining_capacity)
+        {
             self.particle_snapshots.push(ParticleSnapshot {
                 position_ws: particle.x,
                 velocity: particle.v,

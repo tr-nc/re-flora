@@ -593,6 +593,7 @@ impl ContreeBuilder {
         )
     }
 
+    #[allow(dead_code)]
     pub fn has_cpu_chunk_cache(&self, chunk_idx: UVec3) -> bool {
         if chunk_idx.cmplt(self.chunk_dim).any() {
             scene_chunk_present_in_grid(self.chunk_dim, &self.cpu_scene_chunks, chunk_idx)

@@ -1,6 +1,7 @@
 use glam::{Mat3, UVec3, Vec3};
 
-use super::collider::{WaterBoxCollider, WaterTerrainColliderSet};
+use super::collider::{WaterBoxCollider, WaterTerrainColliderChunk, WaterTerrainColliderSet};
+use std::sync::Arc;
 
 const DEFAULT_GRID_DIM: UVec3 = UVec3::new(32, 32, 32);
 const DEFAULT_PARTICLE_COUNT: usize = 4_096;
@@ -155,6 +156,19 @@ impl PondWaterSim {
         self.stabilize_after_terrain_change();
     }
 
+    pub fn upsert_terrain_collider_chunk(
+        &mut self,
+        chunk: WaterTerrainColliderChunk,
+        stabilize_particles: bool,
+    ) {
+        self.terrain
+            .get_or_insert_with(WaterTerrainColliderSet::new)
+            .insert_chunk(Arc::new(chunk));
+        if stabilize_particles {
+            self.stabilize_after_terrain_change();
+        }
+    }
+
     pub fn clear_terrain_collider_set(&mut self) {
         self.terrain = None;
         self.stabilize_after_terrain_change();
@@ -259,17 +273,33 @@ mod tests {
         let mut sim = PondWaterSim::fixed_test_box();
         assert!(sim.terrain_collider_set().is_none());
 
-        sim.set_terrain_collider_set(WaterTerrainColliderSet::from_chunk(
-            crate::WaterTerrainColliderChunk {
-                chunk_id: glam::IVec3::new(1, 0, 1),
-                dim: glam::UVec3::splat(2),
-                sdf_ws: vec![1.0; 8],
-                revision: 0,
-            },
-        ));
+        sim.set_terrain_collider_set(WaterTerrainColliderSet::from_chunk(test_chunk(
+            glam::IVec3::new(1, 0, 1),
+        )));
         assert!(sim.terrain_collider_set().is_some());
 
         sim.clear_terrain_collider_set();
         assert!(sim.terrain_collider_set().is_none());
+    }
+
+    #[test]
+    fn upserting_chunk_without_stabilization_preserves_particle_state() {
+        let mut sim = PondWaterSim::fixed_test_box();
+        sim.particles[0].v = Vec3::new(1.0, 2.0, 3.0);
+        sim.particles[0].j = 1.25;
+
+        sim.upsert_terrain_collider_chunk(test_chunk(glam::IVec3::new(2, 0, 1)), false);
+
+        assert_eq!(sim.particles[0].v, Vec3::new(1.0, 2.0, 3.0));
+        assert_eq!(sim.particles[0].j, 1.25);
+    }
+
+    fn test_chunk(chunk_id: glam::IVec3) -> crate::WaterTerrainColliderChunk {
+        crate::WaterTerrainColliderChunk {
+            chunk_id,
+            dim: glam::UVec3::splat(2),
+            sdf_ws: vec![1.0; 8],
+            revision: 0,
+        }
     }
 }
