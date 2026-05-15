@@ -13,5 +13,5 @@ pub mod collider;
 pub mod mls_mpm;
 pub mod pond;
 
-pub use collider::WaterTerrainCollider;
+pub use collider::{WaterTerrainColliderChunk, WaterTerrainColliderSet};
 pub use pond::PondWaterSim;

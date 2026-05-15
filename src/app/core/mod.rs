@@ -2052,10 +2052,13 @@ impl App {
 
                 if self.render_flags.enable_particles {
                     if !self.water_terrain_initialized && self.water_terrain_refresh_ready() {
-                        self.refresh_water_terrain_collider();
-                        self.water_terrain_initialized = true;
+                        self.water_terrain_initialized = self.refresh_water_terrain_collider();
                     }
-                    self.water_sim.update(frame_delta_time, self.perf_logging);
+                    if self.water_terrain_initialized
+                        || self.water_sim.terrain_collider_set().is_some()
+                    {
+                        self.water_sim.update(frame_delta_time, self.perf_logging);
+                    }
                     self.update_particle_simulation(frame_delta_time);
                 }
 

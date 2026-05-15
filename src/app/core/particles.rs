@@ -421,6 +421,10 @@ impl App {
     }
 
     fn append_water_debug_snapshots(&mut self) {
+        if self.water_sim.terrain_collider_set().is_none() {
+            return;
+        }
+
         let remaining_capacity = PARTICLE_CAPACITY.saturating_sub(self.particle_snapshots.len());
         if remaining_capacity == 0 {
             return;

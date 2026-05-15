@@ -1,6 +1,6 @@
 use glam::{Mat3, UVec3, Vec3};
 
-use super::collider::{WaterBoxCollider, WaterTerrainCollider};
+use super::collider::{WaterBoxCollider, WaterTerrainColliderSet};
 
 const DEFAULT_GRID_DIM: UVec3 = UVec3::new(32, 32, 32);
 const DEFAULT_PARTICLE_COUNT: usize = 4_096;
@@ -96,7 +96,7 @@ impl WaterPerfStats {
 
 pub struct PondWaterSim {
     pub config: PondWaterConfig,
-    pub(crate) terrain: Option<WaterTerrainCollider>,
+    pub(crate) terrain: Option<WaterTerrainColliderSet>,
     pub origin_ws: Vec3,
     pub extent_ws: Vec3,
     pub grid_dim: UVec3,
@@ -149,27 +149,47 @@ impl PondWaterSim {
         Self::new(PondWaterConfig::default())
     }
 
-    pub fn set_terrain_collider(&mut self, collider: WaterTerrainCollider) {
-        collider.validate();
-        self.terrain = Some(collider);
+    pub fn set_terrain_collider_set(&mut self, collider_set: WaterTerrainColliderSet) {
+        collider_set.validate();
+        self.terrain = Some(collider_set);
         self.stabilize_after_terrain_change();
     }
 
-    pub fn clear_terrain_collider(&mut self) {
+    pub fn clear_terrain_collider_set(&mut self) {
         self.terrain = None;
         self.stabilize_after_terrain_change();
     }
 
     fn stabilize_after_terrain_change(&mut self) {
         self.accumulator = 0.0;
+        let terrain = self.terrain.as_ref();
+        let collision_margin = self.dx * 0.5;
+        let max_correction = self.dx * self.config.wall_padding_cells.max(1.0);
+        let particle_padding = self.dx * self.config.wall_padding_cells.max(1.0);
+        let bounds = self.config.collider;
+
         for particle in &mut self.particles {
             particle.v = Vec3::ZERO;
             particle.c = Mat3::ZERO;
             particle.j = 1.0;
+
+            if let Some(terrain) = terrain {
+                for _ in 0..8 {
+                    let Some((sdf, normal)) = terrain.sample_sdf_and_normal_ws(particle.x) else {
+                        break;
+                    };
+                    let correction = collision_margin - sdf;
+                    if correction <= 1.0e-5 {
+                        break;
+                    }
+                    particle.x += normal * correction.min(max_correction);
+                    particle.x = bounds.clamp_point(particle.x, particle_padding);
+                }
+            }
         }
     }
 
-    pub fn terrain_collider(&self) -> Option<&WaterTerrainCollider> {
+    pub fn terrain_collider_set(&self) -> Option<&WaterTerrainColliderSet> {
         self.terrain.as_ref()
     }
 
@@ -237,18 +257,19 @@ mod tests {
     #[test]
     fn terrain_collider_state_round_trips() {
         let mut sim = PondWaterSim::fixed_test_box();
-        assert!(sim.terrain_collider().is_none());
+        assert!(sim.terrain_collider_set().is_none());
 
-        sim.set_terrain_collider(WaterTerrainCollider {
-            xz_dim: glam::UVec2::new(2, 2),
-            bounds_min_ws: Vec3::new(1.0, 0.0, 1.0),
-            bounds_max_ws: Vec3::new(2.0, 1.0, 2.0),
-            heights_ws: vec![1.0, 1.0, 1.0, 1.0],
-            margin: 0.0,
-        });
-        assert!(sim.terrain_collider().is_some());
+        sim.set_terrain_collider_set(WaterTerrainColliderSet::from_chunk(
+            crate::WaterTerrainColliderChunk {
+                chunk_id: glam::IVec3::new(1, 0, 1),
+                dim: glam::UVec3::splat(2),
+                sdf_ws: vec![1.0; 8],
+                revision: 0,
+            },
+        ));
+        assert!(sim.terrain_collider_set().is_some());
 
-        sim.clear_terrain_collider();
-        assert!(sim.terrain_collider().is_none());
+        sim.clear_terrain_collider_set();
+        assert!(sim.terrain_collider_set().is_none());
     }
 }

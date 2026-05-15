@@ -328,6 +328,10 @@ impl App {
             .unwrap_or(0.0)
     }
 
+    pub(super) fn query_terrain_solid_cpu(&self, point_ws: Vec3) -> bool {
+        self.contree_builder.query_terrain_occupancy_cpu(point_ws)
+    }
+
     fn player_collision_gaussian_weight(x: i32, y: i32) -> f32 {
         let sigma = Self::PLAYER_COLLISION_RAY_HALF_KERNEL_SIZE as f32 * 0.5 + 0.5;
         let sigma2 = sigma * sigma;

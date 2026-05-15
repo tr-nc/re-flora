@@ -1,7 +1,7 @@
-use glam::{IVec3, Mat3, Vec2, Vec3};
+use glam::{IVec3, Mat3, Vec3};
 use std::time::Instant;
 
-use super::{collider::WaterTerrainCollider, pond::PondWaterSim};
+use super::{collider::WaterTerrainColliderSet, pond::PondWaterSim};
 
 const MAX_SUBSTEPS_PER_UPDATE: usize = 8;
 const ACTIVE_MASS_EPSILON: f32 = 1.0e-8;
@@ -92,8 +92,9 @@ impl PondWaterSim {
 
         let substeps = stats.substeps as f64;
         let grid_nodes = self.grid.len();
+        let particle_stats = water_particle_debug_stats(&self.particles, self.terrain.as_ref());
         log::info!(
-            "[PERF][WATER] particles {} grid {:?} nodes {} substeps {} total {:.2}ms avg {:.3}ms/substep p2g {:.2}ms grid {:.2}ms g2p {:.2}ms active_nodes/substep {:.0}",
+            "[PERF][WATER] particles {} grid {:?} nodes {} substeps {} total {:.2}ms avg {:.3}ms/substep p2g {:.2}ms grid {:.2}ms g2p {:.2}ms active_nodes/substep {:.0} particle_y {:.3}..{:.3} avg {:.3} terrain_sdf_min {:.4} penetrating {} no_sdf {}",
             self.particles.len(),
             self.grid_dim,
             grid_nodes,
@@ -104,6 +105,12 @@ impl PondWaterSim {
             stats.grid_seconds * 1000.0,
             stats.g2p_seconds * 1000.0,
             stats.active_node_visits as f64 / substeps,
+            particle_stats.min_y,
+            particle_stats.max_y,
+            particle_stats.avg_y,
+            particle_stats.min_terrain_sdf.unwrap_or(f32::NAN),
+            particle_stats.terrain_penetrating,
+            particle_stats.no_terrain_sdf,
         );
 
         self.perf_stats.reset();
@@ -187,7 +194,7 @@ impl PondWaterSim {
         let terrain = self.terrain.as_ref();
         let origin_ws = self.origin_ws;
         let dx = self.dx;
-        let terrain_max_y = self.config.collider.max_ws.y - dx * wall_cells;
+        let terrain_collision_margin = dx * 0.5;
 
         let mut active_nodes = 0usize;
 
@@ -207,17 +214,13 @@ impl PondWaterSim {
                     let mut normal = Vec3::ZERO;
                     if let Some(terrain) = terrain {
                         let node_world = origin_ws + Vec3::new(x as f32, y as f32, z as f32) * dx;
-                        let node_xz = Vec2::new(node_world.x, node_world.z);
-                        let raw_surface_y = terrain.sample_height_ws(node_xz) + terrain.margin;
-                        let terrain_surface_y = raw_surface_y.min(terrain_max_y);
-                        if node_world.y <= terrain_surface_y {
-                            let terrain_normal = if raw_surface_y >= terrain_max_y {
-                                Vec3::Y
-                            } else {
-                                terrain.sample_normal_ws(node_xz)
-                            };
-                            node.v = project_velocity_away_from_surface(node.v, terrain_normal);
-                            normal += terrain_normal;
+                        if let Some((sdf, terrain_normal)) =
+                            terrain.sample_sdf_and_normal_ws(node_world)
+                        {
+                            if sdf <= terrain_collision_margin {
+                                node.v = project_velocity_away_from_surface(node.v, terrain_normal);
+                                normal += terrain_normal;
+                            }
                         }
                     }
 
@@ -268,6 +271,8 @@ impl PondWaterSim {
         let j_min = self.config.j_min;
         let grid = &self.grid;
         let terrain = self.terrain.as_ref();
+        let terrain_collision_margin = self.dx * 0.5;
+        let terrain_max_correction = particle_padding;
 
         for particle in &mut self.particles {
             let local_pos = particle.x - origin_ws;
@@ -315,9 +320,8 @@ impl PondWaterSim {
                     collide_particle_with_terrain(
                         particle,
                         terrain,
-                        bounds.min_ws.y + particle_padding,
-                        bounds.max_ws.y - particle_padding,
-                        self.dx * 0.5,
+                        terrain_collision_margin,
+                        terrain_max_correction,
                     );
                     collide_particle_with_box(
                         particle,
@@ -496,31 +500,85 @@ fn collide_particle_with_box(
 
 fn collide_particle_with_terrain(
     particle: &mut super::pond::WaterParticle,
-    terrain: &WaterTerrainCollider,
-    min_y: f32,
-    max_y: f32,
+    terrain: &WaterTerrainColliderSet,
+    collision_margin: f32,
     max_correction: f32,
 ) {
-    let particle_xz = Vec2::new(particle.x.x, particle.x.z);
-    let raw_surface_y = terrain.sample_height_ws(particle_xz) + terrain.margin;
-    let surface_y = raw_surface_y.clamp(min_y, max_y);
-    if particle.x.y < surface_y {
-        let correction = (surface_y - particle.x.y).min(max_correction.max(0.0));
-        particle.x.y += correction;
-        let terrain_normal = if raw_surface_y <= min_y || raw_surface_y >= max_y {
-            Vec3::Y
-        } else {
-            terrain.sample_normal_ws(particle_xz)
-        };
+    let Some((sdf, terrain_normal)) = terrain.sample_sdf_and_normal_ws(particle.x) else {
+        return;
+    };
+
+    let correction = collision_margin.max(0.0) - sdf;
+    if correction > 0.0 {
+        particle.x += terrain_normal * correction.min(max_correction.max(0.0));
         particle.v = project_velocity_away_from_surface(particle.v, terrain_normal);
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct WaterParticleDebugStats {
+    min_y: f32,
+    max_y: f32,
+    avg_y: f32,
+    min_terrain_sdf: Option<f32>,
+    terrain_penetrating: usize,
+    no_terrain_sdf: usize,
+}
+
+fn water_particle_debug_stats(
+    particles: &[super::pond::WaterParticle],
+    terrain: Option<&WaterTerrainColliderSet>,
+) -> WaterParticleDebugStats {
+    if particles.is_empty() {
+        return WaterParticleDebugStats {
+            min_y: f32::NAN,
+            max_y: f32::NAN,
+            avg_y: f32::NAN,
+            min_terrain_sdf: None,
+            terrain_penetrating: 0,
+            no_terrain_sdf: 0,
+        };
+    }
+
+    let mut min_y = f32::INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+    let mut sum_y = 0.0;
+    let mut min_terrain_sdf = f32::INFINITY;
+    let mut terrain_penetrating = 0usize;
+    let mut no_terrain_sdf = 0usize;
+
+    for particle in particles {
+        min_y = min_y.min(particle.x.y);
+        max_y = max_y.max(particle.x.y);
+        sum_y += particle.x.y;
+
+        if let Some(terrain) = terrain {
+            if let Some(sdf) = terrain.sample_sdf_ws(particle.x) {
+                min_terrain_sdf = min_terrain_sdf.min(sdf);
+                if sdf < 0.0 {
+                    terrain_penetrating += 1;
+                }
+            } else {
+                no_terrain_sdf += 1;
+            }
+        }
+    }
+
+    WaterParticleDebugStats {
+        min_y,
+        max_y,
+        avg_y: sum_y / particles.len() as f32,
+        min_terrain_sdf: min_terrain_sdf.is_finite().then_some(min_terrain_sdf),
+        terrain_penetrating,
+        no_terrain_sdf,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::project_velocity_away_from_surface;
-    use crate::{PondWaterSim, WaterTerrainCollider};
-    use glam::{UVec2, Vec3};
+    use super::{collide_particle_with_terrain, project_velocity_away_from_surface};
+    use crate::{PondWaterSim, WaterTerrainColliderChunk, WaterTerrainColliderSet};
+    use glam::{Mat3, UVec3, Vec3};
 
     #[test]
     fn fixed_box_substeps_keep_particles_finite_and_bounded() {
@@ -536,13 +594,12 @@ mod tests {
     fn terrain_collider_substeps_keep_particles_finite_and_bounded() {
         let mut sim = PondWaterSim::fixed_test_box();
         let bounds = sim.config.collider;
-        sim.set_terrain_collider(WaterTerrainCollider {
-            xz_dim: UVec2::new(4, 4),
-            bounds_min_ws: bounds.min_ws,
-            bounds_max_ws: bounds.max_ws,
-            heights_ws: vec![0.2; 16],
-            margin: sim.dx * 0.5,
-        });
+        sim.set_terrain_collider_set(sdf_collider_set(
+            bounds.min_ws,
+            bounds.max_ws,
+            UVec3::new(4, 4, 4),
+            |p| p.y - 0.2,
+        ));
 
         for _ in 0..120 {
             sim.substep(sim.config.substep_dt);
@@ -557,28 +614,25 @@ mod tests {
         let projected = project_velocity_away_from_surface(Vec3::new(0.0, -2.0, 0.0), normal);
 
         assert!(projected.dot(normal) >= -1.0e-6);
-        assert!(projected.x < 0.0, "expected downhill tangent velocity: {projected:?}");
+        assert!(
+            projected.x < 0.0,
+            "expected downhill tangent velocity: {projected:?}"
+        );
     }
 
     #[test]
     fn sloped_terrain_collider_substeps_keep_particles_finite_and_bounded() {
         let mut sim = PondWaterSim::fixed_test_box();
         let bounds = sim.config.collider;
-        let xz_dim = UVec2::new(4, 4);
-        let mut heights_ws = Vec::new();
-        for _z in 0..xz_dim.y {
-            for x in 0..xz_dim.x {
-                let tx = x as f32 / (xz_dim.x - 1) as f32;
-                heights_ws.push(0.1 + tx * 0.35);
-            }
-        }
-        sim.set_terrain_collider(WaterTerrainCollider {
-            xz_dim,
-            bounds_min_ws: bounds.min_ws,
-            bounds_max_ws: bounds.max_ws,
-            heights_ws,
-            margin: sim.dx * 0.5,
-        });
+        sim.set_terrain_collider_set(sdf_collider_set(
+            bounds.min_ws,
+            bounds.max_ws,
+            UVec3::new(6, 4, 4),
+            |p| {
+                let tx = (p.x - bounds.min_ws.x) / (bounds.max_ws.x - bounds.min_ws.x);
+                p.y - (0.1 + tx * 0.35)
+            },
+        ));
 
         for _ in 0..120 {
             sim.substep(sim.config.substep_dt);
@@ -588,18 +642,17 @@ mod tests {
     }
 
     #[test]
-    fn terrain_particle_collision_lifts_particles_above_heightfield() {
+    fn terrain_particle_collision_lifts_particles_above_sdf_floor() {
         let mut sim = PondWaterSim::fixed_test_box();
         let bounds = sim.config.collider;
         let terrain_height = 0.5;
         let terrain_margin = sim.dx * 0.5;
-        sim.set_terrain_collider(WaterTerrainCollider {
-            xz_dim: UVec2::new(4, 4),
-            bounds_min_ws: bounds.min_ws,
-            bounds_max_ws: bounds.max_ws,
-            heights_ws: vec![terrain_height; 16],
-            margin: terrain_margin,
-        });
+        sim.set_terrain_collider_set(sdf_collider_set(
+            bounds.min_ws,
+            bounds.max_ws,
+            UVec3::new(4, 4, 4),
+            |p| p.y - terrain_height,
+        ));
 
         for particle in &mut sim.particles {
             particle.x.y = terrain_height - 0.25;
@@ -627,13 +680,12 @@ mod tests {
     fn terrain_collision_above_box_keeps_particles_bounded() {
         let mut sim = PondWaterSim::fixed_test_box();
         let bounds = sim.config.collider;
-        sim.set_terrain_collider(WaterTerrainCollider {
-            xz_dim: UVec2::new(4, 4),
-            bounds_min_ws: bounds.min_ws,
-            bounds_max_ws: bounds.max_ws,
-            heights_ws: vec![bounds.max_ws.y + 0.5; 16],
-            margin: sim.dx * 0.5,
-        });
+        sim.set_terrain_collider_set(sdf_collider_set(
+            bounds.min_ws,
+            bounds.max_ws,
+            UVec3::new(4, 4, 4),
+            |p| p.y - (bounds.max_ws.y + 0.5),
+        ));
 
         for particle in &mut sim.particles {
             particle.v.y = -1.0;
@@ -644,6 +696,79 @@ mod tests {
         }
 
         assert_particles_finite_and_bounded(&sim);
+    }
+
+    #[test]
+    fn sdf_particle_collision_pushes_particles_up_from_floor() {
+        let terrain = sdf_collider_set(Vec3::ZERO, Vec3::ONE, UVec3::new(4, 4, 4), |p| p.y - 0.5);
+        let mut particle = water_particle(Vec3::new(0.5, 0.25, 0.5), -Vec3::Y);
+
+        collide_particle_with_terrain(&mut particle, &terrain, 0.05, 1.0);
+
+        assert!(particle.x.y >= 0.55 - 1.0e-6, "{:?}", particle.x);
+        assert!(particle.v.y >= -1.0e-6, "{:?}", particle.v);
+    }
+
+    #[test]
+    fn sdf_particle_collision_pushes_particles_down_from_ceiling() {
+        let terrain = sdf_collider_set(Vec3::ZERO, Vec3::ONE, UVec3::new(4, 4, 4), |p| 0.6 - p.y);
+        let mut particle = water_particle(Vec3::new(0.5, 0.8, 0.5), Vec3::Y);
+
+        collide_particle_with_terrain(&mut particle, &terrain, 0.05, 1.0);
+
+        assert!(particle.x.y <= 0.55 + 1.0e-6, "{:?}", particle.x);
+        assert!(particle.v.y <= 1.0e-6, "{:?}", particle.v);
+    }
+
+    #[test]
+    fn sdf_particle_collision_pushes_particles_out_of_wall() {
+        let terrain = sdf_collider_set(Vec3::ZERO, Vec3::ONE, UVec3::new(4, 4, 4), |p| p.x - 0.4);
+        let mut particle = water_particle(Vec3::new(0.2, 0.5, 0.5), -Vec3::X);
+
+        collide_particle_with_terrain(&mut particle, &terrain, 0.05, 1.0);
+
+        assert!(particle.x.x >= 0.45 - 1.0e-6, "{:?}", particle.x);
+        assert!(particle.v.x >= -1.0e-6, "{:?}", particle.v);
+    }
+
+    fn sdf_collider_set(
+        bounds_min_ws: Vec3,
+        bounds_max_ws: Vec3,
+        dim: UVec3,
+        sdf: impl Fn(Vec3) -> f32,
+    ) -> WaterTerrainColliderSet {
+        let chunk_id = bounds_min_ws.floor().as_ivec3();
+        assert_eq!(bounds_min_ws, chunk_id.as_vec3());
+        assert_eq!(bounds_max_ws, bounds_min_ws + Vec3::ONE);
+
+        let mut sdf_ws = Vec::new();
+        for z in 0..dim.z {
+            let tz = z as f32 / (dim.z - 1) as f32;
+            for y in 0..dim.y {
+                let ty = y as f32 / (dim.y - 1) as f32;
+                for x in 0..dim.x {
+                    let tx = x as f32 / (dim.x - 1) as f32;
+                    let p = bounds_min_ws + (bounds_max_ws - bounds_min_ws) * Vec3::new(tx, ty, tz);
+                    sdf_ws.push(sdf(p));
+                }
+            }
+        }
+
+        WaterTerrainColliderSet::from_chunk(WaterTerrainColliderChunk {
+            chunk_id,
+            dim,
+            sdf_ws,
+            revision: 0,
+        })
+    }
+
+    fn water_particle(x: Vec3, v: Vec3) -> crate::pond::WaterParticle {
+        crate::pond::WaterParticle {
+            x,
+            v,
+            c: Mat3::ZERO,
+            j: 1.0,
+        }
     }
 
     fn assert_particles_finite_and_bounded(sim: &PondWaterSim) {

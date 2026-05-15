@@ -584,6 +584,24 @@ impl ContreeBuilder {
         )
     }
 
+    pub fn query_terrain_occupancy_cpu(&self, point: Vec3) -> bool {
+        query_terrain_occupancy_against_state(
+            self.chunk_dim,
+            &self.cpu_scene_chunks,
+            &self.cpu_chunk_caches,
+            point,
+        )
+    }
+
+    pub fn has_cpu_chunk_cache(&self, chunk_idx: UVec3) -> bool {
+        if chunk_idx.cmplt(self.chunk_dim).any() {
+            scene_chunk_present_in_grid(self.chunk_dim, &self.cpu_scene_chunks, chunk_idx)
+                && self.cpu_chunk_caches.contains_key(&chunk_idx)
+        } else {
+            false
+        }
+    }
+
     fn build_contree(
         &mut self,
         contree_dim: UVec3,
@@ -1196,6 +1214,71 @@ fn query_terrain_ray_against_state(
     }
 
     None
+}
+
+fn query_terrain_occupancy_against_state(
+    chunk_dim: UVec3,
+    cpu_scene_chunks: &[Option<UVec3>],
+    cpu_chunk_caches: &HashMap<UVec3, Arc<CpuChunkCache>>,
+    point: Vec3,
+) -> bool {
+    if !point.is_finite() {
+        return false;
+    }
+
+    let chunk_pos = point.floor().as_ivec3();
+    if !in_aabb_i(chunk_pos, glam::IVec3::ZERO, chunk_dim.as_ivec3()) {
+        return false;
+    }
+
+    let chunk_idx = chunk_pos.as_uvec3();
+    if !scene_chunk_present_in_grid(chunk_dim, cpu_scene_chunks, chunk_idx) {
+        return false;
+    }
+
+    cpu_chunk_caches
+        .get(&chunk_idx)
+        .is_some_and(|cache| query_cached_chunk_cpu_occupancy(cache.as_ref(), point))
+}
+
+fn query_cached_chunk_cpu_occupancy(cache: &CpuChunkCache, point: Vec3) -> bool {
+    if cache.nodes.is_empty() {
+        return false;
+    }
+
+    let local_pos = point - cache.chunk_idx.as_vec3() + Vec3::ONE;
+    if local_pos.cmplt(Vec3::ONE).any() || local_pos.cmpge(Vec3::splat(2.0)).any() {
+        return false;
+    }
+
+    let mut scale_exp = 21i32;
+    let mut node = cache.nodes[0];
+    for _ in 0..16 {
+        let Some(child_idx) = get_node_cell_index(local_pos, scale_exp).map(|idx| idx as u32)
+        else {
+            return false;
+        };
+        if !child_mask_test(node, child_idx) {
+            return false;
+        }
+
+        let bits = child_mask_bitcount_below(node, child_idx);
+        let child_addr = ((node.packed_0 >> 1) + bits) as usize;
+        if is_leaf(node) {
+            return cache
+                .leaves
+                .get(child_addr)
+                .is_some_and(|voxel| *voxel != 0);
+        }
+
+        let Some(next_node) = cache.nodes.get(child_addr).copied() else {
+            return false;
+        };
+        node = next_node;
+        scale_exp -= 2;
+    }
+
+    false
 }
 
 fn query_cached_chunk_cpu_ray(
