@@ -208,6 +208,7 @@ pub struct App {
     water_terrain_initialized: bool,
     deferred_water_terrain_collider_rebuilds: LatestChunkQueue<WaterTerrainColliderRebuildRequest>,
     pending_water_terrain_source_chunks: HashSet<UVec3>,
+    water_terrain_built_source_revisions: HashMap<UVec3, water::WaterTerrainColliderSourceRevision>,
     water_terrain_collider_build_inflight: bool,
     water_terrain_collider_job_tx: std::sync::mpsc::Sender<water::WaterTerrainColliderWorkerJob>,
     water_terrain_collider_result_rx:
@@ -930,6 +931,7 @@ impl App {
             water_terrain_initialized: false,
             deferred_water_terrain_collider_rebuilds: LatestChunkQueue::default(),
             pending_water_terrain_source_chunks: HashSet::new(),
+            water_terrain_built_source_revisions: HashMap::new(),
             water_terrain_collider_build_inflight: false,
             water_terrain_collider_job_tx,
             water_terrain_collider_result_rx,

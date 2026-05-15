@@ -12,10 +12,16 @@ const WATER_TERRAIN_SURFACE_SKIP_WS: f32 = 2.0 / 256.0;
 const WATER_TERRAIN_MAX_VERTICAL_CROSSINGS: usize = 64;
 const WATER_TERRAIN_COLLIDER_SOURCE: &str = "surface-contree-vertical-parity";
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct WaterTerrainColliderSourceRevision {
+    dependencies: Vec<(UVec3, u64)>,
+}
+
 pub(super) struct WaterTerrainColliderWorkerJob {
     chunk_key: UVec3,
     chunk_id: IVec3,
     revision: u64,
+    source_revision: WaterTerrainColliderSourceRevision,
     query_snapshot: ContreeCpuRayQuerySnapshot,
 }
 
@@ -23,6 +29,7 @@ pub(super) struct WaterTerrainColliderWorkerResult {
     chunk_key: UVec3,
     chunk_id: IVec3,
     revision: u64,
+    source_revision: WaterTerrainColliderSourceRevision,
     build: Option<WaterTerrainColliderBuild>,
 }
 
@@ -104,6 +111,7 @@ impl App {
                 chunk_key: job.chunk_key,
                 chunk_id: job.chunk_id,
                 revision: job.revision,
+                source_revision: job.source_revision,
                 build,
             };
             if result_tx.send(result).is_err() {
@@ -144,11 +152,26 @@ impl App {
             return;
         };
 
+        let source_revision =
+            water_terrain_collider_source_revision(&self.contree_builder, chunk_key);
+        if self.water_terrain_built_source_revisions.get(&chunk_key) == Some(&source_revision) {
+            log::debug!(
+                "[QUEUE][WATER_TERRAIN] skip unchanged CPU source chunk {:?} revision {} source={:?}",
+                chunk_id,
+                revision,
+                source_revision,
+            );
+            self.deferred_water_terrain_collider_rebuilds
+                .complete(chunk_key, revision);
+            return;
+        }
+
         let query_snapshot = self.contree_builder.cpu_ray_query_snapshot();
         let job = WaterTerrainColliderWorkerJob {
             chunk_key,
             chunk_id,
             revision,
+            source_revision,
             query_snapshot,
         };
         self.water_terrain_collider_build_inflight = true;
@@ -225,6 +248,8 @@ impl App {
                 self.water_terrain_initialized = self.water_terrain_has_startup_collider();
             }
 
+            self.water_terrain_built_source_revisions
+                .insert(result.chunk_key, result.source_revision);
             self.deferred_water_terrain_collider_rebuilds
                 .complete(result.chunk_key, result.revision);
         }
@@ -450,6 +475,25 @@ fn water_terrain_chunk_query_source_ready(
     water_terrain_chunk_query_dependency_keys(chunk_key)
         .into_iter()
         .all(|dependency| contree_builder.cpu_chunk_query_source_ready(dependency))
+}
+
+fn water_terrain_collider_source_revision(
+    contree_builder: &ContreeBuilder,
+    chunk_key: UVec3,
+) -> WaterTerrainColliderSourceRevision {
+    WaterTerrainColliderSourceRevision {
+        dependencies: water_terrain_chunk_query_dependency_keys(chunk_key)
+            .into_iter()
+            .map(|dependency| {
+                (
+                    dependency,
+                    contree_builder
+                        .cpu_chunk_query_source_revision(dependency)
+                        .unwrap_or(0),
+                )
+            })
+            .collect(),
+    }
 }
 
 fn water_terrain_chunk_query_dependency_keys(chunk_key: UVec3) -> Vec<UVec3> {
