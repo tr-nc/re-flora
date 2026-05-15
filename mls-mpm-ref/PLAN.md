@@ -124,10 +124,19 @@ Runtime diagnostics now log:
   no_sdf ...
 ```
 
-A local smoke run showed no particle penetration after this change:
+The water MLS-MPM terrain path now applies bounded iterative SDF particle
+correction, clamps particle velocity to a substep CFL limit before integration,
+and uses a compact default particle rest volume instead of treating the whole
+chunk as filled water. A 60s hidden release soak showed no terrain penetration:
+
+```bash
+zsh -lc 'source ~/.zshrc && cargo run --release -- --hidden --auto-exit 60 --perf'
+```
 
 ```text
-terrain_sdf_min 0.0002 penetrating 0 no_sdf 0
+[PERF][WATER] ... terrain_sdf_min 0.0095 penetrating 0 no_sdf 0
+[PERF][WATER] ... terrain_sdf_min 0.0102 penetrating 0 no_sdf 0
+Application exited successfully
 ```
 
 ## Completed in the first per-chunk pass
@@ -178,6 +187,10 @@ terrain_sdf_min 0.0002 penetrating 0 no_sdf 0
     source update event arrives.
 18. Water collider builds now record their dependency source revision vector and
     skip queued rebuilds when the CPU terrain source revisions have not changed.
+19. Water terrain collision now uses bounded iterative SDF correction, repairs
+    terrain contact before P2G, clamps G2P particle velocity to a substep CFL
+    limit, and uses a compact default water rest volume. A 60s hidden release
+    soak kept `penetrating 0 no_sdf 0` throughout.
 
 ## Known issues
 
