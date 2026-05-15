@@ -207,6 +207,10 @@ pub struct App {
     water_sim: PondWaterSim,
     water_terrain_initialized: bool,
     deferred_water_terrain_collider_rebuilds: LatestChunkQueue<WaterTerrainColliderRebuildRequest>,
+    water_terrain_collider_build_inflight: bool,
+    water_terrain_collider_job_tx: std::sync::mpsc::Sender<water::WaterTerrainColliderWorkerJob>,
+    water_terrain_collider_result_rx:
+        std::sync::mpsc::Receiver<water::WaterTerrainColliderWorkerResult>,
     particle_snapshots: Vec<ParticleSnapshot>,
     #[allow(dead_code)]
     terrain_harvest_particle_handles: Vec<ParticleHandle>,
@@ -829,6 +833,8 @@ impl App {
         let butterfly_emitter_desc = Self::butterfly_desc_from_gui_adjustables(&gui_adjustables);
         let particle_snapshots = Vec::with_capacity(PARTICLE_CAPACITY);
         let water_sim = PondWaterSim::fixed_test_box();
+        let (water_terrain_collider_job_tx, water_terrain_collider_result_rx) =
+            Self::spawn_water_terrain_collider_worker();
         let terrain_harvest_particle_handles = Vec::with_capacity(256);
         let particle_forces = ParticleForces {
             linear_damping: 0.08,
@@ -922,6 +928,9 @@ impl App {
             water_sim,
             water_terrain_initialized: false,
             deferred_water_terrain_collider_rebuilds: LatestChunkQueue::default(),
+            water_terrain_collider_build_inflight: false,
+            water_terrain_collider_job_tx,
+            water_terrain_collider_result_rx,
             particle_snapshots,
             terrain_harvest_particle_handles,
             particle_forces,

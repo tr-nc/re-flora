@@ -1,11 +1,8 @@
 use super::{App, WaterTerrainColliderRebuildRequest};
+use crate::builder::{ContreeBuilder, ContreeCpuRayQuerySnapshot};
 use glam::{IVec3, UVec3, Vec3};
 use re_flora_water::WaterTerrainColliderChunk;
-use std::{
-    cmp::Ordering,
-    collections::BinaryHeap,
-    time::{Duration, Instant},
-};
+use std::{cmp::Ordering, collections::BinaryHeap, sync::mpsc, thread, time::Instant};
 
 const WATER_TERRAIN_COLLIDER_DIM: UVec3 = UVec3::new(32, 32, 32);
 const WATER_TERRAIN_SINGLE_CHUNK_ID: IVec3 = IVec3::new(1, 0, 1);
@@ -13,7 +10,20 @@ const WATER_TERRAIN_CHUNK_QUERY_EPSILON_WS: f32 = 1.0 / 4096.0;
 const WATER_TERRAIN_SURFACE_SKIP_WS: f32 = 2.0 / 256.0;
 const WATER_TERRAIN_MAX_VERTICAL_CROSSINGS: usize = 64;
 const WATER_TERRAIN_COLLIDER_SOURCE: &str = "surface-contree-vertical-parity";
-const WATER_TERRAIN_EDIT_DEBOUNCE: Duration = Duration::from_millis(300);
+
+pub(super) struct WaterTerrainColliderWorkerJob {
+    chunk_key: UVec3,
+    chunk_id: IVec3,
+    revision: u64,
+    query_snapshot: ContreeCpuRayQuerySnapshot,
+}
+
+pub(super) struct WaterTerrainColliderWorkerResult {
+    chunk_key: UVec3,
+    chunk_id: IVec3,
+    revision: u64,
+    build: Option<WaterTerrainColliderBuild>,
+}
 
 impl App {
     pub(super) fn enqueue_startup_water_terrain_collider_rebuild(&mut self) {
@@ -41,20 +51,51 @@ impl App {
     }
 
     pub(super) fn process_deferred_water_terrain_collider_rebuild(&mut self) {
-        if !self.deferred_chunk_rebuilds_idle() {
-            return;
-        }
-        if !self.contree_builder.cpu_chunk_cache_jobs_idle() {
-            return;
-        }
-        if self.water_terrain_edit_recent_or_active() {
+        self.publish_completed_water_terrain_collider_rebuilds();
+        self.try_submit_next_water_terrain_collider_rebuild();
+    }
+
+    pub(super) fn spawn_water_terrain_collider_worker() -> (
+        mpsc::Sender<WaterTerrainColliderWorkerJob>,
+        mpsc::Receiver<WaterTerrainColliderWorkerResult>,
+    ) {
+        let (job_tx, job_rx) = mpsc::channel();
+        let (result_tx, result_rx) = mpsc::channel();
+        thread::spawn(move || loop {
+            let job: WaterTerrainColliderWorkerJob = match job_rx.recv() {
+                Ok(job) => job,
+                Err(_) => break,
+            };
+
+            let build =
+                build_water_terrain_collider_chunk(&job.query_snapshot, job.chunk_id, job.revision);
+            let result = WaterTerrainColliderWorkerResult {
+                chunk_key: job.chunk_key,
+                chunk_id: job.chunk_id,
+                revision: job.revision,
+                build,
+            };
+            if result_tx.send(result).is_err() {
+                break;
+            }
+        });
+
+        (job_tx, result_rx)
+    }
+
+    fn try_submit_next_water_terrain_collider_rebuild(&mut self) {
+        if self.water_terrain_collider_build_inflight {
             return;
         }
 
         let focus = self.water_terrain_focus_ws();
+        let contree_builder = &self.contree_builder;
         let Some(work) = self
             .deferred_water_terrain_collider_rebuilds
-            .pop_nearest_to(focus, UVec3::ONE)
+            .pop_nearest_to_if(focus, UVec3::ONE, |chunk_key| {
+                water_terrain_chunk_work_key_to_id(chunk_key).is_none()
+                    || water_terrain_chunk_query_source_ready(contree_builder, chunk_key)
+            })
         else {
             return;
         };
@@ -72,134 +113,107 @@ impl App {
             return;
         };
 
-        let Some(build) = self.build_water_terrain_collider_chunk(chunk_id, revision) else {
-            self.deferred_water_terrain_collider_rebuilds
-                .complete(chunk_key, revision);
-            self.water_terrain_initialized = self.water_terrain_has_startup_collider();
-            return;
-        };
-
-        let center_probe = (build.bounds_min_ws + build.bounds_max_ws) * 0.5;
-        self.publish_water_terrain_collider_chunk(build.chunk);
-        self.deferred_water_terrain_collider_rebuilds
-            .complete(chunk_key, revision);
-
-        let center_sdf = self
-            .water_sim
-            .terrain_collider_set()
-            .and_then(|set| set.sample_sdf_ws(center_probe));
-        log::info!(
-            "[WATER][TERRAIN] built collider chunk {:?} rev {} dim {:?} bounds {:?}..{:?} sdf {:.3}..{:.3} solid_samples {}/{} source {} columns_with_hits {}/{} crossings total={} max={} direct_surface_samples={} center_sdf={:?} build_ms={:.2} queue_pending={}",
+        let query_snapshot = self.contree_builder.cpu_ray_query_snapshot();
+        let job = WaterTerrainColliderWorkerJob {
+            chunk_key,
             chunk_id,
             revision,
-            WATER_TERRAIN_COLLIDER_DIM,
-            build.bounds_min_ws,
-            build.bounds_max_ws,
-            build.stats.min_sdf,
-            build.stats.max_sdf,
-            build.stats.solid_sample_count,
-            build.stats.sample_count,
-            WATER_TERRAIN_COLLIDER_SOURCE,
-            build.stats.solid.columns_with_hits,
-            build.stats.solid.columns,
-            build.stats.solid.total_crossings,
-            build.stats.solid.max_crossings,
-            build.stats.solid.direct_surface_samples,
-            center_sdf,
-            build.stats.build_ms,
+            query_snapshot,
+        };
+        self.water_terrain_collider_build_inflight = true;
+        if let Err(err) = self.water_terrain_collider_job_tx.send(job) {
+            log::error!(
+                "[WATER][TERRAIN] failed to submit collider build chunk {:?} rev {}: {}",
+                chunk_id,
+                revision,
+                err,
+            );
+            self.water_terrain_collider_build_inflight = false;
+            self.deferred_water_terrain_collider_rebuilds
+                .complete(chunk_key, revision);
+            return;
+        }
+
+        log::debug!(
+            "[QUEUE][WATER_TERRAIN] submit chunk {:?} revision {} pending={} active={}",
+            chunk_id,
+            revision,
             self.deferred_water_terrain_collider_rebuilds.len(),
+            self.deferred_water_terrain_collider_rebuilds.active_len(),
         );
     }
 
-    fn build_water_terrain_collider_chunk(
-        &self,
-        chunk_id: IVec3,
-        revision: u64,
-    ) -> Option<WaterTerrainColliderBuild> {
-        let build_start = Instant::now();
-        let (bounds_min_ws, bounds_max_ws) = water_terrain_chunk_bounds_ws(chunk_id);
-        let sample_count = (WATER_TERRAIN_COLLIDER_DIM.x as usize)
-            * (WATER_TERRAIN_COLLIDER_DIM.y as usize)
-            * (WATER_TERRAIN_COLLIDER_DIM.z as usize);
+    fn publish_completed_water_terrain_collider_rebuilds(&mut self) {
+        while let Ok(result) = self.water_terrain_collider_result_rx.try_recv() {
+            self.water_terrain_collider_build_inflight = false;
+            let is_latest = self
+                .deferred_water_terrain_collider_rebuilds
+                .is_latest_revision(result.chunk_key, result.revision);
 
-        let (solid_samples, solid_stats) = self.water_terrain_solid_samples(
-            WATER_TERRAIN_COLLIDER_DIM,
-            bounds_min_ws,
-            bounds_max_ws,
-        );
-        let solid_sample_count = solid_samples.iter().filter(|&&solid| solid).count();
-        if solid_sample_count == 0 {
-            log::warn!(
-                "[WATER][TERRAIN] skipped collider chunk {:?} rev {}: no 3D terrain solid samples were found build_ms={:.2}",
-                chunk_id,
-                revision,
-                build_start.elapsed().as_secs_f32() * 1000.0,
-            );
-            return None;
+            if let Some(build) = result.build {
+                let WaterTerrainColliderBuild {
+                    chunk,
+                    bounds_min_ws,
+                    bounds_max_ws,
+                    stats,
+                } = build;
+                let center_probe = (bounds_min_ws + bounds_max_ws) * 0.5;
+                self.publish_water_terrain_collider_chunk(chunk);
+                let center_sdf = self
+                    .water_sim
+                    .terrain_collider_set()
+                    .and_then(|set| set.sample_sdf_ws(center_probe));
+                log::info!(
+                    "[WATER][TERRAIN] built collider chunk {:?} rev {} latest={} dim {:?} bounds {:?}..{:?} sdf {:.3}..{:.3} sdf_hash {:016x} solid_samples {}/{} source {} columns_with_hits {}/{} crossings total={} max={} direct_surface_samples={} center_sdf={:?} build_ms={:.2} phases solid={:.2} count={:.2} sdf={:.2} stats={:.2} queue_pending={}",
+                    result.chunk_id,
+                    result.revision,
+                    is_latest,
+                    WATER_TERRAIN_COLLIDER_DIM,
+                    bounds_min_ws,
+                    bounds_max_ws,
+                    stats.min_sdf,
+                    stats.max_sdf,
+                    stats.sdf_hash,
+                    stats.solid_sample_count,
+                    stats.sample_count,
+                    WATER_TERRAIN_COLLIDER_SOURCE,
+                    stats.solid.columns_with_hits,
+                    stats.solid.columns,
+                    stats.solid.total_crossings,
+                    stats.solid.max_crossings,
+                    stats.solid.direct_surface_samples,
+                    center_sdf,
+                    stats.build_ms,
+                    stats.solid_ms,
+                    stats.count_ms,
+                    stats.sdf_ms,
+                    stats.stats_ms,
+                    self.deferred_water_terrain_collider_rebuilds.len(),
+                );
+            } else if is_latest {
+                self.water_terrain_initialized = self.water_terrain_has_startup_collider();
+            }
+
+            self.deferred_water_terrain_collider_rebuilds
+                .complete(result.chunk_key, result.revision);
         }
-
-        let sdf_ws = signed_distance_from_solid_samples(
-            WATER_TERRAIN_COLLIDER_DIM,
-            bounds_min_ws,
-            bounds_max_ws,
-            &solid_samples,
-        );
-
-        debug_assert_eq!(sdf_ws.len(), sample_count);
-        let min_sdf = sdf_ws.iter().copied().fold(f32::INFINITY, f32::min);
-        let max_sdf = sdf_ws.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-
-        Some(WaterTerrainColliderBuild {
-            chunk: WaterTerrainColliderChunk {
-                chunk_id,
-                dim: WATER_TERRAIN_COLLIDER_DIM,
-                sdf_ws,
-                revision,
-            },
-            bounds_min_ws,
-            bounds_max_ws,
-            stats: WaterTerrainColliderBuildStats {
-                sample_count,
-                solid_sample_count,
-                min_sdf,
-                max_sdf,
-                solid: solid_stats,
-                build_ms: build_start.elapsed().as_secs_f32() * 1000.0,
-            },
-        })
     }
 
     fn publish_water_terrain_collider_chunk(&mut self, chunk: WaterTerrainColliderChunk) {
-        let should_stabilize_particles = water_terrain_chunk_strictly_overlaps_box(
-            chunk.chunk_id,
-            self.water_sim.config.collider.min_ws,
-            self.water_sim.config.collider.max_ws,
-        );
+        let chunk_id = chunk.chunk_id;
+        let already_had_chunk = self
+            .water_sim
+            .terrain_collider_set()
+            .is_some_and(|set| set.chunks.contains_key(&chunk_id));
+        let should_stabilize_particles = !already_had_chunk
+            && water_terrain_chunk_strictly_overlaps_box(
+                chunk_id,
+                self.water_sim.config.collider.min_ws,
+                self.water_sim.config.collider.max_ws,
+            );
         self.water_sim
             .upsert_terrain_collider_chunk(chunk, should_stabilize_particles);
         self.water_terrain_initialized = self.water_terrain_has_startup_collider();
-    }
-
-    fn water_terrain_edit_recent_or_active(&self) -> bool {
-        let editing_now = (self.is_shovel_selected()
-            && self.shovel_dig_held
-            && (self.left_mouse_held || self.right_mouse_held))
-            || (self.is_staff_selected() && self.left_mouse_held)
-            || (self.is_hoe_selected() && self.left_mouse_held);
-        if editing_now {
-            return true;
-        }
-
-        let now = Instant::now();
-        [
-            self.last_shovel_dig_time,
-            self.last_shovel_place_time,
-            self.last_staff_regen_time,
-            self.last_hoe_trim_time,
-        ]
-        .into_iter()
-        .flatten()
-        .any(|last_edit| now.duration_since(last_edit) < WATER_TERRAIN_EDIT_DEBOUNCE)
     }
 
     fn water_terrain_focus_ws(&self) -> Vec3 {
@@ -212,82 +226,155 @@ impl App {
             .terrain_collider_set()
             .is_some_and(|set| set.chunks.contains_key(&WATER_TERRAIN_SINGLE_CHUNK_ID))
     }
+}
 
-    fn water_terrain_solid_samples(
-        &self,
-        dim: UVec3,
-        bounds_min_ws: Vec3,
-        bounds_max_ws: Vec3,
-    ) -> (Vec<bool>, WaterTerrainSolidSampleStats) {
-        let mut solid = vec![false; grid_len(dim)];
-        let mut stats = WaterTerrainSolidSampleStats::default();
-        let world_max_y = super::CHUNK_DIM.y as f32;
+fn build_water_terrain_collider_chunk(
+    query_snapshot: &ContreeCpuRayQuerySnapshot,
+    chunk_id: IVec3,
+    revision: u64,
+) -> Option<WaterTerrainColliderBuild> {
+    let build_start = Instant::now();
+    let (bounds_min_ws, bounds_max_ws) = water_terrain_chunk_bounds_ws(chunk_id);
+    let sample_count = (WATER_TERRAIN_COLLIDER_DIM.x as usize)
+        * (WATER_TERRAIN_COLLIDER_DIM.y as usize)
+        * (WATER_TERRAIN_COLLIDER_DIM.z as usize);
 
-        for z in 0..dim.z {
-            for x in 0..dim.x {
-                let column_point_ws =
-                    grid_sample_position(bounds_min_ws, bounds_max_ws, dim, x, 0, z);
-                let column_query_ws =
-                    chunk_local_query_position(column_point_ws, bounds_min_ws, bounds_max_ws);
-                let crossings_y = self.water_terrain_vertical_surface_crossings_y(
-                    column_query_ws.x,
-                    column_query_ws.z,
-                    bounds_min_ws.y,
-                    world_max_y,
-                );
-                stats.columns += 1;
-                stats.total_crossings += crossings_y.len();
-                stats.max_crossings = stats.max_crossings.max(crossings_y.len());
-                if !crossings_y.is_empty() {
-                    stats.columns_with_hits += 1;
-                }
-
-                for y in 0..dim.y {
-                    let point_ws = grid_sample_position(bounds_min_ws, bounds_max_ws, dim, x, y, z);
-                    let query_point_ws =
-                        chunk_local_query_position(point_ws, bounds_min_ws, bounds_max_ws);
-                    let direct_surface = self.query_terrain_solid_cpu(query_point_ws);
-                    if direct_surface {
-                        stats.direct_surface_samples += 1;
-                    }
-                    let is_solid = direct_surface
-                        || solid_from_descending_vertical_crossings(query_point_ws.y, &crossings_y);
-                    solid[grid_index(dim, x, y, z)] = is_solid;
-                }
-            }
-        }
-
-        (solid, stats)
+    let solid_start = Instant::now();
+    let (solid_samples, solid_stats) = water_terrain_solid_samples(
+        query_snapshot,
+        WATER_TERRAIN_COLLIDER_DIM,
+        bounds_min_ws,
+        bounds_max_ws,
+    );
+    let solid_ms = solid_start.elapsed().as_secs_f32() * 1000.0;
+    let count_start = Instant::now();
+    let solid_sample_count = solid_samples.iter().filter(|&&solid| solid).count();
+    let count_ms = count_start.elapsed().as_secs_f32() * 1000.0;
+    if solid_sample_count == 0 {
+        log::warn!(
+            "[WATER][TERRAIN] skipped collider chunk {:?} rev {}: no 3D terrain solid samples were found build_ms={:.2}",
+            chunk_id,
+            revision,
+            build_start.elapsed().as_secs_f32() * 1000.0,
+        );
+        return None;
     }
 
-    fn water_terrain_vertical_surface_crossings_y(
-        &self,
-        x_ws: f32,
-        z_ws: f32,
-        min_y_ws: f32,
-        max_y_ws: f32,
-    ) -> Vec<f32> {
-        let mut crossings_y = Vec::new();
-        let mut origin = Vec3::new(x_ws, max_y_ws + WATER_TERRAIN_SURFACE_SKIP_WS, z_ws);
-        for _ in 0..WATER_TERRAIN_MAX_VERTICAL_CROSSINGS {
-            let Some(hit) = self.query_terrain_ray_cpu(origin, Vec3::NEG_Y) else {
-                break;
-            };
-            if hit.y < min_y_ws - WATER_TERRAIN_SURFACE_SKIP_WS {
-                break;
+    let sdf_start = Instant::now();
+    let sdf_ws = signed_distance_from_solid_samples(
+        WATER_TERRAIN_COLLIDER_DIM,
+        bounds_min_ws,
+        bounds_max_ws,
+        &solid_samples,
+    );
+    let sdf_ms = sdf_start.elapsed().as_secs_f32() * 1000.0;
+
+    debug_assert_eq!(sdf_ws.len(), sample_count);
+    let stats_start = Instant::now();
+    let min_sdf = sdf_ws.iter().copied().fold(f32::INFINITY, f32::min);
+    let max_sdf = sdf_ws.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let sdf_hash = hash_sdf_samples(&sdf_ws);
+    let stats_ms = stats_start.elapsed().as_secs_f32() * 1000.0;
+
+    Some(WaterTerrainColliderBuild {
+        chunk: WaterTerrainColliderChunk {
+            chunk_id,
+            dim: WATER_TERRAIN_COLLIDER_DIM,
+            sdf_ws,
+            revision,
+        },
+        bounds_min_ws,
+        bounds_max_ws,
+        stats: WaterTerrainColliderBuildStats {
+            sample_count,
+            solid_sample_count,
+            min_sdf,
+            max_sdf,
+            solid: solid_stats,
+            sdf_hash,
+            solid_ms,
+            count_ms,
+            sdf_ms,
+            stats_ms,
+            build_ms: build_start.elapsed().as_secs_f32() * 1000.0,
+        },
+    })
+}
+
+fn water_terrain_solid_samples(
+    query_snapshot: &ContreeCpuRayQuerySnapshot,
+    dim: UVec3,
+    bounds_min_ws: Vec3,
+    bounds_max_ws: Vec3,
+) -> (Vec<bool>, WaterTerrainSolidSampleStats) {
+    let mut solid = vec![false; grid_len(dim)];
+    let mut stats = WaterTerrainSolidSampleStats::default();
+    let world_max_y = super::CHUNK_DIM.y as f32;
+
+    for z in 0..dim.z {
+        for x in 0..dim.x {
+            let column_point_ws = grid_sample_position(bounds_min_ws, bounds_max_ws, dim, x, 0, z);
+            let column_query_ws =
+                chunk_local_query_position(column_point_ws, bounds_min_ws, bounds_max_ws);
+            let crossings_y = water_terrain_vertical_surface_crossings_y(
+                query_snapshot,
+                column_query_ws.x,
+                column_query_ws.z,
+                bounds_min_ws.y,
+                world_max_y,
+            );
+            stats.columns += 1;
+            stats.total_crossings += crossings_y.len();
+            stats.max_crossings = stats.max_crossings.max(crossings_y.len());
+            if !crossings_y.is_empty() {
+                stats.columns_with_hits += 1;
             }
-            if hit.y <= max_y_ws + WATER_TERRAIN_SURFACE_SKIP_WS {
-                if crossings_y
-                    .last()
-                    .is_none_or(|last_y| last_y - hit.y > WATER_TERRAIN_SURFACE_SKIP_WS)
-                {
-                    crossings_y.push(hit.y);
+
+            for y in 0..dim.y {
+                let point_ws = grid_sample_position(bounds_min_ws, bounds_max_ws, dim, x, y, z);
+                let query_point_ws =
+                    chunk_local_query_position(point_ws, bounds_min_ws, bounds_max_ws);
+                let direct_surface = query_snapshot.query_terrain_occupancy_cpu(query_point_ws);
+                if direct_surface {
+                    stats.direct_surface_samples += 1;
                 }
+                let is_solid = direct_surface
+                    || solid_from_descending_vertical_crossings(query_point_ws.y, &crossings_y);
+                solid[grid_index(dim, x, y, z)] = is_solid;
             }
-            origin = Vec3::new(x_ws, hit.y - WATER_TERRAIN_SURFACE_SKIP_WS, z_ws);
         }
-        crossings_y
     }
+
+    (solid, stats)
+}
+
+fn water_terrain_vertical_surface_crossings_y(
+    query_snapshot: &ContreeCpuRayQuerySnapshot,
+    x_ws: f32,
+    z_ws: f32,
+    min_y_ws: f32,
+    max_y_ws: f32,
+) -> Vec<f32> {
+    let mut crossings_y = Vec::new();
+    let mut origin = Vec3::new(x_ws, max_y_ws + WATER_TERRAIN_SURFACE_SKIP_WS, z_ws);
+    for _ in 0..WATER_TERRAIN_MAX_VERTICAL_CROSSINGS {
+        let Some(hit) = query_snapshot.query_terrain_ray_cpu(origin, Vec3::NEG_Y) else {
+            break;
+        };
+        if hit.y < min_y_ws - WATER_TERRAIN_SURFACE_SKIP_WS {
+            break;
+        }
+        if hit.y <= max_y_ws + WATER_TERRAIN_SURFACE_SKIP_WS {
+            if crossings_y
+                .last()
+                .is_none_or(|last_y| last_y - hit.y > WATER_TERRAIN_SURFACE_SKIP_WS)
+            {
+                crossings_y.push(hit.y);
+            }
+        }
+        origin = Vec3::new(x_ws, hit.y - WATER_TERRAIN_SURFACE_SKIP_WS, z_ws);
+    }
+    crossings_y
 }
 
 struct WaterTerrainColliderBuild {
@@ -303,6 +390,11 @@ struct WaterTerrainColliderBuildStats {
     min_sdf: f32,
     max_sdf: f32,
     solid: WaterTerrainSolidSampleStats,
+    sdf_hash: u64,
+    solid_ms: f32,
+    count_ms: f32,
+    sdf_ms: f32,
+    stats_ms: f32,
     build_ms: f32,
 }
 
@@ -318,6 +410,28 @@ struct WaterTerrainSolidSampleStats {
 fn water_terrain_chunk_bounds_ws(chunk_id: IVec3) -> (Vec3, Vec3) {
     let min_ws = chunk_id.as_vec3();
     (min_ws, min_ws + Vec3::ONE)
+}
+
+fn water_terrain_chunk_query_source_ready(
+    contree_builder: &ContreeBuilder,
+    chunk_key: UVec3,
+) -> bool {
+    water_terrain_chunk_query_dependency_keys(chunk_key)
+        .into_iter()
+        .all(|dependency| contree_builder.cpu_chunk_query_source_ready(dependency))
+}
+
+fn water_terrain_chunk_query_dependency_keys(chunk_key: UVec3) -> Vec<UVec3> {
+    if chunk_key.x >= super::CHUNK_DIM.x
+        || chunk_key.y >= super::CHUNK_DIM.y
+        || chunk_key.z >= super::CHUNK_DIM.z
+    {
+        return Vec::new();
+    }
+
+    (chunk_key.y..super::CHUNK_DIM.y)
+        .map(|y| UVec3::new(chunk_key.x, y, chunk_key.z))
+        .collect()
 }
 
 fn water_terrain_chunk_strictly_overlaps_box(
@@ -370,6 +484,14 @@ fn solid_from_descending_vertical_crossings(point_y: f32, crossings_y: &[f32]) -
 fn sphere_aabb_overlaps(center: Vec3, radius: f32, min: Vec3, max: Vec3) -> bool {
     let closest = center.clamp(min, max);
     (center - closest).length_squared() <= radius.max(0.0) * radius.max(0.0)
+}
+
+fn hash_sdf_samples(sdf_ws: &[f32]) -> u64 {
+    const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+    sdf_ws.iter().fold(FNV_OFFSET, |hash, sdf| {
+        (hash ^ sdf.to_bits() as u64).wrapping_mul(FNV_PRIME)
+    })
 }
 
 fn signed_distance_from_solid_samples(
@@ -622,6 +744,24 @@ mod tests {
             Vec3::new(1.0, 0.0, 1.0),
             Vec3::new(2.0, 1.0, 2.0),
         ));
+    }
+
+    #[test]
+    fn water_query_dependencies_include_same_vertical_column_above_chunk() {
+        assert_eq!(
+            water_terrain_chunk_query_dependency_keys(UVec3::new(1, 0, 1)),
+            vec![UVec3::new(1, 0, 1), UVec3::new(1, 1, 1)]
+        );
+        assert_eq!(
+            water_terrain_chunk_query_dependency_keys(UVec3::new(1, 1, 1)),
+            vec![UVec3::new(1, 1, 1)]
+        );
+    }
+
+    #[test]
+    fn water_query_dependencies_ignore_out_of_world_chunks() {
+        assert!(water_terrain_chunk_query_dependency_keys(UVec3::new(5, 0, 1)).is_empty());
+        assert!(water_terrain_chunk_query_dependency_keys(UVec3::new(1, 2, 1)).is_empty());
     }
 
     #[test]

@@ -80,6 +80,15 @@ impl<T> LatestChunkQueue<T> {
         self.pop_with(|pending| pending.pop_nearest_to(focus, chunk_extent))
     }
 
+    pub(crate) fn pop_nearest_to_if(
+        &mut self,
+        focus: Vec3,
+        chunk_extent: UVec3,
+        mut is_ready: impl FnMut(UVec3) -> bool,
+    ) -> Option<LatestChunkWork<T>> {
+        self.pop_with(|pending| pending.pop_nearest_to_if(focus, chunk_extent, &mut is_ready))
+    }
+
     fn pop_with(
         &mut self,
         mut pop_chunk: impl FnMut(&mut ChunkWorkQueue) -> Option<UVec3>,
@@ -130,6 +139,15 @@ impl<T> LatestChunkQueue<T> {
         self.states
             .get(&chunk_id)
             .map(|state| state.latest_revision == revision)
+            .unwrap_or(false)
+    }
+
+    pub(crate) fn has_unfinished_work(&self, chunk_id: UVec3) -> bool {
+        self.states
+            .get(&chunk_id)
+            .map(|state| {
+                state.active_revision.is_some() || state.latest_revision > state.completed_revision
+            })
             .unwrap_or(false)
     }
 
@@ -273,5 +291,39 @@ mod tests {
         assert_eq!(first.payload, "new-a");
         assert_eq!(second.chunk_id, chunk(2));
         assert_eq!(third.chunk_id, chunk(3));
+    }
+
+    #[test]
+    fn pop_nearest_if_skips_unready_latest_work() {
+        let mut queue = LatestChunkQueue::default();
+        queue.push(chunk(1), "a");
+        queue.push(chunk(2), "b");
+
+        let focus = Vec3::new(1.25, 0.5, 0.5);
+        let work = queue
+            .pop_nearest_to_if(focus, UVec3::ONE, |chunk_id| chunk_id == chunk(2))
+            .unwrap();
+
+        assert_eq!(work.chunk_id, chunk(2));
+        assert_eq!(work.payload, "b");
+        queue.complete(work.chunk_id, work.revision);
+
+        let remaining = queue.pop_nearest_to(focus, UVec3::ONE).unwrap();
+        assert_eq!(remaining.chunk_id, chunk(1));
+    }
+
+    #[test]
+    fn has_unfinished_work_tracks_pending_and_active_revisions() {
+        let mut queue = LatestChunkQueue::default();
+        assert!(!queue.has_unfinished_work(chunk(1)));
+
+        queue.push(chunk(1), "a");
+        assert!(queue.has_unfinished_work(chunk(1)));
+
+        let work = queue.pop_next().unwrap();
+        assert!(queue.has_unfinished_work(chunk(1)));
+
+        queue.complete(work.chunk_id, work.revision);
+        assert!(!queue.has_unfinished_work(chunk(1)));
     }
 }

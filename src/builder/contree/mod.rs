@@ -112,6 +112,33 @@ struct ContreeRayQueryState {
     cpu_chunk_caches: HashMap<UVec3, Arc<CpuChunkCache>>,
 }
 
+pub struct ContreeCpuRayQuerySnapshot {
+    chunk_dim: UVec3,
+    cpu_scene_chunks: Vec<Option<UVec3>>,
+    cpu_chunk_caches: HashMap<UVec3, Arc<CpuChunkCache>>,
+}
+
+impl ContreeCpuRayQuerySnapshot {
+    pub fn query_terrain_ray_cpu(&self, origin: Vec3, direction: Vec3) -> Option<Vec3> {
+        query_terrain_ray_against_state(
+            self.chunk_dim,
+            &self.cpu_scene_chunks,
+            &self.cpu_chunk_caches,
+            origin,
+            direction,
+        )
+    }
+
+    pub fn query_terrain_occupancy_cpu(&self, point: Vec3) -> bool {
+        query_terrain_occupancy_against_state(
+            self.chunk_dim,
+            &self.cpu_scene_chunks,
+            &self.cpu_chunk_caches,
+            point,
+        )
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct CpuContreeNode {
     packed_0: u32,
@@ -574,6 +601,18 @@ impl ContreeBuilder {
         self.cpu_chunk_cache_jobs_are_idle()
     }
 
+    pub fn cpu_chunk_query_source_ready(&self, chunk_idx: UVec3) -> bool {
+        !self.cpu_chunk_cache_queue.has_unfinished_work(chunk_idx)
+    }
+
+    pub fn cpu_ray_query_snapshot(&self) -> ContreeCpuRayQuerySnapshot {
+        ContreeCpuRayQuerySnapshot {
+            chunk_dim: self.chunk_dim,
+            cpu_scene_chunks: self.cpu_scene_chunks.clone(),
+            cpu_chunk_caches: self.cpu_chunk_caches.clone(),
+        }
+    }
+
     pub fn query_terrain_ray_cpu(&self, origin: Vec3, direction: Vec3) -> Option<Vec3> {
         query_terrain_ray_against_state(
             self.chunk_dim,
@@ -584,6 +623,7 @@ impl ContreeBuilder {
         )
     }
 
+    #[allow(dead_code)]
     pub fn query_terrain_occupancy_cpu(&self, point: Vec3) -> bool {
         query_terrain_occupancy_against_state(
             self.chunk_dim,

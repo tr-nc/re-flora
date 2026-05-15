@@ -69,8 +69,18 @@ queues the initial pond chunk `(1, 0, 1)`. Terrain edit chunk rebuild completion
 now also queues that rebuilt chunk for water collider rebuild through a separate
 `LatestChunkQueue`, without testing whether the chunk is currently needed by
 water. Non-terrain-edit rebuilds, such as debug tree/model mesh rebuilds, do not
-enqueue water collider work. The water sim still waits for the initial pond
-chunk collider before it starts stepping or rendering water debug particles.
+enqueue water collider work. The water queue follows the terrain GPU->CPU cache
+pipeline: a queued collider chunk is submitted once its required CPU contree
+cache work is complete, not after all editing stops. For the current vertical
+parity source, those dependencies are the chunk's `(x, z)` column from the
+collider chunk upward, because downward raycasts can cross chunks above the
+collider chunk. Collider construction runs on a background worker from a
+CPU-query snapshot. Completed worker results are published even when a newer
+revision is already queued, then the queued latest revision is processed next;
+this gives progressive collider updates during continuous edits instead of
+waiting for the edit stream to stop. The water sim still waits for the initial
+pond chunk collider before it starts stepping or rendering water debug
+particles.
 
 It no longer uses a heightfield fallback.
 
@@ -102,6 +112,7 @@ Runtime diagnostics now log:
   direct_surface_samples ...
   center_sdf ...
   build_ms ...
+  phases solid/count/sdf/stats ...
 
 [PERF][WATER] ...
   particle_y min/max/avg ...
@@ -137,21 +148,36 @@ terrain_sdf_min 0.0002 penetrating 0 no_sdf 0
     `LatestChunkQueue`.
 12. Startup now enqueues the initial pond chunk collider build, and terrain edit
     rebuild completion enqueues the rebuilt chunk's collider build.
-13. Water collider work is debounced while terrain edit input is active/recent,
-    reducing editing hitches by preserving the old collider until the edit burst
-    settles.
-14. Publishing a collider chunk only stabilizes water particles when that chunk
-    strictly overlaps the current pond box; unrelated cached chunks no longer
-    reset/nudge the live particles.
+13. Water collider construction moved off the main thread. The queue now waits
+    for the collider chunk's vertical-column CPU contree cache dependencies to
+    be ready, takes a CPU-query snapshot, and submits one background collider
+    build at a time.
+14. Worker completion now publishes intermediate collider revisions during
+    continuous edits, then immediately requeues/processes the latest pending
+    revision. This avoids the previous behavior where every in-flight build was
+    discarded as stale until the user stopped editing. Collider build logs now
+    include phase timings for solid classification, solid counting, SDF
+    construction, and final stats hashing so the remaining cost can be optimized
+    from measurements.
+15. Publishing a collider chunk only stabilizes water particles on first insert
+    for an overlapping pond chunk. Replacing an already-active terrain collider
+    during edits no longer zeroes water velocities every build, so water can
+    respond continuously to progressive collider updates. Unrelated cached chunks
+    also do not reset/nudge the live particles.
 
 ## Known issues
 
-1. Collider build is still synchronous and expensive. Local debug run showed
-   roughly `~95-112ms` per chunk collider build.
-2. The dedicated queue coalesces repeated dirty requests while terrain/CPU-cache
-   work is pending and now debounces active edits, but collider generation still
-   runs synchronously on the main thread. A chunk build after editing settles can
-   still hitch for about one chunk-build duration.
+1. Collider build is still the dominant source of edit-to-collider latency in
+   debug builds. Phase timing on the startup/edit chunk showed about `106.6ms`
+   total in debug (`~22.2ms` solid classification, `~83.7ms` heap/Dijkstra SDF,
+   negligible counting/stats). The same auto-exit run in release averaged about
+   `6.0ms` total (`~1.2ms` solid, `~4.7ms` SDF), so the large `~100ms` delay is
+   mostly a debug-build artifact. The work happens on a background worker
+   instead of the main thread.
+2. The dedicated queue coalesces repeated dirty requests and tracks latest
+   revisions, but only one water collider worker job runs at a time. Rapid edits
+   update progressively at roughly one collider-build cadence, so the collider
+   can still lag behind the latest brush stroke by about a build duration.
 3. The current vertical parity pass is a correctness bridge for the existing
    surface contree cache. A better long-term source is a chunk-local filled
    occupancy representation or direct SDF generation from voxel volume data.
@@ -165,9 +191,11 @@ terrain_sdf_min 0.0002 penetrating 0 no_sdf 0
    - Only rebuild a collider when the underlying terrain chunk revision changed.
    - Keep the previous valid collider active while a dirty chunk waits.
 
-2. Move collider building off the main thread or into an incremental job.
-   Preserve the previous valid collider until the new `Arc<WaterTerrainColliderChunk>`
-   is ready to publish.
+2. Make collider generation incremental or faster.
+   - The build now runs off the main thread, but it still performs a full
+     `32^3` parity classification and heap/Dijkstra SDF propagation per chunk.
+   - Preserve the previous valid collider until the new
+     `Arc<WaterTerrainColliderChunk>` is ready to publish.
 
 3. Replace the single `water_terrain_initialized: bool` with per-chunk dirty
    state, for example:
