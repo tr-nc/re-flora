@@ -60,6 +60,8 @@ impl PresentModePreference {
 pub struct AppOptions {
     /// Run in windowed mode instead of borderless fullscreen.
     pub windowed: bool,
+    /// Create the native window hidden while keeping the normal render/swapchain path.
+    pub hidden: bool,
     /// Disable shadow rendering pass.
     pub no_shadows: bool,
     /// Disable denoiser passes.
@@ -142,6 +144,7 @@ impl AppOptions {
 
         Self {
             windowed: args.iter().any(|a| a == "--windowed"),
+            hidden: args.iter().any(|a| a == "--hidden"),
             no_shadows: args.iter().any(|a| a == "--no-shadows"),
             no_denoise: args.iter().any(|a| a == "--no-denoise"),
             no_god_rays: args.iter().any(|a| a == "--no-god-rays"),
@@ -171,6 +174,7 @@ fn print_help() {
 
 Options:
   --windowed                  Run in windowed mode (default: borderless fullscreen)
+  --hidden                    Run with a hidden native window while preserving the render/swapchain path
   --no-shadows                Disable shadow rendering passes
   --no-denoise                Disable denoiser passes
   --no-god-rays               Disable god ray pass
@@ -192,6 +196,7 @@ Options:
 
 Examples:
   re-flora --windowed
+  re-flora --hidden --auto-exit 20 --perf
   re-flora --present-mode fifo
   re-flora --swapchain-images 2
   re-flora --no-shadows --no-denoise
