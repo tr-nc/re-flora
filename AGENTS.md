@@ -15,9 +15,10 @@ Use the built-in CLI perf path:
 cargo run --release -- --windowed --auto-exit 20 --perf
 ```
 
-For background verification that should not pop a visible window, use the hidden-window path:
+For background verification that should not pop a visible window, source the shell environment first, then use the hidden-window path:
 
 ```bash
+source ~/.zshrc
 cargo run --release -- --hidden --auto-exit 20 --perf
 ```
 
