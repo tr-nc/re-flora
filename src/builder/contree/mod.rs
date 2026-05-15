@@ -73,6 +73,8 @@ pub struct ContreeBuilder {
     cpu_scene_chunks: Vec<Option<UVec3>>,
     cpu_chunk_caches: HashMap<UVec3, Arc<CpuChunkCache>>,
     cpu_chunk_cache_queue: LatestChunkQueue<CpuChunkCacheBuildSource>,
+    cpu_chunk_source_revisions: HashMap<UVec3, u64>,
+    cpu_chunk_source_updates: Vec<ContreeCpuChunkSourceUpdate>,
     cpu_chunk_readback_buffers: Option<CpuChunkReadbackBuffers>,
     active_cpu_chunk_cache_job: Option<CpuChunkCacheFenceJob>,
     cpu_chunk_cache_decode_inflight: bool,
@@ -110,6 +112,13 @@ struct ContreeRayQueryState {
     chunk_dim: UVec3,
     cpu_scene_chunks: Vec<Option<UVec3>>,
     cpu_chunk_caches: HashMap<UVec3, Arc<CpuChunkCache>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ContreeCpuChunkSourceUpdate {
+    pub chunk_idx: UVec3,
+    pub revision: u64,
+    pub is_present: bool,
 }
 
 pub struct ContreeCpuRayQuerySnapshot {
@@ -452,6 +461,8 @@ impl ContreeBuilder {
             cpu_scene_chunks: vec![None; (chunk_dim.x * chunk_dim.y * chunk_dim.z) as usize],
             cpu_chunk_caches: HashMap::new(),
             cpu_chunk_cache_queue: LatestChunkQueue::default(),
+            cpu_chunk_source_revisions: HashMap::new(),
+            cpu_chunk_source_updates: Vec::new(),
             cpu_chunk_readback_buffers,
             active_cpu_chunk_cache_job: None,
             cpu_chunk_cache_decode_inflight: false,
@@ -605,6 +616,14 @@ impl ContreeBuilder {
         !self.cpu_chunk_cache_queue.has_unfinished_work(chunk_idx)
     }
 
+    pub fn cpu_chunk_query_source_revision(&self, chunk_idx: UVec3) -> Option<u64> {
+        self.cpu_chunk_source_revisions.get(&chunk_idx).copied()
+    }
+
+    pub fn take_cpu_chunk_source_updates(&mut self) -> Vec<ContreeCpuChunkSourceUpdate> {
+        std::mem::take(&mut self.cpu_chunk_source_updates)
+    }
+
     pub fn cpu_ray_query_snapshot(&self) -> ContreeCpuRayQuerySnapshot {
         ContreeCpuRayQuerySnapshot {
             chunk_dim: self.chunk_dim,
@@ -734,6 +753,7 @@ impl ContreeBuilder {
             self.remove_shared_chunk_cache(chunk_idx);
             self.cpu_chunk_cache_queue.clear(chunk_idx);
             self.set_scene_chunk(chunk_idx, None);
+            let source_revision = self.record_cpu_chunk_source_update(chunk_idx, false);
             self.deallocate_chunk_allocation(atlas_offset);
             let total_elapsed = total_start.elapsed();
             crate::util::BENCH
@@ -741,8 +761,9 @@ impl ContreeBuilder {
                 .unwrap()
                 .record("contree_build_and_alloc_total", total_elapsed);
             log::debug!(
-                "[QUEUE][CONTREE_REBUILD] chunk {:?} empty total_ms={:.2} build_gpu_ms={:.2} size_ms={:.2}",
+                "[QUEUE][CONTREE_REBUILD] chunk {:?} empty source_rev={} total_ms={:.2} build_gpu_ms={:.2} size_ms={:.2}",
                 chunk_idx,
+                source_revision,
                 total_elapsed.as_secs_f32() * 1000.0,
                 build_elapsed.as_secs_f32() * 1000.0,
                 size_elapsed.as_secs_f32() * 1000.0,
@@ -931,20 +952,24 @@ impl ContreeBuilder {
                 .cpu_chunk_cache_queue
                 .is_latest_revision(result.chunk_idx, result.revision);
 
-            if should_publish {
+            let source_revision = if should_publish {
                 self.cpu_chunk_caches
                     .insert(result.chunk_idx, result.cache.clone());
                 self.publish_shared_chunk_cache(result.chunk_idx, result.cache);
                 self.set_scene_chunk(result.chunk_idx, Some(result.chunk_idx));
-            }
+                Some(self.record_cpu_chunk_source_update(result.chunk_idx, true))
+            } else {
+                None
+            };
 
             self.cpu_chunk_cache_queue
                 .complete(result.chunk_idx, result.revision);
             log::debug!(
-                "[QUEUE][CPU_CACHE] publish chunk {:?} revision {} published={} pending={} cached={}",
+                "[QUEUE][CPU_CACHE] publish chunk {:?} revision {} published={} source_rev={:?} pending={} cached={}",
                 result.chunk_idx,
                 result.revision,
                 should_publish,
+                source_revision,
                 self.cpu_chunk_cache_queue.len(),
                 self.cpu_chunk_caches.len(),
             );
@@ -968,6 +993,23 @@ impl ContreeBuilder {
         if let Ok(mut shared_state) = self.shared_ray_query_state.write() {
             shared_state.cpu_scene_chunks[index] = chunk;
         }
+    }
+
+    fn record_cpu_chunk_source_update(&mut self, chunk_idx: UVec3, is_present: bool) -> u64 {
+        let revision = self
+            .cpu_chunk_source_revisions
+            .get(&chunk_idx)
+            .copied()
+            .unwrap_or(0)
+            + 1;
+        self.cpu_chunk_source_revisions.insert(chunk_idx, revision);
+        self.cpu_chunk_source_updates
+            .push(ContreeCpuChunkSourceUpdate {
+                chunk_idx,
+                revision,
+                is_present,
+            });
+        revision
     }
 
     fn publish_shared_chunk_cache(&self, chunk_idx: UVec3, cache: Arc<CpuChunkCache>) {
