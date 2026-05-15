@@ -91,7 +91,16 @@ impl App {
                 window_descriptor.height,
             );
         }
-        WindowState::new(event_loop, &window_descriptor)
+        let window_state = WindowState::new(event_loop, &window_descriptor);
+        if options.hidden {
+            let extent = window_state.window_extent();
+            log::info!(
+                "Hidden window render extent is {}x{} physical pixels",
+                extent.width,
+                extent.height,
+            );
+        }
+        window_state
     }
 
     pub(super) fn create_vulkan_context(window_state: &WindowState) -> VulkanContext {
