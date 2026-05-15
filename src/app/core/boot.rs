@@ -50,18 +50,47 @@ impl App {
         } else {
             WINDOW_TITLE_RELEASE
         };
-        let window_mode = if options.windowed {
+        let hidden_primary_monitor_size = if options.hidden && !options.windowed {
+            event_loop.primary_monitor().map(|monitor| {
+                let size = monitor.size();
+                let scale_factor = monitor.scale_factor() as f32;
+                (
+                    size.width as f32 / scale_factor,
+                    size.height as f32 / scale_factor,
+                )
+            })
+        } else {
+            None
+        };
+
+        let window_mode = if options.hidden || options.windowed {
             WindowMode::Windowed(false)
         } else {
             WindowMode::BorderlessFullscreen
         };
-        let window_descriptor = WindowStateDesc {
+        let mut window_descriptor = WindowStateDesc {
             title: using_mode.to_owned(),
             window_mode,
-            cursor_locked: true,
-            cursor_visible: false,
+            cursor_locked: !options.hidden,
+            cursor_visible: options.hidden,
+            visible: !options.hidden,
             ..Default::default()
         };
+        if let Some((width, height)) = hidden_primary_monitor_size {
+            window_descriptor.width = width;
+            window_descriptor.height = height;
+        } else if options.hidden && !options.windowed {
+            log::warn!(
+                "Primary monitor unavailable for --hidden; falling back to default windowed extent"
+            );
+        }
+        if options.hidden {
+            log::info!(
+                "Running with a hidden native window at {:.0}x{:.0} logical pixels; Vulkan surface/swapchain path is unchanged",
+                window_descriptor.width,
+                window_descriptor.height,
+            );
+        }
         WindowState::new(event_loop, &window_descriptor)
     }
 
