@@ -8,6 +8,10 @@ const ACTIVE_MASS_EPSILON: f32 = 1.0e-8;
 const MAX_J: f32 = 8.0;
 const MAX_PARTICLE_SPEED: f32 = 20.0;
 const MAX_AFFINE_COMPONENT: f32 = 100.0;
+// A particle can end a substep deeper than one capped correction can resolve.
+// Iterate bounded SDF corrections so the next P2G pass does not deposit mass
+// from inside terrain.
+const TERRAIN_PARTICLE_COLLISION_ITERATIONS: usize = 8;
 
 impl PondWaterSim {
     /// Advance the pond by fixed MLS-MPM substeps.
@@ -120,9 +124,34 @@ impl PondWaterSim {
     fn repair_particles(&mut self) {
         let bounds = self.config.collider;
         let padding = self.dx * self.config.wall_padding_cells.max(1.0);
+        let min_padding = Vec3::splat(padding);
+        let max_padding = Vec3::splat(padding);
+        let terrain_collision_margin = self.dx * 0.5;
+        let terrain_max_correction = padding;
         let j_min = self.config.j_min;
+        let terrain = self.terrain.as_ref();
         for particle in &mut self.particles {
-            repair_particle_state(particle, bounds.min_ws, bounds.max_ws, padding, j_min);
+            repair_particle_state_with_padding(
+                particle,
+                bounds.min_ws,
+                bounds.max_ws,
+                min_padding,
+                max_padding,
+                j_min,
+            );
+            if let Some(terrain) = terrain {
+                collide_particle_with_terrain_iterative(
+                    particle,
+                    terrain,
+                    terrain_collision_margin,
+                    terrain_max_correction,
+                    TERRAIN_PARTICLE_COLLISION_ITERATIONS,
+                    bounds.min_ws,
+                    bounds.max_ws,
+                    min_padding,
+                    max_padding,
+                );
+            }
         }
     }
 
@@ -268,6 +297,8 @@ impl PondWaterSim {
         let c_scale = 4.0 * inv_dx * inv_dx;
         let bounds = self.config.collider;
         let particle_padding = self.dx * self.config.wall_padding_cells.max(1.0);
+        let particle_min_padding = Vec3::splat(particle_padding);
+        let particle_max_padding = Vec3::splat(particle_padding);
         let j_min = self.config.j_min;
         let grid = &self.grid;
         let terrain = self.terrain.as_ref();
@@ -309,34 +340,40 @@ impl PondWaterSim {
                 }
             }
 
-            particle.v = new_v;
-            particle.c = new_c;
-            let trace_c = new_c.x_axis.x + new_c.y_axis.y + new_c.z_axis.z;
+            particle.v = clamp_vec3_length(new_v, MAX_PARTICLE_SPEED);
+            particle.c = clamp_mat3_components(new_c, MAX_AFFINE_COMPONENT);
+            let trace_c = particle.c.x_axis.x + particle.c.y_axis.y + particle.c.z_axis.z;
             particle.j = (particle.j * (1.0 + dt * trace_c)).max(j_min);
             particle.x += particle.v * dt;
-            collide_particle_with_box(particle, bounds.min_ws, bounds.max_ws, particle_padding);
+            collide_particle_with_box_with_padding(
+                particle,
+                bounds.min_ws,
+                bounds.max_ws,
+                particle_min_padding,
+                particle_max_padding,
+            );
             if particle.x.is_finite() {
                 if let Some(terrain) = terrain {
-                    collide_particle_with_terrain(
+                    collide_particle_with_terrain_iterative(
                         particle,
                         terrain,
                         terrain_collision_margin,
                         terrain_max_correction,
-                    );
-                    collide_particle_with_box(
-                        particle,
+                        TERRAIN_PARTICLE_COLLISION_ITERATIONS,
                         bounds.min_ws,
                         bounds.max_ws,
-                        particle_padding,
+                        particle_min_padding,
+                        particle_max_padding,
                     );
                 }
             }
 
-            repair_particle_state(
+            repair_particle_state_with_padding(
                 particle,
                 bounds.min_ws,
                 bounds.max_ws,
-                particle_padding,
+                particle_min_padding,
+                particle_max_padding,
                 j_min,
             );
         }
@@ -394,15 +431,16 @@ fn project_velocity_away_from_surface(velocity: Vec3, normal: Vec3) -> Vec3 {
     }
 }
 
-fn repair_particle_state(
+fn repair_particle_state_with_padding(
     particle: &mut super::pond::WaterParticle,
     min_ws: Vec3,
     max_ws: Vec3,
-    padding: f32,
+    min_padding: Vec3,
+    max_padding: Vec3,
     j_min: f32,
 ) {
-    let min = min_ws + Vec3::splat(padding);
-    let max = max_ws - Vec3::splat(padding);
+    let min = min_ws + min_padding;
+    let max = max_ws - max_padding;
     let fallback = (min + max) * 0.5;
     particle.x = finite_or(particle.x, fallback).clamp(min, max);
 
@@ -464,14 +502,15 @@ fn mat3_is_finite(value: Mat3) -> bool {
     value.x_axis.is_finite() && value.y_axis.is_finite() && value.z_axis.is_finite()
 }
 
-fn collide_particle_with_box(
+fn collide_particle_with_box_with_padding(
     particle: &mut super::pond::WaterParticle,
     min_ws: Vec3,
     max_ws: Vec3,
-    padding: f32,
+    min_padding: Vec3,
+    max_padding: Vec3,
 ) {
-    let min = min_ws + Vec3::splat(padding);
-    let max = max_ws - Vec3::splat(padding);
+    let min = min_ws + min_padding;
+    let max = max_ws - max_padding;
 
     if particle.x.x < min.x {
         particle.x.x = min.x;
@@ -503,15 +542,48 @@ fn collide_particle_with_terrain(
     terrain: &WaterTerrainColliderSet,
     collision_margin: f32,
     max_correction: f32,
-) {
+) -> bool {
     let Some((sdf, terrain_normal)) = terrain.sample_sdf_and_normal_ws(particle.x) else {
-        return;
+        return false;
     };
 
     let correction = collision_margin.max(0.0) - sdf;
     if correction > 0.0 {
         particle.x += terrain_normal * correction.min(max_correction.max(0.0));
         particle.v = project_velocity_away_from_surface(particle.v, terrain_normal);
+        return true;
+    }
+
+    false
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collide_particle_with_terrain_iterative(
+    particle: &mut super::pond::WaterParticle,
+    terrain: &WaterTerrainColliderSet,
+    collision_margin: f32,
+    max_correction: f32,
+    iterations: usize,
+    box_min_ws: Vec3,
+    box_max_ws: Vec3,
+    box_min_padding: Vec3,
+    box_max_padding: Vec3,
+) {
+    for _ in 0..iterations {
+        let before = particle.x;
+        if !collide_particle_with_terrain(particle, terrain, collision_margin, max_correction) {
+            return;
+        }
+        collide_particle_with_box_with_padding(
+            particle,
+            box_min_ws,
+            box_max_ws,
+            box_min_padding,
+            box_max_padding,
+        );
+        if particle.x.distance_squared(before) <= 1.0e-10 {
+            return;
+        }
     }
 }
 
@@ -576,7 +648,10 @@ fn water_particle_debug_stats(
 
 #[cfg(test)]
 mod tests {
-    use super::{collide_particle_with_terrain, project_velocity_away_from_surface};
+    use super::{
+        collide_particle_with_terrain, collide_particle_with_terrain_iterative,
+        project_velocity_away_from_surface,
+    };
     use crate::{PondWaterSim, WaterTerrainColliderChunk, WaterTerrainColliderSet};
     use glam::{Mat3, UVec3, Vec3};
 
@@ -729,6 +804,27 @@ mod tests {
 
         assert!(particle.x.x >= 0.45 - 1.0e-6, "{:?}", particle.x);
         assert!(particle.v.x >= -1.0e-6, "{:?}", particle.v);
+    }
+
+    #[test]
+    fn iterative_terrain_collision_recovers_deep_penetration() {
+        let terrain = sdf_collider_set(Vec3::ZERO, Vec3::ONE, UVec3::new(8, 8, 8), |p| p.y - 0.5);
+        let mut particle = water_particle(Vec3::new(0.5, 0.1, 0.5), -Vec3::Y);
+
+        collide_particle_with_terrain_iterative(
+            &mut particle,
+            &terrain,
+            0.05,
+            0.0625,
+            8,
+            Vec3::ZERO,
+            Vec3::ONE,
+            Vec3::ZERO,
+            Vec3::ZERO,
+        );
+
+        assert!(particle.x.y >= 0.55 - 1.0e-5, "{:?}", particle.x);
+        assert!(particle.v.y >= -1.0e-6, "{:?}", particle.v);
     }
 
     fn sdf_collider_set(

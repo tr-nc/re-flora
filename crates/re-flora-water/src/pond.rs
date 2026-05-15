@@ -5,6 +5,10 @@ use std::sync::Arc;
 
 const DEFAULT_GRID_DIM: UVec3 = UVec3::new(32, 32, 32);
 const DEFAULT_PARTICLE_COUNT: usize = 4_096;
+// Particles are initially seeded into a compact pond volume, not the whole
+// chunk-sized simulation box. Keeping the rest volume below the full box volume
+// avoids pressure-driven expansion into terrain solids and artificial walls.
+const DEFAULT_PARTICLE_FILL_VOLUME_FRACTION: f32 = 0.1;
 
 #[derive(Clone, Debug)]
 pub struct PondWaterConfig {
@@ -30,7 +34,7 @@ impl Default for PondWaterConfig {
             particle_count: DEFAULT_PARTICLE_COUNT,
             substep_dt: 1.0 / 240.0,
             particle_mass: 1.0,
-            particle_volume: 1.0 / DEFAULT_PARTICLE_COUNT as f32,
+            particle_volume: DEFAULT_PARTICLE_FILL_VOLUME_FRACTION / DEFAULT_PARTICLE_COUNT as f32,
             gravity: Vec3::new(0.0, -9.8, 0.0),
             stiffness: 10_000.0,
             gamma: 7.0,
