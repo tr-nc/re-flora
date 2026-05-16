@@ -477,7 +477,7 @@ fn validate_device_capabilities(
             .into_owned()
     };
 
-    println!(
+    log::error!(
         "\n--- Device capability check failed for \"{}\" ---",
         device_name
     );
@@ -496,7 +496,7 @@ fn validate_device_capabilities(
         table.add_row(vec!["Feature".to_string(), name, details]);
     }
 
-    println!("{table}");
+    log::error!("{table}");
 
     panic!(
         "Selected GPU \"{}\" lacks required Vulkan capabilities. Please choose a device that provides the extensions/features listed above.",

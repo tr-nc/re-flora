@@ -254,7 +254,7 @@ fn print_swapchain_format_and_color_space(
         &format!("{:?}", using_color_space),
     ]);
 
-    println!("{}", table);
+    log::info!("{}", table);
 }
 
 fn choose_surface_format(
