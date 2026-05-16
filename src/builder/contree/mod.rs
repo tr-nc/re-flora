@@ -1157,15 +1157,19 @@ impl CpuChunkReadbackBuffers {
 
 fn decode_cpu_chunk_cache_job(job: CpuChunkCacheWorkerJob) -> Result<CpuChunkCacheWorkerResult> {
     let readback_start = Instant::now();
-    let node_bytes = job.readback_buffers.node_readback.read_back()?;
-    let leaf_bytes = job.readback_buffers.leaf_readback.read_back()?;
+    let node_bytes = job
+        .readback_buffers
+        .node_readback
+        .read_back_range(0, job.source.node_size_in_bytes)?;
+    let leaf_bytes = job
+        .readback_buffers
+        .leaf_readback
+        .read_back_range(0, job.source.leaf_size_in_bytes)?;
     let readback_elapsed = readback_start.elapsed();
     crate::util::BENCH
         .lock()
         .unwrap()
         .record("contree_cpu_cache_readback", readback_elapsed);
-    let node_bytes = &node_bytes[..job.source.node_size_in_bytes as usize];
-    let leaf_bytes = &leaf_bytes[..job.source.leaf_size_in_bytes as usize];
 
     let decode_start = Instant::now();
     let nodes = node_bytes
