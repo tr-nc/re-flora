@@ -94,6 +94,12 @@ pub struct AppOptions {
     pub auto_exit_delay: Option<f32>,
     /// Enable per-frame performance timing output to console.
     pub perf: bool,
+    /// Override water MLS-MPM particle count.
+    pub water_particles: Option<usize>,
+    /// Override water MLS-MPM cubic grid dimension.
+    pub water_grid: Option<u32>,
+    /// Override water MLS-MPM fixed substep rate in Hz.
+    pub water_substep_hz: Option<f32>,
     /// Run the lightweight tree replacement benchmark and exit after completion.
     pub tree_bench: bool,
     /// Number of tree benchmark samples.
@@ -175,6 +181,9 @@ impl AppOptions {
             screenshot_delay: parse_f32_after("--screenshot-delay").unwrap_or(5.0),
             auto_exit_delay: parse_f32_after("--auto-exit"),
             perf: args.iter().any(|a| a == "--perf"),
+            water_particles: parse_u32_after("--water-particles").map(|v| v.max(1) as usize),
+            water_grid: parse_u32_after("--water-grid").map(|v| v.max(4)),
+            water_substep_hz: parse_f32_after("--water-substep-hz").map(|v| v.max(1.0)),
             tree_bench: args.iter().any(|a| a == "--tree-bench"),
             tree_bench_samples: parse_u32_after("--tree-bench-samples").unwrap_or(10),
             tree_bench_min_thickness: args.iter().any(|a| a == "--tree-bench-min-thickness"),
@@ -208,6 +217,9 @@ Options:
   --screenshot-delay <sec>    Delay before screenshot capture (default: 5.0)
   --auto-exit <sec>           Exit automatically after rendering starts
   --perf                      Enable per-frame performance logging
+  --water-particles <N>       Override water MLS-MPM particle count
+  --water-grid <N>            Override cubic water MLS-MPM grid dimension
+  --water-substep-hz <Hz>     Override water MLS-MPM fixed substep rate
   --tree-bench                Run tree replacement benchmark and exit
   --tree-bench-samples <N>    Tree benchmark samples (default: 10)
   --tree-bench-min-thickness  Sweep Min Trunk Thickness instead of Tree Height

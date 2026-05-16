@@ -45,6 +45,27 @@ impl Default for PondWaterConfig {
     }
 }
 
+impl PondWaterConfig {
+    pub fn with_particle_count(mut self, particle_count: usize) -> Self {
+        assert!(particle_count > 0);
+        self.particle_count = particle_count;
+        self.particle_volume = DEFAULT_PARTICLE_FILL_VOLUME_FRACTION / particle_count as f32;
+        self
+    }
+
+    pub fn with_cubic_grid_dim(mut self, grid_dim: u32) -> Self {
+        assert!(grid_dim >= 4);
+        self.grid_dim = UVec3::splat(grid_dim);
+        self
+    }
+
+    pub fn with_substep_hz(mut self, substep_hz: f32) -> Self {
+        assert!(substep_hz > 0.0 && substep_hz.is_finite());
+        self.substep_dt = substep_hz.recip();
+        self
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct WaterParticle {
     pub x: Vec3,

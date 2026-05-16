@@ -13,7 +13,7 @@ Current status by phase:
 | Phase 3A: water-grid terrain cache | Done | grid-node terrain collision moved out of the hot loop |
 | Phase 3B: G2P terrain broadphase/cache | Implemented, needs more soak/tuning | cached skip/projection path is active and shadow-verified in perf runs |
 | Phase 4: collider scope/startup | Implemented and benchmarked | startup/edit collider refreshes are limited to water-grid-domain chunks |
-| Phase 5: solver scaling options | Not started | defer until algorithmic waste is exhausted |
+| Phase 5: solver scaling options | Started | CLI sweep knobs added for particle count, grid size, and substep rate |
 
 Latest representative release result:
 
@@ -292,13 +292,35 @@ Release validation:
 
 ### Phase 5: solver-level scaling options
 
-Status: not started.
+Status: started.
 
 Goal: preserve appearance while lowering total CPU budget after hot-loop waste is removed.
 
+Implemented work:
+
+1. Added release-benchmark sweep knobs:
+   - `--water-particles <N>`
+   - `--water-grid <N>` for cubic grid dimension
+   - `--water-substep-hz <Hz>` for fixed substep rate
+2. Water startup logs the effective particle count, grid dimension, and substep dt.
+3. Changing particle count preserves the intended total fill volume by rescaling per-particle volume.
+
+Initial release validation:
+
+- Default config log: `/tmp/re-flora-logs/re-flora-20260516-233315.367-126594.log`
+  - effective config: `particles=4096 grid=UVec3(32, 32, 32) substep_dt=0.004167s`
+  - representative samples: `1.854`, `1.790`, `1.781 ms/substep`
+  - `terrain_shadow_false_skips 0`, `penetrating 0`, `no_sdf 0`
+- Half-particle sweep log: `/tmp/re-flora-logs/re-flora-20260516-233332.832-126982.log`
+  - command: `--water-particles 2048`
+  - effective config: `particles=2048 grid=UVec3(32, 32, 32) substep_dt=0.004167s`
+  - representative samples: `0.984`, `0.941`, `0.927 ms/substep`
+  - `terrain_shadow_false_skips 0`, `penetrating 0`, `no_sdf 0`
+  - expected linear-ish particle scaling is visible in P2G/G2P and particle upload.
+
 Planned work:
 
-1. Measure release-mode sweeps for particle count, grid resolution, and substep count.
+1. Measure release-mode sweeps for particle count, grid resolution, and substep rate.
 2. Try fewer fixed substeps with adaptive CFL limits if stability allows.
 3. Consider CPU parallelism or GPU/storage-buffer paths only after cached G2P collision is measured.
 

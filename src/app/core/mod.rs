@@ -52,7 +52,7 @@ use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText,
 use glam::{UVec3, Vec2, Vec3, Vec4};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
 use petalsonic::DirectOcclusionDebugSnapshot;
-use re_flora_water::PondWaterSim;
+use re_flora_water::{PondWaterConfig, PondWaterSim};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -833,7 +833,23 @@ impl App {
         let butterfly_emitters = Vec::new();
         let butterfly_emitter_desc = Self::butterfly_desc_from_gui_adjustables(&gui_adjustables);
         let particle_snapshots = Vec::with_capacity(PARTICLE_CAPACITY);
-        let water_sim = PondWaterSim::fixed_test_box();
+        let mut water_config = PondWaterConfig::default();
+        if let Some(particle_count) = options.water_particles {
+            water_config = water_config.with_particle_count(particle_count);
+        }
+        if let Some(grid_dim) = options.water_grid {
+            water_config = water_config.with_cubic_grid_dim(grid_dim);
+        }
+        if let Some(substep_hz) = options.water_substep_hz {
+            water_config = water_config.with_substep_hz(substep_hz);
+        }
+        log::info!(
+            "[WATER] config particles={} grid={:?} substep_dt={:.6}s",
+            water_config.particle_count,
+            water_config.grid_dim,
+            water_config.substep_dt,
+        );
+        let water_sim = PondWaterSim::new(water_config);
         let (water_terrain_collider_job_tx, water_terrain_collider_result_rx) =
             Self::spawn_water_terrain_collider_worker();
         let terrain_harvest_particle_handles = Vec::with_capacity(256);
