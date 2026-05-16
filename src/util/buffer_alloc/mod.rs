@@ -17,9 +17,6 @@ pub use strategies::*;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::seq::SliceRandom;
-    use rand::RngExt;
-    use std::time::Instant;
 
     #[test]
     fn test_first_fit_allocator() {
@@ -82,60 +79,38 @@ mod tests {
     }
 
     #[test]
-    fn benchmark_allocation_strategies() {
-        // configurable parameters:
-        let pool_size: u64 = 4 * 1024 * 1024 * 1024; // 4GB pool size
-        let initial_allocations: usize = 1000;
-        let iterations: u64 = 1_000_000;
-        let min_alloc_size: u64 = 2 * 1024 * 1024; // 2MB
-        let max_alloc_size: u64 = 5 * 1024 * 1024; // 15MB
+    fn allocation_churn_keeps_allocator_usable() {
+        let mut allocator = FirstFitAllocator::new(10_000);
+        let mut allocations = Vec::new();
 
-        {
-            let mut allocator = FirstFitAllocator::new(pool_size);
-            let mut allocations: Vec<BufferAllocation> = Vec::with_capacity(initial_allocations);
-            let mut rng = rand::rng();
+        for size in [64, 128, 256, 512, 1024, 2048] {
+            allocations.push(allocator.allocate(size).unwrap());
+        }
 
-            // initial allocations.
-            for _ in 0..initial_allocations {
-                let alloc_size = rng.random_range(min_alloc_size..=max_alloc_size);
-                let alloc = allocator.allocate(alloc_size).unwrap();
-                allocations.push(alloc);
-            }
+        for _ in 0..32 {
+            let removed = allocations.remove(1);
+            allocator.deallocate(removed.id).unwrap();
+            allocations.push(allocator.allocate(96).unwrap());
 
-            let start_ff = Instant::now();
+            let removed = allocations.remove(2);
+            allocator.deallocate(removed.id).unwrap();
+            allocations.push(allocator.allocate(160).unwrap());
+        }
 
-            for _ in 0..iterations {
-                // randomly determine the number of allocations to deallocate (between 1 and 8).
-                let num_to_remove = rng.random_range(1..=8);
-                if allocations.len() < num_to_remove {
-                    break;
-                }
-                // choose random unique indices from the current allocations.
-                let mut indices: Vec<usize> = (0..allocations.len()).collect();
-                indices.shuffle(&mut rng);
-                let mut dealloc_indices: Vec<usize> =
-                    indices.into_iter().take(num_to_remove).collect();
-                dealloc_indices.sort_by(|a, b| b.cmp(a)); // sort descending for safe removal
+        for allocation in &allocations {
+            assert_eq!(allocator.lookup(allocation.id).unwrap().id, allocation.id);
+        }
 
-                // deallocate the selected allocations.
-                for i in dealloc_indices.iter() {
-                    let alloc = allocations.remove(*i);
-                    allocator.deallocate(alloc.id).unwrap();
-                }
-
-                // allocate new blocks with random sizes to replace the ones removed.
-                for _ in 0..num_to_remove {
-                    let alloc_size = rng.random_range(min_alloc_size..=max_alloc_size);
-                    let alloc = allocator.allocate(alloc_size).unwrap();
-                    allocations.push(alloc);
-                }
-            }
-            let duration_ff = start_ff.elapsed();
-            println!(
-                "First-Fit Benchmark Avg Time: {:?}",
-                duration_ff / iterations as u32
-            );
-            println!("{:?}", allocator);
+        allocator.cleanup();
+        let mut next_offset = 0;
+        let mut packed = allocations
+            .iter()
+            .filter_map(|allocation| allocator.lookup(allocation.id))
+            .collect::<Vec<_>>();
+        packed.sort_by_key(|allocation| allocation.offset);
+        for allocation in packed {
+            assert_eq!(allocation.offset, next_offset);
+            next_offset += allocation.size;
         }
     }
 }
