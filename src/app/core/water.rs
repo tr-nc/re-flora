@@ -7,7 +7,7 @@ use std::{sync::mpsc, thread, time::Instant};
 
 const WATER_TERRAIN_COLLIDER_DIM: UVec3 = UVec3::new(32, 32, 32);
 const WATER_TERRAIN_SINGLE_CHUNK_ID: IVec3 = IVec3::new(1, 0, 1);
-const WATER_TERRAIN_COLLIDER_SOURCE: &str = "cpu-solid-voxel-atlas";
+const WATER_TERRAIN_COLLIDER_SOURCE: &str = "gpu-sampled-solid-grid";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct WaterTerrainColliderSourceRevision {
@@ -56,10 +56,10 @@ impl App {
     }
 
     pub(super) fn mark_water_terrain_source_chunk_dirty(&mut self, chunk_id: UVec3) {
-        match self.refresh_cpu_solid_voxel_chunk(chunk_id) {
+        match self.refresh_water_solid_sample_chunk(chunk_id) {
             Ok(Some(revision)) => {
                 log::debug!(
-                    "[QUEUE][WATER_TERRAIN] CPU solid source ready chunk {:?} source_rev={}",
+                    "[QUEUE][WATER_TERRAIN] solid source ready chunk {:?} source_rev={}",
                     chunk_id,
                     revision,
                 );
@@ -67,13 +67,13 @@ impl App {
             }
             Ok(None) => {
                 log::debug!(
-                    "[QUEUE][WATER_TERRAIN] skipped CPU solid source refresh for invalid chunk {:?}",
+                    "[QUEUE][WATER_TERRAIN] skipped solid source refresh for invalid chunk {:?}",
                     chunk_id,
                 );
             }
             Err(err) => {
                 log::error!(
-                    "[WATER][TERRAIN] failed to refresh CPU solid source chunk {:?}: {}",
+                    "[WATER][TERRAIN] failed to refresh solid source chunk {:?}: {}",
                     chunk_id,
                     err,
                 );
@@ -82,9 +82,10 @@ impl App {
     }
 
     pub(super) fn process_water_terrain_source_updates(&mut self) {
-        // Water colliders now consume the CPU solid voxel mirror directly. Drain
-        // contree source notifications here so the surface-ray cache does not
-        // accumulate stale update records, but do not use them for water invalidation.
+        // Water collider invalidation is driven by edit bounds. The collider
+        // source itself is a low-res CPU solid grid sampled directly from the
+        // GPU atlas, so drain contree notifications here only to keep the
+        // surface-ray cache from accumulating stale update records.
         let _ = self.contree_builder.take_cpu_chunk_source_updates();
     }
 
@@ -153,7 +154,7 @@ impl App {
 
         let Some(solid_chunk) = self.cpu_solid_voxels.get(chunk_key) else {
             log::warn!(
-                "[WATER][TERRAIN] skipped collider chunk {:?} rev {}: missing CPU solid voxel source",
+                "[WATER][TERRAIN] skipped collider chunk {:?} rev {}: missing solid source",
                 chunk_id,
                 revision,
             );
@@ -166,7 +167,7 @@ impl App {
             water_terrain_collider_source_revision(&self.cpu_solid_voxels, chunk_key);
         if self.water_terrain_built_source_revisions.get(&chunk_key) == Some(&source_revision) {
             log::debug!(
-                "[QUEUE][WATER_TERRAIN] skip unchanged CPU solid source chunk {:?} revision {} source={:?}",
+                "[QUEUE][WATER_TERRAIN] skip unchanged solid source chunk {:?} revision {} source={:?}",
                 chunk_id,
                 revision,
                 source_revision,
@@ -290,7 +291,7 @@ impl App {
             .is_some_and(|set| set.chunks.contains_key(&WATER_TERRAIN_SINGLE_CHUNK_ID))
     }
 
-    fn refresh_cpu_solid_voxel_chunk(&mut self, chunk_id: UVec3) -> anyhow::Result<Option<u64>> {
+    fn refresh_water_solid_sample_chunk(&mut self, chunk_id: UVec3) -> anyhow::Result<Option<u64>> {
         if chunk_id.cmpge(super::CHUNK_DIM).any() {
             return Ok(None);
         }
