@@ -64,7 +64,8 @@ use ui_style::{
     CUSTOM_GUI_FONT_NAME, CUSTOM_GUI_FONT_PATH, FLOWER_ACCENT, GOLD_ACCENT,
     ITEM_PANEL_HOE_ICON_FALLBACK_PATH, ITEM_PANEL_HOE_ICON_PATH,
     ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH, ITEM_PANEL_SHOVEL_ICON_PATH, ITEM_PANEL_SLOT_COUNT,
-    ITEM_PANEL_STAFF_ICON_FALLBACK_PATH, ITEM_PANEL_STAFF_ICON_PATH, PANEL_BG, PANEL_DARK,
+    ITEM_PANEL_STAFF_ICON_FALLBACK_PATH, ITEM_PANEL_STAFF_ICON_PATH,
+    ITEM_PANEL_WATER_ICON_FALLBACK_PATH, ITEM_PANEL_WATER_ICON_PATH, PANEL_BG, PANEL_DARK,
     SAGE_ACCENT, SHADOW_COLOR,
 };
 use uuid::Uuid;
@@ -161,6 +162,7 @@ pub struct App {
     item_panel_shovel_icon: Option<TextureHandle>,
     item_panel_staff_icon: Option<TextureHandle>,
     item_panel_hoe_icon: Option<TextureHandle>,
+    item_panel_water_icon: Option<TextureHandle>,
     selected_item_panel_slot: usize,
     active_voxel_type: ActiveVoxelType,
     audio_ray_tracing_debug_text: String,
@@ -431,6 +433,8 @@ const MAX_FRAMES_IN_FLIGHT: usize = 1;
 const SHOVEL_REMOVE_RADIUS: f32 = 0.08;
 const SHOVEL_DIG_INTERVAL: Duration = Duration::from_millis(80);
 const SHOVEL_RAY_QUERY_DISTANCE: f32 = 2.0;
+const WATER_DEBUG_SPAWN_COUNT: usize = 96;
+const WATER_DEBUG_SPAWN_RADIUS: f32 = 0.045;
 const TERRAIN_EDIT_LOOP_PATH: &str =
     "assets/sfx/ROCKMisc_Designed Rock Movement Loop A_SARM_RkBrck_Stereo-Loop.wav";
 const TERRAIN_EDIT_LOOP_VOLUME_DB: f32 = 20.0;
@@ -922,6 +926,7 @@ impl App {
             item_panel_shovel_icon: None,
             item_panel_staff_icon: None,
             item_panel_hoe_icon: None,
+            item_panel_water_icon: None,
             selected_item_panel_slot: 0,
             active_voxel_type: ActiveVoxelType::All,
             audio_ray_tracing_debug_text: "Audio RT: not sampled yet".to_owned(),
@@ -1500,6 +1505,33 @@ impl App {
             egui::TextureOptions::NEAREST,
         );
         self.item_panel_hoe_icon = Some(hoe_texture);
+
+        let water_path = if std::path::Path::new(ITEM_PANEL_WATER_ICON_PATH).exists() {
+            ITEM_PANEL_WATER_ICON_PATH
+        } else {
+            log::warn!(
+                "Item panel icon not found at {}. Falling back to {}",
+                ITEM_PANEL_WATER_ICON_PATH,
+                ITEM_PANEL_WATER_ICON_FALLBACK_PATH
+            );
+            ITEM_PANEL_WATER_ICON_FALLBACK_PATH
+        };
+
+        let water_bytes = std::fs::read(water_path)
+            .with_context(|| format!("Failed to read item panel icon from {water_path}"))?;
+        let water_rgba = image::load_from_memory(&water_bytes)
+            .with_context(|| format!("Failed to decode item panel icon from {water_path}"))?
+            .to_rgba8();
+        let water_size = [water_rgba.width() as usize, water_rgba.height() as usize];
+        let water_pixels = water_rgba.into_raw();
+        let water_image = ColorImage::from_rgba_unmultiplied(water_size, &water_pixels);
+
+        let water_texture = self.egui_renderer.context().load_texture(
+            "item_panel_water_debug",
+            water_image,
+            egui::TextureOptions::NEAREST,
+        );
+        self.item_panel_water_icon = Some(water_texture);
         Ok(())
     }
 
@@ -1619,16 +1651,23 @@ impl App {
                 {
                     match state {
                         ElementState::Pressed => {
-                            self.shovel_dig_held = true;
+                            self.shovel_dig_held = false;
                             let now = Instant::now();
                             if self.is_shovel_selected() && button == MouseButton::Left {
+                                self.shovel_dig_held = true;
                                 self.try_shovel_dig(now);
                             } else if self.is_shovel_selected() && button == MouseButton::Right {
+                                self.shovel_dig_held = true;
                                 self.try_shovel_place(now);
                             } else if self.is_staff_selected() && button == MouseButton::Left {
+                                self.shovel_dig_held = true;
                                 self.try_staff_regenerate(now);
                             } else if self.is_hoe_selected() && button == MouseButton::Left {
+                                self.shovel_dig_held = true;
                                 self.try_hoe_trim(now);
+                            } else if self.is_water_tool_selected() && button == MouseButton::Left {
+                                self.stop_terrain_edit_loop_sound();
+                                self.try_water_particle_spawn();
                             }
                         }
                         ElementState::Released => {
@@ -1745,6 +1784,7 @@ impl App {
                 let item_panel_shovel_icon = self.item_panel_shovel_icon.clone();
                 let item_panel_staff_icon = self.item_panel_staff_icon.clone();
                 let item_panel_hoe_icon = self.item_panel_hoe_icon.clone();
+                let item_panel_water_icon = self.item_panel_water_icon.clone();
                 let selected_item_panel_slot = self.selected_item_panel_slot;
                 let backpack_dirt_count = self.backpack_dirt_count;
                 let backpack_sand_count = self.backpack_sand_count;
@@ -1915,6 +1955,7 @@ impl App {
                             item_panel_shovel_icon.as_ref(),
                             item_panel_staff_icon.as_ref(),
                             item_panel_hoe_icon.as_ref(),
+                            item_panel_water_icon.as_ref(),
                             selected_item_panel_slot,
                         );
 

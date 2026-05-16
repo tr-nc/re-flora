@@ -27,10 +27,15 @@ pub(crate) const ITEM_PANEL_HOE_ICON_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/28_Copper_Sickle.PNG";
 pub(crate) const ITEM_PANEL_HOE_ICON_FALLBACK_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/28_Copper_Sickle.PNG";
-pub(crate) const ITEM_PANEL_SLOT_COUNT: usize = 3;
+pub(crate) const ITEM_PANEL_WATER_ICON_PATH: &str =
+    "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/15_Wooden_Watering_Can.PNG";
+pub(crate) const ITEM_PANEL_WATER_ICON_FALLBACK_PATH: &str =
+    "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/30_Copper_Watering_Can.PNG";
+pub(crate) const ITEM_PANEL_SLOT_COUNT: usize = 4;
 pub(crate) const SHOVEL_SLOT_INDEX: usize = 0;
 pub(crate) const STAFF_SLOT_INDEX: usize = 1;
 pub(crate) const HOE_SLOT_INDEX: usize = 2;
+pub(crate) const WATER_SLOT_INDEX: usize = 3;
 pub(crate) const MAX_VOXEL_STORAGE_PER_TYPE: u32 = 200_000;
 
 pub(crate) fn draw_item_panel(
@@ -38,6 +43,7 @@ pub(crate) fn draw_item_panel(
     item_panel_shovel_icon: Option<&TextureHandle>,
     item_panel_staff_icon: Option<&TextureHandle>,
     item_panel_hoe_icon: Option<&TextureHandle>,
+    item_panel_water_icon: Option<&TextureHandle>,
     selected_slot_idx: usize,
 ) {
     egui::Area::new("item_panel".into())
@@ -104,6 +110,14 @@ pub(crate) fn draw_item_panel(
                                         }
                                         if slot_idx == HOE_SLOT_INDEX {
                                             if let Some(icon) = item_panel_hoe_icon {
+                                                ui.add(
+                                                    egui::Image::new(icon)
+                                                        .fit_to_exact_size(icon_size),
+                                                );
+                                            }
+                                        }
+                                        if slot_idx == WATER_SLOT_INDEX {
+                                            if let Some(icon) = item_panel_water_icon {
                                                 ui.add(
                                                     egui::Image::new(icon)
                                                         .fit_to_exact_size(icon_size),

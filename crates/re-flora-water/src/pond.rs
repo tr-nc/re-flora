@@ -291,6 +291,59 @@ impl PondWaterSim {
         self.dx * self.config.terrain_collision_margin_cells.max(0.0)
     }
 
+    pub fn spawn_debug_particles_at_surface(
+        &mut self,
+        surface_point_ws: Vec3,
+        count: usize,
+        radius_ws: f32,
+    ) -> usize {
+        if count == 0
+            || radius_ws <= 0.0
+            || !radius_ws.is_finite()
+            || !surface_point_ws.is_finite()
+            || !self.config.collider.contains(surface_point_ws)
+        {
+            return 0;
+        }
+
+        let terrain = self.terrain.as_ref();
+        let collision_margin = self.terrain_collision_margin();
+        let bounds = self.config.collider;
+        let padding = (self.dx * 0.5).min(self.extent_ws.min_element() * 0.25);
+        let spawn_center = surface_point_ws + Vec3::Y * (self.dx + radius_ws * 0.5);
+        let mut spawned = 0usize;
+        self.particles.reserve(count);
+
+        for i in 0..count {
+            let i = i as u32;
+            let jitter = Vec3::new(
+                hash_unit(i, 17, 53) - 0.5,
+                (hash_unit(31, i, 97) - 0.5) * 0.5,
+                hash_unit(71, 43, i) - 0.5,
+            ) * (radius_ws * 2.0);
+            let mut pos = spawn_center + jitter;
+
+            if let Some(terrain) = terrain {
+                for _ in 0..4 {
+                    let Some((sdf, normal)) = terrain.sample_sdf_and_normal_ws(pos) else {
+                        break;
+                    };
+                    let correction = collision_margin - sdf;
+                    if correction <= 1.0e-5 {
+                        break;
+                    }
+                    pos += normal * (correction + self.dx * 0.1);
+                }
+            }
+
+            self.particles
+                .push(WaterParticle::new(bounds.clamp_point(pos, padding)));
+            spawned += 1;
+        }
+
+        spawned
+    }
+
     fn seed_particles(&mut self) {
         self.particles.clear();
         self.particles.reserve(self.config.particle_count);
@@ -376,6 +429,31 @@ mod tests {
 
         assert_eq!(sim.particles[0].v, Vec3::new(1.0, 2.0, 3.0));
         assert_eq!(sim.particles[0].j, 1.25);
+    }
+
+    #[test]
+    fn debug_spawn_adds_particles_inside_current_bounds() {
+        let mut sim = PondWaterSim::fixed_test_box();
+        let initial_len = sim.particles.len();
+
+        let spawned = sim.spawn_debug_particles_at_surface(Vec3::new(1.5, 0.5, 1.5), 12, 0.05);
+
+        assert_eq!(spawned, 12);
+        assert_eq!(sim.particles.len(), initial_len + 12);
+        for particle in sim.particles.iter().skip(initial_len) {
+            assert!(sim.config.collider.contains(particle.x));
+        }
+    }
+
+    #[test]
+    fn debug_spawn_rejects_points_outside_current_bounds() {
+        let mut sim = PondWaterSim::fixed_test_box();
+        let initial_len = sim.particles.len();
+
+        let spawned = sim.spawn_debug_particles_at_surface(Vec3::new(0.5, 0.5, 1.5), 12, 0.05);
+
+        assert_eq!(spawned, 0);
+        assert_eq!(sim.particles.len(), initial_len);
     }
 
     fn test_chunk(chunk_id: glam::IVec3) -> crate::WaterTerrainColliderChunk {

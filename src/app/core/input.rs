@@ -1,5 +1,6 @@
 use super::ui_style::{
     HOE_SLOT_INDEX, MAX_VOXEL_STORAGE_PER_TYPE, SHOVEL_SLOT_INDEX, STAFF_SLOT_INDEX,
+    WATER_SLOT_INDEX,
 };
 use super::App;
 use crate::app::world_edits::TerrainRemovalEdit;
@@ -36,6 +37,10 @@ impl App {
 
     pub(super) fn is_hoe_selected(&self) -> bool {
         self.selected_item_panel_slot == HOE_SLOT_INDEX
+    }
+
+    pub(super) fn is_water_tool_selected(&self) -> bool {
+        self.selected_item_panel_slot == WATER_SLOT_INDEX
     }
 
     fn active_voxel_type_id(&self) -> Option<u32> {
@@ -525,6 +530,46 @@ impl App {
             }
             Err(err) => {
                 log::error!("Hoe trim attempt failed during terrain query: {}", err);
+            }
+        }
+    }
+
+    pub(super) fn try_water_particle_spawn(&mut self) {
+        if self.window_state.is_cursor_visible() || !self.is_water_tool_selected() {
+            return;
+        }
+
+        match self.query_camera_ray_terrain_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
+            Ok(Some(center)) => {
+                let spawned = self.water_sim.spawn_debug_particles_at_surface(
+                    center,
+                    super::WATER_DEBUG_SPAWN_COUNT,
+                    super::WATER_DEBUG_SPAWN_RADIUS,
+                );
+                if spawned > 0 {
+                    log::info!(
+                        "[WATER][TOOL] spawned {} particles at ({:.3},{:.3},{:.3}) total_particles={}",
+                        spawned,
+                        center.x,
+                        center.y,
+                        center.z,
+                        self.water_sim.particles.len(),
+                    );
+                } else {
+                    let bounds = self.water_sim.config.collider;
+                    log::info!(
+                        "[WATER][TOOL] skipped spawn at ({:.3},{:.3},{:.3}); point is outside current water sim bounds {:?}..{:?}",
+                        center.x,
+                        center.y,
+                        center.z,
+                        bounds.min_ws,
+                        bounds.max_ws,
+                    );
+                }
+            }
+            Ok(None) => {}
+            Err(err) => {
+                log::error!("Water particle spawn failed during terrain query: {}", err);
             }
         }
     }

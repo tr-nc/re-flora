@@ -278,9 +278,11 @@ Goal: avoid building and publishing colliders that cannot affect the pond.
 Implemented work:
 
 1. Startup collider refresh now only enqueues chunks in the water grid domain: `floor(water_min)..=floor(water_max)`.
-2. Terrain edit invalidation also skips source refresh for chunks outside the water grid domain.
+2. Terrain edit invalidation rebuilds the affected mesh chunks first, then refreshes water collider sources only for those rebuilt chunks that intersect the current water grid domain.
 3. Startup logging reports enqueued water-domain chunks and skipped out-of-domain chunks.
 4. Direct chunk lookup and scan fallback behavior remain intact.
+
+Important scope note: this is deliberately domain-filtered, not a global all-world collider rebuild. With the current fixed pond box it effectively builds only the chunks that can touch that pond. For unrestricted future water, replace the fixed pond box with an active water-domain/chunk set and build terrain colliders lazily or by priority for every chunk that active water can occupy; do not rebuild every world chunk on every terrain edit.
 
 Expected effect: lower startup GPU solid readback, fewer worker jobs, fewer collider chunks published, and smaller terrain cache rebuild input. For the current fixed water box, the startup candidate set drops from the full `5 x 2 x 5 = 50` terrain chunks to at most `2 x 2 x 2 = 8` water-domain chunks before empty-terrain filtering.
 
@@ -378,9 +380,19 @@ Remaining work:
 
 1. Re-run the performance profile in an interactive visible app run and judge whether zero-cell contact margin, tight grid-node collision, and 1.5/s damping fix the observed gap/bounciness.
 2. Repeat terrain-edit soak in a visible/manual session if visual artifacts are suspected; the hidden scripted soak is clean.
-3. Decide whether `--water-profile performance` should become a GUI/settings preset.
-4. Try adaptive CFL limits only if the fixed 120 Hz profile shows instability or visual artifacts.
-5. Consider CPU parallelism or GPU/storage-buffer paths only after profile soak and cached G2P collision tuning.
+3. Expand from the fixed pond box to an active water-domain/chunk set before supporting arbitrary large water bodies.
+4. Decide whether `--water-profile performance` should become a GUI/settings preset.
+5. Try adaptive CFL limits only if the fixed 120 Hz profile shows instability or visual artifacts.
+6. Consider CPU parallelism or GPU/storage-buffer paths only after profile soak and cached G2P collision tuning.
+
+### Debug water placement tool
+
+Implemented as an initial bounded debug workflow:
+
+- Added a fourth item-panel slot using the watering-can icon from `assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals`.
+- Press `4` to select it.
+- Left click casts the existing CPU terrain ray from the camera, takes the terrain intersection, and injects a small cluster of MLS-MPM water particles above that point.
+- The tool currently respects the fixed `PondWaterConfig::collider` bounds; clicks outside the current pond simulation box log a skipped spawn. This is intentional until the active water-domain/chunk-set work exists.
 
 ## Validation policy
 
