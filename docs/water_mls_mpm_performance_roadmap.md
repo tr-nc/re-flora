@@ -13,17 +13,17 @@ Current status by phase:
 | Phase 3A: water-grid terrain cache | Done | grid-node terrain collision moved out of the hot loop |
 | Phase 3B: G2P terrain broadphase/cache | Implemented, needs more soak/tuning | cached skip/projection path is active and shadow-verified in perf runs |
 | Phase 4: collider scope/startup | Implemented and benchmarked | startup/edit collider refreshes are limited to water-grid-domain chunks |
-| Phase 5: solver scaling options | Implemented initial knobs/profile, needs visual soak | CLI sweep knobs plus `--water-profile performance`; release sweeps identify a safe low-CPU candidate |
+| Phase 5: solver scaling options | Implemented and hidden-soaked, needs interactive terrain-edit soak | CLI sweep knobs plus `--water-profile performance`; release sweeps identify a safe low-CPU candidate |
 
 Latest representative release result:
 
 - Baseline from `REPORT.md`: ~4.9 ms/substep.
 - Current Phase 3A release samples: ~1.95-1.99 ms/substep.
 - Current Phase 3B/Phase 4 default release samples: ~1.75-1.85 ms/substep.
-- Current Phase 5 performance profile samples: ~0.96-0.99 ms/substep at 120 Hz with 2048 particles.
+- Current Phase 5 performance profile samples: ~0.94-0.99 ms/substep at 120 Hz with 2048 particles.
 - Default solver cost is down by roughly 62-64% from the original report; the initial performance profile reduces per-second water CPU budget further by halving the fixed substep rate and particle count.
 - Functional release validation stayed clean: `penetrating 0`, `no_sdf 0`.
-- Phase 3B shadow verification has reported `terrain_shadow_false_skips 0` in the latest release run.
+- Phase 3B shadow verification has reported `terrain_shadow_false_skips 0` in the latest release runs, including a 10-second performance-profile screenshot soak.
 
 The remaining hot issue is still G2P terrain collision, but Phase 3B moved part of the common path onto cached-grid SDF data:
 
@@ -293,7 +293,7 @@ Release validation:
 
 ### Phase 5: solver-level scaling options
 
-Status: initial implementation complete; needs visual/gameplay soak before becoming the default.
+Status: implementation complete and hidden-screenshot-soaked; still needs interactive terrain-edit soak before becoming the default.
 
 Goal: preserve appearance while lowering total CPU budget after hot-loop waste is removed.
 
@@ -334,6 +334,7 @@ Additional Phase 5 sweeps:
 | 4096 particles, 32^3, 120 Hz | `/tmp/re-flora-logs/re-flora-20260516-234816.156-128686.log` | 1.77-1.82 ms | per-substep similar to default, but roughly half the substeps per second |
 | 2048 particles, 32^3, 120 Hz | `/tmp/re-flora-logs/re-flora-20260516-234832.306-128986.log` | 0.95-0.99 ms | best measured low-CPU candidate |
 | `--water-profile performance` | `/tmp/re-flora-logs/re-flora-20260516-235018.242-129739.log` | 0.96-0.99 ms | profile maps to 2048 particles, 32^3 grid, 120 Hz |
+| `--water-profile performance` 10s screenshot soak | `/tmp/re-flora-logs/re-flora-20260516-235536.196-131139.log` | 0.94-0.99 ms | screenshot `/tmp/re-flora-water-performance.png`; stable hidden run |
 
 Interpretation:
 
@@ -341,14 +342,22 @@ Interpretation:
 - Reducing grid resolution alone is counterproductive in this scene because the cached terrain broadphase gets less precise; grid-node work drops but G2P terrain exact fallbacks/corrections rise.
 - Reducing substep rate to 120 Hz does not change per-substep cost much, but roughly halves the number of water substeps per second. It needs visual/gameplay soak for stability and appearance.
 - The initial performance profile is the best measured low-CPU candidate: 2048 particles, 32^3 grid, 120 Hz.
+- The 10-second hidden screenshot soak saved a plausible frame with visible pond water and no obvious missing-water/terrain-penetration artifact in the captured view.
 - All sweep samples above kept `terrain_shadow_false_skips 0`, `penetrating 0`, and `no_sdf 0` in release hidden perf runs.
+
+Current recommendation:
+
+- Keep the default profile unchanged for quality/stability.
+- Treat `--water-profile performance` as the recommended opt-in low-CPU preset for automated runs and lower-end machines.
+- Do not reduce the water grid below 32^3 for this scene; 24^3 and 16^3 were slower due to less precise cached terrain classification.
 
 Remaining work:
 
-1. Visual/gameplay soak the performance profile in visible app runs and during terrain edits.
-2. Decide whether `--water-profile performance` is opt-in only or should become an exposed settings preset.
-3. Try adaptive CFL limits only if the fixed 120 Hz profile shows instability or visual artifacts.
-4. Consider CPU parallelism or GPU/storage-buffer paths only after profile soak and cached G2P collision tuning.
+1. Soak the performance profile in an interactive visible app run.
+2. Soak Phase 3B/Phase 4 with live terrain edits, watching collider refresh logs plus `terrain_shadow_false_skips`, `penetrating`, and `no_sdf`.
+3. Decide whether `--water-profile performance` should become a GUI/settings preset.
+4. Try adaptive CFL limits only if the fixed 120 Hz profile shows instability or visual artifacts.
+5. Consider CPU parallelism or GPU/storage-buffer paths only after profile soak and cached G2P collision tuning.
 
 ## Validation policy
 
