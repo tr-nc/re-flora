@@ -103,7 +103,10 @@ impl PondWaterSim {
         self.perf_stats.g2p_repair_seconds += g2p_breakdown.repair_seconds;
         self.perf_stats.total_seconds += total_start.elapsed().as_secs_f64();
         self.perf_stats.active_node_visits += active_nodes as u64;
-        self.perf_stats.g2p_terrain_checks += g2p_breakdown.terrain_checks;
+        self.perf_stats.g2p_terrain_cache_skips += g2p_breakdown.terrain_cache_skips;
+        self.perf_stats.g2p_terrain_cache_candidates += g2p_breakdown.terrain_cache_candidates;
+        self.perf_stats.g2p_terrain_exact_checks += g2p_breakdown.terrain_exact_checks;
+        self.perf_stats.g2p_terrain_exact_corrections += g2p_breakdown.terrain_exact_corrections;
     }
 
     fn log_perf_report(&mut self) {
@@ -116,7 +119,7 @@ impl PondWaterSim {
         let grid_nodes = self.grid.len();
         let particle_stats = water_particle_debug_stats(&self.particles, self.terrain.as_ref());
         log::info!(
-            "[PERF][WATER] particles {} grid {:?} nodes {} substeps {} total {:.2}ms avg {:.3}ms/substep repair {:.2}ms clear {:.2}ms p2g {:.2}ms grid {:.2}ms g2p {:.2}ms g2p_gather {:.2}ms g2p_box {:.2}ms g2p_terrain {:.2}ms g2p_repair {:.2}ms terrain_checks/substep {:.0} active_nodes/substep {:.0} particle_y {:.3}..{:.3} avg {:.3} terrain_sdf_min {:.4} penetrating {} no_sdf {}",
+            "[PERF][WATER] particles {} grid {:?} nodes {} substeps {} total {:.2}ms avg {:.3}ms/substep repair {:.2}ms clear {:.2}ms p2g {:.2}ms grid {:.2}ms g2p {:.2}ms g2p_gather {:.2}ms g2p_box {:.2}ms g2p_terrain {:.2}ms g2p_repair {:.2}ms terrain_cache_skips/substep {:.0} terrain_candidates/substep {:.0} terrain_exact_checks/substep {:.0} terrain_exact_corrections/substep {:.0} active_nodes/substep {:.0} particle_y {:.3}..{:.3} avg {:.3} terrain_sdf_min {:.4} penetrating {} no_sdf {}",
             self.particles.len(),
             self.grid_dim,
             grid_nodes,
@@ -132,7 +135,10 @@ impl PondWaterSim {
             stats.g2p_box_seconds * 1000.0,
             stats.g2p_terrain_seconds * 1000.0,
             stats.g2p_repair_seconds * 1000.0,
-            stats.g2p_terrain_checks as f64 / substeps,
+            stats.g2p_terrain_cache_skips as f64 / substeps,
+            stats.g2p_terrain_cache_candidates as f64 / substeps,
+            stats.g2p_terrain_exact_checks as f64 / substeps,
+            stats.g2p_terrain_exact_corrections as f64 / substeps,
             stats.active_node_visits as f64 / substeps,
             particle_stats.min_y,
             particle_stats.max_y,
@@ -358,7 +364,10 @@ impl PondWaterSim {
         let mut box_seconds = 0.0;
         let mut terrain_seconds = 0.0;
         let mut repair_seconds = 0.0;
-        let mut terrain_checks = 0u64;
+        let mut terrain_cache_skips = 0u64;
+        let mut terrain_cache_candidates = 0u64;
+        let mut terrain_exact_checks = 0u64;
+        let mut terrain_exact_corrections = 0u64;
         let origin_ws = self.origin_ws;
         let grid_dim = self.grid_dim;
         let dx = self.dx;
@@ -437,9 +446,10 @@ impl PondWaterSim {
                 if let Some(terrain) = terrain {
                     let local_pos = particle.x - origin_ws;
                     if terrain_grid_particle_may_hit(local_pos, inv_dx, dx, grid_dim, terrain_grid) {
-                        terrain_checks += 1;
+                        terrain_cache_candidates += 1;
+                        terrain_exact_checks += 1;
                         let terrain_start = collect_breakdown.then(Instant::now);
-                        collide_particle_with_terrain_iterative(
+                        if collide_particle_with_terrain_iterative(
                             particle,
                             terrain,
                             terrain_collision_margin,
@@ -449,10 +459,14 @@ impl PondWaterSim {
                             bounds.max_ws,
                             particle_min_padding,
                             particle_max_padding,
-                        );
+                        ) {
+                            terrain_exact_corrections += 1;
+                        }
                         if let Some(terrain_start) = terrain_start {
                             terrain_seconds += terrain_start.elapsed().as_secs_f64();
                         }
+                    } else {
+                        terrain_cache_skips += 1;
                     }
                 }
             }
@@ -480,7 +494,10 @@ impl PondWaterSim {
             box_seconds,
             terrain_seconds,
             repair_seconds,
-            terrain_checks,
+            terrain_cache_skips,
+            terrain_cache_candidates,
+            terrain_exact_checks,
+            terrain_exact_corrections,
         }
     }
 }
@@ -492,7 +509,10 @@ struct WaterG2pBreakdown {
     box_seconds: f64,
     terrain_seconds: f64,
     repair_seconds: f64,
-    terrain_checks: u64,
+    terrain_cache_skips: u64,
+    terrain_cache_candidates: u64,
+    terrain_exact_checks: u64,
+    terrain_exact_corrections: u64,
 }
 
 fn base_coord(grid_pos: Vec3) -> IVec3 {
@@ -751,12 +771,14 @@ fn collide_particle_with_terrain_iterative(
     box_max_ws: Vec3,
     box_min_padding: Vec3,
     box_max_padding: Vec3,
-) {
+) -> bool {
+    let mut corrected = false;
     for _ in 0..iterations {
         let before = particle.x;
         if !collide_particle_with_terrain(particle, terrain, collision_margin, max_correction) {
-            return;
+            return corrected;
         }
+        corrected = true;
         collide_particle_with_box_with_padding(
             particle,
             box_min_ws,
@@ -765,9 +787,10 @@ fn collide_particle_with_terrain_iterative(
             box_max_padding,
         );
         if particle.x.distance_squared(before) <= 1.0e-10 {
-            return;
+            return corrected;
         }
     }
+    corrected
 }
 
 #[derive(Clone, Copy, Debug)]

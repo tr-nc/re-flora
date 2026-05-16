@@ -116,7 +116,10 @@ pub struct WaterPerfStats {
     pub g2p_repair_seconds: f64,
     pub total_seconds: f64,
     pub active_node_visits: u64,
-    pub g2p_terrain_checks: u64,
+    pub g2p_terrain_cache_skips: u64,
+    pub g2p_terrain_cache_candidates: u64,
+    pub g2p_terrain_exact_checks: u64,
+    pub g2p_terrain_exact_corrections: u64,
 }
 
 impl WaterPerfStats {
