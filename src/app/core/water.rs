@@ -1,4 +1,4 @@
-use super::{App, WaterTerrainColliderRebuildRequest, VOXEL_DIM_PER_CHUNK};
+use super::{App, WaterTerrainColliderRebuildRequest, CHUNK_DIM, VOXEL_DIM_PER_CHUNK};
 use crate::app::cpu_solid_voxels::CpuSolidVoxelChunk;
 use glam::{IVec3, UVec3, Vec3};
 use re_flora_terrain_collider::signed_distance_from_solid_samples;
@@ -31,15 +31,20 @@ pub(super) struct WaterTerrainColliderWorkerResult {
 }
 
 impl App {
-    pub(super) fn enqueue_startup_water_terrain_collider_rebuild(&mut self) {
-        let Some(chunk_id) = water_terrain_chunk_id_to_uvec3(WATER_TERRAIN_SINGLE_CHUNK_ID) else {
-            log::warn!(
-                "[WATER][TERRAIN] invalid startup collider chunk {:?}",
-                WATER_TERRAIN_SINGLE_CHUNK_ID
-            );
-            return;
-        };
-        self.mark_water_terrain_source_chunk_dirty(chunk_id);
+    pub(super) fn enqueue_startup_water_terrain_collider_rebuilds(&mut self) {
+        let mut enqueued = 0usize;
+        for x in 0..CHUNK_DIM.x {
+            for y in 0..CHUNK_DIM.y {
+                for z in 0..CHUNK_DIM.z {
+                    self.mark_water_terrain_source_chunk_dirty(UVec3::new(x, y, z));
+                    enqueued += 1;
+                }
+            }
+        }
+        log::info!(
+            "[WATER][TERRAIN] enqueued startup collider rebuilds for {} chunks",
+            enqueued,
+        );
     }
 
     pub(super) fn enqueue_deferred_water_terrain_collider_rebuild(&mut self, chunk_id: UVec3) {
@@ -489,14 +494,6 @@ fn water_terrain_chunk_strictly_overlaps_box(
         && chunk_max_ws.y > box_min_ws.y
         && chunk_min_ws.z < box_max_ws.z
         && chunk_max_ws.z > box_min_ws.z
-}
-
-fn water_terrain_chunk_id_to_uvec3(chunk_id: IVec3) -> Option<UVec3> {
-    if chunk_id.cmpge(IVec3::ZERO).all() {
-        Some(chunk_id.as_uvec3())
-    } else {
-        None
-    }
 }
 
 fn water_terrain_chunk_work_key_to_id(chunk_id: UVec3) -> Option<IVec3> {

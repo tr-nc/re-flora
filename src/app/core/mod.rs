@@ -281,8 +281,6 @@ impl App {
 
         let chunk_id = work.chunk_id;
         let revision = work.revision;
-        let should_rebuild_water_terrain =
-            matches!(work.payload, ChunkRebuildRequest::PreserveFlora(_));
         let rebuild_start = Instant::now();
         let result = match work.payload {
             ChunkRebuildRequest::Normal => world_ops::mesh_generate_chunks(
@@ -306,7 +304,7 @@ impl App {
         let elapsed = rebuild_start.elapsed();
         let rebuild_succeeded = result.is_ok();
         self.deferred_chunk_rebuilds.complete(chunk_id, revision);
-        if rebuild_succeeded && should_rebuild_water_terrain {
+        if rebuild_succeeded {
             self.mark_water_terrain_source_chunk_dirty(chunk_id);
         }
 
@@ -1283,7 +1281,7 @@ impl App {
             log::error!("Failed to start audio engine: {}", err);
         }
 
-        self.enqueue_startup_water_terrain_collider_rebuild();
+        self.enqueue_startup_water_terrain_collider_rebuilds();
         self.render_start_time = Some(Instant::now());
     }
 
