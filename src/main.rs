@@ -102,6 +102,12 @@ pub struct AppOptions {
     pub tree_bench_min_thickness: bool,
     /// Do not wait for deferred rebuilds between tree benchmark samples.
     pub tree_bench_rapid: bool,
+    /// Print the temp run log directory and exit successfully.
+    pub print_log_dir: bool,
+    /// Print the latest run log path and exit successfully.
+    pub latest_log: bool,
+    /// Print the last N lines from the latest run log and exit successfully.
+    pub tail_latest_log: Option<usize>,
     /// Print CLI help and exit successfully.
     pub help: bool,
 }
@@ -148,6 +154,11 @@ impl AppOptions {
             None => None,
         };
 
+        let tail_latest_log = args
+            .iter()
+            .any(|a| a == "--tail-latest-log")
+            .then(|| parse_u32_after("--tail-latest-log").unwrap_or(200) as usize);
+
         Self {
             windowed: args.iter().any(|a| a == "--windowed"),
             hidden: args.iter().any(|a| a == "--hidden"),
@@ -168,6 +179,9 @@ impl AppOptions {
             tree_bench_samples: parse_u32_after("--tree-bench-samples").unwrap_or(10),
             tree_bench_min_thickness: args.iter().any(|a| a == "--tree-bench-min-thickness"),
             tree_bench_rapid: args.iter().any(|a| a == "--tree-bench-rapid"),
+            print_log_dir: args.iter().any(|a| a == "--print-log-dir"),
+            latest_log: args.iter().any(|a| a == "--latest-log"),
+            tail_latest_log,
             help: args.iter().any(|a| a == "--help" || a == "-h"),
         }
     }
@@ -198,6 +212,9 @@ Options:
   --tree-bench-samples <N>    Tree benchmark samples (default: 10)
   --tree-bench-min-thickness  Sweep Min Trunk Thickness instead of Tree Height
   --tree-bench-rapid          Do not wait for deferred rebuilds between samples
+  --print-log-dir             Print the temp run log directory and exit
+  --latest-log                Print the latest run log path and exit
+  --tail-latest-log [N]       Print the last N lines of the latest run log and exit (default: 200)
   -h, --help                  Show this help and exit
 
 Examples:
@@ -209,6 +226,8 @@ Examples:
   re-flora --no-shadows --no-denoise
   re-flora --screenshot out.png --screenshot-delay 3
   re-flora --auto-exit 10 --perf
+  re-flora --latest-log
+  re-flora --tail-latest-log 120
   re-flora --windowed --tree-bench --tree-bench-samples 10"#
     );
 }
@@ -247,6 +266,7 @@ fn backtrace_on() {
 const RUN_LOG_DIR_NAME: &str = "re-flora-logs";
 const RUN_LOG_FILE_PREFIX: &str = "re-flora-";
 const RUN_LOG_FILE_SUFFIX: &str = ".log";
+const RUN_LOG_LATEST_POINTER_FILE_NAME: &str = "latest-run-log.txt";
 const MAX_RUN_LOG_FILES: usize = 10;
 
 struct TeeLogWriter {
@@ -280,12 +300,76 @@ impl Write for TeeLogWriter {
     }
 }
 
+fn run_log_dir() -> PathBuf {
+    std::env::temp_dir().join(RUN_LOG_DIR_NAME)
+}
+
+fn latest_run_log_pointer_path(dir: &Path) -> PathBuf {
+    dir.join(RUN_LOG_LATEST_POINTER_FILE_NAME)
+}
+
 fn is_run_log_file(path: &Path) -> bool {
     let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
         return false;
     };
 
     file_name.starts_with(RUN_LOG_FILE_PREFIX) && file_name.ends_with(RUN_LOG_FILE_SUFFIX)
+}
+
+fn write_latest_run_log_pointer(dir: &Path, log_path: &Path) -> io::Result<()> {
+    fs::write(
+        latest_run_log_pointer_path(dir),
+        format!("{}\n", log_path.display()),
+    )
+}
+
+fn scan_latest_run_log_path(dir: &Path) -> io::Result<Option<PathBuf>> {
+    if !dir.exists() {
+        return Ok(None);
+    }
+
+    let mut logs = Vec::new();
+    for entry in fs::read_dir(dir)? {
+        let Ok(entry) = entry else {
+            continue;
+        };
+        let path = entry.path();
+        if !is_run_log_file(&path) {
+            continue;
+        }
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if file_type.is_file() {
+            logs.push(path);
+        }
+    }
+
+    logs.sort();
+    Ok(logs.pop())
+}
+
+fn latest_run_log_path() -> io::Result<Option<PathBuf>> {
+    let dir = run_log_dir();
+    let pointer_path = latest_run_log_pointer_path(&dir);
+    if let Ok(contents) = fs::read_to_string(&pointer_path) {
+        let path = PathBuf::from(contents.trim());
+        if is_run_log_file(&path) && path.is_file() {
+            return Ok(Some(path));
+        }
+    }
+
+    scan_latest_run_log_path(&dir)
+}
+
+fn tail_log_file(path: &Path, line_count: usize) -> io::Result<()> {
+    let content = fs::read_to_string(path)?;
+    let lines = content.lines().collect::<Vec<_>>();
+    let start = lines.len().saturating_sub(line_count);
+    for line in &lines[start..] {
+        println!("{line}");
+    }
+    Ok(())
 }
 
 fn prune_old_run_logs(dir: &Path, current_path: &Path) -> io::Result<()> {
@@ -328,7 +412,7 @@ fn prune_old_run_logs(dir: &Path, current_path: &Path) -> io::Result<()> {
 }
 
 fn create_run_log_file() -> io::Result<(PathBuf, File)> {
-    let dir = std::env::temp_dir().join(RUN_LOG_DIR_NAME);
+    let dir = run_log_dir();
     fs::create_dir_all(&dir)?;
 
     let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S%.3f");
@@ -344,6 +428,13 @@ fn create_run_log_file() -> io::Result<(PathBuf, File)> {
         ));
         match OpenOptions::new().write(true).create_new(true).open(&path) {
             Ok(file) => {
+                if let Err(err) = write_latest_run_log_pointer(&dir, &path) {
+                    eprintln!(
+                        "Failed to update latest run log pointer {}: {}",
+                        latest_run_log_pointer_path(&dir).display(),
+                        err
+                    );
+                }
                 if let Err(err) = prune_old_run_logs(&dir, &path) {
                     eprintln!("Failed to prune old run logs in {}: {}", dir.display(), err);
                 }
@@ -411,6 +502,51 @@ fn init_env_logger() -> Option<PathBuf> {
     log_path
 }
 
+fn handle_log_query_options(options: &AppOptions) -> bool {
+    if !options.print_log_dir && !options.latest_log && options.tail_latest_log.is_none() {
+        return false;
+    }
+
+    if options.print_log_dir {
+        println!("{}", run_log_dir().display());
+    }
+
+    if options.latest_log || options.tail_latest_log.is_some() {
+        match latest_run_log_path() {
+            Ok(Some(path)) => {
+                if options.latest_log {
+                    println!("{}", path.display());
+                }
+                if let Some(line_count) = options.tail_latest_log {
+                    eprintln!(
+                        "Tailing latest run log: {} (last {} lines)",
+                        path.display(),
+                        line_count
+                    );
+                    if let Err(err) = tail_log_file(&path, line_count) {
+                        eprintln!("Failed to read latest run log {}: {}", path.display(), err);
+                        std::process::exit(1);
+                    }
+                }
+            }
+            Ok(None) => {
+                eprintln!("No run logs found in {}", run_log_dir().display());
+                std::process::exit(1);
+            }
+            Err(err) => {
+                eprintln!(
+                    "Failed to inspect run logs in {}: {}",
+                    run_log_dir().display(),
+                    err
+                );
+                std::process::exit(1);
+            }
+        }
+    }
+
+    true
+}
+
 // fn play_audio_with_cpal() -> Result<()> {
 //     use crate::audio::{get_audio_data, play_audio_samples};
 
@@ -430,6 +566,9 @@ pub fn main() {
     let options = AppOptions::from_args();
     if options.help {
         print_help();
+        return;
+    }
+    if handle_log_query_options(&options) {
         return;
     }
 

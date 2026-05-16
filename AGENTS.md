@@ -7,6 +7,27 @@
 - Run `cargo check` after shader or Rust changes. It also regenerates shader-derived Rust structs.
 - Do not edit generated files directly unless they are part of the generated output from a build/check.
 
+## Validation Policy
+
+Keep `cargo test` fast and deterministic. Unit tests are valuable for pure logic guardrails such as chunk math, queue behavior, allocator correctness, CPU voxel sampling, and revision tracking. Do not turn long-running random benchmarks, GPU/window/audio checks, or perf experiments into normal unit tests; make them lightweight, `#[ignore]`, bench targets, scripts, or hidden app runs instead.
+
+Use real app runs plus logs for end-to-end verification, especially for Vulkan, audio, windowing, terrain editing, water collider refreshes, and performance regressions. A good default validation ladder is:
+
+```bash
+cargo fmt --check
+cargo check
+cargo test
+source ~/.zshrc
+cargo run --release -- --hidden --auto-exit 0.5
+```
+
+Inspect the generated temp run log after hidden runs. Prefer checking concrete expected log lines, hashes, dimensions, timings, and absence of errors over relying on visual behavior when running headless. Use the built-in log helpers instead of guessing file names:
+
+```bash
+cargo run --release -- --latest-log
+cargo run --release -- --tail-latest-log 200
+```
+
 ## Basic Perf Test
 
 Before running the app, source the shell environment:
