@@ -100,6 +100,7 @@ pub struct PlainBuilder {
 
     build_cmdbuf: CommandBuffer,
     next_edit_sample_seed: u32,
+    chunk_atlas_readback_buffer: Option<Buffer>,
 }
 
 impl PlainBuilder {
@@ -203,6 +204,7 @@ impl PlainBuilder {
             pool,
             build_cmdbuf,
             next_edit_sample_seed: 1,
+            chunk_atlas_readback_buffer: None,
         };
 
         fn init_atlas_images(vulkan_context: &VulkanContext, resources: &PlainBuilderResources) {
@@ -293,8 +295,36 @@ impl PlainBuilder {
         &self.resources
     }
 
+    fn ensure_chunk_atlas_readback_buffer(&mut self, byte_count: u64) {
+        let current_size = self
+            .chunk_atlas_readback_buffer
+            .as_ref()
+            .map(Buffer::get_size_bytes)
+            .unwrap_or(0);
+        if current_size >= byte_count {
+            return;
+        }
+
+        self.chunk_atlas_readback_buffer = Some(Buffer::new_sized(
+            self.vulkan_ctx.device().clone(),
+            self.resources
+                .chunk_atlas
+                .get_image()
+                .get_allocator()
+                .clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
+            gpu_allocator::MemoryLocation::GpuToCpu,
+            byte_count,
+        ));
+        log::info!(
+            "[PLAIN_BUILDER] allocated reusable chunk atlas readback buffer size_bytes={} previous_size_bytes={}",
+            byte_count,
+            current_size,
+        );
+    }
+
     pub fn read_chunk_atlas_region(
-        &self,
+        &mut self,
         atlas_offset: UVec3,
         atlas_dim: UVec3,
     ) -> Result<Vec<u8>> {
@@ -313,21 +343,19 @@ impl PlainBuilder {
         }
 
         let byte_count = atlas_dim.x as u64 * atlas_dim.y as u64 * atlas_dim.z as u64;
-        let mut buffer = Buffer::new_sized(
-            self.vulkan_ctx.device().clone(),
-            self.resources
-                .chunk_atlas
-                .get_image()
-                .get_allocator()
-                .clone(),
-            BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
-            gpu_allocator::MemoryLocation::GpuToCpu,
-            byte_count,
-        );
-        self.resources.chunk_atlas.get_image().copy_image_to_buffer(
-            &mut buffer,
-            &self.vulkan_ctx.get_general_queue(),
-            self.vulkan_ctx.command_pool(),
+        self.ensure_chunk_atlas_readback_buffer(byte_count);
+
+        let queue = self.vulkan_ctx.get_general_queue();
+        let command_pool = self.vulkan_ctx.command_pool();
+        let chunk_atlas = self.resources.chunk_atlas.get_image();
+        let buffer = self
+            .chunk_atlas_readback_buffer
+            .as_mut()
+            .expect("chunk atlas readback buffer should be allocated");
+        chunk_atlas.copy_image_to_buffer(
+            buffer,
+            &queue,
+            command_pool,
             vk::ImageLayout::GENERAL,
             0,
             TextureRegion {
@@ -339,7 +367,7 @@ impl PlainBuilder {
                 extent: Extent3D::new(atlas_dim.x, atlas_dim.y, atlas_dim.z),
             },
         );
-        buffer.read_back()
+        buffer.read_back_range(0, byte_count)
     }
 
     pub fn chunk_init(&mut self, atlas_offset: UVec3, atlas_dim: UVec3) -> Result<()> {
