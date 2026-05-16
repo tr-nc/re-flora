@@ -94,7 +94,6 @@ pub struct PlainBuilder {
     heightmap_ppl: ComputePipeline,
     chunk_modify_ppl: ComputePipeline,
     chunk_modify_sample_ppl: ComputePipeline,
-    #[allow(dead_code)]
     chunk_solid_sample_ppl: ComputePipeline,
     model_voxelize_ppl: ComputePipeline,
 
@@ -103,6 +102,7 @@ pub struct PlainBuilder {
 
     build_cmdbuf: CommandBuffer,
     next_edit_sample_seed: u32,
+    #[allow(dead_code)]
     chunk_atlas_readback_buffer: Option<Buffer>,
 }
 
@@ -309,6 +309,7 @@ impl PlainBuilder {
         &self.resources
     }
 
+    #[allow(dead_code)]
     fn ensure_chunk_atlas_readback_buffer(&mut self, byte_count: u64) {
         let current_size = self
             .chunk_atlas_readback_buffer
@@ -337,6 +338,7 @@ impl PlainBuilder {
         );
     }
 
+    #[allow(dead_code)]
     pub fn read_chunk_atlas_region(
         &mut self,
         atlas_offset: UVec3,
@@ -384,7 +386,6 @@ impl PlainBuilder {
         buffer.read_back_range(0, byte_count)
     }
 
-    #[allow(dead_code)]
     pub fn sample_chunk_atlas_solid_grid(
         &mut self,
         atlas_offset: UVec3,

@@ -296,12 +296,18 @@ impl App {
         }
 
         let atlas_offset = chunk_id * VOXEL_DIM_PER_CHUNK;
-        let voxel_types = self
-            .plain_builder
-            .read_chunk_atlas_region(atlas_offset, VOXEL_DIM_PER_CHUNK)?;
+        let solid_samples = self.plain_builder.sample_chunk_atlas_solid_grid(
+            atlas_offset,
+            VOXEL_DIM_PER_CHUNK,
+            WATER_TERRAIN_COLLIDER_DIM,
+        )?;
+        let voxel_types = solid_samples
+            .iter()
+            .map(|&solid| if solid == 0 { 0 } else { 1 })
+            .collect::<Vec<u8>>();
         let chunk = self.cpu_solid_voxels.upsert_from_voxel_types(
             chunk_id,
-            VOXEL_DIM_PER_CHUNK,
+            WATER_TERRAIN_COLLIDER_DIM,
             &voxel_types,
         )?;
         log::debug!(
@@ -309,9 +315,9 @@ impl App {
             chunk_id,
             chunk.revision(),
             chunk.solid_count(),
-            VOXEL_DIM_PER_CHUNK.x as usize
-                * VOXEL_DIM_PER_CHUNK.y as usize
-                * VOXEL_DIM_PER_CHUNK.z as usize,
+            WATER_TERRAIN_COLLIDER_DIM.x as usize
+                * WATER_TERRAIN_COLLIDER_DIM.y as usize
+                * WATER_TERRAIN_COLLIDER_DIM.z as usize,
         );
         Ok(Some(chunk.revision()))
     }
