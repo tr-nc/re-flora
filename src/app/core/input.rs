@@ -39,15 +39,6 @@ fn log_skipped_water_spawn(center: Vec3, reason: DebugWaterSpawnSkipReason) {
                 max_ws,
             );
         }
-        DebugWaterSpawnSkipReason::CapacityReached { max_particles } => {
-            log::info!(
-                "[WATER][TOOL] skipped spawn at ({:.3},{:.3},{:.3}); debug water particle cap reached ({})",
-                center.x,
-                center.y,
-                center.z,
-                max_particles,
-            );
-        }
     }
 }
 

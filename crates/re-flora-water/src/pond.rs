@@ -5,7 +5,6 @@ use std::sync::Arc;
 
 const DEFAULT_GRID_DIM: UVec3 = UVec3::new(32, 32, 32);
 const DEFAULT_PARTICLE_COUNT: usize = 4_096;
-const DEBUG_SPAWN_MAX_TOTAL_PARTICLE_MULTIPLIER: usize = 2;
 const DEBUG_SPAWN_HYDROSTATIC_J_MAX_DEPTH_CELLS: f32 = 4.0;
 // Particles are initially seeded into a compact pond volume, not the whole
 // chunk-sized simulation box. Keeping the rest volume below the full box volume
@@ -89,7 +88,6 @@ pub enum DebugWaterSpawnSkipReason {
     InvalidInput,
     OutsideCurrentBounds,
     TooCloseToBoundary { min_ws: Vec3, max_ws: Vec3 },
-    CapacityReached { max_particles: usize },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -336,17 +334,6 @@ impl PondWaterSim {
                 DebugWaterSpawnSkipReason::OutsideCurrentBounds,
             );
         }
-
-        let max_particles = self
-            .config
-            .particle_count
-            .saturating_mul(DEBUG_SPAWN_MAX_TOTAL_PARTICLE_MULTIPLIER);
-        if self.particles.len() >= max_particles {
-            return DebugWaterSpawnResult::Skipped(DebugWaterSpawnSkipReason::CapacityReached {
-                max_particles,
-            });
-        }
-        let count = count.min(max_particles - self.particles.len());
 
         let terrain = self.terrain.as_ref();
         let collision_margin = self.terrain_collision_margin();
@@ -636,21 +623,16 @@ mod tests {
     }
 
     #[test]
-    fn debug_spawn_rejects_when_particle_cap_is_reached() {
+    fn debug_spawn_allows_growth_past_initial_particle_count() {
         let mut sim = PondWaterSim::fixed_test_box();
-        let max_particles = sim.config.particle_count * DEBUG_SPAWN_MAX_TOTAL_PARTICLE_MULTIPLIER;
+        let old_cap = sim.config.particle_count * 2;
         let filler = sim.particles[0];
-        sim.particles.resize(max_particles, filler);
+        sim.particles.resize(old_cap, filler);
 
         let result = sim.spawn_debug_particles_at_surface(Vec3::new(1.5, 0.5, 1.5), 12, 0.05);
 
-        assert_eq!(
-            result,
-            DebugWaterSpawnResult::Skipped(DebugWaterSpawnSkipReason::CapacityReached {
-                max_particles
-            })
-        );
-        assert_eq!(sim.particles.len(), max_particles);
+        assert_eq!(result.spawned_count(), 12);
+        assert_eq!(sim.particles.len(), old_cap + 12);
     }
 
     #[test]
