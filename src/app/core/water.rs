@@ -295,29 +295,42 @@ impl App {
             return Ok(None);
         }
 
+        let total_start = Instant::now();
         let atlas_offset = chunk_id * VOXEL_DIM_PER_CHUNK;
+        let sample_start = Instant::now();
         let solid_samples = self.plain_builder.sample_chunk_atlas_solid_grid(
             atlas_offset,
             VOXEL_DIM_PER_CHUNK,
             WATER_TERRAIN_COLLIDER_DIM,
         )?;
+        let sample_elapsed = sample_start.elapsed();
+        let convert_start = Instant::now();
         let voxel_types = solid_samples
             .iter()
             .map(|&solid| if solid == 0 { 0 } else { 1 })
             .collect::<Vec<u8>>();
+        let convert_elapsed = convert_start.elapsed();
+        let store_start = Instant::now();
         let chunk = self.cpu_solid_voxels.upsert_from_voxel_types(
             chunk_id,
             WATER_TERRAIN_COLLIDER_DIM,
             &voxel_types,
         )?;
-        log::debug!(
-            "[WATER][TERRAIN] refreshed CPU solid chunk {:?} rev {} solid_voxels {}/{}",
+        let store_elapsed = store_start.elapsed();
+        log::info!(
+            "[WATER][TERRAIN] refreshed GPU solid source chunk {:?} rev {} solid_samples {}/{} source_dim {:?} readback_samples={} gpu_sample_total={:.3}ms convert={:.3}ms store={:.3}ms total={:.3}ms",
             chunk_id,
             chunk.revision(),
             chunk.solid_count(),
             WATER_TERRAIN_COLLIDER_DIM.x as usize
                 * WATER_TERRAIN_COLLIDER_DIM.y as usize
                 * WATER_TERRAIN_COLLIDER_DIM.z as usize,
+            WATER_TERRAIN_COLLIDER_DIM,
+            solid_samples.len(),
+            sample_elapsed.as_secs_f64() * 1000.0,
+            convert_elapsed.as_secs_f64() * 1000.0,
+            store_elapsed.as_secs_f64() * 1000.0,
+            total_start.elapsed().as_secs_f64() * 1000.0,
         );
         Ok(Some(chunk.revision()))
     }

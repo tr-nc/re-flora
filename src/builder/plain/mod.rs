@@ -392,6 +392,7 @@ impl PlainBuilder {
         atlas_dim: UVec3,
         sample_dim: UVec3,
     ) -> Result<Vec<u32>> {
+        let total_start = Instant::now();
         let atlas_extent = self.resources.chunk_atlas.get_image().get_desc().extent;
         let atlas_size = UVec3::new(atlas_extent.width, atlas_extent.height, atlas_extent.depth);
         if atlas_dim.x == 0 || atlas_dim.y == 0 || atlas_dim.z == 0 {
@@ -421,6 +422,7 @@ impl PlainBuilder {
             );
         }
 
+        let prepare_start = Instant::now();
         self.resources
             .chunk_solid_sample_info
             .fill_uniform(&ChunkSolidSampleInfo {
@@ -429,6 +431,10 @@ impl PlainBuilder {
                 sample_dim: sample_dim.to_array(),
                 ..ChunkSolidSampleInfo::zeroed()
             })?;
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("chunk_solid_sample_prepare", prepare_start.elapsed());
 
         let host_read_barrier = PipelineBarrier::new(
             vk::PipelineStageFlags::COMPUTE_SHADER,
@@ -438,6 +444,7 @@ impl PlainBuilder {
                 vk::AccessFlags::HOST_READ,
             )],
         );
+        let gpu_start = Instant::now();
         execute_one_time_command_with_fence(
             self.vulkan_ctx.device(),
             self.vulkan_ctx.command_pool(),
@@ -451,16 +458,53 @@ impl PlainBuilder {
                 host_read_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             },
         );
+        let gpu_elapsed = gpu_start.elapsed();
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("chunk_solid_sample_gpu_dispatch", gpu_elapsed);
 
         let byte_count = sample_count * std::mem::size_of::<u32>() as u64;
+        let readback_start = Instant::now();
         let raw = self
             .resources
             .chunk_solid_samples
             .read_back_range(0, byte_count)?;
-        Ok(raw
+        let readback_elapsed = readback_start.elapsed();
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("chunk_solid_sample_readback", readback_elapsed);
+
+        let convert_start = Instant::now();
+        let samples = raw
             .chunks_exact(std::mem::size_of::<u32>())
             .map(|chunk| u32::from_ne_bytes(chunk.try_into().unwrap()))
-            .collect())
+            .collect::<Vec<_>>();
+        let convert_elapsed = convert_start.elapsed();
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("chunk_solid_sample_convert", convert_elapsed);
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("chunk_solid_sample_total", total_start.elapsed());
+
+        log::info!(
+            "[PLAIN_BUILDER][CHUNK_SOLID_SAMPLE] atlas_offset={:?} source_dim={:?} sample_dim={:?} samples={} readback_bytes={} gpu_dispatch_wait={:.3}ms readback={:.3}ms convert={:.3}ms total={:.3}ms",
+            atlas_offset,
+            atlas_dim,
+            sample_dim,
+            sample_count,
+            byte_count,
+            gpu_elapsed.as_secs_f64() * 1000.0,
+            readback_elapsed.as_secs_f64() * 1000.0,
+            convert_elapsed.as_secs_f64() * 1000.0,
+            total_start.elapsed().as_secs_f64() * 1000.0,
+        );
+
+        Ok(samples)
     }
 
     pub fn chunk_init(&mut self, atlas_offset: UVec3, atlas_dim: UVec3) -> Result<()> {
