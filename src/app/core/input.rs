@@ -6,9 +6,50 @@ use super::App;
 use crate::app::world_edits::TerrainRemovalEdit;
 use crate::tracer::PlayerCollisionResult;
 use glam::{Vec2, Vec3};
+use re_flora_water::{DebugWaterSpawnResult, DebugWaterSpawnSkipReason};
 use std::time::Instant;
 use winit::event::DeviceEvent;
 use winit::event_loop::ActiveEventLoop;
+
+fn log_skipped_water_spawn(center: Vec3, reason: DebugWaterSpawnSkipReason) {
+    match reason {
+        DebugWaterSpawnSkipReason::InvalidInput => {
+            log::info!(
+                "[WATER][TOOL] skipped spawn at ({:.3},{:.3},{:.3}); invalid debug spawn input",
+                center.x,
+                center.y,
+                center.z,
+            );
+        }
+        DebugWaterSpawnSkipReason::OutsideCurrentBounds => {
+            log::info!(
+                "[WATER][TOOL] skipped spawn at ({:.3},{:.3},{:.3}); point is outside current water sim bounds",
+                center.x,
+                center.y,
+                center.z,
+            );
+        }
+        DebugWaterSpawnSkipReason::TooCloseToBoundary { min_ws, max_ws } => {
+            log::info!(
+                "[WATER][TOOL] skipped spawn at ({:.3},{:.3},{:.3}); point is too close to current water sim boundary; accepted debug spawn area is {:?}..{:?}",
+                center.x,
+                center.y,
+                center.z,
+                min_ws,
+                max_ws,
+            );
+        }
+        DebugWaterSpawnSkipReason::CapacityReached { max_particles } => {
+            log::info!(
+                "[WATER][TOOL] skipped spawn at ({:.3},{:.3},{:.3}); debug water particle cap reached ({})",
+                center.x,
+                center.y,
+                center.z,
+                max_particles,
+            );
+        }
+    }
+}
 
 impl App {
     const PLAYER_COLLISION_RAY_DISTANCE: f32 = 2.0;
@@ -541,30 +582,27 @@ impl App {
 
         match self.query_camera_ray_terrain_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
-                let spawned = self.water_sim.spawn_debug_particles_at_surface(
+                match self.water_sim.spawn_debug_particles_at_surface(
                     center,
                     super::WATER_DEBUG_SPAWN_COUNT,
                     super::WATER_DEBUG_SPAWN_RADIUS,
-                );
-                if spawned > 0 {
-                    log::info!(
-                        "[WATER][TOOL] spawned {} particles at ({:.3},{:.3},{:.3}) total_particles={}",
-                        spawned,
-                        center.x,
-                        center.y,
-                        center.z,
-                        self.water_sim.particles.len(),
-                    );
-                } else {
-                    let bounds = self.water_sim.config.collider;
-                    log::info!(
-                        "[WATER][TOOL] skipped spawn at ({:.3},{:.3},{:.3}); point is outside current water sim bounds {:?}..{:?}",
-                        center.x,
-                        center.y,
-                        center.z,
-                        bounds.min_ws,
-                        bounds.max_ws,
-                    );
+                ) {
+                    DebugWaterSpawnResult::Spawned {
+                        count,
+                        total_particles,
+                    } => {
+                        log::info!(
+                            "[WATER][TOOL] spawned {} particles at ({:.3},{:.3},{:.3}) total_particles={}",
+                            count,
+                            center.x,
+                            center.y,
+                            center.z,
+                            total_particles,
+                        );
+                    }
+                    DebugWaterSpawnResult::Skipped(reason) => {
+                        log_skipped_water_spawn(center, reason);
+                    }
                 }
             }
             Ok(None) => {}

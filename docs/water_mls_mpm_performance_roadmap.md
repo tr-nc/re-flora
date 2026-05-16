@@ -393,6 +393,8 @@ Implemented as an initial bounded debug workflow:
 - Press `4` to select it.
 - Left click casts the existing CPU terrain ray from the camera, takes the terrain intersection, and injects a small, sparse disk of MLS-MPM water particles above that point.
 - Spawn placement is lifted above the local particle surface when water is already present, to avoid injecting a dense compressed blob into the pond and triggering a pressure burst.
+- Boundary clicks are rejected instead of silently clamped inward; spawning a disk against the fixed pond box walls can pressure-burst the current small-domain solver.
+- The debug tool caps total water particles at 2x the profile's starting particle count so repeated clicks do not turn the performance profile into an unbounded high-volume stress test.
 - The tool currently respects the fixed `PondWaterConfig::collider` bounds; clicks outside the current pond simulation box log a skipped spawn. This is intentional until the active water-domain/chunk-set work exists.
 
 ## Validation policy

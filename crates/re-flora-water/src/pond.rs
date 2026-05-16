@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 const DEFAULT_GRID_DIM: UVec3 = UVec3::new(32, 32, 32);
 const DEFAULT_PARTICLE_COUNT: usize = 4_096;
+const DEBUG_SPAWN_MAX_TOTAL_PARTICLE_MULTIPLIER: usize = 2;
 // Particles are initially seeded into a compact pond volume, not the whole
 // chunk-sized simulation box. Keeping the rest volume below the full box volume
 // avoids pressure-driven expansion into terrain solids and artificial walls.
@@ -79,6 +80,29 @@ impl PondWaterConfig {
         assert!(damping_per_sec >= 0.0 && damping_per_sec.is_finite());
         self.linear_damping_per_sec = damping_per_sec;
         self
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum DebugWaterSpawnSkipReason {
+    InvalidInput,
+    OutsideCurrentBounds,
+    TooCloseToBoundary { min_ws: Vec3, max_ws: Vec3 },
+    CapacityReached { max_particles: usize },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum DebugWaterSpawnResult {
+    Spawned { count: usize, total_particles: usize },
+    Skipped(DebugWaterSpawnSkipReason),
+}
+
+impl DebugWaterSpawnResult {
+    pub fn spawned_count(self) -> usize {
+        match self {
+            Self::Spawned { count, .. } => count,
+            Self::Skipped(_) => 0,
+        }
     }
 }
 
@@ -296,25 +320,41 @@ impl PondWaterSim {
         surface_point_ws: Vec3,
         count: usize,
         radius_ws: f32,
-    ) -> usize {
+    ) -> DebugWaterSpawnResult {
         if count == 0
             || radius_ws <= 0.0
             || !radius_ws.is_finite()
             || !surface_point_ws.is_finite()
-            || !self.config.collider.contains(surface_point_ws)
         {
-            return 0;
+            return DebugWaterSpawnResult::Skipped(DebugWaterSpawnSkipReason::InvalidInput);
         }
+
+        let bounds = self.config.collider;
+        if !bounds.contains(surface_point_ws) {
+            return DebugWaterSpawnResult::Skipped(
+                DebugWaterSpawnSkipReason::OutsideCurrentBounds,
+            );
+        }
+
+        let max_particles = self
+            .config
+            .particle_count
+            .saturating_mul(DEBUG_SPAWN_MAX_TOTAL_PARTICLE_MULTIPLIER);
+        if self.particles.len() >= max_particles {
+            return DebugWaterSpawnResult::Skipped(DebugWaterSpawnSkipReason::CapacityReached {
+                max_particles,
+            });
+        }
+        let count = count.min(max_particles - self.particles.len());
 
         let terrain = self.terrain.as_ref();
         let collision_margin = self.terrain_collision_margin();
-        let bounds = self.config.collider;
         let padding = (self.dx * self.config.wall_padding_cells.max(1.0))
             .min(self.extent_ws.min_element() * 0.25);
         let safe_min = bounds.min_ws + Vec3::splat(padding);
         let safe_max = bounds.max_ws - Vec3::splat(padding);
         if safe_min.cmpge(safe_max).any() {
-            return 0;
+            return DebugWaterSpawnResult::Skipped(DebugWaterSpawnSkipReason::InvalidInput);
         }
 
         // A dense random blob injected inside the existing pond creates an
@@ -328,17 +368,32 @@ impl PondWaterSim {
             .max(self.dx * 0.25)
             .min((safe_max.y - safe_min.y) * 0.25);
         if horizontal_radius <= 0.0 || vertical_radius <= 0.0 {
-            return 0;
+            return DebugWaterSpawnResult::Skipped(DebugWaterSpawnSkipReason::InvalidInput);
         }
 
-        let spawn_x = surface_point_ws.x.clamp(
+        let accepted_min = Vec3::new(
             safe_min.x + horizontal_radius,
-            safe_max.x - horizontal_radius,
-        );
-        let spawn_z = surface_point_ws.z.clamp(
+            bounds.min_ws.y,
             safe_min.z + horizontal_radius,
+        );
+        let accepted_max = Vec3::new(
+            safe_max.x - horizontal_radius,
+            bounds.max_ws.y,
             safe_max.z - horizontal_radius,
         );
+        if surface_point_ws.x < accepted_min.x
+            || surface_point_ws.x > accepted_max.x
+            || surface_point_ws.z < accepted_min.z
+            || surface_point_ws.z > accepted_max.z
+        {
+            return DebugWaterSpawnResult::Skipped(DebugWaterSpawnSkipReason::TooCloseToBoundary {
+                min_ws: accepted_min,
+                max_ws: accepted_max,
+            });
+        }
+
+        let spawn_x = surface_point_ws.x.clamp(accepted_min.x, accepted_max.x);
+        let spawn_z = surface_point_ws.z.clamp(accepted_min.z, accepted_max.z);
         let (local_surface_y, local_average_j) =
             self.local_water_surface_y_and_average_j(spawn_x, spawn_z, horizontal_radius * 1.5);
         let base_y = surface_point_ws.y.max(local_surface_y.unwrap_or(surface_point_ws.y));
@@ -389,7 +444,10 @@ impl PondWaterSim {
             self.accumulator = 0.0;
         }
 
-        spawned
+        DebugWaterSpawnResult::Spawned {
+            count: spawned,
+            total_particles: self.particles.len(),
+        }
     }
 
     fn local_water_surface_y_and_average_j(
@@ -516,9 +574,9 @@ mod tests {
         let mut sim = PondWaterSim::fixed_test_box();
         let initial_len = sim.particles.len();
 
-        let spawned = sim.spawn_debug_particles_at_surface(Vec3::new(1.5, 0.5, 1.5), 12, 0.05);
+        let result = sim.spawn_debug_particles_at_surface(Vec3::new(1.5, 0.5, 1.5), 12, 0.05);
 
-        assert_eq!(spawned, 12);
+        assert_eq!(result.spawned_count(), 12);
         assert_eq!(sim.particles.len(), initial_len + 12);
         for particle in sim.particles.iter().skip(initial_len) {
             assert!(sim.config.collider.contains(particle.x));
@@ -530,10 +588,45 @@ mod tests {
         let mut sim = PondWaterSim::fixed_test_box();
         let initial_len = sim.particles.len();
 
-        let spawned = sim.spawn_debug_particles_at_surface(Vec3::new(0.5, 0.5, 1.5), 12, 0.05);
+        let result = sim.spawn_debug_particles_at_surface(Vec3::new(0.5, 0.5, 1.5), 12, 0.05);
 
-        assert_eq!(spawned, 0);
+        assert_eq!(
+            result,
+            DebugWaterSpawnResult::Skipped(DebugWaterSpawnSkipReason::OutsideCurrentBounds)
+        );
         assert_eq!(sim.particles.len(), initial_len);
+    }
+
+    #[test]
+    fn debug_spawn_rejects_points_too_close_to_boundary() {
+        let mut sim = PondWaterSim::fixed_test_box();
+        let initial_len = sim.particles.len();
+
+        let result = sim.spawn_debug_particles_at_surface(Vec3::new(1.05, 0.5, 1.5), 12, 0.12);
+
+        assert!(matches!(
+            result,
+            DebugWaterSpawnResult::Skipped(DebugWaterSpawnSkipReason::TooCloseToBoundary { .. })
+        ));
+        assert_eq!(sim.particles.len(), initial_len);
+    }
+
+    #[test]
+    fn debug_spawn_rejects_when_particle_cap_is_reached() {
+        let mut sim = PondWaterSim::fixed_test_box();
+        let max_particles = sim.config.particle_count * DEBUG_SPAWN_MAX_TOTAL_PARTICLE_MULTIPLIER;
+        let filler = sim.particles[0];
+        sim.particles.resize(max_particles, filler);
+
+        let result = sim.spawn_debug_particles_at_surface(Vec3::new(1.5, 0.5, 1.5), 12, 0.05);
+
+        assert_eq!(
+            result,
+            DebugWaterSpawnResult::Skipped(DebugWaterSpawnSkipReason::CapacityReached {
+                max_particles
+            })
+        );
+        assert_eq!(sim.particles.len(), max_particles);
     }
 
     #[test]
@@ -544,9 +637,10 @@ mod tests {
         let spawn_z = 1.5;
         let before_surface_y = max_particle_y_near(&sim, spawn_x, spawn_z, 0.18);
 
-        let spawned = sim.spawn_debug_particles_at_surface(Vec3::new(spawn_x, 0.1, spawn_z), 16, 0.08);
+        let result =
+            sim.spawn_debug_particles_at_surface(Vec3::new(spawn_x, 0.1, spawn_z), 16, 0.08);
 
-        assert_eq!(spawned, 16);
+        assert_eq!(result.spawned_count(), 16);
         let spawned_min_y = sim.particles[initial_len..]
             .iter()
             .map(|particle| particle.x.y)
