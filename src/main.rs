@@ -288,7 +288,7 @@ Examples:
   re-flora --screenshot out.png --screenshot-delay 3
   re-flora --auto-exit 10 --perf
   re-flora --hidden --auto-exit 4 --perf --water-profile performance
-  re-flora --hidden --auto-exit 4 --perf --water-profile performance --water-damping 1.5 --water-terrain-margin-cells 0.2
+  re-flora --hidden --auto-exit 4 --perf --water-profile performance --water-damping 1.5 --water-terrain-margin-cells 0.0
   re-flora --hidden --auto-exit 14 --perf --water-profile performance --water-edit-soak
   re-flora --latest-log
   re-flora --tail-latest-log 120

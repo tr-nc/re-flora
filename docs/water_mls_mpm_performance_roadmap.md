@@ -21,9 +21,9 @@ Latest representative release result:
 - Current Phase 3A release samples: ~1.95-1.99 ms/substep.
 - Current Phase 3B/Phase 4 default release samples: ~1.75-1.85 ms/substep.
 - Current Phase 5 performance profile samples: ~0.88-1.02 ms/substep at 120 Hz with 2048 particles, including scripted terrain-edit soaks.
-- Default solver cost is down by roughly 62-64% from the original report; the initial performance profile reduces per-second water CPU budget further by halving the fixed substep rate and particle count.
-- Functional release validation stayed clean: `penetrating 0`, `no_sdf 0`.
-- Phase 3B shadow verification has reported `terrain_shadow_false_skips 0` in the latest release runs, including a 10-second performance-profile screenshot soak, a 14-second terrain-edit soak, and the later contact/damping tuning run.
+- Default solver cost is down by roughly 62-64% from the original report; the performance profile reduces per-second water CPU budget further by halving the fixed substep rate and particle count.
+- After visible contact tuning, the performance profile intentionally targets the coarse terrain SDF surface instead of a positive keep-out gap. Hidden logs now show bounded sub-cell coarse-SDF overlap (`terrain_sdf_min` roughly `-0.005..-0.009`) rather than requiring `penetrating 0` against the lower-resolution water collider.
+- Phase 3B shadow verification has reported `terrain_shadow_false_skips 0` in the latest release runs, including a 10-second performance-profile screenshot soak, scripted terrain-edit soaks, and the later contact/damping/grid-contact tuning runs.
 
 The remaining hot issue is still G2P terrain collision, but Phase 3B moved part of the common path onto cached-grid SDF data:
 
@@ -43,6 +43,7 @@ Resolved findings:
 - Terrain collider set lookup now uses direct unit chunk lookup for ordinary samples, with scan fallback for boundaries/misses.
 - Steady-state `repair_particles()` no longer repeats a full terrain collision pass before P2G.
 - `update_grid()` uses cached water-grid terrain samples instead of live SDF/normal queries per active node.
+- The cached normal band is wider than the actual grid-node collision band; visible tuning showed that using the whole normal-cache band as a collision band held water artificially far from terrain.
 - Non-perf simulation avoids per-particle `Instant::now()` timing overhead.
 
 Remaining findings:
@@ -148,7 +149,7 @@ Implemented code:
 - `PondWaterSim::terrain_grid` cache in `crates/re-flora-water/src/pond.rs`.
 - `PondWaterSim::rebuild_terrain_grid_cache()` in `crates/re-flora-water/src/mls_mpm.rs`.
 - Cache rebuilds on terrain set, chunk insert, and terrain clear.
-- `update_grid()` uses cached near-surface normals instead of live collider queries.
+- `update_grid()` uses cached terrain normals instead of live collider queries, but only applies grid velocity collision in the tight contact band; the wider near-surface cache band is for G2P normal reuse and must not make water hover.
 
 Implemented cache contents:
 
@@ -254,13 +255,14 @@ Interpretation:
 Recommended next steps:
 
 1. Expand soak coverage beyond the current pond scene and the scripted edit sequence.
-2. Tune fallback slack only while `terrain_shadow_false_skips` remains zero and `penetrating 0` stays stable.
+2. Tune fallback slack only while `terrain_shadow_false_skips` remains zero and coarse-collider overlap stays bounded to a small sub-cell band.
 3. Consider storing a cached gradient/normal for all terrain-grid nodes, not just near-surface nodes, if it reduces query cost or improves cached projection quality.
 4. If exact fallbacks remain high after tuning, consider a coarser per-cell classification cache: empty / cached-projectable / exact-required.
 
 Phase 3B completion criteria:
 
-- `penetrating 0` and `no_sdf 0` remain true across several release hidden runs.
+- No missed terrain contacts: `terrain_shadow_false_skips 0` remains true across several release hidden runs.
+- Coarse-collider overlap remains bounded to a small sub-cell band in tight-contact profiles, or `penetrating 0` remains true in conservative profiles.
 - Shadow verification reports no missed terrain contacts for skipped particles.
 - Exact G2P terrain checks are substantially below particle count in representative scenes.
 - `g2p_terrain` is no longer a dominant sub-cost relative to G2P gather, or further reductions require solver-level changes.
@@ -316,7 +318,7 @@ Implemented work:
    - `--water-edit-soak`: applies a deterministic pond-edge dig/place/dig sequence after startup water collider work is idle.
 4. Added named water profile selection:
    - `--water-profile default`: current quality/default config, 4096 particles, 32^3 grid, 240 Hz substeps.
-   - `--water-profile performance`: lower-CPU candidate, 2048 particles, 32^3 grid, 120 Hz substeps, 0.2-cell terrain margin, and 1.5/s damping.
+   - `--water-profile performance`: lower-CPU candidate, 2048 particles, 32^3 grid, 120 Hz substeps, zero-cell terrain margin, tight grid-node contact, and 1.5/s damping.
 5. Water startup logs the selected profile, effective particle count, grid dimension, substep dt, terrain margin, and damping.
 6. Changing particle count preserves the intended total fill volume by rescaling per-particle volume.
 7. Explicit particle/grid/substep/contact/damping CLI overrides are applied after the named profile, so profiles remain easy to tweak during sweeps.
@@ -348,7 +350,9 @@ Additional Phase 5 sweeps:
 | `--water-profile performance` 10s screenshot soak | `/tmp/re-flora-logs/re-flora-20260516-235536.196-131139.log` | 0.94-0.99 ms | screenshot `/tmp/re-flora-water-performance.png`; stable hidden run |
 | `--water-profile performance --water-edit-soak` | `/tmp/re-flora-logs/re-flora-20260517-001053.304-132670.log` | 0.94-1.00 ms | three scripted pond terrain edits; collider refresh/rebuild path stayed clean |
 | tuned `--water-profile performance` | `/tmp/re-flora-logs/re-flora-20260517-004631.454-136366.log` | 0.94-0.99 ms | 0.2-cell terrain margin plus 1.5/s damping; `terrain_sdf_min` dropped to ~0.002-0.003 |
-| tuned `--water-profile performance --water-edit-soak` | `/tmp/re-flora-logs/re-flora-20260517-004700.160-136817.log` | 0.88-1.02 ms | tuned contact/damping with three scripted edits; validation stayed clean |
+| tuned `--water-profile performance --water-edit-soak` | `/tmp/re-flora-logs/re-flora-20260517-004700.160-136817.log` | 0.88-1.02 ms | 0.2-cell terrain margin plus damping; hidden edit validation stayed clean |
+| tight-grid-contact `--water-profile performance` | `/tmp/re-flora-logs/re-flora-20260517-005709.303-138961.log` | 0.94-1.00 ms | grid-node collision uses only the true contact band; profile margin is now 0.0 cells; bounded coarse-SDF overlap |
+| tight-grid-contact `--water-profile performance --water-edit-soak` | `/tmp/re-flora-logs/re-flora-20260517-005812.791-139695.log` | 0.88-0.98 ms | three scripted edits; `terrain_shadow_false_skips 0`, `no_sdf 0`, bounded `terrain_sdf_min` around `-0.005..-0.009` |
 
 Interpretation:
 
@@ -357,10 +361,12 @@ Interpretation:
 - Reducing substep rate to 120 Hz does not change per-substep cost much, but roughly halves the number of water substeps per second. It needs visual/gameplay soak for stability and appearance.
 - The performance profile remains the best measured low-CPU candidate: 2048 particles, 32^3 grid, 120 Hz.
 - A visible interactive soak found two visual/feel issues: particles were kept visibly too far from terrain, and the water felt too elastic/undamped.
-- The follow-up tuning reduced the performance-profile terrain keep-out margin from 0.5 grid cells to 0.2 grid cells and added 1.5/s velocity damping. Hidden logs now report `terrain_sdf_min` around `0.002-0.004` instead of the earlier `~0.013-0.015`, while staying non-penetrating.
+- The first follow-up tuning reduced the performance-profile terrain keep-out margin from 0.5 grid cells to 0.2 grid cells and added 1.5/s velocity damping. Hidden logs reported `terrain_sdf_min` around `0.002-0.004` instead of the earlier `~0.013-0.015`, while staying non-penetrating.
+- A second visible-feedback pass found the remaining stable gap was mostly caused by grid-node velocity collision using the whole near-surface normal-cache band. The fix keeps normals cached in the wide band but applies grid velocity projection only when node SDF is inside the actual contact margin. The performance profile now uses a 0.0-cell terrain margin to prioritize visual contact.
+- Because the water collider is a 32^3 SDF built from a 256^3 terrain chunk, zero-margin visual contact can produce small negative coarse-SDF readings. Current acceptance for the tight profile is bounded sub-cell overlap plus `terrain_shadow_false_skips 0` and `no_sdf 0`, not `penetrating 0` against the coarse collider.
 - The 10-second hidden screenshot soak saved a plausible frame with visible pond water and no obvious missing-water/terrain-penetration artifact in the captured view.
 - The scripted terrain-edit soak applied `shore-dig-a`, `shore-rock-place`, and `shore-dig-b`; the water collider source refreshed chunk `UVec3(1, 0, 1)` and published updated collider revisions without broad out-of-domain work.
-- All sweep and soak samples above kept `terrain_shadow_false_skips 0`, `penetrating 0`, and `no_sdf 0` in release hidden perf runs.
+- Conservative sweep and soak samples kept `terrain_shadow_false_skips 0`, `penetrating 0`, and `no_sdf 0`; the current tight-contact performance profile keeps `terrain_shadow_false_skips 0` and `no_sdf 0` with bounded coarse-collider overlap.
 
 Current recommendation:
 
@@ -370,7 +376,7 @@ Current recommendation:
 
 Remaining work:
 
-1. Re-run the performance profile in an interactive visible app run and judge whether 0.2-cell contact margin and 1.5/s damping fix the observed gap/bounciness.
+1. Re-run the performance profile in an interactive visible app run and judge whether zero-cell contact margin, tight grid-node collision, and 1.5/s damping fix the observed gap/bounciness.
 2. Repeat terrain-edit soak in a visible/manual session if visual artifacts are suspected; the hidden scripted soak is clean.
 3. Decide whether `--water-profile performance` should become a GUI/settings preset.
 4. Try adaptive CFL limits only if the fixed 120 Hz profile shows instability or visual artifacts.
@@ -415,6 +421,7 @@ Primary metrics:
 - `terrain_shadow_false_skips`
 - `terrain_shadow_sdf_err_avg`
 - `terrain_shadow_sdf_err_max`
+- `terrain_sdf_min`
 - `penetrating`
 - `no_sdf`
 
@@ -424,4 +431,5 @@ Functional acceptance:
 - `cargo test` passes.
 - Hidden release run exits successfully.
 - Latest log has no water, Vulkan, or shader errors.
-- `penetrating 0` and `no_sdf 0` stay stable in representative release perf logs.
+- Conservative profiles should keep `penetrating 0` and `no_sdf 0` stable in representative release perf logs.
+- Tight-contact profiles may report shallow coarse-collider penetration; accept only if `terrain_sdf_min` remains bounded to a small sub-cell band, `terrain_shadow_false_skips 0`, and `no_sdf 0` stay stable.

@@ -308,6 +308,7 @@ impl PondWaterSim {
         let grid_dim = self.grid_dim;
         let gravity = self.config.gravity;
         let linear_damping = velocity_damping_factor(self.config.linear_damping_per_sec, dt);
+        let terrain_collision_margin = self.terrain_collision_margin();
         let wall_cells = self.config.wall_padding_cells.max(1.0);
         let wall_damping = self.config.wall_damping.clamp(0.0, 1.0);
         let terrain_grid = &self.terrain_grid;
@@ -330,7 +331,13 @@ impl PondWaterSim {
 
                     let mut normal = Vec3::ZERO;
                     let terrain_sample = terrain_grid.get(idx).copied().unwrap_or_default();
-                    if terrain_sample.near_surface && terrain_sample.normal.length_squared() > 0.0 {
+                    // The cached normal band is wider than the actual contact band so
+                    // G2P can reuse normals near terrain. Grid velocity collision must
+                    // stay tight; projecting every near-band node makes water hover.
+                    if terrain_sample.has_sdf
+                        && terrain_sample.sdf <= terrain_collision_margin
+                        && terrain_sample.normal.length_squared() > 0.0
+                    {
                         node.v = project_velocity_away_from_surface(node.v, terrain_sample.normal);
                         normal += terrain_sample.normal;
                     }
