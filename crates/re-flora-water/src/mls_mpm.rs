@@ -1,7 +1,10 @@
 use glam::{IVec3, Mat3, Vec3};
 use std::time::Instant;
 
-use super::{collider::WaterTerrainColliderSet, pond::PondWaterSim};
+use super::{
+    collider::WaterTerrainColliderSet,
+    pond::{PondWaterSim, WaterTerrainGridSample},
+};
 
 const MAX_SUBSTEPS_PER_UPDATE: usize = 8;
 const ACTIVE_MASS_EPSILON: f32 = 1.0e-8;
@@ -56,9 +59,10 @@ impl PondWaterSim {
             return;
         }
 
-        self.repair_particles(dt);
-
         if !perf_logging {
+            // G2P already resolves terrain every substep; the pre-P2G repair pass
+            // only needs finite/box/J/speed cleanup in steady state.
+            self.repair_particles(dt, false);
             self.clear_grid();
             self.particle_to_grid(dt);
             self.update_grid(dt);
@@ -67,7 +71,15 @@ impl PondWaterSim {
         }
 
         let total_start = Instant::now();
+        let repair_start = Instant::now();
+        // G2P already resolves terrain every substep; the pre-P2G repair pass
+        // only needs finite/box/J/speed cleanup in steady state.
+        self.repair_particles(dt, false);
+        let repair_seconds = repair_start.elapsed().as_secs_f64();
+
+        let clear_start = Instant::now();
         self.clear_grid();
+        let clear_seconds = clear_start.elapsed().as_secs_f64();
 
         let p2g_start = Instant::now();
         self.particle_to_grid(dt);
@@ -77,16 +89,21 @@ impl PondWaterSim {
         let active_nodes = self.update_grid(dt);
         let grid_seconds = grid_start.elapsed().as_secs_f64();
 
-        let g2p_start = Instant::now();
-        self.grid_to_particle(dt);
-        let g2p_seconds = g2p_start.elapsed().as_secs_f64();
+        let g2p_breakdown = self.grid_to_particle_timed(dt);
 
         self.perf_stats.substeps += 1;
+        self.perf_stats.repair_seconds += repair_seconds;
+        self.perf_stats.clear_seconds += clear_seconds;
         self.perf_stats.p2g_seconds += p2g_seconds;
         self.perf_stats.grid_seconds += grid_seconds;
-        self.perf_stats.g2p_seconds += g2p_seconds;
+        self.perf_stats.g2p_seconds += g2p_breakdown.total_seconds;
+        self.perf_stats.g2p_gather_seconds += g2p_breakdown.gather_seconds;
+        self.perf_stats.g2p_box_seconds += g2p_breakdown.box_seconds;
+        self.perf_stats.g2p_terrain_seconds += g2p_breakdown.terrain_seconds;
+        self.perf_stats.g2p_repair_seconds += g2p_breakdown.repair_seconds;
         self.perf_stats.total_seconds += total_start.elapsed().as_secs_f64();
         self.perf_stats.active_node_visits += active_nodes as u64;
+        self.perf_stats.g2p_terrain_checks += g2p_breakdown.terrain_checks;
     }
 
     fn log_perf_report(&mut self) {
@@ -99,16 +116,23 @@ impl PondWaterSim {
         let grid_nodes = self.grid.len();
         let particle_stats = water_particle_debug_stats(&self.particles, self.terrain.as_ref());
         log::info!(
-            "[PERF][WATER] particles {} grid {:?} nodes {} substeps {} total {:.2}ms avg {:.3}ms/substep p2g {:.2}ms grid {:.2}ms g2p {:.2}ms active_nodes/substep {:.0} particle_y {:.3}..{:.3} avg {:.3} terrain_sdf_min {:.4} penetrating {} no_sdf {}",
+            "[PERF][WATER] particles {} grid {:?} nodes {} substeps {} total {:.2}ms avg {:.3}ms/substep repair {:.2}ms clear {:.2}ms p2g {:.2}ms grid {:.2}ms g2p {:.2}ms g2p_gather {:.2}ms g2p_box {:.2}ms g2p_terrain {:.2}ms g2p_repair {:.2}ms terrain_checks/substep {:.0} active_nodes/substep {:.0} particle_y {:.3}..{:.3} avg {:.3} terrain_sdf_min {:.4} penetrating {} no_sdf {}",
             self.particles.len(),
             self.grid_dim,
             grid_nodes,
             stats.substeps,
             stats.total_seconds * 1000.0,
             stats.total_seconds * 1000.0 / substeps,
+            stats.repair_seconds * 1000.0,
+            stats.clear_seconds * 1000.0,
             stats.p2g_seconds * 1000.0,
             stats.grid_seconds * 1000.0,
             stats.g2p_seconds * 1000.0,
+            stats.g2p_gather_seconds * 1000.0,
+            stats.g2p_box_seconds * 1000.0,
+            stats.g2p_terrain_seconds * 1000.0,
+            stats.g2p_repair_seconds * 1000.0,
+            stats.g2p_terrain_checks as f64 / substeps,
             stats.active_node_visits as f64 / substeps,
             particle_stats.min_y,
             particle_stats.max_y,
@@ -122,7 +146,44 @@ impl PondWaterSim {
         self.perf_report_seconds = 0.0;
     }
 
-    fn repair_particles(&mut self, dt: f32) {
+    pub(crate) fn rebuild_terrain_grid_cache(&mut self) {
+        let terrain_collision_margin = self.dx * 0.5;
+        // Cache a conservative narrow band around terrain. Hot loops use this
+        // cheap water-grid SDF to skip exact collider queries for particles and
+        // grid nodes that are clearly away from solids.
+        let near_surface_band = terrain_collision_margin + self.dx * 2.0;
+        let terrain = self.terrain.as_ref();
+        let origin_ws = self.origin_ws;
+        let grid_dim = self.grid_dim;
+        let dx = self.dx;
+
+        if self.terrain_grid.len() != self.grid.len() {
+            self.terrain_grid = vec![WaterTerrainGridSample::default(); self.grid.len()];
+        }
+
+        for z in 0..grid_dim.z {
+            for y in 0..grid_dim.y {
+                for x in 0..grid_dim.x {
+                    let idx = grid_index_dims(grid_dim, x, y, z);
+                    let mut sample = WaterTerrainGridSample::default();
+                    if let Some(terrain) = terrain {
+                        let node_world = origin_ws + Vec3::new(x as f32, y as f32, z as f32) * dx;
+                        if let Some(sdf) = terrain.sample_sdf_ws(node_world) {
+                            sample.sdf = sdf;
+                            sample.has_sdf = true;
+                            sample.near_surface = sdf <= near_surface_band;
+                            if sample.near_surface {
+                                sample.normal = terrain.sample_normal_ws(node_world).unwrap_or(Vec3::Y);
+                            }
+                        }
+                    }
+                    self.terrain_grid[idx] = sample;
+                }
+            }
+        }
+    }
+
+    fn repair_particles(&mut self, dt: f32, repair_terrain: bool) {
         let bounds = self.config.collider;
         let padding = self.dx * self.config.wall_padding_cells.max(1.0);
         let min_padding = Vec3::splat(padding);
@@ -131,7 +192,7 @@ impl PondWaterSim {
         let terrain_max_correction = padding;
         let j_min = self.config.j_min;
         let max_particle_speed = max_particle_speed_for_substep(self.dx, dt);
-        let terrain = self.terrain.as_ref();
+        let terrain = repair_terrain.then_some(()).and(self.terrain.as_ref());
         for particle in &mut self.particles {
             repair_particle_state_with_padding(
                 particle,
@@ -223,10 +284,7 @@ impl PondWaterSim {
         let gravity = self.config.gravity;
         let wall_cells = self.config.wall_padding_cells.max(1.0);
         let wall_damping = self.config.wall_damping.clamp(0.0, 1.0);
-        let terrain = self.terrain.as_ref();
-        let origin_ws = self.origin_ws;
-        let dx = self.dx;
-        let terrain_collision_margin = dx * 0.5;
+        let terrain_grid = &self.terrain_grid;
 
         let mut active_nodes = 0usize;
 
@@ -244,16 +302,10 @@ impl PondWaterSim {
                     node.v += gravity * dt;
 
                     let mut normal = Vec3::ZERO;
-                    if let Some(terrain) = terrain {
-                        let node_world = origin_ws + Vec3::new(x as f32, y as f32, z as f32) * dx;
-                        if let Some((sdf, terrain_normal)) =
-                            terrain.sample_sdf_and_normal_ws(node_world)
-                        {
-                            if sdf <= terrain_collision_margin {
-                                node.v = project_velocity_away_from_surface(node.v, terrain_normal);
-                                normal += terrain_normal;
-                            }
-                        }
+                    let terrain_sample = terrain_grid.get(idx).copied().unwrap_or_default();
+                    if terrain_sample.near_surface && terrain_sample.normal.length_squared() > 0.0 {
+                        node.v = project_velocity_away_from_surface(node.v, terrain_sample.normal);
+                        normal += terrain_sample.normal;
                     }
 
                     if x as f32 <= wall_cells && node.v.x < 0.0 {
@@ -293,6 +345,20 @@ impl PondWaterSim {
     }
 
     fn grid_to_particle(&mut self, dt: f32) {
+        let _ = self.grid_to_particle_impl(dt, false);
+    }
+
+    fn grid_to_particle_timed(&mut self, dt: f32) -> WaterG2pBreakdown {
+        self.grid_to_particle_impl(dt, true)
+    }
+
+    fn grid_to_particle_impl(&mut self, dt: f32, collect_breakdown: bool) -> WaterG2pBreakdown {
+        let total_start = collect_breakdown.then(Instant::now);
+        let mut gather_seconds = 0.0;
+        let mut box_seconds = 0.0;
+        let mut terrain_seconds = 0.0;
+        let mut repair_seconds = 0.0;
+        let mut terrain_checks = 0u64;
         let origin_ws = self.origin_ws;
         let grid_dim = self.grid_dim;
         let dx = self.dx;
@@ -305,11 +371,13 @@ impl PondWaterSim {
         let j_min = self.config.j_min;
         let max_particle_speed = max_particle_speed_for_substep(dx, dt);
         let grid = &self.grid;
+        let terrain_grid = &self.terrain_grid;
         let terrain = self.terrain.as_ref();
         let terrain_collision_margin = self.dx * 0.5;
         let terrain_max_correction = particle_padding;
 
         for particle in &mut self.particles {
+            let gather_start = collect_breakdown.then(Instant::now);
             let local_pos = particle.x - origin_ws;
             let grid_pos = local_pos * inv_dx;
             let base = base_coord(grid_pos);
@@ -343,12 +411,17 @@ impl PondWaterSim {
                     }
                 }
             }
+            if let Some(gather_start) = gather_start {
+                gather_seconds += gather_start.elapsed().as_secs_f64();
+            }
 
             particle.v = clamp_vec3_length(new_v, max_particle_speed);
             particle.c = clamp_mat3_components(new_c, MAX_AFFINE_COMPONENT);
             let trace_c = particle.c.x_axis.x + particle.c.y_axis.y + particle.c.z_axis.z;
             particle.j = (particle.j * (1.0 + dt * trace_c)).max(j_min);
             particle.x += particle.v * dt;
+
+            let box_start = collect_breakdown.then(Instant::now);
             collide_particle_with_box_with_padding(
                 particle,
                 bounds.min_ws,
@@ -356,22 +429,35 @@ impl PondWaterSim {
                 particle_min_padding,
                 particle_max_padding,
             );
+            if let Some(box_start) = box_start {
+                box_seconds += box_start.elapsed().as_secs_f64();
+            }
+
             if particle.x.is_finite() {
                 if let Some(terrain) = terrain {
-                    collide_particle_with_terrain_iterative(
-                        particle,
-                        terrain,
-                        terrain_collision_margin,
-                        terrain_max_correction,
-                        TERRAIN_PARTICLE_COLLISION_ITERATIONS,
-                        bounds.min_ws,
-                        bounds.max_ws,
-                        particle_min_padding,
-                        particle_max_padding,
-                    );
+                    let local_pos = particle.x - origin_ws;
+                    if terrain_grid_particle_may_hit(local_pos, inv_dx, dx, grid_dim, terrain_grid) {
+                        terrain_checks += 1;
+                        let terrain_start = collect_breakdown.then(Instant::now);
+                        collide_particle_with_terrain_iterative(
+                            particle,
+                            terrain,
+                            terrain_collision_margin,
+                            terrain_max_correction,
+                            TERRAIN_PARTICLE_COLLISION_ITERATIONS,
+                            bounds.min_ws,
+                            bounds.max_ws,
+                            particle_min_padding,
+                            particle_max_padding,
+                        );
+                        if let Some(terrain_start) = terrain_start {
+                            terrain_seconds += terrain_start.elapsed().as_secs_f64();
+                        }
+                    }
                 }
             }
 
+            let repair_start = collect_breakdown.then(Instant::now);
             repair_particle_state_with_padding(
                 particle,
                 bounds.min_ws,
@@ -381,8 +467,32 @@ impl PondWaterSim {
                 j_min,
                 max_particle_speed,
             );
+            if let Some(repair_start) = repair_start {
+                repair_seconds += repair_start.elapsed().as_secs_f64();
+            }
+        }
+
+        WaterG2pBreakdown {
+            total_seconds: total_start
+                .map(|start| start.elapsed().as_secs_f64())
+                .unwrap_or(0.0),
+            gather_seconds,
+            box_seconds,
+            terrain_seconds,
+            repair_seconds,
+            terrain_checks,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct WaterG2pBreakdown {
+    total_seconds: f64,
+    gather_seconds: f64,
+    box_seconds: f64,
+    terrain_seconds: f64,
+    repair_seconds: f64,
+    terrain_checks: u64,
 }
 
 fn base_coord(grid_pos: Vec3) -> IVec3 {
@@ -405,6 +515,64 @@ fn in_grid(node: IVec3, grid_dim: glam::UVec3) -> bool {
         && node.x < grid_dim.x as i32
         && node.y < grid_dim.y as i32
         && node.z < grid_dim.z as i32
+}
+
+fn terrain_grid_particle_may_hit(
+    local_pos: Vec3,
+    inv_dx: f32,
+    dx: f32,
+    grid_dim: glam::UVec3,
+    terrain_grid: &[WaterTerrainGridSample],
+) -> bool {
+    if terrain_grid.is_empty()
+        || !local_pos.is_finite()
+        || inv_dx <= 0.0
+        || !inv_dx.is_finite()
+        || dx <= 0.0
+        || !dx.is_finite()
+    {
+        return true;
+    }
+
+    let grid_pos = local_pos * inv_dx;
+    if !grid_pos.is_finite() {
+        return true;
+    }
+
+    let base = grid_pos.floor().as_ivec3();
+    let next = base + IVec3::ONE;
+    if !in_grid(base, grid_dim) || !in_grid(next, grid_dim) {
+        return true;
+    }
+
+    let f = grid_pos - base.as_vec3();
+    let f = f.clamp(Vec3::ZERO, Vec3::ONE);
+    let mut sdf = 0.0;
+    for oz in 0..=1 {
+        let wz = if oz == 0 { 1.0 - f.z } else { f.z };
+        for oy in 0..=1 {
+            let wy = if oy == 0 { 1.0 - f.y } else { f.y };
+            for ox in 0..=1 {
+                let wx = if ox == 0 { 1.0 - f.x } else { f.x };
+                let node = base + IVec3::new(ox, oy, oz);
+                let idx = grid_index_dims(grid_dim, node.x as u32, node.y as u32, node.z as u32);
+                let Some(sample) = terrain_grid.get(idx) else {
+                    return true;
+                };
+                if !sample.has_sdf {
+                    return true;
+                }
+                sdf += wx * wy * wz * sample.sdf;
+            }
+        }
+    }
+
+    // The cache is only a broadphase; exact SDF collision still handles the
+    // narrow band. Add grid-sized slack so interpolation error and one substep
+    // of motion do not skip plausible contacts.
+    let exact_collision_margin = dx * 0.5;
+    let conservative_band = exact_collision_margin + dx * 2.0;
+    sdf <= conservative_band
 }
 
 fn grid_index_dims(grid_dim: glam::UVec3, x: u32, y: u32, z: u32) -> usize {
@@ -557,18 +725,19 @@ fn collide_particle_with_terrain(
     collision_margin: f32,
     max_correction: f32,
 ) -> bool {
-    let Some((sdf, terrain_normal)) = terrain.sample_sdf_and_normal_ws(particle.x) else {
+    let Some(sdf) = terrain.sample_sdf_ws(particle.x) else {
         return false;
     };
 
     let correction = collision_margin.max(0.0) - sdf;
-    if correction > 0.0 {
-        particle.x += terrain_normal * correction.min(max_correction.max(0.0));
-        particle.v = project_velocity_away_from_surface(particle.v, terrain_normal);
-        return true;
+    if correction <= 0.0 {
+        return false;
     }
 
-    false
+    let terrain_normal = terrain.sample_normal_ws(particle.x).unwrap_or(Vec3::Y);
+    particle.x += terrain_normal * correction.min(max_correction.max(0.0));
+    particle.v = project_velocity_away_from_surface(particle.v, terrain_normal);
+    true
 }
 
 #[allow(clippy::too_many_arguments)]

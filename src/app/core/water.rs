@@ -496,6 +496,15 @@ fn water_terrain_chunk_strictly_overlaps_box(
         && chunk_max_ws.z > box_min_ws.z
 }
 
+#[cfg(test)]
+fn water_terrain_chunk_id_to_uvec3(chunk_id: IVec3) -> Option<UVec3> {
+    if chunk_id.cmpge(IVec3::ZERO).all() {
+        Some(chunk_id.as_uvec3())
+    } else {
+        None
+    }
+}
+
 fn water_terrain_chunk_work_key_to_id(chunk_id: UVec3) -> Option<IVec3> {
     if chunk_id.cmple(UVec3::splat(i32::MAX as u32)).all() {
         Some(chunk_id.as_ivec3())

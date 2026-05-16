@@ -214,23 +214,77 @@ impl WaterTerrainColliderSet {
     }
 
     pub fn sample_sdf_ws(&self, point_ws: Vec3) -> Option<f32> {
-        self.sample_sdf_and_normal_ws(point_ws).map(|(sdf, _)| sdf)
+        if !point_ws.is_finite() {
+            return None;
+        }
+
+        if self.should_scan_boundary(point_ws) {
+            return self.sample_sdf_ws_scan(point_ws);
+        }
+
+        self.chunk_for_point_ws(point_ws)
+            .and_then(|chunk| chunk.sample_sdf_ws(point_ws))
+            .or_else(|| self.sample_sdf_ws_scan(point_ws))
     }
 
     pub fn sample_normal_ws(&self, point_ws: Vec3) -> Option<Vec3> {
-        self.sample_sdf_and_normal_ws(point_ws)
-            .map(|(_, normal)| normal)
+        if !point_ws.is_finite() {
+            return None;
+        }
+
+        if self.should_scan_boundary(point_ws) {
+            return self.sample_normal_ws_scan(point_ws);
+        }
+
+        self.chunk_for_point_ws(point_ws)
+            .and_then(|chunk| chunk.sample_normal_ws(point_ws))
+            .or_else(|| self.sample_normal_ws_scan(point_ws))
     }
 
     pub fn sample_sdf_and_normal_ws(&self, point_ws: Vec3) -> Option<(f32, Vec3)> {
+        if !point_ws.is_finite() {
+            return None;
+        }
+
+        if self.should_scan_boundary(point_ws) {
+            return self.sample_sdf_and_normal_ws_scan(point_ws);
+        }
+
+        self.chunk_for_point_ws(point_ws)
+            .and_then(|chunk| chunk.sample_sdf_and_normal_ws(point_ws))
+            .or_else(|| self.sample_sdf_and_normal_ws_scan(point_ws))
+    }
+
+    fn chunk_for_point_ws(&self, point_ws: Vec3) -> Option<&WaterTerrainColliderChunk> {
+        let chunk_id = point_ws.floor().as_ivec3();
+        self.chunks.get(&chunk_id).map(Arc::as_ref)
+    }
+
+    fn should_scan_boundary(&self, point_ws: Vec3) -> bool {
+        const BOUNDARY_EPSILON: f32 = 1.0e-6;
+        let fractional = point_ws - point_ws.floor();
+        fractional.x <= BOUNDARY_EPSILON
+            || fractional.y <= BOUNDARY_EPSILON
+            || fractional.z <= BOUNDARY_EPSILON
+    }
+
+    fn sample_sdf_ws_scan(&self, point_ws: Vec3) -> Option<f32> {
+        self.chunks
+            .values()
+            .filter_map(|chunk| chunk.sample_sdf_ws(point_ws))
+            .min_by(|a, b| compare_terrain_sdf(*a, *b))
+    }
+
+    fn sample_normal_ws_scan(&self, point_ws: Vec3) -> Option<Vec3> {
+        self.sample_sdf_and_normal_ws_scan(point_ws)
+            .map(|(_, normal)| normal)
+    }
+
+    fn sample_sdf_and_normal_ws_scan(&self, point_ws: Vec3) -> Option<(f32, Vec3)> {
         self.chunks
             .values()
             .filter_map(|chunk| chunk.sample_sdf_and_normal_ws(point_ws))
-            .min_by(|(a, _), (b, _)| match (*a < 0.0, *b < 0.0) {
-                (true, false) => std::cmp::Ordering::Less,
-                (false, true) => std::cmp::Ordering::Greater,
-                _ => a.abs().total_cmp(&b.abs()),
-            })
+            .min_by(|(a, _), (b, _)| compare_terrain_sdf(*a, *b))
     }
 
     pub fn bounds_ws(&self) -> Option<(Vec3, Vec3)> {
@@ -243,6 +297,14 @@ impl WaterTerrainColliderSet {
             max_ws = max_ws.max(chunk_max_ws);
         }
         Some((min_ws, max_ws))
+    }
+}
+
+fn compare_terrain_sdf(a: f32, b: f32) -> std::cmp::Ordering {
+    match (a < 0.0, b < 0.0) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.abs().total_cmp(&b.abs()),
     }
 }
 

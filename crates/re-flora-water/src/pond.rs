@@ -72,6 +72,25 @@ pub struct WaterGridNode {
     pub normal: Vec3,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct WaterTerrainGridSample {
+    pub sdf: f32,
+    pub normal: Vec3,
+    pub near_surface: bool,
+    pub has_sdf: bool,
+}
+
+impl Default for WaterTerrainGridSample {
+    fn default() -> Self {
+        Self {
+            sdf: f32::INFINITY,
+            normal: Vec3::ZERO,
+            near_surface: false,
+            has_sdf: false,
+        }
+    }
+}
+
 impl Default for WaterGridNode {
     fn default() -> Self {
         Self {
@@ -86,11 +105,18 @@ impl Default for WaterGridNode {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct WaterPerfStats {
     pub substeps: u32,
+    pub repair_seconds: f64,
+    pub clear_seconds: f64,
     pub p2g_seconds: f64,
     pub grid_seconds: f64,
     pub g2p_seconds: f64,
+    pub g2p_gather_seconds: f64,
+    pub g2p_box_seconds: f64,
+    pub g2p_terrain_seconds: f64,
+    pub g2p_repair_seconds: f64,
     pub total_seconds: f64,
     pub active_node_visits: u64,
+    pub g2p_terrain_checks: u64,
 }
 
 impl WaterPerfStats {
@@ -109,6 +135,7 @@ pub struct PondWaterSim {
     pub inv_dx: f32,
     pub particles: Vec<WaterParticle>,
     pub grid: Vec<WaterGridNode>,
+    pub(crate) terrain_grid: Vec<WaterTerrainGridSample>,
     pub accumulator: f32,
     pub perf_stats: WaterPerfStats,
     pub perf_report_seconds: f32,
@@ -141,6 +168,7 @@ impl PondWaterSim {
             inv_dx,
             particles: Vec::new(),
             grid: vec![WaterGridNode::default(); grid_len],
+            terrain_grid: vec![WaterTerrainGridSample::default(); grid_len],
             accumulator: 0.0,
             perf_stats: WaterPerfStats::default(),
             perf_report_seconds: 0.0,
@@ -157,6 +185,7 @@ impl PondWaterSim {
     pub fn set_terrain_collider_set(&mut self, collider_set: WaterTerrainColliderSet) {
         collider_set.validate();
         self.terrain = Some(collider_set);
+        self.rebuild_terrain_grid_cache();
         self.stabilize_after_terrain_change();
     }
 
@@ -168,6 +197,7 @@ impl PondWaterSim {
         self.terrain
             .get_or_insert_with(WaterTerrainColliderSet::new)
             .insert_chunk(Arc::new(chunk));
+        self.rebuild_terrain_grid_cache();
         if stabilize_particles {
             self.stabilize_after_terrain_change();
         }
@@ -175,6 +205,7 @@ impl PondWaterSim {
 
     pub fn clear_terrain_collider_set(&mut self) {
         self.terrain = None;
+        self.rebuild_terrain_grid_cache();
         self.stabilize_after_terrain_change();
     }
 

@@ -4,6 +4,7 @@
 
 - Keep changes small and focused.
 - Prefer measuring before guessing on performance work.
+- For performance work, release-mode app benchmarks are authoritative; debug builds and unit tests are not performance evidence.
 - Run `cargo check` after shader or Rust changes. It also regenerates shader-derived Rust structs.
 - Do not edit generated files directly unless they are part of the generated output from a build/check.
 
@@ -29,6 +30,8 @@ cargo run --release -- --tail-latest-log 200
 ```
 
 ## Basic Perf Test
+
+Benchmark in release mode is king. Use `cargo run --release` hidden app runs with logs for performance decisions.
 
 Before running the app, source the shell environment:
 
