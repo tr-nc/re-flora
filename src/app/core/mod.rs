@@ -45,6 +45,7 @@ use crate::{
     egui_renderer::EguiRenderer,
     vkn::{Swapchain, VulkanContext},
     window::WindowState,
+    WaterProfilePreference,
 };
 use anyhow::{Context, Result};
 use ash::vk;
@@ -833,7 +834,12 @@ impl App {
         let butterfly_emitters = Vec::new();
         let butterfly_emitter_desc = Self::butterfly_desc_from_gui_adjustables(&gui_adjustables);
         let particle_snapshots = Vec::with_capacity(PARTICLE_CAPACITY);
-        let mut water_config = PondWaterConfig::default();
+        let mut water_config = match options.water_profile {
+            Some(WaterProfilePreference::Default) | None => PondWaterConfig::default(),
+            Some(WaterProfilePreference::Performance) => PondWaterConfig::default()
+                .with_particle_count(2_048)
+                .with_substep_hz(120.0),
+        };
         if let Some(particle_count) = options.water_particles {
             water_config = water_config.with_particle_count(particle_count);
         }
@@ -844,7 +850,8 @@ impl App {
             water_config = water_config.with_substep_hz(substep_hz);
         }
         log::info!(
-            "[WATER] config particles={} grid={:?} substep_dt={:.6}s",
+            "[WATER] config profile={:?} particles={} grid={:?} substep_dt={:.6}s",
+            options.water_profile,
             water_config.particle_count,
             water_config.grid_dim,
             water_config.substep_dt,

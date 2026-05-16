@@ -40,6 +40,12 @@ pub enum PresentModePreference {
     FifoRelaxed,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum WaterProfilePreference {
+    Default,
+    Performance,
+}
+
 impl PresentModePreference {
     fn from_cli_value(value: &str) -> Option<Self> {
         match value {
@@ -57,6 +63,16 @@ impl PresentModePreference {
             Self::Immediate => vk::PresentModeKHR::IMMEDIATE,
             Self::Fifo => vk::PresentModeKHR::FIFO,
             Self::FifoRelaxed => vk::PresentModeKHR::FIFO_RELAXED,
+        }
+    }
+}
+
+impl WaterProfilePreference {
+    fn from_cli_value(value: &str) -> Option<Self> {
+        match value {
+            "default" => Some(Self::Default),
+            "performance" => Some(Self::Performance),
+            _ => None,
         }
     }
 }
@@ -94,6 +110,8 @@ pub struct AppOptions {
     pub auto_exit_delay: Option<f32>,
     /// Enable per-frame performance timing output to console.
     pub perf: bool,
+    /// Select a named water MLS-MPM configuration profile.
+    pub water_profile: Option<WaterProfilePreference>,
     /// Override water MLS-MPM particle count.
     pub water_particles: Option<usize>,
     /// Override water MLS-MPM cubic grid dimension.
@@ -160,6 +178,21 @@ impl AppOptions {
             None => None,
         };
 
+        let water_profile = match parse_string_after("--water-profile") {
+            Some(value) => Some(
+                WaterProfilePreference::from_cli_value(&value).unwrap_or_else(|| {
+                    panic!(
+                        "Unsupported --water-profile '{}'. Supported values: default, performance",
+                        value
+                    )
+                }),
+            ),
+            None if args.iter().any(|a| a == "--water-profile") => {
+                panic!("Missing value for --water-profile. Supported values: default, performance")
+            }
+            None => None,
+        };
+
         let tail_latest_log = args
             .iter()
             .any(|a| a == "--tail-latest-log")
@@ -181,6 +214,7 @@ impl AppOptions {
             screenshot_delay: parse_f32_after("--screenshot-delay").unwrap_or(5.0),
             auto_exit_delay: parse_f32_after("--auto-exit"),
             perf: args.iter().any(|a| a == "--perf"),
+            water_profile,
             water_particles: parse_u32_after("--water-particles").map(|v| v.max(1) as usize),
             water_grid: parse_u32_after("--water-grid").map(|v| v.max(4)),
             water_substep_hz: parse_f32_after("--water-substep-hz").map(|v| v.max(1.0)),
@@ -217,6 +251,7 @@ Options:
   --screenshot-delay <sec>    Delay before screenshot capture (default: 5.0)
   --auto-exit <sec>           Exit automatically after rendering starts
   --perf                      Enable per-frame performance logging
+  --water-profile <profile>   Select water profile: default, performance
   --water-particles <N>       Override water MLS-MPM particle count
   --water-grid <N>            Override cubic water MLS-MPM grid dimension
   --water-substep-hz <Hz>     Override water MLS-MPM fixed substep rate
@@ -238,6 +273,7 @@ Examples:
   re-flora --no-shadows --no-denoise
   re-flora --screenshot out.png --screenshot-delay 3
   re-flora --auto-exit 10 --perf
+  re-flora --hidden --auto-exit 4 --perf --water-profile performance
   re-flora --latest-log
   re-flora --tail-latest-log 120
   re-flora --windowed --tree-bench --tree-bench-samples 10"#

@@ -13,14 +13,15 @@ Current status by phase:
 | Phase 3A: water-grid terrain cache | Done | grid-node terrain collision moved out of the hot loop |
 | Phase 3B: G2P terrain broadphase/cache | Implemented, needs more soak/tuning | cached skip/projection path is active and shadow-verified in perf runs |
 | Phase 4: collider scope/startup | Implemented and benchmarked | startup/edit collider refreshes are limited to water-grid-domain chunks |
-| Phase 5: solver scaling options | Started | CLI sweep knobs added for particle count, grid size, and substep rate |
+| Phase 5: solver scaling options | Implemented initial knobs/profile, needs visual soak | CLI sweep knobs plus `--water-profile performance`; release sweeps identify a safe low-CPU candidate |
 
 Latest representative release result:
 
 - Baseline from `REPORT.md`: ~4.9 ms/substep.
 - Current Phase 3A release samples: ~1.95-1.99 ms/substep.
-- Current Phase 3B release samples: ~1.75-1.85 ms/substep.
-- Overall solver cost is down by roughly 62-63% from the original report.
+- Current Phase 3B/Phase 4 default release samples: ~1.75-1.85 ms/substep.
+- Current Phase 5 performance profile samples: ~0.96-0.99 ms/substep at 120 Hz with 2048 particles.
+- Default solver cost is down by roughly 62-64% from the original report; the initial performance profile reduces per-second water CPU budget further by halving the fixed substep rate and particle count.
 - Functional release validation stayed clean: `penetrating 0`, `no_sdf 0`.
 - Phase 3B shadow verification has reported `terrain_shadow_false_skips 0` in the latest release run.
 
@@ -292,7 +293,7 @@ Release validation:
 
 ### Phase 5: solver-level scaling options
 
-Status: started.
+Status: initial implementation complete; needs visual/gameplay soak before becoming the default.
 
 Goal: preserve appearance while lowering total CPU budget after hot-loop waste is removed.
 
@@ -302,8 +303,12 @@ Implemented work:
    - `--water-particles <N>`
    - `--water-grid <N>` for cubic grid dimension
    - `--water-substep-hz <Hz>` for fixed substep rate
-2. Water startup logs the effective particle count, grid dimension, and substep dt.
-3. Changing particle count preserves the intended total fill volume by rescaling per-particle volume.
+2. Added named water profile selection:
+   - `--water-profile default`: current quality/default config, 4096 particles, 32^3 grid, 240 Hz substeps.
+   - `--water-profile performance`: lower-CPU candidate, 2048 particles, 32^3 grid, 120 Hz substeps.
+3. Water startup logs the selected profile, effective particle count, grid dimension, and substep dt.
+4. Changing particle count preserves the intended total fill volume by rescaling per-particle volume.
+5. Explicit particle/grid/substep CLI overrides are applied after the named profile, so profiles remain easy to tweak during sweeps.
 
 Initial release validation:
 
@@ -318,11 +323,32 @@ Initial release validation:
   - `terrain_shadow_false_skips 0`, `penetrating 0`, `no_sdf 0`
   - expected linear-ish particle scaling is visible in P2G/G2P and particle upload.
 
-Planned work:
+Additional Phase 5 sweeps:
 
-1. Measure release-mode sweeps for particle count, grid resolution, and substep rate.
-2. Try fewer fixed substeps with adaptive CFL limits if stability allows.
-3. Consider CPU parallelism or GPU/storage-buffer paths only after cached G2P collision is measured.
+| config | log | representative avg/substep | notes |
+| --- | --- | ---: | --- |
+| default: 4096 particles, 32^3, 240 Hz | `/tmp/re-flora-logs/re-flora-20260516-233315.367-126594.log` | 1.78-1.85 ms | current quality/default baseline |
+| 2048 particles, 32^3, 240 Hz | `/tmp/re-flora-logs/re-flora-20260516-233332.832-126982.log` | 0.93-0.98 ms | best pure particle-count win; keeps 240 Hz stability |
+| 4096 particles, 24^3, 240 Hz | `/tmp/re-flora-logs/re-flora-20260516-234751.534-128074.log` | 1.86-1.91 ms | grid work drops, but coarser cached SDF raises exact fallbacks/G2P terrain; not a win |
+| 4096 particles, 16^3, 240 Hz | `/tmp/re-flora-logs/re-flora-20260516-234804.067-128384.log` | 2.05-2.08 ms | too coarse; many exact fallbacks/corrections; not a win |
+| 4096 particles, 32^3, 120 Hz | `/tmp/re-flora-logs/re-flora-20260516-234816.156-128686.log` | 1.77-1.82 ms | per-substep similar to default, but roughly half the substeps per second |
+| 2048 particles, 32^3, 120 Hz | `/tmp/re-flora-logs/re-flora-20260516-234832.306-128986.log` | 0.95-0.99 ms | best measured low-CPU candidate |
+| `--water-profile performance` | `/tmp/re-flora-logs/re-flora-20260516-235018.242-129739.log` | 0.96-0.99 ms | profile maps to 2048 particles, 32^3 grid, 120 Hz |
+
+Interpretation:
+
+- Reducing particle count scales the dominant P2G/G2P work nearly linearly and also halves visual water-debug upload cost.
+- Reducing grid resolution alone is counterproductive in this scene because the cached terrain broadphase gets less precise; grid-node work drops but G2P terrain exact fallbacks/corrections rise.
+- Reducing substep rate to 120 Hz does not change per-substep cost much, but roughly halves the number of water substeps per second. It needs visual/gameplay soak for stability and appearance.
+- The initial performance profile is the best measured low-CPU candidate: 2048 particles, 32^3 grid, 120 Hz.
+- All sweep samples above kept `terrain_shadow_false_skips 0`, `penetrating 0`, and `no_sdf 0` in release hidden perf runs.
+
+Remaining work:
+
+1. Visual/gameplay soak the performance profile in visible app runs and during terrain edits.
+2. Decide whether `--water-profile performance` is opt-in only or should become an exposed settings preset.
+3. Try adaptive CFL limits only if the fixed 120 Hz profile shows instability or visual artifacts.
+4. Consider CPU parallelism or GPU/storage-buffer paths only after profile soak and cached G2P collision tuning.
 
 ## Validation policy
 
