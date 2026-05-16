@@ -2,7 +2,7 @@
 
 ## Current implementation status
 
-We are **not finished with the full roadmap**, but the first optimization milestone is in good shape.
+We are **not finished with the full roadmap**, but the main hot-loop terrain-collision milestone is now in good shape.
 
 Current status by phase:
 
@@ -11,23 +11,25 @@ Current status by phase:
 | Phase 1: cheap terrain queries | Done | SDF-only checks, direct chunk lookup, normal only on collision |
 | Phase 2: remove duplicate terrain repair | Done | steady-state pre-P2G terrain sweep removed |
 | Phase 3A: water-grid terrain cache | Done | grid-node terrain collision moved out of the hot loop |
-| Phase 3B: G2P terrain broadphase/cache | Partial | conservative broadphase exists, but exact terrain checks are still near particle count |
+| Phase 3B: G2P terrain broadphase/cache | Implemented, needs soak/verification | cached skip/projection path is active; exact checks are reduced but still significant |
 | Phase 4: collider scope/startup | Not started | lower priority after current hot-loop wins |
 | Phase 5: solver scaling options | Not started | defer until algorithmic waste is exhausted |
 
 Latest representative release result:
 
 - Baseline from `REPORT.md`: ~4.9 ms/substep.
-- Current Phase 3 release samples: ~1.95-1.99 ms/substep.
-- Overall solver cost is down by roughly 59-60% from the original report.
+- Current Phase 3A release samples: ~1.95-1.99 ms/substep.
+- Current Phase 3B release samples: ~1.80-1.88 ms/substep.
+- Overall solver cost is down by roughly 62-63% from the original report.
 - Functional release validation stayed clean: `penetrating 0`, `no_sdf 0`.
 
-The remaining hot issue is G2P terrain collision. Phase 3 reduced its cost, but did **not** reduce exact collider checks enough:
+The remaining hot issue is still G2P terrain collision, but Phase 3B moved part of the common path onto cached-grid SDF data:
 
-- Phase 2: `terrain_checks/substep 4096`
-- Phase 3: `terrain_checks/substep ~4031-4096`
+- Phase 2 exact terrain checks: `4096/substep`
+- Phase 3A exact terrain checks: `~4031-4096/substep`
+- Phase 3B exact terrain checks: `~2526-2892/substep`
 
-That means most particles still run exact particle-vs-terrain collision every substep. The next meaningful optimization is not more grid-node caching; it is making the G2P common path use cached-grid terrain data safely, or adding a tighter verified broadphase.
+The next meaningful optimization is verification and tuning of the cached G2P path: reduce exact fallbacks further without allowing missed terrain penetration.
 
 ## Current diagnosis
 
@@ -44,7 +46,7 @@ Resolved findings:
 Remaining findings:
 
 - G2P terrain remains one of the largest sub-costs.
-- The current cached trilinear SDF broadphase is intentionally conservative, so in the current pond/terrain setup it skips only a small fraction of exact checks.
+- The cached trilinear SDF path now skips far particles and directly projects clearly colliding particles, but ambiguous near-surface particles still use exact collider fallback.
 - Full terrain-grid cache rebuilds happen when chunks are inserted/set/cleared. Partial overlapping-region rebuilds are not implemented yet.
 
 ## Implemented phases
@@ -184,43 +186,69 @@ Interpretation:
 - The biggest confirmed win is the grid-node terrain cache: grid time dropped from ~122 ms/report to ~17-18 ms/report.
 - G2P terrain time also dropped, but exact terrain checks are still almost one per particle per substep.
 
-### Phase 3B: finish G2P terrain optimization
+### Phase 3B: cached G2P terrain collision
 
-Status: partial / next active work.
+Status: implemented, needs more soak/verification before calling the whole phase complete.
 
-Already implemented:
+Implemented:
 
-- `terrain_grid_particle_may_hit()` uses trilinear cached water-grid SDF as a conservative broadphase.
-- Exact particle collision is skipped only when cached SDF is safely outside the conservative band.
-- Invalid, missing, out-of-grid, or boundary-risk cache cases fall back to exact collision.
+- Added G2P terrain counters:
+  - `terrain_cache_skips/substep`
+  - `terrain_cache_projections/substep`
+  - `terrain_exact_fallbacks/substep`
+  - `terrain_exact_checks/substep`
+  - `terrain_exact_corrections/substep`
+- Replaced the boolean broadphase with `terrain_grid_particle_query()`.
+- The query interpolates cached SDF from the 8 surrounding water-grid nodes.
+- The query derives a normal from the trilinear cached-SDF gradient.
+- G2P now has three paths:
+  - skip exact terrain work when cached SDF is safely outside the collision margin plus slack;
+  - project directly with cached SDF/normal when cached SDF is clearly colliding;
+  - fall back to exact collider sampling for invalid cache data, out-of-grid particles, ambiguous near-surface particles, or invalid gradients.
 
-Current limitation:
+Release benchmark:
 
-- The pond particles are close enough to terrain that the conservative band still marks almost all particles as exact-collision candidates.
-- Therefore `terrain_checks/substep` remains near 4096.
+Run log: `/tmp/re-flora-logs/re-flora-20260516-231428.005-119895.log`
+
+| metric | phase 3A sample B | phase 3B sample A | phase 3B sample B | phase 3B sample C |
+| --- | ---: | ---: | ---: | ---: |
+| substeps/report | 240 | 217 | 241 | 240 |
+| total water time | 468.63 ms | 407.57 ms | 437.87 ms | 432.12 ms |
+| avg/substep | 1.953 ms | 1.878 ms | 1.817 ms | 1.800 ms |
+| repair | 12.59 ms | 11.43 ms | 12.66 ms | 12.64 ms |
+| grid | 18.13 ms | 16.49 ms | 16.63 ms | 16.01 ms |
+| G2P total | 359.94 ms | 310.49 ms | 332.24 ms | 326.03 ms |
+| G2P terrain | 112.77 ms | 109.95 ms | 109.66 ms | 104.68 ms |
+| cache skips/substep | n/a | 337 | 794 | 847 |
+| cache projections/substep | n/a | 1233 | 410 | 572 |
+| exact fallbacks/substep | n/a | 2526 | 2892 | 2677 |
+| exact checks/substep | 4031 | 2526 | 2892 | 2677 |
+| exact corrections/substep | n/a | 224 | 116 | 88 |
+| penetrating | 0 | 0 | 0 | 0 |
+| no_sdf | 0 | 0 | 0 | 0 |
+
+Interpretation:
+
+- Overall water step cost improved again, from ~1.95-1.99 ms/substep after Phase 3A to ~1.80-1.88 ms/substep after Phase 3B.
+- Exact G2P terrain checks dropped from almost all particles to roughly 62-71% of particles per substep.
+- Cached projection is active and release validation stayed clean in this run.
+- `g2p_terrain` improved only modestly because many particles still take exact fallback and the cached query/projection path has its own cost.
 
 Recommended next steps:
 
-1. Add better G2P terrain counters:
-   - cache skip count
-   - cache candidate count
-   - cached projection count
-   - exact fallback count
-   - exact collision correction count
-2. Add a cached G2P collision path for the common case:
-   - interpolate cached SDF from the 8 surrounding water-grid nodes;
-   - interpolate or derive a cached normal;
-   - if cached SDF is clearly outside the margin, skip exact terrain collision;
-   - if cached SDF is inside the collision margin and cached normal is valid, project using cached data;
-   - use exact collider sampling only for invalid cache data, ambiguous normals, out-of-grid particles, or debug verification fallback.
-3. In perf mode, optionally shadow-sample a small subset of skipped/projected particles with the exact collider to verify no missed penetration.
-4. Only tighten the conservative band after the counters show where exact checks are coming from.
+1. Add verification for cached G2P decisions:
+   - in perf/debug mode, shadow-sample a small deterministic subset of skipped/projected particles with the exact collider;
+   - log any false skips or large cached-vs-exact SDF disagreement.
+2. Tune fallback slack only after verification data is available.
+3. Consider storing a cached gradient/normal for all terrain-grid nodes, not just near-surface nodes, if it reduces query cost or improves cached projection quality.
+4. If exact fallbacks remain high after tuning, consider a coarser per-cell classification cache: empty / cached-projectable / exact-required.
 
 Phase 3B completion criteria:
 
-- `penetrating 0` and `no_sdf 0` remain true in release hidden runs.
-- Exact G2P terrain checks are no longer near particle count, or exact collider sampling is removed from the common G2P path.
-- `g2p_terrain` is no longer a dominant sub-cost relative to G2P gather.
+- `penetrating 0` and `no_sdf 0` remain true across several release hidden runs.
+- Shadow verification reports no missed terrain contacts for skipped/projected particles.
+- Exact G2P terrain checks are substantially below particle count in representative scenes.
+- `g2p_terrain` is no longer a dominant sub-cost relative to G2P gather, or further reductions require solver-level changes.
 
 ## Later phases
 
@@ -279,7 +307,11 @@ Primary metrics:
 - `g2p`
 - `g2p_gather`
 - `g2p_terrain`
-- `terrain_checks/substep`
+- `terrain_cache_skips/substep`
+- `terrain_cache_projections/substep`
+- `terrain_exact_fallbacks/substep`
+- `terrain_exact_checks/substep`
+- `terrain_exact_corrections/substep`
 - `penetrating`
 - `no_sdf`
 

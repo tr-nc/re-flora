@@ -104,7 +104,8 @@ impl PondWaterSim {
         self.perf_stats.total_seconds += total_start.elapsed().as_secs_f64();
         self.perf_stats.active_node_visits += active_nodes as u64;
         self.perf_stats.g2p_terrain_cache_skips += g2p_breakdown.terrain_cache_skips;
-        self.perf_stats.g2p_terrain_cache_candidates += g2p_breakdown.terrain_cache_candidates;
+        self.perf_stats.g2p_terrain_cache_projections += g2p_breakdown.terrain_cache_projections;
+        self.perf_stats.g2p_terrain_exact_fallbacks += g2p_breakdown.terrain_exact_fallbacks;
         self.perf_stats.g2p_terrain_exact_checks += g2p_breakdown.terrain_exact_checks;
         self.perf_stats.g2p_terrain_exact_corrections += g2p_breakdown.terrain_exact_corrections;
     }
@@ -119,7 +120,7 @@ impl PondWaterSim {
         let grid_nodes = self.grid.len();
         let particle_stats = water_particle_debug_stats(&self.particles, self.terrain.as_ref());
         log::info!(
-            "[PERF][WATER] particles {} grid {:?} nodes {} substeps {} total {:.2}ms avg {:.3}ms/substep repair {:.2}ms clear {:.2}ms p2g {:.2}ms grid {:.2}ms g2p {:.2}ms g2p_gather {:.2}ms g2p_box {:.2}ms g2p_terrain {:.2}ms g2p_repair {:.2}ms terrain_cache_skips/substep {:.0} terrain_candidates/substep {:.0} terrain_exact_checks/substep {:.0} terrain_exact_corrections/substep {:.0} active_nodes/substep {:.0} particle_y {:.3}..{:.3} avg {:.3} terrain_sdf_min {:.4} penetrating {} no_sdf {}",
+            "[PERF][WATER] particles {} grid {:?} nodes {} substeps {} total {:.2}ms avg {:.3}ms/substep repair {:.2}ms clear {:.2}ms p2g {:.2}ms grid {:.2}ms g2p {:.2}ms g2p_gather {:.2}ms g2p_box {:.2}ms g2p_terrain {:.2}ms g2p_repair {:.2}ms terrain_cache_skips/substep {:.0} terrain_cache_projections/substep {:.0} terrain_exact_fallbacks/substep {:.0} terrain_exact_checks/substep {:.0} terrain_exact_corrections/substep {:.0} active_nodes/substep {:.0} particle_y {:.3}..{:.3} avg {:.3} terrain_sdf_min {:.4} penetrating {} no_sdf {}",
             self.particles.len(),
             self.grid_dim,
             grid_nodes,
@@ -136,7 +137,8 @@ impl PondWaterSim {
             stats.g2p_terrain_seconds * 1000.0,
             stats.g2p_repair_seconds * 1000.0,
             stats.g2p_terrain_cache_skips as f64 / substeps,
-            stats.g2p_terrain_cache_candidates as f64 / substeps,
+            stats.g2p_terrain_cache_projections as f64 / substeps,
+            stats.g2p_terrain_exact_fallbacks as f64 / substeps,
             stats.g2p_terrain_exact_checks as f64 / substeps,
             stats.g2p_terrain_exact_corrections as f64 / substeps,
             stats.active_node_visits as f64 / substeps,
@@ -365,7 +367,8 @@ impl PondWaterSim {
         let mut terrain_seconds = 0.0;
         let mut repair_seconds = 0.0;
         let mut terrain_cache_skips = 0u64;
-        let mut terrain_cache_candidates = 0u64;
+        let mut terrain_cache_projections = 0u64;
+        let mut terrain_exact_fallbacks = 0u64;
         let mut terrain_exact_checks = 0u64;
         let mut terrain_exact_corrections = 0u64;
         let origin_ws = self.origin_ws;
@@ -445,28 +448,45 @@ impl PondWaterSim {
             if particle.x.is_finite() {
                 if let Some(terrain) = terrain {
                     let local_pos = particle.x - origin_ws;
-                    if terrain_grid_particle_may_hit(local_pos, inv_dx, dx, grid_dim, terrain_grid) {
-                        terrain_cache_candidates += 1;
-                        terrain_exact_checks += 1;
-                        let terrain_start = collect_breakdown.then(Instant::now);
-                        if collide_particle_with_terrain_iterative(
-                            particle,
-                            terrain,
-                            terrain_collision_margin,
-                            terrain_max_correction,
-                            TERRAIN_PARTICLE_COLLISION_ITERATIONS,
-                            bounds.min_ws,
-                            bounds.max_ws,
-                            particle_min_padding,
-                            particle_max_padding,
-                        ) {
-                            terrain_exact_corrections += 1;
+                    let terrain_start = collect_breakdown.then(Instant::now);
+                    match terrain_grid_particle_query(local_pos, inv_dx, dx, grid_dim, terrain_grid) {
+                        TerrainGridParticleQuery::Skip => {
+                            terrain_cache_skips += 1;
                         }
-                        if let Some(terrain_start) = terrain_start {
-                            terrain_seconds += terrain_start.elapsed().as_secs_f64();
+                        TerrainGridParticleQuery::CachedProjection { sdf, normal } => {
+                            terrain_cache_projections += 1;
+                            project_particle_with_cached_terrain(
+                                particle,
+                                sdf,
+                                normal,
+                                terrain_collision_margin,
+                                terrain_max_correction,
+                                bounds.min_ws,
+                                bounds.max_ws,
+                                particle_min_padding,
+                                particle_max_padding,
+                            );
                         }
-                    } else {
-                        terrain_cache_skips += 1;
+                        TerrainGridParticleQuery::ExactFallback => {
+                            terrain_exact_fallbacks += 1;
+                            terrain_exact_checks += 1;
+                            if collide_particle_with_terrain_iterative(
+                                particle,
+                                terrain,
+                                terrain_collision_margin,
+                                terrain_max_correction,
+                                TERRAIN_PARTICLE_COLLISION_ITERATIONS,
+                                bounds.min_ws,
+                                bounds.max_ws,
+                                particle_min_padding,
+                                particle_max_padding,
+                            ) {
+                                terrain_exact_corrections += 1;
+                            }
+                        }
+                    }
+                    if let Some(terrain_start) = terrain_start {
+                        terrain_seconds += terrain_start.elapsed().as_secs_f64();
                     }
                 }
             }
@@ -495,7 +515,8 @@ impl PondWaterSim {
             terrain_seconds,
             repair_seconds,
             terrain_cache_skips,
-            terrain_cache_candidates,
+            terrain_cache_projections,
+            terrain_exact_fallbacks,
             terrain_exact_checks,
             terrain_exact_corrections,
         }
@@ -510,7 +531,8 @@ struct WaterG2pBreakdown {
     terrain_seconds: f64,
     repair_seconds: f64,
     terrain_cache_skips: u64,
-    terrain_cache_candidates: u64,
+    terrain_cache_projections: u64,
+    terrain_exact_fallbacks: u64,
     terrain_exact_checks: u64,
     terrain_exact_corrections: u64,
 }
@@ -537,13 +559,20 @@ fn in_grid(node: IVec3, grid_dim: glam::UVec3) -> bool {
         && node.z < grid_dim.z as i32
 }
 
-fn terrain_grid_particle_may_hit(
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum TerrainGridParticleQuery {
+    Skip,
+    CachedProjection { sdf: f32, normal: Vec3 },
+    ExactFallback,
+}
+
+fn terrain_grid_particle_query(
     local_pos: Vec3,
     inv_dx: f32,
     dx: f32,
     grid_dim: glam::UVec3,
     terrain_grid: &[WaterTerrainGridSample],
-) -> bool {
+) -> TerrainGridParticleQuery {
     if terrain_grid.is_empty()
         || !local_pos.is_finite()
         || inv_dx <= 0.0
@@ -551,52 +580,119 @@ fn terrain_grid_particle_may_hit(
         || dx <= 0.0
         || !dx.is_finite()
     {
-        return true;
+        return TerrainGridParticleQuery::ExactFallback;
     }
 
     let grid_pos = local_pos * inv_dx;
     if !grid_pos.is_finite() {
-        return true;
+        return TerrainGridParticleQuery::ExactFallback;
     }
 
     let base = grid_pos.floor().as_ivec3();
     let next = base + IVec3::ONE;
     if !in_grid(base, grid_dim) || !in_grid(next, grid_dim) {
-        return true;
+        return TerrainGridParticleQuery::ExactFallback;
     }
 
-    let f = grid_pos - base.as_vec3();
-    let f = f.clamp(Vec3::ZERO, Vec3::ONE);
-    let mut sdf = 0.0;
+    let f = (grid_pos - base.as_vec3()).clamp(Vec3::ZERO, Vec3::ONE);
+    let mut corner_sdf = [[[0.0f32; 2]; 2]; 2];
     for oz in 0..=1 {
-        let wz = if oz == 0 { 1.0 - f.z } else { f.z };
         for oy in 0..=1 {
-            let wy = if oy == 0 { 1.0 - f.y } else { f.y };
             for ox in 0..=1 {
-                let wx = if ox == 0 { 1.0 - f.x } else { f.x };
                 let node = base + IVec3::new(ox, oy, oz);
                 let idx = grid_index_dims(grid_dim, node.x as u32, node.y as u32, node.z as u32);
                 let Some(sample) = terrain_grid.get(idx) else {
-                    return true;
+                    return TerrainGridParticleQuery::ExactFallback;
                 };
                 if !sample.has_sdf {
-                    return true;
+                    return TerrainGridParticleQuery::ExactFallback;
                 }
-                sdf += wx * wy * wz * sample.sdf;
+                corner_sdf[oz as usize][oy as usize][ox as usize] = sample.sdf;
             }
         }
     }
 
-    // The cache is only a broadphase; exact SDF collision still handles the
-    // narrow band. Add grid-sized slack so interpolation error and one substep
-    // of motion do not skip plausible contacts.
-    let exact_collision_margin = dx * 0.5;
-    let conservative_band = exact_collision_margin + dx * 2.0;
-    sdf <= conservative_band
+    let sdf = trilinear_sdf(corner_sdf, f);
+    let collision_margin = dx * 0.5;
+    let interpolation_slack = dx * 0.5;
+    if sdf > collision_margin + interpolation_slack {
+        return TerrainGridParticleQuery::Skip;
+    }
+
+    if sdf <= collision_margin {
+        let normal = trilinear_sdf_gradient(corner_sdf, f).normalize_or_zero();
+        if normal.is_finite() && normal.length_squared() > 0.0 {
+            return TerrainGridParticleQuery::CachedProjection { sdf, normal };
+        }
+    }
+
+    TerrainGridParticleQuery::ExactFallback
+}
+
+fn trilinear_sdf(c: [[[f32; 2]; 2]; 2], f: Vec3) -> f32 {
+    let x00 = lerp(c[0][0][0], c[0][0][1], f.x);
+    let x10 = lerp(c[0][1][0], c[0][1][1], f.x);
+    let x01 = lerp(c[1][0][0], c[1][0][1], f.x);
+    let x11 = lerp(c[1][1][0], c[1][1][1], f.x);
+    let y0 = lerp(x00, x10, f.y);
+    let y1 = lerp(x01, x11, f.y);
+    lerp(y0, y1, f.z)
+}
+
+fn trilinear_sdf_gradient(c: [[[f32; 2]; 2]; 2], f: Vec3) -> Vec3 {
+    let dx00 = c[0][0][1] - c[0][0][0];
+    let dx10 = c[0][1][1] - c[0][1][0];
+    let dx01 = c[1][0][1] - c[1][0][0];
+    let dx11 = c[1][1][1] - c[1][1][0];
+    let dy00 = c[0][1][0] - c[0][0][0];
+    let dy10 = c[0][1][1] - c[0][0][1];
+    let dy01 = c[1][1][0] - c[1][0][0];
+    let dy11 = c[1][1][1] - c[1][0][1];
+    let dz00 = c[1][0][0] - c[0][0][0];
+    let dz10 = c[1][0][1] - c[0][0][1];
+    let dz01 = c[1][1][0] - c[0][1][0];
+    let dz11 = c[1][1][1] - c[0][1][1];
+
+    let grad_x = lerp(lerp(dx00, dx10, f.y), lerp(dx01, dx11, f.y), f.z);
+    let grad_y = lerp(lerp(dy00, dy10, f.x), lerp(dy01, dy11, f.x), f.z);
+    let grad_z = lerp(lerp(dz00, dz10, f.x), lerp(dz01, dz11, f.x), f.y);
+    Vec3::new(grad_x, grad_y, grad_z)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn project_particle_with_cached_terrain(
+    particle: &mut super::pond::WaterParticle,
+    sdf: f32,
+    terrain_normal: Vec3,
+    collision_margin: f32,
+    max_correction: f32,
+    box_min_ws: Vec3,
+    box_max_ws: Vec3,
+    box_min_padding: Vec3,
+    box_max_padding: Vec3,
+) {
+    let correction = collision_margin.max(0.0) - sdf;
+    if correction <= 0.0 {
+        return;
+    }
+
+    particle.x += terrain_normal * correction.min(max_correction.max(0.0));
+    particle.v = project_velocity_away_from_surface(particle.v, terrain_normal);
+    collide_particle_with_box_with_padding(
+        particle,
+        box_min_ws,
+        box_max_ws,
+        box_min_padding,
+        box_max_padding,
+    );
 }
 
 fn grid_index_dims(grid_dim: glam::UVec3, x: u32, y: u32, z: u32) -> usize {
     ((z as usize * grid_dim.y as usize + y as usize) * grid_dim.x as usize) + x as usize
+}
+
+fn lerp(a: f32, b: f32, t: f32) -> f32 {
+    a + (b - a) * t
 }
 
 fn outer_product(a: Vec3, b: Vec3) -> Mat3 {
