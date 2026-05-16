@@ -309,18 +309,61 @@ impl PondWaterSim {
         let terrain = self.terrain.as_ref();
         let collision_margin = self.terrain_collision_margin();
         let bounds = self.config.collider;
-        let padding = (self.dx * 0.5).min(self.extent_ws.min_element() * 0.25);
-        let spawn_center = surface_point_ws + Vec3::Y * (self.dx + radius_ws * 0.5);
+        let padding = (self.dx * self.config.wall_padding_cells.max(1.0))
+            .min(self.extent_ws.min_element() * 0.25);
+        let safe_min = bounds.min_ws + Vec3::splat(padding);
+        let safe_max = bounds.max_ws - Vec3::splat(padding);
+        if safe_min.cmpge(safe_max).any() {
+            return 0;
+        }
+
+        // A dense random blob injected inside the existing pond creates an
+        // immediate pressure impulse. Spread debug water across a shallow disk
+        // and place it above the local water surface so it settles in instead
+        // of appearing already compressed inside the fluid volume.
+        let max_horizontal_radius = ((safe_max.x - safe_min.x) * 0.5)
+            .min((safe_max.z - safe_min.z) * 0.5);
+        let horizontal_radius = radius_ws.max(self.dx * 0.5).min(max_horizontal_radius);
+        let vertical_radius = (radius_ws * 0.2)
+            .max(self.dx * 0.25)
+            .min((safe_max.y - safe_min.y) * 0.25);
+        if horizontal_radius <= 0.0 || vertical_radius <= 0.0 {
+            return 0;
+        }
+
+        let spawn_x = surface_point_ws.x.clamp(
+            safe_min.x + horizontal_radius,
+            safe_max.x - horizontal_radius,
+        );
+        let spawn_z = surface_point_ws.z.clamp(
+            safe_min.z + horizontal_radius,
+            safe_max.z - horizontal_radius,
+        );
+        let (local_surface_y, local_average_j) =
+            self.local_water_surface_y_and_average_j(spawn_x, spawn_z, horizontal_radius * 1.5);
+        let base_y = surface_point_ws.y.max(local_surface_y.unwrap_or(surface_point_ws.y));
+        let spawn_y = (base_y + self.dx * 1.5 + vertical_radius)
+            .clamp(safe_min.y + vertical_radius, safe_max.y - vertical_radius);
+        let spawn_center = Vec3::new(spawn_x, spawn_y, spawn_z);
+        let spawn_j = local_average_j
+            .unwrap_or(1.0)
+            .clamp(self.config.j_min.max(1.0e-4), 8.0);
+
         let mut spawned = 0usize;
         self.particles.reserve(count);
 
+        const GOLDEN_ANGLE: f32 = 2.399_963_1;
+        let inv_count = (count as f32).recip();
         for i in 0..count {
-            let i = i as u32;
+            let i_u32 = i as u32;
+            let t = (i as f32 + 0.5) * inv_count;
+            let angle = i as f32 * GOLDEN_ANGLE;
+            let radial = horizontal_radius * t.sqrt();
             let jitter = Vec3::new(
-                hash_unit(i, 17, 53) - 0.5,
-                (hash_unit(31, i, 97) - 0.5) * 0.5,
-                hash_unit(71, 43, i) - 0.5,
-            ) * (radius_ws * 2.0);
+                radial * angle.cos(),
+                (hash_unit(31, i_u32, 97) - 0.5) * 2.0 * vertical_radius,
+                radial * angle.sin(),
+            );
             let mut pos = spawn_center + jitter;
 
             if let Some(terrain) = terrain {
@@ -336,12 +379,49 @@ impl PondWaterSim {
                 }
             }
 
-            self.particles
-                .push(WaterParticle::new(bounds.clamp_point(pos, padding)));
+            let mut particle = WaterParticle::new(bounds.clamp_point(pos, padding));
+            particle.j = spawn_j;
+            self.particles.push(particle);
             spawned += 1;
         }
 
+        if spawned > 0 {
+            self.accumulator = 0.0;
+        }
+
         spawned
+    }
+
+    fn local_water_surface_y_and_average_j(
+        &self,
+        center_x: f32,
+        center_z: f32,
+        radius_ws: f32,
+    ) -> (Option<f32>, Option<f32>) {
+        if radius_ws <= 0.0 || !radius_ws.is_finite() {
+            return (None, None);
+        }
+
+        let radius_sq = radius_ws * radius_ws;
+        let mut max_y = f32::NEG_INFINITY;
+        let mut sum_j = 0.0;
+        let mut count = 0usize;
+        for particle in &self.particles {
+            let dx = particle.x.x - center_x;
+            let dz = particle.x.z - center_z;
+            if dx * dx + dz * dz <= radius_sq {
+                max_y = max_y.max(particle.x.y);
+                if particle.j.is_finite() {
+                    sum_j += particle.j;
+                    count += 1;
+                }
+            }
+        }
+
+        (
+            max_y.is_finite().then_some(max_y),
+            (count > 0).then_some(sum_j / count as f32),
+        )
     }
 
     fn seed_particles(&mut self) {
@@ -454,6 +534,41 @@ mod tests {
 
         assert_eq!(spawned, 0);
         assert_eq!(sim.particles.len(), initial_len);
+    }
+
+    #[test]
+    fn debug_spawn_uses_local_water_surface_height() {
+        let mut sim = PondWaterSim::fixed_test_box();
+        let initial_len = sim.particles.len();
+        let spawn_x = 1.5;
+        let spawn_z = 1.5;
+        let before_surface_y = max_particle_y_near(&sim, spawn_x, spawn_z, 0.18);
+
+        let spawned = sim.spawn_debug_particles_at_surface(Vec3::new(spawn_x, 0.1, spawn_z), 16, 0.08);
+
+        assert_eq!(spawned, 16);
+        let spawned_min_y = sim.particles[initial_len..]
+            .iter()
+            .map(|particle| particle.x.y)
+            .fold(f32::INFINITY, f32::min);
+        assert!(
+            spawned_min_y >= before_surface_y + sim.dx - 1.0e-5,
+            "spawned_min_y={spawned_min_y} before_surface_y={before_surface_y} dx={}",
+            sim.dx,
+        );
+    }
+
+    fn max_particle_y_near(sim: &PondWaterSim, center_x: f32, center_z: f32, radius: f32) -> f32 {
+        let radius_sq = radius * radius;
+        sim.particles
+            .iter()
+            .filter(|particle| {
+                let dx = particle.x.x - center_x;
+                let dz = particle.x.z - center_z;
+                dx * dx + dz * dz <= radius_sq
+            })
+            .map(|particle| particle.x.y)
+            .fold(f32::NEG_INFINITY, f32::max)
     }
 
     fn test_chunk(chunk_id: glam::IVec3) -> crate::WaterTerrainColliderChunk {

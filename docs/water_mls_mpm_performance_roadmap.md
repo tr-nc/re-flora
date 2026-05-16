@@ -391,7 +391,8 @@ Implemented as an initial bounded debug workflow:
 
 - Added a fourth item-panel slot using the watering-can icon from `assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals`.
 - Press `4` to select it.
-- Left click casts the existing CPU terrain ray from the camera, takes the terrain intersection, and injects a small cluster of MLS-MPM water particles above that point.
+- Left click casts the existing CPU terrain ray from the camera, takes the terrain intersection, and injects a small, sparse disk of MLS-MPM water particles above that point.
+- Spawn placement is lifted above the local particle surface when water is already present, to avoid injecting a dense compressed blob into the pond and triggering a pressure burst.
 - The tool currently respects the fixed `PondWaterConfig::collider` bounds; clicks outside the current pond simulation box log a skipped spawn. This is intentional until the active water-domain/chunk-set work exists.
 
 ## Validation policy

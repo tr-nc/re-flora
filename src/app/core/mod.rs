@@ -433,8 +433,8 @@ const MAX_FRAMES_IN_FLIGHT: usize = 1;
 const SHOVEL_REMOVE_RADIUS: f32 = 0.08;
 const SHOVEL_DIG_INTERVAL: Duration = Duration::from_millis(80);
 const SHOVEL_RAY_QUERY_DISTANCE: f32 = 2.0;
-const WATER_DEBUG_SPAWN_COUNT: usize = 96;
-const WATER_DEBUG_SPAWN_RADIUS: f32 = 0.045;
+const WATER_DEBUG_SPAWN_COUNT: usize = 48;
+const WATER_DEBUG_SPAWN_RADIUS: f32 = 0.12;
 const TERRAIN_EDIT_LOOP_PATH: &str =
     "assets/sfx/ROCKMisc_Designed Rock Movement Loop A_SARM_RkBrck_Stereo-Loop.wav";
 const TERRAIN_EDIT_LOOP_VOLUME_DB: f32 = 20.0;
