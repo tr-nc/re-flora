@@ -6,6 +6,7 @@ use std::sync::Arc;
 const DEFAULT_GRID_DIM: UVec3 = UVec3::new(32, 32, 32);
 const DEFAULT_PARTICLE_COUNT: usize = 4_096;
 const DEBUG_SPAWN_MAX_TOTAL_PARTICLE_MULTIPLIER: usize = 2;
+const DEBUG_SPAWN_HYDROSTATIC_J_MAX_DEPTH_CELLS: f32 = 4.0;
 // Particles are initially seeded into a compact pond volume, not the whole
 // chunk-sized simulation box. Keeping the rest volume below the full box volume
 // avoids pressure-driven expansion into terrain solids and artificial walls.
@@ -394,15 +395,11 @@ impl PondWaterSim {
 
         let spawn_x = surface_point_ws.x.clamp(accepted_min.x, accepted_max.x);
         let spawn_z = surface_point_ws.z.clamp(accepted_min.z, accepted_max.z);
-        let (local_surface_y, local_average_j) =
-            self.local_water_surface_y_and_average_j(spawn_x, spawn_z, horizontal_radius * 1.5);
+        let local_surface_y = self.local_water_surface_y(spawn_x, spawn_z, horizontal_radius * 1.5);
         let base_y = surface_point_ws.y.max(local_surface_y.unwrap_or(surface_point_ws.y));
         let spawn_y = (base_y + self.dx * 1.5 + vertical_radius)
             .clamp(safe_min.y + vertical_radius, safe_max.y - vertical_radius);
         let spawn_center = Vec3::new(spawn_x, spawn_y, spawn_z);
-        let spawn_j = local_average_j
-            .unwrap_or(1.0)
-            .clamp(self.config.j_min.max(1.0e-4), 8.0);
 
         let mut spawned = 0usize;
         self.particles.reserve(count);
@@ -435,7 +432,7 @@ impl PondWaterSim {
             }
 
             let mut particle = WaterParticle::new(bounds.clamp_point(pos, padding));
-            particle.j = spawn_j;
+            particle.j = self.debug_spawn_initial_j(particle.x.y, local_surface_y);
             self.particles.push(particle);
             spawned += 1;
         }
@@ -450,36 +447,63 @@ impl PondWaterSim {
         }
     }
 
-    fn local_water_surface_y_and_average_j(
-        &self,
-        center_x: f32,
-        center_z: f32,
-        radius_ws: f32,
-    ) -> (Option<f32>, Option<f32>) {
+    fn local_water_surface_y(&self, center_x: f32, center_z: f32, radius_ws: f32) -> Option<f32> {
         if radius_ws <= 0.0 || !radius_ws.is_finite() {
-            return (None, None);
+            return None;
         }
 
         let radius_sq = radius_ws * radius_ws;
         let mut max_y = f32::NEG_INFINITY;
-        let mut sum_j = 0.0;
-        let mut count = 0usize;
         for particle in &self.particles {
             let dx = particle.x.x - center_x;
             let dz = particle.x.z - center_z;
             if dx * dx + dz * dz <= radius_sq {
                 max_y = max_y.max(particle.x.y);
-                if particle.j.is_finite() {
-                    sum_j += particle.j;
-                    count += 1;
-                }
             }
         }
 
-        (
-            max_y.is_finite().then_some(max_y),
-            (count > 0).then_some(sum_j / count as f32),
-        )
+        max_y.is_finite().then_some(max_y)
+    }
+
+    fn debug_spawn_initial_j(&self, particle_y: f32, local_surface_y: Option<f32>) -> f32 {
+        let Some(surface_y) = local_surface_y else {
+            return 1.0;
+        };
+        if !particle_y.is_finite() || !surface_y.is_finite() {
+            return 1.0;
+        }
+
+        // Debug-spawned droplets start at atmospheric pressure when they are on
+        // or above the free surface. If clamping/collision correction places one
+        // just under the local surface, use a bounded hydrostatic estimate
+        // instead of inheriting a numerically compressed neighbor J.
+        let max_depth = self.dx * DEBUG_SPAWN_HYDROSTATIC_J_MAX_DEPTH_CELLS;
+        let depth_ws = (surface_y - particle_y).max(0.0).min(max_depth);
+        if depth_ws <= 0.0 {
+            return 1.0;
+        }
+
+        let rest_density = self.config.particle_mass / self.config.particle_volume;
+        let gravity = self.config.gravity.length();
+        let stiffness = self.config.stiffness;
+        let gamma = self.config.gamma;
+        if !rest_density.is_finite()
+            || rest_density <= 0.0
+            || !gravity.is_finite()
+            || gravity <= 0.0
+            || !stiffness.is_finite()
+            || stiffness <= 0.0
+            || !gamma.is_finite()
+            || gamma <= 0.0
+        {
+            return 1.0;
+        }
+
+        let pressure = rest_density * gravity * depth_ws;
+        let min_j = self.config.j_min.max(1.0e-4).min(1.0);
+        (1.0 + pressure / stiffness)
+            .powf(-gamma.recip())
+            .clamp(min_j, 1.0)
     }
 
     fn seed_particles(&mut self) {
@@ -627,6 +651,36 @@ mod tests {
             })
         );
         assert_eq!(sim.particles.len(), max_particles);
+    }
+
+    #[test]
+    fn debug_spawn_does_not_inherit_compressed_local_j_at_free_surface() {
+        let mut sim = PondWaterSim::fixed_test_box();
+        let initial_len = sim.particles.len();
+        for particle in &mut sim.particles {
+            particle.j = 0.25;
+        }
+
+        let result = sim.spawn_debug_particles_at_surface(Vec3::new(1.5, 0.5, 1.5), 12, 0.05);
+
+        assert_eq!(result.spawned_count(), 12);
+        assert!(sim.particles[initial_len..]
+            .iter()
+            .all(|particle| particle.j == 1.0));
+    }
+
+    #[test]
+    fn debug_spawn_initial_j_uses_bounded_hydrostatic_depth_below_surface() {
+        let sim = PondWaterSim::fixed_test_box();
+        let surface_y = 0.5;
+
+        assert_eq!(sim.debug_spawn_initial_j(surface_y + sim.dx, Some(surface_y)), 1.0);
+
+        let below_surface_j = sim.debug_spawn_initial_j(surface_y - sim.dx, Some(surface_y));
+        assert!(
+            below_surface_j < 1.0 && below_surface_j >= sim.config.j_min,
+            "below_surface_j={below_surface_j}"
+        );
     }
 
     #[test]
