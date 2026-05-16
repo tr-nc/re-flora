@@ -839,7 +839,9 @@ impl App {
             Some(WaterProfilePreference::Default) | None => PondWaterConfig::default(),
             Some(WaterProfilePreference::Performance) => PondWaterConfig::default()
                 .with_particle_count(2_048)
-                .with_substep_hz(120.0),
+                .with_substep_hz(120.0)
+                .with_terrain_collision_margin_cells(0.2)
+                .with_linear_damping_per_sec(1.5),
         };
         if let Some(particle_count) = options.water_particles {
             water_config = water_config.with_particle_count(particle_count);
@@ -850,12 +852,20 @@ impl App {
         if let Some(substep_hz) = options.water_substep_hz {
             water_config = water_config.with_substep_hz(substep_hz);
         }
+        if let Some(margin_cells) = options.water_terrain_margin_cells {
+            water_config = water_config.with_terrain_collision_margin_cells(margin_cells);
+        }
+        if let Some(damping_per_sec) = options.water_damping {
+            water_config = water_config.with_linear_damping_per_sec(damping_per_sec);
+        }
         log::info!(
-            "[WATER] config profile={:?} particles={} grid={:?} substep_dt={:.6}s",
+            "[WATER] config profile={:?} particles={} grid={:?} substep_dt={:.6}s terrain_margin_cells={:.2} damping={:.2}/s",
             options.water_profile,
             water_config.particle_count,
             water_config.grid_dim,
             water_config.substep_dt,
+            water_config.terrain_collision_margin_cells,
+            water_config.linear_damping_per_sec,
         );
         let water_sim = PondWaterSim::new(water_config);
         let (water_terrain_collider_job_tx, water_terrain_collider_result_rx) =

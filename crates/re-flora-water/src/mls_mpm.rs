@@ -172,7 +172,7 @@ impl PondWaterSim {
     }
 
     pub(crate) fn rebuild_terrain_grid_cache(&mut self) {
-        let terrain_collision_margin = self.dx * 0.5;
+        let terrain_collision_margin = self.terrain_collision_margin();
         // Cache a conservative narrow band around terrain. Hot loops use this
         // cheap water-grid SDF to skip exact collider queries for particles and
         // grid nodes that are clearly away from solids.
@@ -213,7 +213,7 @@ impl PondWaterSim {
         let padding = self.dx * self.config.wall_padding_cells.max(1.0);
         let min_padding = Vec3::splat(padding);
         let max_padding = Vec3::splat(padding);
-        let terrain_collision_margin = self.dx * 0.5;
+        let terrain_collision_margin = self.terrain_collision_margin();
         let terrain_max_correction = padding;
         let j_min = self.config.j_min;
         let max_particle_speed = max_particle_speed_for_substep(self.dx, dt);
@@ -307,6 +307,7 @@ impl PondWaterSim {
     fn update_grid(&mut self, dt: f32) -> usize {
         let grid_dim = self.grid_dim;
         let gravity = self.config.gravity;
+        let linear_damping = velocity_damping_factor(self.config.linear_damping_per_sec, dt);
         let wall_cells = self.config.wall_padding_cells.max(1.0);
         let wall_damping = self.config.wall_damping.clamp(0.0, 1.0);
         let terrain_grid = &self.terrain_grid;
@@ -325,6 +326,7 @@ impl PondWaterSim {
                     active_nodes += 1;
                     node.v /= node.mass;
                     node.v += gravity * dt;
+                    node.v *= linear_damping;
 
                     let mut normal = Vec3::ZERO;
                     let terrain_sample = terrain_grid.get(idx).copied().unwrap_or_default();
@@ -406,7 +408,7 @@ impl PondWaterSim {
         let grid = &self.grid;
         let terrain_grid = &self.terrain_grid;
         let terrain = self.terrain.as_ref();
-        let terrain_collision_margin = self.dx * 0.5;
+        let terrain_collision_margin = self.terrain_collision_margin();
         let terrain_max_correction = particle_padding;
 
         for (particle_idx, particle) in self.particles.iter_mut().enumerate() {
@@ -470,7 +472,14 @@ impl PondWaterSim {
                 if let Some(terrain) = terrain {
                     let local_pos = particle.x - origin_ws;
                     let terrain_start = collect_breakdown.then(Instant::now);
-                    match terrain_grid_particle_query(local_pos, inv_dx, dx, grid_dim, terrain_grid) {
+                    match terrain_grid_particle_query(
+                        local_pos,
+                        inv_dx,
+                        dx,
+                        grid_dim,
+                        terrain_grid,
+                        terrain_collision_margin,
+                    ) {
                         TerrainGridParticleQuery::Skip { sdf } => {
                             if collect_breakdown && should_shadow_sample_terrain(particle_idx) {
                                 terrain_shadow_samples += 1;
@@ -622,6 +631,7 @@ fn terrain_grid_particle_query(
     dx: f32,
     grid_dim: glam::UVec3,
     terrain_grid: &[WaterTerrainGridSample],
+    collision_margin: f32,
 ) -> TerrainGridParticleQuery {
     if terrain_grid.is_empty()
         || !local_pos.is_finite()
@@ -663,7 +673,7 @@ fn terrain_grid_particle_query(
     }
 
     let sdf = trilinear_sdf(corner_sdf, f);
-    let collision_margin = dx * 0.5;
+    let collision_margin = collision_margin.max(0.0);
     let interpolation_slack = dx * 0.25;
     if sdf > collision_margin + interpolation_slack {
         return TerrainGridParticleQuery::Skip { sdf };
@@ -809,6 +819,18 @@ fn max_particle_speed_for_substep(dx: f32, dt: f32) -> f32 {
     } else {
         MAX_PARTICLE_SPEED
     }
+}
+
+fn velocity_damping_factor(linear_damping_per_sec: f32, dt: f32) -> f32 {
+    if linear_damping_per_sec <= 0.0
+        || !linear_damping_per_sec.is_finite()
+        || dt <= 0.0
+        || !dt.is_finite()
+    {
+        return 1.0;
+    }
+
+    (-linear_damping_per_sec * dt).exp().clamp(0.0, 1.0)
 }
 
 fn finite_or(value: Vec3, fallback: Vec3) -> Vec3 {
@@ -1077,7 +1099,7 @@ mod tests {
         let mut sim = PondWaterSim::fixed_test_box();
         let bounds = sim.config.collider;
         let terrain_height = 0.5;
-        let terrain_margin = sim.dx * 0.5;
+        let terrain_margin = sim.terrain_collision_margin();
         sim.set_terrain_collider_set(sdf_collider_set(
             bounds.min_ws,
             bounds.max_ws,

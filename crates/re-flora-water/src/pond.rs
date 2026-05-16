@@ -22,6 +22,8 @@ pub struct PondWaterConfig {
     pub stiffness: f32,
     pub gamma: f32,
     pub j_min: f32,
+    pub terrain_collision_margin_cells: f32,
+    pub linear_damping_per_sec: f32,
     pub wall_padding_cells: f32,
     pub wall_damping: f32,
 }
@@ -39,6 +41,8 @@ impl Default for PondWaterConfig {
             stiffness: 10_000.0,
             gamma: 7.0,
             j_min: 0.1,
+            terrain_collision_margin_cells: 0.5,
+            linear_damping_per_sec: 0.0,
             wall_padding_cells: 2.0,
             wall_damping: 0.0,
         }
@@ -62,6 +66,18 @@ impl PondWaterConfig {
     pub fn with_substep_hz(mut self, substep_hz: f32) -> Self {
         assert!(substep_hz > 0.0 && substep_hz.is_finite());
         self.substep_dt = substep_hz.recip();
+        self
+    }
+
+    pub fn with_terrain_collision_margin_cells(mut self, margin_cells: f32) -> Self {
+        assert!(margin_cells >= 0.0 && margin_cells.is_finite());
+        self.terrain_collision_margin_cells = margin_cells;
+        self
+    }
+
+    pub fn with_linear_damping_per_sec(mut self, damping_per_sec: f32) -> Self {
+        assert!(damping_per_sec >= 0.0 && damping_per_sec.is_finite());
+        self.linear_damping_per_sec = damping_per_sec;
         self
     }
 }
@@ -241,7 +257,7 @@ impl PondWaterSim {
     fn stabilize_after_terrain_change(&mut self) {
         self.accumulator = 0.0;
         let terrain = self.terrain.as_ref();
-        let collision_margin = self.dx * 0.5;
+        let collision_margin = self.terrain_collision_margin();
         let max_correction = self.dx * self.config.wall_padding_cells.max(1.0);
         let particle_padding = self.dx * self.config.wall_padding_cells.max(1.0);
         let bounds = self.config.collider;
@@ -269,6 +285,10 @@ impl PondWaterSim {
 
     pub fn terrain_collider_set(&self) -> Option<&WaterTerrainColliderSet> {
         self.terrain.as_ref()
+    }
+
+    pub(crate) fn terrain_collision_margin(&self) -> f32 {
+        self.dx * self.config.terrain_collision_margin_cells.max(0.0)
     }
 
     fn seed_particles(&mut self) {
