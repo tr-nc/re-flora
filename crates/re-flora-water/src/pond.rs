@@ -121,6 +121,10 @@ pub struct WaterPerfStats {
     pub g2p_terrain_exact_fallbacks: u64,
     pub g2p_terrain_exact_checks: u64,
     pub g2p_terrain_exact_corrections: u64,
+    pub g2p_terrain_shadow_samples: u64,
+    pub g2p_terrain_shadow_false_skips: u64,
+    pub g2p_terrain_shadow_sdf_abs_error_sum: f64,
+    pub g2p_terrain_shadow_sdf_abs_error_max: f32,
 }
 
 impl WaterPerfStats {
