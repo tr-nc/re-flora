@@ -226,6 +226,7 @@ pub struct App {
     screenshot_taken: bool,
     auto_exit_delay: Option<f32>,
     tree_bench: Option<TreeBench>,
+    water_edit_soak: Option<water::WaterEditSoak>,
     deferred_chunk_rebuilds: LatestChunkQueue<ChunkRebuildRequest>,
 
     // note: always keep the context to end, as it has to be destroyed last
@@ -974,6 +975,7 @@ impl App {
                 };
                 TreeBench::new(options.tree_bench_samples, mode, options.tree_bench_rapid)
             }),
+            water_edit_soak: options.water_edit_soak.then(water::WaterEditSoak::default),
             deferred_chunk_rebuilds: LatestChunkQueue::default(),
 
             spatial_sound_manager,
@@ -2037,6 +2039,7 @@ impl App {
                 self.process_deferred_chunk_rebuild();
                 self.process_water_terrain_source_updates();
                 self.process_deferred_water_terrain_collider_rebuild();
+                self.process_water_edit_soak();
 
                 if self.regenerate_trees_requested {
                     self.regenerate_trees_requested = false;

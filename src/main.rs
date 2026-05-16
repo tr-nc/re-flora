@@ -118,6 +118,8 @@ pub struct AppOptions {
     pub water_grid: Option<u32>,
     /// Override water MLS-MPM fixed substep rate in Hz.
     pub water_substep_hz: Option<f32>,
+    /// Run a deterministic terrain-edit soak around the pond for water validation.
+    pub water_edit_soak: bool,
     /// Run the lightweight tree replacement benchmark and exit after completion.
     pub tree_bench: bool,
     /// Number of tree benchmark samples.
@@ -218,6 +220,7 @@ impl AppOptions {
             water_particles: parse_u32_after("--water-particles").map(|v| v.max(1) as usize),
             water_grid: parse_u32_after("--water-grid").map(|v| v.max(4)),
             water_substep_hz: parse_f32_after("--water-substep-hz").map(|v| v.max(1.0)),
+            water_edit_soak: args.iter().any(|a| a == "--water-edit-soak"),
             tree_bench: args.iter().any(|a| a == "--tree-bench"),
             tree_bench_samples: parse_u32_after("--tree-bench-samples").unwrap_or(10),
             tree_bench_min_thickness: args.iter().any(|a| a == "--tree-bench-min-thickness"),
@@ -255,6 +258,7 @@ Options:
   --water-particles <N>       Override water MLS-MPM particle count
   --water-grid <N>            Override cubic water MLS-MPM grid dimension
   --water-substep-hz <Hz>     Override water MLS-MPM fixed substep rate
+  --water-edit-soak           Run deterministic pond terrain edits for water validation
   --tree-bench                Run tree replacement benchmark and exit
   --tree-bench-samples <N>    Tree benchmark samples (default: 10)
   --tree-bench-min-thickness  Sweep Min Trunk Thickness instead of Tree Height
@@ -274,6 +278,7 @@ Examples:
   re-flora --screenshot out.png --screenshot-delay 3
   re-flora --auto-exit 10 --perf
   re-flora --hidden --auto-exit 4 --perf --water-profile performance
+  re-flora --hidden --auto-exit 14 --perf --water-profile performance --water-edit-soak
   re-flora --latest-log
   re-flora --tail-latest-log 120
   re-flora --windowed --tree-bench --tree-bench-samples 10"#
