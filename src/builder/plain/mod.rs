@@ -1,7 +1,7 @@
 mod resources;
 use crate::generated::gpu_structs::{
-    BvhNodes, ChunkModifyInfo, Cuboids, ModelVoxelizeInfo, PushConstantChunkModifySample,
-    RegionInfo, RoundCones, Spheres,
+    BvhNodes, ChunkModifyInfo, ChunkSolidSampleInfo, Cuboids, ModelVoxelizeInfo,
+    PushConstantChunkModifySample, RegionInfo, RoundCones, Spheres,
 };
 use crate::geom::{BvhNode, Cuboid, RoundCone, Sphere, UAabb3};
 use crate::model::ModelTriangleGpu;
@@ -42,6 +42,7 @@ const PRIMITIVE_KIND_CUBOID: u32 = 1;
 const PRIMITIVE_KIND_SPHERE: u32 = 2;
 const EDIT_STATS_VOXEL_TYPE_COUNT: usize = 8;
 pub(crate) const EDIT_REMOVAL_CANDIDATE_CAPACITY: u64 = 65_536;
+pub(crate) const CHUNK_SOLID_SAMPLE_CAPACITY: u64 = 65_536;
 const EDIT_REMOVAL_SAMPLE_COUNT: usize = 50;
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -93,6 +94,8 @@ pub struct PlainBuilder {
     heightmap_ppl: ComputePipeline,
     chunk_modify_ppl: ComputePipeline,
     chunk_modify_sample_ppl: ComputePipeline,
+    #[allow(dead_code)]
+    chunk_solid_sample_ppl: ComputePipeline,
     model_voxelize_ppl: ComputePipeline,
 
     #[allow(dead_code)]
@@ -141,6 +144,13 @@ impl PlainBuilder {
             "main",
         )
         .unwrap();
+        let chunk_solid_sample_sm = ShaderModule::from_glsl(
+            device,
+            shader_compiler,
+            "shader/builder/chunk_writer/chunk_solid_sample.comp",
+            "main",
+        )
+        .unwrap();
         let model_voxelize_sm = ShaderModule::from_glsl(
             device,
             shader_compiler,
@@ -164,6 +174,7 @@ impl PlainBuilder {
             &buffer_setup_sm,
             &chunk_modify_sm,
             &chunk_modify_sample_sm,
+            &chunk_solid_sample_sm,
             &model_voxelize_sm,
             &heightmap_sm,
         );
@@ -176,6 +187,8 @@ impl PlainBuilder {
         let chunk_modify_ppl = ComputePipeline::new(device, &chunk_modify_sm, &pool, &[&resources]);
         let chunk_modify_sample_ppl =
             ComputePipeline::new(device, &chunk_modify_sample_sm, &pool, &[&resources]);
+        let chunk_solid_sample_ppl =
+            ComputePipeline::new(device, &chunk_solid_sample_sm, &pool, &[&resources]);
         let model_voxelize_ppl =
             ComputePipeline::new(device, &model_voxelize_sm, &pool, &[&resources]);
 
@@ -200,6 +213,7 @@ impl PlainBuilder {
             heightmap_ppl,
             chunk_modify_ppl,
             chunk_modify_sample_ppl,
+            chunk_solid_sample_ppl,
             model_voxelize_ppl,
             pool,
             build_cmdbuf,
@@ -368,6 +382,84 @@ impl PlainBuilder {
             },
         );
         buffer.read_back_range(0, byte_count)
+    }
+
+    #[allow(dead_code)]
+    pub fn sample_chunk_atlas_solid_grid(
+        &mut self,
+        atlas_offset: UVec3,
+        atlas_dim: UVec3,
+        sample_dim: UVec3,
+    ) -> Result<Vec<u32>> {
+        let atlas_extent = self.resources.chunk_atlas.get_image().get_desc().extent;
+        let atlas_size = UVec3::new(atlas_extent.width, atlas_extent.height, atlas_extent.depth);
+        if atlas_dim.x == 0 || atlas_dim.y == 0 || atlas_dim.z == 0 {
+            anyhow::bail!("chunk solid sample source dim must be non-zero: {atlas_dim:?}");
+        }
+        if sample_dim.x < 2 || sample_dim.y < 2 || sample_dim.z < 2 {
+            anyhow::bail!(
+                "chunk solid sample dim must be at least 2 in every axis: {sample_dim:?}"
+            );
+        }
+        if (atlas_offset + atlas_dim).cmpgt(atlas_size).any() {
+            anyhow::bail!(
+                "chunk solid sample source outside atlas: offset={:?} dim={:?} atlas={:?}",
+                atlas_offset,
+                atlas_dim,
+                atlas_size
+            );
+        }
+
+        let sample_count = sample_dim.x as u64 * sample_dim.y as u64 * sample_dim.z as u64;
+        if sample_count > CHUNK_SOLID_SAMPLE_CAPACITY {
+            anyhow::bail!(
+                "chunk solid sample dim {:?} has {} samples, but capacity is {}",
+                sample_dim,
+                sample_count,
+                CHUNK_SOLID_SAMPLE_CAPACITY
+            );
+        }
+
+        self.resources
+            .chunk_solid_sample_info
+            .fill_uniform(&ChunkSolidSampleInfo {
+                atlas_offset: atlas_offset.to_array(),
+                atlas_dim: atlas_dim.to_array(),
+                sample_dim: sample_dim.to_array(),
+                ..ChunkSolidSampleInfo::zeroed()
+            })?;
+
+        let host_read_barrier = PipelineBarrier::new(
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vk::PipelineStageFlags::HOST,
+            vec![MemoryBarrier::new(
+                vk::AccessFlags::SHADER_WRITE,
+                vk::AccessFlags::HOST_READ,
+            )],
+        );
+        execute_one_time_command_with_fence(
+            self.vulkan_ctx.device(),
+            self.vulkan_ctx.command_pool(),
+            &self.vulkan_ctx.get_general_queue(),
+            |cmdbuf| {
+                self.chunk_solid_sample_ppl.record(
+                    cmdbuf,
+                    Extent3D::new(sample_dim.x, sample_dim.y, sample_dim.z),
+                    None,
+                );
+                host_read_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            },
+        );
+
+        let byte_count = sample_count * std::mem::size_of::<u32>() as u64;
+        let raw = self
+            .resources
+            .chunk_solid_samples
+            .read_back_range(0, byte_count)?;
+        Ok(raw
+            .chunks_exact(std::mem::size_of::<u32>())
+            .map(|chunk| u32::from_ne_bytes(chunk.try_into().unwrap()))
+            .collect())
     }
 
     pub fn chunk_init(&mut self, atlas_offset: UVec3, atlas_dim: UVec3) -> Result<()> {

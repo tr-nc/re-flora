@@ -15,6 +15,8 @@ pub struct PlainBuilderResources {
     pub region_indirect: Resource<Buffer>,
     pub heightmap: Resource<Buffer>,
     pub chunk_modify_info: Resource<Buffer>,
+    pub chunk_solid_sample_info: Resource<Buffer>,
+    pub chunk_solid_samples: Resource<Buffer>,
     pub edit_stats: Resource<Buffer>,
     pub edit_removal_candidates: Resource<Buffer>,
     pub edit_removal_sample: Resource<Buffer>,
@@ -36,6 +38,7 @@ impl PlainBuilderResources {
         buffer_setup_sm: &ShaderModule,
         chunk_modify_sm: &ShaderModule,
         chunk_modify_sample_sm: &ShaderModule,
+        chunk_solid_sample_sm: &ShaderModule,
         model_voxelize_sm: &ShaderModule,
         heightmap_sm: &ShaderModule,
     ) -> Self {
@@ -74,6 +77,23 @@ impl PlainBuilderResources {
             device.clone(),
             allocator.clone(),
             chunk_modify_info_layout.clone(),
+        );
+
+        let chunk_solid_sample_info_layout = chunk_solid_sample_sm
+            .get_buffer_layout("U_ChunkSolidSampleInfo")
+            .unwrap();
+        let chunk_solid_sample_info = Buffer::from_uniform_layout(
+            device.clone(),
+            allocator.clone(),
+            chunk_solid_sample_info_layout.clone(),
+        );
+
+        let chunk_solid_samples = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            gpu_allocator::MemoryLocation::GpuToCpu,
+            std::mem::size_of::<u32>() as u64 * super::CHUNK_SOLID_SAMPLE_CAPACITY,
         );
 
         let edit_stats_layout = chunk_modify_sm.get_buffer_layout("B_EditStats").unwrap();
@@ -199,6 +219,8 @@ impl PlainBuilderResources {
             chunk_atlas: Resource::new(chunk_atlas),
             free_atlas: Resource::new(free_atlas),
             chunk_modify_info: Resource::new(chunk_modify_info),
+            chunk_solid_sample_info: Resource::new(chunk_solid_sample_info),
+            chunk_solid_samples: Resource::new(chunk_solid_samples),
             edit_stats: Resource::new(edit_stats),
             edit_removal_candidates: Resource::new(edit_removal_candidates),
             edit_removal_sample: Resource::new(edit_removal_sample),

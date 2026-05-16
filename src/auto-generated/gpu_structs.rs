@@ -15,6 +15,13 @@ pub struct BvhNodes {
     pub offset: u32,
 }
 
+/// Auto-generated from `B_ChunkSolidSamples` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ChunkSolidSamples {
+    pub solid: [u32; 0],
+}
+
 /// Auto-generated from `B_CounterForLevels` (GLSL source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -268,6 +275,18 @@ pub struct ChunkModifyInfo {
     pub primitive_kind: u32,
     pub surface_only: u32,
     pub max_write_count: u32,
+}
+
+/// Auto-generated from `U_ChunkSolidSampleInfo` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ChunkSolidSampleInfo {
+    pub atlas_offset: [u32; 3],
+    pub _pad0: [u8; 4],
+    pub atlas_dim: [u32; 3],
+    pub _pad1: [u8; 4],
+    pub sample_dim: [u32; 3],
+    pub _pad2: [u8; 4],
 }
 
 /// Auto-generated from `U_ClearOccupancyInfo` (GLSL source of truth).
