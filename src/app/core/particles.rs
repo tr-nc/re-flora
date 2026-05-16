@@ -9,7 +9,7 @@ use crate::particles::{
 use crate::util::ClusterResult;
 use egui::Color32;
 use glam::{Vec2, Vec3, Vec4};
-use std::f32::consts::TAU;
+use std::{f32::consts::TAU, time::Instant};
 
 // bird-specific audio and control logic has been removed
 
@@ -381,6 +381,8 @@ impl App {
             return;
         }
 
+        let total_start = Instant::now();
+        let setup_start = Instant::now();
         self.butterfly_emitter_desc =
             Self::butterfly_desc_from_gui_adjustables(&self.gui_adjustables);
         for emitter in &mut self.butterfly_emitters {
@@ -390,7 +392,9 @@ impl App {
         let wind_time = self.time_info.time_since_start();
         self.particle_system
             .set_bucket_step_seconds(self.gui_adjustables.world_tick_seconds.value);
+        let setup_ms = setup_start.elapsed().as_secs_f32() * 1000.0;
 
+        let emit_start = Instant::now();
         Self::drive_emitters(
             &mut self.butterfly_emitters,
             &mut self.particle_system,
@@ -403,20 +407,56 @@ impl App {
             dt,
             wind_time,
         );
+        let emit_ms = emit_start.elapsed().as_secs_f32() * 1000.0;
 
+        let sim_start = Instant::now();
         self.particle_system.update(dt, self.particle_forces);
+        let sim_ms = sim_start.elapsed().as_secs_f32() * 1000.0;
+
+        let collect_start = Instant::now();
         self.update_terrain_harvest_particle_collection(dt);
+        let collect_ms = collect_start.elapsed().as_secs_f32() * 1000.0;
+
+        let plan_start = Instant::now();
         let tick_step = self.particle_system.last_tick_step();
         if tick_step.did_step {
             self.particle_animation_time_sec += tick_step.step_seconds;
             self.plan_butterflies(tick_step);
         }
+        let plan_ms = plan_start.elapsed().as_secs_f32() * 1000.0;
+
+        let snapshot_start = Instant::now();
         self.particle_system
             .write_snapshots(&mut self.particle_snapshots);
+        let sim_snapshot_count = self.particle_snapshots.len();
         self.append_water_debug_snapshots();
+        let snapshot_ms = snapshot_start.elapsed().as_secs_f32() * 1000.0;
 
+        let upload_start = Instant::now();
         if let Err(err) = self.tracer.upload_particles(&self.particle_snapshots) {
             log::error!("Failed to upload particles: {}", err);
+        }
+        let upload_ms = upload_start.elapsed().as_secs_f32() * 1000.0;
+
+        if self.perf_logging {
+            log::info!(
+                "[PERF][PARTICLES] alive={} snapshots={} water_debug={} emitters butterflies={} leaves={} tick_step={} dt={:.4} total={:.3}ms setup={:.3} emit={:.3} sim={:.3} collect={:.3} plan={:.3} snapshot={:.3} upload={:.3}",
+                self.particle_system.alive_count(),
+                self.particle_snapshots.len(),
+                self.particle_snapshots.len().saturating_sub(sim_snapshot_count),
+                self.butterfly_emitters.len(),
+                self.leaf_emitters.len(),
+                tick_step.did_step,
+                dt,
+                total_start.elapsed().as_secs_f32() * 1000.0,
+                setup_ms,
+                emit_ms,
+                sim_ms,
+                collect_ms,
+                plan_ms,
+                snapshot_ms,
+                upload_ms,
+            );
         }
     }
 
