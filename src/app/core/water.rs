@@ -33,17 +33,29 @@ pub(super) struct WaterTerrainColliderWorkerResult {
 impl App {
     pub(super) fn enqueue_startup_water_terrain_collider_rebuilds(&mut self) {
         let mut enqueued = 0usize;
+        let mut skipped = 0usize;
+        let bounds = self.water_sim.config.collider;
         for x in 0..CHUNK_DIM.x {
             for y in 0..CHUNK_DIM.y {
                 for z in 0..CHUNK_DIM.z {
-                    self.mark_water_terrain_source_chunk_dirty(UVec3::new(x, y, z));
+                    let chunk_id = UVec3::new(x, y, z);
+                    if !water_terrain_chunk_key_intersects_box_grid_domain(
+                        chunk_id,
+                        bounds.min_ws,
+                        bounds.max_ws,
+                    ) {
+                        skipped += 1;
+                        continue;
+                    }
+                    self.mark_water_terrain_source_chunk_dirty(chunk_id);
                     enqueued += 1;
                 }
             }
         }
         log::info!(
-            "[WATER][TERRAIN] enqueued startup collider rebuilds for {} chunks",
+            "[WATER][TERRAIN] enqueued startup collider rebuilds for {} water-domain chunks, skipped {} out-of-domain chunks",
             enqueued,
+            skipped,
         );
     }
 
@@ -61,6 +73,19 @@ impl App {
     }
 
     pub(super) fn mark_water_terrain_source_chunk_dirty(&mut self, chunk_id: UVec3) {
+        let bounds = self.water_sim.config.collider;
+        if !water_terrain_chunk_key_intersects_box_grid_domain(
+            chunk_id,
+            bounds.min_ws,
+            bounds.max_ws,
+        ) {
+            log::debug!(
+                "[WATER][TERRAIN] skipped collider source refresh for out-of-water-domain chunk {:?}",
+                chunk_id,
+            );
+            return;
+        }
+
         match self.refresh_water_solid_sample_chunk(chunk_id) {
             Ok(Some(revision)) => {
                 log::debug!(
@@ -496,6 +521,20 @@ fn water_terrain_chunk_strictly_overlaps_box(
         && chunk_max_ws.z > box_min_ws.z
 }
 
+fn water_terrain_chunk_key_intersects_box_grid_domain(
+    chunk_key: UVec3,
+    box_min_ws: Vec3,
+    box_max_ws: Vec3,
+) -> bool {
+    let Some(chunk_id) = water_terrain_chunk_work_key_to_id(chunk_key) else {
+        return false;
+    };
+
+    let min_chunk = box_min_ws.floor().as_ivec3();
+    let max_chunk = box_max_ws.floor().as_ivec3();
+    chunk_id.cmpge(min_chunk).all() && chunk_id.cmple(max_chunk).all()
+}
+
 #[cfg(test)]
 fn water_terrain_chunk_id_to_uvec3(chunk_id: IVec3) -> Option<UVec3> {
     if chunk_id.cmpge(IVec3::ZERO).all() {
@@ -632,6 +671,33 @@ mod tests {
             IVec3::new(1, 1, 1),
             Vec3::new(1.0, 0.0, 1.0),
             Vec3::new(2.0, 1.0, 2.0),
+        ));
+    }
+
+    #[test]
+    fn chunk_grid_domain_includes_water_grid_boundary_chunks() {
+        let min_ws = Vec3::new(1.0, 0.0, 1.0);
+        let max_ws = Vec3::new(2.0, 1.0, 2.0);
+
+        assert!(water_terrain_chunk_key_intersects_box_grid_domain(
+            UVec3::new(1, 0, 1),
+            min_ws,
+            max_ws,
+        ));
+        assert!(water_terrain_chunk_key_intersects_box_grid_domain(
+            UVec3::new(2, 1, 2),
+            min_ws,
+            max_ws,
+        ));
+        assert!(!water_terrain_chunk_key_intersects_box_grid_domain(
+            UVec3::new(0, 0, 1),
+            min_ws,
+            max_ws,
+        ));
+        assert!(!water_terrain_chunk_key_intersects_box_grid_domain(
+            UVec3::new(3, 1, 2),
+            min_ws,
+            max_ws,
         ));
     }
 

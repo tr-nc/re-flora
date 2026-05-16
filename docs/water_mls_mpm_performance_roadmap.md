@@ -12,7 +12,7 @@ Current status by phase:
 | Phase 2: remove duplicate terrain repair | Done | steady-state pre-P2G terrain sweep removed |
 | Phase 3A: water-grid terrain cache | Done | grid-node terrain collision moved out of the hot loop |
 | Phase 3B: G2P terrain broadphase/cache | Implemented, needs more soak/tuning | cached skip/projection path is active and shadow-verified in perf runs |
-| Phase 4: collider scope/startup | Not started | lower priority after current hot-loop wins |
+| Phase 4: collider scope/startup | Implemented and benchmarked | startup/edit collider refreshes are limited to water-grid-domain chunks |
 | Phase 5: solver scaling options | Not started | defer until algorithmic waste is exhausted |
 
 Latest representative release result:
@@ -268,18 +268,27 @@ Phase 3B completion criteria:
 
 ### Phase 4: reduce terrain collider scope and startup work
 
-Status: not started / lower priority.
+Status: implemented and release-benchmarked; still useful to soak with terrain-edit scenarios.
 
 Goal: avoid building and publishing colliders that cannot affect the pond.
 
-Planned work:
+Implemented work:
 
-1. Log collider chunks published vs. actually sampled by water.
-2. Prioritize startup collider generation for chunks overlapping or near the pond.
-3. Optionally skip non-overlapping chunks until water can move into them.
-4. Keep direct chunk lookup and scan fallback behavior intact.
+1. Startup collider refresh now only enqueues chunks in the water grid domain: `floor(water_min)..=floor(water_max)`.
+2. Terrain edit invalidation also skips source refresh for chunks outside the water grid domain.
+3. Startup logging reports enqueued water-domain chunks and skipped out-of-domain chunks.
+4. Direct chunk lookup and scan fallback behavior remain intact.
 
-Expected effect: lower startup work and smaller terrain cache rebuild input.
+Expected effect: lower startup GPU solid readback, fewer worker jobs, fewer collider chunks published, and smaller terrain cache rebuild input. For the current fixed water box, the startup candidate set drops from the full `5 x 2 x 5 = 50` terrain chunks to at most `2 x 2 x 2 = 8` water-domain chunks before empty-terrain filtering.
+
+Release validation:
+
+- Run log: `/tmp/re-flora-logs/re-flora-20260516-233023.731-125389.log`
+- Startup log: `enqueued startup collider rebuilds for 8 water-domain chunks, skipped 42 out-of-domain chunks`.
+- Water perf stayed in the Phase 3B range:
+  - `1.868 ms/substep`, then `1.764 ms/substep`, then `1.740 ms/substep`.
+  - `terrain_shadow_false_skips 0`, `penetrating 0`, `no_sdf 0`.
+- This phase mainly reduces startup/edit collider scope; it is not expected to materially change steady-state solver time.
 
 ### Phase 5: solver-level scaling options
 
