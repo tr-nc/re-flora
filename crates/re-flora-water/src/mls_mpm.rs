@@ -664,7 +664,7 @@ fn terrain_grid_particle_query(
 
     let sdf = trilinear_sdf(corner_sdf, f);
     let collision_margin = dx * 0.5;
-    let interpolation_slack = dx * 0.5;
+    let interpolation_slack = dx * 0.25;
     if sdf > collision_margin + interpolation_slack {
         return TerrainGridParticleQuery::Skip { sdf };
     }

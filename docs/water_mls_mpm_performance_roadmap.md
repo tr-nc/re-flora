@@ -19,7 +19,7 @@ Latest representative release result:
 
 - Baseline from `REPORT.md`: ~4.9 ms/substep.
 - Current Phase 3A release samples: ~1.95-1.99 ms/substep.
-- Current Phase 3B release samples: ~1.80-1.88 ms/substep.
+- Current Phase 3B release samples: ~1.75-1.85 ms/substep.
 - Overall solver cost is down by roughly 62-63% from the original report.
 - Functional release validation stayed clean: `penetrating 0`, `no_sdf 0`.
 - Phase 3B shadow verification has reported `terrain_shadow_false_skips 0` in the latest release run.
@@ -218,34 +218,36 @@ Run logs:
 
 - `/tmp/re-flora-logs/re-flora-20260516-231428.005-119895.log`
 - `/tmp/re-flora-logs/re-flora-20260516-231849.292-121006.log`
+- `/tmp/re-flora-logs/re-flora-20260516-232008.680-121537.log`
 
-| metric | phase 3A sample B | phase 3B sample A | phase 3B sample B | phase 3B sample C |
-| --- | ---: | ---: | ---: | ---: |
-| substeps/report | 240 | 217 | 241 | 240 |
-| total water time | 468.63 ms | 407.57 ms | 437.87 ms | 432.12 ms |
-| avg/substep | 1.953 ms | 1.878 ms | 1.817 ms | 1.800 ms |
-| repair | 12.59 ms | 11.43 ms | 12.66 ms | 12.64 ms |
-| grid | 18.13 ms | 16.49 ms | 16.63 ms | 16.01 ms |
-| G2P total | 359.94 ms | 310.49 ms | 332.24 ms | 326.03 ms |
-| G2P terrain | 112.77 ms | 109.95 ms | 109.66 ms | 104.68 ms |
-| cache skips/substep | n/a | 337 | 794 | 847 |
-| cache projections/substep | n/a | 1233 | 410 | 572 |
-| exact fallbacks/substep | n/a | 2526 | 2892 | 2677 |
-| exact checks/substep | 4031 | 2526 | 2892 | 2677 |
-| exact corrections/substep | n/a | 224 | 116 | 88 |
-| shadow samples/substep | n/a | 10.9 | 20.7 | 25.2 |
-| shadow false skips | n/a | 0 | 0 | 0 |
-| shadow SDF avg abs error | n/a | 0.00137 | 0.00150 | 0.00183 |
-| shadow SDF max abs error | n/a | 0.00624 | 0.00353 | 0.00367 |
-| penetrating | 0 | 0 | 0 | 0 |
-| no_sdf | 0 | 0 | 0 | 0 |
+| metric | phase 3A sample B | phase 3B initial | phase 3B tuned A | phase 3B tuned B | phase 3B tuned C |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| substeps/report | 240 | 240 | 217 | 240 | 241 |
+| total water time | 468.63 ms | 432.12 ms | 401.04 ms | 428.25 ms | 421.42 ms |
+| avg/substep | 1.953 ms | 1.800 ms | 1.848 ms | 1.784 ms | 1.749 ms |
+| repair | 12.59 ms | 12.64 ms | 11.20 ms | 12.41 ms | 12.46 ms |
+| grid | 18.13 ms | 16.01 ms | 16.97 ms | 17.31 ms | 16.32 ms |
+| G2P total | 359.94 ms | 326.03 ms | 302.16 ms | 318.84 ms | 313.19 ms |
+| G2P terrain | 112.77 ms | 104.68 ms | 105.17 ms | 98.11 ms | 93.75 ms |
+| cache skips/substep | n/a | 847 | 741 | 1635 | 1602 |
+| cache projections/substep | n/a | 572 | 1233 | 409 | 572 |
+| exact fallbacks/substep | n/a | 2677 | 2122 | 2051 | 1922 |
+| exact checks/substep | 4031 | 2677 | 2122 | 2051 | 1922 |
+| exact corrections/substep | n/a | 88 | 224 | 117 | 88 |
+| shadow samples/substep | n/a | 25.2 | 13.0 | 23.1 | 26.9 |
+| shadow false skips | n/a | 0 | 0 | 0 | 0 |
+| shadow SDF avg abs error | n/a | 0.00183 | 0.00143 | 0.00157 | 0.00185 |
+| shadow SDF max abs error | n/a | 0.00367 | 0.00624 | 0.00471 | 0.00441 |
+| penetrating | 0 | 0 | 0 | 0 | 0 |
+| no_sdf | 0 | 0 | 0 | 0 | 0 |
 
 Interpretation:
 
-- Overall water step cost improved again, from ~1.95-1.99 ms/substep after Phase 3A to ~1.80-1.88 ms/substep after Phase 3B.
-- Exact G2P terrain checks dropped from almost all particles to roughly 62-71% of particles per substep.
+- Overall water step cost improved again, from ~1.95-1.99 ms/substep after Phase 3A to ~1.75-1.85 ms/substep after Phase 3B tuning.
+- Exact G2P terrain checks dropped from almost all particles to roughly 47-52% of particles per substep in the tuned samples.
 - Cached projection is active and release validation stayed clean in these runs.
-- Shadow validation sampled cached decisions and found no false skips in the latest release run.
+- Shadow validation sampled cached decisions and found no false skips in the latest release runs.
+- Reducing interpolation slack from `dx * 0.5` to `dx * 0.25` improved exact fallback counts without causing observed penetration or false skips.
 - `g2p_terrain` improved only modestly because many particles still take exact fallback and the cached query/projection path has its own cost.
 
 Recommended next steps:
