@@ -1,5 +1,5 @@
 use super::{
-    App, WaterTerrainCacheRebuildRequest, WaterTerrainColliderRebuildRequest, CHUNK_DIM,
+    App, TerrainSdfColliderRebuildRequest, WaterTerrainCacheRebuildRequest, CHUNK_DIM,
     VOXEL_DIM_PER_CHUNK,
 };
 use crate::app::cpu_solid_voxels::CpuSolidVoxelChunk;
@@ -14,32 +14,32 @@ use std::{
     time::{Duration, Instant},
 };
 
-const WATER_TERRAIN_COLLIDER_DIM: UVec3 = UVec3::new(32, 32, 32);
-const WATER_TERRAIN_COLLIDER_SOURCE: &str = "gpu-sampled-solid-grid";
+const TERRAIN_SDF_COLLIDER_DIM: UVec3 = UVec3::new(32, 32, 32);
+const TERRAIN_SDF_COLLIDER_SOURCE: &str = "gpu-sampled-solid-grid";
 const TERRAIN_SDF_SOURCE_REFRESH_COALESCE_DELAY: Duration = Duration::from_millis(150);
 const TERRAIN_SDF_SOURCE_LOW_PRIORITY_DELAY: Duration = Duration::from_secs(2);
 const WATER_TERRAIN_ACTIVE_PARTICLE_HALO_CELLS: f32 = 8.0;
 const WATER_TERRAIN_ACTIVE_MAX_SUBSTEPS: usize = 2;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct WaterTerrainColliderSourceRevision {
+pub(super) struct TerrainSdfSourceRevision {
     dependencies: Vec<(UVec3, u64)>,
 }
 
-pub(super) struct WaterTerrainColliderWorkerJob {
+pub(super) struct TerrainSdfColliderWorkerJob {
     chunk_key: UVec3,
     chunk_id: IVec3,
     revision: u64,
-    source_revision: WaterTerrainColliderSourceRevision,
+    source_revision: TerrainSdfSourceRevision,
     solid_chunk: std::sync::Arc<CpuSolidVoxelChunk>,
 }
 
-pub(super) struct WaterTerrainColliderWorkerResult {
+pub(super) struct TerrainSdfColliderWorkerResult {
     chunk_key: UVec3,
     chunk_id: IVec3,
     revision: u64,
-    source_revision: WaterTerrainColliderSourceRevision,
-    build: Option<WaterTerrainColliderBuild>,
+    source_revision: TerrainSdfSourceRevision,
+    build: Option<TerrainSdfColliderBuild>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -96,16 +96,16 @@ impl App {
         );
     }
 
-    pub(super) fn enqueue_deferred_water_terrain_collider_rebuild(&mut self, chunk_id: UVec3) {
+    pub(super) fn enqueue_deferred_terrain_sdf_collider_rebuild(&mut self, chunk_id: UVec3) {
         let revision = self
-            .deferred_water_terrain_collider_rebuilds
-            .push(chunk_id, WaterTerrainColliderRebuildRequest);
+            .deferred_terrain_sdf_collider_rebuilds
+            .push(chunk_id, TerrainSdfColliderRebuildRequest);
         log::debug!(
-            "[QUEUE][WATER_TERRAIN] enqueue chunk {:?} revision {} pending={} active={}",
+            "[QUEUE][TERRAIN_SDF_COLLIDER] enqueue chunk {:?} revision {} pending={} active={}",
             chunk_id,
             revision,
-            self.deferred_water_terrain_collider_rebuilds.len(),
-            self.deferred_water_terrain_collider_rebuilds.active_len(),
+            self.deferred_terrain_sdf_collider_rebuilds.len(),
+            self.deferred_terrain_sdf_collider_rebuilds.active_len(),
         );
     }
 
@@ -249,8 +249,8 @@ impl App {
             match self.refresh_terrain_sdf_solid_sample_chunk(chunk_id) {
                 Ok(Some(source_refresh)) => {
                     let source_revision =
-                        water_terrain_collider_source_revision(&self.cpu_solid_voxels, chunk_id);
-                    let already_built = self.water_terrain_built_source_revisions.get(&chunk_id)
+                        terrain_sdf_source_revision(&self.cpu_solid_voxels, chunk_id);
+                    let already_built = self.terrain_sdf_built_source_revisions.get(&chunk_id)
                         == Some(&source_revision);
                     if source_refresh.changed || !already_built {
                         log::debug!(
@@ -261,7 +261,7 @@ impl App {
                             source_refresh.changed,
                             already_built,
                         );
-                        self.enqueue_deferred_water_terrain_collider_rebuild(chunk_id);
+                        self.enqueue_deferred_terrain_sdf_collider_rebuild(chunk_id);
                     } else {
                         log::debug!(
                             "[QUEUE][TERRAIN_SDF_SOURCE] skipped unchanged chunk {:?} revision {} source_rev={} pending={} active={}",
@@ -349,9 +349,9 @@ impl App {
         }
     }
 
-    pub(super) fn process_deferred_water_terrain_collider_rebuild(&mut self) {
-        self.publish_completed_water_terrain_collider_rebuilds();
-        self.try_submit_next_water_terrain_collider_rebuild();
+    pub(super) fn process_deferred_terrain_sdf_collider_rebuild(&mut self) {
+        self.publish_completed_terrain_sdf_collider_rebuilds();
+        self.try_submit_next_terrain_sdf_collider_rebuild();
     }
 
     pub(super) fn update_water_sim(&mut self, frame_delta_time: f32) {
@@ -369,7 +369,7 @@ impl App {
     fn water_terrain_work_active(&self) -> bool {
         !self.deferred_chunk_rebuilds_idle()
             || !self.deferred_terrain_sdf_source_refreshes.is_idle()
-            || !self.deferred_water_terrain_collider_rebuilds.is_idle()
+            || !self.deferred_terrain_sdf_collider_rebuilds.is_idle()
             || !self.deferred_water_terrain_cache_rebuilds.is_idle()
     }
 
@@ -390,7 +390,7 @@ impl App {
         if !self.water_terrain_initialized
             || !self.deferred_chunk_rebuilds_idle()
             || !self.deferred_terrain_sdf_source_refreshes.is_idle()
-            || !self.deferred_water_terrain_collider_rebuilds.is_idle()
+            || !self.deferred_terrain_sdf_collider_rebuilds.is_idle()
             || !self.deferred_water_terrain_cache_rebuilds.is_idle()
         {
             return;
@@ -463,24 +463,24 @@ impl App {
         Ok(())
     }
 
-    pub(super) fn spawn_water_terrain_collider_worker() -> (
-        mpsc::Sender<WaterTerrainColliderWorkerJob>,
-        mpsc::Receiver<WaterTerrainColliderWorkerResult>,
+    pub(super) fn spawn_terrain_sdf_collider_worker() -> (
+        mpsc::Sender<TerrainSdfColliderWorkerJob>,
+        mpsc::Receiver<TerrainSdfColliderWorkerResult>,
     ) {
         let (job_tx, job_rx) = mpsc::channel();
         let (result_tx, result_rx) = mpsc::channel();
         thread::spawn(move || loop {
-            let job: WaterTerrainColliderWorkerJob = match job_rx.recv() {
+            let job: TerrainSdfColliderWorkerJob = match job_rx.recv() {
                 Ok(job) => job,
                 Err(_) => break,
             };
 
-            let build = build_water_terrain_collider_chunk(
+            let build = build_terrain_sdf_collider_chunk(
                 job.solid_chunk.as_ref(),
                 job.chunk_id,
                 job.revision,
             );
-            let result = WaterTerrainColliderWorkerResult {
+            let result = TerrainSdfColliderWorkerResult {
                 chunk_key: job.chunk_key,
                 chunk_id: job.chunk_id,
                 revision: job.revision,
@@ -495,14 +495,14 @@ impl App {
         (job_tx, result_rx)
     }
 
-    fn try_submit_next_water_terrain_collider_rebuild(&mut self) {
-        if self.water_terrain_collider_build_inflight {
+    fn try_submit_next_terrain_sdf_collider_rebuild(&mut self) {
+        if self.terrain_sdf_collider_build_inflight {
             return;
         }
 
         let focus = self.water_terrain_focus_ws();
         let Some(work) = self
-            .deferred_water_terrain_collider_rebuilds
+            .deferred_terrain_sdf_collider_rebuilds
             .pop_nearest_to(focus, UVec3::ONE)
         else {
             return;
@@ -516,7 +516,7 @@ impl App {
                 chunk_key,
                 revision,
             );
-            self.deferred_water_terrain_collider_rebuilds
+            self.deferred_terrain_sdf_collider_rebuilds
                 .complete(chunk_key, revision);
             return;
         };
@@ -527,21 +527,20 @@ impl App {
                 chunk_id,
                 revision,
             );
-            self.deferred_water_terrain_collider_rebuilds
+            self.deferred_terrain_sdf_collider_rebuilds
                 .complete(chunk_key, revision);
             return;
         };
 
-        let source_revision =
-            water_terrain_collider_source_revision(&self.cpu_solid_voxels, chunk_key);
-        if self.water_terrain_built_source_revisions.get(&chunk_key) == Some(&source_revision) {
+        let source_revision = terrain_sdf_source_revision(&self.cpu_solid_voxels, chunk_key);
+        if self.terrain_sdf_built_source_revisions.get(&chunk_key) == Some(&source_revision) {
             log::debug!(
-                "[QUEUE][WATER_TERRAIN] skip unchanged solid source chunk {:?} revision {} source={:?}",
+                "[QUEUE][TERRAIN_SDF_COLLIDER] skip unchanged solid source chunk {:?} revision {} source={:?}",
                 chunk_id,
                 revision,
                 source_revision,
             );
-            self.deferred_water_terrain_collider_rebuilds
+            self.deferred_terrain_sdf_collider_rebuilds
                 .complete(chunk_key, revision);
             return;
         }
@@ -555,49 +554,49 @@ impl App {
                 chunk_key,
                 removed,
             );
-            self.water_terrain_built_source_revisions
+            self.terrain_sdf_built_source_revisions
                 .insert(chunk_key, source_revision);
-            self.deferred_water_terrain_collider_rebuilds
+            self.deferred_terrain_sdf_collider_rebuilds
                 .complete(chunk_key, revision);
             self.finish_startup_water_terrain_collider_batch_if_ready();
             return;
         }
 
-        let job = WaterTerrainColliderWorkerJob {
+        let job = TerrainSdfColliderWorkerJob {
             chunk_key,
             chunk_id,
             revision,
             source_revision,
             solid_chunk,
         };
-        self.water_terrain_collider_build_inflight = true;
-        if let Err(err) = self.water_terrain_collider_job_tx.send(job) {
+        self.terrain_sdf_collider_build_inflight = true;
+        if let Err(err) = self.terrain_sdf_collider_job_tx.send(job) {
             log::error!(
                 "[WATER][TERRAIN] failed to submit collider build chunk {:?} rev {}: {}",
                 chunk_id,
                 revision,
                 err,
             );
-            self.water_terrain_collider_build_inflight = false;
-            self.deferred_water_terrain_collider_rebuilds
+            self.terrain_sdf_collider_build_inflight = false;
+            self.deferred_terrain_sdf_collider_rebuilds
                 .complete(chunk_key, revision);
             return;
         }
 
         log::debug!(
-            "[QUEUE][WATER_TERRAIN] submit chunk {:?} revision {} pending={} active={}",
+            "[QUEUE][TERRAIN_SDF_COLLIDER] submit chunk {:?} revision {} pending={} active={}",
             chunk_id,
             revision,
-            self.deferred_water_terrain_collider_rebuilds.len(),
-            self.deferred_water_terrain_collider_rebuilds.active_len(),
+            self.deferred_terrain_sdf_collider_rebuilds.len(),
+            self.deferred_terrain_sdf_collider_rebuilds.active_len(),
         );
     }
 
-    fn publish_completed_water_terrain_collider_rebuilds(&mut self) {
-        while let Ok(result) = self.water_terrain_collider_result_rx.try_recv() {
-            self.water_terrain_collider_build_inflight = false;
+    fn publish_completed_terrain_sdf_collider_rebuilds(&mut self) {
+        while let Ok(result) = self.terrain_sdf_collider_result_rx.try_recv() {
+            self.terrain_sdf_collider_build_inflight = false;
             let is_latest = self
-                .deferred_water_terrain_collider_rebuilds
+                .deferred_terrain_sdf_collider_rebuilds
                 .is_latest_revision(result.chunk_key, result.revision);
 
             if !is_latest {
@@ -606,13 +605,13 @@ impl App {
                     result.chunk_id,
                     result.revision,
                 );
-                self.deferred_water_terrain_collider_rebuilds
+                self.deferred_terrain_sdf_collider_rebuilds
                     .complete(result.chunk_key, result.revision);
                 continue;
             }
 
             if let Some(build) = result.build {
-                let WaterTerrainColliderBuild {
+                let TerrainSdfColliderBuild {
                     chunk,
                     bounds_min_ws,
                     bounds_max_ws,
@@ -633,7 +632,7 @@ impl App {
                     result.chunk_id,
                     result.revision,
                     is_latest,
-                    WATER_TERRAIN_COLLIDER_DIM,
+                    TERRAIN_SDF_COLLIDER_DIM,
                     bounds_min_ws,
                     bounds_max_ws,
                     stats.min_sdf,
@@ -641,7 +640,7 @@ impl App {
                     stats.sdf_hash,
                     stats.solid_sample_count,
                     stats.sample_count,
-                    WATER_TERRAIN_COLLIDER_SOURCE,
+                    TERRAIN_SDF_COLLIDER_SOURCE,
                     stats.solid.source_chunk,
                     stats.solid.source_dim,
                     stats.solid.source_solid_voxels,
@@ -651,13 +650,13 @@ impl App {
                     stats.count_ms,
                     stats.sdf_ms,
                     stats.stats_ms,
-                    self.deferred_water_terrain_collider_rebuilds.len(),
+                    self.deferred_terrain_sdf_collider_rebuilds.len(),
                 );
             }
 
-            self.water_terrain_built_source_revisions
+            self.terrain_sdf_built_source_revisions
                 .insert(result.chunk_key, result.source_revision);
-            self.deferred_water_terrain_collider_rebuilds
+            self.deferred_terrain_sdf_collider_rebuilds
                 .complete(result.chunk_key, result.revision);
             self.finish_startup_water_terrain_collider_batch_if_ready();
         }
@@ -738,9 +737,9 @@ impl App {
     }
 
     fn water_terrain_has_startup_collider(&self) -> bool {
-        if self.water_terrain_collider_build_inflight
+        if self.terrain_sdf_collider_build_inflight
             || !self.deferred_terrain_sdf_source_refreshes.is_idle()
-            || !self.deferred_water_terrain_collider_rebuilds.is_idle()
+            || !self.deferred_terrain_sdf_collider_rebuilds.is_idle()
             || !self.deferred_water_terrain_cache_rebuilds.is_idle()
         {
             return false;
@@ -768,7 +767,7 @@ impl App {
         let solid_samples = self.plain_builder.sample_chunk_atlas_solid_grid(
             atlas_offset,
             VOXEL_DIM_PER_CHUNK,
-            WATER_TERRAIN_COLLIDER_DIM,
+            TERRAIN_SDF_COLLIDER_DIM,
         )?;
         let sample_elapsed = sample_start.elapsed();
         let convert_start = Instant::now();
@@ -780,7 +779,7 @@ impl App {
         let store_start = Instant::now();
         let (chunk, changed) = self.cpu_solid_voxels.upsert_from_voxel_types(
             chunk_id,
-            WATER_TERRAIN_COLLIDER_DIM,
+            TERRAIN_SDF_COLLIDER_DIM,
             &voxel_types,
         )?;
         let store_elapsed = store_start.elapsed();
@@ -790,10 +789,10 @@ impl App {
             chunk.revision(),
             changed,
             chunk.solid_count(),
-            WATER_TERRAIN_COLLIDER_DIM.x as usize
-                * WATER_TERRAIN_COLLIDER_DIM.y as usize
-                * WATER_TERRAIN_COLLIDER_DIM.z as usize,
-            WATER_TERRAIN_COLLIDER_DIM,
+            TERRAIN_SDF_COLLIDER_DIM.x as usize
+                * TERRAIN_SDF_COLLIDER_DIM.y as usize
+                * TERRAIN_SDF_COLLIDER_DIM.z as usize,
+            TERRAIN_SDF_COLLIDER_DIM,
             solid_samples.len(),
             sample_elapsed.as_secs_f64() * 1000.0,
             convert_elapsed.as_secs_f64() * 1000.0,
@@ -850,21 +849,21 @@ fn water_edit_soak_step(step: usize) -> Option<WaterEditSoakStep> {
     }
 }
 
-fn build_water_terrain_collider_chunk(
+fn build_terrain_sdf_collider_chunk(
     solid_chunk: &CpuSolidVoxelChunk,
     chunk_id: IVec3,
     revision: u64,
-) -> Option<WaterTerrainColliderBuild> {
+) -> Option<TerrainSdfColliderBuild> {
     let build_start = Instant::now();
     let (bounds_min_ws, bounds_max_ws) = water_terrain_chunk_bounds_ws(chunk_id);
-    let sample_count = (WATER_TERRAIN_COLLIDER_DIM.x as usize)
-        * (WATER_TERRAIN_COLLIDER_DIM.y as usize)
-        * (WATER_TERRAIN_COLLIDER_DIM.z as usize);
+    let sample_count = (TERRAIN_SDF_COLLIDER_DIM.x as usize)
+        * (TERRAIN_SDF_COLLIDER_DIM.y as usize)
+        * (TERRAIN_SDF_COLLIDER_DIM.z as usize);
 
     let solid_start = Instant::now();
     let (solid_samples, solid_stats) = water_terrain_solid_samples(
         solid_chunk,
-        WATER_TERRAIN_COLLIDER_DIM,
+        TERRAIN_SDF_COLLIDER_DIM,
         bounds_min_ws,
         bounds_max_ws,
     );
@@ -884,7 +883,7 @@ fn build_water_terrain_collider_chunk(
 
     let sdf_start = Instant::now();
     let sdf_ws = signed_distance_from_solid_samples(
-        WATER_TERRAIN_COLLIDER_DIM,
+        TERRAIN_SDF_COLLIDER_DIM,
         bounds_min_ws,
         bounds_max_ws,
         &solid_samples,
@@ -898,16 +897,16 @@ fn build_water_terrain_collider_chunk(
     let sdf_hash = hash_sdf_samples(&sdf_ws);
     let stats_ms = stats_start.elapsed().as_secs_f32() * 1000.0;
 
-    Some(WaterTerrainColliderBuild {
+    Some(TerrainSdfColliderBuild {
         chunk: WaterTerrainColliderChunk {
             chunk_id,
-            dim: WATER_TERRAIN_COLLIDER_DIM,
+            dim: TERRAIN_SDF_COLLIDER_DIM,
             sdf_ws,
             revision,
         },
         bounds_min_ws,
         bounds_max_ws,
-        stats: WaterTerrainColliderBuildStats {
+        stats: TerrainSdfColliderBuildStats {
             sample_count,
             solid_sample_count,
             min_sdf,
@@ -948,14 +947,14 @@ fn water_terrain_solid_samples(
     (solid, stats)
 }
 
-struct WaterTerrainColliderBuild {
+struct TerrainSdfColliderBuild {
     chunk: WaterTerrainColliderChunk,
     bounds_min_ws: Vec3,
     bounds_max_ws: Vec3,
-    stats: WaterTerrainColliderBuildStats,
+    stats: TerrainSdfColliderBuildStats,
 }
 
-struct WaterTerrainColliderBuildStats {
+struct TerrainSdfColliderBuildStats {
     sample_count: usize,
     solid_sample_count: usize,
     min_sdf: f32,
@@ -981,11 +980,11 @@ fn water_terrain_chunk_bounds_ws(chunk_id: IVec3) -> (Vec3, Vec3) {
     (min_ws, min_ws + Vec3::ONE)
 }
 
-fn water_terrain_collider_source_revision(
+fn terrain_sdf_source_revision(
     cpu_solid_voxels: &crate::app::cpu_solid_voxels::CpuSolidVoxelStore,
     chunk_key: UVec3,
-) -> WaterTerrainColliderSourceRevision {
-    WaterTerrainColliderSourceRevision {
+) -> TerrainSdfSourceRevision {
+    TerrainSdfSourceRevision {
         dependencies: vec![(chunk_key, cpu_solid_voxels.revision(chunk_key).unwrap_or(0))],
     }
 }
@@ -1193,14 +1192,14 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            water_terrain_collider_source_revision(&store, UVec3::new(1, 0, 1)),
-            WaterTerrainColliderSourceRevision {
+            terrain_sdf_source_revision(&store, UVec3::new(1, 0, 1)),
+            TerrainSdfSourceRevision {
                 dependencies: vec![(UVec3::new(1, 0, 1), 1)]
             }
         );
         assert_eq!(
-            water_terrain_collider_source_revision(&store, UVec3::new(1, 1, 1)),
-            WaterTerrainColliderSourceRevision {
+            terrain_sdf_source_revision(&store, UVec3::new(1, 1, 1)),
+            TerrainSdfSourceRevision {
                 dependencies: vec![(UVec3::new(1, 1, 1), 0)]
             }
         );

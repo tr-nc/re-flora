@@ -97,7 +97,7 @@ enum ChunkRebuildRequest {
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-struct WaterTerrainColliderRebuildRequest;
+struct TerrainSdfColliderRebuildRequest;
 
 #[derive(Clone, Copy, Debug, Default)]
 struct WaterTerrainCacheRebuildRequest;
@@ -216,13 +216,13 @@ pub struct App {
     water_terrain_collider_cache_rebuild_pending: bool,
     cpu_solid_voxels: CpuSolidVoxelStore,
     deferred_terrain_sdf_source_refreshes: LatestChunkQueue<water::TerrainSdfSourceRefreshRequest>,
-    deferred_water_terrain_collider_rebuilds: LatestChunkQueue<WaterTerrainColliderRebuildRequest>,
+    deferred_terrain_sdf_collider_rebuilds: LatestChunkQueue<TerrainSdfColliderRebuildRequest>,
     deferred_water_terrain_cache_rebuilds: LatestChunkQueue<WaterTerrainCacheRebuildRequest>,
-    water_terrain_built_source_revisions: HashMap<UVec3, water::WaterTerrainColliderSourceRevision>,
-    water_terrain_collider_build_inflight: bool,
-    water_terrain_collider_job_tx: std::sync::mpsc::Sender<water::WaterTerrainColliderWorkerJob>,
-    water_terrain_collider_result_rx:
-        std::sync::mpsc::Receiver<water::WaterTerrainColliderWorkerResult>,
+    terrain_sdf_built_source_revisions: HashMap<UVec3, water::TerrainSdfSourceRevision>,
+    terrain_sdf_collider_build_inflight: bool,
+    terrain_sdf_collider_job_tx: std::sync::mpsc::Sender<water::TerrainSdfColliderWorkerJob>,
+    terrain_sdf_collider_result_rx:
+        std::sync::mpsc::Receiver<water::TerrainSdfColliderWorkerResult>,
     particle_snapshots: Vec<ParticleSnapshot>,
     #[allow(dead_code)]
     terrain_harvest_particle_handles: Vec<ParticleHandle>,
@@ -903,8 +903,8 @@ impl App {
             cells_per_unit,
         );
         let water_sim = PondWaterSim::new(water_config);
-        let (water_terrain_collider_job_tx, water_terrain_collider_result_rx) =
-            Self::spawn_water_terrain_collider_worker();
+        let (terrain_sdf_collider_job_tx, terrain_sdf_collider_result_rx) =
+            Self::spawn_terrain_sdf_collider_worker();
         let terrain_harvest_particle_handles = Vec::with_capacity(256);
         let particle_forces = ParticleForces {
             linear_damping: 0.08,
@@ -1001,12 +1001,12 @@ impl App {
             water_terrain_collider_cache_rebuild_pending: false,
             cpu_solid_voxels: CpuSolidVoxelStore::default(),
             deferred_terrain_sdf_source_refreshes: LatestChunkQueue::default(),
-            deferred_water_terrain_collider_rebuilds: LatestChunkQueue::default(),
+            deferred_terrain_sdf_collider_rebuilds: LatestChunkQueue::default(),
             deferred_water_terrain_cache_rebuilds: LatestChunkQueue::default(),
-            water_terrain_built_source_revisions: HashMap::new(),
-            water_terrain_collider_build_inflight: false,
-            water_terrain_collider_job_tx,
-            water_terrain_collider_result_rx,
+            terrain_sdf_built_source_revisions: HashMap::new(),
+            terrain_sdf_collider_build_inflight: false,
+            terrain_sdf_collider_job_tx,
+            terrain_sdf_collider_result_rx,
             particle_snapshots,
             terrain_harvest_particle_handles,
             particle_forces,
@@ -2124,7 +2124,7 @@ impl App {
                 self.process_terrain_sdf_source_updates();
                 self.process_deferred_chunk_rebuild();
                 self.process_deferred_water_terrain_cache_rebuild();
-                self.process_deferred_water_terrain_collider_rebuild();
+                self.process_deferred_terrain_sdf_collider_rebuild();
                 self.process_water_edit_soak();
 
                 if self.regenerate_trees_requested {
