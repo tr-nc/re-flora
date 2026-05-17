@@ -89,6 +89,7 @@ enum LoadingPhase {
     Building,
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Default)]
 enum ChunkRebuildRequest {
     #[default]
@@ -294,15 +295,11 @@ impl Drop for App {
 
 impl App {
     pub(super) fn enqueue_deferred_chunk_rebuilds(&mut self, chunk_ids: &[UVec3]) {
-        if self.should_rebuild_visible_chunk_batch_synchronously(chunk_ids) {
-            self.rebuild_visible_chunk_batch_synchronously(chunk_ids);
+        if chunk_ids.is_empty() {
             return;
         }
 
-        for &chunk_id in chunk_ids {
-            self.deferred_chunk_rebuilds
-                .push(chunk_id, ChunkRebuildRequest::Normal);
-        }
+        self.rebuild_visible_chunk_batch_synchronously(chunk_ids);
     }
 
     pub(super) fn enqueue_deferred_flora_preserving_chunk_rebuilds(
@@ -310,19 +307,11 @@ impl App {
         chunk_ids: &[UVec3],
         flora_edit: world_ops::FloraSphereEdit,
     ) {
-        if self.should_rebuild_visible_chunk_batch_synchronously(chunk_ids) {
-            self.rebuild_visible_flora_preserving_chunk_batch_synchronously(chunk_ids, flora_edit);
+        if chunk_ids.is_empty() {
             return;
         }
 
-        for &chunk_id in chunk_ids {
-            self.deferred_chunk_rebuilds
-                .push(chunk_id, ChunkRebuildRequest::PreserveFlora(flora_edit));
-        }
-    }
-
-    fn should_rebuild_visible_chunk_batch_synchronously(&self, chunk_ids: &[UVec3]) -> bool {
-        chunk_ids.len() > 1 && chunk_ids.len() <= SYNC_VISIBLE_REBUILD_CHUNK_LIMIT
+        self.rebuild_visible_flora_preserving_chunk_batch_synchronously(chunk_ids, flora_edit);
     }
 
     fn prepare_visible_sync_rebuild(&mut self, chunk_ids: &[UVec3]) -> bool {
@@ -341,10 +330,10 @@ impl App {
     fn rebuild_visible_chunk_batch_synchronously(&mut self, chunk_ids: &[UVec3]) {
         let sync_start = Instant::now();
         if !self.prepare_visible_sync_rebuild(chunk_ids) {
-            for &chunk_id in chunk_ids {
-                self.deferred_chunk_rebuilds
-                    .push(chunk_id, ChunkRebuildRequest::Normal);
-            }
+            log::error!(
+                "[SYNC_VISIBLE_REBUILD] failed to prepare synchronous rebuild; leaving visible terrain unchanged for chunks {:?}",
+                chunk_ids,
+            );
             return;
         }
         let result = world_ops::mesh_generate_chunks(
@@ -386,10 +375,10 @@ impl App {
     ) {
         let sync_start = Instant::now();
         if !self.prepare_visible_sync_rebuild(chunk_ids) {
-            for &chunk_id in chunk_ids {
-                self.deferred_chunk_rebuilds
-                    .push(chunk_id, ChunkRebuildRequest::PreserveFlora(flora_edit));
-            }
+            log::error!(
+                "[SYNC_VISIBLE_REBUILD] failed to prepare synchronous preserve-flora rebuild; leaving visible terrain unchanged for chunks {:?}",
+                chunk_ids,
+            );
             return;
         }
         let mut rebuilt = 0usize;
@@ -1109,7 +1098,6 @@ const VOXEL_DIM_PER_CHUNK: UVec3 = UVec3::new(256, 256, 256);
 const CHUNK_DIM: UVec3 = UVec3::new(5, 2, 5);
 const FREE_ATLAS_DIM: UVec3 = UVec3::new(512, 512, 512);
 const MAX_FRAMES_IN_FLIGHT: usize = 1;
-const SYNC_VISIBLE_REBUILD_CHUNK_LIMIT: usize = 8;
 const SHOVEL_REMOVE_RADIUS: f32 = 0.08;
 const SHOVEL_DIG_INTERVAL: Duration = Duration::from_millis(80);
 const SHOVEL_RAY_QUERY_DISTANCE: f32 = 10.0;

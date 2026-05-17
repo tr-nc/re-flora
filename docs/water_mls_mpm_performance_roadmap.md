@@ -9,7 +9,7 @@
 - 手动反馈：当前编辑性能已经明显改善。
 - P0 初版已完成：Water Terrain Cache Rebuild 的 `SDF collider chunk -> MLS-MPM water grid cache` 采样/normal 构建已搬到 CPU worker，主线程只做 revision-guarded apply/swap。
 - Step 1 / P1 初版已完成：Terrain SDF Source Refresh 已异步化；普通 terrain deferred rebuild 已拆成 surface / contree / scene fence-poll stages；PreserveFlora rebuild 也走同一 staged path，只保留 flora edit 本身在 ready surface 后同步执行。
-- P1 响应性修正：小规模多 chunk 可见 terrain rebuild 暂时回到同帧同步发布，优先保证相邻可见 chunk 不出现异步裂缝；单 chunk rebuild 仍保留 staged async。当前实现说明与下一步 visual atomic publish 计划见 [`terrain_visual_rebuild_pipeline.md`](terrain_visual_rebuild_pipeline.md)。
+- P1 响应性决策：可见 terrain rebuild 保持同步同帧发布，优先保证相邻可见 chunk 不出现异步裂缝；collider / GPU-CPU transfer / water cache 仍走 queue。当前实现说明见 [`terrain_visual_rebuild_pipeline.md`](terrain_visual_rebuild_pipeline.md)。
 - 2026-05-17 手动 visible release perf：cache apply 已不是主要 hitch；实时 terrain edit 的主线程尖峰主要来自 terrain deferred rebuild 和 Terrain SDF Source Refresh；大量水粒子时 CPU water sim 成为主导瓶颈。
 
 ## 已完成工作（极简）
@@ -26,7 +26,7 @@
 - 2026-05-17：Step 0 初版 instrumentation 已开始：新增 `[PERF][FRAME]` 详细采样、water substep split counters、以及 `tools/parse_perf_log.py` 汇总脚本。
 - 2026-05-17：Step 1 初版已开始：`Terrain SDF Source Refresh` 改为 async GPU submit + fence poll + revision-guarded apply，避免 submit 后同帧等待 readback/fence。
 - 2026-05-17：P1 terrain deferred rebuild 初版完成：surface build、contree build、scene texture update 分帧提交/轮询/finish；`PreserveFlora` rebuild 不再走整段同步 fallback。
-- 2026-05-17：P1 响应性修正：`2..=8` 个 chunk 的可见 rebuild batch 同步完成并同帧发布，避免跨 chunk edit 时一个 chunk 新、另一个 chunk 旧导致可见裂缝。
+- 2026-05-17：P1 响应性决策：可见 rebuild batch 同步完成并同帧发布，避免跨 chunk edit 时一个 chunk 新、另一个 chunk 旧导致可见裂缝；后续不优先推进 visual async atomic publish，保持逻辑简单。
 
 最新相关提交：
 
@@ -179,7 +179,8 @@ P1 terrain deferred rebuild 验证（2026-05-17 hidden release，同一命令）
 | async source 后 baseline：`re-flora-20260517-214743.914-153637.log` | `1.39ms` | `7.31ms` | `9.50ms` | source 已降，但 terrain rebuild 仍有 edit-frame spike |
 | async surface/contree/scene 初版：`re-flora-20260517-222830.177-159737.log` | `1.00ms` | `4.59ms` | `8.35ms` | 普通 rebuild 改善，但 PreserveFlora 同步 fallback 仍会产生晚期 spike |
 | PreserveFlora 也 staged：`re-flora-20260517-223358.507-160928.log` | `0.71ms` | `3.94ms` | `5.08ms` | late edit spike 从 `~9ms` 降到 `~3.7ms` frame；主要剩余为 surface finish / flora edit 小段 |
-| visible multi-chunk sync fallback：`re-flora-20260517-231342.437-171051.log` | `0.35ms` deferred；另有 sync batch `35.32ms` | `0.00ms` deferred | `7.04ms` deferred | 为消除跨 chunk 可见裂缝，`2..=8` chunk batch 先同步发布；本 hidden run 出现 1 次 8-chunk sync rebuild `35.32ms` |
+| visible sync rebuild：`re-flora-20260517-231342.437-171051.log` | `0.35ms` deferred；另有 sync batch `35.32ms` | `0.00ms` deferred | `7.04ms` deferred | 为消除跨 chunk 可见裂缝，小 batch 同步发布；本 hidden run 出现 1 次 8-chunk sync rebuild `35.32ms` |
+| visible sync always：`re-flora-20260518-005051.268-180090.log` | `0.00ms` deferred；sync events mean `12.39ms` | `0.00ms` deferred | `0.00ms` deferred | 可见 rebuild 全部同步 direct publish；4 次 sync rebuild，max `33.45ms`（8 chunks），单 chunk PreserveFlora 约 `5.25-5.51ms` |
 
 最新 P1 事件统计（`re-flora-20260517-223358.507-160928.log`）：
 
@@ -188,7 +189,8 @@ P1 terrain deferred rebuild 验证（2026-05-17 hidden release，同一命令）
 - `terrain_deferred_contree_total` mean `5.07ms`，`terrain_deferred_scene_total` mean `5.11ms`；scene finish 主线程 mean `0.39ms`。
 - PreserveFlora edit 在本次 soak 中 `n=2`，同步 edit 段 mean `1.93ms`、max `3.19ms`；对应 late frame spike 约 `3.66ms`，不再出现之前 `sync=true` 的 `8.6-9.3ms` 单帧 rebuild。
 - `terrain_sdf_source_apply` 保持低成本：mean `0.44ms`、max `0.52ms`；startup-only `collider_queue` 仍有约 `131ms` 峰值，按当前优先级暂不处理。
-- 响应性修正后 hidden run（`re-flora-20260517-231342.437-171051.log`）：单 chunk async deferred 仍低（frame `deferred_rebuild` mean `0.35ms`，max `7.04ms`），但 1 次 8-chunk 可见同步 rebuild 为 `35.32ms`。这是有意用帧尖峰换取“跨 chunk 不出现半新半旧裂缝”的临时折中；下一步应做真正的 atomic async publish 来消除该同步尖峰。
+- 响应性修正后 hidden run（`re-flora-20260517-231342.437-171051.log`）：1 次 8-chunk 可见同步 rebuild 为 `35.32ms`。这是有意用帧尖峰换取“跨 chunk 不出现半新半旧裂缝”的设计取舍；后续不优先做 visual async atomic publish，除非真实 gameplay hitch 变得不可接受。
+- sync-always hidden run（`re-flora-20260518-005051.268-180090.log`）：`terrain_sync_visible_rebuild n=4`，mean `12.39ms`，max `33.45ms`；frame `deferred_rebuild` 为 `0.00ms`，说明可见 rebuild 已不再走 staged deferred path，collider/source/cache 仍保持 queue。
 
 ### Step 2：处理高粒子数 water sim CPU 瓶颈
 
@@ -299,11 +301,11 @@ P1 terrain deferred rebuild 验证（2026-05-17 hidden release，同一命令）
    - 继续保持 latest-per-chunk、active-water/camera-near 优先级和 unchanged skip。
    - 待补：显式 apply time budget、source job age、stale/drop 比例和追随延迟聚合。
 
-4. `smooth terrain deferred rebuild spikes`（初版完成，响应性修正后需重测）
-   - 已把普通单 chunk rebuild 拆成 surface / contree / scene 三个 staged GPU job，按 frame poll/finish。
-   - 已把 PreserveFlora rebuild 接入同一 staged path；只保留 ready surface 后的 flora edit 同步段。
-   - 为保证可见同步，`2..=8` chunk 的 rebuild batch 暂时同步 drain/publish；这是有意的质量优先策略，避免跨 chunk 裂缝。
-   - 后续若要同时保持 async 和无裂缝，应实现 batch staging + atomic scene publish，而不是逐 chunk async publish。
+4. `keep visible terrain rebuilds synchronous`（当前决策）
+   - P1 staged async terrain rebuild 已验证能降低 frame spike，但会增加可见 chunk 分帧发布的复杂度和裂缝风险。
+   - 当前决策是保持可见 terrain rebuild 同步 direct publish，优先保证 visual mesh 不裂，接受 edit-frame spike。
+   - Terrain SDF Source Refresh、Terrain SDF Collider Build、Water Terrain Cache Rebuild 继续 queue / revision-guarded / budgeted。
+   - visual async atomic publish 暂不作为近期目标；只有同步 visible rebuild 在真实 gameplay 中不可接受时再重启该方向。
 
 验收：手动 edit burst 中 frame max / CPU-other max 明显下降；source/collider/cache revision 不回退；water terrain collision 诊断不退化。
 
