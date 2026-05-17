@@ -4,6 +4,8 @@
 
 水体性能的第一轮热点清理已完成。水 box 已从固定 pond `(0,0,0)..(2,1,2)` 扩展到全世界 `(0,0,0)..(5,2,5)`（50 个 terrain chunks），grid 按比例放大到 `160×64×160` 保持每世界单位 32 cells 的密度。默认仍无水粒子，用户用浇水壶工具（按 4）在世界任意位置点击放水。
 
+`2a099d4f stabilize incompressible water` 后，默认水更新已从弱压缩 EOS 切到不可压 pressure projection：`pressure_projection_iterations=8`、`particle_spacing_relaxation_iterations=2`、`substep_dt=1/120s`、`linear_damping_per_sec=0.8`；`--water-pressure-iterations 0` 才回到旧 EOS 路径。下面的早期 kernel 基准仍保留作历史对照，新的优化优先级已转向 terrain edit 时的水专用 collider/cache hitch。
+
 关键结论：
 
 | 指标 | 旧 64x32x64 grid | 当前 160x64x160 grid |
@@ -39,6 +41,49 @@ Phase 1-5：从 `~4.9 ms/substep` 基线砍到 ~1.0-1.85 ms/substep，完成方�
 - `5f3eab50` make water placeable anywhere in the world
 - `d077d882` keep water grid density proportional to world extent
 
+### 2026-05-17（续）：不可压水稳定化
+
+- 增加 grid pressure projection：`P2G -> gravity/boundary -> Poisson pressure projection -> G2P`。
+- `pressure_projection_iterations > 0` 时关闭 EOS pressure，粒子 `j` 固定为 `1.0`。
+- 为避免 APIC 能量导致可见震荡，默认用偏 PIC 的 transfer：`INCOMPRESSIBLE_APIC_BLEND=0.10`，并 clamp affine。
+- 初始水从 2D surface sheet 改为薄 3D volume，并增加 marker particle spacing relaxation，避免直接渲染粒子塌成一个点。
+- 默认配置变为 `120 Hz`、`8` 次 pressure projection、`2` 次 spacing relaxation、`0.8/s` damping。
+- 验证：`cargo fmt --check`、`cargo check`、`cargo test -p re-flora-water` 通过；hidden log 中 `j=1.000..1.000`、`terrain_penetrating=0`、`non_finite=0`。
+
+相关提交：
+
+- `2a099d4f` stabilize incompressible water
+
+### 2026-05-17（续）：terrain edit 性能回归确认
+
+这次回归不是普通地形 mesh/collider 队列失控，而是 terrain edit 成功后同步接入了水专用地形碰撞链路：
+
+```text
+terrain edit
+ -> deferred chunk mesh rebuild
+ -> mark_water_terrain_source_chunk_dirty(chunk)
+ -> refresh_water_solid_sample_chunk              // 主线程，GPU atlas solid sample/readback
+ -> deferred water terrain collider rebuild       // LatestChunkQueue，全局 1 个 worker inflight
+ -> publish_water_terrain_collider_chunk          // 主线程
+ -> water_sim.rebuild_terrain_grid_cache_for_chunk // 主线程，约 4-5 ms/chunk
+```
+
+队列确实限制了“每帧/每 chunk 无限构建”：普通 chunk rebuild 每帧最多 pop 一个；水 SDF collider worker 全局最多一个 inflight；同 chunk revision 会保留最新。但这只能防止无界并发，**不能消除连续编辑时每次成功编辑都触发一次水源刷新 + SDF build + cache rebuild** 的成本。
+
+已有 log 证据：
+
+| log | 场景 | source refresh rev>1 | SDF collider build rev>1 | water grid cache rebuild | frame_dt 诊断 |
+|---|---|---:|---:|---:|---|
+| `re-flora-20260517-165534.900-86173.log` | visible 手动验证，粒子 `1024..2560` | `n=278 avg=0.96ms p95=1.41ms max=2.65ms` | `n=276 avg=7.15ms p95=7.39ms max=11.31ms` | `n=268 avg=4.73ms p95=5.31ms max=5.96ms`，约 `40.6k` nodes/update | `n=189 avg=20.1ms p95=75.9ms max=138.4ms`，`>=50ms` 26 次，`ran_substeps=8` 25 次 |
+| `re-flora-20260517-181133.047-94268.log` | 后续编辑 trace，粒子 `48..1344` | `n=319 avg=0.91ms p95=1.08ms max=1.18ms` | `n=319 avg=7.12ms p95=7.62ms max=11.61ms` | `n=311 avg=4.71ms p95=5.30ms max=6.45ms`，约 `40.8k` nodes/update | `n=148 avg=13.2ms p95=20.4ms max=36.7ms`，`>=33ms` 2 次 |
+
+热点集中在少数正在编辑的 chunk 上，而不是全世界随机扩散：
+
+- `86173`：`(0,0,1)` 134 次、`(1,0,1)` 73 次、`(0,0,0)` 44 次、`(1,0,0)` 24 次。
+- `94268`：`(0,0,1)` 180 次、`(1,0,1)` 98 次、`(2,0,1)` 15 次、`(1,0,0)` 13 次、`(0,0,0)` 12 次。
+
+注意 tail 中存在 `sdf_hash` 连续相同但仍 rebuild cache 的情况，例如 `rev 178` 和 `rev 179` 都是 `f34133c5d48ff0ca`，说明可以进一步用内容 hash 跳过无效发布/cache rebuild。
+
 ### 耗时路径现状
 
 ```
@@ -53,6 +98,40 @@ Report 4 (4-5s):          2.24 ms/substep — start substep spread wide
 **当前最大项：`grid`（38%）和 `p2g`（18%）和 `g2p_gather`（15%）。** Terrain 本身（`g2p_terrain` + `g2p_box`）只占 ~11%。
 
 ## 关键概念说明
+
+### 命名约定
+
+为避免后续讨论里多个 collider 概念混在一起，本文统一使用：
+
+- **SDF Collider**：水体专用、按 terrain chunk 独立构建的 signed-distance collider。当前代码主要对应 `WaterTerrainColliderChunk` / `WaterTerrainColliderSet`，数据核心是 `sdf_ws`。它只用于水的 terrain collision、pressure projection solid 判断、以及 water grid cache 采样。
+- **Raycast Collider**：CPU 端 terrain raycast/query 用的碰撞/查询结构。当前实现由 contree CPU cache / scene accel 路径提供，用于 shovel raycast、玩家碰撞查询、terrain height query、audio occlusion 等。它不直接参与水的 SDF collision。代码级重命名可后续单独做机械 rename。
+- **Water grid cache**：SDF Collider 到 MLS-MPM water grid 的派生缓存，当前代码对应 `terrain_grid: Vec<WaterTerrainGridSample>`。它不是新的 collider 源数据，而是为了让每个 water substep 快速读取 SDF/normal/solid 状态。
+
+当前两条 collider/query 链路共享 terrain voxel atlas 作为源，但彼此不互相生成：
+
+```text
+terrain voxel atlas
+ ├─ Raycast Collider path: contree / CPU cache / scene accel -> CPU raycast/query
+ └─ SDF Collider path: 32^3 solid samples -> SDF chunk -> water grid cache -> water sim
+```
+
+### SDF Collider 的当前采样方式
+
+当前 SDF Collider 的 source refresh 对每个 terrain chunk 执行一次 GPU compute dispatch 和一次 readback：
+
+```text
+GPU terrain voxel atlas 当前 chunk
+ -> sample_chunk_atlas_solid_grid(sample_dim=32x32x32)
+ -> CpuSolidVoxelChunk
+ -> signed_distance_from_solid_samples()
+ -> SDF Collider chunk
+```
+
+注意当前 shader 是 **point downsample**：`32^3` 个 sample point 各自读取原始 chunk 中一个 voxel。它不是把 `256/32≈8` 个 voxel 的块做 OR/average/max reduction。因此当前 source hash/unchanged skip 可以直接围绕这 `32^3` 个 sample 设计。
+
+当前取样位置是 endpoint-aligned：每轴 `source_voxel = floor(sample_id * 256 / 31)`，即 `0, 8, 16, 24, 33, ..., 247, 255`。它覆盖 chunk 两端边界，但不是每个 `8` voxel block 的中心。后续可改成 center-biased point sampling，例如每轴 `source_voxel = min(sample_id * 8 + 4, 255)`（每个 8-wide block 中间四个 voxel 中任选一个代表点，先取 `+4`），改动面积小，通常能更好代表 block 内部。
+
+当前 SDF Collider **不读取邻居 chunk**，也没有 SDF source halo；一个 chunk 的 SDF 只依赖自己这个 chunk 的 solid samples。邻居 halo 目前只存在于 water grid cache rebuild 的更新范围上，用来避免缓存插值读到旧数据。SDF source halo 可以作为未来质量选项，但它会引入 neighbor dependency，不是当前编辑性能优化的优先项。
 
 ### `no_sdf`
 
@@ -72,14 +151,53 @@ Report 4 (4-5s):          2.24 ms/substep — start substep spread wide
 
 - `no_sdf` 在世界级水体下不可避免：一定有 chunk 没有固体。不是 bug。
 - `--water-profile performance` 仍需 visible 观感验证。
-- 编辑路径 `~12 ms/edit` 在空 chunk 编辑时可能无 collider 旧数据，首次发布会构建新 collider（~7 ms）。
+- **terrain edit hitch 已确认**：不是普通编辑 collider 被水算法改坏，而是水专用 terrain collider/cache 更新链路在连续编辑时持续占用主线程预算。
+- 水 terrain source refresh 当前在 `mark_water_terrain_source_chunk_dirty` 中同步执行；即使后续 SDF build 有队列，refresh 本身已经吃掉当前帧约 `0.8-1.4ms/chunk`。
+- `rebuild_terrain_grid_cache_for_chunk` 当前在 publish 时同步执行，单次约 `4.5-5.3ms`，是编辑 hitch 的主要主线程成本。
 - 当前 grid 是单块 160x64x160 = 1.6M 节点。永远 dense allocated。sparse 只优化了 per-substep 循环，不减少内存。
 
 ## 后续 Roadmap
 
+### Step 0：terrain edit / water collider 解耦（当前最高优先级）
+
+目标：地形编辑必须保持响应；水可以短暂使用旧 terrain collider，等编辑稳定后再追上。
+
+建议按低风险到高风险推进：
+
+1. **把 source refresh 也纳入 deferred/budgeted 队列**  
+   不要在 `mark_water_terrain_source_chunk_dirty` 里立即 GPU sample/readback。只记录 dirty chunk + revision，每帧按预算刷新最多 N 个或最多 X ms。
+
+2. **per-chunk debounce/coalesce**  
+   连续编辑同一个 chunk 时，等最后一次 dirty 后 `100-250ms` 再刷新水 collider；或者限制同一 chunk 最快每 N 帧/每 X ms 发布一次。水在编辑中允许暂时使用旧 collider。
+
+3. **内容 hash / unchanged skip**  
+   对 SDF Collider 的 `solid_samples` 或 `sdf_hash` 做内容比较。如果 solid occupancy/SDF hash 没变，不发布 collider，也不 rebuild water grid cache。已有 log 看到相同 `sdf_hash` 仍触发 cache rebuild。当前 source 是 `32^3` point samples，适合先做 cheap solid-sample hash。
+
+4. **SDF source point sample 改为 block-center 代表点**  
+   当前每轴用 `floor(sample_id * source_dim / (sample_dim - 1))`，包含 endpoint，但代表点偏 block 低端且间距 8/9 混合。后续把 `256 -> 32` 的采样改为每个 8-wide block 的中间代表点，例如 `source_voxel = min(sample_id * 8 + 4, 255)`。中间有四个候选 voxel（`+3/+4` 或附近），先选一个固定点即可；不做 OR reduction，保持改动小。
+
+5. **只更新会影响水的 chunk**  
+   除了 water domain bounds，还要用 active particle AABB / water occupancy AABB 过滤。没有水粒子、或 dirty chunk 距离水粒子很远时，跳过或低优先级延迟。
+
+6. **budgeted water grid cache rebuild**  
+   `rebuild_terrain_grid_cache_for_chunk` 不要 publish SDF Collider 时同步无预算地执行。改成 pending cache ranges，每帧最多处理一个或最多 X ms；必要时把 cache rebuild 也 worker 化并用 revision swap。
+
+7. **编辑中限制 water catch-up**  
+   如果 frame_dt 因编辑升高，水模拟追帧会触发 `ran_substeps=8`，进一步放大 hitch。编辑活跃时可临时降低 max catch-up substeps 或丢弃过量 accumulator，优先保障交互。
+
+需要新增诊断：
+
+- water source dirty/pending/active/completed/stale counts
+- debounce skips、content-hash unchanged skips
+- SDF Collider source refresh ms、SDF build ms、publish ms、water grid cache rebuild ms 的 per-frame budget 汇总
+- cache pending ranges、每帧处理 nodes
+- terrain edit active 标记与 water `ran_substeps` 关系
+
+完成标准：连续编辑时 `frame_dt p95` 不因水 terrain 更新超过一帧预算；没有 `ran_substeps=8` 追帧尖峰；水在编辑停止后能在可接受延迟内更新到最新 terrain。
+
 ### Step 1：visible 观感验证
 
-当前 priority。只看 hidden 日志不够。
+不可压水已经通过初步 visible 验证，但 edit 优化后还要重新验证。只看 hidden 日志不够。
 
 执行：
 
@@ -131,13 +249,14 @@ cargo run --release -- --perf --water-profile performance --water-particles 2048
 - 50 个 chunk → 额外约 7ms × N 个空 chunk 的构建时间
 - 增加了 collider 集合中不必要的空 chunk 条目
 
-### Step 5：评估编辑路径 hitch
+### Step 5：进一步缩小 water terrain cache 成本
 
-当前编辑发布 ~12 ms/edit。如果 visible 验证发现编辑卡顿：
+在 Step 0 解耦后，再做 cache 本身的算法优化：
 
-- 合并同一帧多个 dirty chunks
-- collider build 分帧发布
-- region cache rebuild 进一步缩小范围
+- `terrain_grid_cache_range_for_chunk` 当前一个 1m chunk 会覆盖约 `40k-42k` water grid nodes；检查 halo/band 是否还能安全缩小。
+- 对每个 collider chunk 预计算 influence bounds，只重采样 SDF band 内节点。
+- 维护 chunk->grid-node 或 tile 索引，避免每次 region rebuild 都访问完整长方体。
+- 若 cache rebuild worker 化，保证 `terrain_grid` swap 有 revision guard，G2P/pressure projection 永远读一致快照。
 
 ### Step 6：评估水线程化
 
