@@ -5,8 +5,9 @@
 - 默认水体已切到不可压 pressure projection。
 - 水域覆盖全世界 `(0,0,0)..(5,2,5)`，grid 为 `160×64×160`。
 - terrain edit 后的 SDF/source/cache 链路已分帧、去重、限流。
+- SDF/source/cache 队列命名已解耦。
 - 手动反馈：当前编辑性能已经明显改善。
-- 下一步重点：补数据、清命名、继续拆 cache、降低单帧尖峰。
+- 下一步重点：补数据、继续拆 cache、降低单帧尖峰。
 
 ## 已完成工作（极简）
 
@@ -16,6 +17,7 @@
 - 2026-05-17：确认 terrain edit hitch 来自水专用 SDF/source/cache 链路。
 - 2026-05-17：source refresh、SDF build、water cache rebuild 已进入 chunk queue。
 - 2026-05-17：已加入 coalesce、unchanged skip、block-center sample、active-water priority、cache budget、catch-up cap。
+- 2026-05-17：Phase 2 命名解耦已完成。
 
 最新相关提交：
 
@@ -28,6 +30,10 @@
 - `fca74ba0` limit water catchup during terrain work
 - `2c617634` coalesce water source refreshes without starvation
 - `80b4d0fd` merge water optimization plan into roadmap
+- `b12095d5` clarify water roadmap next phases
+- `08296202` rename terrain sdf source refresh queue
+- `a9aeab4b` rename terrain sdf collider build queue
+- `befe1cf9` rename terrain sdf source scheduling
 
 ## 当前链路
 
@@ -56,8 +62,8 @@ terrain edit
 当前这些 queue 都复用 `LatestChunkQueue<T>`：
 
 - 普通 terrain chunk rebuild：`LatestChunkQueue<ChunkRebuildRequest>`。
-- Terrain SDF source refresh：`LatestChunkQueue<WaterTerrainSourceRefreshRequest>`。
-- Terrain SDF collider build：`LatestChunkQueue<WaterTerrainColliderRebuildRequest>`，额外用 inflight guard 限制全局 1 个 worker job。
+- Terrain SDF source refresh：`LatestChunkQueue<TerrainSdfSourceRefreshRequest>`。
+- Terrain SDF collider build：`LatestChunkQueue<TerrainSdfColliderRebuildRequest>`，额外用 inflight guard 限制全局 1 个 worker job。
 - Water terrain cache rebuild：`LatestChunkQueue<WaterTerrainCacheRebuildRequest>`，当前仍在主线程执行。
 
 ## 当前关键事实
@@ -94,29 +100,23 @@ terrain edit
 
 验收：连续编辑时没有明显 `ran_substeps=8` 追帧尖峰；`frame_dt p95` 不被水 terrain 更新拉爆。
 
-### Phase 2：命名解耦和语义整理
+### Phase 2：命名解耦和语义整理（已完成）
 
 目标：把 SDF/source/cache 三层命名讲清楚，减少 water-specific 命名污染。
 
-建议拆分提交：
+完成提交：
 
-1. `rename water terrain source refresh queue`
-   - `deferred_water_terrain_source_refreshes` -> `deferred_terrain_sdf_source_refreshes`。
-   - `WaterTerrainSourceRefreshRequest` -> `TerrainSdfSourceRefreshRequest`。
-   - 日志标签同步改为 `TERRAIN_SDF_SOURCE`。
+1. `08296202` rename terrain sdf source refresh queue
+   - source refresh queue、request、处理函数、日志标签改为 `terrain_sdf_source` / `TERRAIN_SDF_SOURCE`。
 
-2. `rename water terrain collider build queue`
-   - `deferred_water_terrain_collider_rebuilds` -> `deferred_terrain_sdf_collider_rebuilds`。
-   - `WaterTerrainColliderRebuildRequest` -> `TerrainSdfColliderRebuildRequest`。
-   - 保持行为不变。
+2. `a9aeab4b` rename terrain sdf collider build queue
+   - collider build queue、request、worker job/result、source revision 改为 `terrain_sdf_collider` / `TerrainSdf*`。
 
-3. `rename dirty scheduling entrypoints`
-   - `mark_water_terrain_source_chunk_dirty` -> `schedule_terrain_sdf_source_refresh`。
-   - `mark_water_terrain_source_chunk_dirty_immediate` -> `schedule_terrain_sdf_source_refresh_immediate`。
-   - `mark_water_terrain_source_chunk_dirty_after` -> `schedule_terrain_sdf_source_refresh_after`。
-   - 保留 `schedule`，因为这里还会做 domain check、priority、delay、coalesce。
+3. `befe1cf9` rename terrain sdf source scheduling
+   - dirty 入口改为 `schedule_terrain_sdf_source_refresh*`。
+   - 保留 `schedule` 语义，因为入口仍负责 domain check、priority、delay、coalesce。
 
-验收：纯 rename，不改变 benchmark；`rg water_terrain_source` 只剩兼容/注释中合理出现。
+验收：纯 rename；行为不变。
 
 ### Phase 3：确认 stale SDF build 是否影响 UX
 
