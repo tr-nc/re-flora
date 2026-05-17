@@ -317,16 +317,19 @@ impl App {
         }
 
         if solid_chunk.solid_count() == 0 {
+            let removed = self.remove_empty_water_terrain_collider_chunk(chunk_id);
             log::debug!(
-                "[WATER][TERRAIN] skipped collider chunk {:?} rev {}: empty solid source chunk {:?}",
+                "[WATER][TERRAIN] skipped collider chunk {:?} rev {}: empty solid source chunk {:?} removed_stale_collider={}",
                 chunk_id,
                 revision,
                 chunk_key,
+                removed,
             );
             self.water_terrain_built_source_revisions
                 .insert(chunk_key, source_revision);
             self.deferred_water_terrain_collider_rebuilds
                 .complete(chunk_key, revision);
+            self.finish_startup_water_terrain_collider_batch_if_ready();
             return;
         }
 
@@ -417,6 +420,16 @@ impl App {
                 .complete(result.chunk_key, result.revision);
             self.finish_startup_water_terrain_collider_batch_if_ready();
         }
+    }
+
+    fn remove_empty_water_terrain_collider_chunk(&mut self, chunk_id: IVec3) -> bool {
+        let removed = self
+            .water_sim
+            .remove_terrain_collider_chunk(chunk_id, false);
+        if removed && !self.water_terrain_initialized {
+            self.water_terrain_collider_cache_rebuild_pending = true;
+        }
+        removed
     }
 
     fn publish_water_terrain_collider_chunk(&mut self, chunk: WaterTerrainColliderChunk) {

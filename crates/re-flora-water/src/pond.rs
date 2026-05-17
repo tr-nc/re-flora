@@ -325,6 +325,27 @@ impl PondWaterSim {
         }
     }
 
+    pub fn remove_terrain_collider_chunk(
+        &mut self,
+        chunk_id: glam::IVec3,
+        stabilize_particles: bool,
+    ) -> bool {
+        let Some(terrain) = self.terrain.as_mut() else {
+            return false;
+        };
+        if terrain.remove_chunk(chunk_id).is_none() {
+            return false;
+        }
+        if terrain.is_empty() {
+            self.terrain = None;
+        }
+        self.rebuild_terrain_grid_cache();
+        if stabilize_particles {
+            self.stabilize_after_terrain_change();
+        }
+        true
+    }
+
     pub fn clear_terrain_collider_set(&mut self) {
         self.terrain = None;
         self.rebuild_terrain_grid_cache();
@@ -784,6 +805,18 @@ mod tests {
 
         assert_eq!(sim.particles[0].v, Vec3::new(1.0, 2.0, 3.0));
         assert_eq!(sim.particles[0].j, 1.25);
+    }
+
+    #[test]
+    fn removing_last_terrain_chunk_clears_collider_set() {
+        let mut sim = PondWaterSim::fixed_test_box();
+        let chunk_id = glam::IVec3::new(1, 0, 1);
+        sim.upsert_terrain_collider_chunk(test_chunk(chunk_id), false);
+
+        assert!(sim.remove_terrain_collider_chunk(chunk_id, false));
+
+        assert!(sim.terrain_collider_set().is_none());
+        assert!(!sim.remove_terrain_collider_chunk(chunk_id, false));
     }
 
     #[test]

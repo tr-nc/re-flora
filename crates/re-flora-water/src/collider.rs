@@ -202,6 +202,10 @@ impl WaterTerrainColliderSet {
         self.chunks.insert(chunk.chunk_id, chunk);
     }
 
+    pub fn remove_chunk(&mut self, chunk_id: IVec3) -> Option<Arc<WaterTerrainColliderChunk>> {
+        self.chunks.remove(&chunk_id)
+    }
+
     pub fn validate(&self) {
         for chunk in self.chunks.values() {
             chunk.validate();
