@@ -132,7 +132,7 @@ pub struct AppOptions {
     pub tree_bench_min_thickness: bool,
     /// Do not wait for deferred rebuilds between tree benchmark samples.
     pub tree_bench_rapid: bool,
-    /// Print the temp run log directory and exit successfully.
+    /// Print the per-worktree run log directory and exit successfully.
     pub print_log_dir: bool,
     /// Print the latest run log path and exit successfully.
     pub latest_log: bool,
@@ -273,7 +273,7 @@ Options:
   --tree-bench-samples <N>    Tree benchmark samples (default: 10)
   --tree-bench-min-thickness  Sweep Min Trunk Thickness instead of Tree Height
   --tree-bench-rapid          Do not wait for deferred rebuilds between samples
-  --print-log-dir             Print the temp run log directory and exit
+  --print-log-dir             Print the per-worktree run log directory and exit
   --latest-log                Print the latest run log path and exit
   --tail-latest-log [N]       Print the last N lines of the latest run log and exit (default: 200)
   -h, --help                  Show this help and exit
@@ -365,7 +365,9 @@ impl Write for TeeLogWriter {
 }
 
 fn run_log_dir() -> PathBuf {
-    std::env::temp_dir().join(RUN_LOG_DIR_NAME)
+    PathBuf::from(env!("PROJECT_ROOT"))
+        .join("target")
+        .join(RUN_LOG_DIR_NAME)
 }
 
 fn latest_run_log_pointer_path(dir: &Path) -> PathBuf {

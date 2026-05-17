@@ -19,7 +19,7 @@ Use git worktrees to keep parallel coding agents isolated. Do not run multiple a
 - Avoid unrelated cleanup in worker branches; it increases merge conflict risk.
 - Generated files remain tracked for now. Do not hand-edit them; resolve the shader/config source first, regenerate with `cargo check`, and include generated diffs only when they follow from source changes.
 - Runtime GUI config isolation is not implemented yet. Treat `config/gui.toml` diffs after app runs as suspicious unless the task intentionally changes defaults.
-- `cargo run --release -- --latest-log` reads a shared latest-log pointer, so coordinate or serialize hidden app runs when several agents are active.
+- Run logs are stored per worktree under `target/re-flora-logs`; use `--latest-log` and `--tail-latest-log` from the same worker worktree that produced the run.
 
 ### Worktree Convention
 
@@ -72,7 +72,7 @@ source ~/.zshrc
 cargo run --release -- --hidden --auto-exit 0.5
 ```
 
-Inspect the generated temp run log after hidden runs. Prefer checking concrete expected log lines, hashes, dimensions, timings, and absence of errors over relying on visual behavior when running headless. Use the built-in log helpers instead of guessing file names:
+Inspect the generated per-worktree run log after hidden runs. Prefer checking concrete expected log lines, hashes, dimensions, timings, and absence of errors over relying on visual behavior when running headless. Use the built-in log helpers from the same worktree instead of guessing file names:
 
 ```bash
 cargo run --release -- --latest-log

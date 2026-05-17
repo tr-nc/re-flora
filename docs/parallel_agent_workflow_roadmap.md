@@ -173,19 +173,21 @@ config/gui.local.toml    # ignored local override
 
 ## Step 7: Isolate App Run Logs
 
-### Current Issue
+### Decision
 
-The latest-run-log pointer is shared through a temp directory. If multiple agents run hidden app validation at the same time, `--latest-log` may point to another agent's run.
+Use a per-worktree run log directory.
 
 ### Actions
 
-- Add a per-run, per-worktree, or environment-configurable log directory.
-- Until then, serialize hidden Vulkan app runs when logs are part of validation.
-- Tell agents to capture the exact log path printed by the run instead of blindly trusting `--latest-log` during parallel validation.
+- Store run logs under each worktree's ignored `target/re-flora-logs/` directory.
+- Keep the latest-run-log pointer inside that per-worktree directory.
+- Use `--print-log-dir`, `--latest-log`, and `--tail-latest-log` from the same worker worktree that produced the run.
+- Continue capturing the exact log path printed by the run in worker handoff notes.
 
 ### Done Criteria
 
 - A worker can identify its own app log reliably.
+- Two worker worktrees can run validation without racing through one shared latest-log pointer.
 - Integration validation is not confused by another agent's run.
 
 ## Step 8: Plan Build Cache and Disk Usage
