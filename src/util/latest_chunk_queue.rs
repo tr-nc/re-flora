@@ -47,9 +47,30 @@ impl<T> Default for LatestChunkQueue<T> {
 
 impl<T> LatestChunkQueue<T> {
     pub(crate) fn push(&mut self, chunk_id: UVec3, payload: T) -> u64 {
+        self.push_with(chunk_id, payload, |_, new_payload| new_payload)
+    }
+
+    pub(crate) fn push_coalesced(
+        &mut self,
+        chunk_id: UVec3,
+        payload: T,
+        coalesce: impl FnMut(T, T) -> T,
+    ) -> u64 {
+        self.push_with(chunk_id, payload, coalesce)
+    }
+
+    fn push_with(
+        &mut self,
+        chunk_id: UVec3,
+        payload: T,
+        mut merge_payload: impl FnMut(T, T) -> T,
+    ) -> u64 {
         let state = self.states.entry(chunk_id).or_default();
         state.latest_revision += 1;
-        state.latest_payload = Some(payload);
+        state.latest_payload = Some(match state.latest_payload.take() {
+            Some(existing_payload) => merge_payload(existing_payload, payload),
+            None => payload,
+        });
 
         if state.active_revision.is_none() {
             self.pending.push(chunk_id);
@@ -281,6 +302,37 @@ mod tests {
         assert!(!queue.is_latest_revision(work.chunk_id, work.revision));
         assert!(queue.pop_next().is_none());
         assert!(queue.is_idle());
+    }
+
+    #[test]
+    fn duplicate_enqueue_can_coalesce_payloads() {
+        let mut queue = LatestChunkQueue::default();
+        queue.push_coalesced(chunk(1), 10, u32::min);
+        let revision = queue.push_coalesced(chunk(1), 20, u32::min);
+
+        let work = queue.pop_next().unwrap();
+
+        assert_eq!(revision, 2);
+        assert_eq!(work.revision, 2);
+        assert_eq!(work.payload, 10);
+    }
+
+    #[test]
+    fn coalesced_enqueue_while_active_merges_waiting_payloads() {
+        let mut queue = LatestChunkQueue::default();
+        queue.push_coalesced(chunk(1), 30, u32::min);
+        let active_work = queue.pop_next().unwrap();
+
+        queue.push_coalesced(chunk(1), 20, u32::min);
+        let revision = queue.push_coalesced(chunk(1), 10, u32::min);
+        assert!(queue.pop_next().is_none());
+
+        queue.complete(active_work.chunk_id, active_work.revision);
+        let waiting_work = queue.pop_next().unwrap();
+
+        assert_eq!(revision, 3);
+        assert_eq!(waiting_work.revision, 3);
+        assert_eq!(waiting_work.payload, 10);
     }
 
     #[test]

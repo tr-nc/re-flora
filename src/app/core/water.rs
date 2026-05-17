@@ -16,7 +16,7 @@ use std::{
 
 const WATER_TERRAIN_COLLIDER_DIM: UVec3 = UVec3::new(32, 32, 32);
 const WATER_TERRAIN_COLLIDER_SOURCE: &str = "gpu-sampled-solid-grid";
-const WATER_TERRAIN_SOURCE_REFRESH_DEBOUNCE: Duration = Duration::from_millis(150);
+const WATER_TERRAIN_SOURCE_REFRESH_COALESCE_DELAY: Duration = Duration::from_millis(150);
 const WATER_TERRAIN_SOURCE_LOW_PRIORITY_DELAY: Duration = Duration::from_secs(2);
 const WATER_TERRAIN_ACTIVE_PARTICLE_HALO_CELLS: f32 = 8.0;
 const WATER_TERRAIN_ACTIVE_MAX_SUBSTEPS: usize = 2;
@@ -134,11 +134,17 @@ impl App {
         let request = WaterTerrainSourceRefreshRequest {
             ready_at: now + delay,
         };
-        let revision = self
-            .deferred_water_terrain_source_refreshes
-            .push(chunk_id, request);
+        // Repeated dirty notifications for the same chunk should keep the
+        // latest revision, but must not slide ready_at forever while the user
+        // holds a terrain-edit tool. Preserve the earliest ready time so the
+        // budgeted queue can keep publishing intermediate collider updates.
+        let revision = self.deferred_water_terrain_source_refreshes.push_coalesced(
+            chunk_id,
+            request,
+            |existing, pending| existing.coalesce_keep_earliest_ready(pending),
+        );
         log::debug!(
-            "[QUEUE][WATER_TERRAIN_SOURCE] enqueue chunk {:?} revision {} debounce_ms={:.1} pending={} active={}",
+            "[QUEUE][WATER_TERRAIN_SOURCE] enqueue chunk {:?} revision {} coalesce_delay_ms={:.1} pending={} active={}",
             chunk_id,
             revision,
             delay.as_secs_f32() * 1000.0,
@@ -154,7 +160,7 @@ impl App {
     pub(super) fn mark_water_terrain_source_chunk_dirty(&mut self, chunk_id: UVec3) {
         self.mark_water_terrain_source_chunk_dirty_after(
             chunk_id,
-            WATER_TERRAIN_SOURCE_REFRESH_DEBOUNCE,
+            WATER_TERRAIN_SOURCE_REFRESH_COALESCE_DELAY,
         );
     }
 
@@ -798,6 +804,16 @@ impl App {
             revision: chunk.revision(),
             changed,
         }))
+    }
+}
+
+impl WaterTerrainSourceRefreshRequest {
+    fn coalesce_keep_earliest_ready(self, pending: Self) -> Self {
+        if self.ready_at <= pending.ready_at {
+            self
+        } else {
+            pending
+        }
     }
 }
 
