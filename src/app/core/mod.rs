@@ -1552,7 +1552,7 @@ impl App {
 
         let debug_tree_pos = Vec3::new(2.0, 0.2, 2.0);
         let gui_config = GuiConfigLoader::load();
-        let gui_adjustables = GuiAdjustables::from_config(&gui_config);
+        let mut gui_adjustables = GuiAdjustables::from_config(&gui_config);
 
         let color_to_vec4 = |color: Color32| -> Vec4 {
             Vec4::new(
@@ -1578,8 +1578,9 @@ impl App {
         let butterfly_emitters = Vec::new();
         let butterfly_emitter_desc = Self::butterfly_desc_from_gui_adjustables(&gui_adjustables);
         let particle_snapshots = Vec::with_capacity(PARTICLE_CAPACITY);
-        // Start with the chosen profile, then apply world box + proportional grid,
-        // then let explicit CLI overrides win on top.
+        // Start with the chosen profile and proportional world grid. For the implicit
+        // default run, apply persisted GUI water sliders, then let explicit CLI
+        // overrides win on top.
         let world_extent = CHUNK_DIM.as_vec3();
         let cells_per_unit = 32.0;
         let world_grid_dim = UVec3::new(
@@ -1598,6 +1599,10 @@ impl App {
                 .with_collider_bounds(Vec3::ZERO, world_extent)
                 .with_grid_dim(world_grid_dim),
         };
+        let water_gui_config_applied = options.water_profile.is_none();
+        if water_gui_config_applied {
+            water::apply_water_gui_adjustables_to_config(&mut water_config, &gui_adjustables);
+        }
         if let Some(particle_count) = options.water_particles {
             water_config = water_config.with_particle_count(particle_count);
         }
@@ -1620,10 +1625,12 @@ impl App {
             water_config =
                 water_config.with_particle_spacing_relaxation_iterations(spacing_iterations);
         }
+        water::sync_water_gui_adjustables_from_config(&mut gui_adjustables, &water_config);
 
         log::info!(
-            "[WATER] config profile={:?} particles={} grid={:?} substep_dt={:.6}s pressure_projection_iterations={} particle_spacing_iterations={} terrain_margin_cells={:.2} damping={:.2}/s collider_bounds {:?}..{:?} cells_per_unit={}",
+            "[WATER] config profile={:?} gui_config_applied={} particles={} grid={:?} substep_dt={:.6}s pressure_projection_iterations={} particle_spacing_iterations={} terrain_margin_cells={:.2} damping={:.2}/s gravity={:?} stiffness={:.1} gamma={:.2} j_min={:.3} wall_damping={:.2} collider_bounds {:?}..{:?} cells_per_unit={}",
             options.water_profile,
+            water_gui_config_applied,
             water_config.particle_count,
             water_config.grid_dim,
             water_config.substep_dt,
@@ -1631,6 +1638,11 @@ impl App {
             water_config.particle_spacing_relaxation_iterations,
             water_config.terrain_collision_margin_cells,
             water_config.linear_damping_per_sec,
+            water_config.gravity,
+            water_config.stiffness,
+            water_config.gamma,
+            water_config.j_min,
+            water_config.wall_damping,
             water_config.collider.min_ws,
             water_config.collider.max_ws,
             cells_per_unit,
