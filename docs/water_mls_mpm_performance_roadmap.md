@@ -1,105 +1,23 @@
 # Water MLS-MPM 性能 Roadmap
 
-## 现状摘要
+## 当前状态
 
-水体性能的第一轮热点清理已完成。水 box 已从固定 pond `(0,0,0)..(2,1,2)` 扩展到全世界 `(0,0,0)..(5,2,5)`（50 个 terrain chunks），grid 按比例放大到 `160×64×160` 保持每世界单位 32 cells 的密度。默认仍无水粒子，用户用浇水壶工具（按 4）在世界任意位置点击放水。
+- 默认水体已切到不可压 pressure projection。
+- 水域覆盖全世界 `(0,0,0)..(5,2,5)`，grid 为 `160×64×160`。
+- terrain edit 后的 SDF/source/cache 链路已分帧、去重、限流。
+- 手动反馈：当前编辑性能已经明显改善。
+- 下一步重点：补数据、清命名、继续拆 cache、降低单帧尖峰。
 
-`2a099d4f stabilize incompressible water` 后，默认水更新已从弱压缩 EOS 切到不可压 pressure projection：`pressure_projection_iterations=8`、`particle_spacing_relaxation_iterations=2`、`substep_dt=1/120s`、`linear_damping_per_sec=0.8`；`--water-pressure-iterations 0` 才回到旧 EOS 路径。下面的早期 kernel 基准仍保留作历史对照。
+## 已完成工作（极简）
 
-2026-05-17 的第二轮优化已把 terrain edit 后的水专用 collider/cache 链路从同步刷新改成分帧队列：source refresh、SDF collider build、water grid cache rebuild 都按 chunk 合并/限流；连续编辑同一 chunk 不再无限 debounce 到鼠标释放；远离活跃水粒子的 chunk 会低优先级延迟。当前手动验证反馈性能已经明显改善，后续重点转为补齐 release 编辑 soak 基准、visible 观感验证，以及继续减少 cache rebuild / SDF build 的重复工作。
+- 2026-05-16：水模拟核心热点已从约 `4.9ms/substep` 降到约 `1-1.85ms/substep`。
+- 2026-05-17：水体从固定小 pond 扩展到全世界，并保持 grid 密度。
+- 2026-05-17：默认水体切到不可压 pressure projection，稳定性改善。
+- 2026-05-17：确认 terrain edit hitch 来自水专用 SDF/source/cache 链路。
+- 2026-05-17：source refresh、SDF build、water cache rebuild 已进入 chunk queue。
+- 2026-05-17：已加入 coalesce、unchanged skip、block-center sample、active-water priority、cache budget、catch-up cap。
 
-关键结论：
-
-| 指标 | 旧 64x32x64 grid | 当前 160x64x160 grid |
-|---|---|---|
-| 每世界单位 cells | ~13 | 32 |
-| dx (cell 大小) | ~0.078 | ~0.031 |
-| avg/substep (2048 粒子, 120 Hz) | ~0.9-1.0 ms | ~2.0-2.2 ms |
-| active nodes/substep | ~3k | ~50k |
-| terrain_shadow_false_skips | 0 ✅ | 0 ✅ |
-| terrain_no_sdf | 0 | ~170（空 chunk，不影响性能） |
-
-`~2.2 ms/substep` × 120 Hz = 约 264 ms/s 主线程 CPU 时间，占 ~44% 帧预算（@200 fps）。提升 grid 密度恢复了碰撞精度，同时增大了 grid 成本。
-
-## 已完成工作的时间线
-
-### 2026-05-16
-
-Phase 1-5：从 `~4.9 ms/substep` 基线砍到 ~1.0-1.85 ms/substep，完成方法见后。
-
-### 2026-05-17：实现级清理（Phase 6）
-
-6A-6E：空模拟跳过、sparse grid、strict collider scope、region cache rebuild、SDF sample reuse、diagnostic throttle。
-
-### 2026-05-17（续）：世界级水体
-
-- **水 box 扩展到全世界** `(0,0,0)..(5,2,5)`：`enqueue_startup_water_terrain_collider_rebuilds` 从 4 个 chunk 变成 50 个。
-- **grid 比例放大** `160×64×160`：保持每世界单位 32 cells（同 `2/64` 旧比例），恢复碰撞精度。
-- **`SHOVEL_RAY_QUERY_DISTANCE`** 从 2.0 提到 10.0 覆盖全 world raycast。
-- **`water_terrain_focus_ws`** 从固定 box 中心改为 camera 位置，collider 构建优先处理玩家附近。
-
-相关提交：
-
-- `5f3eab50` make water placeable anywhere in the world
-- `d077d882` keep water grid density proportional to world extent
-
-### 2026-05-17（续）：不可压水稳定化
-
-- 增加 grid pressure projection：`P2G -> gravity/boundary -> Poisson pressure projection -> G2P`。
-- `pressure_projection_iterations > 0` 时关闭 EOS pressure，粒子 `j` 固定为 `1.0`。
-- 为避免 APIC 能量导致可见震荡，默认用偏 PIC 的 transfer：`INCOMPRESSIBLE_APIC_BLEND=0.10`，并 clamp affine。
-- 初始水从 2D surface sheet 改为薄 3D volume，并增加 marker particle spacing relaxation，避免直接渲染粒子塌成一个点。
-- 默认配置变为 `120 Hz`、`8` 次 pressure projection、`2` 次 spacing relaxation、`0.8/s` damping。
-- 验证：`cargo fmt --check`、`cargo check`、`cargo test -p re-flora-water` 通过；hidden log 中 `j=1.000..1.000`、`terrain_penetrating=0`、`non_finite=0`。
-
-相关提交：
-
-- `2a099d4f` stabilize incompressible water
-
-### 2026-05-17（续）：terrain edit 性能回归确认
-
-这次回归不是普通地形 mesh/collider 队列失控，而是 terrain edit 成功后同步接入了水专用地形碰撞链路：
-
-```text
-terrain edit
- -> deferred chunk mesh rebuild
- -> mark_water_terrain_source_chunk_dirty(chunk)
- -> refresh_water_solid_sample_chunk              // 主线程，GPU atlas solid sample/readback
- -> deferred water terrain collider rebuild       // LatestChunkQueue，全局 1 个 worker inflight
- -> publish_water_terrain_collider_chunk          // 主线程
- -> water_sim.rebuild_terrain_grid_cache_for_chunk // 主线程，约 4-5 ms/chunk
-```
-
-队列确实限制了“每帧/每 chunk 无限构建”：普通 chunk rebuild 每帧最多 pop 一个；水 SDF collider worker 全局最多一个 inflight；同 chunk revision 会保留最新。但这只能防止无界并发，**不能消除连续编辑时每次成功编辑都触发一次水源刷新 + SDF build + cache rebuild** 的成本。
-
-已有 log 证据：
-
-| log | 场景 | source refresh rev>1 | SDF collider build rev>1 | water grid cache rebuild | frame_dt 诊断 |
-|---|---|---:|---:|---:|---|
-| `re-flora-20260517-165534.900-86173.log` | visible 手动验证，粒子 `1024..2560` | `n=278 avg=0.96ms p95=1.41ms max=2.65ms` | `n=276 avg=7.15ms p95=7.39ms max=11.31ms` | `n=268 avg=4.73ms p95=5.31ms max=5.96ms`，约 `40.6k` nodes/update | `n=189 avg=20.1ms p95=75.9ms max=138.4ms`，`>=50ms` 26 次，`ran_substeps=8` 25 次 |
-| `re-flora-20260517-181133.047-94268.log` | 后续编辑 trace，粒子 `48..1344` | `n=319 avg=0.91ms p95=1.08ms max=1.18ms` | `n=319 avg=7.12ms p95=7.62ms max=11.61ms` | `n=311 avg=4.71ms p95=5.30ms max=6.45ms`，约 `40.8k` nodes/update | `n=148 avg=13.2ms p95=20.4ms max=36.7ms`，`>=33ms` 2 次 |
-
-热点集中在少数正在编辑的 chunk 上，而不是全世界随机扩散：
-
-- `86173`：`(0,0,1)` 134 次、`(1,0,1)` 73 次、`(0,0,0)` 44 次、`(1,0,0)` 24 次。
-- `94268`：`(0,0,1)` 180 次、`(1,0,1)` 98 次、`(2,0,1)` 15 次、`(1,0,0)` 13 次、`(0,0,0)` 12 次。
-
-注意 tail 中存在 `sdf_hash` 连续相同但仍 rebuild cache 的情况，例如 `rev 178` 和 `rev 179` 都是 `f34133c5d48ff0ca`，说明可以进一步用内容 hash 跳过无效发布/cache rebuild。
-
-### 2026-05-17（续）：terrain edit / water collider 分帧优化已落地
-
-本轮目标是让地形编辑优先保持响应，水体可以短暂使用旧 terrain collider，再按预算追上最新地形。已落地的优化点：
-
-- **source refresh deferred + budgeted**：`mark_water_terrain_source_chunk_dirty` 不再同步做 GPU atlas sample/readback，而是把 chunk 放入 `LatestChunkQueue`；每帧最多刷新 1 个 ready chunk，并按 camera focus 取最近任务。
-- **per-chunk coalesce delay**：普通编辑 dirty 使用 `150ms` coalesce delay，连续同 chunk dirty 只保留最新 revision。
-- **避免 continuous edit starvation**：同 chunk 重复入队时保留最早 `ready_at`，不再每 80ms shovel edit 都把水 collider 刷新推迟到鼠标释放后。
-- **unchanged solid source skip**：CPU solid source 以 bitset 保存 `32^3` occupancy；如果 occupancy 没变，保留原 revision，跳过 SDF build 和 cache rebuild。
-- **block-center point sampling**：`256 -> 32` source sample 从 endpoint-aligned 改为 block-center 代表点，常见取样点变为 `4,12,...,252`，仍保持 point sample，不做 OR reduction。
-- **active-water priority**：有活跃水粒子且 dirty chunk 与粒子 AABB + `8` cells halo 相交时使用正常 delay；无水粒子或远离活跃水时低优先级延迟到至少 `2s`。
-- **cache rebuild budgeted**：publish SDF collider 后只入队 water grid cache rebuild；每帧最多执行 1 个 chunk 的 cache region rebuild，避免多个 `4-5ms` cache rebuild 堆在同一帧。
-- **terrain work 期间限制 water catch-up**：当普通 terrain rebuild、水 source refresh、SDF build 或 cache rebuild 队列仍有工作时，水模拟每帧最多跑 2 个 substeps，避免编辑 hitch 后 `ran_substeps=8` 追帧放大卡顿。
-
-相关提交：
+最新相关提交：
 
 - `d7761695` defer water terrain source refresh
 - `e921a276` debounce water terrain source refresh
@@ -109,43 +27,9 @@ terrain edit
 - `3dfb863c` budget water terrain cache rebuilds
 - `fca74ba0` limit water catchup during terrain work
 - `2c617634` coalesce water source refreshes without starvation
+- `80b4d0fd` merge water optimization plan into roadmap
 
-验证：`cargo fmt --check`、`cargo check`、`cargo test -p re-flora-water`、`cargo test` 均通过；hidden release run `zsh -lc 'source ~/.zshrc && cargo run --release -- --hidden --auto-exit 0.5'` 成功，日志 `target/re-flora-logs/re-flora-20260517-194201.073-110028.log` 未见 `ERROR/panic/failed/non_finite/terrain_penetrating`。
-
-### 耗时路径现状
-
-```
-Report 1 (first second):  0.90 ms/substep — 粒子还聚在原处
-Report 2 (second):        2.02 ms/substep
-Report 3 (third):         2.15 ms/substep
-Report 4 (4-5s):          2.24 ms/substep — start substep spread wide
-```
-
-成分（稳态 ~2.2 ms）：`clear ~0.17`, `p2g ~0.40`, `grid ~0.84`, `g2p_gather ~0.32`, `g2p_box ~0.03`, `g2p_terrain ~0.22`, `g2p_repair ~0.05` ms/substep。
-
-**当前最大项：`grid`（38%）和 `p2g`（18%）和 `g2p_gather`（15%）。** Terrain 本身（`g2p_terrain` + `g2p_box`）只占 ~11%。
-
-## 关键概念说明
-
-### 命名约定
-
-为避免后续讨论里多个 collider 概念混在一起，本文统一使用：
-
-- **SDF Collider**：水体专用、按 terrain chunk 独立构建的 signed-distance collider。当前代码主要对应 `WaterTerrainColliderChunk` / `WaterTerrainColliderSet`，数据核心是 `sdf_ws`。它只用于水的 terrain collision、pressure projection solid 判断、以及 water grid cache 采样。
-- **Raycast Collider**：CPU 端 terrain raycast/query 用的碰撞/查询结构。当前实现由 contree CPU cache / scene accel 路径提供，用于 shovel raycast、玩家碰撞查询、terrain height query、audio occlusion 等。它不直接参与水的 SDF collision。代码级重命名可后续单独做机械 rename。
-- **Water grid cache**：SDF Collider 到 MLS-MPM water grid 的派生缓存，当前代码对应 `terrain_grid: Vec<WaterTerrainGridSample>`。它不是新的 collider 源数据，而是为了让每个 water substep 快速读取 SDF/normal/solid 状态。
-
-当前两条 collider/query 链路共享 terrain voxel atlas 作为源，但彼此不互相生成：
-
-```text
-terrain voxel atlas
- ├─ Raycast Collider path: contree / CPU cache / scene accel -> CPU raycast/query
- └─ SDF Collider path: 32^3 solid samples -> SDF chunk -> water grid cache -> water sim
-```
-
-### Terrain edit 后的 SDF/water 更新链路
-
-地形编辑后的水体碰撞更新链路目前是分阶段排队执行：
+## 当前链路
 
 ```text
 terrain edit
@@ -167,216 +51,214 @@ terrain edit
     -> 主线程按预算重建 cache region
 ```
 
-注意：第一步地形 voxel 修改目前仍是同步 GPU compute + fence，不是应用层 deferred queue；后续 queue 从普通 terrain chunk rebuild 开始。
+注意：第一步 terrain voxel 修改目前仍是同步 GPU compute + fence；后续 queue 从普通 terrain chunk rebuild 开始。
 
 当前这些 queue 都复用 `LatestChunkQueue<T>`：
 
 - 普通 terrain chunk rebuild：`LatestChunkQueue<ChunkRebuildRequest>`。
 - Terrain SDF source refresh：`LatestChunkQueue<WaterTerrainSourceRefreshRequest>`。
-- Terrain SDF collider build：`LatestChunkQueue<WaterTerrainColliderRebuildRequest>`，额外用 `water_terrain_collider_build_inflight` 限制全局 1 个 worker job。
+- Terrain SDF collider build：`LatestChunkQueue<WaterTerrainColliderRebuildRequest>`，额外用 inflight guard 限制全局 1 个 worker job。
 - Water terrain cache rebuild：`LatestChunkQueue<WaterTerrainCacheRebuildRequest>`，当前仍在主线程执行。
 
-后续命名建议把 source/build/cache 三层拆清楚：
+## 当前关键事实
 
-- `Terrain SDF Source Refresh Queue`：`GPU atlas -> 32^3 CPU solid occupancy`，推荐字段名 `deferred_terrain_sdf_source_refreshes`。
-- `Terrain SDF Collider Build Queue`：`32^3 occupancy -> SDF collider chunk`，推荐字段名 `deferred_terrain_sdf_collider_rebuilds`。
-- `Water Terrain Cache Rebuild Queue`：`SDF collider -> water grid cache`，保留 water 命名，因为它是 MLS-MPM water 的派生 cache。
-
-`mark_water_terrain_source_chunk_dirty` 当前不维护长期 dirty 状态，实际语义是调度一次 source refresh。后续可纯命名重构为：
-
-```text
-mark_water_terrain_source_chunk_dirty
- -> schedule_terrain_sdf_source_refresh
-mark_water_terrain_source_chunk_dirty_immediate
- -> schedule_terrain_sdf_source_refresh_immediate
-mark_water_terrain_source_chunk_dirty_after
- -> schedule_terrain_sdf_source_refresh_after
-enqueue_deferred_water_terrain_source_refresh
- -> enqueue_deferred_terrain_sdf_source_refresh
-```
-
-保留 `schedule` 比纯 `enqueue` 更合适，因为这个入口还会做 domain check、active-water priority、delay/coalesce 策略。
-
-### SDF Collider 的当前采样方式
-
-当前 SDF Collider 的 source refresh 对每个 terrain chunk 执行一次 GPU compute dispatch 和一次 readback：
-
-```text
-GPU terrain voxel atlas 当前 chunk
- -> sample_chunk_atlas_solid_grid(sample_dim=32x32x32)
- -> CpuSolidVoxelChunk
- -> signed_distance_from_solid_samples()
- -> SDF Collider chunk
-```
-
-注意当前 shader 是 **point downsample**：`32^3` 个 sample point 各自读取原始 chunk 中一个 voxel。它不是把 `256/32≈8` 个 voxel 的块做 OR/average/max reduction。因此当前 source hash/unchanged skip 可以直接围绕这 `32^3` 个 sample 设计。
-
-当前取样位置已改为 block-center point sampling：每轴近似取 `source_voxel = ((sample_id * 2 + 1) * source_dim) / (sample_dim * 2)`，对常见 `256 -> 32` 下采样得到 `4, 12, ..., 252`。它不再采 chunk 端点，而是采每个 8-wide source block 的中心代表点。当前为了编辑性能和实现风险，仍保持 `32^3` point sample。
-
-当前暂不把默认路径改成 full average reduction：
-
-- full average 每个 sample 需要读 `8^3 = 512` 个 source voxels；每 chunk 读取量会从 `32^3` 增加到 `32^3 * 512 = 16,777,216`，可能重新引入 source refresh hitch。
-- threshold 选择会改变碰撞质量：`0.5` 可能吃掉薄结构；`>0` / OR 会膨胀地形，可能产生离地缝或不可见墙。
-- 如果 visible 验证发现明显漏碰撞，再作为实验选项比较 center point、`2x2x2` multi-sample、`4x4x4` multi-sample、full `8x8x8` average、OR reduction。
-
-当前 SDF Collider **不读取邻居 chunk**，也没有 SDF source halo；一个 chunk 的 SDF 只依赖自己这个 chunk 的 solid samples。邻居 halo 目前只存在于 water grid cache rebuild 的更新范围上，用来避免缓存插值读到旧数据。SDF source halo 可以作为未来质量选项，但它会引入 neighbor dependency，不是当前编辑性能优化的优先项。
-
-### Occupancy unchanged skip
-
-SDF source refresh 检测的是降采样后的 `32^3` solid occupancy，而不是原始 `256^3` GPU voxel atlas。CPU 端把 `32768` 个 0/1 sample 打包成 bitset（约 512 个 `u64`）；如果 dim、solid count、bitset 都与旧 chunk 相同，就保留原 source revision，并跳过 SDF build 和 water cache rebuild。
-
-保留这个检测的原因：
-
-- 原始高精度 terrain 可能变了，但低分辨率 SDF source 没变。
-- 材质类型可能变了，但 solid/empty 没变。
-- affected bound 可能包含邻居 chunk，但邻居的 water/SDF source 实际没变。
-- 连续编辑会重复触发同 chunk 入队，但不一定每次都改变 center sample。
-
-检测成本很低：遍历 `32768` 个 sample、打包 bitset、比较约 512 个 `u64`，通常远小于一次 SDF build（约 `6-8ms` worker 时间）或一次 water grid cache rebuild（约 `4-5ms` 主线程时间）。因此即使大多数编辑确实 changed，也值得保留。
-
-### `no_sdf`
-
-`terrain_no_sdf` = **粒子落在没有 terrain collider chunk 覆盖的区域**。
-
-成因：`build_water_terrain_collider_chunk` 在 chunk 内找到 `solid_sample_count == 0`（全是空气）时跳过该 chunk，不加入 collider 集合。粒子落在这些区域时精确 collider 采样返回 `None`，统计为 `no_sdf`。
-
-**这是持久状态，不是临时 cache miss。** 只要该 chunk 确实没有固体，它就永远不会被构建 collider，那里的粒子一直 `no_sdf`。只有当你编辑地形往里面放固体后，collider 才会被构建。
-
-**不影响性能。** `no_sdf` 粒子只走一次 HashMap miss 就结束，不做任何 SDF 采样或位置修正。比真正碰到 terrain 做 trilinear + projection 的粒子快得多。当前 ~170/2048 个 `no_sdf` 粒子的路径开销可以忽略。
-
-### 264 ms/s
-
-`avg/substep` × 每秒 substep 数（120 Hz）的绝对 CPU 时间。水模拟跑在**主线程**上，这个时间直接占用帧预算。
-
-## 当前风险/注意点
-
-- `no_sdf` 在世界级水体下不可避免：一定有 chunk 没有固体。不是 bug。
-- `--water-profile performance` 仍需 visible 观感验证，尤其是编辑后水是否能以可接受延迟追上新地形。
-- terrain edit hitch 第一轮已缓解，但还缺一组正式 release `--water-edit-soak` 前后对比表；当前“性能不错”主要来自手动反馈和 hidden smoke run。
-- water source refresh / water grid cache rebuild 现在都已 budgeted，但仍在主线程执行；它们不再集中爆发，但队列积压会转化为水 collider/cache 的延迟。
-- SDF collider build 仍约 `7ms/chunk`，但在 worker 上且全局 1 个 inflight。连续编辑时可能出现旧 revision 结果完成后被 stale-discard；如果水响应延迟明显，可考虑发布较旧 completed result 作为中间态，或更主动取消/覆盖 queued work。
-- cache region rebuild 仍约 `40k` grid nodes、`4-5ms/chunk`。当前通过每帧 1 个限流降低尖峰；进一步优化应缩小 region、按 band/tile 处理，或 worker 化后 revision swap。
-- 当前 grid 是单块 160x64x160 = 1.6M 节点。永远 dense allocated。sparse 只优化了 per-substep 循环，不减少内存。
+- SDF source 当前是 `32^3` point downsample。
+- 当前采样点是 block-center：常见 `256 -> 32` 时取 `4,12,...,252`。
+- 暂不默认做 full average reduction；它会把每 chunk 读取量从 `32^3` 提到 `32^3 * 512`。
+- occupancy unchanged skip 检测的是降采样后的 `32^3` solid bitset。
+- unchanged skip 成本很低，通常远小于一次 SDF build 或 cache rebuild。
+- 空 chunk 不生成 SDF collider，因此 `terrain_no_sdf` 可以非零；这不是 bug。
+- 当前 cache region rebuild 仍可能约 `40k` grid nodes、`4-5ms/chunk`。
 
 ## 后续 Roadmap
 
-### Step 0：terrain edit / water collider 解耦（第一轮已完成）
+### Phase 1：补正式数据和诊断
 
-目标：地形编辑必须保持响应；水可以短暂使用旧 terrain collider，等编辑稳定后再追上。
+目标：用 release 数据确认当前“体感不错”是否稳定。
 
-已完成：
+建议拆分提交：
 
-1. **source refresh deferred/budgeted**：dirty 只入队；每帧最多处理 1 个 ready source refresh。
-2. **per-chunk coalesce**：同 chunk 保留最新 revision，并使用 `150ms` coalesce delay 降低编辑中刷新频率。
-3. **continuous edit 不 starvation**：合并 payload 时保留最早 `ready_at`，持续按住鼠标编辑也会周期性刷新中间 collider。
-4. **unchanged source skip**：`32^3` solid occupancy 未变时保留 source revision，跳过 SDF build/cache rebuild。
-5. **block-center sample**：SDF source point sample 改为每个 source block 中心代表点。
-6. **active-water priority**：无水粒子或远离活跃水粒子的 dirty chunk 延迟到低优先级。
-7. **cache rebuild budgeted**：SDF publish 后入队 cache rebuild，每帧最多 rebuild 1 个 chunk region。
-8. **terrain work catch-up cap**：terrain/water collider 工作活跃时，水模拟每帧最多 2 个 substeps。
+1. `add terrain sdf queue diagnostics`
+   - 记录 source/cache queue 的 pending、active、ready、processed。
+   - 记录 stale discard、unchanged skip、low-priority delay 次数。
+   - 记录每帧 source/cache budget 实际耗时。
 
-当前状态：手动反馈性能明显改善，hidden smoke run 通过。还需要用 release `--water-edit-soak` 建正式对比数据，确认 `frame_dt p95`、`ran_substeps`、source refresh/cache rebuild 分布都稳定。
+2. `summarize water edit soak metrics`
+   - 跑 release `--water-edit-soak`。
+   - 提取 `frame_dt p95/max`、`ran_substeps`、source refresh、SDF build、cache rebuild。
+   - 把数据写回本文件。
 
-下一步补强项：
+3. `document water collider latency`
+   - 统计 dirty -> source refresh -> SDF publish -> cache ready 的延迟。
+   - 区分 active-water chunk 和 low-priority chunk。
 
-- **补齐队列诊断汇总**：按 run 汇总 source/cache queue pending、ready、processed、stale、unchanged skip、low-priority delay 次数。
-- **确认 stale-discard 是否影响 UX**：如果连续编辑中 collider worker 经常完成旧 revision 又被丢弃，可考虑发布 completed older revision 作为中间态，同时继续排队 latest revision。
-- **从 count budget 升级到 time budget**：当前 source/cache 都是“每帧最多 1 个”；若不同机器耗时差异大，可改为“每帧最多 X ms + 至少/至多 N 个”。
-- **进一步拆分 cache rebuild**：把一个 chunk region 的 `40k` nodes 再按 tile/band 切分，避免单个 cache rebuild 仍占一帧中的 `4-5ms`。
-- **可选 worker 化 cache rebuild**：如果 region 缩小后仍明显占主线程，可把 cache rebuild 移到 worker，主线程只做 revision-guarded swap。
+验收：连续编辑时没有明显 `ran_substeps=8` 追帧尖峰；`frame_dt p95` 不被水 terrain 更新拉爆。
 
-完成标准：连续编辑时 `frame_dt p95` 不因水 terrain 更新超过一帧预算；没有 `ran_substeps=8` 追帧尖峰；水在编辑停止后能在可接受延迟内更新到最新 terrain。
+### Phase 2：命名解耦和语义整理
 
-### Step 1：visible 观感验证
+目标：把 SDF/source/cache 三层命名讲清楚，减少 water-specific 命名污染。
 
-不可压水已经通过初步 visible 验证，但 edit 优化后还要重新验证。只看 hidden 日志不够。
+建议拆分提交：
 
-执行：
+1. `rename water terrain source refresh queue`
+   - `deferred_water_terrain_source_refreshes` -> `deferred_terrain_sdf_source_refreshes`。
+   - `WaterTerrainSourceRefreshRequest` -> `TerrainSdfSourceRefreshRequest`。
+   - 日志标签同步改为 `TERRAIN_SDF_SOURCE`。
 
-```bash
-cargo run --release -- --perf --water-profile performance --water-particles 2048
-```
+2. `rename water terrain collider build queue`
+   - `deferred_water_terrain_collider_rebuilds` -> `deferred_terrain_sdf_collider_rebuilds`。
+   - `WaterTerrainColliderRebuildRequest` -> `TerrainSdfColliderRebuildRequest`。
+   - 保持行为不变。
 
-观察：
+3. `rename dirty scheduling entrypoints`
+   - `mark_water_terrain_source_chunk_dirty` -> `schedule_terrain_sdf_source_refresh`。
+   - `mark_water_terrain_source_chunk_dirty_immediate` -> `schedule_terrain_sdf_source_refresh_immediate`。
+   - `mark_water_terrain_source_chunk_dirty_after` -> `schedule_terrain_sdf_source_refresh_after`。
+   - 保留 `schedule`，因为这里还会做 domain check、priority、delay、coalesce。
 
-- 水面是否离地有缝或插地过深。
-- 水是否过弹/过黏/抖动。
-- 地形编辑后水是否稳定。
+验收：纯 rename，不改变 benchmark；`rg water_terrain_source` 只剩兼容/注释中合理出现。
 
-如果需要地形编辑，告诉我我来手动操作。否则继续 `--water-edit-soak`。
+### Phase 3：确认 stale SDF build 是否影响 UX
 
-完成标准：视觉可接受后进入 benchmark/kernel 优化。
+目标：判断旧 revision build 完成后直接丢弃，是否会让水体长时间等不到中间 collider。
 
-### Step 2：更新 release 基准表
+建议拆分提交：
 
-跑三类 release hidden benchmark：
+1. `log stale terrain sdf collider builds`
+   - 记录每次 stale discard 的 chunk、revision、latest revision、build age。
+   - 记录连续编辑期间 stale discard 占比。
 
-- 空水体：`--water-profile performance`
-- 显式水体：`--water-profile performance --water-particles 2048`
-- 编辑 soak：`--water-profile performance --water-particles 2048 --water-edit-soak`
+2. `publish intermediate terrain sdf collider revisions`（仅在数据证明需要时做）
+   - 若 completed result 虽不是 latest，但比当前 published revision 新，可先发布为中间态。
+   - latest revision 继续排队追上。
+   - 需要 revision guard，避免回退。
 
-提取：`avg/substep`、`p2g`、`grid`、`g2p_gather`、`g2p_terrain`、active nodes、edit collider build/cache rebuild 时间。写入本文件。
+3. `prefer latest terrain sdf worker submissions`
+   - 提交 worker 前再次确认 queued latest revision。
+   - 尽量避免把明显过期的 work 送进 worker。
 
-### Step 3：kernel 微优化
+验收：水体在持续编辑中能周期性追上中间地形；没有 collider revision 回退。
 
-如果 Step 2 确认当前瓶颈是 `grid`、`p2g`、`g2p_gather`，不来自 terrain fallback：
+### Phase 4：从 count budget 升级到 time budget
 
-- 检查 3×3×3 kernel 的可 hoist 重复计算（weights、bounds、base coord）
-- 评估 per-axis weights/gradients 的 stack 缓存
-- 保持单线程，不要并行
+目标：让不同机器上每帧水 terrain 工作的开销更可控。
 
-安全条件：terrain fallback slack 不动，`terrain_shadow_false_skips 0` 不动。
+建议拆分提交：
 
-### Step 4：空 chunk collider 生成
+1. `time budget terrain sdf source refreshes`
+   - source refresh 从“每帧最多 1 个”改为“每帧最多 X ms，同时最多 N 个”。
+   - 保留 active-water priority。
 
-当前 `solid_sample_count == 0` 的 chunk 跳过。可以改为生成全 `+∞` SDF 的 collider（代表"全空"），消除 `no_sdf`。
+2. `time budget water terrain cache rebuilds`
+   - cache rebuild 从“每帧最多 1 个”改为“每帧最多 X ms”。
+   - 如果单个 cache rebuild 超过 X ms，先记录，再进入 Phase 5 拆分。
 
-好处：
+3. `expose terrain sdf budget diagnostics`
+   - 日志输出预算命中次数、超时次数、剩余 pending。
 
-- G2P cache 全部 `has_sdf = true`，消除 ExactFallback 路径的 HashMap miss
-- 诊断日志更干净
+验收：单帧 source/cache 工作不会在常规机器上超过预设预算太多。
 
-代价：
+### Phase 5：拆分 water terrain cache rebuild
 
-- 50 个 chunk → 额外约 7ms × N 个空 chunk 的构建时间
-- 增加了 collider 集合中不必要的空 chunk 条目
+目标：把单个 `4-5ms` cache region rebuild 拆成更小的可调度任务。
 
-### Step 5：进一步缩小 water terrain cache 成本
+建议拆分提交：
 
-在 Step 0 解耦后，再做 cache 本身的算法优化：
+1. `represent water terrain cache rebuild ranges`
+   - 把 chunk cache rebuild 转成 range/tile work items。
+   - 保留 revision 信息。
 
-- `terrain_grid_cache_range_for_chunk` 当前一个 1m chunk 会覆盖约 `40k-42k` water grid nodes；检查 halo/band 是否还能安全缩小。
-- 对每个 collider chunk 预计算 influence bounds，只重采样 SDF band 内节点。
-- 维护 chunk->grid-node 或 tile 索引，避免每次 region rebuild 都访问完整长方体。
-- 若 cache rebuild worker 化，保证 `terrain_grid` swap 有 revision guard，G2P/pressure projection 永远读一致快照。
+2. `process water terrain cache tiles incrementally`
+   - 每帧处理若干 tile 或最多 X ms。
+   - 完成所有 tile 后标记该 chunk cache ready。
 
-### Step 6：评估水线程化
+3. `shrink water terrain cache rebuild bounds`
+   - 检查当前 halo 是否过大。
+   - 尝试只重采样 SDF influence band 内节点。
 
-将 `PondWaterSim::update()` 移到独立线程。
+4. `index water terrain cache tiles by collider chunk`
+   - 建立 collider chunk -> water grid tile/node 索引。
+   - 避免每次访问完整长方体 region。
 
-**优点**：主线程省掉 ~2.2 ms/帧（~44% @200fps）；水模拟不受帧时间波动影响。
+5. `worker water terrain cache rebuilds`（可选）
+   - 如果主线程 tile 化后仍有尖峰，再 worker 化。
+   - 主线程只做 revision-guarded swap。
 
-**风险与复杂度**：
+验收：cache rebuild 不再产生单个 `4-5ms` 主线程尖峰。
 
-- 粒子数据延迟一帧（~5ms @200fps），对水体行为很可能不敏感。
-- terrain collider 同步链路过长：collider worker 线程 → 主线程 → 水线程。
-- 线程寿命管理、退出信号、data race 需要仔细设计。
-- 当前 ~2.2 ms/substep × 120 Hz = 264 ms/s。在 200 fps（5ms 预算）下是 44%；在 60 fps（16ms 预算）下只有 14%。
+### Phase 6：采样质量实验（非默认）
 
-**建议先做 Step 3-5，确认单线程优化后的实际成本，再决定线程化是否值得。**
+目标：只在 visible 验证发现漏碰撞时再做。
 
-### Step 7：产品化 `performance profile`
+建议拆分提交：
 
-如果 visible soak 通过，把 `--water-profile performance` 暴露到 GUI/settings。保留 `default` 质量路径。
+1. `add terrain sdf sampling mode flag`
+   - 增加隐藏/调试配置：center point、`2x2x2`、`4x4x4`、full average、OR。
+   - 默认仍是 center point。
 
-### Step 8：高风险路线
+2. `benchmark terrain sdf sampling modes`
+   - 比较 `gpu_sample_total`、readback、frame_dt、terrain penetration、视觉效果。
 
-只在 CPU 单线程优化见底后考虑：
+3. `select terrain sdf sampling default`（仅在证据充分时做）
+   - 如果 multi-sample 明显更好且成本可接受，再改默认。
 
-1. CPU 并行 G2P（按粒子分块，风险较低）
-2. CPU 并行 P2G（thread-local grid tile 累加，风险高于 G2P）
-3. GPU water（只在 CPU 收益不足且同步成本可控时）
-4. adaptive CFL（稳定性改动，必须 visible 验证）
+验收：没有证据前不改变默认采样路径。
+
+### Phase 7：水模拟 kernel 微优化
+
+目标：如果 edit 链路不再是瓶颈，再优化稳态水模拟。
+
+建议拆分提交：
+
+1. `refresh water kernel release baseline`
+   - 更新空水体、有水体、edit soak 三类 release 基准。
+
+2. `hoist mls mpm kernel weights`
+   - 检查 3×3×3 kernel 的 weights、bounds、base coord 是否可复用。
+
+3. `reduce grid gather index overhead`
+   - 减少 G2P/P2G 中重复 index/bounds 计算。
+
+4. `document water kernel perf delta`
+   - 每个优化提交都记录前后 `avg/substep` 和主要 breakdown。
+
+验收：release 下 `avg/substep` 稳定下降；`terrain_shadow_false_skips` 保持 0。
+
+### Phase 8：空 chunk collider（可选）
+
+目标：消除 `terrain_no_sdf` 诊断噪音。
+
+建议拆分提交：
+
+1. `represent empty terrain sdf chunks`
+   - 对全空 chunk 生成全 `+∞` 或明确 empty collider sentinel。
+
+2. `skip expensive sdf build for empty chunks`
+   - 空 chunk 不跑完整 SDF build。
+
+验收：`no_sdf` 降低或消失，同时启动/编辑成本不明显上升。
+
+### Phase 9：产品化和高风险路线
+
+目标：前面阶段稳定后再做。
+
+建议拆分提交：
+
+1. `expose water performance profile in gui`
+   - 把 `--water-profile performance` 暴露到 GUI/settings。
+
+2. `evaluate threaded water simulation`
+   - 评估把 `PondWaterSim::update()` 移到独立线程。
+   - 重点处理 terrain collider 同步、退出信号、数据延迟。
+
+3. `parallelize water g2p`（高风险）
+   - 按粒子分块并行，风险低于 P2G。
+
+4. `parallelize water p2g`（更高风险）
+   - 需要 thread-local grid/tile accumulation。
+
+5. `prototype gpu water`（最高风险）
+   - 只有 CPU 路线见底后再考虑。
 
 ## 验证策略
 
@@ -400,6 +282,6 @@ cargo run --release -- --tail-latest-log 200
 
 - `avg/substep` 下降且可复现。
 - `terrain_shadow_false_skips 0`。
-- `no_sdf` 可以非零（空 chunk，路线图 Step 4 可选消除）。
-- tight-contact profile 只接受有界 sub-cell `terrain_sdf_min` overlap。
+- `terrain_penetrating 0` 或只有已知可解释的有界值。
+- `no_sdf` 可以非零。
 - latest log 无 water / Vulkan / shader 错误。
