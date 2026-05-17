@@ -5,10 +5,15 @@ use crate::builder::VOXEL_TYPE_ROCK;
 use glam::{IVec3, UVec3, Vec2, Vec3};
 use re_flora_terrain_collider::signed_distance_from_solid_samples;
 use re_flora_water::WaterTerrainColliderChunk;
-use std::{sync::mpsc, thread, time::Instant};
+use std::{
+    sync::mpsc,
+    thread,
+    time::{Duration, Instant},
+};
 
 const WATER_TERRAIN_COLLIDER_DIM: UVec3 = UVec3::new(32, 32, 32);
 const WATER_TERRAIN_COLLIDER_SOURCE: &str = "gpu-sampled-solid-grid";
+const WATER_TERRAIN_SOURCE_REFRESH_DEBOUNCE: Duration = Duration::from_millis(150);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct WaterTerrainColliderSourceRevision {
@@ -32,7 +37,9 @@ pub(super) struct WaterTerrainColliderWorkerResult {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct WaterTerrainSourceRefreshRequest;
+pub(super) struct WaterTerrainSourceRefreshRequest {
+    ready_at: Instant,
+}
 
 #[derive(Clone, Debug, Default)]
 pub(super) struct WaterEditSoak {
@@ -71,7 +78,7 @@ impl App {
                         skipped += 1;
                         continue;
                     }
-                    self.mark_water_terrain_source_chunk_dirty(chunk_id);
+                    self.mark_water_terrain_source_chunk_dirty_immediate(chunk_id);
                     enqueued += 1;
                 }
             }
@@ -96,20 +103,36 @@ impl App {
         );
     }
 
-    fn enqueue_deferred_water_terrain_source_refresh(&mut self, chunk_id: UVec3) {
+    fn enqueue_deferred_water_terrain_source_refresh(&mut self, chunk_id: UVec3, delay: Duration) {
+        let now = Instant::now();
+        let request = WaterTerrainSourceRefreshRequest {
+            ready_at: now + delay,
+        };
         let revision = self
             .deferred_water_terrain_source_refreshes
-            .push(chunk_id, WaterTerrainSourceRefreshRequest);
+            .push(chunk_id, request);
         log::debug!(
-            "[QUEUE][WATER_TERRAIN_SOURCE] enqueue chunk {:?} revision {} pending={} active={}",
+            "[QUEUE][WATER_TERRAIN_SOURCE] enqueue chunk {:?} revision {} debounce_ms={:.1} pending={} active={}",
             chunk_id,
             revision,
+            delay.as_secs_f32() * 1000.0,
             self.deferred_water_terrain_source_refreshes.len(),
             self.deferred_water_terrain_source_refreshes.active_len(),
         );
     }
 
+    fn mark_water_terrain_source_chunk_dirty_immediate(&mut self, chunk_id: UVec3) {
+        self.mark_water_terrain_source_chunk_dirty_after(chunk_id, Duration::ZERO);
+    }
+
     pub(super) fn mark_water_terrain_source_chunk_dirty(&mut self, chunk_id: UVec3) {
+        self.mark_water_terrain_source_chunk_dirty_after(
+            chunk_id,
+            WATER_TERRAIN_SOURCE_REFRESH_DEBOUNCE,
+        );
+    }
+
+    fn mark_water_terrain_source_chunk_dirty_after(&mut self, chunk_id: UVec3, delay: Duration) {
         let bounds = self.water_sim.config.collider;
         if !water_terrain_chunk_key_intersects_box_grid_domain(
             chunk_id,
@@ -123,7 +146,7 @@ impl App {
             return;
         }
 
-        self.enqueue_deferred_water_terrain_source_refresh(chunk_id);
+        self.enqueue_deferred_water_terrain_source_refresh(chunk_id, delay);
     }
 
     pub(super) fn process_water_terrain_source_updates(&mut self) {
@@ -142,9 +165,10 @@ impl App {
         let focus = self.water_terrain_focus_ws();
         let mut processed = 0usize;
         while processed < MAX_SOURCE_REFRESHES_PER_FRAME {
+            let now = Instant::now();
             let Some(work) = self
                 .deferred_water_terrain_source_refreshes
-                .pop_nearest_to(focus, UVec3::ONE)
+                .pop_nearest_to_if_payload(focus, UVec3::ONE, |_, request| request.ready_at <= now)
             else {
                 break;
             };

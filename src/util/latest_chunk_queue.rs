@@ -90,33 +90,56 @@ impl<T> LatestChunkQueue<T> {
         self.pop_with(|pending| pending.pop_nearest_to_if(focus, chunk_extent, &mut is_ready))
     }
 
+    pub(crate) fn pop_nearest_to_if_payload(
+        &mut self,
+        focus: Vec3,
+        chunk_extent: UVec3,
+        mut is_ready: impl FnMut(UVec3, &T) -> bool,
+    ) -> Option<LatestChunkWork<T>> {
+        let states = &self.states;
+        let chunk_id = self
+            .pending
+            .pop_nearest_to_if(focus, chunk_extent, |chunk_id| {
+                states.get(&chunk_id).is_some_and(|state| {
+                    state.active_revision.is_none()
+                        && state.latest_revision > state.completed_revision
+                        && state
+                            .latest_payload
+                            .as_ref()
+                            .is_some_and(|payload| is_ready(chunk_id, payload))
+                })
+            })?;
+        self.take_popped_chunk(chunk_id)
+    }
+
     fn pop_with(
         &mut self,
         mut pop_chunk: impl FnMut(&mut ChunkWorkQueue) -> Option<UVec3>,
     ) -> Option<LatestChunkWork<T>> {
         while let Some(chunk_id) = pop_chunk(&mut self.pending) {
-            let Some(state) = self.states.get_mut(&chunk_id) else {
-                continue;
-            };
-            if state.active_revision.is_some() || state.latest_revision <= state.completed_revision
-            {
-                continue;
+            if let Some(work) = self.take_popped_chunk(chunk_id) {
+                return Some(work);
             }
-
-            let Some(payload) = state.latest_payload.take() else {
-                continue;
-            };
-            let revision = state.latest_revision;
-            state.active_revision = Some(revision);
-
-            return Some(LatestChunkWork {
-                chunk_id,
-                revision,
-                payload,
-            });
         }
 
         None
+    }
+
+    fn take_popped_chunk(&mut self, chunk_id: UVec3) -> Option<LatestChunkWork<T>> {
+        let state = self.states.get_mut(&chunk_id)?;
+        if state.active_revision.is_some() || state.latest_revision <= state.completed_revision {
+            return None;
+        }
+
+        let payload = state.latest_payload.take()?;
+        let revision = state.latest_revision;
+        state.active_revision = Some(revision);
+
+        Some(LatestChunkWork {
+            chunk_id,
+            revision,
+            payload,
+        })
     }
 
     pub(crate) fn complete(&mut self, chunk_id: UVec3, revision: u64) {
@@ -312,6 +335,26 @@ mod tests {
 
         let remaining = queue.pop_nearest_to(focus, UVec3::ONE).unwrap();
         assert_eq!(remaining.chunk_id, chunk(1));
+    }
+
+    #[test]
+    fn pop_nearest_payload_predicate_keeps_unready_work_pending() {
+        let mut queue = LatestChunkQueue::default();
+        queue.push(chunk(1), 10);
+        queue.push(chunk(2), 20);
+
+        let focus = Vec3::new(1.25, 0.5, 0.5);
+        let work = queue
+            .pop_nearest_to_if_payload(focus, UVec3::ONE, |_, payload| *payload == 20)
+            .unwrap();
+
+        assert_eq!(work.chunk_id, chunk(2));
+        assert_eq!(work.payload, 20);
+        queue.complete(work.chunk_id, work.revision);
+
+        let remaining = queue.pop_nearest_to(focus, UVec3::ONE).unwrap();
+        assert_eq!(remaining.chunk_id, chunk(1));
+        assert_eq!(remaining.payload, 10);
     }
 
     #[test]
