@@ -14,24 +14,27 @@ Current status by phase:
 | Phase 3B: G2P terrain broadphase/cache | Implemented, hidden/edit soak clean; needs more scene coverage/tuning | cached skip/projection path is active and shadow-verified in perf runs |
 | Phase 4: collider scope/startup | Implemented and edit-soak benchmarked | startup/edit collider refreshes are limited to water-grid-domain chunks |
 | Phase 5: solver scaling/tuning options | Implemented and hidden edit-soaked; needs another visible tuning pass | CLI sweep knobs plus `--water-profile performance`; visual soak found contact/damping tuning issues and the profile has been adjusted |
+| Phase 6: implementation-review optimization backlog | Not implemented | prioritized follow-up opportunities from the current water collider/sim inspection |
 
 Latest representative release result:
 
 - Baseline from `REPORT.md`: ~4.9 ms/substep.
 - Current Phase 3A release samples: ~1.95-1.99 ms/substep.
 - Current Phase 3B/Phase 4 default release samples: ~1.75-1.85 ms/substep.
-- Previous Phase 5 performance-profile samples: ~0.88-1.02 ms/substep at 120 Hz with 2048 explicitly requested particles, including scripted terrain-edit soaks.
-- Default solver cost is down by roughly 62-64% from the original report; the performance profile reduces per-second water CPU budget further by halving the fixed substep rate and particle count.
+- Previous Phase 5 performance-profile samples: ~0.88-1.02 ms/substep at 120 Hz with 2048 explicitly requested particles, before the fixed pond domain grew to `(0,0,0)..(2,1,2)` and the grid changed to `64x32x64`.
+- Current explicit-water performance-profile sample: `/tmp/re-flora-logs/re-flora-20260517-113134.969-13425.log`, command `--water-profile performance --water-particles 2048`, reported `1.21-1.43 ms/substep` at 120 Hz on the `64x32x64` grid. `terrain_shadow_false_skips 0`, `no_sdf 0`, and bounded coarse-collider overlap stayed intact.
+- Current no-startup-water sample: `/tmp/re-flora-logs/re-flora-20260517-113209.862-14113.log`, command `--water-profile performance` with `particles 0`, still spent `0.266 ms/substep` clearing/scanning the empty `64x32x64` grid. This is now the highest-confidence quick win: skip water substeps while there are no water particles.
 - After visible contact tuning, the performance profile intentionally targets the coarse terrain SDF surface instead of a positive keep-out gap. Hidden logs now show bounded sub-cell coarse-SDF overlap (`terrain_sdf_min` roughly `-0.005..-0.009`) rather than requiring `penetrating 0` against the lower-resolution water collider.
 - Phase 3B shadow verification has reported `terrain_shadow_false_skips 0` in the latest release runs, including a 10-second performance-profile screenshot soak, scripted terrain-edit soaks, and the later contact/damping/grid-contact tuning runs.
 
-The remaining hot issue is still G2P terrain collision, but Phase 3B moved part of the common path onto cached-grid SDF data:
+The steady-state hot issue has shifted from mostly G2P terrain collision to a mix of G2P gather/terrain plus full-grid maintenance on the larger `64x32x64` domain:
 
-- Phase 2 exact terrain checks: `4096/substep`
-- Phase 3A exact terrain checks: `~4031-4096/substep`
-- Phase 3B exact terrain checks: `~2526-2892/substep`
+- Historical Phase 2 exact terrain checks: `4096/substep`
+- Historical Phase 3A exact terrain checks: `~4031-4096/substep`
+- Historical Phase 3B exact terrain checks: `~2526-2892/substep`
+- Current explicit 2048-particle `64x32x64` run: exact terrain checks settled around `~26-87/substep`, while `clear + grid` cost was roughly `0.42-0.57 ms/substep` and G2P gather/terrain together remained a large share.
 
-The next meaningful optimization is verification and tuning of the cached G2P path: reduce exact fallbacks further without allowing missed terrain penetration.
+The next meaningful optimizations are: skip empty-water updates, make grid clear/update sparse over touched nodes, and reduce startup/edit collider/cache rebuild scope.
 
 ## Current diagnosis
 
@@ -48,9 +51,13 @@ Resolved findings:
 
 Remaining findings:
 
-- G2P terrain remains one of the largest sub-costs.
+- Empty water still runs fixed substeps after terrain initialization. With `particles 0`, the app spent `0.266 ms/substep` entirely in full-grid clear/update on the `64x32x64` grid.
+- G2P gather and remaining G2P terrain work are still large steady-state costs when water is present.
+- Full-grid maintenance is now significant: `clear_grid()` clears every node and `update_grid()` scans every node, even though current 2048-particle runs touch only about `13k-37k` active nodes out of `131k`.
 - The cached trilinear SDF path now skips far particles and directly projects clearly colliding particles, but ambiguous near-surface particles still use exact collider fallback.
-- Full terrain-grid cache rebuilds happen when chunks are inserted/set/cleared. Partial overlapping-region rebuilds are not implemented yet.
+- Diagnostic logging currently computes full particle debug stats before deciding whether to report, including exact terrain SDF sampling for every particle. This cost is outside `[PERF][WATER]` substep timing and can also produce noisy expected-CFL speed warnings.
+- Startup/edit collider publication still rebuilds the entire terrain-grid cache for each inserted collider chunk. Partial overlapping-region rebuilds and startup batching are not implemented yet.
+- Startup water-domain selection currently includes max-boundary chunks (`floor(max)` inclusive), so the fixed `(0,0,0)..(2,1,2)` pond enqueues up to `18` chunks even though only `4` chunks strictly overlap the simulation volume.
 
 ## Implemented phases
 
@@ -355,6 +362,8 @@ Additional Phase 5 sweeps:
 | tuned `--water-profile performance --water-edit-soak` | `/tmp/re-flora-logs/re-flora-20260517-004700.160-136817.log` | 0.88-1.02 ms | 0.2-cell terrain margin plus damping; hidden edit validation stayed clean |
 | tight-grid-contact `--water-profile performance` | `/tmp/re-flora-logs/re-flora-20260517-005709.303-138961.log` | 0.94-1.00 ms | grid-node collision uses only the true contact band; profile margin is now 0.0 cells; bounded coarse-SDF overlap |
 | tight-grid-contact `--water-profile performance --water-edit-soak` | `/tmp/re-flora-logs/re-flora-20260517-005812.791-139695.log` | 0.88-0.98 ms | three scripted edits; `terrain_shadow_false_skips 0`, `no_sdf 0`, bounded `terrain_sdf_min` around `-0.005..-0.009` |
+| current 2x1x2 box `--water-profile performance --water-particles 2048` | `/tmp/re-flora-logs/re-flora-20260517-113134.969-13425.log` | 1.21-1.43 ms | current `64x32x64` grid; exact terrain checks settled to `~26-87/substep`, `terrain_shadow_false_skips 0`, `no_sdf 0`; clear+grid is now a major cost |
+| current no-startup-water `--water-profile performance` | `/tmp/re-flora-logs/re-flora-20260517-113209.862-14113.log` | 0.266 ms | `particles 0`; all cost is unnecessary full-grid clear/update and should be skipped |
 
 Interpretation:
 
@@ -362,6 +371,8 @@ Interpretation:
 - Reducing grid resolution alone is counterproductive in this scene because the cached terrain broadphase gets less precise; grid-node work drops but G2P terrain exact fallbacks/corrections rise.
 - Reducing substep rate to 120 Hz does not change per-substep cost much, but roughly halves the number of water substeps per second. It needs visual/gameplay soak for stability and appearance.
 - In that sweep, the performance profile was the best measured low-CPU candidate: 2048 particles, 32^3 grid, 120 Hz.
+- After the fixed pond grew to `(0,0,0)..(2,1,2)`, the current profile uses `64x32x64` so per-substep cost is higher. It still runs at 120 Hz, but sparse grid maintenance is now the most promising way to recover the old profile cost.
+- Because the default starts with no water particles, release perf commands must pass `--water-particles <N>` when measuring water simulation; otherwise the run mostly measures empty-grid overhead.
 - A visible interactive soak found two visual/feel issues: particles were kept visibly too far from terrain, and the water felt too elastic/undamped.
 - The first follow-up tuning reduced the performance-profile terrain keep-out margin from 0.5 grid cells to 0.2 grid cells and added 1.5/s velocity damping. Hidden logs reported `terrain_sdf_min` around `0.002-0.004` instead of the earlier `~0.013-0.015`, while staying non-penetrating.
 - A second visible-feedback pass found the remaining stable gap was mostly caused by grid-node velocity collision using the whole near-surface normal-cache band. The fix keeps normals cached in the wide band but applies grid velocity projection only when node SDF is inside the actual contact margin. The performance profile now uses a 0.0-cell terrain margin to prioritize visual contact.
@@ -372,18 +383,107 @@ Interpretation:
 
 Current recommendation:
 
-- Keep the default profile unchanged for quality/stability.
-- Treat `--water-profile performance` as the recommended opt-in low-CPU preset for automated runs and lower-end machines.
-- Do not reduce the water grid below 32^3 for this scene; 24^3 and 16^3 were slower due to less precise cached terrain classification.
+- Keep the default profile unchanged for quality/stability and no-startup-water behavior, but skip empty water simulation work as soon as possible.
+- Treat `--water-profile performance --water-particles 2048` as the current explicit-water low-CPU benchmark preset.
+- Do not reduce the water grid below 32^3 for this scene; 24^3 and 16^3 were slower due to less precise cached terrain classification. For the current 2x1x2 box, prefer sparse maintenance on `64x32x64` over reducing grid resolution blindly.
 
 Remaining work:
 
-1. Re-run the performance profile in an interactive visible app run and judge whether zero-cell contact margin, tight grid-node collision, and 1.5/s damping fix the observed gap/bounciness.
-2. Repeat terrain-edit soak in a visible/manual session if visual artifacts are suspected; the hidden scripted soak is clean.
-3. Expand from the fixed pond box to an active water-domain/chunk set before supporting arbitrary large water bodies.
-4. Decide whether `--water-profile performance` should become a GUI/settings preset.
-5. Try adaptive CFL limits only if the fixed 120 Hz profile shows instability or visual artifacts.
-6. Consider CPU parallelism or GPU/storage-buffer paths only after profile soak and cached G2P collision tuning.
+1. Implement the Phase 6 quick wins in order: empty-water early-out, sparse active-node clear/update, then stricter/batched collider/cache rebuilds.
+2. Re-run the performance profile in an interactive visible app run and judge whether zero-cell contact margin, tight grid-node collision, and 1.5/s damping fix the observed gap/bounciness.
+3. Repeat terrain-edit soak in a visible/manual session if visual artifacts are suspected; the hidden scripted soak is clean.
+4. Expand from the fixed pond box to an active water-domain/chunk set before supporting arbitrary large water bodies.
+5. Decide whether `--water-profile performance` should become a GUI/settings preset.
+6. Try adaptive CFL limits only if the fixed 120 Hz profile shows instability or visual artifacts.
+7. Consider CPU parallelism or GPU/storage-buffer paths only after sparse CPU maintenance and collider/cache rebuild scope are addressed.
+
+### Phase 6: implementation-review optimization backlog
+
+Status: not implemented. These are the highest-confidence follow-ups from inspecting the current water collider and MLS-MPM implementation after the default changed to no startup particles and the pond domain grew to `(0,0,0)..(2,1,2)`.
+
+#### 6A. Skip empty-water simulation work
+
+Evidence:
+
+- Log: `/tmp/re-flora-logs/re-flora-20260517-113209.862-14113.log`
+- Command: `--water-profile performance`
+- `particles 0 grid UVec3(64, 32, 64) nodes 131072 substeps 120 total 31.90ms avg 0.266ms/substep`
+- The cost is entirely unnecessary: `clear 15.75ms`, `grid 16.09ms`, with `active_nodes/substep 0`.
+
+Implementation direction:
+
+- Add an early return in `PondWaterSim::update()` or the app update gate when `particles.is_empty()`.
+- Reset or cap `accumulator` while empty so the first later debug spawn does not replay a backlog of substeps.
+- Suppress empty-water diagnostics with NaN particle ranges, or log a one-line idle state only when perf logging asks for it.
+
+Expected benefit: default no-water runs stop paying about `32 ms/s` of CPU on the performance profile, and twice that order on the 240 Hz default profile.
+
+#### 6B. Sparse active-node clear and grid update
+
+Evidence:
+
+- Current explicit-water log: `/tmp/re-flora-logs/re-flora-20260517-113134.969-13425.log`
+- Command: `--water-profile performance --water-particles 2048`
+- `grid UVec3(64, 32, 64)` has `131072` nodes, but active nodes were about `13k` early and `28k-34k` later.
+- Representative costs on the larger grid:
+  - `clear`: about `0.16-0.17 ms/substep`
+  - `grid`: about `0.25-0.40 ms/substep`
+  - combined clear+grid: about `0.42-0.57 ms/substep`, a large share of `1.21-1.43 ms/substep` total.
+
+Implementation direction:
+
+- Track touched node indices during P2G, e.g. push index only when a node transitions from zero mass to nonzero mass, guarded by a per-node generation/touched flag.
+- Clear only the previous touched-node list.
+- Run `update_grid()` only over touched nodes, not every node in the dense grid.
+- Keep the dense `grid` storage for simple indexed P2G/G2P; make only maintenance/update sparse.
+- Benchmark against the current dense loops because branch/dedup overhead can erase wins for very full grids.
+
+Expected benefit: likely recovers a meaningful part of the cost added by moving from `32^3` to `64x32x64`, especially when the water body occupies a small fraction of the fixed box.
+
+#### 6C. Tighten startup collider domain and batch cache rebuilds
+
+Evidence:
+
+- Current fixed box is `(0,0,0)..(2,1,2)`.
+- Startup domain selection uses `floor(min)..=floor(max)`, so it enqueues up to `3 x 2 x 3 = 18` chunks.
+- Only `2 x 1 x 2 = 4` chunks strictly overlap the simulation volume. The max-boundary chunks are mostly boundary-only for the current padded solver and several top chunks are empty or contain only a few solid samples.
+- Every published collider chunk calls `PondWaterSim::upsert_terrain_collider_chunk()`, which rebuilds the entire `terrain_grid` cache. Startup therefore repeats a `64x32x64` terrain-grid cache rebuild many times.
+
+Implementation direction:
+
+- Revisit `water_terrain_chunk_key_intersects_box_grid_domain()`: use strict overlap for steady collider sources unless a measured case requires a one-chunk shell for interpolation/boundary normals.
+- If a shell is needed, make it explicit and document why; do not include all max-boundary chunks by default.
+- Skip worker jobs for refreshed source chunks with `solid_count() == 0` before SDF build.
+- Batch startup collider publication so `terrain_grid` is rebuilt once after the initial set is available.
+- For edits, rebuild only the water-grid node range overlapped by the changed collider chunk plus a one-cell halo, then stabilize only particles in or near the changed chunk.
+
+Expected benefit: lower startup/readback/SDF build cost and less edit hitching. This is not expected to change steady-state solver cost except by making terrain-grid cache rebuilds cheaper.
+
+#### 6D. Reduce exact terrain sample cost
+
+Implementation direction:
+
+- Replace `WaterTerrainColliderChunk::sample_sdf_and_normal_ws()` with a combined trilinear SDF+gradient path that reuses the same eight SDF corner samples instead of computing SDF and then six more trilinear samples for finite-difference normals.
+- Keep the existing robust fallback normal behavior for degenerate gradients.
+- Boundary scans in `WaterTerrainColliderSet` currently iterate all chunks. Replace all-chunk scans with a small adjacent-chunk candidate set around exact integer boundaries, especially before expanding beyond the fixed pond.
+
+Expected benefit: smaller exact fallback and cache-rebuild normal cost. This is lower priority than 6A-6C because current exact fallback counts are already much lower than historical Phase 3B counts.
+
+#### 6E. Throttle diagnostics outside perf timing
+
+Implementation direction:
+
+- `log_diagnostics_after_update()` computes `water_particle_debug_stats()` every frame before deciding whether to log. Move expensive exact-terrain stats behind the report interval, or keep cheap no-SDF stats every frame and exact SDF stats only on report/anomaly.
+- Reuse G2P terrain-contact counters where possible instead of doing a separate all-particle exact SDF sweep.
+- Adjust expected CFL speed-limited behavior so normal falling water does not emit `WARN` diagnostics every `0.1s`.
+
+Expected benefit: improves real frame cost and log noise that are not visible in `[PERF][WATER]` substep totals.
+
+#### 6F. Higher-risk later options
+
+- Parallelize P2G/G2P after sparse grid maintenance is measured. P2G needs careful accumulation strategy to avoid atomics or races.
+- Move water particles or instance fetch to storage buffers only after CPU-side sparse maintenance and diagnostic overhead are under control.
+- Tune CFL/substep/stiffness only with visible validation; current logs show many speed-limited and `J`-clamped particles, but changing those values is a behavior/stability task, not just a performance task.
 
 ### Debug water placement tool
 
@@ -408,9 +508,10 @@ For each code phase:
 cargo fmt --check
 cargo check
 cargo test
-zsh -lc 'source ~/.zshrc && cargo run --release -- --hidden --auto-exit 4 --perf'
-zsh -lc 'source ~/.zshrc && cargo run --release -- --hidden --auto-exit 14 --perf --water-profile performance --water-edit-soak'
-zsh -lc 'source ~/.zshrc && cargo run --release -- --perf --water-profile performance'
+zsh -lc 'source ~/.zshrc && cargo run --release -- --hidden --auto-exit 3 --perf --water-profile performance'
+zsh -lc 'source ~/.zshrc && cargo run --release -- --hidden --auto-exit 4 --perf --water-profile performance --water-particles 2048'
+zsh -lc 'source ~/.zshrc && cargo run --release -- --hidden --auto-exit 14 --perf --water-profile performance --water-particles 2048 --water-edit-soak'
+zsh -lc 'source ~/.zshrc && cargo run --release -- --perf --water-profile performance --water-particles 2048'
 cargo run --release -- --tail-latest-log 200
 ```
 
@@ -418,7 +519,8 @@ When validating water performance:
 
 - Use `--hidden --perf` so the real app/window/Vulkan path still runs.
 - Do not use `--no-particles` for water benchmarks; current app update gating also disables water updates when particles are disabled.
-- Compare `[PERF][WATER]` lines before and after the change.
+- Since the default now starts with `particles 0`, pass `--water-particles <N>` for explicit-water benchmarks. Use the no-particle command only to verify empty-water idle overhead.
+- Compare `[PERF][WATER]` lines before and after the change, and remember diagnostic/debug-stat overhead is outside those substep totals.
 
 Primary metrics:
 
