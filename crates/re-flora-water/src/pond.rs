@@ -3,13 +3,16 @@ use glam::{Mat3, UVec3, Vec3};
 use super::collider::{WaterBoxCollider, WaterTerrainColliderChunk, WaterTerrainColliderSet};
 use std::sync::Arc;
 
-const DEFAULT_GRID_DIM: UVec3 = UVec3::new(32, 32, 32);
-const DEFAULT_PARTICLE_COUNT: usize = 4_096;
+const DEFAULT_GRID_DIM: UVec3 = UVec3::new(64, 32, 64);
+const DEFAULT_PARTICLE_COUNT: usize = 0;
+const DEFAULT_PARTICLE_VOLUME_REFERENCE_COUNT: usize = 4_096;
 const DEBUG_SPAWN_HYDROSTATIC_J_MAX_DEPTH_CELLS: f32 = 4.0;
-// Particles are initially seeded into a compact pond volume, not the whole
-// chunk-sized simulation box. Keeping the rest volume below the full box volume
-// avoids pressure-driven expansion into terrain solids and artificial walls.
-const DEFAULT_PARTICLE_FILL_VOLUME_FRACTION: f32 = 0.1;
+const INITIAL_PARTICLE_CHUNK_MIN_WS: Vec3 = Vec3::new(1.0, 0.0, 1.0);
+const INITIAL_PARTICLE_CHUNK_MAX_WS: Vec3 = Vec3::new(2.0, 1.0, 2.0);
+// Keep particle rest volume tied to the original one-chunk pond, even though
+// the containing box is now wider and the default starts empty. This preserves
+// the old 4096-particle density when water is added later by debug spawn.
+const DEFAULT_INITIAL_PARTICLE_VOLUME_FRACTION: f32 = 0.1;
 
 #[derive(Clone, Debug)]
 pub struct PondWaterConfig {
@@ -31,13 +34,14 @@ pub struct PondWaterConfig {
 
 impl Default for PondWaterConfig {
     fn default() -> Self {
+        let collider = WaterBoxCollider::default();
         Self {
-            collider: WaterBoxCollider::default(),
+            collider,
             grid_dim: DEFAULT_GRID_DIM,
             particle_count: DEFAULT_PARTICLE_COUNT,
             substep_dt: 1.0 / 240.0,
             particle_mass: 1.0,
-            particle_volume: DEFAULT_PARTICLE_FILL_VOLUME_FRACTION / DEFAULT_PARTICLE_COUNT as f32,
+            particle_volume: default_particle_volume(DEFAULT_PARTICLE_COUNT),
             gravity: Vec3::new(0.0, -9.8, 0.0),
             stiffness: 10_000.0,
             gamma: 7.0,
@@ -52,9 +56,8 @@ impl Default for PondWaterConfig {
 
 impl PondWaterConfig {
     pub fn with_particle_count(mut self, particle_count: usize) -> Self {
-        assert!(particle_count > 0);
         self.particle_count = particle_count;
-        self.particle_volume = DEFAULT_PARTICLE_FILL_VOLUME_FRACTION / particle_count as f32;
+        self.particle_volume = default_particle_volume(particle_count);
         self
     }
 
@@ -81,6 +84,17 @@ impl PondWaterConfig {
         self.linear_damping_per_sec = damping_per_sec;
         self
     }
+}
+
+fn default_particle_volume(particle_count: usize) -> f32 {
+    let volume_particle_count = if particle_count == 0 {
+        DEFAULT_PARTICLE_VOLUME_REFERENCE_COUNT
+    } else {
+        particle_count
+    };
+    (INITIAL_PARTICLE_CHUNK_MAX_WS - INITIAL_PARTICLE_CHUNK_MIN_WS).element_product()
+        * DEFAULT_INITIAL_PARTICLE_VOLUME_FRACTION
+        / volume_particle_count as f32
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -207,20 +221,23 @@ pub struct PondWaterSim {
     pub accumulator: f32,
     pub perf_stats: WaterPerfStats,
     pub perf_report_seconds: f32,
+    pub diagnostic_stats: WaterPerfStats,
+    pub diagnostic_report_seconds: f32,
+    pub sim_time_seconds: f32,
+    pub last_terrain_contact_particles: usize,
 }
 
 impl PondWaterSim {
     pub fn new(config: PondWaterConfig) -> Self {
         assert!(config.grid_dim.x >= 4 && config.grid_dim.y >= 4 && config.grid_dim.z >= 4);
-        assert!(config.particle_count > 0);
 
         let origin_ws = config.collider.min_ws;
         let extent_ws = config.collider.extent();
         assert!(extent_ws.min_element() > 0.0);
 
         let dx = (extent_ws.x / config.grid_dim.x as f32)
-            .min(extent_ws.y / config.grid_dim.y as f32)
-            .min(extent_ws.z / config.grid_dim.z as f32);
+            .max(extent_ws.y / config.grid_dim.y as f32)
+            .max(extent_ws.z / config.grid_dim.z as f32);
         let inv_dx = dx.recip();
 
         let grid_len = (config.grid_dim.x as usize)
@@ -240,9 +257,25 @@ impl PondWaterSim {
             accumulator: 0.0,
             perf_stats: WaterPerfStats::default(),
             perf_report_seconds: 0.0,
+            diagnostic_stats: WaterPerfStats::default(),
+            diagnostic_report_seconds: 0.0,
+            sim_time_seconds: 0.0,
+            last_terrain_contact_particles: 0,
         };
         sim.grid_dim = sim.config.grid_dim;
         sim.seed_particles();
+        log::info!(
+            "[WATER][INIT] seeded {} initial particles bounds {:?}..{:?} grid {:?} dx {:.5} particle_volume {:.6} rest_density {:.1} initial_area {:?}..{:?}",
+            sim.particles.len(),
+            sim.config.collider.min_ws,
+            sim.config.collider.max_ws,
+            sim.grid_dim,
+            sim.dx,
+            sim.config.particle_volume,
+            sim.config.particle_mass / sim.config.particle_volume,
+            INITIAL_PARTICLE_CHUNK_MIN_WS,
+            INITIAL_PARTICLE_CHUNK_MAX_WS,
+        );
         sim
     }
 
@@ -279,30 +312,84 @@ impl PondWaterSim {
 
     fn stabilize_after_terrain_change(&mut self) {
         self.accumulator = 0.0;
+        self.diagnostic_stats.reset();
+        self.diagnostic_report_seconds = 0.0;
+        self.last_terrain_contact_particles = 0;
+
         let terrain = self.terrain.as_ref();
         let collision_margin = self.terrain_collision_margin();
         let max_correction = self.dx * self.config.wall_padding_cells.max(1.0);
         let particle_padding = self.dx * self.config.wall_padding_cells.max(1.0);
         let bounds = self.config.collider;
+        let mut sampled_particles = 0usize;
+        let mut corrected_particles = 0usize;
+        let mut clamped_corrections = 0usize;
+        let mut total_particle_correction = 0.0f32;
+        let mut max_particle_correction = 0.0f32;
+        let mut min_sdf_before = f32::INFINITY;
+        let mut min_sdf_after = f32::INFINITY;
 
         for particle in &mut self.particles {
             particle.v = Vec3::ZERO;
             particle.c = Mat3::ZERO;
             particle.j = 1.0;
 
+            let mut particle_correction = 0.0f32;
             if let Some(terrain) = terrain {
-                for _ in 0..8 {
+                for iteration in 0..8 {
                     let Some((sdf, normal)) = terrain.sample_sdf_and_normal_ws(particle.x) else {
                         break;
                     };
+                    if iteration == 0 {
+                        sampled_particles += 1;
+                        min_sdf_before = min_sdf_before.min(sdf);
+                    }
                     let correction = collision_margin - sdf;
                     if correction <= 1.0e-5 {
                         break;
                     }
+
+                    let before = particle.x;
                     particle.x += normal * correction.min(max_correction);
+                    let unclamped = particle.x;
                     particle.x = bounds.clamp_point(particle.x, particle_padding);
+                    if particle.x.distance_squared(unclamped) > 1.0e-10 {
+                        clamped_corrections += 1;
+                    }
+                    particle_correction += particle.x.distance(before);
+                }
+
+                if let Some(sdf) = terrain.sample_sdf_ws(particle.x) {
+                    min_sdf_after = min_sdf_after.min(sdf);
                 }
             }
+
+            if particle_correction > 0.0 {
+                corrected_particles += 1;
+                total_particle_correction += particle_correction;
+                max_particle_correction = max_particle_correction.max(particle_correction);
+            }
+        }
+
+        if terrain.is_some() {
+            log::info!(
+                "[WATER][TERRAIN_STABILIZE] particles={} sampled={} corrected={} clamped={} total_correction={:.4} avg_corrected={:.4} max_corrected={:.4} margin={:.5} max_step={:.5} min_sdf_before={:.5} min_sdf_after={:.5}",
+                self.particles.len(),
+                sampled_particles,
+                corrected_particles,
+                clamped_corrections,
+                total_particle_correction,
+                if corrected_particles > 0 {
+                    total_particle_correction / corrected_particles as f32
+                } else {
+                    0.0
+                },
+                max_particle_correction,
+                collision_margin,
+                max_correction,
+                if min_sdf_before.is_finite() { min_sdf_before } else { f32::NAN },
+                if min_sdf_after.is_finite() { min_sdf_after } else { f32::NAN },
+            );
         }
     }
 
@@ -496,35 +583,61 @@ impl PondWaterSim {
     fn seed_particles(&mut self) {
         self.particles.clear();
         self.particles.reserve(self.config.particle_count);
+        if self.config.particle_count == 0 {
+            return;
+        }
 
-        let side = (self.config.particle_count as f32).cbrt().ceil() as u32;
-        let spacing = self.extent_ws / Vec3::splat(side as f32);
-        let min = self.origin_ws + self.extent_ws * Vec3::new(0.15, 0.08, 0.15);
-        let max = self.origin_ws + self.extent_ws * Vec3::new(0.85, 0.58, 0.85);
-        let fill_extent = max - min;
+        let padding = self.dx * self.config.wall_padding_cells.max(1.0);
+        let bounds = self.config.collider;
+        let safe_min = bounds.min_ws + Vec3::splat(padding);
+        let safe_max = bounds.max_ws - Vec3::splat(padding);
+        if safe_min.cmpge(safe_max).any() {
+            return;
+        }
 
-        'z: for z in 0..side {
-            for y in 0..side {
-                for x in 0..side {
-                    if self.particles.len() >= self.config.particle_count {
-                        break 'z;
-                    }
+        let plane_min = Vec3::new(
+            INITIAL_PARTICLE_CHUNK_MIN_WS.x.max(safe_min.x),
+            INITIAL_PARTICLE_CHUNK_MAX_WS.y.clamp(safe_min.y, safe_max.y),
+            INITIAL_PARTICLE_CHUNK_MIN_WS.z.max(safe_min.z),
+        );
+        let plane_max = Vec3::new(
+            INITIAL_PARTICLE_CHUNK_MAX_WS.x.min(safe_max.x),
+            plane_min.y,
+            INITIAL_PARTICLE_CHUNK_MAX_WS.z.min(safe_max.z),
+        );
+        if plane_min.x >= plane_max.x || plane_min.z >= plane_max.z {
+            return;
+        }
 
-                    let t = (Vec3::new(x as f32, y as f32, z as f32) + Vec3::splat(0.5))
-                        / Vec3::splat(side as f32);
-                    let jitter = Vec3::new(
-                        hash_unit(x, y, z) - 0.5,
-                        hash_unit(y, z, x) - 0.5,
-                        hash_unit(z, x, y) - 0.5,
-                    ) * spacing
-                        * 0.15;
-                    let pos = min + fill_extent * t + jitter;
-                    self.particles.push(WaterParticle::new(
-                        self.config.collider.clamp_point(pos, self.dx),
-                    ));
+        let side = (self.config.particle_count as f32).sqrt().ceil() as u32;
+
+        'rows: for z in 0..side {
+            for x in 0..side {
+                if self.particles.len() >= self.config.particle_count {
+                    break 'rows;
                 }
+
+                let jitter_x = hash_unit(x, z, 17) - 0.5;
+                let jitter_z = hash_unit(z, x, 29) - 0.5;
+                let tx = (x as f32 + 0.5 + jitter_x * 0.8) / side as f32;
+                let tz = (z as f32 + 0.5 + jitter_z * 0.8) / side as f32;
+                let pos = Vec3::new(
+                    plane_min.x + (plane_max.x - plane_min.x) * tx.clamp(0.0, 1.0),
+                    plane_min.y,
+                    plane_min.z + (plane_max.z - plane_min.z) * tz.clamp(0.0, 1.0),
+                );
+                self.particles.push(WaterParticle::new(
+                    self.config.collider.clamp_point(pos, padding),
+                ));
             }
         }
+
+        debug_assert!(self.particles.iter().all(|particle| {
+            particle.x.x >= INITIAL_PARTICLE_CHUNK_MIN_WS.x
+                && particle.x.x <= INITIAL_PARTICLE_CHUNK_MAX_WS.x
+                && particle.x.z >= INITIAL_PARTICLE_CHUNK_MIN_WS.z
+                && particle.x.z <= INITIAL_PARTICLE_CHUNK_MAX_WS.z
+        }));
     }
 }
 
@@ -541,15 +654,47 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fixed_test_box_seeds_particles_inside_bounds() {
+    fn fixed_test_box_starts_without_initial_particles() {
         let sim = PondWaterSim::fixed_test_box();
-        assert_eq!(sim.particles.len(), DEFAULT_PARTICLE_COUNT);
+        assert_eq!(sim.config.collider.min_ws, Vec3::ZERO);
+        assert_eq!(sim.config.collider.max_ws, Vec3::new(2.0, 1.0, 2.0));
+        assert_eq!(sim.config.particle_count, DEFAULT_PARTICLE_COUNT);
+        assert_eq!(sim.particles.len(), 0);
         assert_eq!(sim.grid_dim, DEFAULT_GRID_DIM);
+        assert!((sim.dx - 1.0 / 32.0).abs() < 1.0e-6);
+        assert_eq!(
+            sim.config.particle_volume,
+            default_particle_volume(DEFAULT_PARTICLE_VOLUME_REFERENCE_COUNT)
+        );
+    }
+
+    #[test]
+    fn explicit_particle_count_seeds_particles_on_original_chunk_surface() {
+        let sim = PondWaterSim::new(PondWaterConfig::default().with_particle_count(128));
+        assert_eq!(sim.particles.len(), 128);
+        let seed_y = sim.config.collider.max_ws.y - sim.dx * sim.config.wall_padding_cells.max(1.0);
         for particle in &sim.particles {
             assert!(
                 sim.config.collider.contains(particle.x),
                 "particle escaped: {:?}",
                 particle.x
+            );
+            assert!(
+                particle.x.x >= INITIAL_PARTICLE_CHUNK_MIN_WS.x
+                    && particle.x.x <= INITIAL_PARTICLE_CHUNK_MAX_WS.x,
+                "particle seeded outside original x chunk: {:?}",
+                particle.x,
+            );
+            assert!(
+                particle.x.z >= INITIAL_PARTICLE_CHUNK_MIN_WS.z
+                    && particle.x.z <= INITIAL_PARTICLE_CHUNK_MAX_WS.z,
+                "particle seeded outside original z chunk: {:?}",
+                particle.x,
+            );
+            assert!(
+                (particle.x.y - seed_y).abs() < 1.0e-6,
+                "particle not on initial surface plane: {:?}, expected y {seed_y}",
+                particle.x,
             );
         }
     }
@@ -570,7 +715,7 @@ mod tests {
 
     #[test]
     fn upserting_chunk_without_stabilization_preserves_particle_state() {
-        let mut sim = PondWaterSim::fixed_test_box();
+        let mut sim = PondWaterSim::new(PondWaterConfig::default().with_particle_count(1));
         sim.particles[0].v = Vec3::new(1.0, 2.0, 3.0);
         sim.particles[0].j = 1.25;
 
@@ -599,7 +744,7 @@ mod tests {
         let mut sim = PondWaterSim::fixed_test_box();
         let initial_len = sim.particles.len();
 
-        let result = sim.spawn_debug_particles_at_surface(Vec3::new(0.5, 0.5, 1.5), 12, 0.05);
+        let result = sim.spawn_debug_particles_at_surface(Vec3::new(-0.5, 0.5, 1.5), 12, 0.05);
 
         assert_eq!(
             result,
@@ -613,7 +758,7 @@ mod tests {
         let mut sim = PondWaterSim::fixed_test_box();
         let initial_len = sim.particles.len();
 
-        let result = sim.spawn_debug_particles_at_surface(Vec3::new(1.05, 0.5, 1.5), 12, 0.12);
+        let result = sim.spawn_debug_particles_at_surface(Vec3::new(0.05, 0.5, 1.5), 12, 0.12);
 
         assert!(matches!(
             result,
@@ -624,7 +769,7 @@ mod tests {
 
     #[test]
     fn debug_spawn_allows_growth_past_initial_particle_count() {
-        let mut sim = PondWaterSim::fixed_test_box();
+        let mut sim = PondWaterSim::new(PondWaterConfig::default().with_particle_count(4));
         let old_cap = sim.config.particle_count * 2;
         let filler = sim.particles[0];
         sim.particles.resize(old_cap, filler);
@@ -637,13 +782,14 @@ mod tests {
 
     #[test]
     fn debug_spawn_does_not_inherit_compressed_local_j_at_free_surface() {
-        let mut sim = PondWaterSim::fixed_test_box();
+        let mut sim = PondWaterSim::new(PondWaterConfig::default().with_particle_count(16));
         let initial_len = sim.particles.len();
         for particle in &mut sim.particles {
+            particle.x.y = 0.3;
             particle.j = 0.25;
         }
 
-        let result = sim.spawn_debug_particles_at_surface(Vec3::new(1.5, 0.5, 1.5), 12, 0.05);
+        let result = sim.spawn_debug_particles_at_surface(Vec3::new(1.5, 0.6, 1.5), 12, 0.05);
 
         assert_eq!(result.spawned_count(), 12);
         assert!(sim.particles[initial_len..]
@@ -667,10 +813,13 @@ mod tests {
 
     #[test]
     fn debug_spawn_uses_local_water_surface_height() {
-        let mut sim = PondWaterSim::fixed_test_box();
+        let mut sim = PondWaterSim::new(PondWaterConfig::default().with_particle_count(16));
         let initial_len = sim.particles.len();
         let spawn_x = 1.5;
         let spawn_z = 1.5;
+        for particle in &mut sim.particles {
+            particle.x.y = 0.3;
+        }
         let before_surface_y = max_particle_y_near(&sim, spawn_x, spawn_z, 0.18);
 
         let result =

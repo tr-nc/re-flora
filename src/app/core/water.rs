@@ -8,7 +8,6 @@ use re_flora_water::WaterTerrainColliderChunk;
 use std::{sync::mpsc, thread, time::Instant};
 
 const WATER_TERRAIN_COLLIDER_DIM: UVec3 = UVec3::new(32, 32, 32);
-const WATER_TERRAIN_SINGLE_CHUNK_ID: IVec3 = IVec3::new(1, 0, 1);
 const WATER_TERRAIN_COLLIDER_SOURCE: &str = "gpu-sampled-solid-grid";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -392,14 +391,15 @@ impl App {
                     stats.stats_ms,
                     self.deferred_water_terrain_collider_rebuilds.len(),
                 );
-            } else if is_latest {
-                self.water_terrain_initialized = self.water_terrain_has_startup_collider();
             }
 
             self.water_terrain_built_source_revisions
                 .insert(result.chunk_key, result.source_revision);
             self.deferred_water_terrain_collider_rebuilds
                 .complete(result.chunk_key, result.revision);
+            if !self.water_terrain_initialized {
+                self.water_terrain_initialized = self.water_terrain_has_startup_collider();
+            }
         }
     }
 
@@ -417,7 +417,6 @@ impl App {
             );
         self.water_sim
             .upsert_terrain_collider_chunk(chunk, should_stabilize_particles);
-        self.water_terrain_initialized = self.water_terrain_has_startup_collider();
     }
 
     fn water_terrain_focus_ws(&self) -> Vec3 {
@@ -426,9 +425,18 @@ impl App {
     }
 
     fn water_terrain_has_startup_collider(&self) -> bool {
-        self.water_sim
-            .terrain_collider_set()
-            .is_some_and(|set| set.chunks.contains_key(&WATER_TERRAIN_SINGLE_CHUNK_ID))
+        if self.water_terrain_collider_build_inflight
+            || !self.deferred_water_terrain_collider_rebuilds.is_idle()
+        {
+            return false;
+        }
+
+        let bounds = self.water_sim.config.collider;
+        self.water_sim.terrain_collider_set().is_some_and(|set| {
+            set.chunks.keys().any(|&chunk_id| {
+                water_terrain_chunk_strictly_overlaps_box(chunk_id, bounds.min_ws, bounds.max_ws)
+            })
+        })
     }
 
     fn refresh_water_solid_sample_chunk(&mut self, chunk_id: UVec3) -> anyhow::Result<Option<u64>> {
@@ -732,12 +740,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn single_water_collider_chunk_matches_initial_pond_chunk() {
-        let (min_ws, max_ws) = water_terrain_chunk_bounds_ws(WATER_TERRAIN_SINGLE_CHUNK_ID);
+    fn water_collider_chunk_bounds_are_unit_aligned() {
+        let (min_ws, max_ws) = water_terrain_chunk_bounds_ws(IVec3::ZERO);
 
-        assert_eq!(WATER_TERRAIN_SINGLE_CHUNK_ID, IVec3::new(1, 0, 1));
-        assert_eq!(min_ws, Vec3::new(1.0, 0.0, 1.0));
-        assert_eq!(max_ws, Vec3::new(2.0, 1.0, 2.0));
+        assert_eq!(min_ws, Vec3::ZERO);
+        assert_eq!(max_ws, Vec3::ONE);
     }
 
     #[test]
@@ -770,13 +777,13 @@ mod tests {
     }
 
     #[test]
-    fn water_chunk_work_key_round_trips_startup_chunk() {
-        let chunk_key = water_terrain_chunk_id_to_uvec3(WATER_TERRAIN_SINGLE_CHUNK_ID).unwrap();
+    fn water_chunk_work_key_round_trips_origin_chunk() {
+        let chunk_key = water_terrain_chunk_id_to_uvec3(IVec3::ZERO).unwrap();
 
-        assert_eq!(chunk_key, UVec3::new(1, 0, 1));
+        assert_eq!(chunk_key, UVec3::ZERO);
         assert_eq!(
             water_terrain_chunk_work_key_to_id(chunk_key),
-            Some(WATER_TERRAIN_SINGLE_CHUNK_ID)
+            Some(IVec3::ZERO)
         );
     }
 
@@ -789,10 +796,10 @@ mod tests {
     }
 
     #[test]
-    fn chunk_strict_overlap_accepts_startup_chunk() {
+    fn chunk_strict_overlap_accepts_pond_chunk() {
         assert!(water_terrain_chunk_strictly_overlaps_box(
-            WATER_TERRAIN_SINGLE_CHUNK_ID,
-            Vec3::new(1.0, 0.0, 1.0),
+            IVec3::ZERO,
+            Vec3::ZERO,
             Vec3::new(2.0, 1.0, 2.0),
         ));
     }
@@ -800,24 +807,24 @@ mod tests {
     #[test]
     fn chunk_strict_overlap_rejects_only_touching_neighbor() {
         assert!(!water_terrain_chunk_strictly_overlaps_box(
-            IVec3::new(1, 0, 2),
-            Vec3::new(1.0, 0.0, 1.0),
+            IVec3::new(2, 0, 1),
+            Vec3::ZERO,
             Vec3::new(2.0, 1.0, 2.0),
         ));
         assert!(!water_terrain_chunk_strictly_overlaps_box(
             IVec3::new(1, 1, 1),
-            Vec3::new(1.0, 0.0, 1.0),
+            Vec3::ZERO,
             Vec3::new(2.0, 1.0, 2.0),
         ));
     }
 
     #[test]
     fn chunk_grid_domain_includes_water_grid_boundary_chunks() {
-        let min_ws = Vec3::new(1.0, 0.0, 1.0);
+        let min_ws = Vec3::ZERO;
         let max_ws = Vec3::new(2.0, 1.0, 2.0);
 
         assert!(water_terrain_chunk_key_intersects_box_grid_domain(
-            UVec3::new(1, 0, 1),
+            UVec3::ZERO,
             min_ws,
             max_ws,
         ));
@@ -827,12 +834,12 @@ mod tests {
             max_ws,
         ));
         assert!(!water_terrain_chunk_key_intersects_box_grid_domain(
-            UVec3::new(0, 0, 1),
+            UVec3::new(3, 0, 1),
             min_ws,
             max_ws,
         ));
         assert!(!water_terrain_chunk_key_intersects_box_grid_domain(
-            UVec3::new(3, 1, 2),
+            UVec3::new(1, 2, 2),
             min_ws,
             max_ws,
         ));

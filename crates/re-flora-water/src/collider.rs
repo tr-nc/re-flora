@@ -1,7 +1,7 @@
 use glam::{IVec3, UVec3, Vec3};
 use std::{collections::HashMap, sync::Arc};
 
-/// Axis-aligned world-space container used by the initial tiny pond test.
+/// Axis-aligned world-space container used by the fixed pond simulation.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WaterBoxCollider {
     pub min_ws: Vec3,
@@ -32,9 +32,8 @@ impl WaterBoxCollider {
 
 impl Default for WaterBoxCollider {
     fn default() -> Self {
-        // Keep the initial pond in terrain chunk (1, 0, 1). The app builds the
-        // first water terrain collider for that chunk-aligned box.
-        Self::new(Vec3::new(1.0, 0.0, 1.0), Vec3::new(2.0, 1.0, 2.0))
+        // Keep the fixed pond in the nonnegative world-space terrain domain.
+        Self::new(Vec3::ZERO, Vec3::new(2.0, 1.0, 2.0))
     }
 }
 

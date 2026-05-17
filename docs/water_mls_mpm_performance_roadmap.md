@@ -20,7 +20,7 @@ Latest representative release result:
 - Baseline from `REPORT.md`: ~4.9 ms/substep.
 - Current Phase 3A release samples: ~1.95-1.99 ms/substep.
 - Current Phase 3B/Phase 4 default release samples: ~1.75-1.85 ms/substep.
-- Current Phase 5 performance profile samples: ~0.88-1.02 ms/substep at 120 Hz with 2048 particles, including scripted terrain-edit soaks.
+- Previous Phase 5 performance-profile samples: ~0.88-1.02 ms/substep at 120 Hz with 2048 explicitly requested particles, including scripted terrain-edit soaks.
 - Default solver cost is down by roughly 62-64% from the original report; the performance profile reduces per-second water CPU budget further by halving the fixed substep rate and particle count.
 - After visible contact tuning, the performance profile intentionally targets the coarse terrain SDF surface instead of a positive keep-out gap. Hidden logs now show bounded sub-cell coarse-SDF overlap (`terrain_sdf_min` roughly `-0.005..-0.009`) rather than requiring `penetrating 0` against the lower-resolution water collider.
 - Phase 3B shadow verification has reported `terrain_shadow_false_skips 0` in the latest release runs, including a 10-second performance-profile screenshot soak, scripted terrain-edit soaks, and the later contact/damping/grid-contact tuning runs.
@@ -284,12 +284,12 @@ Implemented work:
 
 Important scope note: this is deliberately domain-filtered, not a global all-world collider rebuild. With the current fixed pond box it effectively builds only the chunks that can touch that pond. For unrestricted future water, replace the fixed pond box with an active water-domain/chunk set and build terrain colliders lazily or by priority for every chunk that active water can occupy; do not rebuild every world chunk on every terrain edit.
 
-Expected effect: lower startup GPU solid readback, fewer worker jobs, fewer collider chunks published, and smaller terrain cache rebuild input. For the current fixed water box, the startup candidate set drops from the full `5 x 2 x 5 = 50` terrain chunks to at most `2 x 2 x 2 = 8` water-domain chunks before empty-terrain filtering.
+Expected effect: lower startup GPU solid readback, fewer worker jobs, fewer collider chunks published, and smaller terrain cache rebuild input. For the current fixed water box `(0,0,0)..(2,1,2)`, the startup candidate set drops from the full `5 x 2 x 5 = 50` terrain chunks to at most `3 x 2 x 3 = 18` water-domain chunks before empty-terrain filtering.
 
 Release validation:
 
 - Run log: `/tmp/re-flora-logs/re-flora-20260516-233023.731-125389.log`
-- Startup log: `enqueued startup collider rebuilds for 8 water-domain chunks, skipped 42 out-of-domain chunks`.
+- Startup log: `enqueued startup collider rebuilds for 18 water-domain chunks, skipped 32 out-of-domain chunks`.
 - Water perf stayed in the Phase 3B range:
   - `1.868 ms/substep`, then `1.764 ms/substep`, then `1.740 ms/substep`.
   - `terrain_shadow_false_skips 0`, `penetrating 0`, `no_sdf 0`.
@@ -319,13 +319,13 @@ Implemented work:
 3. Added an automated terrain-edit validation flag:
    - `--water-edit-soak`: applies a deterministic pond-edge dig/place/dig sequence after startup water collider work is idle.
 4. Added named water profile selection:
-   - `--water-profile default`: current quality/default config, 4096 particles, 32^3 grid, 240 Hz substeps.
-   - `--water-profile performance`: lower-CPU candidate, 2048 particles, 32^3 grid, 120 Hz substeps, zero-cell terrain margin, tight grid-node contact, and 1.5/s damping.
+   - `--water-profile default`: current quality/default config, no startup particles, 64x32x64 grid, 240 Hz substeps. Add water explicitly with `--water-particles <N>`.
+   - `--water-profile performance`: lower-CPU candidate, no startup particles, 64x32x64 grid, 120 Hz substeps, zero-cell terrain margin, tight grid-node contact, and 1.5/s damping. Add water explicitly with `--water-particles <N>`.
 5. Water startup logs the selected profile, effective particle count, grid dimension, substep dt, terrain margin, and damping.
 6. Changing particle count preserves the intended total fill volume by rescaling per-particle volume.
 7. Explicit particle/grid/substep/contact/damping CLI overrides are applied after the named profile, so profiles remain easy to tweak during sweeps.
 
-Initial release validation:
+Initial release validation (historical, before the default was changed to start without water particles):
 
 - Default config log: `/tmp/re-flora-logs/re-flora-20260516-233315.367-126594.log`
   - effective config: `particles=4096 grid=UVec3(32, 32, 32) substep_dt=0.004167s`
@@ -342,13 +342,13 @@ Additional Phase 5 sweeps:
 
 | config | log | representative avg/substep | notes |
 | --- | --- | ---: | --- |
-| default: 4096 particles, 32^3, 240 Hz | `/tmp/re-flora-logs/re-flora-20260516-233315.367-126594.log` | 1.78-1.85 ms | current quality/default baseline |
+| old default before the 2x1x2 box: 4096 particles, 32^3, 240 Hz | `/tmp/re-flora-logs/re-flora-20260516-233315.367-126594.log` | 1.78-1.85 ms | historical quality/default baseline |
 | 2048 particles, 32^3, 240 Hz | `/tmp/re-flora-logs/re-flora-20260516-233332.832-126982.log` | 0.93-0.98 ms | best pure particle-count win; keeps 240 Hz stability |
 | 4096 particles, 24^3, 240 Hz | `/tmp/re-flora-logs/re-flora-20260516-234751.534-128074.log` | 1.86-1.91 ms | grid work drops, but coarser cached SDF raises exact fallbacks/G2P terrain; not a win |
 | 4096 particles, 16^3, 240 Hz | `/tmp/re-flora-logs/re-flora-20260516-234804.067-128384.log` | 2.05-2.08 ms | too coarse; many exact fallbacks/corrections; not a win |
 | 4096 particles, 32^3, 120 Hz | `/tmp/re-flora-logs/re-flora-20260516-234816.156-128686.log` | 1.77-1.82 ms | per-substep similar to default, but roughly half the substeps per second |
 | 2048 particles, 32^3, 120 Hz | `/tmp/re-flora-logs/re-flora-20260516-234832.306-128986.log` | 0.95-0.99 ms | best measured low-CPU candidate |
-| `--water-profile performance` | `/tmp/re-flora-logs/re-flora-20260516-235018.242-129739.log` | 0.96-0.99 ms | profile maps to 2048 particles, 32^3 grid, 120 Hz |
+| old `--water-profile performance` before the 2x1x2 box | `/tmp/re-flora-logs/re-flora-20260516-235018.242-129739.log` | 0.96-0.99 ms | historical profile mapped to 2048 particles, 32^3 grid, 120 Hz |
 | `--water-profile performance` 10s screenshot soak | `/tmp/re-flora-logs/re-flora-20260516-235536.196-131139.log` | 0.94-0.99 ms | screenshot `/tmp/re-flora-water-performance.png`; stable hidden run |
 | `--water-profile performance --water-edit-soak` | `/tmp/re-flora-logs/re-flora-20260517-001053.304-132670.log` | 0.94-1.00 ms | three scripted pond terrain edits; collider refresh/rebuild path stayed clean |
 | tuned `--water-profile performance` | `/tmp/re-flora-logs/re-flora-20260517-004631.454-136366.log` | 0.94-0.99 ms | 0.2-cell terrain margin plus 1.5/s damping; `terrain_sdf_min` dropped to ~0.002-0.003 |
@@ -361,7 +361,7 @@ Interpretation:
 - Reducing particle count scales the dominant P2G/G2P work nearly linearly and also halves visual water-debug upload cost.
 - Reducing grid resolution alone is counterproductive in this scene because the cached terrain broadphase gets less precise; grid-node work drops but G2P terrain exact fallbacks/corrections rise.
 - Reducing substep rate to 120 Hz does not change per-substep cost much, but roughly halves the number of water substeps per second. It needs visual/gameplay soak for stability and appearance.
-- The performance profile remains the best measured low-CPU candidate: 2048 particles, 32^3 grid, 120 Hz.
+- In that sweep, the performance profile was the best measured low-CPU candidate: 2048 particles, 32^3 grid, 120 Hz.
 - A visible interactive soak found two visual/feel issues: particles were kept visibly too far from terrain, and the water felt too elastic/undamped.
 - The first follow-up tuning reduced the performance-profile terrain keep-out margin from 0.5 grid cells to 0.2 grid cells and added 1.5/s velocity damping. Hidden logs reported `terrain_sdf_min` around `0.002-0.004` instead of the earlier `~0.013-0.015`, while staying non-penetrating.
 - A second visible-feedback pass found the remaining stable gap was mostly caused by grid-node velocity collision using the whole near-surface normal-cache band. The fix keeps normals cached in the wide band but applies grid velocity projection only when node SDF is inside the actual contact margin. The performance profile now uses a 0.0-cell terrain margin to prioritize visual contact.

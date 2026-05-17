@@ -221,7 +221,7 @@ impl AppOptions {
             auto_exit_delay: parse_f32_after("--auto-exit"),
             perf: args.iter().any(|a| a == "--perf"),
             water_profile,
-            water_particles: parse_u32_after("--water-particles").map(|v| v.max(1) as usize),
+            water_particles: parse_u32_after("--water-particles").map(|v| v as usize),
             water_grid: parse_u32_after("--water-grid").map(|v| v.max(4)),
             water_substep_hz: parse_f32_after("--water-substep-hz").map(|v| v.max(1.0)),
             water_terrain_margin_cells: parse_f32_after("--water-terrain-margin-cells")
@@ -262,7 +262,7 @@ Options:
   --auto-exit <sec>           Exit automatically after rendering starts
   --perf                      Enable per-frame performance logging
   --water-profile <profile>   Select water profile: default, performance
-  --water-particles <N>       Override water MLS-MPM particle count
+  --water-particles <N>       Override initial water MLS-MPM particle count (0 = none)
   --water-grid <N>            Override cubic water MLS-MPM grid dimension
   --water-substep-hz <Hz>     Override water MLS-MPM fixed substep rate
   --water-terrain-margin-cells <C>

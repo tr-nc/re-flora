@@ -842,7 +842,6 @@ impl App {
         let mut water_config = match options.water_profile {
             Some(WaterProfilePreference::Default) | None => PondWaterConfig::default(),
             Some(WaterProfilePreference::Performance) => PondWaterConfig::default()
-                .with_particle_count(2_048)
                 .with_substep_hz(120.0)
                 .with_terrain_collision_margin_cells(0.0)
                 .with_linear_damping_per_sec(1.5),
