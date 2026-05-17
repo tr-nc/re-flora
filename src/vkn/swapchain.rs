@@ -93,6 +93,10 @@ impl Swapchain {
         self.image_views.len()
     }
 
+    pub fn image_format(&self) -> vk::Format {
+        self.render_target.get_desc().attachments[0].format
+    }
+
     fn clean_up(&mut self) {
         let device = &self.vulkan_context.device();
         unsafe {

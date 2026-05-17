@@ -39,7 +39,10 @@ use crate::tree_gen::TreeDesc;
 use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
 use crate::util::{GrowingFloraChunk, GrowingFloraQueue, LatestChunkQueue, ShaderCompiler, BENCH};
-use crate::vkn::{Allocator, CommandBuffer, Fence, Semaphore, SwapchainDesc};
+use crate::vkn::{
+    record_image_transition_barrier, Allocator, Buffer, BufferUsage, CommandBuffer, Extent2D,
+    Fence, Semaphore, SwapchainDesc,
+};
 use crate::RenderFlags;
 use crate::{
     egui_renderer::EguiRenderer,
@@ -80,6 +83,14 @@ struct FrameSync {
     image_available: Semaphore,
     fence: Fence,
     command_buffer: CommandBuffer,
+}
+
+struct ScreenshotReadback {
+    path: String,
+    width: u32,
+    height: u32,
+    format: vk::Format,
+    buffer: Buffer,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1043,41 +1054,151 @@ impl App {
         }
     }
 
-    fn save_screenshot(&self, path: &str) {
-        let output_path = std::path::Path::new(path);
+    fn prepare_screenshot_readback(
+        &self,
+        path: String,
+        render_area: Extent2D,
+    ) -> Result<ScreenshotReadback> {
+        let output_path = std::path::Path::new(&path);
         if let Some(parent) = output_path.parent() {
             if !parent.as_os_str().is_empty() && !parent.exists() {
-                log::error!(
-                    "[SCREENSHOT] Parent directory does not exist: {}",
-                    parent.display()
-                );
-                return;
+                anyhow::bail!("parent directory does not exist: {}", parent.display());
             }
         }
 
-        self.vulkan_ctx.device().wait_idle();
+        let width = render_area.width;
+        let height = render_area.height;
+        let byte_count = width as u64 * height as u64 * 4;
+        let allocator = self
+            .tracer
+            .get_screen_output_tex()
+            .get_image()
+            .get_allocator()
+            .clone();
+        let buffer = Buffer::new_sized(
+            self.vulkan_ctx.device().clone(),
+            allocator,
+            BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
+            gpu_allocator::MemoryLocation::GpuToCpu,
+            byte_count,
+        );
 
-        let image = self.tracer.get_screen_output_tex().get_image();
-        let extent = image.get_desc().extent;
-        let width = extent.width;
-        let height = extent.height;
+        Ok(ScreenshotReadback {
+            path,
+            width,
+            height,
+            format: self.swapchain.image_format(),
+            buffer,
+        })
+    }
 
-        match image.fetch_data(
-            &self.vulkan_ctx.get_general_queue(),
-            self.vulkan_ctx.command_pool(),
-        ) {
-            Ok(rgba_data) => match image::RgbaImage::from_raw(width, height, rgba_data) {
-                Some(image_data) => match image_data.save(path) {
-                    Ok(()) => log::info!("[SCREENSHOT] Saved {}x{} to {}", width, height, path),
-                    Err(err) => {
-                        log::error!("[SCREENSHOT] Failed to write {}: {}", path, err)
+    fn record_screenshot_readback(
+        &self,
+        cmdbuf: &CommandBuffer,
+        image_idx: u32,
+        readback: &ScreenshotReadback,
+    ) {
+        let device = self.vulkan_ctx.device();
+        let swapchain_image = self.swapchain.get_image(image_idx);
+
+        record_image_transition_barrier(
+            device.as_raw(),
+            cmdbuf.as_raw(),
+            vk::ImageLayout::PRESENT_SRC_KHR,
+            vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+            swapchain_image,
+            vk::ImageAspectFlags::COLOR,
+            0,
+            1,
+        );
+
+        let region = vk::BufferImageCopy::default()
+            .buffer_offset(0)
+            .buffer_row_length(0)
+            .buffer_image_height(0)
+            .image_subresource(vk::ImageSubresourceLayers {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                mip_level: 0,
+                base_array_layer: 0,
+                layer_count: 1,
+            })
+            .image_offset(vk::Offset3D { x: 0, y: 0, z: 0 })
+            .image_extent(vk::Extent3D {
+                width: readback.width,
+                height: readback.height,
+                depth: 1,
+            });
+
+        unsafe {
+            device.as_raw().cmd_copy_image_to_buffer(
+                cmdbuf.as_raw(),
+                swapchain_image,
+                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                readback.buffer.as_raw(),
+                &[region],
+            );
+        }
+
+        record_image_transition_barrier(
+            device.as_raw(),
+            cmdbuf.as_raw(),
+            vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+            vk::ImageLayout::PRESENT_SRC_KHR,
+            swapchain_image,
+            vk::ImageAspectFlags::COLOR,
+            0,
+            1,
+        );
+    }
+
+    fn write_screenshot_readback(readback: ScreenshotReadback) {
+        match readback.buffer.read_back() {
+            Ok(raw_data) => match Self::swapchain_readback_to_rgba(readback.format, raw_data) {
+                Ok(rgba_data) => {
+                    match image::RgbaImage::from_raw(readback.width, readback.height, rgba_data) {
+                        Some(image_data) => match image_data.save(&readback.path) {
+                            Ok(()) => log::info!(
+                                "[SCREENSHOT] Saved {}x{} to {}",
+                                readback.width,
+                                readback.height,
+                                readback.path
+                            ),
+                            Err(err) => log::error!(
+                                "[SCREENSHOT] Failed to write {}: {}",
+                                readback.path,
+                                err
+                            ),
+                        },
+                        None => log::error!(
+                            "[SCREENSHOT] Invalid image dimensions or pixel buffer size"
+                        ),
                     }
-                },
-                None => {
-                    log::error!("[SCREENSHOT] Invalid image dimensions or pixel buffer size")
                 }
+                Err(err) => log::error!("[SCREENSHOT] Pixel conversion failed: {}", err),
             },
             Err(err) => log::error!("[SCREENSHOT] GPU readback failed: {}", err),
+        }
+    }
+
+    fn swapchain_readback_to_rgba(format: vk::Format, mut data: Vec<u8>) -> Result<Vec<u8>> {
+        match format {
+            vk::Format::B8G8R8A8_SRGB | vk::Format::B8G8R8A8_UNORM => {
+                for pixel in data.chunks_exact_mut(4) {
+                    pixel.swap(0, 2);
+                    pixel[3] = 255;
+                }
+                Ok(data)
+            }
+            vk::Format::R8G8B8A8_SRGB | vk::Format::R8G8B8A8_UNORM => {
+                for pixel in data.chunks_exact_mut(4) {
+                    pixel[3] = 255;
+                }
+                Ok(data)
+            }
+            other => Err(anyhow::anyhow!(
+                "unsupported swapchain screenshot format: {:?}",
+                other
+            )),
         }
     }
 }
@@ -3112,6 +3233,22 @@ impl App {
                 );
 
                 let render_area = self.window_state.window_extent();
+                let mut screenshot_readback = None;
+                if !self.screenshot_taken {
+                    if let (Some(render_start_time), Some(path)) =
+                        (self.render_start_time, self.screenshot_path.clone())
+                    {
+                        let elapsed = render_start_time.elapsed().as_secs_f32();
+                        if elapsed >= self.screenshot_delay {
+                            self.screenshot_taken = true;
+                            log::info!("[SCREENSHOT] Capturing after {:.2}s to {}", elapsed, path);
+                            match self.prepare_screenshot_readback(path, render_area) {
+                                Ok(readback) => screenshot_readback = Some(readback),
+                                Err(err) => log::error!("[SCREENSHOT] Failed to prepare: {}", err),
+                            }
+                        }
+                    }
+                }
 
                 self.swapchain
                     .record_begin_render_pass_cmdbuf(cmdbuf, image_idx, render_area);
@@ -3122,6 +3259,10 @@ impl App {
                 unsafe {
                     device.cmd_end_render_pass(cmdbuf.as_raw());
                 };
+
+                if let Some(readback) = &screenshot_readback {
+                    self.record_screenshot_readback(cmdbuf, image_idx, readback);
+                }
 
                 cmdbuf.end();
 
@@ -3160,6 +3301,13 @@ impl App {
                     }
                     Err(error) => panic!("Failed to present queue. Cause: {}", error),
                     _ => {}
+                }
+
+                if let Some(readback) = screenshot_readback {
+                    self.vulkan_ctx
+                        .wait_for_fences(&[sync.fence.as_raw()])
+                        .unwrap();
+                    Self::write_screenshot_readback(readback);
                 }
 
                 self.current_frame = (self.current_frame + 1) % self.frames_in_flight.len();
@@ -3237,20 +3385,6 @@ impl App {
                 }
                 if let Some(render_start_time) = self.render_start_time {
                     let elapsed = render_start_time.elapsed().as_secs_f32();
-
-                    if !self.screenshot_taken {
-                        if let Some(path) = &self.screenshot_path {
-                            if elapsed >= self.screenshot_delay {
-                                self.screenshot_taken = true;
-                                log::info!(
-                                    "[SCREENSHOT] Capturing after {:.2}s to {}",
-                                    elapsed,
-                                    path
-                                );
-                                self.save_screenshot(path);
-                            }
-                        }
-                    }
 
                     if let Some(auto_exit_delay) = self.auto_exit_delay {
                         if elapsed >= auto_exit_delay {
