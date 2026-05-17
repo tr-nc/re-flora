@@ -34,10 +34,14 @@ void main() {
         return;
     }
 
-    vec3 denom = vec3(max(sample_dim, uvec3(2)) - uvec3(1));
-    vec3 t = vec3(sample_id) / denom;
     uvec3 source_dim = chunk_solid_sample_info.atlas_dim;
-    uvec3 source_voxel = min(uvec3(floor(t * vec3(source_dim))), source_dim - uvec3(1));
+    // Use the center of each source block represented by this low-res sample.
+    // For the common 256 -> 32 downsample this yields 4, 12, ..., 252 instead
+    // of endpoint-aligned 0, 8, ..., 255 samples.
+    uvec3 source_voxel = min(
+        ((sample_id * uvec3(2) + uvec3(1)) * source_dim) / (sample_dim * uvec3(2)),
+        source_dim - uvec3(1)
+    );
     uvec3 atlas_voxel = chunk_solid_sample_info.atlas_offset + source_voxel;
 
     uint voxel_type = load_voxel_type(ivec3(atlas_voxel));
