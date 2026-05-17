@@ -840,12 +840,25 @@ impl App {
         let butterfly_emitters = Vec::new();
         let butterfly_emitter_desc = Self::butterfly_desc_from_gui_adjustables(&gui_adjustables);
         let particle_snapshots = Vec::with_capacity(PARTICLE_CAPACITY);
+        // Start with the chosen profile, then apply world box + proportional grid,
+        // then let explicit CLI overrides win on top.
+        let world_extent = CHUNK_DIM.as_vec3();
+        let cells_per_unit = 32.0;
+        let world_grid_dim = UVec3::new(
+            (world_extent.x * cells_per_unit).ceil() as u32,
+            (world_extent.y * cells_per_unit).ceil() as u32,
+            (world_extent.z * cells_per_unit).ceil() as u32,
+        );
         let mut water_config = match options.water_profile {
-            Some(WaterProfilePreference::Default) | None => PondWaterConfig::default(),
+            Some(WaterProfilePreference::Default) | None => PondWaterConfig::default()
+                .with_collider_bounds(Vec3::ZERO, world_extent)
+                .with_grid_dim(world_grid_dim),
             Some(WaterProfilePreference::Performance) => PondWaterConfig::default()
                 .with_substep_hz(120.0)
                 .with_terrain_collision_margin_cells(0.0)
-                .with_linear_damping_per_sec(1.5),
+                .with_linear_damping_per_sec(1.5)
+                .with_collider_bounds(Vec3::ZERO, world_extent)
+                .with_grid_dim(world_grid_dim),
         };
         if let Some(particle_count) = options.water_particles {
             water_config = water_config.with_particle_count(particle_count);
@@ -863,11 +876,8 @@ impl App {
             water_config = water_config.with_linear_damping_per_sec(damping_per_sec);
         }
 
-        // Cover the full world so the user can place water anywhere.
-        water_config = water_config.with_collider_bounds(Vec3::ZERO, CHUNK_DIM.as_vec3());
-
         log::info!(
-            "[WATER] config profile={:?} particles={} grid={:?} substep_dt={:.6}s terrain_margin_cells={:.2} damping={:.2}/s collider_bounds {:?}..{:?}",
+            "[WATER] config profile={:?} particles={} grid={:?} substep_dt={:.6}s terrain_margin_cells={:.2} damping={:.2}/s collider_bounds {:?}..{:?} cells_per_unit={}",
             options.water_profile,
             water_config.particle_count,
             water_config.grid_dim,
@@ -876,6 +886,7 @@ impl App {
             water_config.linear_damping_per_sec,
             water_config.collider.min_ws,
             water_config.collider.max_ws,
+            cells_per_unit,
         );
         let water_sim = PondWaterSim::new(water_config);
         let (water_terrain_collider_job_tx, water_terrain_collider_result_rx) =

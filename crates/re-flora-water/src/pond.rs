@@ -74,6 +74,12 @@ impl PondWaterConfig {
         self
     }
 
+    pub fn with_grid_dim(mut self, grid_dim: UVec3) -> Self {
+        assert!(grid_dim.x >= 4 && grid_dim.y >= 4 && grid_dim.z >= 4);
+        self.grid_dim = grid_dim;
+        self
+    }
+
     pub fn with_substep_hz(mut self, substep_hz: f32) -> Self {
         assert!(substep_hz > 0.0 && substep_hz.is_finite());
         self.substep_dt = substep_hz.recip();
