@@ -8,6 +8,30 @@
 - Run `cargo check` after shader or Rust changes. It also regenerates shader-derived Rust structs.
 - Do not edit generated files directly unless they are part of the generated output from a build/check.
 
+## Parallel Agent Workflow
+
+Use git worktrees to keep parallel coding agents isolated. Do not run multiple agents that edit files in the same working directory.
+
+- One agent = one git worktree = one feature branch.
+- Keep the main project worktree for integration, review, and final validation unless explicitly assigned otherwise.
+- Create worker branches with names like `agent/water`, `agent/ui`, or `agent/render`.
+- Keep each worker task narrow and identify likely file boundaries before editing.
+- Avoid unrelated cleanup in worker branches; it increases merge conflict risk.
+- Generated files are source-of-truth outputs. Do not hand-edit them; resolve the shader/config source first and regenerate with `cargo check`.
+- `cargo run --release -- --latest-log` reads a shared latest-log pointer, so coordinate or serialize hidden app runs when several agents are active.
+
+Typical worker setup:
+
+```bash
+git worktree add ../re-flora-agent-water -b agent/water mlsmpm
+cd ../re-flora-agent-water
+pi
+```
+
+Worker handoff should include changed files, validation commands, and any behavior that was not verified. Integration happens in the main worktree with normal git merges. If conflicts occur, use a dedicated merge-agent pass that inspects both sides, preserves both intended behaviors, and regenerates generated files from their sources rather than guessing.
+
+See `docs/parallel_agent_workflow_roadmap.md` for the longer roadmap and project-specific friction points.
+
 ## Validation Policy
 
 Keep `cargo test` fast and deterministic. Unit tests are valuable for pure logic guardrails such as chunk math, queue behavior, allocator correctness, CPU voxel sampling, and revision tracking. Do not turn long-running random benchmarks, GPU/window/audio checks, or perf experiments into normal unit tests; make them lightweight, `#[ignore]`, bench targets, scripts, or hidden app runs instead.
