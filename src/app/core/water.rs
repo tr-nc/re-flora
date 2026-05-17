@@ -656,28 +656,25 @@ impl App {
         mpsc::Sender<TerrainSdfColliderWorkerJob>,
         mpsc::Receiver<TerrainSdfColliderWorkerResult>,
     ) {
-        let (job_tx, job_rx) = mpsc::channel();
+        let (job_tx, job_rx) = mpsc::channel::<TerrainSdfColliderWorkerJob>();
         let (result_tx, result_rx) = mpsc::channel();
-        thread::spawn(move || loop {
-            let job: TerrainSdfColliderWorkerJob = match job_rx.recv() {
-                Ok(job) => job,
-                Err(_) => break,
-            };
-
-            let build = build_terrain_sdf_collider_chunk(
-                job.solid_chunk.as_ref(),
-                job.chunk_id,
-                job.revision,
-            );
-            let result = TerrainSdfColliderWorkerResult {
-                chunk_key: job.chunk_key,
-                chunk_id: job.chunk_id,
-                revision: job.revision,
-                source_revision: job.source_revision,
-                build,
-            };
-            if result_tx.send(result).is_err() {
-                break;
+        thread::spawn(move || {
+            while let Ok(job) = job_rx.recv() {
+                let build = build_terrain_sdf_collider_chunk(
+                    job.solid_chunk.as_ref(),
+                    job.chunk_id,
+                    job.revision,
+                );
+                let result = TerrainSdfColliderWorkerResult {
+                    chunk_key: job.chunk_key,
+                    chunk_id: job.chunk_id,
+                    revision: job.revision,
+                    source_revision: job.source_revision,
+                    build,
+                };
+                if result_tx.send(result).is_err() {
+                    break;
+                }
             }
         });
 
@@ -688,23 +685,20 @@ impl App {
         mpsc::Sender<WaterTerrainCacheWorkerJob>,
         mpsc::Receiver<WaterTerrainCacheWorkerResult>,
     ) {
-        let (job_tx, job_rx) = mpsc::channel();
+        let (job_tx, job_rx) = mpsc::channel::<WaterTerrainCacheWorkerJob>();
         let (result_tx, result_rx) = mpsc::channel();
-        thread::spawn(move || loop {
-            let job: WaterTerrainCacheWorkerJob = match job_rx.recv() {
-                Ok(job) => job,
-                Err(_) => break,
-            };
-
-            let patch = build_terrain_grid_cache_patch(job.request);
-            let result = WaterTerrainCacheWorkerResult {
-                chunk_key: job.chunk_key,
-                chunk_id: job.chunk_id,
-                revision: job.revision,
-                patch,
-            };
-            if result_tx.send(result).is_err() {
-                break;
+        thread::spawn(move || {
+            while let Ok(job) = job_rx.recv() {
+                let patch = build_terrain_grid_cache_patch(job.request);
+                let result = WaterTerrainCacheWorkerResult {
+                    chunk_key: job.chunk_key,
+                    chunk_id: job.chunk_id,
+                    revision: job.revision,
+                    patch,
+                };
+                if result_tx.send(result).is_err() {
+                    break;
+                }
             }
         });
 
