@@ -56,8 +56,6 @@ Worker handoff should include:
 
 Integration happens in the main worktree with normal git merges. If conflicts occur, use a dedicated merge-agent pass that inspects both sides, preserves both intended behaviors, and regenerates generated files from their sources rather than guessing.
 
-See `docs/parallel_agent_workflow_roadmap.md` for the longer roadmap and project-specific friction points.
-
 ## Validation Policy
 
 Keep `cargo test` fast and deterministic. Unit tests are valuable for pure logic guardrails such as chunk math, queue behavior, allocator correctness, CPU voxel sampling, and revision tracking. Do not turn long-running random benchmarks, GPU/window/audio checks, or perf experiments into normal unit tests; make them lightweight, `#[ignore]`, bench targets, scripts, or hidden app runs instead.
