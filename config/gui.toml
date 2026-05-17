@@ -618,6 +618,119 @@ min = -2
 max = 2
 
 [[section]]
+name = "WaterSimulation"
+
+[[section.param]]
+id = "water_substep_hz"
+kind = "float"
+label = "Substep Rate (Hz)"
+type = "Float"
+
+[section.param.data]
+value = 120
+min = 15
+max = 240
+
+[[section.param]]
+id = "water_terrain_margin_cells"
+kind = "float"
+label = "Terrain Margin (grid cells)"
+type = "Float"
+
+[section.param.data]
+value = 0.5
+min = 0
+max = 3
+
+[[section.param]]
+id = "water_damping"
+kind = "float"
+label = "Linear Damping (/s)"
+type = "Float"
+
+[section.param.data]
+value = 0.8
+min = 0
+max = 5
+
+[[section.param]]
+id = "water_pressure_iterations"
+kind = "uint"
+label = "Pressure Projection Iterations"
+type = "Uint"
+
+[section.param.data]
+value = 8
+min = 0
+max = 32
+
+[[section.param]]
+id = "water_spacing_iterations"
+kind = "uint"
+label = "Particle Spacing Iterations"
+type = "Uint"
+
+[section.param.data]
+value = 2
+min = 0
+max = 8
+
+[[section.param]]
+id = "water_gravity_y"
+kind = "float"
+label = "Gravity Y"
+type = "Float"
+
+[section.param.data]
+value = -9.8
+min = -30
+max = 0
+
+[[section.param]]
+id = "water_stiffness"
+kind = "float"
+label = "Stiffness"
+type = "Float"
+
+[section.param.data]
+value = 10000
+min = 0
+max = 50000
+
+[[section.param]]
+id = "water_gamma"
+kind = "float"
+label = "Equation-of-State Gamma"
+type = "Float"
+
+[section.param.data]
+value = 7
+min = 1
+max = 12
+
+[[section.param]]
+id = "water_j_min"
+kind = "float"
+label = "Minimum J"
+type = "Float"
+
+[section.param.data]
+value = 0.1
+min = 0.01
+max = 1
+
+[[section.param]]
+id = "water_wall_damping"
+kind = "float"
+label = "Wall Damping"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = 0
+max = 1
+
+[[section]]
 name = "EmberBloom"
 
 [[section.param]]

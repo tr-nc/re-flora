@@ -4,12 +4,13 @@ use super::{
 };
 use crate::app::cpu_solid_voxels::CpuSolidVoxelChunk;
 use crate::app::world_edits::TerrainRemovalEdit;
+use crate::app::GuiAdjustables;
 use crate::builder::{ChunkSolidSampleJob, ChunkSolidSampleResult, VOXEL_TYPE_ROCK};
 use glam::{IVec3, UVec3, Vec2, Vec3};
 use re_flora_terrain_collider::signed_distance_from_solid_samples;
 use re_flora_water::{
-    build_terrain_grid_cache_patch, WaterTerrainCacheBuildRequest, WaterTerrainCachePatch,
-    WaterTerrainColliderChunk,
+    build_terrain_grid_cache_patch, PondWaterConfig, WaterTerrainCacheBuildRequest,
+    WaterTerrainCachePatch, WaterTerrainColliderChunk,
 };
 use std::{
     sync::mpsc,
@@ -23,6 +24,73 @@ const TERRAIN_SDF_SOURCE_REFRESH_COALESCE_DELAY: Duration = Duration::from_milli
 const TERRAIN_SDF_SOURCE_LOW_PRIORITY_DELAY: Duration = Duration::from_secs(2);
 const WATER_TERRAIN_ACTIVE_PARTICLE_HALO_CELLS: f32 = 8.0;
 const WATER_TERRAIN_ACTIVE_MAX_SUBSTEPS: usize = 2;
+
+pub(super) fn apply_water_gui_adjustables_to_config(
+    config: &mut PondWaterConfig,
+    gui_adjustables: &GuiAdjustables,
+) {
+    let substep_hz = finite_at_least(
+        gui_adjustables.water_substep_hz.value,
+        1.0,
+        config.substep_dt.recip(),
+    );
+    config.substep_dt = substep_hz.recip();
+    config.terrain_collision_margin_cells = finite_at_least(
+        gui_adjustables.water_terrain_margin_cells.value,
+        0.0,
+        config.terrain_collision_margin_cells,
+    );
+    config.linear_damping_per_sec = finite_at_least(
+        gui_adjustables.water_damping.value,
+        0.0,
+        config.linear_damping_per_sec,
+    );
+    config.pressure_projection_iterations = gui_adjustables.water_pressure_iterations.value;
+    config.particle_spacing_relaxation_iterations = gui_adjustables.water_spacing_iterations.value;
+    config.gravity.y = finite_or(gui_adjustables.water_gravity_y.value, config.gravity.y);
+    config.stiffness =
+        finite_at_least(gui_adjustables.water_stiffness.value, 0.0, config.stiffness);
+    config.gamma = finite_at_least(gui_adjustables.water_gamma.value, 0.0, config.gamma);
+    config.j_min = finite_clamped(gui_adjustables.water_j_min.value, 1.0e-4, 1.0, config.j_min);
+    config.wall_damping = finite_clamped(
+        gui_adjustables.water_wall_damping.value,
+        0.0,
+        1.0,
+        config.wall_damping,
+    );
+}
+
+pub(super) fn sync_water_gui_adjustables_from_config(
+    gui_adjustables: &mut GuiAdjustables,
+    config: &PondWaterConfig,
+) {
+    gui_adjustables.water_substep_hz.value = config.substep_dt.recip();
+    gui_adjustables.water_terrain_margin_cells.value = config.terrain_collision_margin_cells;
+    gui_adjustables.water_damping.value = config.linear_damping_per_sec;
+    gui_adjustables.water_pressure_iterations.value = config.pressure_projection_iterations;
+    gui_adjustables.water_spacing_iterations.value = config.particle_spacing_relaxation_iterations;
+    gui_adjustables.water_gravity_y.value = config.gravity.y;
+    gui_adjustables.water_stiffness.value = config.stiffness;
+    gui_adjustables.water_gamma.value = config.gamma;
+    gui_adjustables.water_j_min.value = config.j_min;
+    gui_adjustables.water_wall_damping.value = config.wall_damping;
+}
+
+fn finite_or(value: f32, fallback: f32) -> f32 {
+    if value.is_finite() {
+        value
+    } else {
+        fallback
+    }
+}
+
+fn finite_at_least(value: f32, min: f32, fallback: f32) -> f32 {
+    finite_or(value, fallback).max(min)
+}
+
+fn finite_clamped(value: f32, min: f32, max: f32, fallback: f32) -> f32 {
+    finite_or(value, fallback).clamp(min, max)
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct TerrainSdfSourceRevision {
@@ -544,6 +612,8 @@ impl App {
     }
 
     pub(super) fn update_water_sim(&mut self, frame_delta_time: f32) {
+        apply_water_gui_adjustables_to_config(&mut self.water_sim.config, &self.gui_adjustables);
+
         if self.water_terrain_work_active() {
             self.water_sim.update_with_max_substeps(
                 frame_delta_time,
