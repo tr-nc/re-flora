@@ -1,81 +1,232 @@
-# Parallel Coding Agent Workflow Roadmap
+# Parallel Agent Preparation Roadmap
 
-## Goal
+## Purpose
 
-Allow multiple coding agents to develop separate features in parallel without contaminating each other's working state. Merge conflicts are acceptable and should be handled deliberately during integration; accidental cross-agent file edits, generated-file churn, and shared runtime artifacts are the problems to avoid.
+This roadmap lists the preparation work needed before parallel coding-agent development becomes a regular workflow for this project.
 
-## Current Assessment
+The goal is simple: multiple agents should be able to develop different features at the same time without corrupting each other's working state. Merge conflicts may still happen during integration, but day-to-day development should stay isolated, auditable, and easy to reset.
 
-This project is suitable for parallel agent development if each agent works in an isolated git worktree and branch. It is not suitable for multiple agents editing the same working directory at the same time.
+## Target Workflow
 
-Recommended baseline:
+- One coding agent works in one git worktree.
+- One worktree uses one feature branch.
+- The main project worktree is reserved for integration, review, and final validation.
+- Worker agents keep their changes scoped to the assigned task.
+- A separate merge-agent pass resolves conflicts when worker branches are merged back.
 
-- One agent = one git worktree.
-- One agent = one feature branch.
-- The main worktree stays reserved for integration, review, and final validation.
-- Worker agents keep changes scoped to their assigned subsystem.
-- A dedicated merge agent can resolve conflicts after worker branches are ready.
+Example layout:
 
-Good existing properties:
+```text
+/home/terence/code/re-flora              # integration worktree
+/home/terence/code/re-flora-agent-water  # worker: agent/water
+/home/terence/code/re-flora-agent-ui     # worker: agent/ui
+/home/terence/code/re-flora-agent-render # worker: agent/render
+```
 
-- The codebase already has separable areas such as water, terrain collider, camera/gameplay, audio, UI/config, renderer/shaders, docs, and tools.
-- `AGENTS.md` already documents validation expectations and generated-file cautions.
-- Hidden app runs exist for end-to-end validation without visible windows.
-- Logs can be queried from the binary, which is useful for headless verification.
+## Step 1: Establish the Worktree Convention
 
-Main risks found during the audit:
+### Actions
 
-- `.gitignore` currently ignores `/resource_container_derive`, even though files under that directory are tracked. New files added there may be accidentally hidden from `git status`.
-- `cargo check` regenerates tracked files under `src/app/generated/` and `src/auto-generated/`, so parallel branches can conflict on generated output.
-- The runtime UI config is tracked at `config/gui.toml`, and app saves can modify it as a side effect.
-- App run logs share a global temp latest-log pointer, so simultaneous hidden runs can make `--latest-log` point at another agent's run.
-- `target/` is large, so multiple worktrees can consume significant disk space.
-- Several large files are natural conflict hotspots: `src/app/core/mod.rs`, `src/tracer/mod.rs`, `build.rs`, `config/gui.toml`, generated Rust files, and `Cargo.lock`.
-
-## Operating Model
-
-### Create worker worktrees
-
-From the integration worktree:
+- Use git worktrees for every parallel agent task.
+- Name worker branches with a clear prefix, for example `agent/water`, `agent/ui`, or `agent/render`.
+- Keep the existing main worktree as the integration worktree unless a task explicitly says otherwise.
+- Document the standard setup command:
 
 ```bash
 git worktree add ../re-flora-agent-water -b agent/water mlsmpm
-git worktree add ../re-flora-agent-ui -b agent/ui mlsmpm
-git worktree add ../re-flora-agent-render -b agent/render mlsmpm
-```
-
-Then run one pi session per worker directory:
-
-```bash
 cd ../re-flora-agent-water
 pi
 ```
 
-### Worker agent rules
+### Done Criteria
 
-Each worker agent should:
+- Every worker agent starts in its own directory.
+- No two editing agents share the same working directory.
+- The integration worktree stays clean except during review and merge work.
 
-1. Start by checking `git status --short --branch`.
-2. Confirm the assigned branch and task scope.
-3. Avoid unrelated refactors and opportunistic cleanup.
-4. Avoid editing generated files directly.
-5. If shader/config changes regenerate files, include the generated output only as a consequence of `cargo check`.
-6. Run the appropriate validation ladder before handing off.
-7. Report changed files, validation commands, and any unvalidated behavior.
+## Step 2: Define Worker-Agent Rules
 
-### Integration flow
+### Actions
 
-In the main worktree:
+- Require every worker agent to start with:
 
 ```bash
-git switch mlsmpm
-git merge agent/water
-git merge agent/ui
+git status --short --branch
 ```
 
-If conflicts happen, start a dedicated merge agent in the integration worktree and ask it to preserve both branches' intended behavior. Generated files should be regenerated from source instead of manually guessed.
+- Require each worker to confirm its task scope before editing.
+- Keep worker changes narrow and related to one feature or subsystem.
+- Avoid unrelated cleanup, formatting churn, and opportunistic refactors.
+- Require worker handoff notes to include:
+  - changed files
+  - validation commands run
+  - known risks or unverified behavior
+  - whether generated files changed
 
-Merge-agent prompt template:
+### Done Criteria
+
+- Worker output is reviewable as a focused branch.
+- Handoff notes are enough for the integration agent to merge or reject the work.
+
+## Step 3: Clean Up Ignore Rules
+
+### Current Issue
+
+`.gitignore` currently ignores `/resource_container_derive`, but files under that directory are already tracked. This can hide newly added files in that crate from `git status`.
+
+### Actions
+
+- Stop ignoring the whole `resource_container_derive` directory.
+- Ignore only generated artifacts if needed, such as:
+
+```gitignore
+/resource_container_derive/target/
+/resource_container_derive/Cargo.lock
+```
+
+### Done Criteria
+
+- New source files added under `resource_container_derive/` appear in `git status`.
+- Build artifacts remain ignored.
+
+## Step 4: Make the Toolchain Reproducible
+
+### Actions
+
+- Add or document a stable Rust toolchain for all agents.
+- Confirm Linux and macOS bootstrap instructions list the required Vulkan, shader, CMake, compiler, and audio dependencies.
+- Document that agents should source the required shell environment before full app validation:
+
+```bash
+source ~/.zshrc
+```
+
+### Done Criteria
+
+- A new worker worktree can run `cargo check` without local guesswork.
+- Environment setup differences are documented instead of rediscovered by each agent.
+
+## Step 5: Decide the Generated-File Policy
+
+### Current Issue
+
+`cargo check` regenerates tracked files:
+
+```text
+src/app/generated/gui_adjustables_gen.rs
+src/auto-generated/gpu_structs.rs
+```
+
+This is workable, but it can create merge conflicts when multiple agents change shader or GUI config sources.
+
+### Actions
+
+Choose one project policy:
+
+1. Keep generated files tracked.
+   - Document that agents must not hand-edit them.
+   - Resolve source files first, then run `cargo check` to regenerate.
+   - Include generated diffs only when they are a consequence of source changes.
+
+2. Move generated files to Cargo `OUT_DIR`.
+   - Use `include!` or equivalent build-time inclusion.
+   - Stop committing generated output.
+
+### Done Criteria
+
+- Agents know whether generated diffs are expected.
+- Merge agents know not to manually guess generated-file conflict resolutions.
+
+## Step 6: Isolate Runtime Configuration
+
+### Current Issue
+
+The app can save runtime UI settings directly into tracked `config/gui.toml`. A validation run can therefore create unrelated config diffs.
+
+### Actions
+
+- Split tracked defaults from local mutable configuration.
+- Suggested layout:
+
+```text
+config/gui.default.toml  # tracked source of defaults
+config/gui.local.toml    # ignored local override
+```
+
+- Make app saves write to the local override, not the tracked default.
+
+### Done Criteria
+
+- Running the app does not modify tracked config unless the task intentionally changes defaults.
+- Worker agents can validate without producing unrelated config churn.
+
+## Step 7: Isolate App Run Logs
+
+### Current Issue
+
+The latest-run-log pointer is shared through a temp directory. If multiple agents run hidden app validation at the same time, `--latest-log` may point to another agent's run.
+
+### Actions
+
+- Add a per-run, per-worktree, or environment-configurable log directory.
+- Until then, serialize hidden Vulkan app runs when logs are part of validation.
+- Tell agents to capture the exact log path printed by the run instead of blindly trusting `--latest-log` during parallel validation.
+
+### Done Criteria
+
+- A worker can identify its own app log reliably.
+- Integration validation is not confused by another agent's run.
+
+## Step 8: Plan Build Cache and Disk Usage
+
+### Current Issue
+
+The top-level `target/` directory can become very large. Multiple worktrees multiply disk usage.
+
+### Actions
+
+- Prefer separate `target/` directories for isolation.
+- Use `sccache` to share compilation cache safely across worktrees.
+- Avoid sharing one `CARGO_TARGET_DIR` by default, because it can make parallel builds noisier and less isolated.
+- Periodically remove old worker worktrees and their `target/` directories.
+
+### Done Criteria
+
+- Parallel workers do not block each other through a shared target directory.
+- Disk usage remains predictable.
+
+## Step 9: Identify Conflict Hotspots
+
+### Current Hotspots
+
+The following files are likely to conflict during parallel work:
+
+```text
+src/app/core/mod.rs
+src/tracer/mod.rs
+build.rs
+config/gui.toml
+src/app/generated/gui_adjustables_gen.rs
+src/auto-generated/gpu_structs.rs
+Cargo.lock
+```
+
+### Actions
+
+- Assign tasks so workers avoid editing the same hotspot files when possible.
+- When modifying a hotspot file, keep the change minimal and well explained.
+- Prefer moving subsystem-specific logic into smaller modules during related feature work.
+
+### Done Criteria
+
+- Parallel tasks are scoped to reduce avoidable conflicts.
+- Necessary conflicts are localized and understandable.
+
+## Step 10: Define the Merge-Agent Procedure
+
+### Actions
+
+Use a dedicated merge-agent pass when conflicts occur. Suggested prompt:
 
 ```text
 We are merging a worker branch into mlsmpm and git reports conflicts.
@@ -87,42 +238,39 @@ After resolving, run cargo fmt --check, cargo check, and cargo test unless block
 Report exactly what was resolved and what was validated.
 ```
 
-## Roadmap
+### Done Criteria
 
-### Phase 0: Adopt process immediately
+- Merge conflict resolution is explicit, reviewable, and validated.
+- Generated-file conflicts are regenerated from source instead of manually edited.
 
-- Use one git worktree per pi agent.
-- Keep `/home/terence/code/re-flora` as the integration worktree unless explicitly assigned otherwise.
-- Keep worker tasks narrow and file scopes explicit.
-- Prefer parallel coding/check/test, but serialize hidden Vulkan app runs when using `--latest-log`.
-- Treat merge conflict resolution as a separate task for a merge agent.
+## Step 11: Run a Small Pilot
 
-### Phase 1: Reduce avoidable workspace friction
+### Actions
 
-- Fix `.gitignore` so `resource_container_derive` itself is not ignored; ignore only its generated build artifacts if needed.
-- Add or document a stable Rust toolchain for consistent worker environments.
-- Consider a top-level Cargo workspace for the internal crates so metadata, lockfiles, and target layout are clearer.
-- Decide whether tracked generated files remain the project policy. If they remain tracked, add a codegen/check workflow. If not, move generation to `$OUT_DIR` with `include!`.
-- Split runtime config into tracked defaults plus ignored local overrides so app runs do not modify `config/gui.toml` accidentally.
-- Add a per-run or per-worktree log directory option so simultaneous app runs cannot race through a shared latest-log pointer.
-- Document optional `sccache` setup to reduce rebuild cost across multiple worktrees without sharing a single `target/` directory.
+- Start with two worker agents on clearly separated tasks.
+- Merge both branches back through the integration worktree.
+- Record what caused friction:
+  - unexpected dirty files
+  - generated-file churn
+  - validation failures
+  - log confusion
+  - disk usage
+  - merge conflicts
 
-### Phase 2: Improve mergeability
+### Done Criteria
 
-- Continue splitting large hotspot files when making related feature changes.
-- Move subsystem-specific logic out of `src/app/core/mod.rs` and `src/tracer/mod.rs` where practical.
-- Keep generated-file source-of-truth comments accurate.
-- Add lightweight validation commands for subsystem-only changes, so worker agents can validate without always running the full app.
+- The team has one successful end-to-end parallel-agent cycle.
+- The process can be adjusted before scaling to more agents.
 
-### Phase 3: Optional pi orchestration
+## Step 12: Optional Pi Orchestration Later
 
-If multi-agent work becomes routine, consider a small pi extension or SDK-based helper that can:
+This is not required for the initial workflow. If parallel work becomes frequent, consider a small pi extension or SDK-based helper that can:
 
-- Create a worktree and branch for a named task.
-- Write a local task brief for the worker agent.
-- Launch or instruct a pi worker in that directory.
-- Collect `git status`, diff summaries, validation logs, and handoff notes.
-- Queue GPU/hidden app validations so they do not race on shared resources.
-- Assist the integration worktree with ordered merges and conflict-resolution prompts.
+- create a worktree and branch for a task
+- write a local task brief
+- launch or guide a pi worker in that directory
+- collect status, diffs, validation logs, and handoff notes
+- queue hidden app validations to avoid shared-resource races
+- assist with ordered integration merges
 
-This should remain optional. The clean baseline is still git worktree isolation plus normal git review/merge.
+The baseline should remain simple: git worktree isolation, focused worker branches, and deliberate integration in the main worktree.
