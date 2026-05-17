@@ -14,7 +14,7 @@ Current status by phase:
 | Phase 3B: G2P terrain broadphase/cache | Implemented, hidden/edit soak clean; needs more scene coverage/tuning | cached skip/projection path is active and shadow-verified in perf runs |
 | Phase 4: collider scope/startup | Implemented and edit-soak benchmarked | startup/edit collider refreshes are limited to water-grid-domain chunks |
 | Phase 5: solver scaling/tuning options | Implemented and hidden edit-soaked; needs another visible tuning pass | CLI sweep knobs plus `--water-profile performance`; visual soak found contact/damping tuning issues and the profile has been adjusted |
-| Phase 6: implementation-review optimization backlog | In progress | 6A empty-water idle early-out implemented; next priority is sparse active-node grid maintenance |
+| Phase 6: implementation-review optimization backlog | In progress | 6A empty-water idle early-out and 6B sparse grid maintenance implemented; next priority is collider/cache rebuild scope |
 
 Latest representative release result:
 
@@ -34,7 +34,7 @@ The steady-state hot issue has shifted from mostly G2P terrain collision to a mi
 - Historical Phase 3B exact terrain checks: `~2526-2892/substep`
 - Current explicit 2048-particle `64x32x64` run: exact terrain checks settled around `~26-87/substep`, while `clear + grid` cost was roughly `0.42-0.57 ms/substep` and G2P gather/terrain together remained a large share.
 
-The next meaningful optimizations are: make grid clear/update sparse over touched nodes and reduce startup/edit collider/cache rebuild scope.
+The next meaningful optimization is reducing startup/edit collider/cache rebuild scope.
 
 ## Current diagnosis
 
@@ -53,7 +53,7 @@ Remaining findings:
 
 - Empty-water fixed substeps are now skipped in `PondWaterSim::update()`, clearing stale accumulators and perf/diagnostic stats while no particles exist.
 - G2P gather and remaining G2P terrain work are still large steady-state costs when water is present.
-- Full-grid maintenance is now significant: `clear_grid()` clears every node and `update_grid()` scans every node, even though current 2048-particle runs touch only about `13k-37k` active nodes out of `131k`.
+- Full-grid maintenance has been made sparse over touched P2G nodes. The dense `64x32x64` grid storage remains, but clear/update no longer scan every node.
 - The cached trilinear SDF path now skips far particles and directly projects clearly colliding particles, but ambiguous near-surface particles still use exact collider fallback.
 - Diagnostic logging currently computes full particle debug stats before deciding whether to report, including exact terrain SDF sampling for every particle. This cost is outside `[PERF][WATER]` substep timing and can also produce noisy expected-CFL speed warnings.
 - Startup/edit collider publication still rebuilds the entire terrain-grid cache for each inserted collider chunk. Partial overlapping-region rebuilds and startup batching are not implemented yet.
@@ -389,7 +389,7 @@ Current recommendation:
 
 Remaining work:
 
-1. Implement the remaining Phase 6 quick wins in order: sparse active-node clear/update, then stricter/batched collider/cache rebuilds.
+1. Implement the remaining Phase 6 quick wins in order: stricter/batched collider/cache rebuilds, then exact-sample and diagnostic overhead reductions.
 2. Re-run the performance profile in an interactive visible app run and judge whether zero-cell contact margin, tight grid-node collision, and 1.5/s damping fix the observed gap/bounciness.
 3. Repeat terrain-edit soak in a visible/manual session if visual artifacts are suspected; the hidden scripted soak is clean.
 4. Expand from the fixed pond box to an active water-domain/chunk set before supporting arbitrary large water bodies.
@@ -426,7 +426,14 @@ Expected benefit: default no-water runs stop paying about `32 ms/s` of CPU on th
 
 #### 6B. Sparse active-node clear and grid update
 
-Evidence:
+Status: implemented. P2G now records unique touched node indices, `clear_grid()` only resets the previous touched set, and `update_grid()` iterates touched nodes using precomputed boundary flags.
+
+Validation:
+
+- `/tmp/re-flora-logs/re-flora-20260517-114711.270-18727.log`, command `--water-profile performance --water-particles 2048`, reported `1.334 ms/substep` with `clear 8.93ms` and `grid 41.22ms` over `121` substeps (`~0.074ms` clear and `~0.341ms` grid per substep). `terrain_shadow_false_skips 0`, `no_sdf 0`, and bounded tight-contact overlap remained intact.
+- Added a unit test that verifies touched-node uniqueness, sparse active-node accounting, and sparse clear reset.
+
+Evidence before implementation:
 
 - Current explicit-water log: `/tmp/re-flora-logs/re-flora-20260517-113134.969-13425.log`
 - Command: `--water-profile performance --water-particles 2048`
@@ -436,15 +443,15 @@ Evidence:
   - `grid`: about `0.25-0.40 ms/substep`
   - combined clear+grid: about `0.42-0.57 ms/substep`, a large share of `1.21-1.43 ms/substep` total.
 
-Implementation direction:
+Implementation:
 
-- Track touched node indices during P2G, e.g. push index only when a node transitions from zero mass to nonzero mass, guarded by a per-node generation/touched flag.
+- Track touched node indices during P2G by pushing an index only when node mass transitions from zero to nonzero.
 - Clear only the previous touched-node list.
 - Run `update_grid()` only over touched nodes, not every node in the dense grid.
-- Keep the dense `grid` storage for simple indexed P2G/G2P; make only maintenance/update sparse.
-- Benchmark against the current dense loops because branch/dedup overhead can erase wins for very full grids.
+- Keep the dense `grid` storage for simple indexed P2G/G2P; only maintenance/update is sparse.
+- Precompute boundary flags so sparse `update_grid()` does not need per-node coordinate division for wall collision checks.
 
-Expected benefit: likely recovers a meaningful part of the cost added by moving from `32^3` to `64x32x64`, especially when the water body occupies a small fraction of the fixed box.
+Expected benefit: recovers part of the cost added by moving from `32^3` to `64x32x64`, especially when the water body occupies a small fraction of the fixed box.
 
 #### 6C. Tighten startup collider domain and batch cache rebuilds
 

@@ -14,6 +14,13 @@ const INITIAL_PARTICLE_CHUNK_MAX_WS: Vec3 = Vec3::new(2.0, 1.0, 2.0);
 // the old 4096-particle density when water is added later by debug spawn.
 const DEFAULT_INITIAL_PARTICLE_VOLUME_FRACTION: f32 = 0.1;
 
+pub(crate) const WATER_GRID_BOUNDARY_X_MIN: u8 = 1 << 0;
+pub(crate) const WATER_GRID_BOUNDARY_X_MAX: u8 = 1 << 1;
+pub(crate) const WATER_GRID_BOUNDARY_Y_MIN: u8 = 1 << 2;
+pub(crate) const WATER_GRID_BOUNDARY_Y_MAX: u8 = 1 << 3;
+pub(crate) const WATER_GRID_BOUNDARY_Z_MIN: u8 = 1 << 4;
+pub(crate) const WATER_GRID_BOUNDARY_Z_MAX: u8 = 1 << 5;
+
 #[derive(Clone, Debug)]
 pub struct PondWaterConfig {
     pub collider: WaterBoxCollider,
@@ -217,6 +224,8 @@ pub struct PondWaterSim {
     pub inv_dx: f32,
     pub particles: Vec<WaterParticle>,
     pub grid: Vec<WaterGridNode>,
+    pub(crate) touched_grid_nodes: Vec<usize>,
+    pub(crate) grid_boundary_flags: Vec<u8>,
     pub(crate) terrain_grid: Vec<WaterTerrainGridSample>,
     pub accumulator: f32,
     pub perf_stats: WaterPerfStats,
@@ -243,6 +252,8 @@ impl PondWaterSim {
         let grid_len = (config.grid_dim.x as usize)
             .saturating_mul(config.grid_dim.y as usize)
             .saturating_mul(config.grid_dim.z as usize);
+        let touched_grid_capacity = config.particle_count.saturating_mul(27).min(grid_len);
+        let grid_boundary_flags = water_grid_boundary_flags(config.grid_dim, config.wall_padding_cells);
         let mut sim = Self {
             config,
             terrain: None,
@@ -253,6 +264,8 @@ impl PondWaterSim {
             inv_dx,
             particles: Vec::new(),
             grid: vec![WaterGridNode::default(); grid_len],
+            touched_grid_nodes: Vec::with_capacity(touched_grid_capacity),
+            grid_boundary_flags,
             terrain_grid: vec![WaterTerrainGridSample::default(); grid_len],
             accumulator: 0.0,
             perf_stats: WaterPerfStats::default(),
@@ -639,6 +652,46 @@ impl PondWaterSim {
                 && particle.x.z <= INITIAL_PARTICLE_CHUNK_MAX_WS.z
         }));
     }
+}
+
+fn water_grid_boundary_flags(grid_dim: UVec3, wall_padding_cells: f32) -> Vec<u8> {
+    let grid_len = (grid_dim.x as usize)
+        .saturating_mul(grid_dim.y as usize)
+        .saturating_mul(grid_dim.z as usize);
+    let mut flags = vec![0u8; grid_len];
+    let wall_cells = wall_padding_cells.max(1.0);
+
+    for z in 0..grid_dim.z {
+        for y in 0..grid_dim.y {
+            for x in 0..grid_dim.x {
+                let mut node_flags = 0u8;
+                if x as f32 <= wall_cells {
+                    node_flags |= WATER_GRID_BOUNDARY_X_MIN;
+                }
+                if (grid_dim.x - 1 - x) as f32 <= wall_cells {
+                    node_flags |= WATER_GRID_BOUNDARY_X_MAX;
+                }
+                if y as f32 <= wall_cells {
+                    node_flags |= WATER_GRID_BOUNDARY_Y_MIN;
+                }
+                if (grid_dim.y - 1 - y) as f32 <= wall_cells {
+                    node_flags |= WATER_GRID_BOUNDARY_Y_MAX;
+                }
+                if z as f32 <= wall_cells {
+                    node_flags |= WATER_GRID_BOUNDARY_Z_MIN;
+                }
+                if (grid_dim.z - 1 - z) as f32 <= wall_cells {
+                    node_flags |= WATER_GRID_BOUNDARY_Z_MAX;
+                }
+
+                let idx = ((z as usize * grid_dim.y as usize + y as usize) * grid_dim.x as usize)
+                    + x as usize;
+                flags[idx] = node_flags;
+            }
+        }
+    }
+
+    flags
 }
 
 fn hash_unit(x: u32, y: u32, z: u32) -> f32 {

@@ -3,7 +3,11 @@ use std::time::Instant;
 
 use super::{
     collider::{WaterBoxCollider, WaterTerrainColliderSet},
-    pond::{PondWaterSim, WaterTerrainGridSample},
+    pond::{
+        PondWaterSim, WaterTerrainGridSample, WATER_GRID_BOUNDARY_X_MAX,
+        WATER_GRID_BOUNDARY_X_MIN, WATER_GRID_BOUNDARY_Y_MAX, WATER_GRID_BOUNDARY_Y_MIN,
+        WATER_GRID_BOUNDARY_Z_MAX, WATER_GRID_BOUNDARY_Z_MIN,
+    },
 };
 
 const MAX_SUBSTEPS_PER_UPDATE: usize = 8;
@@ -25,6 +29,7 @@ impl PondWaterSim {
         }
 
         if self.particles.is_empty() {
+            self.clear_grid();
             self.accumulator = 0.0;
             self.perf_report_seconds = 0.0;
             self.perf_stats.reset();
@@ -399,11 +404,13 @@ impl PondWaterSim {
     }
 
     fn clear_grid(&mut self) {
-        for node in &mut self.grid {
-            node.v = Vec3::ZERO;
-            node.mass = 0.0;
-            node.solid = false;
-            node.normal = Vec3::ZERO;
+        for node_idx in self.touched_grid_nodes.drain(..) {
+            if let Some(node) = self.grid.get_mut(node_idx) {
+                node.v = Vec3::ZERO;
+                node.mass = 0.0;
+                node.solid = false;
+                node.normal = Vec3::ZERO;
+            }
         }
     }
 
@@ -450,6 +457,9 @@ impl PondWaterSim {
                         let node_idx =
                             grid_index_dims(grid_dim, node.x as u32, node.y as u32, node.z as u32);
                         let grid_node = &mut self.grid[node_idx];
+                        if grid_node.mass <= 0.0 {
+                            self.touched_grid_nodes.push(node_idx);
+                        }
                         grid_node.mass += weight * mass;
                         grid_node.v += weight * (momentum + affine * dpos);
                     }
@@ -459,73 +469,69 @@ impl PondWaterSim {
     }
 
     fn update_grid(&mut self, dt: f32) -> usize {
-        let grid_dim = self.grid_dim;
         let gravity = self.config.gravity;
         let linear_damping = velocity_damping_factor(self.config.linear_damping_per_sec, dt);
         let terrain_collision_margin = self.terrain_collision_margin();
-        let wall_cells = self.config.wall_padding_cells.max(1.0);
         let wall_damping = self.config.wall_damping.clamp(0.0, 1.0);
         let terrain_grid = &self.terrain_grid;
+        let grid_boundary_flags = &self.grid_boundary_flags;
 
         let mut active_nodes = 0usize;
 
-        for z in 0..grid_dim.z {
-            for y in 0..grid_dim.y {
-                for x in 0..grid_dim.x {
-                    let idx = grid_index_dims(grid_dim, x, y, z);
-                    let node = &mut self.grid[idx];
-                    if node.mass <= ACTIVE_MASS_EPSILON {
-                        continue;
-                    }
+        for &idx in &self.touched_grid_nodes {
+            let node = &mut self.grid[idx];
+            if node.mass <= ACTIVE_MASS_EPSILON {
+                continue;
+            }
 
-                    active_nodes += 1;
-                    node.v /= node.mass;
-                    node.v += gravity * dt;
-                    node.v *= linear_damping;
+            let boundary_flags = grid_boundary_flags[idx];
 
-                    let mut normal = Vec3::ZERO;
-                    let terrain_sample = terrain_grid.get(idx).copied().unwrap_or_default();
-                    // The cached normal band is wider than the actual contact band so
-                    // G2P can reuse normals near terrain. Grid velocity collision must
-                    // stay tight; projecting every near-band node makes water hover.
-                    if terrain_sample.has_sdf
-                        && terrain_sample.sdf <= terrain_collision_margin
-                        && terrain_sample.normal.length_squared() > 0.0
-                    {
-                        node.v = project_velocity_away_from_surface(node.v, terrain_sample.normal);
-                        normal += terrain_sample.normal;
-                    }
+            active_nodes += 1;
+            node.v /= node.mass;
+            node.v += gravity * dt;
+            node.v *= linear_damping;
 
-                    if x as f32 <= wall_cells && node.v.x < 0.0 {
-                        node.v.x *= -wall_damping;
-                        normal += Vec3::X;
-                    }
-                    if (grid_dim.x - 1 - x) as f32 <= wall_cells && node.v.x > 0.0 {
-                        node.v.x *= -wall_damping;
-                        normal -= Vec3::X;
-                    }
-                    if y as f32 <= wall_cells && node.v.y < 0.0 {
-                        node.v.y *= -wall_damping;
-                        normal += Vec3::Y;
-                    }
-                    if (grid_dim.y - 1 - y) as f32 <= wall_cells && node.v.y > 0.0 {
-                        node.v.y *= -wall_damping;
-                        normal -= Vec3::Y;
-                    }
-                    if z as f32 <= wall_cells && node.v.z < 0.0 {
-                        node.v.z *= -wall_damping;
-                        normal += Vec3::Z;
-                    }
-                    if (grid_dim.z - 1 - z) as f32 <= wall_cells && node.v.z > 0.0 {
-                        node.v.z *= -wall_damping;
-                        normal -= Vec3::Z;
-                    }
+            let mut normal = Vec3::ZERO;
+            let terrain_sample = terrain_grid[idx];
+            // The cached normal band is wider than the actual contact band so
+            // G2P can reuse normals near terrain. Grid velocity collision must
+            // stay tight; projecting every near-band node makes water hover.
+            if terrain_sample.has_sdf
+                && terrain_sample.sdf <= terrain_collision_margin
+                && terrain_sample.normal.length_squared() > 0.0
+            {
+                node.v = project_velocity_away_from_surface(node.v, terrain_sample.normal);
+                normal += terrain_sample.normal;
+            }
 
-                    if normal.length_squared() > 0.0 {
-                        node.solid = true;
-                        node.normal = normal.normalize_or_zero();
-                    }
-                }
+            if boundary_flags & WATER_GRID_BOUNDARY_X_MIN != 0 && node.v.x < 0.0 {
+                node.v.x *= -wall_damping;
+                normal += Vec3::X;
+            }
+            if boundary_flags & WATER_GRID_BOUNDARY_X_MAX != 0 && node.v.x > 0.0 {
+                node.v.x *= -wall_damping;
+                normal -= Vec3::X;
+            }
+            if boundary_flags & WATER_GRID_BOUNDARY_Y_MIN != 0 && node.v.y < 0.0 {
+                node.v.y *= -wall_damping;
+                normal += Vec3::Y;
+            }
+            if boundary_flags & WATER_GRID_BOUNDARY_Y_MAX != 0 && node.v.y > 0.0 {
+                node.v.y *= -wall_damping;
+                normal -= Vec3::Y;
+            }
+            if boundary_flags & WATER_GRID_BOUNDARY_Z_MIN != 0 && node.v.z < 0.0 {
+                node.v.z *= -wall_damping;
+                normal += Vec3::Z;
+            }
+            if boundary_flags & WATER_GRID_BOUNDARY_Z_MAX != 0 && node.v.z > 0.0 {
+                node.v.z *= -wall_damping;
+                normal -= Vec3::Z;
+            }
+
+            if normal.length_squared() > 0.0 {
+                node.solid = true;
+                node.normal = normal.normalize_or_zero();
             }
         }
 
@@ -1375,7 +1381,7 @@ fn water_particle_debug_stats(
 mod tests {
     use super::{
         collide_particle_with_terrain, collide_particle_with_terrain_iterative,
-        project_velocity_away_from_surface,
+        project_velocity_away_from_surface, ACTIVE_MASS_EPSILON,
     };
     use crate::{
         PondWaterConfig, PondWaterSim, WaterTerrainColliderChunk, WaterTerrainColliderSet,
@@ -1414,6 +1420,44 @@ mod tests {
         assert_eq!(sim.diagnostic_stats.substeps, 0);
         assert_eq!(sim.last_terrain_contact_particles, 0);
         assert_eq!(sim.sim_time_seconds, 0.0);
+    }
+
+    #[test]
+    fn p2g_tracks_unique_touched_grid_nodes_and_sparse_clear_resets_them() {
+        let mut sim = test_sim_with_particles();
+
+        sim.clear_grid();
+        sim.particle_to_grid(sim.config.substep_dt);
+
+        let touched_len = sim.touched_grid_nodes.len();
+        assert!(touched_len > 0);
+        assert!(touched_len < sim.grid.len());
+
+        let mut unique_nodes = sim.touched_grid_nodes.clone();
+        unique_nodes.sort_unstable();
+        unique_nodes.dedup();
+        assert_eq!(unique_nodes.len(), touched_len);
+
+        let active_nodes = sim.update_grid(sim.config.substep_dt);
+        assert!(active_nodes > 0);
+        assert!(active_nodes <= touched_len);
+        assert_eq!(
+            active_nodes,
+            sim.grid
+                .iter()
+                .filter(|node| node.mass > ACTIVE_MASS_EPSILON)
+                .count()
+        );
+
+        sim.clear_grid();
+
+        assert!(sim.touched_grid_nodes.is_empty());
+        assert!(sim.grid.iter().all(|node| {
+            node.v == Vec3::ZERO
+                && node.mass == 0.0
+                && !node.solid
+                && node.normal == Vec3::ZERO
+        }));
     }
 
     #[test]
