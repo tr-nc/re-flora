@@ -100,10 +100,8 @@ impl WaterTerrainColliderChunk {
         if !self.contains_ws(point_ws) {
             return None;
         }
-        Some((
-            self.sample_sdf_clamped_ws(point_ws),
-            self.sample_normal_clamped_ws(point_ws),
-        ))
+        let cell = self.sample_trilinear_cell_clamped_ws(point_ws);
+        Some((cell.sdf(), cell.normal_ws()))
     }
 
     pub fn cell_size_ws(&self) -> Vec3 {
@@ -111,6 +109,14 @@ impl WaterTerrainColliderChunk {
     }
 
     fn sample_sdf_clamped_ws(&self, point_ws: Vec3) -> f32 {
+        self.sample_trilinear_cell_clamped_ws(point_ws).sdf()
+    }
+
+    fn sample_normal_clamped_ws(&self, point_ws: Vec3) -> Vec3 {
+        self.sample_trilinear_cell_clamped_ws(point_ws).normal_ws()
+    }
+
+    fn sample_trilinear_cell_clamped_ws(&self, point_ws: Vec3) -> TrilinearSdfCell {
         debug_assert!(self.dim.x >= 2 && self.dim.y >= 2 && self.dim.z >= 2);
         debug_assert_eq!(
             self.sdf_ws.len(),
@@ -122,35 +128,60 @@ impl WaterTerrainColliderChunk {
         debug_assert!(extent.cmpgt(Vec3::ZERO).all());
 
         let uvw = ((point_ws - bounds_min_ws) / extent).clamp(Vec3::ZERO, Vec3::ONE);
-        let grid_pos = uvw * (self.dim - UVec3::ONE).as_vec3();
+        let grid_scale = (self.dim - UVec3::ONE).as_vec3();
+        let grid_pos = uvw * grid_scale;
         let base = grid_pos.floor().as_uvec3().min(self.dim - UVec3::splat(2));
         let next = base + UVec3::ONE;
         let f = grid_pos - base.as_vec3();
 
-        let c000 = self.sdf_at(base.x, base.y, base.z);
-        let c100 = self.sdf_at(next.x, base.y, base.z);
-        let c010 = self.sdf_at(base.x, next.y, base.z);
-        let c110 = self.sdf_at(next.x, next.y, base.z);
-        let c001 = self.sdf_at(base.x, base.y, next.z);
-        let c101 = self.sdf_at(next.x, base.y, next.z);
-        let c011 = self.sdf_at(base.x, next.y, next.z);
-        let c111 = self.sdf_at(next.x, next.y, next.z);
-
-        let x00 = lerp(c000, c100, f.x);
-        let x10 = lerp(c010, c110, f.x);
-        let x01 = lerp(c001, c101, f.x);
-        let x11 = lerp(c011, c111, f.x);
-        let y0 = lerp(x00, x10, f.y);
-        let y1 = lerp(x01, x11, f.y);
-        lerp(y0, y1, f.z)
+        TrilinearSdfCell {
+            f,
+            gradient_scale_ws: grid_scale / extent,
+            c000: self.sdf_at(base.x, base.y, base.z),
+            c100: self.sdf_at(next.x, base.y, base.z),
+            c010: self.sdf_at(base.x, next.y, base.z),
+            c110: self.sdf_at(next.x, next.y, base.z),
+            c001: self.sdf_at(base.x, base.y, next.z),
+            c101: self.sdf_at(next.x, base.y, next.z),
+            c011: self.sdf_at(base.x, next.y, next.z),
+            c111: self.sdf_at(next.x, next.y, next.z),
+        }
     }
 
-    fn sample_normal_clamped_ws(&self, point_ws: Vec3) -> Vec3 {
-        let cell_size = self.cell_size_ws();
-        let dx = self.sample_axis_derivative(point_ws, Vec3::X, cell_size.x);
-        let dy = self.sample_axis_derivative(point_ws, Vec3::Y, cell_size.y);
-        let dz = self.sample_axis_derivative(point_ws, Vec3::Z, cell_size.z);
-        let normal = Vec3::new(dx, dy, dz).normalize_or_zero();
+    fn sdf_at(&self, x: u32, y: u32, z: u32) -> f32 {
+        self.sdf_ws
+            [((z as usize * self.dim.y as usize + y as usize) * self.dim.x as usize) + x as usize]
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct TrilinearSdfCell {
+    f: Vec3,
+    gradient_scale_ws: Vec3,
+    c000: f32,
+    c100: f32,
+    c010: f32,
+    c110: f32,
+    c001: f32,
+    c101: f32,
+    c011: f32,
+    c111: f32,
+}
+
+impl TrilinearSdfCell {
+    fn sdf(self) -> f32 {
+        let x00 = lerp(self.c000, self.c100, self.f.x);
+        let x10 = lerp(self.c010, self.c110, self.f.x);
+        let x01 = lerp(self.c001, self.c101, self.f.x);
+        let x11 = lerp(self.c011, self.c111, self.f.x);
+        let y0 = lerp(x00, x10, self.f.y);
+        let y1 = lerp(x01, x11, self.f.y);
+        lerp(y0, y1, self.f.z)
+    }
+
+    fn normal_ws(self) -> Vec3 {
+        let gradient = self.gradient_ws();
+        let normal = gradient.normalize_or_zero();
         if normal.is_finite() && normal.length_squared() > 0.0 {
             normal
         } else {
@@ -158,25 +189,22 @@ impl WaterTerrainColliderChunk {
         }
     }
 
-    fn sample_axis_derivative(&self, point_ws: Vec3, axis: Vec3, step_ws: f32) -> f32 {
-        if step_ws <= 0.0 || !step_ws.is_finite() {
-            return 0.0;
-        }
+    fn gradient_ws(self) -> Vec3 {
+        let dx0 = lerp(self.c100 - self.c000, self.c110 - self.c010, self.f.y);
+        let dx1 = lerp(self.c101 - self.c001, self.c111 - self.c011, self.f.y);
+        let d_sdf_dgx = lerp(dx0, dx1, self.f.z);
 
-        let (bounds_min_ws, bounds_max_ws) = self.bounds_ws();
-        let p0 = (point_ws - axis * step_ws).clamp(bounds_min_ws, bounds_max_ws);
-        let p1 = (point_ws + axis * step_ws).clamp(bounds_min_ws, bounds_max_ws);
-        let denom = (p1 - p0).dot(axis);
-        if denom.abs() <= f32::EPSILON {
-            return 0.0;
-        }
+        let x00 = lerp(self.c000, self.c100, self.f.x);
+        let x10 = lerp(self.c010, self.c110, self.f.x);
+        let x01 = lerp(self.c001, self.c101, self.f.x);
+        let x11 = lerp(self.c011, self.c111, self.f.x);
+        let d_sdf_dgy = lerp(x10 - x00, x11 - x01, self.f.z);
 
-        (self.sample_sdf_clamped_ws(p1) - self.sample_sdf_clamped_ws(p0)) / denom
-    }
+        let y0 = lerp(x00, x10, self.f.y);
+        let y1 = lerp(x01, x11, self.f.y);
+        let d_sdf_dgz = y1 - y0;
 
-    fn sdf_at(&self, x: u32, y: u32, z: u32) -> f32 {
-        self.sdf_ws
-            [((z as usize * self.dim.y as usize + y as usize) * self.dim.x as usize) + x as usize]
+        Vec3::new(d_sdf_dgx, d_sdf_dgy, d_sdf_dgz) * self.gradient_scale_ws
     }
 }
 
@@ -358,6 +386,17 @@ mod tests {
             chunk.sample_normal_ws(Vec3::new(0.5, 0.5, 0.5)).unwrap(),
             -Vec3::Y,
         );
+    }
+
+    #[test]
+    fn terrain_chunk_samples_sdf_and_normal_from_shared_trilinear_cell() {
+        let chunk = sdf_chunk(|p| p.x + p.y * 2.0 + p.z * 3.0 - 1.0);
+
+        let point = Vec3::new(0.25, 0.5, 0.75);
+        let (sdf, normal) = chunk.sample_sdf_and_normal_ws(point).unwrap();
+
+        assert!((sdf - 2.5).abs() < 1.0e-6, "sdf={sdf}");
+        assert_vec3_near(normal, Vec3::new(1.0, 2.0, 3.0).normalize());
     }
 
     #[test]
