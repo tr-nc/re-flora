@@ -196,6 +196,11 @@ impl SceneAccelBuilder {
         .map_err(|err| anyhow::anyhow!("failed to poll scene tex update fence: {err}"))
     }
 
+    pub fn wait_update_scene_tex(&self, job: &SceneTexUpdateJob) -> Result<()> {
+        self.vulkan_ctx.wait_for_fences(&[job.fence.as_raw()])?;
+        Ok(())
+    }
+
     pub fn finish_update_scene_tex(&mut self, job: SceneTexUpdateJob) -> SceneTexUpdateResult {
         let fence_latency_elapsed = job.submitted_at.elapsed();
         crate::util::BENCH.lock().unwrap().record(

@@ -832,6 +832,11 @@ impl ContreeBuilder {
         .map_err(|err| anyhow::anyhow!("failed to poll contree build fence: {err}"))
     }
 
+    pub fn wait_build_and_alloc(&self, job: &ContreeBuildJob) -> Result<()> {
+        self.vulkan_ctx.wait_for_fences(&[job.fence.as_raw()])?;
+        Ok(())
+    }
+
     pub fn discard_build_and_alloc(&mut self, job: ContreeBuildJob) {
         if let Err(err) = self.node_allocator.deallocate(job.node_alloc_id) {
             log::error!(

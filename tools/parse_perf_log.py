@@ -21,6 +21,7 @@ WATER_RE = re.compile(
     r"\[PERF\]\[WATER\] particles (\d+) .*? substeps (\d+) total ([0-9.]+)ms avg ([0-9.]+)ms/substep"
 )
 DEFERRED_REBUILD_RE = re.compile(r"\[PERF\]\[DEFERRED_REBUILD\].* total ([0-9.]+)ms")
+SYNC_VISIBLE_REBUILD_RE = re.compile(r"\[PERF\]\[SYNC_VISIBLE_REBUILD\]")
 DEFERRED_REBUILD_PHASE_RE = re.compile(r"\[PERF\]\[DEFERRED_REBUILD_PHASE\]")
 SURFACE_BUILD_RE = re.compile(r"\[PERF\]\[SURFACE_BUILD\]")
 CONTREE_REBUILD_RE = re.compile(r"\[QUEUE\]\[CONTREE_REBUILD\]")
@@ -128,6 +129,7 @@ def parse_log(path: Path) -> None:
     water_particles: list[float] = []
     water_avg_substep: list[float] = []
     deferred_rebuild: list[float] = []
+    sync_visible_rebuild: list[float] = []
     deferred_surface_total: list[float] = []
     deferred_contree_total: list[float] = []
     deferred_scene_total: list[float] = []
@@ -180,6 +182,10 @@ def parse_log(path: Path) -> None:
                     water[field].append(value)
             continue
 
+        if SYNC_VISIBLE_REBUILD_RE.search(line):
+            if (value := extract_ms(line, "total")) is not None:
+                sync_visible_rebuild.append(value)
+            continue
         if match := DEFERRED_REBUILD_RE.search(line):
             deferred_rebuild.append(float(match.group(1)))
             if (value := extract_ms(line, "surface_total")) is not None:
@@ -251,6 +257,7 @@ def parse_log(path: Path) -> None:
         "Terrain / water terrain events",
         [
             ("terrain_deferred_rebuild", deferred_rebuild),
+            ("terrain_sync_visible_rebuild", sync_visible_rebuild),
             ("terrain_deferred_surface_total", deferred_surface_total),
             ("terrain_deferred_contree_total", deferred_contree_total),
             ("terrain_deferred_scene_total", deferred_scene_total),

@@ -294,6 +294,11 @@ impl Drop for App {
 
 impl App {
     pub(super) fn enqueue_deferred_chunk_rebuilds(&mut self, chunk_ids: &[UVec3]) {
+        if self.should_rebuild_visible_chunk_batch_synchronously(chunk_ids) {
+            self.rebuild_visible_chunk_batch_synchronously(chunk_ids);
+            return;
+        }
+
         for &chunk_id in chunk_ids {
             self.deferred_chunk_rebuilds
                 .push(chunk_id, ChunkRebuildRequest::Normal);
@@ -305,10 +310,122 @@ impl App {
         chunk_ids: &[UVec3],
         flora_edit: world_ops::FloraSphereEdit,
     ) {
+        if self.should_rebuild_visible_chunk_batch_synchronously(chunk_ids) {
+            self.rebuild_visible_flora_preserving_chunk_batch_synchronously(chunk_ids, flora_edit);
+            return;
+        }
+
         for &chunk_id in chunk_ids {
             self.deferred_chunk_rebuilds
                 .push(chunk_id, ChunkRebuildRequest::PreserveFlora(flora_edit));
         }
+    }
+
+    fn should_rebuild_visible_chunk_batch_synchronously(&self, chunk_ids: &[UVec3]) -> bool {
+        chunk_ids.len() > 1 && chunk_ids.len() <= SYNC_VISIBLE_REBUILD_CHUNK_LIMIT
+    }
+
+    fn prepare_visible_sync_rebuild(&mut self, chunk_ids: &[UVec3]) -> bool {
+        if self.terrain_chunk_rebuild_inflight.is_some()
+            && !self.finish_deferred_chunk_rebuild_blocking()
+        {
+            return false;
+        }
+
+        for &chunk_id in chunk_ids {
+            self.deferred_chunk_rebuilds.clear(chunk_id);
+        }
+        true
+    }
+
+    fn rebuild_visible_chunk_batch_synchronously(&mut self, chunk_ids: &[UVec3]) {
+        let sync_start = Instant::now();
+        if !self.prepare_visible_sync_rebuild(chunk_ids) {
+            for &chunk_id in chunk_ids {
+                self.deferred_chunk_rebuilds
+                    .push(chunk_id, ChunkRebuildRequest::Normal);
+            }
+            return;
+        }
+        let result = world_ops::mesh_generate_chunks(
+            &mut self.surface_builder,
+            &mut self.contree_builder,
+            &mut self.scene_accel_builder,
+            VOXEL_DIM_PER_CHUNK,
+            chunk_ids.to_vec(),
+        );
+        let elapsed_ms = sync_start.elapsed().as_secs_f64() * 1000.0;
+        match result {
+            Ok(()) => {
+                for &chunk_id in chunk_ids {
+                    self.schedule_terrain_sdf_source_refresh(chunk_id);
+                }
+                log::info!(
+                    "[PERF][SYNC_VISIBLE_REBUILD] chunks {} total {:.2}ms preserve_flora=false chunk_ids={:?}",
+                    chunk_ids.len(),
+                    elapsed_ms,
+                    chunk_ids,
+                );
+            }
+            Err(err) => {
+                log::error!(
+                    "[PERF][SYNC_VISIBLE_REBUILD] failed chunks {} after {:.2}ms preserve_flora=false chunk_ids={:?}: {}",
+                    chunk_ids.len(),
+                    elapsed_ms,
+                    chunk_ids,
+                    err,
+                );
+            }
+        }
+    }
+
+    fn rebuild_visible_flora_preserving_chunk_batch_synchronously(
+        &mut self,
+        chunk_ids: &[UVec3],
+        flora_edit: world_ops::FloraSphereEdit,
+    ) {
+        let sync_start = Instant::now();
+        if !self.prepare_visible_sync_rebuild(chunk_ids) {
+            for &chunk_id in chunk_ids {
+                self.deferred_chunk_rebuilds
+                    .push(chunk_id, ChunkRebuildRequest::PreserveFlora(flora_edit));
+            }
+            return;
+        }
+        let mut rebuilt = 0usize;
+        let mut failed = false;
+        for &chunk_id in chunk_ids {
+            match world_ops::mesh_generate_chunk_preserve_flora_for_sphere_edit(
+                &mut self.surface_builder,
+                &mut self.contree_builder,
+                &mut self.scene_accel_builder,
+                VOXEL_DIM_PER_CHUNK,
+                chunk_id,
+                flora_edit,
+            ) {
+                Ok(()) => {
+                    rebuilt += 1;
+                    self.schedule_terrain_sdf_source_refresh(chunk_id);
+                }
+                Err(err) => {
+                    failed = true;
+                    log::error!(
+                        "[SYNC_VISIBLE_REBUILD] failed preserve-flora chunk {:?}: {}",
+                        chunk_id,
+                        err,
+                    );
+                }
+            }
+        }
+        let elapsed_ms = sync_start.elapsed().as_secs_f64() * 1000.0;
+        log::info!(
+            "[PERF][SYNC_VISIBLE_REBUILD] chunks {} rebuilt {} total {:.2}ms preserve_flora=true failed={} chunk_ids={:?}",
+            chunk_ids.len(),
+            rebuilt,
+            elapsed_ms,
+            failed,
+            chunk_ids,
+        );
     }
 
     pub(super) fn deferred_chunk_rebuilds_idle(&self) -> bool {
@@ -322,6 +439,39 @@ impl App {
         }
 
         self.try_start_deferred_chunk_rebuild();
+    }
+
+    fn finish_deferred_chunk_rebuild_blocking(&mut self) -> bool {
+        while self.terrain_chunk_rebuild_inflight.is_some() {
+            let wait_result = match self
+                .terrain_chunk_rebuild_inflight
+                .as_ref()
+                .map(|inflight| &inflight.stage)
+            {
+                Some(TerrainChunkRebuildStage::Surface { job }) => {
+                    self.surface_builder.wait_build_surface(job)
+                }
+                Some(TerrainChunkRebuildStage::ContreeReady { .. }) => Ok(()),
+                Some(TerrainChunkRebuildStage::Contree { job, .. }) => {
+                    self.contree_builder.wait_build_and_alloc(job)
+                }
+                Some(TerrainChunkRebuildStage::Scene { job, .. }) => {
+                    self.scene_accel_builder.wait_update_scene_tex(job)
+                }
+                None => Ok(()),
+            };
+
+            if let Err(err) = wait_result {
+                log::error!(
+                    "[QUEUE][DEFERRED_REBUILD] failed while draining async rebuild before visible sync rebuild: {}",
+                    err,
+                );
+                return false;
+            }
+
+            self.progress_deferred_chunk_rebuild();
+        }
+        true
     }
 
     fn deferred_surface_rebuild_inflight(&self) -> bool {
@@ -959,6 +1109,7 @@ const VOXEL_DIM_PER_CHUNK: UVec3 = UVec3::new(256, 256, 256);
 const CHUNK_DIM: UVec3 = UVec3::new(5, 2, 5);
 const FREE_ATLAS_DIM: UVec3 = UVec3::new(512, 512, 512);
 const MAX_FRAMES_IN_FLIGHT: usize = 1;
+const SYNC_VISIBLE_REBUILD_CHUNK_LIMIT: usize = 8;
 const SHOVEL_REMOVE_RADIUS: f32 = 0.08;
 const SHOVEL_DIG_INTERVAL: Duration = Duration::from_millis(80);
 const SHOVEL_RAY_QUERY_DISTANCE: f32 = 10.0;

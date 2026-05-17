@@ -305,6 +305,11 @@ impl SurfaceBuilder {
         .map_err(|err| anyhow::anyhow!("failed to poll surface build fence: {err}"))
     }
 
+    pub fn wait_build_surface(&self, job: &SurfaceBuildJob) -> Result<()> {
+        self.vulkan_ctx.wait_for_fences(&[job.fence.as_raw()])?;
+        Ok(())
+    }
+
     pub fn finish_build_surface(&mut self, job: SurfaceBuildJob) -> Result<SurfaceBuildResult> {
         let fence_latency_elapsed = job.submitted_at.elapsed();
         let readback_start = Instant::now();
