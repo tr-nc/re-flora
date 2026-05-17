@@ -1,5 +1,5 @@
 use crate::audio::audio_clip_cache::AudioClipCache;
-use crate::builder::{ContreeAnyHitRayTracer, ContreeRayTracingRuntimeSnapshot};
+use crate::builder::ContreeAnyHitRayTracer;
 use crate::gameplay::camera::vectors::CameraVectors;
 use anyhow::Result;
 use glam::Vec3;
@@ -9,7 +9,7 @@ use petalsonic::{
     math::{Pose, Quat as PetalQuat, Vec3 as PetalVec3},
     playback::LoopMode,
     world::PetalSonicWorld,
-    BatchedAnyHitRayTracer, DirectOcclusionDebugSnapshot, SourceConfig, SourceId,
+    BatchedAnyHitRayTracer, SourceConfig, SourceId,
 };
 use rand::RngExt;
 use std::collections::HashMap;
@@ -384,17 +384,6 @@ impl SpatialSoundManager {
         let mut engine = self.engine.lock().unwrap();
         engine.stop()?;
         Ok(())
-    }
-
-    pub fn direct_occlusion_debug_snapshot(&self) -> Option<DirectOcclusionDebugSnapshot> {
-        self.engine
-            .lock()
-            .ok()
-            .and_then(|engine| engine.direct_occlusion_debug_snapshot())
-    }
-
-    pub fn take_audio_ray_tracing_runtime_snapshot(&self) -> ContreeRayTracingRuntimeSnapshot {
-        self.audio_ray_tracer.take_runtime_snapshot()
     }
 
     #[allow(dead_code)]

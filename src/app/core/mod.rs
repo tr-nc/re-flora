@@ -52,7 +52,6 @@ use ash::vk;
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
-use petalsonic::DirectOcclusionDebugSnapshot;
 use re_flora_water::{PondWaterConfig, PondWaterSim};
 use std::collections::HashMap;
 use std::fs;
@@ -198,9 +197,7 @@ pub struct App {
     item_panel_water_icon: Option<TextureHandle>,
     selected_item_panel_slot: usize,
     active_voxel_type: ActiveVoxelType,
-    audio_ray_tracing_debug_text: String,
-    audio_ray_tracing_last_direct_snapshot: Option<DirectOcclusionDebugSnapshot>,
-    audio_ray_tracing_last_runtime_snapshot: crate::builder::ContreeRayTracingRuntimeSnapshot,
+    water_particle_update_main_thread_ms: Option<f32>,
     left_mouse_held: bool,
     right_mouse_held: bool,
     shovel_dig_held: bool,
@@ -1321,55 +1318,8 @@ impl App {
     }
 
     fn update_audio_ray_tracing(&mut self) {
-        let enabled = self.gui_adjustables.audio_ray_tracing_enabled.value;
         self.spatial_sound_manager
-            .set_audio_ray_tracing_enabled(enabled);
-
-        if !enabled {
-            self.audio_ray_tracing_last_direct_snapshot = None;
-            self.audio_ray_tracing_last_runtime_snapshot = Default::default();
-            self.audio_ray_tracing_debug_text = "Audio RT: disabled".to_owned();
-            return;
-        }
-
-        let direct_snapshot = self.spatial_sound_manager.direct_occlusion_debug_snapshot();
-        let runtime_snapshot = self
-            .spatial_sound_manager
-            .take_audio_ray_tracing_runtime_snapshot();
-
-        if let Some(snapshot) = direct_snapshot {
-            self.audio_ray_tracing_last_direct_snapshot = Some(snapshot);
-        }
-
-        if runtime_snapshot.update_count > 0 || runtime_snapshot.update_failures > 0 {
-            self.audio_ray_tracing_last_runtime_snapshot = runtime_snapshot;
-        }
-
-        let direct_snapshot = self.audio_ray_tracing_last_direct_snapshot;
-        let runtime_snapshot = self.audio_ray_tracing_last_runtime_snapshot;
-
-        self.audio_ray_tracing_debug_text = match direct_snapshot {
-            Some(snapshot) => format!(
-                "Audio RT: {} updates / {} rays / {} occluded\nDirect query: {:.3}ms total, failures {}\nDirect occ: {} samples avg {:.3} min {:.3} max {:.3}",
-                runtime_snapshot.update_count,
-                runtime_snapshot.updated_sources,
-                runtime_snapshot.occluded_sources,
-                runtime_snapshot.total_update_time_us as f64 / 1000.0,
-                runtime_snapshot.update_failures,
-                snapshot.sample_count,
-                snapshot.avg_occlusion,
-                snapshot.min_occlusion,
-                snapshot.max_occlusion,
-            ),
-            None => format!(
-                "Audio RT: {} updates / {} rays / {} occluded\nDirect query: {:.3}ms total, failures {}\nDirect occ: no samples",
-                runtime_snapshot.update_count,
-                runtime_snapshot.updated_sources,
-                runtime_snapshot.occluded_sources,
-                runtime_snapshot.total_update_time_us as f64 / 1000.0,
-                runtime_snapshot.update_failures,
-            ),
-        };
+            .set_audio_ray_tracing_enabled(self.gui_adjustables.audio_ray_tracing_enabled.value);
     }
 
     pub fn new(_event_loop: &ActiveEventLoop, options: &crate::AppOptions) -> Result<Self> {
@@ -1636,9 +1586,7 @@ impl App {
             item_panel_water_icon: None,
             selected_item_panel_slot: 0,
             active_voxel_type: ActiveVoxelType::All,
-            audio_ray_tracing_debug_text: "Audio RT: not sampled yet".to_owned(),
-            audio_ray_tracing_last_direct_snapshot: None,
-            audio_ray_tracing_last_runtime_snapshot: Default::default(),
+            water_particle_update_main_thread_ms: None,
             left_mouse_held: false,
             right_mouse_held: false,
             shovel_dig_held: false,
@@ -2523,7 +2471,10 @@ impl App {
                 let backpack_cherry_wood_count = self.backpack_cherry_wood_count;
                 let backpack_oak_wood_count = self.backpack_oak_wood_count;
                 let backpack_rock_count = self.backpack_rock_count;
-                let audio_ray_tracing_debug_text = self.audio_ray_tracing_debug_text.clone();
+                let status_bar_text = match self.water_particle_update_main_thread_ms {
+                    Some(ms) => format!("Water particles (main thread): {:.3} ms", ms),
+                    None => "Water particles (main thread): -- ms".to_owned(),
+                };
                 let growing_flora_chunk_count = self.growing_flora_chunks.len();
                 let active_voxel_label = self.active_voxel_type.label();
                 let active_voxel_color = self.active_voxel_type.color();
@@ -2705,10 +2656,10 @@ impl App {
                         ));
                         draw_active_voxel_display(ctx, active_voxel_label, active_voxel_color);
 
-                        egui::Area::new("audio_rt_panel".into())
+                        egui::Area::new("status_bar_panel".into())
                             .anchor(egui::Align2::LEFT_BOTTOM, egui::Vec2::new(16.0, -16.0))
                             .show(ctx, |ui| {
-                                let audio_rt_frame = egui::containers::Frame {
+                                let status_bar_frame = egui::containers::Frame {
                                     fill: PANEL_DARK,
                                     inner_margin: egui::Margin::symmetric(10, 8),
                                     corner_radius: egui::CornerRadius::same(0),
@@ -2722,17 +2673,17 @@ impl App {
                                     ..Default::default()
                                 };
 
-                                audio_rt_frame.show(ui, |ui| {
+                                status_bar_frame.show(ui, |ui| {
                                     ui.set_max_width(420.0);
                                     ui.label(
-                                        RichText::new("Audio RT")
+                                        RichText::new("Status Bar")
                                             .color(GOLD_ACCENT)
                                             .monospace()
                                             .size(12.0),
                                     );
                                     ui.add_space(4.0);
                                     ui.label(
-                                        RichText::new(audio_ray_tracing_debug_text.as_str())
+                                        RichText::new(status_bar_text.as_str())
                                             .color(SAGE_ACCENT)
                                             .monospace()
                                             .size(11.0),
@@ -2903,11 +2854,15 @@ impl App {
 
                 if self.render_flags.enable_particles {
                     if self.water_terrain_initialized {
-                        let water_update_start = frame_perf_enabled.then(Instant::now);
+                        let water_update_start = Instant::now();
                         self.update_water_sim(frame_delta_time);
-                        if let Some(start) = water_update_start {
-                            water_update_ms += start.elapsed().as_secs_f32() * 1000.0;
+                        let elapsed_ms = water_update_start.elapsed().as_secs_f32() * 1000.0;
+                        self.water_particle_update_main_thread_ms = Some(elapsed_ms);
+                        if frame_perf_enabled {
+                            water_update_ms += elapsed_ms;
                         }
+                    } else {
+                        self.water_particle_update_main_thread_ms = None;
                     }
                     let particle_update_start = frame_perf_enabled.then(Instant::now);
                     self.update_particle_simulation(frame_delta_time);
