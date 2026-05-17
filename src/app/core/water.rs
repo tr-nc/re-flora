@@ -316,6 +316,20 @@ impl App {
             return;
         }
 
+        if solid_chunk.solid_count() == 0 {
+            log::debug!(
+                "[WATER][TERRAIN] skipped collider chunk {:?} rev {}: empty solid source chunk {:?}",
+                chunk_id,
+                revision,
+                chunk_key,
+            );
+            self.water_terrain_built_source_revisions
+                .insert(chunk_key, source_revision);
+            self.deferred_water_terrain_collider_rebuilds
+                .complete(chunk_key, revision);
+            return;
+        }
+
         let job = WaterTerrainColliderWorkerJob {
             chunk_key,
             chunk_id,
@@ -675,9 +689,7 @@ fn water_terrain_chunk_key_intersects_box_grid_domain(
         return false;
     };
 
-    let min_chunk = box_min_ws.floor().as_ivec3();
-    let max_chunk = box_max_ws.floor().as_ivec3();
-    chunk_id.cmpge(min_chunk).all() && chunk_id.cmple(max_chunk).all()
+    water_terrain_chunk_strictly_overlaps_box(chunk_id, box_min_ws, box_max_ws)
 }
 
 #[cfg(test)]
@@ -819,7 +831,7 @@ mod tests {
     }
 
     #[test]
-    fn chunk_grid_domain_includes_water_grid_boundary_chunks() {
+    fn chunk_grid_domain_uses_strict_overlap() {
         let min_ws = Vec3::ZERO;
         let max_ws = Vec3::new(2.0, 1.0, 2.0);
 
@@ -829,17 +841,22 @@ mod tests {
             max_ws,
         ));
         assert!(water_terrain_chunk_key_intersects_box_grid_domain(
+            UVec3::new(1, 0, 1),
+            min_ws,
+            max_ws,
+        ));
+        assert!(!water_terrain_chunk_key_intersects_box_grid_domain(
             UVec3::new(2, 1, 2),
             min_ws,
             max_ws,
         ));
         assert!(!water_terrain_chunk_key_intersects_box_grid_domain(
-            UVec3::new(3, 0, 1),
+            UVec3::new(2, 0, 1),
             min_ws,
             max_ws,
         ));
         assert!(!water_terrain_chunk_key_intersects_box_grid_domain(
-            UVec3::new(1, 2, 2),
+            UVec3::new(1, 1, 1),
             min_ws,
             max_ws,
         ));

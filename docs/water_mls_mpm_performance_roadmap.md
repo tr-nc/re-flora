@@ -14,7 +14,7 @@ Current status by phase:
 | Phase 3B: G2P terrain broadphase/cache | Implemented, hidden/edit soak clean; needs more scene coverage/tuning | cached skip/projection path is active and shadow-verified in perf runs |
 | Phase 4: collider scope/startup | Implemented and edit-soak benchmarked | startup/edit collider refreshes are limited to water-grid-domain chunks |
 | Phase 5: solver scaling/tuning options | Implemented and hidden edit-soaked; needs another visible tuning pass | CLI sweep knobs plus `--water-profile performance`; visual soak found contact/damping tuning issues and the profile has been adjusted |
-| Phase 6: implementation-review optimization backlog | In progress | 6A empty-water idle early-out and 6B sparse grid maintenance implemented; next priority is collider/cache rebuild scope |
+| Phase 6: implementation-review optimization backlog | In progress | 6A, 6B, and strict startup collider chunk scope implemented; next priority is batching/partial terrain-cache rebuilds |
 
 Latest representative release result:
 
@@ -57,7 +57,7 @@ Remaining findings:
 - The cached trilinear SDF path now skips far particles and directly projects clearly colliding particles, but ambiguous near-surface particles still use exact collider fallback.
 - Diagnostic logging currently computes full particle debug stats before deciding whether to report, including exact terrain SDF sampling for every particle. This cost is outside `[PERF][WATER]` substep timing and can also produce noisy expected-CFL speed warnings.
 - Startup/edit collider publication still rebuilds the entire terrain-grid cache for each inserted collider chunk. Partial overlapping-region rebuilds and startup batching are not implemented yet.
-- Startup water-domain selection currently includes max-boundary chunks (`floor(max)` inclusive), so the fixed `(0,0,0)..(2,1,2)` pond enqueues up to `18` chunks even though only `4` chunks strictly overlap the simulation volume.
+- Startup water-domain selection now uses strict overlap, so the fixed `(0,0,0)..(2,1,2)` pond enqueues the `4` overlapping chunks instead of including max-boundary chunks.
 
 ## Implemented phases
 
@@ -455,7 +455,13 @@ Expected benefit: recovers part of the cost added by moving from `32^3` to `64x3
 
 #### 6C. Tighten startup collider domain and batch cache rebuilds
 
-Evidence:
+Status: partially implemented. Startup/edit source selection now uses strict chunk overlap and worker submission skips empty solid source chunks. Batching/partial terrain-grid cache rebuilds are still pending.
+
+Validation:
+
+- `/tmp/re-flora-logs/re-flora-20260517-115020.363-20164.log`, command `--water-profile performance`, reported `enqueued startup collider rebuilds for 4 water-domain chunks, skipped 46 out-of-domain chunks`.
+
+Evidence before implementation:
 
 - Current fixed box is `(0,0,0)..(2,1,2)`.
 - Startup domain selection uses `floor(min)..=floor(max)`, so it enqueues up to `3 x 2 x 3 = 18` chunks.
@@ -464,9 +470,9 @@ Evidence:
 
 Implementation direction:
 
-- Revisit `water_terrain_chunk_key_intersects_box_grid_domain()`: use strict overlap for steady collider sources unless a measured case requires a one-chunk shell for interpolation/boundary normals.
-- If a shell is needed, make it explicit and document why; do not include all max-boundary chunks by default.
-- Skip worker jobs for refreshed source chunks with `solid_count() == 0` before SDF build.
+- Done: `water_terrain_chunk_key_intersects_box_grid_domain()` now uses strict overlap for steady collider sources.
+- Done: if a shell is needed later, it must be explicit and documented; max-boundary chunks are no longer included by default.
+- Done: worker submission skips refreshed source chunks with `solid_count() == 0` before SDF build.
 - Batch startup collider publication so `terrain_grid` is rebuilt once after the initial set is available.
 - For edits, rebuild only the water-grid node range overlapped by the changed collider chunk plus a one-cell halo, then stabilize only particles in or near the changed chunk.
 
