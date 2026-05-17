@@ -331,18 +331,24 @@ impl PondWaterSim {
     }
 
     pub(crate) fn rebuild_terrain_grid_cache(&mut self) {
+        let rebuild_start = Instant::now();
         let terrain_collision_margin = self.terrain_collision_margin();
         // Cache a conservative narrow band around terrain. Hot loops use this
         // cheap water-grid SDF to skip exact collider queries for particles and
         // grid nodes that are clearly away from solids.
         let near_surface_band = terrain_collision_margin + self.dx * 2.0;
         let terrain = self.terrain.as_ref();
+        let terrain_chunk_count = terrain.map_or(0, |terrain| terrain.chunks.len());
         let origin_ws = self.origin_ws;
         let grid_dim = self.grid_dim;
         let dx = self.dx;
+        let node_count = self.grid.len();
+        let mut has_sdf_count = 0usize;
+        let mut near_surface_count = 0usize;
+        let mut normal_count = 0usize;
 
-        if self.terrain_grid.len() != self.grid.len() {
-            self.terrain_grid = vec![WaterTerrainGridSample::default(); self.grid.len()];
+        if self.terrain_grid.len() != node_count {
+            self.terrain_grid = vec![WaterTerrainGridSample::default(); node_count];
         }
 
         for z in 0..grid_dim.z {
@@ -355,9 +361,13 @@ impl PondWaterSim {
                         if let Some(sdf) = terrain.sample_sdf_ws(node_world) {
                             sample.sdf = sdf;
                             sample.has_sdf = true;
+                            has_sdf_count += 1;
                             sample.near_surface = sdf <= near_surface_band;
                             if sample.near_surface {
-                                sample.normal = terrain.sample_normal_ws(node_world).unwrap_or(Vec3::Y);
+                                near_surface_count += 1;
+                                sample.normal =
+                                    terrain.sample_normal_ws(node_world).unwrap_or(Vec3::Y);
+                                normal_count += 1;
                             }
                         }
                     }
@@ -365,6 +375,19 @@ impl PondWaterSim {
                 }
             }
         }
+
+        log::info!(
+            "[WATER][TERRAIN_CACHE] rebuilt grid cache chunks={} grid {:?} nodes={} has_sdf={} near_surface={} normals={} band={:.5} dx={:.5} total_ms={:.2}",
+            terrain_chunk_count,
+            grid_dim,
+            node_count,
+            has_sdf_count,
+            near_surface_count,
+            normal_count,
+            near_surface_band,
+            dx,
+            rebuild_start.elapsed().as_secs_f32() * 1000.0,
+        );
     }
 
     fn repair_particles(&mut self, dt: f32, repair_terrain: bool) {
