@@ -7,7 +7,7 @@
 - terrain edit 后的 SDF/source/cache 链路已分帧、去重、限流。
 - SDF/source/cache 队列命名已解耦。
 - 手动反馈：当前编辑性能已经明显改善。
-- 下一步重点：补数据、继续拆 cache、降低单帧尖峰。
+- 下一步重点：确认 stale build 影响、继续拆 cache、降低单帧尖峰。
 
 ## 已完成工作（极简）
 
@@ -17,7 +17,7 @@
 - 2026-05-17：确认 terrain edit hitch 来自水专用 SDF/source/cache 链路。
 - 2026-05-17：source refresh、SDF build、water cache rebuild 已进入 chunk queue。
 - 2026-05-17：已加入 coalesce、unchanged skip、block-center sample、active-water priority、cache budget、catch-up cap。
-- 2026-05-17：Phase 2 命名解耦已完成。
+- 2026-05-17：SDF/source/cache 命名解耦已完成。
 
 最新相关提交：
 
@@ -78,47 +78,7 @@ terrain edit
 
 ## 后续 Roadmap
 
-### Phase 1：补正式数据和诊断
-
-目标：用 release 数据确认当前“体感不错”是否稳定。
-
-建议拆分提交：
-
-1. `add terrain sdf queue diagnostics`
-   - 记录 source/cache queue 的 pending、active、ready、processed。
-   - 记录 stale discard、unchanged skip、low-priority delay 次数。
-   - 记录每帧 source/cache budget 实际耗时。
-
-2. `summarize water edit soak metrics`
-   - 跑 release `--water-edit-soak`。
-   - 提取 `frame_dt p95/max`、`ran_substeps`、source refresh、SDF build、cache rebuild。
-   - 把数据写回本文件。
-
-3. `document water collider latency`
-   - 统计 dirty -> source refresh -> SDF publish -> cache ready 的延迟。
-   - 区分 active-water chunk 和 low-priority chunk。
-
-验收：连续编辑时没有明显 `ran_substeps=8` 追帧尖峰；`frame_dt p95` 不被水 terrain 更新拉爆。
-
-### Phase 2：命名解耦和语义整理（已完成）
-
-目标：把 SDF/source/cache 三层命名讲清楚，减少 water-specific 命名污染。
-
-完成提交：
-
-1. `08296202` rename terrain sdf source refresh queue
-   - source refresh queue、request、处理函数、日志标签改为 `terrain_sdf_source` / `TERRAIN_SDF_SOURCE`。
-
-2. `a9aeab4b` rename terrain sdf collider build queue
-   - collider build queue、request、worker job/result、source revision 改为 `terrain_sdf_collider` / `TerrainSdf*`。
-
-3. `befe1cf9` rename terrain sdf source scheduling
-   - dirty 入口改为 `schedule_terrain_sdf_source_refresh*`。
-   - 保留 `schedule` 语义，因为入口仍负责 domain check、priority、delay、coalesce。
-
-验收：纯 rename；行为不变。
-
-### Phase 3：确认 stale SDF build 是否影响 UX
+### Phase 1：确认 stale SDF build 是否影响 UX
 
 目标：判断旧 revision build 完成后直接丢弃，是否会让水体长时间等不到中间 collider。
 
@@ -139,26 +99,7 @@ terrain edit
 
 验收：水体在持续编辑中能周期性追上中间地形；没有 collider revision 回退。
 
-### Phase 4：从 count budget 升级到 time budget
-
-目标：让不同机器上每帧水 terrain 工作的开销更可控。
-
-建议拆分提交：
-
-1. `time budget terrain sdf source refreshes`
-   - source refresh 从“每帧最多 1 个”改为“每帧最多 X ms，同时最多 N 个”。
-   - 保留 active-water priority。
-
-2. `time budget water terrain cache rebuilds`
-   - cache rebuild 从“每帧最多 1 个”改为“每帧最多 X ms”。
-   - 如果单个 cache rebuild 超过 X ms，先记录，再进入 Phase 5 拆分。
-
-3. `expose terrain sdf budget diagnostics`
-   - 日志输出预算命中次数、超时次数、剩余 pending。
-
-验收：单帧 source/cache 工作不会在常规机器上超过预设预算太多。
-
-### Phase 5：拆分 water terrain cache rebuild
+### Phase 2：拆分 water terrain cache rebuild
 
 目标：把单个 `4-5ms` cache region rebuild 拆成更小的可调度任务。
 
@@ -186,7 +127,7 @@ terrain edit
 
 验收：cache rebuild 不再产生单个 `4-5ms` 主线程尖峰。
 
-### Phase 6：采样质量实验（非默认）
+### Phase 3：采样质量实验（非默认）
 
 目标：只在 visible 验证发现漏碰撞时再做。
 
@@ -204,7 +145,7 @@ terrain edit
 
 验收：没有证据前不改变默认采样路径。
 
-### Phase 7：水模拟 kernel 微优化
+### Phase 4：水模拟 kernel 微优化
 
 目标：如果 edit 链路不再是瓶颈，再优化稳态水模拟。
 
@@ -224,7 +165,7 @@ terrain edit
 
 验收：release 下 `avg/substep` 稳定下降；`terrain_shadow_false_skips` 保持 0。
 
-### Phase 8：空 chunk collider（可选）
+### Phase 5：空 chunk collider（可选）
 
 目标：消除 `terrain_no_sdf` 诊断噪音。
 
@@ -238,7 +179,47 @@ terrain edit
 
 验收：`no_sdf` 降低或消失，同时启动/编辑成本不明显上升。
 
-### Phase 9：产品化和高风险路线
+### Phase 6：水模拟线程化
+
+目标：评估并原型化把 `PondWaterSim::update()` 移到独立线程，减少主线程帧预算压力。
+
+建议拆分提交：
+
+1. `measure water sim threading boundary`
+   - 记录主线程中 water update、render snapshot、terrain collider publish/cache rebuild 的耗时。
+   - 明确哪些 `PondWaterSim` 访问必须留主线程，哪些可以搬到 worker。
+
+2. `introduce water sim command queue`
+   - 定义主线程 -> water 线程的命令：update、spawn particles、terrain collider upsert/remove、cache invalidate/rebuild、shutdown。
+   - 先保持单线程执行，只改调用边界。
+
+3. `add water sim render snapshots`
+   - 定义 water 线程 -> 主线程的只读 snapshot。
+   - 允许渲染最多使用一帧旧粒子数据。
+   - snapshot 包含粒子、统计、诊断计数。
+
+4. `prototype threaded water sim behind flag`
+   - 增加隐藏开关启用 water worker。
+   - 主线程发送 frame delta，worker 执行 update 并返回最新 snapshot。
+   - 主线程不可阻塞等待 worker，最多复用上一帧 snapshot。
+
+5. `move terrain collider sync onto water thread`
+   - SDF collider publish 后通过命令发送给 water 线程。
+   - terrain grid cache invalidate/rebuild 也在 water 线程内处理。
+   - 所有 collider/cache 消息带 revision，避免旧消息覆盖新状态。
+
+6. `harden water thread shutdown and backpressure`
+   - 明确退出信号和 join 顺序。
+   - 限制 command/snapshot 队列积压。
+   - 日志输出 worker lag、dropped snapshots、latest applied terrain revision。
+
+7. `benchmark threaded water simulation`
+   - 对比 threaded on/off 的 release hidden 和 visible 结果。
+   - 重点看主线程 frame time、water latency、terrain edit 后追随延迟。
+
+验收：主线程帧时间下降；water 视觉延迟可接受；退出无 hang；terrain collider/cache revision 不回退。
+
+### Phase 7：产品化和高风险路线
 
 目标：前面阶段稳定后再做。
 
@@ -247,17 +228,13 @@ terrain edit
 1. `expose water performance profile in gui`
    - 把 `--water-profile performance` 暴露到 GUI/settings。
 
-2. `evaluate threaded water simulation`
-   - 评估把 `PondWaterSim::update()` 移到独立线程。
-   - 重点处理 terrain collider 同步、退出信号、数据延迟。
-
-3. `parallelize water g2p`（高风险）
+2. `parallelize water g2p`（高风险）
    - 按粒子分块并行，风险低于 P2G。
 
-4. `parallelize water p2g`（更高风险）
+3. `parallelize water p2g`（更高风险）
    - 需要 thread-local grid/tile accumulation。
 
-5. `prototype gpu water`（最高风险）
+4. `prototype gpu water`（最高风险）
    - 只有 CPU 路线见底后再考虑。
 
 ## 验证策略
