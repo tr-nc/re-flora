@@ -171,6 +171,39 @@ impl PondWaterSim {
         let padding = self.dx * self.config.wall_padding_cells.max(1.0);
         let speed_limit = max_particle_speed_for_substep(self.dx, self.config.substep_dt);
         let terrain_collision_margin = self.terrain_collision_margin();
+        let interval_due = self.diagnostic_report_seconds >= REPORT_INTERVAL_SECONDS;
+        let terrain_activity_since_report = self.diagnostic_stats.g2p_terrain_cache_projections > 0
+            || self.diagnostic_stats.g2p_terrain_exact_corrections > 0;
+        let early_terrain_contact =
+            terrain_activity_since_report && self.last_terrain_contact_particles == 0;
+
+        if !interval_due && !early_terrain_contact {
+            let cheap_particle_stats = water_particle_debug_stats(
+                &self.particles,
+                None,
+                self.config.collider,
+                padding,
+                speed_limit,
+                self.config.j_min,
+                terrain_collision_margin,
+            );
+            let speed_saturated = cheap_particle_stats.max_speed
+                >= speed_limit * SPEED_LIMIT_WARN_FRACTION
+                || cheap_particle_stats.speed_limited_particles > self.particles.len() / 8;
+            let boundary_pinned = cheap_particle_stats.floor_pinned_particles
+                + cheap_particle_stats.wall_pinned_particles
+                > (self.particles.len() as f32 * BOUNDARY_PIN_WARN_FRACTION) as usize;
+            let cheap_anomalous = cheap_particle_stats.non_finite_particles > 0
+                || cheap_particle_stats.out_of_bounds_particles > 0
+                || speed_saturated
+                || boundary_pinned;
+            if !(cheap_anomalous
+                && self.diagnostic_report_seconds >= ANOMALY_REPORT_INTERVAL_SECONDS)
+            {
+                return;
+            }
+        }
+
         let particle_stats = water_particle_debug_stats(
             &self.particles,
             self.terrain.as_ref(),
@@ -181,7 +214,7 @@ impl PondWaterSim {
             terrain_collision_margin,
         );
 
-        let newly_contacting = particle_stats.terrain_contact_particles > 0
+        let newly_contacting = (particle_stats.terrain_contact_particles > 0 || early_terrain_contact)
             && self.last_terrain_contact_particles == 0;
         let speed_saturated = particle_stats.max_speed >= speed_limit * SPEED_LIMIT_WARN_FRACTION
             || particle_stats.speed_limited_particles > self.particles.len() / 8;
@@ -196,7 +229,7 @@ impl PondWaterSim {
             || deep_terrain_penetration
             || boundary_pinned;
 
-        let should_report = self.diagnostic_report_seconds >= REPORT_INTERVAL_SECONDS
+        let should_report = interval_due
             || newly_contacting
             || (anomalous && self.diagnostic_report_seconds >= ANOMALY_REPORT_INTERVAL_SECONDS);
         if !should_report {
