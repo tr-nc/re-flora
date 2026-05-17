@@ -1,570 +1,263 @@
-# Water MLS-MPM Performance Roadmap
+# Water MLS-MPM 性能 Roadmap
+
+## 现状摘要
+
+当前水体性能工作的第一轮热点清理已经完成：主要的重复 terrain collision、全网格维护、过宽 collider 刷新、编辑时全量 terrain cache rebuild、以及诊断 observer effect 都已经处理。现在的重点不再是“明显重复工作”，而是基于 release 日志判断剩余的 G2P / P2G / terrain fallback / 编辑发布成本是否值得继续深挖。
+
+关键结论：
+
+- `REPORT.md` 里的老基线约为 `4.9 ms/substep`。
+- 经过 Phase 1-4 后，默认 4096 粒子路径降到约 `1.75-1.85 ms/substep`。
+- 历史 `--water-profile performance` 在 2048 粒子、`32^3` grid、120 Hz 下曾达到约 `0.88-1.02 ms/substep`。
+- 当前固定 pond 扩到 `(0,0,0)..(2,1,2)` 后，grid 是 `64x32x64`；最新显式水体 edit soak 约 `1.28-1.53 ms/substep`，随 active node 增长而上升。
+- 默认启动现在没有水粒子；无水时 `PondWaterSim::update()` 会提前返回，不再做空 substep。
+- 当前 `--water-profile performance --water-particles 2048 --water-edit-soak` 验证干净：`terrain_shadow_false_skips 0`、`no_sdf 0`，tight-contact 下只接受有界的 sub-cell coarse SDF overlap。
+
+最新代表性日志：
+
+- 当前显式水体基准：`/tmp/re-flora-logs/re-flora-20260517-113134.969-13425.log`
+  - 命令：`--water-profile performance --water-particles 2048`
+  - 结果：`1.21-1.43 ms/substep`，`terrain_shadow_false_skips 0`，`no_sdf 0`。
+- 当前 Phase 6 后 edit soak：`/home/terence/code/re-flora/target/re-flora-logs/re-flora-20260517-124000.876-32047.log`
+  - 命令：`--water-profile performance --water-particles 2048 --water-edit-soak`
+  - 结果：steady samples 约 `1.28-1.53 ms/substep`。
+  - 编辑路径：source refresh `0.750-0.985 ms/edit`，collider build `7.10-7.25 ms/edit`，region terrain cache rebuild `4.20-4.31 ms/edit`，总发布工作约 `12 ms/edit`。
+  - shadow 校验：`terrain_shadow_samples/substep 0.1`，`terrain_shadow_false_skips 0`，`no_sdf 0`。
+
+## 已完成工作的时间线
+
+### 2026-05-16：先砍热路径重复 terrain 工作
+
+- Phase 1：terrain query 先采 SDF，只在碰撞时算 normal；普通查询走直接 chunk lookup。
+- Phase 2：移除 steady-state `repair_particles()` 中重复的 terrain sweep，只在 G2P 后做 terrain correction；terrain 变化仍调用 `stabilize_after_terrain_change()`。
+- Phase 3A：增加 water-grid terrain cache，`update_grid()` 不再对每个活跃 grid node 做 live collider query。
+- Phase 3B：增加 G2P cached terrain broadphase：远离地形直接 skip，明确碰撞时 cached projection，模糊区域才 exact fallback；同时加入 shadow verification counters。
+- Phase 4：缩小 startup/edit collider scope，只刷新当前 water grid domain 相关的 terrain chunks。
+- Phase 5：加入 benchmark/tuning knobs：`--water-particles`、`--water-grid`、`--water-substep-hz`、`--water-terrain-margin-cells`、`--water-damping`、`--water-profile performance`、`--water-edit-soak`。
+
+### 2026-05-17：围绕当前 `64x32x64` pond 做实现级清理
+
+- 6A：无水粒子时跳过 `PondWaterSim::update()` 固定 substeps，清理 stale perf/diagnostic state。
+- 6B：P2G 记录 touched grid nodes，`clear_grid()` 和 `update_grid()` 改为 sparse active-node 维护。
+- 6C：startup collider chunks 从 18 个收紧到严格重叠的 4 个；startup terrain cache rebuild 批处理；编辑时只 rebuild 受影响 chunk 对应的 water-grid region + halo；terrain-change stabilization 也缩到编辑区域附近。
+- 6D：`WaterTerrainColliderChunk::sample_sdf_and_normal_ws()` 复用同一个 8-corner SDF cell 计算 SDF+gradient；`WaterTerrainColliderSet` 边界查询只检查有限相邻 chunks。
+- 6E：`PondWaterSim::log_diagnostics_after_update()` 不再每帧 exact terrain sweep；shadow exact-SDF 校验移出 `grid_to_particle_impl()`，改为每个 perf report 采样。
+
+相关提交：
+
+- `cd1cf8ec` skip empty water updates
+- `55d85e60` make water grid maintenance sparse
+- `dc1965b2` tighten water collider chunk scope
+- `de4c89e6` batch startup water collider cache rebuilds
+- `12496ed4` remove empty water terrain colliders
+- `871582a3` discard stale water collider results
+- `2f65b4f4` log water terrain cache rebuilds
+- `163a58e5` rebuild water terrain cache regions
+- `5c42f252` scope water terrain stabilization
+- `b63ff369` reuse terrain sdf samples for normals
+- `22ce2932` limit water boundary collider lookups
+- `e5d8e523` throttle water diagnostic terrain scans
+- `f8c193eb` move water shadow checks out of g2p
+
+## 当前代码状态
+
+核心文件：
+
+- `crates/re-flora-water/src/mls_mpm.rs`
+  - `PondWaterSim::update()`：空水体提前返回。
+  - `particle_to_grid()` / `clear_grid()` / `update_grid()`：active-node sparse grid 维护。
+  - `grid_to_particle_impl()`：G2P cached terrain path 和 exact fallback。
+  - `terrain_grid_particle_query()`：粒子级 cached SDF 查询。
+  - `rebuild_terrain_grid_cache()` / region rebuild：terrain cache 全量和局部刷新。
+  - `log_diagnostics_after_update()`：诊断 exact terrain 扫描节流。
+- `crates/re-flora-water/src/pond.rs`
+  - water config/profile、grid/cache 数据结构、perf counters。
+- `crates/re-flora-water/src/collider.rs`
+  - `WaterTerrainColliderChunk::sample_sdf_and_normal_ws()`：复用 SDF samples 算 normal。
+  - `WaterTerrainColliderSet`：直接 chunk lookup 和有限边界候选。
+- `src/app/core/water.rs`
+  - startup/edit terrain collider refresh、strict water-domain filtering、worker result revision 检查、edit soak。
 
-## Current implementation status
+当前风险/注意点：
+
+- `--water-profile performance` 是低 CPU 候选，不一定已经适合作为默认；仍需要 visible soak 判断水面贴地、弹性、阻尼和编辑观感。
+- tight-contact profile 不再要求 coarse collider `penetrating 0`，而是要求 `terrain_shadow_false_skips 0`、`no_sdf 0`、`terrain_sdf_min` 只出现有界 sub-cell overlap。
+- `24^3` / `16^3` grid 在历史 sweep 中不是 win：grid 成本下降，但 cached terrain 分类变差，exact fallback/correction 变多。
+- 当前 collider chunk SDF build 仍约 `7 ms/chunk`；编辑总发布工作约 `12 ms/edit`。这不是 steady-state 热点，但可能是编辑手感热点。
+- 当前 water domain 仍是固定 pond box。支持任意大水体前，需要 active water-domain/chunk set，而不是扩大成全世界 collider rebuild。
 
-We are **not finished with the full roadmap**, but the main hot-loop terrain-collision milestone is now in good shape.
+## 后续 Roadmap
 
-Current status by phase:
+### Step 1：建立新的 release 基准表
 
-| phase | status | current result |
-| --- | --- | --- |
-| Phase 1: cheap terrain queries | Done | SDF-only checks, direct chunk lookup, normal only on collision |
-| Phase 2: remove duplicate terrain repair | Done | steady-state pre-P2G terrain sweep removed |
-| Phase 3A: water-grid terrain cache | Done | grid-node terrain collision moved out of the hot loop |
-| Phase 3B: G2P terrain broadphase/cache | Implemented, hidden/edit soak clean; needs more scene coverage/tuning | cached skip/projection path is active and shadow-verified in perf runs |
-| Phase 4: collider scope/startup | Implemented and edit-soak benchmarked | startup/edit collider refreshes are limited to water-grid-domain chunks |
-| Phase 5: solver scaling/tuning options | Implemented and hidden edit-soaked; needs another visible tuning pass | CLI sweep knobs plus `--water-profile performance`; visual soak found contact/damping tuning issues and the profile has been adjusted |
-| Phase 6: implementation-review optimization backlog | Implemented through 6E; soak/tuning remains | empty idle, sparse grid maintenance, strict collider scope, batched startup cache, partial edit cache rebuilds, scoped stabilization, exact-sample reductions, and diagnostic throttling are implemented |
-
-Latest representative release result:
+目标：在 Phase 6 清理后重新确认真实剩余热点，避免继续按旧数据优化。
 
-- Baseline from `REPORT.md`: ~4.9 ms/substep.
-- Current Phase 3A release samples: ~1.95-1.99 ms/substep.
-- Current Phase 3B/Phase 4 default release samples: ~1.75-1.85 ms/substep.
-- Previous Phase 5 performance-profile samples: ~0.88-1.02 ms/substep at 120 Hz with 2048 explicitly requested particles, before the fixed pond domain grew to `(0,0,0)..(2,1,2)` and the grid changed to `64x32x64`.
-- Current explicit-water performance-profile sample: `/tmp/re-flora-logs/re-flora-20260517-113134.969-13425.log`, command `--water-profile performance --water-particles 2048`, reported `1.21-1.43 ms/substep` at 120 Hz on the `64x32x64` grid. `terrain_shadow_false_skips 0`, `no_sdf 0`, and bounded coarse-collider overlap stayed intact.
-- Current no-startup-water sample before 6A: `/tmp/re-flora-logs/re-flora-20260517-113209.862-14113.log`, command `--water-profile performance` with `particles 0`, still spent `0.266 ms/substep` clearing/scanning the empty `64x32x64` grid. After 6A, empty-water runs emit no `[PERF][WATER]` because no water substeps run.
-- After visible contact tuning, the performance profile intentionally targets the coarse terrain SDF surface instead of a positive keep-out gap. Hidden logs now show bounded sub-cell coarse-SDF overlap (`terrain_sdf_min` roughly `-0.005..-0.009`) rather than requiring `penetrating 0` against the lower-resolution water collider.
-- Phase 3B shadow verification has reported `terrain_shadow_false_skips 0` in the latest release runs, including a 10-second performance-profile screenshot soak, scripted terrain-edit soaks, and the later contact/damping/grid-contact tuning runs.
-- Current post-Phase-6 edit soak: `/home/terence/code/re-flora/target/re-flora-logs/re-flora-20260517-124000.876-32047.log`, command `--water-profile performance --water-particles 2048 --water-edit-soak`, reported edit cache region rebuilds at `4.20-4.31 ms` for `34848` nodes, collider builds at `7.10-7.25 ms`, `terrain_shadow_samples/substep 0.1`, `terrain_shadow_false_skips 0`, and steady explicit-water samples around `1.28-1.53 ms/substep` as the active node set grew.
+执行：
 
-The steady-state hot issue has shifted from mostly G2P terrain collision to a mix of G2P gather/terrain plus sparse-grid maintenance on the larger `64x32x64` domain:
+1. 跑三类 release hidden benchmark：
+   - 空水体：`--water-profile performance`
+   - 显式水体：`--water-profile performance --water-particles 2048`
+   - 编辑 soak：`--water-profile performance --water-particles 2048 --water-edit-soak`
+2. 从最新日志提取这些字段：
+   - `avg/substep`
+   - `p2g`
+   - `grid`
+   - `g2p`
+   - `g2p_gather`
+   - `g2p_terrain`
+   - `active_nodes/substep`
+   - `terrain_exact_checks/substep`
+   - `terrain_exact_fallbacks/substep`
+   - `terrain_cache_skips/substep`
+   - `terrain_cache_projections/substep`
+   - `terrain_shadow_false_skips`
+   - `terrain_sdf_min`
+   - edit path 的 `[WATER][TERRAIN_CACHE]` 和 `[WATER][TERRAIN] built collider`。
+3. 把最新基准写回本文件，替换上面的“最新代表性日志”。
 
-- Historical Phase 2 exact terrain checks: `4096/substep`
-- Historical Phase 3A exact terrain checks: `~4031-4096/substep`
-- Historical Phase 3B exact terrain checks: `~2526-2892/substep`
-- Current explicit 2048-particle `64x32x64` run: exact terrain checks settled around `~26-87/substep`, while `clear + grid` cost was roughly `0.42-0.57 ms/substep` and G2P gather/terrain together remained a large share.
+完成标准：
 
-The main Phase 6 collider/cache/diagnostic quick wins are now implemented. The next meaningful work is broader release/visible soak coverage, then careful exact-fallback tuning or solver-level changes only if the remaining `g2p_terrain` and grid costs justify the behavior risk.
+- 工作区干净。
+- hidden release runs 成功退出。
+- 新基准能明确指出下一个最大项是 `g2p_gather`、`g2p_terrain`、`p2g`、`grid`，还是 edit publication。
 
-## Current diagnosis
+### Step 2：做 visible/手动观感验证
 
-`REPORT.md` shows the visual particle path is cheap. The bottleneck was, and still mostly is, CPU water MLS-MPM terrain collision work.
+目标：确认当前 performance profile 的视觉表现，而不是只看 hidden 日志。
 
-Resolved findings:
+执行：
 
-- SDF-only terrain checks no longer compute normals by accident.
-- Terrain collider set lookup now uses direct unit chunk lookup for ordinary samples, with scan fallback for boundaries/misses.
-- Steady-state `repair_particles()` no longer repeats a full terrain collision pass before P2G.
-- `update_grid()` uses cached water-grid terrain samples instead of live SDF/normal queries per active node.
-- The cached normal band is wider than the actual grid-node collision band; visible tuning showed that using the whole normal-cache band as a collision band held water artificially far from terrain.
-- Non-perf simulation avoids per-particle `Instant::now()` timing overhead.
+1. 跑 visible app：
+   - `cargo run --release -- --perf --water-profile performance --water-particles 2048`
+2. 观察：
+   - 水是否贴地过深或离地有缝。
+   - 水是否过弹、过黏、或明显抖动。
+   - terrain 编辑后水是否及时稳定。
+3. 如果需要手动 terrain 编辑，再请用户手动操作；否则继续用 `--water-edit-soak` 做自动回归。
 
-Remaining findings:
+完成标准：
 
-- Empty-water fixed substeps are now skipped in `PondWaterSim::update()`, clearing stale accumulators and perf/diagnostic stats while no particles exist.
-- G2P gather and remaining G2P terrain work are still large steady-state costs when water is present.
-- Full-grid maintenance has been made sparse over touched P2G nodes. The dense `64x32x64` grid storage remains, but clear/update no longer scan every node.
-- The cached trilinear SDF path now skips far particles and directly projects clearly colliding particles, but ambiguous near-surface particles still use exact collider fallback.
-- Diagnostic logging now avoids exact terrain SDF stats on ordinary frames. It does cheap no-terrain particle stats for short-interval anomaly gating, then runs exact terrain debug stats only on the report/anomaly path.
-- Perf shadow validation now runs once per perf report instead of inside every measured G2P substep. The metric still reports a per-substep rate, but the expensive exact-SDF validation no longer charges the hot loop.
-- Startup collider publication now batches terrain-grid cache rebuild/stabilization once after all startup chunks are ready, and edit publication rebuilds only the changed chunk's overlapped water-grid region plus halo.
-- Measured edit-path costs before partial region rebuild showed the independent per-chunk collider SDF build was not the dominant hitch: source refresh was about `0.8-0.9 ms`, collider build about `7.2 ms`, and the old full `64x32x64` `terrain_grid` cache rebuild about `22.1 ms` per edited chunk. Current region rebuilds cover `34848` nodes and take about `4.2-4.3 ms` for the scripted `(1,0,1)` edit chunk.
-- Startup water-domain selection now uses strict overlap, so the fixed `(0,0,0)..(2,1,2)` pond enqueues the `4` overlapping chunks instead of including max-boundary chunks.
+- 如果视觉 OK：进入 Step 3/4 做性能优化。
+- 如果视觉不 OK：先调 `terrain margin`、grid-node contact band、damping、substep Hz；每次调参都跑 hidden edit soak。
 
-## Implemented phases
+### Step 3：只在有证据时继续调 cached terrain fallback
 
-### Phase 1: make existing collision checks cheap
+目标：降低 `g2p_terrain` / exact fallback，但不能牺牲 terrain contact 安全。
 
-Goal: reduce terrain query cost without changing water behavior.
+候选方向：
 
-Implemented:
+1. 小步调整 cached SDF slack / projection threshold。
+2. 评估是否为 terrain grid 存更稳定的 gradient/normal，减少 ambiguous fallback。
+3. 如果 fallback 仍高，考虑 per-cell classification cache：`empty` / `cached-projectable` / `exact-required`。
+4. 保留 shadow verification，并在 perf report 中继续抽样 exact SDF。
 
-1. Terrain collision queries SDF first and computes normals only when `sdf <= collision_margin`.
-2. `WaterTerrainColliderSet::sample_sdf_ws()` is SDF-only.
-3. Collider set sampling uses direct chunk lookup for ordinary samples, with scan fallback for exact chunk boundaries or misses.
-4. Fine-grained per-particle timing is only active in the perf-detail path.
+禁止条件：
 
-Release benchmark command:
+- 只要出现 `terrain_shadow_false_skips > 0`，立即回退。
+- `no_sdf` 不能变成非零。
+- tight-contact 下 `terrain_sdf_min` 只能是小范围 sub-cell overlap，不能持续加深。
 
-```bash
-zsh -lc 'source ~/.zshrc && cargo run --release -- --hidden --auto-exit 4 --perf'
-```
+完成标准：
 
-Baseline from `REPORT.md`:
+- `g2p_terrain` 或 `terrain_exact_checks/substep` 有稳定下降。
+- `avg/substep` 有 release 可复现改善。
+- hidden edit soak 和 visible 观感都不退化。
 
-| metric | before phase 1 |
-| --- | ---: |
-| particles | 4096 |
-| grid | 32^3 |
-| substeps/report | 192 |
-| total water time | ~945 ms |
-| avg/substep | ~4.9 ms |
-| G2P total | ~492 ms |
-| G2P terrain | ~319 ms |
-| repair | ~225 ms |
-| terrain checks/substep | 4096 in G2P plus full repair sweep |
+### Step 4：优化剩余 P2G/G2P gather CPU 成本
 
-After Phase 1:
+目标：如果 Step 1 显示 `g2p_gather` 或 `p2g` 已经超过 terrain fallback，转向粒子-grid 核心循环。
 
-Run log: `/tmp/re-flora-logs/re-flora-20260516-224936.851-112893.log`
+候选方向：
 
-| metric | sample A | sample B |
-| --- | ---: | ---: |
-| substeps/report | 240 | 243 |
-| total water time | 798.44 ms | 856.86 ms |
-| avg/substep | 3.327 ms | 3.526 ms |
-| repair | 120.17 ms | 136.56 ms |
-| G2P total | 478.87 ms | 518.23 ms |
-| G2P terrain | 261.88 ms | 297.21 ms |
-| terrain checks/substep | 4096 | 4096 |
-| penetrating | 0 | 0 |
-| no_sdf | 0 | 0 |
+1. 在 release 日志里先确认 P2G/G2P 占比和粒子数线性关系。
+2. 检查 3x3x3 kernel 中是否有可 hoist 的重复计算：cell base、weights、bounds、node index stride。
+3. 评估是否能复用 P2G/G2P 的权重计算，或把 per-axis weights/gradients 缓存在 stack 小数组中。
+4. 保持数据结构简单，先做单线程微优化；不要过早引入并行 scatter。
 
-Interpretation:
+完成标准：
 
-- Overall water step cost improved by about 28-32%.
-- Repair became much cheaper, but all particles were still checked against terrain in G2P.
-
-### Phase 2: avoid duplicate collision passes
-
-Goal: stop doing two full particle terrain sweeps per substep.
-
-Implemented:
-
-1. `repair_particles()` now separates steady-state state repair from terrain repair.
-2. Normal substeps keep finite/box/J/speed cleanup.
-3. Terrain correction remains in G2P after advection.
-4. Terrain changes still call `stabilize_after_terrain_change()`, which pushes particles out of the new collider immediately.
-
-Release benchmark:
-
-Run log: `/tmp/re-flora-logs/re-flora-20260516-225544.645-114132.log`
-
-| metric | after phase 1 A | after phase 1 B | after phase 2 |
-| --- | ---: | ---: | ---: |
-| substeps/report | 240 | 243 | 242 |
-| total water time | 798.44 ms | 856.86 ms | 726.84 ms |
-| avg/substep | 3.327 ms | 3.526 ms | 3.003 ms |
-| repair | 120.17 ms | 136.56 ms | 12.92 ms |
-| G2P total | 478.87 ms | 518.23 ms | 516.27 ms |
-| G2P terrain | 261.88 ms | 297.21 ms | 294.94 ms |
-| terrain checks/substep | 4096 | 4096 | 4096 |
-| penetrating | 0 | 0 | 0 |
-| no_sdf | 0 | 0 | 0 |
-
-Interpretation:
-
-- Pre-substep repair cost dropped to roughly 0.05 ms/substep.
-- Overall water step cost improved to ~3.0 ms/substep.
-- G2P terrain remained dominant and still checked every particle.
-
-### Phase 3A: cache terrain on the water grid
-
-Goal: avoid live terrain SDF/normal sampling for grid-node terrain collision.
-
-Implemented code:
-
-- `WaterTerrainGridSample` in `crates/re-flora-water/src/pond.rs`.
-- `PondWaterSim::terrain_grid` cache in `crates/re-flora-water/src/pond.rs`.
-- `PondWaterSim::rebuild_terrain_grid_cache()` in `crates/re-flora-water/src/mls_mpm.rs`.
-- Cache rebuilds on terrain set, chunk insert, and terrain clear.
-- `update_grid()` uses cached terrain normals instead of live collider queries, but only applies grid velocity collision in the tight contact band; the wider near-surface cache band is for G2P normal reuse and must not make water hover.
-
-Implemented cache contents:
-
-- `sdf`
-- `normal`
-- `near_surface`
-- `has_sdf`
-
-Release benchmark:
-
-Run logs:
-
-- `/tmp/re-flora-logs/re-flora-20260516-230119.097-116570.log`
-- `/tmp/re-flora-logs/re-flora-20260516-230222.890-117415.log`
-
-Representative samples:
-
-| metric | after phase 2 | phase 3 sample A | phase 3 sample B | phase 3 sample C |
-| --- | ---: | ---: | ---: | ---: |
-| particles | 4096 | 4096 | 4096 | 4096 |
-| grid | 32^3 | 32^3 | 32^3 | 32^3 |
-| substeps/report | 242 | 240 | 240 | 241 |
-| total water time | 726.84 ms | 467.51 ms | 468.63 ms | 479.30 ms |
-| avg/substep | 3.003 ms | 1.948 ms | 1.953 ms | 1.989 ms |
-| repair | 12.92 ms | 12.86 ms | 12.59 ms | 12.69 ms |
-| grid | 121.72 ms | 16.80 ms | 18.13 ms | 16.69 ms |
-| G2P total | 516.27 ms | 359.99 ms | 359.94 ms | 372.42 ms |
-| G2P terrain | 294.94 ms | 127.32 ms | 112.77 ms | 127.47 ms |
-| terrain checks/substep | 4096 | 4096 | 4031 | 4050 |
-| active nodes/substep | 3066 | 2291 | 2488 | 2291 |
-| penetrating | 0 | 0 | 0 | 0 |
-| no_sdf | 0 | 0 | 0 | 0 |
-
-Interpretation:
-
-- Overall water step cost improved from ~3.0 ms/substep to ~1.95-1.99 ms/substep.
-- The biggest confirmed win is the grid-node terrain cache: grid time dropped from ~122 ms/report to ~17-18 ms/report.
-- G2P terrain time also dropped, but exact terrain checks are still almost one per particle per substep.
-
-### Phase 3B: cached G2P terrain collision
-
-Status: implemented with clean hidden/edit soak; needs more scene coverage/tuning before calling the whole phase complete.
-
-Implemented:
-
-- Added G2P terrain counters:
-  - `terrain_cache_skips/substep`
-  - `terrain_cache_projections/substep`
-  - `terrain_exact_fallbacks/substep`
-  - `terrain_exact_checks/substep`
-  - `terrain_exact_corrections/substep`
-  - `terrain_shadow_samples/substep`
-  - `terrain_shadow_false_skips`
-  - `terrain_shadow_sdf_err_avg`
-  - `terrain_shadow_sdf_err_max`
-- Replaced the boolean broadphase with `terrain_grid_particle_query()`.
-- The query interpolates cached SDF from the 8 surrounding water-grid nodes.
-- The query derives a normal from the trilinear cached-SDF gradient.
-- G2P now has three paths:
-  - skip exact terrain work when cached SDF is safely outside the collision margin plus slack;
-  - project directly with cached SDF/normal when cached SDF is clearly colliding;
-  - fall back to exact collider sampling for invalid cache data, out-of-grid particles, ambiguous near-surface particles, or invalid gradients.
-- Perf logging shadow-samples a deterministic subset of cached skip/projection decisions with the exact collider and reports false skips plus cached-vs-exact SDF error.
-
-Release benchmark:
-
-Run logs:
-
-- `/tmp/re-flora-logs/re-flora-20260516-231428.005-119895.log`
-- `/tmp/re-flora-logs/re-flora-20260516-231849.292-121006.log`
-- `/tmp/re-flora-logs/re-flora-20260516-232008.680-121537.log`
-
-| metric | phase 3A sample B | phase 3B initial | phase 3B tuned A | phase 3B tuned B | phase 3B tuned C |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| substeps/report | 240 | 240 | 217 | 240 | 241 |
-| total water time | 468.63 ms | 432.12 ms | 401.04 ms | 428.25 ms | 421.42 ms |
-| avg/substep | 1.953 ms | 1.800 ms | 1.848 ms | 1.784 ms | 1.749 ms |
-| repair | 12.59 ms | 12.64 ms | 11.20 ms | 12.41 ms | 12.46 ms |
-| grid | 18.13 ms | 16.01 ms | 16.97 ms | 17.31 ms | 16.32 ms |
-| G2P total | 359.94 ms | 326.03 ms | 302.16 ms | 318.84 ms | 313.19 ms |
-| G2P terrain | 112.77 ms | 104.68 ms | 105.17 ms | 98.11 ms | 93.75 ms |
-| cache skips/substep | n/a | 847 | 741 | 1635 | 1602 |
-| cache projections/substep | n/a | 572 | 1233 | 409 | 572 |
-| exact fallbacks/substep | n/a | 2677 | 2122 | 2051 | 1922 |
-| exact checks/substep | 4031 | 2677 | 2122 | 2051 | 1922 |
-| exact corrections/substep | n/a | 88 | 224 | 117 | 88 |
-| shadow samples/substep | n/a | 25.2 | 13.0 | 23.1 | 26.9 |
-| shadow false skips | n/a | 0 | 0 | 0 | 0 |
-| shadow SDF avg abs error | n/a | 0.00183 | 0.00143 | 0.00157 | 0.00185 |
-| shadow SDF max abs error | n/a | 0.00367 | 0.00624 | 0.00471 | 0.00441 |
-| penetrating | 0 | 0 | 0 | 0 | 0 |
-| no_sdf | 0 | 0 | 0 | 0 | 0 |
-
-Interpretation:
-
-- Overall water step cost improved again, from ~1.95-1.99 ms/substep after Phase 3A to ~1.75-1.85 ms/substep after Phase 3B tuning.
-- Exact G2P terrain checks dropped from almost all particles to roughly 47-52% of particles per substep in the tuned samples.
-- Cached projection is active and release validation stayed clean in these runs.
-- Shadow validation sampled cached decisions and found no false skips in the latest release runs.
-- Reducing interpolation slack from `dx * 0.5` to `dx * 0.25` improved exact fallback counts without causing observed penetration or false skips.
-- `g2p_terrain` improved only modestly because many particles still take exact fallback and the cached query/projection path has its own cost.
-
-Recommended next steps:
-
-1. Expand soak coverage beyond the current pond scene and the scripted edit sequence.
-2. Tune fallback slack only while `terrain_shadow_false_skips` remains zero and coarse-collider overlap stays bounded to a small sub-cell band.
-3. Consider storing a cached gradient/normal for all terrain-grid nodes, not just near-surface nodes, if it reduces query cost or improves cached projection quality.
-4. If exact fallbacks remain high after tuning, consider a coarser per-cell classification cache: empty / cached-projectable / exact-required.
-
-Phase 3B completion criteria:
-
-- No missed terrain contacts: `terrain_shadow_false_skips 0` remains true across several release hidden runs.
-- Coarse-collider overlap remains bounded to a small sub-cell band in tight-contact profiles, or `penetrating 0` remains true in conservative profiles.
-- Shadow verification reports no missed terrain contacts for skipped particles.
-- Exact G2P terrain checks are substantially below particle count in representative scenes.
-- `g2p_terrain` is no longer a dominant sub-cost relative to G2P gather, or further reductions require solver-level changes.
-
-## Later phases
-
-### Phase 4: reduce terrain collider scope and startup work
-
-Status: implemented, release-benchmarked, and validated with a scripted terrain-edit soak.
-
-Goal: avoid building and publishing colliders that cannot affect the pond.
-
-Implemented work:
-
-1. Startup collider refresh now only enqueues chunks in the water grid domain: `floor(water_min)..=floor(water_max)`.
-2. Terrain edit invalidation rebuilds the affected mesh chunks first, then refreshes water collider sources only for those rebuilt chunks that intersect the current water grid domain.
-3. Startup logging reports enqueued water-domain chunks and skipped out-of-domain chunks.
-4. Direct chunk lookup and scan fallback behavior remain intact.
-
-Important scope note: this is deliberately domain-filtered, not a global all-world collider rebuild. With the current fixed pond box it effectively builds only the chunks that can touch that pond. For unrestricted future water, replace the fixed pond box with an active water-domain/chunk set and build terrain colliders lazily or by priority for every chunk that active water can occupy; do not rebuild every world chunk on every terrain edit.
-
-Expected effect: lower startup GPU solid readback, fewer worker jobs, fewer collider chunks published, and smaller terrain cache rebuild input. For the current fixed water box `(0,0,0)..(2,1,2)`, the startup candidate set drops from the full `5 x 2 x 5 = 50` terrain chunks to at most `3 x 2 x 3 = 18` water-domain chunks before empty-terrain filtering.
-
-Release validation:
-
-- Run log: `/tmp/re-flora-logs/re-flora-20260516-233023.731-125389.log`
-- Startup log: `enqueued startup collider rebuilds for 18 water-domain chunks, skipped 32 out-of-domain chunks`.
-- Water perf stayed in the Phase 3B range:
-  - `1.868 ms/substep`, then `1.764 ms/substep`, then `1.740 ms/substep`.
-  - `terrain_shadow_false_skips 0`, `penetrating 0`, `no_sdf 0`.
-- Scripted terrain-edit soak log: `/tmp/re-flora-logs/re-flora-20260517-001053.304-132670.log`
-  - command: `--water-profile performance --water-edit-soak`
-  - applied three deterministic pond-edge edits: dig, rock placement, dig.
-  - each edit refreshed/rebuilt only the affected water-domain collider chunk `UVec3(1, 0, 1)`.
-  - collider rebuild stayed bounded at roughly `7-8 ms` per edited chunk.
-  - validation stayed clean: `terrain_shadow_false_skips 0`, `penetrating 0`, `no_sdf 0`.
-- This phase mainly reduces startup/edit collider scope; it is not expected to materially change steady-state solver time.
-
-### Phase 5: solver-level scaling options
-
-Status: implementation complete and hidden edit-soaked; still needs visible interactive soak before becoming the default.
-
-Goal: preserve appearance while lowering total CPU budget after hot-loop waste is removed.
-
-Implemented work:
-
-1. Added release-benchmark sweep knobs:
-   - `--water-particles <N>`
-   - `--water-grid <N>` for cubic grid dimension
-   - `--water-substep-hz <Hz>` for fixed substep rate
-2. Added visual/feel tuning knobs:
-   - `--water-terrain-margin-cells <C>` controls the particle keep-out distance from terrain in water-grid cells.
-   - `--water-damping <PerSec>` controls linear velocity damping for the water grid.
-3. Added an automated terrain-edit validation flag:
-   - `--water-edit-soak`: applies a deterministic pond-edge dig/place/dig sequence after startup water collider work is idle.
-4. Added named water profile selection:
-   - `--water-profile default`: current quality/default config, no startup particles, 64x32x64 grid, 240 Hz substeps. Add water explicitly with `--water-particles <N>`.
-   - `--water-profile performance`: lower-CPU candidate, no startup particles, 64x32x64 grid, 120 Hz substeps, zero-cell terrain margin, tight grid-node contact, and 1.5/s damping. Add water explicitly with `--water-particles <N>`.
-5. Water startup logs the selected profile, effective particle count, grid dimension, substep dt, terrain margin, and damping.
-6. Changing particle count preserves the intended total fill volume by rescaling per-particle volume.
-7. Explicit particle/grid/substep/contact/damping CLI overrides are applied after the named profile, so profiles remain easy to tweak during sweeps.
-
-Initial release validation (historical, before the default was changed to start without water particles):
-
-- Default config log: `/tmp/re-flora-logs/re-flora-20260516-233315.367-126594.log`
-  - effective config: `particles=4096 grid=UVec3(32, 32, 32) substep_dt=0.004167s`
-  - representative samples: `1.854`, `1.790`, `1.781 ms/substep`
-  - `terrain_shadow_false_skips 0`, `penetrating 0`, `no_sdf 0`
-- Half-particle sweep log: `/tmp/re-flora-logs/re-flora-20260516-233332.832-126982.log`
-  - command: `--water-particles 2048`
-  - effective config: `particles=2048 grid=UVec3(32, 32, 32) substep_dt=0.004167s`
-  - representative samples: `0.984`, `0.941`, `0.927 ms/substep`
-  - `terrain_shadow_false_skips 0`, `penetrating 0`, `no_sdf 0`
-  - expected linear-ish particle scaling is visible in P2G/G2P and particle upload.
-
-Additional Phase 5 sweeps:
-
-| config | log | representative avg/substep | notes |
-| --- | --- | ---: | --- |
-| old default before the 2x1x2 box: 4096 particles, 32^3, 240 Hz | `/tmp/re-flora-logs/re-flora-20260516-233315.367-126594.log` | 1.78-1.85 ms | historical quality/default baseline |
-| 2048 particles, 32^3, 240 Hz | `/tmp/re-flora-logs/re-flora-20260516-233332.832-126982.log` | 0.93-0.98 ms | best pure particle-count win; keeps 240 Hz stability |
-| 4096 particles, 24^3, 240 Hz | `/tmp/re-flora-logs/re-flora-20260516-234751.534-128074.log` | 1.86-1.91 ms | grid work drops, but coarser cached SDF raises exact fallbacks/G2P terrain; not a win |
-| 4096 particles, 16^3, 240 Hz | `/tmp/re-flora-logs/re-flora-20260516-234804.067-128384.log` | 2.05-2.08 ms | too coarse; many exact fallbacks/corrections; not a win |
-| 4096 particles, 32^3, 120 Hz | `/tmp/re-flora-logs/re-flora-20260516-234816.156-128686.log` | 1.77-1.82 ms | per-substep similar to default, but roughly half the substeps per second |
-| 2048 particles, 32^3, 120 Hz | `/tmp/re-flora-logs/re-flora-20260516-234832.306-128986.log` | 0.95-0.99 ms | best measured low-CPU candidate |
-| old `--water-profile performance` before the 2x1x2 box | `/tmp/re-flora-logs/re-flora-20260516-235018.242-129739.log` | 0.96-0.99 ms | historical profile mapped to 2048 particles, 32^3 grid, 120 Hz |
-| `--water-profile performance` 10s screenshot soak | `/tmp/re-flora-logs/re-flora-20260516-235536.196-131139.log` | 0.94-0.99 ms | screenshot `/tmp/re-flora-water-performance.png`; stable hidden run |
-| `--water-profile performance --water-edit-soak` | `/tmp/re-flora-logs/re-flora-20260517-001053.304-132670.log` | 0.94-1.00 ms | three scripted pond terrain edits; collider refresh/rebuild path stayed clean |
-| tuned `--water-profile performance` | `/tmp/re-flora-logs/re-flora-20260517-004631.454-136366.log` | 0.94-0.99 ms | 0.2-cell terrain margin plus 1.5/s damping; `terrain_sdf_min` dropped to ~0.002-0.003 |
-| tuned `--water-profile performance --water-edit-soak` | `/tmp/re-flora-logs/re-flora-20260517-004700.160-136817.log` | 0.88-1.02 ms | 0.2-cell terrain margin plus damping; hidden edit validation stayed clean |
-| tight-grid-contact `--water-profile performance` | `/tmp/re-flora-logs/re-flora-20260517-005709.303-138961.log` | 0.94-1.00 ms | grid-node collision uses only the true contact band; profile margin is now 0.0 cells; bounded coarse-SDF overlap |
-| tight-grid-contact `--water-profile performance --water-edit-soak` | `/tmp/re-flora-logs/re-flora-20260517-005812.791-139695.log` | 0.88-0.98 ms | three scripted edits; `terrain_shadow_false_skips 0`, `no_sdf 0`, bounded `terrain_sdf_min` around `-0.005..-0.009` |
-| current 2x1x2 box `--water-profile performance --water-particles 2048` | `/tmp/re-flora-logs/re-flora-20260517-113134.969-13425.log` | 1.21-1.43 ms | current `64x32x64` grid; exact terrain checks settled to `~26-87/substep`, `terrain_shadow_false_skips 0`, `no_sdf 0`; clear+grid is now a major cost |
-| current no-startup-water `--water-profile performance` | `/tmp/re-flora-logs/re-flora-20260517-113209.862-14113.log` | 0.266 ms | `particles 0`; all cost is unnecessary full-grid clear/update and should be skipped |
-
-Interpretation:
-
-- Reducing particle count scales the dominant P2G/G2P work nearly linearly and also halves visual water-debug upload cost.
-- Reducing grid resolution alone is counterproductive in this scene because the cached terrain broadphase gets less precise; grid-node work drops but G2P terrain exact fallbacks/corrections rise.
-- Reducing substep rate to 120 Hz does not change per-substep cost much, but roughly halves the number of water substeps per second. It needs visual/gameplay soak for stability and appearance.
-- In that sweep, the performance profile was the best measured low-CPU candidate: 2048 particles, 32^3 grid, 120 Hz.
-- After the fixed pond grew to `(0,0,0)..(2,1,2)`, the current profile uses `64x32x64` so per-substep cost is higher. It still runs at 120 Hz, but sparse grid maintenance is now the most promising way to recover the old profile cost.
-- Because the default starts with no water particles, release perf commands must pass `--water-particles <N>` when measuring water simulation; otherwise the run mostly measures empty-grid overhead.
-- A visible interactive soak found two visual/feel issues: particles were kept visibly too far from terrain, and the water felt too elastic/undamped.
-- The first follow-up tuning reduced the performance-profile terrain keep-out margin from 0.5 grid cells to 0.2 grid cells and added 1.5/s velocity damping. Hidden logs reported `terrain_sdf_min` around `0.002-0.004` instead of the earlier `~0.013-0.015`, while staying non-penetrating.
-- A second visible-feedback pass found the remaining stable gap was mostly caused by grid-node velocity collision using the whole near-surface normal-cache band. The fix keeps normals cached in the wide band but applies grid velocity projection only when node SDF is inside the actual contact margin. The performance profile now uses a 0.0-cell terrain margin to prioritize visual contact.
-- Because the water collider is a 32^3 SDF built from a 256^3 terrain chunk, zero-margin visual contact can produce small negative coarse-SDF readings. Current acceptance for the tight profile is bounded sub-cell overlap plus `terrain_shadow_false_skips 0` and `no_sdf 0`, not `penetrating 0` against the coarse collider.
-- The 10-second hidden screenshot soak saved a plausible frame with visible pond water and no obvious missing-water/terrain-penetration artifact in the captured view.
-- The scripted terrain-edit soak applied `shore-dig-a`, `shore-rock-place`, and `shore-dig-b`; the water collider source refreshed chunk `UVec3(1, 0, 1)` and published updated collider revisions without broad out-of-domain work.
-- Conservative sweep and soak samples kept `terrain_shadow_false_skips 0`, `penetrating 0`, and `no_sdf 0`; the current tight-contact performance profile keeps `terrain_shadow_false_skips 0` and `no_sdf 0` with bounded coarse-collider overlap.
-
-Current recommendation:
-
-- Keep the default profile unchanged for quality/stability and no-startup-water behavior, but skip empty water simulation work as soon as possible.
-- Treat `--water-profile performance --water-particles 2048` as the current explicit-water low-CPU benchmark preset.
-- Do not reduce the water grid below 32^3 for this scene; 24^3 and 16^3 were slower due to less precise cached terrain classification. For the current 2x1x2 box, prefer sparse maintenance on `64x32x64` over reducing grid resolution blindly.
-
-Remaining work:
-
-1. Re-run the performance profile in an interactive visible app run and judge whether zero-cell contact margin, tight grid-node collision, and 1.5/s damping fix the observed gap/bounciness.
-2. Repeat terrain-edit soak in a visible/manual session if visual artifacts are suspected; the hidden scripted soak is clean.
-3. Use additional release soak coverage before tightening the cached-SDF fallback slack further; only tune while `terrain_shadow_false_skips 0`, `no_sdf 0`, and bounded coarse-SDF overlap stay stable.
-4. Expand from the fixed pond box to an active water-domain/chunk set before supporting arbitrary large water bodies.
-5. Decide whether `--water-profile performance` should become a GUI/settings preset.
-6. Try adaptive CFL limits only if the fixed 120 Hz profile shows instability or visual artifacts.
-7. Consider CPU parallelism or GPU/storage-buffer paths only after the implemented sparse/cache/collider/diagnostic wins are measured in representative scenes.
-
-### Phase 6: implementation-review optimization backlog
-
-Status: implemented through 6E. These were the highest-confidence follow-ups from inspecting the current water collider and MLS-MPM implementation after the default changed to no startup particles and the pond domain grew to `(0,0,0)..(2,1,2)`. Remaining work is validation breadth, conservative fallback tuning, and higher-risk solver/parallelism options.
-
-#### 6A. Skip empty-water simulation work
-
-Status: implemented. Empty updates now return before accumulating fixed substeps and reset stale perf/diagnostic state so later debug spawns do not replay a backlog.
-
-Validation:
-
-- `/tmp/re-flora-logs/re-flora-20260517-114132.829-15975.log`, command `--water-profile performance`, emitted no `[PERF][WATER]` or `[WATER][DIAG]` lines because no water substeps ran while `particles 0`.
-
-Evidence before implementation:
-
-- Log: `/tmp/re-flora-logs/re-flora-20260517-113209.862-14113.log`
-- Command: `--water-profile performance`
-- `particles 0 grid UVec3(64, 32, 64) nodes 131072 substeps 120 total 31.90ms avg 0.266ms/substep`
-- The cost is entirely unnecessary: `clear 15.75ms`, `grid 16.09ms`, with `active_nodes/substep 0`.
-
-Implementation:
-
-- Added an early return in `PondWaterSim::update()` when `particles.is_empty()`.
-- Reset `accumulator`, perf stats, diagnostic stats, diagnostic timing, and `last_terrain_contact_particles` while empty.
-- Added a unit test covering the idle reset path.
-
-Expected benefit: default no-water runs stop paying about `32 ms/s` of CPU on the performance profile, and twice that order on the 240 Hz default profile.
-
-#### 6B. Sparse active-node clear and grid update
-
-Status: implemented. P2G now records unique touched node indices, `clear_grid()` only resets the previous touched set, and `update_grid()` iterates touched nodes using precomputed boundary flags.
-
-Validation:
-
-- `/tmp/re-flora-logs/re-flora-20260517-114711.270-18727.log`, command `--water-profile performance --water-particles 2048`, reported `1.334 ms/substep` with `clear 8.93ms` and `grid 41.22ms` over `121` substeps (`~0.074ms` clear and `~0.341ms` grid per substep). `terrain_shadow_false_skips 0`, `no_sdf 0`, and bounded tight-contact overlap remained intact.
-- Added a unit test that verifies touched-node uniqueness, sparse active-node accounting, and sparse clear reset.
-
-Evidence before implementation:
-
-- Current explicit-water log: `/tmp/re-flora-logs/re-flora-20260517-113134.969-13425.log`
-- Command: `--water-profile performance --water-particles 2048`
-- `grid UVec3(64, 32, 64)` has `131072` nodes, but active nodes were about `13k` early and `28k-34k` later.
-- Representative costs on the larger grid:
-  - `clear`: about `0.16-0.17 ms/substep`
-  - `grid`: about `0.25-0.40 ms/substep`
-  - combined clear+grid: about `0.42-0.57 ms/substep`, a large share of `1.21-1.43 ms/substep` total.
-
-Implementation:
-
-- Track touched node indices during P2G by pushing an index only when node mass transitions from zero to nonzero.
-- Clear only the previous touched-node list.
-- Run `update_grid()` only over touched nodes, not every node in the dense grid.
-- Keep the dense `grid` storage for simple indexed P2G/G2P; only maintenance/update is sparse.
-- Precompute boundary flags so sparse `update_grid()` does not need per-node coordinate division for wall collision checks.
-
-Expected benefit: recovers part of the cost added by moving from `32^3` to `64x32x64`, especially when the water body occupies a small fraction of the fixed box.
-
-#### 6C. Tighten startup/edit collider domain and cache rebuilds
-
-Status: implemented. Startup/edit source selection uses strict chunk overlap, worker submission skips empty solid source chunks, startup collider publication batches the terrain-grid cache rebuild/stabilization once after the startup collider set is ready, and edit publication rebuilds only the changed chunk's water-grid region plus a halo. Terrain-change stabilization is scoped to the edited chunk halo instead of sweeping all particles.
-
-Validation:
-
-- `/tmp/re-flora-logs/re-flora-20260517-115020.363-20164.log`, command `--water-profile performance`, reported `enqueued startup collider rebuilds for 4 water-domain chunks, skipped 46 out-of-domain chunks`.
-- `/tmp/re-flora-logs/re-flora-20260517-115241.908-21208.log`, command `--water-profile performance`, reported the same 4 startup chunks and one `initialized startup collider batch` after the last chunk was published.
-- `/tmp/re-flora-logs/re-flora-20260517-121301.860-25605.log`, command `--water-profile performance`, measured startup costs after adding `[WATER][TERRAIN_CACHE]` logging:
-  - GPU solid source refresh: `~0.83-1.13 ms/chunk`, average `~0.90 ms/chunk`.
-  - Independent collider chunk build: `~6.97-8.79 ms/chunk`, total `~30.0 ms` for 4 startup chunks.
-  - Batched full `terrain_grid` cache rebuild: `22.55 ms` once for `4` collider chunks and `131072` water-grid nodes.
-- `/tmp/re-flora-logs/re-flora-20260517-121320.467-26259.log`, command `--water-profile performance --water-particles 2048 --water-edit-soak`, measured pre-region-rebuild edit costs for three edits to chunk `(1,0,1)`:
-  - Source refresh: `0.816-0.926 ms`, average `~0.88 ms/edit`.
-  - Independent collider chunk build: `7.17-7.34 ms`, average `~7.25 ms/edit`.
-  - Old full `terrain_grid` cache rebuild: `21.97-22.24 ms`, average `~22.14 ms/edit`.
-  - Conclusion before the fix: edit publication cost about `30 ms` per changed chunk, and the full cache rebuild alone was roughly `3x` the per-chunk SDF build.
-- `/home/terence/code/re-flora/target/re-flora-logs/re-flora-20260517-124000.876-32047.log`, command `--water-profile performance --water-particles 2048 --water-edit-soak`, measured post-region-rebuild edit costs:
-  - Startup full cache rebuild after the 6D exact-sample work: `15.40 ms` once for `131072` nodes.
-  - Each scripted edit rebuilt only range `UVec3(31, 0, 31)..UVec3(64, 32, 64)` for chunk `IVec3(1, 0, 1)`, `34848` nodes.
-  - Region cache rebuild: `4.20-4.31 ms/edit`.
-  - Source refresh: `0.750-0.985 ms/edit`.
-  - Independent collider chunk build: `7.10-7.25 ms/edit`.
-  - Current publication work is roughly `12 ms/edit` for this scripted chunk instead of the old `~30 ms/edit`.
-
-Evidence before implementation:
-
-- Current fixed box is `(0,0,0)..(2,1,2)`.
-- Startup domain selection uses `floor(min)..=floor(max)`, so it enqueues up to `3 x 2 x 3 = 18` chunks.
-- Only `2 x 1 x 2 = 4` chunks strictly overlap the simulation volume. The max-boundary chunks are mostly boundary-only for the current padded solver and several top chunks are empty or contain only a few solid samples.
-- Every published collider chunk calls `PondWaterSim::upsert_terrain_collider_chunk()`, which rebuilds the entire `terrain_grid` cache. Startup therefore repeats a `64x32x64` terrain-grid cache rebuild many times.
-
-Implemented:
-
-- Done: `water_terrain_chunk_key_intersects_box_grid_domain()` now uses strict overlap for steady collider sources.
-- Done: if a shell is needed later, it must be explicit and documented; max-boundary chunks are no longer included by default.
-- Done: worker submission skips refreshed source chunks with `solid_count() == 0` before SDF build.
-- Done: empty source chunks remove stale collider chunks instead of leaving old SDF data in the set.
-- Done: stale worker results are discarded instead of publishing old collider revisions.
-- Done: batch startup collider publication so `terrain_grid` is rebuilt once after the initial set is available.
-- Done: log full `terrain_grid` cache rebuild cost with `[WATER][TERRAIN_CACHE]` so collider build and cache rebuild costs can be compared directly.
-- Done: for edits, rebuild only the water-grid node range overlapped by the changed collider chunk plus a one-cell halo, then stabilize only particles in or near the changed chunk.
-
-Expected benefit: lower startup/readback/SDF build cost and less edit hitching. This is not expected to change steady-state solver cost except by making terrain-grid cache rebuilds cheaper.
-
-#### 6D. Reduce exact terrain sample cost
-
-Status: implemented.
-
-Implemented:
-
-- `WaterTerrainColliderChunk::sample_sdf_and_normal_ws()` now uses a combined trilinear SDF+gradient path that reuses one eight-corner SDF cell instead of computing SDF and then six additional trilinear samples for finite-difference normals.
-- Degenerate gradients still fall back to the existing robust normal behavior.
-- Boundary sampling in `WaterTerrainColliderSet` now checks a bounded adjacent-chunk candidate set around exact integer boundaries instead of scanning every chunk.
-
-Validation:
-
-- `cargo fmt --check`, `cargo check`, and `cargo test -p re-flora-water` passed after each 6D step.
-- Added unit coverage for shared-cell SDF/normal sampling and boundary-adjacent candidate lookup.
-- Current release edit soak shows the startup full cache rebuild at `15.40 ms`, down from the earlier logged `22.55 ms`, while edit region rebuilds are `4.20-4.31 ms` for `34848` nodes.
-
-Expected benefit: smaller exact fallback and cache-rebuild normal cost. Exact fallback counts are already much lower than historical Phase 3B counts, so the main visible win is reducing the cost of each remaining exact/cached-normal sample rather than changing fallback counts.
-
-#### 6E. Throttle diagnostics outside perf timing
-
-Status: implemented for the expensive terrain scans; log-noise tuning remains optional.
-
-Implemented:
-
-- `log_diagnostics_after_update()` now gates ordinary frames with cheap no-terrain particle stats, and only runs exact terrain SDF debug stats when the report interval/anomaly path needs a log line.
-- Terrain activity from G2P counters can still trigger an early contact report without forcing an all-particle exact terrain scan every frame.
-- Perf cache shadow validation moved out of `grid_to_particle_impl()` and now runs once per `[PERF][WATER]` report. This preserves `terrain_shadow_false_skips` and SDF error metrics without adding deterministic exact-SDF probes to every measured G2P substep.
-
-Validation:
-
-- `cargo fmt --check`, `cargo check`, and `cargo test -p re-flora-water` passed for both 6E commits.
-- `/home/terence/code/re-flora/target/re-flora-logs/re-flora-20260517-124000.876-32047.log`, command `--water-profile performance --water-particles 2048 --water-edit-soak`, reported `terrain_shadow_samples/substep 0.1` instead of the previous `~15.8-16.0/substep`, with `terrain_shadow_false_skips 0`, `no_sdf 0`, and bounded tight-contact coarse-SDF overlap.
-
-Expected benefit: improves real frame cost and removes diagnostic observer effects that are not representative of normal solver work. `[PERF][WATER]` substep totals now exclude the shadow exact-SDF validation probes; exact terrain debug sweeps also no longer run every frame.
-
-#### 6F. Higher-risk later options
-
-- Parallelize P2G/G2P after sparse grid maintenance is measured. P2G needs careful accumulation strategy to avoid atomics or races.
-- Move water particles or instance fetch to storage buffers only after CPU-side sparse maintenance and diagnostic overhead are under control.
-- Tune CFL/substep/stiffness only with visible validation; current logs show many speed-limited and `J`-clamped particles, but changing those values is a behavior/stability task, not just a performance task.
-
-### Debug water placement tool
-
-Implemented as an initial bounded debug workflow:
-
-- Added a fourth item-panel slot using the watering-can icon from `assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals`.
-- Press `4` to select it.
-- Left click casts the existing CPU terrain ray from the camera, takes the terrain intersection, and injects a small, sparse disk of MLS-MPM water particles above that point.
-- Spawn placement is lifted above the local particle surface when water is already present, to avoid injecting a dense compressed blob into the pond and triggering a pressure burst.
-- New debug particles initialize `J` from their free-surface/hydrostatic depth instead of inheriting nearby compressed particle `J`; particles placed on or above the local surface start at neutral `J = 1.0`.
-- Boundary clicks are rejected instead of silently clamped inward; spawning a disk against the fixed pond box walls can pressure-burst the current small-domain solver.
-- The debug tool does not cap total water particles; repeated clicks can intentionally create high-volume stress cases.
-- The tool currently respects the fixed `PondWaterConfig::collider` bounds; clicks outside the current pond simulation box log a skipped spawn. This is intentional until the active water-domain/chunk-set work exists.
-
-## Validation policy
-
-Benchmark in release mode is king. Debug builds and unit tests are not performance evidence.
-
-For each code phase:
+- 2048 粒子 performance profile 的 `p2g` 或 `g2p_gather` 有可重复下降。
+- 单元测试和 hidden release soak 通过。
+- 粒子行为不变或只出现可解释的浮点级差异。
+
+### Step 5：评估编辑路径 hitch 是否需要继续优化
+
+目标：当前 steady-state 已经不是 edit publication，但编辑手感可能仍受 `~12 ms/edit` 影响。
+
+候选方向：
+
+1. 先做 visible/manual 编辑验证，确认是否真的有可感知 hitch。
+2. 如果有：合并同一帧多个 terrain dirty chunks，避免重复 publish/rebuild。
+3. 如果 collider build `~7 ms/chunk` 是主因：考虑降低 SDF build 工作、分帧发布、或后台构建完成后做更平滑的 terrain cache swap。
+4. 如果 region cache rebuild `~4 ms/edit` 是主因：继续缩小 affected water-grid region 或延迟低优先级远端 nodes。
+
+完成标准：
+
+- 只有在 visible 编辑确实卡顿时才实现。
+- edit soak 继续只刷新 water-domain chunks。
+- stale worker result 仍必须丢弃，不能发布旧 revision。
+
+### Step 6：从固定 pond box 走向 active water domain
+
+目标：支持任意大水体/玩家放水，同时保持 collider 和 grid 工作局部化。
+
+设计方向：
+
+1. 用水粒子 bounds / active chunks 维护 active water-domain set。
+2. terrain collider 按 active water chunks lazy build / priority build，不做全世界扫描。
+3. water grid 需要随 active domain 扩展或分块；不要简单把单个 dense grid 扩到全世界。
+4. 明确 collider chunk 生命周期：需要、构建中、已发布、过期、可回收。
+5. debug watering-can 放水工具应从“固定 pond box 内”升级为“激活/扩展 water domain”。
+
+完成标准：
+
+- 固定 pond 行为不退化。
+- 新水域只构建相关 terrain collider chunks。
+- terrain edit 只影响相交 active water chunks。
+
+### Step 7：决定 profile 产品化
+
+目标：把当前实验参数变成可维护的用户/开发者选项。
+
+执行：
+
+1. 如果 visible soak 通过，考虑把 `--water-profile performance` 暴露到 GUI/settings。
+2. 保留 `default` 质量路径和 no-startup-water 行为。
+3. 文档化 benchmark 命令：默认无水，测水必须传 `--water-particles <N>`。
+
+完成标准：
+
+- 开发者能稳定复现实验。
+- 用户不会误以为默认无水 benchmark 代表水体成本。
+
+### Step 8：最后再考虑高风险并行/GPU路线
+
+目标：只有在单线程、cache、domain scope 都明确到位后，再做结构性改动。
+
+候选方向：
+
+1. CPU 并行 G2P：风险较低，可按粒子分块。
+2. CPU 并行 P2G：需要 thread-local grid/tile accumulation 或其他避免原子竞争的策略，风险高于 G2P。
+3. GPU/storage-buffer water：只有在 CPU 路线收益不足且渲染/同步成本可控时考虑。
+4. adaptive CFL/substep：这是稳定性/手感改动，不是纯性能改动，必须 visible 验证。
+
+完成标准：
+
+- 有 release 数据证明 CPU 单线程继续优化收益不足。
+- 有清晰 correctness/validation 方案。
+- 每个大改动单独提交、单独 benchmark。
+
+## 验证策略
+
+性能判断以 release hidden app run 为准；debug build 和 unit tests 不能当性能证据。
+
+常用命令：
 
 ```bash
 cargo fmt --check
 cargo check
 cargo test
+cargo test -p re-flora-water
 zsh -lc 'source ~/.zshrc && cargo run --release -- --hidden --auto-exit 3 --perf --water-profile performance'
 zsh -lc 'source ~/.zshrc && cargo run --release -- --hidden --auto-exit 4 --perf --water-profile performance --water-particles 2048'
 zsh -lc 'source ~/.zshrc && cargo run --release -- --hidden --auto-exit 14 --perf --water-profile performance --water-particles 2048 --water-edit-soak'
@@ -572,39 +265,19 @@ zsh -lc 'source ~/.zshrc && cargo run --release -- --perf --water-profile perfor
 cargo run --release -- --tail-latest-log 200
 ```
 
-When validating water performance:
+每次优化提交前至少满足：
 
-- Use `--hidden --perf` so the real app/window/Vulkan path still runs.
-- Do not use `--no-particles` for water benchmarks; current app update gating also disables water updates when particles are disabled.
-- Since the default now starts with `particles 0`, pass `--water-particles <N>` for explicit-water benchmarks. Use the no-particle command only to verify empty-water idle overhead.
-- Compare `[PERF][WATER]` lines before and after the change, and remember diagnostic/debug-stat overhead is outside those substep totals.
+- `cargo fmt --check`
+- `cargo check`
+- 相关测试：通常是 `cargo test`，水 crate 改动额外跑 `cargo test -p re-flora-water`
+- 至少一个 release hidden perf run
+- 如果涉及 terrain edit/collider/cache：跑 `--water-edit-soak`
 
-Primary metrics:
+验收指标：
 
-- `total` and `avg/substep`
-- `repair`
-- `grid`
-- `g2p`
-- `g2p_gather`
-- `g2p_terrain`
-- `terrain_cache_skips/substep`
-- `terrain_cache_projections/substep`
-- `terrain_exact_fallbacks/substep`
-- `terrain_exact_checks/substep`
-- `terrain_exact_corrections/substep`
-- `terrain_shadow_samples/substep`
-- `terrain_shadow_false_skips`
-- `terrain_shadow_sdf_err_avg`
-- `terrain_shadow_sdf_err_max`
-- `terrain_sdf_min`
-- `penetrating`
-- `no_sdf`
-
-Functional acceptance:
-
-- `cargo check` passes.
-- `cargo test` passes.
-- Hidden release run exits successfully.
-- Latest log has no water, Vulkan, or shader errors.
-- Conservative profiles should keep `penetrating 0` and `no_sdf 0` stable in representative release perf logs.
-- Tight-contact profiles may report shallow coarse-collider penetration; accept only if `terrain_sdf_min` remains bounded to a small sub-cell band, `terrain_shadow_false_skips 0`, and `no_sdf 0` stay stable.
+- `avg/substep` 下降，且不是日志/采样偶然值。
+- `terrain_shadow_false_skips 0`。
+- `no_sdf 0`。
+- conservative profile 尽量保持 `penetrating 0`。
+- tight-contact profile 只接受有界 sub-cell `terrain_sdf_min` overlap。
+- latest log 无 water / Vulkan / shader 错误。
