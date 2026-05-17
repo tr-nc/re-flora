@@ -24,6 +24,16 @@ impl PondWaterSim {
             return;
         }
 
+        if self.particles.is_empty() {
+            self.accumulator = 0.0;
+            self.perf_report_seconds = 0.0;
+            self.perf_stats.reset();
+            self.diagnostic_report_seconds = 0.0;
+            self.diagnostic_stats.reset();
+            self.last_terrain_contact_particles = 0;
+            return;
+        }
+
         self.accumulator += dt.min(0.25);
         let substep_dt = self.config.substep_dt;
         let mut ran_substeps = 0usize;
@@ -1381,6 +1391,29 @@ mod tests {
         }
 
         assert_particles_finite_and_bounded(&sim);
+    }
+
+    #[test]
+    fn empty_update_idles_without_accumulating_substeps() {
+        let mut sim = PondWaterSim::fixed_test_box();
+        assert!(sim.particles.is_empty());
+
+        sim.accumulator = sim.config.substep_dt * 4.0;
+        sim.perf_report_seconds = 0.5;
+        sim.perf_stats.substeps = 3;
+        sim.diagnostic_report_seconds = 0.5;
+        sim.diagnostic_stats.substeps = 3;
+        sim.last_terrain_contact_particles = 2;
+
+        sim.update(1.0, true);
+
+        assert_eq!(sim.accumulator, 0.0);
+        assert_eq!(sim.perf_report_seconds, 0.0);
+        assert_eq!(sim.perf_stats.substeps, 0);
+        assert_eq!(sim.diagnostic_report_seconds, 0.0);
+        assert_eq!(sim.diagnostic_stats.substeps, 0);
+        assert_eq!(sim.last_terrain_contact_particles, 0);
+        assert_eq!(sim.sim_time_seconds, 0.0);
     }
 
     #[test]

@@ -14,7 +14,7 @@ Current status by phase:
 | Phase 3B: G2P terrain broadphase/cache | Implemented, hidden/edit soak clean; needs more scene coverage/tuning | cached skip/projection path is active and shadow-verified in perf runs |
 | Phase 4: collider scope/startup | Implemented and edit-soak benchmarked | startup/edit collider refreshes are limited to water-grid-domain chunks |
 | Phase 5: solver scaling/tuning options | Implemented and hidden edit-soaked; needs another visible tuning pass | CLI sweep knobs plus `--water-profile performance`; visual soak found contact/damping tuning issues and the profile has been adjusted |
-| Phase 6: implementation-review optimization backlog | Not implemented | prioritized follow-up opportunities from the current water collider/sim inspection |
+| Phase 6: implementation-review optimization backlog | In progress | 6A empty-water idle early-out implemented; next priority is sparse active-node grid maintenance |
 
 Latest representative release result:
 
@@ -34,7 +34,7 @@ The steady-state hot issue has shifted from mostly G2P terrain collision to a mi
 - Historical Phase 3B exact terrain checks: `~2526-2892/substep`
 - Current explicit 2048-particle `64x32x64` run: exact terrain checks settled around `~26-87/substep`, while `clear + grid` cost was roughly `0.42-0.57 ms/substep` and G2P gather/terrain together remained a large share.
 
-The next meaningful optimizations are: skip empty-water updates, make grid clear/update sparse over touched nodes, and reduce startup/edit collider/cache rebuild scope.
+The next meaningful optimizations are: make grid clear/update sparse over touched nodes and reduce startup/edit collider/cache rebuild scope.
 
 ## Current diagnosis
 
@@ -51,7 +51,7 @@ Resolved findings:
 
 Remaining findings:
 
-- Empty water still runs fixed substeps after terrain initialization. With `particles 0`, the app spent `0.266 ms/substep` entirely in full-grid clear/update on the `64x32x64` grid.
+- Empty-water fixed substeps are now skipped in `PondWaterSim::update()`, clearing stale accumulators and perf/diagnostic stats while no particles exist.
 - G2P gather and remaining G2P terrain work are still large steady-state costs when water is present.
 - Full-grid maintenance is now significant: `clear_grid()` clears every node and `update_grid()` scans every node, even though current 2048-particle runs touch only about `13k-37k` active nodes out of `131k`.
 - The cached trilinear SDF path now skips far particles and directly projects clearly colliding particles, but ambiguous near-surface particles still use exact collider fallback.
@@ -389,7 +389,7 @@ Current recommendation:
 
 Remaining work:
 
-1. Implement the Phase 6 quick wins in order: empty-water early-out, sparse active-node clear/update, then stricter/batched collider/cache rebuilds.
+1. Implement the remaining Phase 6 quick wins in order: sparse active-node clear/update, then stricter/batched collider/cache rebuilds.
 2. Re-run the performance profile in an interactive visible app run and judge whether zero-cell contact margin, tight grid-node collision, and 1.5/s damping fix the observed gap/bounciness.
 3. Repeat terrain-edit soak in a visible/manual session if visual artifacts are suspected; the hidden scripted soak is clean.
 4. Expand from the fixed pond box to an active water-domain/chunk set before supporting arbitrary large water bodies.
@@ -403,18 +403,24 @@ Status: not implemented. These are the highest-confidence follow-ups from inspec
 
 #### 6A. Skip empty-water simulation work
 
-Evidence:
+Status: implemented. Empty updates now return before accumulating fixed substeps and reset stale perf/diagnostic state so later debug spawns do not replay a backlog.
+
+Validation:
+
+- `/tmp/re-flora-logs/re-flora-20260517-114132.829-15975.log`, command `--water-profile performance`, emitted no `[PERF][WATER]` or `[WATER][DIAG]` lines because no water substeps ran while `particles 0`.
+
+Evidence before implementation:
 
 - Log: `/tmp/re-flora-logs/re-flora-20260517-113209.862-14113.log`
 - Command: `--water-profile performance`
 - `particles 0 grid UVec3(64, 32, 64) nodes 131072 substeps 120 total 31.90ms avg 0.266ms/substep`
 - The cost is entirely unnecessary: `clear 15.75ms`, `grid 16.09ms`, with `active_nodes/substep 0`.
 
-Implementation direction:
+Implementation:
 
-- Add an early return in `PondWaterSim::update()` or the app update gate when `particles.is_empty()`.
-- Reset or cap `accumulator` while empty so the first later debug spawn does not replay a backlog of substeps.
-- Suppress empty-water diagnostics with NaN particle ranges, or log a one-line idle state only when perf logging asks for it.
+- Added an early return in `PondWaterSim::update()` when `particles.is_empty()`.
+- Reset `accumulator`, perf stats, diagnostic stats, diagnostic timing, and `last_terrain_contact_particles` while empty.
+- Added a unit test covering the idle reset path.
 
 Expected benefit: default no-water runs stop paying about `32 ms/s` of CPU on the performance profile, and twice that order on the 240 Hz default profile.
 
