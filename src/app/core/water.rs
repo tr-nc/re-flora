@@ -370,6 +370,17 @@ impl App {
                 .deferred_water_terrain_collider_rebuilds
                 .is_latest_revision(result.chunk_key, result.revision);
 
+            if !is_latest {
+                log::debug!(
+                    "[WATER][TERRAIN] discarded stale collider chunk {:?} rev {} latest_pending=true",
+                    result.chunk_id,
+                    result.revision,
+                );
+                self.deferred_water_terrain_collider_rebuilds
+                    .complete(result.chunk_key, result.revision);
+                continue;
+            }
+
             if let Some(build) = result.build {
                 let WaterTerrainColliderBuild {
                     chunk,
