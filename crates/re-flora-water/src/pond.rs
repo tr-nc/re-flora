@@ -1,4 +1,4 @@
-use glam::{Mat3, UVec3, Vec3};
+use glam::{IVec3, Mat3, UVec3, Vec3};
 
 use super::collider::{WaterBoxCollider, WaterTerrainColliderChunk, WaterTerrainColliderSet};
 use std::sync::Arc;
@@ -312,7 +312,7 @@ impl PondWaterSim {
         self.upsert_terrain_collider_chunk_deferred(chunk);
         self.rebuild_terrain_grid_cache_for_chunk(chunk_id);
         if stabilize_particles {
-            self.stabilize_after_terrain_change();
+            self.stabilize_after_terrain_chunk_change(chunk_id);
         }
     }
 
@@ -345,7 +345,7 @@ impl PondWaterSim {
         }
         self.rebuild_terrain_grid_cache_for_chunk(chunk_id);
         if stabilize_particles {
-            self.stabilize_after_terrain_change();
+            self.stabilize_after_terrain_chunk_change(chunk_id);
         }
         true
     }
@@ -357,6 +357,29 @@ impl PondWaterSim {
     }
 
     fn stabilize_after_terrain_change(&mut self) {
+        self.stabilize_after_terrain_change_in_scope(None);
+    }
+
+    fn stabilize_after_terrain_chunk_change(&mut self, chunk_id: IVec3) {
+        let halo = self.terrain_chunk_stabilization_halo();
+        let min_ws = chunk_id.as_vec3() - Vec3::splat(halo);
+        let max_ws = chunk_id.as_vec3() + Vec3::ONE + Vec3::splat(halo);
+        self.stabilize_after_terrain_change_in_scope(Some(TerrainStabilizationScope {
+            chunk_id,
+            min_ws,
+            max_ws,
+            halo,
+        }));
+    }
+
+    fn terrain_chunk_stabilization_halo(&self) -> f32 {
+        self.dx
+            * (self.config.wall_padding_cells.max(1.0)
+                + self.config.terrain_collision_margin_cells.max(0.0)
+                + 1.0)
+    }
+
+    fn stabilize_after_terrain_change_in_scope(&mut self, scope: Option<TerrainStabilizationScope>) {
         self.accumulator = 0.0;
         self.diagnostic_stats.reset();
         self.diagnostic_report_seconds = 0.0;
@@ -367,6 +390,7 @@ impl PondWaterSim {
         let max_correction = self.dx * self.config.wall_padding_cells.max(1.0);
         let particle_padding = self.dx * self.config.wall_padding_cells.max(1.0);
         let bounds = self.config.collider;
+        let mut scoped_particles = 0usize;
         let mut sampled_particles = 0usize;
         let mut corrected_particles = 0usize;
         let mut clamped_corrections = 0usize;
@@ -376,6 +400,13 @@ impl PondWaterSim {
         let mut min_sdf_after = f32::INFINITY;
 
         for particle in &mut self.particles {
+            if let Some(scope) = scope {
+                if !scope.contains(particle.x) {
+                    continue;
+                }
+            }
+            scoped_particles += 1;
+
             particle.v = Vec3::ZERO;
             particle.c = Mat3::ZERO;
             particle.j = 1.0;
@@ -418,24 +449,48 @@ impl PondWaterSim {
         }
 
         if terrain.is_some() {
-            log::info!(
-                "[WATER][TERRAIN_STABILIZE] particles={} sampled={} corrected={} clamped={} total_correction={:.4} avg_corrected={:.4} max_corrected={:.4} margin={:.5} max_step={:.5} min_sdf_before={:.5} min_sdf_after={:.5}",
-                self.particles.len(),
-                sampled_particles,
-                corrected_particles,
-                clamped_corrections,
-                total_particle_correction,
-                if corrected_particles > 0 {
-                    total_particle_correction / corrected_particles as f32
-                } else {
-                    0.0
-                },
-                max_particle_correction,
-                collision_margin,
-                max_correction,
-                if min_sdf_before.is_finite() { min_sdf_before } else { f32::NAN },
-                if min_sdf_after.is_finite() { min_sdf_after } else { f32::NAN },
-            );
+            if let Some(scope) = scope {
+                log::info!(
+                    "[WATER][TERRAIN_STABILIZE] scope=chunk chunk={:?} halo={:.5} particles={} scoped={} sampled={} corrected={} clamped={} total_correction={:.4} avg_corrected={:.4} max_corrected={:.4} margin={:.5} max_step={:.5} min_sdf_before={:.5} min_sdf_after={:.5}",
+                    scope.chunk_id,
+                    scope.halo,
+                    self.particles.len(),
+                    scoped_particles,
+                    sampled_particles,
+                    corrected_particles,
+                    clamped_corrections,
+                    total_particle_correction,
+                    if corrected_particles > 0 {
+                        total_particle_correction / corrected_particles as f32
+                    } else {
+                        0.0
+                    },
+                    max_particle_correction,
+                    collision_margin,
+                    max_correction,
+                    if min_sdf_before.is_finite() { min_sdf_before } else { f32::NAN },
+                    if min_sdf_after.is_finite() { min_sdf_after } else { f32::NAN },
+                );
+            } else {
+                log::info!(
+                    "[WATER][TERRAIN_STABILIZE] particles={} sampled={} corrected={} clamped={} total_correction={:.4} avg_corrected={:.4} max_corrected={:.4} margin={:.5} max_step={:.5} min_sdf_before={:.5} min_sdf_after={:.5}",
+                    self.particles.len(),
+                    sampled_particles,
+                    corrected_particles,
+                    clamped_corrections,
+                    total_particle_correction,
+                    if corrected_particles > 0 {
+                        total_particle_correction / corrected_particles as f32
+                    } else {
+                        0.0
+                    },
+                    max_particle_correction,
+                    collision_margin,
+                    max_correction,
+                    if min_sdf_before.is_finite() { min_sdf_before } else { f32::NAN },
+                    if min_sdf_after.is_finite() { min_sdf_after } else { f32::NAN },
+                );
+            }
         }
     }
 
@@ -687,6 +742,21 @@ impl PondWaterSim {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+struct TerrainStabilizationScope {
+    chunk_id: IVec3,
+    min_ws: Vec3,
+    max_ws: Vec3,
+    halo: f32,
+}
+
+impl TerrainStabilizationScope {
+    fn contains(self, point_ws: Vec3) -> bool {
+        !point_ws.is_finite()
+            || (point_ws.cmpge(self.min_ws).all() && point_ws.cmple(self.max_ws).all())
+    }
+}
+
 fn water_grid_boundary_flags(grid_dim: UVec3, wall_padding_cells: f32) -> Vec<u8> {
     let grid_len = (grid_dim.x as usize)
         .saturating_mul(grid_dim.y as usize)
@@ -842,6 +912,34 @@ mod tests {
 
         assert!(!sim.terrain_grid[inside_idx].has_sdf);
         assert!(!sim.terrain_grid[outside_idx].has_sdf);
+    }
+
+    #[test]
+    fn chunk_terrain_stabilization_preserves_far_particles() {
+        let mut sim = PondWaterSim::fixed_test_box();
+        sim.particles = vec![
+            WaterParticle {
+                x: Vec3::new(1.5, 0.5, 1.5),
+                v: Vec3::new(1.0, 2.0, 3.0),
+                c: Mat3::from_diagonal(Vec3::splat(2.0)),
+                j: 1.25,
+            },
+            WaterParticle {
+                x: Vec3::new(0.25, 0.5, 0.25),
+                v: Vec3::new(4.0, 5.0, 6.0),
+                c: Mat3::from_diagonal(Vec3::splat(3.0)),
+                j: 1.5,
+            },
+        ];
+
+        sim.upsert_terrain_collider_chunk(test_chunk(glam::IVec3::new(1, 0, 1)), true);
+
+        assert_eq!(sim.particles[0].v, Vec3::ZERO);
+        assert_eq!(sim.particles[0].c, Mat3::ZERO);
+        assert_eq!(sim.particles[0].j, 1.0);
+        assert_eq!(sim.particles[1].v, Vec3::new(4.0, 5.0, 6.0));
+        assert_eq!(sim.particles[1].c, Mat3::from_diagonal(Vec3::splat(3.0)));
+        assert_eq!(sim.particles[1].j, 1.5);
     }
 
     #[test]
