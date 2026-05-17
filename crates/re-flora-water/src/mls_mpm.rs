@@ -132,14 +132,6 @@ impl PondWaterSim {
         self.perf_stats.g2p_terrain_exact_fallbacks += g2p_breakdown.terrain_exact_fallbacks;
         self.perf_stats.g2p_terrain_exact_checks += g2p_breakdown.terrain_exact_checks;
         self.perf_stats.g2p_terrain_exact_corrections += g2p_breakdown.terrain_exact_corrections;
-        self.perf_stats.g2p_terrain_shadow_samples += g2p_breakdown.terrain_shadow_samples;
-        self.perf_stats.g2p_terrain_shadow_false_skips += g2p_breakdown.terrain_shadow_false_skips;
-        self.perf_stats.g2p_terrain_shadow_sdf_abs_error_sum +=
-            g2p_breakdown.terrain_shadow_sdf_abs_error_sum;
-        self.perf_stats.g2p_terrain_shadow_sdf_abs_error_max = self
-            .perf_stats
-            .g2p_terrain_shadow_sdf_abs_error_max
-            .max(g2p_breakdown.terrain_shadow_sdf_abs_error_max);
     }
 
     fn record_diagnostic_substep(
@@ -301,10 +293,18 @@ impl PondWaterSim {
     }
 
     fn log_perf_report(&mut self) {
-        let stats = self.perf_stats;
+        let mut stats = self.perf_stats;
         if stats.substeps == 0 {
             return;
         }
+
+        let shadow_stats = self.measure_terrain_shadow_samples();
+        stats.g2p_terrain_shadow_samples += shadow_stats.samples;
+        stats.g2p_terrain_shadow_false_skips += shadow_stats.false_skips;
+        stats.g2p_terrain_shadow_sdf_abs_error_sum += shadow_stats.sdf_abs_error_sum;
+        stats.g2p_terrain_shadow_sdf_abs_error_max = stats
+            .g2p_terrain_shadow_sdf_abs_error_max
+            .max(shadow_stats.sdf_abs_error_max);
 
         let substeps = stats.substeps as f64;
         let grid_nodes = self.grid.len();
@@ -361,6 +361,55 @@ impl PondWaterSim {
 
         self.perf_stats.reset();
         self.perf_report_seconds = 0.0;
+    }
+
+    fn measure_terrain_shadow_samples(&self) -> TerrainShadowSampleStats {
+        // Keep expensive exact-SDF cache validation out of the measured G2P hot loop.
+        // Sampling once per perf report still catches cache drift without charging every substep.
+        let mut stats = TerrainShadowSampleStats::default();
+        let Some(terrain) = self.terrain.as_ref() else {
+            return stats;
+        };
+
+        let terrain_collision_margin = self.terrain_collision_margin();
+        for (particle_idx, particle) in self.particles.iter().enumerate() {
+            if !should_shadow_sample_terrain(particle_idx) {
+                continue;
+            }
+
+            let local_pos = particle.x - self.origin_ws;
+            match terrain_grid_particle_query(
+                local_pos,
+                self.inv_dx,
+                self.dx,
+                self.grid_dim,
+                &self.terrain_grid,
+                terrain_collision_margin,
+            ) {
+                TerrainGridParticleQuery::Skip { sdf } => {
+                    stats.samples += 1;
+                    if let Some(exact_sdf) = terrain.sample_sdf_ws(particle.x) {
+                        let abs_error = (sdf - exact_sdf).abs();
+                        stats.sdf_abs_error_sum += abs_error as f64;
+                        stats.sdf_abs_error_max = stats.sdf_abs_error_max.max(abs_error);
+                        if exact_sdf <= terrain_collision_margin {
+                            stats.false_skips += 1;
+                        }
+                    }
+                }
+                TerrainGridParticleQuery::CachedProjection { sdf, .. } => {
+                    stats.samples += 1;
+                    if let Some(exact_sdf) = terrain.sample_sdf_ws(particle.x) {
+                        let abs_error = (sdf - exact_sdf).abs();
+                        stats.sdf_abs_error_sum += abs_error as f64;
+                        stats.sdf_abs_error_max = stats.sdf_abs_error_max.max(abs_error);
+                    }
+                }
+                TerrainGridParticleQuery::ExactFallback => {}
+            }
+        }
+
+        stats
     }
 
     pub(crate) fn rebuild_terrain_grid_cache(&mut self) {
@@ -692,10 +741,6 @@ impl PondWaterSim {
         let mut terrain_exact_fallbacks = 0u64;
         let mut terrain_exact_checks = 0u64;
         let mut terrain_exact_corrections = 0u64;
-        let mut terrain_shadow_samples = 0u64;
-        let mut terrain_shadow_false_skips = 0u64;
-        let mut terrain_shadow_sdf_abs_error_sum = 0.0f64;
-        let mut terrain_shadow_sdf_abs_error_max = 0.0f32;
         let origin_ws = self.origin_ws;
         let grid_dim = self.grid_dim;
         let dx = self.dx;
@@ -713,7 +758,7 @@ impl PondWaterSim {
         let terrain_collision_margin = self.terrain_collision_margin();
         let terrain_max_correction = particle_padding;
 
-        for (particle_idx, particle) in self.particles.iter_mut().enumerate() {
+        for particle in &mut self.particles {
             let gather_start = collect_breakdown.then(Instant::now);
             let local_pos = particle.x - origin_ws;
             let grid_pos = local_pos * inv_dx;
@@ -782,31 +827,10 @@ impl PondWaterSim {
                         terrain_grid,
                         terrain_collision_margin,
                     ) {
-                        TerrainGridParticleQuery::Skip { sdf } => {
-                            if collect_breakdown && should_shadow_sample_terrain(particle_idx) {
-                                terrain_shadow_samples += 1;
-                                if let Some(exact_sdf) = terrain.sample_sdf_ws(particle.x) {
-                                    let abs_error = (sdf - exact_sdf).abs();
-                                    terrain_shadow_sdf_abs_error_sum += abs_error as f64;
-                                    terrain_shadow_sdf_abs_error_max =
-                                        terrain_shadow_sdf_abs_error_max.max(abs_error);
-                                    if exact_sdf <= terrain_collision_margin {
-                                        terrain_shadow_false_skips += 1;
-                                    }
-                                }
-                            }
+                        TerrainGridParticleQuery::Skip { .. } => {
                             terrain_cache_skips += 1;
                         }
                         TerrainGridParticleQuery::CachedProjection { sdf, normal } => {
-                            if collect_breakdown && should_shadow_sample_terrain(particle_idx) {
-                                terrain_shadow_samples += 1;
-                                if let Some(exact_sdf) = terrain.sample_sdf_ws(particle.x) {
-                                    let abs_error = (sdf - exact_sdf).abs();
-                                    terrain_shadow_sdf_abs_error_sum += abs_error as f64;
-                                    terrain_shadow_sdf_abs_error_max =
-                                        terrain_shadow_sdf_abs_error_max.max(abs_error);
-                                }
-                            }
                             terrain_cache_projections += 1;
                             project_particle_with_cached_terrain(
                                 particle,
@@ -872,10 +896,6 @@ impl PondWaterSim {
             terrain_exact_fallbacks,
             terrain_exact_checks,
             terrain_exact_corrections,
-            terrain_shadow_samples,
-            terrain_shadow_false_skips,
-            terrain_shadow_sdf_abs_error_sum,
-            terrain_shadow_sdf_abs_error_max,
         }
     }
 }
@@ -886,6 +906,14 @@ struct TerrainGridCacheRebuildStats {
     has_sdf_count: usize,
     near_surface_count: usize,
     normal_count: usize,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct TerrainShadowSampleStats {
+    samples: u64,
+    false_skips: u64,
+    sdf_abs_error_sum: f64,
+    sdf_abs_error_max: f32,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -900,10 +928,6 @@ struct WaterG2pBreakdown {
     terrain_exact_fallbacks: u64,
     terrain_exact_checks: u64,
     terrain_exact_corrections: u64,
-    terrain_shadow_samples: u64,
-    terrain_shadow_false_skips: u64,
-    terrain_shadow_sdf_abs_error_sum: f64,
-    terrain_shadow_sdf_abs_error_max: f32,
 }
 
 fn base_coord(grid_pos: Vec3) -> IVec3 {
