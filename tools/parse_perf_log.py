@@ -21,7 +21,7 @@ WATER_RE = re.compile(
     r"\[PERF\]\[WATER\] particles (\d+) .*? substeps (\d+) total ([0-9.]+)ms avg ([0-9.]+)ms/substep"
 )
 DEFERRED_REBUILD_RE = re.compile(r"\[PERF\]\[DEFERRED_REBUILD\].* total ([0-9.]+)ms")
-SOURCE_REFRESH_RE = re.compile(r"refreshed GPU solid source .* total=([0-9.]+)ms")
+SOURCE_REFRESH_RE = re.compile(r"refreshed GPU solid source")
 COLLIDER_BUILD_RE = re.compile(r"built collider chunk .* build_ms=([0-9.]+)")
 CACHE_APPLY_RE = re.compile(r"applied worker grid cache region .* worker_ms=([0-9.]+) apply_ms=([0-9.]+)")
 CACHE_DISCARD_RE = re.compile(r"discarded stale worker grid cache region .* worker_ms=([0-9.]+)")
@@ -76,6 +76,13 @@ def extract_ms(line: str, field: str) -> float | None:
     return float(match.group(1))
 
 
+def extract_eq_ms(line: str, field: str) -> float | None:
+    match = re.search(rf"\b{re.escape(field)}=([0-9.]+)ms", line)
+    if not match:
+        return None
+    return float(match.group(1))
+
+
 def percentile(values: list[float], pct: float) -> float:
     if not values:
         return 0.0
@@ -119,6 +126,10 @@ def parse_log(path: Path) -> None:
     water_avg_substep: list[float] = []
     deferred_rebuild: list[float] = []
     source_refresh: list[float] = []
+    source_gpu_sample_total: list[float] = []
+    source_fence_latency: list[float] = []
+    source_gpu_submit: list[float] = []
+    source_gpu_readback: list[float] = []
     collider_build: list[float] = []
     cache_worker: list[float] = []
     cache_apply: list[float] = []
@@ -157,8 +168,17 @@ def parse_log(path: Path) -> None:
         if match := DEFERRED_REBUILD_RE.search(line):
             deferred_rebuild.append(float(match.group(1)))
             continue
-        if match := SOURCE_REFRESH_RE.search(line):
-            source_refresh.append(float(match.group(1)))
+        if SOURCE_REFRESH_RE.search(line):
+            if (value := extract_eq_ms(line, "total")) is not None:
+                source_refresh.append(value)
+            if (value := extract_eq_ms(line, "gpu_sample_total")) is not None:
+                source_gpu_sample_total.append(value)
+            if (value := extract_eq_ms(line, "fence_latency")) is not None:
+                source_fence_latency.append(value)
+            if (value := extract_eq_ms(line, "gpu_submit")) is not None:
+                source_gpu_submit.append(value)
+            if (value := extract_eq_ms(line, "gpu_readback")) is not None:
+                source_gpu_readback.append(value)
             continue
         if match := COLLIDER_BUILD_RE.search(line):
             collider_build.append(float(match.group(1)))
@@ -186,7 +206,11 @@ def parse_log(path: Path) -> None:
         "Terrain / water terrain events",
         [
             ("terrain_deferred_rebuild", deferred_rebuild),
-            ("terrain_sdf_source_refresh", source_refresh),
+            ("terrain_sdf_source_apply", source_refresh),
+            ("terrain_sdf_source_gpu_sample_total", source_gpu_sample_total),
+            ("terrain_sdf_source_fence_latency", source_fence_latency),
+            ("terrain_sdf_source_gpu_submit", source_gpu_submit),
+            ("terrain_sdf_source_gpu_readback", source_gpu_readback),
             ("terrain_sdf_collider_build", collider_build),
             ("water_cache_worker", cache_worker),
             ("water_cache_apply", cache_apply),

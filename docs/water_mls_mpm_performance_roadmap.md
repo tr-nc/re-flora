@@ -22,6 +22,7 @@
 - 2026-05-17：Water terrain cache region rebuild worker 化；edit soak 中原主线程 `5.17ms` cache region rebuild 变为 worker `6.77ms` + 主线程 apply `0.094ms`。
 - 2026-05-17：手动 visible release perf 调查完成，确认 P0 cache worker 化达标，并暴露下一批主瓶颈：SDF source refresh / terrain rebuild 主线程成本，以及高粒子数 water sim CPU 成本。
 - 2026-05-17：Step 0 初版 instrumentation 已开始：新增 `[PERF][FRAME]` 详细采样、water substep split counters、以及 `tools/parse_perf_log.py` 汇总脚本。
+- 2026-05-17：Step 1 初版已开始：`Terrain SDF Source Refresh` 改为 async GPU submit + fence poll + revision-guarded apply，避免 submit 后同帧等待 readback/fence。
 
 最新相关提交：
 
@@ -149,12 +150,20 @@ terrain edit
 
 任务：
 
-1. 把 SDF source refresh 从“submit 后同帧等待 readback/fence”改成 async GPU readback：本帧 submit，下几帧 poll ready result。
-2. 给 source result apply 设每帧预算，保持 latest-per-chunk 和 active-water/camera-near priority。
-3. 复查普通 terrain deferred rebuild 的 per-frame budget，避免连续编辑时同帧堆多个高成本 job。
-4. 保留 unchanged skip；继续记录 stale/drop/age，防止异步化后水体长期追不上地形。
+1. 已有初版：把 SDF source refresh 从“submit 后同帧等待 readback/fence”改成 async GPU readback：本帧 submit，后续 frame poll fence ready result。
+2. 部分完成：source result apply 现在天然限制为单 inflight/单 result，且保留 latest-per-chunk、camera/water-focus priority；后续可继续加显式 apply time budget 和 job age/drop/stale 聚合。
+3. 待做：复查普通 terrain deferred rebuild 的 per-frame budget，避免连续编辑时同帧堆多个高成本 job。
+4. 已保留 unchanged skip 和 revision guard；stale source result 会被丢弃，不写回 `cpu_solid_voxels`。
 
 验收目标：edit burst 中 CPU/other spike 明显下降；source/collider/cache revision 不回退；`terrain_penetrating` 不恶化。
+
+初版验证（2026-05-17 hidden release，`--auto-exit 6 --perf --water-profile performance --water-edit-soak --water-particles 128`）：
+
+- log: `target/re-flora-logs/re-flora-20260517-214743.914-153637.log`
+- `terrain_sdf_source_refresh` apply/store 统计：`n=52`，mean `0.47ms`，p95 `0.53ms`，max `0.75ms`；edit 后 source apply 约 `0.49ms`。
+- `[PERF][FRAME] terrain_source`：mean `0.28ms`，p95 `1.74ms`，max `1.92ms`。
+- async GPU 部分已从主线程等待中移出：常见 `gpu_submit ~=0.03ms`，`fence_latency ~=4-6ms`；startup 首个 job 曾等 `~145ms` GPU/fence latency，但 main-thread apply 仍只有 `0.44ms`。
+- 剩余大尖峰主要不是 source apply：startup full water cache rebuild 仍在 `collider_queue` 路径约 `133ms`，普通 `deferred_rebuild` 仍可到 `~9.5ms`。
 
 ### Step 2：处理高粒子数 water sim CPU 瓶颈
 
@@ -255,15 +264,15 @@ terrain edit
    - 增加 per-frame 或 spike-only 汇总：deferred rebuild、source refresh submit/poll/apply、collider publish、cache apply、pending/inflight 数。
    - 现有 `[PERF] frame` 每 30 帧采样不足以严格归因；先补观测。
 
-2. `make terrain sdf source refresh readback async`
-   - 把当前同步 GPU atlas sample/readback/fence 等待拆成 submit + later poll。
-   - 这是 GPU async readback job，不是普通 CPU worker；注意 Vulkan command pool / queue submission 的外部同步。
-   - 主线程不在同帧等待 source refresh fence；ready 后再更新 `CpuSolidVoxelStore`。
+2. `make terrain sdf source refresh readback async`（初版完成）
+   - 已把当前同步 GPU atlas sample/readback/fence 等待拆成 submit + later poll。
+   - 这是 GPU async readback job，不是普通 CPU worker；当前仍保持单 inflight，避免复用 `chunk_solid_sample_info/chunk_solid_samples` 时产生资源竞争。
+   - 主线程不在同帧等待 source refresh fence；ready 后再 revision-guarded 更新 `CpuSolidVoxelStore`，stale result 直接丢弃。
 
-3. `budget terrain sdf source apply`
-   - 每帧只 publish 少量 ready source results。
+3. `budget terrain sdf source apply`（部分完成）
+   - 当前单 inflight 路径每帧最多 publish 一个 ready source result。
    - 继续保持 latest-per-chunk、active-water/camera-near 优先级和 unchanged skip。
-   - 记录 source job age、stale/drop 比例和追随延迟。
+   - 待补：显式 apply time budget、source job age、stale/drop 比例和追随延迟聚合。
 
 4. `smooth terrain deferred rebuild spikes`
    - 复查普通 terrain chunk rebuild 的每帧预算、chunk priority、和 edit loop 提交频率。

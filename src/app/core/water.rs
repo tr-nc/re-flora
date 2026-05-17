@@ -4,7 +4,7 @@ use super::{
 };
 use crate::app::cpu_solid_voxels::CpuSolidVoxelChunk;
 use crate::app::world_edits::TerrainRemovalEdit;
-use crate::builder::VOXEL_TYPE_ROCK;
+use crate::builder::{ChunkSolidSampleJob, ChunkSolidSampleResult, VOXEL_TYPE_ROCK};
 use glam::{IVec3, UVec3, Vec2, Vec3};
 use re_flora_terrain_collider::signed_distance_from_solid_samples;
 use re_flora_water::{
@@ -27,6 +27,13 @@ const WATER_TERRAIN_ACTIVE_MAX_SUBSTEPS: usize = 2;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct TerrainSdfSourceRevision {
     dependencies: Vec<(UVec3, u64)>,
+}
+
+pub(super) struct TerrainSdfSourceRefreshInFlight {
+    chunk_id: UVec3,
+    revision: u64,
+    submitted_at: Instant,
+    job: ChunkSolidSampleJob,
 }
 
 pub(super) struct TerrainSdfColliderWorkerJob {
@@ -247,79 +254,158 @@ impl App {
     }
 
     fn process_deferred_terrain_sdf_source_refreshes(&mut self) {
-        const MAX_SOURCE_REFRESHES_PER_FRAME: usize = 1;
+        self.publish_completed_terrain_sdf_source_refresh();
+        self.try_submit_next_terrain_sdf_source_refresh();
+    }
 
-        let frame_start = Instant::now();
-        let focus = self.water_terrain_focus_ws();
-        let mut processed = 0usize;
-        while processed < MAX_SOURCE_REFRESHES_PER_FRAME {
-            let now = Instant::now();
-            let Some(work) = self
-                .deferred_terrain_sdf_source_refreshes
-                .pop_nearest_to_if_payload(focus, UVec3::ONE, |_, request| request.ready_at <= now)
-            else {
-                break;
-            };
-
-            let chunk_id = work.chunk_id;
-            let revision = work.revision;
-            match self.refresh_terrain_sdf_solid_sample_chunk(chunk_id) {
-                Ok(Some(source_refresh)) => {
-                    let source_revision =
-                        terrain_sdf_source_revision(&self.cpu_solid_voxels, chunk_id);
-                    let already_built = self.terrain_sdf_built_source_revisions.get(&chunk_id)
-                        == Some(&source_revision);
-                    if source_refresh.changed || !already_built {
-                        log::debug!(
-                            "[QUEUE][TERRAIN_SDF_SOURCE] ready chunk {:?} revision {} source_rev={} changed={} already_built={}",
-                            chunk_id,
-                            revision,
-                            source_refresh.revision,
-                            source_refresh.changed,
-                            already_built,
-                        );
-                        self.enqueue_deferred_terrain_sdf_collider_rebuild(chunk_id);
-                    } else {
-                        log::debug!(
-                            "[QUEUE][TERRAIN_SDF_SOURCE] skipped unchanged chunk {:?} revision {} source_rev={} pending={} active={}",
-                            chunk_id,
-                            revision,
-                            source_refresh.revision,
-                            self.deferred_terrain_sdf_source_refreshes.len(),
-                            self.deferred_terrain_sdf_source_refreshes.active_len(),
-                        );
-                    }
-                }
-                Ok(None) => {
-                    log::debug!(
-                        "[QUEUE][TERRAIN_SDF_SOURCE] skipped invalid chunk {:?} revision {}",
-                        chunk_id,
-                        revision,
-                    );
-                }
-                Err(err) => {
-                    log::error!(
-                        "[WATER][TERRAIN] failed to refresh solid source chunk {:?} revision {}: {}",
-                        chunk_id,
-                        revision,
-                        err,
-                    );
-                }
-            }
-            self.deferred_terrain_sdf_source_refreshes
-                .complete(chunk_id, revision);
-            processed += 1;
+    fn try_submit_next_terrain_sdf_source_refresh(&mut self) {
+        if self.terrain_sdf_source_refresh_inflight.is_some() {
+            return;
         }
 
-        if processed > 0 {
+        let focus = self.water_terrain_focus_ws();
+        let now = Instant::now();
+        let Some(work) = self
+            .deferred_terrain_sdf_source_refreshes
+            .pop_nearest_to_if_payload(focus, UVec3::ONE, |_, request| request.ready_at <= now)
+        else {
+            return;
+        };
+
+        let chunk_id = work.chunk_id;
+        let revision = work.revision;
+        match self.submit_terrain_sdf_solid_sample_chunk(chunk_id) {
+            Ok(Some(job)) => {
+                let sample_count = job.sample_count();
+                let byte_count = job.byte_count();
+                let atlas_offset = job.atlas_offset();
+                let atlas_dim = job.atlas_dim();
+                let sample_dim = job.sample_dim();
+                self.terrain_sdf_source_refresh_inflight = Some(TerrainSdfSourceRefreshInFlight {
+                    chunk_id,
+                    revision,
+                    submitted_at: Instant::now(),
+                    job,
+                });
+                log::debug!(
+                    "[QUEUE][TERRAIN_SDF_SOURCE] submit async chunk {:?} revision {} atlas_offset={:?} source_dim={:?} sample_dim={:?} samples={} readback_bytes={} pending={} active={}",
+                    chunk_id,
+                    revision,
+                    atlas_offset,
+                    atlas_dim,
+                    sample_dim,
+                    sample_count,
+                    byte_count,
+                    self.deferred_terrain_sdf_source_refreshes.len(),
+                    self.deferred_terrain_sdf_source_refreshes.active_len(),
+                );
+            }
+            Ok(None) => {
+                log::debug!(
+                    "[QUEUE][TERRAIN_SDF_SOURCE] skipped invalid chunk {:?} revision {}",
+                    chunk_id,
+                    revision,
+                );
+                self.deferred_terrain_sdf_source_refreshes
+                    .complete(chunk_id, revision);
+            }
+            Err(err) => {
+                log::error!(
+                    "[WATER][TERRAIN] failed to submit solid source refresh chunk {:?} revision {}: {}",
+                    chunk_id,
+                    revision,
+                    err,
+                );
+                self.deferred_terrain_sdf_source_refreshes
+                    .complete(chunk_id, revision);
+            }
+        }
+    }
+
+    fn publish_completed_terrain_sdf_source_refresh(&mut self) {
+        let Some(active) = self.terrain_sdf_source_refresh_inflight.as_ref() else {
+            return;
+        };
+        let ready = match self
+            .plain_builder
+            .chunk_atlas_solid_grid_sample_ready(&active.job)
+        {
+            Ok(ready) => ready,
+            Err(err) => {
+                log::error!(
+                    "[WATER][TERRAIN] failed to poll solid source refresh chunk {:?} revision {}: {}",
+                    active.chunk_id,
+                    active.revision,
+                    err,
+                );
+                return;
+            }
+        };
+        if !ready {
+            return;
+        }
+
+        let active = self
+            .terrain_sdf_source_refresh_inflight
+            .take()
+            .expect("terrain SDF source refresh disappeared after readiness poll");
+        let chunk_id = active.chunk_id;
+        let revision = active.revision;
+        let age_ms = active.submitted_at.elapsed().as_secs_f64() * 1000.0;
+        let is_latest = self
+            .deferred_terrain_sdf_source_refreshes
+            .is_latest_revision(chunk_id, revision);
+        if !is_latest {
             log::debug!(
-                "[QUEUE][TERRAIN_SDF_SOURCE] processed {} refreshes total_ms={:.2} pending={} active={}",
-                processed,
-                frame_start.elapsed().as_secs_f32() * 1000.0,
+                "[WATER][TERRAIN] discarded stale solid source refresh chunk {:?} rev {} latest_pending=true age={:.2}ms pending={} active={}",
+                chunk_id,
+                revision,
+                age_ms,
                 self.deferred_terrain_sdf_source_refreshes.len(),
                 self.deferred_terrain_sdf_source_refreshes.active_len(),
             );
+            self.deferred_terrain_sdf_source_refreshes
+                .complete(chunk_id, revision);
+            return;
         }
+
+        match self.finish_terrain_sdf_solid_sample_chunk(chunk_id, active.job) {
+            Ok(source_refresh) => {
+                let source_revision = terrain_sdf_source_revision(&self.cpu_solid_voxels, chunk_id);
+                let already_built = self.terrain_sdf_built_source_revisions.get(&chunk_id)
+                    == Some(&source_revision);
+                if source_refresh.changed || !already_built {
+                    log::debug!(
+                        "[QUEUE][TERRAIN_SDF_SOURCE] ready chunk {:?} revision {} source_rev={} changed={} already_built={}",
+                        chunk_id,
+                        revision,
+                        source_refresh.revision,
+                        source_refresh.changed,
+                        already_built,
+                    );
+                    self.enqueue_deferred_terrain_sdf_collider_rebuild(chunk_id);
+                } else {
+                    log::debug!(
+                        "[QUEUE][TERRAIN_SDF_SOURCE] skipped unchanged chunk {:?} revision {} source_rev={} pending={} active={}",
+                        chunk_id,
+                        revision,
+                        source_refresh.revision,
+                        self.deferred_terrain_sdf_source_refreshes.len(),
+                        self.deferred_terrain_sdf_source_refreshes.active_len(),
+                    );
+                }
+            }
+            Err(err) => {
+                log::error!(
+                    "[WATER][TERRAIN] failed to finish solid source refresh chunk {:?} revision {}: {}",
+                    chunk_id,
+                    revision,
+                    err,
+                );
+            }
+        }
+        self.deferred_terrain_sdf_source_refreshes
+            .complete(chunk_id, revision);
     }
 
     pub(super) fn process_deferred_water_terrain_cache_rebuild(&mut self) {
@@ -883,25 +969,45 @@ impl App {
         })
     }
 
-    fn refresh_terrain_sdf_solid_sample_chunk(
+    fn submit_terrain_sdf_solid_sample_chunk(
         &mut self,
         chunk_id: UVec3,
-    ) -> anyhow::Result<Option<TerrainSdfSourceRefresh>> {
+    ) -> anyhow::Result<Option<ChunkSolidSampleJob>> {
         if chunk_id.cmpge(super::CHUNK_DIM).any() {
             return Ok(None);
         }
 
-        let total_start = Instant::now();
         let atlas_offset = chunk_id * VOXEL_DIM_PER_CHUNK;
-        let sample_start = Instant::now();
-        let solid_samples = self.plain_builder.sample_chunk_atlas_solid_grid(
-            atlas_offset,
-            VOXEL_DIM_PER_CHUNK,
-            TERRAIN_SDF_COLLIDER_DIM,
-        )?;
-        let sample_elapsed = sample_start.elapsed();
+        self.plain_builder
+            .submit_chunk_atlas_solid_grid_sample(
+                atlas_offset,
+                VOXEL_DIM_PER_CHUNK,
+                TERRAIN_SDF_COLLIDER_DIM,
+            )
+            .map(Some)
+    }
+
+    fn finish_terrain_sdf_solid_sample_chunk(
+        &mut self,
+        chunk_id: UVec3,
+        job: ChunkSolidSampleJob,
+    ) -> anyhow::Result<TerrainSdfSourceRefresh> {
+        let total_start = Instant::now();
+        let sample_result = self
+            .plain_builder
+            .finish_chunk_atlas_solid_grid_sample(job)?;
+        self.store_terrain_sdf_solid_sample_chunk(chunk_id, sample_result, total_start)
+    }
+
+    fn store_terrain_sdf_solid_sample_chunk(
+        &mut self,
+        chunk_id: UVec3,
+        sample_result: ChunkSolidSampleResult,
+        total_start: Instant,
+    ) -> anyhow::Result<TerrainSdfSourceRefresh> {
         let convert_start = Instant::now();
-        let voxel_types = solid_samples
+        let voxel_types = sample_result
+            .samples
             .iter()
             .map(|&solid| if solid == 0 { 0 } else { 1 })
             .collect::<Vec<u8>>();
@@ -914,7 +1020,7 @@ impl App {
         )?;
         let store_elapsed = store_start.elapsed();
         log::info!(
-            "[WATER][TERRAIN] refreshed GPU solid source chunk {:?} rev {} changed={} solid_samples {}/{} source_dim {:?} readback_samples={} gpu_sample_total={:.3}ms convert={:.3}ms store={:.3}ms total={:.3}ms",
+            "[WATER][TERRAIN] refreshed GPU solid source chunk {:?} rev {} changed={} solid_samples {}/{} source_dim {:?} atlas_offset={:?} atlas_dim={:?} sample_dim={:?} readback_samples={}/{} readback_bytes={} gpu_prepare={:.3}ms gpu_submit={:.3}ms fence_latency={:.3}ms gpu_readback={:.3}ms gpu_convert={:.3}ms gpu_sample_total={:.3}ms convert={:.3}ms store={:.3}ms total={:.3}ms",
             chunk_id,
             chunk.revision(),
             changed,
@@ -923,16 +1029,26 @@ impl App {
                 * TERRAIN_SDF_COLLIDER_DIM.y as usize
                 * TERRAIN_SDF_COLLIDER_DIM.z as usize,
             TERRAIN_SDF_COLLIDER_DIM,
-            solid_samples.len(),
-            sample_elapsed.as_secs_f64() * 1000.0,
+            sample_result.atlas_offset,
+            sample_result.atlas_dim,
+            sample_result.sample_dim,
+            sample_result.samples.len(),
+            sample_result.sample_count,
+            sample_result.byte_count,
+            sample_result.prepare_ms,
+            sample_result.gpu_submit_ms,
+            sample_result.fence_latency_ms,
+            sample_result.readback_ms,
+            sample_result.convert_ms,
+            sample_result.total_ms,
             convert_elapsed.as_secs_f64() * 1000.0,
             store_elapsed.as_secs_f64() * 1000.0,
             total_start.elapsed().as_secs_f64() * 1000.0,
         );
-        Ok(Some(TerrainSdfSourceRefresh {
+        Ok(TerrainSdfSourceRefresh {
             revision: chunk.revision(),
             changed,
-        }))
+        })
     }
 }
 

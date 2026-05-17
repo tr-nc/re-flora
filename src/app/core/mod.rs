@@ -219,6 +219,7 @@ pub struct App {
     deferred_terrain_sdf_collider_rebuilds: LatestChunkQueue<TerrainSdfColliderRebuildRequest>,
     deferred_water_terrain_cache_rebuilds: LatestChunkQueue<WaterTerrainCacheRebuildRequest>,
     terrain_sdf_built_source_revisions: HashMap<UVec3, water::TerrainSdfSourceRevision>,
+    terrain_sdf_source_refresh_inflight: Option<water::TerrainSdfSourceRefreshInFlight>,
     terrain_sdf_collider_build_inflight: bool,
     terrain_sdf_collider_job_tx: std::sync::mpsc::Sender<water::TerrainSdfColliderWorkerJob>,
     terrain_sdf_collider_result_rx:
@@ -1009,6 +1010,7 @@ impl App {
             deferred_terrain_sdf_collider_rebuilds: LatestChunkQueue::default(),
             deferred_water_terrain_cache_rebuilds: LatestChunkQueue::default(),
             terrain_sdf_built_source_revisions: HashMap::new(),
+            terrain_sdf_source_refresh_inflight: None,
             terrain_sdf_collider_build_inflight: false,
             terrain_sdf_collider_job_tx,
             terrain_sdf_collider_result_rx,
