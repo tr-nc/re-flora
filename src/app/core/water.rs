@@ -488,8 +488,11 @@ impl App {
     }
 
     fn water_terrain_focus_ws(&self) -> Vec3 {
+        // Prefer camera position so nearby chunks are built first,
+        // especially after the collider covers the full world.
+        let camera = self.tracer.camera_position();
         let bounds = self.water_sim.config.collider;
-        bounds.min_ws + bounds.extent() * 0.5
+        camera.clamp(bounds.min_ws, bounds.max_ws)
     }
 
     fn water_terrain_has_startup_collider(&self) -> bool {

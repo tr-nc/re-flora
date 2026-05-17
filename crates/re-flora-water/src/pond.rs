@@ -91,6 +91,12 @@ impl PondWaterConfig {
         self.linear_damping_per_sec = damping_per_sec;
         self
     }
+
+    pub fn with_collider_bounds(mut self, min_ws: Vec3, max_ws: Vec3) -> Self {
+        assert!(max_ws.cmpgt(min_ws).all());
+        self.collider = WaterBoxCollider::new(min_ws, max_ws);
+        self
+    }
 }
 
 fn default_particle_volume(particle_count: usize) -> f32 {

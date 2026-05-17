@@ -433,7 +433,7 @@ const FREE_ATLAS_DIM: UVec3 = UVec3::new(512, 512, 512);
 const MAX_FRAMES_IN_FLIGHT: usize = 1;
 const SHOVEL_REMOVE_RADIUS: f32 = 0.08;
 const SHOVEL_DIG_INTERVAL: Duration = Duration::from_millis(80);
-const SHOVEL_RAY_QUERY_DISTANCE: f32 = 2.0;
+const SHOVEL_RAY_QUERY_DISTANCE: f32 = 10.0;
 const WATER_DEBUG_SPAWN_COUNT: usize = 48;
 const WATER_DEBUG_SPAWN_RADIUS: f32 = 0.12;
 const TERRAIN_EDIT_LOOP_PATH: &str =
@@ -862,14 +862,20 @@ impl App {
         if let Some(damping_per_sec) = options.water_damping {
             water_config = water_config.with_linear_damping_per_sec(damping_per_sec);
         }
+
+        // Cover the full world so the user can place water anywhere.
+        water_config = water_config.with_collider_bounds(Vec3::ZERO, CHUNK_DIM.as_vec3());
+
         log::info!(
-            "[WATER] config profile={:?} particles={} grid={:?} substep_dt={:.6}s terrain_margin_cells={:.2} damping={:.2}/s",
+            "[WATER] config profile={:?} particles={} grid={:?} substep_dt={:.6}s terrain_margin_cells={:.2} damping={:.2}/s collider_bounds {:?}..{:?}",
             options.water_profile,
             water_config.particle_count,
             water_config.grid_dim,
             water_config.substep_dt,
             water_config.terrain_collision_margin_cells,
             water_config.linear_damping_per_sec,
+            water_config.collider.min_ws,
+            water_config.collider.max_ws,
         );
         let water_sim = PondWaterSim::new(water_config);
         let (water_terrain_collider_job_tx, water_terrain_collider_result_rx) =
