@@ -267,6 +267,7 @@ pub(crate) fn mesh_generate_preserve_flora_for_sphere_edit(
     Ok(())
 }
 
+#[allow(dead_code)]
 pub(crate) fn mesh_generate_chunk_preserve_flora_for_sphere_edit(
     surface_builder: &mut SurfaceBuilder,
     contree_builder: &mut ContreeBuilder,

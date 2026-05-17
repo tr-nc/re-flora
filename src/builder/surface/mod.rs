@@ -19,7 +19,7 @@ use ash::vk;
 use bytemuck::Zeroable;
 use glam::{UVec3, Vec3};
 pub use resources::*;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 enum OccupancyEditMode {
@@ -40,6 +40,34 @@ pub struct FloraRegenStats {
 struct OccupancyToInstancesResultReadback {
     flora_instance_len: Vec<u32>,
     has_growing_flora: bool,
+}
+
+pub struct SurfaceBuildJob {
+    chunk_id: UVec3,
+    place_flora: bool,
+    total_start: Instant,
+    submitted_at: Instant,
+    setup_elapsed: Duration,
+    record_elapsed: Duration,
+    submit_elapsed: Duration,
+    _command_buffer: CommandBuffer,
+    fence: Fence,
+}
+
+#[allow(dead_code)]
+#[derive(Debug)]
+pub struct SurfaceBuildResult {
+    pub chunk_id: UVec3,
+    pub active_voxel_len: u32,
+    pub place_flora: bool,
+    pub flora_rebuilt: bool,
+    pub setup_ms: f64,
+    pub record_ms: f64,
+    pub gpu_submit_ms: f64,
+    pub fence_latency_ms: f64,
+    pub readback_ms: f64,
+    pub flora_ms: f64,
+    pub total_ms: f64,
 }
 
 pub struct SurfaceBuilder {
@@ -191,6 +219,17 @@ impl SurfaceBuilder {
     }
 
     pub fn build_surface(&mut self, chunk_id: UVec3, place_flora: bool) -> Result<u32> {
+        let job = self.submit_build_surface(chunk_id, place_flora)?;
+        self.vulkan_ctx.wait_for_fences(&[job.fence.as_raw()])?;
+        let result = self.finish_build_surface(job)?;
+        Ok(result.active_voxel_len)
+    }
+
+    pub fn submit_build_surface(
+        &mut self,
+        chunk_id: UVec3,
+        place_flora: bool,
+    ) -> Result<SurfaceBuildJob> {
         if !self.chunk_bound.in_bound(chunk_id) {
             return Err(anyhow::anyhow!("Chunk ID out of bounds"));
         }
@@ -237,38 +276,77 @@ impl SurfaceBuilder {
         cmdbuf.end();
         let record_elapsed = record_start.elapsed();
 
-        let dispatch_start = Instant::now();
+        let submit_start = Instant::now();
         let fence = Fence::new(device, false);
         cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), Some(&fence));
-        self.vulkan_ctx.wait_for_fences(&[fence.as_raw()]).unwrap();
-        let dispatch_wait_elapsed = dispatch_start.elapsed();
+        let submitted_at = Instant::now();
+        let submit_elapsed = submit_start.elapsed();
 
+        Ok(SurfaceBuildJob {
+            chunk_id,
+            place_flora,
+            total_start,
+            submitted_at,
+            setup_elapsed,
+            record_elapsed,
+            submit_elapsed,
+            _command_buffer: cmdbuf,
+            fence,
+        })
+    }
+
+    pub fn build_surface_ready(&self, job: &SurfaceBuildJob) -> Result<bool> {
+        unsafe {
+            self.vulkan_ctx
+                .device()
+                .as_raw()
+                .get_fence_status(job.fence.as_raw())
+        }
+        .map_err(|err| anyhow::anyhow!("failed to poll surface build fence: {err}"))
+    }
+
+    pub fn finish_build_surface(&mut self, job: SurfaceBuildJob) -> Result<SurfaceBuildResult> {
+        let fence_latency_elapsed = job.submitted_at.elapsed();
         let readback_start = Instant::now();
         let active_voxel_len = get_make_surface_result(&self.resources.make_surface_result);
         let readback_elapsed = readback_start.elapsed();
 
-        let should_rebuild_flora = place_flora && active_voxel_len > 0;
+        let should_rebuild_flora = job.place_flora && active_voxel_len > 0;
         let flora_start = Instant::now();
         if should_rebuild_flora {
-            self.seed_and_rebuild_flora_from_surface(chunk_id, 0)?;
+            self.seed_and_rebuild_flora_from_surface(job.chunk_id, 0)?;
         }
         let flora_elapsed = flora_start.elapsed();
+        let total_elapsed = job.total_start.elapsed();
 
         log::debug!(
-            "[PERF][SURFACE_BUILD] chunk {:?} total {:.2}ms setup {:.2}ms record {:.2}ms dispatch_wait {:.2}ms readback {:.2}ms flora {:.2}ms active_voxels {} place_flora {} flora_rebuilt {}",
-            chunk_id,
-            total_start.elapsed().as_secs_f32() * 1000.0,
-            setup_elapsed.as_secs_f32() * 1000.0,
-            record_elapsed.as_secs_f32() * 1000.0,
-            dispatch_wait_elapsed.as_secs_f32() * 1000.0,
+            "[PERF][SURFACE_BUILD] chunk {:?} total {:.2}ms setup {:.2}ms record {:.2}ms gpu_submit {:.2}ms fence_latency {:.2}ms readback {:.2}ms flora {:.2}ms active_voxels {} place_flora {} flora_rebuilt {}",
+            job.chunk_id,
+            total_elapsed.as_secs_f32() * 1000.0,
+            job.setup_elapsed.as_secs_f32() * 1000.0,
+            job.record_elapsed.as_secs_f32() * 1000.0,
+            job.submit_elapsed.as_secs_f32() * 1000.0,
+            fence_latency_elapsed.as_secs_f32() * 1000.0,
             readback_elapsed.as_secs_f32() * 1000.0,
             flora_elapsed.as_secs_f32() * 1000.0,
             active_voxel_len,
-            place_flora,
+            job.place_flora,
             should_rebuild_flora,
         );
 
-        Ok(active_voxel_len)
+        Ok(SurfaceBuildResult {
+            chunk_id: job.chunk_id,
+            active_voxel_len,
+            place_flora: job.place_flora,
+            flora_rebuilt: should_rebuild_flora,
+            setup_ms: job.setup_elapsed.as_secs_f64() * 1000.0,
+            record_ms: job.record_elapsed.as_secs_f64() * 1000.0,
+            gpu_submit_ms: job.submit_elapsed.as_secs_f64() * 1000.0,
+            fence_latency_ms: fence_latency_elapsed.as_secs_f64() * 1000.0,
+            readback_ms: readback_elapsed.as_secs_f64() * 1000.0,
+            flora_ms: flora_elapsed.as_secs_f64() * 1000.0,
+            total_ms: total_elapsed.as_secs_f64() * 1000.0,
+        })
     }
 
     pub fn edit_flora_instances(

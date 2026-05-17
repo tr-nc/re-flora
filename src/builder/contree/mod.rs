@@ -172,6 +172,37 @@ struct CpuChunkCacheBuildSource {
     leaf_size_in_bytes: u64,
 }
 
+pub struct ContreeBuildJob {
+    atlas_offset: UVec3,
+    chunk_idx: UVec3,
+    node_alloc_id: u64,
+    leaf_alloc_id: u64,
+    node_alloc_offset: u64,
+    leaf_alloc_offset: u64,
+    total_start: Instant,
+    submitted_at: Instant,
+    prealloc_elapsed: Duration,
+    submit_elapsed: Duration,
+    _command_buffer: CommandBuffer,
+    fence: Fence,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug)]
+pub struct ContreeBuildResult {
+    pub chunk_idx: UVec3,
+    pub scene_offsets: Option<(u64, u64)>,
+    pub source_revision: u64,
+    pub prealloc_ms: f64,
+    pub gpu_submit_ms: f64,
+    pub fence_latency_ms: f64,
+    pub size_ms: f64,
+    pub confirm_ms: f64,
+    pub total_ms: f64,
+    pub node_bytes: u64,
+    pub leaf_bytes: u64,
+}
+
 struct CpuChunkReadbackBuffers {
     node_readback: Buffer,
     leaf_readback: Buffer,
@@ -667,6 +698,7 @@ impl ContreeBuilder {
         }
     }
 
+    #[allow(dead_code)]
     fn build_contree(
         &mut self,
         contree_dim: UVec3,
@@ -717,32 +749,112 @@ impl ContreeBuilder {
 
     /// Returns: (node_alloc_offset, leaf_alloc_offset)
     pub fn build_and_alloc(&mut self, atlas_offset: UVec3) -> Result<Option<(u64, u64)>> {
+        let job = self.submit_build_and_alloc(atlas_offset)?;
+        self.vulkan_ctx.wait_for_fences(&[job.fence.as_raw()])?;
+        Ok(self.finish_build_and_alloc(job)?.scene_offsets)
+    }
+
+    pub fn submit_build_and_alloc(&mut self, atlas_offset: UVec3) -> Result<ContreeBuildJob> {
         let total_start = Instant::now();
         let atlas_dim = self.voxel_dim_per_chunk;
         let chunk_idx = atlas_offset / self.voxel_dim_per_chunk;
 
         let alloc_start = Instant::now();
-        let (node_alloc_offset_in_bytes, leaf_alloc_offset_in_bytes) = self.pre_allocate_chunk(
-            MAX_NODE_BUFFER_SIZE_IN_BYTES,
-            MAX_LEAF_BUFFER_SIZE_IN_BYTES,
-            atlas_offset,
-        );
+        let node_allocation = self
+            .node_allocator
+            .allocate(MAX_NODE_BUFFER_SIZE_IN_BYTES)
+            .map_err(|err| anyhow::anyhow!("failed to allocate contree node buffer: {err}"))?;
+        let leaf_allocation = self
+            .leaf_allocator
+            .allocate(MAX_LEAF_BUFFER_SIZE_IN_BYTES)
+            .map_err(|err| anyhow::anyhow!("failed to allocate contree leaf buffer: {err}"))?;
+        let prealloc_elapsed = alloc_start.elapsed();
         crate::util::BENCH
             .lock()
             .unwrap()
-            .record("contree_pre_allocate", alloc_start.elapsed());
-        // the offset's unit is in bytes, we need to convert it to array idx, each element is a 3*u32
+            .record("contree_pre_allocate", prealloc_elapsed);
+
+        let node_alloc_offset_in_bytes = node_allocation.offset;
+        let leaf_alloc_offset_in_bytes = leaf_allocation.offset;
         let node_alloc_offset = node_alloc_offset_in_bytes / SIZE_OF_NODE_ELEMENT;
-        // the element of leaf data is a u32
         let leaf_alloc_offset = leaf_alloc_offset_in_bytes / SIZE_OF_LEAF_ELEMENT;
 
-        let build_start = Instant::now();
-        self.build_contree(atlas_dim, node_alloc_offset, leaf_alloc_offset)?;
-        let build_elapsed = build_start.elapsed();
+        update_contree_build_info(
+            &self.resources.contree_build_info,
+            atlas_dim,
+            get_level(atlas_dim),
+            node_alloc_offset as u32,
+            leaf_alloc_offset as u32,
+        )?;
+
+        let cmdbuf = self.contree_cmdbuf.clone();
+        let fence = Fence::new(self.vulkan_ctx.device(), false);
+        let submit_start = Instant::now();
+        cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), Some(&fence));
+        let submitted_at = Instant::now();
+        let submit_elapsed = submit_start.elapsed();
         crate::util::BENCH
             .lock()
             .unwrap()
-            .record("contree_build_gpu", build_elapsed);
+            .record("contree_build_gpu_submit", submit_elapsed);
+        log::debug!(
+            "[QUEUE][CONTREE_BUILD] submit chunk {:?} node_offset={} leaf_offset={} prealloc_ms={:.2} submit_ms={:.2}",
+            chunk_idx,
+            node_alloc_offset,
+            leaf_alloc_offset,
+            prealloc_elapsed.as_secs_f32() * 1000.0,
+            submit_elapsed.as_secs_f32() * 1000.0,
+        );
+
+        Ok(ContreeBuildJob {
+            atlas_offset,
+            chunk_idx,
+            node_alloc_id: node_allocation.id,
+            leaf_alloc_id: leaf_allocation.id,
+            node_alloc_offset,
+            leaf_alloc_offset,
+            total_start,
+            submitted_at,
+            prealloc_elapsed,
+            submit_elapsed,
+            _command_buffer: cmdbuf,
+            fence,
+        })
+    }
+
+    pub fn build_and_alloc_ready(&self, job: &ContreeBuildJob) -> Result<bool> {
+        unsafe {
+            self.vulkan_ctx
+                .device()
+                .as_raw()
+                .get_fence_status(job.fence.as_raw())
+        }
+        .map_err(|err| anyhow::anyhow!("failed to poll contree build fence: {err}"))
+    }
+
+    pub fn discard_build_and_alloc(&mut self, job: ContreeBuildJob) {
+        if let Err(err) = self.node_allocator.deallocate(job.node_alloc_id) {
+            log::error!(
+                "Failed to deallocate stale contree node allocation for {:?}: {}",
+                job.chunk_idx,
+                err,
+            );
+        }
+        if let Err(err) = self.leaf_allocator.deallocate(job.leaf_alloc_id) {
+            log::error!(
+                "Failed to deallocate stale contree leaf allocation for {:?}: {}",
+                job.chunk_idx,
+                err,
+            );
+        }
+    }
+
+    pub fn finish_build_and_alloc(&mut self, job: ContreeBuildJob) -> Result<ContreeBuildResult> {
+        let fence_latency_elapsed = job.submitted_at.elapsed();
+        crate::util::BENCH.lock().unwrap().record(
+            "contree_build_gpu",
+            fence_latency_elapsed + job.submit_elapsed,
+        );
 
         let size_start = Instant::now();
         let (confirmed_node_buffer_size_in_bytes, confirmed_leaf_buffer_size_in_bytes) =
@@ -754,34 +866,54 @@ impl ContreeBuilder {
             .record("contree_size_total", size_elapsed);
 
         if confirmed_node_buffer_size_in_bytes == 0 || confirmed_leaf_buffer_size_in_bytes == 0 {
-            self.cpu_chunk_caches.remove(&chunk_idx);
-            self.remove_shared_chunk_cache(chunk_idx);
-            self.cpu_chunk_cache_queue.clear(chunk_idx);
-            self.set_scene_chunk(chunk_idx, None);
+            self.cpu_chunk_caches.remove(&job.chunk_idx);
+            self.remove_shared_chunk_cache(job.chunk_idx);
+            self.cpu_chunk_cache_queue.clear(job.chunk_idx);
+            self.set_scene_chunk(job.chunk_idx, None);
+            let chunk_idx = job.chunk_idx;
             let source_revision = self.record_cpu_chunk_source_update(chunk_idx, false);
-            self.deallocate_chunk_allocation(atlas_offset);
-            let total_elapsed = total_start.elapsed();
+            self.deallocate_chunk_allocation(job.atlas_offset);
+            let total_elapsed = job.total_start.elapsed();
+            let prealloc_ms = job.prealloc_elapsed.as_secs_f64() * 1000.0;
+            let gpu_submit_ms = job.submit_elapsed.as_secs_f64() * 1000.0;
+            self.discard_build_and_alloc(job);
             crate::util::BENCH
                 .lock()
                 .unwrap()
                 .record("contree_build_and_alloc_total", total_elapsed);
             log::debug!(
-                "[QUEUE][CONTREE_REBUILD] chunk {:?} empty source_rev={} total_ms={:.2} build_gpu_ms={:.2} size_ms={:.2}",
+                "[QUEUE][CONTREE_REBUILD] chunk {:?} empty source_rev={} total_ms={:.2} gpu_submit_ms={:.2} fence_latency_ms={:.2} size_ms={:.2}",
                 chunk_idx,
                 source_revision,
                 total_elapsed.as_secs_f32() * 1000.0,
-                build_elapsed.as_secs_f32() * 1000.0,
+                gpu_submit_ms,
+                fence_latency_elapsed.as_secs_f32() * 1000.0,
                 size_elapsed.as_secs_f32() * 1000.0,
             );
 
-            return Ok(None);
+            return Ok(ContreeBuildResult {
+                chunk_idx,
+                scene_offsets: None,
+                source_revision,
+                prealloc_ms,
+                gpu_submit_ms,
+                fence_latency_ms: fence_latency_elapsed.as_secs_f64() * 1000.0,
+                size_ms: size_elapsed.as_secs_f64() * 1000.0,
+                confirm_ms: 0.0,
+                total_ms: total_elapsed.as_secs_f64() * 1000.0,
+                node_bytes: 0,
+                leaf_bytes: 0,
+            });
         }
 
         let confirm_start = Instant::now();
+        self.deallocate_chunk_allocation(job.atlas_offset);
+        self.chunk_offset_allocation_table
+            .insert(job.atlas_offset, (job.node_alloc_id, job.leaf_alloc_id));
         self.confirm_allocation_of_chunk(
             confirmed_node_buffer_size_in_bytes,
             confirmed_leaf_buffer_size_in_bytes,
-            atlas_offset,
+            job.atlas_offset,
         );
         let confirm_elapsed = confirm_start.elapsed();
         crate::util::BENCH
@@ -790,31 +922,49 @@ impl ContreeBuilder {
             .record("contree_confirm_allocation", confirm_elapsed);
 
         let cpu_cache_source = CpuChunkCacheBuildSource {
-            node_alloc_offset,
-            leaf_alloc_offset,
+            node_alloc_offset: job.node_alloc_offset,
+            leaf_alloc_offset: job.leaf_alloc_offset,
             node_size_in_bytes: confirmed_node_buffer_size_in_bytes,
             leaf_size_in_bytes: confirmed_leaf_buffer_size_in_bytes,
         };
-        self.queue_chunk_cpu_cache_rebuild(chunk_idx, cpu_cache_source);
-        self.set_scene_chunk(chunk_idx, Some(chunk_idx));
-        let total_elapsed = total_start.elapsed();
+        self.queue_chunk_cpu_cache_rebuild(job.chunk_idx, cpu_cache_source);
+        self.set_scene_chunk(job.chunk_idx, Some(job.chunk_idx));
+        let total_elapsed = job.total_start.elapsed();
         crate::util::BENCH
             .lock()
             .unwrap()
             .record("contree_build_and_alloc_total", total_elapsed);
+        let source_revision = self
+            .cpu_chunk_source_revisions
+            .get(&job.chunk_idx)
+            .copied()
+            .unwrap_or(0);
         log::debug!(
-            "[QUEUE][CONTREE_REBUILD] chunk {:?} total_ms={:.2} prealloc_ms={:.2} build_gpu_ms={:.2} size_ms={:.2} confirm_ms={:.2} node_bytes={} leaf_bytes={}",
-            chunk_idx,
+            "[QUEUE][CONTREE_REBUILD] chunk {:?} total_ms={:.2} prealloc_ms={:.2} gpu_submit_ms={:.2} fence_latency_ms={:.2} size_ms={:.2} confirm_ms={:.2} node_bytes={} leaf_bytes={}",
+            job.chunk_idx,
             total_elapsed.as_secs_f32() * 1000.0,
-            alloc_start.elapsed().as_secs_f32() * 1000.0,
-            build_elapsed.as_secs_f32() * 1000.0,
+            job.prealloc_elapsed.as_secs_f32() * 1000.0,
+            job.submit_elapsed.as_secs_f32() * 1000.0,
+            fence_latency_elapsed.as_secs_f32() * 1000.0,
             size_elapsed.as_secs_f32() * 1000.0,
             confirm_elapsed.as_secs_f32() * 1000.0,
             confirmed_node_buffer_size_in_bytes,
             confirmed_leaf_buffer_size_in_bytes,
         );
 
-        Ok(Some((node_alloc_offset, leaf_alloc_offset)))
+        Ok(ContreeBuildResult {
+            chunk_idx: job.chunk_idx,
+            scene_offsets: Some((job.node_alloc_offset, job.leaf_alloc_offset)),
+            source_revision,
+            prealloc_ms: job.prealloc_elapsed.as_secs_f64() * 1000.0,
+            gpu_submit_ms: job.submit_elapsed.as_secs_f64() * 1000.0,
+            fence_latency_ms: fence_latency_elapsed.as_secs_f64() * 1000.0,
+            size_ms: size_elapsed.as_secs_f64() * 1000.0,
+            confirm_ms: confirm_elapsed.as_secs_f64() * 1000.0,
+            total_ms: total_elapsed.as_secs_f64() * 1000.0,
+            node_bytes: confirmed_node_buffer_size_in_bytes,
+            leaf_bytes: confirmed_leaf_buffer_size_in_bytes,
+        })
     }
 
     fn queue_chunk_cpu_cache_rebuild(
@@ -1037,6 +1187,7 @@ impl ContreeBuilder {
     ///
     /// Returns: (node_alloc_offset_in_bytes, leaf_alloc_offset_in_bytes)
     /// If the chunk already exists, deallocate it first.
+    #[allow(dead_code)]
     fn pre_allocate_chunk(
         &mut self,
         max_node_buffer_size_in_bytes: u64,
@@ -1418,6 +1569,21 @@ fn log_4(n: u32) -> u32 {
 
 fn get_level(contree_dim: UVec3) -> u32 {
     log_4(contree_dim.x) + 1
+}
+
+fn update_contree_build_info(
+    contree_build_info: &Buffer,
+    contree_dim: UVec3,
+    max_level: u32,
+    node_write_offset: u32,
+    leaf_write_offset: u32,
+) -> Result<()> {
+    contree_build_info.fill_uniform(&ContreeBuildInfo {
+        dim: contree_dim.x,
+        max_level,
+        node_write_offset,
+        leaf_write_offset,
+    })
 }
 
 fn march_contree_cpu(

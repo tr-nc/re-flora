@@ -24,8 +24,8 @@ use crate::app::world_ops;
 use crate::app::GuiAdjustables;
 use crate::audio::{SpatialSoundManager, TreeAudioManager};
 use crate::builder::{
-    ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder, VOXEL_TYPE_CHERRY_WOOD,
-    VOXEL_TYPE_ROCK,
+    ContreeBuildJob, ContreeBuilder, PlainBuilder, SceneAccelBuilder, SceneTexUpdateJob,
+    SurfaceBuildJob, SurfaceBuilder, VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_ROCK,
 };
 use crate::flora::species;
 use crate::geom::{build_bvh, Aabb3, Cuboid, UAabb3};
@@ -94,6 +94,36 @@ enum ChunkRebuildRequest {
     #[default]
     Normal,
     PreserveFlora(world_ops::FloraSphereEdit),
+}
+
+struct TerrainChunkRebuildInFlight {
+    chunk_id: UVec3,
+    revision: u64,
+    started_at: Instant,
+    main_thread_ms: f64,
+    flora_edit: Option<world_ops::FloraSphereEdit>,
+    stage: TerrainChunkRebuildStage,
+}
+
+enum TerrainChunkRebuildStage {
+    Surface {
+        job: SurfaceBuildJob,
+    },
+    ContreeReady {
+        active_voxel_len: u32,
+        surface_total_ms: f64,
+    },
+    Contree {
+        active_voxel_len: u32,
+        surface_total_ms: f64,
+        job: ContreeBuildJob,
+    },
+    Scene {
+        active_voxel_len: u32,
+        surface_total_ms: f64,
+        contree_total_ms: f64,
+        job: SceneTexUpdateJob,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -240,6 +270,7 @@ pub struct App {
     tree_bench: Option<TreeBench>,
     water_edit_soak: Option<water::WaterEditSoak>,
     deferred_chunk_rebuilds: LatestChunkQueue<ChunkRebuildRequest>,
+    terrain_chunk_rebuild_inflight: Option<TerrainChunkRebuildInFlight>,
 
     // note: always keep the context to end, as it has to be destroyed last
     vulkan_ctx: VulkanContext,
@@ -281,10 +312,28 @@ impl App {
     }
 
     pub(super) fn deferred_chunk_rebuilds_idle(&self) -> bool {
-        self.deferred_chunk_rebuilds.is_idle()
+        self.deferred_chunk_rebuilds.is_idle() && self.terrain_chunk_rebuild_inflight.is_none()
     }
 
     fn process_deferred_chunk_rebuild(&mut self) {
+        if self.terrain_chunk_rebuild_inflight.is_some() {
+            self.progress_deferred_chunk_rebuild();
+            return;
+        }
+
+        self.try_start_deferred_chunk_rebuild();
+    }
+
+    fn deferred_surface_rebuild_inflight(&self) -> bool {
+        matches!(
+            self.terrain_chunk_rebuild_inflight
+                .as_ref()
+                .map(|job| &job.stage),
+            Some(TerrainChunkRebuildStage::Surface { .. })
+        )
+    }
+
+    fn try_start_deferred_chunk_rebuild(&mut self) {
         let player_pos = self.tracer.camera_position();
         let Some(work) = self
             .deferred_chunk_rebuilds
@@ -293,52 +342,518 @@ impl App {
             return;
         };
 
-        let chunk_id = work.chunk_id;
-        let revision = work.revision;
-        let rebuild_start = Instant::now();
-        let result = match work.payload {
-            ChunkRebuildRequest::Normal => world_ops::mesh_generate_chunks(
-                &mut self.surface_builder,
-                &mut self.contree_builder,
-                &mut self.scene_accel_builder,
-                VOXEL_DIM_PER_CHUNK,
-                vec![chunk_id],
-            ),
+        match work.payload {
+            ChunkRebuildRequest::Normal => {
+                self.start_async_surface_chunk_rebuild(work.chunk_id, work.revision, true, None);
+            }
             ChunkRebuildRequest::PreserveFlora(flora_edit) => {
-                world_ops::mesh_generate_chunk_preserve_flora_for_sphere_edit(
-                    &mut self.surface_builder,
-                    &mut self.contree_builder,
-                    &mut self.scene_accel_builder,
-                    VOXEL_DIM_PER_CHUNK,
+                self.start_async_surface_chunk_rebuild(
+                    work.chunk_id,
+                    work.revision,
+                    false,
+                    Some(flora_edit),
+                );
+            }
+        }
+    }
+
+    fn start_async_surface_chunk_rebuild(
+        &mut self,
+        chunk_id: UVec3,
+        revision: u64,
+        place_flora: bool,
+        flora_edit: Option<world_ops::FloraSphereEdit>,
+    ) {
+        let submit_start = Instant::now();
+        match self
+            .surface_builder
+            .submit_build_surface(chunk_id, place_flora)
+        {
+            Ok(job) => {
+                let submit_ms = submit_start.elapsed().as_secs_f64() * 1000.0;
+                log::debug!(
+                    "[QUEUE][DEFERRED_REBUILD] submit surface chunk {:?} revision {} submit_ms={:.2} pending={} active={}",
                     chunk_id,
+                    revision,
+                    submit_ms,
+                    self.deferred_chunk_rebuilds.len(),
+                    self.deferred_chunk_rebuilds.active_len(),
+                );
+                self.terrain_chunk_rebuild_inflight = Some(TerrainChunkRebuildInFlight {
+                    chunk_id,
+                    revision,
+                    started_at: Instant::now(),
+                    main_thread_ms: submit_ms,
                     flora_edit,
-                )
+                    stage: TerrainChunkRebuildStage::Surface { job },
+                });
+            }
+            Err(err) => {
+                let elapsed_ms = submit_start.elapsed().as_secs_f32() * 1000.0;
+                self.deferred_chunk_rebuilds.complete(chunk_id, revision);
+                log::error!(
+                    "[PERF][DEFERRED_REBUILD] chunk {:?} failed surface submit after {:.2}ms remaining {} revision {}: {}",
+                    chunk_id,
+                    elapsed_ms,
+                    self.deferred_chunk_rebuilds.len(),
+                    revision,
+                    err,
+                );
+            }
+        }
+    }
+
+    fn progress_deferred_chunk_rebuild(&mut self) {
+        let Some(inflight) = self.terrain_chunk_rebuild_inflight.take() else {
+            return;
+        };
+        let TerrainChunkRebuildInFlight {
+            chunk_id,
+            revision,
+            started_at,
+            main_thread_ms,
+            flora_edit,
+            stage,
+        } = inflight;
+        let inflight = TerrainChunkRebuildInFlight {
+            chunk_id,
+            revision,
+            started_at,
+            main_thread_ms,
+            flora_edit,
+            stage: TerrainChunkRebuildStage::ContreeReady {
+                active_voxel_len: 0,
+                surface_total_ms: 0.0,
+            },
+        };
+
+        match stage {
+            TerrainChunkRebuildStage::Surface { job } => {
+                self.progress_deferred_chunk_surface_rebuild(inflight, job);
+            }
+            TerrainChunkRebuildStage::ContreeReady {
+                active_voxel_len,
+                surface_total_ms,
+            } => {
+                self.submit_deferred_chunk_contree_rebuild(
+                    inflight,
+                    active_voxel_len,
+                    surface_total_ms,
+                );
+            }
+            TerrainChunkRebuildStage::Contree {
+                active_voxel_len,
+                surface_total_ms,
+                job,
+            } => {
+                self.finish_deferred_chunk_contree_rebuild(
+                    inflight,
+                    active_voxel_len,
+                    surface_total_ms,
+                    job,
+                );
+            }
+            TerrainChunkRebuildStage::Scene {
+                active_voxel_len,
+                surface_total_ms,
+                contree_total_ms,
+                job,
+            } => {
+                self.finish_deferred_chunk_scene_update(
+                    inflight,
+                    active_voxel_len,
+                    surface_total_ms,
+                    contree_total_ms,
+                    job,
+                );
+            }
+        }
+    }
+
+    fn progress_deferred_chunk_surface_rebuild(
+        &mut self,
+        mut inflight: TerrainChunkRebuildInFlight,
+        job: SurfaceBuildJob,
+    ) {
+        let ready = match self.surface_builder.build_surface_ready(&job) {
+            Ok(ready) => ready,
+            Err(err) => {
+                log::error!(
+                    "[QUEUE][DEFERRED_REBUILD] failed to poll surface chunk {:?} revision {}: {}",
+                    inflight.chunk_id,
+                    inflight.revision,
+                    err,
+                );
+                inflight.stage = TerrainChunkRebuildStage::Surface { job };
+                self.terrain_chunk_rebuild_inflight = Some(inflight);
+                return;
             }
         };
-        let elapsed = rebuild_start.elapsed();
-        let rebuild_succeeded = result.is_ok();
-        self.deferred_chunk_rebuilds.complete(chunk_id, revision);
-        if rebuild_succeeded {
-            self.schedule_terrain_sdf_source_refresh(chunk_id);
+
+        if !ready {
+            inflight.stage = TerrainChunkRebuildStage::Surface { job };
+            self.terrain_chunk_rebuild_inflight = Some(inflight);
+            return;
         }
 
-        match result {
-            Ok(()) => log::debug!(
-                "[PERF][DEFERRED_REBUILD] chunk {:?} total {:.2}ms remaining {} revision {}",
-                chunk_id,
-                elapsed.as_secs_f32() * 1000.0,
+        if !self
+            .deferred_chunk_rebuilds
+            .is_latest_revision(inflight.chunk_id, inflight.revision)
+        {
+            log::debug!(
+                "[QUEUE][DEFERRED_REBUILD] discard stale surface chunk {:?} revision {} wall_ms={:.2} pending={} active={}",
+                inflight.chunk_id,
+                inflight.revision,
+                inflight.started_at.elapsed().as_secs_f32() * 1000.0,
                 self.deferred_chunk_rebuilds.len(),
-                revision,
-            ),
-            Err(err) => log::error!(
-                "[PERF][DEFERRED_REBUILD] chunk {:?} failed after {:.2}ms remaining {} revision {}: {}",
-                chunk_id,
-                elapsed.as_secs_f32() * 1000.0,
-                self.deferred_chunk_rebuilds.len(),
-                revision,
-                err,
-            ),
+                self.deferred_chunk_rebuilds.active_len(),
+            );
+            self.deferred_chunk_rebuilds
+                .complete(inflight.chunk_id, inflight.revision);
+            return;
         }
+
+        let finish_start = Instant::now();
+        match self.surface_builder.finish_build_surface(job) {
+            Ok(surface) => {
+                let finish_ms = finish_start.elapsed().as_secs_f64() * 1000.0;
+                inflight.main_thread_ms += finish_ms;
+                let surface_total_ms = surface.total_ms;
+                let mut preserve_flora_ms = 0.0;
+                if let Some(flora_edit) = inflight.flora_edit {
+                    let flora_start = Instant::now();
+                    match self.surface_builder.edit_flora_instances(
+                        inflight.chunk_id,
+                        flora_edit.center,
+                        flora_edit.radius,
+                        flora_edit.tick,
+                    ) {
+                        Ok(()) => {
+                            preserve_flora_ms = flora_start.elapsed().as_secs_f64() * 1000.0;
+                            inflight.main_thread_ms += preserve_flora_ms;
+                        }
+                        Err(err) => {
+                            let flora_ms = flora_start.elapsed().as_secs_f64() * 1000.0;
+                            inflight.main_thread_ms += flora_ms;
+                            self.deferred_chunk_rebuilds
+                                .complete(inflight.chunk_id, inflight.revision);
+                            log::error!(
+                                "[PERF][DEFERRED_REBUILD] chunk {:?} failed preserve-flora edit after {:.2}ms wall {:.2}ms remaining {} revision {}: {}",
+                                inflight.chunk_id,
+                                inflight.main_thread_ms,
+                                inflight.started_at.elapsed().as_secs_f64() * 1000.0,
+                                self.deferred_chunk_rebuilds.len(),
+                                inflight.revision,
+                                err,
+                            );
+                            return;
+                        }
+                    }
+                }
+                log::log!(
+                    if self.perf_logging {
+                        log::Level::Info
+                    } else {
+                        log::Level::Debug
+                    },
+                    "[PERF][DEFERRED_REBUILD_PHASE] chunk {:?} revision {} phase surface_finish main_thread {:.2}ms surface_total {:.2}ms active_voxels {} flora {:.2}ms preserve_flora {:.2}ms place_flora {}",
+                    inflight.chunk_id,
+                    inflight.revision,
+                    finish_ms,
+                    surface_total_ms,
+                    surface.active_voxel_len,
+                    surface.flora_ms,
+                    preserve_flora_ms,
+                    surface.place_flora,
+                );
+                inflight.stage = TerrainChunkRebuildStage::ContreeReady {
+                    active_voxel_len: surface.active_voxel_len,
+                    surface_total_ms,
+                };
+                self.terrain_chunk_rebuild_inflight = Some(inflight);
+            }
+            Err(err) => {
+                let finish_ms = finish_start.elapsed().as_secs_f32() * 1000.0;
+                self.deferred_chunk_rebuilds
+                    .complete(inflight.chunk_id, inflight.revision);
+                log::error!(
+                    "[PERF][DEFERRED_REBUILD] chunk {:?} failed surface finish after {:.2}ms remaining {} revision {}: {}",
+                    inflight.chunk_id,
+                    finish_ms,
+                    self.deferred_chunk_rebuilds.len(),
+                    inflight.revision,
+                    err,
+                );
+            }
+        }
+    }
+
+    fn submit_deferred_chunk_contree_rebuild(
+        &mut self,
+        mut inflight: TerrainChunkRebuildInFlight,
+        active_voxel_len: u32,
+        surface_total_ms: f64,
+    ) {
+        if !self
+            .deferred_chunk_rebuilds
+            .is_latest_revision(inflight.chunk_id, inflight.revision)
+        {
+            log::debug!(
+                "[QUEUE][DEFERRED_REBUILD] discard stale contree-ready chunk {:?} revision {} wall_ms={:.2} pending={} active={}",
+                inflight.chunk_id,
+                inflight.revision,
+                inflight.started_at.elapsed().as_secs_f32() * 1000.0,
+                self.deferred_chunk_rebuilds.len(),
+                self.deferred_chunk_rebuilds.active_len(),
+            );
+            self.deferred_chunk_rebuilds
+                .complete(inflight.chunk_id, inflight.revision);
+            return;
+        }
+
+        let submit_start = Instant::now();
+        match self
+            .contree_builder
+            .submit_build_and_alloc(inflight.chunk_id * VOXEL_DIM_PER_CHUNK)
+        {
+            Ok(job) => {
+                let submit_ms = submit_start.elapsed().as_secs_f64() * 1000.0;
+                inflight.main_thread_ms += submit_ms;
+                log::log!(
+                    if self.perf_logging {
+                        log::Level::Info
+                    } else {
+                        log::Level::Debug
+                    },
+                    "[PERF][DEFERRED_REBUILD_PHASE] chunk {:?} revision {} phase contree_submit main_thread {:.2}ms active_voxels {}",
+                    inflight.chunk_id,
+                    inflight.revision,
+                    submit_ms,
+                    active_voxel_len,
+                );
+                inflight.stage = TerrainChunkRebuildStage::Contree {
+                    active_voxel_len,
+                    surface_total_ms,
+                    job,
+                };
+                self.terrain_chunk_rebuild_inflight = Some(inflight);
+            }
+            Err(err) => {
+                let submit_ms = submit_start.elapsed().as_secs_f64() * 1000.0;
+                inflight.main_thread_ms += submit_ms;
+                self.deferred_chunk_rebuilds
+                    .complete(inflight.chunk_id, inflight.revision);
+                log::error!(
+                    "[PERF][DEFERRED_REBUILD] chunk {:?} failed contree submit after {:.2}ms wall {:.2}ms remaining {} revision {}: {}",
+                    inflight.chunk_id,
+                    inflight.main_thread_ms,
+                    inflight.started_at.elapsed().as_secs_f64() * 1000.0,
+                    self.deferred_chunk_rebuilds.len(),
+                    inflight.revision,
+                    err,
+                );
+            }
+        }
+    }
+
+    fn finish_deferred_chunk_contree_rebuild(
+        &mut self,
+        mut inflight: TerrainChunkRebuildInFlight,
+        active_voxel_len: u32,
+        surface_total_ms: f64,
+        job: ContreeBuildJob,
+    ) {
+        let ready = match self.contree_builder.build_and_alloc_ready(&job) {
+            Ok(ready) => ready,
+            Err(err) => {
+                log::error!(
+                    "[QUEUE][DEFERRED_REBUILD] failed to poll contree chunk {:?} revision {}: {}",
+                    inflight.chunk_id,
+                    inflight.revision,
+                    err,
+                );
+                inflight.stage = TerrainChunkRebuildStage::Contree {
+                    active_voxel_len,
+                    surface_total_ms,
+                    job,
+                };
+                self.terrain_chunk_rebuild_inflight = Some(inflight);
+                return;
+            }
+        };
+
+        if !ready {
+            inflight.stage = TerrainChunkRebuildStage::Contree {
+                active_voxel_len,
+                surface_total_ms,
+                job,
+            };
+            self.terrain_chunk_rebuild_inflight = Some(inflight);
+            return;
+        }
+
+        if !self
+            .deferred_chunk_rebuilds
+            .is_latest_revision(inflight.chunk_id, inflight.revision)
+        {
+            log::debug!(
+                "[QUEUE][DEFERRED_REBUILD] discard stale contree chunk {:?} revision {} wall_ms={:.2} pending={} active={}",
+                inflight.chunk_id,
+                inflight.revision,
+                inflight.started_at.elapsed().as_secs_f32() * 1000.0,
+                self.deferred_chunk_rebuilds.len(),
+                self.deferred_chunk_rebuilds.active_len(),
+            );
+            self.contree_builder.discard_build_and_alloc(job);
+            self.deferred_chunk_rebuilds
+                .complete(inflight.chunk_id, inflight.revision);
+            return;
+        }
+
+        let finish_start = Instant::now();
+        let contree = match self.contree_builder.finish_build_and_alloc(job) {
+            Ok(contree) => contree,
+            Err(err) => {
+                let finish_ms = finish_start.elapsed().as_secs_f64() * 1000.0;
+                inflight.main_thread_ms += finish_ms;
+                self.deferred_chunk_rebuilds
+                    .complete(inflight.chunk_id, inflight.revision);
+                log::error!(
+                    "[PERF][DEFERRED_REBUILD] chunk {:?} failed contree finish after {:.2}ms wall {:.2}ms remaining {} revision {}: {}",
+                    inflight.chunk_id,
+                    inflight.main_thread_ms,
+                    inflight.started_at.elapsed().as_secs_f64() * 1000.0,
+                    self.deferred_chunk_rebuilds.len(),
+                    inflight.revision,
+                    err,
+                );
+                return;
+            }
+        };
+        let contree_finish_ms = finish_start.elapsed().as_secs_f64() * 1000.0;
+        inflight.main_thread_ms += contree_finish_ms;
+
+        let scene_data = contree.scene_offsets;
+        let scene_submit_start = Instant::now();
+        match self
+            .scene_accel_builder
+            .submit_update_scene_tex(contree.chunk_idx, scene_data)
+        {
+            Ok(scene_job) => {
+                let scene_submit_ms = scene_submit_start.elapsed().as_secs_f64() * 1000.0;
+                inflight.main_thread_ms += scene_submit_ms;
+                log::log!(
+                    if self.perf_logging {
+                        log::Level::Info
+                    } else {
+                        log::Level::Debug
+                    },
+                    "[PERF][DEFERRED_REBUILD_PHASE] chunk {:?} revision {} phase contree_finish main_thread {:.2}ms contree_total {:.2}ms scene_submit {:.2}ms active_voxels {}",
+                    inflight.chunk_id,
+                    inflight.revision,
+                    contree_finish_ms,
+                    contree.total_ms,
+                    scene_submit_ms,
+                    active_voxel_len,
+                );
+                inflight.stage = TerrainChunkRebuildStage::Scene {
+                    active_voxel_len,
+                    surface_total_ms,
+                    contree_total_ms: contree.total_ms,
+                    job: scene_job,
+                };
+                self.terrain_chunk_rebuild_inflight = Some(inflight);
+            }
+            Err(err) => {
+                let scene_submit_ms = scene_submit_start.elapsed().as_secs_f64() * 1000.0;
+                inflight.main_thread_ms += scene_submit_ms;
+                self.deferred_chunk_rebuilds
+                    .complete(inflight.chunk_id, inflight.revision);
+                log::error!(
+                    "[PERF][DEFERRED_REBUILD] chunk {:?} failed scene submit after {:.2}ms wall {:.2}ms remaining {} revision {}: {}",
+                    inflight.chunk_id,
+                    inflight.main_thread_ms,
+                    inflight.started_at.elapsed().as_secs_f64() * 1000.0,
+                    self.deferred_chunk_rebuilds.len(),
+                    inflight.revision,
+                    err,
+                );
+            }
+        }
+    }
+
+    fn finish_deferred_chunk_scene_update(
+        &mut self,
+        mut inflight: TerrainChunkRebuildInFlight,
+        active_voxel_len: u32,
+        surface_total_ms: f64,
+        contree_total_ms: f64,
+        job: SceneTexUpdateJob,
+    ) {
+        let ready = match self.scene_accel_builder.update_scene_tex_ready(&job) {
+            Ok(ready) => ready,
+            Err(err) => {
+                log::error!(
+                    "[QUEUE][DEFERRED_REBUILD] failed to poll scene update chunk {:?} revision {}: {}",
+                    inflight.chunk_id,
+                    inflight.revision,
+                    err,
+                );
+                inflight.stage = TerrainChunkRebuildStage::Scene {
+                    active_voxel_len,
+                    surface_total_ms,
+                    contree_total_ms,
+                    job,
+                };
+                self.terrain_chunk_rebuild_inflight = Some(inflight);
+                return;
+            }
+        };
+
+        if !ready {
+            inflight.stage = TerrainChunkRebuildStage::Scene {
+                active_voxel_len,
+                surface_total_ms,
+                contree_total_ms,
+                job,
+            };
+            self.terrain_chunk_rebuild_inflight = Some(inflight);
+            return;
+        }
+
+        let finish_start = Instant::now();
+        let scene = self.scene_accel_builder.finish_update_scene_tex(job);
+        let finish_ms = finish_start.elapsed().as_secs_f64() * 1000.0;
+        inflight.main_thread_ms += finish_ms;
+        let is_latest = self
+            .deferred_chunk_rebuilds
+            .is_latest_revision(inflight.chunk_id, inflight.revision);
+        self.deferred_chunk_rebuilds
+            .complete(inflight.chunk_id, inflight.revision);
+        if is_latest {
+            self.schedule_terrain_sdf_source_refresh(inflight.chunk_id);
+        }
+
+        log::log!(
+            if self.perf_logging {
+                log::Level::Info
+            } else {
+                log::Level::Debug
+            },
+            "[PERF][DEFERRED_REBUILD] chunk {:?} total {:.2}ms wall {:.2}ms surface_total {:.2}ms contree_total {:.2}ms scene_total {:.2}ms scene_finish {:.2}ms active_voxels {} remaining {} revision {} latest={} preserve_flora={}",
+            inflight.chunk_id,
+            inflight.main_thread_ms,
+            inflight.started_at.elapsed().as_secs_f64() * 1000.0,
+            surface_total_ms,
+            contree_total_ms,
+            scene.total_ms,
+            finish_ms,
+            active_voxel_len,
+            self.deferred_chunk_rebuilds.len(),
+            inflight.revision,
+            is_latest,
+            inflight.flora_edit.is_some(),
+        );
     }
 
     pub(super) fn track_growing_flora_chunk(&mut self, chunk_id: UVec3) {
@@ -346,6 +861,10 @@ impl App {
     }
 
     fn update_growing_flora_chunk(&mut self) {
+        if self.deferred_surface_rebuild_inflight() {
+            return;
+        }
+
         let Some(GrowingFloraChunk {
             chunk_id,
             last_flora_tick,
@@ -1036,6 +1555,7 @@ impl App {
             }),
             water_edit_soak: options.water_edit_soak.then(water::WaterEditSoak::default),
             deferred_chunk_rebuilds: LatestChunkQueue::default(),
+            terrain_chunk_rebuild_inflight: None,
 
             spatial_sound_manager,
             tree_audio_manager,
@@ -2580,7 +3100,7 @@ impl App {
                         + terrain_sdf_collider_ms;
                     if frame_count.is_multiple_of(30) || total_ms >= 16.0 || queue_work_ms >= 2.0 {
                         log::info!(
-                            "[PERF][FRAME] frame {} total {:.2}ms egui {:.2}ms gpu_present {:.2}ms contree_poll {:.2}ms terrain_source {:.2}ms deferred_rebuild {:.2}ms cache_queue {:.2}ms collider_queue {:.2}ms water_edit_soak {:.2}ms water_update {:.2}ms particles {:.2}ms tracked_cpu {:.2}ms untracked_cpu {:.2}ms queues deferred_pending={} source_pending={} source_active={} collider_pending={} collider_active={} collider_inflight={} cache_pending={} cache_active={} cache_inflight={}",
+                            "[PERF][FRAME] frame {} total {:.2}ms egui {:.2}ms gpu_present {:.2}ms contree_poll {:.2}ms terrain_source {:.2}ms deferred_rebuild {:.2}ms cache_queue {:.2}ms collider_queue {:.2}ms water_edit_soak {:.2}ms water_update {:.2}ms particles {:.2}ms tracked_cpu {:.2}ms untracked_cpu {:.2}ms queues deferred_pending={} deferred_active={} deferred_inflight={} source_pending={} source_active={} collider_pending={} collider_active={} collider_inflight={} cache_pending={} cache_active={} cache_inflight={}",
                             frame_count,
                             total_ms,
                             egui_ms,
@@ -2596,6 +3116,8 @@ impl App {
                             tracked_cpu_ms,
                             untracked_cpu_ms,
                             self.deferred_chunk_rebuilds.len(),
+                            self.deferred_chunk_rebuilds.active_len(),
+                            self.terrain_chunk_rebuild_inflight.is_some(),
                             self.deferred_terrain_sdf_source_refreshes.len(),
                             self.deferred_terrain_sdf_source_refreshes.active_len(),
                             self.deferred_terrain_sdf_collider_rebuilds.len(),

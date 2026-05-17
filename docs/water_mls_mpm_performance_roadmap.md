@@ -8,6 +8,7 @@
 - SDF/source/cache 队列命名已解耦。
 - 手动反馈：当前编辑性能已经明显改善。
 - P0 初版已完成：Water Terrain Cache Rebuild 的 `SDF collider chunk -> MLS-MPM water grid cache` 采样/normal 构建已搬到 CPU worker，主线程只做 revision-guarded apply/swap。
+- Step 1 / P1 初版已完成：Terrain SDF Source Refresh 已异步化；普通 terrain deferred rebuild 已拆成 surface / contree / scene fence-poll stages；PreserveFlora rebuild 也走同一 staged path，只保留 flora edit 本身在 ready surface 后同步执行。
 - 2026-05-17 手动 visible release perf：cache apply 已不是主要 hitch；实时 terrain edit 的主线程尖峰主要来自 terrain deferred rebuild 和 Terrain SDF Source Refresh；大量水粒子时 CPU water sim 成为主导瓶颈。
 
 ## 已完成工作（极简）
@@ -23,6 +24,7 @@
 - 2026-05-17：手动 visible release perf 调查完成，确认 P0 cache worker 化达标，并暴露下一批主瓶颈：SDF source refresh / terrain rebuild 主线程成本，以及高粒子数 water sim CPU 成本。
 - 2026-05-17：Step 0 初版 instrumentation 已开始：新增 `[PERF][FRAME]` 详细采样、water substep split counters、以及 `tools/parse_perf_log.py` 汇总脚本。
 - 2026-05-17：Step 1 初版已开始：`Terrain SDF Source Refresh` 改为 async GPU submit + fence poll + revision-guarded apply，避免 submit 后同帧等待 readback/fence。
+- 2026-05-17：P1 terrain deferred rebuild 初版完成：surface build、contree build、scene texture update 分帧提交/轮询/finish；`PreserveFlora` rebuild 不再走整段同步 fallback。
 
 最新相关提交：
 
@@ -39,6 +41,8 @@
 - `08296202` rename terrain sdf source refresh queue
 - `a9aeab4b` rename terrain sdf collider build queue
 - `befe1cf9` rename terrain sdf source scheduling
+- `daca87da` workerize water terrain cache and profile costs
+- `c71d4238` make terrain sdf source refresh async
 
 ## 当前链路
 
@@ -46,9 +50,9 @@
 terrain edit
  -> GPU compute 修改原始 voxel atlas / chunk_atlas
  -> 普通 terrain chunk rebuild queue
-    -> surface rebuild
-    -> contree rebuild
-    -> scene accel update
+    -> surface rebuild（async submit / fence poll / finish）
+    -> contree rebuild（async submit / fence poll / finish）
+    -> scene accel update（async submit / fence poll / finish）
  -> Terrain SDF Source Refresh Queue
     -> GPU atlas 降采样 256^3 -> 32^3
     -> readback 到 CPU
@@ -152,8 +156,9 @@ terrain edit
 
 1. 已有初版：把 SDF source refresh 从“submit 后同帧等待 readback/fence”改成 async GPU readback：本帧 submit，后续 frame poll fence ready result。
 2. 部分完成：source result apply 现在天然限制为单 inflight/单 result，且保留 latest-per-chunk、camera/water-focus priority；后续可继续加显式 apply time budget 和 job age/drop/stale 聚合。
-3. 待做：复查普通 terrain deferred rebuild 的 per-frame budget，避免连续编辑时同帧堆多个高成本 job。
-4. 已保留 unchanged skip 和 revision guard；stale source result 会被丢弃，不写回 `cpu_solid_voxels`。
+3. 已完成初版：普通 terrain deferred rebuild 拆为 surface / contree / scene 三段异步 GPU job；同一 chunk 串行推进，不同 queue 可跨 chunk 流水；主线程每帧只 poll/finish 当前阶段。
+4. 已完成初版：`PreserveFlora` rebuild 改为同一 staged path，避免 `surface + flora edit + contree + scene` 整段同步；当前只保留 `edit_flora_instances()` 在 surface ready 后同步执行。
+5. 已保留 unchanged skip 和 revision guard；stale source result 会被丢弃，不写回 `cpu_solid_voxels`。
 
 验收目标：edit burst 中 CPU/other spike 明显下降；source/collider/cache revision 不回退；`terrain_penetrating` 不恶化。
 
@@ -164,6 +169,22 @@ terrain edit
 - `[PERF][FRAME] terrain_source`：mean `0.28ms`，p95 `1.74ms`，max `1.92ms`。
 - async GPU 部分已从主线程等待中移出：常见 `gpu_submit ~=0.03ms`，`fence_latency ~=4-6ms`；startup 首个 job 曾等 `~145ms` GPU/fence latency，但 main-thread apply 仍只有 `0.44ms`。
 - 剩余大尖峰主要不是 source apply：startup full water cache rebuild 仍在 `collider_queue` 路径约 `133ms`，普通 `deferred_rebuild` 仍可到 `~9.5ms`。
+
+P1 terrain deferred rebuild 验证（2026-05-17 hidden release，同一命令）：
+
+| 版本 / log | `[PERF][FRAME] deferred_rebuild mean` | p95 | max | 结论 |
+|---|---:|---:|---:|---|
+| async source 后 baseline：`re-flora-20260517-214743.914-153637.log` | `1.39ms` | `7.31ms` | `9.50ms` | source 已降，但 terrain rebuild 仍有 edit-frame spike |
+| async surface/contree/scene 初版：`re-flora-20260517-222830.177-159737.log` | `1.00ms` | `4.59ms` | `8.35ms` | 普通 rebuild 改善，但 PreserveFlora 同步 fallback 仍会产生晚期 spike |
+| PreserveFlora 也 staged：`re-flora-20260517-223358.507-160928.log` | `0.71ms` | `3.94ms` | `5.08ms` | late edit spike 从 `~9ms` 降到 `~3.7ms` frame；主要剩余为 surface finish / flora edit 小段 |
+
+最新 P1 事件统计（`re-flora-20260517-223358.507-160928.log`）：
+
+- `terrain_deferred_rebuild` per-chunk main-thread total：`n=10`，mean `5.55ms`，max `7.42ms`；这些 total 已分摊到多个 frame，而不是单帧同步等待。
+- `terrain_deferred_surface_total` mean `8.81ms`、max `10.33ms`，但主要 GPU fence latency 已移出主线程等待；finish/apply frame 最大 `deferred_rebuild` 为 `5.08ms`。
+- `terrain_deferred_contree_total` mean `5.07ms`，`terrain_deferred_scene_total` mean `5.11ms`；scene finish 主线程 mean `0.39ms`。
+- PreserveFlora edit 在本次 soak 中 `n=2`，同步 edit 段 mean `1.93ms`、max `3.19ms`；对应 late frame spike 约 `3.66ms`，不再出现之前 `sync=true` 的 `8.6-9.3ms` 单帧 rebuild。
+- `terrain_sdf_source_apply` 保持低成本：mean `0.44ms`、max `0.52ms`；startup-only `collider_queue` 仍有约 `131ms` 峰值，按当前优先级暂不处理。
 
 ### Step 2：处理高粒子数 water sim CPU 瓶颈
 
@@ -274,9 +295,10 @@ terrain edit
    - 继续保持 latest-per-chunk、active-water/camera-near 优先级和 unchanged skip。
    - 待补：显式 apply time budget、source job age、stale/drop 比例和追随延迟聚合。
 
-4. `smooth terrain deferred rebuild spikes`
-   - 复查普通 terrain chunk rebuild 的每帧预算、chunk priority、和 edit loop 提交频率。
-   - 目标是降低 `5-12ms/job` rebuild 对 visible frame 的直接影响。
+4. `smooth terrain deferred rebuild spikes`（初版完成）
+   - 已把普通 chunk rebuild 拆成 surface / contree / scene 三个 staged GPU job，按 frame poll/finish。
+   - 已把 PreserveFlora rebuild 接入同一 staged path；只保留 ready surface 后的 flora edit 同步段。
+   - 后续若仍要压低 `~5ms` 尾部 spike，优先继续拆/预算 surface finish 的 flora seed 与 preserve-flora edit 段。
 
 验收：手动 edit burst 中 frame max / CPU-other max 明显下降；source/collider/cache revision 不回退；water terrain collision 诊断不退化。
 

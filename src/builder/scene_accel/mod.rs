@@ -28,6 +28,26 @@ pub struct SceneAccelBuilder {
     update_scene_tex_cmdbuf: CommandBuffer,
 }
 
+pub struct SceneTexUpdateJob {
+    chunk_idx: UVec3,
+    total_start: Instant,
+    submitted_at: Instant,
+    uniform_elapsed: std::time::Duration,
+    submit_elapsed: std::time::Duration,
+    _command_buffer: CommandBuffer,
+    fence: Fence,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug)]
+pub struct SceneTexUpdateResult {
+    pub chunk_idx: UVec3,
+    pub uniform_ms: f64,
+    pub gpu_submit_ms: f64,
+    pub fence_latency_ms: f64,
+    pub total_ms: f64,
+}
+
 impl SceneAccelBuilder {
     pub fn new(
         vulkan_ctx: VulkanContext,
@@ -113,6 +133,17 @@ impl SceneAccelBuilder {
         chunk_idx: UVec3,
         chunk_data: Option<(u64, u64)>,
     ) -> Result<()> {
+        let job = self.submit_update_scene_tex(chunk_idx, chunk_data)?;
+        self.vulkan_ctx.wait_for_fences(&[job.fence.as_raw()])?;
+        self.finish_update_scene_tex(job);
+        Ok(())
+    }
+
+    pub fn submit_update_scene_tex(
+        &mut self,
+        chunk_idx: UVec3,
+        chunk_data: Option<(u64, u64)>,
+    ) -> Result<SceneTexUpdateJob> {
         let total_start = Instant::now();
         let (node_offset_for_chunk, leaf_offset_for_chunk, is_valid) = match chunk_data {
             Some((node_offset, leaf_offset)) => (node_offset as u32, leaf_offset as u32, 1),
@@ -120,51 +151,89 @@ impl SceneAccelBuilder {
         };
 
         let uniform_start = Instant::now();
-        update_buffers(
+        update_scene_tex_info(
             &self.resources.scene_tex_update_info,
             chunk_idx,
             node_offset_for_chunk,
             leaf_offset_for_chunk,
             is_valid,
         )?;
+        let uniform_elapsed = uniform_start.elapsed();
         crate::util::BENCH
             .lock()
             .unwrap()
-            .record("scene_tex_update_uniform", uniform_start.elapsed());
+            .record("scene_tex_update_uniform", uniform_elapsed);
 
-        let gpu_start = Instant::now();
+        let submit_start = Instant::now();
         let fence = Fence::new(self.vulkan_ctx.device(), false);
-        self.update_scene_tex_cmdbuf
-            .submit(&self.vulkan_ctx.get_general_queue(), Some(&fence));
-        self.vulkan_ctx.wait_for_fences(&[fence.as_raw()]).unwrap();
+        let cmdbuf = self.update_scene_tex_cmdbuf.clone();
+        cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), Some(&fence));
+        let submitted_at = Instant::now();
+        let submit_elapsed = submit_start.elapsed();
         crate::util::BENCH
             .lock()
             .unwrap()
-            .record("scene_tex_update_gpu", gpu_start.elapsed());
-        crate::util::BENCH
-            .lock()
-            .unwrap()
-            .record("scene_tex_update_total", total_start.elapsed());
-        return Ok(());
+            .record("scene_tex_update_submit", submit_elapsed);
 
-        fn update_buffers(
-            scene_tex_update_info: &Buffer,
-            chunk_idx: UVec3,
-            node_offset_for_chunk: u32,
-            leaf_offset_for_chunk: u32,
-            is_valid: u32,
-        ) -> Result<()> {
-            scene_tex_update_info.fill_uniform(&SceneTexUpdateInfo {
-                chunk_idx: chunk_idx.to_array(),
-                node_offset_for_chunk,
-                leaf_offset_for_chunk,
-                is_valid,
-                ..SceneTexUpdateInfo::zeroed()
-            })
+        Ok(SceneTexUpdateJob {
+            chunk_idx,
+            total_start,
+            submitted_at,
+            uniform_elapsed,
+            submit_elapsed,
+            _command_buffer: cmdbuf,
+            fence,
+        })
+    }
+
+    pub fn update_scene_tex_ready(&self, job: &SceneTexUpdateJob) -> Result<bool> {
+        unsafe {
+            self.vulkan_ctx
+                .device()
+                .as_raw()
+                .get_fence_status(job.fence.as_raw())
+        }
+        .map_err(|err| anyhow::anyhow!("failed to poll scene tex update fence: {err}"))
+    }
+
+    pub fn finish_update_scene_tex(&mut self, job: SceneTexUpdateJob) -> SceneTexUpdateResult {
+        let fence_latency_elapsed = job.submitted_at.elapsed();
+        crate::util::BENCH.lock().unwrap().record(
+            "scene_tex_update_gpu",
+            fence_latency_elapsed + job.submit_elapsed,
+        );
+        let total_elapsed = job.total_start.elapsed();
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("scene_tex_update_total", total_elapsed);
+
+        SceneTexUpdateResult {
+            chunk_idx: job.chunk_idx,
+            uniform_ms: job.uniform_elapsed.as_secs_f64() * 1000.0,
+            gpu_submit_ms: job.submit_elapsed.as_secs_f64() * 1000.0,
+            fence_latency_ms: fence_latency_elapsed.as_secs_f64() * 1000.0,
+            total_ms: total_elapsed.as_secs_f64() * 1000.0,
         }
     }
 
     pub fn get_resources(&self) -> &SceneAccelBuilderResources {
         &self.resources
     }
+}
+
+fn update_scene_tex_info(
+    scene_tex_update_info: &Buffer,
+    chunk_idx: UVec3,
+    node_offset_for_chunk: u32,
+    leaf_offset_for_chunk: u32,
+    is_valid: u32,
+) -> Result<()> {
+    scene_tex_update_info.fill_uniform(&SceneTexUpdateInfo {
+        chunk_idx: chunk_idx.to_array(),
+        node_offset_for_chunk,
+        leaf_offset_for_chunk,
+        is_valid,
+        ..SceneTexUpdateInfo::zeroed()
+    })
 }

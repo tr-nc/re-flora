@@ -21,6 +21,9 @@ WATER_RE = re.compile(
     r"\[PERF\]\[WATER\] particles (\d+) .*? substeps (\d+) total ([0-9.]+)ms avg ([0-9.]+)ms/substep"
 )
 DEFERRED_REBUILD_RE = re.compile(r"\[PERF\]\[DEFERRED_REBUILD\].* total ([0-9.]+)ms")
+DEFERRED_REBUILD_PHASE_RE = re.compile(r"\[PERF\]\[DEFERRED_REBUILD_PHASE\]")
+SURFACE_BUILD_RE = re.compile(r"\[PERF\]\[SURFACE_BUILD\]")
+CONTREE_REBUILD_RE = re.compile(r"\[QUEUE\]\[CONTREE_REBUILD\]")
 SOURCE_REFRESH_RE = re.compile(r"refreshed GPU solid source")
 COLLIDER_BUILD_RE = re.compile(r"built collider chunk .* build_ms=([0-9.]+)")
 CACHE_APPLY_RE = re.compile(r"applied worker grid cache region .* worker_ms=([0-9.]+) apply_ms=([0-9.]+)")
@@ -125,6 +128,18 @@ def parse_log(path: Path) -> None:
     water_particles: list[float] = []
     water_avg_substep: list[float] = []
     deferred_rebuild: list[float] = []
+    deferred_surface_total: list[float] = []
+    deferred_contree_total: list[float] = []
+    deferred_scene_total: list[float] = []
+    deferred_scene_finish: list[float] = []
+    deferred_preserve_flora: list[float] = []
+    surface_build_total: list[float] = []
+    surface_build_fence_latency: list[float] = []
+    surface_build_flora: list[float] = []
+    contree_rebuild_total: list[float] = []
+    contree_rebuild_fence_latency: list[float] = []
+    contree_rebuild_size: list[float] = []
+    contree_rebuild_confirm: list[float] = []
     source_refresh: list[float] = []
     source_gpu_sample_total: list[float] = []
     source_fence_latency: list[float] = []
@@ -167,6 +182,36 @@ def parse_log(path: Path) -> None:
 
         if match := DEFERRED_REBUILD_RE.search(line):
             deferred_rebuild.append(float(match.group(1)))
+            if (value := extract_ms(line, "surface_total")) is not None:
+                deferred_surface_total.append(value)
+            if (value := extract_ms(line, "contree_total")) is not None:
+                deferred_contree_total.append(value)
+            if (value := extract_ms(line, "scene_total")) is not None:
+                deferred_scene_total.append(value)
+            if (value := extract_ms(line, "scene_finish")) is not None:
+                deferred_scene_finish.append(value)
+            continue
+        if DEFERRED_REBUILD_PHASE_RE.search(line):
+            if (value := extract_ms(line, "preserve_flora")) is not None and value > 0.0:
+                deferred_preserve_flora.append(value)
+            continue
+        if SURFACE_BUILD_RE.search(line):
+            if (value := extract_ms(line, "total")) is not None:
+                surface_build_total.append(value)
+            if (value := extract_ms(line, "fence_latency")) is not None:
+                surface_build_fence_latency.append(value)
+            if (value := extract_ms(line, "flora")) is not None:
+                surface_build_flora.append(value)
+            continue
+        if CONTREE_REBUILD_RE.search(line):
+            if (value := extract_eq_ms(line, "total_ms")) is not None:
+                contree_rebuild_total.append(value)
+            if (value := extract_eq_ms(line, "fence_latency_ms")) is not None:
+                contree_rebuild_fence_latency.append(value)
+            if (value := extract_eq_ms(line, "size_ms")) is not None:
+                contree_rebuild_size.append(value)
+            if (value := extract_eq_ms(line, "confirm_ms")) is not None:
+                contree_rebuild_confirm.append(value)
             continue
         if SOURCE_REFRESH_RE.search(line):
             if (value := extract_eq_ms(line, "total")) is not None:
@@ -206,6 +251,18 @@ def parse_log(path: Path) -> None:
         "Terrain / water terrain events",
         [
             ("terrain_deferred_rebuild", deferred_rebuild),
+            ("terrain_deferred_surface_total", deferred_surface_total),
+            ("terrain_deferred_contree_total", deferred_contree_total),
+            ("terrain_deferred_scene_total", deferred_scene_total),
+            ("terrain_deferred_scene_finish", deferred_scene_finish),
+            ("terrain_deferred_preserve_flora_edit", deferred_preserve_flora),
+            ("surface_build_total", surface_build_total),
+            ("surface_build_fence_latency", surface_build_fence_latency),
+            ("surface_build_flora", surface_build_flora),
+            ("contree_rebuild_total", contree_rebuild_total),
+            ("contree_rebuild_fence_latency", contree_rebuild_fence_latency),
+            ("contree_rebuild_size", contree_rebuild_size),
+            ("contree_rebuild_confirm", contree_rebuild_confirm),
             ("terrain_sdf_source_apply", source_refresh),
             ("terrain_sdf_source_gpu_sample_total", source_gpu_sample_total),
             ("terrain_sdf_source_fence_latency", source_fence_latency),
