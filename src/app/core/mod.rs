@@ -215,8 +215,7 @@ pub struct App {
     water_terrain_initialized: bool,
     water_terrain_collider_cache_rebuild_pending: bool,
     cpu_solid_voxels: CpuSolidVoxelStore,
-    deferred_water_terrain_source_refreshes:
-        LatestChunkQueue<water::WaterTerrainSourceRefreshRequest>,
+    deferred_terrain_sdf_source_refreshes: LatestChunkQueue<water::TerrainSdfSourceRefreshRequest>,
     deferred_water_terrain_collider_rebuilds: LatestChunkQueue<WaterTerrainColliderRebuildRequest>,
     deferred_water_terrain_cache_rebuilds: LatestChunkQueue<WaterTerrainCacheRebuildRequest>,
     water_terrain_built_source_revisions: HashMap<UVec3, water::WaterTerrainColliderSourceRevision>,
@@ -1001,7 +1000,7 @@ impl App {
             water_terrain_initialized: false,
             water_terrain_collider_cache_rebuild_pending: false,
             cpu_solid_voxels: CpuSolidVoxelStore::default(),
-            deferred_water_terrain_source_refreshes: LatestChunkQueue::default(),
+            deferred_terrain_sdf_source_refreshes: LatestChunkQueue::default(),
             deferred_water_terrain_collider_rebuilds: LatestChunkQueue::default(),
             deferred_water_terrain_cache_rebuilds: LatestChunkQueue::default(),
             water_terrain_built_source_revisions: HashMap::new(),
@@ -1757,7 +1756,7 @@ impl App {
                 self.time_info.update(self.perf_logging);
                 self.contree_builder
                     .poll_cpu_chunk_cache_jobs(self.tracer.camera_position(), VOXEL_DIM_PER_CHUNK);
-                self.process_water_terrain_source_updates();
+                self.process_terrain_sdf_source_updates();
 
                 if self.loading_state.is_some() {
                     self.process_loading_step();
@@ -2122,7 +2121,7 @@ impl App {
                     return;
                 }
 
-                self.process_water_terrain_source_updates();
+                self.process_terrain_sdf_source_updates();
                 self.process_deferred_chunk_rebuild();
                 self.process_deferred_water_terrain_cache_rebuild();
                 self.process_deferred_water_terrain_collider_rebuild();

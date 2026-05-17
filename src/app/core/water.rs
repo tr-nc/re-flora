@@ -16,8 +16,8 @@ use std::{
 
 const WATER_TERRAIN_COLLIDER_DIM: UVec3 = UVec3::new(32, 32, 32);
 const WATER_TERRAIN_COLLIDER_SOURCE: &str = "gpu-sampled-solid-grid";
-const WATER_TERRAIN_SOURCE_REFRESH_COALESCE_DELAY: Duration = Duration::from_millis(150);
-const WATER_TERRAIN_SOURCE_LOW_PRIORITY_DELAY: Duration = Duration::from_secs(2);
+const TERRAIN_SDF_SOURCE_REFRESH_COALESCE_DELAY: Duration = Duration::from_millis(150);
+const TERRAIN_SDF_SOURCE_LOW_PRIORITY_DELAY: Duration = Duration::from_secs(2);
 const WATER_TERRAIN_ACTIVE_PARTICLE_HALO_CELLS: f32 = 8.0;
 const WATER_TERRAIN_ACTIVE_MAX_SUBSTEPS: usize = 2;
 
@@ -43,7 +43,7 @@ pub(super) struct WaterTerrainColliderWorkerResult {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct WaterTerrainSourceRefreshRequest {
+pub(super) struct TerrainSdfSourceRefreshRequest {
     ready_at: Instant,
 }
 
@@ -131,25 +131,25 @@ impl App {
 
     fn enqueue_deferred_water_terrain_source_refresh(&mut self, chunk_id: UVec3, delay: Duration) {
         let now = Instant::now();
-        let request = WaterTerrainSourceRefreshRequest {
+        let request = TerrainSdfSourceRefreshRequest {
             ready_at: now + delay,
         };
         // Repeated dirty notifications for the same chunk should keep the
         // latest revision, but must not slide ready_at forever while the user
         // holds a terrain-edit tool. Preserve the earliest ready time so the
         // budgeted queue can keep publishing intermediate collider updates.
-        let revision = self.deferred_water_terrain_source_refreshes.push_coalesced(
+        let revision = self.deferred_terrain_sdf_source_refreshes.push_coalesced(
             chunk_id,
             request,
             |existing, pending| existing.coalesce_keep_earliest_ready(pending),
         );
         log::debug!(
-            "[QUEUE][WATER_TERRAIN_SOURCE] enqueue chunk {:?} revision {} coalesce_delay_ms={:.1} pending={} active={}",
+            "[QUEUE][TERRAIN_SDF_SOURCE] enqueue chunk {:?} revision {} coalesce_delay_ms={:.1} pending={} active={}",
             chunk_id,
             revision,
             delay.as_secs_f32() * 1000.0,
-            self.deferred_water_terrain_source_refreshes.len(),
-            self.deferred_water_terrain_source_refreshes.active_len(),
+            self.deferred_terrain_sdf_source_refreshes.len(),
+            self.deferred_terrain_sdf_source_refreshes.active_len(),
         );
     }
 
@@ -160,7 +160,7 @@ impl App {
     pub(super) fn mark_water_terrain_source_chunk_dirty(&mut self, chunk_id: UVec3) {
         self.mark_water_terrain_source_chunk_dirty_after(
             chunk_id,
-            WATER_TERRAIN_SOURCE_REFRESH_COALESCE_DELAY,
+            TERRAIN_SDF_SOURCE_REFRESH_COALESCE_DELAY,
         );
     }
 
@@ -196,7 +196,7 @@ impl App {
                 "[WATER][TERRAIN] low-priority collider source refresh for chunk {:?}: no active water particles",
                 chunk_id,
             );
-            return base_delay.max(WATER_TERRAIN_SOURCE_LOW_PRIORITY_DELAY);
+            return base_delay.max(TERRAIN_SDF_SOURCE_LOW_PRIORITY_DELAY);
         };
 
         let halo_ws = (self.water_sim.dx * WATER_TERRAIN_ACTIVE_PARTICLE_HALO_CELLS).max(0.0);
@@ -217,19 +217,19 @@ impl App {
             particle_max_ws,
             halo_ws,
         );
-        base_delay.max(WATER_TERRAIN_SOURCE_LOW_PRIORITY_DELAY)
+        base_delay.max(TERRAIN_SDF_SOURCE_LOW_PRIORITY_DELAY)
     }
 
-    pub(super) fn process_water_terrain_source_updates(&mut self) {
+    pub(super) fn process_terrain_sdf_source_updates(&mut self) {
         // Water collider invalidation is driven by edit bounds. The collider
         // source itself is a low-res CPU solid grid sampled directly from the
         // GPU atlas, so drain contree notifications here only to keep the
         // surface-ray cache from accumulating stale update records.
         let _ = self.contree_builder.take_cpu_chunk_source_updates();
-        self.process_deferred_water_terrain_source_refreshes();
+        self.process_deferred_terrain_sdf_source_refreshes();
     }
 
-    fn process_deferred_water_terrain_source_refreshes(&mut self) {
+    fn process_deferred_terrain_sdf_source_refreshes(&mut self) {
         const MAX_SOURCE_REFRESHES_PER_FRAME: usize = 1;
 
         let frame_start = Instant::now();
@@ -238,7 +238,7 @@ impl App {
         while processed < MAX_SOURCE_REFRESHES_PER_FRAME {
             let now = Instant::now();
             let Some(work) = self
-                .deferred_water_terrain_source_refreshes
+                .deferred_terrain_sdf_source_refreshes
                 .pop_nearest_to_if_payload(focus, UVec3::ONE, |_, request| request.ready_at <= now)
             else {
                 break;
@@ -246,7 +246,7 @@ impl App {
 
             let chunk_id = work.chunk_id;
             let revision = work.revision;
-            match self.refresh_water_solid_sample_chunk(chunk_id) {
+            match self.refresh_terrain_sdf_solid_sample_chunk(chunk_id) {
                 Ok(Some(source_refresh)) => {
                     let source_revision =
                         water_terrain_collider_source_revision(&self.cpu_solid_voxels, chunk_id);
@@ -254,7 +254,7 @@ impl App {
                         == Some(&source_revision);
                     if source_refresh.changed || !already_built {
                         log::debug!(
-                            "[QUEUE][WATER_TERRAIN_SOURCE] ready chunk {:?} revision {} source_rev={} changed={} already_built={}",
+                            "[QUEUE][TERRAIN_SDF_SOURCE] ready chunk {:?} revision {} source_rev={} changed={} already_built={}",
                             chunk_id,
                             revision,
                             source_refresh.revision,
@@ -264,18 +264,18 @@ impl App {
                         self.enqueue_deferred_water_terrain_collider_rebuild(chunk_id);
                     } else {
                         log::debug!(
-                            "[QUEUE][WATER_TERRAIN_SOURCE] skipped unchanged chunk {:?} revision {} source_rev={} pending={} active={}",
+                            "[QUEUE][TERRAIN_SDF_SOURCE] skipped unchanged chunk {:?} revision {} source_rev={} pending={} active={}",
                             chunk_id,
                             revision,
                             source_refresh.revision,
-                            self.deferred_water_terrain_source_refreshes.len(),
-                            self.deferred_water_terrain_source_refreshes.active_len(),
+                            self.deferred_terrain_sdf_source_refreshes.len(),
+                            self.deferred_terrain_sdf_source_refreshes.active_len(),
                         );
                     }
                 }
                 Ok(None) => {
                     log::debug!(
-                        "[QUEUE][WATER_TERRAIN_SOURCE] skipped invalid chunk {:?} revision {}",
+                        "[QUEUE][TERRAIN_SDF_SOURCE] skipped invalid chunk {:?} revision {}",
                         chunk_id,
                         revision,
                     );
@@ -289,18 +289,18 @@ impl App {
                     );
                 }
             }
-            self.deferred_water_terrain_source_refreshes
+            self.deferred_terrain_sdf_source_refreshes
                 .complete(chunk_id, revision);
             processed += 1;
         }
 
         if processed > 0 {
             log::debug!(
-                "[QUEUE][WATER_TERRAIN_SOURCE] processed {} refreshes total_ms={:.2} pending={} active={}",
+                "[QUEUE][TERRAIN_SDF_SOURCE] processed {} refreshes total_ms={:.2} pending={} active={}",
                 processed,
                 frame_start.elapsed().as_secs_f32() * 1000.0,
-                self.deferred_water_terrain_source_refreshes.len(),
-                self.deferred_water_terrain_source_refreshes.active_len(),
+                self.deferred_terrain_sdf_source_refreshes.len(),
+                self.deferred_terrain_sdf_source_refreshes.active_len(),
             );
         }
     }
@@ -368,7 +368,7 @@ impl App {
 
     fn water_terrain_work_active(&self) -> bool {
         !self.deferred_chunk_rebuilds_idle()
-            || !self.deferred_water_terrain_source_refreshes.is_idle()
+            || !self.deferred_terrain_sdf_source_refreshes.is_idle()
             || !self.deferred_water_terrain_collider_rebuilds.is_idle()
             || !self.deferred_water_terrain_cache_rebuilds.is_idle()
     }
@@ -389,7 +389,7 @@ impl App {
         }
         if !self.water_terrain_initialized
             || !self.deferred_chunk_rebuilds_idle()
-            || !self.deferred_water_terrain_source_refreshes.is_idle()
+            || !self.deferred_terrain_sdf_source_refreshes.is_idle()
             || !self.deferred_water_terrain_collider_rebuilds.is_idle()
             || !self.deferred_water_terrain_cache_rebuilds.is_idle()
         {
@@ -739,7 +739,7 @@ impl App {
 
     fn water_terrain_has_startup_collider(&self) -> bool {
         if self.water_terrain_collider_build_inflight
-            || !self.deferred_water_terrain_source_refreshes.is_idle()
+            || !self.deferred_terrain_sdf_source_refreshes.is_idle()
             || !self.deferred_water_terrain_collider_rebuilds.is_idle()
             || !self.deferred_water_terrain_cache_rebuilds.is_idle()
         {
@@ -754,10 +754,10 @@ impl App {
         })
     }
 
-    fn refresh_water_solid_sample_chunk(
+    fn refresh_terrain_sdf_solid_sample_chunk(
         &mut self,
         chunk_id: UVec3,
-    ) -> anyhow::Result<Option<WaterTerrainSourceRefresh>> {
+    ) -> anyhow::Result<Option<TerrainSdfSourceRefresh>> {
         if chunk_id.cmpge(super::CHUNK_DIM).any() {
             return Ok(None);
         }
@@ -800,14 +800,14 @@ impl App {
             store_elapsed.as_secs_f64() * 1000.0,
             total_start.elapsed().as_secs_f64() * 1000.0,
         );
-        Ok(Some(WaterTerrainSourceRefresh {
+        Ok(Some(TerrainSdfSourceRefresh {
             revision: chunk.revision(),
             changed,
         }))
     }
 }
 
-impl WaterTerrainSourceRefreshRequest {
+impl TerrainSdfSourceRefreshRequest {
     fn coalesce_keep_earliest_ready(self, pending: Self) -> Self {
         if self.ready_at <= pending.ready_at {
             self
@@ -818,7 +818,7 @@ impl WaterTerrainSourceRefreshRequest {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct WaterTerrainSourceRefresh {
+struct TerrainSdfSourceRefresh {
     revision: u64,
     changed: bool,
 }
