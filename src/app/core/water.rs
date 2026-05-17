@@ -14,6 +14,8 @@ use std::{
 const WATER_TERRAIN_COLLIDER_DIM: UVec3 = UVec3::new(32, 32, 32);
 const WATER_TERRAIN_COLLIDER_SOURCE: &str = "gpu-sampled-solid-grid";
 const WATER_TERRAIN_SOURCE_REFRESH_DEBOUNCE: Duration = Duration::from_millis(150);
+const WATER_TERRAIN_SOURCE_LOW_PRIORITY_DELAY: Duration = Duration::from_secs(2);
+const WATER_TERRAIN_ACTIVE_PARTICLE_HALO_CELLS: f32 = 8.0;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct WaterTerrainColliderSourceRevision {
@@ -146,7 +148,46 @@ impl App {
             return;
         }
 
+        let delay = self.water_terrain_source_refresh_delay_for_activity(chunk_id, delay);
         self.enqueue_deferred_water_terrain_source_refresh(chunk_id, delay);
+    }
+
+    fn water_terrain_source_refresh_delay_for_activity(
+        &self,
+        chunk_id: UVec3,
+        base_delay: Duration,
+    ) -> Duration {
+        if base_delay.is_zero() {
+            return base_delay;
+        }
+
+        let Some((particle_min_ws, particle_max_ws)) = self.water_sim.particle_bounds_ws() else {
+            log::debug!(
+                "[WATER][TERRAIN] low-priority collider source refresh for chunk {:?}: no active water particles",
+                chunk_id,
+            );
+            return base_delay.max(WATER_TERRAIN_SOURCE_LOW_PRIORITY_DELAY);
+        };
+
+        let halo_ws = (self.water_sim.dx * WATER_TERRAIN_ACTIVE_PARTICLE_HALO_CELLS).max(0.0);
+        let active_min_ws = particle_min_ws - Vec3::splat(halo_ws);
+        let active_max_ws = particle_max_ws + Vec3::splat(halo_ws);
+        if water_terrain_chunk_key_intersects_box_grid_domain(
+            chunk_id,
+            active_min_ws,
+            active_max_ws,
+        ) {
+            return base_delay;
+        }
+
+        log::debug!(
+            "[WATER][TERRAIN] low-priority collider source refresh for chunk {:?}: outside active water bounds {:?}..{:?} halo={:.3}",
+            chunk_id,
+            particle_min_ws,
+            particle_max_ws,
+            halo_ws,
+        );
+        base_delay.max(WATER_TERRAIN_SOURCE_LOW_PRIORITY_DELAY)
     }
 
     pub(super) fn process_water_terrain_source_updates(&mut self) {

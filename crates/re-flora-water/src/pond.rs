@@ -532,6 +532,20 @@ impl PondWaterSim {
         self.terrain.as_ref()
     }
 
+    pub fn particle_bounds_ws(&self) -> Option<(Vec3, Vec3)> {
+        let mut min_ws = Vec3::splat(f32::INFINITY);
+        let mut max_ws = Vec3::splat(f32::NEG_INFINITY);
+        for particle in &self.particles {
+            if !particle.x.is_finite() {
+                continue;
+            }
+            min_ws = min_ws.min(particle.x);
+            max_ws = max_ws.max(particle.x);
+        }
+
+        min_ws.is_finite().then_some((min_ws, max_ws))
+    }
+
     pub(crate) fn terrain_collision_margin(&self) -> f32 {
         self.dx * self.config.terrain_collision_margin_cells.max(0.0)
     }
@@ -880,6 +894,23 @@ mod tests {
         assert_eq!(
             sim.config.particle_volume,
             default_particle_volume(DEFAULT_PARTICLE_VOLUME_REFERENCE_COUNT)
+        );
+    }
+
+    #[test]
+    fn particle_bounds_ignore_empty_and_non_finite_particles() {
+        let mut sim = PondWaterSim::new(PondWaterConfig::default());
+        assert_eq!(sim.particle_bounds_ws(), None);
+
+        sim.particles = vec![
+            WaterParticle::new(Vec3::new(1.0, 0.25, 1.5)),
+            WaterParticle::new(Vec3::new(0.5, 0.75, 0.25)),
+            WaterParticle::new(Vec3::new(f32::NAN, 0.0, 0.0)),
+        ];
+
+        assert_eq!(
+            sim.particle_bounds_ws(),
+            Some((Vec3::new(0.5, 0.25, 0.25), Vec3::new(1.0, 0.75, 1.5)))
         );
     }
 
