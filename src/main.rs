@@ -122,6 +122,10 @@ pub struct AppOptions {
     pub water_terrain_margin_cells: Option<f32>,
     /// Override water linear velocity damping per second.
     pub water_damping: Option<f32>,
+    /// Override incompressible water pressure projection Jacobi iterations.
+    pub water_pressure_iterations: Option<u32>,
+    /// Override marker particle spacing relaxation iterations (0 disables anti-clump pass).
+    pub water_spacing_iterations: Option<u32>,
     /// Run a deterministic terrain-edit soak around the pond for water validation.
     pub water_edit_soak: bool,
     /// Run the lightweight tree replacement benchmark and exit after completion.
@@ -227,6 +231,8 @@ impl AppOptions {
             water_terrain_margin_cells: parse_f32_after("--water-terrain-margin-cells")
                 .map(|v| v.max(0.0)),
             water_damping: parse_f32_after("--water-damping").map(|v| v.max(0.0)),
+            water_pressure_iterations: parse_u32_after("--water-pressure-iterations"),
+            water_spacing_iterations: parse_u32_after("--water-spacing-iterations"),
             water_edit_soak: args.iter().any(|a| a == "--water-edit-soak"),
             tree_bench: args.iter().any(|a| a == "--tree-bench"),
             tree_bench_samples: parse_u32_after("--tree-bench-samples").unwrap_or(10),
@@ -268,6 +274,10 @@ Options:
   --water-terrain-margin-cells <C>
                               Override water-terrain keep-out distance in grid cells
   --water-damping <PerSec>    Override water linear velocity damping per second
+  --water-pressure-iterations <N>
+                              Override incompressible pressure projection iterations (0 = legacy EOS)
+  --water-spacing-iterations <N>
+                              Override marker particle spacing relaxation iterations (0 disables anti-clump pass)
   --water-edit-soak           Run deterministic pond terrain edits for water validation
   --tree-bench                Run tree replacement benchmark and exit
   --tree-bench-samples <N>    Tree benchmark samples (default: 10)

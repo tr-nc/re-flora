@@ -33,6 +33,8 @@ pub struct PondWaterConfig {
     pub stiffness: f32,
     pub gamma: f32,
     pub j_min: f32,
+    pub pressure_projection_iterations: u32,
+    pub particle_spacing_relaxation_iterations: u32,
     pub terrain_collision_margin_cells: f32,
     pub linear_damping_per_sec: f32,
     pub wall_padding_cells: f32,
@@ -46,15 +48,17 @@ impl Default for PondWaterConfig {
             collider,
             grid_dim: DEFAULT_GRID_DIM,
             particle_count: DEFAULT_PARTICLE_COUNT,
-            substep_dt: 1.0 / 240.0,
+            substep_dt: 1.0 / 120.0,
             particle_mass: 1.0,
             particle_volume: default_particle_volume(DEFAULT_PARTICLE_COUNT),
             gravity: Vec3::new(0.0, -9.8, 0.0),
             stiffness: 10_000.0,
             gamma: 7.0,
             j_min: 0.1,
+            pressure_projection_iterations: 8,
+            particle_spacing_relaxation_iterations: 2,
             terrain_collision_margin_cells: 0.5,
-            linear_damping_per_sec: 0.0,
+            linear_damping_per_sec: 0.8,
             wall_padding_cells: 2.0,
             wall_damping: 0.0,
         }
@@ -89,6 +93,16 @@ impl PondWaterConfig {
     pub fn with_terrain_collision_margin_cells(mut self, margin_cells: f32) -> Self {
         assert!(margin_cells >= 0.0 && margin_cells.is_finite());
         self.terrain_collision_margin_cells = margin_cells;
+        self
+    }
+
+    pub fn with_pressure_projection_iterations(mut self, iterations: u32) -> Self {
+        self.pressure_projection_iterations = iterations;
+        self
+    }
+
+    pub fn with_particle_spacing_relaxation_iterations(mut self, iterations: u32) -> Self {
+        self.particle_spacing_relaxation_iterations = iterations;
         self
     }
 
@@ -239,6 +253,10 @@ pub struct PondWaterSim {
     pub(crate) touched_grid_nodes: Vec<usize>,
     pub(crate) grid_boundary_flags: Vec<u8>,
     pub(crate) terrain_grid: Vec<WaterTerrainGridSample>,
+    pub(crate) projection_pressure: Vec<f32>,
+    pub(crate) projection_pressure_next: Vec<f32>,
+    pub(crate) projection_divergence: Vec<f32>,
+    pub(crate) projection_active_nodes: Vec<usize>,
     pub accumulator: f32,
     pub perf_stats: WaterPerfStats,
     pub perf_report_seconds: f32,
@@ -279,6 +297,10 @@ impl PondWaterSim {
             touched_grid_nodes: Vec::with_capacity(touched_grid_capacity),
             grid_boundary_flags,
             terrain_grid: vec![WaterTerrainGridSample::default(); grid_len],
+            projection_pressure: vec![0.0; grid_len],
+            projection_pressure_next: vec![0.0; grid_len],
+            projection_divergence: vec![0.0; grid_len],
+            projection_active_nodes: Vec::with_capacity(touched_grid_capacity),
             accumulator: 0.0,
             perf_stats: WaterPerfStats::default(),
             perf_report_seconds: 0.0,
@@ -708,40 +730,65 @@ impl PondWaterSim {
             return;
         }
 
-        let plane_min = Vec3::new(
+        let volume_min = Vec3::new(
             INITIAL_PARTICLE_CHUNK_MIN_WS.x.max(safe_min.x),
-            INITIAL_PARTICLE_CHUNK_MAX_WS.y.clamp(safe_min.y, safe_max.y),
+            safe_min.y,
             INITIAL_PARTICLE_CHUNK_MIN_WS.z.max(safe_min.z),
         );
-        let plane_max = Vec3::new(
+        let volume_max = Vec3::new(
             INITIAL_PARTICLE_CHUNK_MAX_WS.x.min(safe_max.x),
-            plane_min.y,
+            INITIAL_PARTICLE_CHUNK_MAX_WS.y.clamp(safe_min.y, safe_max.y),
             INITIAL_PARTICLE_CHUNK_MAX_WS.z.min(safe_max.z),
         );
-        if plane_min.x >= plane_max.x || plane_min.z >= plane_max.z {
+        if volume_min.x >= volume_max.x || volume_min.z >= volume_max.z {
             return;
         }
 
-        let side = (self.config.particle_count as f32).sqrt().ceil() as u32;
+        let rest_spacing = self
+            .config
+            .particle_volume
+            .max(1.0e-8)
+            .cbrt()
+            .clamp(self.dx * 0.5, self.dx * 3.0);
+        let footprint = Vec3::new(
+            volume_max.x - volume_min.x,
+            0.0,
+            volume_max.z - volume_min.z,
+        );
+        let x_count = ((footprint.x / rest_spacing).ceil() as u32).max(1);
+        let z_count = ((footprint.z / rest_spacing).ceil() as u32).max(1);
+        let layer_capacity = (x_count as usize).saturating_mul(z_count as usize).max(1);
+        let y_layers = self.config.particle_count.div_ceil(layer_capacity).max(1) as u32;
+        let slab_height = ((y_layers.saturating_sub(1)) as f32 * rest_spacing)
+            .min((volume_max.y - volume_min.y).max(0.0));
 
-        'rows: for z in 0..side {
-            for x in 0..side {
-                if self.particles.len() >= self.config.particle_count {
-                    break 'rows;
+        'layers: for y_layer in 0..y_layers {
+            let ty = if y_layers <= 1 {
+                0.0
+            } else {
+                y_layer as f32 / (y_layers - 1) as f32
+            };
+            let y = volume_max.y - slab_height * ty;
+            for z in 0..z_count {
+                for x in 0..x_count {
+                    if self.particles.len() >= self.config.particle_count {
+                        break 'layers;
+                    }
+
+                    let jitter_x = hash_unit(x, z ^ y_layer, 17) - 0.5;
+                    let jitter_z = hash_unit(z, x ^ y_layer, 29) - 0.5;
+                    let jitter_y = hash_unit(x ^ z, y_layer, 43) - 0.5;
+                    let tx = (x as f32 + 0.5 + jitter_x * 0.5) / x_count as f32;
+                    let tz = (z as f32 + 0.5 + jitter_z * 0.5) / z_count as f32;
+                    let pos = Vec3::new(
+                        volume_min.x + footprint.x * tx.clamp(0.0, 1.0),
+                        (y + jitter_y * rest_spacing * 0.1).clamp(volume_min.y, volume_max.y),
+                        volume_min.z + footprint.z * tz.clamp(0.0, 1.0),
+                    );
+                    self.particles.push(WaterParticle::new(
+                        self.config.collider.clamp_point(pos, padding),
+                    ));
                 }
-
-                let jitter_x = hash_unit(x, z, 17) - 0.5;
-                let jitter_z = hash_unit(z, x, 29) - 0.5;
-                let tx = (x as f32 + 0.5 + jitter_x * 0.8) / side as f32;
-                let tz = (z as f32 + 0.5 + jitter_z * 0.8) / side as f32;
-                let pos = Vec3::new(
-                    plane_min.x + (plane_max.x - plane_min.x) * tx.clamp(0.0, 1.0),
-                    plane_min.y,
-                    plane_min.z + (plane_max.z - plane_min.z) * tz.clamp(0.0, 1.0),
-                );
-                self.particles.push(WaterParticle::new(
-                    self.config.collider.clamp_point(pos, padding),
-                ));
             }
         }
 
@@ -840,7 +887,9 @@ mod tests {
     fn explicit_particle_count_seeds_particles_on_original_chunk_surface() {
         let sim = PondWaterSim::new(PondWaterConfig::default().with_particle_count(128));
         assert_eq!(sim.particles.len(), 128);
-        let seed_y = sim.config.collider.max_ws.y - sim.dx * sim.config.wall_padding_cells.max(1.0);
+        let seed_surface_y = sim.config.collider.max_ws.y - sim.dx * sim.config.wall_padding_cells.max(1.0);
+        let mut min_y = f32::INFINITY;
+        let mut max_y = f32::NEG_INFINITY;
         for particle in &sim.particles {
             assert!(
                 sim.config.collider.contains(particle.x),
@@ -859,12 +908,11 @@ mod tests {
                 "particle seeded outside original z chunk: {:?}",
                 particle.x,
             );
-            assert!(
-                (particle.x.y - seed_y).abs() < 1.0e-6,
-                "particle not on initial surface plane: {:?}, expected y {seed_y}",
-                particle.x,
-            );
+            min_y = min_y.min(particle.x.y);
+            max_y = max_y.max(particle.x.y);
         }
+        assert!(max_y <= seed_surface_y + 1.0e-5, "max_y={max_y}");
+        assert!(min_y < seed_surface_y - sim.dx, "seeded water has no volume: min_y={min_y} surface={seed_surface_y}");
     }
 
     #[test]

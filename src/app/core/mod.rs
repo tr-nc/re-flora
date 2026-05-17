@@ -875,13 +875,22 @@ impl App {
         if let Some(damping_per_sec) = options.water_damping {
             water_config = water_config.with_linear_damping_per_sec(damping_per_sec);
         }
+        if let Some(pressure_iterations) = options.water_pressure_iterations {
+            water_config = water_config.with_pressure_projection_iterations(pressure_iterations);
+        }
+        if let Some(spacing_iterations) = options.water_spacing_iterations {
+            water_config =
+                water_config.with_particle_spacing_relaxation_iterations(spacing_iterations);
+        }
 
         log::info!(
-            "[WATER] config profile={:?} particles={} grid={:?} substep_dt={:.6}s terrain_margin_cells={:.2} damping={:.2}/s collider_bounds {:?}..{:?} cells_per_unit={}",
+            "[WATER] config profile={:?} particles={} grid={:?} substep_dt={:.6}s pressure_projection_iterations={} particle_spacing_iterations={} terrain_margin_cells={:.2} damping={:.2}/s collider_bounds {:?}..{:?} cells_per_unit={}",
             options.water_profile,
             water_config.particle_count,
             water_config.grid_dim,
             water_config.substep_dt,
+            water_config.pressure_projection_iterations,
+            water_config.particle_spacing_relaxation_iterations,
             water_config.terrain_collision_margin_cells,
             water_config.linear_damping_per_sec,
             water_config.collider.min_ws,

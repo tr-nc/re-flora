@@ -1,5 +1,5 @@
 use glam::{IVec3, Mat3, UVec3, Vec3};
-use std::time::Instant;
+use std::{collections::HashMap, time::Instant};
 
 use super::{
     collider::{WaterBoxCollider, WaterTerrainColliderSet},
@@ -16,6 +16,19 @@ const MAX_J: f32 = 8.0;
 const MAX_PARTICLE_SPEED: f32 = 20.0;
 const MAX_PARTICLE_CFL_CELLS_PER_SUBSTEP: f32 = 0.5;
 const MAX_AFFINE_COMPONENT: f32 = 100.0;
+// Incompressible projection removes volumetric compression on the grid. Keeping
+// the full APIC affine term after that makes sparse/free-surface particles ring
+// like springs, so incompressible mode uses a more PIC-like transfer and only
+// carries a small traceless affine component for local swirl.
+const INCOMPRESSIBLE_APIC_BLEND: f32 = 0.10;
+const MAX_INCOMPRESSIBLE_AFFINE_COMPONENT: f32 = 20.0;
+// Particles are marker samples, but rendering them directly makes marker
+// clumping visible. This local spacing projection gives each sample a small
+// excluded volume so incompressible water settles into a puddle instead of a
+// single visual point.
+const INCOMPRESSIBLE_PARTICLE_SPACING_SCALE: f32 = 0.80;
+const INCOMPRESSIBLE_PARTICLE_SPACING_STRENGTH: f32 = 0.45;
+const MAX_PARTICLE_SPACING_CORRECTION_CELLS: f32 = 0.35;
 // A particle can end a substep deeper than one capped correction can resolve.
 // Iterate bounded SDF corrections so the next P2G pass does not deposit mass
 // from inside terrain.
@@ -88,7 +101,9 @@ impl PondWaterSim {
             self.clear_grid();
             self.particle_to_grid(dt);
             let active_nodes = self.update_grid(dt);
+            self.project_grid_incompressible(dt);
             let g2p_breakdown = self.grid_to_particle(dt);
+            self.relax_incompressible_particle_spacing(dt);
             self.record_diagnostic_substep(active_nodes, g2p_breakdown);
             return;
         }
@@ -110,9 +125,11 @@ impl PondWaterSim {
 
         let grid_start = Instant::now();
         let active_nodes = self.update_grid(dt);
+        self.project_grid_incompressible(dt);
         let grid_seconds = grid_start.elapsed().as_secs_f64();
 
         let g2p_breakdown = self.grid_to_particle_timed(dt);
+        self.relax_incompressible_particle_spacing(dt);
         self.record_diagnostic_substep(active_nodes, g2p_breakdown);
 
         self.perf_stats.substeps += 1;
@@ -616,8 +633,12 @@ impl PondWaterSim {
             let fx = grid_pos - base.as_vec3();
             let weights = quadratic_weights(fx);
 
-            let pressure = stiffness * (particle.j.max(self.config.j_min).powf(-gamma) - 1.0);
-            let pressure_scale = dt * volume * particle.j * pressure * d_inv;
+            let pressure_scale = if self.config.pressure_projection_iterations == 0 {
+                let pressure = stiffness * (particle.j.max(self.config.j_min).powf(-gamma) - 1.0);
+                dt * volume * particle.j * pressure * d_inv
+            } else {
+                0.0
+            };
             let affine = Mat3::from_diagonal(Vec3::splat(pressure_scale)) + particle.c * mass;
             let momentum = particle.v * mass;
 
@@ -675,51 +696,368 @@ impl PondWaterSim {
             node.v += gravity * dt;
             node.v *= linear_damping;
 
-            let mut normal = Vec3::ZERO;
-            let terrain_sample = terrain_grid[idx];
-            // The cached normal band is wider than the actual contact band so
-            // G2P can reuse normals near terrain. Grid velocity collision must
-            // stay tight; projecting every near-band node makes water hover.
-            if terrain_sample.has_sdf
-                && terrain_sample.sdf <= terrain_collision_margin
-                && terrain_sample.normal.length_squared() > 0.0
-            {
-                node.v = project_velocity_away_from_surface(node.v, terrain_sample.normal);
-                normal += terrain_sample.normal;
-            }
-
-            if boundary_flags & WATER_GRID_BOUNDARY_X_MIN != 0 && node.v.x < 0.0 {
-                node.v.x *= -wall_damping;
-                normal += Vec3::X;
-            }
-            if boundary_flags & WATER_GRID_BOUNDARY_X_MAX != 0 && node.v.x > 0.0 {
-                node.v.x *= -wall_damping;
-                normal -= Vec3::X;
-            }
-            if boundary_flags & WATER_GRID_BOUNDARY_Y_MIN != 0 && node.v.y < 0.0 {
-                node.v.y *= -wall_damping;
-                normal += Vec3::Y;
-            }
-            if boundary_flags & WATER_GRID_BOUNDARY_Y_MAX != 0 && node.v.y > 0.0 {
-                node.v.y *= -wall_damping;
-                normal -= Vec3::Y;
-            }
-            if boundary_flags & WATER_GRID_BOUNDARY_Z_MIN != 0 && node.v.z < 0.0 {
-                node.v.z *= -wall_damping;
-                normal += Vec3::Z;
-            }
-            if boundary_flags & WATER_GRID_BOUNDARY_Z_MAX != 0 && node.v.z > 0.0 {
-                node.v.z *= -wall_damping;
-                normal -= Vec3::Z;
-            }
-
-            if normal.length_squared() > 0.0 {
-                node.solid = true;
-                node.normal = normal.normalize_or_zero();
-            }
+            project_grid_node_collisions(
+                node,
+                boundary_flags,
+                terrain_grid[idx],
+                terrain_collision_margin,
+                wall_damping,
+            );
         }
 
         active_nodes
+    }
+
+    fn project_grid_incompressible(&mut self, dt: f32) {
+        let iterations = self.config.pressure_projection_iterations as usize;
+        if iterations == 0 || dt <= 0.0 || !dt.is_finite() || self.grid.is_empty() {
+            return;
+        }
+
+        self.ensure_pressure_projection_buffers_len();
+        self.projection_active_nodes.clear();
+
+        let terrain_collision_margin = self.terrain_collision_margin();
+        for &idx in &self.touched_grid_nodes {
+            if self.grid[idx].mass <= ACTIVE_MASS_EPSILON {
+                continue;
+            }
+            if pressure_projection_solid_node(
+                idx,
+                &self.grid_boundary_flags,
+                &self.terrain_grid,
+                terrain_collision_margin,
+            ) {
+                continue;
+            }
+
+            self.projection_active_nodes.push(idx);
+            self.projection_pressure[idx] = 0.0;
+            self.projection_pressure_next[idx] = 0.0;
+            self.projection_divergence[idx] = 0.0;
+        }
+
+        if self.projection_active_nodes.is_empty() {
+            return;
+        }
+
+        let grid_dim = self.grid_dim;
+        let inv_dx = self.inv_dx;
+        for &idx in &self.projection_active_nodes {
+            let coord = grid_coord_dims(grid_dim, idx);
+            let divergence = pressure_projection_divergence_at(
+                coord,
+                grid_dim,
+                &self.grid,
+                &self.grid_boundary_flags,
+                &self.terrain_grid,
+                terrain_collision_margin,
+                inv_dx,
+            );
+            self.projection_divergence[idx] = divergence / dt;
+        }
+
+        let dx2 = self.dx * self.dx;
+        for _ in 0..iterations {
+            let pressure = &self.projection_pressure;
+            let pressure_next = &mut self.projection_pressure_next;
+            let divergence = &self.projection_divergence;
+            let grid = &self.grid;
+            let grid_boundary_flags = &self.grid_boundary_flags;
+            let terrain_grid = &self.terrain_grid;
+            for &idx in &self.projection_active_nodes {
+                let coord = grid_coord_dims(grid_dim, idx);
+                let mut pressure_sum = 0.0;
+                let mut diagonal = 0.0;
+                for axis in 0..3 {
+                    for direction in [-1, 1] {
+                        let Some(neighbor_idx) = pressure_projection_neighbor_index(
+                            coord,
+                            axis,
+                            direction,
+                            grid_dim,
+                        ) else {
+                            continue;
+                        };
+                        if pressure_projection_solid_node(
+                            neighbor_idx,
+                            grid_boundary_flags,
+                            terrain_grid,
+                            terrain_collision_margin,
+                        ) {
+                            continue;
+                        }
+
+                        diagonal += 1.0;
+                        if pressure_projection_fluid_node(
+                            neighbor_idx,
+                            grid,
+                            grid_boundary_flags,
+                            terrain_grid,
+                            terrain_collision_margin,
+                        ) {
+                            pressure_sum += pressure[neighbor_idx];
+                        }
+                    }
+                }
+
+                pressure_next[idx] = if diagonal > 0.0 {
+                    (pressure_sum - divergence[idx] * dx2) / diagonal
+                } else {
+                    0.0
+                };
+            }
+
+            for &idx in &self.projection_active_nodes {
+                self.projection_pressure[idx] = self.projection_pressure_next[idx];
+            }
+        }
+
+        let speed_limit = max_particle_speed_for_substep(self.dx, dt);
+        let pressure = &self.projection_pressure;
+        let grid = &mut self.grid;
+        for &idx in &self.projection_active_nodes {
+            let coord = grid_coord_dims(grid_dim, idx);
+            let center_pressure = pressure[idx];
+            let pxm = pressure_projection_neighbor_pressure(
+                coord,
+                0,
+                -1,
+                center_pressure,
+                grid_dim,
+                pressure,
+                grid,
+                &self.grid_boundary_flags,
+                &self.terrain_grid,
+                terrain_collision_margin,
+            );
+            let pxp = pressure_projection_neighbor_pressure(
+                coord,
+                0,
+                1,
+                center_pressure,
+                grid_dim,
+                pressure,
+                grid,
+                &self.grid_boundary_flags,
+                &self.terrain_grid,
+                terrain_collision_margin,
+            );
+            let pym = pressure_projection_neighbor_pressure(
+                coord,
+                1,
+                -1,
+                center_pressure,
+                grid_dim,
+                pressure,
+                grid,
+                &self.grid_boundary_flags,
+                &self.terrain_grid,
+                terrain_collision_margin,
+            );
+            let pyp = pressure_projection_neighbor_pressure(
+                coord,
+                1,
+                1,
+                center_pressure,
+                grid_dim,
+                pressure,
+                grid,
+                &self.grid_boundary_flags,
+                &self.terrain_grid,
+                terrain_collision_margin,
+            );
+            let pzm = pressure_projection_neighbor_pressure(
+                coord,
+                2,
+                -1,
+                center_pressure,
+                grid_dim,
+                pressure,
+                grid,
+                &self.grid_boundary_flags,
+                &self.terrain_grid,
+                terrain_collision_margin,
+            );
+            let pzp = pressure_projection_neighbor_pressure(
+                coord,
+                2,
+                1,
+                center_pressure,
+                grid_dim,
+                pressure,
+                grid,
+                &self.grid_boundary_flags,
+                &self.terrain_grid,
+                terrain_collision_margin,
+            );
+            let grad = Vec3::new(pxp - pxm, pyp - pym, pzp - pzm) * (0.5 * inv_dx);
+            let node = &mut grid[idx];
+            node.v = clamp_vec3_length(node.v - grad * dt, speed_limit);
+        }
+
+        self.project_grid_collision_boundaries_for_active_nodes();
+    }
+
+    fn ensure_pressure_projection_buffers_len(&mut self) {
+        let grid_len = self.grid.len();
+        self.projection_pressure.resize(grid_len, 0.0);
+        self.projection_pressure_next.resize(grid_len, 0.0);
+        self.projection_divergence.resize(grid_len, 0.0);
+    }
+
+    fn project_grid_collision_boundaries_for_active_nodes(&mut self) {
+        let terrain_collision_margin = self.terrain_collision_margin();
+        let wall_damping = self.config.wall_damping.clamp(0.0, 1.0);
+        for &idx in &self.projection_active_nodes {
+            let node = &mut self.grid[idx];
+            project_grid_node_collisions(
+                node,
+                self.grid_boundary_flags[idx],
+                self.terrain_grid[idx],
+                terrain_collision_margin,
+                wall_damping,
+            );
+        }
+    }
+
+    fn relax_incompressible_particle_spacing(&mut self, dt: f32) {
+        let iterations = self.config.particle_spacing_relaxation_iterations as usize;
+        if self.config.pressure_projection_iterations == 0
+            || iterations == 0
+            || self.particles.len() < 2
+            || dt <= 0.0
+            || !dt.is_finite()
+        {
+            return;
+        }
+
+        let rest_distance = (self.config.particle_volume.max(1.0e-8)).cbrt()
+            * INCOMPRESSIBLE_PARTICLE_SPACING_SCALE;
+        if rest_distance <= 0.0 || !rest_distance.is_finite() {
+            return;
+        }
+
+        let count = self.particles.len();
+        let cell_size = rest_distance.max(self.dx * 0.5);
+        let inv_cell_size = cell_size.recip();
+        let min_distance_sq = rest_distance * rest_distance;
+        let max_correction = self.dx * MAX_PARTICLE_SPACING_CORRECTION_CELLS;
+        let padding = self.dx * self.config.wall_padding_cells.max(1.0);
+        let bounds = self.config.collider;
+        let particle_min_padding = Vec3::splat(padding);
+        let particle_max_padding = Vec3::splat(padding);
+        let terrain_collision_margin = self.terrain_collision_margin();
+        let terrain_max_correction = padding;
+        let terrain = self.terrain.as_ref();
+        let max_particle_speed = max_particle_speed_for_substep(self.dx, dt);
+
+        for _ in 0..iterations {
+            let mut bins: HashMap<(i32, i32, i32), Vec<usize>> =
+                HashMap::with_capacity(count.saturating_mul(2));
+            for (idx, particle) in self.particles.iter().enumerate() {
+                if !particle.x.is_finite() {
+                    continue;
+                }
+                bins.entry(particle_spacing_cell(particle.x, inv_cell_size))
+                    .or_default()
+                    .push(idx);
+            }
+
+            let mut corrections = vec![Vec3::ZERO; count];
+            for i in 0..count {
+                let xi = self.particles[i].x;
+                if !xi.is_finite() {
+                    continue;
+                }
+                let (cx, cy, cz) = particle_spacing_cell(xi, inv_cell_size);
+                for oz in -1..=1 {
+                    for oy in -1..=1 {
+                        for ox in -1..=1 {
+                            let Some(neighbors) = bins.get(&(cx + ox, cy + oy, cz + oz)) else {
+                                continue;
+                            };
+                            for &j in neighbors {
+                                if j <= i {
+                                    continue;
+                                }
+
+                                let xj = self.particles[j].x;
+                                if !xj.is_finite() {
+                                    continue;
+                                }
+                                let delta = xi - xj;
+                                let distance_sq = delta.length_squared();
+                                if !distance_sq.is_finite() || distance_sq >= min_distance_sq {
+                                    continue;
+                                }
+
+                                let (normal, distance) = if distance_sq > 1.0e-12 {
+                                    let distance = distance_sq.sqrt();
+                                    (delta / distance, distance)
+                                } else {
+                                    (particle_pair_fallback_direction(i, j), 0.0)
+                                };
+                                let correction = normal
+                                    * ((rest_distance - distance)
+                                        * 0.5
+                                        * INCOMPRESSIBLE_PARTICLE_SPACING_STRENGTH);
+                                corrections[i] += correction;
+                                corrections[j] -= correction;
+                            }
+                        }
+                    }
+                }
+            }
+
+            let mut moved = false;
+            for (particle, correction) in self.particles.iter_mut().zip(corrections.into_iter()) {
+                let correction = clamp_vec3_length(correction, max_correction);
+                if correction.length_squared() <= 1.0e-12 {
+                    continue;
+                }
+                particle.x += correction;
+                particle.j = 1.0;
+                moved = true;
+            }
+
+            if !moved {
+                break;
+            }
+
+            for particle in &mut self.particles {
+                collide_particle_with_box_with_padding(
+                    particle,
+                    bounds.min_ws,
+                    bounds.max_ws,
+                    particle_min_padding,
+                    particle_max_padding,
+                );
+                if let Some(terrain) = terrain {
+                    collide_particle_with_terrain_iterative(
+                        particle,
+                        terrain,
+                        terrain_collision_margin,
+                        terrain_max_correction,
+                        TERRAIN_PARTICLE_COLLISION_ITERATIONS,
+                        bounds.min_ws,
+                        bounds.max_ws,
+                        particle_min_padding,
+                        particle_max_padding,
+                    );
+                }
+                repair_particle_state_with_padding(
+                    particle,
+                    bounds.min_ws,
+                    bounds.max_ws,
+                    particle_min_padding,
+                    particle_max_padding,
+                    self.config.j_min,
+                    max_particle_speed,
+                );
+                particle.j = 1.0;
+            }
+        }
     }
 
     fn grid_to_particle(&mut self, dt: f32) -> WaterG2pBreakdown {
@@ -798,9 +1136,16 @@ impl PondWaterSim {
             }
 
             particle.v = clamp_vec3_length(new_v, max_particle_speed);
-            particle.c = clamp_mat3_components(new_c, MAX_AFFINE_COMPONENT);
-            let trace_c = particle.c.x_axis.x + particle.c.y_axis.y + particle.c.z_axis.z;
-            particle.j = (particle.j * (1.0 + dt * trace_c)).max(j_min);
+            if self.config.pressure_projection_iterations == 0 {
+                particle.c = clamp_mat3_components(new_c, MAX_AFFINE_COMPONENT);
+                let trace_c = particle.c.x_axis.x + particle.c.y_axis.y + particle.c.z_axis.z;
+                particle.j = (particle.j * (1.0 + dt * trace_c)).max(j_min);
+            } else {
+                let traceless_c = make_mat3_traceless(new_c) * INCOMPRESSIBLE_APIC_BLEND;
+                particle.c =
+                    clamp_mat3_components(traceless_c, MAX_INCOMPRESSIBLE_AFFINE_COMPONENT);
+                particle.j = 1.0;
+            }
             particle.x += particle.v * dt;
 
             let box_start = collect_breakdown.then(Instant::now);
@@ -952,6 +1297,287 @@ fn in_grid(node: IVec3, grid_dim: glam::UVec3) -> bool {
         && node.z < grid_dim.z as i32
 }
 
+fn grid_coord_dims(grid_dim: glam::UVec3, idx: usize) -> glam::UVec3 {
+    let x_dim = grid_dim.x as usize;
+    let y_dim = grid_dim.y as usize;
+    let x = idx % x_dim;
+    let yz = idx / x_dim;
+    let y = yz % y_dim;
+    let z = yz / y_dim;
+    glam::UVec3::new(x as u32, y as u32, z as u32)
+}
+
+fn pressure_projection_neighbor_index(
+    coord: glam::UVec3,
+    axis: usize,
+    direction: i32,
+    grid_dim: glam::UVec3,
+) -> Option<usize> {
+    let mut neighbor = coord.as_ivec3();
+    match axis {
+        0 => neighbor.x += direction,
+        1 => neighbor.y += direction,
+        2 => neighbor.z += direction,
+        _ => return None,
+    }
+
+    in_grid(neighbor, grid_dim).then(|| {
+        grid_index_dims(
+            grid_dim,
+            neighbor.x as u32,
+            neighbor.y as u32,
+            neighbor.z as u32,
+        )
+    })
+}
+
+fn pressure_projection_solid_node(
+    idx: usize,
+    grid_boundary_flags: &[u8],
+    terrain_grid: &[WaterTerrainGridSample],
+    terrain_collision_margin: f32,
+) -> bool {
+    grid_boundary_flags.get(idx).is_some_and(|flags| *flags != 0)
+        || terrain_grid.get(idx).is_some_and(|sample| {
+            sample.has_sdf
+                && sample.sdf <= terrain_collision_margin
+                && sample.normal.length_squared() > 0.0
+        })
+}
+
+fn pressure_projection_fluid_node(
+    idx: usize,
+    grid: &[super::pond::WaterGridNode],
+    grid_boundary_flags: &[u8],
+    terrain_grid: &[WaterTerrainGridSample],
+    terrain_collision_margin: f32,
+) -> bool {
+    grid.get(idx)
+        .is_some_and(|node| node.mass > ACTIVE_MASS_EPSILON)
+        && !pressure_projection_solid_node(
+            idx,
+            grid_boundary_flags,
+            terrain_grid,
+            terrain_collision_margin,
+        )
+}
+
+fn pressure_projection_divergence_at(
+    coord: glam::UVec3,
+    grid_dim: glam::UVec3,
+    grid: &[super::pond::WaterGridNode],
+    grid_boundary_flags: &[u8],
+    terrain_grid: &[WaterTerrainGridSample],
+    terrain_collision_margin: f32,
+    inv_dx: f32,
+) -> f32 {
+    let idx = grid_index_dims(grid_dim, coord.x, coord.y, coord.z);
+    let center_velocity = grid[idx].v;
+    let vxm = pressure_projection_neighbor_velocity_component(
+        coord,
+        0,
+        -1,
+        center_velocity,
+        grid_dim,
+        grid,
+        grid_boundary_flags,
+        terrain_grid,
+        terrain_collision_margin,
+    );
+    let vxp = pressure_projection_neighbor_velocity_component(
+        coord,
+        0,
+        1,
+        center_velocity,
+        grid_dim,
+        grid,
+        grid_boundary_flags,
+        terrain_grid,
+        terrain_collision_margin,
+    );
+    let vym = pressure_projection_neighbor_velocity_component(
+        coord,
+        1,
+        -1,
+        center_velocity,
+        grid_dim,
+        grid,
+        grid_boundary_flags,
+        terrain_grid,
+        terrain_collision_margin,
+    );
+    let vyp = pressure_projection_neighbor_velocity_component(
+        coord,
+        1,
+        1,
+        center_velocity,
+        grid_dim,
+        grid,
+        grid_boundary_flags,
+        terrain_grid,
+        terrain_collision_margin,
+    );
+    let vzm = pressure_projection_neighbor_velocity_component(
+        coord,
+        2,
+        -1,
+        center_velocity,
+        grid_dim,
+        grid,
+        grid_boundary_flags,
+        terrain_grid,
+        terrain_collision_margin,
+    );
+    let vzp = pressure_projection_neighbor_velocity_component(
+        coord,
+        2,
+        1,
+        center_velocity,
+        grid_dim,
+        grid,
+        grid_boundary_flags,
+        terrain_grid,
+        terrain_collision_margin,
+    );
+
+    ((vxp - vxm) + (vyp - vym) + (vzp - vzm)) * (0.5 * inv_dx)
+}
+
+fn pressure_projection_neighbor_velocity_component(
+    coord: glam::UVec3,
+    axis: usize,
+    direction: i32,
+    center_velocity: Vec3,
+    grid_dim: glam::UVec3,
+    grid: &[super::pond::WaterGridNode],
+    grid_boundary_flags: &[u8],
+    terrain_grid: &[WaterTerrainGridSample],
+    terrain_collision_margin: f32,
+) -> f32 {
+    let center_component = vec3_component(center_velocity, axis);
+    let Some(neighbor_idx) =
+        pressure_projection_neighbor_index(coord, axis, direction, grid_dim)
+    else {
+        return center_component;
+    };
+    if pressure_projection_solid_node(
+        neighbor_idx,
+        grid_boundary_flags,
+        terrain_grid,
+        terrain_collision_margin,
+    ) {
+        return center_component;
+    }
+    if pressure_projection_fluid_node(
+        neighbor_idx,
+        grid,
+        grid_boundary_flags,
+        terrain_grid,
+        terrain_collision_margin,
+    ) {
+        vec3_component(grid[neighbor_idx].v, axis)
+    } else {
+        0.0
+    }
+}
+
+fn pressure_projection_neighbor_pressure(
+    coord: glam::UVec3,
+    axis: usize,
+    direction: i32,
+    center_pressure: f32,
+    grid_dim: glam::UVec3,
+    pressure: &[f32],
+    grid: &[super::pond::WaterGridNode],
+    grid_boundary_flags: &[u8],
+    terrain_grid: &[WaterTerrainGridSample],
+    terrain_collision_margin: f32,
+) -> f32 {
+    let Some(neighbor_idx) =
+        pressure_projection_neighbor_index(coord, axis, direction, grid_dim)
+    else {
+        return center_pressure;
+    };
+    if pressure_projection_solid_node(
+        neighbor_idx,
+        grid_boundary_flags,
+        terrain_grid,
+        terrain_collision_margin,
+    ) {
+        return center_pressure;
+    }
+    if pressure_projection_fluid_node(
+        neighbor_idx,
+        grid,
+        grid_boundary_flags,
+        terrain_grid,
+        terrain_collision_margin,
+    ) {
+        pressure[neighbor_idx]
+    } else {
+        0.0
+    }
+}
+
+fn project_grid_node_collisions(
+    node: &mut super::pond::WaterGridNode,
+    boundary_flags: u8,
+    terrain_sample: WaterTerrainGridSample,
+    terrain_collision_margin: f32,
+    wall_damping: f32,
+) {
+    let mut normal = Vec3::ZERO;
+    // The cached normal band is wider than the actual contact band so G2P can
+    // reuse normals near terrain. Grid velocity collision must stay tight;
+    // projecting every near-band node makes water hover.
+    if terrain_sample.has_sdf
+        && terrain_sample.sdf <= terrain_collision_margin
+        && terrain_sample.normal.length_squared() > 0.0
+    {
+        node.v = project_velocity_away_from_surface(node.v, terrain_sample.normal);
+        normal += terrain_sample.normal;
+    }
+
+    if boundary_flags & WATER_GRID_BOUNDARY_X_MIN != 0 && node.v.x < 0.0 {
+        node.v.x *= -wall_damping;
+        normal += Vec3::X;
+    }
+    if boundary_flags & WATER_GRID_BOUNDARY_X_MAX != 0 && node.v.x > 0.0 {
+        node.v.x *= -wall_damping;
+        normal -= Vec3::X;
+    }
+    if boundary_flags & WATER_GRID_BOUNDARY_Y_MIN != 0 && node.v.y < 0.0 {
+        node.v.y *= -wall_damping;
+        normal += Vec3::Y;
+    }
+    if boundary_flags & WATER_GRID_BOUNDARY_Y_MAX != 0 && node.v.y > 0.0 {
+        node.v.y *= -wall_damping;
+        normal -= Vec3::Y;
+    }
+    if boundary_flags & WATER_GRID_BOUNDARY_Z_MIN != 0 && node.v.z < 0.0 {
+        node.v.z *= -wall_damping;
+        normal += Vec3::Z;
+    }
+    if boundary_flags & WATER_GRID_BOUNDARY_Z_MAX != 0 && node.v.z > 0.0 {
+        node.v.z *= -wall_damping;
+        normal -= Vec3::Z;
+    }
+
+    if normal.length_squared() > 0.0 {
+        node.solid = true;
+        node.normal = normal.normalize_or_zero();
+    }
+}
+
+fn vec3_component(value: Vec3, axis: usize) -> f32 {
+    match axis {
+        0 => value.x,
+        1 => value.y,
+        2 => value.z,
+        _ => 0.0,
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum TerrainGridParticleQuery {
     Skip { sdf: f32 },
@@ -1095,6 +1721,41 @@ fn lerp(a: f32, b: f32, t: f32) -> f32 {
 
 fn outer_product(a: Vec3, b: Vec3) -> Mat3 {
     Mat3::from_cols(a * b.x, a * b.y, a * b.z)
+}
+
+fn particle_spacing_cell(position: Vec3, inv_cell_size: f32) -> (i32, i32, i32) {
+    let cell = (position * inv_cell_size).floor().as_ivec3();
+    (cell.x, cell.y, cell.z)
+}
+
+fn particle_pair_fallback_direction(a: usize, b: usize) -> Vec3 {
+    let mut n = (a as u32).wrapping_mul(73_856_093)
+        ^ (b as u32).wrapping_mul(19_349_663)
+        ^ 0x9e37_79b9;
+    n ^= n >> 16;
+    n = n.wrapping_mul(0x7feb_352d);
+    n ^= n >> 15;
+    n = n.wrapping_mul(0x846c_a68b);
+    n ^= n >> 16;
+
+    let x = ((n & 0x3ff) as f32) / 511.5 - 1.0;
+    let y = (((n >> 10) & 0x3ff) as f32) / 511.5 - 1.0;
+    let z = (((n >> 20) & 0x3ff) as f32) / 511.5 - 1.0;
+    let direction = Vec3::new(x, y, z).normalize_or_zero();
+    if direction.length_squared() > 0.0 {
+        direction
+    } else {
+        Vec3::X
+    }
+}
+
+fn make_mat3_traceless(value: Mat3) -> Mat3 {
+    let trace_third = (value.x_axis.x + value.y_axis.y + value.z_axis.z) / 3.0;
+    Mat3::from_cols(
+        Vec3::new(value.x_axis.x - trace_third, value.x_axis.y, value.x_axis.z),
+        Vec3::new(value.y_axis.x, value.y_axis.y - trace_third, value.y_axis.z),
+        Vec3::new(value.z_axis.x, value.z_axis.y, value.z_axis.z - trace_third),
+    )
 }
 
 fn project_velocity_away_from_surface(velocity: Vec3, normal: Vec3) -> Vec3 {
@@ -1547,7 +2208,8 @@ fn water_particle_debug_stats(
 #[cfg(test)]
 mod tests {
     use super::{
-        collide_particle_with_terrain, collide_particle_with_terrain_iterative,
+        collide_particle_with_terrain, collide_particle_with_terrain_iterative, grid_coord_dims,
+        grid_index_dims, pressure_projection_divergence_at, pressure_projection_solid_node,
         project_velocity_away_from_surface, ACTIVE_MASS_EPSILON,
     };
     use crate::{
@@ -1625,6 +2287,79 @@ mod tests {
                 && !node.solid
                 && node.normal == Vec3::ZERO
         }));
+    }
+
+    #[test]
+    fn pressure_projection_reduces_divergent_grid_velocity() {
+        let mut sim = PondWaterSim::new(
+            PondWaterConfig::default()
+                .with_particle_count(0)
+                .with_grid_dim(UVec3::splat(12))
+                .with_pressure_projection_iterations(96),
+        );
+        sim.clear_grid();
+
+        let center = Vec3::splat(5.5);
+        for z in 4..=7 {
+            for y in 4..=7 {
+                for x in 4..=7 {
+                    let idx = grid_index_dims(sim.grid_dim, x, y, z);
+                    sim.touched_grid_nodes.push(idx);
+                    sim.grid[idx].mass = 1.0;
+                    sim.grid[idx].v = (Vec3::new(x as f32, y as f32, z as f32) - center) * 0.1;
+                }
+            }
+        }
+
+        let before = active_grid_divergence_max(&sim);
+        assert!(before > 0.0);
+
+        sim.project_grid_incompressible(sim.config.substep_dt);
+
+        let after = active_grid_divergence_max(&sim);
+        assert!(
+            after < before * 0.65,
+            "pressure projection should reduce divergence: before={before} after={after}"
+        );
+    }
+
+    #[test]
+    fn incompressible_substeps_keep_particle_j_at_rest() {
+        let mut sim = test_sim_with_particles();
+        for _ in 0..64 {
+            sim.substep(sim.config.substep_dt);
+        }
+
+        for particle in &sim.particles {
+            assert!(
+                (particle.j - 1.0).abs() < 1.0e-6,
+                "incompressible particle j drifted: {}",
+                particle.j
+            );
+        }
+    }
+
+    #[test]
+    fn incompressible_spacing_relaxation_separates_overlapping_particles() {
+        let mut sim = PondWaterSim::new(
+            PondWaterConfig::default()
+                .with_particle_count(0)
+                .with_pressure_projection_iterations(16)
+                .with_particle_spacing_relaxation_iterations(2),
+        );
+        let center = Vec3::new(0.5, 0.5, 0.5);
+        sim.particles = vec![water_particle(center, Vec3::ZERO), water_particle(center, Vec3::ZERO)];
+
+        sim.relax_incompressible_particle_spacing(sim.config.substep_dt);
+
+        let distance = sim.particles[0].x.distance(sim.particles[1].x);
+        assert!(
+            distance > sim.config.particle_volume.cbrt() * 0.1,
+            "overlapping particles were not separated: distance={distance}"
+        );
+        for particle in &sim.particles {
+            assert!((particle.j - 1.0).abs() < 1.0e-6);
+        }
     }
 
     #[test]
@@ -1791,6 +2526,35 @@ mod tests {
 
     fn test_sim_with_particles() -> PondWaterSim {
         PondWaterSim::new(PondWaterConfig::default().with_particle_count(256))
+    }
+
+    fn active_grid_divergence_max(sim: &PondWaterSim) -> f32 {
+        let terrain_collision_margin = sim.terrain_collision_margin();
+        sim.touched_grid_nodes
+            .iter()
+            .copied()
+            .filter(|&idx| sim.grid[idx].mass > ACTIVE_MASS_EPSILON)
+            .filter(|&idx| {
+                !pressure_projection_solid_node(
+                    idx,
+                    &sim.grid_boundary_flags,
+                    &sim.terrain_grid,
+                    terrain_collision_margin,
+                )
+            })
+            .map(|idx| {
+                pressure_projection_divergence_at(
+                    grid_coord_dims(sim.grid_dim, idx),
+                    sim.grid_dim,
+                    &sim.grid,
+                    &sim.grid_boundary_flags,
+                    &sim.terrain_grid,
+                    terrain_collision_margin,
+                    sim.inv_dx,
+                )
+                .abs()
+            })
+            .fold(0.0, f32::max)
     }
 
     fn sdf_collider_set(
