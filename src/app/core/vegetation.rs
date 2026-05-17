@@ -1147,9 +1147,7 @@ impl App {
             self.clean_up_prev_tree()?;
         }
 
-        let tree_pos = match placement {
-            TreePlacement::World(world) => world,
-        };
+        let TreePlacement::World(tree_pos) = placement;
 
         let tree_id = if options.assign_new_id {
             let current_id = self.next_tree_id;

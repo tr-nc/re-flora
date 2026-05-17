@@ -99,15 +99,6 @@ struct ContreeRayTracingRuntimeStats {
     total_update_time_us: AtomicU64,
 }
 
-#[derive(Debug, Default, Clone, Copy)]
-pub struct ContreeRayTracingRuntimeSnapshot {
-    pub update_count: usize,
-    pub updated_sources: usize,
-    pub occluded_sources: usize,
-    pub update_failures: usize,
-    pub total_update_time_us: u64,
-}
-
 struct ContreeRayQueryState {
     chunk_dim: UVec3,
     cpu_scene_chunks: Vec<Option<UVec3>>,
@@ -234,28 +225,6 @@ struct CpuChunkCacheWorkerResult {
 impl ContreeAnyHitRayTracer {
     pub fn set_enabled(&self, enabled: bool) {
         self.enabled.store(enabled, Ordering::Relaxed);
-    }
-
-    pub fn take_runtime_snapshot(&self) -> ContreeRayTracingRuntimeSnapshot {
-        ContreeRayTracingRuntimeSnapshot {
-            update_count: self.runtime_stats.update_count.swap(0, Ordering::Relaxed),
-            updated_sources: self
-                .runtime_stats
-                .updated_sources
-                .swap(0, Ordering::Relaxed),
-            occluded_sources: self
-                .runtime_stats
-                .occluded_sources
-                .swap(0, Ordering::Relaxed),
-            update_failures: self
-                .runtime_stats
-                .update_failures
-                .swap(0, Ordering::Relaxed),
-            total_update_time_us: self
-                .runtime_stats
-                .total_update_time_us
-                .swap(0, Ordering::Relaxed),
-        }
     }
 }
 
