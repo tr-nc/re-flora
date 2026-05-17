@@ -368,6 +368,17 @@ impl PondWaterSim {
         chunk_id: glam::IVec3,
         stabilize_particles: bool,
     ) -> bool {
+        if !self.remove_terrain_collider_chunk_deferred(chunk_id) {
+            return false;
+        }
+        self.rebuild_terrain_grid_cache_for_chunk(chunk_id);
+        if stabilize_particles {
+            self.stabilize_after_terrain_chunk_change(chunk_id);
+        }
+        true
+    }
+
+    pub fn remove_terrain_collider_chunk_deferred(&mut self, chunk_id: glam::IVec3) -> bool {
         let Some(terrain) = self.terrain.as_mut() else {
             return false;
         };
@@ -376,10 +387,6 @@ impl PondWaterSim {
         }
         if terrain.is_empty() {
             self.terrain = None;
-        }
-        self.rebuild_terrain_grid_cache_for_chunk(chunk_id);
-        if stabilize_particles {
-            self.stabilize_after_terrain_chunk_change(chunk_id);
         }
         true
     }
@@ -394,7 +401,7 @@ impl PondWaterSim {
         self.stabilize_after_terrain_change_in_scope(None);
     }
 
-    fn stabilize_after_terrain_chunk_change(&mut self, chunk_id: IVec3) {
+    pub fn stabilize_after_terrain_chunk_change(&mut self, chunk_id: IVec3) {
         let halo = self.terrain_chunk_stabilization_halo();
         let min_ws = chunk_id.as_vec3() - Vec3::splat(halo);
         let max_ws = chunk_id.as_vec3() + Vec3::ONE + Vec3::splat(halo);

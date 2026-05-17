@@ -99,6 +99,9 @@ enum ChunkRebuildRequest {
 #[derive(Clone, Copy, Debug, Default)]
 struct WaterTerrainColliderRebuildRequest;
 
+#[derive(Clone, Copy, Debug, Default)]
+struct WaterTerrainCacheRebuildRequest;
+
 struct LoadingState {
     chunk_indices: Vec<UVec3>,
     current: usize,
@@ -215,6 +218,7 @@ pub struct App {
     deferred_water_terrain_source_refreshes:
         LatestChunkQueue<water::WaterTerrainSourceRefreshRequest>,
     deferred_water_terrain_collider_rebuilds: LatestChunkQueue<WaterTerrainColliderRebuildRequest>,
+    deferred_water_terrain_cache_rebuilds: LatestChunkQueue<WaterTerrainCacheRebuildRequest>,
     water_terrain_built_source_revisions: HashMap<UVec3, water::WaterTerrainColliderSourceRevision>,
     water_terrain_collider_build_inflight: bool,
     water_terrain_collider_job_tx: std::sync::mpsc::Sender<water::WaterTerrainColliderWorkerJob>,
@@ -999,6 +1003,7 @@ impl App {
             cpu_solid_voxels: CpuSolidVoxelStore::default(),
             deferred_water_terrain_source_refreshes: LatestChunkQueue::default(),
             deferred_water_terrain_collider_rebuilds: LatestChunkQueue::default(),
+            deferred_water_terrain_cache_rebuilds: LatestChunkQueue::default(),
             water_terrain_built_source_revisions: HashMap::new(),
             water_terrain_collider_build_inflight: false,
             water_terrain_collider_job_tx,
@@ -2119,6 +2124,7 @@ impl App {
 
                 self.process_water_terrain_source_updates();
                 self.process_deferred_chunk_rebuild();
+                self.process_deferred_water_terrain_cache_rebuild();
                 self.process_deferred_water_terrain_collider_rebuild();
                 self.process_water_edit_soak();
 

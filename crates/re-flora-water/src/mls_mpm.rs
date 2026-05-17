@@ -453,7 +453,7 @@ impl PondWaterSim {
         );
     }
 
-    pub(crate) fn rebuild_terrain_grid_cache_for_chunk(&mut self, chunk_id: IVec3) {
+    pub fn rebuild_terrain_grid_cache_for_chunk(&mut self, chunk_id: IVec3) {
         let rebuild_start = Instant::now();
         let near_surface_band = self.terrain_grid_near_surface_band();
         let terrain_chunk_count = self.terrain.as_ref().map_or(0, |terrain| terrain.chunks.len());
@@ -492,6 +492,47 @@ impl PondWaterSim {
             near_surface_band,
             self.dx,
             rebuild_start.elapsed().as_secs_f32() * 1000.0,
+        );
+    }
+
+    pub fn invalidate_terrain_grid_cache_for_chunk(&mut self, chunk_id: IVec3) {
+        let invalidate_start = Instant::now();
+        let terrain_chunk_count = self.terrain.as_ref().map_or(0, |terrain| terrain.chunks.len());
+        let grid_dim = self.grid_dim;
+
+        self.ensure_terrain_grid_cache_len();
+        let Some((min_node, max_node_exclusive)) = self.terrain_grid_cache_range_for_chunk(chunk_id)
+        else {
+            log::debug!(
+                "[WATER][TERRAIN_CACHE] skipped invalidating grid cache region chunk={:?} chunks={} grid {:?} outside=true total_ms={:.2}",
+                chunk_id,
+                terrain_chunk_count,
+                grid_dim,
+                invalidate_start.elapsed().as_secs_f32() * 1000.0,
+            );
+            return;
+        };
+
+        let mut node_count = 0usize;
+        for z in min_node.z..max_node_exclusive.z {
+            for y in min_node.y..max_node_exclusive.y {
+                for x in min_node.x..max_node_exclusive.x {
+                    let idx = grid_index_dims(grid_dim, x, y, z);
+                    self.terrain_grid[idx] = WaterTerrainGridSample::default();
+                    node_count += 1;
+                }
+            }
+        }
+
+        log::debug!(
+            "[WATER][TERRAIN_CACHE] invalidated grid cache region chunk={:?} chunks={} grid {:?} range {:?}..{:?} nodes={} total_ms={:.2}",
+            chunk_id,
+            terrain_chunk_count,
+            grid_dim,
+            min_node,
+            max_node_exclusive,
+            node_count,
+            invalidate_start.elapsed().as_secs_f32() * 1000.0,
         );
     }
 

@@ -1,4 +1,7 @@
-use super::{App, WaterTerrainColliderRebuildRequest, CHUNK_DIM, VOXEL_DIM_PER_CHUNK};
+use super::{
+    App, WaterTerrainCacheRebuildRequest, WaterTerrainColliderRebuildRequest, CHUNK_DIM,
+    VOXEL_DIM_PER_CHUNK,
+};
 use crate::app::cpu_solid_voxels::CpuSolidVoxelChunk;
 use crate::app::world_edits::TerrainRemovalEdit;
 use crate::builder::VOXEL_TYPE_ROCK;
@@ -102,6 +105,26 @@ impl App {
             revision,
             self.deferred_water_terrain_collider_rebuilds.len(),
             self.deferred_water_terrain_collider_rebuilds.active_len(),
+        );
+    }
+
+    fn enqueue_deferred_water_terrain_cache_rebuild(&mut self, chunk_id: IVec3) {
+        let Some(chunk_key) = water_terrain_chunk_id_to_uvec3(chunk_id) else {
+            log::warn!(
+                "[WATER][TERRAIN_CACHE] skipped invalid cache rebuild chunk {:?}",
+                chunk_id,
+            );
+            return;
+        };
+        let revision = self
+            .deferred_water_terrain_cache_rebuilds
+            .push(chunk_key, WaterTerrainCacheRebuildRequest);
+        log::debug!(
+            "[QUEUE][WATER_TERRAIN_CACHE] enqueue chunk {:?} revision {} pending={} active={}",
+            chunk_id,
+            revision,
+            self.deferred_water_terrain_cache_rebuilds.len(),
+            self.deferred_water_terrain_cache_rebuilds.active_len(),
         );
     }
 
@@ -275,6 +298,50 @@ impl App {
         }
     }
 
+    pub(super) fn process_deferred_water_terrain_cache_rebuild(&mut self) {
+        const MAX_CACHE_REBUILDS_PER_FRAME: usize = 1;
+
+        let frame_start = Instant::now();
+        let focus = self.water_terrain_focus_ws();
+        let mut processed = 0usize;
+        while processed < MAX_CACHE_REBUILDS_PER_FRAME {
+            let Some(work) = self
+                .deferred_water_terrain_cache_rebuilds
+                .pop_nearest_to(focus, UVec3::ONE)
+            else {
+                break;
+            };
+            let chunk_key = work.chunk_id;
+            let revision = work.revision;
+            let Some(chunk_id) = water_terrain_chunk_work_key_to_id(chunk_key) else {
+                log::warn!(
+                    "[WATER][TERRAIN_CACHE] skipped invalid queued cache rebuild chunk {:?} rev {}",
+                    chunk_key,
+                    revision,
+                );
+                self.deferred_water_terrain_cache_rebuilds
+                    .complete(chunk_key, revision);
+                continue;
+            };
+
+            self.water_sim
+                .rebuild_terrain_grid_cache_for_chunk(chunk_id);
+            self.deferred_water_terrain_cache_rebuilds
+                .complete(chunk_key, revision);
+            processed += 1;
+        }
+
+        if processed > 0 {
+            log::debug!(
+                "[QUEUE][WATER_TERRAIN_CACHE] processed {} rebuilds total_ms={:.2} pending={} active={}",
+                processed,
+                frame_start.elapsed().as_secs_f32() * 1000.0,
+                self.deferred_water_terrain_cache_rebuilds.len(),
+                self.deferred_water_terrain_cache_rebuilds.active_len(),
+            );
+        }
+    }
+
     pub(super) fn process_deferred_water_terrain_collider_rebuild(&mut self) {
         self.publish_completed_water_terrain_collider_rebuilds();
         self.try_submit_next_water_terrain_collider_rebuild();
@@ -298,6 +365,7 @@ impl App {
             || !self.deferred_chunk_rebuilds_idle()
             || !self.deferred_water_terrain_source_refreshes.is_idle()
             || !self.deferred_water_terrain_collider_rebuilds.is_idle()
+            || !self.deferred_water_terrain_cache_rebuilds.is_idle()
         {
             return;
         }
@@ -572,9 +640,15 @@ impl App {
     fn remove_empty_water_terrain_collider_chunk(&mut self, chunk_id: IVec3) -> bool {
         let removed = self
             .water_sim
-            .remove_terrain_collider_chunk(chunk_id, false);
-        if removed && !self.water_terrain_initialized {
-            self.water_terrain_collider_cache_rebuild_pending = true;
+            .remove_terrain_collider_chunk_deferred(chunk_id);
+        if removed {
+            if self.water_terrain_initialized {
+                self.water_sim
+                    .invalidate_terrain_grid_cache_for_chunk(chunk_id);
+                self.enqueue_deferred_water_terrain_cache_rebuild(chunk_id);
+            } else {
+                self.water_terrain_collider_cache_rebuild_pending = true;
+            }
         }
         removed
     }
@@ -591,8 +665,14 @@ impl App {
                 self.water_sim.config.collider.min_ws,
                 self.water_sim.config.collider.max_ws,
             );
+        self.water_sim.upsert_terrain_collider_chunk_deferred(chunk);
         self.water_sim
-            .upsert_terrain_collider_chunk(chunk, should_stabilize_particles);
+            .invalidate_terrain_grid_cache_for_chunk(chunk_id);
+        self.enqueue_deferred_water_terrain_cache_rebuild(chunk_id);
+        if should_stabilize_particles {
+            self.water_sim
+                .stabilize_after_terrain_chunk_change(chunk_id);
+        }
     }
 
     fn publish_startup_water_terrain_collider_chunk_deferred(
@@ -635,6 +715,7 @@ impl App {
         if self.water_terrain_collider_build_inflight
             || !self.deferred_water_terrain_source_refreshes.is_idle()
             || !self.deferred_water_terrain_collider_rebuilds.is_idle()
+            || !self.deferred_water_terrain_cache_rebuilds.is_idle()
         {
             return false;
         }
@@ -899,7 +980,6 @@ fn water_terrain_chunk_key_intersects_box_grid_domain(
     water_terrain_chunk_strictly_overlaps_box(chunk_id, box_min_ws, box_max_ws)
 }
 
-#[cfg(test)]
 fn water_terrain_chunk_id_to_uvec3(chunk_id: IVec3) -> Option<UVec3> {
     if chunk_id.cmpge(IVec3::ZERO).all() {
         Some(chunk_id.as_uvec3())
