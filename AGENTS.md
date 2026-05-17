@@ -36,7 +36,24 @@ Use clear branch and directory names that describe the task or subsystem, such a
 git worktree list
 ```
 
-Worker handoff should include changed files, validation commands, and any behavior that was not verified. Integration happens in the main worktree with normal git merges. If conflicts occur, use a dedicated merge-agent pass that inspects both sides, preserves both intended behaviors, and regenerates generated files from their sources rather than guessing.
+### Worker Agent Checklist
+
+At the start of every worker task, run:
+
+```bash
+git status --short --branch
+```
+
+Then confirm the current branch, assigned scope, and likely file boundaries before editing. Keep worker branches focused on the assigned feature or subsystem, and avoid unrelated cleanup, formatting churn, or opportunistic refactors.
+
+Worker handoff should include:
+
+- changed files
+- validation commands run
+- known risks or unverified behavior
+- whether generated files changed
+
+Integration happens in the main worktree with normal git merges. If conflicts occur, use a dedicated merge-agent pass that inspects both sides, preserves both intended behaviors, and regenerates generated files from their sources rather than guessing.
 
 See `docs/parallel_agent_workflow_roadmap.md` for the longer roadmap and project-specific friction points.
 
