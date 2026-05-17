@@ -7,7 +7,10 @@ use crate::app::world_edits::TerrainRemovalEdit;
 use crate::builder::VOXEL_TYPE_ROCK;
 use glam::{IVec3, UVec3, Vec2, Vec3};
 use re_flora_terrain_collider::signed_distance_from_solid_samples;
-use re_flora_water::WaterTerrainColliderChunk;
+use re_flora_water::{
+    build_terrain_grid_cache_patch, WaterTerrainCacheBuildRequest, WaterTerrainCachePatch,
+    WaterTerrainColliderChunk,
+};
 use std::{
     sync::mpsc,
     thread,
@@ -40,6 +43,20 @@ pub(super) struct TerrainSdfColliderWorkerResult {
     revision: u64,
     source_revision: TerrainSdfSourceRevision,
     build: Option<TerrainSdfColliderBuild>,
+}
+
+pub(super) struct WaterTerrainCacheWorkerJob {
+    chunk_key: UVec3,
+    chunk_id: IVec3,
+    revision: u64,
+    request: WaterTerrainCacheBuildRequest,
+}
+
+pub(super) struct WaterTerrainCacheWorkerResult {
+    chunk_key: UVec3,
+    chunk_id: IVec3,
+    revision: u64,
+    patch: WaterTerrainCachePatch,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -306,46 +323,132 @@ impl App {
     }
 
     pub(super) fn process_deferred_water_terrain_cache_rebuild(&mut self) {
-        const MAX_CACHE_REBUILDS_PER_FRAME: usize = 1;
+        self.publish_completed_water_terrain_cache_rebuilds();
+        self.try_submit_next_water_terrain_cache_rebuild();
+    }
 
-        let frame_start = Instant::now();
-        let focus = self.water_terrain_focus_ws();
-        let mut processed = 0usize;
-        while processed < MAX_CACHE_REBUILDS_PER_FRAME {
-            let Some(work) = self
-                .deferred_water_terrain_cache_rebuilds
-                .pop_nearest_to(focus, UVec3::ONE)
-            else {
-                break;
-            };
-            let chunk_key = work.chunk_id;
-            let revision = work.revision;
-            let Some(chunk_id) = water_terrain_chunk_work_key_to_id(chunk_key) else {
-                log::warn!(
-                    "[WATER][TERRAIN_CACHE] skipped invalid queued cache rebuild chunk {:?} rev {}",
-                    chunk_key,
-                    revision,
-                );
-                self.deferred_water_terrain_cache_rebuilds
-                    .complete(chunk_key, revision);
-                continue;
-            };
-
-            self.water_sim
-                .rebuild_terrain_grid_cache_for_chunk(chunk_id);
-            self.deferred_water_terrain_cache_rebuilds
-                .complete(chunk_key, revision);
-            processed += 1;
+    fn try_submit_next_water_terrain_cache_rebuild(&mut self) {
+        if self.water_terrain_cache_rebuild_inflight {
+            return;
         }
 
-        if processed > 0 {
-            log::debug!(
-                "[QUEUE][WATER_TERRAIN_CACHE] processed {} rebuilds total_ms={:.2} pending={} active={}",
-                processed,
-                frame_start.elapsed().as_secs_f32() * 1000.0,
-                self.deferred_water_terrain_cache_rebuilds.len(),
-                self.deferred_water_terrain_cache_rebuilds.active_len(),
+        let focus = self.water_terrain_focus_ws();
+        let Some(work) = self
+            .deferred_water_terrain_cache_rebuilds
+            .pop_nearest_to(focus, UVec3::ONE)
+        else {
+            return;
+        };
+        let chunk_key = work.chunk_id;
+        let revision = work.revision;
+        let Some(chunk_id) = water_terrain_chunk_work_key_to_id(chunk_key) else {
+            log::warn!(
+                "[WATER][TERRAIN_CACHE] skipped invalid queued cache rebuild chunk {:?} rev {}",
+                chunk_key,
+                revision,
             );
+            self.deferred_water_terrain_cache_rebuilds
+                .complete(chunk_key, revision);
+            return;
+        };
+
+        let Some(request) = self
+            .water_sim
+            .terrain_grid_cache_build_request_for_chunk(chunk_id)
+        else {
+            log::info!(
+                "[WATER][TERRAIN_CACHE] skipped worker grid cache region chunk={:?} outside=true",
+                chunk_id,
+            );
+            self.deferred_water_terrain_cache_rebuilds
+                .complete(chunk_key, revision);
+            return;
+        };
+
+        let node_count = request.node_count();
+        let min_node = request.min_node();
+        let max_node_exclusive = request.max_node_exclusive();
+        let terrain_chunk_count = request.terrain_chunk_count();
+        let grid_dim = request.grid_dim();
+        let near_surface_band = request.near_surface_band();
+        let dx = request.dx();
+        let job = WaterTerrainCacheWorkerJob {
+            chunk_key,
+            chunk_id,
+            revision,
+            request,
+        };
+        self.water_terrain_cache_rebuild_inflight = true;
+        if let Err(err) = self.water_terrain_cache_job_tx.send(job) {
+            log::error!(
+                "[WATER][TERRAIN_CACHE] failed to submit worker cache rebuild chunk {:?} rev {}: {}",
+                chunk_id,
+                revision,
+                err,
+            );
+            self.water_terrain_cache_rebuild_inflight = false;
+            self.deferred_water_terrain_cache_rebuilds
+                .complete(chunk_key, revision);
+            return;
+        }
+
+        log::debug!(
+            "[QUEUE][WATER_TERRAIN_CACHE] submit worker chunk {:?} revision {} chunks={} grid {:?} range {:?}..{:?} nodes={} band={:.5} dx={:.5} pending={} active={}",
+            chunk_id,
+            revision,
+            terrain_chunk_count,
+            grid_dim,
+            min_node,
+            max_node_exclusive,
+            node_count,
+            near_surface_band,
+            dx,
+            self.deferred_water_terrain_cache_rebuilds.len(),
+            self.deferred_water_terrain_cache_rebuilds.active_len(),
+        );
+    }
+
+    fn publish_completed_water_terrain_cache_rebuilds(&mut self) {
+        while let Ok(result) = self.water_terrain_cache_result_rx.try_recv() {
+            self.water_terrain_cache_rebuild_inflight = false;
+            let is_latest = self
+                .deferred_water_terrain_cache_rebuilds
+                .is_latest_revision(result.chunk_key, result.revision);
+
+            if !is_latest {
+                log::debug!(
+                    "[WATER][TERRAIN_CACHE] discarded stale worker grid cache region chunk {:?} rev {} latest_pending=true worker_ms={:.2}",
+                    result.chunk_id,
+                    result.revision,
+                    result.patch.build_ms(),
+                );
+                self.deferred_water_terrain_cache_rebuilds
+                    .complete(result.chunk_key, result.revision);
+                continue;
+            }
+
+            if let Some(report) = self.water_sim.apply_terrain_grid_cache_patch(result.patch) {
+                log::info!(
+                    "[WATER][TERRAIN_CACHE] applied worker grid cache region chunk={:?} rev {} chunks={} grid {:?} range {:?}..{:?} nodes={} has_sdf={} near_surface={} normals={} band={:.5} dx={:.5} worker_ms={:.2} apply_ms={:.3}",
+                    report.chunk_id,
+                    result.revision,
+                    report.terrain_chunk_count,
+                    report.grid_dim,
+                    report.min_node,
+                    report.max_node_exclusive,
+                    report.node_count,
+                    report.has_sdf_count,
+                    report.near_surface_count,
+                    report.normal_count,
+                    report.near_surface_band,
+                    report.dx,
+                    report.build_ms,
+                    report.apply_ms,
+                );
+            }
+
+            self.deferred_water_terrain_cache_rebuilds
+                .complete(result.chunk_key, result.revision);
         }
     }
 
@@ -486,6 +589,33 @@ impl App {
                 revision: job.revision,
                 source_revision: job.source_revision,
                 build,
+            };
+            if result_tx.send(result).is_err() {
+                break;
+            }
+        });
+
+        (job_tx, result_rx)
+    }
+
+    pub(super) fn spawn_water_terrain_cache_worker() -> (
+        mpsc::Sender<WaterTerrainCacheWorkerJob>,
+        mpsc::Receiver<WaterTerrainCacheWorkerResult>,
+    ) {
+        let (job_tx, job_rx) = mpsc::channel();
+        let (result_tx, result_rx) = mpsc::channel();
+        thread::spawn(move || loop {
+            let job: WaterTerrainCacheWorkerJob = match job_rx.recv() {
+                Ok(job) => job,
+                Err(_) => break,
+            };
+
+            let patch = build_terrain_grid_cache_patch(job.request);
+            let result = WaterTerrainCacheWorkerResult {
+                chunk_key: job.chunk_key,
+                chunk_id: job.chunk_id,
+                revision: job.revision,
+                patch,
             };
             if result_tx.send(result).is_err() {
                 break;

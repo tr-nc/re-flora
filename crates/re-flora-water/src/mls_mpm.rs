@@ -28,6 +28,205 @@ const MAX_INCOMPRESSIBLE_AFFINE_COMPONENT: f32 = 20.0;
 // single visual point.
 const INCOMPRESSIBLE_PARTICLE_SPACING_SCALE: f32 = 0.80;
 const INCOMPRESSIBLE_PARTICLE_SPACING_STRENGTH: f32 = 0.45;
+
+#[derive(Debug)]
+pub struct WaterTerrainCacheBuildRequest {
+    chunk_id: IVec3,
+    terrain_chunk_count: usize,
+    terrain: Option<WaterTerrainColliderSet>,
+    origin_ws: Vec3,
+    grid_dim: UVec3,
+    dx: f32,
+    min_node: UVec3,
+    max_node_exclusive: UVec3,
+    near_surface_band: f32,
+}
+
+impl WaterTerrainCacheBuildRequest {
+    pub fn chunk_id(&self) -> IVec3 {
+        self.chunk_id
+    }
+
+    pub fn terrain_chunk_count(&self) -> usize {
+        self.terrain_chunk_count
+    }
+
+    pub fn grid_dim(&self) -> UVec3 {
+        self.grid_dim
+    }
+
+    pub fn min_node(&self) -> UVec3 {
+        self.min_node
+    }
+
+    pub fn max_node_exclusive(&self) -> UVec3 {
+        self.max_node_exclusive
+    }
+
+    pub fn near_surface_band(&self) -> f32 {
+        self.near_surface_band
+    }
+
+    pub fn dx(&self) -> f32 {
+        self.dx
+    }
+
+    pub fn node_count(&self) -> usize {
+        terrain_cache_range_node_count(self.min_node, self.max_node_exclusive)
+    }
+}
+
+#[derive(Debug)]
+pub struct WaterTerrainCachePatch {
+    chunk_id: IVec3,
+    terrain_chunk_count: usize,
+    grid_dim: UVec3,
+    dx: f32,
+    min_node: UVec3,
+    max_node_exclusive: UVec3,
+    near_surface_band: f32,
+    samples: Vec<WaterTerrainGridSample>,
+    stats: WaterTerrainCacheRebuildStats,
+    build_ms: f32,
+}
+
+impl WaterTerrainCachePatch {
+    pub fn chunk_id(&self) -> IVec3 {
+        self.chunk_id
+    }
+
+    pub fn terrain_chunk_count(&self) -> usize {
+        self.terrain_chunk_count
+    }
+
+    pub fn grid_dim(&self) -> UVec3 {
+        self.grid_dim
+    }
+
+    pub fn min_node(&self) -> UVec3 {
+        self.min_node
+    }
+
+    pub fn max_node_exclusive(&self) -> UVec3 {
+        self.max_node_exclusive
+    }
+
+    pub fn near_surface_band(&self) -> f32 {
+        self.near_surface_band
+    }
+
+    pub fn dx(&self) -> f32 {
+        self.dx
+    }
+
+    pub fn stats(&self) -> WaterTerrainCacheRebuildStats {
+        self.stats
+    }
+
+    pub fn build_ms(&self) -> f32 {
+        self.build_ms
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct WaterTerrainCacheRebuildStats {
+    pub node_count: usize,
+    pub has_sdf_count: usize,
+    pub near_surface_count: usize,
+    pub normal_count: usize,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct WaterTerrainCacheApplyReport {
+    pub chunk_id: IVec3,
+    pub terrain_chunk_count: usize,
+    pub grid_dim: UVec3,
+    pub min_node: UVec3,
+    pub max_node_exclusive: UVec3,
+    pub node_count: usize,
+    pub has_sdf_count: usize,
+    pub near_surface_count: usize,
+    pub normal_count: usize,
+    pub near_surface_band: f32,
+    pub dx: f32,
+    pub build_ms: f32,
+    pub apply_ms: f32,
+}
+
+pub fn build_terrain_grid_cache_patch(
+    request: WaterTerrainCacheBuildRequest,
+) -> WaterTerrainCachePatch {
+    let build_start = Instant::now();
+    let mut samples = Vec::with_capacity(request.node_count());
+    let stats = build_terrain_grid_cache_samples(
+        request.terrain.as_ref(),
+        request.origin_ws,
+        request.dx,
+        request.min_node,
+        request.max_node_exclusive,
+        request.near_surface_band,
+        |sample| samples.push(sample),
+    );
+
+    WaterTerrainCachePatch {
+        chunk_id: request.chunk_id,
+        terrain_chunk_count: request.terrain_chunk_count,
+        grid_dim: request.grid_dim,
+        dx: request.dx,
+        min_node: request.min_node,
+        max_node_exclusive: request.max_node_exclusive,
+        near_surface_band: request.near_surface_band,
+        samples,
+        stats,
+        build_ms: build_start.elapsed().as_secs_f32() * 1000.0,
+    }
+}
+
+fn build_terrain_grid_cache_samples(
+    terrain: Option<&WaterTerrainColliderSet>,
+    origin_ws: Vec3,
+    dx: f32,
+    min_node: UVec3,
+    max_node_exclusive: UVec3,
+    near_surface_band: f32,
+    mut push_sample: impl FnMut(WaterTerrainGridSample),
+) -> WaterTerrainCacheRebuildStats {
+    let mut stats = WaterTerrainCacheRebuildStats::default();
+
+    for z in min_node.z..max_node_exclusive.z {
+        for y in min_node.y..max_node_exclusive.y {
+            for x in min_node.x..max_node_exclusive.x {
+                let mut sample = WaterTerrainGridSample::default();
+                if let Some(terrain) = terrain {
+                    let node_world = origin_ws + Vec3::new(x as f32, y as f32, z as f32) * dx;
+                    if let Some(sdf) = terrain.sample_sdf_ws(node_world) {
+                        sample.sdf = sdf;
+                        sample.has_sdf = true;
+                        stats.has_sdf_count += 1;
+                        sample.near_surface = sdf <= near_surface_band;
+                        if sample.near_surface {
+                            stats.near_surface_count += 1;
+                            sample.normal = terrain.sample_normal_ws(node_world).unwrap_or(Vec3::Y);
+                            stats.normal_count += 1;
+                        }
+                    }
+                }
+                push_sample(sample);
+                stats.node_count += 1;
+            }
+        }
+    }
+
+    stats
+}
+
+fn terrain_cache_range_node_count(min_node: UVec3, max_node_exclusive: UVec3) -> usize {
+    let extent = max_node_exclusive.saturating_sub(min_node);
+    (extent.x as usize)
+        .saturating_mul(extent.y as usize)
+        .saturating_mul(extent.z as usize)
+}
+
 const MAX_PARTICLE_SPACING_CORRECTION_CELLS: f32 = 0.35;
 // A particle can end a substep deeper than one capped correction can resolve.
 // Iterate bounded SDF corrections so the next P2G pass does not deposit mass
@@ -138,21 +337,35 @@ impl PondWaterSim {
         self.particle_to_grid(dt);
         let p2g_seconds = p2g_start.elapsed().as_secs_f64();
 
-        let grid_start = Instant::now();
+        let grid_update_start = Instant::now();
         let active_nodes = self.update_grid(dt);
+        let grid_update_seconds = grid_update_start.elapsed().as_secs_f64();
+
+        let pressure_projection_start = Instant::now();
         self.project_grid_incompressible(dt);
-        let grid_seconds = grid_start.elapsed().as_secs_f64();
+        let pressure_projection_seconds = pressure_projection_start.elapsed().as_secs_f64();
+        let grid_seconds = grid_update_seconds + pressure_projection_seconds;
 
         let g2p_breakdown = self.grid_to_particle_timed(dt);
+
+        let spacing_relax_start = Instant::now();
         self.relax_incompressible_particle_spacing(dt);
+        let spacing_relax_seconds = spacing_relax_start.elapsed().as_secs_f64();
+
+        let diagnostics_start = Instant::now();
         self.record_diagnostic_substep(active_nodes, g2p_breakdown);
+        let diagnostics_seconds = diagnostics_start.elapsed().as_secs_f64();
 
         self.perf_stats.substeps += 1;
         self.perf_stats.repair_seconds += repair_seconds;
         self.perf_stats.clear_seconds += clear_seconds;
         self.perf_stats.p2g_seconds += p2g_seconds;
         self.perf_stats.grid_seconds += grid_seconds;
+        self.perf_stats.grid_update_seconds += grid_update_seconds;
+        self.perf_stats.pressure_projection_seconds += pressure_projection_seconds;
         self.perf_stats.g2p_seconds += g2p_breakdown.total_seconds;
+        self.perf_stats.spacing_relax_seconds += spacing_relax_seconds;
+        self.perf_stats.diagnostics_seconds += diagnostics_seconds;
         self.perf_stats.g2p_gather_seconds += g2p_breakdown.gather_seconds;
         self.perf_stats.g2p_box_seconds += g2p_breakdown.box_seconds;
         self.perf_stats.g2p_terrain_seconds += g2p_breakdown.terrain_seconds;
@@ -330,7 +543,9 @@ impl PondWaterSim {
             return;
         }
 
+        let shadow_measure_start = Instant::now();
         let shadow_stats = self.measure_terrain_shadow_samples();
+        let shadow_measure_seconds = shadow_measure_start.elapsed().as_secs_f64();
         stats.g2p_terrain_shadow_samples += shadow_stats.samples;
         stats.g2p_terrain_shadow_false_skips += shadow_stats.false_skips;
         stats.g2p_terrain_shadow_sdf_abs_error_sum += shadow_stats.sdf_abs_error_sum;
@@ -339,6 +554,14 @@ impl PondWaterSim {
             .max(shadow_stats.sdf_abs_error_max);
 
         let substeps = stats.substeps as f64;
+        let recorded_seconds = stats.repair_seconds
+            + stats.clear_seconds
+            + stats.p2g_seconds
+            + stats.grid_seconds
+            + stats.g2p_seconds
+            + stats.spacing_relax_seconds
+            + stats.diagnostics_seconds;
+        let residual_seconds = (stats.total_seconds - recorded_seconds).max(0.0);
         let grid_nodes = self.grid.len();
         let particle_padding = self.dx * self.config.wall_padding_cells.max(1.0);
         let max_particle_speed = max_particle_speed_for_substep(self.dx, self.config.substep_dt);
@@ -352,7 +575,7 @@ impl PondWaterSim {
             self.terrain_collision_margin(),
         );
         log::info!(
-            "[PERF][WATER] particles {} grid {:?} nodes {} substeps {} total {:.2}ms avg {:.3}ms/substep repair {:.2}ms clear {:.2}ms p2g {:.2}ms grid {:.2}ms g2p {:.2}ms g2p_gather {:.2}ms g2p_box {:.2}ms g2p_terrain {:.2}ms g2p_repair {:.2}ms terrain_cache_skips/substep {:.0} terrain_cache_projections/substep {:.0} terrain_exact_fallbacks/substep {:.0} terrain_exact_checks/substep {:.0} terrain_exact_corrections/substep {:.0} terrain_shadow_samples/substep {:.1} terrain_shadow_false_skips {} terrain_shadow_sdf_err_avg {:.5} terrain_shadow_sdf_err_max {:.5} active_nodes/substep {:.0} particle_y {:.3}..{:.3} avg {:.3} terrain_sdf_min {:.4} penetrating {} no_sdf {}",
+            "[PERF][WATER] particles {} grid {:?} nodes {} substeps {} total {:.2}ms avg {:.3}ms/substep repair {:.2}ms clear {:.2}ms p2g {:.2}ms grid {:.2}ms grid_update {:.2}ms pressure {:.2}ms g2p {:.2}ms g2p_gather {:.2}ms g2p_box {:.2}ms g2p_terrain {:.2}ms g2p_repair {:.2}ms spacing_relax {:.2}ms diagnostics {:.2}ms residual {:.2}ms shadow_measure {:.2}ms terrain_cache_skips/substep {:.0} terrain_cache_projections/substep {:.0} terrain_exact_fallbacks/substep {:.0} terrain_exact_checks/substep {:.0} terrain_exact_corrections/substep {:.0} terrain_shadow_samples/substep {:.1} terrain_shadow_false_skips {} terrain_shadow_sdf_err_avg {:.5} terrain_shadow_sdf_err_max {:.5} active_nodes/substep {:.0} particle_y {:.3}..{:.3} avg {:.3} terrain_sdf_min {:.4} penetrating {} no_sdf {}",
             self.particles.len(),
             self.grid_dim,
             grid_nodes,
@@ -363,11 +586,17 @@ impl PondWaterSim {
             stats.clear_seconds * 1000.0,
             stats.p2g_seconds * 1000.0,
             stats.grid_seconds * 1000.0,
+            stats.grid_update_seconds * 1000.0,
+            stats.pressure_projection_seconds * 1000.0,
             stats.g2p_seconds * 1000.0,
             stats.g2p_gather_seconds * 1000.0,
             stats.g2p_box_seconds * 1000.0,
             stats.g2p_terrain_seconds * 1000.0,
             stats.g2p_repair_seconds * 1000.0,
+            stats.spacing_relax_seconds * 1000.0,
+            stats.diagnostics_seconds * 1000.0,
+            residual_seconds * 1000.0,
+            shadow_measure_seconds * 1000.0,
             stats.g2p_terrain_cache_skips as f64 / substeps,
             stats.g2p_terrain_cache_projections as f64 / substeps,
             stats.g2p_terrain_exact_fallbacks as f64 / substeps,
@@ -466,6 +695,84 @@ impl PondWaterSim {
             self.dx,
             rebuild_start.elapsed().as_secs_f32() * 1000.0,
         );
+    }
+
+    pub fn terrain_grid_cache_build_request_for_chunk(
+        &self,
+        chunk_id: IVec3,
+    ) -> Option<WaterTerrainCacheBuildRequest> {
+        let (min_node, max_node_exclusive) = self.terrain_grid_cache_range_for_chunk(chunk_id)?;
+        Some(WaterTerrainCacheBuildRequest {
+            chunk_id,
+            terrain_chunk_count: self.terrain.as_ref().map_or(0, |terrain| terrain.chunks.len()),
+            terrain: self.terrain.clone(),
+            origin_ws: self.origin_ws,
+            grid_dim: self.grid_dim,
+            dx: self.dx,
+            min_node,
+            max_node_exclusive,
+            near_surface_band: self.terrain_grid_near_surface_band(),
+        })
+    }
+
+    pub fn apply_terrain_grid_cache_patch(
+        &mut self,
+        patch: WaterTerrainCachePatch,
+    ) -> Option<WaterTerrainCacheApplyReport> {
+        let apply_start = Instant::now();
+        if patch.grid_dim != self.grid_dim {
+            log::warn!(
+                "[WATER][TERRAIN_CACHE] discarded worker grid cache patch chunk={:?} grid {:?} current_grid {:?}: grid changed",
+                patch.chunk_id,
+                patch.grid_dim,
+                self.grid_dim,
+            );
+            return None;
+        }
+
+        self.ensure_terrain_grid_cache_len();
+        let expected_samples = terrain_cache_range_node_count(
+            patch.min_node,
+            patch.max_node_exclusive,
+        );
+        if patch.samples.len() != expected_samples {
+            log::warn!(
+                "[WATER][TERRAIN_CACHE] discarded worker grid cache patch chunk={:?} range {:?}..{:?}: sample count {} expected {}",
+                patch.chunk_id,
+                patch.min_node,
+                patch.max_node_exclusive,
+                patch.samples.len(),
+                expected_samples,
+            );
+            return None;
+        }
+
+        let mut sample_idx = 0usize;
+        for z in patch.min_node.z..patch.max_node_exclusive.z {
+            for y in patch.min_node.y..patch.max_node_exclusive.y {
+                for x in patch.min_node.x..patch.max_node_exclusive.x {
+                    let idx = grid_index_dims(self.grid_dim, x, y, z);
+                    self.terrain_grid[idx] = patch.samples[sample_idx];
+                    sample_idx += 1;
+                }
+            }
+        }
+
+        Some(WaterTerrainCacheApplyReport {
+            chunk_id: patch.chunk_id,
+            terrain_chunk_count: patch.terrain_chunk_count,
+            grid_dim: patch.grid_dim,
+            min_node: patch.min_node,
+            max_node_exclusive: patch.max_node_exclusive,
+            node_count: patch.stats.node_count,
+            has_sdf_count: patch.stats.has_sdf_count,
+            near_surface_count: patch.stats.near_surface_count,
+            normal_count: patch.stats.normal_count,
+            near_surface_band: patch.near_surface_band,
+            dx: patch.dx,
+            build_ms: patch.build_ms,
+            apply_ms: apply_start.elapsed().as_secs_f32() * 1000.0,
+        })
     }
 
     pub fn rebuild_terrain_grid_cache_for_chunk(&mut self, chunk_id: IVec3) {
@@ -588,12 +895,12 @@ impl PondWaterSim {
         min_node: UVec3,
         max_node_exclusive: UVec3,
         near_surface_band: f32,
-    ) -> TerrainGridCacheRebuildStats {
+    ) -> WaterTerrainCacheRebuildStats {
         let terrain = self.terrain.as_ref();
         let origin_ws = self.origin_ws;
         let grid_dim = self.grid_dim;
         let dx = self.dx;
-        let mut stats = TerrainGridCacheRebuildStats::default();
+        let mut stats = WaterTerrainCacheRebuildStats::default();
 
         for z in min_node.z..max_node_exclusive.z {
             for y in min_node.y..max_node_exclusive.y {
@@ -1299,14 +1606,6 @@ impl PondWaterSim {
             terrain_exact_corrections,
         }
     }
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-struct TerrainGridCacheRebuildStats {
-    node_count: usize,
-    has_sdf_count: usize,
-    near_surface_count: usize,
-    normal_count: usize,
 }
 
 #[derive(Clone, Copy, Debug, Default)]

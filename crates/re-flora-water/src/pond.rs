@@ -216,7 +216,11 @@ pub struct WaterPerfStats {
     pub clear_seconds: f64,
     pub p2g_seconds: f64,
     pub grid_seconds: f64,
+    pub grid_update_seconds: f64,
+    pub pressure_projection_seconds: f64,
     pub g2p_seconds: f64,
+    pub spacing_relax_seconds: f64,
+    pub diagnostics_seconds: f64,
     pub g2p_gather_seconds: f64,
     pub g2p_box_seconds: f64,
     pub g2p_terrain_seconds: f64,
@@ -1010,6 +1014,33 @@ mod tests {
 
         assert!(!sim.terrain_grid[inside_idx].has_sdf);
         assert!(!sim.terrain_grid[outside_idx].has_sdf);
+    }
+
+    #[test]
+    fn worker_terrain_cache_patch_matches_sync_chunk_rebuild() {
+        let chunk_id = glam::IVec3::new(1, 0, 1);
+        let mut worker_sim = PondWaterSim::fixed_test_box();
+        worker_sim.upsert_terrain_collider_chunk_deferred(test_chunk(chunk_id));
+        worker_sim.invalidate_terrain_grid_cache_for_chunk(chunk_id);
+        let request = worker_sim
+            .terrain_grid_cache_build_request_for_chunk(chunk_id)
+            .unwrap();
+        let patch = crate::build_terrain_grid_cache_patch(request);
+        let report = worker_sim.apply_terrain_grid_cache_patch(patch).unwrap();
+
+        let mut sync_sim = PondWaterSim::fixed_test_box();
+        sync_sim.upsert_terrain_collider_chunk(test_chunk(chunk_id), false);
+
+        assert!(report.node_count > 0);
+        assert_eq!(worker_sim.terrain_grid.len(), sync_sim.terrain_grid.len());
+        for (worker_sample, sync_sample) in
+            worker_sim.terrain_grid.iter().zip(&sync_sim.terrain_grid)
+        {
+            assert_eq!(worker_sample.sdf.to_bits(), sync_sample.sdf.to_bits());
+            assert_eq!(worker_sample.normal, sync_sample.normal);
+            assert_eq!(worker_sample.near_surface, sync_sample.near_surface);
+            assert_eq!(worker_sample.has_sdf, sync_sample.has_sdf);
+        }
     }
 
     #[test]
