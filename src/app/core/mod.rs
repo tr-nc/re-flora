@@ -315,7 +315,7 @@ impl App {
         let rebuild_succeeded = result.is_ok();
         self.deferred_chunk_rebuilds.complete(chunk_id, revision);
         if rebuild_succeeded {
-            self.mark_water_terrain_source_chunk_dirty(chunk_id);
+            self.schedule_terrain_sdf_source_refresh(chunk_id);
         }
 
         match result {

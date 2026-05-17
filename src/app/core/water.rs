@@ -84,7 +84,7 @@ impl App {
                         skipped += 1;
                         continue;
                     }
-                    self.mark_water_terrain_source_chunk_dirty_immediate(chunk_id);
+                    self.schedule_terrain_sdf_source_refresh_immediate(chunk_id);
                     enqueued += 1;
                 }
             }
@@ -129,7 +129,7 @@ impl App {
         );
     }
 
-    fn enqueue_deferred_water_terrain_source_refresh(&mut self, chunk_id: UVec3, delay: Duration) {
+    fn enqueue_deferred_terrain_sdf_source_refresh(&mut self, chunk_id: UVec3, delay: Duration) {
         let now = Instant::now();
         let request = TerrainSdfSourceRefreshRequest {
             ready_at: now + delay,
@@ -153,18 +153,18 @@ impl App {
         );
     }
 
-    fn mark_water_terrain_source_chunk_dirty_immediate(&mut self, chunk_id: UVec3) {
-        self.mark_water_terrain_source_chunk_dirty_after(chunk_id, Duration::ZERO);
+    fn schedule_terrain_sdf_source_refresh_immediate(&mut self, chunk_id: UVec3) {
+        self.schedule_terrain_sdf_source_refresh_after(chunk_id, Duration::ZERO);
     }
 
-    pub(super) fn mark_water_terrain_source_chunk_dirty(&mut self, chunk_id: UVec3) {
-        self.mark_water_terrain_source_chunk_dirty_after(
+    pub(super) fn schedule_terrain_sdf_source_refresh(&mut self, chunk_id: UVec3) {
+        self.schedule_terrain_sdf_source_refresh_after(
             chunk_id,
             TERRAIN_SDF_SOURCE_REFRESH_COALESCE_DELAY,
         );
     }
 
-    fn mark_water_terrain_source_chunk_dirty_after(&mut self, chunk_id: UVec3, delay: Duration) {
+    fn schedule_terrain_sdf_source_refresh_after(&mut self, chunk_id: UVec3, delay: Duration) {
         let bounds = self.water_sim.config.collider;
         if !water_terrain_chunk_key_intersects_box_grid_domain(
             chunk_id,
@@ -178,11 +178,11 @@ impl App {
             return;
         }
 
-        let delay = self.water_terrain_source_refresh_delay_for_activity(chunk_id, delay);
-        self.enqueue_deferred_water_terrain_source_refresh(chunk_id, delay);
+        let delay = self.terrain_sdf_source_refresh_delay_for_activity(chunk_id, delay);
+        self.enqueue_deferred_terrain_sdf_source_refresh(chunk_id, delay);
     }
 
-    fn water_terrain_source_refresh_delay_for_activity(
+    fn terrain_sdf_source_refresh_delay_for_activity(
         &self,
         chunk_id: UVec3,
         base_delay: Duration,
