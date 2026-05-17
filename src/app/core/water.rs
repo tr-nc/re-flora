@@ -375,7 +375,11 @@ impl App {
                     stats,
                 } = build;
                 let center_probe = (bounds_min_ws + bounds_max_ws) * 0.5;
-                self.publish_water_terrain_collider_chunk(chunk);
+                if self.water_terrain_initialized {
+                    self.publish_water_terrain_collider_chunk(chunk);
+                } else {
+                    self.publish_startup_water_terrain_collider_chunk_deferred(chunk);
+                }
                 let center_sdf = self
                     .water_sim
                     .terrain_collider_set()
@@ -411,9 +415,7 @@ impl App {
                 .insert(result.chunk_key, result.source_revision);
             self.deferred_water_terrain_collider_rebuilds
                 .complete(result.chunk_key, result.revision);
-            if !self.water_terrain_initialized {
-                self.water_terrain_initialized = self.water_terrain_has_startup_collider();
-            }
+            self.finish_startup_water_terrain_collider_batch_if_ready();
         }
     }
 
@@ -431,6 +433,34 @@ impl App {
             );
         self.water_sim
             .upsert_terrain_collider_chunk(chunk, should_stabilize_particles);
+    }
+
+    fn publish_startup_water_terrain_collider_chunk_deferred(
+        &mut self,
+        chunk: WaterTerrainColliderChunk,
+    ) {
+        let chunk_id = chunk.chunk_id;
+        self.water_sim.upsert_terrain_collider_chunk_deferred(chunk);
+        if water_terrain_chunk_strictly_overlaps_box(
+            chunk_id,
+            self.water_sim.config.collider.min_ws,
+            self.water_sim.config.collider.max_ws,
+        ) {
+            self.water_terrain_collider_cache_rebuild_pending = true;
+        }
+    }
+
+    fn finish_startup_water_terrain_collider_batch_if_ready(&mut self) {
+        if self.water_terrain_initialized || !self.water_terrain_has_startup_collider() {
+            return;
+        }
+
+        if self.water_terrain_collider_cache_rebuild_pending {
+            self.water_sim.finish_terrain_collider_chunk_batch(true);
+            self.water_terrain_collider_cache_rebuild_pending = false;
+        }
+        self.water_terrain_initialized = true;
+        log::info!("[WATER][TERRAIN] initialized startup collider batch");
     }
 
     fn water_terrain_focus_ws(&self) -> Vec3 {

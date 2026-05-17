@@ -14,7 +14,7 @@ Current status by phase:
 | Phase 3B: G2P terrain broadphase/cache | Implemented, hidden/edit soak clean; needs more scene coverage/tuning | cached skip/projection path is active and shadow-verified in perf runs |
 | Phase 4: collider scope/startup | Implemented and edit-soak benchmarked | startup/edit collider refreshes are limited to water-grid-domain chunks |
 | Phase 5: solver scaling/tuning options | Implemented and hidden edit-soaked; needs another visible tuning pass | CLI sweep knobs plus `--water-profile performance`; visual soak found contact/damping tuning issues and the profile has been adjusted |
-| Phase 6: implementation-review optimization backlog | In progress | 6A, 6B, and strict startup collider chunk scope implemented; next priority is batching/partial terrain-cache rebuilds |
+| Phase 6: implementation-review optimization backlog | In progress | 6A, 6B, strict chunk scope, and startup terrain-cache batching implemented; next priority is partial edit cache rebuilds |
 
 Latest representative release result:
 
@@ -56,7 +56,7 @@ Remaining findings:
 - Full-grid maintenance has been made sparse over touched P2G nodes. The dense `64x32x64` grid storage remains, but clear/update no longer scan every node.
 - The cached trilinear SDF path now skips far particles and directly projects clearly colliding particles, but ambiguous near-surface particles still use exact collider fallback.
 - Diagnostic logging currently computes full particle debug stats before deciding whether to report, including exact terrain SDF sampling for every particle. This cost is outside `[PERF][WATER]` substep timing and can also produce noisy expected-CFL speed warnings.
-- Startup/edit collider publication still rebuilds the entire terrain-grid cache for each inserted collider chunk. Partial overlapping-region rebuilds and startup batching are not implemented yet.
+- Startup collider publication now batches terrain-grid cache rebuild/stabilization once after all startup chunks are ready. Edit publication still rebuilds the entire terrain-grid cache for each inserted collider chunk; partial overlapping-region rebuilds are not implemented yet.
 - Startup water-domain selection now uses strict overlap, so the fixed `(0,0,0)..(2,1,2)` pond enqueues the `4` overlapping chunks instead of including max-boundary chunks.
 
 ## Implemented phases
@@ -455,11 +455,12 @@ Expected benefit: recovers part of the cost added by moving from `32^3` to `64x3
 
 #### 6C. Tighten startup collider domain and batch cache rebuilds
 
-Status: partially implemented. Startup/edit source selection now uses strict chunk overlap and worker submission skips empty solid source chunks. Batching/partial terrain-grid cache rebuilds are still pending.
+Status: partially implemented. Startup/edit source selection now uses strict chunk overlap, worker submission skips empty solid source chunks, and startup collider publication batches the terrain-grid cache rebuild/stabilization once after the startup collider set is ready. Partial edit terrain-grid cache rebuilds are still pending.
 
 Validation:
 
 - `/tmp/re-flora-logs/re-flora-20260517-115020.363-20164.log`, command `--water-profile performance`, reported `enqueued startup collider rebuilds for 4 water-domain chunks, skipped 46 out-of-domain chunks`.
+- `/tmp/re-flora-logs/re-flora-20260517-115241.908-21208.log`, command `--water-profile performance`, reported the same 4 startup chunks and one `initialized startup collider batch` after the last chunk was published.
 
 Evidence before implementation:
 
@@ -473,8 +474,8 @@ Implementation direction:
 - Done: `water_terrain_chunk_key_intersects_box_grid_domain()` now uses strict overlap for steady collider sources.
 - Done: if a shell is needed later, it must be explicit and documented; max-boundary chunks are no longer included by default.
 - Done: worker submission skips refreshed source chunks with `solid_count() == 0` before SDF build.
-- Batch startup collider publication so `terrain_grid` is rebuilt once after the initial set is available.
-- For edits, rebuild only the water-grid node range overlapped by the changed collider chunk plus a one-cell halo, then stabilize only particles in or near the changed chunk.
+- Done: batch startup collider publication so `terrain_grid` is rebuilt once after the initial set is available.
+- Pending: for edits, rebuild only the water-grid node range overlapped by the changed collider chunk plus a one-cell halo, then stabilize only particles in or near the changed chunk.
 
 Expected benefit: lower startup/readback/SDF build cost and less edit hitching. This is not expected to change steady-state solver cost except by making terrain-grid cache rebuilds cheaper.
 

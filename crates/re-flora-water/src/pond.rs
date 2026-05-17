@@ -308,9 +308,17 @@ impl PondWaterSim {
         chunk: WaterTerrainColliderChunk,
         stabilize_particles: bool,
     ) {
+        self.upsert_terrain_collider_chunk_deferred(chunk);
+        self.finish_terrain_collider_chunk_batch(stabilize_particles);
+    }
+
+    pub fn upsert_terrain_collider_chunk_deferred(&mut self, chunk: WaterTerrainColliderChunk) {
         self.terrain
             .get_or_insert_with(WaterTerrainColliderSet::new)
             .insert_chunk(Arc::new(chunk));
+    }
+
+    pub fn finish_terrain_collider_chunk_batch(&mut self, stabilize_particles: bool) {
         self.rebuild_terrain_grid_cache();
         if stabilize_particles {
             self.stabilize_after_terrain_change();
