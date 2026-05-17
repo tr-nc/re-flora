@@ -20,12 +20,20 @@ Use git worktrees to keep parallel coding agents isolated. Do not run multiple a
 - Generated files are source-of-truth outputs. Do not hand-edit them; resolve the shader/config source first and regenerate with `cargo check`.
 - `cargo run --release -- --latest-log` reads a shared latest-log pointer, so coordinate or serialize hidden app runs when several agents are active.
 
-Typical worker setup:
+### Worktree Convention
+
+Use the existing `/home/terence/code/re-flora` checkout as the integration worktree by default. Start each parallel worker from a sibling worktree and a dedicated branch:
 
 ```bash
 git worktree add ../re-flora-agent-water -b agent/water mlsmpm
 cd ../re-flora-agent-water
 pi
+```
+
+Use clear branch and directory names that describe the task or subsystem, such as `agent/water`, `agent/ui`, or `agent/render`. Before starting or merging work, confirm active worktrees with:
+
+```bash
+git worktree list
 ```
 
 Worker handoff should include changed files, validation commands, and any behavior that was not verified. Integration happens in the main worktree with normal git merges. If conflicts occur, use a dedicated merge-agent pass that inspects both sides, preserves both intended behaviors, and regenerates generated files from their sources rather than guessing.
