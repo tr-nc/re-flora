@@ -9,7 +9,7 @@
 - 手动反馈：当前编辑性能已经明显改善。
 - P0 初版已完成：Water Terrain Cache Rebuild 的 `SDF collider chunk -> MLS-MPM water grid cache` 采样/normal 构建已搬到 CPU worker，主线程只做 revision-guarded apply/swap。
 - Step 1 / P1 初版已完成：Terrain SDF Source Refresh 已异步化；普通 terrain deferred rebuild 已拆成 surface / contree / scene fence-poll stages；PreserveFlora rebuild 也走同一 staged path，只保留 flora edit 本身在 ready surface 后同步执行。
-- P1 响应性修正：小规模多 chunk 可见 terrain rebuild 暂时回到同帧同步发布，优先保证相邻可见 chunk 不出现异步裂缝；单 chunk rebuild 仍保留 staged async。
+- P1 响应性修正：小规模多 chunk 可见 terrain rebuild 暂时回到同帧同步发布，优先保证相邻可见 chunk 不出现异步裂缝；单 chunk rebuild 仍保留 staged async。当前实现说明与下一步 visual atomic publish 计划见 [`terrain_visual_rebuild_pipeline.md`](terrain_visual_rebuild_pipeline.md)。
 - 2026-05-17 手动 visible release perf：cache apply 已不是主要 hitch；实时 terrain edit 的主线程尖峰主要来自 terrain deferred rebuild 和 Terrain SDF Source Refresh；大量水粒子时 CPU water sim 成为主导瓶颈。
 
 ## 已完成工作（极简）
