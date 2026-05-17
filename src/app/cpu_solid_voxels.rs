@@ -23,19 +23,30 @@ impl CpuSolidVoxelStore {
         chunk_id: UVec3,
         dim: UVec3,
         voxel_types: &[u8],
-    ) -> anyhow::Result<Arc<CpuSolidVoxelChunk>> {
+    ) -> anyhow::Result<(Arc<CpuSolidVoxelChunk>, bool)> {
+        let (solid_bits, solid_count) = solid_bits_from_voxel_types(dim, voxel_types)?;
+        if let Some(existing) = self.chunks.get(&chunk_id) {
+            if existing.dim == dim
+                && existing.solid_count == solid_count
+                && existing.solid_bits == solid_bits
+            {
+                return Ok((Arc::clone(existing), false));
+            }
+        }
+
         let revision = self
             .chunks
             .get(&chunk_id)
             .map_or(1, |chunk| chunk.revision.saturating_add(1));
-        let chunk = Arc::new(CpuSolidVoxelChunk::from_voxel_types(
+        let chunk = Arc::new(CpuSolidVoxelChunk {
             chunk_id,
             dim,
+            solid_bits,
+            solid_count,
             revision,
-            voxel_types,
-        )?);
+        });
         self.chunks.insert(chunk_id, Arc::clone(&chunk));
-        Ok(chunk)
+        Ok((chunk, true))
     }
 
     pub(crate) fn get(&self, chunk_id: UVec3) -> Option<Arc<CpuSolidVoxelChunk>> {
@@ -48,30 +59,14 @@ impl CpuSolidVoxelStore {
 }
 
 impl CpuSolidVoxelChunk {
+    #[cfg(test)]
     fn from_voxel_types(
         chunk_id: UVec3,
         dim: UVec3,
         revision: u64,
         voxel_types: &[u8],
     ) -> anyhow::Result<Self> {
-        let voxel_count = voxel_count(dim)?;
-        if voxel_types.len() < voxel_count {
-            anyhow::bail!(
-                "CPU solid voxel source for chunk {:?} is too small: got {}, need {}",
-                chunk_id,
-                voxel_types.len(),
-                voxel_count
-            );
-        }
-
-        let mut solid_bits = vec![0; voxel_count.div_ceil(u64::BITS as usize)];
-        let mut solid_count = 0;
-        for (idx, &voxel_type) in voxel_types.iter().take(voxel_count).enumerate() {
-            if voxel_type != EMPTY_VOXEL_TYPE {
-                solid_bits[idx / u64::BITS as usize] |= 1u64 << (idx % u64::BITS as usize);
-                solid_count += 1;
-            }
-        }
+        let (solid_bits, solid_count) = solid_bits_from_voxel_types(dim, voxel_types)?;
 
         Ok(Self {
             chunk_id,
@@ -120,6 +115,32 @@ impl CpuSolidVoxelChunk {
     }
 }
 
+fn solid_bits_from_voxel_types(
+    dim: UVec3,
+    voxel_types: &[u8],
+) -> anyhow::Result<(Vec<u64>, usize)> {
+    let voxel_count = voxel_count(dim)?;
+    if voxel_types.len() < voxel_count {
+        anyhow::bail!(
+            "CPU solid voxel source is too small: got {}, need {} for dim {:?}",
+            voxel_types.len(),
+            voxel_count,
+            dim,
+        );
+    }
+
+    let mut solid_bits = vec![0; voxel_count.div_ceil(u64::BITS as usize)];
+    let mut solid_count = 0;
+    for (idx, &voxel_type) in voxel_types.iter().take(voxel_count).enumerate() {
+        if voxel_type != EMPTY_VOXEL_TYPE {
+            solid_bits[idx / u64::BITS as usize] |= 1u64 << (idx % u64::BITS as usize);
+            solid_count += 1;
+        }
+    }
+
+    Ok((solid_bits, solid_count))
+}
+
 fn voxel_count(dim: UVec3) -> anyhow::Result<usize> {
     let count = dim.x as u64 * dim.y as u64 * dim.z as u64;
     usize::try_from(count).map_err(|_| anyhow::anyhow!("voxel chunk {:?} is too large", dim))
@@ -139,14 +160,41 @@ mod tests {
         let mut store = CpuSolidVoxelStore::default();
         let mut voxel_types = vec![0; 64];
         voxel_types[1] = 7;
-        let chunk = store
+        let (chunk, changed) = store
             .upsert_from_voxel_types(UVec3::new(1, 2, 3), UVec3::new(4, 4, 4), &voxel_types)
             .unwrap();
 
+        assert!(changed);
         assert_eq!(chunk.revision(), 1);
         assert_eq!(chunk.solid_count(), 1);
         assert!(chunk.is_solid_local_voxel(UVec3::new(1, 0, 0)));
         assert!(!chunk.is_solid_local_voxel(UVec3::new(0, 0, 0)));
+    }
+
+    #[test]
+    fn unchanged_upsert_preserves_existing_chunk_revision() {
+        let mut store = CpuSolidVoxelStore::default();
+        let mut voxel_types = vec![0; 8];
+        voxel_types[1] = 7;
+
+        let (first, changed) = store
+            .upsert_from_voxel_types(UVec3::new(1, 0, 1), UVec3::new(2, 2, 2), &voxel_types)
+            .unwrap();
+        assert!(changed);
+
+        let (same, changed) = store
+            .upsert_from_voxel_types(UVec3::new(1, 0, 1), UVec3::new(2, 2, 2), &voxel_types)
+            .unwrap();
+        assert!(!changed);
+        assert_eq!(same.revision(), first.revision());
+        assert!(Arc::ptr_eq(&same, &first));
+
+        voxel_types[2] = 9;
+        let (updated, changed) = store
+            .upsert_from_voxel_types(UVec3::new(1, 0, 1), UVec3::new(2, 2, 2), &voxel_types)
+            .unwrap();
+        assert!(changed);
+        assert_eq!(updated.revision(), first.revision() + 1);
     }
 
     #[test]

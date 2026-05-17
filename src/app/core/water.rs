@@ -176,14 +176,31 @@ impl App {
             let chunk_id = work.chunk_id;
             let revision = work.revision;
             match self.refresh_water_solid_sample_chunk(chunk_id) {
-                Ok(Some(source_revision)) => {
-                    log::debug!(
-                        "[QUEUE][WATER_TERRAIN_SOURCE] ready chunk {:?} revision {} source_rev={}",
-                        chunk_id,
-                        revision,
-                        source_revision,
-                    );
-                    self.enqueue_deferred_water_terrain_collider_rebuild(chunk_id);
+                Ok(Some(source_refresh)) => {
+                    let source_revision =
+                        water_terrain_collider_source_revision(&self.cpu_solid_voxels, chunk_id);
+                    let already_built = self.water_terrain_built_source_revisions.get(&chunk_id)
+                        == Some(&source_revision);
+                    if source_refresh.changed || !already_built {
+                        log::debug!(
+                            "[QUEUE][WATER_TERRAIN_SOURCE] ready chunk {:?} revision {} source_rev={} changed={} already_built={}",
+                            chunk_id,
+                            revision,
+                            source_refresh.revision,
+                            source_refresh.changed,
+                            already_built,
+                        );
+                        self.enqueue_deferred_water_terrain_collider_rebuild(chunk_id);
+                    } else {
+                        log::debug!(
+                            "[QUEUE][WATER_TERRAIN_SOURCE] skipped unchanged chunk {:?} revision {} source_rev={} pending={} active={}",
+                            chunk_id,
+                            revision,
+                            source_refresh.revision,
+                            self.deferred_water_terrain_source_refreshes.len(),
+                            self.deferred_water_terrain_source_refreshes.active_len(),
+                        );
+                    }
                 }
                 Ok(None) => {
                     log::debug!(
@@ -589,7 +606,10 @@ impl App {
         })
     }
 
-    fn refresh_water_solid_sample_chunk(&mut self, chunk_id: UVec3) -> anyhow::Result<Option<u64>> {
+    fn refresh_water_solid_sample_chunk(
+        &mut self,
+        chunk_id: UVec3,
+    ) -> anyhow::Result<Option<WaterTerrainSourceRefresh>> {
         if chunk_id.cmpge(super::CHUNK_DIM).any() {
             return Ok(None);
         }
@@ -610,16 +630,17 @@ impl App {
             .collect::<Vec<u8>>();
         let convert_elapsed = convert_start.elapsed();
         let store_start = Instant::now();
-        let chunk = self.cpu_solid_voxels.upsert_from_voxel_types(
+        let (chunk, changed) = self.cpu_solid_voxels.upsert_from_voxel_types(
             chunk_id,
             WATER_TERRAIN_COLLIDER_DIM,
             &voxel_types,
         )?;
         let store_elapsed = store_start.elapsed();
         log::info!(
-            "[WATER][TERRAIN] refreshed GPU solid source chunk {:?} rev {} solid_samples {}/{} source_dim {:?} readback_samples={} gpu_sample_total={:.3}ms convert={:.3}ms store={:.3}ms total={:.3}ms",
+            "[WATER][TERRAIN] refreshed GPU solid source chunk {:?} rev {} changed={} solid_samples {}/{} source_dim {:?} readback_samples={} gpu_sample_total={:.3}ms convert={:.3}ms store={:.3}ms total={:.3}ms",
             chunk_id,
             chunk.revision(),
+            changed,
             chunk.solid_count(),
             WATER_TERRAIN_COLLIDER_DIM.x as usize
                 * WATER_TERRAIN_COLLIDER_DIM.y as usize
@@ -631,8 +652,17 @@ impl App {
             store_elapsed.as_secs_f64() * 1000.0,
             total_start.elapsed().as_secs_f64() * 1000.0,
         );
-        Ok(Some(chunk.revision()))
+        Ok(Some(WaterTerrainSourceRefresh {
+            revision: chunk.revision(),
+            changed,
+        }))
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct WaterTerrainSourceRefresh {
+    revision: u64,
+    changed: bool,
 }
 
 fn water_edit_soak_step(step: usize) -> Option<WaterEditSoakStep> {
