@@ -119,18 +119,17 @@ src/auto-generated/gpu_structs.rs
 
 This is workable, but it can create merge conflicts when multiple agents change shader or GUI config sources.
 
+### Decision
+
+Use option 1 for now: keep generated files tracked.
+
 ### Actions
 
-Choose one project policy:
-
-1. Keep generated files tracked.
-   - Document that agents must not hand-edit them.
-   - Resolve source files first, then run `cargo check` to regenerate.
-   - Include generated diffs only when they are a consequence of source changes.
-
-2. Move generated files to Cargo `OUT_DIR`.
-   - Use `include!` or equivalent build-time inclusion.
-   - Stop committing generated output.
+- Keep generated files tracked in git for the current workflow.
+- Document that agents must not hand-edit them.
+- Resolve shader or GUI config sources first, then run `cargo check` to regenerate generated output.
+- Include generated diffs only when they are a consequence of source changes.
+- Keep the `OUT_DIR` approach as a possible future cleanup, but do not do it during the initial parallel-agent preparation.
 
 ### Done Criteria
 
@@ -143,7 +142,19 @@ Choose one project policy:
 
 The app can save runtime UI settings directly into tracked `config/gui.toml`. A validation run can therefore create unrelated config diffs.
 
+### Decision
+
+Do not implement this step yet. Runtime config isolation is recorded as future work.
+
 ### Actions
+
+For now:
+
+- Keep the current `config/gui.toml` behavior unchanged.
+- Treat changes to `config/gui.toml` after app runs as suspicious unless the task intentionally changes GUI defaults.
+- Worker agents should check whether `config/gui.toml` became dirty before handoff and report whether the change is intentional.
+
+Future cleanup:
 
 - Split tracked defaults from local mutable configuration.
 - Suggested layout:

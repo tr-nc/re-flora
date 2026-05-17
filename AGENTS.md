@@ -17,7 +17,8 @@ Use git worktrees to keep parallel coding agents isolated. Do not run multiple a
 - Create worker branches with names like `agent/water`, `agent/ui`, or `agent/render`.
 - Keep each worker task narrow and identify likely file boundaries before editing.
 - Avoid unrelated cleanup in worker branches; it increases merge conflict risk.
-- Generated files are source-of-truth outputs. Do not hand-edit them; resolve the shader/config source first and regenerate with `cargo check`.
+- Generated files remain tracked for now. Do not hand-edit them; resolve the shader/config source first, regenerate with `cargo check`, and include generated diffs only when they follow from source changes.
+- Runtime GUI config isolation is not implemented yet. Treat `config/gui.toml` diffs after app runs as suspicious unless the task intentionally changes defaults.
 - `cargo run --release -- --latest-log` reads a shared latest-log pointer, so coordinate or serialize hidden app runs when several agents are active.
 
 ### Worktree Convention
