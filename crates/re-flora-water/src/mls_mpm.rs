@@ -1,4 +1,4 @@
-use glam::{IVec3, Mat3, Vec3};
+use glam::{IVec3, Mat3, UVec3, Vec3};
 use std::time::Instant;
 
 use super::{
@@ -332,28 +332,117 @@ impl PondWaterSim {
 
     pub(crate) fn rebuild_terrain_grid_cache(&mut self) {
         let rebuild_start = Instant::now();
-        let terrain_collision_margin = self.terrain_collision_margin();
-        // Cache a conservative narrow band around terrain. Hot loops use this
-        // cheap water-grid SDF to skip exact collider queries for particles and
-        // grid nodes that are clearly away from solids.
-        let near_surface_band = terrain_collision_margin + self.dx * 2.0;
-        let terrain = self.terrain.as_ref();
-        let terrain_chunk_count = terrain.map_or(0, |terrain| terrain.chunks.len());
-        let origin_ws = self.origin_ws;
+        let near_surface_band = self.terrain_grid_near_surface_band();
+        let terrain_chunk_count = self.terrain.as_ref().map_or(0, |terrain| terrain.chunks.len());
         let grid_dim = self.grid_dim;
-        let dx = self.dx;
         let node_count = self.grid.len();
-        let mut has_sdf_count = 0usize;
-        let mut near_surface_count = 0usize;
-        let mut normal_count = 0usize;
 
+        self.ensure_terrain_grid_cache_len();
+        let stats = self.rebuild_terrain_grid_cache_range(UVec3::ZERO, grid_dim, near_surface_band);
+
+        log::info!(
+            "[WATER][TERRAIN_CACHE] rebuilt grid cache chunks={} grid {:?} nodes={} has_sdf={} near_surface={} normals={} band={:.5} dx={:.5} total_ms={:.2}",
+            terrain_chunk_count,
+            grid_dim,
+            node_count,
+            stats.has_sdf_count,
+            stats.near_surface_count,
+            stats.normal_count,
+            near_surface_band,
+            self.dx,
+            rebuild_start.elapsed().as_secs_f32() * 1000.0,
+        );
+    }
+
+    pub(crate) fn rebuild_terrain_grid_cache_for_chunk(&mut self, chunk_id: IVec3) {
+        let rebuild_start = Instant::now();
+        let near_surface_band = self.terrain_grid_near_surface_band();
+        let terrain_chunk_count = self.terrain.as_ref().map_or(0, |terrain| terrain.chunks.len());
+        let grid_dim = self.grid_dim;
+
+        self.ensure_terrain_grid_cache_len();
+        let Some((min_node, max_node_exclusive)) = self.terrain_grid_cache_range_for_chunk(chunk_id)
+        else {
+            log::info!(
+                "[WATER][TERRAIN_CACHE] skipped grid cache region chunk={:?} chunks={} grid {:?} outside=true total_ms={:.2}",
+                chunk_id,
+                terrain_chunk_count,
+                grid_dim,
+                rebuild_start.elapsed().as_secs_f32() * 1000.0,
+            );
+            return;
+        };
+
+        let stats = self.rebuild_terrain_grid_cache_range(
+            min_node,
+            max_node_exclusive,
+            near_surface_band,
+        );
+
+        log::info!(
+            "[WATER][TERRAIN_CACHE] rebuilt grid cache region chunk={:?} chunks={} grid {:?} range {:?}..{:?} nodes={} has_sdf={} near_surface={} normals={} band={:.5} dx={:.5} total_ms={:.2}",
+            chunk_id,
+            terrain_chunk_count,
+            grid_dim,
+            min_node,
+            max_node_exclusive,
+            stats.node_count,
+            stats.has_sdf_count,
+            stats.near_surface_count,
+            stats.normal_count,
+            near_surface_band,
+            self.dx,
+            rebuild_start.elapsed().as_secs_f32() * 1000.0,
+        );
+    }
+
+    fn ensure_terrain_grid_cache_len(&mut self) {
+        let node_count = self.grid.len();
         if self.terrain_grid.len() != node_count {
             self.terrain_grid = vec![WaterTerrainGridSample::default(); node_count];
         }
+    }
 
-        for z in 0..grid_dim.z {
-            for y in 0..grid_dim.y {
-                for x in 0..grid_dim.x {
+    fn terrain_grid_near_surface_band(&self) -> f32 {
+        // Cache a conservative narrow band around terrain. Hot loops use this
+        // cheap water-grid SDF to skip exact collider queries for particles and
+        // grid nodes that are clearly away from solids.
+        self.terrain_collision_margin() + self.dx * 2.0
+    }
+
+    fn terrain_grid_cache_range_for_chunk(&self, chunk_id: IVec3) -> Option<(UVec3, UVec3)> {
+        const HALO_CELLS: i32 = 1;
+
+        let min_ws = chunk_id.as_vec3();
+        let max_ws = min_ws + Vec3::ONE;
+        let min_grid = ((min_ws - self.origin_ws) * self.inv_dx).floor().as_ivec3()
+            - IVec3::splat(HALO_CELLS);
+        let max_grid = ((max_ws - self.origin_ws) * self.inv_dx).ceil().as_ivec3()
+            + IVec3::splat(HALO_CELLS + 1);
+        let grid_dim = self.grid_dim.as_ivec3();
+        let min_node = min_grid.max(IVec3::ZERO).min(grid_dim);
+        let max_node_exclusive = max_grid.max(IVec3::ZERO).min(grid_dim);
+        if min_node.cmpge(max_node_exclusive).any() {
+            return None;
+        }
+        Some((min_node.as_uvec3(), max_node_exclusive.as_uvec3()))
+    }
+
+    fn rebuild_terrain_grid_cache_range(
+        &mut self,
+        min_node: UVec3,
+        max_node_exclusive: UVec3,
+        near_surface_band: f32,
+    ) -> TerrainGridCacheRebuildStats {
+        let terrain = self.terrain.as_ref();
+        let origin_ws = self.origin_ws;
+        let grid_dim = self.grid_dim;
+        let dx = self.dx;
+        let mut stats = TerrainGridCacheRebuildStats::default();
+
+        for z in min_node.z..max_node_exclusive.z {
+            for y in min_node.y..max_node_exclusive.y {
+                for x in min_node.x..max_node_exclusive.x {
                     let idx = grid_index_dims(grid_dim, x, y, z);
                     let mut sample = WaterTerrainGridSample::default();
                     if let Some(terrain) = terrain {
@@ -361,33 +450,23 @@ impl PondWaterSim {
                         if let Some(sdf) = terrain.sample_sdf_ws(node_world) {
                             sample.sdf = sdf;
                             sample.has_sdf = true;
-                            has_sdf_count += 1;
+                            stats.has_sdf_count += 1;
                             sample.near_surface = sdf <= near_surface_band;
                             if sample.near_surface {
-                                near_surface_count += 1;
+                                stats.near_surface_count += 1;
                                 sample.normal =
                                     terrain.sample_normal_ws(node_world).unwrap_or(Vec3::Y);
-                                normal_count += 1;
+                                stats.normal_count += 1;
                             }
                         }
                     }
                     self.terrain_grid[idx] = sample;
+                    stats.node_count += 1;
                 }
             }
         }
 
-        log::info!(
-            "[WATER][TERRAIN_CACHE] rebuilt grid cache chunks={} grid {:?} nodes={} has_sdf={} near_surface={} normals={} band={:.5} dx={:.5} total_ms={:.2}",
-            terrain_chunk_count,
-            grid_dim,
-            node_count,
-            has_sdf_count,
-            near_surface_count,
-            normal_count,
-            near_surface_band,
-            dx,
-            rebuild_start.elapsed().as_secs_f32() * 1000.0,
-        );
+        stats
     }
 
     fn repair_particles(&mut self, dt: f32, repair_terrain: bool) {
@@ -766,6 +845,14 @@ impl PondWaterSim {
             terrain_shadow_sdf_abs_error_max,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct TerrainGridCacheRebuildStats {
+    node_count: usize,
+    has_sdf_count: usize,
+    near_surface_count: usize,
+    normal_count: usize,
 }
 
 #[derive(Clone, Copy, Debug, Default)]

@@ -308,8 +308,12 @@ impl PondWaterSim {
         chunk: WaterTerrainColliderChunk,
         stabilize_particles: bool,
     ) {
+        let chunk_id = chunk.chunk_id;
         self.upsert_terrain_collider_chunk_deferred(chunk);
-        self.finish_terrain_collider_chunk_batch(stabilize_particles);
+        self.rebuild_terrain_grid_cache_for_chunk(chunk_id);
+        if stabilize_particles {
+            self.stabilize_after_terrain_change();
+        }
     }
 
     pub fn upsert_terrain_collider_chunk_deferred(&mut self, chunk: WaterTerrainColliderChunk) {
@@ -339,7 +343,7 @@ impl PondWaterSim {
         if terrain.is_empty() {
             self.terrain = None;
         }
-        self.rebuild_terrain_grid_cache();
+        self.rebuild_terrain_grid_cache_for_chunk(chunk_id);
         if stabilize_particles {
             self.stabilize_after_terrain_change();
         }
@@ -820,6 +824,27 @@ mod tests {
     }
 
     #[test]
+    fn terrain_chunk_upsert_and_remove_update_cached_grid_region() {
+        let mut sim = PondWaterSim::fixed_test_box();
+        let chunk_id = glam::IVec3::new(1, 0, 1);
+        let inside_idx = terrain_grid_idx(sim.grid_dim, glam::UVec3::new(40, 8, 40));
+        let outside_idx = terrain_grid_idx(sim.grid_dim, glam::UVec3::new(8, 8, 8));
+
+        assert!(!sim.terrain_grid[inside_idx].has_sdf);
+        assert!(!sim.terrain_grid[outside_idx].has_sdf);
+
+        sim.upsert_terrain_collider_chunk(test_chunk(chunk_id), false);
+
+        assert!(sim.terrain_grid[inside_idx].has_sdf);
+        assert!(!sim.terrain_grid[outside_idx].has_sdf);
+
+        assert!(sim.remove_terrain_collider_chunk(chunk_id, false));
+
+        assert!(!sim.terrain_grid[inside_idx].has_sdf);
+        assert!(!sim.terrain_grid[outside_idx].has_sdf);
+    }
+
+    #[test]
     fn debug_spawn_adds_particles_inside_current_bounds() {
         let mut sim = PondWaterSim::fixed_test_box();
         let initial_len = sim.particles.len();
@@ -942,6 +967,11 @@ mod tests {
             })
             .map(|particle| particle.x.y)
             .fold(f32::NEG_INFINITY, f32::max)
+    }
+
+    fn terrain_grid_idx(grid_dim: glam::UVec3, node: glam::UVec3) -> usize {
+        ((node.z as usize * grid_dim.y as usize + node.y as usize) * grid_dim.x as usize)
+            + node.x as usize
     }
 
     fn test_chunk(chunk_id: glam::IVec3) -> crate::WaterTerrainColliderChunk {
