@@ -212,6 +212,8 @@ pub struct App {
     water_terrain_initialized: bool,
     water_terrain_collider_cache_rebuild_pending: bool,
     cpu_solid_voxels: CpuSolidVoxelStore,
+    deferred_water_terrain_source_refreshes:
+        LatestChunkQueue<water::WaterTerrainSourceRefreshRequest>,
     deferred_water_terrain_collider_rebuilds: LatestChunkQueue<WaterTerrainColliderRebuildRequest>,
     water_terrain_built_source_revisions: HashMap<UVec3, water::WaterTerrainColliderSourceRevision>,
     water_terrain_collider_build_inflight: bool,
@@ -995,6 +997,7 @@ impl App {
             water_terrain_initialized: false,
             water_terrain_collider_cache_rebuild_pending: false,
             cpu_solid_voxels: CpuSolidVoxelStore::default(),
+            deferred_water_terrain_source_refreshes: LatestChunkQueue::default(),
             deferred_water_terrain_collider_rebuilds: LatestChunkQueue::default(),
             water_terrain_built_source_revisions: HashMap::new(),
             water_terrain_collider_build_inflight: false,
@@ -2114,8 +2117,8 @@ impl App {
                     return;
                 }
 
-                self.process_deferred_chunk_rebuild();
                 self.process_water_terrain_source_updates();
+                self.process_deferred_chunk_rebuild();
                 self.process_deferred_water_terrain_collider_rebuild();
                 self.process_water_edit_soak();
 

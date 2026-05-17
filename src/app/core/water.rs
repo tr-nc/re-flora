@@ -31,6 +31,9 @@ pub(super) struct WaterTerrainColliderWorkerResult {
     build: Option<WaterTerrainColliderBuild>,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(super) struct WaterTerrainSourceRefreshRequest;
+
 #[derive(Clone, Debug, Default)]
 pub(super) struct WaterEditSoak {
     next_step: usize,
@@ -93,6 +96,19 @@ impl App {
         );
     }
 
+    fn enqueue_deferred_water_terrain_source_refresh(&mut self, chunk_id: UVec3) {
+        let revision = self
+            .deferred_water_terrain_source_refreshes
+            .push(chunk_id, WaterTerrainSourceRefreshRequest);
+        log::debug!(
+            "[QUEUE][WATER_TERRAIN_SOURCE] enqueue chunk {:?} revision {} pending={} active={}",
+            chunk_id,
+            revision,
+            self.deferred_water_terrain_source_refreshes.len(),
+            self.deferred_water_terrain_source_refreshes.active_len(),
+        );
+    }
+
     pub(super) fn mark_water_terrain_source_chunk_dirty(&mut self, chunk_id: UVec3) {
         let bounds = self.water_sim.config.collider;
         if !water_terrain_chunk_key_intersects_box_grid_domain(
@@ -107,29 +123,7 @@ impl App {
             return;
         }
 
-        match self.refresh_water_solid_sample_chunk(chunk_id) {
-            Ok(Some(revision)) => {
-                log::debug!(
-                    "[QUEUE][WATER_TERRAIN] solid source ready chunk {:?} source_rev={}",
-                    chunk_id,
-                    revision,
-                );
-                self.enqueue_deferred_water_terrain_collider_rebuild(chunk_id);
-            }
-            Ok(None) => {
-                log::debug!(
-                    "[QUEUE][WATER_TERRAIN] skipped solid source refresh for invalid chunk {:?}",
-                    chunk_id,
-                );
-            }
-            Err(err) => {
-                log::error!(
-                    "[WATER][TERRAIN] failed to refresh solid source chunk {:?}: {}",
-                    chunk_id,
-                    err,
-                );
-            }
-        }
+        self.enqueue_deferred_water_terrain_source_refresh(chunk_id);
     }
 
     pub(super) fn process_water_terrain_source_updates(&mut self) {
@@ -138,6 +132,65 @@ impl App {
         // GPU atlas, so drain contree notifications here only to keep the
         // surface-ray cache from accumulating stale update records.
         let _ = self.contree_builder.take_cpu_chunk_source_updates();
+        self.process_deferred_water_terrain_source_refreshes();
+    }
+
+    fn process_deferred_water_terrain_source_refreshes(&mut self) {
+        const MAX_SOURCE_REFRESHES_PER_FRAME: usize = 1;
+
+        let frame_start = Instant::now();
+        let focus = self.water_terrain_focus_ws();
+        let mut processed = 0usize;
+        while processed < MAX_SOURCE_REFRESHES_PER_FRAME {
+            let Some(work) = self
+                .deferred_water_terrain_source_refreshes
+                .pop_nearest_to(focus, UVec3::ONE)
+            else {
+                break;
+            };
+
+            let chunk_id = work.chunk_id;
+            let revision = work.revision;
+            match self.refresh_water_solid_sample_chunk(chunk_id) {
+                Ok(Some(source_revision)) => {
+                    log::debug!(
+                        "[QUEUE][WATER_TERRAIN_SOURCE] ready chunk {:?} revision {} source_rev={}",
+                        chunk_id,
+                        revision,
+                        source_revision,
+                    );
+                    self.enqueue_deferred_water_terrain_collider_rebuild(chunk_id);
+                }
+                Ok(None) => {
+                    log::debug!(
+                        "[QUEUE][WATER_TERRAIN_SOURCE] skipped invalid chunk {:?} revision {}",
+                        chunk_id,
+                        revision,
+                    );
+                }
+                Err(err) => {
+                    log::error!(
+                        "[WATER][TERRAIN] failed to refresh solid source chunk {:?} revision {}: {}",
+                        chunk_id,
+                        revision,
+                        err,
+                    );
+                }
+            }
+            self.deferred_water_terrain_source_refreshes
+                .complete(chunk_id, revision);
+            processed += 1;
+        }
+
+        if processed > 0 {
+            log::debug!(
+                "[QUEUE][WATER_TERRAIN_SOURCE] processed {} refreshes total_ms={:.2} pending={} active={}",
+                processed,
+                frame_start.elapsed().as_secs_f32() * 1000.0,
+                self.deferred_water_terrain_source_refreshes.len(),
+                self.deferred_water_terrain_source_refreshes.active_len(),
+            );
+        }
     }
 
     pub(super) fn process_deferred_water_terrain_collider_rebuild(&mut self) {
@@ -161,6 +214,7 @@ impl App {
         }
         if !self.water_terrain_initialized
             || !self.deferred_chunk_rebuilds_idle()
+            || !self.deferred_water_terrain_source_refreshes.is_idle()
             || !self.deferred_water_terrain_collider_rebuilds.is_idle()
         {
             return;
@@ -497,6 +551,7 @@ impl App {
 
     fn water_terrain_has_startup_collider(&self) -> bool {
         if self.water_terrain_collider_build_inflight
+            || !self.deferred_water_terrain_source_refreshes.is_idle()
             || !self.deferred_water_terrain_collider_rebuilds.is_idle()
         {
             return false;
