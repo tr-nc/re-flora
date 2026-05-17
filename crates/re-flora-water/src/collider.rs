@@ -250,12 +250,11 @@ impl WaterTerrainColliderSet {
         }
 
         if self.should_scan_boundary(point_ws) {
-            return self.sample_sdf_ws_scan(point_ws);
+            return self.sample_sdf_ws_boundary_candidates(point_ws);
         }
 
         self.chunk_for_point_ws(point_ws)
             .and_then(|chunk| chunk.sample_sdf_ws(point_ws))
-            .or_else(|| self.sample_sdf_ws_scan(point_ws))
     }
 
     pub fn sample_normal_ws(&self, point_ws: Vec3) -> Option<Vec3> {
@@ -264,12 +263,11 @@ impl WaterTerrainColliderSet {
         }
 
         if self.should_scan_boundary(point_ws) {
-            return self.sample_normal_ws_scan(point_ws);
+            return self.sample_normal_ws_boundary_candidates(point_ws);
         }
 
         self.chunk_for_point_ws(point_ws)
             .and_then(|chunk| chunk.sample_normal_ws(point_ws))
-            .or_else(|| self.sample_normal_ws_scan(point_ws))
     }
 
     pub fn sample_sdf_and_normal_ws(&self, point_ws: Vec3) -> Option<(f32, Vec3)> {
@@ -278,12 +276,11 @@ impl WaterTerrainColliderSet {
         }
 
         if self.should_scan_boundary(point_ws) {
-            return self.sample_sdf_and_normal_ws_scan(point_ws);
+            return self.sample_sdf_and_normal_ws_boundary_candidates(point_ws);
         }
 
         self.chunk_for_point_ws(point_ws)
             .and_then(|chunk| chunk.sample_sdf_and_normal_ws(point_ws))
-            .or_else(|| self.sample_sdf_and_normal_ws_scan(point_ws))
     }
 
     fn chunk_for_point_ws(&self, point_ws: Vec3) -> Option<&WaterTerrainColliderChunk> {
@@ -292,30 +289,66 @@ impl WaterTerrainColliderSet {
     }
 
     fn should_scan_boundary(&self, point_ws: Vec3) -> bool {
-        const BOUNDARY_EPSILON: f32 = 1.0e-6;
-        let fractional = point_ws - point_ws.floor();
-        fractional.x <= BOUNDARY_EPSILON
-            || fractional.y <= BOUNDARY_EPSILON
-            || fractional.z <= BOUNDARY_EPSILON
+        is_chunk_boundary_axis(point_ws.x)
+            || is_chunk_boundary_axis(point_ws.y)
+            || is_chunk_boundary_axis(point_ws.z)
     }
 
-    fn sample_sdf_ws_scan(&self, point_ws: Vec3) -> Option<f32> {
-        self.chunks
-            .values()
-            .filter_map(|chunk| chunk.sample_sdf_ws(point_ws))
-            .min_by(|a, b| compare_terrain_sdf(*a, *b))
+    fn sample_sdf_ws_boundary_candidates(&self, point_ws: Vec3) -> Option<f32> {
+        let (xs, x_len) = boundary_axis_candidates(point_ws.x);
+        let (ys, y_len) = boundary_axis_candidates(point_ws.y);
+        let (zs, z_len) = boundary_axis_candidates(point_ws.z);
+        let mut best: Option<f32> = None;
+        for &z in &zs[..z_len] {
+            for &y in &ys[..y_len] {
+                for &x in &xs[..x_len] {
+                    let Some(chunk) = self.chunks.get(&IVec3::new(x, y, z)) else {
+                        continue;
+                    };
+                    let Some(sdf) = chunk.sample_sdf_ws(point_ws) else {
+                        continue;
+                    };
+                    best = Some(match best {
+                        Some(current) if compare_terrain_sdf(current, sdf).is_le() => current,
+                        _ => sdf,
+                    });
+                }
+            }
+        }
+        best
     }
 
-    fn sample_normal_ws_scan(&self, point_ws: Vec3) -> Option<Vec3> {
-        self.sample_sdf_and_normal_ws_scan(point_ws)
+    fn sample_normal_ws_boundary_candidates(&self, point_ws: Vec3) -> Option<Vec3> {
+        self.sample_sdf_and_normal_ws_boundary_candidates(point_ws)
             .map(|(_, normal)| normal)
     }
 
-    fn sample_sdf_and_normal_ws_scan(&self, point_ws: Vec3) -> Option<(f32, Vec3)> {
-        self.chunks
-            .values()
-            .filter_map(|chunk| chunk.sample_sdf_and_normal_ws(point_ws))
-            .min_by(|(a, _), (b, _)| compare_terrain_sdf(*a, *b))
+    fn sample_sdf_and_normal_ws_boundary_candidates(&self, point_ws: Vec3) -> Option<(f32, Vec3)> {
+        let (xs, x_len) = boundary_axis_candidates(point_ws.x);
+        let (ys, y_len) = boundary_axis_candidates(point_ws.y);
+        let (zs, z_len) = boundary_axis_candidates(point_ws.z);
+        let mut best: Option<(f32, Vec3)> = None;
+        for &z in &zs[..z_len] {
+            for &y in &ys[..y_len] {
+                for &x in &xs[..x_len] {
+                    let Some(chunk) = self.chunks.get(&IVec3::new(x, y, z)) else {
+                        continue;
+                    };
+                    let Some(sample) = chunk.sample_sdf_and_normal_ws(point_ws) else {
+                        continue;
+                    };
+                    best = Some(match best {
+                        Some(current)
+                            if compare_terrain_sdf(current.0, sample.0).is_le() =>
+                        {
+                            current
+                        }
+                        _ => sample,
+                    });
+                }
+            }
+        }
+        best
     }
 
     pub fn bounds_ws(&self) -> Option<(Vec3, Vec3)> {
@@ -336,6 +369,20 @@ fn compare_terrain_sdf(a: f32, b: f32) -> std::cmp::Ordering {
         (true, false) => std::cmp::Ordering::Less,
         (false, true) => std::cmp::Ordering::Greater,
         _ => a.abs().total_cmp(&b.abs()),
+    }
+}
+
+fn is_chunk_boundary_axis(coord: f32) -> bool {
+    const BOUNDARY_EPSILON: f32 = 1.0e-6;
+    coord - coord.floor() <= BOUNDARY_EPSILON
+}
+
+fn boundary_axis_candidates(coord: f32) -> ([i32; 2], usize) {
+    let floor = coord.floor() as i32;
+    if is_chunk_boundary_axis(coord) {
+        ([floor - 1, floor], 2)
+    } else {
+        ([floor, floor], 1)
     }
 }
 
@@ -420,6 +467,27 @@ mod tests {
         assert_eq!(set.sample_sdf_ws(Vec3::new(0.25, 0.5, 0.5)), Some(1.0));
         assert_eq!(set.sample_sdf_ws(Vec3::new(1.25, 0.5, 0.5)), Some(2.0));
         assert!(set.sample_sdf_ws(Vec3::new(2.25, 0.5, 0.5)).is_none());
+    }
+
+    #[test]
+    fn terrain_collider_set_checks_adjacent_boundary_candidates() {
+        let left = WaterTerrainColliderChunk {
+            chunk_id: IVec3::ZERO,
+            dim: UVec3::splat(2),
+            sdf_ws: vec![-0.25; 8],
+            revision: 1,
+        };
+        let right = WaterTerrainColliderChunk {
+            chunk_id: IVec3::X,
+            dim: UVec3::splat(2),
+            sdf_ws: vec![0.5; 8],
+            revision: 1,
+        };
+        let mut set = WaterTerrainColliderSet::new();
+        set.insert_chunk(Arc::new(left));
+        set.insert_chunk(Arc::new(right));
+
+        assert_eq!(set.sample_sdf_ws(Vec3::new(1.0, 0.5, 0.5)), Some(-0.25));
     }
 
     #[test]
