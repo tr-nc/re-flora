@@ -2182,7 +2182,7 @@ impl App {
 
                 if self.render_flags.enable_particles {
                     if self.water_terrain_initialized {
-                        self.water_sim.update(frame_delta_time, self.perf_logging);
+                        self.update_water_sim(frame_delta_time);
                     }
                     self.update_particle_simulation(frame_delta_time);
                 }

@@ -37,6 +37,15 @@ const TERRAIN_PARTICLE_COLLISION_ITERATIONS: usize = 8;
 impl PondWaterSim {
     /// Advance the pond by fixed MLS-MPM substeps.
     pub fn update(&mut self, dt: f32, perf_logging: bool) {
+        self.update_with_max_substeps(dt, perf_logging, MAX_SUBSTEPS_PER_UPDATE);
+    }
+
+    pub fn update_with_max_substeps(
+        &mut self,
+        dt: f32,
+        perf_logging: bool,
+        max_substeps: usize,
+    ) {
         if dt <= 0.0 || !dt.is_finite() {
             return;
         }
@@ -52,10 +61,16 @@ impl PondWaterSim {
             return;
         }
 
+        let max_substeps = max_substeps.min(MAX_SUBSTEPS_PER_UPDATE);
+        if max_substeps == 0 {
+            self.accumulator = 0.0;
+            return;
+        }
+
         self.accumulator += dt.min(0.25);
         let substep_dt = self.config.substep_dt;
         let mut ran_substeps = 0usize;
-        for _ in 0..MAX_SUBSTEPS_PER_UPDATE {
+        for _ in 0..max_substeps {
             if self.accumulator < substep_dt {
                 break;
             }
@@ -65,7 +80,7 @@ impl PondWaterSim {
         }
 
         // Avoid a long catch-up spiral if a frame stalls while the sim is enabled.
-        let max_remainder = substep_dt * MAX_SUBSTEPS_PER_UPDATE as f32;
+        let max_remainder = substep_dt * max_substeps as f32;
         self.accumulator = self.accumulator.min(max_remainder);
 
         if ran_substeps > 0 {
@@ -2362,6 +2377,17 @@ mod tests {
             after < before * 0.65,
             "pressure projection should reduce divergence: before={before} after={after}"
         );
+    }
+
+    #[test]
+    fn update_with_max_substeps_discards_excess_catchup() {
+        let mut sim = test_sim_with_particles();
+        let substep_dt = sim.config.substep_dt;
+
+        sim.update_with_max_substeps(substep_dt * 10.0, false, 2);
+
+        assert!((sim.sim_time_seconds - substep_dt * 2.0).abs() <= f32::EPSILON);
+        assert!(sim.accumulator <= substep_dt * 2.0 + f32::EPSILON);
     }
 
     #[test]

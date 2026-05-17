@@ -19,6 +19,7 @@ const WATER_TERRAIN_COLLIDER_SOURCE: &str = "gpu-sampled-solid-grid";
 const WATER_TERRAIN_SOURCE_REFRESH_DEBOUNCE: Duration = Duration::from_millis(150);
 const WATER_TERRAIN_SOURCE_LOW_PRIORITY_DELAY: Duration = Duration::from_secs(2);
 const WATER_TERRAIN_ACTIVE_PARTICLE_HALO_CELLS: f32 = 8.0;
+const WATER_TERRAIN_ACTIVE_MAX_SUBSTEPS: usize = 2;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct WaterTerrainColliderSourceRevision {
@@ -345,6 +346,25 @@ impl App {
     pub(super) fn process_deferred_water_terrain_collider_rebuild(&mut self) {
         self.publish_completed_water_terrain_collider_rebuilds();
         self.try_submit_next_water_terrain_collider_rebuild();
+    }
+
+    pub(super) fn update_water_sim(&mut self, frame_delta_time: f32) {
+        if self.water_terrain_work_active() {
+            self.water_sim.update_with_max_substeps(
+                frame_delta_time,
+                self.perf_logging,
+                WATER_TERRAIN_ACTIVE_MAX_SUBSTEPS,
+            );
+        } else {
+            self.water_sim.update(frame_delta_time, self.perf_logging);
+        }
+    }
+
+    fn water_terrain_work_active(&self) -> bool {
+        !self.deferred_chunk_rebuilds_idle()
+            || !self.deferred_water_terrain_source_refreshes.is_idle()
+            || !self.deferred_water_terrain_collider_rebuilds.is_idle()
+            || !self.deferred_water_terrain_cache_rebuilds.is_idle()
     }
 
     pub(super) fn process_water_edit_soak(&mut self) {
