@@ -57,6 +57,7 @@ Remaining findings:
 - The cached trilinear SDF path now skips far particles and directly projects clearly colliding particles, but ambiguous near-surface particles still use exact collider fallback.
 - Diagnostic logging currently computes full particle debug stats before deciding whether to report, including exact terrain SDF sampling for every particle. This cost is outside `[PERF][WATER]` substep timing and can also produce noisy expected-CFL speed warnings.
 - Startup collider publication now batches terrain-grid cache rebuild/stabilization once after all startup chunks are ready. Edit publication still rebuilds the entire terrain-grid cache for each inserted collider chunk; partial overlapping-region rebuilds are not implemented yet.
+- Measured edit-path costs now show the independent per-chunk collider SDF build is not the dominant hitch: source refresh is about `0.8-0.9 ms`, collider build is about `7.2 ms`, and the full `64x32x64` `terrain_grid` cache rebuild is about `22.1 ms` per edited chunk.
 - Startup water-domain selection now uses strict overlap, so the fixed `(0,0,0)..(2,1,2)` pond enqueues the `4` overlapping chunks instead of including max-boundary chunks.
 
 ## Implemented phases
@@ -389,7 +390,7 @@ Current recommendation:
 
 Remaining work:
 
-1. Implement the remaining Phase 6 quick wins in order: stricter/batched collider/cache rebuilds, then exact-sample and diagnostic overhead reductions.
+1. Implement the remaining Phase 6 quick wins in order: partial edit `terrain_grid` cache rebuilds, then exact-sample and diagnostic overhead reductions.
 2. Re-run the performance profile in an interactive visible app run and judge whether zero-cell contact margin, tight grid-node collision, and 1.5/s damping fix the observed gap/bounciness.
 3. Repeat terrain-edit soak in a visible/manual session if visual artifacts are suspected; the hidden scripted soak is clean.
 4. Expand from the fixed pond box to an active water-domain/chunk set before supporting arbitrary large water bodies.
@@ -399,7 +400,7 @@ Remaining work:
 
 ### Phase 6: implementation-review optimization backlog
 
-Status: not implemented. These are the highest-confidence follow-ups from inspecting the current water collider and MLS-MPM implementation after the default changed to no startup particles and the pond domain grew to `(0,0,0)..(2,1,2)`.
+Status: in progress. These are the highest-confidence follow-ups from inspecting the current water collider and MLS-MPM implementation after the default changed to no startup particles and the pond domain grew to `(0,0,0)..(2,1,2)`.
 
 #### 6A. Skip empty-water simulation work
 
@@ -461,6 +462,15 @@ Validation:
 
 - `/tmp/re-flora-logs/re-flora-20260517-115020.363-20164.log`, command `--water-profile performance`, reported `enqueued startup collider rebuilds for 4 water-domain chunks, skipped 46 out-of-domain chunks`.
 - `/tmp/re-flora-logs/re-flora-20260517-115241.908-21208.log`, command `--water-profile performance`, reported the same 4 startup chunks and one `initialized startup collider batch` after the last chunk was published.
+- `/tmp/re-flora-logs/re-flora-20260517-121301.860-25605.log`, command `--water-profile performance`, measured startup costs after adding `[WATER][TERRAIN_CACHE]` logging:
+  - GPU solid source refresh: `~0.83-1.13 ms/chunk`, average `~0.90 ms/chunk`.
+  - Independent collider chunk build: `~6.97-8.79 ms/chunk`, total `~30.0 ms` for 4 startup chunks.
+  - Batched full `terrain_grid` cache rebuild: `22.55 ms` once for `4` collider chunks and `131072` water-grid nodes.
+- `/tmp/re-flora-logs/re-flora-20260517-121320.467-26259.log`, command `--water-profile performance --water-particles 2048 --water-edit-soak`, measured edit costs for three edits to chunk `(1,0,1)`:
+  - Source refresh: `0.816-0.926 ms`, average `~0.88 ms/edit`.
+  - Independent collider chunk build: `7.17-7.34 ms`, average `~7.25 ms/edit`.
+  - Full `terrain_grid` cache rebuild: `21.97-22.24 ms`, average `~22.14 ms/edit`.
+  - Conclusion: edit publication currently costs about `30 ms` per changed chunk, and the full cache rebuild alone is roughly `3x` the per-chunk SDF build.
 
 Evidence before implementation:
 
@@ -474,7 +484,10 @@ Implementation direction:
 - Done: `water_terrain_chunk_key_intersects_box_grid_domain()` now uses strict overlap for steady collider sources.
 - Done: if a shell is needed later, it must be explicit and documented; max-boundary chunks are no longer included by default.
 - Done: worker submission skips refreshed source chunks with `solid_count() == 0` before SDF build.
+- Done: empty source chunks remove stale collider chunks instead of leaving old SDF data in the set.
+- Done: stale worker results are discarded instead of publishing old collider revisions.
 - Done: batch startup collider publication so `terrain_grid` is rebuilt once after the initial set is available.
+- Done: log full `terrain_grid` cache rebuild cost with `[WATER][TERRAIN_CACHE]` so collider build and cache rebuild costs can be compared directly.
 - Pending: for edits, rebuild only the water-grid node range overlapped by the changed collider chunk plus a one-cell halo, then stabilize only particles in or near the changed chunk.
 
 Expected benefit: lower startup/readback/SDF build cost and less edit hitching. This is not expected to change steady-state solver cost except by making terrain-grid cache rebuilds cheaper.
