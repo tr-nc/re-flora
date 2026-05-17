@@ -5,6 +5,9 @@ use winit::{
     window::{Fullscreen, Window},
 };
 
+#[cfg(target_os = "linux")]
+use winit::platform::wayland::WindowExtWayland;
+
 #[cfg(not(target_os = "macos"))]
 use winit::window::CursorGrabMode;
 
@@ -153,6 +156,17 @@ impl WindowState {
         // Keep creation hidden to avoid flicker, then show only when requested.
         if desc.visible {
             window.set_visible(true);
+        }
+        #[cfg(target_os = "linux")]
+        if !desc.visible && window.xdg_toplevel().is_some() {
+            // Wayland cannot hide/unhide mapped windows and winit ignores
+            // WindowAttributes::visible there. Request minimization as the
+            // best available hidden-mode fallback while keeping the normal
+            // Vulkan surface/swapchain path alive.
+            window.set_minimized(true);
+            log::info!(
+                "Wayland does not support hidden windows; requested minimized hidden window"
+            );
         }
 
         #[cfg(target_os = "macos")]
