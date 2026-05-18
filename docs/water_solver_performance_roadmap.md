@@ -55,12 +55,14 @@ P0 结论：grid pressure projection 负责网格不可压，但不能单独保�
 - 在 G2P 得到 predicted position 后做位置约束。
 - 约束目标是局部密度/压缩，例如 `C_i = max(rho_i / rho0 - 1, 0)`，而不是简单“粒子太近就互推”。
 - 只防压缩，不强行把自由表面/稀疏区域拉满，避免和 grid pressure projection 做双重不可压求解。
-- correction 后重新做 box / terrain / repair，并用 `(x_corrected - x_previous) / dt` 回写速度。
+- correction 后重新做 box / terrain / repair；速度回写必须限幅/阻尼，避免把位置修正转成新的高频抖动。
 - 继续保留 correction cap 和有限性检查。
 
-验收：替代方案视觉上至少达到 `spacing=1` 的粒子分布稳定性，性能成本明显低于旧 `relax_incompressible_particle_spacing()`。
+验收：替代方案视觉上至少达到 `spacing=1` 的粒子分布稳定性；首版性能成本不能明显劣于旧 `relax_incompressible_particle_spacing()`，后续再优化 density pass 的 scratch reuse / pair construction。
 
-预期收益：高。旧 spacing 仍是当前最大热点；替换掉它还能为后续 `G2P -> next P2G` 融合创造条件。
+2026-05-19 实现首版 density / PBF-like spacing mode：新增 `WaterParticleSpacingMode::{Pairwise,Density}` 和 CLI `--water-spacing-mode pairwise|density|pbf`。Density mode 使用 compression-only 局部密度约束、correction cap、terrain/box repair，以及小幅受限 velocity feedback。1024 粒子 release hidden（performance profile，pressure=8，spacing iterations=1）：`avg/substep=1.47ms`、`spacing_relax=84.95ms/report`、`finite=1024/1024`。窗口观察：旧 pressure/spacing 调参仍可见抖动，而 density mode 几乎看不到可见抖动。因此 performance profile 默认切到 `particle_spacing_mode=density`，旧 pairwise 保留为 CLI fallback。
+
+预期收益：视觉稳定性已明显改善；性能成本当前与旧 spacing 接近，后续继续优化 density pass，替换掉旧 pairwise 后再评估 `G2P -> next P2G` 融合。
 
 ### P1（取消）：优化当前 pairwise spacing 实现
 
@@ -188,16 +190,18 @@ P0 结论：grid pressure projection 负责网格不可压，但不能单独保�
 - `restore performance profile spacing=1`
 - `benchmark pressure projection iterations`（`pressure=1/2/3/4` 都会抖动，`8` 较好且保持默认）
 - `optimize pressure projection with active-node stencils`
+- `prototype PBF-like compression-only density spacing`
+- `set performance profile spacing mode=density`
 
 下一步：
 
-1. `prototype PBF-like compression-only density projection to replace pairwise spacing`
-2. `reuse water particle stencils / explore G2P -> next P2G fusion after spacing is replaced`
+1. `optimize density spacing scratch/pair construction`
+2. `reuse water particle stencils / explore G2P -> next P2G fusion after pairwise spacing is removed`
 3. `reduce terrain sdf exact fallback`
 4. `clean incompressible legacy eos state`
 5. `prototype threaded water sim behind flag`
 
-不要默认恢复 `spacing=0`，也不要把 performance profile 的 pressure 默认降到 `8` 以下；后续性能重点回到替换旧 pairwise spacing。
+不要默认恢复 `spacing=0`，也不要把 performance profile 的 pressure 默认降到 `8` 以下；旧 pairwise spacing 只作为 fallback。
 
 ## 每步验证要求
 

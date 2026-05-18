@@ -4,9 +4,9 @@ use std::{collections::HashMap, time::Instant};
 use super::{
     collider::{WaterBoxCollider, WaterTerrainColliderSet},
     pond::{
-        PondWaterSim, WaterTerrainGridSample, WATER_GRID_BOUNDARY_X_MAX,
-        WATER_GRID_BOUNDARY_X_MIN, WATER_GRID_BOUNDARY_Y_MAX, WATER_GRID_BOUNDARY_Y_MIN,
-        WATER_GRID_BOUNDARY_Z_MAX, WATER_GRID_BOUNDARY_Z_MIN,
+        PondWaterSim, WaterParticleSpacingMode, WaterTerrainGridSample,
+        WATER_GRID_BOUNDARY_X_MAX, WATER_GRID_BOUNDARY_X_MIN, WATER_GRID_BOUNDARY_Y_MAX,
+        WATER_GRID_BOUNDARY_Y_MIN, WATER_GRID_BOUNDARY_Z_MAX, WATER_GRID_BOUNDARY_Z_MIN,
     },
 };
 
@@ -27,6 +27,12 @@ const MAX_INCOMPRESSIBLE_AFFINE_COMPONENT: f32 = 20.0;
 // single visual point.
 const INCOMPRESSIBLE_PARTICLE_SPACING_SCALE: f32 = 0.80;
 const INCOMPRESSIBLE_PARTICLE_SPACING_STRENGTH: f32 = 0.45;
+const INCOMPRESSIBLE_DENSITY_SPACING_SUPPORT_SCALE: f32 = 1.50;
+const INCOMPRESSIBLE_DENSITY_SPACING_STRENGTH: f32 = 0.35;
+const INCOMPRESSIBLE_DENSITY_LAMBDA_EPSILON: f32 = 600.0;
+const INCOMPRESSIBLE_DENSITY_TARGET_AXIS_NEIGHBORS: f32 = 6.0;
+const INCOMPRESSIBLE_DENSITY_VELOCITY_BLEND: f32 = 0.15;
+const MAX_INCOMPRESSIBLE_DENSITY_VELOCITY_CORRECTION_CELLS: f32 = 0.20;
 const PRESSURE_PROJECTION_NEIGHBOR_NONE: usize = usize::MAX;
 const PRESSURE_PROJECTION_NEIGHBOR_COUNT: usize = 6;
 
@@ -1264,6 +1270,17 @@ impl PondWaterSim {
     }
 
     fn relax_incompressible_particle_spacing(&mut self, dt: f32) {
+        match self.config.particle_spacing_mode {
+            WaterParticleSpacingMode::Pairwise => {
+                self.relax_incompressible_pairwise_particle_spacing(dt)
+            }
+            WaterParticleSpacingMode::Density => {
+                self.relax_incompressible_density_particle_spacing(dt)
+            }
+        }
+    }
+
+    fn relax_incompressible_pairwise_particle_spacing(&mut self, dt: f32) {
         let iterations = self.config.particle_spacing_relaxation_iterations as usize;
         if self.config.pressure_projection_iterations == 0
             || iterations == 0
@@ -1398,6 +1415,217 @@ impl PondWaterSim {
                     max_particle_speed,
                 );
                 particle.j = 1.0;
+            }
+        }
+    }
+
+    fn relax_incompressible_density_particle_spacing(&mut self, dt: f32) {
+        let iterations = self.config.particle_spacing_relaxation_iterations as usize;
+        if self.config.pressure_projection_iterations == 0
+            || iterations == 0
+            || self.particles.len() < 2
+            || dt <= 0.0
+            || !dt.is_finite()
+        {
+            return;
+        }
+
+        let rest_distance = (self.config.particle_volume.max(1.0e-8)).cbrt()
+            * INCOMPRESSIBLE_PARTICLE_SPACING_SCALE;
+        if rest_distance <= 0.0 || !rest_distance.is_finite() {
+            return;
+        }
+
+        let count = self.particles.len();
+        let support_radius = (rest_distance * INCOMPRESSIBLE_DENSITY_SPACING_SUPPORT_SCALE)
+            .max(self.dx * 0.5);
+        if support_radius <= 0.0 || !support_radius.is_finite() {
+            return;
+        }
+        let inv_support_radius = support_radius.recip();
+        let support_radius_sq = support_radius * support_radius;
+        let rest_neighbor_weight = density_spacing_kernel_weight(rest_distance, support_radius);
+        let target_density = (1.0
+            + INCOMPRESSIBLE_DENSITY_TARGET_AXIS_NEIGHBORS * rest_neighbor_weight)
+            .max(1.0e-4);
+        let max_correction = self.dx * MAX_PARTICLE_SPACING_CORRECTION_CELLS;
+        let max_velocity_correction =
+            MAX_INCOMPRESSIBLE_DENSITY_VELOCITY_CORRECTION_CELLS * self.dx / dt;
+        let padding = self.dx * self.config.wall_padding_cells.max(1.0);
+        let bounds = self.config.collider;
+        let particle_min_padding = Vec3::splat(padding);
+        let particle_max_padding = Vec3::splat(padding);
+        let terrain_collision_margin = self.terrain_collision_margin();
+        let terrain_max_correction = padding;
+        let terrain = self.terrain.as_ref();
+        let max_particle_speed = max_particle_speed_for_substep(self.dx, dt);
+
+        let mut total_corrections = vec![Vec3::ZERO; count];
+        for _ in 0..iterations {
+            let mut bins: HashMap<(i32, i32, i32), Vec<usize>> =
+                HashMap::with_capacity(count.saturating_mul(2));
+            for (idx, particle) in self.particles.iter().enumerate() {
+                if !particle.x.is_finite() {
+                    continue;
+                }
+                bins.entry(particle_spacing_cell(particle.x, inv_support_radius))
+                    .or_default()
+                    .push(idx);
+            }
+
+            let mut pairs = Vec::with_capacity(count.saturating_mul(8));
+            let mut densities = vec![1.0; count];
+            let mut gradient_sums = vec![Vec3::ZERO; count];
+            let mut gradient_sq_sums = vec![0.0; count];
+            for i in 0..count {
+                let xi = self.particles[i].x;
+                if !xi.is_finite() {
+                    continue;
+                }
+                let (cx, cy, cz) = particle_spacing_cell(xi, inv_support_radius);
+                for oz in -1..=1 {
+                    for oy in -1..=1 {
+                        for ox in -1..=1 {
+                            let Some(neighbors) = bins.get(&(cx + ox, cy + oy, cz + oz)) else {
+                                continue;
+                            };
+                            for &j in neighbors {
+                                if j <= i {
+                                    continue;
+                                }
+
+                                let xj = self.particles[j].x;
+                                if !xj.is_finite() {
+                                    continue;
+                                }
+                                let delta = xi - xj;
+                                let distance_sq = delta.length_squared();
+                                if !distance_sq.is_finite() || distance_sq >= support_radius_sq {
+                                    continue;
+                                }
+
+                                let (normal, distance) = if distance_sq > 1.0e-12 {
+                                    let distance = distance_sq.sqrt();
+                                    (delta / distance, distance)
+                                } else {
+                                    (particle_pair_fallback_direction(i, j), 0.0)
+                                };
+                                let weight = density_spacing_kernel_weight(distance, support_radius);
+                                if weight <= 0.0 {
+                                    continue;
+                                }
+                                let grad_i = density_spacing_kernel_gradient(
+                                    normal,
+                                    distance,
+                                    support_radius,
+                                    target_density,
+                                );
+                                densities[i] += weight;
+                                densities[j] += weight;
+                                gradient_sums[i] += grad_i;
+                                gradient_sums[j] -= grad_i;
+                                let grad_sq = grad_i.length_squared();
+                                gradient_sq_sums[i] += grad_sq;
+                                gradient_sq_sums[j] += grad_sq;
+                                pairs.push(DensitySpacingPair { i, j, grad_i });
+                            }
+                        }
+                    }
+                }
+            }
+
+            let mut lambdas = vec![0.0; count];
+            for i in 0..count {
+                if !self.particles[i].x.is_finite() {
+                    continue;
+                }
+                let compression = densities[i] / target_density - 1.0;
+                if compression <= 0.0 || !compression.is_finite() {
+                    continue;
+                }
+                let gradient_sum_sq = gradient_sums[i].length_squared();
+                let denominator = gradient_sq_sums[i]
+                    + gradient_sum_sq
+                    + INCOMPRESSIBLE_DENSITY_LAMBDA_EPSILON;
+                if denominator > 0.0 && denominator.is_finite() {
+                    lambdas[i] = -compression / denominator;
+                }
+            }
+
+            let mut corrections = vec![Vec3::ZERO; count];
+            for pair in pairs {
+                let lambda_sum = lambdas[pair.i] + lambdas[pair.j];
+                if lambda_sum >= 0.0 || !lambda_sum.is_finite() {
+                    continue;
+                }
+                let correction = pair.grad_i * lambda_sum * INCOMPRESSIBLE_DENSITY_SPACING_STRENGTH;
+                corrections[pair.i] += correction;
+                corrections[pair.j] -= correction;
+            }
+
+            let mut moved = false;
+            for (idx, (particle, correction)) in self
+                .particles
+                .iter_mut()
+                .zip(corrections.into_iter())
+                .enumerate()
+            {
+                let correction = clamp_vec3_length(correction, max_correction);
+                if correction.length_squared() <= 1.0e-12 {
+                    continue;
+                }
+                particle.x += correction;
+                particle.j = 1.0;
+                total_corrections[idx] += correction;
+                moved = true;
+            }
+
+            if !moved {
+                break;
+            }
+
+            for particle in &mut self.particles {
+                collide_particle_with_box_with_padding(
+                    particle,
+                    bounds.min_ws,
+                    bounds.max_ws,
+                    particle_min_padding,
+                    particle_max_padding,
+                );
+                if let Some(terrain) = terrain {
+                    collide_particle_with_terrain_iterative(
+                        particle,
+                        terrain,
+                        terrain_collision_margin,
+                        terrain_max_correction,
+                        TERRAIN_PARTICLE_COLLISION_ITERATIONS,
+                        bounds.min_ws,
+                        bounds.max_ws,
+                        particle_min_padding,
+                        particle_max_padding,
+                    );
+                }
+                repair_particle_state_with_padding(
+                    particle,
+                    bounds.min_ws,
+                    bounds.max_ws,
+                    particle_min_padding,
+                    particle_max_padding,
+                    self.config.j_min,
+                    max_particle_speed,
+                );
+                particle.j = 1.0;
+            }
+        }
+
+        if INCOMPRESSIBLE_DENSITY_VELOCITY_BLEND > 0.0 {
+            for (particle, correction) in self.particles.iter_mut().zip(total_corrections) {
+                if correction.length_squared() <= 1.0e-12 || !correction.is_finite() {
+                    continue;
+                }
+                let velocity_correction = clamp_vec3_length(correction / dt, max_velocity_correction)
+                    * INCOMPRESSIBLE_DENSITY_VELOCITY_BLEND;
+                particle.v = clamp_vec3_length(particle.v + velocity_correction, max_particle_speed);
             }
         }
     }
@@ -1614,6 +1842,13 @@ struct WaterG2pBreakdown {
     terrain_exact_fallbacks: u64,
     terrain_exact_checks: u64,
     terrain_exact_corrections: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct DensitySpacingPair {
+    i: usize,
+    j: usize,
+    grad_i: Vec3,
 }
 
 fn base_coord(grid_pos: Vec3) -> IVec3 {
@@ -2026,6 +2261,27 @@ fn outer_product(a: Vec3, b: Vec3) -> Mat3 {
 fn particle_spacing_cell(position: Vec3, inv_cell_size: f32) -> (i32, i32, i32) {
     let cell = (position * inv_cell_size).floor().as_ivec3();
     (cell.x, cell.y, cell.z)
+}
+
+fn density_spacing_kernel_weight(distance: f32, support_radius: f32) -> f32 {
+    if distance >= support_radius || support_radius <= 0.0 {
+        return 0.0;
+    }
+    let q = 1.0 - distance / support_radius;
+    q * q * q
+}
+
+fn density_spacing_kernel_gradient(
+    normal: Vec3,
+    distance: f32,
+    support_radius: f32,
+    target_density: f32,
+) -> Vec3 {
+    if support_radius <= 0.0 || target_density <= 0.0 || distance >= support_radius {
+        return Vec3::ZERO;
+    }
+    let q = 1.0 - distance / support_radius;
+    normal * (-3.0 * q * q / support_radius / target_density)
 }
 
 fn particle_pair_fallback_direction(a: usize, b: usize) -> Vec3 {
@@ -2514,7 +2770,8 @@ mod tests {
         project_velocity_away_from_surface, ACTIVE_MASS_EPSILON,
     };
     use crate::{
-        PondWaterConfig, PondWaterSim, WaterTerrainColliderChunk, WaterTerrainColliderSet,
+        PondWaterConfig, PondWaterSim, WaterParticleSpacingMode, WaterTerrainColliderChunk,
+        WaterTerrainColliderSet,
     };
     use glam::{IVec3, Mat3, UVec3, Vec3};
     use std::sync::Arc;
@@ -2699,6 +2956,34 @@ mod tests {
         assert!(
             distance > sim.config.particle_volume.cbrt() * 0.1,
             "overlapping particles were not separated: distance={distance}"
+        );
+        for particle in &sim.particles {
+            assert!((particle.j - 1.0).abs() < 1.0e-6);
+        }
+    }
+
+    #[test]
+    fn density_spacing_relaxation_separates_overlapping_particles() {
+        let mut sim = PondWaterSim::new(
+            PondWaterConfig::default()
+                .with_particle_count(0)
+                .with_pressure_projection_iterations(16)
+                .with_particle_spacing_relaxation_iterations(2)
+                .with_particle_spacing_mode(WaterParticleSpacingMode::Density),
+        );
+        let center = Vec3::new(0.5, 0.5, 0.5);
+        sim.particles = vec![water_particle(center, Vec3::ZERO), water_particle(center, Vec3::ZERO)];
+
+        sim.relax_incompressible_particle_spacing(sim.config.substep_dt);
+
+        let distance = sim.particles[0].x.distance(sim.particles[1].x);
+        assert!(
+            distance > sim.config.particle_volume.cbrt() * 0.1,
+            "overlapping particles were not separated by density projection: distance={distance}"
+        );
+        assert!(
+            sim.particles.iter().any(|particle| particle.v.length() > 0.0),
+            "density projection should feed a small bounded correction back into velocity"
         );
         for particle in &sim.particles {
             assert!((particle.j - 1.0).abs() < 1.0e-6);

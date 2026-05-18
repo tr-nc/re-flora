@@ -24,6 +24,7 @@ mod window;
 use app::AppController;
 use ash::vk;
 use env_logger::{Env, Target};
+use re_flora_water::WaterParticleSpacingMode;
 use std::{
     fs::{self, File, OpenOptions},
     io::{self, Write},
@@ -127,6 +128,8 @@ pub struct AppOptions {
     pub water_pressure_iterations: Option<u32>,
     /// Override marker particle spacing relaxation iterations (0 disables anti-clump pass).
     pub water_spacing_iterations: Option<u32>,
+    /// Override marker particle spacing projection mode.
+    pub water_spacing_mode: Option<WaterParticleSpacingMode>,
     /// Override incompressible APIC affine blend (0 = pure PIC/no-APIC path).
     pub water_apic_blend: Option<f32>,
     /// Run a deterministic terrain-edit soak around the pond for water validation.
@@ -206,6 +209,21 @@ impl AppOptions {
             None => None,
         };
 
+        let water_spacing_mode = match parse_string_after("--water-spacing-mode") {
+            Some(value) => Some(
+                WaterParticleSpacingMode::from_cli_value(&value).unwrap_or_else(|| {
+                    panic!(
+                        "Unsupported --water-spacing-mode '{}'. Supported values: pairwise, density, pbf",
+                        value
+                    )
+                }),
+            ),
+            None if args.iter().any(|a| a == "--water-spacing-mode") => {
+                panic!("Missing value for --water-spacing-mode. Supported values: pairwise, density, pbf")
+            }
+            None => None,
+        };
+
         let tail_latest_log = args
             .iter()
             .any(|a| a == "--tail-latest-log")
@@ -236,6 +254,7 @@ impl AppOptions {
             water_damping: parse_f32_after("--water-damping").map(|v| v.max(0.0)),
             water_pressure_iterations: parse_u32_after("--water-pressure-iterations"),
             water_spacing_iterations: parse_u32_after("--water-spacing-iterations"),
+            water_spacing_mode,
             water_apic_blend: parse_f32_after("--water-apic-blend").map(|v| {
                 if v.is_finite() {
                     v.clamp(0.0, 1.0)
@@ -288,6 +307,7 @@ Options:
                               Override incompressible pressure projection iterations (0 = legacy EOS)
   --water-spacing-iterations <N>
                               Override marker particle spacing relaxation iterations (0 disables anti-clump pass)
+  --water-spacing-mode <mode> Override marker spacing projection: pairwise, density, pbf
   --water-apic-blend <B>      Override incompressible APIC affine blend (0 = pure PIC/no-APIC)
   --water-edit-soak           Run deterministic pond terrain edits for water validation
   --tree-bench                Run tree replacement benchmark and exit

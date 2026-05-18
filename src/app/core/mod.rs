@@ -55,7 +55,7 @@ use ash::vk;
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
-use re_flora_water::{PondWaterConfig, PondWaterSim};
+use re_flora_water::{PondWaterConfig, PondWaterSim, WaterParticleSpacingMode};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -1597,6 +1597,7 @@ impl App {
                 .with_terrain_collision_margin_cells(0.0)
                 .with_linear_damping_per_sec(1.5)
                 .with_particle_spacing_relaxation_iterations(1)
+                .with_particle_spacing_mode(WaterParticleSpacingMode::Density)
                 .with_incompressible_apic_blend(0.0)
                 .with_collider_bounds(Vec3::ZERO, world_extent)
                 .with_grid_dim(world_grid_dim),
@@ -1627,13 +1628,16 @@ impl App {
             water_config =
                 water_config.with_particle_spacing_relaxation_iterations(spacing_iterations);
         }
+        if let Some(spacing_mode) = options.water_spacing_mode {
+            water_config = water_config.with_particle_spacing_mode(spacing_mode);
+        }
         if let Some(apic_blend) = options.water_apic_blend {
             water_config = water_config.with_incompressible_apic_blend(apic_blend);
         }
         water::sync_water_gui_adjustables_from_config(&mut gui_adjustables, &water_config);
 
         log::info!(
-            "[WATER] config profile={:?} gui_config_applied={} particles={} grid={:?} substep_dt={:.6}s pressure_projection_iterations={} particle_spacing_iterations={} incompressible_apic_blend={:.2} terrain_margin_cells={:.2} damping={:.2}/s gravity={:?} stiffness={:.1} gamma={:.2} j_min={:.3} wall_damping={:.2} collider_bounds {:?}..{:?} cells_per_unit={}",
+            "[WATER] config profile={:?} gui_config_applied={} particles={} grid={:?} substep_dt={:.6}s pressure_projection_iterations={} particle_spacing_iterations={} particle_spacing_mode={} incompressible_apic_blend={:.2} terrain_margin_cells={:.2} damping={:.2}/s gravity={:?} stiffness={:.1} gamma={:.2} j_min={:.3} wall_damping={:.2} collider_bounds {:?}..{:?} cells_per_unit={}",
             options.water_profile,
             water_gui_config_applied,
             water_config.particle_count,
@@ -1641,6 +1645,7 @@ impl App {
             water_config.substep_dt,
             water_config.pressure_projection_iterations,
             water_config.particle_spacing_relaxation_iterations,
+            water_config.particle_spacing_mode.as_str(),
             water_config.incompressible_apic_blend,
             water_config.terrain_collision_margin_cells,
             water_config.linear_damping_per_sec,

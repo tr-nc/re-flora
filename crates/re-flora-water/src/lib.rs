@@ -20,4 +20,5 @@ pub use mls_mpm::{
 };
 pub use pond::{
     DebugWaterSpawnResult, DebugWaterSpawnSkipReason, PondWaterConfig, PondWaterSim,
+    WaterParticleSpacingMode,
 };

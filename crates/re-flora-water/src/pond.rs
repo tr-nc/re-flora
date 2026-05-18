@@ -36,6 +36,7 @@ pub struct PondWaterConfig {
     pub j_min: f32,
     pub pressure_projection_iterations: u32,
     pub particle_spacing_relaxation_iterations: u32,
+    pub particle_spacing_mode: WaterParticleSpacingMode,
     pub incompressible_apic_blend: f32,
     pub terrain_collision_margin_cells: f32,
     pub linear_damping_per_sec: f32,
@@ -59,6 +60,7 @@ impl Default for PondWaterConfig {
             j_min: 0.1,
             pressure_projection_iterations: 8,
             particle_spacing_relaxation_iterations: 2,
+            particle_spacing_mode: WaterParticleSpacingMode::Pairwise,
             incompressible_apic_blend: DEFAULT_INCOMPRESSIBLE_APIC_BLEND,
             terrain_collision_margin_cells: 0.5,
             linear_damping_per_sec: 0.8,
@@ -109,6 +111,11 @@ impl PondWaterConfig {
         self
     }
 
+    pub fn with_particle_spacing_mode(mut self, mode: WaterParticleSpacingMode) -> Self {
+        self.particle_spacing_mode = mode;
+        self
+    }
+
     pub fn with_incompressible_apic_blend(mut self, blend: f32) -> Self {
         assert!(blend >= 0.0 && blend.is_finite());
         self.incompressible_apic_blend = blend;
@@ -137,6 +144,29 @@ fn default_particle_volume(particle_count: usize) -> f32 {
     (INITIAL_PARTICLE_CHUNK_MAX_WS - INITIAL_PARTICLE_CHUNK_MIN_WS).element_product()
         * DEFAULT_INITIAL_PARTICLE_VOLUME_FRACTION
         / volume_particle_count as f32
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WaterParticleSpacingMode {
+    Pairwise,
+    Density,
+}
+
+impl WaterParticleSpacingMode {
+    pub fn from_cli_value(value: &str) -> Option<Self> {
+        match value {
+            "pairwise" => Some(Self::Pairwise),
+            "density" | "pbf" => Some(Self::Density),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pairwise => "pairwise",
+            Self::Density => "density",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
