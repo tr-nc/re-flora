@@ -1,6 +1,6 @@
 # Water Solver Performance Roadmap
 
-本文档记录 2026-05-19 讨论后的水模拟性能优化计划。它聚焦 `crates/re-flora-water` 里的不可压 MLS-MPM solver 本身；terrain-water cache / SDF source / visible terrain rebuild 的历史计划仍见 [`water_mls_mpm_performance_roadmap.md`](water_mls_mpm_performance_roadmap.md)。
+本文档记录 2026-05-19 讨论后的水模拟性能优化计划。它聚焦 `crates/re-flora-water` 里的不可压 MLS-MPM solver 本身，是当前唯一保留的水体性能 roadmap。
 
 ## 目标
 
