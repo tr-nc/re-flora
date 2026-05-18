@@ -27,6 +27,26 @@ const MAX_INCOMPRESSIBLE_AFFINE_COMPONENT: f32 = 20.0;
 // single visual point.
 const INCOMPRESSIBLE_PARTICLE_SPACING_SCALE: f32 = 0.80;
 const INCOMPRESSIBLE_PARTICLE_SPACING_STRENGTH: f32 = 0.45;
+const PRESSURE_PROJECTION_NEIGHBOR_NONE: usize = usize::MAX;
+const PRESSURE_PROJECTION_NEIGHBOR_COUNT: usize = 6;
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PressureProjectionStencil {
+    pressure_neighbors: [usize; PRESSURE_PROJECTION_NEIGHBOR_COUNT],
+    center_pressure_neighbor_mask: u8,
+    diagonal: f32,
+}
+
+impl Default for PressureProjectionStencil {
+    fn default() -> Self {
+        Self {
+            pressure_neighbors: [PRESSURE_PROJECTION_NEIGHBOR_NONE;
+                PRESSURE_PROJECTION_NEIGHBOR_COUNT],
+            center_pressure_neighbor_mask: 0,
+            diagonal: 0.0,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct WaterTerrainCacheBuildRequest {
@@ -1086,6 +1106,7 @@ impl PondWaterSim {
 
         self.ensure_pressure_projection_buffers_len();
         self.projection_active_nodes.clear();
+        self.projection_stencils.clear();
 
         let terrain_collision_margin = self.terrain_collision_margin();
         for &idx in &self.touched_grid_nodes {
@@ -1101,7 +1122,18 @@ impl PondWaterSim {
                 continue;
             }
 
+            let coord = grid_coord_dims(self.grid_dim, idx);
+            let stencil = pressure_projection_stencil_at(
+                coord,
+                self.grid_dim,
+                &self.grid,
+                &self.grid_boundary_flags,
+                &self.terrain_grid,
+                terrain_collision_margin,
+            );
+
             self.projection_active_nodes.push(idx);
+            self.projection_stencils.push(stencil);
             self.projection_pressure[idx] = 0.0;
             self.projection_pressure_next[idx] = 0.0;
             self.projection_divergence[idx] = 0.0;
@@ -1111,17 +1143,16 @@ impl PondWaterSim {
             return;
         }
 
-        let grid_dim = self.grid_dim;
         let inv_dx = self.inv_dx;
-        for &idx in &self.projection_active_nodes {
-            let coord = grid_coord_dims(grid_dim, idx);
-            let divergence = pressure_projection_divergence_at(
-                coord,
-                grid_dim,
+        for (&idx, stencil) in self
+            .projection_active_nodes
+            .iter()
+            .zip(self.projection_stencils.iter())
+        {
+            let divergence = pressure_projection_divergence_from_stencil(
+                idx,
+                stencil,
                 &self.grid,
-                &self.grid_boundary_flags,
-                &self.terrain_grid,
-                terrain_collision_margin,
                 inv_dx,
             );
             self.projection_divergence[idx] = divergence / dt;
@@ -1132,134 +1163,75 @@ impl PondWaterSim {
             let pressure = &self.projection_pressure;
             let pressure_next = &mut self.projection_pressure_next;
             let divergence = &self.projection_divergence;
-            let grid = &self.grid;
-            let grid_boundary_flags = &self.grid_boundary_flags;
-            let terrain_grid = &self.terrain_grid;
-            for &idx in &self.projection_active_nodes {
-                let coord = grid_coord_dims(grid_dim, idx);
+            for (&idx, stencil) in self
+                .projection_active_nodes
+                .iter()
+                .zip(self.projection_stencils.iter())
+            {
                 let mut pressure_sum = 0.0;
-                let mut diagonal = 0.0;
-                for axis in 0..3 {
-                    for direction in [-1, 1] {
-                        let Some(neighbor_idx) = pressure_projection_neighbor_index(
-                            coord,
-                            axis,
-                            direction,
-                            grid_dim,
-                        ) else {
-                            continue;
-                        };
-                        if pressure_projection_solid_node(
-                            neighbor_idx,
-                            grid_boundary_flags,
-                            terrain_grid,
-                            terrain_collision_margin,
-                        ) {
-                            continue;
-                        }
-
-                        diagonal += 1.0;
-                        if pressure_projection_fluid_node(
-                            neighbor_idx,
-                            grid,
-                            grid_boundary_flags,
-                            terrain_grid,
-                            terrain_collision_margin,
-                        ) {
-                            pressure_sum += pressure[neighbor_idx];
-                        }
+                for &neighbor_idx in &stencil.pressure_neighbors {
+                    if neighbor_idx != PRESSURE_PROJECTION_NEIGHBOR_NONE {
+                        pressure_sum += pressure[neighbor_idx];
                     }
                 }
 
-                pressure_next[idx] = if diagonal > 0.0 {
-                    (pressure_sum - divergence[idx] * dx2) / diagonal
+                pressure_next[idx] = if stencil.diagonal > 0.0 {
+                    (pressure_sum - divergence[idx] * dx2) / stencil.diagonal
                 } else {
                     0.0
                 };
             }
 
-            for &idx in &self.projection_active_nodes {
-                self.projection_pressure[idx] = self.projection_pressure_next[idx];
-            }
+            std::mem::swap(
+                &mut self.projection_pressure,
+                &mut self.projection_pressure_next,
+            );
         }
 
         let speed_limit = max_particle_speed_for_substep(self.dx, dt);
         let pressure = &self.projection_pressure;
         let grid = &mut self.grid;
-        for &idx in &self.projection_active_nodes {
-            let coord = grid_coord_dims(grid_dim, idx);
+        for (&idx, stencil) in self
+            .projection_active_nodes
+            .iter()
+            .zip(self.projection_stencils.iter())
+        {
             let center_pressure = pressure[idx];
-            let pxm = pressure_projection_neighbor_pressure(
-                coord,
+            let pxm = pressure_projection_stencil_neighbor_pressure(
+                stencil,
                 0,
-                -1,
                 center_pressure,
-                grid_dim,
                 pressure,
-                grid,
-                &self.grid_boundary_flags,
-                &self.terrain_grid,
-                terrain_collision_margin,
             );
-            let pxp = pressure_projection_neighbor_pressure(
-                coord,
-                0,
+            let pxp = pressure_projection_stencil_neighbor_pressure(
+                stencil,
                 1,
                 center_pressure,
-                grid_dim,
                 pressure,
-                grid,
-                &self.grid_boundary_flags,
-                &self.terrain_grid,
-                terrain_collision_margin,
             );
-            let pym = pressure_projection_neighbor_pressure(
-                coord,
-                1,
-                -1,
-                center_pressure,
-                grid_dim,
-                pressure,
-                grid,
-                &self.grid_boundary_flags,
-                &self.terrain_grid,
-                terrain_collision_margin,
-            );
-            let pyp = pressure_projection_neighbor_pressure(
-                coord,
-                1,
-                1,
-                center_pressure,
-                grid_dim,
-                pressure,
-                grid,
-                &self.grid_boundary_flags,
-                &self.terrain_grid,
-                terrain_collision_margin,
-            );
-            let pzm = pressure_projection_neighbor_pressure(
-                coord,
+            let pym = pressure_projection_stencil_neighbor_pressure(
+                stencil,
                 2,
-                -1,
                 center_pressure,
-                grid_dim,
                 pressure,
-                grid,
-                &self.grid_boundary_flags,
-                &self.terrain_grid,
-                terrain_collision_margin,
             );
-            let pzp = pressure_projection_neighbor_pressure(
-                coord,
-                2,
-                1,
+            let pyp = pressure_projection_stencil_neighbor_pressure(
+                stencil,
+                3,
                 center_pressure,
-                grid_dim,
                 pressure,
-                grid,
-                &self.grid_boundary_flags,
-                &self.terrain_grid,
-                terrain_collision_margin,
+            );
+            let pzm = pressure_projection_stencil_neighbor_pressure(
+                stencil,
+                4,
+                center_pressure,
+                pressure,
+            );
+            let pzp = pressure_projection_stencil_neighbor_pressure(
+                stencil,
+                5,
+                center_pressure,
+                pressure,
             );
             let grad = Vec3::new(pxp - pxm, pyp - pym, pzp - pzm) * (0.5 * inv_dx);
             let node = &mut grid[idx];
@@ -1676,6 +1648,139 @@ fn grid_coord_dims(grid_dim: glam::UVec3, idx: usize) -> glam::UVec3 {
     glam::UVec3::new(x as u32, y as u32, z as u32)
 }
 
+fn pressure_projection_stencil_at(
+    coord: glam::UVec3,
+    grid_dim: glam::UVec3,
+    grid: &[super::pond::WaterGridNode],
+    grid_boundary_flags: &[u8],
+    terrain_grid: &[WaterTerrainGridSample],
+    terrain_collision_margin: f32,
+) -> PressureProjectionStencil {
+    let mut stencil = PressureProjectionStencil::default();
+    for (slot, (axis, direction)) in pressure_projection_neighbor_offsets()
+        .iter()
+        .copied()
+        .enumerate()
+    {
+        let Some(neighbor_idx) =
+            pressure_projection_neighbor_index(coord, axis, direction, grid_dim)
+        else {
+            stencil.center_pressure_neighbor_mask |= 1 << slot;
+            continue;
+        };
+
+        if pressure_projection_solid_node(
+            neighbor_idx,
+            grid_boundary_flags,
+            terrain_grid,
+            terrain_collision_margin,
+        ) {
+            stencil.center_pressure_neighbor_mask |= 1 << slot;
+            continue;
+        }
+
+        stencil.diagonal += 1.0;
+        if grid[neighbor_idx].mass > ACTIVE_MASS_EPSILON {
+            stencil.pressure_neighbors[slot] = neighbor_idx;
+        }
+    }
+
+    stencil
+}
+
+fn pressure_projection_neighbor_offsets() -> &'static [(usize, i32); PRESSURE_PROJECTION_NEIGHBOR_COUNT]
+{
+    &[(0, -1), (0, 1), (1, -1), (1, 1), (2, -1), (2, 1)]
+}
+
+fn pressure_projection_divergence_from_stencil(
+    idx: usize,
+    stencil: &PressureProjectionStencil,
+    grid: &[super::pond::WaterGridNode],
+    inv_dx: f32,
+) -> f32 {
+    let center_velocity = grid[idx].v;
+    let vxm = pressure_projection_stencil_neighbor_velocity_component(
+        stencil,
+        0,
+        0,
+        center_velocity,
+        grid,
+    );
+    let vxp = pressure_projection_stencil_neighbor_velocity_component(
+        stencil,
+        1,
+        0,
+        center_velocity,
+        grid,
+    );
+    let vym = pressure_projection_stencil_neighbor_velocity_component(
+        stencil,
+        2,
+        1,
+        center_velocity,
+        grid,
+    );
+    let vyp = pressure_projection_stencil_neighbor_velocity_component(
+        stencil,
+        3,
+        1,
+        center_velocity,
+        grid,
+    );
+    let vzm = pressure_projection_stencil_neighbor_velocity_component(
+        stencil,
+        4,
+        2,
+        center_velocity,
+        grid,
+    );
+    let vzp = pressure_projection_stencil_neighbor_velocity_component(
+        stencil,
+        5,
+        2,
+        center_velocity,
+        grid,
+    );
+
+    ((vxp - vxm) + (vyp - vym) + (vzp - vzm)) * (0.5 * inv_dx)
+}
+
+fn pressure_projection_stencil_neighbor_velocity_component(
+    stencil: &PressureProjectionStencil,
+    slot: usize,
+    axis: usize,
+    center_velocity: Vec3,
+    grid: &[super::pond::WaterGridNode],
+) -> f32 {
+    if stencil.center_pressure_neighbor_mask & (1 << slot) != 0 {
+        return vec3_component(center_velocity, axis);
+    }
+    let neighbor_idx = stencil.pressure_neighbors[slot];
+    if neighbor_idx != PRESSURE_PROJECTION_NEIGHBOR_NONE {
+        vec3_component(grid[neighbor_idx].v, axis)
+    } else {
+        0.0
+    }
+}
+
+fn pressure_projection_stencil_neighbor_pressure(
+    stencil: &PressureProjectionStencil,
+    slot: usize,
+    center_pressure: f32,
+    pressure: &[f32],
+) -> f32 {
+    if stencil.center_pressure_neighbor_mask & (1 << slot) != 0 {
+        return center_pressure;
+    }
+    let neighbor_idx = stencil.pressure_neighbors[slot];
+    if neighbor_idx != PRESSURE_PROJECTION_NEIGHBOR_NONE {
+        pressure[neighbor_idx]
+    } else {
+        0.0
+    }
+}
+
 fn pressure_projection_neighbor_index(
     coord: glam::UVec3,
     axis: usize,
@@ -1712,180 +1817,6 @@ fn pressure_projection_solid_node(
                 && sample.sdf <= terrain_collision_margin
                 && sample.normal.length_squared() > 0.0
         })
-}
-
-fn pressure_projection_fluid_node(
-    idx: usize,
-    grid: &[super::pond::WaterGridNode],
-    grid_boundary_flags: &[u8],
-    terrain_grid: &[WaterTerrainGridSample],
-    terrain_collision_margin: f32,
-) -> bool {
-    grid.get(idx)
-        .is_some_and(|node| node.mass > ACTIVE_MASS_EPSILON)
-        && !pressure_projection_solid_node(
-            idx,
-            grid_boundary_flags,
-            terrain_grid,
-            terrain_collision_margin,
-        )
-}
-
-fn pressure_projection_divergence_at(
-    coord: glam::UVec3,
-    grid_dim: glam::UVec3,
-    grid: &[super::pond::WaterGridNode],
-    grid_boundary_flags: &[u8],
-    terrain_grid: &[WaterTerrainGridSample],
-    terrain_collision_margin: f32,
-    inv_dx: f32,
-) -> f32 {
-    let idx = grid_index_dims(grid_dim, coord.x, coord.y, coord.z);
-    let center_velocity = grid[idx].v;
-    let vxm = pressure_projection_neighbor_velocity_component(
-        coord,
-        0,
-        -1,
-        center_velocity,
-        grid_dim,
-        grid,
-        grid_boundary_flags,
-        terrain_grid,
-        terrain_collision_margin,
-    );
-    let vxp = pressure_projection_neighbor_velocity_component(
-        coord,
-        0,
-        1,
-        center_velocity,
-        grid_dim,
-        grid,
-        grid_boundary_flags,
-        terrain_grid,
-        terrain_collision_margin,
-    );
-    let vym = pressure_projection_neighbor_velocity_component(
-        coord,
-        1,
-        -1,
-        center_velocity,
-        grid_dim,
-        grid,
-        grid_boundary_flags,
-        terrain_grid,
-        terrain_collision_margin,
-    );
-    let vyp = pressure_projection_neighbor_velocity_component(
-        coord,
-        1,
-        1,
-        center_velocity,
-        grid_dim,
-        grid,
-        grid_boundary_flags,
-        terrain_grid,
-        terrain_collision_margin,
-    );
-    let vzm = pressure_projection_neighbor_velocity_component(
-        coord,
-        2,
-        -1,
-        center_velocity,
-        grid_dim,
-        grid,
-        grid_boundary_flags,
-        terrain_grid,
-        terrain_collision_margin,
-    );
-    let vzp = pressure_projection_neighbor_velocity_component(
-        coord,
-        2,
-        1,
-        center_velocity,
-        grid_dim,
-        grid,
-        grid_boundary_flags,
-        terrain_grid,
-        terrain_collision_margin,
-    );
-
-    ((vxp - vxm) + (vyp - vym) + (vzp - vzm)) * (0.5 * inv_dx)
-}
-
-fn pressure_projection_neighbor_velocity_component(
-    coord: glam::UVec3,
-    axis: usize,
-    direction: i32,
-    center_velocity: Vec3,
-    grid_dim: glam::UVec3,
-    grid: &[super::pond::WaterGridNode],
-    grid_boundary_flags: &[u8],
-    terrain_grid: &[WaterTerrainGridSample],
-    terrain_collision_margin: f32,
-) -> f32 {
-    let center_component = vec3_component(center_velocity, axis);
-    let Some(neighbor_idx) =
-        pressure_projection_neighbor_index(coord, axis, direction, grid_dim)
-    else {
-        return center_component;
-    };
-    if pressure_projection_solid_node(
-        neighbor_idx,
-        grid_boundary_flags,
-        terrain_grid,
-        terrain_collision_margin,
-    ) {
-        return center_component;
-    }
-    if pressure_projection_fluid_node(
-        neighbor_idx,
-        grid,
-        grid_boundary_flags,
-        terrain_grid,
-        terrain_collision_margin,
-    ) {
-        vec3_component(grid[neighbor_idx].v, axis)
-    } else {
-        0.0
-    }
-}
-
-fn pressure_projection_neighbor_pressure(
-    coord: glam::UVec3,
-    axis: usize,
-    direction: i32,
-    center_pressure: f32,
-    grid_dim: glam::UVec3,
-    pressure: &[f32],
-    grid: &[super::pond::WaterGridNode],
-    grid_boundary_flags: &[u8],
-    terrain_grid: &[WaterTerrainGridSample],
-    terrain_collision_margin: f32,
-) -> f32 {
-    let Some(neighbor_idx) =
-        pressure_projection_neighbor_index(coord, axis, direction, grid_dim)
-    else {
-        return center_pressure;
-    };
-    if pressure_projection_solid_node(
-        neighbor_idx,
-        grid_boundary_flags,
-        terrain_grid,
-        terrain_collision_margin,
-    ) {
-        return center_pressure;
-    }
-    if pressure_projection_fluid_node(
-        neighbor_idx,
-        grid,
-        grid_boundary_flags,
-        terrain_grid,
-        terrain_collision_margin,
-    ) {
-        pressure[neighbor_idx]
-    } else {
-        0.0
-    }
 }
 
 fn project_grid_node_collisions(
@@ -2578,7 +2509,8 @@ fn water_particle_debug_stats(
 mod tests {
     use super::{
         collide_particle_with_terrain, collide_particle_with_terrain_iterative, grid_coord_dims,
-        grid_index_dims, pressure_projection_divergence_at, pressure_projection_solid_node,
+        grid_index_dims, pressure_projection_divergence_from_stencil,
+        pressure_projection_solid_node, pressure_projection_stencil_at,
         project_velocity_away_from_surface, ACTIVE_MASS_EPSILON,
     };
     use crate::{
@@ -2954,16 +2886,16 @@ mod tests {
                 )
             })
             .map(|idx| {
-                pressure_projection_divergence_at(
+                let stencil = pressure_projection_stencil_at(
                     grid_coord_dims(sim.grid_dim, idx),
                     sim.grid_dim,
                     &sim.grid,
                     &sim.grid_boundary_flags,
                     &sim.terrain_grid,
                     terrain_collision_margin,
-                    sim.inv_dx,
-                )
-                .abs()
+                );
+                pressure_projection_divergence_from_stencil(idx, &stencil, &sim.grid, sim.inv_dx)
+                    .abs()
             })
             .fold(0.0, f32::max)
     }
