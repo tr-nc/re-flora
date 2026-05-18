@@ -18,9 +18,8 @@ const MAX_PARTICLE_CFL_CELLS_PER_SUBSTEP: f32 = 0.5;
 const MAX_AFFINE_COMPONENT: f32 = 100.0;
 // Incompressible projection removes volumetric compression on the grid. Keeping
 // the full APIC affine term after that makes sparse/free-surface particles ring
-// like springs, so incompressible mode uses a more PIC-like transfer and only
-// carries a small traceless affine component for local swirl.
-const INCOMPRESSIBLE_APIC_BLEND: f32 = 0.10;
+// like springs, so incompressible mode uses a configurable, more PIC-like
+// transfer and can skip APIC affine work entirely when the blend is zero.
 const MAX_INCOMPRESSIBLE_AFFINE_COMPONENT: f32 = 20.0;
 // Particles are marker samples, but rendering them directly makes marker
 // clumping visible. This local spacing projection gives each sample a small
@@ -988,6 +987,8 @@ impl PondWaterSim {
         let stiffness = self.config.stiffness;
         let gamma = self.config.gamma;
         let d_inv = 4.0 * inv_dx * inv_dx;
+        let incompressible = self.config.pressure_projection_iterations > 0;
+        let use_affine_transfer = !incompressible || self.config.incompressible_apic_blend > 0.0;
 
         for particle in &self.particles {
             let local_pos = particle.x - origin_ws;
@@ -996,13 +997,15 @@ impl PondWaterSim {
             let fx = grid_pos - base.as_vec3();
             let weights = quadratic_weights(fx);
 
-            let pressure_scale = if self.config.pressure_projection_iterations == 0 {
+            let affine = if !incompressible {
                 let pressure = stiffness * (particle.j.max(self.config.j_min).powf(-gamma) - 1.0);
-                dt * volume * particle.j * pressure * d_inv
+                let pressure_scale = dt * volume * particle.j * pressure * d_inv;
+                Mat3::from_diagonal(Vec3::splat(pressure_scale)) + particle.c * mass
+            } else if use_affine_transfer {
+                particle.c * mass
             } else {
-                0.0
+                Mat3::ZERO
             };
-            let affine = Mat3::from_diagonal(Vec3::splat(pressure_scale)) + particle.c * mass;
             let momentum = particle.v * mass;
 
             for oz in 0..3 {
@@ -1020,8 +1023,6 @@ impl PondWaterSim {
                             continue;
                         }
 
-                        let node_local = node.as_vec3() * dx;
-                        let dpos = node_local - local_pos;
                         let node_idx =
                             grid_index_dims(grid_dim, node.x as u32, node.y as u32, node.z as u32);
                         let grid_node = &mut self.grid[node_idx];
@@ -1029,7 +1030,13 @@ impl PondWaterSim {
                             self.touched_grid_nodes.push(node_idx);
                         }
                         grid_node.mass += weight * mass;
-                        grid_node.v += weight * (momentum + affine * dpos);
+                        if use_affine_transfer {
+                            let node_local = node.as_vec3() * dx;
+                            let dpos = node_local - local_pos;
+                            grid_node.v += weight * (momentum + affine * dpos);
+                        } else {
+                            grid_node.v += weight * momentum;
+                        }
                     }
                 }
             }
@@ -1447,6 +1454,8 @@ impl PondWaterSim {
         let dx = self.dx;
         let inv_dx = self.inv_dx;
         let c_scale = 4.0 * inv_dx * inv_dx;
+        let incompressible = self.config.pressure_projection_iterations > 0;
+        let use_affine_transfer = !incompressible || self.config.incompressible_apic_blend > 0.0;
         let bounds = self.config.collider;
         let particle_padding = self.dx * self.config.wall_padding_cells.max(1.0);
         let particle_min_padding = Vec3::splat(particle_padding);
@@ -1487,10 +1496,12 @@ impl PondWaterSim {
                         let node_idx =
                             grid_index_dims(grid_dim, node.x as u32, node.y as u32, node.z as u32);
                         let grid_v = grid[node_idx].v;
-                        let node_local = node.as_vec3() * dx;
-                        let dpos = node_local - local_pos;
                         new_v += weight * grid_v;
-                        new_c += outer_product(weight * grid_v, dpos) * c_scale;
+                        if use_affine_transfer {
+                            let node_local = node.as_vec3() * dx;
+                            let dpos = node_local - local_pos;
+                            new_c += outer_product(weight * grid_v, dpos) * c_scale;
+                        }
                     }
                 }
             }
@@ -1499,14 +1510,17 @@ impl PondWaterSim {
             }
 
             particle.v = clamp_vec3_length(new_v, max_particle_speed);
-            if self.config.pressure_projection_iterations == 0 {
+            if !incompressible {
                 particle.c = clamp_mat3_components(new_c, MAX_AFFINE_COMPONENT);
                 let trace_c = particle.c.x_axis.x + particle.c.y_axis.y + particle.c.z_axis.z;
                 particle.j = (particle.j * (1.0 + dt * trace_c)).max(j_min);
-            } else {
-                let traceless_c = make_mat3_traceless(new_c) * INCOMPRESSIBLE_APIC_BLEND;
+            } else if self.config.incompressible_apic_blend > 0.0 {
+                let traceless_c = make_mat3_traceless(new_c) * self.config.incompressible_apic_blend;
                 particle.c =
                     clamp_mat3_components(traceless_c, MAX_INCOMPRESSIBLE_AFFINE_COMPONENT);
+                particle.j = 1.0;
+            } else {
+                particle.c = Mat3::ZERO;
                 particle.j = 1.0;
             }
             particle.x += particle.v * dt;
@@ -2642,6 +2656,37 @@ mod tests {
                 && !node.solid
                 && node.normal == Vec3::ZERO
         }));
+    }
+
+    #[test]
+    fn zero_apic_incompressible_path_skips_and_clears_affine() {
+        let mut sim = PondWaterSim::new(
+            PondWaterConfig::default()
+                .with_particle_count(0)
+                .with_grid_dim(UVec3::splat(8))
+                .with_pressure_projection_iterations(8)
+                .with_incompressible_apic_blend(0.0),
+        );
+        sim.particles = vec![water_particle(Vec3::splat(0.5), Vec3::ZERO)];
+        sim.particles[0].c = Mat3::from_diagonal(Vec3::splat(4.0));
+
+        sim.clear_grid();
+        sim.particle_to_grid(sim.config.substep_dt);
+
+        assert!(!sim.touched_grid_nodes.is_empty());
+        assert!(sim
+            .touched_grid_nodes
+            .iter()
+            .all(|&idx| sim.grid[idx].v == Vec3::ZERO));
+
+        for &idx in &sim.touched_grid_nodes {
+            sim.grid[idx].mass = 1.0;
+            sim.grid[idx].v = Vec3::X;
+        }
+        sim.grid_to_particle(sim.config.substep_dt);
+
+        assert_eq!(sim.particles[0].c, Mat3::ZERO);
+        assert!((sim.particles[0].j - 1.0).abs() < 1.0e-6);
     }
 
     #[test]

@@ -13,6 +13,7 @@ const INITIAL_PARTICLE_CHUNK_MAX_WS: Vec3 = Vec3::new(2.0, 1.0, 2.0);
 // the containing box is now wider and the default starts empty. This preserves
 // the old 4096-particle density when water is added later by debug spawn.
 const DEFAULT_INITIAL_PARTICLE_VOLUME_FRACTION: f32 = 0.1;
+const DEFAULT_INCOMPRESSIBLE_APIC_BLEND: f32 = 0.10;
 
 pub(crate) const WATER_GRID_BOUNDARY_X_MIN: u8 = 1 << 0;
 pub(crate) const WATER_GRID_BOUNDARY_X_MAX: u8 = 1 << 1;
@@ -35,6 +36,7 @@ pub struct PondWaterConfig {
     pub j_min: f32,
     pub pressure_projection_iterations: u32,
     pub particle_spacing_relaxation_iterations: u32,
+    pub incompressible_apic_blend: f32,
     pub terrain_collision_margin_cells: f32,
     pub linear_damping_per_sec: f32,
     pub wall_padding_cells: f32,
@@ -57,6 +59,7 @@ impl Default for PondWaterConfig {
             j_min: 0.1,
             pressure_projection_iterations: 8,
             particle_spacing_relaxation_iterations: 2,
+            incompressible_apic_blend: DEFAULT_INCOMPRESSIBLE_APIC_BLEND,
             terrain_collision_margin_cells: 0.5,
             linear_damping_per_sec: 0.8,
             wall_padding_cells: 2.0,
@@ -103,6 +106,12 @@ impl PondWaterConfig {
 
     pub fn with_particle_spacing_relaxation_iterations(mut self, iterations: u32) -> Self {
         self.particle_spacing_relaxation_iterations = iterations;
+        self
+    }
+
+    pub fn with_incompressible_apic_blend(mut self, blend: f32) -> Self {
+        assert!(blend >= 0.0 && blend.is_finite());
+        self.incompressible_apic_blend = blend;
         self
     }
 

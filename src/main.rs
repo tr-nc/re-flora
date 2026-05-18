@@ -127,6 +127,8 @@ pub struct AppOptions {
     pub water_pressure_iterations: Option<u32>,
     /// Override marker particle spacing relaxation iterations (0 disables anti-clump pass).
     pub water_spacing_iterations: Option<u32>,
+    /// Override incompressible APIC affine blend (0 = pure PIC/no-APIC path).
+    pub water_apic_blend: Option<f32>,
     /// Run a deterministic terrain-edit soak around the pond for water validation.
     pub water_edit_soak: bool,
     /// Run the lightweight tree replacement benchmark and exit after completion.
@@ -234,6 +236,13 @@ impl AppOptions {
             water_damping: parse_f32_after("--water-damping").map(|v| v.max(0.0)),
             water_pressure_iterations: parse_u32_after("--water-pressure-iterations"),
             water_spacing_iterations: parse_u32_after("--water-spacing-iterations"),
+            water_apic_blend: parse_f32_after("--water-apic-blend").map(|v| {
+                if v.is_finite() {
+                    v.clamp(0.0, 1.0)
+                } else {
+                    0.0
+                }
+            }),
             water_edit_soak: args.iter().any(|a| a == "--water-edit-soak"),
             tree_bench: args.iter().any(|a| a == "--tree-bench"),
             tree_bench_samples: parse_u32_after("--tree-bench-samples").unwrap_or(10),
@@ -279,6 +288,7 @@ Options:
                               Override incompressible pressure projection iterations (0 = legacy EOS)
   --water-spacing-iterations <N>
                               Override marker particle spacing relaxation iterations (0 disables anti-clump pass)
+  --water-apic-blend <B>      Override incompressible APIC affine blend (0 = pure PIC/no-APIC)
   --water-edit-soak           Run deterministic pond terrain edits for water validation
   --tree-bench                Run tree replacement benchmark and exit
   --tree-bench-samples <N>    Tree benchmark samples (default: 10)

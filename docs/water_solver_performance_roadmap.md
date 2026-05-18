@@ -92,6 +92,17 @@ python tools/parse_perf_log.py
 
 预期收益：中高。
 
+2026-05-19 实现：增加 `PondWaterConfig::incompressible_apic_blend` 和 CLI `--water-apic-blend`。当 blend 为 `0.0` 时，incompressible P2G 跳过 `particle.c * mass`，G2P 跳过 `outer_product(...)`，并强制 `particle.c = Mat3::ZERO`。`performance` profile 默认使用 no-APIC / pure-PIC path。
+
+1024 粒子 release hidden 对照（`--water-profile performance --water-particles 1024`，spacing=1，9 samples）：
+
+| incompressible APIC blend | avg/substep | P2G | G2P gather | G2P total |
+|---:|---:|---:|---:|---:|
+| `0.10` | `2.28ms` | `13.53ms` | `14.25ms` | `41.77ms` |
+| `0.00` | `2.23ms` | `11.86ms` | `8.96ms` | `36.76ms` |
+
+隔离 spacing 的对照（spacing=0，5 samples）也显示 transfer 下降：P2G `12.54ms -> 11.62ms`，G2P gather `14.16ms -> 9.08ms`。hidden diagnostics 保持 `finite=1024`、`non_finite=0`、`j=1.000..1.000`，no-APIC run 的 `affine_max=0.00`；视觉粘滞需要后续窗口观察确认。
+
 ### P3：pressure projection 自适应化
 
 任务：
