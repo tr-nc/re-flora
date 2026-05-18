@@ -6,7 +6,7 @@
 
 - 优先降低高粒子数下的 CPU water sim 成本。
 - 优先做可测量、可回退、物理行为风险低的优化。
-- 保持当前不可压路线：主不可压约束仍由 MPM grid pressure projection 解决，粒子 spacing / PBF-like pass 只作为辅助。
+- 保持当前不可压路线：主不可压约束仍由 MPM grid pressure projection 解决；不再把当前 pairwise spacing relaxation 当作长期方案，若需要粒子位置约束，优先用 PBF-like density projection 替代。
 - 暂不把“是否存储粒子速度”作为近期性能优化重点；该改动主要是状态表达方式变化，单独收益预计有限。
 
 ## 当前判断
@@ -26,56 +26,58 @@ record_diagnostic_substep
 
 从代码结构看，近期最值得验证的性能嫌疑点是：
 
-1. `relax_incompressible_particle_spacing()`：每个 substep 建 HashMap、分配 correction buffer、做邻域 pair 查询，并在 spacing 后重复碰撞/repair。
-2. incompressible APIC affine：即使 `j` 已经在不可压路径中固定为 `1.0`，`c: Mat3` 仍参与 P2G/G2P 的 27-node 热循环。
+1. 当前 `relax_incompressible_particle_spacing()` 是 ad-hoc 粒子防聚团 pass：每个 substep 建 HashMap、分配 correction buffer、做邻域 pair 查询，并在 spacing 后重复碰撞/repair；它还会阻断 G2P 后直接准备 next P2G 的流水/融合优化。优先验证移除或替换，而不是继续优化这个实现。
+2. incompressible APIC affine：即使 `j` 已经在不可压路径中固定为 `1.0`，`c: Mat3` 仍参与 P2G/G2P 的 27-node 热循环。P2 已加入 no-APIC path，performance profile 默认使用 `incompressible_apic_blend=0.0`。
 3. pressure projection：固定 Jacobi iteration，且每步 pressure 从 0 开始。
 4. P2G/G2P 重复计算 particle stencil：base coord、weights、node indices 在同一 substep 中重复计算。
 5. terrain exact fallback：贴地粒子可能持续触发精确 SDF 查询。
 
 ## 性能优先级计划
 
-### P0：建立基准与 spacing 开关对照
+### P0：移除或替换当前 spacing relaxation
 
-目的：先确认最大嫌疑点，避免盲改。
+目的：当前 `relax_incompressible_particle_spacing()` 不是经典 MLS-MPM 不可压步骤，而是额外的 pairwise 防聚团补丁。它成本高、物理含义弱，并且会阻断后续 `G2P -> next P2G` 融合/流水。优先把它从 performance path 中移除；如果视觉粒子分布不可接受，再用更 principled 的 PBF-like density projection 替代。
 
 2026-05-19 初次基准（release hidden，`--water-profile performance --water-particles 1024`，每组约 5 个 `[PERF][WATER]` samples）：
 
-| spacing iterations | avg/substep | spacing_relax / 120 substeps | 结论 |
-|---:|---:|---:|---|
-| 0 | `1.26ms` | `~0.01ms` | 不做 spacing 的 baseline |
-| 1 | `2.23ms` | `~72.32ms` | spacing 单次 pass 约 `0.60ms/substep` |
-| 2 | `2.84ms` | `~136.42ms` | 第二次 iteration 继续增加约 `0.53ms/substep` |
+| spacing iterations | avg/substep | spacing_relax / 120 substeps | 结论                                         |
+| -----------------: | ----------: | ---------------------------: | -------------------------------------------- |
+|                  0 |    `1.26ms` |                    `~0.01ms` | 不做 spacing 的 baseline                     |
+|                  1 |    `2.23ms` |                   `~72.32ms` | spacing 单次 pass 约 `0.60ms/substep`        |
+|                  2 |    `2.84ms` |                  `~136.42ms` | 第二次 iteration 继续增加约 `0.53ms/substep` |
 
-结论：spacing 是高粒子数性能大头之一。直接复用 scratch buffer / sort-based binning 的初步尝试未带来收益，反而变慢；短期先让 `performance` profile 默认使用 1 次 spacing iteration，保留 CLI `--water-spacing-iterations` 覆盖能力。
+结论：spacing 是高粒子数性能大头之一。直接复用 scratch buffer / sort-based binning 的初步尝试未带来收益，反而变慢；继续优化当前 pairwise spacing 不再作为优先路线。
 
-验证命令建议使用 release hidden run，并检查 latest log：
+P0 任务：
+
+1. 用当前 no-APIC performance profile 跑 `--water-spacing-iterations 0` 的 release hidden 和窗口观察，对比当前临时默认 `spacing=1`。
+2. 如果视觉表现可接受：把 performance profile 默认改为 `spacing=0`，并将旧 `relax_incompressible_particle_spacing()` 降级为 debug/legacy 开关，后续考虑删除。
+3. 如果去掉 spacing 后出现不可接受的粒子聚团：用 PBF-like、compression-only density projection 替代当前 pairwise min-distance spacing：
+   - 在 G2P 得到 predicted position 后做位置约束。
+   - 约束目标是局部密度/压缩，例如 `C_i = max(rho_i / rho0 - 1, 0)`，而不是简单“粒子太近就互推”。
+   - 只防压缩，不强行把自由表面/稀疏区域拉满，避免和 grid pressure projection 做双重不可压求解。
+   - correction 后重新做 box / terrain / repair，并用 `(x_corrected - x_previous) / dt` 回写速度。
+   - 继续保留 correction cap 和有限性检查。
+4. 记录 `spacing_relax`、water avg/substep、terrain penetration、粒子聚团/边界 pinning、速度饱和和视觉表现。
+
+建议验证命令：
 
 ```bash
 source ~/.zshrc
-cargo run --release -- --hidden --auto-exit 4 --perf --water-profile performance --water-spacing-iterations 0
-cargo run --release -- --hidden --auto-exit 4 --perf --water-profile performance --water-spacing-iterations 1
-cargo run --release -- --hidden --auto-exit 4 --perf --water-profile performance --water-spacing-iterations 2
+cargo run --release -- --hidden --auto-exit 6 --perf --water-profile performance --water-particles 1024 --water-spacing-iterations 0
+cargo run --release -- --hidden --auto-exit 6 --perf --water-profile performance --water-particles 1024 --water-spacing-iterations 1
+cargo run --release -- --windowed --perf --water-profile performance --water-particles 1024 --water-spacing-iterations 0
 cargo run --release -- --latest-log
 python tools/parse_perf_log.py
 ```
 
-验收：得到 `spacing_relax`、water avg/substep、frame CPU/other、粒子稳定性和 terrain penetration 的对照表。
+验收：performance profile 可以在 `spacing=0` 下保持可接受视觉和稳定日志；若必须保留位置约束，则 PBF-like density projection 比旧 spacing 更正统且成本不高于旧 spacing。
 
-预期收益：如果 spacing 是大头，后续 P1 收益高；如果不是，则下调 P1 优先级。
+预期收益：高。直接移除 spacing 可省掉当前最大的非 pressure 热点，并为后续 `G2P -> next P2G` 融合创造条件。
 
-### P1：优化 `relax_incompressible_particle_spacing()`
+### P1（取消）：优化当前 pairwise spacing 实现
 
-任务：
-
-1. 复用 `bins` / `corrections` scratch buffer，避免每个 substep / iteration 反复分配。
-2. 支持 spacing 降频，例如每 2-4 个 substep 执行一次。
-3. 只对局部密集区域或移动粒子附近执行 spacing。
-4. spacing 后只对实际移动过的粒子做 box / terrain / repair。
-5. 保持 correction cap 和 terrain collision 安全逻辑，避免为了性能引入穿地。
-
-验收：高粒子数 release run 的 `spacing_relax_ms`、water avg/substep 和 frame CPU/other 明显下降；`terrain_penetrating` 不恶化。
-
-预期收益：高。
+原计划中的 scratch buffer 复用、spacing 降频、局部执行等只是在优化一个 ad-hoc pass。由于初步 scratch / sort-based 尝试没有收益，并且当前方向改为“移除或 PBF-like 替代”，该 P1 不再作为计划执行。只有在短期必须保留旧 spacing 作为 fallback 时，才做最小维护。
 
 ### P2：加入 pure PIC / no-APIC incompressible path
 
@@ -96,12 +98,12 @@ python tools/parse_perf_log.py
 
 1024 粒子 release hidden 对照（`--water-profile performance --water-particles 1024`，spacing=1，9 samples）：
 
-| incompressible APIC blend | avg/substep | P2G | G2P gather | G2P total |
-|---:|---:|---:|---:|---:|
-| `0.10` | `2.28ms` | `13.53ms` | `14.25ms` | `41.77ms` |
-| `0.00` | `2.23ms` | `11.86ms` | `8.96ms` | `36.76ms` |
+| incompressible APIC blend | avg/substep |       P2G | G2P gather | G2P total |
+| ------------------------: | ----------: | --------: | ---------: | --------: |
+|                    `0.10` |    `2.28ms` | `13.53ms` |  `14.25ms` | `41.77ms` |
+|                    `0.00` |    `2.23ms` | `11.86ms` |   `8.96ms` | `36.76ms` |
 
-隔离 spacing 的对照（spacing=0，5 samples）也显示 transfer 下降：P2G `12.54ms -> 11.62ms`，G2P gather `14.16ms -> 9.08ms`。hidden diagnostics 保持 `finite=1024`、`non_finite=0`、`j=1.000..1.000`，no-APIC run 的 `affine_max=0.00`；视觉粘滞需要后续窗口观察确认。
+隔离 spacing 的对照（spacing=0，5 samples）也显示 transfer 下降：P2G `12.54ms -> 11.62ms`，G2P gather `14.16ms -> 9.08ms`。hidden diagnostics 保持 `finite=1024`、`non_finite=0`、`j=1.000..1.000`，no-APIC run 的 `affine_max=0.00`；2026-05-19 窗口观察表现正常。
 
 ### P3：pressure projection 自适应化
 
@@ -174,16 +176,22 @@ python tools/parse_perf_log.py
 
 ## 推荐执行顺序
 
-1. `benchmark spacing iterations`
-2. `reuse water spacing scratch buffers`
-3. `throttle water spacing relaxation`
-4. `add incompressible no-apic path`
-5. `benchmark pressure projection iterations`
-6. `add projection residual early exit`
-7. `reuse water particle stencils`
-8. `reduce terrain sdf exact fallback`
-9. `clean incompressible legacy eos state`
-10. `prototype threaded water sim behind flag`
+已完成：
+
+- `benchmark spacing iterations`
+- `add incompressible no-apic path`
+
+下一步：
+
+1. `validate performance profile with --water-spacing-iterations 0`
+2. `make performance profile spacing=0 if visual/logs are acceptable`
+3. `prototype PBF-like compression-only density projection only if spacing=0 fails visually`
+4. `benchmark pressure projection iterations`
+5. `add projection residual early exit`
+6. `reuse water particle stencils / explore G2P -> next P2G fusion after spacing is removed or replaced`
+7. `reduce terrain sdf exact fallback`
+8. `clean incompressible legacy eos state`
+9. `prototype threaded water sim behind flag`
 
 ## 每步验证要求
 
