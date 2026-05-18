@@ -48,6 +48,8 @@ record_diagnostic_substep
 
 结论：spacing 是高粒子数性能大头之一。直接复用 scratch buffer / sort-based binning 的初步尝试未带来收益，反而变慢；继续优化当前 pairwise spacing 不再作为优先路线。
 
+2026-05-19 P0 执行结果（no-APIC performance profile，1024 粒子）：`spacing=0` hidden run 明显快于 `spacing=1`（8s run mean `1.16ms/substep` vs `2.28ms/substep`；16s stability run mean `0.89ms/substep`），窗口观察视觉完全正常。performance profile 已改为默认 `spacing=0`，旧 spacing 仅保留为 CLI/debug fallback（`--water-spacing-iterations <N>`）。
+
 P0 任务：
 
 1. 用当前 no-APIC performance profile 跑 `--water-spacing-iterations 0` 的 release hidden 和窗口观察，对比当前临时默认 `spacing=1`。
@@ -180,18 +182,19 @@ python tools/parse_perf_log.py
 
 - `benchmark spacing iterations`
 - `add incompressible no-apic path`
+- `validate performance profile with --water-spacing-iterations 0`
+- `make performance profile spacing=0`
 
 下一步：
 
-1. `validate performance profile with --water-spacing-iterations 0`
-2. `make performance profile spacing=0 if visual/logs are acceptable`
-3. `prototype PBF-like compression-only density projection only if spacing=0 fails visually`
-4. `benchmark pressure projection iterations`
-5. `add projection residual early exit`
-6. `reuse water particle stencils / explore G2P -> next P2G fusion after spacing is removed or replaced`
-7. `reduce terrain sdf exact fallback`
-8. `clean incompressible legacy eos state`
-9. `prototype threaded water sim behind flag`
+1. `benchmark pressure projection iterations`
+2. `add projection residual early exit`
+3. `reuse water particle stencils / explore G2P -> next P2G fusion after spacing is removed or replaced`
+4. `reduce terrain sdf exact fallback`
+5. `clean incompressible legacy eos state`
+6. `prototype threaded water sim behind flag`
+
+若后续场景暴露 spacing=0 的视觉问题，再回到 `prototype PBF-like compression-only density projection`，不要恢复优化旧 pairwise spacing。
 
 ## 每步验证要求
 

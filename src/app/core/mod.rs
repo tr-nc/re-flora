@@ -1596,7 +1596,7 @@ impl App {
                 .with_substep_hz(120.0)
                 .with_terrain_collision_margin_cells(0.0)
                 .with_linear_damping_per_sec(1.5)
-                .with_particle_spacing_relaxation_iterations(1)
+                .with_particle_spacing_relaxation_iterations(0)
                 .with_incompressible_apic_blend(0.0)
                 .with_collider_bounds(Vec3::ZERO, world_extent)
                 .with_grid_dim(world_grid_dim),
