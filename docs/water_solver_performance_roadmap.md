@@ -38,6 +38,16 @@ record_diagnostic_substep
 
 目的：先确认最大嫌疑点，避免盲改。
 
+2026-05-19 初次基准（release hidden，`--water-profile performance --water-particles 1024`，每组约 5 个 `[PERF][WATER]` samples）：
+
+| spacing iterations | avg/substep | spacing_relax / 120 substeps | 结论 |
+|---:|---:|---:|---|
+| 0 | `1.26ms` | `~0.01ms` | 不做 spacing 的 baseline |
+| 1 | `2.23ms` | `~72.32ms` | spacing 单次 pass 约 `0.60ms/substep` |
+| 2 | `2.84ms` | `~136.42ms` | 第二次 iteration 继续增加约 `0.53ms/substep` |
+
+结论：spacing 是高粒子数性能大头之一。直接复用 scratch buffer / sort-based binning 的初步尝试未带来收益，反而变慢；短期先让 `performance` profile 默认使用 1 次 spacing iteration，保留 CLI `--water-spacing-iterations` 覆盖能力。
+
 验证命令建议使用 release hidden run，并检查 latest log：
 
 ```bash
