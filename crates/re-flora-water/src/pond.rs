@@ -1,7 +1,7 @@
 use glam::{IVec3, Mat3, UVec3, Vec3};
 
 use super::collider::{WaterBoxCollider, WaterTerrainColliderChunk, WaterTerrainColliderSet};
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 const DEFAULT_GRID_DIM: UVec3 = UVec3::new(64, 32, 64);
 const DEFAULT_PARTICLE_COUNT: usize = 0;
@@ -301,6 +301,14 @@ pub struct PondWaterSim {
     pub(crate) projection_divergence: Vec<f32>,
     pub(crate) projection_active_nodes: Vec<usize>,
     pub(crate) projection_stencils: Vec<super::mls_mpm::PressureProjectionStencil>,
+    pub(crate) particle_spacing_bins: HashMap<(i32, i32, i32), Vec<usize>>,
+    pub(crate) density_spacing_pairs: Vec<super::mls_mpm::DensitySpacingPair>,
+    pub(crate) density_spacing_densities: Vec<f32>,
+    pub(crate) density_spacing_gradient_sums: Vec<Vec3>,
+    pub(crate) density_spacing_gradient_sq_sums: Vec<f32>,
+    pub(crate) density_spacing_lambdas: Vec<f32>,
+    pub(crate) density_spacing_corrections: Vec<Vec3>,
+    pub(crate) density_spacing_total_corrections: Vec<Vec3>,
     pub accumulator: f32,
     pub perf_stats: WaterPerfStats,
     pub perf_report_seconds: f32,
@@ -326,7 +334,8 @@ impl PondWaterSim {
         let grid_len = (config.grid_dim.x as usize)
             .saturating_mul(config.grid_dim.y as usize)
             .saturating_mul(config.grid_dim.z as usize);
-        let touched_grid_capacity = config.particle_count.saturating_mul(27).min(grid_len);
+        let particle_capacity = config.particle_count;
+        let touched_grid_capacity = particle_capacity.saturating_mul(27).min(grid_len);
         let grid_boundary_flags = water_grid_boundary_flags(config.grid_dim, config.wall_padding_cells);
         let mut sim = Self {
             config,
@@ -346,6 +355,14 @@ impl PondWaterSim {
             projection_divergence: vec![0.0; grid_len],
             projection_active_nodes: Vec::with_capacity(touched_grid_capacity),
             projection_stencils: Vec::with_capacity(touched_grid_capacity),
+            particle_spacing_bins: HashMap::with_capacity(particle_capacity.saturating_mul(2)),
+            density_spacing_pairs: Vec::with_capacity(particle_capacity.saturating_mul(8)),
+            density_spacing_densities: Vec::with_capacity(particle_capacity),
+            density_spacing_gradient_sums: Vec::with_capacity(particle_capacity),
+            density_spacing_gradient_sq_sums: Vec::with_capacity(particle_capacity),
+            density_spacing_lambdas: Vec::with_capacity(particle_capacity),
+            density_spacing_corrections: Vec::with_capacity(particle_capacity),
+            density_spacing_total_corrections: Vec::with_capacity(particle_capacity),
             accumulator: 0.0,
             perf_stats: WaterPerfStats::default(),
             perf_report_seconds: 0.0,

@@ -1460,23 +1460,31 @@ impl PondWaterSim {
         let terrain = self.terrain.as_ref();
         let max_particle_speed = max_particle_speed_for_substep(self.dx, dt);
 
-        let mut total_corrections = vec![Vec3::ZERO; count];
+        self.density_spacing_total_corrections.clear();
+        self.density_spacing_total_corrections
+            .resize(count, Vec3::ZERO);
         for _ in 0..iterations {
-            let mut bins: HashMap<(i32, i32, i32), Vec<usize>> =
-                HashMap::with_capacity(count.saturating_mul(2));
+            for indices in self.particle_spacing_bins.values_mut() {
+                indices.clear();
+            }
             for (idx, particle) in self.particles.iter().enumerate() {
                 if !particle.x.is_finite() {
                     continue;
                 }
-                bins.entry(particle_spacing_cell(particle.x, inv_support_radius))
+                self.particle_spacing_bins
+                    .entry(particle_spacing_cell(particle.x, inv_support_radius))
                     .or_default()
                     .push(idx);
             }
 
-            let mut pairs = Vec::with_capacity(count.saturating_mul(8));
-            let mut densities = vec![1.0; count];
-            let mut gradient_sums = vec![Vec3::ZERO; count];
-            let mut gradient_sq_sums = vec![0.0; count];
+            self.density_spacing_pairs.clear();
+            self.density_spacing_densities.clear();
+            self.density_spacing_densities.resize(count, 1.0);
+            self.density_spacing_gradient_sums.clear();
+            self.density_spacing_gradient_sums
+                .resize(count, Vec3::ZERO);
+            self.density_spacing_gradient_sq_sums.clear();
+            self.density_spacing_gradient_sq_sums.resize(count, 0.0);
             for i in 0..count {
                 let xi = self.particles[i].x;
                 if !xi.is_finite() {
@@ -1486,7 +1494,9 @@ impl PondWaterSim {
                 for oz in -1..=1 {
                     for oy in -1..=1 {
                         for ox in -1..=1 {
-                            let Some(neighbors) = bins.get(&(cx + ox, cy + oy, cz + oz)) else {
+                            let Some(neighbors) =
+                                self.particle_spacing_bins.get(&(cx + ox, cy + oy, cz + oz))
+                            else {
                                 continue;
                             };
                             for &j in neighbors {
@@ -1520,63 +1530,63 @@ impl PondWaterSim {
                                     support_radius,
                                     target_density,
                                 );
-                                densities[i] += weight;
-                                densities[j] += weight;
-                                gradient_sums[i] += grad_i;
-                                gradient_sums[j] -= grad_i;
+                                self.density_spacing_densities[i] += weight;
+                                self.density_spacing_densities[j] += weight;
+                                self.density_spacing_gradient_sums[i] += grad_i;
+                                self.density_spacing_gradient_sums[j] -= grad_i;
                                 let grad_sq = grad_i.length_squared();
-                                gradient_sq_sums[i] += grad_sq;
-                                gradient_sq_sums[j] += grad_sq;
-                                pairs.push(DensitySpacingPair { i, j, grad_i });
+                                self.density_spacing_gradient_sq_sums[i] += grad_sq;
+                                self.density_spacing_gradient_sq_sums[j] += grad_sq;
+                                self.density_spacing_pairs.push(DensitySpacingPair { i, j, grad_i });
                             }
                         }
                     }
                 }
             }
 
-            let mut lambdas = vec![0.0; count];
+            self.density_spacing_lambdas.clear();
+            self.density_spacing_lambdas.resize(count, 0.0);
             for i in 0..count {
                 if !self.particles[i].x.is_finite() {
                     continue;
                 }
-                let compression = densities[i] / target_density - 1.0;
+                let compression = self.density_spacing_densities[i] / target_density - 1.0;
                 if compression <= 0.0 || !compression.is_finite() {
                     continue;
                 }
-                let gradient_sum_sq = gradient_sums[i].length_squared();
-                let denominator = gradient_sq_sums[i]
+                let gradient_sum_sq = self.density_spacing_gradient_sums[i].length_squared();
+                let denominator = self.density_spacing_gradient_sq_sums[i]
                     + gradient_sum_sq
                     + INCOMPRESSIBLE_DENSITY_LAMBDA_EPSILON;
                 if denominator > 0.0 && denominator.is_finite() {
-                    lambdas[i] = -compression / denominator;
+                    self.density_spacing_lambdas[i] = -compression / denominator;
                 }
             }
 
-            let mut corrections = vec![Vec3::ZERO; count];
-            for pair in pairs {
-                let lambda_sum = lambdas[pair.i] + lambdas[pair.j];
+            self.density_spacing_corrections.clear();
+            self.density_spacing_corrections.resize(count, Vec3::ZERO);
+            for pair in self.density_spacing_pairs.iter().copied() {
+                let lambda_sum = self.density_spacing_lambdas[pair.i]
+                    + self.density_spacing_lambdas[pair.j];
                 if lambda_sum >= 0.0 || !lambda_sum.is_finite() {
                     continue;
                 }
                 let correction = pair.grad_i * lambda_sum * INCOMPRESSIBLE_DENSITY_SPACING_STRENGTH;
-                corrections[pair.i] += correction;
-                corrections[pair.j] -= correction;
+                self.density_spacing_corrections[pair.i] += correction;
+                self.density_spacing_corrections[pair.j] -= correction;
             }
 
             let mut moved = false;
-            for (idx, (particle, correction)) in self
-                .particles
-                .iter_mut()
-                .zip(corrections.into_iter())
-                .enumerate()
-            {
-                let correction = clamp_vec3_length(correction, max_correction);
+            for idx in 0..count {
+                let correction =
+                    clamp_vec3_length(self.density_spacing_corrections[idx], max_correction);
                 if correction.length_squared() <= 1.0e-12 {
                     continue;
                 }
+                let particle = &mut self.particles[idx];
                 particle.x += correction;
                 particle.j = 1.0;
-                total_corrections[idx] += correction;
+                self.density_spacing_total_corrections[idx] += correction;
                 moved = true;
             }
 
@@ -1619,7 +1629,11 @@ impl PondWaterSim {
         }
 
         if INCOMPRESSIBLE_DENSITY_VELOCITY_BLEND > 0.0 {
-            for (particle, correction) in self.particles.iter_mut().zip(total_corrections) {
+            for (particle, correction) in self
+                .particles
+                .iter_mut()
+                .zip(self.density_spacing_total_corrections.iter().copied())
+            {
                 if correction.length_squared() <= 1.0e-12 || !correction.is_finite() {
                     continue;
                 }
@@ -1845,7 +1859,7 @@ struct WaterG2pBreakdown {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct DensitySpacingPair {
+pub(crate) struct DensitySpacingPair {
     i: usize,
     j: usize,
     grad_i: Vec3,

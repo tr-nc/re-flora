@@ -62,7 +62,9 @@ P0 结论：grid pressure projection 负责网格不可压，但不能单独保�
 
 2026-05-19 实现首版 density / PBF-like spacing mode：新增 `WaterParticleSpacingMode::{Pairwise,Density}` 和 CLI `--water-spacing-mode pairwise|density|pbf`。Density mode 使用 compression-only 局部密度约束、correction cap、terrain/box repair，以及小幅受限 velocity feedback。1024 粒子 release hidden（performance profile，pressure=8，spacing iterations=1）：`avg/substep=1.47ms`、`spacing_relax=84.95ms/report`、`finite=1024/1024`。窗口观察：旧 pressure/spacing 调参仍可见抖动，而 density mode 几乎看不到可见抖动。因此 performance profile 默认切到 `particle_spacing_mode=density`，旧 pairwise 保留为 CLI fallback。
 
-预期收益：视觉稳定性已明显改善；性能成本当前与旧 spacing 接近，后续继续优化 density pass，替换掉旧 pairwise 后再评估 `G2P -> next P2G` 融合。
+2026-05-19 scratch reuse：把 density spacing 的 bins / pairs / densities / gradients / lambdas / corrections / total corrections 放入 `PondWaterSim` 复用，移除每 substep 的主要临时 Vec/HashMap 分配。16s hidden 对照约 `spacing_relax=94.98ms/report -> 94.40ms/report`，属于基本持平/小幅改善；额外的 occupied-cell tracking 尝试测得更慢，未保留。
+
+预期收益：视觉稳定性已明显改善；性能成本当前与旧 spacing 接近，scratch reuse 已基本消除分配问题但不是主要瓶颈。后续继续优化 pair construction / neighbor traversal，替换掉旧 pairwise 后再评估 `G2P -> next P2G` 融合。
 
 ### P1（取消）：优化当前 pairwise spacing 实现
 
@@ -192,10 +194,11 @@ P0 结论：grid pressure projection 负责网格不可压，但不能单独保�
 - `optimize pressure projection with active-node stencils`
 - `prototype PBF-like compression-only density spacing`
 - `set performance profile spacing mode=density`
+- `reuse density spacing scratch buffers`
 
 下一步：
 
-1. `optimize density spacing scratch/pair construction`
+1. `optimize density spacing pair construction / neighbor traversal`
 2. `reuse water particle stencils / explore G2P -> next P2G fusion after pairwise spacing is removed`
 3. `reduce terrain sdf exact fallback`
 4. `clean incompressible legacy eos state`
