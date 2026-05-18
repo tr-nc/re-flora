@@ -109,18 +109,22 @@ P0 结论：grid pressure projection 负责网格不可压，但不能单独保�
 
 验收：projection 时间下降，且水体不可压表现、边界稳定性、terrain penetration 不恶化。
 
-2026-05-19 结果：直接降低 Jacobi iteration 不可接受。`pressure=4/5/6/7` 在窗口观察中都会出现粒子互斥/分布异常，`8` 是当前视觉下限；不要把 early exit 做成实际有效迭代数低于 8 的路径。改为不降低物理强度的 hot-loop 优化：预计算每个 active node 的 6-neighbor pressure stencil，并用 pressure buffer swap 代替每轮 active-node copy。
+2026-05-19 结果：第一次降低 Jacobi iteration 的窗口观察被 `spacing=0` 的 marker 坍缩混淆；固定 `spacing=1` 后重新验证，`pressure=4` 视觉正常。performance profile 因此改为 `pressure_projection_iterations=4`。
 
-1024 粒子 release hidden，对比 `spacing=1`、no-APIC、pressure=8：
+同时实现了不改变 solver 语义的 hot-loop 优化：预计算每个 active node 的 6-neighbor pressure stencil，并用 pressure buffer swap 代替每轮 active-node copy。
 
-| pressure path | avg/substep | pressure / report | 视觉 |
-|---|---:|---:|---|
-| old neighbor queries | `2.28ms` | `~129ms` | 正常 |
-| stencil + buffer swap | `1.50ms` | `37.38ms` | 正常 |
+1024 粒子 release hidden，`spacing=1`、no-APIC、stencil path：
 
-隔离 spacing 的 `spacing=0` 对照中，stencil path 的 pressure 从旧 `~84.63ms` 降到 `24.91ms`，但 `spacing=0` 本身视觉不可接受，仅作为 kernel 性能参考。
+| pressure iterations | avg/substep | pressure / report | 视觉 |
+|---:|---:|---:|---|
+| `4` | `1.48ms` | `31.78ms` | 正常 |
+| `6` | `1.46ms` | `34.31ms` | 未单独窗口确认 |
+| `8` | `1.53ms` | `38.61ms` | 正常 |
+| `16` | `1.62ms` | `47.63ms` | 未单独窗口确认 |
 
-预期收益：已实现中高收益；后续 pressure early-exit 只有在保留等效 8 次视觉强度时才继续。
+旧 neighbor-query pressure path 在 `spacing=1`、pressure=8 下约 `2.28ms/substep`、pressure `~129ms/report`；stencil + buffer swap 在 pressure=8 下约 `1.50ms/substep`、pressure `37.38ms/report`。隔离 spacing 的 `spacing=0` 对照中，stencil path 的 pressure 从旧 `~84.63ms` 降到 `24.91ms`，但 `spacing=0` 本身视觉不可接受，仅作为 kernel 性能参考。
+
+预期收益：已实现中高收益。后续 pressure early-exit/warm-start 优先级降低；当前最大热点重新回到 spacing replacement。
 
 ### P4：复用 P2G / G2P particle stencil
 
@@ -180,8 +184,9 @@ P0 结论：grid pressure projection 负责网格不可压，但不能单独保�
 - `add incompressible no-apic path`
 - `validate performance profile with --water-spacing-iterations 0`（失败：marker 坍缩）
 - `restore performance profile spacing=1`
-- `benchmark pressure projection iterations`（4-7 视觉不可接受，8 为当前下限）
+- `benchmark pressure projection iterations`（在 `spacing=1` 下 `pressure=4` 视觉正常）
 - `optimize pressure projection with active-node stencils`
+- `set performance profile pressure=4`
 
 下一步：
 
@@ -191,7 +196,7 @@ P0 结论：grid pressure projection 负责网格不可压，但不能单独保�
 4. `clean incompressible legacy eos state`
 5. `prototype threaded water sim behind flag`
 
-不要默认恢复 `spacing=0`，也不要降低 pressure 到 8 以下；后续性能重点回到替换旧 pairwise spacing。
+不要默认恢复 `spacing=0`；后续性能重点回到替换旧 pairwise spacing。
 
 ## 每步验证要求
 
