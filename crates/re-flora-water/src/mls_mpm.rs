@@ -39,11 +39,14 @@ const MAX_INCOMPRESSIBLE_DENSITY_VELOCITY_CORRECTION_CELLS: f32 = 0.20;
 // large velocity feedback make settled piles buzz as particles cross cell
 // boundaries. PBF / particle-shifting schemes generally use small positional
 // corrections plus damping/viscosity rather than treating the shift as a strong
-// physical impulse.
+// physical impulse. For this opt-in mode we therefore cap per-substep marker
+// motion by rest-distance and avoid feeding the grid-cell shift back into water
+// velocity.
 const INCOMPRESSIBLE_CELL_DENSITY_CELL_SCALE: f32 = 1.25;
 const INCOMPRESSIBLE_CELL_DENSITY_TARGET_FILL: f32 = 0.75;
-const INCOMPRESSIBLE_CELL_DENSITY_PUSH_STRENGTH: f32 = 0.20;
-const INCOMPRESSIBLE_CELL_DENSITY_VELOCITY_BLEND: f32 = 0.04;
+const INCOMPRESSIBLE_CELL_DENSITY_PUSH_STRENGTH: f32 = 0.12;
+const INCOMPRESSIBLE_CELL_DENSITY_MAX_CORRECTION_REST_SCALE: f32 = 0.06;
+const INCOMPRESSIBLE_CELL_DENSITY_VELOCITY_BLEND: f32 = 0.0;
 const INCOMPRESSIBLE_CELL_DENSITY_TERRAIN_GUARD_CELLS: f32 = 0.25;
 const DENSITY_SPACING_INVALID_BIN_ENTRY: usize = usize::MAX;
 const DENSITY_SPACING_MAX_DENSE_BINS: usize = 2_000_000;
@@ -1780,7 +1783,8 @@ impl PondWaterSim {
         let target_count = ((cell_size / rest_distance).powi(3)
             * INCOMPRESSIBLE_CELL_DENSITY_TARGET_FILL)
             .max(1.0);
-        let max_correction = self.dx * MAX_PARTICLE_SPACING_CORRECTION_CELLS;
+        let max_correction = (self.dx * MAX_PARTICLE_SPACING_CORRECTION_CELLS)
+            .min(rest_distance * INCOMPRESSIBLE_CELL_DENSITY_MAX_CORRECTION_REST_SCALE);
         let max_velocity_correction =
             MAX_INCOMPRESSIBLE_DENSITY_VELOCITY_CORRECTION_CELLS * self.dx / dt;
         let padding = self.dx * self.config.wall_padding_cells.max(1.0);
