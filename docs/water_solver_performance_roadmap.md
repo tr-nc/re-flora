@@ -306,9 +306,60 @@ Findings:
 2. `g2p` 仍是第二热点，约 `18.4ms/substep`、`23.6%`；其中未细分 G2P body 约 `10.2ms/substep`。若继续做 kernel 优化，应先给 G2P 增加更细 timer，再决定是否拆/并行。
 3. `p2g` 只有约 `2.58ms/substep`、`3.3%`，`pressure` 只有约 `0.33ms/substep`、`0.4%`。在 100k 场景下 grid-side 优化几乎不是主线。
 4. terrain exact fallback 仍完全没有触发（`exact_checks=0`），但 shadow validation 在极限负载下出现过一次 false skip；如果要正式支持 100k 粒子，需要复查 cached terrain projection guard 或把 shadow false-skip 作为 stress-only 风险记录。
-5. 主线程已经被 water solver 长时间阻塞，audio pump 被饿死并持续 underrun。线程化 water sim 可以保护主线程/音频/渲染响应性，但不会减少总 CPU；要让 100k 实时，需要先重做或并行化 density spacing，并拆解 G2P 热点。
+5. 主线程已经被 water solver 长时间阻塞，audio pump 被饿死并持续 underrun。线程化 water sim 可以保护主线程/音频/渲染响应性，但不会减少总 CPU。当前用户目标仍是单核心优化，因此下一阶段先集中优化 density `spacing_relax` 本身；worker 线程化后移。
 
-### P7：water sim 线程化
+### P7：单核心 density `spacing_relax` 优化
+
+目的：100000 粒子稳定窗口中 `spacing_relax` 约 `56.3ms/substep`、`72%` 总成本，且成本与 `density_pairs/substep` 基本线性。当前 dense linked-cell pair traversal 已消除了 HashMap 主瓶颈，下一轮应针对单核心的内存带宽、pair list、cache locality 和 post-spacing repair 做可测量优化。不要用多线程掩盖该成本。
+
+任务按低风险到高风险执行，每一步单独 benchmark，保留 measured win，回退持平或退化方案：
+
+1. 增加 `spacing_relax` 内部 breakdown timer / counter：
+   - dense bin rebuild
+   - pair accumulation
+   - lambda solve
+   - correction accumulation
+   - correction apply
+   - post-spacing box / terrain / repair
+   - active lambdas
+   - moved particles
+   - candidate pairs vs accepted pairs（如实现成本低）
+2. 只 repair 被 spacing correction 实际移动的粒子：
+   - correction apply 时记录 moved indices 或 moved bitset。
+   - spacing 后的 box / terrain / repair 只处理 moved 粒子。
+   - 未移动粒子语义上保持不变；这是首个低风险优化候选。
+3. 降低 pair list 带宽：
+   - 先尝试 compact pair layout，用 `u32` 存粒子 index（100000 粒子足够），减少 `usize` 带宽。
+   - 再尝试只存 `(i, j)`，correction pass 重算 `grad_i`；用更多算术换更少内存读写。
+   - 再尝试无 pair list 的双遍 neighbor traversal：第一遍累计 density / gradient，第二遍重走 pairs 并直接累计 correction。该方案风险较高，因为会增加 pair traversal / sqrt 数量，只在 benchmark 支持时保留。
+4. 改善 dense bin locality：
+   - 用 counting-sort style bins 替代 linked-list `head/next`：先 count，每个 bin prefix sum，再把 particle indices 填入连续数组。
+   - 每个 occupied bin 变成 contiguous range，减少 pointer chasing，提高 pair loop 的 cache locality 和 branch predictability。
+   - 与 compact pair variants 分开测试，避免一次改动太大。
+5. 为 spacing 建 compact position scratch：
+   - pair loop 只需要位置，避免反复读取完整 `WaterParticle` struct。
+   - 可先用 `Vec<Vec3>`，必要时再评估 SoA（`x/y/z` 分离）。
+   - 只在 release hidden 8192 / 100000 两档都不退化时保留。
+6. 简化 pair kernel math：
+   - 预计算 `inv_support_radius`、gradient coefficient。
+   - 在 pair loop 中直接计算 `q`、`q*q`、weight 和 gradient，减少 helper 调用边界和重复除法。
+   - 保持零距离 fallback、finite guard、correction cap 不变。
+7. 如果 exact density spacing 单核心仍无法接近目标，再单独评估近似方案：
+   - cap 每粒子最大 neighbor / pair 数。
+   - spacing 每 N 个 substep 执行一次。
+   - grid-density / cell-density push 替代 exact pairwise density projection。
+   - 这些都属于行为变化，必须配窗口观察、日志指标和文档说明，不能悄悄改默认。
+
+验收：
+
+- 每个候选都至少跑 `8192` 和 `100000` 粒子 release hidden perf，对比 `spacing_relax ms/substep`、`density_pairs/substep`、`density_bins/substep`、`avg/substep`、frame `water_update`。
+- 8192 粒子不能出现 marker clump、穿地增加、边界 pinning 或速度异常。
+- 100000 粒子重点看单核心总 CPU 是否下降；不要求立即实时，但必须明确记录收益比例。
+- `terrain_exact_checks` 保持 0 或解释变化；`terrain_shadow_false_skips` 不应因 spacing 改动系统性增加。
+
+预期收益：exact density spacing 的单核心优化预计主要是常数因子改善，合理目标是 `1.5x-3x` 的 `spacing_relax` 降幅；若要让 100000 粒子真正实时，可能仍需要近似 spacing 算法，但先完成上述可逆 kernel 优化。
+
+### P8：water sim 线程化（后移）
 
 任务：
 
@@ -319,7 +370,7 @@ Findings:
 
 验收：主线程 frame time 降低；water 延迟可接受；退出无 hang；terrain/cache revision 不回退。
 
-预期收益：对主线程 hitch 高，对总 CPU 成本无本质改善。因此放在 kernel 优化之后。
+预期收益：对主线程 hitch 高，对总 CPU 成本无本质改善。由于当前目标是单核心优化，线程化放在 density `spacing_relax` kernel 优化之后。
 
 ## 推荐执行顺序
 
@@ -341,9 +392,13 @@ Findings:
 
 下一步：
 
-1. `prototype threaded water sim behind flag`
+1. `add spacing_relax internal timers and counters`
+2. `repair only moved spacing particles`
+3. `benchmark compact / recomputed / no-list density pair variants`
+4. `prototype contiguous counting-sort density bins`
+5. `prototype compact position scratch for spacing`
 
-不要默认恢复 `spacing=0`，也不要把 performance profile 的 pressure 默认降到 `8` 以下；旧 pairwise spacing 只作为 fallback。
+不要默认恢复 `spacing=0`，也不要把 performance profile 的 pressure 默认降到 `8` 以下；旧 pairwise spacing 只作为 fallback。不要把 water sim 线程化作为下一步主线；当前 roadmap 优先单核心降低 `spacing_relax` 总 CPU。
 
 ## 每步验证要求
 
