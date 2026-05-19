@@ -1783,6 +1783,10 @@ impl PondWaterSim {
         let terrain_max_correction = padding;
         let max_particle_speed = max_particle_speed_for_substep(self.dx, dt);
         let repair_mode = ParticleStateRepairMode::for_config(&self.config);
+        let origin_ws = self.origin_ws;
+        let inv_dx = self.inv_dx;
+        let dx = self.dx;
+        let grid_dim = self.grid_dim;
 
         self.cell_density_total_corrections.clear();
         self.cell_density_total_corrections
@@ -1885,6 +1889,7 @@ impl PondWaterSim {
 
             let post_repair_start = collect_perf.then(Instant::now);
             let terrain = self.terrain.as_ref();
+            let terrain_grid = &self.terrain_grid;
             let particles = &mut self.particles;
             for &idx in &self.cell_density_moved_particles {
                 let particle = &mut particles[idx];
@@ -1896,17 +1901,43 @@ impl PondWaterSim {
                     particle_max_padding,
                 );
                 if let Some(terrain) = terrain {
-                    collide_particle_with_terrain_iterative(
-                        particle,
-                        terrain,
+                    let local_pos = particle.x - origin_ws;
+                    match terrain_grid_particle_query(
+                        local_pos,
+                        inv_dx,
+                        dx,
+                        grid_dim,
+                        terrain_grid,
                         terrain_collision_margin,
-                        terrain_max_correction,
-                        TERRAIN_PARTICLE_COLLISION_ITERATIONS,
-                        bounds.min_ws,
-                        bounds.max_ws,
-                        particle_min_padding,
-                        particle_max_padding,
-                    );
+                    ) {
+                        TerrainGridParticleQuery::Skip { .. } => {}
+                        TerrainGridParticleQuery::CachedProjection { sdf, normal, .. } => {
+                            project_particle_with_cached_terrain(
+                                particle,
+                                sdf,
+                                normal,
+                                terrain_collision_margin,
+                                terrain_max_correction,
+                                bounds.min_ws,
+                                bounds.max_ws,
+                                particle_min_padding,
+                                particle_max_padding,
+                            );
+                        }
+                        TerrainGridParticleQuery::ExactFallback => {
+                            collide_particle_with_terrain_iterative(
+                                particle,
+                                terrain,
+                                terrain_collision_margin,
+                                terrain_max_correction,
+                                TERRAIN_PARTICLE_COLLISION_ITERATIONS,
+                                bounds.min_ws,
+                                bounds.max_ws,
+                                particle_min_padding,
+                                particle_max_padding,
+                            );
+                        }
+                    }
                 }
                 repair_particle_state_with_padding(
                     particle,
