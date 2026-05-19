@@ -18,7 +18,4 @@ pub use mls_mpm::{
     build_terrain_grid_cache_patch, WaterTerrainCacheApplyReport,
     WaterTerrainCacheBuildRequest, WaterTerrainCachePatch, WaterTerrainCacheRebuildStats,
 };
-pub use pond::{
-    DebugWaterSpawnResult, DebugWaterSpawnSkipReason, PondWaterConfig, PondWaterSim,
-    WaterParticleSpacingMode,
-};
+pub use pond::{DebugWaterSpawnResult, DebugWaterSpawnSkipReason, PondWaterConfig, PondWaterSim};

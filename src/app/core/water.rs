@@ -45,8 +45,6 @@ pub(super) fn apply_water_gui_adjustables_to_config(
         0.0,
         config.linear_damping_per_sec,
     );
-    config.pressure_projection_iterations = gui_adjustables.water_pressure_iterations.value;
-    config.particle_spacing_relaxation_iterations = gui_adjustables.water_spacing_iterations.value;
     config.gravity.y = finite_or(gui_adjustables.water_gravity_y.value, config.gravity.y);
     config.stiffness =
         finite_at_least(gui_adjustables.water_stiffness.value, 0.0, config.stiffness);
@@ -67,8 +65,6 @@ pub(super) fn sync_water_gui_adjustables_from_config(
     gui_adjustables.water_substep_hz.value = config.substep_dt.recip();
     gui_adjustables.water_terrain_margin_cells.value = config.terrain_collision_margin_cells;
     gui_adjustables.water_damping.value = config.linear_damping_per_sec;
-    gui_adjustables.water_pressure_iterations.value = config.pressure_projection_iterations;
-    gui_adjustables.water_spacing_iterations.value = config.particle_spacing_relaxation_iterations;
     gui_adjustables.water_gravity_y.value = config.gravity.y;
     gui_adjustables.water_stiffness.value = config.stiffness;
     gui_adjustables.water_gamma.value = config.gamma;

@@ -24,7 +24,6 @@ mod window;
 use app::AppController;
 use ash::vk;
 use env_logger::{Env, Target};
-use re_flora_water::WaterParticleSpacingMode;
 use std::{
     fs::{self, File, OpenOptions},
     io::{self, Write},
@@ -131,14 +130,6 @@ pub struct AppOptions {
     pub water_gamma: Option<f32>,
     /// Override minimum weakly-compressible volume ratio J.
     pub water_j_min: Option<f32>,
-    /// Override incompressible water pressure projection Jacobi iterations.
-    pub water_pressure_iterations: Option<u32>,
-    /// Override marker particle spacing relaxation iterations (0 disables anti-clump pass).
-    pub water_spacing_iterations: Option<u32>,
-    /// Override marker particle spacing projection mode.
-    pub water_spacing_mode: Option<WaterParticleSpacingMode>,
-    /// Override incompressible APIC affine blend (0 = pure PIC/no-APIC path).
-    pub water_apic_blend: Option<f32>,
     /// Run a deterministic terrain-edit soak around the pond for water validation.
     pub water_edit_soak: bool,
     /// Run the lightweight tree replacement benchmark and exit after completion.
@@ -216,21 +207,6 @@ impl AppOptions {
             None => None,
         };
 
-        let water_spacing_mode = match parse_string_after("--water-spacing-mode") {
-            Some(value) => Some(
-                WaterParticleSpacingMode::from_cli_value(&value).unwrap_or_else(|| {
-                    panic!(
-                        "Unsupported --water-spacing-mode '{}'. Supported values: pairwise, density, pbf, cell-density",
-                        value
-                    )
-                }),
-            ),
-            None if args.iter().any(|a| a == "--water-spacing-mode") => {
-                panic!("Missing value for --water-spacing-mode. Supported values: pairwise, density, pbf, cell-density")
-            }
-            None => None,
-        };
-
         let tail_latest_log = args
             .iter()
             .any(|a| a == "--tail-latest-log")
@@ -262,16 +238,6 @@ impl AppOptions {
             water_stiffness: parse_f32_after("--water-stiffness").map(|v| v.max(0.0)),
             water_gamma: parse_f32_after("--water-gamma").map(|v| v.max(1.0e-4)),
             water_j_min: parse_f32_after("--water-j-min").map(|v| v.clamp(1.0e-4, 1.0)),
-            water_pressure_iterations: parse_u32_after("--water-pressure-iterations"),
-            water_spacing_iterations: parse_u32_after("--water-spacing-iterations"),
-            water_spacing_mode,
-            water_apic_blend: parse_f32_after("--water-apic-blend").map(|v| {
-                if v.is_finite() {
-                    v.clamp(0.0, 1.0)
-                } else {
-                    0.0
-                }
-            }),
             water_edit_soak: args.iter().any(|a| a == "--water-edit-soak"),
             tree_bench: args.iter().any(|a| a == "--tree-bench"),
             tree_bench_samples: parse_u32_after("--tree-bench-samples").unwrap_or(10),
@@ -316,12 +282,6 @@ Options:
   --water-stiffness <K>       Override weakly-compressible EOS stiffness
   --water-gamma <G>           Override weakly-compressible EOS gamma
   --water-j-min <J>           Override minimum weakly-compressible volume ratio J
-  --water-pressure-iterations <N>
-                              Opt into incompressible pressure projection iterations (0 = weak EOS, default)
-  --water-spacing-iterations <N>
-                              Override marker particle spacing relaxation iterations (0 disables anti-clump pass)
-  --water-spacing-mode <mode> Override marker spacing projection: pairwise, density, pbf, cell-density
-  --water-apic-blend <B>      Override incompressible APIC affine blend (0 = pure PIC/no-APIC)
   --water-edit-soak           Run deterministic pond terrain edits for water validation
   --tree-bench                Run tree replacement benchmark and exit
   --tree-bench-samples <N>    Tree benchmark samples (default: 10)

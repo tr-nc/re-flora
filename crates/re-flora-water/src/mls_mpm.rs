@@ -1,13 +1,12 @@
 use glam::{IVec3, Mat3, UVec3, Vec3};
-use std::{collections::HashMap, time::Instant};
+use std::time::Instant;
 
 use super::{
     collider::{WaterBoxCollider, WaterTerrainColliderSet},
     pond::{
-        PondWaterConfig, PondWaterSim, WaterParticle, WaterParticleSpacingMode,
-        WaterTerrainGridSample, WATER_GRID_BOUNDARY_X_MAX, WATER_GRID_BOUNDARY_X_MIN,
-        WATER_GRID_BOUNDARY_Y_MAX,
-        WATER_GRID_BOUNDARY_Y_MIN, WATER_GRID_BOUNDARY_Z_MAX, WATER_GRID_BOUNDARY_Z_MIN,
+        PondWaterSim, WaterTerrainGridSample, WATER_GRID_BOUNDARY_X_MAX,
+        WATER_GRID_BOUNDARY_X_MIN, WATER_GRID_BOUNDARY_Y_MAX, WATER_GRID_BOUNDARY_Y_MIN,
+        WATER_GRID_BOUNDARY_Z_MAX, WATER_GRID_BOUNDARY_Z_MIN,
     },
 };
 
@@ -17,97 +16,8 @@ const MAX_J: f32 = 8.0;
 const MAX_PARTICLE_SPEED: f32 = 20.0;
 const MAX_PARTICLE_CFL_CELLS_PER_SUBSTEP: f32 = 0.5;
 const MAX_AFFINE_COMPONENT: f32 = 100.0;
-// Incompressible projection removes volumetric compression on the grid. Keeping
-// the full APIC affine term after that makes sparse/free-surface particles ring
-// like springs, so incompressible mode uses a configurable, more PIC-like
-// transfer and can skip APIC affine work entirely when the blend is zero.
-const MAX_INCOMPRESSIBLE_AFFINE_COMPONENT: f32 = 20.0;
-// Particles are marker samples, but rendering them directly makes marker
-// clumping visible. This local spacing projection gives each sample a small
-// excluded volume so incompressible water settles into a puddle instead of a
-// single visual point.
-const INCOMPRESSIBLE_PARTICLE_SPACING_SCALE: f32 = 0.80;
-const INCOMPRESSIBLE_PARTICLE_SPACING_STRENGTH: f32 = 0.45;
-const INCOMPRESSIBLE_DENSITY_SPACING_SUPPORT_SCALE: f32 = 1.50;
-const INCOMPRESSIBLE_DENSITY_SPACING_STRENGTH: f32 = 0.35;
-const INCOMPRESSIBLE_DENSITY_LAMBDA_EPSILON: f32 = 600.0;
-const INCOMPRESSIBLE_DENSITY_TARGET_AXIS_NEIGHBORS: f32 = 6.0;
-const INCOMPRESSIBLE_DENSITY_VELOCITY_BLEND: f32 = 0.15;
-const MAX_INCOMPRESSIBLE_DENSITY_VELOCITY_CORRECTION_CELLS: f32 = 0.20;
-// Cell-density spacing is a marker regularizer, not the main pressure solve.
-// Keep it deliberately under-relaxed: hard one-particle-per-cell occupancy and
-// large velocity feedback make settled piles buzz as particles cross cell
-// boundaries. PBF / particle-shifting schemes generally use small positional
-// corrections plus damping/viscosity rather than treating the shift as a strong
-// physical impulse. For this opt-in mode we therefore cap per-substep marker
-// motion by rest-distance and avoid feeding the grid-cell shift back into water
-// velocity.
-const INCOMPRESSIBLE_CELL_DENSITY_CELL_SCALE: f32 = 1.25;
-const INCOMPRESSIBLE_CELL_DENSITY_TARGET_FILL: f32 = 0.75;
-const INCOMPRESSIBLE_CELL_DENSITY_PUSH_STRENGTH: f32 = 0.12;
-const INCOMPRESSIBLE_CELL_DENSITY_MAX_CORRECTION_REST_SCALE: f32 = 0.06;
-const INCOMPRESSIBLE_CELL_DENSITY_VELOCITY_BLEND: f32 = 0.0;
-const INCOMPRESSIBLE_CELL_DENSITY_TERRAIN_GUARD_CELLS: f32 = 0.25;
-const DENSITY_SPACING_INVALID_BIN_ENTRY: usize = usize::MAX;
-const DENSITY_SPACING_MAX_DENSE_BINS: usize = 2_000_000;
-// Counting-sort bins reduce high-density pointer chasing but rebuild more scratch.
-// Keep linked bins for small/default particle counts where rebuild overhead dominates.
-const DENSITY_SPACING_CONTIGUOUS_BIN_MIN_PARTICLES: usize = 50_000;
-const DENSITY_SPACING_FORWARD_NEIGHBOR_OFFSETS: [(i32, i32, i32); 13] = [
-    (1, 0, 0),
-    (-1, 1, 0),
-    (0, 1, 0),
-    (1, 1, 0),
-    (-1, -1, 1),
-    (0, -1, 1),
-    (1, -1, 1),
-    (-1, 0, 1),
-    (0, 0, 1),
-    (1, 0, 1),
-    (-1, 1, 1),
-    (0, 1, 1),
-    (1, 1, 1),
-];
-const PRESSURE_PROJECTION_NEIGHBOR_NONE: usize = usize::MAX;
-const PRESSURE_PROJECTION_NEIGHBOR_COUNT: usize = 6;
 const TERRAIN_GRID_SKIP_GUARD_CELLS: f32 = 0.25;
 const TERRAIN_GRID_PROJECTION_GUARD_CELLS: f32 = 0.10;
-
-#[derive(Clone, Copy, Debug)]
-enum ParticleStateRepairMode {
-    LegacyEos { j_min: f32 },
-    Incompressible { keep_affine: bool },
-}
-
-impl ParticleStateRepairMode {
-    fn for_config(config: &PondWaterConfig) -> Self {
-        if config.uses_legacy_eos() {
-            Self::LegacyEos { j_min: config.j_min }
-        } else {
-            Self::Incompressible {
-                keep_affine: config.incompressible_apic_blend > 0.0,
-            }
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct PressureProjectionStencil {
-    pressure_neighbors: [usize; PRESSURE_PROJECTION_NEIGHBOR_COUNT],
-    center_pressure_neighbor_mask: u8,
-    diagonal: f32,
-}
-
-impl Default for PressureProjectionStencil {
-    fn default() -> Self {
-        Self {
-            pressure_neighbors: [PRESSURE_PROJECTION_NEIGHBOR_NONE;
-                PRESSURE_PROJECTION_NEIGHBOR_COUNT],
-            center_pressure_neighbor_mask: 0,
-            diagonal: 0.0,
-        }
-    }
-}
 
 #[derive(Debug)]
 pub struct WaterTerrainCacheBuildRequest {
@@ -307,7 +217,6 @@ fn terrain_cache_range_node_count(min_node: UVec3, max_node_exclusive: UVec3) ->
         .saturating_mul(extent.z as usize)
 }
 
-const MAX_PARTICLE_SPACING_CORRECTION_CELLS: f32 = 0.35;
 // A particle can end a substep deeper than one capped correction can resolve.
 // Iterate bounded SDF corrections so the next P2G pass does not deposit mass
 // from inside terrain.
@@ -395,13 +304,7 @@ impl PondWaterSim {
             self.clear_grid();
             self.particle_to_grid(dt);
             let active_nodes = self.update_grid(dt);
-            if self.config.uses_incompressible_projection() {
-                self.project_grid_incompressible(dt);
-            }
             let g2p_breakdown = self.grid_to_particle(dt);
-            if self.config.uses_incompressible_projection() {
-                self.relax_incompressible_particle_spacing(dt, false);
-            }
             self.record_diagnostic_substep(active_nodes, g2p_breakdown);
             return;
         }
@@ -425,24 +328,9 @@ impl PondWaterSim {
         let active_nodes = self.update_grid(dt);
         let grid_update_seconds = grid_update_start.elapsed().as_secs_f64();
 
-        let pressure_projection_seconds = if self.config.uses_incompressible_projection() {
-            let pressure_projection_start = Instant::now();
-            self.project_grid_incompressible(dt);
-            pressure_projection_start.elapsed().as_secs_f64()
-        } else {
-            0.0
-        };
-        let grid_seconds = grid_update_seconds + pressure_projection_seconds;
+        let grid_seconds = grid_update_seconds;
 
         let g2p_breakdown = self.grid_to_particle_timed(dt);
-
-        let spacing_relax_seconds = if self.config.uses_incompressible_projection() {
-            let spacing_relax_start = Instant::now();
-            self.relax_incompressible_particle_spacing(dt, true);
-            spacing_relax_start.elapsed().as_secs_f64()
-        } else {
-            0.0
-        };
 
         let diagnostics_start = Instant::now();
         self.record_diagnostic_substep(active_nodes, g2p_breakdown);
@@ -454,9 +342,7 @@ impl PondWaterSim {
         self.perf_stats.p2g_seconds += p2g_seconds;
         self.perf_stats.grid_seconds += grid_seconds;
         self.perf_stats.grid_update_seconds += grid_update_seconds;
-        self.perf_stats.pressure_projection_seconds += pressure_projection_seconds;
         self.perf_stats.g2p_seconds += g2p_breakdown.total_seconds;
-        self.perf_stats.spacing_relax_seconds += spacing_relax_seconds;
         self.perf_stats.diagnostics_seconds += diagnostics_seconds;
         self.perf_stats.g2p_gather_seconds += g2p_breakdown.gather_seconds;
         self.perf_stats.g2p_box_seconds += g2p_breakdown.box_seconds;
@@ -500,7 +386,7 @@ impl PondWaterSim {
         let padding = self.dx * self.config.wall_padding_cells.max(1.0);
         let speed_limit = max_particle_speed_for_substep(self.dx, self.config.substep_dt);
         let terrain_collision_margin = self.terrain_collision_margin();
-        let legacy_eos_j_min = self.config.legacy_eos_j_min();
+        let eos_j_min = Some(self.config.j_min);
         let interval_due = self.diagnostic_report_seconds >= REPORT_INTERVAL_SECONDS;
         let terrain_activity_since_report = self.diagnostic_stats.g2p_terrain_cache_projections > 0
             || self.diagnostic_stats.g2p_terrain_exact_corrections > 0;
@@ -514,7 +400,7 @@ impl PondWaterSim {
                 self.config.collider,
                 padding,
                 speed_limit,
-                legacy_eos_j_min,
+                eos_j_min,
                 terrain_collision_margin,
             );
             let speed_saturated = cheap_particle_stats.max_speed
@@ -540,7 +426,7 @@ impl PondWaterSim {
             self.config.collider,
             padding,
             speed_limit,
-            legacy_eos_j_min,
+            eos_j_min,
             terrain_collision_margin,
         );
 
@@ -652,7 +538,6 @@ impl PondWaterSim {
             + stats.p2g_seconds
             + stats.grid_seconds
             + stats.g2p_seconds
-            + stats.spacing_relax_seconds
             + stats.diagnostics_seconds;
         let residual_seconds = (stats.total_seconds - recorded_seconds).max(0.0);
         let grid_nodes = self.grid.len();
@@ -664,11 +549,11 @@ impl PondWaterSim {
             self.config.collider,
             particle_padding,
             max_particle_speed,
-            self.config.legacy_eos_j_min(),
+            Some(self.config.j_min),
             self.terrain_collision_margin(),
         );
         log::info!(
-            "[PERF][WATER] particles {} grid {:?} nodes {} substeps {} total {:.2}ms avg {:.3}ms/substep repair {:.2}ms clear {:.2}ms p2g {:.2}ms grid {:.2}ms grid_update {:.2}ms pressure {:.2}ms g2p {:.2}ms g2p_gather {:.2}ms g2p_box {:.2}ms g2p_terrain {:.2}ms g2p_repair {:.2}ms spacing_relax {:.2}ms spacing_bin_rebuild {:.2}ms spacing_pair_accum {:.2}ms spacing_lambda {:.2}ms spacing_corr_accum {:.2}ms spacing_corr_apply {:.2}ms spacing_post_repair {:.2}ms spacing_velocity {:.2}ms cell_density_rebuild {:.2}ms cell_density_push {:.2}ms diagnostics {:.2}ms residual {:.2}ms shadow_measure {:.2}ms density_pairs/substep {:.0} density_bins/substep {:.0} density_active_lambdas/substep {:.0} density_moved/substep {:.0} cell_density_occupied_cells/substep {:.0} cell_density_overfull_cells/substep {:.0} cell_density_moved/substep {:.0} cell_density_max_excess {:.3} terrain_cache_skips/substep {:.0} terrain_cache_projections/substep {:.0} terrain_exact_fallbacks/substep {:.0} terrain_exact_checks/substep {:.0} terrain_exact_corrections/substep {:.0} terrain_shadow_samples/substep {:.1} terrain_shadow_false_skips {} terrain_shadow_sdf_err_avg {:.5} terrain_shadow_sdf_err_max {:.5} active_nodes/substep {:.0} particle_y {:.3}..{:.3} avg {:.3} terrain_sdf_min {:.4} penetrating {} no_sdf {}",
+            "[PERF][WATER] particles {} grid {:?} nodes {} substeps {} total {:.2}ms avg {:.3}ms/substep repair {:.2}ms clear {:.2}ms p2g {:.2}ms grid {:.2}ms grid_update {:.2}ms g2p {:.2}ms g2p_gather {:.2}ms g2p_box {:.2}ms g2p_terrain {:.2}ms g2p_repair {:.2}ms diagnostics {:.2}ms residual {:.2}ms shadow_measure {:.2}ms terrain_cache_skips/substep {:.0} terrain_cache_projections/substep {:.0} terrain_exact_fallbacks/substep {:.0} terrain_exact_checks/substep {:.0} terrain_exact_corrections/substep {:.0} terrain_shadow_samples/substep {:.1} terrain_shadow_false_skips {} terrain_shadow_sdf_err_avg {:.5} terrain_shadow_sdf_err_max {:.5} active_nodes/substep {:.0} particle_y {:.3}..{:.3} avg {:.3} terrain_sdf_min {:.4} penetrating {} no_sdf {}",
             self.particles.len(),
             self.grid_dim,
             grid_nodes,
@@ -680,33 +565,14 @@ impl PondWaterSim {
             stats.p2g_seconds * 1000.0,
             stats.grid_seconds * 1000.0,
             stats.grid_update_seconds * 1000.0,
-            stats.pressure_projection_seconds * 1000.0,
             stats.g2p_seconds * 1000.0,
             stats.g2p_gather_seconds * 1000.0,
             stats.g2p_box_seconds * 1000.0,
             stats.g2p_terrain_seconds * 1000.0,
             stats.g2p_repair_seconds * 1000.0,
-            stats.spacing_relax_seconds * 1000.0,
-            stats.density_spacing_bin_rebuild_seconds * 1000.0,
-            stats.density_spacing_pair_accum_seconds * 1000.0,
-            stats.density_spacing_lambda_seconds * 1000.0,
-            stats.density_spacing_correction_accum_seconds * 1000.0,
-            stats.density_spacing_correction_apply_seconds * 1000.0,
-            stats.density_spacing_post_repair_seconds * 1000.0,
-            stats.density_spacing_velocity_seconds * 1000.0,
-            stats.cell_density_rebuild_seconds * 1000.0,
-            stats.cell_density_push_seconds * 1000.0,
             stats.diagnostics_seconds * 1000.0,
             residual_seconds * 1000.0,
             shadow_measure_seconds * 1000.0,
-            stats.density_spacing_pairs as f64 / substeps,
-            stats.density_spacing_occupied_bins as f64 / substeps,
-            stats.density_spacing_active_lambdas as f64 / substeps,
-            stats.density_spacing_moved_particles as f64 / substeps,
-            stats.cell_density_occupied_cells as f64 / substeps,
-            stats.cell_density_overfull_cells as f64 / substeps,
-            stats.cell_density_moved_particles as f64 / substeps,
-            stats.cell_density_max_excess,
             stats.g2p_terrain_cache_skips as f64 / substeps,
             stats.g2p_terrain_cache_projections as f64 / substeps,
             stats.g2p_terrain_exact_fallbacks as f64 / substeps,
@@ -1049,7 +915,7 @@ impl PondWaterSim {
         let terrain_collision_margin = self.terrain_collision_margin();
         let terrain_max_correction = padding;
         let max_particle_speed = max_particle_speed_for_substep(self.dx, dt);
-        let repair_mode = ParticleStateRepairMode::for_config(&self.config);
+        let j_min = self.config.j_min;
         let terrain = repair_terrain.then_some(()).and(self.terrain.as_ref());
         for particle in &mut self.particles {
             repair_particle_state_with_padding(
@@ -1059,7 +925,7 @@ impl PondWaterSim {
                 min_padding,
                 max_padding,
                 max_particle_speed,
-                repair_mode,
+                j_min,
             );
             if let Some(terrain) = terrain {
                 collide_particle_with_terrain_iterative(
@@ -1096,11 +962,9 @@ impl PondWaterSim {
         let mass = self.config.particle_mass;
         let volume = self.config.particle_volume;
         let d_inv = 4.0 * inv_dx * inv_dx;
-        let legacy_eos = self.config.uses_legacy_eos();
-        let legacy_j_min = if legacy_eos { self.config.j_min } else { 1.0 };
-        let stiffness = if legacy_eos { self.config.stiffness } else { 0.0 };
-        let gamma = if legacy_eos { self.config.gamma } else { 1.0 };
-        let use_affine_transfer = legacy_eos || self.config.incompressible_apic_blend > 0.0;
+        let j_min = self.config.j_min;
+        let stiffness = self.config.stiffness;
+        let gamma = self.config.gamma;
         let y_stride = grid_dim.x as usize;
         let z_stride = y_stride * grid_dim.y as usize;
 
@@ -1111,15 +975,9 @@ impl PondWaterSim {
             let fx = grid_pos - base.as_vec3();
             let weights = quadratic_weights(fx);
 
-            let affine = if legacy_eos {
-                let pressure = legacy_eos_pressure(stiffness, gamma, particle.j, legacy_j_min);
-                let pressure_scale = dt * volume * particle.j * pressure * d_inv;
-                Mat3::from_diagonal(Vec3::splat(pressure_scale)) + particle.c * mass
-            } else if use_affine_transfer {
-                particle.c * mass
-            } else {
-                Mat3::ZERO
-            };
+            let pressure = eos_pressure(stiffness, gamma, particle.j, j_min);
+            let pressure_scale = dt * volume * particle.j * pressure * d_inv;
+            let affine = Mat3::from_diagonal(Vec3::splat(pressure_scale)) + particle.c * mass;
             let momentum = particle.v * mass;
 
             // Most particles are kept away from grid boundaries by wall padding;
@@ -1142,14 +1000,10 @@ impl PondWaterSim {
                                 self.touched_grid_nodes.push(node_idx);
                             }
                             grid_node.mass += weight * mass;
-                            if use_affine_transfer {
-                                let node = base + IVec3::new(ox as i32, oy as i32, oz as i32);
-                                let node_local = node.as_vec3() * dx;
-                                let dpos = node_local - local_pos;
-                                grid_node.v += weight * (momentum + affine * dpos);
-                            } else {
-                                grid_node.v += weight * momentum;
-                            }
+                            let node = base + IVec3::new(ox as i32, oy as i32, oz as i32);
+                            let node_local = node.as_vec3() * dx;
+                            let dpos = node_local - local_pos;
+                            grid_node.v += weight * (momentum + affine * dpos);
                         }
                     }
                 }
@@ -1180,13 +1034,9 @@ impl PondWaterSim {
                                 self.touched_grid_nodes.push(node_idx);
                             }
                             grid_node.mass += weight * mass;
-                            if use_affine_transfer {
-                                let node_local = node.as_vec3() * dx;
-                                let dpos = node_local - local_pos;
-                                grid_node.v += weight * (momentum + affine * dpos);
-                            } else {
-                                grid_node.v += weight * momentum;
-                            }
+                            let node_local = node.as_vec3() * dx;
+                            let dpos = node_local - local_pos;
+                            grid_node.v += weight * (momentum + affine * dpos);
                         }
                     }
                 }
@@ -1229,1170 +1079,6 @@ impl PondWaterSim {
         active_nodes
     }
 
-    fn project_grid_incompressible(&mut self, dt: f32) {
-        let iterations = self.config.pressure_projection_iterations as usize;
-        if iterations == 0 || dt <= 0.0 || !dt.is_finite() || self.grid.is_empty() {
-            return;
-        }
-
-        self.ensure_pressure_projection_buffers_len();
-        self.projection_active_nodes.clear();
-        self.projection_stencils.clear();
-
-        let terrain_collision_margin = self.terrain_collision_margin();
-        for &idx in &self.touched_grid_nodes {
-            if self.grid[idx].mass <= ACTIVE_MASS_EPSILON {
-                continue;
-            }
-            if pressure_projection_solid_node(
-                idx,
-                &self.grid_boundary_flags,
-                &self.terrain_grid,
-                terrain_collision_margin,
-            ) {
-                continue;
-            }
-
-            let coord = grid_coord_dims(self.grid_dim, idx);
-            let stencil = pressure_projection_stencil_at(
-                coord,
-                self.grid_dim,
-                &self.grid,
-                &self.grid_boundary_flags,
-                &self.terrain_grid,
-                terrain_collision_margin,
-            );
-
-            self.projection_active_nodes.push(idx);
-            self.projection_stencils.push(stencil);
-            self.projection_pressure[idx] = 0.0;
-            self.projection_pressure_next[idx] = 0.0;
-            self.projection_divergence[idx] = 0.0;
-        }
-
-        if self.projection_active_nodes.is_empty() {
-            return;
-        }
-
-        let inv_dx = self.inv_dx;
-        for (&idx, stencil) in self
-            .projection_active_nodes
-            .iter()
-            .zip(self.projection_stencils.iter())
-        {
-            let divergence = pressure_projection_divergence_from_stencil(
-                idx,
-                stencil,
-                &self.grid,
-                inv_dx,
-            );
-            self.projection_divergence[idx] = divergence / dt;
-        }
-
-        let dx2 = self.dx * self.dx;
-        for _ in 0..iterations {
-            let pressure = &self.projection_pressure;
-            let pressure_next = &mut self.projection_pressure_next;
-            let divergence = &self.projection_divergence;
-            for (&idx, stencil) in self
-                .projection_active_nodes
-                .iter()
-                .zip(self.projection_stencils.iter())
-            {
-                let mut pressure_sum = 0.0;
-                for &neighbor_idx in &stencil.pressure_neighbors {
-                    if neighbor_idx != PRESSURE_PROJECTION_NEIGHBOR_NONE {
-                        pressure_sum += pressure[neighbor_idx];
-                    }
-                }
-
-                pressure_next[idx] = if stencil.diagonal > 0.0 {
-                    (pressure_sum - divergence[idx] * dx2) / stencil.diagonal
-                } else {
-                    0.0
-                };
-            }
-
-            std::mem::swap(
-                &mut self.projection_pressure,
-                &mut self.projection_pressure_next,
-            );
-        }
-
-        let speed_limit = max_particle_speed_for_substep(self.dx, dt);
-        let pressure = &self.projection_pressure;
-        let grid = &mut self.grid;
-        for (&idx, stencil) in self
-            .projection_active_nodes
-            .iter()
-            .zip(self.projection_stencils.iter())
-        {
-            let center_pressure = pressure[idx];
-            let pxm = pressure_projection_stencil_neighbor_pressure(
-                stencil,
-                0,
-                center_pressure,
-                pressure,
-            );
-            let pxp = pressure_projection_stencil_neighbor_pressure(
-                stencil,
-                1,
-                center_pressure,
-                pressure,
-            );
-            let pym = pressure_projection_stencil_neighbor_pressure(
-                stencil,
-                2,
-                center_pressure,
-                pressure,
-            );
-            let pyp = pressure_projection_stencil_neighbor_pressure(
-                stencil,
-                3,
-                center_pressure,
-                pressure,
-            );
-            let pzm = pressure_projection_stencil_neighbor_pressure(
-                stencil,
-                4,
-                center_pressure,
-                pressure,
-            );
-            let pzp = pressure_projection_stencil_neighbor_pressure(
-                stencil,
-                5,
-                center_pressure,
-                pressure,
-            );
-            let grad = Vec3::new(pxp - pxm, pyp - pym, pzp - pzm) * (0.5 * inv_dx);
-            let node = &mut grid[idx];
-            node.v = clamp_vec3_length(node.v - grad * dt, speed_limit);
-        }
-
-        self.project_grid_collision_boundaries_for_active_nodes();
-    }
-
-    fn ensure_pressure_projection_buffers_len(&mut self) {
-        let grid_len = self.grid.len();
-        self.projection_pressure.resize(grid_len, 0.0);
-        self.projection_pressure_next.resize(grid_len, 0.0);
-        self.projection_divergence.resize(grid_len, 0.0);
-    }
-
-    fn project_grid_collision_boundaries_for_active_nodes(&mut self) {
-        let terrain_collision_margin = self.terrain_collision_margin();
-        let wall_damping = self.config.wall_damping.clamp(0.0, 1.0);
-        for &idx in &self.projection_active_nodes {
-            let node = &mut self.grid[idx];
-            project_grid_node_collisions(
-                node,
-                self.grid_boundary_flags[idx],
-                self.terrain_grid[idx],
-                terrain_collision_margin,
-                wall_damping,
-            );
-        }
-    }
-
-    fn relax_incompressible_particle_spacing(&mut self, dt: f32, collect_perf: bool) {
-        match self.config.particle_spacing_mode {
-            WaterParticleSpacingMode::Pairwise => {
-                self.relax_incompressible_pairwise_particle_spacing(dt)
-            }
-            WaterParticleSpacingMode::Density => {
-                self.relax_incompressible_density_particle_spacing(dt, collect_perf)
-            }
-            WaterParticleSpacingMode::CellDensity => {
-                self.relax_incompressible_cell_density_particle_spacing(dt, collect_perf)
-            }
-        }
-    }
-
-    fn relax_incompressible_pairwise_particle_spacing(&mut self, dt: f32) {
-        let iterations = self.config.particle_spacing_relaxation_iterations as usize;
-        if !self.config.uses_incompressible_projection()
-            || iterations == 0
-            || self.particles.len() < 2
-            || dt <= 0.0
-            || !dt.is_finite()
-        {
-            return;
-        }
-
-        let rest_distance = (self.config.particle_volume.max(1.0e-8)).cbrt()
-            * INCOMPRESSIBLE_PARTICLE_SPACING_SCALE;
-        if rest_distance <= 0.0 || !rest_distance.is_finite() {
-            return;
-        }
-
-        let count = self.particles.len();
-        let cell_size = rest_distance.max(self.dx * 0.5);
-        let inv_cell_size = cell_size.recip();
-        let min_distance_sq = rest_distance * rest_distance;
-        let max_correction = self.dx * MAX_PARTICLE_SPACING_CORRECTION_CELLS;
-        let padding = self.dx * self.config.wall_padding_cells.max(1.0);
-        let bounds = self.config.collider;
-        let particle_min_padding = Vec3::splat(padding);
-        let particle_max_padding = Vec3::splat(padding);
-        let terrain_collision_margin = self.terrain_collision_margin();
-        let terrain_max_correction = padding;
-        let terrain = self.terrain.as_ref();
-        let max_particle_speed = max_particle_speed_for_substep(self.dx, dt);
-        let repair_mode = ParticleStateRepairMode::for_config(&self.config);
-
-        for _ in 0..iterations {
-            let mut bins: HashMap<(i32, i32, i32), Vec<usize>> =
-                HashMap::with_capacity(count.saturating_mul(2));
-            for (idx, particle) in self.particles.iter().enumerate() {
-                if !particle.x.is_finite() {
-                    continue;
-                }
-                bins.entry(particle_spacing_cell(particle.x, inv_cell_size))
-                    .or_default()
-                    .push(idx);
-            }
-
-            let mut corrections = vec![Vec3::ZERO; count];
-            for i in 0..count {
-                let xi = self.particles[i].x;
-                if !xi.is_finite() {
-                    continue;
-                }
-                let (cx, cy, cz) = particle_spacing_cell(xi, inv_cell_size);
-                for oz in -1..=1 {
-                    for oy in -1..=1 {
-                        for ox in -1..=1 {
-                            let Some(neighbors) = bins.get(&(cx + ox, cy + oy, cz + oz)) else {
-                                continue;
-                            };
-                            for &j in neighbors {
-                                if j <= i {
-                                    continue;
-                                }
-
-                                let xj = self.particles[j].x;
-                                if !xj.is_finite() {
-                                    continue;
-                                }
-                                let delta = xi - xj;
-                                let distance_sq = delta.length_squared();
-                                if !distance_sq.is_finite() || distance_sq >= min_distance_sq {
-                                    continue;
-                                }
-
-                                let (normal, distance) = if distance_sq > 1.0e-12 {
-                                    let distance = distance_sq.sqrt();
-                                    (delta / distance, distance)
-                                } else {
-                                    (particle_pair_fallback_direction(i, j), 0.0)
-                                };
-                                let correction = normal
-                                    * ((rest_distance - distance)
-                                        * 0.5
-                                        * INCOMPRESSIBLE_PARTICLE_SPACING_STRENGTH);
-                                corrections[i] += correction;
-                                corrections[j] -= correction;
-                            }
-                        }
-                    }
-                }
-            }
-
-            let mut moved = false;
-            for (particle, correction) in self.particles.iter_mut().zip(corrections.into_iter()) {
-                let correction = clamp_vec3_length(correction, max_correction);
-                if correction.length_squared() <= 1.0e-12 {
-                    continue;
-                }
-                particle.x += correction;
-                moved = true;
-            }
-
-            if !moved {
-                break;
-            }
-
-            for particle in &mut self.particles {
-                collide_particle_with_box_with_padding(
-                    particle,
-                    bounds.min_ws,
-                    bounds.max_ws,
-                    particle_min_padding,
-                    particle_max_padding,
-                );
-                if let Some(terrain) = terrain {
-                    collide_particle_with_terrain_iterative(
-                        particle,
-                        terrain,
-                        terrain_collision_margin,
-                        terrain_max_correction,
-                        TERRAIN_PARTICLE_COLLISION_ITERATIONS,
-                        bounds.min_ws,
-                        bounds.max_ws,
-                        particle_min_padding,
-                        particle_max_padding,
-                    );
-                }
-                repair_particle_state_with_padding(
-                    particle,
-                    bounds.min_ws,
-                    bounds.max_ws,
-                    particle_min_padding,
-                    particle_max_padding,
-                    max_particle_speed,
-                    repair_mode,
-                );
-            }
-        }
-    }
-
-    fn relax_incompressible_density_particle_spacing(&mut self, dt: f32, collect_perf: bool) {
-        let iterations = self.config.particle_spacing_relaxation_iterations as usize;
-        if !self.config.uses_incompressible_projection()
-            || iterations == 0
-            || self.particles.len() < 2
-            || dt <= 0.0
-            || !dt.is_finite()
-        {
-            return;
-        }
-
-        let rest_distance = (self.config.particle_volume.max(1.0e-8)).cbrt()
-            * INCOMPRESSIBLE_PARTICLE_SPACING_SCALE;
-        if rest_distance <= 0.0 || !rest_distance.is_finite() {
-            return;
-        }
-
-        let count = self.particles.len();
-        let support_radius = (rest_distance * INCOMPRESSIBLE_DENSITY_SPACING_SUPPORT_SCALE)
-            .max(self.dx * 0.5);
-        if support_radius <= 0.0 || !support_radius.is_finite() {
-            return;
-        }
-        let inv_support_radius = support_radius.recip();
-        let support_radius_sq = support_radius * support_radius;
-        let rest_neighbor_weight = density_spacing_kernel_weight(rest_distance, support_radius);
-        let target_density = (1.0
-            + INCOMPRESSIBLE_DENSITY_TARGET_AXIS_NEIGHBORS * rest_neighbor_weight)
-            .max(1.0e-4);
-        let density_gradient_scale = -3.0 * inv_support_radius / target_density;
-        let max_correction = self.dx * MAX_PARTICLE_SPACING_CORRECTION_CELLS;
-        let max_velocity_correction =
-            MAX_INCOMPRESSIBLE_DENSITY_VELOCITY_CORRECTION_CELLS * self.dx / dt;
-        let padding = self.dx * self.config.wall_padding_cells.max(1.0);
-        let bounds = self.config.collider;
-        let particle_min_padding = Vec3::splat(padding);
-        let particle_max_padding = Vec3::splat(padding);
-        let terrain_collision_margin = self.terrain_collision_margin();
-        let terrain_max_correction = padding;
-        let max_particle_speed = max_particle_speed_for_substep(self.dx, dt);
-        let repair_mode = ParticleStateRepairMode::for_config(&self.config);
-
-        self.density_spacing_total_corrections.clear();
-        self.density_spacing_total_corrections
-            .resize(count, Vec3::ZERO);
-        for _ in 0..iterations {
-            self.density_spacing_pairs.clear();
-            self.density_spacing_densities.clear();
-            self.density_spacing_densities.resize(count, 1.0);
-            self.density_spacing_gradient_sums.clear();
-            self.density_spacing_gradient_sums
-                .resize(count, Vec3::ZERO);
-            self.density_spacing_gradient_sq_sums.clear();
-            self.density_spacing_gradient_sq_sums.resize(count, 0.0);
-
-            let bin_rebuild_start = collect_perf.then(Instant::now);
-            let dense_grid = self.rebuild_density_spacing_dense_bins(inv_support_radius);
-            if let Some(start) = bin_rebuild_start {
-                self.perf_stats.density_spacing_bin_rebuild_seconds +=
-                    start.elapsed().as_secs_f64();
-            }
-
-            let pair_accum_start = collect_perf.then(Instant::now);
-            let occupied_bins;
-            if let Some(dense_grid) = dense_grid {
-                occupied_bins = self.density_spacing_occupied_bins.len() as u64;
-                self.accumulate_density_spacing_dense_pairs(
-                    dense_grid,
-                    support_radius_sq,
-                    inv_support_radius,
-                    density_gradient_scale,
-                );
-            } else {
-                occupied_bins = accumulate_density_spacing_hash_pairs(
-                    &self.particles,
-                    inv_support_radius,
-                    support_radius_sq,
-                    inv_support_radius,
-                    density_gradient_scale,
-                    &mut self.density_spacing_densities,
-                    &mut self.density_spacing_gradient_sums,
-                    &mut self.density_spacing_gradient_sq_sums,
-                    &mut self.density_spacing_pairs,
-                ) as u64;
-            }
-            if let Some(start) = pair_accum_start {
-                self.perf_stats.density_spacing_pair_accum_seconds +=
-                    start.elapsed().as_secs_f64();
-                self.perf_stats.density_spacing_occupied_bins += occupied_bins;
-                self.perf_stats.density_spacing_pairs += self.density_spacing_pairs.len() as u64;
-            }
-
-            let lambda_start = collect_perf.then(Instant::now);
-            self.density_spacing_lambdas.clear();
-            self.density_spacing_lambdas.resize(count, 0.0);
-            let mut active_lambdas = 0u64;
-            for i in 0..count {
-                if !self.particles[i].x.is_finite() {
-                    continue;
-                }
-                let compression = self.density_spacing_densities[i] / target_density - 1.0;
-                if compression <= 0.0 || !compression.is_finite() {
-                    continue;
-                }
-                let gradient_sum_sq = self.density_spacing_gradient_sums[i].length_squared();
-                let denominator = self.density_spacing_gradient_sq_sums[i]
-                    + gradient_sum_sq
-                    + INCOMPRESSIBLE_DENSITY_LAMBDA_EPSILON;
-                if denominator > 0.0 && denominator.is_finite() {
-                    self.density_spacing_lambdas[i] = -compression / denominator;
-                    active_lambdas += 1;
-                }
-            }
-            if let Some(start) = lambda_start {
-                self.perf_stats.density_spacing_lambda_seconds += start.elapsed().as_secs_f64();
-                self.perf_stats.density_spacing_active_lambdas += active_lambdas;
-            }
-
-            let correction_accum_start = collect_perf.then(Instant::now);
-            self.density_spacing_corrections.clear();
-            self.density_spacing_corrections.resize(count, Vec3::ZERO);
-            for pair in self.density_spacing_pairs.iter().copied() {
-                let (i, j) = pair.indices();
-                let lambda_sum =
-                    self.density_spacing_lambdas[i] + self.density_spacing_lambdas[j];
-                if lambda_sum >= 0.0 || !lambda_sum.is_finite() {
-                    continue;
-                }
-                let correction = pair.grad_i * lambda_sum * INCOMPRESSIBLE_DENSITY_SPACING_STRENGTH;
-                self.density_spacing_corrections[i] += correction;
-                self.density_spacing_corrections[j] -= correction;
-            }
-            if let Some(start) = correction_accum_start {
-                self.perf_stats.density_spacing_correction_accum_seconds +=
-                    start.elapsed().as_secs_f64();
-            }
-
-            let correction_apply_start = collect_perf.then(Instant::now);
-            self.density_spacing_moved_particles.clear();
-            for idx in 0..count {
-                let correction =
-                    clamp_vec3_length(self.density_spacing_corrections[idx], max_correction);
-                if correction.length_squared() <= 1.0e-12 {
-                    continue;
-                }
-                let particle = &mut self.particles[idx];
-                particle.x += correction;
-                self.density_spacing_total_corrections[idx] += correction;
-                self.density_spacing_moved_particles.push(idx);
-            }
-            let moved_particles = self.density_spacing_moved_particles.len();
-            if let Some(start) = correction_apply_start {
-                self.perf_stats.density_spacing_correction_apply_seconds +=
-                    start.elapsed().as_secs_f64();
-                self.perf_stats.density_spacing_moved_particles += moved_particles as u64;
-            }
-
-            if moved_particles == 0 {
-                break;
-            }
-
-            let post_repair_start = collect_perf.then(Instant::now);
-            let terrain = self.terrain.as_ref();
-            let particles = &mut self.particles;
-            for &idx in &self.density_spacing_moved_particles {
-                let particle = &mut particles[idx];
-                collide_particle_with_box_with_padding(
-                    particle,
-                    bounds.min_ws,
-                    bounds.max_ws,
-                    particle_min_padding,
-                    particle_max_padding,
-                );
-                if let Some(terrain) = terrain {
-                    collide_particle_with_terrain_iterative(
-                        particle,
-                        terrain,
-                        terrain_collision_margin,
-                        terrain_max_correction,
-                        TERRAIN_PARTICLE_COLLISION_ITERATIONS,
-                        bounds.min_ws,
-                        bounds.max_ws,
-                        particle_min_padding,
-                        particle_max_padding,
-                    );
-                }
-                repair_particle_state_with_padding(
-                    particle,
-                    bounds.min_ws,
-                    bounds.max_ws,
-                    particle_min_padding,
-                    particle_max_padding,
-                    max_particle_speed,
-                    repair_mode,
-                );
-            }
-            if let Some(start) = post_repair_start {
-                self.perf_stats.density_spacing_post_repair_seconds +=
-                    start.elapsed().as_secs_f64();
-            }
-        }
-
-        if INCOMPRESSIBLE_DENSITY_VELOCITY_BLEND > 0.0 {
-            let velocity_start = collect_perf.then(Instant::now);
-            for (particle, correction) in self
-                .particles
-                .iter_mut()
-                .zip(self.density_spacing_total_corrections.iter().copied())
-            {
-                if correction.length_squared() <= 1.0e-12 || !correction.is_finite() {
-                    continue;
-                }
-                let velocity_correction = clamp_vec3_length(correction / dt, max_velocity_correction)
-                    * INCOMPRESSIBLE_DENSITY_VELOCITY_BLEND;
-                particle.v = clamp_vec3_length(particle.v + velocity_correction, max_particle_speed);
-            }
-            if let Some(start) = velocity_start {
-                self.perf_stats.density_spacing_velocity_seconds += start.elapsed().as_secs_f64();
-            }
-        }
-    }
-
-    fn relax_incompressible_cell_density_particle_spacing(&mut self, dt: f32, collect_perf: bool) {
-        let iterations = self.config.particle_spacing_relaxation_iterations as usize;
-        if !self.config.uses_incompressible_projection()
-            || iterations == 0
-            || self.particles.len() < 2
-            || dt <= 0.0
-            || !dt.is_finite()
-        {
-            return;
-        }
-
-        let rest_distance = (self.config.particle_volume.max(1.0e-8)).cbrt()
-            * INCOMPRESSIBLE_PARTICLE_SPACING_SCALE;
-        if rest_distance <= 0.0 || !rest_distance.is_finite() {
-            return;
-        }
-
-        let count = self.particles.len();
-        let cell_size = (rest_distance * INCOMPRESSIBLE_CELL_DENSITY_CELL_SCALE)
-            .max(self.dx * 0.5);
-        if cell_size <= 0.0 || !cell_size.is_finite() {
-            return;
-        }
-        let inv_cell_size = cell_size.recip();
-        let target_count = ((cell_size / rest_distance).powi(3)
-            * INCOMPRESSIBLE_CELL_DENSITY_TARGET_FILL)
-            .max(1.0);
-        let max_correction = (self.dx * MAX_PARTICLE_SPACING_CORRECTION_CELLS)
-            .min(rest_distance * INCOMPRESSIBLE_CELL_DENSITY_MAX_CORRECTION_REST_SCALE);
-        let max_velocity_correction =
-            MAX_INCOMPRESSIBLE_DENSITY_VELOCITY_CORRECTION_CELLS * self.dx / dt;
-        let padding = self.dx * self.config.wall_padding_cells.max(1.0);
-        let bounds = self.config.collider;
-        let particle_min_padding = Vec3::splat(padding);
-        let particle_max_padding = Vec3::splat(padding);
-        let terrain_collision_margin = self.terrain_collision_margin();
-        let terrain_max_correction = padding;
-        let max_particle_speed = max_particle_speed_for_substep(self.dx, dt);
-        let repair_mode = ParticleStateRepairMode::for_config(&self.config);
-        let origin_ws = self.origin_ws;
-        let inv_dx = self.inv_dx;
-        let dx = self.dx;
-        let grid_dim = self.grid_dim;
-
-        self.cell_density_total_corrections.clear();
-        self.cell_density_total_corrections
-            .resize(count, Vec3::ZERO);
-        for _ in 0..iterations {
-            let rebuild_start = collect_perf.then(Instant::now);
-            let rebuilt = self.rebuild_cell_density_spacing_bins(inv_cell_size);
-            if let Some(start) = rebuild_start {
-                self.perf_stats.cell_density_rebuild_seconds += start.elapsed().as_secs_f64();
-            }
-            if rebuilt.is_none() {
-                break;
-            }
-
-            let push_start = collect_perf.then(Instant::now);
-            let generation = self.cell_density_generation;
-            let mut overfull_cells = 0u64;
-            let mut max_excess = 0.0f32;
-            for &bin_idx in &self.cell_density_occupied_bins {
-                if self.cell_density_bin_generations[bin_idx] != generation {
-                    continue;
-                }
-                let cell_count = self.cell_density_bin_counts[bin_idx] as f32;
-                let excess = cell_count - target_count;
-                if excess <= 0.0 {
-                    continue;
-                }
-                overfull_cells += 1;
-                max_excess = max_excess.max(excess / target_count);
-            }
-
-            self.cell_density_moved_particles.clear();
-            let bin_counts = &self.cell_density_bin_counts;
-            let bin_position_sums = &self.cell_density_bin_position_sums;
-            let bin_generations = &self.cell_density_bin_generations;
-            let particle_bins = &self.cell_density_particle_bins;
-            let total_corrections = &mut self.cell_density_total_corrections;
-            let moved_particles = &mut self.cell_density_moved_particles;
-            for (idx, particle) in self.particles.iter_mut().enumerate() {
-                if !particle.x.is_finite() {
-                    continue;
-                }
-                let Some(&bin_idx) = particle_bins.get(idx) else {
-                    continue;
-                };
-                if bin_idx == DENSITY_SPACING_INVALID_BIN_ENTRY
-                    || bin_idx >= bin_counts.len()
-                    || bin_generations[bin_idx] != generation
-                {
-                    continue;
-                }
-
-                let cell_count = bin_counts[bin_idx] as f32;
-                let excess = cell_count - target_count;
-                if excess <= 0.0 || !excess.is_finite() {
-                    continue;
-                }
-
-                let centroid = bin_position_sums[bin_idx] / cell_count.max(1.0);
-                let mut direction = particle.x - centroid;
-                if direction.length_squared() <= 1.0e-12 || !direction.is_finite() {
-                    direction = particle_pair_fallback_direction(idx, bin_idx);
-                } else {
-                    direction = direction.normalize_or_zero();
-                }
-                if direction.length_squared() <= 1.0e-12 || !direction.is_finite() {
-                    continue;
-                }
-
-                let excess_fraction = (excess / (target_count + 1.0)).clamp(0.0, 1.0);
-                let correction = clamp_vec3_length(
-                    direction
-                        * cell_size
-                        * INCOMPRESSIBLE_CELL_DENSITY_PUSH_STRENGTH
-                        * excess_fraction,
-                    max_correction,
-                );
-                if correction.length_squared() <= 1.0e-12 || !correction.is_finite() {
-                    continue;
-                }
-
-                particle.x += correction;
-                total_corrections[idx] += correction;
-                moved_particles.push(idx);
-            }
-            let moved_particle_count = self.cell_density_moved_particles.len();
-            if let Some(start) = push_start {
-                self.perf_stats.cell_density_push_seconds += start.elapsed().as_secs_f64();
-                self.perf_stats.cell_density_occupied_cells +=
-                    self.cell_density_occupied_bins.len() as u64;
-                self.perf_stats.cell_density_overfull_cells += overfull_cells;
-                self.perf_stats.cell_density_moved_particles += moved_particle_count as u64;
-                self.perf_stats.cell_density_max_excess =
-                    self.perf_stats.cell_density_max_excess.max(max_excess);
-            }
-
-            if moved_particle_count == 0 {
-                break;
-            }
-
-            let post_repair_start = collect_perf.then(Instant::now);
-            let terrain = self.terrain.as_ref();
-            let terrain_grid = &self.terrain_grid;
-            let total_corrections = &self.cell_density_total_corrections;
-            let particles = &mut self.particles;
-            for &idx in &self.cell_density_moved_particles {
-                let particle = &mut particles[idx];
-                collide_particle_with_box_with_padding(
-                    particle,
-                    bounds.min_ws,
-                    bounds.max_ws,
-                    particle_min_padding,
-                    particle_max_padding,
-                );
-                if let Some(terrain) = terrain {
-                    let local_pos = particle.x - origin_ws;
-                    match terrain_grid_particle_query(
-                        local_pos,
-                        inv_dx,
-                        dx,
-                        grid_dim,
-                        terrain_grid,
-                        terrain_collision_margin,
-                    ) {
-                        TerrainGridParticleQuery::Skip { .. } => {}
-                        TerrainGridParticleQuery::CachedProjection { sdf, normal, .. } => {
-                            let pushed_into_surface = total_corrections
-                                .get(idx)
-                                .is_some_and(|correction| correction.dot(normal) < 0.0);
-                            let sdf = if pushed_into_surface {
-                                sdf - dx * INCOMPRESSIBLE_CELL_DENSITY_TERRAIN_GUARD_CELLS
-                            } else {
-                                sdf
-                            };
-                            project_particle_with_cached_terrain(
-                                particle,
-                                sdf,
-                                normal,
-                                terrain_collision_margin,
-                                terrain_max_correction,
-                                bounds.min_ws,
-                                bounds.max_ws,
-                                particle_min_padding,
-                                particle_max_padding,
-                            );
-                        }
-                        TerrainGridParticleQuery::ExactFallback => {
-                            collide_particle_with_terrain_iterative(
-                                particle,
-                                terrain,
-                                terrain_collision_margin,
-                                terrain_max_correction,
-                                TERRAIN_PARTICLE_COLLISION_ITERATIONS,
-                                bounds.min_ws,
-                                bounds.max_ws,
-                                particle_min_padding,
-                                particle_max_padding,
-                            );
-                        }
-                    }
-                }
-                repair_particle_state_with_padding(
-                    particle,
-                    bounds.min_ws,
-                    bounds.max_ws,
-                    particle_min_padding,
-                    particle_max_padding,
-                    max_particle_speed,
-                    repair_mode,
-                );
-            }
-            if let Some(start) = post_repair_start {
-                self.perf_stats.density_spacing_post_repair_seconds += start.elapsed().as_secs_f64();
-            }
-        }
-
-        if INCOMPRESSIBLE_CELL_DENSITY_VELOCITY_BLEND > 0.0 {
-            let velocity_start = collect_perf.then(Instant::now);
-            for (particle, correction) in self
-                .particles
-                .iter_mut()
-                .zip(self.cell_density_total_corrections.iter().copied())
-            {
-                if correction.length_squared() <= 1.0e-12 || !correction.is_finite() {
-                    continue;
-                }
-                let velocity_correction = clamp_vec3_length(correction / dt, max_velocity_correction)
-                    * INCOMPRESSIBLE_CELL_DENSITY_VELOCITY_BLEND;
-                particle.v = clamp_vec3_length(particle.v + velocity_correction, max_particle_speed);
-            }
-            if let Some(start) = velocity_start {
-                self.perf_stats.density_spacing_velocity_seconds += start.elapsed().as_secs_f64();
-            }
-        }
-    }
-
-    fn rebuild_cell_density_spacing_bins(&mut self, inv_cell_size: f32) -> Option<()> {
-        self.cell_density_occupied_bins.clear();
-        self.cell_density_particle_bins
-            .resize(self.particles.len(), DENSITY_SPACING_INVALID_BIN_ENTRY);
-        self.cell_density_particle_bins
-            .fill(DENSITY_SPACING_INVALID_BIN_ENTRY);
-
-        let mut min_x = i32::MAX;
-        let mut min_y = i32::MAX;
-        let mut min_z = i32::MAX;
-        let mut max_x = i32::MIN;
-        let mut max_y = i32::MIN;
-        let mut max_z = i32::MIN;
-        let mut finite_particles = 0usize;
-
-        for particle in &self.particles {
-            if !particle.x.is_finite() {
-                continue;
-            }
-            let (x, y, z) = particle_spacing_cell(particle.x, inv_cell_size);
-            min_x = min_x.min(x);
-            min_y = min_y.min(y);
-            min_z = min_z.min(z);
-            max_x = max_x.max(x);
-            max_y = max_y.max(y);
-            max_z = max_z.max(z);
-            finite_particles += 1;
-        }
-
-        if finite_particles == 0 {
-            return None;
-        }
-
-        let dim_x = density_spacing_cell_span(min_x, max_x)?;
-        let dim_y = density_spacing_cell_span(min_y, max_y)?;
-        let dim_z = density_spacing_cell_span(min_z, max_z)?;
-        let bin_count = dim_x.checked_mul(dim_y)?.checked_mul(dim_z)?;
-        if bin_count == 0 || bin_count > DENSITY_SPACING_MAX_DENSE_BINS {
-            return None;
-        }
-
-        self.cell_density_bin_counts.resize(bin_count, 0);
-        self.cell_density_bin_position_sums
-            .resize(bin_count, Vec3::ZERO);
-        self.cell_density_bin_generations.resize(bin_count, 0);
-        self.cell_density_generation = self.cell_density_generation.wrapping_add(1);
-        if self.cell_density_generation == 0 {
-            self.cell_density_bin_generations.fill(0);
-            self.cell_density_generation = 1;
-        }
-        let generation = self.cell_density_generation;
-
-        let particles = &self.particles;
-        let bin_counts = &mut self.cell_density_bin_counts;
-        let bin_position_sums = &mut self.cell_density_bin_position_sums;
-        let bin_generations = &mut self.cell_density_bin_generations;
-        let particle_bins = &mut self.cell_density_particle_bins;
-        let occupied_bins = &mut self.cell_density_occupied_bins;
-        for (idx, particle) in particles.iter().enumerate() {
-            if !particle.x.is_finite() {
-                continue;
-            }
-            let (x, y, z) = particle_spacing_cell(particle.x, inv_cell_size);
-            let local_x = usize::try_from(i64::from(x) - i64::from(min_x)).ok()?;
-            let local_y = usize::try_from(i64::from(y) - i64::from(min_y)).ok()?;
-            let local_z = usize::try_from(i64::from(z) - i64::from(min_z)).ok()?;
-            if local_x >= dim_x || local_y >= dim_y || local_z >= dim_z {
-                return None;
-            }
-            let bin_idx = density_spacing_bin_index(local_x, local_y, local_z, dim_x, dim_y);
-            if bin_generations[bin_idx] != generation {
-                bin_generations[bin_idx] = generation;
-                bin_counts[bin_idx] = 0;
-                bin_position_sums[bin_idx] = Vec3::ZERO;
-                occupied_bins.push(bin_idx);
-            }
-            bin_counts[bin_idx] += 1;
-            bin_position_sums[bin_idx] += particle.x;
-            particle_bins[idx] = bin_idx;
-        }
-
-        Some(())
-    }
-
-    fn rebuild_density_spacing_dense_bins(
-        &mut self,
-        inv_cell_size: f32,
-    ) -> Option<DensitySpacingDenseGrid> {
-        let mut min_x = i32::MAX;
-        let mut min_y = i32::MAX;
-        let mut min_z = i32::MAX;
-        let mut max_x = i32::MIN;
-        let mut max_y = i32::MIN;
-        let mut max_z = i32::MIN;
-        let mut finite_particles = 0usize;
-
-        for particle in &self.particles {
-            if !particle.x.is_finite() {
-                continue;
-            }
-            let (x, y, z) = particle_spacing_cell(particle.x, inv_cell_size);
-            min_x = min_x.min(x);
-            min_y = min_y.min(y);
-            min_z = min_z.min(z);
-            max_x = max_x.max(x);
-            max_y = max_y.max(y);
-            max_z = max_z.max(z);
-            finite_particles += 1;
-        }
-
-        if finite_particles == 0 {
-            return None;
-        }
-
-        let dim_x = density_spacing_cell_span(min_x, max_x)?;
-        let dim_y = density_spacing_cell_span(min_y, max_y)?;
-        let dim_z = density_spacing_cell_span(min_z, max_z)?;
-        let bin_count = dim_x.checked_mul(dim_y)?.checked_mul(dim_z)?;
-        if bin_count == 0 || bin_count > DENSITY_SPACING_MAX_DENSE_BINS {
-            return None;
-        }
-
-        if finite_particles < DENSITY_SPACING_CONTIGUOUS_BIN_MIN_PARTICLES {
-            self.density_spacing_bin_heads.clear();
-            self.density_spacing_bin_heads
-                .resize(bin_count, DENSITY_SPACING_INVALID_BIN_ENTRY);
-            self.density_spacing_particle_next.clear();
-            self.density_spacing_particle_next
-                .resize(self.particles.len(), DENSITY_SPACING_INVALID_BIN_ENTRY);
-            self.density_spacing_occupied_bins.clear();
-
-            let particles = &self.particles;
-            let bin_heads = &mut self.density_spacing_bin_heads;
-            let particle_next = &mut self.density_spacing_particle_next;
-            let occupied_bins = &mut self.density_spacing_occupied_bins;
-            for (idx, particle) in particles.iter().enumerate() {
-                if !particle.x.is_finite() {
-                    continue;
-                }
-                let (x, y, z) = particle_spacing_cell(particle.x, inv_cell_size);
-                let local_x = usize::try_from(i64::from(x) - i64::from(min_x)).ok()?;
-                let local_y = usize::try_from(i64::from(y) - i64::from(min_y)).ok()?;
-                let local_z = usize::try_from(i64::from(z) - i64::from(min_z)).ok()?;
-                if local_x >= dim_x || local_y >= dim_y || local_z >= dim_z {
-                    return None;
-                }
-                let bin_idx = density_spacing_bin_index(local_x, local_y, local_z, dim_x, dim_y);
-                let head = &mut bin_heads[bin_idx];
-                if *head == DENSITY_SPACING_INVALID_BIN_ENTRY {
-                    occupied_bins.push(bin_idx);
-                }
-                particle_next[idx] = *head;
-                *head = idx;
-            }
-
-            return Some(DensitySpacingDenseGrid {
-                dim_x,
-                dim_y,
-                dim_z,
-                layout: DensitySpacingDenseGridLayout::LinkedList,
-            });
-        }
-
-        self.density_spacing_bin_counts.clear();
-        self.density_spacing_bin_counts.resize(bin_count, 0);
-        self.density_spacing_bin_offsets.clear();
-        self.density_spacing_bin_offsets.resize(bin_count + 1, 0);
-        self.density_spacing_bin_particles.clear();
-        self.density_spacing_bin_particles.resize(finite_particles, 0);
-        self.density_spacing_bin_particle_positions.clear();
-        self.density_spacing_bin_particle_positions
-            .resize(finite_particles, Vec3::ZERO);
-        self.density_spacing_occupied_bins.clear();
-
-        let particles = &self.particles;
-        let bin_counts = &mut self.density_spacing_bin_counts;
-        let occupied_bins = &mut self.density_spacing_occupied_bins;
-        for particle in particles {
-            if !particle.x.is_finite() {
-                continue;
-            }
-            let (x, y, z) = particle_spacing_cell(particle.x, inv_cell_size);
-            let local_x = usize::try_from(i64::from(x) - i64::from(min_x)).ok()?;
-            let local_y = usize::try_from(i64::from(y) - i64::from(min_y)).ok()?;
-            let local_z = usize::try_from(i64::from(z) - i64::from(min_z)).ok()?;
-            if local_x >= dim_x || local_y >= dim_y || local_z >= dim_z {
-                return None;
-            }
-            let bin_idx = density_spacing_bin_index(local_x, local_y, local_z, dim_x, dim_y);
-            if bin_counts[bin_idx] == 0 {
-                occupied_bins.push(bin_idx);
-            }
-            bin_counts[bin_idx] += 1;
-        }
-
-        let bin_offsets = &mut self.density_spacing_bin_offsets;
-        let mut offset = 0usize;
-        for bin_idx in 0..bin_count {
-            bin_offsets[bin_idx] = offset;
-            offset += bin_counts[bin_idx];
-            bin_counts[bin_idx] = bin_offsets[bin_idx];
-        }
-        bin_offsets[bin_count] = offset;
-        debug_assert_eq!(offset, finite_particles);
-
-        let bin_particles = &mut self.density_spacing_bin_particles;
-        let bin_particle_positions = &mut self.density_spacing_bin_particle_positions;
-        for (idx, particle) in particles.iter().enumerate() {
-            if !particle.x.is_finite() {
-                continue;
-            }
-            let (x, y, z) = particle_spacing_cell(particle.x, inv_cell_size);
-            let local_x = usize::try_from(i64::from(x) - i64::from(min_x)).ok()?;
-            let local_y = usize::try_from(i64::from(y) - i64::from(min_y)).ok()?;
-            let local_z = usize::try_from(i64::from(z) - i64::from(min_z)).ok()?;
-            if local_x >= dim_x || local_y >= dim_y || local_z >= dim_z {
-                return None;
-            }
-            let bin_idx = density_spacing_bin_index(local_x, local_y, local_z, dim_x, dim_y);
-            let write_idx = &mut bin_counts[bin_idx];
-            debug_assert!(*write_idx < bin_particles.len());
-            debug_assert!(u32::try_from(idx).is_ok());
-            bin_particles[*write_idx] = idx as u32;
-            bin_particle_positions[*write_idx] = particle.x;
-            *write_idx += 1;
-        }
-
-        Some(DensitySpacingDenseGrid {
-            dim_x,
-            dim_y,
-            dim_z,
-            layout: DensitySpacingDenseGridLayout::Contiguous,
-        })
-    }
-
-    fn accumulate_density_spacing_dense_pairs(
-        &mut self,
-        dense_grid: DensitySpacingDenseGrid,
-        support_radius_sq: f32,
-        inv_support_radius: f32,
-        density_gradient_scale: f32,
-    ) {
-        let particles = &self.particles;
-        let occupied_bins = &self.density_spacing_occupied_bins;
-        let densities = &mut self.density_spacing_densities;
-        let gradient_sums = &mut self.density_spacing_gradient_sums;
-        let gradient_sq_sums = &mut self.density_spacing_gradient_sq_sums;
-        let pairs = &mut self.density_spacing_pairs;
-
-        match dense_grid.layout {
-            DensitySpacingDenseGridLayout::LinkedList => {
-                let bin_heads = &self.density_spacing_bin_heads;
-                let particle_next = &self.density_spacing_particle_next;
-                for &bin_idx in occupied_bins {
-                    let head = bin_heads[bin_idx];
-                    if head == DENSITY_SPACING_INVALID_BIN_ENTRY {
-                        continue;
-                    }
-
-                    let mut i = head;
-                    while i != DENSITY_SPACING_INVALID_BIN_ENTRY {
-                        let mut j = particle_next[i];
-                        while j != DENSITY_SPACING_INVALID_BIN_ENTRY {
-                            accumulate_density_spacing_pair(
-                                i,
-                                j,
-                                particles,
-                                support_radius_sq,
-                                inv_support_radius,
-                                density_gradient_scale,
-                                densities,
-                                gradient_sums,
-                                gradient_sq_sums,
-                                pairs,
-                            );
-                            j = particle_next[j];
-                        }
-                        i = particle_next[i];
-                    }
-
-                    let (x, y, z) =
-                        density_spacing_bin_coords(bin_idx, dense_grid.dim_x, dense_grid.dim_y);
-                    for &(ox, oy, oz) in &DENSITY_SPACING_FORWARD_NEIGHBOR_OFFSETS {
-                        let Some(neighbor_bin_idx) =
-                            density_spacing_neighbor_bin_index(x, y, z, ox, oy, oz, dense_grid)
-                        else {
-                            continue;
-                        };
-                        let neighbor_head = bin_heads[neighbor_bin_idx];
-                        if neighbor_head == DENSITY_SPACING_INVALID_BIN_ENTRY {
-                            continue;
-                        }
-
-                        let mut i = head;
-                        while i != DENSITY_SPACING_INVALID_BIN_ENTRY {
-                            let mut j = neighbor_head;
-                            while j != DENSITY_SPACING_INVALID_BIN_ENTRY {
-                                accumulate_density_spacing_pair(
-                                    i,
-                                    j,
-                                    particles,
-                                    support_radius_sq,
-                                    inv_support_radius,
-                                    density_gradient_scale,
-                                    densities,
-                                    gradient_sums,
-                                    gradient_sq_sums,
-                                    pairs,
-                                );
-                                j = particle_next[j];
-                            }
-                            i = particle_next[i];
-                        }
-                    }
-                }
-            }
-            DensitySpacingDenseGridLayout::Contiguous => {
-                let bin_offsets = &self.density_spacing_bin_offsets;
-                let bin_particles = &self.density_spacing_bin_particles;
-                let bin_particle_positions = &self.density_spacing_bin_particle_positions;
-                for &bin_idx in occupied_bins {
-                    let start = bin_offsets[bin_idx];
-                    let end = bin_offsets[bin_idx + 1];
-                    if start == end {
-                        continue;
-                    }
-
-                    for left_pos in start..end {
-                        let i = bin_particles[left_pos] as usize;
-                        let xi = bin_particle_positions[left_pos];
-                        for right_pos in left_pos + 1..end {
-                            accumulate_density_spacing_position_pair(
-                                i,
-                                bin_particles[right_pos] as usize,
-                                xi,
-                                bin_particle_positions[right_pos],
-                                support_radius_sq,
-                                inv_support_radius,
-                                density_gradient_scale,
-                                densities,
-                                gradient_sums,
-                                gradient_sq_sums,
-                                pairs,
-                            );
-                        }
-                    }
-
-                    let (x, y, z) =
-                        density_spacing_bin_coords(bin_idx, dense_grid.dim_x, dense_grid.dim_y);
-                    for &(ox, oy, oz) in &DENSITY_SPACING_FORWARD_NEIGHBOR_OFFSETS {
-                        let Some(neighbor_bin_idx) =
-                            density_spacing_neighbor_bin_index(x, y, z, ox, oy, oz, dense_grid)
-                        else {
-                            continue;
-                        };
-                        let neighbor_start = bin_offsets[neighbor_bin_idx];
-                        let neighbor_end = bin_offsets[neighbor_bin_idx + 1];
-                        if neighbor_start == neighbor_end {
-                            continue;
-                        }
-
-                        for left_pos in start..end {
-                            let i = bin_particles[left_pos] as usize;
-                            let xi = bin_particle_positions[left_pos];
-                            for right_pos in neighbor_start..neighbor_end {
-                                accumulate_density_spacing_position_pair(
-                                    i,
-                                    bin_particles[right_pos] as usize,
-                                    xi,
-                                    bin_particle_positions[right_pos],
-                                    support_radius_sq,
-                                    inv_support_radius,
-                                    density_gradient_scale,
-                                    densities,
-                                    gradient_sums,
-                                    gradient_sq_sums,
-                                    pairs,
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     fn grid_to_particle(&mut self, dt: f32) -> WaterG2pBreakdown {
         self.grid_to_particle_impl(dt, false)
     }
@@ -2417,15 +1103,11 @@ impl PondWaterSim {
         let dx = self.dx;
         let inv_dx = self.inv_dx;
         let c_scale = 4.0 * inv_dx * inv_dx;
-        let legacy_eos = self.config.uses_legacy_eos();
-        let incompressible_apic_blend = self.config.incompressible_apic_blend;
-        let use_affine_transfer = legacy_eos || incompressible_apic_blend > 0.0;
-        let repair_mode = ParticleStateRepairMode::for_config(&self.config);
+        let j_min = self.config.j_min;
         let bounds = self.config.collider;
         let particle_padding = self.dx * self.config.wall_padding_cells.max(1.0);
         let particle_min_padding = Vec3::splat(particle_padding);
         let particle_max_padding = Vec3::splat(particle_padding);
-        let j_min = if legacy_eos { self.config.j_min } else { 1.0 };
         let max_particle_speed = max_particle_speed_for_substep(dx, dt);
         let grid = &self.grid;
         let terrain_grid = &self.terrain_grid;
@@ -2462,11 +1144,9 @@ impl PondWaterSim {
                             grid_index_dims(grid_dim, node.x as u32, node.y as u32, node.z as u32);
                         let grid_v = grid[node_idx].v;
                         new_v += weight * grid_v;
-                        if use_affine_transfer {
-                            let node_local = node.as_vec3() * dx;
-                            let dpos = node_local - local_pos;
-                            new_c += outer_product(weight * grid_v, dpos) * c_scale;
-                        }
+                        let node_local = node.as_vec3() * dx;
+                        let dpos = node_local - local_pos;
+                        new_c += outer_product(weight * grid_v, dpos) * c_scale;
                     }
                 }
             }
@@ -2475,18 +1155,9 @@ impl PondWaterSim {
             }
 
             particle.v = clamp_vec3_length(new_v, max_particle_speed);
-            if legacy_eos {
-                particle.c = clamp_mat3_components(new_c, MAX_AFFINE_COMPONENT);
-                let trace_c = particle.c.x_axis.x + particle.c.y_axis.y + particle.c.z_axis.z;
-                particle.j = (particle.j * (1.0 + dt * trace_c)).max(j_min);
-            } else if incompressible_apic_blend > 0.0 {
-                let traceless_c = make_mat3_traceless(new_c) * incompressible_apic_blend;
-                particle.c = repair_incompressible_affine(traceless_c, true);
-                reset_incompressible_particle_j(particle);
-            } else {
-                particle.c = Mat3::ZERO;
-                reset_incompressible_particle_j(particle);
-            }
+            particle.c = clamp_mat3_components(new_c, MAX_AFFINE_COMPONENT);
+            let trace_c = particle.c.x_axis.x + particle.c.y_axis.y + particle.c.z_axis.z;
+            particle.j = (particle.j * (1.0 + dt * trace_c)).max(j_min);
             particle.x += particle.v * dt;
 
             let box_start = collect_breakdown.then(Instant::now);
@@ -2562,7 +1233,7 @@ impl PondWaterSim {
                 particle_min_padding,
                 particle_max_padding,
                 max_particle_speed,
-                repair_mode,
+                j_min,
             );
             if let Some(repair_start) = repair_start {
                 repair_seconds += repair_start.elapsed().as_secs_f64();
@@ -2608,43 +1279,6 @@ struct WaterG2pBreakdown {
     terrain_exact_corrections: u64,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct DensitySpacingPair {
-    i: u32,
-    j: u32,
-    grad_i: Vec3,
-}
-
-impl DensitySpacingPair {
-    fn new(i: usize, j: usize, grad_i: Vec3) -> Self {
-        debug_assert!(u32::try_from(i).is_ok());
-        debug_assert!(u32::try_from(j).is_ok());
-        Self {
-            i: i as u32,
-            j: j as u32,
-            grad_i,
-        }
-    }
-
-    fn indices(self) -> (usize, usize) {
-        (self.i as usize, self.j as usize)
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct DensitySpacingDenseGrid {
-    dim_x: usize,
-    dim_y: usize,
-    dim_z: usize,
-    layout: DensitySpacingDenseGridLayout,
-}
-
-#[derive(Clone, Copy, Debug)]
-enum DensitySpacingDenseGridLayout {
-    LinkedList,
-    Contiguous,
-}
-
 fn base_coord(grid_pos: Vec3) -> IVec3 {
     let base = (grid_pos - Vec3::splat(0.5)).floor();
     IVec3::new(base.x as i32, base.y as i32, base.z as i32)
@@ -2677,187 +1311,6 @@ fn particle_stencil_interior(base: IVec3, grid_dim: glam::UVec3) -> bool {
         && base.x < grid_dim.x as i32 - 2
         && base.y < grid_dim.y as i32 - 2
         && base.z < grid_dim.z as i32 - 2
-}
-
-fn grid_coord_dims(grid_dim: glam::UVec3, idx: usize) -> glam::UVec3 {
-    let x_dim = grid_dim.x as usize;
-    let y_dim = grid_dim.y as usize;
-    let x = idx % x_dim;
-    let yz = idx / x_dim;
-    let y = yz % y_dim;
-    let z = yz / y_dim;
-    glam::UVec3::new(x as u32, y as u32, z as u32)
-}
-
-fn pressure_projection_stencil_at(
-    coord: glam::UVec3,
-    grid_dim: glam::UVec3,
-    grid: &[super::pond::WaterGridNode],
-    grid_boundary_flags: &[u8],
-    terrain_grid: &[WaterTerrainGridSample],
-    terrain_collision_margin: f32,
-) -> PressureProjectionStencil {
-    let mut stencil = PressureProjectionStencil::default();
-    for (slot, (axis, direction)) in pressure_projection_neighbor_offsets()
-        .iter()
-        .copied()
-        .enumerate()
-    {
-        let Some(neighbor_idx) =
-            pressure_projection_neighbor_index(coord, axis, direction, grid_dim)
-        else {
-            stencil.center_pressure_neighbor_mask |= 1 << slot;
-            continue;
-        };
-
-        if pressure_projection_solid_node(
-            neighbor_idx,
-            grid_boundary_flags,
-            terrain_grid,
-            terrain_collision_margin,
-        ) {
-            stencil.center_pressure_neighbor_mask |= 1 << slot;
-            continue;
-        }
-
-        stencil.diagonal += 1.0;
-        if grid[neighbor_idx].mass > ACTIVE_MASS_EPSILON {
-            stencil.pressure_neighbors[slot] = neighbor_idx;
-        }
-    }
-
-    stencil
-}
-
-fn pressure_projection_neighbor_offsets() -> &'static [(usize, i32); PRESSURE_PROJECTION_NEIGHBOR_COUNT]
-{
-    &[(0, -1), (0, 1), (1, -1), (1, 1), (2, -1), (2, 1)]
-}
-
-fn pressure_projection_divergence_from_stencil(
-    idx: usize,
-    stencil: &PressureProjectionStencil,
-    grid: &[super::pond::WaterGridNode],
-    inv_dx: f32,
-) -> f32 {
-    let center_velocity = grid[idx].v;
-    let vxm = pressure_projection_stencil_neighbor_velocity_component(
-        stencil,
-        0,
-        0,
-        center_velocity,
-        grid,
-    );
-    let vxp = pressure_projection_stencil_neighbor_velocity_component(
-        stencil,
-        1,
-        0,
-        center_velocity,
-        grid,
-    );
-    let vym = pressure_projection_stencil_neighbor_velocity_component(
-        stencil,
-        2,
-        1,
-        center_velocity,
-        grid,
-    );
-    let vyp = pressure_projection_stencil_neighbor_velocity_component(
-        stencil,
-        3,
-        1,
-        center_velocity,
-        grid,
-    );
-    let vzm = pressure_projection_stencil_neighbor_velocity_component(
-        stencil,
-        4,
-        2,
-        center_velocity,
-        grid,
-    );
-    let vzp = pressure_projection_stencil_neighbor_velocity_component(
-        stencil,
-        5,
-        2,
-        center_velocity,
-        grid,
-    );
-
-    ((vxp - vxm) + (vyp - vym) + (vzp - vzm)) * (0.5 * inv_dx)
-}
-
-fn pressure_projection_stencil_neighbor_velocity_component(
-    stencil: &PressureProjectionStencil,
-    slot: usize,
-    axis: usize,
-    center_velocity: Vec3,
-    grid: &[super::pond::WaterGridNode],
-) -> f32 {
-    if stencil.center_pressure_neighbor_mask & (1 << slot) != 0 {
-        return vec3_component(center_velocity, axis);
-    }
-    let neighbor_idx = stencil.pressure_neighbors[slot];
-    if neighbor_idx != PRESSURE_PROJECTION_NEIGHBOR_NONE {
-        vec3_component(grid[neighbor_idx].v, axis)
-    } else {
-        0.0
-    }
-}
-
-fn pressure_projection_stencil_neighbor_pressure(
-    stencil: &PressureProjectionStencil,
-    slot: usize,
-    center_pressure: f32,
-    pressure: &[f32],
-) -> f32 {
-    if stencil.center_pressure_neighbor_mask & (1 << slot) != 0 {
-        return center_pressure;
-    }
-    let neighbor_idx = stencil.pressure_neighbors[slot];
-    if neighbor_idx != PRESSURE_PROJECTION_NEIGHBOR_NONE {
-        pressure[neighbor_idx]
-    } else {
-        0.0
-    }
-}
-
-fn pressure_projection_neighbor_index(
-    coord: glam::UVec3,
-    axis: usize,
-    direction: i32,
-    grid_dim: glam::UVec3,
-) -> Option<usize> {
-    let mut neighbor = coord.as_ivec3();
-    match axis {
-        0 => neighbor.x += direction,
-        1 => neighbor.y += direction,
-        2 => neighbor.z += direction,
-        _ => return None,
-    }
-
-    in_grid(neighbor, grid_dim).then(|| {
-        grid_index_dims(
-            grid_dim,
-            neighbor.x as u32,
-            neighbor.y as u32,
-            neighbor.z as u32,
-        )
-    })
-}
-
-fn pressure_projection_solid_node(
-    idx: usize,
-    grid_boundary_flags: &[u8],
-    terrain_grid: &[WaterTerrainGridSample],
-    terrain_collision_margin: f32,
-) -> bool {
-    grid_boundary_flags.get(idx).is_some_and(|flags| *flags != 0)
-        || terrain_grid.get(idx).is_some_and(|sample| {
-            sample.has_sdf
-                && sample.sdf <= terrain_collision_margin
-                && sample.normal.length_squared() > 0.0
-        })
 }
 
 fn project_grid_node_collisions(
@@ -2907,15 +1360,6 @@ fn project_grid_node_collisions(
     if normal.length_squared() > 0.0 {
         node.solid = true;
         node.normal = normal.normalize_or_zero();
-    }
-}
-
-fn vec3_component(value: Vec3, axis: usize) -> f32 {
-    match axis {
-        0 => value.x,
-        1 => value.y,
-        2 => value.z,
-        _ => 0.0,
     }
 }
 
@@ -3078,247 +1522,7 @@ fn outer_product(a: Vec3, b: Vec3) -> Mat3 {
     Mat3::from_cols(a * b.x, a * b.y, a * b.z)
 }
 
-fn particle_spacing_cell(position: Vec3, inv_cell_size: f32) -> (i32, i32, i32) {
-    let cell = (position * inv_cell_size).floor().as_ivec3();
-    (cell.x, cell.y, cell.z)
-}
-
-fn density_spacing_cell_span(min_cell: i32, max_cell: i32) -> Option<usize> {
-    let span = i64::from(max_cell) - i64::from(min_cell) + 1;
-    if span <= 0 {
-        return None;
-    }
-    usize::try_from(span).ok()
-}
-
-fn density_spacing_bin_index(
-    local_x: usize,
-    local_y: usize,
-    local_z: usize,
-    dim_x: usize,
-    dim_y: usize,
-) -> usize {
-    ((local_z * dim_y + local_y) * dim_x) + local_x
-}
-
-fn density_spacing_bin_coords(bin_idx: usize, dim_x: usize, dim_y: usize) -> (usize, usize, usize) {
-    let x = bin_idx % dim_x;
-    let yz = bin_idx / dim_x;
-    let y = yz % dim_y;
-    let z = yz / dim_y;
-    (x, y, z)
-}
-
-fn density_spacing_neighbor_bin_index(
-    x: usize,
-    y: usize,
-    z: usize,
-    ox: i32,
-    oy: i32,
-    oz: i32,
-    grid: DensitySpacingDenseGrid,
-) -> Option<usize> {
-    let x = x.checked_add_signed(ox as isize)?;
-    let y = y.checked_add_signed(oy as isize)?;
-    let z = z.checked_add_signed(oz as isize)?;
-    if x >= grid.dim_x || y >= grid.dim_y || z >= grid.dim_z {
-        return None;
-    }
-    Some(density_spacing_bin_index(x, y, z, grid.dim_x, grid.dim_y))
-}
-
-fn density_spacing_kernel_weight(distance: f32, support_radius: f32) -> f32 {
-    if distance >= support_radius || support_radius <= 0.0 {
-        return 0.0;
-    }
-    let q = 1.0 - distance / support_radius;
-    q * q * q
-}
-
-#[inline(always)]
-#[allow(clippy::too_many_arguments)]
-fn accumulate_density_spacing_pair(
-    a: usize,
-    b: usize,
-    particles: &[WaterParticle],
-    support_radius_sq: f32,
-    inv_support_radius: f32,
-    density_gradient_scale: f32,
-    densities: &mut [f32],
-    gradient_sums: &mut [Vec3],
-    gradient_sq_sums: &mut [f32],
-    pairs: &mut Vec<DensitySpacingPair>,
-) {
-    let (i, j) = if a <= b { (a, b) } else { (b, a) };
-    let delta = particles[i].x - particles[j].x;
-    let distance_sq = delta.length_squared();
-    if !distance_sq.is_finite() || distance_sq >= support_radius_sq {
-        return;
-    }
-
-    let (normal, distance) = if distance_sq > 1.0e-12 {
-        let distance = distance_sq.sqrt();
-        (delta / distance, distance)
-    } else {
-        (particle_pair_fallback_direction(i, j), 0.0)
-    };
-    let q = 1.0 - distance * inv_support_radius;
-    let q_sq = q * q;
-    let weight = q_sq * q;
-    if weight <= 0.0 {
-        return;
-    }
-    let grad_i = normal * (density_gradient_scale * q_sq);
-    densities[i] += weight;
-    densities[j] += weight;
-    gradient_sums[i] += grad_i;
-    gradient_sums[j] -= grad_i;
-    let grad_sq = grad_i.length_squared();
-    gradient_sq_sums[i] += grad_sq;
-    gradient_sq_sums[j] += grad_sq;
-    pairs.push(DensitySpacingPair::new(i, j, grad_i));
-}
-
-#[inline(always)]
-#[allow(clippy::too_many_arguments)]
-fn accumulate_density_spacing_position_pair(
-    a: usize,
-    b: usize,
-    xa: Vec3,
-    xb: Vec3,
-    support_radius_sq: f32,
-    inv_support_radius: f32,
-    density_gradient_scale: f32,
-    densities: &mut [f32],
-    gradient_sums: &mut [Vec3],
-    gradient_sq_sums: &mut [f32],
-    pairs: &mut Vec<DensitySpacingPair>,
-) {
-    let (i, j, xi, xj) = if a <= b {
-        (a, b, xa, xb)
-    } else {
-        (b, a, xb, xa)
-    };
-    let delta = xi - xj;
-    let distance_sq = delta.length_squared();
-    if !distance_sq.is_finite() || distance_sq >= support_radius_sq {
-        return;
-    }
-
-    let (normal, distance) = if distance_sq > 1.0e-12 {
-        let distance = distance_sq.sqrt();
-        (delta / distance, distance)
-    } else {
-        (particle_pair_fallback_direction(i, j), 0.0)
-    };
-    let q = 1.0 - distance * inv_support_radius;
-    let q_sq = q * q;
-    let weight = q_sq * q;
-    if weight <= 0.0 {
-        return;
-    }
-    let grad_i = normal * (density_gradient_scale * q_sq);
-    densities[i] += weight;
-    densities[j] += weight;
-    gradient_sums[i] += grad_i;
-    gradient_sums[j] -= grad_i;
-    let grad_sq = grad_i.length_squared();
-    gradient_sq_sums[i] += grad_sq;
-    gradient_sq_sums[j] += grad_sq;
-    pairs.push(DensitySpacingPair::new(i, j, grad_i));
-}
-
-#[allow(clippy::too_many_arguments)]
-fn accumulate_density_spacing_hash_pairs(
-    particles: &[WaterParticle],
-    inv_cell_size: f32,
-    support_radius_sq: f32,
-    inv_support_radius: f32,
-    density_gradient_scale: f32,
-    densities: &mut [f32],
-    gradient_sums: &mut [Vec3],
-    gradient_sq_sums: &mut [f32],
-    pairs: &mut Vec<DensitySpacingPair>,
-) -> usize {
-    let mut bins: HashMap<(i32, i32, i32), Vec<usize>> =
-        HashMap::with_capacity(particles.len().saturating_mul(2));
-    for (idx, particle) in particles.iter().enumerate() {
-        if !particle.x.is_finite() {
-            continue;
-        }
-        bins.entry(particle_spacing_cell(particle.x, inv_cell_size))
-            .or_default()
-            .push(idx);
-    }
-
-    for i in 0..particles.len() {
-        let xi = particles[i].x;
-        if !xi.is_finite() {
-            continue;
-        }
-        let (cx, cy, cz) = particle_spacing_cell(xi, inv_cell_size);
-        for oz in -1..=1 {
-            for oy in -1..=1 {
-                for ox in -1..=1 {
-                    let Some(neighbors) = bins.get(&(cx + ox, cy + oy, cz + oz)) else {
-                        continue;
-                    };
-                    for &j in neighbors {
-                        if j <= i {
-                            continue;
-                        }
-                        accumulate_density_spacing_pair(
-                            i,
-                            j,
-                            particles,
-                            support_radius_sq,
-                            inv_support_radius,
-                            density_gradient_scale,
-                            densities,
-                            gradient_sums,
-                            gradient_sq_sums,
-                            pairs,
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    bins.len()
-}
-
-fn particle_pair_fallback_direction(a: usize, b: usize) -> Vec3 {
-    let mut n = (a as u32).wrapping_mul(73_856_093)
-        ^ (b as u32).wrapping_mul(19_349_663)
-        ^ 0x9e37_79b9;
-    n ^= n >> 16;
-    n = n.wrapping_mul(0x7feb_352d);
-    n ^= n >> 15;
-    n = n.wrapping_mul(0x846c_a68b);
-    n ^= n >> 16;
-
-    let x = ((n & 0x3ff) as f32) / 511.5 - 1.0;
-    let y = (((n >> 10) & 0x3ff) as f32) / 511.5 - 1.0;
-    let z = (((n >> 20) & 0x3ff) as f32) / 511.5 - 1.0;
-    let direction = Vec3::new(x, y, z).normalize_or_zero();
-    if direction.length_squared() > 0.0 {
-        direction
-    } else {
-        Vec3::X
-    }
-}
-
-fn make_mat3_traceless(value: Mat3) -> Mat3 {
-    let trace_third = (value.x_axis.x + value.y_axis.y + value.z_axis.z) / 3.0;
-    Mat3::from_cols(
-        Vec3::new(value.x_axis.x - trace_third, value.x_axis.y, value.x_axis.z),
-        Vec3::new(value.y_axis.x, value.y_axis.y - trace_third, value.y_axis.z),
-        Vec3::new(value.z_axis.x, value.z_axis.y, value.z_axis.z - trace_third),
-    )
-}
-
-fn legacy_eos_pressure(stiffness: f32, gamma: f32, j: f32, j_min: f32) -> f32 {
+fn eos_pressure(stiffness: f32, gamma: f32, j: f32, j_min: f32) -> f32 {
     if !stiffness.is_finite()
         || stiffness <= 0.0
         || !gamma.is_finite()
@@ -3365,7 +1569,7 @@ fn repair_particle_state_with_padding(
     min_padding: Vec3,
     max_padding: Vec3,
     max_speed: f32,
-    mode: ParticleStateRepairMode,
+    j_min: f32,
 ) {
     repair_particle_position_velocity_with_padding(
         particle,
@@ -3376,22 +1580,14 @@ fn repair_particle_state_with_padding(
         max_speed,
     );
 
-    match mode {
-        ParticleStateRepairMode::LegacyEos { j_min } => {
-            if !mat3_is_finite(particle.c) {
-                particle.c = Mat3::ZERO;
-            }
-            particle.c = clamp_mat3_components(particle.c, MAX_AFFINE_COMPONENT);
-            if !particle.j.is_finite() {
-                particle.j = 1.0;
-            }
-            particle.j = particle.j.clamp(j_min, MAX_J);
-        }
-        ParticleStateRepairMode::Incompressible { keep_affine } => {
-            particle.c = repair_incompressible_affine(particle.c, keep_affine);
-            reset_incompressible_particle_j(particle);
-        }
+    if !mat3_is_finite(particle.c) {
+        particle.c = Mat3::ZERO;
     }
+    particle.c = clamp_mat3_components(particle.c, MAX_AFFINE_COMPONENT);
+    if !particle.j.is_finite() {
+        particle.j = 1.0;
+    }
+    particle.j = particle.j.clamp(j_min, MAX_J);
 }
 
 fn repair_particle_position_velocity_with_padding(
@@ -3413,19 +1609,7 @@ fn repair_particle_position_velocity_with_padding(
     particle.v = clamp_vec3_length(particle.v, max_speed);
 }
 
-fn repair_incompressible_affine(affine: Mat3, keep_affine: bool) -> Mat3 {
-    if !keep_affine || !mat3_is_finite(affine) {
-        Mat3::ZERO
-    } else {
-        clamp_mat3_components(affine, MAX_INCOMPRESSIBLE_AFFINE_COMPONENT)
-    }
-}
 
-fn reset_incompressible_particle_j(particle: &mut super::pond::WaterParticle) {
-    if particle.j != 1.0 {
-        particle.j = 1.0;
-    }
-}
 
 fn max_particle_speed_for_substep(dx: f32, dt: f32) -> f32 {
     if dx > 0.0 && dt > 0.0 && dx.is_finite() && dt.is_finite() {
@@ -3616,7 +1800,7 @@ fn water_particle_debug_stats(
     bounds: WaterBoxCollider,
     padding: f32,
     speed_limit: f32,
-    legacy_eos_j_min: Option<f32>,
+    eos_j_min: Option<f32>,
     terrain_collision_margin: f32,
 ) -> WaterParticleDebugStats {
     if particles.is_empty() {
@@ -3655,8 +1839,8 @@ fn water_particle_debug_stats(
     let padded_max = bounds.max_ws - Vec3::splat(padding);
     let boundary_epsilon = (padding * 0.1).max(1.0e-4);
     let speed_limit_threshold = speed_limit * 0.98;
-    let track_legacy_j = legacy_eos_j_min.is_some();
-    let j_min_threshold = legacy_eos_j_min.unwrap_or(1.0) * 1.001;
+    let track_j_min = eos_j_min.is_some();
+    let j_min_threshold = eos_j_min.unwrap_or(1.0) * 1.001;
     let j_max_threshold = MAX_J * 0.999;
 
     let mut finite_particles = 0usize;
@@ -3672,8 +1856,8 @@ fn water_particle_debug_stats(
     let mut max_speed_velocity = Vec3::ZERO;
     let mut max_speed_j = 1.0f32;
     let mut max_speed_terrain_sdf = None;
-    let mut min_j = if track_legacy_j { f32::INFINITY } else { 1.0 };
-    let mut max_j = if track_legacy_j { f32::NEG_INFINITY } else { 1.0 };
+    let mut min_j = if track_j_min { f32::INFINITY } else { 1.0 };
+    let mut max_j = if track_j_min { f32::NEG_INFINITY } else { 1.0 };
     let mut j_min_clamped_particles = 0usize;
     let mut j_max_clamped_particles = 0usize;
     let mut max_abs_affine = 0.0f32;
@@ -3690,7 +1874,7 @@ fn water_particle_debug_stats(
     for (particle_idx, particle) in particles.iter().enumerate() {
         if !particle.x.is_finite()
             || !particle.v.is_finite()
-            || (track_legacy_j && !particle.j.is_finite())
+            || (track_j_min && !particle.j.is_finite())
             || !mat3_is_finite(particle.c)
         {
             non_finite_particles += 1;
@@ -3744,11 +1928,11 @@ fn water_particle_debug_stats(
             max_speed_index = particle_idx;
             max_speed_position = particle.x;
             max_speed_velocity = particle.v;
-            max_speed_j = if track_legacy_j { particle.j } else { 1.0 };
+            max_speed_j = if track_j_min { particle.j } else { 1.0 };
             max_speed_terrain_sdf = terrain_sdf;
         }
 
-        if track_legacy_j {
+        if track_j_min {
             min_j = min_j.min(particle.j);
             max_j = max_j.max(particle.j);
             if particle.j <= j_min_threshold {
@@ -3830,16 +2014,11 @@ fn water_particle_debug_stats(
 #[cfg(test)]
 mod tests {
     use super::{
-        collide_particle_with_terrain, collide_particle_with_terrain_iterative, grid_coord_dims,
-        grid_index_dims, legacy_eos_pressure, pressure_projection_divergence_from_stencil,
-        pressure_projection_solid_node, pressure_projection_stencil_at,
+        collide_particle_with_terrain, collide_particle_with_terrain_iterative, eos_pressure,
         project_velocity_away_from_surface, terrain_grid_particle_query,
         TerrainGridParticleQuery, WaterTerrainGridSample, ACTIVE_MASS_EPSILON,
     };
-    use crate::{
-        PondWaterConfig, PondWaterSim, WaterParticleSpacingMode, WaterTerrainColliderChunk,
-        WaterTerrainColliderSet,
-    };
+    use crate::{PondWaterConfig, PondWaterSim, WaterTerrainColliderChunk, WaterTerrainColliderSet};
     use glam::{IVec3, Mat3, UVec3, Vec3};
     use std::sync::Arc;
 
@@ -3854,11 +2033,11 @@ mod tests {
     }
 
     #[test]
-    fn legacy_eos_pressure_has_no_tensile_branch() {
-        let compressed = legacy_eos_pressure(10_000.0, 7.0, 0.8, 0.55);
+    fn eos_pressure_has_no_tensile_branch() {
+        let compressed = eos_pressure(10_000.0, 7.0, 0.8, 0.55);
         assert!(compressed > 0.0, "compressed={compressed}");
-        assert_eq!(legacy_eos_pressure(10_000.0, 7.0, 1.0, 0.55), 0.0);
-        assert_eq!(legacy_eos_pressure(10_000.0, 7.0, 1.2, 0.55), 0.0);
+        assert_eq!(eos_pressure(10_000.0, 7.0, 1.0, 0.55), 0.0);
+        assert_eq!(eos_pressure(10_000.0, 7.0, 1.2, 0.55), 0.0);
     }
 
     #[test]
@@ -3923,71 +2102,6 @@ mod tests {
     }
 
     #[test]
-    fn zero_apic_incompressible_path_skips_and_clears_affine() {
-        let mut sim = PondWaterSim::new(
-            PondWaterConfig::default()
-                .with_particle_count(0)
-                .with_grid_dim(UVec3::splat(8))
-                .with_pressure_projection_iterations(8)
-                .with_incompressible_apic_blend(0.0),
-        );
-        sim.particles = vec![water_particle(Vec3::splat(0.5), Vec3::ZERO)];
-        sim.particles[0].c = Mat3::from_diagonal(Vec3::splat(4.0));
-
-        sim.clear_grid();
-        sim.particle_to_grid(sim.config.substep_dt);
-
-        assert!(!sim.touched_grid_nodes.is_empty());
-        assert!(sim
-            .touched_grid_nodes
-            .iter()
-            .all(|&idx| sim.grid[idx].v == Vec3::ZERO));
-
-        for &idx in &sim.touched_grid_nodes {
-            sim.grid[idx].mass = 1.0;
-            sim.grid[idx].v = Vec3::X;
-        }
-        sim.grid_to_particle(sim.config.substep_dt);
-
-        assert_eq!(sim.particles[0].c, Mat3::ZERO);
-        assert!((sim.particles[0].j - 1.0).abs() < 1.0e-6);
-    }
-
-    #[test]
-    fn pressure_projection_reduces_divergent_grid_velocity() {
-        let mut sim = PondWaterSim::new(
-            PondWaterConfig::default()
-                .with_particle_count(0)
-                .with_grid_dim(UVec3::splat(12))
-                .with_pressure_projection_iterations(96),
-        );
-        sim.clear_grid();
-
-        let center = Vec3::splat(5.5);
-        for z in 4..=7 {
-            for y in 4..=7 {
-                for x in 4..=7 {
-                    let idx = grid_index_dims(sim.grid_dim, x, y, z);
-                    sim.touched_grid_nodes.push(idx);
-                    sim.grid[idx].mass = 1.0;
-                    sim.grid[idx].v = (Vec3::new(x as f32, y as f32, z as f32) - center) * 0.1;
-                }
-            }
-        }
-
-        let before = active_grid_divergence_max(&sim);
-        assert!(before > 0.0);
-
-        sim.project_grid_incompressible(sim.config.substep_dt);
-
-        let after = active_grid_divergence_max(&sim);
-        assert!(
-            after < before * 0.65,
-            "pressure projection should reduce divergence: before={before} after={after}"
-        );
-    }
-
-    #[test]
     fn update_with_max_substeps_discards_excess_catchup() {
         let mut sim = test_sim_with_particles();
         let substep_dt = sim.config.substep_dt;
@@ -3996,104 +2110,6 @@ mod tests {
 
         assert!((sim.sim_time_seconds - substep_dt * 2.0).abs() <= f32::EPSILON);
         assert!(sim.accumulator <= substep_dt * 2.0 + f32::EPSILON);
-    }
-
-    #[test]
-    fn incompressible_substeps_keep_particle_j_at_rest() {
-        let mut sim = PondWaterSim::new(
-            PondWaterConfig::default()
-                .with_particle_count(256)
-                .with_pressure_projection_iterations(8),
-        );
-        for _ in 0..64 {
-            sim.substep(sim.config.substep_dt);
-        }
-
-        for particle in &sim.particles {
-            assert!(
-                (particle.j - 1.0).abs() < 1.0e-6,
-                "incompressible particle j drifted: {}",
-                particle.j
-            );
-        }
-    }
-
-    #[test]
-    fn incompressible_spacing_relaxation_separates_overlapping_particles() {
-        let mut sim = PondWaterSim::new(
-            PondWaterConfig::default()
-                .with_particle_count(0)
-                .with_pressure_projection_iterations(16)
-                .with_particle_spacing_relaxation_iterations(2),
-        );
-        let center = Vec3::new(0.5, 0.5, 0.5);
-        sim.particles = vec![water_particle(center, Vec3::ZERO), water_particle(center, Vec3::ZERO)];
-
-        sim.relax_incompressible_particle_spacing(sim.config.substep_dt, false);
-
-        let distance = sim.particles[0].x.distance(sim.particles[1].x);
-        assert!(
-            distance > sim.config.particle_volume.cbrt() * 0.1,
-            "overlapping particles were not separated: distance={distance}"
-        );
-        for particle in &sim.particles {
-            assert!((particle.j - 1.0).abs() < 1.0e-6);
-        }
-    }
-
-    #[test]
-    fn density_spacing_relaxation_separates_overlapping_particles() {
-        let mut sim = PondWaterSim::new(
-            PondWaterConfig::default()
-                .with_particle_count(0)
-                .with_pressure_projection_iterations(16)
-                .with_particle_spacing_relaxation_iterations(2)
-                .with_particle_spacing_mode(WaterParticleSpacingMode::Density),
-        );
-        let center = Vec3::new(0.5, 0.5, 0.5);
-        sim.particles = vec![water_particle(center, Vec3::ZERO), water_particle(center, Vec3::ZERO)];
-
-        sim.relax_incompressible_particle_spacing(sim.config.substep_dt, false);
-
-        let distance = sim.particles[0].x.distance(sim.particles[1].x);
-        assert!(
-            distance > sim.config.particle_volume.cbrt() * 0.1,
-            "overlapping particles were not separated by density projection: distance={distance}"
-        );
-        assert!(
-            sim.particles.iter().any(|particle| particle.v.length() > 0.0),
-            "density projection should feed a small bounded correction back into velocity"
-        );
-        for particle in &sim.particles {
-            assert!((particle.j - 1.0).abs() < 1.0e-6);
-        }
-    }
-
-    #[test]
-    fn cell_density_spacing_relaxation_separates_overlapping_particles() {
-        let mut sim = PondWaterSim::new(
-            PondWaterConfig::default()
-                .with_particle_count(0)
-                .with_pressure_projection_iterations(16)
-                .with_particle_spacing_relaxation_iterations(2)
-                .with_particle_spacing_mode(WaterParticleSpacingMode::CellDensity),
-        );
-        let center = Vec3::new(0.5, 0.5, 0.5);
-        sim.particles = vec![water_particle(center, Vec3::ZERO), water_particle(center, Vec3::ZERO)];
-
-        sim.relax_incompressible_particle_spacing(sim.config.substep_dt, false);
-
-        let distance = sim.particles[0].x.distance(sim.particles[1].x);
-        assert!(
-            distance > sim.config.particle_volume.cbrt() * 0.05,
-            "overlapping particles were not separated by cell-density projection: distance={distance}"
-        );
-        for particle in &sim.particles {
-            assert!(particle.x.is_finite());
-            assert!(particle.v.is_finite());
-            assert_eq!(particle.v, Vec3::ZERO);
-            assert!((particle.j - 1.0).abs() < 1.0e-6);
-        }
     }
 
     #[test]
@@ -4296,35 +2312,6 @@ mod tests {
 
     fn test_sim_with_particles() -> PondWaterSim {
         PondWaterSim::new(PondWaterConfig::default().with_particle_count(256))
-    }
-
-    fn active_grid_divergence_max(sim: &PondWaterSim) -> f32 {
-        let terrain_collision_margin = sim.terrain_collision_margin();
-        sim.touched_grid_nodes
-            .iter()
-            .copied()
-            .filter(|&idx| sim.grid[idx].mass > ACTIVE_MASS_EPSILON)
-            .filter(|&idx| {
-                !pressure_projection_solid_node(
-                    idx,
-                    &sim.grid_boundary_flags,
-                    &sim.terrain_grid,
-                    terrain_collision_margin,
-                )
-            })
-            .map(|idx| {
-                let stencil = pressure_projection_stencil_at(
-                    grid_coord_dims(sim.grid_dim, idx),
-                    sim.grid_dim,
-                    &sim.grid,
-                    &sim.grid_boundary_flags,
-                    &sim.terrain_grid,
-                    terrain_collision_margin,
-                );
-                pressure_projection_divergence_from_stencil(idx, &stencil, &sim.grid, sim.inv_dx)
-                    .abs()
-            })
-            .fold(0.0, f32::max)
     }
 
     fn plane_terrain_grid_samples() -> Vec<WaterTerrainGridSample> {

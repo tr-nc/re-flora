@@ -380,18 +380,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "WaterSimulation",
-        id: "water_pressure_iterations",
-        kind: "uint",
-        label: "Incompressible Pressure Projection Iterations",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "WaterSimulation",
-        id: "water_spacing_iterations",
-        kind: "uint",
-        label: "Particle Spacing Iterations",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "WaterSimulation",
         id: "water_gravity_y",
         kind: "float",
         label: "Gravity Y",
@@ -699,8 +687,6 @@ pub struct GuiAdjustables {
     pub water_substep_hz: crate::gui_adjustables::FloatParam,
     pub water_terrain_margin_cells: crate::gui_adjustables::FloatParam,
     pub water_damping: crate::gui_adjustables::FloatParam,
-    pub water_pressure_iterations: crate::gui_adjustables::UintParam,
-    pub water_spacing_iterations: crate::gui_adjustables::UintParam,
     pub water_gravity_y: crate::gui_adjustables::FloatParam,
     pub water_stiffness: crate::gui_adjustables::FloatParam,
     pub water_gamma: crate::gui_adjustables::FloatParam,
@@ -814,8 +800,6 @@ impl GuiAdjustables {
         let mut water_substep_hz_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_terrain_margin_cells_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_damping_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut water_pressure_iterations_field: Option<crate::gui_adjustables::UintParam> = None;
-        let mut water_spacing_iterations_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut water_gravity_y_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_stiffness_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_gamma_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1248,20 +1232,6 @@ impl GuiAdjustables {
                             water_damping_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "water_pressure_iterations" => {
-                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0);
-                            let max = max.unwrap_or(100);
-                            water_pressure_iterations_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
-                        }
-                    }
-                    "water_spacing_iterations" => {
-                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0);
-                            let max = max.unwrap_or(100);
-                            water_spacing_iterations_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
-                        }
-                    }
                     "water_gravity_y" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -1592,8 +1562,6 @@ impl GuiAdjustables {
             water_substep_hz: water_substep_hz_field.expect("Missing parameter: water_substep_hz"),
             water_terrain_margin_cells: water_terrain_margin_cells_field.expect("Missing parameter: water_terrain_margin_cells"),
             water_damping: water_damping_field.expect("Missing parameter: water_damping"),
-            water_pressure_iterations: water_pressure_iterations_field.expect("Missing parameter: water_pressure_iterations"),
-            water_spacing_iterations: water_spacing_iterations_field.expect("Missing parameter: water_spacing_iterations"),
             water_gravity_y: water_gravity_y_field.expect("Missing parameter: water_gravity_y"),
             water_stiffness: water_stiffness_field.expect("Missing parameter: water_stiffness"),
             water_gamma: water_gamma_field.expect("Missing parameter: water_gamma"),
@@ -1732,8 +1700,6 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "grass_render_mode" => Some(&adjustables.grass_render_mode),
         "god_ray_max_checks" => Some(&adjustables.god_ray_max_checks),
         "a_trous_iteration_count" => Some(&adjustables.a_trous_iteration_count),
-        "water_pressure_iterations" => Some(&adjustables.water_pressure_iterations),
-        "water_spacing_iterations" => Some(&adjustables.water_spacing_iterations),
         _ => None,
     }
 }
@@ -1869,8 +1835,6 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "grass_render_mode" => Some(&mut adjustables.grass_render_mode),
         "god_ray_max_checks" => Some(&mut adjustables.god_ray_max_checks),
         "a_trous_iteration_count" => Some(&mut adjustables.a_trous_iteration_count),
-        "water_pressure_iterations" => Some(&mut adjustables.water_pressure_iterations),
-        "water_spacing_iterations" => Some(&mut adjustables.water_spacing_iterations),
         _ => None,
     }
 }

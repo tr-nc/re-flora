@@ -13,7 +13,6 @@ const INITIAL_PARTICLE_CHUNK_MAX_WS: Vec3 = Vec3::new(2.0, 1.0, 2.0);
 // the containing box is now wider and the default starts empty. This preserves
 // the old 4096-particle density when water is added later by debug spawn.
 const DEFAULT_INITIAL_PARTICLE_VOLUME_FRACTION: f32 = 0.1;
-const DEFAULT_INCOMPRESSIBLE_APIC_BLEND: f32 = 0.10;
 // Keep weak-EOS material parameters independent of marker count. Particle volume
 // changes with the requested marker count so the visible water volume stays
 // roughly constant; mass must scale with that volume as well, otherwise higher
@@ -48,10 +47,6 @@ pub struct PondWaterConfig {
     pub stiffness: f32,
     pub gamma: f32,
     pub j_min: f32,
-    pub pressure_projection_iterations: u32,
-    pub particle_spacing_relaxation_iterations: u32,
-    pub particle_spacing_mode: WaterParticleSpacingMode,
-    pub incompressible_apic_blend: f32,
     pub terrain_collision_margin_cells: f32,
     pub linear_damping_per_sec: f32,
     pub wall_padding_cells: f32,
@@ -72,10 +67,6 @@ impl Default for PondWaterConfig {
             stiffness: DEFAULT_WEAK_EOS_STIFFNESS,
             gamma: DEFAULT_WEAK_EOS_GAMMA,
             j_min: DEFAULT_WEAK_EOS_J_MIN,
-            pressure_projection_iterations: 0,
-            particle_spacing_relaxation_iterations: 0,
-            particle_spacing_mode: WaterParticleSpacingMode::Pairwise,
-            incompressible_apic_blend: DEFAULT_INCOMPRESSIBLE_APIC_BLEND,
             terrain_collision_margin_cells: 0.5,
             linear_damping_per_sec: 0.8,
             wall_padding_cells: 2.0,
@@ -113,39 +104,6 @@ impl PondWaterConfig {
     pub fn with_terrain_collision_margin_cells(mut self, margin_cells: f32) -> Self {
         assert!(margin_cells >= 0.0 && margin_cells.is_finite());
         self.terrain_collision_margin_cells = margin_cells;
-        self
-    }
-
-    pub fn with_pressure_projection_iterations(mut self, iterations: u32) -> Self {
-        self.pressure_projection_iterations = iterations;
-        self
-    }
-
-    pub fn uses_incompressible_projection(&self) -> bool {
-        self.pressure_projection_iterations > 0
-    }
-
-    pub fn uses_legacy_eos(&self) -> bool {
-        !self.uses_incompressible_projection()
-    }
-
-    pub fn legacy_eos_j_min(&self) -> Option<f32> {
-        self.uses_legacy_eos().then_some(self.j_min)
-    }
-
-    pub fn with_particle_spacing_relaxation_iterations(mut self, iterations: u32) -> Self {
-        self.particle_spacing_relaxation_iterations = iterations;
-        self
-    }
-
-    pub fn with_particle_spacing_mode(mut self, mode: WaterParticleSpacingMode) -> Self {
-        self.particle_spacing_mode = mode;
-        self
-    }
-
-    pub fn with_incompressible_apic_blend(mut self, blend: f32) -> Self {
-        assert!(blend >= 0.0 && blend.is_finite());
-        self.incompressible_apic_blend = blend;
         self
     }
 
@@ -193,32 +151,6 @@ fn default_particle_volume(particle_count: usize) -> f32 {
 
 fn default_particle_mass(particle_volume: f32) -> f32 {
     DEFAULT_WEAK_EOS_REST_DENSITY * particle_volume
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum WaterParticleSpacingMode {
-    Pairwise,
-    Density,
-    CellDensity,
-}
-
-impl WaterParticleSpacingMode {
-    pub fn from_cli_value(value: &str) -> Option<Self> {
-        match value {
-            "pairwise" => Some(Self::Pairwise),
-            "density" | "pbf" => Some(Self::Density),
-            "cell-density" | "cell_density" => Some(Self::CellDensity),
-            _ => None,
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Pairwise => "pairwise",
-            Self::Density => "density",
-            Self::CellDensity => "cell-density",
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -308,18 +240,7 @@ pub struct WaterPerfStats {
     pub p2g_seconds: f64,
     pub grid_seconds: f64,
     pub grid_update_seconds: f64,
-    pub pressure_projection_seconds: f64,
     pub g2p_seconds: f64,
-    pub spacing_relax_seconds: f64,
-    pub density_spacing_bin_rebuild_seconds: f64,
-    pub density_spacing_pair_accum_seconds: f64,
-    pub density_spacing_lambda_seconds: f64,
-    pub density_spacing_correction_accum_seconds: f64,
-    pub density_spacing_correction_apply_seconds: f64,
-    pub density_spacing_post_repair_seconds: f64,
-    pub density_spacing_velocity_seconds: f64,
-    pub cell_density_rebuild_seconds: f64,
-    pub cell_density_push_seconds: f64,
     pub diagnostics_seconds: f64,
     pub g2p_gather_seconds: f64,
     pub g2p_box_seconds: f64,
@@ -336,14 +257,6 @@ pub struct WaterPerfStats {
     pub g2p_terrain_shadow_false_skips: u64,
     pub g2p_terrain_shadow_sdf_abs_error_sum: f64,
     pub g2p_terrain_shadow_sdf_abs_error_max: f32,
-    pub density_spacing_pairs: u64,
-    pub density_spacing_occupied_bins: u64,
-    pub density_spacing_active_lambdas: u64,
-    pub density_spacing_moved_particles: u64,
-    pub cell_density_occupied_cells: u64,
-    pub cell_density_overfull_cells: u64,
-    pub cell_density_moved_particles: u64,
-    pub cell_density_max_excess: f32,
 }
 
 impl WaterPerfStats {
@@ -365,34 +278,6 @@ pub struct PondWaterSim {
     pub(crate) touched_grid_nodes: Vec<usize>,
     pub(crate) grid_boundary_flags: Vec<u8>,
     pub(crate) terrain_grid: Vec<WaterTerrainGridSample>,
-    pub(crate) projection_pressure: Vec<f32>,
-    pub(crate) projection_pressure_next: Vec<f32>,
-    pub(crate) projection_divergence: Vec<f32>,
-    pub(crate) projection_active_nodes: Vec<usize>,
-    pub(crate) projection_stencils: Vec<super::mls_mpm::PressureProjectionStencil>,
-    pub(crate) density_spacing_bin_heads: Vec<usize>,
-    pub(crate) density_spacing_particle_next: Vec<usize>,
-    pub(crate) density_spacing_bin_offsets: Vec<usize>,
-    pub(crate) density_spacing_bin_counts: Vec<usize>,
-    pub(crate) density_spacing_bin_particles: Vec<u32>,
-    pub(crate) density_spacing_bin_particle_positions: Vec<Vec3>,
-    pub(crate) density_spacing_occupied_bins: Vec<usize>,
-    pub(crate) density_spacing_pairs: Vec<super::mls_mpm::DensitySpacingPair>,
-    pub(crate) density_spacing_densities: Vec<f32>,
-    pub(crate) density_spacing_gradient_sums: Vec<Vec3>,
-    pub(crate) density_spacing_gradient_sq_sums: Vec<f32>,
-    pub(crate) density_spacing_lambdas: Vec<f32>,
-    pub(crate) density_spacing_corrections: Vec<Vec3>,
-    pub(crate) density_spacing_total_corrections: Vec<Vec3>,
-    pub(crate) density_spacing_moved_particles: Vec<usize>,
-    pub(crate) cell_density_bin_counts: Vec<usize>,
-    pub(crate) cell_density_bin_position_sums: Vec<Vec3>,
-    pub(crate) cell_density_bin_generations: Vec<u32>,
-    pub(crate) cell_density_particle_bins: Vec<usize>,
-    pub(crate) cell_density_occupied_bins: Vec<usize>,
-    pub(crate) cell_density_total_corrections: Vec<Vec3>,
-    pub(crate) cell_density_moved_particles: Vec<usize>,
-    pub(crate) cell_density_generation: u32,
     pub accumulator: f32,
     pub perf_stats: WaterPerfStats,
     pub perf_report_seconds: f32,
@@ -434,34 +319,6 @@ impl PondWaterSim {
             touched_grid_nodes: Vec::with_capacity(touched_grid_capacity),
             grid_boundary_flags,
             terrain_grid: vec![WaterTerrainGridSample::default(); grid_len],
-            projection_pressure: vec![0.0; grid_len],
-            projection_pressure_next: vec![0.0; grid_len],
-            projection_divergence: vec![0.0; grid_len],
-            projection_active_nodes: Vec::with_capacity(touched_grid_capacity),
-            projection_stencils: Vec::with_capacity(touched_grid_capacity),
-            density_spacing_bin_heads: Vec::new(),
-            density_spacing_particle_next: Vec::with_capacity(particle_capacity),
-            density_spacing_bin_offsets: Vec::new(),
-            density_spacing_bin_counts: Vec::new(),
-            density_spacing_bin_particles: Vec::with_capacity(particle_capacity),
-            density_spacing_bin_particle_positions: Vec::with_capacity(particle_capacity),
-            density_spacing_occupied_bins: Vec::with_capacity(particle_capacity),
-            density_spacing_pairs: Vec::with_capacity(particle_capacity.saturating_mul(8)),
-            density_spacing_densities: Vec::with_capacity(particle_capacity),
-            density_spacing_gradient_sums: Vec::with_capacity(particle_capacity),
-            density_spacing_gradient_sq_sums: Vec::with_capacity(particle_capacity),
-            density_spacing_lambdas: Vec::with_capacity(particle_capacity),
-            density_spacing_corrections: Vec::with_capacity(particle_capacity),
-            density_spacing_total_corrections: Vec::with_capacity(particle_capacity),
-            density_spacing_moved_particles: Vec::with_capacity(particle_capacity),
-            cell_density_bin_counts: Vec::new(),
-            cell_density_bin_position_sums: Vec::new(),
-            cell_density_bin_generations: Vec::new(),
-            cell_density_particle_bins: Vec::with_capacity(particle_capacity),
-            cell_density_occupied_bins: Vec::with_capacity(particle_capacity),
-            cell_density_total_corrections: Vec::with_capacity(particle_capacity),
-            cell_density_moved_particles: Vec::with_capacity(particle_capacity),
-            cell_density_generation: 0,
             accumulator: 0.0,
             perf_stats: WaterPerfStats::default(),
             perf_report_seconds: 0.0,
@@ -869,11 +726,11 @@ impl PondWaterSim {
         // just under the local surface, use a bounded hydrostatic estimate
         // instead of inheriting a numerically compressed neighbor J.
         let max_depth = self.dx * DEBUG_SPAWN_HYDROSTATIC_J_MAX_DEPTH_CELLS;
-        self.legacy_eos_hydrostatic_j((surface_y - particle_y).max(0.0), max_depth)
+        self.eos_hydrostatic_j((surface_y - particle_y).max(0.0), max_depth)
     }
 
-    fn legacy_eos_hydrostatic_j(&self, depth_ws: f32, max_depth_ws: f32) -> f32 {
-        if !self.config.uses_legacy_eos() || depth_ws <= 0.0 || !depth_ws.is_finite() {
+    fn eos_hydrostatic_j(&self, depth_ws: f32, max_depth_ws: f32) -> f32 {
+        if depth_ws <= 0.0 || !depth_ws.is_finite() {
             return 1.0;
         }
 
@@ -981,7 +838,7 @@ impl PondWaterSim {
                     // Starting every marker at J=1 leaves the whole column at
                     // atmospheric pressure, so gravity first crushes it before the
                     // EOS pressure wave catches up.
-                    particle.j = self.legacy_eos_hydrostatic_j(
+                    particle.j = self.eos_hydrostatic_j(
                         (volume_max.y - particle.x.y).max(0.0),
                         (volume_max.y - volume_min.y).max(0.0),
                     );
@@ -1074,9 +931,6 @@ mod tests {
         assert_eq!(sim.config.particle_count, DEFAULT_PARTICLE_COUNT);
         assert_eq!(sim.particles.len(), 0);
         assert_eq!(sim.grid_dim, DEFAULT_GRID_DIM);
-        assert!(sim.config.uses_legacy_eos());
-        assert_eq!(sim.config.pressure_projection_iterations, 0);
-        assert_eq!(sim.config.particle_spacing_relaxation_iterations, 0);
         assert!((sim.dx - 1.0 / 32.0).abs() < 1.0e-6);
         assert_eq!(
             sim.config.particle_volume,
@@ -1105,7 +959,7 @@ mod tests {
     }
 
     #[test]
-    fn initial_seed_uses_hydrostatic_j_for_legacy_eos() {
+    fn initial_seed_uses_hydrostatic_j_for_eos() {
         let sim = PondWaterSim::new(PondWaterConfig::default().with_particle_count(128));
         let min_j = sim
             .particles
@@ -1121,17 +975,6 @@ mod tests {
         assert!(min_j >= sim.config.j_min, "min_j={min_j}");
         assert!(min_j < 0.999, "seeded column should start pre-pressurized: min_j={min_j}");
         assert!(max_j <= 1.0, "max_j={max_j}");
-    }
-
-    #[test]
-    fn initial_seed_keeps_j_one_for_incompressible_projection() {
-        let sim = PondWaterSim::new(
-            PondWaterConfig::default()
-                .with_particle_count(128)
-                .with_pressure_projection_iterations(8),
-        );
-
-        assert!(sim.particles.iter().all(|particle| particle.j == 1.0));
     }
 
     #[test]
@@ -1370,11 +1213,9 @@ mod tests {
     }
 
     #[test]
-    fn debug_spawn_initial_j_uses_bounded_hydrostatic_depth_below_surface_for_legacy_eos() {
+    fn debug_spawn_initial_j_uses_bounded_hydrostatic_depth_below_surface() {
         let sim = PondWaterSim::new(
-            PondWaterConfig::default()
-                .with_particle_count(0)
-                .with_pressure_projection_iterations(0),
+            PondWaterConfig::default().with_particle_count(0),
         );
         let surface_y = 0.5;
 
@@ -1385,18 +1226,6 @@ mod tests {
             below_surface_j < 1.0 && below_surface_j >= sim.config.j_min,
             "below_surface_j={below_surface_j}"
         );
-    }
-
-    #[test]
-    fn debug_spawn_initial_j_stays_one_for_incompressible_projection() {
-        let sim = PondWaterSim::new(
-            PondWaterConfig::default()
-                .with_particle_count(0)
-                .with_pressure_projection_iterations(8),
-        );
-        let surface_y = 0.5;
-
-        assert_eq!(sim.debug_spawn_initial_j(surface_y - sim.dx, Some(surface_y)), 1.0);
     }
 
     #[test]
