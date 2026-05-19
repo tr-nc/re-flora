@@ -63,46 +63,46 @@ python3 tools/parse_perf_log.py target/re-flora-logs/re-flora-20260519-152746.30
 
 Top-level water solver 成本（非重复计数；`grid` 和 `g2p` 是 inclusive 总项）：
 
-| part | ms/report | ms/substep | share |
-|---|---:|---:|---:|
-| `spacing_relax` | `266.74` | `2.194` | `50.8%` |
-| `g2p` | `189.69` | `1.560` | `36.1%` |
-| `grid` | `33.32` | `0.274` | `6.3%` |
-| `p2g` | `30.56` | `0.251` | `5.8%` |
-| `repair` | `4.15` | `0.034` | `0.8%` |
-| `clear` | `1.07` | `0.009` | `0.2%` |
-| `shadow_measure` | `0.29` | `0.002` | `0.1%` |
-| `residual` | `0.02` | `0.000` | `<0.1%` |
-| `diagnostics` | `0.00` | `0.000` | `0.0%` |
+| part             | ms/report | ms/substep |   share |
+| ---------------- | --------: | ---------: | ------: |
+| `spacing_relax`  |  `266.74` |    `2.194` | `50.8%` |
+| `g2p`            |  `189.69` |    `1.560` | `36.1%` |
+| `grid`           |   `33.32` |    `0.274` |  `6.3%` |
+| `p2g`            |   `30.56` |    `0.251` |  `5.8%` |
+| `repair`         |    `4.15` |    `0.034` |  `0.8%` |
+| `clear`          |    `1.07` |    `0.009` |  `0.2%` |
+| `shadow_measure` |    `0.29` |    `0.002` |  `0.1%` |
+| `residual`       |    `0.02` |    `0.000` | `<0.1%` |
+| `diagnostics`    |    `0.00` |    `0.000` |  `0.0%` |
 
 Nested breakdowns（子项不额外加到 total）：
 
-| parent | part | ms/report | ms/substep | share of total |
-|---|---|---:|---:|---:|
-| `grid` | `pressure` | `26.99` | `0.222` | `5.1%` |
-| `grid` | `grid_update` | `6.33` | `0.052` | `1.2%` |
-| `g2p` | `g2p_gather` | `29.06` | `0.239` | `5.5%` |
-| `g2p` | `g2p_terrain` | `24.95` | `0.205` | `4.7%` |
-| `g2p` | `g2p_repair` | `16.33` | `0.134` | `3.1%` |
-| `g2p` | `g2p_box` | `15.89` | `0.131` | `3.0%` |
-| `g2p` | uninstrumented G2P body | `103.45` | `0.851` | `19.7%` |
+| parent | part                    | ms/report | ms/substep | share of total |
+| ------ | ----------------------- | --------: | ---------: | -------------: |
+| `grid` | `pressure`              |   `26.99` |    `0.222` |         `5.1%` |
+| `grid` | `grid_update`           |    `6.33` |    `0.052` |         `1.2%` |
+| `g2p`  | `g2p_gather`            |   `29.06` |    `0.239` |         `5.5%` |
+| `g2p`  | `g2p_terrain`           |   `24.95` |    `0.205` |         `4.7%` |
+| `g2p`  | `g2p_repair`            |   `16.33` |    `0.134` |         `3.1%` |
+| `g2p`  | `g2p_box`               |   `15.89` |    `0.131` |         `3.0%` |
+| `g2p`  | uninstrumented G2P body |  `103.45` |    `0.851` |        `19.7%` |
 
 Stability / workload counters in the same stable window:
 
-| metric | value |
-|---|---:|
-| `density_pairs/substep` | `60,376` |
-| `density_bins/substep` | `2,127` |
-| `active_nodes/substep` | `6,380` |
-| `terrain_cache_projections/substep` | `5,517` |
-| `terrain_cache_skips/substep` | `2,675` |
-| `terrain_exact_checks/substep` | `0` |
-| `terrain_exact_corrections/substep` | `0` |
-| `terrain_shadow_false_skips` | `0` |
-| `terrain_shadow_sdf_err_avg` | `0.0011` |
-| `terrain_shadow_sdf_err_max` | `0.031` |
-| `penetrating` | `~23/report` |
-| `no_sdf` | `0` |
+| metric                              |        value |
+| ----------------------------------- | -----------: |
+| `density_pairs/substep`             |     `60,376` |
+| `density_bins/substep`              |      `2,127` |
+| `active_nodes/substep`              |      `6,380` |
+| `terrain_cache_projections/substep` |      `5,517` |
+| `terrain_cache_skips/substep`       |      `2,675` |
+| `terrain_exact_checks/substep`      |          `0` |
+| `terrain_exact_corrections/substep` |          `0` |
+| `terrain_shadow_false_skips`        |          `0` |
+| `terrain_shadow_sdf_err_avg`        |     `0.0011` |
+| `terrain_shadow_sdf_err_max`        |      `0.031` |
+| `penetrating`                       | `~23/report` |
+| `no_sdf`                            |          `0` |
 
 Frame-level hidden run summary: all 604 frame samples had `water_update mean=9.29ms`, `median=8.73ms`, `p95=13.35ms`, `max=20.71ms`; last 300 frame samples had `water_update mean=10.27ms`, `median=8.95ms`, `p95=13.49ms`, `max=13.85ms`, with frame mean `19.52ms`.
 
@@ -130,47 +130,47 @@ python3 tools/parse_perf_log.py target/re-flora-logs/re-flora-20260519-153946.58
 
 Top-level water solver 成本（非重复计数；`grid` 和 `g2p` 是 inclusive 总项）：
 
-| part | ms/report | ms/substep | share |
-|---|---:|---:|---:|
-| `spacing_relax` | `900.93` | `56.308` | `72.0%` |
-| `g2p` | `294.93` | `18.433` | `23.6%` |
-| `p2g` | `41.30` | `2.581` | `3.3%` |
-| `grid` | `6.93` | `0.433` | `0.6%` |
-| `repair` | `6.49` | `0.406` | `0.5%` |
-| `shadow_measure` | `3.23` | `0.202` | `0.3%` |
-| `clear` | `0.47` | `0.029` | `<0.1%` |
-| `residual` | `0.00` | `0.000` | `0.0%` |
-| `diagnostics` | `0.00` | `0.000` | `0.0%` |
+| part             | ms/report | ms/substep |   share |
+| ---------------- | --------: | ---------: | ------: |
+| `spacing_relax`  |  `900.93` |   `56.308` | `72.0%` |
+| `g2p`            |  `294.93` |   `18.433` | `23.6%` |
+| `p2g`            |   `41.30` |    `2.581` |  `3.3%` |
+| `grid`           |    `6.93` |    `0.433` |  `0.6%` |
+| `repair`         |    `6.49` |    `0.406` |  `0.5%` |
+| `shadow_measure` |    `3.23` |    `0.202` |  `0.3%` |
+| `clear`          |    `0.47` |    `0.029` | `<0.1%` |
+| `residual`       |    `0.00` |    `0.000` |  `0.0%` |
+| `diagnostics`    |    `0.00` |    `0.000` |  `0.0%` |
 
 Nested breakdowns（子项不额外加到 total）：
 
-| parent | part | ms/report | ms/substep | share of total |
-|---|---|---:|---:|---:|
-| `grid` | `pressure` | `5.21` | `0.326` | `0.4%` |
-| `grid` | `grid_update` | `1.73` | `0.108` | `0.1%` |
-| `g2p` | `g2p_gather` | `44.78` | `2.799` | `3.6%` |
-| `g2p` | `g2p_terrain` | `36.48` | `2.280` | `2.9%` |
-| `g2p` | `g2p_repair` | `25.95` | `1.622` | `2.1%` |
-| `g2p` | `g2p_box` | `25.06` | `1.566` | `2.0%` |
-| `g2p` | uninstrumented G2P body | `162.66` | `10.166` | `13.0%` |
+| parent | part                    | ms/report | ms/substep | share of total |
+| ------ | ----------------------- | --------: | ---------: | -------------: |
+| `grid` | `pressure`              |    `5.21` |    `0.326` |         `0.4%` |
+| `grid` | `grid_update`           |    `1.73` |    `0.108` |         `0.1%` |
+| `g2p`  | `g2p_gather`            |   `44.78` |    `2.799` |         `3.6%` |
+| `g2p`  | `g2p_terrain`           |   `36.48` |    `2.280` |         `2.9%` |
+| `g2p`  | `g2p_repair`            |   `25.95` |    `1.622` |         `2.1%` |
+| `g2p`  | `g2p_box`               |   `25.06` |    `1.566` |         `2.0%` |
+| `g2p`  | uninstrumented G2P body |  `162.66` |   `10.166` |        `13.0%` |
 
 Stability / workload counters in the same stable window:
 
-| metric | value |
-|---|---:|
-| `density_pairs/substep` | `1,580,720` |
-| `density_bins/substep` | `15,701` |
-| `active_nodes/substep` | `8,738` |
-| `terrain_cache_projections/substep` | `49,242` |
-| `terrain_cache_skips/substep` | `50,758` |
-| `terrain_exact_checks/substep` | `0` |
-| `terrain_exact_corrections/substep` | `0` |
-| `terrain_shadow_samples/substep` | `6,250` |
-| `terrain_shadow_false_skips` | `0.2/report`（5 个稳定 samples 中有 1 个 false skip） |
-| `terrain_shadow_sdf_err_avg` | `0.0013` |
-| `terrain_shadow_sdf_err_max` | `0.027` |
-| `penetrating` | `~338/report` |
-| `no_sdf` | `0` |
+| metric                              |                                                 value |
+| ----------------------------------- | ----------------------------------------------------: |
+| `density_pairs/substep`             |                                           `1,580,720` |
+| `density_bins/substep`              |                                              `15,701` |
+| `active_nodes/substep`              |                                               `8,738` |
+| `terrain_cache_projections/substep` |                                              `49,242` |
+| `terrain_cache_skips/substep`       |                                              `50,758` |
+| `terrain_exact_checks/substep`      |                                                   `0` |
+| `terrain_exact_corrections/substep` |                                                   `0` |
+| `terrain_shadow_samples/substep`    |                                               `6,250` |
+| `terrain_shadow_false_skips`        | `0.2/report`（5 个稳定 samples 中有 1 个 false skip） |
+| `terrain_shadow_sdf_err_avg`        |                                              `0.0013` |
+| `terrain_shadow_sdf_err_max`        |                                               `0.027` |
+| `penetrating`                       |                                         `~338/report` |
+| `no_sdf`                            |                                                   `0` |
 
 Findings:
 
@@ -218,10 +218,10 @@ P0 实施计划：
 
 最终保留版本 benchmark（release hidden，performance profile，稳定窗口取最后 5 个 `[PERF][WATER]` samples）：
 
-| particles | log | avg/substep | spacing_relax/report | spacing_relax/substep | pair_accum/substep | density_pairs/substep | density_bins/substep | density_moved/substep |
-|---:|---|---:|---:|---:|---:|---:|---:|---:|
-| `8192` | `target/re-flora-logs/re-flora-20260519-172018.174-62851.log` | `4.235ms` | `254.30ms` | `2.095ms` | `1.461ms` | `60,420` | `2,130` | `8,127` |
-| `100000` | `target/re-flora-logs/re-flora-20260519-171943.689-62029.log` | `75.896ms` | `862.01ms` | `53.875ms` | `43.407ms` | `1,580,500` | `15,706` | `99,360` |
+| particles | log                                                           | avg/substep | spacing_relax/report | spacing_relax/substep | pair_accum/substep | density_pairs/substep | density_bins/substep | density_moved/substep |
+| --------: | ------------------------------------------------------------- | ----------: | -------------------: | --------------------: | -----------------: | --------------------: | -------------------: | --------------------: |
+|    `8192` | `target/re-flora-logs/re-flora-20260519-172018.174-62851.log` |   `4.235ms` |           `254.30ms` |             `2.095ms` |          `1.461ms` |              `60,420` |              `2,130` |               `8,127` |
+|  `100000` | `target/re-flora-logs/re-flora-20260519-171943.689-62029.log` |  `75.896ms` |           `862.01ms` |            `53.875ms` |         `43.407ms` |           `1,580,500` |             `15,706` |              `99,360` |
 
 对比旧稳定窗口：8192 粒子 `spacing_relax` 约 `266.74ms/report -> 254.30ms/report`（约 `4.7%` faster），100000 粒子约 `900.93ms/report -> 862.01ms/report`（约 `4.3%` faster）。主要剩余瓶颈仍是 pair accumulation。
 
@@ -233,10 +233,10 @@ P0 实施计划：
 
 最终保留版本 benchmark（release hidden，performance profile，稳定窗口取最后 5 个 `[PERF][WATER]` samples）：
 
-| particles | log | bin layout | avg/substep | spacing_relax/report | spacing_relax/substep | pair_accum/substep | bin_rebuild/substep | density_pairs/substep | density_bins/substep |
-|---:|---|---|---:|---:|---:|---:|---:|---:|---:|
-| `8192` | `target/re-flora-logs/re-flora-20260519-174605.683-88055.log` | linked | `4.266ms` | `257.88ms` | `2.121ms` | `1.491ms` | `0.053ms` | `60,430` | `2,129` |
-| `100000` | `target/re-flora-logs/re-flora-20260519-174644.710-88950.log` | contiguous | `74.629ms` | `830.75ms` | `51.922ms` | `40.648ms` | `0.956ms` | `1,636,146` | `15,261` |
+| particles | log                                                           | bin layout | avg/substep | spacing_relax/report | spacing_relax/substep | pair_accum/substep | bin_rebuild/substep | density_pairs/substep | density_bins/substep |
+| --------: | ------------------------------------------------------------- | ---------- | ----------: | -------------------: | --------------------: | -----------------: | ------------------: | --------------------: | -------------------: |
+|    `8192` | `target/re-flora-logs/re-flora-20260519-174605.683-88055.log` | linked     |   `4.266ms` |           `257.88ms` |             `2.121ms` |          `1.491ms` |           `0.053ms` |              `60,430` |              `2,129` |
+|  `100000` | `target/re-flora-logs/re-flora-20260519-174644.710-88950.log` | contiguous |  `74.629ms` |           `830.75ms` |            `51.922ms` |         `40.648ms` |           `0.956ms` |           `1,636,146` |             `15,261` |
 
 对比 pass 1 的 100000 粒子稳定窗口：`spacing_relax` 约 `862.01ms/report -> 830.75ms/report`（约 `3.6%` faster），`spacing_pair_accum` 约 `43.41ms/substep -> 40.65ms/substep`（约 `6.4%` faster）。8192 场景保留 linked path；最新样本与 pass 1 在小幅噪声范围内，但没有采用 contiguous-only 小粒子路径。
 
@@ -248,10 +248,10 @@ P0 实施计划：
 
 最终保留版本 benchmark（release hidden，performance profile，稳定窗口取最后 5 个 `[PERF][WATER]` samples）：
 
-| particles | log | bin layout | avg/substep | spacing_relax/report | spacing_relax/substep | pair_accum/substep | bin_rebuild/substep | density_pairs/substep | density_bins/substep |
-|---:|---|---|---:|---:|---:|---:|---:|---:|---:|
-| `8192` | `target/re-flora-logs/re-flora-20260519-182540.271-17362.log` | linked | `4.110ms` | `241.67ms` | `1.971ms` | `1.343ms` | `0.051ms` | `60,407` | `2,130` |
-| `100000` | `target/re-flora-logs/re-flora-20260519-182658.010-18344.log` | contiguous + positions | `63.997ms` | `697.51ms` | `43.594ms` | `33.086ms` | `0.966ms` | `1,615,841` | `15,351` |
+| particles | log                                                           | bin layout             | avg/substep | spacing_relax/report | spacing_relax/substep | pair_accum/substep | bin_rebuild/substep | density_pairs/substep | density_bins/substep |
+| --------: | ------------------------------------------------------------- | ---------------------- | ----------: | -------------------: | --------------------: | -----------------: | ------------------: | --------------------: | -------------------: |
+|    `8192` | `target/re-flora-logs/re-flora-20260519-182540.271-17362.log` | linked                 |   `4.110ms` |           `241.67ms` |             `1.971ms` |          `1.343ms` |           `0.051ms` |              `60,407` |              `2,130` |
+|  `100000` | `target/re-flora-logs/re-flora-20260519-182658.010-18344.log` | contiguous + positions |  `63.997ms` |           `697.51ms` |            `43.594ms` |         `33.086ms` |           `0.966ms` |           `1,615,841` |             `15,351` |
 
 对比 pass 2 的 100000 粒子稳定窗口：`spacing_relax` 约 `830.75ms/report -> 697.51ms/report`（约 `16.0%` faster），`spacing_pair_accum` 约 `40.65ms/substep -> 33.09ms/substep`（约 `18.6%` faster），`avg/substep` 约 `74.63ms -> 64.00ms`（约 `14.2%` faster）。100000 粒子下 `spacing_pair_accum` 仍是最大单项，约 `33ms/substep`。
 
