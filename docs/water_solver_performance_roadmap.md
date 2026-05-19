@@ -26,7 +26,7 @@ record_diagnostic_substep
 
 从代码结构看，近期最值得验证的性能嫌疑点是：
 
-1. 当前 `relax_incompressible_particle_spacing()` 是 ad-hoc 粒子防聚团 pass：每个 substep 建 HashMap、分配 correction buffer、做邻域 pair 查询，并在 spacing 后重复碰撞/repair；它还会阻断 G2P 后直接准备 next P2G 的流水/融合优化。优先验证移除或替换，而不是继续优化这个实现。
+1. 当前 `relax_incompressible_particle_spacing()` 是 ad-hoc 粒子防聚团 pass：每个 substep 建 HashMap、分配 correction buffer、做邻域 pair 查询，并在 spacing 后重复碰撞/repair。优先验证移除或替换，而不是继续优化这个实现。
 2. incompressible APIC affine：即使 `j` 已经在不可压路径中固定为 `1.0`，`c: Mat3` 仍参与 P2G/G2P 的 27-node 热循环。P2 已加入 no-APIC path，performance profile 默认使用 `incompressible_apic_blend=0.0`。
 3. pressure projection：固定 Jacobi iteration，且每步 pressure 从 0 开始。
 4. P2G/G2P 重复计算 particle stencil：base coord、weights、node indices 在同一 substep 中重复计算。
@@ -36,7 +36,7 @@ record_diagnostic_substep
 
 ### P0：移除或替换当前 spacing relaxation
 
-目的：当前 `relax_incompressible_particle_spacing()` 不是经典 MLS-MPM 不可压步骤，而是额外的 pairwise 防聚团补丁。它成本高、物理含义弱，并且会阻断后续 `G2P -> next P2G` 融合/流水。优先把它从 performance path 中移除；如果视觉粒子分布不可接受，再用更 principled 的 PBF-like density projection 替代。
+目的：当前 `relax_incompressible_particle_spacing()` 不是经典 MLS-MPM 不可压步骤，而是额外的 pairwise 防聚团补丁。它成本高、物理含义弱。优先把它从 performance path 中移除；如果视觉粒子分布不可接受，再用更 principled 的 PBF-like density projection 替代。
 
 2026-05-19 初次基准（release hidden，`--water-profile performance --water-particles 1024`，每组约 5 个 `[PERF][WATER]` samples）：
 
@@ -66,7 +66,7 @@ P0 结论：grid pressure projection 负责网格不可压，但不能单独保�
 
 2026-05-19 pair construction / neighbor traversal 优化：density spacing 改用每 iteration 的 dense linked-cell bins（按当前有限粒子的 occupied bbox 建一维 head/next 表），按 occupied bin 遍历 same-cell pairs 和 13 个 forward neighbor offsets，替代旧的 per-particle `HashMap` 27-neighbor 查询；极端 bin bbox 超 cap 时仍 fallback 到旧 hash path。1024 粒子 release hidden 对照（performance profile，2 个 `[PERF][WATER]` samples）约 `avg/substep=1.31ms -> 0.86ms`、`spacing_relax=74.80ms/report -> 25.26ms/report`；新日志记录 `density_pairs/substep` 与 `density_bins/substep`，本次约 `3081 pairs/substep`、`501 bins/substep`。
 
-预期收益：视觉稳定性已明显改善；density spacing pair traversal 已成为可接受成本，后续替换掉旧 pairwise fallback 后再评估 `G2P -> next P2G` 融合。
+预期收益：视觉稳定性已明显改善；density spacing pair traversal 已成为可接受成本，旧 pairwise spacing 只保留为兼容 fallback。
 
 ### P1（取消）：优化当前 pairwise spacing 实现
 
@@ -146,7 +146,7 @@ P0 结论：grid pressure projection 负责网格不可压，但不能单独保�
 
 预期收益：中等偏小，但物理风险低。
 
-2026-05-19 执行结果：尝试过两种跨 P2G/G2P 缓存粒子 stencil 的方案（27-entry node/weight 列表、compact base+weights），实测因为 P2G 额外写 scratch / cache 压力而持平或变慢，未保留。保留低风险的 P2G interior-stencil fast path：当粒子的 3×3×3 stencil 完全在 grid 内部时，用 base linear index + x/y/z stride 访问节点，跳过每个 node 的 `in_grid()` 和 `grid_index_dims()`；同时把 quadratic weight 的 `powf(2.0)` 改成乘法。1024 粒子 release hidden 对照（performance profile，6 个 `[PERF][WATER]` samples）约 `avg/substep=0.94ms -> 0.87ms`、`p2g=8.78ms/report -> 6.75ms/report`。更深的 `G2P -> next P2G` 融合仍等旧 pairwise fallback / position-primary 方向清理后再做。
+2026-05-19 执行结果：尝试过两种跨 P2G/G2P 缓存粒子 stencil 的方案（27-entry node/weight 列表、compact base+weights），实测因为 P2G 额外写 scratch / cache 压力而持平或变慢，未保留。保留低风险的 P2G interior-stencil fast path：当粒子的 3×3×3 stencil 完全在 grid 内部时，用 base linear index + x/y/z stride 访问节点，跳过每个 node 的 `in_grid()` 和 `grid_index_dims()`；同时把 quadratic weight 的 `powf(2.0)` 改成乘法。1024 粒子 release hidden 对照（performance profile，6 个 `[PERF][WATER]` samples）约 `avg/substep=0.94ms -> 0.87ms`、`p2g=8.78ms/report -> 6.75ms/report`。
 
 ### P5：减少 terrain exact fallback
 
@@ -210,8 +210,7 @@ P0 结论：grid pressure projection 负责网格不可压，但不能单独保�
 
 下一步：
 
-1. `explore G2P -> next P2G fusion after pairwise fallback / position-primary cleanup`
-2. `prototype threaded water sim behind flag`
+1. `prototype threaded water sim behind flag`
 
 不要默认恢复 `spacing=0`，也不要把 performance profile 的 pressure 默认降到 `8` 以下；旧 pairwise spacing 只作为 fallback。
 
