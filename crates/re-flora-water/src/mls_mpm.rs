@@ -52,6 +52,8 @@ const DENSITY_SPACING_FORWARD_NEIGHBOR_OFFSETS: [(i32, i32, i32); 13] = [
 ];
 const PRESSURE_PROJECTION_NEIGHBOR_NONE: usize = usize::MAX;
 const PRESSURE_PROJECTION_NEIGHBOR_COUNT: usize = 6;
+const TERRAIN_GRID_SKIP_GUARD_CELLS: f32 = 0.25;
+const TERRAIN_GRID_PROJECTION_GUARD_CELLS: f32 = 0.10;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct PressureProjectionStencil {
@@ -702,10 +704,10 @@ impl PondWaterSim {
                         }
                     }
                 }
-                TerrainGridParticleQuery::CachedProjection { sdf, .. } => {
+                TerrainGridParticleQuery::CachedProjection { cached_sdf, .. } => {
                     stats.samples += 1;
                     if let Some(exact_sdf) = terrain.sample_sdf_ws(particle.x) {
-                        let abs_error = (sdf - exact_sdf).abs();
+                        let abs_error = (cached_sdf - exact_sdf).abs();
                         stats.sdf_abs_error_sum += abs_error as f64;
                         stats.sdf_abs_error_max = stats.sdf_abs_error_max.max(abs_error);
                     }
@@ -1936,7 +1938,7 @@ impl PondWaterSim {
                         TerrainGridParticleQuery::Skip { .. } => {
                             terrain_cache_skips += 1;
                         }
-                        TerrainGridParticleQuery::CachedProjection { sdf, normal } => {
+                        TerrainGridParticleQuery::CachedProjection { sdf, normal, .. } => {
                             terrain_cache_projections += 1;
                             project_particle_with_cached_terrain(
                                 particle,
@@ -2319,7 +2321,11 @@ fn vec3_component(value: Vec3, axis: usize) -> f32 {
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum TerrainGridParticleQuery {
     Skip { sdf: f32 },
-    CachedProjection { sdf: f32, normal: Vec3 },
+    CachedProjection {
+        sdf: f32,
+        normal: Vec3,
+        cached_sdf: f32,
+    },
     ExactFallback,
 }
 
@@ -2372,23 +2378,33 @@ fn terrain_grid_particle_query(
 
     let sdf = trilinear_sdf(corner_sdf, f);
     let collision_margin = collision_margin.max(0.0);
-    let interpolation_slack = dx * 0.25;
-    if sdf > collision_margin + interpolation_slack {
+    let skip_guard = dx * TERRAIN_GRID_SKIP_GUARD_CELLS;
+    if sdf > collision_margin + skip_guard {
         return TerrainGridParticleQuery::Skip { sdf };
     }
 
-    if sdf <= collision_margin {
-        let normal = trilinear_sdf_gradient(corner_sdf, f).normalize_or_zero();
-        if normal.is_finite() && normal.length_squared() > 0.0 {
-            return TerrainGridParticleQuery::CachedProjection { sdf, normal };
-        }
+    let normal = trilinear_sdf_gradient(corner_sdf, f).normalize_or_zero();
+    if normal.is_finite() && normal.length_squared() > 0.0 {
+        let projection_sdf = if sdf <= collision_margin {
+            sdf
+        } else {
+            // In the interpolation-uncertainty band just outside the contact
+            // margin, apply a small conservative cached correction instead of
+            // falling back to the exact collider for every near-surface particle.
+            sdf - dx * TERRAIN_GRID_PROJECTION_GUARD_CELLS
+        };
+        return TerrainGridParticleQuery::CachedProjection {
+            sdf: projection_sdf,
+            normal,
+            cached_sdf: sdf,
+        };
     }
 
     TerrainGridParticleQuery::ExactFallback
 }
 
-fn should_shadow_sample_terrain(particle_idx: usize) -> bool {
-    particle_idx % 128 == 0
+fn should_shadow_sample_terrain(_particle_idx: usize) -> bool {
+    true
 }
 
 fn trilinear_sdf(c: [[[f32; 2]; 2]; 2], f: Vec3) -> f32 {
@@ -3115,7 +3131,8 @@ mod tests {
         collide_particle_with_terrain, collide_particle_with_terrain_iterative, grid_coord_dims,
         grid_index_dims, pressure_projection_divergence_from_stencil,
         pressure_projection_solid_node, pressure_projection_stencil_at,
-        project_velocity_away_from_surface, ACTIVE_MASS_EPSILON,
+        project_velocity_away_from_surface, terrain_grid_particle_query,
+        TerrainGridParticleQuery, WaterTerrainGridSample, ACTIVE_MASS_EPSILON,
     };
     use crate::{
         PondWaterConfig, PondWaterSim, WaterParticleSpacingMode, WaterTerrainColliderChunk,
@@ -3369,6 +3386,42 @@ mod tests {
     }
 
     #[test]
+    fn terrain_grid_query_projects_near_outside_cached_surface() {
+        let terrain_grid = plane_terrain_grid_samples();
+        let query = terrain_grid_particle_query(
+            Vec3::new(0.5, 0.52, 0.5),
+            1.0,
+            1.0,
+            UVec3::new(2, 2, 2),
+            &terrain_grid,
+            0.5,
+        );
+
+        match query {
+            TerrainGridParticleQuery::CachedProjection { sdf, normal, .. } => {
+                assert!(sdf < 0.5, "near-band projection should be conservative: {sdf}");
+                assert!(normal.dot(Vec3::Y) > 0.99, "normal={normal:?}");
+            }
+            other => panic!("expected cached projection, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn terrain_grid_query_skips_outside_cached_guard_band() {
+        let terrain_grid = plane_terrain_grid_samples();
+        let query = terrain_grid_particle_query(
+            Vec3::new(0.5, 0.80, 0.5),
+            1.0,
+            1.0,
+            UVec3::new(2, 2, 2),
+            &terrain_grid,
+            0.5,
+        );
+
+        assert!(matches!(query, TerrainGridParticleQuery::Skip { .. }));
+    }
+
+    #[test]
     fn sloped_terrain_collider_substeps_keep_particles_finite_and_bounded() {
         let mut sim = test_sim_with_particles();
         let bounds = sim.config.collider;
@@ -3531,6 +3584,23 @@ mod tests {
                     .abs()
             })
             .fold(0.0, f32::max)
+    }
+
+    fn plane_terrain_grid_samples() -> Vec<WaterTerrainGridSample> {
+        let mut samples = Vec::new();
+        for _z in 0..2 {
+            for y in 0..2 {
+                for _x in 0..2 {
+                    samples.push(WaterTerrainGridSample {
+                        sdf: y as f32,
+                        normal: Vec3::Y,
+                        near_surface: true,
+                        has_sdf: true,
+                    });
+                }
+            }
+        }
+        samples
     }
 
     fn sdf_collider_set(

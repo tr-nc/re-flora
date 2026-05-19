@@ -161,6 +161,8 @@ P0 结论：grid pressure projection 负责网格不可压，但不能单独保�
 
 预期收益：中等或偏小，依赖场景。
 
+2026-05-19 执行结果：`terrain_grid_particle_query()` 保留原 `0.25 cell` skip guard，但不再把整个 guard band 送入 exact fallback；在 guard band 内优先用 cached trilinear SDF gradient 做小幅保守 projection（`0.10 cell`），并只在缓存缺失 / 无有效梯度时 exact fallback。同时 perf shadow validation 改为每次 perf report 覆盖全部当前粒子，并用原始 cached SDF 统计误差。1024 粒子 release hidden 对照（performance profile，1 个 `[PERF][WATER]` sample）约 `g2p_terrain=9.00ms/report -> 3.68ms/report`，`terrain_exact_checks/substep=296 -> 0`，`terrain_exact_corrections/substep=145 -> 0`；shadow validation `terrain_shadow_false_skips=0`，`penetrating=1`（未增加）。
+
 ### P6：清理不可压路径中的 legacy EOS 状态
 
 任务：
@@ -201,13 +203,13 @@ P0 结论：grid pressure projection 负责网格不可压，但不能单独保�
 - `reuse density spacing scratch buffers`
 - `optimize density spacing pair construction / neighbor traversal`
 - `optimize P2G interior particle stencil indexing`
+- `reduce terrain sdf exact fallback`
 
 下一步：
 
-1. `reduce terrain sdf exact fallback`
-2. `clean incompressible legacy eos state`
-3. `explore G2P -> next P2G fusion after pairwise fallback / position-primary cleanup`
-4. `prototype threaded water sim behind flag`
+1. `clean incompressible legacy eos state`
+2. `explore G2P -> next P2G fusion after pairwise fallback / position-primary cleanup`
+3. `prototype threaded water sim behind flag`
 
 不要默认恢复 `spacing=0`，也不要把 performance profile 的 pressure 默认降到 `8` 以下；旧 pairwise spacing 只作为 fallback。
 
