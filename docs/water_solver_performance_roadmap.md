@@ -6,7 +6,7 @@
 
 - 优先降低高粒子数下的 CPU water sim 成本。
 - 优先做可测量、可回退、物理行为风险低的优化。
-- 保持当前不可压路线：主不可压约束仍由 MPM grid pressure projection 解决；不再把当前 pairwise spacing relaxation 当作长期方案，若需要粒子位置约束，优先用 PBF-like density projection 替代。
+- 保持当前不可压路线：主不可压约束仍由 MPM grid pressure projection 解决；不再把 exact particle-pair spacing / density projection 当作长期主线，若需要 marker anti-clump，优先尝试 grid/cell-density push 这类 `O(particles + cells)` 近似维护。
 - 暂不把“是否存储粒子速度”作为近期性能优化重点；该改动主要是状态表达方式变化，单独收益预计有限。
 
 ## 当前判断
@@ -26,7 +26,7 @@ record_diagnostic_substep
 
 从 8192 / 100000 粒子基准看，当前未完成的主要性能嫌疑点是：
 
-1. density `spacing_relax`：dense bins 已替代旧 HashMap 查询，高粒子数下 contiguous bins 和 bin-ordered position scratch 已降低 pair traversal 成本，但 100000 粒子仍有约 `1.6M pairs/substep`；pair list 带宽、correction accumulation 和 pair kernel math 仍是下一轮单核心优化重点。
+1. density `spacing_relax`：当前 exact particle-pair density spacing 是 MLS-MPM 主流程之外的 marker anti-clump 补丁，不是不可压主约束。即使 dense bins / contiguous traversal / bin-ordered positions 已降低常数，100000 粒子仍有约 `1.6M pairs/substep`，最新 `spacing_relax` 仍约 `44ms/substep`。数量级优化应优先删除或替换这个 `O(neighbor pairs)` pass，而不是继续 micro-opt pair loop。
 2. G2P 未细分成本：100000 粒子下约 `10.2ms/substep` 的 G2P body 尚未拆开计时；在动 G2P 逻辑前应先补 timer。
 3. terrain cached projection stress 风险：100000 粒子极限负载出现过 1 次 shadow false skip，需要作为后续 guard-band 风险复查项。
 4. water sim 线程化只改善主线程响应性，不降低单核心总 CPU；当前不是主线。
@@ -184,9 +184,29 @@ Findings:
 
 当前列表只包含未完成目标；已完成内容只在“已完成简记”中保留。
 
-### P0：单核心 density `spacing_relax` 优化
+### P0：用 grid/cell-density push 替代 exact particle-pair spacing
 
-目的：100000 粒子稳定窗口中 `spacing_relax` 仍约 `44ms/substep`、约 `68%` 总成本，且成本与 `density_pairs/substep` 基本线性。当前 dense bins 已消除了 HashMap 主瓶颈，并对高粒子数启用 contiguous bin traversal 和 bin-ordered position scratch；下一轮应针对单核心的 pair list 带宽、correction accumulation 和可能的 no-list traversal 做可测量优化。不要用多线程掩盖该成本。
+目的：寻找数量级优化机会。标准 MLS-MPM / 不可压 MPM 的主流体路径是 `P2G -> grid pressure projection -> G2P`；当前 `relax_incompressible_particle_spacing` 只是额外的 marker anti-clump / particle redistribution 补丁，不应比主 MPM 路径更贵。100000 粒子最新稳定窗口中 exact density spacing 仍约 `44ms/substep`、其中 pair accumulation 约 `33ms/substep`，而 grid pressure projection 只有约 `0.3ms/substep`。继续优化 exact pair loop 只能争取常数因子；P0 改为在 flag 后面实现 `O(particles + occupied_cells)` 的 grid/cell-density push，并用 release hidden perf 判断是否能把 spacing 成本打到个位数 ms/substep。
+
+P0 实施计划：
+
+1. 增加一个非默认 spacing mode，例如 `WaterParticleSpacingMode::CellDensity`，CLI 暂定 `--water-spacing-mode cell-density`；保留现有 `density` / `pairwise` fallback，未验证前不改默认。
+2. 第一版 MVP 复用或扩展现有 density bin scratch：每次 spacing 只统计 `cell_count`、`cell_centroid/sum_pos`、可选 `cell_excess`，不构建 particle-pair list，不做 per-pair sqrt/gradient。
+3. 对每个粒子只基于所在 cell 和少量邻近 cell 计算 correction：
+   - 只处理 compression / overfull cell，不对低密度 cell 产生吸引，避免自由表面被拉扯。
+   - 初版可以从 overfull cell centroid 向外推；若 blocky artifact 明显，再升级为 6/26 邻居 cell density gradient。
+   - correction 继续使用现有 `max_correction` clamp、box/terrain repair 和 velocity feedback。
+4. 增加独立计时和 counter：`cell_density_rebuild`、`cell_density_push`、`cell_density_occupied_cells`、`cell_density_overfull_cells`、`cell_density_max_excess`；保留旧 `density_pairs/substep` 作为 exact mode 指标，新 mode 下应为 0 或明确不适用。
+5. A/B 验证 8192 和 100000：同一命令只切换 spacing mode，对比 `spacing_relax ms/substep`、总 `avg/substep`、marker clump、穿地、边界 pinning、`terrain_shadow_false_skips`。
+6. 第一阶段目标不是物理完全等价，而是证明数量级潜力：100000 粒子下 `spacing_relax < 10ms/substep` 作为保留门槛，理想目标 `< 5ms/substep`；若视觉明显退化，再迭代 cell size / target occupancy / strength / cadence。
+
+风险和边界：
+
+- 这是行为变化，不是 kernel 等价优化；必须放在新 mode 或明确 feature flag 后面。
+- grid/cell-density push 只负责 marker 分布维护，不替代 grid pressure projection 的不可压约束。
+- 如果 cell-density push 无法防 clump，再评估 reseeding / sim-render particle decoupling；不要回到长期维护 exact pairwise spacing 作为 100000 粒子主线。
+
+历史：exact density spacing kernel 优化已完成三轮，下面保留 benchmark 记录；后续不再把 no-list double traversal / pair loop micro-opt 作为 P0 主线。
 
 2026-05-19 pass 1 完成：
 
@@ -235,23 +255,17 @@ Findings:
 
 对比 pass 2 的 100000 粒子稳定窗口：`spacing_relax` 约 `830.75ms/report -> 697.51ms/report`（约 `16.0%` faster），`spacing_pair_accum` 约 `40.65ms/substep -> 33.09ms/substep`（约 `18.6%` faster），`avg/substep` 约 `74.63ms -> 64.00ms`（约 `14.2%` faster）。100000 粒子下 `spacing_pair_accum` 仍是最大单项，约 `33ms/substep`。
 
-剩余任务按低风险到高风险执行，每一步单独 benchmark，保留 measured win，回退持平或退化方案：
+exact spacing 结论：当前三轮优化已经证明 exact particle-pair density spacing 可以做常数因子改善，但仍随 `density_pairs/substep` 线性增长。继续做 no-list double traversal、pair list 压缩、sqrt 近似等只适合作为后备小优化，不再符合“数量级优化”目标。
 
-1. 只有在新 breakdown 证明 pair list 仍是主瓶颈时，再尝试 no-list 双遍 neighbor traversal；只存 `(i, j)` + gradient recompute 已回归，不要重复。若重试，只能基于当前 bin-ordered positions 单独做 A/B。
-2. 如果 exact density spacing 单核心仍无法接近目标，再单独评估近似方案：
-   - cap 每粒子最大 neighbor / pair 数。
-   - spacing 每 N 个 substep 执行一次。
-   - grid-density / cell-density push 替代 exact pairwise density projection。
-   - 这些都属于行为变化，必须配窗口观察、日志指标和文档说明，不能悄悄改默认。
+P0 验收：
 
-验收：
-
-- 每个候选都至少跑 `8192` 和 `100000` 粒子 release hidden perf，对比 `spacing_relax ms/substep`、`density_pairs/substep`、`density_bins/substep`、`avg/substep`、frame `water_update`。
-- 8192 粒子不能出现 marker clump、穿地增加、边界 pinning 或速度异常。
-- 100000 粒子重点看单核心总 CPU 是否下降；不要求立即实时，但必须明确记录收益比例。
+- 新 mode 至少跑 `8192` 和 `100000` 粒子 release hidden perf，对比旧 exact `density` mode 的 `spacing_relax ms/substep`、`avg/substep`、frame `water_update`。
+- 100000 粒子第一保留门槛：`spacing_relax < 10ms/substep`；若不能显著低于 exact mode，则不作为 P0 主线继续。
+- 8192 粒子不能出现明显 marker clump、穿地增加、边界 pinning 或速度异常；必要时允许 cell-density 只在高粒子数/指定 mode 启用。
 - `terrain_exact_checks` 保持 0 或解释变化；`terrain_shadow_false_skips` 不应因 spacing 改动系统性增加。
+- 文档必须记录：cell-density push 是 marker maintenance，不是主不可压约束；主不可压仍由 grid pressure projection 负责。
 
-预期收益：exact density spacing 的单核心优化预计主要是常数因子改善，合理目标是 `1.5x-3x` 的 `spacing_relax` 降幅；若要让 100000 粒子真正实时，可能仍需要近似 spacing 算法，但先完成上述可逆 kernel 优化。
+预期收益：如果 cell-density push 能删除 pair list 和 per-pair kernel，spacing 部分有机会从约 `44ms/substep` 降到个位数 ms/substep；总 CPU 的数量级目标仍可能需要后续结合 G2P 优化、sim/render particle decoupling 或降低 water sim cadence。
 
 ### P1：补充 G2P 细分计时
 
@@ -288,18 +302,20 @@ Findings:
 
 验收：主线程 frame time 降低；water 延迟可接受；退出无 hang；terrain/cache revision 不回退。
 
-预期收益：对主线程 hitch 高，对总 CPU 成本无本质改善。由于当前目标是单核心优化，线程化放在 density `spacing_relax` kernel 优化之后。
+预期收益：对主线程 hitch 高，对总 CPU 成本无本质改善。由于当前目标是单核心数量级优化，线程化放在 cell-density / algorithmic spacing 替换之后。
 
 ## 推荐执行顺序
 
 当前只列未完成目标；已完成目标不再重复列入本列表。
 
-1. `consider no-list double traversal only if new evidence supports it`
-2. `add finer G2P timers after spacing_relax wins are exhausted or blocked`
-3. `recheck terrain false-skip if 100000-particle support remains a goal`
-4. `prototype threaded water sim behind flag only after single-core CPU work`
+1. `prototype cell-density spacing mode behind flag`
+2. `benchmark 8192 / 100000 against exact density spacing`
+3. `iterate cell size / target occupancy / strength / cadence only if perf gate is met`
+4. `add finer G2P timers after spacing_relax algorithmic path is exhausted or blocked`
+5. `recheck terrain false-skip if 100000-particle support remains a goal`
+6. `prototype threaded water sim behind flag only after single-core CPU work`
 
-不要默认恢复 `spacing=0`，也不要把 performance profile 的 pressure 默认降到 `8` 以下；旧 pairwise spacing 只作为 fallback。当前 roadmap 优先单核心降低 `spacing_relax` 总 CPU，不把 water sim 线程化作为下一步主线。
+不要默认恢复 `spacing=0`，也不要把 performance profile 的 pressure 默认降到 `8` 以下；旧 pairwise/exact density spacing 只作为 fallback 或 A/B baseline。当前 roadmap 优先用 grid/cell-density push 删除 expensive particle-pair anti-clump pass，不把 water sim 线程化作为下一步主线。
 
 ## 每步验证要求
 
