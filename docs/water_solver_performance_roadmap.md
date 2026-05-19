@@ -242,6 +242,72 @@ Findings:
 4. terrain exact fallback 优化在 8192 粒子下仍有效：`terrain_exact_checks=0`、`terrain_exact_corrections=0`、`terrain_shadow_false_skips=0`。当前 `g2p_terrain` 约 `0.205ms/substep`，不是最大热点。
 5. `active_nodes/substep` 稳定约 `6.4k`，与粒子数相比增长很小；grid pressure 已不是 8192 粒子主瓶颈。线程化 water sim 能降低主线程 hitch，但若目标是总 CPU 成本，热点主要还是 `spacing_relax` 和 G2P。
 
+## 100000 粒子 hidden 极限基准
+
+2026-05-19 执行命令：
+
+```bash
+source ~/.zshrc
+cargo run --release -- --hidden --auto-exit 12 --perf --water-profile performance --water-particles 100000
+python tools/parse_perf_log.py target/re-flora-logs/re-flora-20260519-153946.589-81880.log
+```
+
+运行日志：`target/re-flora-logs/re-flora-20260519-153946.589-81880.log`。本次有 8 个 `[PERF][WATER]` samples；前两个 sample 处于早期铺展/沉降且 substep/report 不稳定，下面的分项表使用最后 5 个 samples。该场景已经无法实时运行：稳定窗口每个 perf report 只有 `16 substeps`，约两帧；每帧跑满 `MAX_SUBSTEPS_PER_UPDATE=8`，最后 10 帧 `water_update mean=631.1ms`，总帧时间 `633.9ms`，约 `1.5-1.6 fps`。hidden 模式仍保持 audio engine 运行并静音输出，因此 CPU 过载期间出现大量 `Ring buffer underrun` 警告（本次日志 841 条）。渲染 debug snapshot 被上限截断到约 `16k`，但 solver 日志确认 `particles=100000`、`finite=100000`。
+
+稳定窗口平均 `total=1251.06ms/report`，`avg=78.191ms/substep`。
+
+Top-level water solver 成本（非重复计数；`grid` 和 `g2p` 是 inclusive 总项）：
+
+| part | ms/report | ms/substep | share |
+|---|---:|---:|---:|
+| `spacing_relax` | `900.93` | `56.308` | `72.0%` |
+| `g2p` | `294.93` | `18.433` | `23.6%` |
+| `p2g` | `41.30` | `2.581` | `3.3%` |
+| `grid` | `6.93` | `0.433` | `0.6%` |
+| `repair` | `6.49` | `0.406` | `0.5%` |
+| `shadow_measure` | `3.23` | `0.202` | `0.3%` |
+| `clear` | `0.47` | `0.029` | `<0.1%` |
+| `residual` | `0.00` | `0.000` | `0.0%` |
+| `diagnostics` | `0.00` | `0.000` | `0.0%` |
+
+Nested breakdowns（子项不额外加到 total）：
+
+| parent | part | ms/report | ms/substep | share of total |
+|---|---|---:|---:|---:|
+| `grid` | `pressure` | `5.21` | `0.326` | `0.4%` |
+| `grid` | `grid_update` | `1.73` | `0.108` | `0.1%` |
+| `g2p` | `g2p_gather` | `44.78` | `2.799` | `3.6%` |
+| `g2p` | `g2p_terrain` | `36.48` | `2.280` | `2.9%` |
+| `g2p` | `g2p_repair` | `25.95` | `1.622` | `2.1%` |
+| `g2p` | `g2p_box` | `25.06` | `1.566` | `2.0%` |
+| `g2p` | uninstrumented G2P body | `162.66` | `10.166` | `13.0%` |
+
+Stability / workload counters in the same stable window:
+
+| metric | value |
+|---|---:|
+| `density_pairs/substep` | `1,580,720` |
+| `density_bins/substep` | `15,701` |
+| `active_nodes/substep` | `8,738` |
+| `terrain_cache_projections/substep` | `49,242` |
+| `terrain_cache_skips/substep` | `50,758` |
+| `terrain_exact_checks/substep` | `0` |
+| `terrain_exact_corrections/substep` | `0` |
+| `terrain_shadow_samples/substep` | `6,250` |
+| `terrain_shadow_false_skips` | `0.2/report`（5 个稳定 samples 中有 1 个 false skip） |
+| `terrain_shadow_sdf_err_avg` | `0.0013` |
+| `terrain_shadow_sdf_err_max` | `0.027` |
+| `penetrating` | `~338/report` |
+| `no_sdf` | `0` |
+
+Findings:
+
+1. 100000 粒子下 `spacing_relax` 已经是压倒性瓶颈，约 `56.3ms/substep`、`72%` 总成本；density pair 数稳定在约 `1.58M pairs/substep`。当前单线程 density spacing 不适合 100k 粒子量级。
+2. `g2p` 仍是第二热点，约 `18.4ms/substep`、`23.6%`；其中未细分 G2P body 约 `10.2ms/substep`。若继续做 kernel 优化，应先给 G2P 增加更细 timer，再决定是否拆/并行。
+3. `p2g` 只有约 `2.58ms/substep`、`3.3%`，`pressure` 只有约 `0.33ms/substep`、`0.4%`。在 100k 场景下 grid-side 优化几乎不是主线。
+4. terrain exact fallback 仍完全没有触发（`exact_checks=0`），但 shadow validation 在极限负载下出现过一次 false skip；如果要正式支持 100k 粒子，需要复查 cached terrain projection guard 或把 shadow false-skip 作为 stress-only 风险记录。
+5. 主线程已经被 water solver 长时间阻塞，audio pump 被饿死并持续 underrun。线程化 water sim 可以保护主线程/音频/渲染响应性，但不会减少总 CPU；要让 100k 实时，需要先重做或并行化 density spacing，并拆解 G2P 热点。
+
 ### P7：water sim 线程化
 
 任务：
