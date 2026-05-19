@@ -37,6 +37,7 @@ const MAX_INCOMPRESSIBLE_DENSITY_VELOCITY_CORRECTION_CELLS: f32 = 0.20;
 const INCOMPRESSIBLE_CELL_DENSITY_CELL_SCALE: f32 = 1.0;
 const INCOMPRESSIBLE_CELL_DENSITY_TARGET_FILL: f32 = 0.75;
 const INCOMPRESSIBLE_CELL_DENSITY_PUSH_STRENGTH: f32 = 0.35;
+const INCOMPRESSIBLE_CELL_DENSITY_TERRAIN_GUARD_CELLS: f32 = 0.25;
 const DENSITY_SPACING_INVALID_BIN_ENTRY: usize = usize::MAX;
 const DENSITY_SPACING_MAX_DENSE_BINS: usize = 2_000_000;
 // Counting-sort bins reduce high-density pointer chasing but rebuild more scratch.
@@ -1916,6 +1917,11 @@ impl PondWaterSim {
                             let pushed_into_surface = total_corrections
                                 .get(idx)
                                 .is_some_and(|correction| correction.dot(normal) < 0.0);
+                            let sdf = if pushed_into_surface {
+                                sdf - dx * INCOMPRESSIBLE_CELL_DENSITY_TERRAIN_GUARD_CELLS
+                            } else {
+                                sdf
+                            };
                             project_particle_with_cached_terrain(
                                 particle,
                                 sdf,
@@ -1927,19 +1933,6 @@ impl PondWaterSim {
                                 particle_min_padding,
                                 particle_max_padding,
                             );
-                            if pushed_into_surface {
-                                collide_particle_with_terrain_iterative(
-                                    particle,
-                                    terrain,
-                                    terrain_collision_margin,
-                                    terrain_max_correction,
-                                    TERRAIN_PARTICLE_COLLISION_ITERATIONS,
-                                    bounds.min_ws,
-                                    bounds.max_ws,
-                                    particle_min_padding,
-                                    particle_max_padding,
-                                );
-                            }
                         }
                         TerrainGridParticleQuery::ExactFallback => {
                             collide_particle_with_terrain_iterative(
