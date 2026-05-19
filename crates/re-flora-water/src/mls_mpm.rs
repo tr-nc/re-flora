@@ -13,6 +13,8 @@ use super::{
 const MAX_SUBSTEPS_PER_UPDATE: usize = 8;
 const ACTIVE_MASS_EPSILON: f32 = 1.0e-8;
 const MAX_J: f32 = 8.0;
+const NO_TENSION_MAX_J: f32 = 1.0;
+const MAX_J_LOG_STEP_PER_SUBSTEP: f32 = 0.10;
 const MAX_PARTICLE_SPEED: f32 = 20.0;
 const MAX_PARTICLE_CFL_CELLS_PER_SUBSTEP: f32 = 0.5;
 const MAX_AFFINE_COMPONENT: f32 = 100.0;
@@ -1157,7 +1159,7 @@ impl PondWaterSim {
             particle.v = clamp_vec3_length(new_v, max_particle_speed);
             particle.c = clamp_mat3_components(new_c, MAX_AFFINE_COMPONENT);
             let trace_c = particle.c.x_axis.x + particle.c.y_axis.y + particle.c.z_axis.z;
-            particle.j = (particle.j * (1.0 + dt * trace_c)).max(j_min);
+            particle.j = integrate_no_tension_j(particle.j, trace_c, dt, j_min);
             particle.x += particle.v * dt;
 
             let box_start = collect_breakdown.then(Instant::now);
@@ -1541,6 +1543,31 @@ fn eos_pressure(stiffness: f32, gamma: f32, j: f32, j_min: f32) -> f32 {
     (stiffness * (clamped_j.powf(-gamma) - 1.0)).max(0.0)
 }
 
+fn integrate_no_tension_j(j: f32, trace_c: f32, dt: f32, j_min: f32) -> f32 {
+    let j = clamp_no_tension_j(j, j_min);
+    if !trace_c.is_finite() || !dt.is_finite() || dt <= 0.0 {
+        return j;
+    }
+
+    // J is a volume-ratio history variable, while the current EOS has no
+    // tensile branch for J > 1.  Let compression/relaxation update J
+    // multiplicatively in log-space, cap the per-substep change so a clamped
+    // APIC affine cannot launch J to an extreme value in one frame, and keep
+    // expanded free-surface markers at the rest volume instead of preserving a
+    // permanent no-pressure J > 1 history.
+    let log_step = (dt * trace_c).clamp(-MAX_J_LOG_STEP_PER_SUBSTEP, MAX_J_LOG_STEP_PER_SUBSTEP);
+    clamp_no_tension_j(j * log_step.exp(), j_min)
+}
+
+fn clamp_no_tension_j(j: f32, j_min: f32) -> f32 {
+    let min_j = j_min.clamp(1.0e-6, NO_TENSION_MAX_J);
+    if !j.is_finite() {
+        return NO_TENSION_MAX_J;
+    }
+
+    j.clamp(min_j, NO_TENSION_MAX_J)
+}
+
 fn project_velocity_away_from_surface(velocity: Vec3, normal: Vec3) -> Vec3 {
     if !velocity.is_finite() {
         return Vec3::ZERO;
@@ -1584,10 +1611,7 @@ fn repair_particle_state_with_padding(
         particle.c = Mat3::ZERO;
     }
     particle.c = clamp_mat3_components(particle.c, MAX_AFFINE_COMPONENT);
-    if !particle.j.is_finite() {
-        particle.j = 1.0;
-    }
-    particle.j = particle.j.clamp(j_min, MAX_J);
+    particle.j = clamp_no_tension_j(particle.j, j_min);
 }
 
 fn repair_particle_position_velocity_with_padding(
@@ -2015,7 +2039,7 @@ fn water_particle_debug_stats(
 mod tests {
     use super::{
         collide_particle_with_terrain, collide_particle_with_terrain_iterative, eos_pressure,
-        project_velocity_away_from_surface, terrain_grid_particle_query,
+        integrate_no_tension_j, project_velocity_away_from_surface, terrain_grid_particle_query,
         TerrainGridParticleQuery, WaterTerrainGridSample, ACTIVE_MASS_EPSILON,
     };
     use crate::{PondWaterConfig, PondWaterSim, WaterTerrainColliderChunk, WaterTerrainColliderSet};
@@ -2038,6 +2062,21 @@ mod tests {
         assert!(compressed > 0.0, "compressed={compressed}");
         assert_eq!(eos_pressure(10_000.0, 7.0, 1.0, 0.55), 0.0);
         assert_eq!(eos_pressure(10_000.0, 7.0, 1.2, 0.55), 0.0);
+    }
+
+    #[test]
+    fn no_tension_j_update_is_bounded_and_does_not_store_expansion() {
+        let expanded = integrate_no_tension_j(1.0, 100.0, 1.0 / 60.0, 0.55);
+        assert_eq!(expanded, 1.0);
+
+        let relaxed = integrate_no_tension_j(0.8, 100.0, 1.0 / 60.0, 0.55);
+        assert!(relaxed > 0.8 && relaxed <= 1.0, "relaxed={relaxed}");
+
+        let compressed = integrate_no_tension_j(1.0, -100.0, 1.0 / 60.0, 0.55);
+        assert!(compressed > 0.90 && compressed < 1.0, "compressed={compressed}");
+
+        let clamped = integrate_no_tension_j(0.56, -100.0, 1.0, 0.55);
+        assert_eq!(clamped, 0.55);
     }
 
     #[test]
