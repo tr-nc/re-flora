@@ -79,6 +79,9 @@ use winit::{
 };
 
 const LEAF_CLUSTER_DISTANCE: f32 = 0.08;
+// Hidden runs should exercise audio setup, source updates, ray tracing, and pump paths
+// without producing audible output for the user.
+const HIDDEN_AUDIO_OUTPUT_GAIN_DB: f32 = -120.0;
 struct FrameSync {
     image_available: Semaphore,
     fence: Fence,
@@ -187,6 +190,7 @@ pub struct App {
     accumulated_mouse_delta: Vec2,
     smoothed_mouse_delta: Vec2,
     perf_logging: bool,
+    mute_audio_output: bool,
 
     tracer: Tracer,
 
@@ -1426,6 +1430,21 @@ impl App {
         (20.0 * gain.log10()).clamp(MIN_DB, MAX_DB)
     }
 
+    fn master_volume_gain_db(master_volume_linear: f32, mute_audio_output: bool) -> f32 {
+        if mute_audio_output {
+            HIDDEN_AUDIO_OUTPUT_GAIN_DB
+        } else {
+            Self::linear_to_db(master_volume_linear)
+        }
+    }
+
+    fn effective_master_volume_gain_db(&self) -> f32 {
+        Self::master_volume_gain_db(
+            self.gui_adjustables.master_volume.value,
+            self.mute_audio_output,
+        )
+    }
+
     fn update_audio_ray_tracing(&mut self) {
         self.spatial_sound_manager
             .set_audio_ray_tracing_enabled(self.gui_adjustables.audio_ray_tracing_enabled.value);
@@ -1683,6 +1702,7 @@ impl App {
             accumulated_mouse_delta: Vec2::ZERO,
             smoothed_mouse_delta: Vec2::ZERO,
             perf_logging: options.perf,
+            mute_audio_output: options.hidden,
 
             swapchain,
             frames_in_flight,
@@ -1792,9 +1812,14 @@ impl App {
             tree_audio_manager,
         };
 
+        if app.mute_audio_output {
+            log::info!(
+                "--hidden: forcing master audio output volume to 0 while keeping audio engine processing active"
+            );
+        }
         if let Err(err) = app
             .spatial_sound_manager
-            .set_global_volume_gain_db(Self::linear_to_db(app.gui_adjustables.master_volume.value))
+            .set_global_volume_gain_db(app.effective_master_volume_gain_db())
         {
             log::error!("Failed to apply initial master volume: {}", err);
         }
@@ -2879,11 +2904,9 @@ impl App {
                 let egui_ms = egui_start.elapsed().as_secs_f32() * 1000.0;
                 self.sync_cursor_with_panels();
 
-                if let Err(err) =
-                    self.spatial_sound_manager
-                        .set_global_volume_gain_db(Self::linear_to_db(
-                            self.gui_adjustables.master_volume.value,
-                        ))
+                if let Err(err) = self
+                    .spatial_sound_manager
+                    .set_global_volume_gain_db(self.effective_master_volume_gain_db())
                 {
                     log::error!("Failed to apply master volume: {}", err);
                 }
@@ -3407,5 +3430,21 @@ impl App {
             }
             _ => (),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::App;
+
+    #[test]
+    fn hidden_mode_forces_effective_master_volume_to_zero() {
+        let hidden_gain_db = App::master_volume_gain_db(1.0, true);
+        let normal_zero_gain_db = App::master_volume_gain_db(0.0, false);
+        let normal_full_gain_db = App::master_volume_gain_db(1.0, false);
+
+        assert_eq!(hidden_gain_db, super::HIDDEN_AUDIO_OUTPUT_GAIN_DB);
+        assert!(hidden_gain_db <= normal_zero_gain_db);
+        assert!(hidden_gain_db < normal_full_gain_db);
     }
 }

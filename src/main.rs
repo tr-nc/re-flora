@@ -84,6 +84,7 @@ pub struct AppOptions {
     /// Run in windowed mode instead of borderless fullscreen.
     pub windowed: bool,
     /// Create the native window hidden while keeping the normal render/swapchain path.
+    /// Audio processing still runs, but master output volume is forced to 0.
     /// On Wayland, fall back to requesting minimization because hidden windows are unsupported.
     pub hidden: bool,
     /// Disable shadow rendering pass.
@@ -282,7 +283,7 @@ fn print_help() {
 
 Options:
   --windowed                  Run in windowed mode (default: borderless fullscreen)
-  --hidden                    Run hidden; on Wayland request minimization while preserving the render/swapchain path
+  --hidden                    Run hidden; mute audio output while preserving render/swapchain and audio processing paths
   --no-shadows                Disable shadow rendering passes
   --no-denoise                Disable denoiser passes
   --no-god-rays               Disable god ray pass
