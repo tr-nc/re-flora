@@ -4,8 +4,9 @@ use std::{collections::HashMap, time::Instant};
 use super::{
     collider::{WaterBoxCollider, WaterTerrainColliderSet},
     pond::{
-        PondWaterSim, WaterParticle, WaterParticleSpacingMode, WaterTerrainGridSample,
-        WATER_GRID_BOUNDARY_X_MAX, WATER_GRID_BOUNDARY_X_MIN, WATER_GRID_BOUNDARY_Y_MAX,
+        PondWaterConfig, PondWaterSim, WaterParticle, WaterParticleSpacingMode,
+        WaterTerrainGridSample, WATER_GRID_BOUNDARY_X_MAX, WATER_GRID_BOUNDARY_X_MIN,
+        WATER_GRID_BOUNDARY_Y_MAX,
         WATER_GRID_BOUNDARY_Y_MIN, WATER_GRID_BOUNDARY_Z_MAX, WATER_GRID_BOUNDARY_Z_MIN,
     },
 };
@@ -54,6 +55,24 @@ const PRESSURE_PROJECTION_NEIGHBOR_NONE: usize = usize::MAX;
 const PRESSURE_PROJECTION_NEIGHBOR_COUNT: usize = 6;
 const TERRAIN_GRID_SKIP_GUARD_CELLS: f32 = 0.25;
 const TERRAIN_GRID_PROJECTION_GUARD_CELLS: f32 = 0.10;
+
+#[derive(Clone, Copy, Debug)]
+enum ParticleStateRepairMode {
+    LegacyEos { j_min: f32 },
+    Incompressible { keep_affine: bool },
+}
+
+impl ParticleStateRepairMode {
+    fn for_config(config: &PondWaterConfig) -> Self {
+        if config.uses_legacy_eos() {
+            Self::LegacyEos { j_min: config.j_min }
+        } else {
+            Self::Incompressible {
+                keep_affine: config.incompressible_apic_blend > 0.0,
+            }
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct PressureProjectionStencil {
@@ -452,6 +471,7 @@ impl PondWaterSim {
         let padding = self.dx * self.config.wall_padding_cells.max(1.0);
         let speed_limit = max_particle_speed_for_substep(self.dx, self.config.substep_dt);
         let terrain_collision_margin = self.terrain_collision_margin();
+        let legacy_eos_j_min = self.config.legacy_eos_j_min();
         let interval_due = self.diagnostic_report_seconds >= REPORT_INTERVAL_SECONDS;
         let terrain_activity_since_report = self.diagnostic_stats.g2p_terrain_cache_projections > 0
             || self.diagnostic_stats.g2p_terrain_exact_corrections > 0;
@@ -465,7 +485,7 @@ impl PondWaterSim {
                 self.config.collider,
                 padding,
                 speed_limit,
-                self.config.j_min,
+                legacy_eos_j_min,
                 terrain_collision_margin,
             );
             let speed_saturated = cheap_particle_stats.max_speed
@@ -491,7 +511,7 @@ impl PondWaterSim {
             self.config.collider,
             padding,
             speed_limit,
-            self.config.j_min,
+            legacy_eos_j_min,
             terrain_collision_margin,
         );
 
@@ -615,7 +635,7 @@ impl PondWaterSim {
             self.config.collider,
             particle_padding,
             max_particle_speed,
-            self.config.j_min,
+            self.config.legacy_eos_j_min(),
             self.terrain_collision_margin(),
         );
         log::info!(
@@ -984,8 +1004,8 @@ impl PondWaterSim {
         let max_padding = Vec3::splat(padding);
         let terrain_collision_margin = self.terrain_collision_margin();
         let terrain_max_correction = padding;
-        let j_min = self.config.j_min;
         let max_particle_speed = max_particle_speed_for_substep(self.dx, dt);
+        let repair_mode = ParticleStateRepairMode::for_config(&self.config);
         let terrain = repair_terrain.then_some(()).and(self.terrain.as_ref());
         for particle in &mut self.particles {
             repair_particle_state_with_padding(
@@ -994,8 +1014,8 @@ impl PondWaterSim {
                 bounds.max_ws,
                 min_padding,
                 max_padding,
-                j_min,
                 max_particle_speed,
+                repair_mode,
             );
             if let Some(terrain) = terrain {
                 collide_particle_with_terrain_iterative(
@@ -1031,11 +1051,12 @@ impl PondWaterSim {
         let inv_dx = self.inv_dx;
         let mass = self.config.particle_mass;
         let volume = self.config.particle_volume;
-        let stiffness = self.config.stiffness;
-        let gamma = self.config.gamma;
         let d_inv = 4.0 * inv_dx * inv_dx;
-        let incompressible = self.config.pressure_projection_iterations > 0;
-        let use_affine_transfer = !incompressible || self.config.incompressible_apic_blend > 0.0;
+        let legacy_eos = self.config.uses_legacy_eos();
+        let legacy_j_min = if legacy_eos { self.config.j_min } else { 1.0 };
+        let stiffness = if legacy_eos { self.config.stiffness } else { 0.0 };
+        let gamma = if legacy_eos { self.config.gamma } else { 1.0 };
+        let use_affine_transfer = legacy_eos || self.config.incompressible_apic_blend > 0.0;
         let y_stride = grid_dim.x as usize;
         let z_stride = y_stride * grid_dim.y as usize;
 
@@ -1046,8 +1067,8 @@ impl PondWaterSim {
             let fx = grid_pos - base.as_vec3();
             let weights = quadratic_weights(fx);
 
-            let affine = if !incompressible {
-                let pressure = stiffness * (particle.j.max(self.config.j_min).powf(-gamma) - 1.0);
+            let affine = if legacy_eos {
+                let pressure = stiffness * (particle.j.max(legacy_j_min).powf(-gamma) - 1.0);
                 let pressure_scale = dt * volume * particle.j * pressure * d_inv;
                 Mat3::from_diagonal(Vec3::splat(pressure_scale)) + particle.c * mass
             } else if use_affine_transfer {
@@ -1342,7 +1363,7 @@ impl PondWaterSim {
 
     fn relax_incompressible_pairwise_particle_spacing(&mut self, dt: f32) {
         let iterations = self.config.particle_spacing_relaxation_iterations as usize;
-        if self.config.pressure_projection_iterations == 0
+        if !self.config.uses_incompressible_projection()
             || iterations == 0
             || self.particles.len() < 2
             || dt <= 0.0
@@ -1370,6 +1391,7 @@ impl PondWaterSim {
         let terrain_max_correction = padding;
         let terrain = self.terrain.as_ref();
         let max_particle_speed = max_particle_speed_for_substep(self.dx, dt);
+        let repair_mode = ParticleStateRepairMode::for_config(&self.config);
 
         for _ in 0..iterations {
             let mut bins: HashMap<(i32, i32, i32), Vec<usize>> =
@@ -1436,7 +1458,6 @@ impl PondWaterSim {
                     continue;
                 }
                 particle.x += correction;
-                particle.j = 1.0;
                 moved = true;
             }
 
@@ -1471,17 +1492,16 @@ impl PondWaterSim {
                     bounds.max_ws,
                     particle_min_padding,
                     particle_max_padding,
-                    self.config.j_min,
                     max_particle_speed,
+                    repair_mode,
                 );
-                particle.j = 1.0;
             }
         }
     }
 
     fn relax_incompressible_density_particle_spacing(&mut self, dt: f32) {
         let iterations = self.config.particle_spacing_relaxation_iterations as usize;
-        if self.config.pressure_projection_iterations == 0
+        if !self.config.uses_incompressible_projection()
             || iterations == 0
             || self.particles.len() < 2
             || dt <= 0.0
@@ -1518,6 +1538,7 @@ impl PondWaterSim {
         let terrain_collision_margin = self.terrain_collision_margin();
         let terrain_max_correction = padding;
         let max_particle_speed = max_particle_speed_for_substep(self.dx, dt);
+        let repair_mode = ParticleStateRepairMode::for_config(&self.config);
 
         self.density_spacing_total_corrections.clear();
         self.density_spacing_total_corrections
@@ -1600,7 +1621,6 @@ impl PondWaterSim {
                 }
                 let particle = &mut self.particles[idx];
                 particle.x += correction;
-                particle.j = 1.0;
                 self.density_spacing_total_corrections[idx] += correction;
                 moved = true;
             }
@@ -1637,10 +1657,9 @@ impl PondWaterSim {
                     bounds.max_ws,
                     particle_min_padding,
                     particle_max_padding,
-                    self.config.j_min,
                     max_particle_speed,
+                    repair_mode,
                 );
-                particle.j = 1.0;
             }
         }
 
@@ -1840,13 +1859,15 @@ impl PondWaterSim {
         let dx = self.dx;
         let inv_dx = self.inv_dx;
         let c_scale = 4.0 * inv_dx * inv_dx;
-        let incompressible = self.config.pressure_projection_iterations > 0;
-        let use_affine_transfer = !incompressible || self.config.incompressible_apic_blend > 0.0;
+        let legacy_eos = self.config.uses_legacy_eos();
+        let incompressible_apic_blend = self.config.incompressible_apic_blend;
+        let use_affine_transfer = legacy_eos || incompressible_apic_blend > 0.0;
+        let repair_mode = ParticleStateRepairMode::for_config(&self.config);
         let bounds = self.config.collider;
         let particle_padding = self.dx * self.config.wall_padding_cells.max(1.0);
         let particle_min_padding = Vec3::splat(particle_padding);
         let particle_max_padding = Vec3::splat(particle_padding);
-        let j_min = self.config.j_min;
+        let j_min = if legacy_eos { self.config.j_min } else { 1.0 };
         let max_particle_speed = max_particle_speed_for_substep(dx, dt);
         let grid = &self.grid;
         let terrain_grid = &self.terrain_grid;
@@ -1896,18 +1917,17 @@ impl PondWaterSim {
             }
 
             particle.v = clamp_vec3_length(new_v, max_particle_speed);
-            if !incompressible {
+            if legacy_eos {
                 particle.c = clamp_mat3_components(new_c, MAX_AFFINE_COMPONENT);
                 let trace_c = particle.c.x_axis.x + particle.c.y_axis.y + particle.c.z_axis.z;
                 particle.j = (particle.j * (1.0 + dt * trace_c)).max(j_min);
-            } else if self.config.incompressible_apic_blend > 0.0 {
-                let traceless_c = make_mat3_traceless(new_c) * self.config.incompressible_apic_blend;
-                particle.c =
-                    clamp_mat3_components(traceless_c, MAX_INCOMPRESSIBLE_AFFINE_COMPONENT);
-                particle.j = 1.0;
+            } else if incompressible_apic_blend > 0.0 {
+                let traceless_c = make_mat3_traceless(new_c) * incompressible_apic_blend;
+                particle.c = repair_incompressible_affine(traceless_c, true);
+                reset_incompressible_particle_j(particle);
             } else {
                 particle.c = Mat3::ZERO;
-                particle.j = 1.0;
+                reset_incompressible_particle_j(particle);
             }
             particle.x += particle.v * dt;
 
@@ -1983,8 +2003,8 @@ impl PondWaterSim {
                 bounds.max_ws,
                 particle_min_padding,
                 particle_max_padding,
-                j_min,
                 max_particle_speed,
+                repair_mode,
             );
             if let Some(repair_start) = repair_start {
                 repair_seconds += repair_start.elapsed().as_secs_f64();
@@ -2705,7 +2725,42 @@ fn repair_particle_state_with_padding(
     max_ws: Vec3,
     min_padding: Vec3,
     max_padding: Vec3,
-    j_min: f32,
+    max_speed: f32,
+    mode: ParticleStateRepairMode,
+) {
+    repair_particle_position_velocity_with_padding(
+        particle,
+        min_ws,
+        max_ws,
+        min_padding,
+        max_padding,
+        max_speed,
+    );
+
+    match mode {
+        ParticleStateRepairMode::LegacyEos { j_min } => {
+            if !mat3_is_finite(particle.c) {
+                particle.c = Mat3::ZERO;
+            }
+            particle.c = clamp_mat3_components(particle.c, MAX_AFFINE_COMPONENT);
+            if !particle.j.is_finite() {
+                particle.j = 1.0;
+            }
+            particle.j = particle.j.clamp(j_min, MAX_J);
+        }
+        ParticleStateRepairMode::Incompressible { keep_affine } => {
+            particle.c = repair_incompressible_affine(particle.c, keep_affine);
+            reset_incompressible_particle_j(particle);
+        }
+    }
+}
+
+fn repair_particle_position_velocity_with_padding(
+    particle: &mut super::pond::WaterParticle,
+    min_ws: Vec3,
+    max_ws: Vec3,
+    min_padding: Vec3,
+    max_padding: Vec3,
     max_speed: f32,
 ) {
     let min = min_ws + min_padding;
@@ -2717,15 +2772,20 @@ fn repair_particle_state_with_padding(
         particle.v = Vec3::ZERO;
     }
     particle.v = clamp_vec3_length(particle.v, max_speed);
+}
 
-    if !mat3_is_finite(particle.c) {
-        particle.c = Mat3::ZERO;
+fn repair_incompressible_affine(affine: Mat3, keep_affine: bool) -> Mat3 {
+    if !keep_affine || !mat3_is_finite(affine) {
+        Mat3::ZERO
+    } else {
+        clamp_mat3_components(affine, MAX_INCOMPRESSIBLE_AFFINE_COMPONENT)
     }
-    particle.c = clamp_mat3_components(particle.c, MAX_AFFINE_COMPONENT);
-    if !particle.j.is_finite() {
+}
+
+fn reset_incompressible_particle_j(particle: &mut super::pond::WaterParticle) {
+    if particle.j != 1.0 {
         particle.j = 1.0;
     }
-    particle.j = particle.j.clamp(j_min, MAX_J);
 }
 
 fn max_particle_speed_for_substep(dx: f32, dt: f32) -> f32 {
@@ -2917,7 +2977,7 @@ fn water_particle_debug_stats(
     bounds: WaterBoxCollider,
     padding: f32,
     speed_limit: f32,
-    j_min: f32,
+    legacy_eos_j_min: Option<f32>,
     terrain_collision_margin: f32,
 ) -> WaterParticleDebugStats {
     if particles.is_empty() {
@@ -2956,7 +3016,8 @@ fn water_particle_debug_stats(
     let padded_max = bounds.max_ws - Vec3::splat(padding);
     let boundary_epsilon = (padding * 0.1).max(1.0e-4);
     let speed_limit_threshold = speed_limit * 0.98;
-    let j_min_threshold = j_min * 1.001;
+    let track_legacy_j = legacy_eos_j_min.is_some();
+    let j_min_threshold = legacy_eos_j_min.unwrap_or(1.0) * 1.001;
     let j_max_threshold = MAX_J * 0.999;
 
     let mut finite_particles = 0usize;
@@ -2972,8 +3033,8 @@ fn water_particle_debug_stats(
     let mut max_speed_velocity = Vec3::ZERO;
     let mut max_speed_j = 1.0f32;
     let mut max_speed_terrain_sdf = None;
-    let mut min_j = f32::INFINITY;
-    let mut max_j = f32::NEG_INFINITY;
+    let mut min_j = if track_legacy_j { f32::INFINITY } else { 1.0 };
+    let mut max_j = if track_legacy_j { f32::NEG_INFINITY } else { 1.0 };
     let mut j_min_clamped_particles = 0usize;
     let mut j_max_clamped_particles = 0usize;
     let mut max_abs_affine = 0.0f32;
@@ -2990,7 +3051,7 @@ fn water_particle_debug_stats(
     for (particle_idx, particle) in particles.iter().enumerate() {
         if !particle.x.is_finite()
             || !particle.v.is_finite()
-            || !particle.j.is_finite()
+            || (track_legacy_j && !particle.j.is_finite())
             || !mat3_is_finite(particle.c)
         {
             non_finite_particles += 1;
@@ -3044,17 +3105,19 @@ fn water_particle_debug_stats(
             max_speed_index = particle_idx;
             max_speed_position = particle.x;
             max_speed_velocity = particle.v;
-            max_speed_j = particle.j;
+            max_speed_j = if track_legacy_j { particle.j } else { 1.0 };
             max_speed_terrain_sdf = terrain_sdf;
         }
 
-        min_j = min_j.min(particle.j);
-        max_j = max_j.max(particle.j);
-        if particle.j <= j_min_threshold {
-            j_min_clamped_particles += 1;
-        }
-        if particle.j >= j_max_threshold {
-            j_max_clamped_particles += 1;
+        if track_legacy_j {
+            min_j = min_j.min(particle.j);
+            max_j = max_j.max(particle.j);
+            if particle.j <= j_min_threshold {
+                j_min_clamped_particles += 1;
+            }
+            if particle.j >= j_max_threshold {
+                j_max_clamped_particles += 1;
+            }
         }
         max_abs_affine = max_abs_affine
             .max(particle.c.x_axis.abs().max_element())

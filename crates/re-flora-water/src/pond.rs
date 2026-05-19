@@ -106,6 +106,18 @@ impl PondWaterConfig {
         self
     }
 
+    pub fn uses_incompressible_projection(&self) -> bool {
+        self.pressure_projection_iterations > 0
+    }
+
+    pub fn uses_legacy_eos(&self) -> bool {
+        !self.uses_incompressible_projection()
+    }
+
+    pub fn legacy_eos_j_min(&self) -> Option<f32> {
+        self.uses_legacy_eos().then_some(self.j_min)
+    }
+
     pub fn with_particle_spacing_relaxation_iterations(mut self, iterations: u32) -> Self {
         self.particle_spacing_relaxation_iterations = iterations;
         self
@@ -764,6 +776,10 @@ impl PondWaterSim {
     }
 
     fn debug_spawn_initial_j(&self, particle_y: f32, local_surface_y: Option<f32>) -> f32 {
+        if !self.config.uses_legacy_eos() {
+            return 1.0;
+        }
+
         let Some(surface_y) = local_surface_y else {
             return 1.0;
         };
@@ -1208,8 +1224,12 @@ mod tests {
     }
 
     #[test]
-    fn debug_spawn_initial_j_uses_bounded_hydrostatic_depth_below_surface() {
-        let sim = PondWaterSim::fixed_test_box();
+    fn debug_spawn_initial_j_uses_bounded_hydrostatic_depth_below_surface_for_legacy_eos() {
+        let sim = PondWaterSim::new(
+            PondWaterConfig::default()
+                .with_particle_count(0)
+                .with_pressure_projection_iterations(0),
+        );
         let surface_y = 0.5;
 
         assert_eq!(sim.debug_spawn_initial_j(surface_y + sim.dx, Some(surface_y)), 1.0);
@@ -1219,6 +1239,14 @@ mod tests {
             below_surface_j < 1.0 && below_surface_j >= sim.config.j_min,
             "below_surface_j={below_surface_j}"
         );
+    }
+
+    #[test]
+    fn debug_spawn_initial_j_stays_one_for_incompressible_projection() {
+        let sim = PondWaterSim::fixed_test_box();
+        let surface_y = 0.5;
+
+        assert_eq!(sim.debug_spawn_initial_j(surface_y - sim.dx, Some(surface_y)), 1.0);
     }
 
     #[test]

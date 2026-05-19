@@ -175,6 +175,8 @@ P0 结论：grid pressure projection 负责网格不可压，但不能单独保�
 
 预期收益：小，但有利于后续 position-primary 重构。
 
+2026-05-19 执行结果：新增 `PondWaterConfig::uses_incompressible_projection()` / `uses_legacy_eos()` / `legacy_eos_j_min()`，并用 `ParticleStateRepairMode` 将 legacy EOS 的 `j` clamp、`stiffness/gamma` 压力项与不可压路径分开。不可压 debug spawn 不再计算 hydrostatic `j`，spacing repair 不再重复写 `j=1`，diagnostic/perf 的粒子统计在不可压模式下不再把 `j` 当作需要扫描的 legacy 状态。1024 粒子 release hidden（performance profile，2 个 `[PERF][WATER]` samples）约 `avg/substep=0.86ms`、`repair=0.63ms/report`、`g2p_repair=2.51ms/report`，与 P5 后基线持平或小幅改善；`j=1.000..1.000`，`terrain_exact_checks=0`，`terrain_shadow_false_skips=0`。
+
 ### P7：water sim 线程化
 
 任务：
@@ -204,12 +206,12 @@ P0 结论：grid pressure projection 负责网格不可压，但不能单独保�
 - `optimize density spacing pair construction / neighbor traversal`
 - `optimize P2G interior particle stencil indexing`
 - `reduce terrain sdf exact fallback`
+- `clean incompressible legacy eos state`
 
 下一步：
 
-1. `clean incompressible legacy eos state`
-2. `explore G2P -> next P2G fusion after pairwise fallback / position-primary cleanup`
-3. `prototype threaded water sim behind flag`
+1. `explore G2P -> next P2G fusion after pairwise fallback / position-primary cleanup`
+2. `prototype threaded water sim behind flag`
 
 不要默认恢复 `spacing=0`，也不要把 performance profile 的 pressure 默认降到 `8` 以下；旧 pairwise spacing 只作为 fallback。
 
