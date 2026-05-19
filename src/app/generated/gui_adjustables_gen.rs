@@ -382,7 +382,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "WaterSimulation",
         id: "water_pressure_iterations",
         kind: "uint",
-        label: "Pressure Projection Iterations",
+        label: "Incompressible Pressure Projection Iterations",
     },
     GeneratedGuiParamDescriptor {
         section: "WaterSimulation",

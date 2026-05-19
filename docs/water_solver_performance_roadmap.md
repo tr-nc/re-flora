@@ -1,12 +1,12 @@
 # Water Solver Performance Roadmap
 
-本文档记录 2026-05-19 讨论后的水模拟性能优化计划。它聚焦 `crates/re-flora-water` 里的不可压 MLS-MPM solver 本身，是当前唯一保留的水体性能 roadmap。
+本文档记录水模拟性能优化计划。2026-05-20 已从“不可压 MLS-MPM + marker spacing”路线转向“经典弱可压缩 MLS-MPM / EOS”路线；不可压 solver 保留为显式 opt-in / A/B 路径，不再作为默认或性能主线。
 
 ## 目标
 
 - 优先降低高粒子数下的 CPU water sim 成本。
 - 优先做可测量、可回退、物理行为风险低的优化。
-- 保持当前不可压路线：主不可压约束仍由 MPM grid pressure projection 解决；不再把 exact particle-pair spacing / density projection 当作长期主线，若需要 marker anti-clump，优先尝试 grid/cell-density push 这类 `O(particles + cells)` 近似维护。
+- 默认和 performance profile 使用弱可压缩 EOS：`pressure_projection_iterations=0`、`particle_spacing_relaxation_iterations=0`，避免 grid pressure projection 和 marker spacing pass 的行为/性能成本。
 - 暂不把“是否存储粒子速度”作为近期性能优化重点；该改动主要是状态表达方式变化，单独收益预计有限。
 
 ## 当前判断
@@ -18,18 +18,18 @@ repair_particles
 clear_grid
 particle_to_grid
 update_grid
-project_grid_incompressible
+project_grid_incompressible   # only when pressure_projection_iterations > 0
 grid_to_particle
-relax_incompressible_particle_spacing
+relax_incompressible_particle_spacing  # only when incompressible projection is opt-in
 record_diagnostic_substep
 ```
 
-从 8192 / 100000 粒子基准看，当前未完成的主要性能嫌疑点是：
+从 8192 / 100000 粒子基准和视觉检查看，当前判断是：
 
-1. density `spacing_relax`：当前 exact particle-pair density spacing 是 MLS-MPM 主流程之外的 marker anti-clump 补丁，不是不可压主约束。即使 dense bins / contiguous traversal / bin-ordered positions 已降低常数，100000 粒子仍有约 `1.6M pairs/substep`，最新 `spacing_relax` 仍约 `44ms/substep`。数量级优化应优先删除或替换这个 `O(neighbor pairs)` pass，而不是继续 micro-opt pair loop。
-2. G2P 未细分成本：100000 粒子下约 `10.2ms/substep` 的 G2P body 尚未拆开计时；在动 G2P 逻辑前应先补 timer。
-3. terrain cached projection stress 风险：100000 粒子极限负载出现过 1 次 shadow false skip，需要作为后续 guard-band 风险复查项。
-4. water sim 线程化只改善主线程响应性，不降低单核心总 CPU；当前不是主线。
+1. 不可压 marker spacing 路线已停止：exact density 太贵，cell-density 虽达到 `<10ms/substep`，但 settled pile 中仍有明显 grid pattern / clustering 抖动，不能作为默认主线。
+2. 弱可压缩 EOS 删除 pressure projection 和 spacing pass 后，性能路径回到经典 `P2G -> grid update -> G2P`。后续优化优先测量 `P2G/G2P/terrain`，而不是继续调 marker spacing。
+3. terrain cached projection stress 风险仍需复查：100000 粒子极限负载出现过 shadow false skip，需要作为后续 guard-band 风险项。
+4. water sim 线程化只改善主线程响应性，不降低单核心总 CPU；当前不是第一优化项。
 
 ## 已完成简记（不作为当前优先级）
 
@@ -49,6 +49,8 @@ record_diagnostic_substep
 - P0 pass 2：增加高粒子数 counting-sort contiguous density bins；低粒子数保留 linked-list bins，避免 rebuild overhead 伤害默认/8192 场景。
 - P0 pass 3：为高粒子数 contiguous bins 增加 bin-ordered position scratch；8192 / 默认 linked path 保持直接读取粒子位置。
 - P0 cell-density MVP：增加 opt-in `cell-density` spacing mode 和独立计时；100000 粒子稳定窗口 `spacing_relax` 降到约 `9.06ms/substep`，达到 P0 性能门槛，但 shadow false-skip stress 风险略升，暂不改默认。
+- P0 cell-density 稳定性迭代：关闭 velocity feedback 并加入 rest-distance correction cap 后仍有明显 grid pattern / 同点 clustering；该方向不再作为默认水体路线继续。
+- 路线切换：默认和 performance profile 回到经典弱可压缩 MLS-MPM / EOS，禁用 incompressible projection 和 marker spacing；performance profile 同时降到 `60Hz` water substeps 以优先控制 CPU；不可压路径仅保留为显式 flag A/B。
 
 ## 8192 粒子详细基准
 
@@ -276,7 +278,9 @@ exact spacing 结论：当前三轮优化已经证明 exact particle-pair densit
 
 结论：cell-density MVP 删除了 exact pair list / per-pair kernel，100000 粒子下 `spacing_relax` 达到 P0 `<10ms/substep` 性能门槛，并把总 `avg/substep` 从本次 exact density 基线约 `96.6ms` 降到约 `39.4ms`。8192 粒子也从约 `3.17ms/substep` 的 spacing 降到约 `0.82ms/substep`。行为方面，8192 粒子 terrain penetrating 没有变差；100000 stress 下 penetrating 与 shadow false-skip 比 exact density 略高但仍比 cached-only 试验安全，暂作为 opt-in mode 保留，不默认替换 `density`。后续若要把它设为默认，需要先做视觉检查并复查 P2 terrain cache guard-band / false-skip 风险。
 
-2026-05-20 stability pass：用户观察到 cell-density mode 下静止堆积水粒子有来回抖动。原因判断为 hard cell occupancy + centroid push 在 cell 边界不连续，且原先把 spacing correction 以 `0.15` blend 回灌进速度，容易把 marker regularization 变成持续 impulse。第一轮调整为更保守的 marker-shift：cell size 从 `1.0x` rest distance 放大到 `1.25x`，push strength 从 `0.35` 降到 `0.20`，near-threshold excess 使用 `excess / (target + 1)` 软化，cell-density 独立 velocity blend 降到 `0.04`。用户反馈明显改善但仍有可见抖动后，第二轮进一步把 push strength 降到 `0.12`，按 rest distance 把每 substep correction 限到 `0.06x rest_distance`，并关闭 cell-density velocity feedback。release hidden 复测：8192 粒子 `spacing_relax` 约 `0.796ms/substep`、diag speed_avg 约 `0.124`、penetrating 约 `0.8/report`；100000 粒子 `spacing_relax` 约 `9.253ms/substep`，仍满足 P0 `<10ms/substep` 门槛。若视觉上仍有明显 grid-cell 抖动，下一步应实现 27-cell smooth density gradient / CIC splat，而不是继续增强 single-cell centroid push。
+2026-05-20 stability pass：用户观察到 cell-density mode 下静止堆积水粒子有来回抖动。原因判断为 hard cell occupancy + centroid push 在 cell 边界不连续，且原先把 spacing correction 以 `0.15` blend 回灌进速度，容易把 marker regularization 变成持续 impulse。第一轮调整为更保守的 marker-shift：cell size 从 `1.0x` rest distance 放大到 `1.25x`，push strength 从 `0.35` 降到 `0.20`，near-threshold excess 使用 `excess / (target + 1)` 软化，cell-density 独立 velocity blend 降到 `0.04`。用户反馈明显改善但仍有可见抖动后，第二轮进一步把 push strength 降到 `0.12`，按 rest distance 把每 substep correction 限到 `0.06x rest_distance`，并关闭 cell-density velocity feedback。release hidden 复测：8192 粒子 `spacing_relax` 约 `0.796ms/substep`、diag speed_avg 约 `0.124`、penetrating 约 `0.8/report`；100000 粒子 `spacing_relax` 约 `9.253ms/substep`，仍满足 P0 `<10ms/substep` 门槛。后续尝试 27-cell smoothed centroid 后视觉仍无实质改善，已回退该试验，并决定放弃不可压 marker spacing 作为默认路线。
+
+2026-05-20 weak EOS pivot：默认和 performance profile 切回经典弱可压缩 MLS-MPM / EOS，`pressure_projection_iterations=0`、`particle_spacing_relaxation_iterations=0`；performance profile 的 water substep 从 `120Hz` 降到 `60Hz`。release hidden 初测：8192 粒子 log `target/re-flora-logs/re-flora-20260520-015349.951-38759.log`，`avg_substep≈4.41ms`（sample mean）、`pressure=0`、`spacing_relax=0`；100000 粒子 log `target/re-flora-logs/re-flora-20260520-015402.156-39166.log`，`avg_substep≈38.1ms`、`pressure=0`、`spacing_relax=0`，主要成本回到 `G2P/P2G/terrain`。100000 粒子仍不能实时，但已经不再受不可压 projection 或 marker spacing 控制。
 
 P0 验收：
 
@@ -327,15 +331,15 @@ P0 验收：
 
 ## 推荐执行顺序
 
-P0 prototype 和 8192 / 100000 A/B benchmark 已完成。下一步建议：
+不可压 P0 prototype 和 8192 / 100000 A/B benchmark 已完成但视觉失败。下一步建议：
 
-1. `keep cell-density opt-in while doing visual/behavior review`
-2. `if making cell-density default, first recheck terrain false-skip and guard-band behavior`
-3. `add finer G2P timers after spacing_relax algorithmic path is exhausted or blocked`
-4. `iterate cell size / target occupancy / strength / cadence only if visual behavior needs it`
+1. `keep weak EOS as default/performance profile`
+2. `benchmark P2G/G2P/terrain on weak EOS before new solver work`
+3. `tune stiffness/gamma/j_min/damping only with release hidden logs and visual review`
+4. `recheck terrain cache guard-band under 100000-particle weak EOS stress`
 5. `prototype threaded water sim behind flag only after single-core CPU work`
 
-不要默认恢复 `spacing=0`，也不要把 performance profile 的 pressure 默认降到 `8` 以下；旧 pairwise/exact density spacing 只作为 fallback 或 A/B baseline。当前 roadmap 优先用 grid/cell-density push 删除 expensive particle-pair anti-clump pass，不把 water sim 线程化作为下一步主线。
+不要继续把 exact pairwise / density / cell-density marker spacing 当作默认路线；它们只作为不可压 opt-in A/B baseline。当前 roadmap 优先保留经典弱可压缩 MLS-MPM 的简单稳定行为和性能。
 
 ## 每步验证要求
 

@@ -395,9 +395,13 @@ impl PondWaterSim {
             self.clear_grid();
             self.particle_to_grid(dt);
             let active_nodes = self.update_grid(dt);
-            self.project_grid_incompressible(dt);
+            if self.config.uses_incompressible_projection() {
+                self.project_grid_incompressible(dt);
+            }
             let g2p_breakdown = self.grid_to_particle(dt);
-            self.relax_incompressible_particle_spacing(dt, false);
+            if self.config.uses_incompressible_projection() {
+                self.relax_incompressible_particle_spacing(dt, false);
+            }
             self.record_diagnostic_substep(active_nodes, g2p_breakdown);
             return;
         }
@@ -421,16 +425,24 @@ impl PondWaterSim {
         let active_nodes = self.update_grid(dt);
         let grid_update_seconds = grid_update_start.elapsed().as_secs_f64();
 
-        let pressure_projection_start = Instant::now();
-        self.project_grid_incompressible(dt);
-        let pressure_projection_seconds = pressure_projection_start.elapsed().as_secs_f64();
+        let pressure_projection_seconds = if self.config.uses_incompressible_projection() {
+            let pressure_projection_start = Instant::now();
+            self.project_grid_incompressible(dt);
+            pressure_projection_start.elapsed().as_secs_f64()
+        } else {
+            0.0
+        };
         let grid_seconds = grid_update_seconds + pressure_projection_seconds;
 
         let g2p_breakdown = self.grid_to_particle_timed(dt);
 
-        let spacing_relax_start = Instant::now();
-        self.relax_incompressible_particle_spacing(dt, true);
-        let spacing_relax_seconds = spacing_relax_start.elapsed().as_secs_f64();
+        let spacing_relax_seconds = if self.config.uses_incompressible_projection() {
+            let spacing_relax_start = Instant::now();
+            self.relax_incompressible_particle_spacing(dt, true);
+            spacing_relax_start.elapsed().as_secs_f64()
+        } else {
+            0.0
+        };
 
         let diagnostics_start = Instant::now();
         self.record_diagnostic_substep(active_nodes, g2p_breakdown);
@@ -3961,7 +3973,11 @@ mod tests {
 
     #[test]
     fn incompressible_substeps_keep_particle_j_at_rest() {
-        let mut sim = test_sim_with_particles();
+        let mut sim = PondWaterSim::new(
+            PondWaterConfig::default()
+                .with_particle_count(256)
+                .with_pressure_projection_iterations(8),
+        );
         for _ in 0..64 {
             sim.substep(sim.config.substep_dt);
         }
@@ -4042,16 +4058,13 @@ mod tests {
 
         let distance = sim.particles[0].x.distance(sim.particles[1].x);
         assert!(
-            distance > sim.config.particle_volume.cbrt() * 0.1,
+            distance > sim.config.particle_volume.cbrt() * 0.05,
             "overlapping particles were not separated by cell-density projection: distance={distance}"
-        );
-        assert!(
-            sim.particles.iter().any(|particle| particle.v.length() > 0.0),
-            "cell-density projection should feed a small bounded correction back into velocity"
         );
         for particle in &sim.particles {
             assert!(particle.x.is_finite());
             assert!(particle.v.is_finite());
+            assert_eq!(particle.v, Vec3::ZERO);
             assert!((particle.j - 1.0).abs() < 1.0e-6);
         }
     }

@@ -14,6 +14,9 @@ const INITIAL_PARTICLE_CHUNK_MAX_WS: Vec3 = Vec3::new(2.0, 1.0, 2.0);
 // the old 4096-particle density when water is added later by debug spawn.
 const DEFAULT_INITIAL_PARTICLE_VOLUME_FRACTION: f32 = 0.1;
 const DEFAULT_INCOMPRESSIBLE_APIC_BLEND: f32 = 0.10;
+const DEFAULT_WEAK_EOS_STIFFNESS: f32 = 10_000.0;
+const DEFAULT_WEAK_EOS_GAMMA: f32 = 7.0;
+const DEFAULT_WEAK_EOS_J_MIN: f32 = 0.1;
 
 pub(crate) const WATER_GRID_BOUNDARY_X_MIN: u8 = 1 << 0;
 pub(crate) const WATER_GRID_BOUNDARY_X_MAX: u8 = 1 << 1;
@@ -55,11 +58,11 @@ impl Default for PondWaterConfig {
             particle_mass: 1.0,
             particle_volume: default_particle_volume(DEFAULT_PARTICLE_COUNT),
             gravity: Vec3::new(0.0, -9.8, 0.0),
-            stiffness: 10_000.0,
-            gamma: 7.0,
-            j_min: 0.1,
-            pressure_projection_iterations: 8,
-            particle_spacing_relaxation_iterations: 2,
+            stiffness: DEFAULT_WEAK_EOS_STIFFNESS,
+            gamma: DEFAULT_WEAK_EOS_GAMMA,
+            j_min: DEFAULT_WEAK_EOS_J_MIN,
+            pressure_projection_iterations: 0,
+            particle_spacing_relaxation_iterations: 0,
             particle_spacing_mode: WaterParticleSpacingMode::Pairwise,
             incompressible_apic_blend: DEFAULT_INCOMPRESSIBLE_APIC_BLEND,
             terrain_collision_margin_cells: 0.5,
@@ -131,6 +134,24 @@ impl PondWaterConfig {
     pub fn with_incompressible_apic_blend(mut self, blend: f32) -> Self {
         assert!(blend >= 0.0 && blend.is_finite());
         self.incompressible_apic_blend = blend;
+        self
+    }
+
+    pub fn with_stiffness(mut self, stiffness: f32) -> Self {
+        assert!(stiffness >= 0.0 && stiffness.is_finite());
+        self.stiffness = stiffness;
+        self
+    }
+
+    pub fn with_gamma(mut self, gamma: f32) -> Self {
+        assert!(gamma > 0.0 && gamma.is_finite());
+        self.gamma = gamma;
+        self
+    }
+
+    pub fn with_j_min(mut self, j_min: f32) -> Self {
+        assert!(j_min > 0.0 && j_min <= 1.0 && j_min.is_finite());
+        self.j_min = j_min;
         self
     }
 
@@ -1025,6 +1046,9 @@ mod tests {
         assert_eq!(sim.config.particle_count, DEFAULT_PARTICLE_COUNT);
         assert_eq!(sim.particles.len(), 0);
         assert_eq!(sim.grid_dim, DEFAULT_GRID_DIM);
+        assert!(sim.config.uses_legacy_eos());
+        assert_eq!(sim.config.pressure_projection_iterations, 0);
+        assert_eq!(sim.config.particle_spacing_relaxation_iterations, 0);
         assert!((sim.dx - 1.0 / 32.0).abs() < 1.0e-6);
         assert_eq!(
             sim.config.particle_volume,
@@ -1287,7 +1311,11 @@ mod tests {
 
     #[test]
     fn debug_spawn_initial_j_stays_one_for_incompressible_projection() {
-        let sim = PondWaterSim::fixed_test_box();
+        let sim = PondWaterSim::new(
+            PondWaterConfig::default()
+                .with_particle_count(0)
+                .with_pressure_projection_iterations(8),
+        );
         let surface_y = 0.5;
 
         assert_eq!(sim.debug_spawn_initial_j(surface_y - sim.dx, Some(surface_y)), 1.0);

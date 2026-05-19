@@ -656,11 +656,11 @@ max = 5
 [[section.param]]
 id = "water_pressure_iterations"
 kind = "uint"
-label = "Pressure Projection Iterations"
+label = "Incompressible Pressure Projection Iterations"
 type = "Uint"
 
 [section.param.data]
-value = 8
+value = 0
 min = 0
 max = 32
 
@@ -671,7 +671,7 @@ label = "Particle Spacing Iterations"
 type = "Uint"
 
 [section.param.data]
-value = 2
+value = 0
 min = 0
 max = 8
 

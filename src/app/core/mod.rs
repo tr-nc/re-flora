@@ -55,7 +55,7 @@ use ash::vk;
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
-use re_flora_water::{PondWaterConfig, PondWaterSim, WaterParticleSpacingMode};
+use re_flora_water::{PondWaterConfig, PondWaterSim};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -1612,12 +1612,11 @@ impl App {
                 .with_collider_bounds(Vec3::ZERO, world_extent)
                 .with_grid_dim(world_grid_dim),
             Some(WaterProfilePreference::Performance) => PondWaterConfig::default()
-                .with_substep_hz(120.0)
+                .with_substep_hz(60.0)
                 .with_terrain_collision_margin_cells(0.0)
                 .with_linear_damping_per_sec(1.5)
-                .with_particle_spacing_relaxation_iterations(1)
-                .with_particle_spacing_mode(WaterParticleSpacingMode::Density)
-                .with_incompressible_apic_blend(0.0)
+                .with_pressure_projection_iterations(0)
+                .with_particle_spacing_relaxation_iterations(0)
                 .with_collider_bounds(Vec3::ZERO, world_extent)
                 .with_grid_dim(world_grid_dim),
         };
@@ -1639,6 +1638,15 @@ impl App {
         }
         if let Some(damping_per_sec) = options.water_damping {
             water_config = water_config.with_linear_damping_per_sec(damping_per_sec);
+        }
+        if let Some(stiffness) = options.water_stiffness {
+            water_config = water_config.with_stiffness(stiffness);
+        }
+        if let Some(gamma) = options.water_gamma {
+            water_config = water_config.with_gamma(gamma);
+        }
+        if let Some(j_min) = options.water_j_min {
+            water_config = water_config.with_j_min(j_min);
         }
         if let Some(pressure_iterations) = options.water_pressure_iterations {
             water_config = water_config.with_pressure_projection_iterations(pressure_iterations);
