@@ -35,17 +35,17 @@ const INCOMPRESSIBLE_DENSITY_TARGET_AXIS_NEIGHBORS: f32 = 6.0;
 const INCOMPRESSIBLE_DENSITY_VELOCITY_BLEND: f32 = 0.15;
 const MAX_INCOMPRESSIBLE_DENSITY_VELOCITY_CORRECTION_CELLS: f32 = 0.20;
 // Cell-density spacing is a marker regularizer, not the main pressure solve.
-// Keep it deliberately under-relaxed: hard one-particle-per-cell occupancy and
-// large velocity feedback make settled piles buzz as particles cross cell
-// boundaries. PBF / particle-shifting schemes generally use small positional
-// corrections plus damping/viscosity rather than treating the shift as a strong
-// physical impulse. For this opt-in mode we therefore cap per-substep marker
-// motion by rest-distance and avoid feeding the grid-cell shift back into water
-// velocity.
+// Keep it marker-only: feeding the grid-cell shift back into velocity makes
+// settled piles buzz. To avoid visible lattice locking, compute correction
+// direction from a smoothed 27-cell neighborhood instead of the hard centroid
+// of the particle's current cell.
 const INCOMPRESSIBLE_CELL_DENSITY_CELL_SCALE: f32 = 1.25;
 const INCOMPRESSIBLE_CELL_DENSITY_TARGET_FILL: f32 = 0.75;
-const INCOMPRESSIBLE_CELL_DENSITY_PUSH_STRENGTH: f32 = 0.12;
-const INCOMPRESSIBLE_CELL_DENSITY_MAX_CORRECTION_REST_SCALE: f32 = 0.06;
+const INCOMPRESSIBLE_CELL_DENSITY_PUSH_STRENGTH: f32 = 0.18;
+const INCOMPRESSIBLE_CELL_DENSITY_MAX_CORRECTION_REST_SCALE: f32 = 0.10;
+const INCOMPRESSIBLE_CELL_DENSITY_LOCAL_COUNT_BLEND: f32 = 0.75;
+const INCOMPRESSIBLE_CELL_DENSITY_NEIGHBOR_AXIS_WEIGHT: f32 = 0.25;
+const INCOMPRESSIBLE_CELL_DENSITY_CLUSTER_EPSILON_REST_SCALE: f32 = 0.05;
 const INCOMPRESSIBLE_CELL_DENSITY_VELOCITY_BLEND: f32 = 0.0;
 const INCOMPRESSIBLE_CELL_DENSITY_TERRAIN_GUARD_CELLS: f32 = 0.25;
 const DENSITY_SPACING_INVALID_BIN_ENTRY: usize = usize::MAX;
@@ -1806,6 +1806,9 @@ impl PondWaterSim {
         for _ in 0..iterations {
             let rebuild_start = collect_perf.then(Instant::now);
             let rebuilt = self.rebuild_cell_density_spacing_bins(inv_cell_size);
+            if let Some(grid) = rebuilt {
+                self.smooth_cell_density_spacing_bins(grid, target_count);
+            }
             if let Some(start) = rebuild_start {
                 self.perf_stats.cell_density_rebuild_seconds += start.elapsed().as_secs_f64();
             }
@@ -1821,7 +1824,9 @@ impl PondWaterSim {
                 if self.cell_density_bin_generations[bin_idx] != generation {
                     continue;
                 }
-                let cell_count = self.cell_density_bin_counts[bin_idx] as f32;
+                let local_count = self.cell_density_bin_counts[bin_idx] as f32;
+                let smooth_count = self.cell_density_smoothed_counts[bin_idx];
+                let cell_count = cell_density_effective_count(local_count, smooth_count);
                 let excess = cell_count - target_count;
                 if excess <= 0.0 {
                     continue;
@@ -1833,6 +1838,8 @@ impl PondWaterSim {
             self.cell_density_moved_particles.clear();
             let bin_counts = &self.cell_density_bin_counts;
             let bin_position_sums = &self.cell_density_bin_position_sums;
+            let smoothed_counts = &self.cell_density_smoothed_counts;
+            let smoothed_position_sums = &self.cell_density_smoothed_position_sums;
             let bin_generations = &self.cell_density_bin_generations;
             let particle_bins = &self.cell_density_particle_bins;
             let total_corrections = &mut self.cell_density_total_corrections;
@@ -1851,16 +1858,26 @@ impl PondWaterSim {
                     continue;
                 }
 
-                let cell_count = bin_counts[bin_idx] as f32;
+                let local_count = bin_counts[bin_idx] as f32;
+                let smooth_count = smoothed_counts[bin_idx];
+                let cell_count = cell_density_effective_count(local_count, smooth_count);
                 let excess = cell_count - target_count;
                 if excess <= 0.0 || !excess.is_finite() {
                     continue;
                 }
 
-                let centroid = bin_position_sums[bin_idx] / cell_count.max(1.0);
+                let centroid = if smooth_count > 1.0e-6 && smooth_count.is_finite() {
+                    smoothed_position_sums[bin_idx] / smooth_count
+                } else {
+                    bin_position_sums[bin_idx] / local_count.max(1.0)
+                };
                 let mut direction = particle.x - centroid;
-                if direction.length_squared() <= 1.0e-12 || !direction.is_finite() {
-                    direction = particle_pair_fallback_direction(idx, bin_idx);
+                if direction.length_squared()
+                    <= (rest_distance * INCOMPRESSIBLE_CELL_DENSITY_CLUSTER_EPSILON_REST_SCALE)
+                        .powi(2)
+                    || !direction.is_finite()
+                {
+                    direction = particle_pair_fallback_direction(idx, 0x51ed_5eed);
                 } else {
                     direction = direction.normalize_or_zero();
                 }
@@ -1995,7 +2012,10 @@ impl PondWaterSim {
         }
     }
 
-    fn rebuild_cell_density_spacing_bins(&mut self, inv_cell_size: f32) -> Option<()> {
+    fn rebuild_cell_density_spacing_bins(
+        &mut self,
+        inv_cell_size: f32,
+    ) -> Option<DensitySpacingDenseGrid> {
         self.cell_density_occupied_bins.clear();
         self.cell_density_particle_bins
             .resize(self.particles.len(), DENSITY_SPACING_INVALID_BIN_ENTRY);
@@ -2076,7 +2096,63 @@ impl PondWaterSim {
             particle_bins[idx] = bin_idx;
         }
 
-        Some(())
+        Some(DensitySpacingDenseGrid {
+            dim_x,
+            dim_y,
+            dim_z,
+            layout: DensitySpacingDenseGridLayout::LinkedList,
+        })
+    }
+
+    fn smooth_cell_density_spacing_bins(&mut self, grid: DensitySpacingDenseGrid, target_count: f32) {
+        let bin_count = grid
+            .dim_x
+            .saturating_mul(grid.dim_y)
+            .saturating_mul(grid.dim_z);
+        self.cell_density_smoothed_counts.resize(bin_count, 0.0);
+        self.cell_density_smoothed_position_sums
+            .resize(bin_count, Vec3::ZERO);
+
+        let generation = self.cell_density_generation;
+        let bin_counts = &self.cell_density_bin_counts;
+        let bin_position_sums = &self.cell_density_bin_position_sums;
+        let bin_generations = &self.cell_density_bin_generations;
+        let smoothed_counts = &mut self.cell_density_smoothed_counts;
+        let smoothed_position_sums = &mut self.cell_density_smoothed_position_sums;
+        for &bin_idx in &self.cell_density_occupied_bins {
+            if bin_generations[bin_idx] != generation {
+                continue;
+            }
+            let local_count = bin_counts[bin_idx] as f32;
+            smoothed_counts[bin_idx] = local_count;
+            smoothed_position_sums[bin_idx] = bin_position_sums[bin_idx];
+            if local_count <= target_count {
+                continue;
+            }
+
+            let (x, y, z) = density_spacing_bin_coords(bin_idx, grid.dim_x, grid.dim_y);
+            let mut smooth_count = 0.0f32;
+            let mut smooth_position_sum = Vec3::ZERO;
+            for oz in -1..=1 {
+                for oy in -1..=1 {
+                    for ox in -1..=1 {
+                        let Some(neighbor_idx) =
+                            density_spacing_neighbor_bin_index(x, y, z, ox, oy, oz, grid)
+                        else {
+                            continue;
+                        };
+                        if bin_generations[neighbor_idx] != generation {
+                            continue;
+                        }
+                        let weight = cell_density_neighbor_weight(ox, oy, oz);
+                        smooth_count += bin_counts[neighbor_idx] as f32 * weight;
+                        smooth_position_sum += bin_position_sums[neighbor_idx] * weight;
+                    }
+                }
+            }
+            smoothed_counts[bin_idx] = smooth_count;
+            smoothed_position_sums[bin_idx] = smooth_position_sum;
+        }
     }
 
     fn rebuild_density_spacing_dense_bins(
@@ -3115,6 +3191,25 @@ fn density_spacing_neighbor_bin_index(
     Some(density_spacing_bin_index(x, y, z, grid.dim_x, grid.dim_y))
 }
 
+fn cell_density_effective_count(local_count: f32, smooth_count: f32) -> f32 {
+    let local_blend = INCOMPRESSIBLE_CELL_DENSITY_LOCAL_COUNT_BLEND.clamp(0.0, 1.0);
+    let blended_count = local_count * local_blend + smooth_count.max(0.0) * (1.0 - local_blend);
+    local_count.max(blended_count)
+}
+
+fn cell_density_neighbor_weight(ox: i32, oy: i32, oz: i32) -> f32 {
+    fn axis_weight(offset: i32) -> f32 {
+        if offset == 0 {
+            1.0
+        } else {
+            INCOMPRESSIBLE_CELL_DENSITY_NEIGHBOR_AXIS_WEIGHT
+        }
+    }
+
+    let axis_sum = 1.0 + 2.0 * INCOMPRESSIBLE_CELL_DENSITY_NEIGHBOR_AXIS_WEIGHT;
+    axis_weight(ox) * axis_weight(oy) * axis_weight(oz) / axis_sum.powi(3)
+}
+
 fn density_spacing_kernel_weight(distance: f32, support_radius: f32) -> f32 {
     if distance >= support_radius || support_radius <= 0.0 {
         return 0.0;
@@ -4045,13 +4140,10 @@ mod tests {
             distance > sim.config.particle_volume.cbrt() * 0.1,
             "overlapping particles were not separated by cell-density projection: distance={distance}"
         );
-        assert!(
-            sim.particles.iter().any(|particle| particle.v.length() > 0.0),
-            "cell-density projection should feed a small bounded correction back into velocity"
-        );
         for particle in &sim.particles {
             assert!(particle.x.is_finite());
             assert!(particle.v.is_finite());
+            assert_eq!(particle.v, Vec3::ZERO);
             assert!((particle.j - 1.0).abs() < 1.0e-6);
         }
     }
