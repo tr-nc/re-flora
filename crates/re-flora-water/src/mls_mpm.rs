@@ -34,9 +34,16 @@ const INCOMPRESSIBLE_DENSITY_LAMBDA_EPSILON: f32 = 600.0;
 const INCOMPRESSIBLE_DENSITY_TARGET_AXIS_NEIGHBORS: f32 = 6.0;
 const INCOMPRESSIBLE_DENSITY_VELOCITY_BLEND: f32 = 0.15;
 const MAX_INCOMPRESSIBLE_DENSITY_VELOCITY_CORRECTION_CELLS: f32 = 0.20;
-const INCOMPRESSIBLE_CELL_DENSITY_CELL_SCALE: f32 = 1.0;
+// Cell-density spacing is a marker regularizer, not the main pressure solve.
+// Keep it deliberately under-relaxed: hard one-particle-per-cell occupancy and
+// large velocity feedback make settled piles buzz as particles cross cell
+// boundaries. PBF / particle-shifting schemes generally use small positional
+// corrections plus damping/viscosity rather than treating the shift as a strong
+// physical impulse.
+const INCOMPRESSIBLE_CELL_DENSITY_CELL_SCALE: f32 = 1.25;
 const INCOMPRESSIBLE_CELL_DENSITY_TARGET_FILL: f32 = 0.75;
-const INCOMPRESSIBLE_CELL_DENSITY_PUSH_STRENGTH: f32 = 0.35;
+const INCOMPRESSIBLE_CELL_DENSITY_PUSH_STRENGTH: f32 = 0.20;
+const INCOMPRESSIBLE_CELL_DENSITY_VELOCITY_BLEND: f32 = 0.04;
 const INCOMPRESSIBLE_CELL_DENSITY_TERRAIN_GUARD_CELLS: f32 = 0.25;
 const DENSITY_SPACING_INVALID_BIN_ENTRY: usize = usize::MAX;
 const DENSITY_SPACING_MAX_DENSE_BINS: usize = 2_000_000;
@@ -1857,7 +1864,7 @@ impl PondWaterSim {
                     continue;
                 }
 
-                let excess_fraction = (excess / target_count).clamp(0.0, 1.0);
+                let excess_fraction = (excess / (target_count + 1.0)).clamp(0.0, 1.0);
                 let correction = clamp_vec3_length(
                     direction
                         * cell_size
@@ -1964,7 +1971,7 @@ impl PondWaterSim {
             }
         }
 
-        if INCOMPRESSIBLE_DENSITY_VELOCITY_BLEND > 0.0 {
+        if INCOMPRESSIBLE_CELL_DENSITY_VELOCITY_BLEND > 0.0 {
             let velocity_start = collect_perf.then(Instant::now);
             for (particle, correction) in self
                 .particles
@@ -1975,7 +1982,7 @@ impl PondWaterSim {
                     continue;
                 }
                 let velocity_correction = clamp_vec3_length(correction / dt, max_velocity_correction)
-                    * INCOMPRESSIBLE_DENSITY_VELOCITY_BLEND;
+                    * INCOMPRESSIBLE_CELL_DENSITY_VELOCITY_BLEND;
                 particle.v = clamp_vec3_length(particle.v + velocity_correction, max_particle_speed);
             }
             if let Some(start) = velocity_start {
