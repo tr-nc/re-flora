@@ -146,6 +146,8 @@ P0 结论：grid pressure projection 负责网格不可压，但不能单独保�
 
 预期收益：中等偏小，但物理风险低。
 
+2026-05-19 执行结果：尝试过两种跨 P2G/G2P 缓存粒子 stencil 的方案（27-entry node/weight 列表、compact base+weights），实测因为 P2G 额外写 scratch / cache 压力而持平或变慢，未保留。保留低风险的 P2G interior-stencil fast path：当粒子的 3×3×3 stencil 完全在 grid 内部时，用 base linear index + x/y/z stride 访问节点，跳过每个 node 的 `in_grid()` 和 `grid_index_dims()`；同时把 quadratic weight 的 `powf(2.0)` 改成乘法。1024 粒子 release hidden 对照（performance profile，6 个 `[PERF][WATER]` samples）约 `avg/substep=0.94ms -> 0.87ms`、`p2g=8.78ms/report -> 6.75ms/report`。更深的 `G2P -> next P2G` 融合仍等旧 pairwise fallback / position-primary 方向清理后再做。
+
 ### P5：减少 terrain exact fallback
 
 任务：
@@ -198,12 +200,13 @@ P0 结论：grid pressure projection 负责网格不可压，但不能单独保�
 - `set performance profile spacing mode=density`
 - `reuse density spacing scratch buffers`
 - `optimize density spacing pair construction / neighbor traversal`
+- `optimize P2G interior particle stencil indexing`
 
 下一步：
 
-1. `reuse water particle stencils / explore G2P -> next P2G fusion after pairwise spacing is removed`
-2. `reduce terrain sdf exact fallback`
-3. `clean incompressible legacy eos state`
+1. `reduce terrain sdf exact fallback`
+2. `clean incompressible legacy eos state`
+3. `explore G2P -> next P2G fusion after pairwise fallback / position-primary cleanup`
 4. `prototype threaded water sim behind flag`
 
 不要默认恢复 `spacing=0`，也不要把 performance profile 的 pressure 默认降到 `8` 以下；旧 pairwise spacing 只作为 fallback。

@@ -1034,6 +1034,8 @@ impl PondWaterSim {
         let d_inv = 4.0 * inv_dx * inv_dx;
         let incompressible = self.config.pressure_projection_iterations > 0;
         let use_affine_transfer = !incompressible || self.config.incompressible_apic_blend > 0.0;
+        let y_stride = grid_dim.x as usize;
+        let z_stride = y_stride * grid_dim.y as usize;
 
         for particle in &self.particles {
             let local_pos = particle.x - origin_ws;
@@ -1053,34 +1055,71 @@ impl PondWaterSim {
             };
             let momentum = particle.v * mass;
 
-            for oz in 0..3 {
-                for oy in 0..3 {
-                    for ox in 0..3 {
-                        let node = base + IVec3::new(ox, oy, oz);
-                        if !in_grid(node, grid_dim) {
-                            continue;
-                        }
+            // Most particles are kept away from grid boundaries by wall padding;
+            // use linear strides for fully interior stencils to avoid per-node
+            // bounds checks and 3D->1D index recomputation in the P2G hot loop.
+            if particle_stencil_interior(base, grid_dim) {
+                let base_idx =
+                    grid_index_dims(grid_dim, base.x as u32, base.y as u32, base.z as u32);
+                for oz in 0..3usize {
+                    for oy in 0..3usize {
+                        for ox in 0..3usize {
+                            let weight = weights[ox].x * weights[oy].y * weights[oz].z;
+                            if weight <= 0.0 {
+                                continue;
+                            }
 
-                        let weight = weights[ox as usize].x
-                            * weights[oy as usize].y
-                            * weights[oz as usize].z;
-                        if weight <= 0.0 {
-                            continue;
+                            let node_idx = base_idx + ox + oy * y_stride + oz * z_stride;
+                            let grid_node = &mut self.grid[node_idx];
+                            if grid_node.mass <= 0.0 {
+                                self.touched_grid_nodes.push(node_idx);
+                            }
+                            grid_node.mass += weight * mass;
+                            if use_affine_transfer {
+                                let node = base + IVec3::new(ox as i32, oy as i32, oz as i32);
+                                let node_local = node.as_vec3() * dx;
+                                let dpos = node_local - local_pos;
+                                grid_node.v += weight * (momentum + affine * dpos);
+                            } else {
+                                grid_node.v += weight * momentum;
+                            }
                         }
+                    }
+                }
+            } else {
+                for oz in 0..3 {
+                    for oy in 0..3 {
+                        for ox in 0..3 {
+                            let node = base + IVec3::new(ox, oy, oz);
+                            if !in_grid(node, grid_dim) {
+                                continue;
+                            }
 
-                        let node_idx =
-                            grid_index_dims(grid_dim, node.x as u32, node.y as u32, node.z as u32);
-                        let grid_node = &mut self.grid[node_idx];
-                        if grid_node.mass <= 0.0 {
-                            self.touched_grid_nodes.push(node_idx);
-                        }
-                        grid_node.mass += weight * mass;
-                        if use_affine_transfer {
-                            let node_local = node.as_vec3() * dx;
-                            let dpos = node_local - local_pos;
-                            grid_node.v += weight * (momentum + affine * dpos);
-                        } else {
-                            grid_node.v += weight * momentum;
+                            let weight = weights[ox as usize].x
+                                * weights[oy as usize].y
+                                * weights[oz as usize].z;
+                            if weight <= 0.0 {
+                                continue;
+                            }
+
+                            let node_idx = grid_index_dims(
+                                grid_dim,
+                                node.x as u32,
+                                node.y as u32,
+                                node.z as u32,
+                            );
+                            let grid_node = &mut self.grid[node_idx];
+                            if grid_node.mass <= 0.0 {
+                                self.touched_grid_nodes.push(node_idx);
+                            }
+                            grid_node.mass += weight * mass;
+                            if use_affine_transfer {
+                                let node_local = node.as_vec3() * dx;
+                                let dpos = node_local - local_pos;
+                                grid_node.v += weight * (momentum + affine * dpos);
+                            } else {
+                                grid_node.v += weight * momentum;
+                            }
                         }
                     }
                 }
@@ -2009,10 +2048,13 @@ fn base_coord(grid_pos: Vec3) -> IVec3 {
 }
 
 fn quadratic_weights(fx: Vec3) -> [Vec3; 3] {
+    let w0 = Vec3::splat(1.5) - fx;
+    let w1 = fx - Vec3::ONE;
+    let w2 = fx - Vec3::splat(0.5);
     [
-        0.5 * (Vec3::splat(1.5) - fx).powf(2.0),
-        Vec3::splat(0.75) - (fx - Vec3::ONE).powf(2.0),
-        0.5 * (fx - Vec3::splat(0.5)).powf(2.0),
+        0.5 * w0 * w0,
+        Vec3::splat(0.75) - w1 * w1,
+        0.5 * w2 * w2,
     ]
 }
 
@@ -2023,6 +2065,15 @@ fn in_grid(node: IVec3, grid_dim: glam::UVec3) -> bool {
         && node.x < grid_dim.x as i32
         && node.y < grid_dim.y as i32
         && node.z < grid_dim.z as i32
+}
+
+fn particle_stencil_interior(base: IVec3, grid_dim: glam::UVec3) -> bool {
+    base.x >= 0
+        && base.y >= 0
+        && base.z >= 0
+        && base.x < grid_dim.x as i32 - 2
+        && base.y < grid_dim.y as i32 - 2
+        && base.z < grid_dim.z as i32 - 2
 }
 
 fn grid_coord_dims(grid_dim: glam::UVec3, idx: usize) -> glam::UVec3 {
