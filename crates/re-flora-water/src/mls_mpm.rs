@@ -1818,6 +1818,9 @@ impl PondWaterSim {
         self.density_spacing_bin_offsets.resize(bin_count + 1, 0);
         self.density_spacing_bin_particles.clear();
         self.density_spacing_bin_particles.resize(finite_particles, 0);
+        self.density_spacing_bin_particle_positions.clear();
+        self.density_spacing_bin_particle_positions
+            .resize(finite_particles, Vec3::ZERO);
         self.density_spacing_occupied_bins.clear();
 
         let particles = &self.particles;
@@ -1852,6 +1855,7 @@ impl PondWaterSim {
         debug_assert_eq!(offset, finite_particles);
 
         let bin_particles = &mut self.density_spacing_bin_particles;
+        let bin_particle_positions = &mut self.density_spacing_bin_particle_positions;
         for (idx, particle) in particles.iter().enumerate() {
             if !particle.x.is_finite() {
                 continue;
@@ -1868,6 +1872,7 @@ impl PondWaterSim {
             debug_assert!(*write_idx < bin_particles.len());
             debug_assert!(u32::try_from(idx).is_ok());
             bin_particles[*write_idx] = idx as u32;
+            bin_particle_positions[*write_idx] = particle.x;
             *write_idx += 1;
         }
 
@@ -1963,6 +1968,7 @@ impl PondWaterSim {
             DensitySpacingDenseGridLayout::Contiguous => {
                 let bin_offsets = &self.density_spacing_bin_offsets;
                 let bin_particles = &self.density_spacing_bin_particles;
+                let bin_particle_positions = &self.density_spacing_bin_particle_positions;
                 for &bin_idx in occupied_bins {
                     let start = bin_offsets[bin_idx];
                     let end = bin_offsets[bin_idx + 1];
@@ -1972,11 +1978,13 @@ impl PondWaterSim {
 
                     for left_pos in start..end {
                         let i = bin_particles[left_pos] as usize;
-                        for &j in &bin_particles[left_pos + 1..end] {
-                            accumulate_density_spacing_pair(
+                        let xi = bin_particle_positions[left_pos];
+                        for right_pos in left_pos + 1..end {
+                            accumulate_density_spacing_position_pair(
                                 i,
-                                j as usize,
-                                particles,
+                                bin_particles[right_pos] as usize,
+                                xi,
+                                bin_particle_positions[right_pos],
                                 support_radius_sq,
                                 inv_support_radius,
                                 density_gradient_scale,
@@ -2002,13 +2010,15 @@ impl PondWaterSim {
                             continue;
                         }
 
-                        for &i in &bin_particles[start..end] {
-                            let i = i as usize;
-                            for &j in &bin_particles[neighbor_start..neighbor_end] {
-                                accumulate_density_spacing_pair(
+                        for left_pos in start..end {
+                            let i = bin_particles[left_pos] as usize;
+                            let xi = bin_particle_positions[left_pos];
+                            for right_pos in neighbor_start..neighbor_end {
+                                accumulate_density_spacing_position_pair(
                                     i,
-                                    j as usize,
-                                    particles,
+                                    bin_particles[right_pos] as usize,
+                                    xi,
+                                    bin_particle_positions[right_pos],
                                     support_radius_sq,
                                     inv_support_radius,
                                     density_gradient_scale,
@@ -2767,6 +2777,7 @@ fn density_spacing_kernel_weight(distance: f32, support_radius: f32) -> f32 {
     q * q * q
 }
 
+#[inline(always)]
 #[allow(clippy::too_many_arguments)]
 fn accumulate_density_spacing_pair(
     a: usize,
@@ -2782,6 +2793,55 @@ fn accumulate_density_spacing_pair(
 ) {
     let (i, j) = if a <= b { (a, b) } else { (b, a) };
     let delta = particles[i].x - particles[j].x;
+    let distance_sq = delta.length_squared();
+    if !distance_sq.is_finite() || distance_sq >= support_radius_sq {
+        return;
+    }
+
+    let (normal, distance) = if distance_sq > 1.0e-12 {
+        let distance = distance_sq.sqrt();
+        (delta / distance, distance)
+    } else {
+        (particle_pair_fallback_direction(i, j), 0.0)
+    };
+    let q = 1.0 - distance * inv_support_radius;
+    let q_sq = q * q;
+    let weight = q_sq * q;
+    if weight <= 0.0 {
+        return;
+    }
+    let grad_i = normal * (density_gradient_scale * q_sq);
+    densities[i] += weight;
+    densities[j] += weight;
+    gradient_sums[i] += grad_i;
+    gradient_sums[j] -= grad_i;
+    let grad_sq = grad_i.length_squared();
+    gradient_sq_sums[i] += grad_sq;
+    gradient_sq_sums[j] += grad_sq;
+    pairs.push(DensitySpacingPair::new(i, j, grad_i));
+}
+
+#[inline(always)]
+#[allow(clippy::too_many_arguments)]
+fn accumulate_density_spacing_position_pair(
+    a: usize,
+    b: usize,
+    xa: Vec3,
+    xb: Vec3,
+    support_radius_sq: f32,
+    inv_support_radius: f32,
+    density_gradient_scale: f32,
+    densities: &mut [f32],
+    gradient_sums: &mut [Vec3],
+    gradient_sq_sums: &mut [f32],
+    pairs: &mut Vec<DensitySpacingPair>,
+) {
+    let (i, j, xi, xj) = if a <= b {
+        (a, b, xa, xb)
+    } else {
+        (b, a, xb, xa)
+    };
+    let delta = xi - xj;
     let distance_sq = delta.length_squared();
     if !distance_sq.is_finite() || distance_sq >= support_radius_sq {
         return;

@@ -26,7 +26,7 @@ record_diagnostic_substep
 
 从 8192 / 100000 粒子基准看，当前未完成的主要性能嫌疑点是：
 
-1. density `spacing_relax`：dense bins 已替代旧 HashMap 查询，高粒子数下 counting-sort contiguous bins 略降 pair traversal 成本，但 100000 粒子仍有约 `1.6M pairs/substep`；pair list 带宽、position cache locality 和 pair kernel math 仍是下一轮单核心优化重点。
+1. density `spacing_relax`：dense bins 已替代旧 HashMap 查询，高粒子数下 contiguous bins 和 bin-ordered position scratch 已降低 pair traversal 成本，但 100000 粒子仍有约 `1.6M pairs/substep`；pair list 带宽、correction accumulation 和 pair kernel math 仍是下一轮单核心优化重点。
 2. G2P 未细分成本：100000 粒子下约 `10.2ms/substep` 的 G2P body 尚未拆开计时；在动 G2P 逻辑前应先补 timer。
 3. terrain cached projection stress 风险：100000 粒子极限负载出现过 1 次 shadow false skip，需要作为后续 guard-band 风险复查项。
 4. water sim 线程化只改善主线程响应性，不降低单核心总 CPU；当前不是主线。
@@ -47,6 +47,7 @@ record_diagnostic_substep
 - 完成 8192 和 100000 粒子 release hidden 基准。
 - P0 pass 1：为 density `spacing_relax` 增加内部计时，保留 moved-only repair、compact pair index 和直接 kernel math；回退了 gradient recompute pair 和 half-cell bins 两个回归方案。
 - P0 pass 2：增加高粒子数 counting-sort contiguous density bins；低粒子数保留 linked-list bins，避免 rebuild overhead 伤害默认/8192 场景。
+- P0 pass 3：为高粒子数 contiguous bins 增加 bin-ordered position scratch；8192 / 默认 linked path 保持直接读取粒子位置。
 
 ## 8192 粒子详细基准
 
@@ -185,7 +186,7 @@ Findings:
 
 ### P0：单核心 density `spacing_relax` 优化
 
-目的：100000 粒子稳定窗口中 `spacing_relax` 仍约 `52ms/substep`、约 `70%` 总成本，且成本与 `density_pairs/substep` 基本线性。当前 dense bins 已消除了 HashMap 主瓶颈，并对高粒子数启用 contiguous bin traversal；下一轮应针对单核心的内存带宽、pair list 和 position cache locality 做可测量优化。不要用多线程掩盖该成本。
+目的：100000 粒子稳定窗口中 `spacing_relax` 仍约 `44ms/substep`、约 `68%` 总成本，且成本与 `density_pairs/substep` 基本线性。当前 dense bins 已消除了 HashMap 主瓶颈，并对高粒子数启用 contiguous bin traversal 和 bin-ordered position scratch；下一轮应针对单核心的 pair list 带宽、correction accumulation 和可能的 no-list traversal 做可测量优化。不要用多线程掩盖该成本。
 
 2026-05-19 pass 1 完成：
 
@@ -219,14 +220,25 @@ Findings:
 
 对比 pass 1 的 100000 粒子稳定窗口：`spacing_relax` 约 `862.01ms/report -> 830.75ms/report`（约 `3.6%` faster），`spacing_pair_accum` 约 `43.41ms/substep -> 40.65ms/substep`（约 `6.4%` faster）。8192 场景保留 linked path；最新样本与 pass 1 在小幅噪声范围内，但没有采用 contiguous-only 小粒子路径。
 
+2026-05-19 pass 3 完成：
+
+- 为高粒子数 contiguous density bins 增加 bin-ordered position scratch：填充 contiguous particle index buffer 时同步写入该 bin 顺序下的 `Vec3` position，pair traversal 直接读取相邻 position slices。
+- 8192 / 默认小粒子数继续使用 linked-list bins，并保持直接读取 `WaterParticle.x`；先前尝试的全局 per-particle position scratch 对 8192 没有稳定收益，未保留为小粒子路径。
+- 该优化减少 contiguous pair traversal 的随机 `WaterParticle` 读取；solver 行为保持同一组 particle index pairs 和同一 density/correction 公式。
+
+最终保留版本 benchmark（release hidden，performance profile，稳定窗口取最后 5 个 `[PERF][WATER]` samples）：
+
+| particles | log | bin layout | avg/substep | spacing_relax/report | spacing_relax/substep | pair_accum/substep | bin_rebuild/substep | density_pairs/substep | density_bins/substep |
+|---:|---|---|---:|---:|---:|---:|---:|---:|---:|
+| `8192` | `target/re-flora-logs/re-flora-20260519-182540.271-17362.log` | linked | `4.110ms` | `241.67ms` | `1.971ms` | `1.343ms` | `0.051ms` | `60,407` | `2,130` |
+| `100000` | `target/re-flora-logs/re-flora-20260519-182658.010-18344.log` | contiguous + positions | `63.997ms` | `697.51ms` | `43.594ms` | `33.086ms` | `0.966ms` | `1,615,841` | `15,351` |
+
+对比 pass 2 的 100000 粒子稳定窗口：`spacing_relax` 约 `830.75ms/report -> 697.51ms/report`（约 `16.0%` faster），`spacing_pair_accum` 约 `40.65ms/substep -> 33.09ms/substep`（约 `18.6%` faster），`avg/substep` 约 `74.63ms -> 64.00ms`（约 `14.2%` faster）。100000 粒子下 `spacing_pair_accum` 仍是最大单项，约 `33ms/substep`。
+
 剩余任务按低风险到高风险执行，每一步单独 benchmark，保留 measured win，回退持平或退化方案：
 
-1. 为 spacing 建 compact position scratch：
-   - pair loop 只需要位置，避免反复读取完整 `WaterParticle` struct。
-   - 可先用 `Vec<Vec3>`，必要时再评估 SoA（`x/y/z` 分离）。
-   - 只在 release hidden 8192 / 100000 两档都不退化时保留。
-2. 只有在新 breakdown 证明 pair list 仍是主瓶颈时，再尝试 no-list 双遍 neighbor traversal；只存 `(i, j)` + gradient recompute 已回归，不要重复。
-3. 如果 exact density spacing 单核心仍无法接近目标，再单独评估近似方案：
+1. 只有在新 breakdown 证明 pair list 仍是主瓶颈时，再尝试 no-list 双遍 neighbor traversal；只存 `(i, j)` + gradient recompute 已回归，不要重复。若重试，只能基于当前 bin-ordered positions 单独做 A/B。
+2. 如果 exact density spacing 单核心仍无法接近目标，再单独评估近似方案：
    - cap 每粒子最大 neighbor / pair 数。
    - spacing 每 N 个 substep 执行一次。
    - grid-density / cell-density push 替代 exact pairwise density projection。
@@ -243,7 +255,7 @@ Findings:
 
 ### P1：补充 G2P 细分计时
 
-目的：100000 粒子下 `g2p` 约 `18.4ms/substep`、`23.6%` 总成本，其中未细分 G2P body 约 `10.2ms/substep`。先拆 timer，再决定是否优化 position integration、velocity feedback、terrain query setup 或 repair dispatch。
+目的：100000 粒子下 `g2p` 仍约 `17-18ms/substep`，是 `spacing_relax` 之后的第二热点；其中未细分 G2P body 仍约 `10ms/substep`。先拆 timer，再决定是否优化 position integration、velocity feedback、terrain query setup 或 repair dispatch。
 
 任务：
 
@@ -282,11 +294,10 @@ Findings:
 
 当前只列未完成目标；已完成目标不再重复列入本列表。
 
-1. `prototype compact position scratch for spacing`
-2. `consider no-list double traversal only if new evidence supports it`
-3. `add finer G2P timers after spacing_relax wins are exhausted or blocked`
-4. `recheck terrain false-skip if 100000-particle support remains a goal`
-5. `prototype threaded water sim behind flag only after single-core CPU work`
+1. `consider no-list double traversal only if new evidence supports it`
+2. `add finer G2P timers after spacing_relax wins are exhausted or blocked`
+3. `recheck terrain false-skip if 100000-particle support remains a goal`
+4. `prototype threaded water sim behind flag only after single-core CPU work`
 
 不要默认恢复 `spacing=0`，也不要把 performance profile 的 pressure 默认降到 `8` 以下；旧 pairwise spacing 只作为 fallback。当前 roadmap 优先单核心降低 `spacing_relax` 总 CPU，不把 water sim 线程化作为下一步主线。
 
