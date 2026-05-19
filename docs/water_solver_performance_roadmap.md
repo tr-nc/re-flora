@@ -177,6 +177,71 @@ P0 结论：grid pressure projection 负责网格不可压，但不能单独保�
 
 2026-05-19 执行结果：新增 `PondWaterConfig::uses_incompressible_projection()` / `uses_legacy_eos()` / `legacy_eos_j_min()`，并用 `ParticleStateRepairMode` 将 legacy EOS 的 `j` clamp、`stiffness/gamma` 压力项与不可压路径分开。不可压 debug spawn 不再计算 hydrostatic `j`，spacing repair 不再重复写 `j=1`，diagnostic/perf 的粒子统计在不可压模式下不再把 `j` 当作需要扫描的 legacy 状态。1024 粒子 release hidden（performance profile，2 个 `[PERF][WATER]` samples）约 `avg/substep=0.86ms`、`repair=0.63ms/report`、`g2p_repair=2.51ms/report`，与 P5 后基线持平或小幅改善；`j=1.000..1.000`，`terrain_exact_checks=0`，`terrain_shadow_false_skips=0`。
 
+## 8192 粒子详细基准
+
+2026-05-19 执行命令：
+
+```bash
+source ~/.zshrc
+cargo run --release -- --hidden --auto-exit 12 --perf --water-profile performance --water-particles 8192
+python tools/parse_perf_log.py target/re-flora-logs/re-flora-20260519-152746.304-71234.log
+```
+
+运行日志：`target/re-flora-logs/re-flora-20260519-152746.304-71234.log`。本次有 10 个 `[PERF][WATER]` samples；前两个 sample 仍在铺展/沉降，下面的分项表使用最后 5 个稳定 samples。稳定窗口平均 `121.6 substeps/report`，`total=525.54ms/report`，`avg=4.322ms/substep`。
+
+Top-level water solver 成本（非重复计数；`grid` 和 `g2p` 是 inclusive 总项）：
+
+| part | ms/report | ms/substep | share |
+|---|---:|---:|---:|
+| `spacing_relax` | `266.74` | `2.194` | `50.8%` |
+| `g2p` | `189.69` | `1.560` | `36.1%` |
+| `grid` | `33.32` | `0.274` | `6.3%` |
+| `p2g` | `30.56` | `0.251` | `5.8%` |
+| `repair` | `4.15` | `0.034` | `0.8%` |
+| `clear` | `1.07` | `0.009` | `0.2%` |
+| `shadow_measure` | `0.29` | `0.002` | `0.1%` |
+| `residual` | `0.02` | `0.000` | `<0.1%` |
+| `diagnostics` | `0.00` | `0.000` | `0.0%` |
+
+Nested breakdowns（子项不额外加到 total）：
+
+| parent | part | ms/report | ms/substep | share of total |
+|---|---|---:|---:|---:|
+| `grid` | `pressure` | `26.99` | `0.222` | `5.1%` |
+| `grid` | `grid_update` | `6.33` | `0.052` | `1.2%` |
+| `g2p` | `g2p_gather` | `29.06` | `0.239` | `5.5%` |
+| `g2p` | `g2p_terrain` | `24.95` | `0.205` | `4.7%` |
+| `g2p` | `g2p_repair` | `16.33` | `0.134` | `3.1%` |
+| `g2p` | `g2p_box` | `15.89` | `0.131` | `3.0%` |
+| `g2p` | uninstrumented G2P body | `103.45` | `0.851` | `19.7%` |
+
+Stability / workload counters in the same stable window:
+
+| metric | value |
+|---|---:|
+| `density_pairs/substep` | `60,376` |
+| `density_bins/substep` | `2,127` |
+| `active_nodes/substep` | `6,380` |
+| `terrain_cache_projections/substep` | `5,517` |
+| `terrain_cache_skips/substep` | `2,675` |
+| `terrain_exact_checks/substep` | `0` |
+| `terrain_exact_corrections/substep` | `0` |
+| `terrain_shadow_false_skips` | `0` |
+| `terrain_shadow_sdf_err_avg` | `0.0011` |
+| `terrain_shadow_sdf_err_max` | `0.031` |
+| `penetrating` | `~23/report` |
+| `no_sdf` | `0` |
+
+Frame-level hidden run summary: all 604 frame samples had `water_update mean=9.29ms`, `median=8.73ms`, `p95=13.35ms`, `max=20.71ms`; last 300 frame samples had `water_update mean=10.27ms`, `median=8.95ms`, `p95=13.49ms`, `max=13.85ms`, with frame mean `19.52ms`.
+
+Findings:
+
+1. 8192 粒子下成本已经转为 particle-local pass 主导。`spacing_relax` 单项约 `51%`，`g2p` 约 `36%`；`p2g`、`pressure` 各只有约 `5-6%`。
+2. density spacing 的 pair 数随粒子密集沉降显著上升：首个 sample 约 `30k pairs/substep`，稳定后约 `60k pairs/substep`，对应 `spacing_relax` 从约 `1.57ms/substep` 升到约 `2.19ms/substep`。下一轮 kernel 优化若继续做单线程，应优先看 density spacing 的算法/并行化，而不是 P2G 或 pressure。
+3. `g2p` 还有约 `0.85ms/substep` 未被当前子 timer 细分，占总成本约 `20%`。在动 G2P 逻辑前，应先加更细的 timer，把 position integration、terrain query setup、velocity feedback、repair dispatch 等拆出来。
+4. terrain exact fallback 优化在 8192 粒子下仍有效：`terrain_exact_checks=0`、`terrain_exact_corrections=0`、`terrain_shadow_false_skips=0`。当前 `g2p_terrain` 约 `0.205ms/substep`，不是最大热点。
+5. `active_nodes/substep` 稳定约 `6.4k`，与粒子数相比增长很小；grid pressure 已不是 8192 粒子主瓶颈。线程化 water sim 能降低主线程 hitch，但若目标是总 CPU 成本，热点主要还是 `spacing_relax` 和 G2P。
+
 ### P7：water sim 线程化
 
 任务：
