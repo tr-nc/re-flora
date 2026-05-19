@@ -48,6 +48,7 @@ record_diagnostic_substep
 - P0 pass 1：为 density `spacing_relax` 增加内部计时，保留 moved-only repair、compact pair index 和直接 kernel math；回退了 gradient recompute pair 和 half-cell bins 两个回归方案。
 - P0 pass 2：增加高粒子数 counting-sort contiguous density bins；低粒子数保留 linked-list bins，避免 rebuild overhead 伤害默认/8192 场景。
 - P0 pass 3：为高粒子数 contiguous bins 增加 bin-ordered position scratch；8192 / 默认 linked path 保持直接读取粒子位置。
+- P0 cell-density MVP：增加 opt-in `cell-density` spacing mode 和独立计时；100000 粒子稳定窗口 `spacing_relax` 降到约 `9.06ms/substep`，达到 P0 性能门槛，但 shadow false-skip stress 风险略升，暂不改默认。
 
 ## 8192 粒子详细基准
 
@@ -182,7 +183,7 @@ Findings:
 
 ## 当前优先级计划
 
-当前列表只包含未完成目标；已完成内容只在“已完成简记”中保留。
+当前列表保留当前优先级、已完成的 P0 实验结果和后续未完成目标；已完成摘要也同步记录在“已完成简记”中。
 
 ### P0：用 grid/cell-density push 替代 exact particle-pair spacing
 
@@ -257,6 +258,24 @@ P0 实施计划：
 
 exact spacing 结论：当前三轮优化已经证明 exact particle-pair density spacing 可以做常数因子改善，但仍随 `density_pairs/substep` 线性增长。继续做 no-list double traversal、pair list 压缩、sqrt 近似等只适合作为后备小优化，不再符合“数量级优化”目标。
 
+2026-05-20 cell-density MVP 完成：
+
+- 增加 `WaterParticleSpacingMode::CellDensity`，CLI 使用 `--water-spacing-mode cell-density`；默认和 performance profile 仍保持 `density`，新 mode 只做 opt-in A/B。
+- 第一版使用 dense cell count / centroid / generation-stamped occupied-cell scratch，不构建 particle-pair list；每个粒子只对所在 overfull cell 做 compression-only centroid-outward push。
+- 增加 `cell_density_rebuild`、`cell_density_push`、`cell_density_occupied_cells/substep`、`cell_density_overfull_cells/substep`、`cell_density_moved/substep`、`cell_density_max_excess` 日志和 parser 字段。
+- cell-density spacing 的 terrain repair 使用 cached terrain projection，并对向 terrain normal 内推的 correction 加 conservative SDF guard；这保留了性能门槛，同时避免 cached-only 版本在 100000 粒子下显著增加 penetrating。
+
+最终保留版本 benchmark（release hidden，performance profile，稳定窗口取最后 5 个 `[PERF][WATER]` samples）：
+
+| particles | mode           | log                                                           | avg/substep | spacing_relax/substep | rebuild/substep | push/substep | post_repair/substep | pair_accum/substep | density_pairs/substep | cell_occupied/substep | cell_moved/substep | penetrating | shadow false skips/report |
+| --------: | -------------- | ------------------------------------------------------------- | ----------: | --------------------: | --------------: | -----------: | ------------------: | -----------------: | --------------------: | --------------------: | -----------------: | ----------: | ------------------------: |
+|    `8192` | `density`      | `target/re-flora-logs/re-flora-20260520-005503.207-13070.log` |   `6.270ms` |             `3.167ms` |       `0.196ms` |          `-` |           `0.908ms` |          `1.785ms` |              `60,694` |                   `0` |                `0` |        `25` |                       `0` |
+|    `8192` | `cell-density` | `target/re-flora-logs/re-flora-20260520-010134.952-16676.log` |   `3.871ms` |             `0.817ms` |       `0.226ms` |    `0.157ms` |           `0.390ms` |          `0.000ms` |                   `0` |               `3,097` |            `6,619` |        `10` |                       `0` |
+|  `100000` | `density`      | `target/re-flora-logs/re-flora-20260520-005549.313-13532.log` |  `96.606ms` |            `65.755ms` |       `3.604ms` |          `-` |          `10.145ms` |         `45.853ms` |           `1,449,140` |                   `0` |                `0` |       `337` |                     `0.2` |
+|  `100000` | `cell-density` | `target/re-flora-logs/re-flora-20260520-010111.496-16292.log` |  `39.409ms` |             `9.061ms` |       `2.347ms` |    `1.852ms` |           `4.343ms` |          `0.000ms` |                   `0` |              `13,345` |           `79,822` |       `495` |                     `2.4` |
+
+结论：cell-density MVP 删除了 exact pair list / per-pair kernel，100000 粒子下 `spacing_relax` 达到 P0 `<10ms/substep` 性能门槛，并把总 `avg/substep` 从本次 exact density 基线约 `96.6ms` 降到约 `39.4ms`。8192 粒子也从约 `3.17ms/substep` 的 spacing 降到约 `0.82ms/substep`。行为方面，8192 粒子 terrain penetrating 没有变差；100000 stress 下 penetrating 与 shadow false-skip 比 exact density 略高但仍比 cached-only 试验安全，暂作为 opt-in mode 保留，不默认替换 `density`。后续若要把它设为默认，需要先做视觉检查并复查 P2 terrain cache guard-band / false-skip 风险。
+
 P0 验收：
 
 - 新 mode 至少跑 `8192` 和 `100000` 粒子 release hidden perf，对比旧 exact `density` mode 的 `spacing_relax ms/substep`、`avg/substep`、frame `water_update`。
@@ -306,14 +325,13 @@ P0 验收：
 
 ## 推荐执行顺序
 
-当前只列未完成目标；已完成目标不再重复列入本列表。
+P0 prototype 和 8192 / 100000 A/B benchmark 已完成。下一步建议：
 
-1. `prototype cell-density spacing mode behind flag`
-2. `benchmark 8192 / 100000 against exact density spacing`
-3. `iterate cell size / target occupancy / strength / cadence only if perf gate is met`
-4. `add finer G2P timers after spacing_relax algorithmic path is exhausted or blocked`
-5. `recheck terrain false-skip if 100000-particle support remains a goal`
-6. `prototype threaded water sim behind flag only after single-core CPU work`
+1. `keep cell-density opt-in while doing visual/behavior review`
+2. `if making cell-density default, first recheck terrain false-skip and guard-band behavior`
+3. `add finer G2P timers after spacing_relax algorithmic path is exhausted or blocked`
+4. `iterate cell size / target occupancy / strength / cadence only if visual behavior needs it`
+5. `prototype threaded water sim behind flag only after single-core CPU work`
 
 不要默认恢复 `spacing=0`，也不要把 performance profile 的 pressure 默认降到 `8` 以下；旧 pairwise/exact density spacing 只作为 fallback 或 A/B baseline。当前 roadmap 优先用 grid/cell-density push 删除 expensive particle-pair anti-clump pass，不把 water sim 线程化作为下一步主线。
 
