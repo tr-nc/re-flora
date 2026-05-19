@@ -49,7 +49,6 @@ record_diagnostic_substep
 - P0 pass 2：增加高粒子数 counting-sort contiguous density bins；低粒子数保留 linked-list bins，避免 rebuild overhead 伤害默认/8192 场景。
 - P0 pass 3：为高粒子数 contiguous bins 增加 bin-ordered position scratch；8192 / 默认 linked path 保持直接读取粒子位置。
 - P0 cell-density MVP：增加 opt-in `cell-density` spacing mode 和独立计时；100000 粒子稳定窗口 `spacing_relax` 降到约 `9.06ms/substep`，达到 P0 性能门槛，但 shadow false-skip stress 风险略升，暂不改默认。
-- P0 cell-density 稳定性迭代：关闭 velocity feedback，加入 rest-distance correction cap；随后把 single-cell centroid push 改成 overfull cell 的 27-cell smoothed neighborhood centroid，降低同点 clump 和 grid-pattern 风险。
 
 ## 8192 粒子详细基准
 
@@ -277,9 +276,7 @@ exact spacing 结论：当前三轮优化已经证明 exact particle-pair densit
 
 结论：cell-density MVP 删除了 exact pair list / per-pair kernel，100000 粒子下 `spacing_relax` 达到 P0 `<10ms/substep` 性能门槛，并把总 `avg/substep` 从本次 exact density 基线约 `96.6ms` 降到约 `39.4ms`。8192 粒子也从约 `3.17ms/substep` 的 spacing 降到约 `0.82ms/substep`。行为方面，8192 粒子 terrain penetrating 没有变差；100000 stress 下 penetrating 与 shadow false-skip 比 exact density 略高但仍比 cached-only 试验安全，暂作为 opt-in mode 保留，不默认替换 `density`。后续若要把它设为默认，需要先做视觉检查并复查 P2 terrain cache guard-band / false-skip 风险。
 
-2026-05-20 stability pass：用户观察到 cell-density mode 下静止堆积水粒子有来回抖动。原因判断为 hard cell occupancy + centroid push 在 cell 边界不连续，且原先把 spacing correction 以 `0.15` blend 回灌进速度，容易把 marker regularization 变成持续 impulse。第一轮调整为更保守的 marker-shift：cell size 从 `1.0x` rest distance 放大到 `1.25x`，push strength 从 `0.35` 降到 `0.20`，near-threshold excess 使用 `excess / (target + 1)` 软化，cell-density 独立 velocity blend 降到 `0.04`。用户反馈明显改善但仍有可见抖动后，第二轮进一步把 push strength 降到 `0.12`，按 rest distance 把每 substep correction 限到 `0.06x rest_distance`，并关闭 cell-density velocity feedback。release hidden 复测：8192 粒子 `spacing_relax` 约 `0.796ms/substep`、diag speed_avg 约 `0.124`、penetrating 约 `0.8/report`；100000 粒子 `spacing_relax` 约 `9.253ms/substep`，仍满足 P0 `<10ms/substep` 门槛。
-
-2026-05-20 grid-pattern pass：用户继续观察到 settled pile 中很多粒子聚到同一点抖动，并形成明显 grid pattern；说明继续调小 single-cell centroid push 只会削弱 anti-clump，不能解决 hard-cell discontinuity。第三轮把 cell-density correction 的方向从“当前 cell centroid”改成“overfull cell 的 27-cell smoothed neighborhood centroid”：仍然每粒子只落一个 cell，因此保持 `O(particles + occupied_cells)`，但对 overfull cell 先用 separable `[0.25, 1.0, 0.25]` neighbor kernel 平滑 count/position sum，再把粒子从平滑邻域 centroid 推开；局部 cell count 仍参与阈值，避免完全重叠粒子漏检。为避免重复 rebin 的弱 correction 留下同点 clump，push strength 回到 `0.18`、per-substep cap 到 `0.10x rest_distance`，velocity feedback 仍保持 `0.0`。release hidden 复测：8192 粒子 `spacing_relax` 约 `0.875ms/substep`、diag speed_avg 约 `0.149`、penetrating 约 `8.4/report`；100000 粒子 `spacing_relax` 约 `9.38ms/substep`，仍满足 P0 `<10ms/substep` 门槛。
+2026-05-20 stability pass：用户观察到 cell-density mode 下静止堆积水粒子有来回抖动。原因判断为 hard cell occupancy + centroid push 在 cell 边界不连续，且原先把 spacing correction 以 `0.15` blend 回灌进速度，容易把 marker regularization 变成持续 impulse。第一轮调整为更保守的 marker-shift：cell size 从 `1.0x` rest distance 放大到 `1.25x`，push strength 从 `0.35` 降到 `0.20`，near-threshold excess 使用 `excess / (target + 1)` 软化，cell-density 独立 velocity blend 降到 `0.04`。用户反馈明显改善但仍有可见抖动后，第二轮进一步把 push strength 降到 `0.12`，按 rest distance 把每 substep correction 限到 `0.06x rest_distance`，并关闭 cell-density velocity feedback。release hidden 复测：8192 粒子 `spacing_relax` 约 `0.796ms/substep`、diag speed_avg 约 `0.124`、penetrating 约 `0.8/report`；100000 粒子 `spacing_relax` 约 `9.253ms/substep`，仍满足 P0 `<10ms/substep` 门槛。若视觉上仍有明显 grid-cell 抖动，下一步应实现 27-cell smooth density gradient / CIC splat，而不是继续增强 single-cell centroid push。
 
 P0 验收：
 
