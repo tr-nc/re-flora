@@ -271,6 +271,13 @@ pub struct WaterPerfStats {
     pub pressure_projection_seconds: f64,
     pub g2p_seconds: f64,
     pub spacing_relax_seconds: f64,
+    pub density_spacing_bin_rebuild_seconds: f64,
+    pub density_spacing_pair_accum_seconds: f64,
+    pub density_spacing_lambda_seconds: f64,
+    pub density_spacing_correction_accum_seconds: f64,
+    pub density_spacing_correction_apply_seconds: f64,
+    pub density_spacing_post_repair_seconds: f64,
+    pub density_spacing_velocity_seconds: f64,
     pub diagnostics_seconds: f64,
     pub g2p_gather_seconds: f64,
     pub g2p_box_seconds: f64,
@@ -289,6 +296,8 @@ pub struct WaterPerfStats {
     pub g2p_terrain_shadow_sdf_abs_error_max: f32,
     pub density_spacing_pairs: u64,
     pub density_spacing_occupied_bins: u64,
+    pub density_spacing_active_lambdas: u64,
+    pub density_spacing_moved_particles: u64,
 }
 
 impl WaterPerfStats {
@@ -325,6 +334,7 @@ pub struct PondWaterSim {
     pub(crate) density_spacing_lambdas: Vec<f32>,
     pub(crate) density_spacing_corrections: Vec<Vec3>,
     pub(crate) density_spacing_total_corrections: Vec<Vec3>,
+    pub(crate) density_spacing_moved_particles: Vec<usize>,
     pub accumulator: f32,
     pub perf_stats: WaterPerfStats,
     pub perf_report_seconds: f32,
@@ -381,6 +391,7 @@ impl PondWaterSim {
             density_spacing_lambdas: Vec::with_capacity(particle_capacity),
             density_spacing_corrections: Vec::with_capacity(particle_capacity),
             density_spacing_total_corrections: Vec::with_capacity(particle_capacity),
+            density_spacing_moved_particles: Vec::with_capacity(particle_capacity),
             accumulator: 0.0,
             perf_stats: WaterPerfStats::default(),
             perf_report_seconds: 0.0,

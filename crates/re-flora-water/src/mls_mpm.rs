@@ -380,7 +380,7 @@ impl PondWaterSim {
             let active_nodes = self.update_grid(dt);
             self.project_grid_incompressible(dt);
             let g2p_breakdown = self.grid_to_particle(dt);
-            self.relax_incompressible_particle_spacing(dt);
+            self.relax_incompressible_particle_spacing(dt, false);
             self.record_diagnostic_substep(active_nodes, g2p_breakdown);
             return;
         }
@@ -412,7 +412,7 @@ impl PondWaterSim {
         let g2p_breakdown = self.grid_to_particle_timed(dt);
 
         let spacing_relax_start = Instant::now();
-        self.relax_incompressible_particle_spacing(dt);
+        self.relax_incompressible_particle_spacing(dt, true);
         let spacing_relax_seconds = spacing_relax_start.elapsed().as_secs_f64();
 
         let diagnostics_start = Instant::now();
@@ -639,7 +639,7 @@ impl PondWaterSim {
             self.terrain_collision_margin(),
         );
         log::info!(
-            "[PERF][WATER] particles {} grid {:?} nodes {} substeps {} total {:.2}ms avg {:.3}ms/substep repair {:.2}ms clear {:.2}ms p2g {:.2}ms grid {:.2}ms grid_update {:.2}ms pressure {:.2}ms g2p {:.2}ms g2p_gather {:.2}ms g2p_box {:.2}ms g2p_terrain {:.2}ms g2p_repair {:.2}ms spacing_relax {:.2}ms diagnostics {:.2}ms residual {:.2}ms shadow_measure {:.2}ms density_pairs/substep {:.0} density_bins/substep {:.0} terrain_cache_skips/substep {:.0} terrain_cache_projections/substep {:.0} terrain_exact_fallbacks/substep {:.0} terrain_exact_checks/substep {:.0} terrain_exact_corrections/substep {:.0} terrain_shadow_samples/substep {:.1} terrain_shadow_false_skips {} terrain_shadow_sdf_err_avg {:.5} terrain_shadow_sdf_err_max {:.5} active_nodes/substep {:.0} particle_y {:.3}..{:.3} avg {:.3} terrain_sdf_min {:.4} penetrating {} no_sdf {}",
+            "[PERF][WATER] particles {} grid {:?} nodes {} substeps {} total {:.2}ms avg {:.3}ms/substep repair {:.2}ms clear {:.2}ms p2g {:.2}ms grid {:.2}ms grid_update {:.2}ms pressure {:.2}ms g2p {:.2}ms g2p_gather {:.2}ms g2p_box {:.2}ms g2p_terrain {:.2}ms g2p_repair {:.2}ms spacing_relax {:.2}ms spacing_bin_rebuild {:.2}ms spacing_pair_accum {:.2}ms spacing_lambda {:.2}ms spacing_corr_accum {:.2}ms spacing_corr_apply {:.2}ms spacing_post_repair {:.2}ms spacing_velocity {:.2}ms diagnostics {:.2}ms residual {:.2}ms shadow_measure {:.2}ms density_pairs/substep {:.0} density_bins/substep {:.0} density_active_lambdas/substep {:.0} density_moved/substep {:.0} terrain_cache_skips/substep {:.0} terrain_cache_projections/substep {:.0} terrain_exact_fallbacks/substep {:.0} terrain_exact_checks/substep {:.0} terrain_exact_corrections/substep {:.0} terrain_shadow_samples/substep {:.1} terrain_shadow_false_skips {} terrain_shadow_sdf_err_avg {:.5} terrain_shadow_sdf_err_max {:.5} active_nodes/substep {:.0} particle_y {:.3}..{:.3} avg {:.3} terrain_sdf_min {:.4} penetrating {} no_sdf {}",
             self.particles.len(),
             self.grid_dim,
             grid_nodes,
@@ -658,11 +658,20 @@ impl PondWaterSim {
             stats.g2p_terrain_seconds * 1000.0,
             stats.g2p_repair_seconds * 1000.0,
             stats.spacing_relax_seconds * 1000.0,
+            stats.density_spacing_bin_rebuild_seconds * 1000.0,
+            stats.density_spacing_pair_accum_seconds * 1000.0,
+            stats.density_spacing_lambda_seconds * 1000.0,
+            stats.density_spacing_correction_accum_seconds * 1000.0,
+            stats.density_spacing_correction_apply_seconds * 1000.0,
+            stats.density_spacing_post_repair_seconds * 1000.0,
+            stats.density_spacing_velocity_seconds * 1000.0,
             stats.diagnostics_seconds * 1000.0,
             residual_seconds * 1000.0,
             shadow_measure_seconds * 1000.0,
             stats.density_spacing_pairs as f64 / substeps,
             stats.density_spacing_occupied_bins as f64 / substeps,
+            stats.density_spacing_active_lambdas as f64 / substeps,
+            stats.density_spacing_moved_particles as f64 / substeps,
             stats.g2p_terrain_cache_skips as f64 / substeps,
             stats.g2p_terrain_cache_projections as f64 / substeps,
             stats.g2p_terrain_exact_fallbacks as f64 / substeps,
@@ -1350,13 +1359,13 @@ impl PondWaterSim {
         }
     }
 
-    fn relax_incompressible_particle_spacing(&mut self, dt: f32) {
+    fn relax_incompressible_particle_spacing(&mut self, dt: f32, collect_perf: bool) {
         match self.config.particle_spacing_mode {
             WaterParticleSpacingMode::Pairwise => {
                 self.relax_incompressible_pairwise_particle_spacing(dt)
             }
             WaterParticleSpacingMode::Density => {
-                self.relax_incompressible_density_particle_spacing(dt)
+                self.relax_incompressible_density_particle_spacing(dt, collect_perf)
             }
         }
     }
@@ -1499,7 +1508,7 @@ impl PondWaterSim {
         }
     }
 
-    fn relax_incompressible_density_particle_spacing(&mut self, dt: f32) {
+    fn relax_incompressible_density_particle_spacing(&mut self, dt: f32, collect_perf: bool) {
         let iterations = self.config.particle_spacing_relaxation_iterations as usize;
         if !self.config.uses_incompressible_projection()
             || iterations == 0
@@ -1528,6 +1537,7 @@ impl PondWaterSim {
         let target_density = (1.0
             + INCOMPRESSIBLE_DENSITY_TARGET_AXIS_NEIGHBORS * rest_neighbor_weight)
             .max(1.0e-4);
+        let density_gradient_scale = -3.0 * inv_support_radius / target_density;
         let max_correction = self.dx * MAX_PARTICLE_SPACING_CORRECTION_CELLS;
         let max_velocity_correction =
             MAX_INCOMPRESSIBLE_DENSITY_VELOCITY_CORRECTION_CELLS * self.dx / dt;
@@ -1553,35 +1563,47 @@ impl PondWaterSim {
             self.density_spacing_gradient_sq_sums.clear();
             self.density_spacing_gradient_sq_sums.resize(count, 0.0);
 
-            if let Some(dense_grid) =
-                self.rebuild_density_spacing_dense_bins(inv_support_radius)
-            {
+            let bin_rebuild_start = collect_perf.then(Instant::now);
+            let dense_grid = self.rebuild_density_spacing_dense_bins(inv_support_radius);
+            if let Some(start) = bin_rebuild_start {
+                self.perf_stats.density_spacing_bin_rebuild_seconds +=
+                    start.elapsed().as_secs_f64();
+            }
+
+            let pair_accum_start = collect_perf.then(Instant::now);
+            let occupied_bins;
+            if let Some(dense_grid) = dense_grid {
+                occupied_bins = self.density_spacing_occupied_bins.len() as u64;
                 self.accumulate_density_spacing_dense_pairs(
                     dense_grid,
                     support_radius_sq,
-                    support_radius,
-                    target_density,
+                    inv_support_radius,
+                    density_gradient_scale,
                 );
-                self.perf_stats.density_spacing_occupied_bins +=
-                    self.density_spacing_occupied_bins.len() as u64;
             } else {
-                let occupied_bins = accumulate_density_spacing_hash_pairs(
+                occupied_bins = accumulate_density_spacing_hash_pairs(
                     &self.particles,
                     inv_support_radius,
                     support_radius_sq,
-                    support_radius,
-                    target_density,
+                    inv_support_radius,
+                    density_gradient_scale,
                     &mut self.density_spacing_densities,
                     &mut self.density_spacing_gradient_sums,
                     &mut self.density_spacing_gradient_sq_sums,
                     &mut self.density_spacing_pairs,
-                );
-                self.perf_stats.density_spacing_occupied_bins += occupied_bins as u64;
+                ) as u64;
             }
-            self.perf_stats.density_spacing_pairs += self.density_spacing_pairs.len() as u64;
+            if let Some(start) = pair_accum_start {
+                self.perf_stats.density_spacing_pair_accum_seconds +=
+                    start.elapsed().as_secs_f64();
+                self.perf_stats.density_spacing_occupied_bins += occupied_bins;
+                self.perf_stats.density_spacing_pairs += self.density_spacing_pairs.len() as u64;
+            }
 
+            let lambda_start = collect_perf.then(Instant::now);
             self.density_spacing_lambdas.clear();
             self.density_spacing_lambdas.resize(count, 0.0);
+            let mut active_lambdas = 0u64;
             for i in 0..count {
                 if !self.particles[i].x.is_finite() {
                     continue;
@@ -1596,23 +1618,35 @@ impl PondWaterSim {
                     + INCOMPRESSIBLE_DENSITY_LAMBDA_EPSILON;
                 if denominator > 0.0 && denominator.is_finite() {
                     self.density_spacing_lambdas[i] = -compression / denominator;
+                    active_lambdas += 1;
                 }
             }
+            if let Some(start) = lambda_start {
+                self.perf_stats.density_spacing_lambda_seconds += start.elapsed().as_secs_f64();
+                self.perf_stats.density_spacing_active_lambdas += active_lambdas;
+            }
 
+            let correction_accum_start = collect_perf.then(Instant::now);
             self.density_spacing_corrections.clear();
             self.density_spacing_corrections.resize(count, Vec3::ZERO);
             for pair in self.density_spacing_pairs.iter().copied() {
-                let lambda_sum = self.density_spacing_lambdas[pair.i]
-                    + self.density_spacing_lambdas[pair.j];
+                let (i, j) = pair.indices();
+                let lambda_sum =
+                    self.density_spacing_lambdas[i] + self.density_spacing_lambdas[j];
                 if lambda_sum >= 0.0 || !lambda_sum.is_finite() {
                     continue;
                 }
                 let correction = pair.grad_i * lambda_sum * INCOMPRESSIBLE_DENSITY_SPACING_STRENGTH;
-                self.density_spacing_corrections[pair.i] += correction;
-                self.density_spacing_corrections[pair.j] -= correction;
+                self.density_spacing_corrections[i] += correction;
+                self.density_spacing_corrections[j] -= correction;
+            }
+            if let Some(start) = correction_accum_start {
+                self.perf_stats.density_spacing_correction_accum_seconds +=
+                    start.elapsed().as_secs_f64();
             }
 
-            let mut moved = false;
+            let correction_apply_start = collect_perf.then(Instant::now);
+            self.density_spacing_moved_particles.clear();
             for idx in 0..count {
                 let correction =
                     clamp_vec3_length(self.density_spacing_corrections[idx], max_correction);
@@ -1622,15 +1656,24 @@ impl PondWaterSim {
                 let particle = &mut self.particles[idx];
                 particle.x += correction;
                 self.density_spacing_total_corrections[idx] += correction;
-                moved = true;
+                self.density_spacing_moved_particles.push(idx);
+            }
+            let moved_particles = self.density_spacing_moved_particles.len();
+            if let Some(start) = correction_apply_start {
+                self.perf_stats.density_spacing_correction_apply_seconds +=
+                    start.elapsed().as_secs_f64();
+                self.perf_stats.density_spacing_moved_particles += moved_particles as u64;
             }
 
-            if !moved {
+            if moved_particles == 0 {
                 break;
             }
 
+            let post_repair_start = collect_perf.then(Instant::now);
             let terrain = self.terrain.as_ref();
-            for particle in &mut self.particles {
+            let particles = &mut self.particles;
+            for &idx in &self.density_spacing_moved_particles {
+                let particle = &mut particles[idx];
                 collide_particle_with_box_with_padding(
                     particle,
                     bounds.min_ws,
@@ -1661,9 +1704,14 @@ impl PondWaterSim {
                     repair_mode,
                 );
             }
+            if let Some(start) = post_repair_start {
+                self.perf_stats.density_spacing_post_repair_seconds +=
+                    start.elapsed().as_secs_f64();
+            }
         }
 
         if INCOMPRESSIBLE_DENSITY_VELOCITY_BLEND > 0.0 {
+            let velocity_start = collect_perf.then(Instant::now);
             for (particle, correction) in self
                 .particles
                 .iter_mut()
@@ -1675,6 +1723,9 @@ impl PondWaterSim {
                 let velocity_correction = clamp_vec3_length(correction / dt, max_velocity_correction)
                     * INCOMPRESSIBLE_DENSITY_VELOCITY_BLEND;
                 particle.v = clamp_vec3_length(particle.v + velocity_correction, max_particle_speed);
+            }
+            if let Some(start) = velocity_start {
+                self.perf_stats.density_spacing_velocity_seconds += start.elapsed().as_secs_f64();
             }
         }
     }
@@ -1760,8 +1811,8 @@ impl PondWaterSim {
         &mut self,
         dense_grid: DensitySpacingDenseGrid,
         support_radius_sq: f32,
-        support_radius: f32,
-        target_density: f32,
+        inv_support_radius: f32,
+        density_gradient_scale: f32,
     ) {
         let particles = &self.particles;
         let bin_heads = &self.density_spacing_bin_heads;
@@ -1787,8 +1838,8 @@ impl PondWaterSim {
                         j,
                         particles,
                         support_radius_sq,
-                        support_radius,
-                        target_density,
+                        inv_support_radius,
+                        density_gradient_scale,
                         densities,
                         gradient_sums,
                         gradient_sq_sums,
@@ -1820,8 +1871,8 @@ impl PondWaterSim {
                             j,
                             particles,
                             support_radius_sq,
-                            support_radius,
-                            target_density,
+                            inv_support_radius,
+                            density_gradient_scale,
                             densities,
                             gradient_sums,
                             gradient_sq_sums,
@@ -2052,9 +2103,25 @@ struct WaterG2pBreakdown {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct DensitySpacingPair {
-    i: usize,
-    j: usize,
+    i: u32,
+    j: u32,
     grad_i: Vec3,
+}
+
+impl DensitySpacingPair {
+    fn new(i: usize, j: usize, grad_i: Vec3) -> Self {
+        debug_assert!(u32::try_from(i).is_ok());
+        debug_assert!(u32::try_from(j).is_ok());
+        Self {
+            i: i as u32,
+            j: j as u32,
+            grad_i,
+        }
+    }
+
+    fn indices(self) -> (usize, usize) {
+        (self.i as usize, self.j as usize)
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -2554,27 +2621,14 @@ fn density_spacing_kernel_weight(distance: f32, support_radius: f32) -> f32 {
     q * q * q
 }
 
-fn density_spacing_kernel_gradient(
-    normal: Vec3,
-    distance: f32,
-    support_radius: f32,
-    target_density: f32,
-) -> Vec3 {
-    if support_radius <= 0.0 || target_density <= 0.0 || distance >= support_radius {
-        return Vec3::ZERO;
-    }
-    let q = 1.0 - distance / support_radius;
-    normal * (-3.0 * q * q / support_radius / target_density)
-}
-
 #[allow(clippy::too_many_arguments)]
 fn accumulate_density_spacing_pair(
     a: usize,
     b: usize,
     particles: &[WaterParticle],
     support_radius_sq: f32,
-    support_radius: f32,
-    target_density: f32,
+    inv_support_radius: f32,
+    density_gradient_scale: f32,
     densities: &mut [f32],
     gradient_sums: &mut [Vec3],
     gradient_sq_sums: &mut [f32],
@@ -2593,11 +2647,13 @@ fn accumulate_density_spacing_pair(
     } else {
         (particle_pair_fallback_direction(i, j), 0.0)
     };
-    let weight = density_spacing_kernel_weight(distance, support_radius);
+    let q = 1.0 - distance * inv_support_radius;
+    let q_sq = q * q;
+    let weight = q_sq * q;
     if weight <= 0.0 {
         return;
     }
-    let grad_i = density_spacing_kernel_gradient(normal, distance, support_radius, target_density);
+    let grad_i = normal * (density_gradient_scale * q_sq);
     densities[i] += weight;
     densities[j] += weight;
     gradient_sums[i] += grad_i;
@@ -2605,7 +2661,7 @@ fn accumulate_density_spacing_pair(
     let grad_sq = grad_i.length_squared();
     gradient_sq_sums[i] += grad_sq;
     gradient_sq_sums[j] += grad_sq;
-    pairs.push(DensitySpacingPair { i, j, grad_i });
+    pairs.push(DensitySpacingPair::new(i, j, grad_i));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2613,8 +2669,8 @@ fn accumulate_density_spacing_hash_pairs(
     particles: &[WaterParticle],
     inv_cell_size: f32,
     support_radius_sq: f32,
-    support_radius: f32,
-    target_density: f32,
+    inv_support_radius: f32,
+    density_gradient_scale: f32,
     densities: &mut [f32],
     gradient_sums: &mut [Vec3],
     gradient_sq_sums: &mut [f32],
@@ -2652,8 +2708,8 @@ fn accumulate_density_spacing_hash_pairs(
                             j,
                             particles,
                             support_radius_sq,
-                            support_radius,
-                            target_density,
+                            inv_support_radius,
+                            density_gradient_scale,
                             densities,
                             gradient_sums,
                             gradient_sq_sums,
@@ -3378,7 +3434,7 @@ mod tests {
         let center = Vec3::new(0.5, 0.5, 0.5);
         sim.particles = vec![water_particle(center, Vec3::ZERO), water_particle(center, Vec3::ZERO)];
 
-        sim.relax_incompressible_particle_spacing(sim.config.substep_dt);
+        sim.relax_incompressible_particle_spacing(sim.config.substep_dt, false);
 
         let distance = sim.particles[0].x.distance(sim.particles[1].x);
         assert!(
@@ -3402,7 +3458,7 @@ mod tests {
         let center = Vec3::new(0.5, 0.5, 0.5);
         sim.particles = vec![water_particle(center, Vec3::ZERO), water_particle(center, Vec3::ZERO)];
 
-        sim.relax_incompressible_particle_spacing(sim.config.substep_dt);
+        sim.relax_incompressible_particle_spacing(sim.config.substep_dt, false);
 
         let distance = sim.particles[0].x.distance(sim.particles[1].x);
         assert!(

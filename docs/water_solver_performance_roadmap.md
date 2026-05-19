@@ -45,6 +45,7 @@ record_diagnostic_substep
 - 清理不可压路径中的 legacy EOS `j / stiffness / gamma` 热路径。
 - 移除 G2P→P2G fusion 方向；不再列入 roadmap。
 - 完成 8192 和 100000 粒子 release hidden 基准。
+- P0 pass 1：为 density `spacing_relax` 增加内部计时，保留 moved-only repair、compact pair index 和直接 kernel math；回退了 gradient recompute pair 和 half-cell bins 两个回归方案。
 
 ## 8192 粒子详细基准
 
@@ -53,7 +54,7 @@ record_diagnostic_substep
 ```bash
 source ~/.zshrc
 cargo run --release -- --hidden --auto-exit 12 --perf --water-profile performance --water-particles 8192
-python tools/parse_perf_log.py target/re-flora-logs/re-flora-20260519-152746.304-71234.log
+python3 tools/parse_perf_log.py target/re-flora-logs/re-flora-20260519-152746.304-71234.log
 ```
 
 运行日志：`target/re-flora-logs/re-flora-20260519-152746.304-71234.log`。本次有 10 个 `[PERF][WATER]` samples；前两个 sample 仍在铺展/沉降，下面的分项表使用最后 5 个稳定 samples。稳定窗口平均 `121.6 substeps/report`，`total=525.54ms/report`，`avg=4.322ms/substep`。
@@ -118,7 +119,7 @@ Findings:
 ```bash
 source ~/.zshrc
 cargo run --release -- --hidden --auto-exit 12 --perf --water-profile performance --water-particles 100000
-python tools/parse_perf_log.py target/re-flora-logs/re-flora-20260519-153946.589-81880.log
+python3 tools/parse_perf_log.py target/re-flora-logs/re-flora-20260519-153946.589-81880.log
 ```
 
 运行日志：`target/re-flora-logs/re-flora-20260519-153946.589-81880.log`。本次有 8 个 `[PERF][WATER]` samples；前两个 sample 处于早期铺展/沉降且 substep/report 不稳定，下面的分项表使用最后 5 个 samples。该场景已经无法实时运行：稳定窗口每个 perf report 只有 `16 substeps`，约两帧；每帧跑满 `MAX_SUBSTEPS_PER_UPDATE=8`，最后 10 帧 `water_update mean=631.1ms`，总帧时间 `633.9ms`，约 `1.5-1.6 fps`。hidden 模式仍保持 audio engine 运行并静音输出，因此 CPU 过载期间出现大量 `Ring buffer underrun` 警告（本次日志 841 条）。渲染 debug snapshot 被上限截断到约 `16k`，但 solver 日志确认 `particles=100000`、`finite=100000`。
@@ -185,39 +186,34 @@ Findings:
 
 目的：100000 粒子稳定窗口中 `spacing_relax` 约 `56.3ms/substep`、`72%` 总成本，且成本与 `density_pairs/substep` 基本线性。当前 dense linked-cell pair traversal 已消除了 HashMap 主瓶颈，下一轮应针对单核心的内存带宽、pair list、cache locality 和 post-spacing repair 做可测量优化。不要用多线程掩盖该成本。
 
-任务按低风险到高风险执行，每一步单独 benchmark，保留 measured win，回退持平或退化方案：
+2026-05-19 pass 1 完成：
 
-1. 增加 `spacing_relax` 内部 breakdown timer / counter：
-   - dense bin rebuild
-   - pair accumulation
-   - lambda solve
-   - correction accumulation
-   - correction apply
-   - post-spacing box / terrain / repair
-   - active lambdas
-   - moved particles
-   - candidate pairs vs accepted pairs（如实现成本低）
-2. 只 repair 被 spacing correction 实际移动的粒子：
-   - correction apply 时记录 moved indices 或 moved bitset。
-   - spacing 后的 box / terrain / repair 只处理 moved 粒子。
-   - 未移动粒子语义上保持不变；这是首个低风险优化候选。
-3. 降低 pair list 带宽：
-   - 先尝试 compact pair layout，用 `u32` 存粒子 index（100000 粒子足够），减少 `usize` 带宽。
-   - 再尝试只存 `(i, j)`，correction pass 重算 `grad_i`；用更多算术换更少内存读写。
-   - 再尝试无 pair list 的双遍 neighbor traversal：第一遍累计 density / gradient，第二遍重走 pairs 并直接累计 correction。该方案风险较高，因为会增加 pair traversal / sqrt 数量，只在 benchmark 支持时保留。
-4. 改善 dense bin locality：
+- 增加 `spacing_relax` 内部 breakdown timer：`spacing_bin_rebuild / spacing_pair_accum / spacing_lambda / spacing_corr_accum / spacing_corr_apply / spacing_post_repair / spacing_velocity`。
+- 增加轻量 counter：`density_active_lambdas/substep`、`density_moved/substep`。逐 candidate pair 计数实测会污染 hot loop，未保留。
+- spacing 后只对实际 moved particles 做 box / terrain / repair；当前 8192/100000 稳定窗口几乎所有粒子都会移动，所以收益很小，但语义更精确。
+- `DensitySpacingPair` 的 particle index 改为 `u32`，并预计算 `inv_support_radius` / gradient scale，在 pair loop 中直接计算 kernel weight / gradient，减少除法和 helper 边界。
+- 尝试但未保留：只存 `(i, j)` 并在 correction pass 重算 gradient（100000 粒子下 `spacing_relax` 明显回归到约 `1.08s/report`）；半 cell size + range-2 neighbor bins（occupied bins 约 `75k`，pair traversal 回归）。
+
+最终保留版本 benchmark（release hidden，performance profile，稳定窗口取最后 5 个 `[PERF][WATER]` samples）：
+
+| particles | log | avg/substep | spacing_relax/report | spacing_relax/substep | pair_accum/substep | density_pairs/substep | density_bins/substep | density_moved/substep |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|
+| `8192` | `target/re-flora-logs/re-flora-20260519-172018.174-62851.log` | `4.235ms` | `254.30ms` | `2.095ms` | `1.461ms` | `60,420` | `2,130` | `8,127` |
+| `100000` | `target/re-flora-logs/re-flora-20260519-171943.689-62029.log` | `75.896ms` | `862.01ms` | `53.875ms` | `43.407ms` | `1,580,500` | `15,706` | `99,360` |
+
+对比旧稳定窗口：8192 粒子 `spacing_relax` 约 `266.74ms/report -> 254.30ms/report`（约 `4.7%` faster），100000 粒子约 `900.93ms/report -> 862.01ms/report`（约 `4.3%` faster）。主要剩余瓶颈仍是 pair accumulation。
+
+剩余任务按低风险到高风险执行，每一步单独 benchmark，保留 measured win，回退持平或退化方案：
+
+1. 改善 dense bin locality：
    - 用 counting-sort style bins 替代 linked-list `head/next`：先 count，每个 bin prefix sum，再把 particle indices 填入连续数组。
    - 每个 occupied bin 变成 contiguous range，减少 pointer chasing，提高 pair loop 的 cache locality 和 branch predictability。
-   - 与 compact pair variants 分开测试，避免一次改动太大。
-5. 为 spacing 建 compact position scratch：
+2. 为 spacing 建 compact position scratch：
    - pair loop 只需要位置，避免反复读取完整 `WaterParticle` struct。
    - 可先用 `Vec<Vec3>`，必要时再评估 SoA（`x/y/z` 分离）。
    - 只在 release hidden 8192 / 100000 两档都不退化时保留。
-6. 简化 pair kernel math：
-   - 预计算 `inv_support_radius`、gradient coefficient。
-   - 在 pair loop 中直接计算 `q`、`q*q`、weight 和 gradient，减少 helper 调用边界和重复除法。
-   - 保持零距离 fallback、finite guard、correction cap 不变。
-7. 如果 exact density spacing 单核心仍无法接近目标，再单独评估近似方案：
+3. 只有在新 breakdown 证明 pair list 仍是主瓶颈时，再尝试 no-list 双遍 neighbor traversal；只存 `(i, j)` + gradient recompute 已回归，不要重复。
+4. 如果 exact density spacing 单核心仍无法接近目标，再单独评估近似方案：
    - cap 每粒子最大 neighbor / pair 数。
    - spacing 每 N 个 substep 执行一次。
    - grid-density / cell-density push 替代 exact pairwise density projection。
@@ -273,14 +269,12 @@ Findings:
 
 当前只列未完成目标；已完成目标不再重复列入本列表。
 
-1. `add spacing_relax internal timers and counters`
-2. `repair only moved spacing particles`
-3. `benchmark compact / recomputed / no-list density pair variants`
-4. `prototype contiguous counting-sort density bins`
-5. `prototype compact position scratch for spacing`
-6. `add finer G2P timers after spacing_relax wins are exhausted or blocked`
-7. `recheck terrain false-skip if 100000-particle support remains a goal`
-8. `prototype threaded water sim behind flag only after single-core CPU work`
+1. `prototype contiguous counting-sort density bins`
+2. `prototype compact position scratch for spacing`
+3. `consider no-list double traversal only if new evidence supports it`
+4. `add finer G2P timers after spacing_relax wins are exhausted or blocked`
+5. `recheck terrain false-skip if 100000-particle support remains a goal`
+6. `prototype threaded water sim behind flag only after single-core CPU work`
 
 不要默认恢复 `spacing=0`，也不要把 performance profile 的 pressure 默认降到 `8` 以下；旧 pairwise spacing 只作为 fallback。当前 roadmap 优先单核心降低 `spacing_relax` 总 CPU，不把 water sim 线程化作为下一步主线。
 
@@ -295,7 +289,7 @@ cargo test
 source ~/.zshrc
 cargo run --release -- --hidden --auto-exit 4 --perf --water-profile performance
 cargo run --release -- --latest-log
-python tools/parse_perf_log.py
+python3 tools/parse_perf_log.py
 ```
 
 重点记录：
