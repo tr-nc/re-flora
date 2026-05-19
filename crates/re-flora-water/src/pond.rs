@@ -1,7 +1,7 @@
 use glam::{IVec3, Mat3, UVec3, Vec3};
 
 use super::collider::{WaterBoxCollider, WaterTerrainColliderChunk, WaterTerrainColliderSet};
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 const DEFAULT_GRID_DIM: UVec3 = UVec3::new(64, 32, 64);
 const DEFAULT_PARTICLE_COUNT: usize = 0;
@@ -275,6 +275,8 @@ pub struct WaterPerfStats {
     pub g2p_terrain_shadow_false_skips: u64,
     pub g2p_terrain_shadow_sdf_abs_error_sum: f64,
     pub g2p_terrain_shadow_sdf_abs_error_max: f32,
+    pub density_spacing_pairs: u64,
+    pub density_spacing_occupied_bins: u64,
 }
 
 impl WaterPerfStats {
@@ -301,7 +303,9 @@ pub struct PondWaterSim {
     pub(crate) projection_divergence: Vec<f32>,
     pub(crate) projection_active_nodes: Vec<usize>,
     pub(crate) projection_stencils: Vec<super::mls_mpm::PressureProjectionStencil>,
-    pub(crate) particle_spacing_bins: HashMap<(i32, i32, i32), Vec<usize>>,
+    pub(crate) density_spacing_bin_heads: Vec<usize>,
+    pub(crate) density_spacing_particle_next: Vec<usize>,
+    pub(crate) density_spacing_occupied_bins: Vec<usize>,
     pub(crate) density_spacing_pairs: Vec<super::mls_mpm::DensitySpacingPair>,
     pub(crate) density_spacing_densities: Vec<f32>,
     pub(crate) density_spacing_gradient_sums: Vec<Vec3>,
@@ -355,7 +359,9 @@ impl PondWaterSim {
             projection_divergence: vec![0.0; grid_len],
             projection_active_nodes: Vec::with_capacity(touched_grid_capacity),
             projection_stencils: Vec::with_capacity(touched_grid_capacity),
-            particle_spacing_bins: HashMap::with_capacity(particle_capacity.saturating_mul(2)),
+            density_spacing_bin_heads: Vec::new(),
+            density_spacing_particle_next: Vec::with_capacity(particle_capacity),
+            density_spacing_occupied_bins: Vec::with_capacity(particle_capacity),
             density_spacing_pairs: Vec::with_capacity(particle_capacity.saturating_mul(8)),
             density_spacing_densities: Vec::with_capacity(particle_capacity),
             density_spacing_gradient_sums: Vec::with_capacity(particle_capacity),

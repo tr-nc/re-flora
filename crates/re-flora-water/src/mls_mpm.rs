@@ -4,7 +4,7 @@ use std::{collections::HashMap, time::Instant};
 use super::{
     collider::{WaterBoxCollider, WaterTerrainColliderSet},
     pond::{
-        PondWaterSim, WaterParticleSpacingMode, WaterTerrainGridSample,
+        PondWaterSim, WaterParticle, WaterParticleSpacingMode, WaterTerrainGridSample,
         WATER_GRID_BOUNDARY_X_MAX, WATER_GRID_BOUNDARY_X_MIN, WATER_GRID_BOUNDARY_Y_MAX,
         WATER_GRID_BOUNDARY_Y_MIN, WATER_GRID_BOUNDARY_Z_MAX, WATER_GRID_BOUNDARY_Z_MIN,
     },
@@ -33,6 +33,23 @@ const INCOMPRESSIBLE_DENSITY_LAMBDA_EPSILON: f32 = 600.0;
 const INCOMPRESSIBLE_DENSITY_TARGET_AXIS_NEIGHBORS: f32 = 6.0;
 const INCOMPRESSIBLE_DENSITY_VELOCITY_BLEND: f32 = 0.15;
 const MAX_INCOMPRESSIBLE_DENSITY_VELOCITY_CORRECTION_CELLS: f32 = 0.20;
+const DENSITY_SPACING_INVALID_BIN_ENTRY: usize = usize::MAX;
+const DENSITY_SPACING_MAX_DENSE_BINS: usize = 2_000_000;
+const DENSITY_SPACING_FORWARD_NEIGHBOR_OFFSETS: [(i32, i32, i32); 13] = [
+    (1, 0, 0),
+    (-1, 1, 0),
+    (0, 1, 0),
+    (1, 1, 0),
+    (-1, -1, 1),
+    (0, -1, 1),
+    (1, -1, 1),
+    (-1, 0, 1),
+    (0, 0, 1),
+    (1, 0, 1),
+    (-1, 1, 1),
+    (0, 1, 1),
+    (1, 1, 1),
+];
 const PRESSURE_PROJECTION_NEIGHBOR_NONE: usize = usize::MAX;
 const PRESSURE_PROJECTION_NEIGHBOR_COUNT: usize = 6;
 
@@ -600,7 +617,7 @@ impl PondWaterSim {
             self.terrain_collision_margin(),
         );
         log::info!(
-            "[PERF][WATER] particles {} grid {:?} nodes {} substeps {} total {:.2}ms avg {:.3}ms/substep repair {:.2}ms clear {:.2}ms p2g {:.2}ms grid {:.2}ms grid_update {:.2}ms pressure {:.2}ms g2p {:.2}ms g2p_gather {:.2}ms g2p_box {:.2}ms g2p_terrain {:.2}ms g2p_repair {:.2}ms spacing_relax {:.2}ms diagnostics {:.2}ms residual {:.2}ms shadow_measure {:.2}ms terrain_cache_skips/substep {:.0} terrain_cache_projections/substep {:.0} terrain_exact_fallbacks/substep {:.0} terrain_exact_checks/substep {:.0} terrain_exact_corrections/substep {:.0} terrain_shadow_samples/substep {:.1} terrain_shadow_false_skips {} terrain_shadow_sdf_err_avg {:.5} terrain_shadow_sdf_err_max {:.5} active_nodes/substep {:.0} particle_y {:.3}..{:.3} avg {:.3} terrain_sdf_min {:.4} penetrating {} no_sdf {}",
+            "[PERF][WATER] particles {} grid {:?} nodes {} substeps {} total {:.2}ms avg {:.3}ms/substep repair {:.2}ms clear {:.2}ms p2g {:.2}ms grid {:.2}ms grid_update {:.2}ms pressure {:.2}ms g2p {:.2}ms g2p_gather {:.2}ms g2p_box {:.2}ms g2p_terrain {:.2}ms g2p_repair {:.2}ms spacing_relax {:.2}ms diagnostics {:.2}ms residual {:.2}ms shadow_measure {:.2}ms density_pairs/substep {:.0} density_bins/substep {:.0} terrain_cache_skips/substep {:.0} terrain_cache_projections/substep {:.0} terrain_exact_fallbacks/substep {:.0} terrain_exact_checks/substep {:.0} terrain_exact_corrections/substep {:.0} terrain_shadow_samples/substep {:.1} terrain_shadow_false_skips {} terrain_shadow_sdf_err_avg {:.5} terrain_shadow_sdf_err_max {:.5} active_nodes/substep {:.0} particle_y {:.3}..{:.3} avg {:.3} terrain_sdf_min {:.4} penetrating {} no_sdf {}",
             self.particles.len(),
             self.grid_dim,
             grid_nodes,
@@ -622,6 +639,8 @@ impl PondWaterSim {
             stats.diagnostics_seconds * 1000.0,
             residual_seconds * 1000.0,
             shadow_measure_seconds * 1000.0,
+            stats.density_spacing_pairs as f64 / substeps,
+            stats.density_spacing_occupied_bins as f64 / substeps,
             stats.g2p_terrain_cache_skips as f64 / substeps,
             stats.g2p_terrain_cache_projections as f64 / substeps,
             stats.g2p_terrain_exact_fallbacks as f64 / substeps,
@@ -1457,26 +1476,12 @@ impl PondWaterSim {
         let particle_max_padding = Vec3::splat(padding);
         let terrain_collision_margin = self.terrain_collision_margin();
         let terrain_max_correction = padding;
-        let terrain = self.terrain.as_ref();
         let max_particle_speed = max_particle_speed_for_substep(self.dx, dt);
 
         self.density_spacing_total_corrections.clear();
         self.density_spacing_total_corrections
             .resize(count, Vec3::ZERO);
         for _ in 0..iterations {
-            for indices in self.particle_spacing_bins.values_mut() {
-                indices.clear();
-            }
-            for (idx, particle) in self.particles.iter().enumerate() {
-                if !particle.x.is_finite() {
-                    continue;
-                }
-                self.particle_spacing_bins
-                    .entry(particle_spacing_cell(particle.x, inv_support_radius))
-                    .or_default()
-                    .push(idx);
-            }
-
             self.density_spacing_pairs.clear();
             self.density_spacing_densities.clear();
             self.density_spacing_densities.resize(count, 1.0);
@@ -1485,64 +1490,33 @@ impl PondWaterSim {
                 .resize(count, Vec3::ZERO);
             self.density_spacing_gradient_sq_sums.clear();
             self.density_spacing_gradient_sq_sums.resize(count, 0.0);
-            for i in 0..count {
-                let xi = self.particles[i].x;
-                if !xi.is_finite() {
-                    continue;
-                }
-                let (cx, cy, cz) = particle_spacing_cell(xi, inv_support_radius);
-                for oz in -1..=1 {
-                    for oy in -1..=1 {
-                        for ox in -1..=1 {
-                            let Some(neighbors) =
-                                self.particle_spacing_bins.get(&(cx + ox, cy + oy, cz + oz))
-                            else {
-                                continue;
-                            };
-                            for &j in neighbors {
-                                if j <= i {
-                                    continue;
-                                }
 
-                                let xj = self.particles[j].x;
-                                if !xj.is_finite() {
-                                    continue;
-                                }
-                                let delta = xi - xj;
-                                let distance_sq = delta.length_squared();
-                                if !distance_sq.is_finite() || distance_sq >= support_radius_sq {
-                                    continue;
-                                }
-
-                                let (normal, distance) = if distance_sq > 1.0e-12 {
-                                    let distance = distance_sq.sqrt();
-                                    (delta / distance, distance)
-                                } else {
-                                    (particle_pair_fallback_direction(i, j), 0.0)
-                                };
-                                let weight = density_spacing_kernel_weight(distance, support_radius);
-                                if weight <= 0.0 {
-                                    continue;
-                                }
-                                let grad_i = density_spacing_kernel_gradient(
-                                    normal,
-                                    distance,
-                                    support_radius,
-                                    target_density,
-                                );
-                                self.density_spacing_densities[i] += weight;
-                                self.density_spacing_densities[j] += weight;
-                                self.density_spacing_gradient_sums[i] += grad_i;
-                                self.density_spacing_gradient_sums[j] -= grad_i;
-                                let grad_sq = grad_i.length_squared();
-                                self.density_spacing_gradient_sq_sums[i] += grad_sq;
-                                self.density_spacing_gradient_sq_sums[j] += grad_sq;
-                                self.density_spacing_pairs.push(DensitySpacingPair { i, j, grad_i });
-                            }
-                        }
-                    }
-                }
+            if let Some(dense_grid) =
+                self.rebuild_density_spacing_dense_bins(inv_support_radius)
+            {
+                self.accumulate_density_spacing_dense_pairs(
+                    dense_grid,
+                    support_radius_sq,
+                    support_radius,
+                    target_density,
+                );
+                self.perf_stats.density_spacing_occupied_bins +=
+                    self.density_spacing_occupied_bins.len() as u64;
+            } else {
+                let occupied_bins = accumulate_density_spacing_hash_pairs(
+                    &self.particles,
+                    inv_support_radius,
+                    support_radius_sq,
+                    support_radius,
+                    target_density,
+                    &mut self.density_spacing_densities,
+                    &mut self.density_spacing_gradient_sums,
+                    &mut self.density_spacing_gradient_sq_sums,
+                    &mut self.density_spacing_pairs,
+                );
+                self.perf_stats.density_spacing_occupied_bins += occupied_bins as u64;
             }
+            self.perf_stats.density_spacing_pairs += self.density_spacing_pairs.len() as u64;
 
             self.density_spacing_lambdas.clear();
             self.density_spacing_lambdas.resize(count, 0.0);
@@ -1594,6 +1568,7 @@ impl PondWaterSim {
                 break;
             }
 
+            let terrain = self.terrain.as_ref();
             for particle in &mut self.particles {
                 collide_particle_with_box_with_padding(
                     particle,
@@ -1640,6 +1615,162 @@ impl PondWaterSim {
                 let velocity_correction = clamp_vec3_length(correction / dt, max_velocity_correction)
                     * INCOMPRESSIBLE_DENSITY_VELOCITY_BLEND;
                 particle.v = clamp_vec3_length(particle.v + velocity_correction, max_particle_speed);
+            }
+        }
+    }
+
+    fn rebuild_density_spacing_dense_bins(
+        &mut self,
+        inv_cell_size: f32,
+    ) -> Option<DensitySpacingDenseGrid> {
+        let mut min_x = i32::MAX;
+        let mut min_y = i32::MAX;
+        let mut min_z = i32::MAX;
+        let mut max_x = i32::MIN;
+        let mut max_y = i32::MIN;
+        let mut max_z = i32::MIN;
+        let mut finite_particles = 0usize;
+
+        for particle in &self.particles {
+            if !particle.x.is_finite() {
+                continue;
+            }
+            let (x, y, z) = particle_spacing_cell(particle.x, inv_cell_size);
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            min_z = min_z.min(z);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+            max_z = max_z.max(z);
+            finite_particles += 1;
+        }
+
+        if finite_particles == 0 {
+            return None;
+        }
+
+        let dim_x = density_spacing_cell_span(min_x, max_x)?;
+        let dim_y = density_spacing_cell_span(min_y, max_y)?;
+        let dim_z = density_spacing_cell_span(min_z, max_z)?;
+        let bin_count = dim_x.checked_mul(dim_y)?.checked_mul(dim_z)?;
+        if bin_count == 0 || bin_count > DENSITY_SPACING_MAX_DENSE_BINS {
+            return None;
+        }
+
+        self.density_spacing_bin_heads.clear();
+        self.density_spacing_bin_heads
+            .resize(bin_count, DENSITY_SPACING_INVALID_BIN_ENTRY);
+        self.density_spacing_particle_next.clear();
+        self.density_spacing_particle_next
+            .resize(self.particles.len(), DENSITY_SPACING_INVALID_BIN_ENTRY);
+        self.density_spacing_occupied_bins.clear();
+
+        let particles = &self.particles;
+        let bin_heads = &mut self.density_spacing_bin_heads;
+        let particle_next = &mut self.density_spacing_particle_next;
+        let occupied_bins = &mut self.density_spacing_occupied_bins;
+        for (idx, particle) in particles.iter().enumerate() {
+            if !particle.x.is_finite() {
+                continue;
+            }
+            let (x, y, z) = particle_spacing_cell(particle.x, inv_cell_size);
+            let local_x = usize::try_from(i64::from(x) - i64::from(min_x)).ok()?;
+            let local_y = usize::try_from(i64::from(y) - i64::from(min_y)).ok()?;
+            let local_z = usize::try_from(i64::from(z) - i64::from(min_z)).ok()?;
+            if local_x >= dim_x || local_y >= dim_y || local_z >= dim_z {
+                return None;
+            }
+            let bin_idx = density_spacing_bin_index(local_x, local_y, local_z, dim_x, dim_y);
+            let head = &mut bin_heads[bin_idx];
+            if *head == DENSITY_SPACING_INVALID_BIN_ENTRY {
+                occupied_bins.push(bin_idx);
+            }
+            particle_next[idx] = *head;
+            *head = idx;
+        }
+
+        Some(DensitySpacingDenseGrid {
+            dim_x,
+            dim_y,
+            dim_z,
+        })
+    }
+
+    fn accumulate_density_spacing_dense_pairs(
+        &mut self,
+        dense_grid: DensitySpacingDenseGrid,
+        support_radius_sq: f32,
+        support_radius: f32,
+        target_density: f32,
+    ) {
+        let particles = &self.particles;
+        let bin_heads = &self.density_spacing_bin_heads;
+        let particle_next = &self.density_spacing_particle_next;
+        let occupied_bins = &self.density_spacing_occupied_bins;
+        let densities = &mut self.density_spacing_densities;
+        let gradient_sums = &mut self.density_spacing_gradient_sums;
+        let gradient_sq_sums = &mut self.density_spacing_gradient_sq_sums;
+        let pairs = &mut self.density_spacing_pairs;
+
+        for &bin_idx in occupied_bins {
+            let head = bin_heads[bin_idx];
+            if head == DENSITY_SPACING_INVALID_BIN_ENTRY {
+                continue;
+            }
+
+            let mut i = head;
+            while i != DENSITY_SPACING_INVALID_BIN_ENTRY {
+                let mut j = particle_next[i];
+                while j != DENSITY_SPACING_INVALID_BIN_ENTRY {
+                    accumulate_density_spacing_pair(
+                        i,
+                        j,
+                        particles,
+                        support_radius_sq,
+                        support_radius,
+                        target_density,
+                        densities,
+                        gradient_sums,
+                        gradient_sq_sums,
+                        pairs,
+                    );
+                    j = particle_next[j];
+                }
+                i = particle_next[i];
+            }
+
+            let (x, y, z) = density_spacing_bin_coords(bin_idx, dense_grid.dim_x, dense_grid.dim_y);
+            for &(ox, oy, oz) in &DENSITY_SPACING_FORWARD_NEIGHBOR_OFFSETS {
+                let Some(neighbor_bin_idx) =
+                    density_spacing_neighbor_bin_index(x, y, z, ox, oy, oz, dense_grid)
+                else {
+                    continue;
+                };
+                let neighbor_head = bin_heads[neighbor_bin_idx];
+                if neighbor_head == DENSITY_SPACING_INVALID_BIN_ENTRY {
+                    continue;
+                }
+
+                let mut i = head;
+                while i != DENSITY_SPACING_INVALID_BIN_ENTRY {
+                    let mut j = neighbor_head;
+                    while j != DENSITY_SPACING_INVALID_BIN_ENTRY {
+                        accumulate_density_spacing_pair(
+                            i,
+                            j,
+                            particles,
+                            support_radius_sq,
+                            support_radius,
+                            target_density,
+                            densities,
+                            gradient_sums,
+                            gradient_sq_sums,
+                            pairs,
+                        );
+                        j = particle_next[j];
+                    }
+                    i = particle_next[i];
+                }
             }
         }
     }
@@ -1863,6 +1994,13 @@ pub(crate) struct DensitySpacingPair {
     i: usize,
     j: usize,
     grad_i: Vec3,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct DensitySpacingDenseGrid {
+    dim_x: usize,
+    dim_y: usize,
+    dim_z: usize,
 }
 
 fn base_coord(grid_pos: Vec3) -> IVec3 {
@@ -2277,6 +2415,50 @@ fn particle_spacing_cell(position: Vec3, inv_cell_size: f32) -> (i32, i32, i32) 
     (cell.x, cell.y, cell.z)
 }
 
+fn density_spacing_cell_span(min_cell: i32, max_cell: i32) -> Option<usize> {
+    let span = i64::from(max_cell) - i64::from(min_cell) + 1;
+    if span <= 0 {
+        return None;
+    }
+    usize::try_from(span).ok()
+}
+
+fn density_spacing_bin_index(
+    local_x: usize,
+    local_y: usize,
+    local_z: usize,
+    dim_x: usize,
+    dim_y: usize,
+) -> usize {
+    ((local_z * dim_y + local_y) * dim_x) + local_x
+}
+
+fn density_spacing_bin_coords(bin_idx: usize, dim_x: usize, dim_y: usize) -> (usize, usize, usize) {
+    let x = bin_idx % dim_x;
+    let yz = bin_idx / dim_x;
+    let y = yz % dim_y;
+    let z = yz / dim_y;
+    (x, y, z)
+}
+
+fn density_spacing_neighbor_bin_index(
+    x: usize,
+    y: usize,
+    z: usize,
+    ox: i32,
+    oy: i32,
+    oz: i32,
+    grid: DensitySpacingDenseGrid,
+) -> Option<usize> {
+    let x = x.checked_add_signed(ox as isize)?;
+    let y = y.checked_add_signed(oy as isize)?;
+    let z = z.checked_add_signed(oz as isize)?;
+    if x >= grid.dim_x || y >= grid.dim_y || z >= grid.dim_z {
+        return None;
+    }
+    Some(density_spacing_bin_index(x, y, z, grid.dim_x, grid.dim_y))
+}
+
 fn density_spacing_kernel_weight(distance: f32, support_radius: f32) -> f32 {
     if distance >= support_radius || support_radius <= 0.0 {
         return 0.0;
@@ -2296,6 +2478,107 @@ fn density_spacing_kernel_gradient(
     }
     let q = 1.0 - distance / support_radius;
     normal * (-3.0 * q * q / support_radius / target_density)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn accumulate_density_spacing_pair(
+    a: usize,
+    b: usize,
+    particles: &[WaterParticle],
+    support_radius_sq: f32,
+    support_radius: f32,
+    target_density: f32,
+    densities: &mut [f32],
+    gradient_sums: &mut [Vec3],
+    gradient_sq_sums: &mut [f32],
+    pairs: &mut Vec<DensitySpacingPair>,
+) {
+    let (i, j) = if a <= b { (a, b) } else { (b, a) };
+    let delta = particles[i].x - particles[j].x;
+    let distance_sq = delta.length_squared();
+    if !distance_sq.is_finite() || distance_sq >= support_radius_sq {
+        return;
+    }
+
+    let (normal, distance) = if distance_sq > 1.0e-12 {
+        let distance = distance_sq.sqrt();
+        (delta / distance, distance)
+    } else {
+        (particle_pair_fallback_direction(i, j), 0.0)
+    };
+    let weight = density_spacing_kernel_weight(distance, support_radius);
+    if weight <= 0.0 {
+        return;
+    }
+    let grad_i = density_spacing_kernel_gradient(normal, distance, support_radius, target_density);
+    densities[i] += weight;
+    densities[j] += weight;
+    gradient_sums[i] += grad_i;
+    gradient_sums[j] -= grad_i;
+    let grad_sq = grad_i.length_squared();
+    gradient_sq_sums[i] += grad_sq;
+    gradient_sq_sums[j] += grad_sq;
+    pairs.push(DensitySpacingPair { i, j, grad_i });
+}
+
+#[allow(clippy::too_many_arguments)]
+fn accumulate_density_spacing_hash_pairs(
+    particles: &[WaterParticle],
+    inv_cell_size: f32,
+    support_radius_sq: f32,
+    support_radius: f32,
+    target_density: f32,
+    densities: &mut [f32],
+    gradient_sums: &mut [Vec3],
+    gradient_sq_sums: &mut [f32],
+    pairs: &mut Vec<DensitySpacingPair>,
+) -> usize {
+    let mut bins: HashMap<(i32, i32, i32), Vec<usize>> =
+        HashMap::with_capacity(particles.len().saturating_mul(2));
+    for (idx, particle) in particles.iter().enumerate() {
+        if !particle.x.is_finite() {
+            continue;
+        }
+        bins.entry(particle_spacing_cell(particle.x, inv_cell_size))
+            .or_default()
+            .push(idx);
+    }
+
+    for i in 0..particles.len() {
+        let xi = particles[i].x;
+        if !xi.is_finite() {
+            continue;
+        }
+        let (cx, cy, cz) = particle_spacing_cell(xi, inv_cell_size);
+        for oz in -1..=1 {
+            for oy in -1..=1 {
+                for ox in -1..=1 {
+                    let Some(neighbors) = bins.get(&(cx + ox, cy + oy, cz + oz)) else {
+                        continue;
+                    };
+                    for &j in neighbors {
+                        if j <= i {
+                            continue;
+                        }
+                        accumulate_density_spacing_pair(
+                            i,
+                            j,
+                            particles,
+                            support_radius_sq,
+                            support_radius,
+                            target_density,
+                            densities,
+                            gradient_sums,
+                            gradient_sq_sums,
+                            pairs,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    bins.len()
 }
 
 fn particle_pair_fallback_direction(a: usize, b: usize) -> Vec3 {

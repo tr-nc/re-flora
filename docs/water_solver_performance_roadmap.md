@@ -64,7 +64,9 @@ P0 结论：grid pressure projection 负责网格不可压，但不能单独保�
 
 2026-05-19 scratch reuse：把 density spacing 的 bins / pairs / densities / gradients / lambdas / corrections / total corrections 放入 `PondWaterSim` 复用，移除每 substep 的主要临时 Vec/HashMap 分配。16s hidden 对照约 `spacing_relax=94.98ms/report -> 94.40ms/report`，属于基本持平/小幅改善；额外的 occupied-cell tracking 尝试测得更慢，未保留。
 
-预期收益：视觉稳定性已明显改善；性能成本当前与旧 spacing 接近，scratch reuse 已基本消除分配问题但不是主要瓶颈。后续继续优化 pair construction / neighbor traversal，替换掉旧 pairwise 后再评估 `G2P -> next P2G` 融合。
+2026-05-19 pair construction / neighbor traversal 优化：density spacing 改用每 iteration 的 dense linked-cell bins（按当前有限粒子的 occupied bbox 建一维 head/next 表），按 occupied bin 遍历 same-cell pairs 和 13 个 forward neighbor offsets，替代旧的 per-particle `HashMap` 27-neighbor 查询；极端 bin bbox 超 cap 时仍 fallback 到旧 hash path。1024 粒子 release hidden 对照（performance profile，2 个 `[PERF][WATER]` samples）约 `avg/substep=1.31ms -> 0.86ms`、`spacing_relax=74.80ms/report -> 25.26ms/report`；新日志记录 `density_pairs/substep` 与 `density_bins/substep`，本次约 `3081 pairs/substep`、`501 bins/substep`。
+
+预期收益：视觉稳定性已明显改善；density spacing pair traversal 已成为可接受成本，后续替换掉旧 pairwise fallback 后再评估 `G2P -> next P2G` 融合。
 
 ### P1（取消）：优化当前 pairwise spacing 实现
 
@@ -195,14 +197,14 @@ P0 结论：grid pressure projection 负责网格不可压，但不能单独保�
 - `prototype PBF-like compression-only density spacing`
 - `set performance profile spacing mode=density`
 - `reuse density spacing scratch buffers`
+- `optimize density spacing pair construction / neighbor traversal`
 
 下一步：
 
-1. `optimize density spacing pair construction / neighbor traversal`
-2. `reuse water particle stencils / explore G2P -> next P2G fusion after pairwise spacing is removed`
-3. `reduce terrain sdf exact fallback`
-4. `clean incompressible legacy eos state`
-5. `prototype threaded water sim behind flag`
+1. `reuse water particle stencils / explore G2P -> next P2G fusion after pairwise spacing is removed`
+2. `reduce terrain sdf exact fallback`
+3. `clean incompressible legacy eos state`
+4. `prototype threaded water sim behind flag`
 
 不要默认恢复 `spacing=0`，也不要把 performance profile 的 pressure 默认降到 `8` 以下；旧 pairwise spacing 只作为 fallback。
 
