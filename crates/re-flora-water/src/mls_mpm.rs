@@ -1890,6 +1890,7 @@ impl PondWaterSim {
             let post_repair_start = collect_perf.then(Instant::now);
             let terrain = self.terrain.as_ref();
             let terrain_grid = &self.terrain_grid;
+            let total_corrections = &self.cell_density_total_corrections;
             let particles = &mut self.particles;
             for &idx in &self.cell_density_moved_particles {
                 let particle = &mut particles[idx];
@@ -1912,6 +1913,9 @@ impl PondWaterSim {
                     ) {
                         TerrainGridParticleQuery::Skip { .. } => {}
                         TerrainGridParticleQuery::CachedProjection { sdf, normal, .. } => {
+                            let pushed_into_surface = total_corrections
+                                .get(idx)
+                                .is_some_and(|correction| correction.dot(normal) < 0.0);
                             project_particle_with_cached_terrain(
                                 particle,
                                 sdf,
@@ -1923,6 +1927,19 @@ impl PondWaterSim {
                                 particle_min_padding,
                                 particle_max_padding,
                             );
+                            if pushed_into_surface {
+                                collide_particle_with_terrain_iterative(
+                                    particle,
+                                    terrain,
+                                    terrain_collision_margin,
+                                    terrain_max_correction,
+                                    TERRAIN_PARTICLE_COLLISION_ITERATIONS,
+                                    bounds.min_ws,
+                                    bounds.max_ws,
+                                    particle_min_padding,
+                                    particle_max_padding,
+                                );
+                            }
                         }
                         TerrainGridParticleQuery::ExactFallback => {
                             collide_particle_with_terrain_iterative(
