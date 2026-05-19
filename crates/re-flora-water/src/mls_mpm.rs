@@ -36,6 +36,9 @@ const INCOMPRESSIBLE_DENSITY_VELOCITY_BLEND: f32 = 0.15;
 const MAX_INCOMPRESSIBLE_DENSITY_VELOCITY_CORRECTION_CELLS: f32 = 0.20;
 const DENSITY_SPACING_INVALID_BIN_ENTRY: usize = usize::MAX;
 const DENSITY_SPACING_MAX_DENSE_BINS: usize = 2_000_000;
+// Counting-sort bins reduce high-density pointer chasing but rebuild more scratch.
+// Keep linked bins for small/default particle counts where rebuild overhead dominates.
+const DENSITY_SPACING_CONTIGUOUS_BIN_MIN_PARTICLES: usize = 50_000;
 const DENSITY_SPACING_FORWARD_NEIGHBOR_OFFSETS: [(i32, i32, i32); 13] = [
     (1, 0, 0),
     (-1, 1, 0),
@@ -1768,18 +1771,87 @@ impl PondWaterSim {
             return None;
         }
 
-        self.density_spacing_bin_heads.clear();
-        self.density_spacing_bin_heads
-            .resize(bin_count, DENSITY_SPACING_INVALID_BIN_ENTRY);
-        self.density_spacing_particle_next.clear();
-        self.density_spacing_particle_next
-            .resize(self.particles.len(), DENSITY_SPACING_INVALID_BIN_ENTRY);
+        if finite_particles < DENSITY_SPACING_CONTIGUOUS_BIN_MIN_PARTICLES {
+            self.density_spacing_bin_heads.clear();
+            self.density_spacing_bin_heads
+                .resize(bin_count, DENSITY_SPACING_INVALID_BIN_ENTRY);
+            self.density_spacing_particle_next.clear();
+            self.density_spacing_particle_next
+                .resize(self.particles.len(), DENSITY_SPACING_INVALID_BIN_ENTRY);
+            self.density_spacing_occupied_bins.clear();
+
+            let particles = &self.particles;
+            let bin_heads = &mut self.density_spacing_bin_heads;
+            let particle_next = &mut self.density_spacing_particle_next;
+            let occupied_bins = &mut self.density_spacing_occupied_bins;
+            for (idx, particle) in particles.iter().enumerate() {
+                if !particle.x.is_finite() {
+                    continue;
+                }
+                let (x, y, z) = particle_spacing_cell(particle.x, inv_cell_size);
+                let local_x = usize::try_from(i64::from(x) - i64::from(min_x)).ok()?;
+                let local_y = usize::try_from(i64::from(y) - i64::from(min_y)).ok()?;
+                let local_z = usize::try_from(i64::from(z) - i64::from(min_z)).ok()?;
+                if local_x >= dim_x || local_y >= dim_y || local_z >= dim_z {
+                    return None;
+                }
+                let bin_idx = density_spacing_bin_index(local_x, local_y, local_z, dim_x, dim_y);
+                let head = &mut bin_heads[bin_idx];
+                if *head == DENSITY_SPACING_INVALID_BIN_ENTRY {
+                    occupied_bins.push(bin_idx);
+                }
+                particle_next[idx] = *head;
+                *head = idx;
+            }
+
+            return Some(DensitySpacingDenseGrid {
+                dim_x,
+                dim_y,
+                dim_z,
+                layout: DensitySpacingDenseGridLayout::LinkedList,
+            });
+        }
+
+        self.density_spacing_bin_counts.clear();
+        self.density_spacing_bin_counts.resize(bin_count, 0);
+        self.density_spacing_bin_offsets.clear();
+        self.density_spacing_bin_offsets.resize(bin_count + 1, 0);
+        self.density_spacing_bin_particles.clear();
+        self.density_spacing_bin_particles.resize(finite_particles, 0);
         self.density_spacing_occupied_bins.clear();
 
         let particles = &self.particles;
-        let bin_heads = &mut self.density_spacing_bin_heads;
-        let particle_next = &mut self.density_spacing_particle_next;
+        let bin_counts = &mut self.density_spacing_bin_counts;
         let occupied_bins = &mut self.density_spacing_occupied_bins;
+        for particle in particles {
+            if !particle.x.is_finite() {
+                continue;
+            }
+            let (x, y, z) = particle_spacing_cell(particle.x, inv_cell_size);
+            let local_x = usize::try_from(i64::from(x) - i64::from(min_x)).ok()?;
+            let local_y = usize::try_from(i64::from(y) - i64::from(min_y)).ok()?;
+            let local_z = usize::try_from(i64::from(z) - i64::from(min_z)).ok()?;
+            if local_x >= dim_x || local_y >= dim_y || local_z >= dim_z {
+                return None;
+            }
+            let bin_idx = density_spacing_bin_index(local_x, local_y, local_z, dim_x, dim_y);
+            if bin_counts[bin_idx] == 0 {
+                occupied_bins.push(bin_idx);
+            }
+            bin_counts[bin_idx] += 1;
+        }
+
+        let bin_offsets = &mut self.density_spacing_bin_offsets;
+        let mut offset = 0usize;
+        for bin_idx in 0..bin_count {
+            bin_offsets[bin_idx] = offset;
+            offset += bin_counts[bin_idx];
+            bin_counts[bin_idx] = bin_offsets[bin_idx];
+        }
+        bin_offsets[bin_count] = offset;
+        debug_assert_eq!(offset, finite_particles);
+
+        let bin_particles = &mut self.density_spacing_bin_particles;
         for (idx, particle) in particles.iter().enumerate() {
             if !particle.x.is_finite() {
                 continue;
@@ -1792,18 +1864,18 @@ impl PondWaterSim {
                 return None;
             }
             let bin_idx = density_spacing_bin_index(local_x, local_y, local_z, dim_x, dim_y);
-            let head = &mut bin_heads[bin_idx];
-            if *head == DENSITY_SPACING_INVALID_BIN_ENTRY {
-                occupied_bins.push(bin_idx);
-            }
-            particle_next[idx] = *head;
-            *head = idx;
+            let write_idx = &mut bin_counts[bin_idx];
+            debug_assert!(*write_idx < bin_particles.len());
+            debug_assert!(u32::try_from(idx).is_ok());
+            bin_particles[*write_idx] = idx as u32;
+            *write_idx += 1;
         }
 
         Some(DensitySpacingDenseGrid {
             dim_x,
             dim_y,
             dim_z,
+            layout: DensitySpacingDenseGridLayout::Contiguous,
         })
     }
 
@@ -1815,72 +1887,139 @@ impl PondWaterSim {
         density_gradient_scale: f32,
     ) {
         let particles = &self.particles;
-        let bin_heads = &self.density_spacing_bin_heads;
-        let particle_next = &self.density_spacing_particle_next;
         let occupied_bins = &self.density_spacing_occupied_bins;
         let densities = &mut self.density_spacing_densities;
         let gradient_sums = &mut self.density_spacing_gradient_sums;
         let gradient_sq_sums = &mut self.density_spacing_gradient_sq_sums;
         let pairs = &mut self.density_spacing_pairs;
 
-        for &bin_idx in occupied_bins {
-            let head = bin_heads[bin_idx];
-            if head == DENSITY_SPACING_INVALID_BIN_ENTRY {
-                continue;
-            }
-
-            let mut i = head;
-            while i != DENSITY_SPACING_INVALID_BIN_ENTRY {
-                let mut j = particle_next[i];
-                while j != DENSITY_SPACING_INVALID_BIN_ENTRY {
-                    accumulate_density_spacing_pair(
-                        i,
-                        j,
-                        particles,
-                        support_radius_sq,
-                        inv_support_radius,
-                        density_gradient_scale,
-                        densities,
-                        gradient_sums,
-                        gradient_sq_sums,
-                        pairs,
-                    );
-                    j = particle_next[j];
-                }
-                i = particle_next[i];
-            }
-
-            let (x, y, z) = density_spacing_bin_coords(bin_idx, dense_grid.dim_x, dense_grid.dim_y);
-            for &(ox, oy, oz) in &DENSITY_SPACING_FORWARD_NEIGHBOR_OFFSETS {
-                let Some(neighbor_bin_idx) =
-                    density_spacing_neighbor_bin_index(x, y, z, ox, oy, oz, dense_grid)
-                else {
-                    continue;
-                };
-                let neighbor_head = bin_heads[neighbor_bin_idx];
-                if neighbor_head == DENSITY_SPACING_INVALID_BIN_ENTRY {
-                    continue;
-                }
-
-                let mut i = head;
-                while i != DENSITY_SPACING_INVALID_BIN_ENTRY {
-                    let mut j = neighbor_head;
-                    while j != DENSITY_SPACING_INVALID_BIN_ENTRY {
-                        accumulate_density_spacing_pair(
-                            i,
-                            j,
-                            particles,
-                            support_radius_sq,
-                            inv_support_radius,
-                            density_gradient_scale,
-                            densities,
-                            gradient_sums,
-                            gradient_sq_sums,
-                            pairs,
-                        );
-                        j = particle_next[j];
+        match dense_grid.layout {
+            DensitySpacingDenseGridLayout::LinkedList => {
+                let bin_heads = &self.density_spacing_bin_heads;
+                let particle_next = &self.density_spacing_particle_next;
+                for &bin_idx in occupied_bins {
+                    let head = bin_heads[bin_idx];
+                    if head == DENSITY_SPACING_INVALID_BIN_ENTRY {
+                        continue;
                     }
-                    i = particle_next[i];
+
+                    let mut i = head;
+                    while i != DENSITY_SPACING_INVALID_BIN_ENTRY {
+                        let mut j = particle_next[i];
+                        while j != DENSITY_SPACING_INVALID_BIN_ENTRY {
+                            accumulate_density_spacing_pair(
+                                i,
+                                j,
+                                particles,
+                                support_radius_sq,
+                                inv_support_radius,
+                                density_gradient_scale,
+                                densities,
+                                gradient_sums,
+                                gradient_sq_sums,
+                                pairs,
+                            );
+                            j = particle_next[j];
+                        }
+                        i = particle_next[i];
+                    }
+
+                    let (x, y, z) =
+                        density_spacing_bin_coords(bin_idx, dense_grid.dim_x, dense_grid.dim_y);
+                    for &(ox, oy, oz) in &DENSITY_SPACING_FORWARD_NEIGHBOR_OFFSETS {
+                        let Some(neighbor_bin_idx) =
+                            density_spacing_neighbor_bin_index(x, y, z, ox, oy, oz, dense_grid)
+                        else {
+                            continue;
+                        };
+                        let neighbor_head = bin_heads[neighbor_bin_idx];
+                        if neighbor_head == DENSITY_SPACING_INVALID_BIN_ENTRY {
+                            continue;
+                        }
+
+                        let mut i = head;
+                        while i != DENSITY_SPACING_INVALID_BIN_ENTRY {
+                            let mut j = neighbor_head;
+                            while j != DENSITY_SPACING_INVALID_BIN_ENTRY {
+                                accumulate_density_spacing_pair(
+                                    i,
+                                    j,
+                                    particles,
+                                    support_radius_sq,
+                                    inv_support_radius,
+                                    density_gradient_scale,
+                                    densities,
+                                    gradient_sums,
+                                    gradient_sq_sums,
+                                    pairs,
+                                );
+                                j = particle_next[j];
+                            }
+                            i = particle_next[i];
+                        }
+                    }
+                }
+            }
+            DensitySpacingDenseGridLayout::Contiguous => {
+                let bin_offsets = &self.density_spacing_bin_offsets;
+                let bin_particles = &self.density_spacing_bin_particles;
+                for &bin_idx in occupied_bins {
+                    let start = bin_offsets[bin_idx];
+                    let end = bin_offsets[bin_idx + 1];
+                    if start == end {
+                        continue;
+                    }
+
+                    for left_pos in start..end {
+                        let i = bin_particles[left_pos] as usize;
+                        for &j in &bin_particles[left_pos + 1..end] {
+                            accumulate_density_spacing_pair(
+                                i,
+                                j as usize,
+                                particles,
+                                support_radius_sq,
+                                inv_support_radius,
+                                density_gradient_scale,
+                                densities,
+                                gradient_sums,
+                                gradient_sq_sums,
+                                pairs,
+                            );
+                        }
+                    }
+
+                    let (x, y, z) =
+                        density_spacing_bin_coords(bin_idx, dense_grid.dim_x, dense_grid.dim_y);
+                    for &(ox, oy, oz) in &DENSITY_SPACING_FORWARD_NEIGHBOR_OFFSETS {
+                        let Some(neighbor_bin_idx) =
+                            density_spacing_neighbor_bin_index(x, y, z, ox, oy, oz, dense_grid)
+                        else {
+                            continue;
+                        };
+                        let neighbor_start = bin_offsets[neighbor_bin_idx];
+                        let neighbor_end = bin_offsets[neighbor_bin_idx + 1];
+                        if neighbor_start == neighbor_end {
+                            continue;
+                        }
+
+                        for &i in &bin_particles[start..end] {
+                            let i = i as usize;
+                            for &j in &bin_particles[neighbor_start..neighbor_end] {
+                                accumulate_density_spacing_pair(
+                                    i,
+                                    j as usize,
+                                    particles,
+                                    support_radius_sq,
+                                    inv_support_radius,
+                                    density_gradient_scale,
+                                    densities,
+                                    gradient_sums,
+                                    gradient_sq_sums,
+                                    pairs,
+                                );
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -2129,6 +2268,13 @@ struct DensitySpacingDenseGrid {
     dim_x: usize,
     dim_y: usize,
     dim_z: usize,
+    layout: DensitySpacingDenseGridLayout,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum DensitySpacingDenseGridLayout {
+    LinkedList,
+    Contiguous,
 }
 
 fn base_coord(grid_pos: Vec3) -> IVec3 {
