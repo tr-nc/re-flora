@@ -162,6 +162,7 @@ fn default_particle_volume(particle_count: usize) -> f32 {
 pub enum WaterParticleSpacingMode {
     Pairwise,
     Density,
+    CellDensity,
 }
 
 impl WaterParticleSpacingMode {
@@ -169,6 +170,7 @@ impl WaterParticleSpacingMode {
         match value {
             "pairwise" => Some(Self::Pairwise),
             "density" | "pbf" => Some(Self::Density),
+            "cell-density" | "cell_density" => Some(Self::CellDensity),
             _ => None,
         }
     }
@@ -177,6 +179,7 @@ impl WaterParticleSpacingMode {
         match self {
             Self::Pairwise => "pairwise",
             Self::Density => "density",
+            Self::CellDensity => "cell-density",
         }
     }
 }
@@ -278,6 +281,8 @@ pub struct WaterPerfStats {
     pub density_spacing_correction_apply_seconds: f64,
     pub density_spacing_post_repair_seconds: f64,
     pub density_spacing_velocity_seconds: f64,
+    pub cell_density_rebuild_seconds: f64,
+    pub cell_density_push_seconds: f64,
     pub diagnostics_seconds: f64,
     pub g2p_gather_seconds: f64,
     pub g2p_box_seconds: f64,
@@ -298,6 +303,10 @@ pub struct WaterPerfStats {
     pub density_spacing_occupied_bins: u64,
     pub density_spacing_active_lambdas: u64,
     pub density_spacing_moved_particles: u64,
+    pub cell_density_occupied_cells: u64,
+    pub cell_density_overfull_cells: u64,
+    pub cell_density_moved_particles: u64,
+    pub cell_density_max_excess: f32,
 }
 
 impl WaterPerfStats {
@@ -339,6 +348,14 @@ pub struct PondWaterSim {
     pub(crate) density_spacing_corrections: Vec<Vec3>,
     pub(crate) density_spacing_total_corrections: Vec<Vec3>,
     pub(crate) density_spacing_moved_particles: Vec<usize>,
+    pub(crate) cell_density_bin_counts: Vec<usize>,
+    pub(crate) cell_density_bin_position_sums: Vec<Vec3>,
+    pub(crate) cell_density_bin_generations: Vec<u32>,
+    pub(crate) cell_density_particle_bins: Vec<usize>,
+    pub(crate) cell_density_occupied_bins: Vec<usize>,
+    pub(crate) cell_density_total_corrections: Vec<Vec3>,
+    pub(crate) cell_density_moved_particles: Vec<usize>,
+    pub(crate) cell_density_generation: u32,
     pub accumulator: f32,
     pub perf_stats: WaterPerfStats,
     pub perf_report_seconds: f32,
@@ -400,6 +417,14 @@ impl PondWaterSim {
             density_spacing_corrections: Vec::with_capacity(particle_capacity),
             density_spacing_total_corrections: Vec::with_capacity(particle_capacity),
             density_spacing_moved_particles: Vec::with_capacity(particle_capacity),
+            cell_density_bin_counts: Vec::new(),
+            cell_density_bin_position_sums: Vec::new(),
+            cell_density_bin_generations: Vec::new(),
+            cell_density_particle_bins: Vec::with_capacity(particle_capacity),
+            cell_density_occupied_bins: Vec::with_capacity(particle_capacity),
+            cell_density_total_corrections: Vec::with_capacity(particle_capacity),
+            cell_density_moved_particles: Vec::with_capacity(particle_capacity),
+            cell_density_generation: 0,
             accumulator: 0.0,
             perf_stats: WaterPerfStats::default(),
             perf_report_seconds: 0.0,

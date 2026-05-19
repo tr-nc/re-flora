@@ -34,6 +34,9 @@ const INCOMPRESSIBLE_DENSITY_LAMBDA_EPSILON: f32 = 600.0;
 const INCOMPRESSIBLE_DENSITY_TARGET_AXIS_NEIGHBORS: f32 = 6.0;
 const INCOMPRESSIBLE_DENSITY_VELOCITY_BLEND: f32 = 0.15;
 const MAX_INCOMPRESSIBLE_DENSITY_VELOCITY_CORRECTION_CELLS: f32 = 0.20;
+const INCOMPRESSIBLE_CELL_DENSITY_CELL_SCALE: f32 = 1.0;
+const INCOMPRESSIBLE_CELL_DENSITY_TARGET_FILL: f32 = 0.75;
+const INCOMPRESSIBLE_CELL_DENSITY_PUSH_STRENGTH: f32 = 0.35;
 const DENSITY_SPACING_INVALID_BIN_ENTRY: usize = usize::MAX;
 const DENSITY_SPACING_MAX_DENSE_BINS: usize = 2_000_000;
 // Counting-sort bins reduce high-density pointer chasing but rebuild more scratch.
@@ -642,7 +645,7 @@ impl PondWaterSim {
             self.terrain_collision_margin(),
         );
         log::info!(
-            "[PERF][WATER] particles {} grid {:?} nodes {} substeps {} total {:.2}ms avg {:.3}ms/substep repair {:.2}ms clear {:.2}ms p2g {:.2}ms grid {:.2}ms grid_update {:.2}ms pressure {:.2}ms g2p {:.2}ms g2p_gather {:.2}ms g2p_box {:.2}ms g2p_terrain {:.2}ms g2p_repair {:.2}ms spacing_relax {:.2}ms spacing_bin_rebuild {:.2}ms spacing_pair_accum {:.2}ms spacing_lambda {:.2}ms spacing_corr_accum {:.2}ms spacing_corr_apply {:.2}ms spacing_post_repair {:.2}ms spacing_velocity {:.2}ms diagnostics {:.2}ms residual {:.2}ms shadow_measure {:.2}ms density_pairs/substep {:.0} density_bins/substep {:.0} density_active_lambdas/substep {:.0} density_moved/substep {:.0} terrain_cache_skips/substep {:.0} terrain_cache_projections/substep {:.0} terrain_exact_fallbacks/substep {:.0} terrain_exact_checks/substep {:.0} terrain_exact_corrections/substep {:.0} terrain_shadow_samples/substep {:.1} terrain_shadow_false_skips {} terrain_shadow_sdf_err_avg {:.5} terrain_shadow_sdf_err_max {:.5} active_nodes/substep {:.0} particle_y {:.3}..{:.3} avg {:.3} terrain_sdf_min {:.4} penetrating {} no_sdf {}",
+            "[PERF][WATER] particles {} grid {:?} nodes {} substeps {} total {:.2}ms avg {:.3}ms/substep repair {:.2}ms clear {:.2}ms p2g {:.2}ms grid {:.2}ms grid_update {:.2}ms pressure {:.2}ms g2p {:.2}ms g2p_gather {:.2}ms g2p_box {:.2}ms g2p_terrain {:.2}ms g2p_repair {:.2}ms spacing_relax {:.2}ms spacing_bin_rebuild {:.2}ms spacing_pair_accum {:.2}ms spacing_lambda {:.2}ms spacing_corr_accum {:.2}ms spacing_corr_apply {:.2}ms spacing_post_repair {:.2}ms spacing_velocity {:.2}ms cell_density_rebuild {:.2}ms cell_density_push {:.2}ms diagnostics {:.2}ms residual {:.2}ms shadow_measure {:.2}ms density_pairs/substep {:.0} density_bins/substep {:.0} density_active_lambdas/substep {:.0} density_moved/substep {:.0} cell_density_occupied_cells/substep {:.0} cell_density_overfull_cells/substep {:.0} cell_density_moved/substep {:.0} cell_density_max_excess {:.3} terrain_cache_skips/substep {:.0} terrain_cache_projections/substep {:.0} terrain_exact_fallbacks/substep {:.0} terrain_exact_checks/substep {:.0} terrain_exact_corrections/substep {:.0} terrain_shadow_samples/substep {:.1} terrain_shadow_false_skips {} terrain_shadow_sdf_err_avg {:.5} terrain_shadow_sdf_err_max {:.5} active_nodes/substep {:.0} particle_y {:.3}..{:.3} avg {:.3} terrain_sdf_min {:.4} penetrating {} no_sdf {}",
             self.particles.len(),
             self.grid_dim,
             grid_nodes,
@@ -668,6 +671,8 @@ impl PondWaterSim {
             stats.density_spacing_correction_apply_seconds * 1000.0,
             stats.density_spacing_post_repair_seconds * 1000.0,
             stats.density_spacing_velocity_seconds * 1000.0,
+            stats.cell_density_rebuild_seconds * 1000.0,
+            stats.cell_density_push_seconds * 1000.0,
             stats.diagnostics_seconds * 1000.0,
             residual_seconds * 1000.0,
             shadow_measure_seconds * 1000.0,
@@ -675,6 +680,10 @@ impl PondWaterSim {
             stats.density_spacing_occupied_bins as f64 / substeps,
             stats.density_spacing_active_lambdas as f64 / substeps,
             stats.density_spacing_moved_particles as f64 / substeps,
+            stats.cell_density_occupied_cells as f64 / substeps,
+            stats.cell_density_overfull_cells as f64 / substeps,
+            stats.cell_density_moved_particles as f64 / substeps,
+            stats.cell_density_max_excess,
             stats.g2p_terrain_cache_skips as f64 / substeps,
             stats.g2p_terrain_cache_projections as f64 / substeps,
             stats.g2p_terrain_exact_fallbacks as f64 / substeps,
@@ -1370,6 +1379,9 @@ impl PondWaterSim {
             WaterParticleSpacingMode::Density => {
                 self.relax_incompressible_density_particle_spacing(dt, collect_perf)
             }
+            WaterParticleSpacingMode::CellDensity => {
+                self.relax_incompressible_cell_density_particle_spacing(dt, collect_perf)
+            }
         }
     }
 
@@ -1731,6 +1743,288 @@ impl PondWaterSim {
                 self.perf_stats.density_spacing_velocity_seconds += start.elapsed().as_secs_f64();
             }
         }
+    }
+
+    fn relax_incompressible_cell_density_particle_spacing(&mut self, dt: f32, collect_perf: bool) {
+        let iterations = self.config.particle_spacing_relaxation_iterations as usize;
+        if !self.config.uses_incompressible_projection()
+            || iterations == 0
+            || self.particles.len() < 2
+            || dt <= 0.0
+            || !dt.is_finite()
+        {
+            return;
+        }
+
+        let rest_distance = (self.config.particle_volume.max(1.0e-8)).cbrt()
+            * INCOMPRESSIBLE_PARTICLE_SPACING_SCALE;
+        if rest_distance <= 0.0 || !rest_distance.is_finite() {
+            return;
+        }
+
+        let count = self.particles.len();
+        let cell_size = (rest_distance * INCOMPRESSIBLE_CELL_DENSITY_CELL_SCALE)
+            .max(self.dx * 0.5);
+        if cell_size <= 0.0 || !cell_size.is_finite() {
+            return;
+        }
+        let inv_cell_size = cell_size.recip();
+        let target_count = ((cell_size / rest_distance).powi(3)
+            * INCOMPRESSIBLE_CELL_DENSITY_TARGET_FILL)
+            .max(1.0);
+        let max_correction = self.dx * MAX_PARTICLE_SPACING_CORRECTION_CELLS;
+        let max_velocity_correction =
+            MAX_INCOMPRESSIBLE_DENSITY_VELOCITY_CORRECTION_CELLS * self.dx / dt;
+        let padding = self.dx * self.config.wall_padding_cells.max(1.0);
+        let bounds = self.config.collider;
+        let particle_min_padding = Vec3::splat(padding);
+        let particle_max_padding = Vec3::splat(padding);
+        let terrain_collision_margin = self.terrain_collision_margin();
+        let terrain_max_correction = padding;
+        let max_particle_speed = max_particle_speed_for_substep(self.dx, dt);
+        let repair_mode = ParticleStateRepairMode::for_config(&self.config);
+
+        self.cell_density_total_corrections.clear();
+        self.cell_density_total_corrections
+            .resize(count, Vec3::ZERO);
+        for _ in 0..iterations {
+            let rebuild_start = collect_perf.then(Instant::now);
+            let rebuilt = self.rebuild_cell_density_spacing_bins(inv_cell_size);
+            if let Some(start) = rebuild_start {
+                self.perf_stats.cell_density_rebuild_seconds += start.elapsed().as_secs_f64();
+            }
+            if rebuilt.is_none() {
+                break;
+            }
+
+            let push_start = collect_perf.then(Instant::now);
+            let generation = self.cell_density_generation;
+            let mut overfull_cells = 0u64;
+            let mut max_excess = 0.0f32;
+            for &bin_idx in &self.cell_density_occupied_bins {
+                if self.cell_density_bin_generations[bin_idx] != generation {
+                    continue;
+                }
+                let cell_count = self.cell_density_bin_counts[bin_idx] as f32;
+                let excess = cell_count - target_count;
+                if excess <= 0.0 {
+                    continue;
+                }
+                overfull_cells += 1;
+                max_excess = max_excess.max(excess / target_count);
+            }
+
+            self.cell_density_moved_particles.clear();
+            let bin_counts = &self.cell_density_bin_counts;
+            let bin_position_sums = &self.cell_density_bin_position_sums;
+            let bin_generations = &self.cell_density_bin_generations;
+            let particle_bins = &self.cell_density_particle_bins;
+            let total_corrections = &mut self.cell_density_total_corrections;
+            let moved_particles = &mut self.cell_density_moved_particles;
+            for (idx, particle) in self.particles.iter_mut().enumerate() {
+                if !particle.x.is_finite() {
+                    continue;
+                }
+                let Some(&bin_idx) = particle_bins.get(idx) else {
+                    continue;
+                };
+                if bin_idx == DENSITY_SPACING_INVALID_BIN_ENTRY
+                    || bin_idx >= bin_counts.len()
+                    || bin_generations[bin_idx] != generation
+                {
+                    continue;
+                }
+
+                let cell_count = bin_counts[bin_idx] as f32;
+                let excess = cell_count - target_count;
+                if excess <= 0.0 || !excess.is_finite() {
+                    continue;
+                }
+
+                let centroid = bin_position_sums[bin_idx] / cell_count.max(1.0);
+                let mut direction = particle.x - centroid;
+                if direction.length_squared() <= 1.0e-12 || !direction.is_finite() {
+                    direction = particle_pair_fallback_direction(idx, bin_idx);
+                } else {
+                    direction = direction.normalize_or_zero();
+                }
+                if direction.length_squared() <= 1.0e-12 || !direction.is_finite() {
+                    continue;
+                }
+
+                let excess_fraction = (excess / target_count).clamp(0.0, 1.0);
+                let correction = clamp_vec3_length(
+                    direction
+                        * cell_size
+                        * INCOMPRESSIBLE_CELL_DENSITY_PUSH_STRENGTH
+                        * excess_fraction,
+                    max_correction,
+                );
+                if correction.length_squared() <= 1.0e-12 || !correction.is_finite() {
+                    continue;
+                }
+
+                particle.x += correction;
+                total_corrections[idx] += correction;
+                moved_particles.push(idx);
+            }
+            let moved_particle_count = self.cell_density_moved_particles.len();
+            if let Some(start) = push_start {
+                self.perf_stats.cell_density_push_seconds += start.elapsed().as_secs_f64();
+                self.perf_stats.cell_density_occupied_cells +=
+                    self.cell_density_occupied_bins.len() as u64;
+                self.perf_stats.cell_density_overfull_cells += overfull_cells;
+                self.perf_stats.cell_density_moved_particles += moved_particle_count as u64;
+                self.perf_stats.cell_density_max_excess =
+                    self.perf_stats.cell_density_max_excess.max(max_excess);
+            }
+
+            if moved_particle_count == 0 {
+                break;
+            }
+
+            let post_repair_start = collect_perf.then(Instant::now);
+            let terrain = self.terrain.as_ref();
+            let particles = &mut self.particles;
+            for &idx in &self.cell_density_moved_particles {
+                let particle = &mut particles[idx];
+                collide_particle_with_box_with_padding(
+                    particle,
+                    bounds.min_ws,
+                    bounds.max_ws,
+                    particle_min_padding,
+                    particle_max_padding,
+                );
+                if let Some(terrain) = terrain {
+                    collide_particle_with_terrain_iterative(
+                        particle,
+                        terrain,
+                        terrain_collision_margin,
+                        terrain_max_correction,
+                        TERRAIN_PARTICLE_COLLISION_ITERATIONS,
+                        bounds.min_ws,
+                        bounds.max_ws,
+                        particle_min_padding,
+                        particle_max_padding,
+                    );
+                }
+                repair_particle_state_with_padding(
+                    particle,
+                    bounds.min_ws,
+                    bounds.max_ws,
+                    particle_min_padding,
+                    particle_max_padding,
+                    max_particle_speed,
+                    repair_mode,
+                );
+            }
+            if let Some(start) = post_repair_start {
+                self.perf_stats.density_spacing_post_repair_seconds += start.elapsed().as_secs_f64();
+            }
+        }
+
+        if INCOMPRESSIBLE_DENSITY_VELOCITY_BLEND > 0.0 {
+            let velocity_start = collect_perf.then(Instant::now);
+            for (particle, correction) in self
+                .particles
+                .iter_mut()
+                .zip(self.cell_density_total_corrections.iter().copied())
+            {
+                if correction.length_squared() <= 1.0e-12 || !correction.is_finite() {
+                    continue;
+                }
+                let velocity_correction = clamp_vec3_length(correction / dt, max_velocity_correction)
+                    * INCOMPRESSIBLE_DENSITY_VELOCITY_BLEND;
+                particle.v = clamp_vec3_length(particle.v + velocity_correction, max_particle_speed);
+            }
+            if let Some(start) = velocity_start {
+                self.perf_stats.density_spacing_velocity_seconds += start.elapsed().as_secs_f64();
+            }
+        }
+    }
+
+    fn rebuild_cell_density_spacing_bins(&mut self, inv_cell_size: f32) -> Option<()> {
+        self.cell_density_occupied_bins.clear();
+        self.cell_density_particle_bins
+            .resize(self.particles.len(), DENSITY_SPACING_INVALID_BIN_ENTRY);
+        self.cell_density_particle_bins
+            .fill(DENSITY_SPACING_INVALID_BIN_ENTRY);
+
+        let mut min_x = i32::MAX;
+        let mut min_y = i32::MAX;
+        let mut min_z = i32::MAX;
+        let mut max_x = i32::MIN;
+        let mut max_y = i32::MIN;
+        let mut max_z = i32::MIN;
+        let mut finite_particles = 0usize;
+
+        for particle in &self.particles {
+            if !particle.x.is_finite() {
+                continue;
+            }
+            let (x, y, z) = particle_spacing_cell(particle.x, inv_cell_size);
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            min_z = min_z.min(z);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+            max_z = max_z.max(z);
+            finite_particles += 1;
+        }
+
+        if finite_particles == 0 {
+            return None;
+        }
+
+        let dim_x = density_spacing_cell_span(min_x, max_x)?;
+        let dim_y = density_spacing_cell_span(min_y, max_y)?;
+        let dim_z = density_spacing_cell_span(min_z, max_z)?;
+        let bin_count = dim_x.checked_mul(dim_y)?.checked_mul(dim_z)?;
+        if bin_count == 0 || bin_count > DENSITY_SPACING_MAX_DENSE_BINS {
+            return None;
+        }
+
+        self.cell_density_bin_counts.resize(bin_count, 0);
+        self.cell_density_bin_position_sums
+            .resize(bin_count, Vec3::ZERO);
+        self.cell_density_bin_generations.resize(bin_count, 0);
+        self.cell_density_generation = self.cell_density_generation.wrapping_add(1);
+        if self.cell_density_generation == 0 {
+            self.cell_density_bin_generations.fill(0);
+            self.cell_density_generation = 1;
+        }
+        let generation = self.cell_density_generation;
+
+        let particles = &self.particles;
+        let bin_counts = &mut self.cell_density_bin_counts;
+        let bin_position_sums = &mut self.cell_density_bin_position_sums;
+        let bin_generations = &mut self.cell_density_bin_generations;
+        let particle_bins = &mut self.cell_density_particle_bins;
+        let occupied_bins = &mut self.cell_density_occupied_bins;
+        for (idx, particle) in particles.iter().enumerate() {
+            if !particle.x.is_finite() {
+                continue;
+            }
+            let (x, y, z) = particle_spacing_cell(particle.x, inv_cell_size);
+            let local_x = usize::try_from(i64::from(x) - i64::from(min_x)).ok()?;
+            let local_y = usize::try_from(i64::from(y) - i64::from(min_y)).ok()?;
+            let local_z = usize::try_from(i64::from(z) - i64::from(min_z)).ok()?;
+            if local_x >= dim_x || local_y >= dim_y || local_z >= dim_z {
+                return None;
+            }
+            let bin_idx = density_spacing_bin_index(local_x, local_y, local_z, dim_x, dim_y);
+            if bin_generations[bin_idx] != generation {
+                bin_generations[bin_idx] = generation;
+                bin_counts[bin_idx] = 0;
+                bin_position_sums[bin_idx] = Vec3::ZERO;
+                occupied_bins.push(bin_idx);
+            }
+            bin_counts[bin_idx] += 1;
+            bin_position_sums[bin_idx] += particle.x;
+            particle_bins[idx] = bin_idx;
+        }
+
+        Some(())
     }
 
     fn rebuild_density_spacing_dense_bins(
@@ -3676,6 +3970,36 @@ mod tests {
             "density projection should feed a small bounded correction back into velocity"
         );
         for particle in &sim.particles {
+            assert!((particle.j - 1.0).abs() < 1.0e-6);
+        }
+    }
+
+    #[test]
+    fn cell_density_spacing_relaxation_separates_overlapping_particles() {
+        let mut sim = PondWaterSim::new(
+            PondWaterConfig::default()
+                .with_particle_count(0)
+                .with_pressure_projection_iterations(16)
+                .with_particle_spacing_relaxation_iterations(2)
+                .with_particle_spacing_mode(WaterParticleSpacingMode::CellDensity),
+        );
+        let center = Vec3::new(0.5, 0.5, 0.5);
+        sim.particles = vec![water_particle(center, Vec3::ZERO), water_particle(center, Vec3::ZERO)];
+
+        sim.relax_incompressible_particle_spacing(sim.config.substep_dt, false);
+
+        let distance = sim.particles[0].x.distance(sim.particles[1].x);
+        assert!(
+            distance > sim.config.particle_volume.cbrt() * 0.1,
+            "overlapping particles were not separated by cell-density projection: distance={distance}"
+        );
+        assert!(
+            sim.particles.iter().any(|particle| particle.v.length() > 0.0),
+            "cell-density projection should feed a small bounded correction back into velocity"
+        );
+        for particle in &sim.particles {
+            assert!(particle.x.is_finite());
+            assert!(particle.v.is_finite());
             assert!((particle.j - 1.0).abs() < 1.0e-6);
         }
     }

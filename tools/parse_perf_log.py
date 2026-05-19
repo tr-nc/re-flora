@@ -67,6 +67,8 @@ WATER_MS_FIELDS = [
     "spacing_corr_apply",
     "spacing_post_repair",
     "spacing_velocity",
+    "cell_density_rebuild",
+    "cell_density_push",
     "diagnostics",
     "residual",
     "shadow_measure",

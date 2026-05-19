@@ -214,13 +214,13 @@ impl AppOptions {
             Some(value) => Some(
                 WaterParticleSpacingMode::from_cli_value(&value).unwrap_or_else(|| {
                     panic!(
-                        "Unsupported --water-spacing-mode '{}'. Supported values: pairwise, density, pbf",
+                        "Unsupported --water-spacing-mode '{}'. Supported values: pairwise, density, pbf, cell-density",
                         value
                     )
                 }),
             ),
             None if args.iter().any(|a| a == "--water-spacing-mode") => {
-                panic!("Missing value for --water-spacing-mode. Supported values: pairwise, density, pbf")
+                panic!("Missing value for --water-spacing-mode. Supported values: pairwise, density, pbf, cell-density")
             }
             None => None,
         };
@@ -308,7 +308,7 @@ Options:
                               Override incompressible pressure projection iterations (0 = legacy EOS)
   --water-spacing-iterations <N>
                               Override marker particle spacing relaxation iterations (0 disables anti-clump pass)
-  --water-spacing-mode <mode> Override marker spacing projection: pairwise, density, pbf
+  --water-spacing-mode <mode> Override marker spacing projection: pairwise, density, pbf, cell-density
   --water-apic-blend <B>      Override incompressible APIC affine blend (0 = pure PIC/no-APIC)
   --water-edit-soak           Run deterministic pond terrain edits for water validation
   --tree-bench                Run tree replacement benchmark and exit
