@@ -695,7 +695,7 @@ type = "Float"
 [section.param.data]
 value = 10000
 min = 0
-max = 50000
+max = 100000
 
 [[section.param]]
 id = "water_gamma"
@@ -715,8 +715,8 @@ label = "Minimum J"
 type = "Float"
 
 [section.param.data]
-value = 0.1
-min = 0.01
+value = 0.55
+min = 0.05
 max = 1
 
 [[section.param]]

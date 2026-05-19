@@ -1112,7 +1112,7 @@ impl PondWaterSim {
             let weights = quadratic_weights(fx);
 
             let affine = if legacy_eos {
-                let pressure = stiffness * (particle.j.max(legacy_j_min).powf(-gamma) - 1.0);
+                let pressure = legacy_eos_pressure(stiffness, gamma, particle.j, legacy_j_min);
                 let pressure_scale = dt * volume * particle.j * pressure * d_inv;
                 Mat3::from_diagonal(Vec3::splat(pressure_scale)) + particle.c * mass
             } else if use_affine_transfer {
@@ -3318,6 +3318,25 @@ fn make_mat3_traceless(value: Mat3) -> Mat3 {
     )
 }
 
+fn legacy_eos_pressure(stiffness: f32, gamma: f32, j: f32, j_min: f32) -> f32 {
+    if !stiffness.is_finite()
+        || stiffness <= 0.0
+        || !gamma.is_finite()
+        || gamma <= 0.0
+        || !j.is_finite()
+    {
+        return 0.0;
+    }
+
+    // Free-surface weakly-compressible water should resist compression but
+    // not generate tensile attraction when a marker's volume estimate is
+    // expanded. Negative EOS pressure pulls sparse surface particles into
+    // clumps and then lets the pile creep down to j_min; clamp it to zero
+    // like a Tait water EOS with no tensile strength.
+    let clamped_j = j.max(j_min.max(1.0e-6));
+    (stiffness * (clamped_j.powf(-gamma) - 1.0)).max(0.0)
+}
+
 fn project_velocity_away_from_surface(velocity: Vec3, normal: Vec3) -> Vec3 {
     if !velocity.is_finite() {
         return Vec3::ZERO;
@@ -3812,7 +3831,7 @@ fn water_particle_debug_stats(
 mod tests {
     use super::{
         collide_particle_with_terrain, collide_particle_with_terrain_iterative, grid_coord_dims,
-        grid_index_dims, pressure_projection_divergence_from_stencil,
+        grid_index_dims, legacy_eos_pressure, pressure_projection_divergence_from_stencil,
         pressure_projection_solid_node, pressure_projection_stencil_at,
         project_velocity_away_from_surface, terrain_grid_particle_query,
         TerrainGridParticleQuery, WaterTerrainGridSample, ACTIVE_MASS_EPSILON,
@@ -3832,6 +3851,14 @@ mod tests {
         }
 
         assert_particles_finite_and_bounded(&sim);
+    }
+
+    #[test]
+    fn legacy_eos_pressure_has_no_tensile_branch() {
+        let compressed = legacy_eos_pressure(10_000.0, 7.0, 0.8, 0.55);
+        assert!(compressed > 0.0, "compressed={compressed}");
+        assert_eq!(legacy_eos_pressure(10_000.0, 7.0, 1.0, 0.55), 0.0);
+        assert_eq!(legacy_eos_pressure(10_000.0, 7.0, 1.2, 0.55), 0.0);
     }
 
     #[test]

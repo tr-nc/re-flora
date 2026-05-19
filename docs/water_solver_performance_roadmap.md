@@ -51,6 +51,8 @@ record_diagnostic_substep
 - P0 cell-density MVP：增加 opt-in `cell-density` spacing mode 和独立计时；100000 粒子稳定窗口 `spacing_relax` 降到约 `9.06ms/substep`，达到 P0 性能门槛，但 shadow false-skip stress 风险略升，暂不改默认。
 - P0 cell-density 稳定性迭代：关闭 velocity feedback 并加入 rest-distance correction cap 后仍有明显 grid pattern / 同点 clustering；该方向不再作为默认水体路线继续。
 - 路线切换：默认和 performance profile 回到经典弱可压缩 MLS-MPM / EOS，禁用 incompressible projection 和 marker spacing；performance profile 同时降到 `60Hz` water substeps 以优先控制 CPU；不可压路径仅保留为显式 flag A/B。
+- 弱 EOS 压缩稳定性修正：`j_min` 提到 `0.55`，EOS 压力裁剪为非负值以去掉自由表面拉力；marker mass 改为随 marker volume 缩放，但使用保持 4096 粒子历史 `mass=1.0` 的 simulation-space density (`40960`) 来避免 60Hz / dx=1/32 下过硬。初始种子和 debug spawn 会按有限深度预置 hydrostatic `J`，避免先从完全无压状态被重力压扁。
+  验证日志：`target/re-flora-logs/re-flora-20260520-021210.222-45029.log`，8192 粒子 performance profile hidden 6s 无 NaN/out-of-bounds；settling 后 `speed_avg` 从约 `0.20` 降到 `0.08`，`j_min_clamped` 从 `67` 降到 `22`。
 
 ## 8192 粒子详细基准
 

@@ -14,9 +14,20 @@ const INITIAL_PARTICLE_CHUNK_MAX_WS: Vec3 = Vec3::new(2.0, 1.0, 2.0);
 // the old 4096-particle density when water is added later by debug spawn.
 const DEFAULT_INITIAL_PARTICLE_VOLUME_FRACTION: f32 = 0.1;
 const DEFAULT_INCOMPRESSIBLE_APIC_BLEND: f32 = 0.10;
+// Keep weak-EOS material parameters independent of marker count. Particle volume
+// changes with the requested marker count so the visible water volume stays
+// roughly constant; mass must scale with that volume as well, otherwise higher
+// particle counts become artificially heavy and rapidly crush J to the lower
+// clamp before pressure can support the column.
+//
+// This is a simulation-space density, calibrated so the historical 4096-marker
+// reference volume still gives each marker mass 1.0. That preserves the current
+// EOS tuning while removing particle-count dependence; a real 1000 kg/m^3 value
+// made the existing 60 Hz, dx=1/32 solver far too stiff without retuning K/dt.
+const DEFAULT_WEAK_EOS_REST_DENSITY: f32 = 40_960.0;
 const DEFAULT_WEAK_EOS_STIFFNESS: f32 = 10_000.0;
 const DEFAULT_WEAK_EOS_GAMMA: f32 = 7.0;
-const DEFAULT_WEAK_EOS_J_MIN: f32 = 0.1;
+const DEFAULT_WEAK_EOS_J_MIN: f32 = 0.55;
 
 pub(crate) const WATER_GRID_BOUNDARY_X_MIN: u8 = 1 << 0;
 pub(crate) const WATER_GRID_BOUNDARY_X_MAX: u8 = 1 << 1;
@@ -55,8 +66,8 @@ impl Default for PondWaterConfig {
             grid_dim: DEFAULT_GRID_DIM,
             particle_count: DEFAULT_PARTICLE_COUNT,
             substep_dt: 1.0 / 120.0,
-            particle_mass: 1.0,
             particle_volume: default_particle_volume(DEFAULT_PARTICLE_COUNT),
+            particle_mass: default_particle_mass(default_particle_volume(DEFAULT_PARTICLE_COUNT)),
             gravity: Vec3::new(0.0, -9.8, 0.0),
             stiffness: DEFAULT_WEAK_EOS_STIFFNESS,
             gamma: DEFAULT_WEAK_EOS_GAMMA,
@@ -77,6 +88,7 @@ impl PondWaterConfig {
     pub fn with_particle_count(mut self, particle_count: usize) -> Self {
         self.particle_count = particle_count;
         self.particle_volume = default_particle_volume(particle_count);
+        self.particle_mass = default_particle_mass(self.particle_volume);
         self
     }
 
@@ -177,6 +189,10 @@ fn default_particle_volume(particle_count: usize) -> f32 {
     (INITIAL_PARTICLE_CHUNK_MAX_WS - INITIAL_PARTICLE_CHUNK_MIN_WS).element_product()
         * DEFAULT_INITIAL_PARTICLE_VOLUME_FRACTION
         / volume_particle_count as f32
+}
+
+fn default_particle_mass(particle_volume: f32) -> f32 {
+    DEFAULT_WEAK_EOS_REST_DENSITY * particle_volume
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -841,10 +857,6 @@ impl PondWaterSim {
     }
 
     fn debug_spawn_initial_j(&self, particle_y: f32, local_surface_y: Option<f32>) -> f32 {
-        if !self.config.uses_legacy_eos() {
-            return 1.0;
-        }
-
         let Some(surface_y) = local_surface_y else {
             return 1.0;
         };
@@ -857,7 +869,15 @@ impl PondWaterSim {
         // just under the local surface, use a bounded hydrostatic estimate
         // instead of inheriting a numerically compressed neighbor J.
         let max_depth = self.dx * DEBUG_SPAWN_HYDROSTATIC_J_MAX_DEPTH_CELLS;
-        let depth_ws = (surface_y - particle_y).max(0.0).min(max_depth);
+        self.legacy_eos_hydrostatic_j((surface_y - particle_y).max(0.0), max_depth)
+    }
+
+    fn legacy_eos_hydrostatic_j(&self, depth_ws: f32, max_depth_ws: f32) -> f32 {
+        if !self.config.uses_legacy_eos() || depth_ws <= 0.0 || !depth_ws.is_finite() {
+            return 1.0;
+        }
+
+        let depth_ws = depth_ws.min(max_depth_ws.max(0.0));
         if depth_ws <= 0.0 {
             return 1.0;
         }
@@ -955,9 +975,17 @@ impl PondWaterSim {
                         (y + jitter_y * rest_spacing * 0.1).clamp(volume_min.y, volume_max.y),
                         volume_min.z + footprint.z * tz.clamp(0.0, 1.0),
                     );
-                    self.particles.push(WaterParticle::new(
-                        self.config.collider.clamp_point(pos, padding),
-                    ));
+                    let mut particle =
+                        WaterParticle::new(self.config.collider.clamp_point(pos, padding));
+                    // Seed the initial column close to weak-EOS hydrostatic balance.
+                    // Starting every marker at J=1 leaves the whole column at
+                    // atmospheric pressure, so gravity first crushes it before the
+                    // EOS pressure wave catches up.
+                    particle.j = self.legacy_eos_hydrostatic_j(
+                        (volume_max.y - particle.x.y).max(0.0),
+                        (volume_max.y - volume_min.y).max(0.0),
+                    );
+                    self.particles.push(particle);
                 }
             }
         }
@@ -1054,6 +1082,56 @@ mod tests {
             sim.config.particle_volume,
             default_particle_volume(DEFAULT_PARTICLE_VOLUME_REFERENCE_COUNT)
         );
+        assert_eq!(sim.config.particle_mass, 1.0);
+        assert_eq!(sim.config.particle_mass, default_particle_mass(sim.config.particle_volume));
+        assert_eq!(sim.config.j_min, DEFAULT_WEAK_EOS_J_MIN);
+    }
+
+    #[test]
+    fn particle_mass_scales_with_marker_volume() {
+        let reference = PondWaterConfig::default().with_particle_count(4_096);
+        let doubled = PondWaterConfig::default().with_particle_count(8_192);
+
+        assert!((reference.particle_mass - 1.0).abs() < 1.0e-6);
+        assert!((doubled.particle_mass - 0.5).abs() < 1.0e-6);
+        assert!((reference.particle_mass / reference.particle_volume
+            - DEFAULT_WEAK_EOS_REST_DENSITY)
+            .abs()
+            < 1.0e-3);
+        assert!((doubled.particle_mass / doubled.particle_volume
+            - DEFAULT_WEAK_EOS_REST_DENSITY)
+            .abs()
+            < 1.0e-3);
+    }
+
+    #[test]
+    fn initial_seed_uses_hydrostatic_j_for_legacy_eos() {
+        let sim = PondWaterSim::new(PondWaterConfig::default().with_particle_count(128));
+        let min_j = sim
+            .particles
+            .iter()
+            .map(|particle| particle.j)
+            .fold(f32::INFINITY, f32::min);
+        let max_j = sim
+            .particles
+            .iter()
+            .map(|particle| particle.j)
+            .fold(f32::NEG_INFINITY, f32::max);
+
+        assert!(min_j >= sim.config.j_min, "min_j={min_j}");
+        assert!(min_j < 0.999, "seeded column should start pre-pressurized: min_j={min_j}");
+        assert!(max_j <= 1.0, "max_j={max_j}");
+    }
+
+    #[test]
+    fn initial_seed_keeps_j_one_for_incompressible_projection() {
+        let sim = PondWaterSim::new(
+            PondWaterConfig::default()
+                .with_particle_count(128)
+                .with_pressure_projection_iterations(8),
+        );
+
+        assert!(sim.particles.iter().all(|particle| particle.j == 1.0));
     }
 
     #[test]
