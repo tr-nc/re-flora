@@ -2527,7 +2527,7 @@ impl App {
                 let mut water_terrain_cache_ms = 0.0f32;
                 let mut terrain_sdf_collider_ms = 0.0f32;
                 let mut water_edit_soak_ms = 0.0f32;
-                let mut water_update_ms = 0.0f32;
+                let mut water_handoff_ms = 0.0f32;
                 let mut particle_update_ms = 0.0f32;
 
                 // resize the window if needed
@@ -2997,12 +2997,12 @@ impl App {
 
                 if self.render_flags.enable_particles {
                     if self.water_terrain_initialized {
-                        let water_update_start = Instant::now();
+                        let water_handoff_start = Instant::now();
                         self.update_water_sim(frame_delta_time);
-                        let elapsed_ms = water_update_start.elapsed().as_secs_f32() * 1000.0;
+                        let elapsed_ms = water_handoff_start.elapsed().as_secs_f32() * 1000.0;
                         self.water_particle_handoff_main_thread_ms = Some(elapsed_ms);
                         if frame_perf_enabled {
-                            water_update_ms += elapsed_ms;
+                            water_handoff_ms += elapsed_ms;
                         }
                     } else {
                         self.water_particle_handoff_main_thread_ms = None;
@@ -3367,7 +3367,7 @@ impl App {
                         + water_terrain_cache_ms
                         + terrain_sdf_collider_ms
                         + water_edit_soak_ms
-                        + water_update_ms
+                        + water_handoff_ms
                         + particle_update_ms;
                     let untracked_cpu_ms = (total_ms - egui_ms - gpu_ms - tracked_cpu_ms).max(0.0);
                     let queue_work_ms = terrain_sdf_source_ms
@@ -3376,7 +3376,7 @@ impl App {
                         + terrain_sdf_collider_ms;
                     if frame_count.is_multiple_of(30) || total_ms >= 16.0 || queue_work_ms >= 2.0 {
                         log::info!(
-                            "[PERF][FRAME] frame {} total {:.2}ms egui {:.2}ms gpu_present {:.2}ms contree_poll {:.2}ms terrain_source {:.2}ms deferred_rebuild {:.2}ms cache_queue {:.2}ms collider_queue {:.2}ms water_edit_soak {:.2}ms water_update {:.2}ms particles {:.2}ms tracked_cpu {:.2}ms untracked_cpu {:.2}ms queues deferred_pending={} deferred_active={} deferred_inflight={} source_pending={} source_active={} collider_pending={} collider_active={} collider_inflight={} cache_pending={} cache_active={} cache_inflight={}",
+                            "[PERF][FRAME] frame {} total {:.2}ms egui {:.2}ms gpu_present {:.2}ms contree_poll {:.2}ms terrain_source {:.2}ms deferred_rebuild {:.2}ms cache_queue {:.2}ms collider_queue {:.2}ms water_edit_soak {:.2}ms water_handoff {:.2}ms particles {:.2}ms tracked_cpu {:.2}ms untracked_cpu {:.2}ms queues deferred_pending={} deferred_active={} deferred_inflight={} source_pending={} source_active={} collider_pending={} collider_active={} collider_inflight={} cache_pending={} cache_active={} cache_inflight={}",
                             frame_count,
                             total_ms,
                             egui_ms,
@@ -3387,7 +3387,7 @@ impl App {
                             water_terrain_cache_ms,
                             terrain_sdf_collider_ms,
                             water_edit_soak_ms,
-                            water_update_ms,
+                            water_handoff_ms,
                             particle_update_ms,
                             tracked_cpu_ms,
                             untracked_cpu_ms,
