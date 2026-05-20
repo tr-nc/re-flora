@@ -74,6 +74,13 @@ impl PondWaterConfig {
         self
     }
 
+    pub fn with_particle_edge_len(mut self, edge_len: f32) -> Self {
+        assert!(edge_len > 0.0 && edge_len.is_finite());
+        self.particle_volume = edge_len * edge_len * edge_len;
+        self.particle_mass = default_particle_mass(self.particle_volume);
+        self
+    }
+
     pub fn with_cubic_grid_dim(mut self, grid_dim: u32) -> Self {
         assert!(grid_dim >= 4);
         self.grid_dim = UVec3::splat(grid_dim);

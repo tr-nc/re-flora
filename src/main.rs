@@ -116,6 +116,8 @@ pub struct AppOptions {
     pub water_profile: Option<WaterProfilePreference>,
     /// Override water MLS-MPM particle count.
     pub water_particles: Option<usize>,
+    /// Override water MLS-MPM per-particle rest-volume cube edge length.
+    pub water_particle_edge_len: Option<f32>,
     /// Override water MLS-MPM cubic grid dimension.
     pub water_grid: Option<u32>,
     /// Override water MLS-MPM fixed substep rate in Hz.
@@ -230,6 +232,8 @@ impl AppOptions {
             perf: args.iter().any(|a| a == "--perf"),
             water_profile,
             water_particles: parse_u32_after("--water-particles").map(|v| v as usize),
+            water_particle_edge_len: parse_f32_after("--water-particle-edge-len")
+                .map(|v| v.max(1.0e-6)),
             water_grid: parse_u32_after("--water-grid").map(|v| v.max(4)),
             water_substep_hz: parse_f32_after("--water-substep-hz").map(|v| v.max(1.0)),
             water_terrain_margin_cells: parse_f32_after("--water-terrain-margin-cells")
@@ -274,6 +278,8 @@ Options:
   --perf                      Enable per-frame performance logging
   --water-profile <profile>   Select water profile: default, performance
   --water-particles <N>       Override initial water MLS-MPM particle count (0 = none)
+  --water-particle-edge-len <L>
+                              Override per-particle rest-volume cube edge length
   --water-grid <N>            Override cubic water MLS-MPM grid dimension
   --water-substep-hz <Hz>     Override water MLS-MPM fixed substep rate
   --water-terrain-margin-cells <C>
@@ -302,6 +308,7 @@ Examples:
   re-flora --screenshot out.png --screenshot-delay 3
   re-flora --auto-exit 10 --perf
   re-flora --hidden --auto-exit 4 --perf --water-profile performance
+  re-flora --hidden --auto-exit 4 --perf --water-particles 35000 --water-particle-edge-len 0.05
   re-flora --hidden --auto-exit 4 --perf --water-profile performance --water-damping 1.5 --water-terrain-margin-cells 0.0
   re-flora --hidden --auto-exit 14 --perf --water-profile performance --water-edit-soak
   re-flora --latest-log

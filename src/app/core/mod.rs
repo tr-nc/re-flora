@@ -1625,6 +1625,9 @@ impl App {
         if let Some(particle_count) = options.water_particles {
             water_config = water_config.with_particle_count(particle_count);
         }
+        if let Some(edge_len) = options.water_particle_edge_len {
+            water_config = water_config.with_particle_edge_len(edge_len);
+        }
         if let Some(grid_dim) = options.water_grid {
             water_config = water_config.with_cubic_grid_dim(grid_dim);
         }
