@@ -409,6 +409,8 @@ fn handle_water_sim_command(
     match command {
         WaterSimCommand::UpdateConfig(config) => {
             sim.config.substep_dt = config.substep_dt;
+            sim.config.particle_mass = config.particle_mass;
+            sim.config.particle_volume = config.particle_volume;
             sim.config.terrain_collision_margin_cells = config.terrain_collision_margin_cells;
             sim.config.linear_damping_per_sec = config.linear_damping_per_sec;
             sim.config.gravity = config.gravity;
@@ -582,6 +584,12 @@ pub(super) fn apply_water_gui_adjustables_to_config(
         config.substep_dt.recip(),
     );
     config.substep_dt = substep_hz.recip();
+    let particle_edge_len = finite_at_least(
+        gui_adjustables.water_particle_edge_len.value,
+        1.0e-6,
+        config.particle_volume.cbrt(),
+    );
+    config.set_particle_edge_len(particle_edge_len);
     config.terrain_collision_margin_cells = finite_at_least(
         gui_adjustables.water_terrain_margin_cells.value,
         0.0,
@@ -610,6 +618,7 @@ pub(super) fn sync_water_gui_adjustables_from_config(
     config: &PondWaterConfig,
 ) {
     gui_adjustables.water_substep_hz.value = config.substep_dt.recip();
+    gui_adjustables.water_particle_edge_len.value = config.particle_volume.cbrt();
     gui_adjustables.water_terrain_margin_cells.value = config.terrain_collision_margin_cells;
     gui_adjustables.water_damping.value = config.linear_damping_per_sec;
     gui_adjustables.water_gravity_y.value = config.gravity.y;

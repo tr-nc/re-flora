@@ -632,6 +632,17 @@ min = 15
 max = 240
 
 [[section.param]]
+id = "water_particle_edge_len"
+kind = "float"
+label = "Particle Edge Length"
+type = "Float"
+
+[section.param.data]
+value = 0.05
+min = 0.005
+max = 0.1
+
+[[section.param]]
 id = "water_terrain_margin_cells"
 kind = "float"
 label = "Terrain Margin (grid cells)"

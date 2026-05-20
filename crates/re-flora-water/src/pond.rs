@@ -75,10 +75,14 @@ impl PondWaterConfig {
     }
 
     pub fn with_particle_edge_len(mut self, edge_len: f32) -> Self {
+        self.set_particle_edge_len(edge_len);
+        self
+    }
+
+    pub fn set_particle_edge_len(&mut self, edge_len: f32) {
         assert!(edge_len > 0.0 && edge_len.is_finite());
         self.particle_volume = edge_len * edge_len * edge_len;
         self.particle_mass = default_particle_mass(self.particle_volume);
-        self
     }
 
     pub fn with_cubic_grid_dim(mut self, grid_dim: u32) -> Self {
@@ -941,6 +945,12 @@ mod tests {
             - DEFAULT_WEAK_EOS_REST_DENSITY)
             .abs()
             < 1.0e-3);
+
+        let custom = PondWaterConfig::default()
+            .with_particle_count(8_192)
+            .with_particle_edge_len(0.04);
+        assert!((custom.particle_volume - 0.04_f32.powi(3)).abs() < 1.0e-10);
+        assert_eq!(custom.particle_mass, default_particle_mass(custom.particle_volume));
     }
 
     #[test]

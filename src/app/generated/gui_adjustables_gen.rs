@@ -368,6 +368,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "WaterSimulation",
+        id: "water_particle_edge_len",
+        kind: "float",
+        label: "Particle Edge Length",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "WaterSimulation",
         id: "water_terrain_margin_cells",
         kind: "float",
         label: "Terrain Margin (grid cells)",
@@ -685,6 +691,7 @@ pub struct GuiAdjustables {
     pub ocean_time_multiplier: crate::gui_adjustables::FloatParam,
     pub ocean_sea_level_shift: crate::gui_adjustables::FloatParam,
     pub water_substep_hz: crate::gui_adjustables::FloatParam,
+    pub water_particle_edge_len: crate::gui_adjustables::FloatParam,
     pub water_terrain_margin_cells: crate::gui_adjustables::FloatParam,
     pub water_damping: crate::gui_adjustables::FloatParam,
     pub water_gravity_y: crate::gui_adjustables::FloatParam,
@@ -798,6 +805,7 @@ impl GuiAdjustables {
         let mut ocean_time_multiplier_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut ocean_sea_level_shift_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_substep_hz_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut water_particle_edge_len_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_terrain_margin_cells_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_damping_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_gravity_y_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1218,6 +1226,13 @@ impl GuiAdjustables {
                             water_substep_hz_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
+                    "water_particle_edge_len" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            water_particle_edge_len_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
                     "water_terrain_margin_cells" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -1560,6 +1575,7 @@ impl GuiAdjustables {
             ocean_time_multiplier: ocean_time_multiplier_field.expect("Missing parameter: ocean_time_multiplier"),
             ocean_sea_level_shift: ocean_sea_level_shift_field.expect("Missing parameter: ocean_sea_level_shift"),
             water_substep_hz: water_substep_hz_field.expect("Missing parameter: water_substep_hz"),
+            water_particle_edge_len: water_particle_edge_len_field.expect("Missing parameter: water_particle_edge_len"),
             water_terrain_margin_cells: water_terrain_margin_cells_field.expect("Missing parameter: water_terrain_margin_cells"),
             water_damping: water_damping_field.expect("Missing parameter: water_damping"),
             water_gravity_y: water_gravity_y_field.expect("Missing parameter: water_gravity_y"),
@@ -1648,6 +1664,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "ocean_time_multiplier" => Some(&adjustables.ocean_time_multiplier),
         "ocean_sea_level_shift" => Some(&adjustables.ocean_sea_level_shift),
         "water_substep_hz" => Some(&adjustables.water_substep_hz),
+        "water_particle_edge_len" => Some(&adjustables.water_particle_edge_len),
         "water_terrain_margin_cells" => Some(&adjustables.water_terrain_margin_cells),
         "water_damping" => Some(&adjustables.water_damping),
         "water_gravity_y" => Some(&adjustables.water_gravity_y),
@@ -1783,6 +1800,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "ocean_time_multiplier" => Some(&mut adjustables.ocean_time_multiplier),
         "ocean_sea_level_shift" => Some(&mut adjustables.ocean_sea_level_shift),
         "water_substep_hz" => Some(&mut adjustables.water_substep_hz),
+        "water_particle_edge_len" => Some(&mut adjustables.water_particle_edge_len),
         "water_terrain_margin_cells" => Some(&mut adjustables.water_terrain_margin_cells),
         "water_damping" => Some(&mut adjustables.water_damping),
         "water_gravity_y" => Some(&mut adjustables.water_gravity_y),
