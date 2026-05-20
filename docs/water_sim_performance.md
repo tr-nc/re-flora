@@ -75,20 +75,55 @@ G2P sub-timers under `--perf` currently include noticeable instrumentation/loop 
 
 Validation status from the sweep: no `non_finite`, `out_of_bounds`, or `terrain_penetrating` particles were observed.
 
+## Optimization history
+
+### 2026-05-20: G2P interior gather fast path
+
+Change summary:
+
+- Added an interior G2P stencil path using linear grid offsets.
+- Precomputed scalar weight lanes (`wx`, `wy`, `wz`) and stencil `dpos` offsets.
+- Reused `weighted_v` for both velocity and affine accumulation.
+- Specialized timed vs untimed G2P with a const generic, so normal non-`--perf` simulation can compile out breakdown timer branches.
+
+Release hidden sweep command:
+
+```bash
+cargo run --release -- --hidden --auto-exit 8 --perf --water-particles <count>
+```
+
+| particles | windows | before ms/substep | after ms/substep | delta | status |
+| ---: | ---: | ---: | ---: | ---: | --- |
+| 10,000 | 7 | 3.52 | 3.55 | +0.9% | noise/slightly worse |
+| 25,000 | 6 | 6.65 | 6.04 | -9.1% | faster |
+| 50,000 | 6 | 13.02 | 11.93 | -8.4% | faster |
+| 100,000 | 6 | 26.09 | 23.85 | -8.6% | faster |
+
+Sweep sources:
+
+- `target/re-flora-logs/re-flora-20260520-133342.981-69858.log` (`10k`)
+- `target/re-flora-logs/re-flora-20260520-133355.263-70302.log` (`25k`)
+- `target/re-flora-logs/re-flora-20260520-133407.420-70506.log` (`50k`)
+- `target/re-flora-logs/re-flora-20260520-133639.546-74696.log` (`100k`, rerun after moving affine scale inside the gather timer)
+
+100k after-change breakdown, normalized per substep:
+
+| component | before ms/substep | after ms/substep |
+| --- | ---: | ---: |
+| repair | 0.44 | 0.45 |
+| clear | 0.04 | 0.04 |
+| P2G | 5.04 | 4.92 |
+| grid update | 0.28 | 0.29 |
+| G2P total | 20.29 | 18.14 |
+| total | 26.09 | 23.85 |
+
+100k G2P gather sub-timer improved from about `4.44 ms/substep` to about `2.18 ms/substep`. Validation status from the sweep: no `non_finite`, `out_of_bounds`, or `terrain_penetrating` particles were observed.
+
 ## Optimization backlog
 
-### P0: G2P interior fast path
+### Done: G2P interior fast path
 
-Current `particle_to_grid` already has an interior fast path that avoids per-node bounds checks and repeated 3D-to-linear index recomputation. `grid_to_particle` still does the slow path for every stencil node.
-
-Implement the same split for G2P:
-
-- If `particle_stencil_interior(base, grid_dim)`, compute `base_idx` once.
-- Use linear offsets: `base_idx + ox + oy * y_stride + oz * z_stride`.
-- Avoid `in_grid()` and `grid_index_dims()` inside the 27-node loop.
-- Keep the current checked slow path for boundary particles.
-
-Expected risk: low. This should preserve results except for tiny floating-point ordering differences.
+Implemented. Kept the checked slow path for boundary particles. Results are listed in the optimization history above.
 
 ### P0/P1: particle grouping by base cell for G2P locality
 

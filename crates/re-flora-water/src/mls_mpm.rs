@@ -1109,15 +1109,15 @@ impl PondWaterSim {
     }
 
     fn grid_to_particle(&mut self, dt: f32) -> WaterG2pBreakdown {
-        self.grid_to_particle_impl(dt, false)
+        self.grid_to_particle_impl::<false>(dt)
     }
 
     fn grid_to_particle_timed(&mut self, dt: f32) -> WaterG2pBreakdown {
-        self.grid_to_particle_impl(dt, true)
+        self.grid_to_particle_impl::<true>(dt)
     }
 
-    fn grid_to_particle_impl(&mut self, dt: f32, collect_breakdown: bool) -> WaterG2pBreakdown {
-        let total_start = collect_breakdown.then(Instant::now);
+    fn grid_to_particle_impl<const COLLECT_BREAKDOWN: bool>(&mut self, dt: f32) -> WaterG2pBreakdown {
+        let total_start = COLLECT_BREAKDOWN.then(Instant::now);
         let mut gather_seconds = 0.0;
         let mut box_seconds = 0.0;
         let mut terrain_seconds = 0.0;
@@ -1131,6 +1131,8 @@ impl PondWaterSim {
         let grid_dim = self.grid_dim;
         let dx = self.dx;
         let inv_dx = self.inv_dx;
+        let y_stride = grid_dim.x as usize;
+        let z_stride = y_stride * grid_dim.y as usize;
         let c_scale = 4.0 * inv_dx * inv_dx;
         let j_min = self.config.j_min;
         let bounds = self.config.collider;
@@ -1145,40 +1147,69 @@ impl PondWaterSim {
         let terrain_max_correction = particle_padding;
 
         for particle in &mut self.particles {
-            let gather_start = collect_breakdown.then(Instant::now);
+            let gather_start = COLLECT_BREAKDOWN.then(Instant::now);
             let local_pos = particle.x - origin_ws;
             let grid_pos = local_pos * inv_dx;
             let base = base_coord(grid_pos);
             let fx = grid_pos - base.as_vec3();
             let weights = quadratic_weights(fx);
+            let wx = [weights[0].x, weights[1].x, weights[2].x];
+            let wy = [weights[0].y, weights[1].y, weights[2].y];
+            let wz = [weights[0].z, weights[1].z, weights[2].z];
 
             let mut new_v = Vec3::ZERO;
             let mut new_c = Mat3::ZERO;
-            for oz in 0..3 {
-                for oy in 0..3 {
-                    for ox in 0..3 {
-                        let node = base + IVec3::new(ox, oy, oz);
-                        if !in_grid(node, grid_dim) {
-                            continue;
+            if particle_stencil_interior(base, grid_dim) {
+                let base_idx =
+                    grid_index_dims(grid_dim, base.x as u32, base.y as u32, base.z as u32);
+                let base_dpos = base.as_vec3() * dx - local_pos;
+                for (oz, wz) in wz.iter().copied().enumerate() {
+                    let node_z_offset = oz * z_stride;
+                    let dpos_z = base_dpos.z + oz as f32 * dx;
+                    for (oy, wy) in wy.iter().copied().enumerate() {
+                        let node_y_offset = oy * y_stride;
+                        let dpos_y = base_dpos.y + oy as f32 * dx;
+                        let wyz = wy * wz;
+                        for (ox, wx) in wx.iter().copied().enumerate() {
+                            let weight = wx * wyz;
+                            let node_idx = base_idx + ox + node_y_offset + node_z_offset;
+                            let weighted_v = grid[node_idx].v * weight;
+                            new_v += weighted_v;
+                            let dpos = Vec3::new(base_dpos.x + ox as f32 * dx, dpos_y, dpos_z);
+                            new_c += outer_product(weighted_v, dpos);
                         }
+                    }
+                }
+            } else {
+                for oz in 0..3 {
+                    for oy in 0..3 {
+                        for ox in 0..3 {
+                            let node = base + IVec3::new(ox, oy, oz);
+                            if !in_grid(node, grid_dim) {
+                                continue;
+                            }
 
-                        let weight = weights[ox as usize].x
-                            * weights[oy as usize].y
-                            * weights[oz as usize].z;
-                        if weight <= 0.0 {
-                            continue;
+                            let weight = wx[ox as usize] * wy[oy as usize] * wz[oz as usize];
+                            if weight <= 0.0 {
+                                continue;
+                            }
+
+                            let node_idx = grid_index_dims(
+                                grid_dim,
+                                node.x as u32,
+                                node.y as u32,
+                                node.z as u32,
+                            );
+                            let weighted_v = grid[node_idx].v * weight;
+                            new_v += weighted_v;
+                            let node_local = node.as_vec3() * dx;
+                            let dpos = node_local - local_pos;
+                            new_c += outer_product(weighted_v, dpos);
                         }
-
-                        let node_idx =
-                            grid_index_dims(grid_dim, node.x as u32, node.y as u32, node.z as u32);
-                        let grid_v = grid[node_idx].v;
-                        new_v += weight * grid_v;
-                        let node_local = node.as_vec3() * dx;
-                        let dpos = node_local - local_pos;
-                        new_c += outer_product(weight * grid_v, dpos) * c_scale;
                     }
                 }
             }
+            new_c *= c_scale;
             if let Some(gather_start) = gather_start {
                 gather_seconds += gather_start.elapsed().as_secs_f64();
             }
@@ -1189,7 +1220,7 @@ impl PondWaterSim {
             particle.j = integrate_no_tension_j(particle.j, trace_c, dt, j_min);
             particle.x += particle.v * dt;
 
-            let box_start = collect_breakdown.then(Instant::now);
+            let box_start = COLLECT_BREAKDOWN.then(Instant::now);
             collide_particle_with_box_with_padding(
                 particle,
                 bounds.min_ws,
@@ -1204,7 +1235,7 @@ impl PondWaterSim {
             if particle.x.is_finite() {
                 if let Some(terrain) = terrain {
                     let local_pos = particle.x - origin_ws;
-                    let terrain_start = collect_breakdown.then(Instant::now);
+                    let terrain_start = COLLECT_BREAKDOWN.then(Instant::now);
                     match terrain_grid_particle_query(
                         local_pos,
                         inv_dx,
@@ -1254,7 +1285,7 @@ impl PondWaterSim {
                 }
             }
 
-            let repair_start = collect_breakdown.then(Instant::now);
+            let repair_start = COLLECT_BREAKDOWN.then(Instant::now);
             repair_particle_state_with_padding(
                 particle,
                 bounds.min_ws,
