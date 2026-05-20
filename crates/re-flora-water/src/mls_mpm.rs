@@ -4,7 +4,7 @@ use std::time::Instant;
 use super::{
     collider::{WaterBoxCollider, WaterTerrainColliderSet},
     pond::{
-        PondWaterSim, WaterTerrainGridSample, WATER_GRID_BOUNDARY_X_MAX,
+        PondWaterConfig, PondWaterSim, WaterTerrainGridSample, WATER_GRID_BOUNDARY_X_MAX,
         WATER_GRID_BOUNDARY_X_MIN, WATER_GRID_BOUNDARY_Y_MAX, WATER_GRID_BOUNDARY_Y_MIN,
         WATER_GRID_BOUNDARY_Z_MAX, WATER_GRID_BOUNDARY_Z_MIN,
     },
@@ -35,6 +35,42 @@ pub struct WaterTerrainCacheBuildRequest {
 }
 
 impl WaterTerrainCacheBuildRequest {
+    pub fn for_config_and_terrain(
+        config: &PondWaterConfig,
+        terrain: Option<WaterTerrainColliderSet>,
+        chunk_id: IVec3,
+    ) -> Option<Self> {
+        let origin_ws = config.collider.min_ws;
+        let extent_ws = config.collider.extent();
+        if !extent_ws.is_finite() || extent_ws.min_element() <= 0.0 {
+            return None;
+        }
+
+        let dx = (extent_ws.x / config.grid_dim.x as f32)
+            .max(extent_ws.y / config.grid_dim.y as f32)
+            .max(extent_ws.z / config.grid_dim.z as f32);
+        if dx <= 0.0 || !dx.is_finite() {
+            return None;
+        }
+
+        let inv_dx = dx.recip();
+        let (min_node, max_node_exclusive) =
+            terrain_grid_cache_range_for_chunk_parts(origin_ws, inv_dx, config.grid_dim, chunk_id)?;
+        let terrain_chunk_count = terrain.as_ref().map_or(0, |terrain| terrain.chunks.len());
+        let near_surface_band = dx * (config.terrain_collision_margin_cells.max(0.0) + 2.0);
+        Some(Self {
+            chunk_id,
+            terrain_chunk_count,
+            terrain,
+            origin_ws,
+            grid_dim: config.grid_dim,
+            dx,
+            min_node,
+            max_node_exclusive,
+            near_surface_band,
+        })
+    }
+
     pub fn chunk_id(&self) -> IVec3 {
         self.chunk_id
     }
@@ -851,21 +887,12 @@ impl PondWaterSim {
     }
 
     fn terrain_grid_cache_range_for_chunk(&self, chunk_id: IVec3) -> Option<(UVec3, UVec3)> {
-        const HALO_CELLS: i32 = 1;
-
-        let min_ws = chunk_id.as_vec3();
-        let max_ws = min_ws + Vec3::ONE;
-        let min_grid = ((min_ws - self.origin_ws) * self.inv_dx).floor().as_ivec3()
-            - IVec3::splat(HALO_CELLS);
-        let max_grid = ((max_ws - self.origin_ws) * self.inv_dx).ceil().as_ivec3()
-            + IVec3::splat(HALO_CELLS + 1);
-        let grid_dim = self.grid_dim.as_ivec3();
-        let min_node = min_grid.max(IVec3::ZERO).min(grid_dim);
-        let max_node_exclusive = max_grid.max(IVec3::ZERO).min(grid_dim);
-        if min_node.cmpge(max_node_exclusive).any() {
-            return None;
-        }
-        Some((min_node.as_uvec3(), max_node_exclusive.as_uvec3()))
+        terrain_grid_cache_range_for_chunk_parts(
+            self.origin_ws,
+            self.inv_dx,
+            self.grid_dim,
+            chunk_id,
+        )
     }
 
     fn rebuild_terrain_grid_cache_range(
@@ -1510,6 +1537,33 @@ fn project_particle_with_cached_terrain(
         box_min_padding,
         box_max_padding,
     );
+}
+
+fn terrain_grid_cache_range_for_chunk_parts(
+    origin_ws: Vec3,
+    inv_dx: f32,
+    grid_dim: UVec3,
+    chunk_id: IVec3,
+) -> Option<(UVec3, UVec3)> {
+    const HALO_CELLS: i32 = 1;
+
+    if !origin_ws.is_finite() || inv_dx <= 0.0 || !inv_dx.is_finite() {
+        return None;
+    }
+
+    let min_ws = chunk_id.as_vec3();
+    let max_ws = min_ws + Vec3::ONE;
+    let min_grid = ((min_ws - origin_ws) * inv_dx).floor().as_ivec3()
+        - IVec3::splat(HALO_CELLS);
+    let max_grid = ((max_ws - origin_ws) * inv_dx).ceil().as_ivec3()
+        + IVec3::splat(HALO_CELLS + 1);
+    let grid_dim_i = grid_dim.as_ivec3();
+    let min_node = min_grid.max(IVec3::ZERO).min(grid_dim_i);
+    let max_node_exclusive = max_grid.max(IVec3::ZERO).min(grid_dim_i);
+    if min_node.cmpge(max_node_exclusive).any() {
+        return None;
+    }
+    Some((min_node.as_uvec3(), max_node_exclusive.as_uvec3()))
 }
 
 fn grid_index_dims(grid_dim: glam::UVec3, x: u32, y: u32, z: u32) -> usize {

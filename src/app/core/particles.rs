@@ -473,14 +473,16 @@ impl App {
         let bounds = self.water_sim.config.collider;
         for particle in self
             .water_sim
-            .particles
+            .latest_particles()
             .iter()
-            .filter(|particle| particle.x.is_finite() && bounds.contains(particle.x))
+            .filter(|particle| {
+                particle.position_ws.is_finite() && bounds.contains(particle.position_ws)
+            })
             .take(remaining_capacity)
         {
             self.particle_snapshots.push(ParticleSnapshot {
-                position_ws: particle.x,
-                velocity: particle.v,
+                position_ws: particle.position_ws,
+                velocity: particle.velocity,
                 color: WATER_DEBUG_COLOR,
                 size: WATER_DEBUG_PARTICLE_SIZE,
                 kind: ParticleRenderKind::Leaf,

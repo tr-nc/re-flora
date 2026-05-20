@@ -55,7 +55,7 @@ use ash::vk;
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
-use re_flora_water::{PondWaterConfig, PondWaterSim};
+use re_flora_water::PondWaterConfig;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -213,7 +213,7 @@ pub struct App {
     item_panel_water_icon: Option<TextureHandle>,
     selected_item_panel_slot: usize,
     active_voxel_type: ActiveVoxelType,
-    water_particle_update_main_thread_ms: Option<f32>,
+    water_particle_handoff_main_thread_ms: Option<f32>,
     left_mouse_held: bool,
     right_mouse_held: bool,
     shovel_dig_held: bool,
@@ -254,7 +254,7 @@ pub struct App {
     butterfly_emitters: Vec<ButterflyEmitter>,
     butterfly_emitter_desc: ButterflyEmitterDesc,
     particle_animation_time_sec: f32,
-    water_sim: PondWaterSim,
+    water_sim: water::AsyncWaterSim,
     water_terrain_initialized: bool,
     water_terrain_collider_cache_rebuild_pending: bool,
     cpu_solid_voxels: CpuSolidVoxelStore,
@@ -1666,7 +1666,7 @@ impl App {
             water_config.collider.max_ws,
             cells_per_unit,
         );
-        let water_sim = PondWaterSim::new(water_config);
+        let water_sim = water::AsyncWaterSim::new(water_config);
         let (terrain_sdf_collider_job_tx, terrain_sdf_collider_result_rx) =
             Self::spawn_terrain_sdf_collider_worker();
         let (water_terrain_cache_job_tx, water_terrain_cache_result_rx) =
@@ -1727,7 +1727,7 @@ impl App {
             item_panel_water_icon: None,
             selected_item_panel_slot: 0,
             active_voxel_type: ActiveVoxelType::All,
-            water_particle_update_main_thread_ms: None,
+            water_particle_handoff_main_thread_ms: None,
             left_mouse_held: false,
             right_mouse_held: false,
             shovel_dig_held: false,
@@ -2617,10 +2617,9 @@ impl App {
                 let backpack_cherry_wood_count = self.backpack_cherry_wood_count;
                 let backpack_oak_wood_count = self.backpack_oak_wood_count;
                 let backpack_rock_count = self.backpack_rock_count;
-                let status_bar_text = match self.water_particle_update_main_thread_ms {
-                    Some(ms) => format!("Water particles (main thread): {:.3} ms", ms),
-                    None => "Water particles (main thread): -- ms".to_owned(),
-                };
+                let status_bar_text = self
+                    .water_sim
+                    .status_text(self.water_particle_handoff_main_thread_ms);
                 let growing_flora_chunk_count = self.growing_flora_chunks.len();
                 let active_voxel_label = self.active_voxel_type.label();
                 let active_voxel_color = self.active_voxel_type.color();
@@ -3001,12 +3000,12 @@ impl App {
                         let water_update_start = Instant::now();
                         self.update_water_sim(frame_delta_time);
                         let elapsed_ms = water_update_start.elapsed().as_secs_f32() * 1000.0;
-                        self.water_particle_update_main_thread_ms = Some(elapsed_ms);
+                        self.water_particle_handoff_main_thread_ms = Some(elapsed_ms);
                         if frame_perf_enabled {
                             water_update_ms += elapsed_ms;
                         }
                     } else {
-                        self.water_particle_update_main_thread_ms = None;
+                        self.water_particle_handoff_main_thread_ms = None;
                     }
                     let particle_update_start = frame_perf_enabled.then(Instant::now);
                     self.update_particle_simulation(frame_delta_time);

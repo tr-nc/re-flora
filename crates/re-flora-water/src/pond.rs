@@ -35,7 +35,7 @@ pub(crate) const WATER_GRID_BOUNDARY_Y_MAX: u8 = 1 << 3;
 pub(crate) const WATER_GRID_BOUNDARY_Z_MIN: u8 = 1 << 4;
 pub(crate) const WATER_GRID_BOUNDARY_Z_MAX: u8 = 1 << 5;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PondWaterConfig {
     pub collider: WaterBoxCollider,
     pub grid_dim: UVec3,
