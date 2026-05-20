@@ -15,6 +15,11 @@ const ACTIVE_MASS_EPSILON: f32 = 1.0e-8;
 const MAX_J: f32 = 8.0;
 const NO_TENSION_MAX_J: f32 = 1.0;
 const MAX_J_LOG_STEP_PER_SUBSTEP: f32 = 0.10;
+// Blend a small MLS grid-density estimate into the deformation-history J each
+// substep. Pure velocity-gradient J can relax to rest volume after wall/terrain
+// collision projection even when particles are visibly overpacked; this feedback
+// re-anchors pressure to the configured marker volume without a neighbor solve.
+const DENSITY_J_FEEDBACK_PER_SECOND: f32 = 12.64;
 const MAX_PARTICLE_SPEED: f32 = 20.0;
 const MAX_PARTICLE_CFL_CELLS_PER_SUBSTEP: f32 = 0.5;
 const MAX_AFFINE_COMPONENT: f32 = 100.0;
@@ -1100,6 +1105,9 @@ impl PondWaterSim {
         let y_stride = grid_dim.x as usize;
         let z_stride = y_stride * grid_dim.y as usize;
         let c_scale = 4.0 * inv_dx * inv_dx;
+        let inv_cell_volume = inv_dx * inv_dx * inv_dx;
+        let rest_density = self.config.particle_mass / self.config.particle_volume;
+        let density_j_blend = density_j_feedback_blend(dt);
         let j_min = self.config.j_min;
         let bounds = self.config.collider;
         let particle_padding = self.dx * self.config.wall_padding_cells.max(1.0);
@@ -1124,6 +1132,7 @@ impl PondWaterSim {
             let wz = [weights[0].z, weights[1].z, weights[2].z];
 
             let mut new_v = Vec3::ZERO;
+            let mut new_density_mass = 0.0f32;
             let mut new_c_x = Vec3::ZERO;
             let mut new_c_y = Vec3::ZERO;
             let mut new_c_z = Vec3::ZERO;
@@ -1145,7 +1154,9 @@ impl PondWaterSim {
                             // SAFETY: `particle_stencil_interior` guarantees all 27 stencil
                             // nodes are inside `grid_dim`, and the grid storage is sized from
                             // that same domain.
-                            let grid_v = unsafe { grid.get_unchecked(node_idx).v };
+                            let grid_node = unsafe { grid.get_unchecked(node_idx) };
+                            let grid_v = grid_node.v;
+                            new_density_mass += weight * grid_node.mass;
                             let weighted_v = grid_v * weight;
                             new_v += weighted_v;
                             let dpos = Vec3::new(base_dpos.x + ox as f32 * dx, dpos_y, dpos_z);
@@ -1175,7 +1186,9 @@ impl PondWaterSim {
                                 node.y as u32,
                                 node.z as u32,
                             );
-                            let weighted_v = grid[node_idx].v * weight;
+                            let grid_node = &grid[node_idx];
+                            new_density_mass += weight * grid_node.mass;
+                            let weighted_v = grid_node.v * weight;
                             new_v += weighted_v;
                             let node_local = node.as_vec3() * dx;
                             let dpos = node_local - local_pos;
@@ -1194,7 +1207,15 @@ impl PondWaterSim {
             particle.v = clamp_vec3_length(new_v, max_particle_speed);
             particle.c = clamp_mat3_components(new_c, MAX_AFFINE_COMPONENT);
             let trace_c = particle.c.x_axis.x + particle.c.y_axis.y + particle.c.z_axis.z;
-            particle.j = integrate_no_tension_j(particle.j, trace_c, dt, j_min);
+            let kinematic_j = integrate_no_tension_j(particle.j, trace_c, dt, j_min);
+            particle.j = grid_density_no_tension_j(
+                new_density_mass,
+                inv_cell_volume,
+                rest_density,
+                j_min,
+            )
+            .map(|density_j| blend_no_tension_j(kinematic_j, density_j, density_j_blend, j_min))
+            .unwrap_or(kinematic_j);
             particle.x += particle.v * dt;
 
             let box_start = COLLECT_BREAKDOWN.then(Instant::now);
@@ -1611,6 +1632,45 @@ fn eos_pressure(stiffness: f32, gamma: f32, j: f32, j_min: f32) -> f32 {
         clamped_j.powf(-gamma) - 1.0
     };
     (stiffness * compression).max(0.0)
+}
+
+fn grid_density_no_tension_j(
+    gathered_mass: f32,
+    inv_cell_volume: f32,
+    rest_density: f32,
+    j_min: f32,
+) -> Option<f32> {
+    if !gathered_mass.is_finite()
+        || gathered_mass <= 0.0
+        || !inv_cell_volume.is_finite()
+        || inv_cell_volume <= 0.0
+        || !rest_density.is_finite()
+        || rest_density <= 0.0
+    {
+        return None;
+    }
+
+    let density = gathered_mass * inv_cell_volume;
+    if !density.is_finite() || density <= 0.0 {
+        return None;
+    }
+
+    Some(clamp_no_tension_j(rest_density / density, j_min))
+}
+
+fn density_j_feedback_blend(dt: f32) -> f32 {
+    if !dt.is_finite() || dt <= 0.0 || DENSITY_J_FEEDBACK_PER_SECOND <= 0.0 {
+        return 0.0;
+    }
+
+    (1.0 - (-DENSITY_J_FEEDBACK_PER_SECOND * dt).exp()).clamp(0.0, 1.0)
+}
+
+fn blend_no_tension_j(kinematic_j: f32, density_j: f32, blend: f32, j_min: f32) -> f32 {
+    let kinematic_j = clamp_no_tension_j(kinematic_j, j_min);
+    let density_j = clamp_no_tension_j(density_j, j_min);
+    let blend = blend.clamp(0.0, 1.0);
+    clamp_no_tension_j(lerp(kinematic_j, density_j, blend), j_min)
 }
 
 fn integrate_no_tension_j(j: f32, trace_c: f32, dt: f32, j_min: f32) -> f32 {
@@ -2142,9 +2202,10 @@ fn water_particle_debug_stats(
 #[cfg(test)]
 mod tests {
     use super::{
-        collide_particle_with_terrain, collide_particle_with_terrain_iterative, eos_pressure,
-        integrate_no_tension_j, project_velocity_away_from_surface, terrain_grid_particle_query,
-        TerrainGridParticleQuery, WaterTerrainGridSample, ACTIVE_MASS_EPSILON,
+        blend_no_tension_j, collide_particle_with_terrain, collide_particle_with_terrain_iterative,
+        density_j_feedback_blend, eos_pressure, grid_density_no_tension_j, integrate_no_tension_j,
+        project_velocity_away_from_surface, terrain_grid_particle_query, TerrainGridParticleQuery,
+        WaterTerrainGridSample, ACTIVE_MASS_EPSILON,
     };
     use crate::{PondWaterConfig, PondWaterSim, WaterTerrainColliderChunk, WaterTerrainColliderSet};
     use glam::{IVec3, Mat3, UVec3, Vec3};
@@ -2181,6 +2242,67 @@ mod tests {
 
         let clamped = integrate_no_tension_j(0.56, -100.0, 1.0, 0.55);
         assert_eq!(clamped, 0.55);
+    }
+
+    #[test]
+    fn grid_density_j_estimate_respects_rest_density() {
+        let rest_density = 1_000.0;
+        let inv_cell_volume = 8.0;
+        let rest_gathered_mass = rest_density / inv_cell_volume;
+
+        assert_eq!(
+            grid_density_no_tension_j(rest_gathered_mass, inv_cell_volume, rest_density, 0.2),
+            Some(1.0)
+        );
+
+        let compressed = grid_density_no_tension_j(
+            rest_gathered_mass * 2.0,
+            inv_cell_volume,
+            rest_density,
+            0.2,
+        )
+        .unwrap();
+        assert!((compressed - 0.5).abs() <= 1.0e-6, "compressed={compressed}");
+
+        assert_eq!(
+            grid_density_no_tension_j(rest_gathered_mass * 0.5, inv_cell_volume, rest_density, 0.2),
+            Some(1.0)
+        );
+        assert_eq!(grid_density_no_tension_j(0.0, inv_cell_volume, rest_density, 0.2), None);
+    }
+
+    #[test]
+    fn density_j_feedback_blends_toward_grid_density() {
+        let blend_120_hz = density_j_feedback_blend(1.0 / 120.0);
+        assert!(
+            blend_120_hz > 0.09 && blend_120_hz < 0.11,
+            "blend_120_hz={blend_120_hz}"
+        );
+        assert_eq!(density_j_feedback_blend(0.0), 0.0);
+
+        let blended = blend_no_tension_j(1.0, 0.5, 0.1, 0.2);
+        assert!((blended - 0.95).abs() <= 1.0e-6, "blended={blended}");
+    }
+
+    #[test]
+    fn density_feedback_keeps_settled_puddle_from_collapsing_below_marker_volume() {
+        let mut sim = PondWaterSim::new(PondWaterConfig::default().with_particle_count(4_096));
+        for _ in 0..240 {
+            sim.substep(sim.config.substep_dt);
+        }
+
+        let (min_ws, max_ws) = particle_bounds(&sim);
+        let height = max_ws.y - min_ws.y;
+        let padding = sim.dx * sim.config.wall_padding_cells.max(1.0);
+        let usable_x = sim.config.collider.max_ws.x - sim.config.collider.min_ws.x - padding * 2.0;
+        let usable_z = sim.config.collider.max_ws.z - sim.config.collider.min_ws.z - padding * 2.0;
+        let rest_height = sim.particles.len() as f32 * sim.config.particle_volume / (usable_x * usable_z);
+
+        assert!(
+            height >= rest_height * 0.5,
+            "settled height {height} lost too much marker volume; rest_height={rest_height} bounds={min_ws:?}..{max_ws:?}"
+        );
+        assert_particles_finite_and_bounded(&sim);
     }
 
     #[test]
@@ -2526,6 +2648,16 @@ mod tests {
             c: Mat3::ZERO,
             j: 1.0,
         }
+    }
+
+    fn particle_bounds(sim: &PondWaterSim) -> (Vec3, Vec3) {
+        let mut min_ws = Vec3::splat(f32::INFINITY);
+        let mut max_ws = Vec3::splat(f32::NEG_INFINITY);
+        for particle in &sim.particles {
+            min_ws = min_ws.min(particle.x);
+            max_ws = max_ws.max(particle.x);
+        }
+        (min_ws, max_ws)
     }
 
     fn assert_particles_finite_and_bounded(sim: &PondWaterSim) {
