@@ -20,6 +20,15 @@ const MAX_J_LOG_STEP_PER_SUBSTEP: f32 = 0.10;
 // collision projection even when particles are visibly overpacked; this feedback
 // re-anchors pressure to the configured marker volume without a neighbor solve.
 const DENSITY_J_FEEDBACK_PER_SECOND: f32 = 12.64;
+// Ignore tiny density-estimate compression. The MLS kernel/marker discretization
+// constantly produces sub-percent local density noise; feeding that straight into
+// pressure keeps quiet puddles breathing forever.
+const DENSITY_J_FEEDBACK_DEADBAND: f32 = 0.02;
+// APIC's affine velocity mode preserves sub-cell motion very well, which is good
+// for lively splashes but leaves collision/pressure ringing in settled water.
+// Mildly damp only the affine part; particle velocity keeps the configured water
+// linear damping path.
+const APIC_AFFINE_DAMPING_PER_SECOND: f32 = 4.0;
 const MAX_PARTICLE_SPEED: f32 = 20.0;
 const MAX_PARTICLE_CFL_CELLS_PER_SUBSTEP: f32 = 0.5;
 const MAX_AFFINE_COMPONENT: f32 = 100.0;
@@ -1108,6 +1117,7 @@ impl PondWaterSim {
         let inv_cell_volume = inv_dx * inv_dx * inv_dx;
         let rest_density = self.config.particle_mass / self.config.particle_volume;
         let density_j_blend = density_j_feedback_blend(dt);
+        let affine_damping = affine_damping_factor(dt);
         let j_min = self.config.j_min;
         let bounds = self.config.collider;
         let particle_padding = self.dx * self.config.wall_padding_cells.max(1.0);
@@ -1199,7 +1209,8 @@ impl PondWaterSim {
                     }
                 }
             }
-            let new_c = Mat3::from_cols(new_c_x * c_scale, new_c_y * c_scale, new_c_z * c_scale);
+            let new_c = Mat3::from_cols(new_c_x * c_scale, new_c_y * c_scale, new_c_z * c_scale)
+                * affine_damping;
             if let Some(gather_start) = gather_start {
                 gather_seconds += gather_start.elapsed().as_secs_f64();
             }
@@ -1655,7 +1666,12 @@ fn grid_density_no_tension_j(
         return None;
     }
 
-    Some(clamp_no_tension_j(rest_density / density, j_min))
+    let density_j = rest_density / density;
+    if density_j >= NO_TENSION_MAX_J - DENSITY_J_FEEDBACK_DEADBAND.max(0.0) {
+        return Some(NO_TENSION_MAX_J);
+    }
+
+    Some(clamp_no_tension_j(density_j, j_min))
 }
 
 fn density_j_feedback_blend(dt: f32) -> f32 {
@@ -1671,6 +1687,16 @@ fn blend_no_tension_j(kinematic_j: f32, density_j: f32, blend: f32, j_min: f32) 
     let density_j = clamp_no_tension_j(density_j, j_min);
     let blend = blend.clamp(0.0, 1.0);
     clamp_no_tension_j(lerp(kinematic_j, density_j, blend), j_min)
+}
+
+fn affine_damping_factor(dt: f32) -> f32 {
+    if !dt.is_finite() || dt <= 0.0 || APIC_AFFINE_DAMPING_PER_SECOND <= 0.0 {
+        return 1.0;
+    }
+
+    (-APIC_AFFINE_DAMPING_PER_SECOND * dt)
+        .exp()
+        .clamp(0.0, 1.0)
 }
 
 fn integrate_no_tension_j(j: f32, trace_c: f32, dt: f32, j_min: f32) -> f32 {
@@ -2203,9 +2229,10 @@ fn water_particle_debug_stats(
 mod tests {
     use super::{
         blend_no_tension_j, collide_particle_with_terrain, collide_particle_with_terrain_iterative,
-        density_j_feedback_blend, eos_pressure, grid_density_no_tension_j, integrate_no_tension_j,
-        project_velocity_away_from_surface, terrain_grid_particle_query, TerrainGridParticleQuery,
-        WaterTerrainGridSample, ACTIVE_MASS_EPSILON,
+        affine_damping_factor, density_j_feedback_blend, eos_pressure,
+        grid_density_no_tension_j, integrate_no_tension_j, project_velocity_away_from_surface,
+        terrain_grid_particle_query, TerrainGridParticleQuery, WaterTerrainGridSample,
+        ACTIVE_MASS_EPSILON,
     };
     use crate::{PondWaterConfig, PondWaterSim, WaterTerrainColliderChunk, WaterTerrainColliderSet};
     use glam::{IVec3, Mat3, UVec3, Vec3};
@@ -2265,6 +2292,10 @@ mod tests {
         assert!((compressed - 0.5).abs() <= 1.0e-6, "compressed={compressed}");
 
         assert_eq!(
+            grid_density_no_tension_j(rest_gathered_mass * 1.01, inv_cell_volume, rest_density, 0.2),
+            Some(1.0)
+        );
+        assert_eq!(
             grid_density_no_tension_j(rest_gathered_mass * 0.5, inv_cell_volume, rest_density, 0.2),
             Some(1.0)
         );
@@ -2282,6 +2313,16 @@ mod tests {
 
         let blended = blend_no_tension_j(1.0, 0.5, 0.1, 0.2);
         assert!((blended - 0.95).abs() <= 1.0e-6, "blended={blended}");
+    }
+
+    #[test]
+    fn affine_damping_is_mild_per_substep() {
+        let damping_120_hz = affine_damping_factor(1.0 / 120.0);
+        assert!(
+            damping_120_hz > 0.96 && damping_120_hz < 0.98,
+            "damping_120_hz={damping_120_hz}"
+        );
+        assert_eq!(affine_damping_factor(0.0), 1.0);
     }
 
     #[test]
