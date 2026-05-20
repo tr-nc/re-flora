@@ -30,12 +30,14 @@ const WATER_SIM_COMMAND_CHANNEL_CAPACITY: usize = 256;
 const WATER_SIM_THREAD_MAX_COMMANDS_PER_TICK: usize = 1024;
 const WATER_SIM_THREAD_SNAPSHOT_INTERVAL: Duration = Duration::from_millis(16);
 const WATER_SIM_THREAD_IDLE_SLEEP: Duration = Duration::from_millis(16);
+const WATER_SIM_SNAPSHOT_BUCKET_COUNT: usize = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct WaterSimRuntimeOptions {
     enabled: bool,
     perf_logging: bool,
     max_substeps_per_tick: usize,
+    snapshot_interval: Duration,
 }
 
 impl Default for WaterSimRuntimeOptions {
@@ -44,6 +46,7 @@ impl Default for WaterSimRuntimeOptions {
             enabled: false,
             perf_logging: false,
             max_substeps_per_tick: WATER_SIM_THREAD_DEFAULT_MAX_SUBSTEPS,
+            snapshot_interval: WATER_SIM_THREAD_SNAPSHOT_INTERVAL,
         }
     }
 }
@@ -73,6 +76,15 @@ pub(super) struct WaterSimParticleSnapshot {
     pub(super) velocity: Vec3,
 }
 
+impl WaterSimParticleSnapshot {
+    fn invisible() -> Self {
+        Self {
+            position_ws: Vec3::splat(f32::NAN),
+            velocity: Vec3::ZERO,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub(super) struct WaterSimSnapshot {
     pub(super) particles: Vec<WaterSimParticleSnapshot>,
@@ -81,6 +93,8 @@ pub(super) struct WaterSimSnapshot {
     sim_time_seconds: f32,
     worker_update_ms: f32,
     worker_substeps: u32,
+    publish_bucket_index: usize,
+    publish_bucket_count: usize,
 }
 
 #[derive(Default)]
@@ -96,6 +110,7 @@ pub(super) struct AsyncWaterSim {
     shared: Arc<Mutex<WaterSimThreadShared>>,
     worker: Option<JoinHandle<()>>,
     latest_snapshot: Option<WaterSimSnapshot>,
+    snapshot_poll_accumulator: f32,
     last_sent_config: PondWaterConfig,
     runtime_options: WaterSimRuntimeOptions,
 }
@@ -119,6 +134,7 @@ impl AsyncWaterSim {
             shared,
             worker: Some(worker),
             latest_snapshot: None,
+            snapshot_poll_accumulator: 0.0,
             last_sent_config: config,
             runtime_options: WaterSimRuntimeOptions::default(),
         }
@@ -140,11 +156,13 @@ impl AsyncWaterSim {
         enabled: bool,
         perf_logging: bool,
         max_substeps_per_tick: usize,
+        snapshot_interval: Duration,
     ) {
         let options = WaterSimRuntimeOptions {
             enabled,
             perf_logging,
             max_substeps_per_tick: max_substeps_per_tick.max(1),
+            snapshot_interval: snapshot_interval.max(Duration::from_secs_f32(1.0 / 240.0)),
         };
         if options == self.runtime_options {
             return;
@@ -160,8 +178,51 @@ impl AsyncWaterSim {
             Err(poisoned) => poisoned.into_inner().latest_snapshot.take(),
         };
         if let Some(snapshot) = latest {
-            self.latest_snapshot = Some(snapshot);
+            self.merge_latest_snapshot(snapshot);
         }
+    }
+
+    fn merge_latest_snapshot(&mut self, snapshot: WaterSimSnapshot) {
+        if snapshot.publish_bucket_count <= 1 {
+            self.latest_snapshot = Some(snapshot);
+            return;
+        }
+
+        let publish_bucket_index =
+            snapshot.publish_bucket_index % snapshot.publish_bucket_count.max(1);
+        let publish_bucket_count = snapshot.publish_bucket_count;
+        let mut display_snapshot =
+            self.latest_snapshot
+                .take()
+                .unwrap_or_else(|| WaterSimSnapshot {
+                    particles: vec![WaterSimParticleSnapshot::invisible(); snapshot.particle_count],
+                    particle_bounds_ws: snapshot.particle_bounds_ws,
+                    particle_count: snapshot.particle_count,
+                    sim_time_seconds: snapshot.sim_time_seconds,
+                    worker_update_ms: snapshot.worker_update_ms,
+                    worker_substeps: snapshot.worker_substeps,
+                    publish_bucket_index,
+                    publish_bucket_count,
+                });
+
+        display_snapshot.particles.resize(
+            snapshot.particle_count,
+            WaterSimParticleSnapshot::invisible(),
+        );
+        for (bucket_slot, particle) in snapshot.particles.iter().copied().enumerate() {
+            let particle_index = publish_bucket_index + bucket_slot * publish_bucket_count;
+            if let Some(display_particle) = display_snapshot.particles.get_mut(particle_index) {
+                *display_particle = particle;
+            }
+        }
+        display_snapshot.particle_bounds_ws = snapshot.particle_bounds_ws;
+        display_snapshot.particle_count = snapshot.particle_count;
+        display_snapshot.sim_time_seconds = snapshot.sim_time_seconds;
+        display_snapshot.worker_update_ms = snapshot.worker_update_ms;
+        display_snapshot.worker_substeps = snapshot.worker_substeps;
+        display_snapshot.publish_bucket_index = publish_bucket_index;
+        display_snapshot.publish_bucket_count = publish_bucket_count;
+        self.latest_snapshot = Some(display_snapshot);
     }
 
     pub(super) fn latest_particles(&self) -> &[WaterSimParticleSnapshot] {
@@ -334,14 +395,12 @@ fn run_water_sim_thread(
     let mut sim = PondWaterSim::new(config);
     let mut runtime_options = WaterSimRuntimeOptions::default();
     let mut last_tick = Instant::now();
-    let mut last_publish = Instant::now()
-        .checked_sub(WATER_SIM_THREAD_SNAPSHOT_INTERVAL)
-        .unwrap_or_else(Instant::now);
-    publish_water_sim_snapshot(&sim, &shared, 0.0, 0);
+    let mut last_publish = Instant::now();
+    let mut publish_bucket_index = 0usize;
+    publish_water_sim_snapshot(&sim, &shared, 0.0, 0, 0, 1);
 
     loop {
         let tick_start = Instant::now();
-        let mut force_publish = false;
         for _ in 0..WATER_SIM_THREAD_MAX_COMMANDS_PER_TICK {
             match command_rx.try_recv() {
                 Ok(command) => {
@@ -349,7 +408,6 @@ fn run_water_sim_thread(
                         log::info!("[WATER][THREAD] simulation thread stopped");
                         return;
                     }
-                    force_publish = true;
                 }
                 Err(mpsc::TryRecvError::Empty) => break,
                 Err(mpsc::TryRecvError::Disconnected) => {
@@ -376,8 +434,25 @@ fn run_water_sim_thread(
         let worker_substeps =
             ((sim.sim_time_seconds - sim_time_before).max(0.0) / substep_dt).round() as u32;
 
-        if force_publish || last_publish.elapsed() >= WATER_SIM_THREAD_SNAPSHOT_INTERVAL {
-            publish_water_sim_snapshot(&sim, &shared, worker_update_ms, worker_substeps);
+        if last_publish.elapsed() >= runtime_options.snapshot_interval {
+            let publish_bucket_count = if runtime_options.enabled {
+                WATER_SIM_SNAPSHOT_BUCKET_COUNT
+            } else {
+                1
+            };
+            publish_water_sim_snapshot(
+                &sim,
+                &shared,
+                worker_update_ms,
+                worker_substeps,
+                publish_bucket_index,
+                publish_bucket_count,
+            );
+            publish_bucket_index = if publish_bucket_count > 1 {
+                (publish_bucket_index + 1) % publish_bucket_count
+            } else {
+                0
+            };
             last_publish = Instant::now();
         }
 
@@ -389,8 +464,6 @@ fn run_water_sim_thread(
                     log::info!("[WATER][THREAD] simulation thread stopped");
                     return;
                 }
-                publish_water_sim_snapshot(&sim, &shared, 0.0, 0);
-                last_publish = Instant::now();
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => {
@@ -491,15 +564,30 @@ fn publish_water_sim_snapshot(
     shared: &Arc<Mutex<WaterSimThreadShared>>,
     worker_update_ms: f32,
     worker_substeps: u32,
+    publish_bucket_index: usize,
+    publish_bucket_count: usize,
 ) {
+    let particle_count = sim.particles.len();
+    let publish_bucket_count = publish_bucket_count.max(1);
+    let publish_bucket_index = publish_bucket_index % publish_bucket_count;
+    let publish_all_particles = publish_bucket_count <= 1;
+    let publish_count = if publish_all_particles {
+        particle_count
+    } else {
+        particle_count.saturating_add(publish_bucket_count - 1 - publish_bucket_index)
+            / publish_bucket_count
+    };
+
     let mut min_ws = Vec3::splat(f32::INFINITY);
     let mut max_ws = Vec3::splat(f32::NEG_INFINITY);
-    let mut particles = Vec::with_capacity(sim.particles.len());
-    for particle in &sim.particles {
-        particles.push(WaterSimParticleSnapshot {
-            position_ws: particle.x,
-            velocity: particle.v,
-        });
+    let mut particles = Vec::with_capacity(publish_count);
+    for (particle_index, particle) in sim.particles.iter().enumerate() {
+        if publish_all_particles || particle_index % publish_bucket_count == publish_bucket_index {
+            particles.push(WaterSimParticleSnapshot {
+                position_ws: particle.x,
+                velocity: particle.v,
+            });
+        }
         if particle.x.is_finite() {
             min_ws = min_ws.min(particle.x);
             max_ws = max_ws.max(particle.x);
@@ -507,12 +595,14 @@ fn publish_water_sim_snapshot(
     }
     let particle_bounds_ws = min_ws.is_finite().then_some((min_ws, max_ws));
     let snapshot = WaterSimSnapshot {
-        particle_count: particles.len(),
+        particle_count,
         particles,
         particle_bounds_ws,
         sim_time_seconds: sim.sim_time_seconds,
         worker_update_ms,
         worker_substeps,
+        publish_bucket_index,
+        publish_bucket_count,
     };
 
     match shared.lock() {
@@ -1152,16 +1242,37 @@ impl App {
         self.try_submit_next_terrain_sdf_collider_rebuild();
     }
 
-    pub(super) fn update_water_sim(&mut self, _frame_delta_time: f32) {
+    pub(super) fn update_water_sim(&mut self, frame_delta_time: f32, world_tick_seconds: f32) {
         self.water_sim.apply_gui_adjustables(&self.gui_adjustables);
         let max_substeps = if self.water_terrain_work_active() {
             WATER_TERRAIN_ACTIVE_MAX_SUBSTEPS
         } else {
             WATER_SIM_THREAD_DEFAULT_MAX_SUBSTEPS
         };
-        self.water_sim
-            .set_runtime_options(true, self.perf_logging, max_substeps);
-        self.water_sim.poll_latest_snapshot();
+        let water_world_tick_multiplier = self
+            .gui_adjustables
+            .water_world_tick_multiplier
+            .value
+            .clamp(0.0, 1.0);
+        let water_tick_seconds = crate::game_time::clamp_world_tick_seconds(
+            world_tick_seconds * water_world_tick_multiplier,
+        );
+        let snapshot_interval = Duration::from_secs_f32(water_tick_seconds);
+        self.water_sim.set_runtime_options(
+            true,
+            self.perf_logging,
+            max_substeps,
+            snapshot_interval,
+        );
+
+        self.water_sim.snapshot_poll_accumulator += frame_delta_time.max(0.0);
+        let water_tick_elapsed = self.water_sim.snapshot_poll_accumulator >= water_tick_seconds;
+        if water_tick_elapsed {
+            self.water_sim.snapshot_poll_accumulator %= water_tick_seconds;
+        }
+        if water_tick_elapsed || self.water_sim.latest_snapshot.is_none() {
+            self.water_sim.poll_latest_snapshot();
+        }
     }
 
     fn water_terrain_work_active(&self) -> bool {

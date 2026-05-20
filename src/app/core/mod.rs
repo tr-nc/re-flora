@@ -3005,7 +3005,7 @@ impl App {
                 if self.render_flags.enable_particles {
                     if self.water_terrain_initialized {
                         let water_handoff_start = Instant::now();
-                        self.update_water_sim(frame_delta_time);
+                        self.update_water_sim(frame_delta_time, world_tick_seconds);
                         let elapsed_ms = water_handoff_start.elapsed().as_secs_f32() * 1000.0;
                         self.water_particle_handoff_main_thread_ms = Some(elapsed_ms);
                         if frame_perf_enabled {
