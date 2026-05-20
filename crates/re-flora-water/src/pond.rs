@@ -5,24 +5,17 @@ use std::sync::Arc;
 
 const DEFAULT_GRID_DIM: UVec3 = UVec3::new(64, 32, 64);
 const DEFAULT_PARTICLE_COUNT: usize = 0;
-const DEFAULT_PARTICLE_VOLUME_REFERENCE_COUNT: usize = 4_096;
 const DEBUG_SPAWN_HYDROSTATIC_J_MAX_DEPTH_CELLS: f32 = 4.0;
 const INITIAL_PARTICLE_CHUNK_MIN_WS: Vec3 = Vec3::new(1.0, 0.0, 1.0);
 const INITIAL_PARTICLE_CHUNK_MAX_WS: Vec3 = Vec3::new(2.0, 1.0, 2.0);
-// Keep particle rest volume tied to the original one-chunk pond, even though
-// the containing box is now wider and the default starts empty. This preserves
-// the old 4096-particle density when water is added later by debug spawn.
-const DEFAULT_INITIAL_PARTICLE_VOLUME_FRACTION: f32 = 0.1;
-// Keep weak-EOS material parameters independent of marker count. Particle volume
-// changes with the requested marker count so the visible water volume stays
-// roughly constant; mass must scale with that volume as well, otherwise higher
-// particle counts become artificially heavy and rapidly crush J to the lower
-// clamp before pressure can support the column.
-//
-// This is a simulation-space density, calibrated so the historical 4096-marker
-// reference volume still gives each marker mass 1.0. That preserves the current
-// EOS tuning while removing particle-count dependence; a real 1000 kg/m^3 value
-// made the existing 60 Hz, dx=1/32 solver far too stiff without retuning K/dt.
+// Fixed simulation-space rest volume represented by each water marker. This is
+// intentionally independent of the requested marker count: changing particle
+// count changes total simulated water volume instead of shrinking/growing each
+// marker to preserve a constant initial volume.
+const DEFAULT_PARTICLE_VOLUME: f32 = 0.05 * 0.05 * 0.05;
+// Simulation-space density. A real 1000 kg/m^3 value made the existing 60 Hz,
+// dx=1/32 solver far too stiff without retuning K/dt, so keep the calibrated
+// density and derive marker mass from the fixed marker volume.
 const DEFAULT_WEAK_EOS_REST_DENSITY: f32 = 40_960.0;
 const DEFAULT_WEAK_EOS_STIFFNESS: f32 = 10_000.0;
 const DEFAULT_WEAK_EOS_GAMMA: f32 = 7.0;
@@ -61,8 +54,8 @@ impl Default for PondWaterConfig {
             grid_dim: DEFAULT_GRID_DIM,
             particle_count: DEFAULT_PARTICLE_COUNT,
             substep_dt: 1.0 / 120.0,
-            particle_volume: default_particle_volume(DEFAULT_PARTICLE_COUNT),
-            particle_mass: default_particle_mass(default_particle_volume(DEFAULT_PARTICLE_COUNT)),
+            particle_volume: default_particle_volume(),
+            particle_mass: default_particle_mass(default_particle_volume()),
             gravity: Vec3::new(0.0, -9.8, 0.0),
             stiffness: DEFAULT_WEAK_EOS_STIFFNESS,
             gamma: DEFAULT_WEAK_EOS_GAMMA,
@@ -78,8 +71,6 @@ impl Default for PondWaterConfig {
 impl PondWaterConfig {
     pub fn with_particle_count(mut self, particle_count: usize) -> Self {
         self.particle_count = particle_count;
-        self.particle_volume = default_particle_volume(particle_count);
-        self.particle_mass = default_particle_mass(self.particle_volume);
         self
     }
 
@@ -138,15 +129,8 @@ impl PondWaterConfig {
     }
 }
 
-fn default_particle_volume(particle_count: usize) -> f32 {
-    let volume_particle_count = if particle_count == 0 {
-        DEFAULT_PARTICLE_VOLUME_REFERENCE_COUNT
-    } else {
-        particle_count
-    };
-    (INITIAL_PARTICLE_CHUNK_MAX_WS - INITIAL_PARTICLE_CHUNK_MIN_WS).element_product()
-        * DEFAULT_INITIAL_PARTICLE_VOLUME_FRACTION
-        / volume_particle_count as f32
+fn default_particle_volume() -> f32 {
+    DEFAULT_PARTICLE_VOLUME
 }
 
 fn default_particle_mass(particle_volume: f32) -> f32 {
@@ -932,27 +916,21 @@ mod tests {
         assert_eq!(sim.particles.len(), 0);
         assert_eq!(sim.grid_dim, DEFAULT_GRID_DIM);
         assert!((sim.dx - 1.0 / 32.0).abs() < 1.0e-6);
-        assert_eq!(
-            sim.config.particle_volume,
-            default_particle_volume(DEFAULT_PARTICLE_VOLUME_REFERENCE_COUNT)
-        );
-        assert_eq!(sim.config.particle_mass, 1.0);
+        assert_eq!(sim.config.particle_volume, default_particle_volume());
+        assert!((sim.config.particle_mass - 5.12).abs() < 1.0e-6);
         assert_eq!(sim.config.particle_mass, default_particle_mass(sim.config.particle_volume));
         assert_eq!(sim.config.j_min, DEFAULT_WEAK_EOS_J_MIN);
     }
 
     #[test]
-    fn particle_mass_scales_with_marker_volume() {
+    fn particle_volume_is_independent_of_marker_count() {
         let reference = PondWaterConfig::default().with_particle_count(4_096);
         let doubled = PondWaterConfig::default().with_particle_count(8_192);
 
-        assert!((reference.particle_mass - 1.0).abs() < 1.0e-6);
-        assert!((doubled.particle_mass - 0.5).abs() < 1.0e-6);
+        assert_eq!(reference.particle_volume, DEFAULT_PARTICLE_VOLUME);
+        assert_eq!(doubled.particle_volume, DEFAULT_PARTICLE_VOLUME);
+        assert_eq!(reference.particle_mass, doubled.particle_mass);
         assert!((reference.particle_mass / reference.particle_volume
-            - DEFAULT_WEAK_EOS_REST_DENSITY)
-            .abs()
-            < 1.0e-3);
-        assert!((doubled.particle_mass / doubled.particle_volume
             - DEFAULT_WEAK_EOS_REST_DENSITY)
             .abs()
             < 1.0e-3);
@@ -960,7 +938,7 @@ mod tests {
 
     #[test]
     fn initial_seed_uses_hydrostatic_j_for_eos() {
-        let sim = PondWaterSim::new(PondWaterConfig::default().with_particle_count(128));
+        let sim = PondWaterSim::new(PondWaterConfig::default().with_particle_count(1024));
         let min_j = sim
             .particles
             .iter()
@@ -996,8 +974,8 @@ mod tests {
 
     #[test]
     fn explicit_particle_count_seeds_particles_on_original_chunk_surface() {
-        let sim = PondWaterSim::new(PondWaterConfig::default().with_particle_count(128));
-        assert_eq!(sim.particles.len(), 128);
+        let sim = PondWaterSim::new(PondWaterConfig::default().with_particle_count(1024));
+        assert_eq!(sim.particles.len(), 1024);
         let seed_surface_y = sim.config.collider.max_ws.y - sim.dx * sim.config.wall_padding_cells.max(1.0);
         let mut min_y = f32::INFINITY;
         let mut max_y = f32::NEG_INFINITY;
