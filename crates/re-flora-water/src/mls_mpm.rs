@@ -336,9 +336,6 @@ impl PondWaterSim {
         }
 
         if !perf_logging {
-            // G2P already resolves terrain every substep; the pre-P2G repair pass
-            // only needs finite/box/J/speed cleanup in steady state.
-            self.repair_particles(dt, false);
             self.clear_grid();
             self.particle_to_grid(dt);
             let active_nodes = self.update_grid(dt);
@@ -348,11 +345,7 @@ impl PondWaterSim {
         }
 
         let total_start = Instant::now();
-        let repair_start = Instant::now();
-        // G2P already resolves terrain every substep; the pre-P2G repair pass
-        // only needs finite/box/J/speed cleanup in steady state.
-        self.repair_particles(dt, false);
-        let repair_seconds = repair_start.elapsed().as_secs_f64();
+        let repair_seconds = 0.0;
 
         let clear_start = Instant::now();
         self.clear_grid();
@@ -936,42 +929,6 @@ impl PondWaterSim {
         stats
     }
 
-    fn repair_particles(&mut self, dt: f32, repair_terrain: bool) {
-        let bounds = self.config.collider;
-        let padding = self.dx * self.config.wall_padding_cells.max(1.0);
-        let min_padding = Vec3::splat(padding);
-        let max_padding = Vec3::splat(padding);
-        let terrain_collision_margin = self.terrain_collision_margin();
-        let terrain_max_correction = padding;
-        let max_particle_speed = max_particle_speed_for_substep(self.dx, dt);
-        let j_min = self.config.j_min;
-        let terrain = repair_terrain.then_some(()).and(self.terrain.as_ref());
-        for particle in &mut self.particles {
-            repair_particle_state_with_padding(
-                particle,
-                bounds.min_ws,
-                bounds.max_ws,
-                min_padding,
-                max_padding,
-                max_particle_speed,
-                j_min,
-            );
-            if let Some(terrain) = terrain {
-                collide_particle_with_terrain_iterative(
-                    particle,
-                    terrain,
-                    terrain_collision_margin,
-                    terrain_max_correction,
-                    TERRAIN_PARTICLE_COLLISION_ITERATIONS,
-                    bounds.min_ws,
-                    bounds.max_ws,
-                    min_padding,
-                    max_padding,
-                );
-            }
-        }
-    }
-
     fn clear_grid(&mut self) {
         for node_idx in self.touched_grid_nodes.drain(..) {
             if let Some(node) = self.grid.get_mut(node_idx) {
@@ -1003,6 +960,9 @@ impl PondWaterSim {
             let base = base_coord(grid_pos);
             let fx = grid_pos - base.as_vec3();
             let weights = quadratic_weights(fx);
+            let wx = [weights[0].x, weights[1].x, weights[2].x];
+            let wy = [weights[0].y, weights[1].y, weights[2].y];
+            let wz = [weights[0].z, weights[1].z, weights[2].z];
 
             let pressure = eos_pressure(stiffness, gamma, particle.j, j_min);
             let pressure_scale = dt * volume * particle.j * pressure * d_inv;
@@ -1015,23 +975,31 @@ impl PondWaterSim {
             if particle_stencil_interior(base, grid_dim) {
                 let base_idx =
                     grid_index_dims(grid_dim, base.x as u32, base.y as u32, base.z as u32);
-                for oz in 0..3usize {
-                    for oy in 0..3usize {
-                        for ox in 0..3usize {
-                            let weight = weights[ox].x * weights[oy].y * weights[oz].z;
+                let base_dpos = base.as_vec3() * dx - local_pos;
+                for (oz, wz) in wz.iter().copied().enumerate() {
+                    let node_z_offset = oz * z_stride;
+                    let dpos_z = base_dpos.z + oz as f32 * dx;
+                    for (oy, wy) in wy.iter().copied().enumerate() {
+                        let node_y_offset = oy * y_stride;
+                        let dpos_y = base_dpos.y + oy as f32 * dx;
+                        let wyz = wy * wz;
+                        for (ox, wx) in wx.iter().copied().enumerate() {
+                            let weight = wx * wyz;
                             if weight <= 0.0 {
                                 continue;
                             }
 
-                            let node_idx = base_idx + ox + oy * y_stride + oz * z_stride;
-                            let grid_node = &mut self.grid[node_idx];
+                            let node_idx = base_idx + ox + node_y_offset + node_z_offset;
+                            debug_assert!(node_idx < self.grid.len());
+                            // SAFETY: `particle_stencil_interior` guarantees all 27 stencil
+                            // nodes are inside `grid_dim`, and the grid storage is sized from
+                            // that same domain.
+                            let grid_node = unsafe { self.grid.get_unchecked_mut(node_idx) };
                             if grid_node.mass <= 0.0 {
                                 self.touched_grid_nodes.push(node_idx);
                             }
                             grid_node.mass += weight * mass;
-                            let node = base + IVec3::new(ox as i32, oy as i32, oz as i32);
-                            let node_local = node.as_vec3() * dx;
-                            let dpos = node_local - local_pos;
+                            let dpos = Vec3::new(base_dpos.x + ox as f32 * dx, dpos_y, dpos_z);
                             grid_node.v += weight * (momentum + affine * dpos);
                         }
                     }
@@ -1045,9 +1013,7 @@ impl PondWaterSim {
                                 continue;
                             }
 
-                            let weight = weights[ox as usize].x
-                                * weights[oy as usize].y
-                                * weights[oz as usize].z;
+                            let weight = wx[ox as usize] * wy[oy as usize] * wz[oz as usize];
                             if weight <= 0.0 {
                                 continue;
                             }
@@ -1158,7 +1124,9 @@ impl PondWaterSim {
             let wz = [weights[0].z, weights[1].z, weights[2].z];
 
             let mut new_v = Vec3::ZERO;
-            let mut new_c = Mat3::ZERO;
+            let mut new_c_x = Vec3::ZERO;
+            let mut new_c_y = Vec3::ZERO;
+            let mut new_c_z = Vec3::ZERO;
             if particle_stencil_interior(base, grid_dim) {
                 let base_idx =
                     grid_index_dims(grid_dim, base.x as u32, base.y as u32, base.z as u32);
@@ -1173,10 +1141,17 @@ impl PondWaterSim {
                         for (ox, wx) in wx.iter().copied().enumerate() {
                             let weight = wx * wyz;
                             let node_idx = base_idx + ox + node_y_offset + node_z_offset;
-                            let weighted_v = grid[node_idx].v * weight;
+                            debug_assert!(node_idx < grid.len());
+                            // SAFETY: `particle_stencil_interior` guarantees all 27 stencil
+                            // nodes are inside `grid_dim`, and the grid storage is sized from
+                            // that same domain.
+                            let grid_v = unsafe { grid.get_unchecked(node_idx).v };
+                            let weighted_v = grid_v * weight;
                             new_v += weighted_v;
                             let dpos = Vec3::new(base_dpos.x + ox as f32 * dx, dpos_y, dpos_z);
-                            new_c += outer_product(weighted_v, dpos);
+                            new_c_x += weighted_v * dpos.x;
+                            new_c_y += weighted_v * dpos.y;
+                            new_c_z += weighted_v * dpos.z;
                         }
                     }
                 }
@@ -1204,12 +1179,14 @@ impl PondWaterSim {
                             new_v += weighted_v;
                             let node_local = node.as_vec3() * dx;
                             let dpos = node_local - local_pos;
-                            new_c += outer_product(weighted_v, dpos);
+                            new_c_x += weighted_v * dpos.x;
+                            new_c_y += weighted_v * dpos.y;
+                            new_c_z += weighted_v * dpos.z;
                         }
                     }
                 }
             }
-            new_c *= c_scale;
+            let new_c = Mat3::from_cols(new_c_x * c_scale, new_c_y * c_scale, new_c_z * c_scale);
             if let Some(gather_start) = gather_start {
                 gather_seconds += gather_start.elapsed().as_secs_f64();
             }
@@ -1286,7 +1263,7 @@ impl PondWaterSim {
             }
 
             let repair_start = COLLECT_BREAKDOWN.then(Instant::now);
-            repair_particle_state_with_padding(
+            repair_particle_state_after_g2p_with_padding(
                 particle,
                 bounds.min_ws,
                 bounds.max_ws,
@@ -1605,10 +1582,6 @@ fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
 }
 
-fn outer_product(a: Vec3, b: Vec3) -> Mat3 {
-    Mat3::from_cols(a * b.x, a * b.y, a * b.z)
-}
-
 fn eos_pressure(stiffness: f32, gamma: f32, j: f32, j_min: f32) -> f32 {
     if !stiffness.is_finite()
         || stiffness <= 0.0
@@ -1625,7 +1598,19 @@ fn eos_pressure(stiffness: f32, gamma: f32, j: f32, j_min: f32) -> f32 {
     // clumps and then lets the pile creep down to j_min; clamp it to zero
     // like a Tait water EOS with no tensile strength.
     let clamped_j = j.max(j_min.max(1.0e-6));
-    (stiffness * (clamped_j.powf(-gamma) - 1.0)).max(0.0)
+    if clamped_j >= 1.0 {
+        return 0.0;
+    }
+
+    let compression = if gamma == 7.0 {
+        let inv_j = clamped_j.recip();
+        let inv_j2 = inv_j * inv_j;
+        let inv_j4 = inv_j2 * inv_j2;
+        inv_j4 * inv_j2 * inv_j - 1.0
+    } else {
+        clamped_j.powf(-gamma) - 1.0
+    };
+    (stiffness * compression).max(0.0)
 }
 
 fn integrate_no_tension_j(j: f32, trace_c: f32, dt: f32, j_min: f32) -> f32 {
@@ -1697,6 +1682,40 @@ fn repair_particle_state_with_padding(
     }
     particle.c = clamp_mat3_components(particle.c, MAX_AFFINE_COMPONENT);
     particle.j = clamp_no_tension_j(particle.j, j_min);
+}
+
+fn repair_particle_state_after_g2p_with_padding(
+    particle: &mut super::pond::WaterParticle,
+    min_ws: Vec3,
+    max_ws: Vec3,
+    min_padding: Vec3,
+    max_padding: Vec3,
+    max_speed: f32,
+    j_min: f32,
+) {
+    let min = min_ws + min_padding;
+    let max = max_ws - max_padding;
+    if particle.x.is_finite()
+        && particle.v.is_finite()
+        && mat3_is_finite(particle.c)
+        && particle.j.is_finite()
+        && particle.j >= j_min
+        && particle.j <= NO_TENSION_MAX_J
+        && !particle.x.cmplt(min).any()
+        && !particle.x.cmpgt(max).any()
+    {
+        return;
+    }
+
+    repair_particle_state_with_padding(
+        particle,
+        min_ws,
+        max_ws,
+        min_padding,
+        max_padding,
+        max_speed,
+        j_min,
+    );
 }
 
 fn repair_particle_position_velocity_with_padding(

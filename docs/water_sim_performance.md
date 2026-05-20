@@ -119,11 +119,48 @@ Sweep sources:
 
 100k G2P gather sub-timer improved from about `4.44 ms/substep` to about `2.18 ms/substep`. Validation status from the sweep: no `non_finite`, `out_of_bounds`, or `terrain_penetrating` particles were observed.
 
+### 2026-05-20: P2G arithmetic and steady-state cleanup
+
+Change summary:
+
+- Reused the G2P scalar/linear-offset stencil pattern in the P2G interior path.
+- Accumulated G2P affine columns directly instead of constructing a `Mat3` outer product per stencil node.
+- Added the default `gamma == 7` EOS pressure fast path and early no-tension return for `j >= 1`.
+- Used unchecked interior grid indexing with debug assertions for the proven-in-bounds stencil paths.
+- Removed the redundant pre-P2G repair pass; particles are repaired at the end of G2P, and external spawn/stabilization paths already produce bounded finite particles.
+
+Long 100k confirmation command:
+
+```bash
+cargo run --release -- --hidden --auto-exit 35 --perf --water-particles 100000
+```
+
+Source: `target/re-flora-logs/re-flora-20260520-140236.405-30357.log`.
+
+| reference | windows | avg ms/substep | delta vs original baseline |
+| --- | ---: | ---: | ---: |
+| original baseline | 31 | 26.09 | -- |
+| after G2P fast path short run | 6 | 23.85 | -8.6% |
+| after P2G/cleanup long run | 32 | 23.10 | -11.5% |
+
+100k long-run breakdown, normalized per substep:
+
+| component | original baseline | after P2G/cleanup |
+| --- | ---: | ---: |
+| repair | 0.44 | 0.00 |
+| clear | 0.04 | 0.04 |
+| P2G | 5.04 | 4.47 |
+| grid update | 0.28 | 0.28 |
+| G2P total | 20.29 | 18.31 |
+| total | 26.09 | 23.10 |
+
+Validation status from the 35s run: no `terrain_shadow_false_skips`, `terrain_penetrating`, or `no_sdf` particles were observed.
+
 ## Optimization backlog
 
-### Done: G2P interior fast path
+### Done: G2P/P2G scalar interior fast paths and steady-state cleanup
 
-Implemented. Kept the checked slow path for boundary particles. Results are listed in the optimization history above.
+Implemented. Kept checked slow paths for boundary particles. Results are listed in the optimization history above.
 
 ### P0/P1: particle grouping by base cell for G2P locality
 
