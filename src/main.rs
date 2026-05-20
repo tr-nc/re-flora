@@ -126,6 +126,8 @@ pub struct AppOptions {
     pub water_terrain_margin_cells: Option<f32>,
     /// Override water linear velocity damping per second.
     pub water_damping: Option<f32>,
+    /// Override water-terrain tangential damping per second.
+    pub water_terrain_tangent_damping: Option<f32>,
     /// Override weakly-compressible equation-of-state stiffness.
     pub water_stiffness: Option<f32>,
     /// Override weakly-compressible equation-of-state gamma.
@@ -239,6 +241,8 @@ impl AppOptions {
             water_terrain_margin_cells: parse_f32_after("--water-terrain-margin-cells")
                 .map(|v| v.max(0.0)),
             water_damping: parse_f32_after("--water-damping").map(|v| v.max(0.0)),
+            water_terrain_tangent_damping: parse_f32_after("--water-terrain-tangent-damping")
+                .map(|v| v.max(0.0)),
             water_stiffness: parse_f32_after("--water-stiffness").map(|v| v.max(0.0)),
             water_gamma: parse_f32_after("--water-gamma").map(|v| v.max(1.0e-4)),
             water_j_min: parse_f32_after("--water-j-min").map(|v| v.clamp(1.0e-4, 1.0)),
@@ -285,6 +289,8 @@ Options:
   --water-terrain-margin-cells <C>
                               Override water-terrain keep-out distance in grid cells
   --water-damping <PerSec>    Override water linear velocity damping per second
+  --water-terrain-tangent-damping <PerSec>
+                              Override terrain-contact tangential damping per second
   --water-stiffness <K>       Override weakly-compressible EOS stiffness
   --water-gamma <G>           Override weakly-compressible EOS gamma
   --water-j-min <J>           Override minimum weakly-compressible volume ratio J

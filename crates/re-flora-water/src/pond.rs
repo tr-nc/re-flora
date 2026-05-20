@@ -20,6 +20,7 @@ const DEFAULT_WEAK_EOS_REST_DENSITY: f32 = 40_960.0;
 const DEFAULT_WEAK_EOS_STIFFNESS: f32 = 10_000.0;
 const DEFAULT_WEAK_EOS_GAMMA: f32 = 7.0;
 const DEFAULT_WEAK_EOS_J_MIN: f32 = 0.55;
+const DEFAULT_TERRAIN_TANGENT_DAMPING_PER_SEC: f32 = 20.0;
 
 pub(crate) const WATER_GRID_BOUNDARY_X_MIN: u8 = 1 << 0;
 pub(crate) const WATER_GRID_BOUNDARY_X_MAX: u8 = 1 << 1;
@@ -41,6 +42,7 @@ pub struct PondWaterConfig {
     pub gamma: f32,
     pub j_min: f32,
     pub terrain_collision_margin_cells: f32,
+    pub terrain_tangent_damping_per_sec: f32,
     pub linear_damping_per_sec: f32,
     pub wall_padding_cells: f32,
     pub wall_damping: f32,
@@ -61,6 +63,7 @@ impl Default for PondWaterConfig {
             gamma: DEFAULT_WEAK_EOS_GAMMA,
             j_min: DEFAULT_WEAK_EOS_J_MIN,
             terrain_collision_margin_cells: 0.5,
+            terrain_tangent_damping_per_sec: DEFAULT_TERRAIN_TANGENT_DAMPING_PER_SEC,
             linear_damping_per_sec: 0.8,
             wall_padding_cells: 2.0,
             wall_damping: 0.0,
@@ -130,6 +133,12 @@ impl PondWaterConfig {
     pub fn with_linear_damping_per_sec(mut self, damping_per_sec: f32) -> Self {
         assert!(damping_per_sec >= 0.0 && damping_per_sec.is_finite());
         self.linear_damping_per_sec = damping_per_sec;
+        self
+    }
+
+    pub fn with_terrain_tangent_damping_per_sec(mut self, damping_per_sec: f32) -> Self {
+        assert!(damping_per_sec >= 0.0 && damping_per_sec.is_finite());
+        self.terrain_tangent_damping_per_sec = damping_per_sec;
         self
     }
 

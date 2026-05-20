@@ -1057,6 +1057,7 @@ impl PondWaterSim {
         let gravity = self.config.gravity;
         let linear_damping = velocity_damping_factor(self.config.linear_damping_per_sec, dt);
         let terrain_collision_margin = self.terrain_collision_margin();
+        let terrain_tangent_damping_per_sec = self.config.terrain_tangent_damping_per_sec;
         let wall_damping = self.config.wall_damping.clamp(0.0, 1.0);
         let terrain_grid = &self.terrain_grid;
         let grid_boundary_flags = &self.grid_boundary_flags;
@@ -1081,7 +1082,9 @@ impl PondWaterSim {
                 boundary_flags,
                 terrain_grid[idx],
                 terrain_collision_margin,
+                terrain_tangent_damping_per_sec,
                 wall_damping,
+                dt,
             );
         }
 
@@ -1387,7 +1390,9 @@ fn project_grid_node_collisions(
     boundary_flags: u8,
     terrain_sample: WaterTerrainGridSample,
     terrain_collision_margin: f32,
+    terrain_tangent_damping_per_sec: f32,
     wall_damping: f32,
+    dt: f32,
 ) {
     let mut normal = Vec3::ZERO;
     // The cached normal band is wider than the actual contact band so G2P can
@@ -1398,6 +1403,16 @@ fn project_grid_node_collisions(
         && terrain_sample.normal.length_squared() > 0.0
     {
         node.v = project_velocity_away_from_surface(node.v, terrain_sample.normal);
+        node.v = damp_velocity_tangent_to_surface(
+            node.v,
+            terrain_sample.normal,
+            terrain_tangent_damping_factor(
+                terrain_tangent_damping_per_sec,
+                terrain_sample.sdf,
+                terrain_collision_margin,
+                dt,
+            ),
+        );
         normal += terrain_sample.normal;
     }
 
@@ -1722,6 +1737,59 @@ fn clamp_no_tension_j(j: f32, j_min: f32) -> f32 {
     }
 
     j.clamp(min_j, NO_TENSION_MAX_J)
+}
+
+fn damp_velocity_tangent_to_surface(velocity: Vec3, normal: Vec3, tangent_damping: f32) -> Vec3 {
+    if !velocity.is_finite() {
+        return Vec3::ZERO;
+    }
+    if !normal.is_finite() {
+        return velocity;
+    }
+
+    let normal = normal.normalize_or_zero();
+    if normal.length_squared() <= f32::EPSILON {
+        return velocity;
+    }
+
+    let tangent_damping = tangent_damping.clamp(0.0, 1.0);
+    let normal_speed = velocity.dot(normal);
+    let normal_v = normal * normal_speed;
+    let tangent_v = velocity - normal_v;
+    normal_v + tangent_v * tangent_damping
+}
+
+fn terrain_tangent_damping_factor(
+    damping_per_sec: f32,
+    terrain_sdf: f32,
+    collision_margin: f32,
+    dt: f32,
+) -> f32 {
+    if damping_per_sec <= 0.0
+        || !damping_per_sec.is_finite()
+        || !terrain_sdf.is_finite()
+        || dt <= 0.0
+        || !dt.is_finite()
+    {
+        return 1.0;
+    }
+
+    let collision_margin = collision_margin.max(0.0);
+    let contact_weight = if collision_margin > f32::EPSILON {
+        ((collision_margin - terrain_sdf) / collision_margin).clamp(0.0, 1.0)
+    } else if terrain_sdf <= 0.0 {
+        1.0
+    } else {
+        0.0
+    };
+
+    if contact_weight <= 0.0 {
+        return 1.0;
+    }
+
+    (-damping_per_sec * contact_weight * dt)
+        .exp()
+        .clamp(0.0, 1.0)
 }
 
 fn project_velocity_away_from_surface(velocity: Vec3, normal: Vec3) -> Vec3 {
@@ -2228,10 +2296,11 @@ fn water_particle_debug_stats(
 #[cfg(test)]
 mod tests {
     use super::{
-        blend_no_tension_j, collide_particle_with_terrain, collide_particle_with_terrain_iterative,
-        affine_damping_factor, density_j_feedback_blend, eos_pressure,
-        grid_density_no_tension_j, integrate_no_tension_j, project_velocity_away_from_surface,
-        terrain_grid_particle_query, TerrainGridParticleQuery, WaterTerrainGridSample,
+        affine_damping_factor, blend_no_tension_j, collide_particle_with_terrain,
+        collide_particle_with_terrain_iterative, damp_velocity_tangent_to_surface,
+        density_j_feedback_blend, eos_pressure, grid_density_no_tension_j, integrate_no_tension_j,
+        project_velocity_away_from_surface, terrain_grid_particle_query,
+        terrain_tangent_damping_factor, TerrainGridParticleQuery, WaterTerrainGridSample,
         ACTIVE_MASS_EPSILON,
     };
     use crate::{PondWaterConfig, PondWaterSim, WaterTerrainColliderChunk, WaterTerrainColliderSet};
@@ -2446,6 +2515,27 @@ mod tests {
             projected.x < 0.0,
             "expected downhill tangent velocity: {projected:?}"
         );
+    }
+
+    #[test]
+    fn terrain_tangent_damping_preserves_normal_velocity() {
+        let normal = Vec3::new(-1.0, 1.0, 0.0).normalize();
+        let tangent = Vec3::new(1.0, 1.0, 0.0).normalize();
+        let velocity = normal * 0.5 + tangent * 2.0;
+
+        let damped = damp_velocity_tangent_to_surface(velocity, normal, 0.25);
+
+        assert!((damped.dot(normal) - 0.5).abs() <= 1.0e-6, "damped={damped:?}");
+        assert!((damped.dot(tangent) - 0.5).abs() <= 1.0e-6, "damped={damped:?}");
+    }
+
+    #[test]
+    fn terrain_tangent_damping_fades_across_contact_margin() {
+        let dt = 1.0 / 60.0;
+        let damping = terrain_tangent_damping_factor(6.0, 0.0, 0.2, dt);
+        assert!((damping - (-6.0_f32 * dt).exp()).abs() <= 1.0e-6);
+        assert_eq!(terrain_tangent_damping_factor(6.0, 0.2, 0.2, dt), 1.0);
+        assert_eq!(terrain_tangent_damping_factor(0.0, 0.0, 0.2, dt), 1.0);
     }
 
     #[test]

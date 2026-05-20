@@ -412,6 +412,7 @@ fn handle_water_sim_command(
             sim.config.particle_mass = config.particle_mass;
             sim.config.particle_volume = config.particle_volume;
             sim.config.terrain_collision_margin_cells = config.terrain_collision_margin_cells;
+            sim.config.terrain_tangent_damping_per_sec = config.terrain_tangent_damping_per_sec;
             sim.config.linear_damping_per_sec = config.linear_damping_per_sec;
             sim.config.gravity = config.gravity;
             sim.config.stiffness = config.stiffness;
@@ -600,6 +601,11 @@ pub(super) fn apply_water_gui_adjustables_to_config(
         0.0,
         config.linear_damping_per_sec,
     );
+    config.terrain_tangent_damping_per_sec = finite_at_least(
+        gui_adjustables.water_terrain_tangent_damping.value,
+        0.0,
+        config.terrain_tangent_damping_per_sec,
+    );
     config.gravity.y = finite_or(gui_adjustables.water_gravity_y.value, config.gravity.y);
     config.stiffness =
         finite_at_least(gui_adjustables.water_stiffness.value, 0.0, config.stiffness);
@@ -621,6 +627,7 @@ pub(super) fn sync_water_gui_adjustables_from_config(
     gui_adjustables.water_particle_edge_len.value = config.particle_volume.cbrt();
     gui_adjustables.water_terrain_margin_cells.value = config.terrain_collision_margin_cells;
     gui_adjustables.water_damping.value = config.linear_damping_per_sec;
+    gui_adjustables.water_terrain_tangent_damping.value = config.terrain_tangent_damping_per_sec;
     gui_adjustables.water_gravity_y.value = config.gravity.y;
     gui_adjustables.water_stiffness.value = config.stiffness;
     gui_adjustables.water_gamma.value = config.gamma;

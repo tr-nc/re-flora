@@ -415,6 +415,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Wall Damping",
     },
     GeneratedGuiParamDescriptor {
+        section: "WaterSimulation",
+        id: "water_terrain_tangent_damping",
+        kind: "float",
+        label: "Terrain Tangent Damping (/s)",
+    },
+    GeneratedGuiParamDescriptor {
         section: "EmberBloom",
         id: "ember_bloom_bottom_color",
         kind: "color",
@@ -699,6 +705,7 @@ pub struct GuiAdjustables {
     pub water_gamma: crate::gui_adjustables::FloatParam,
     pub water_j_min: crate::gui_adjustables::FloatParam,
     pub water_wall_damping: crate::gui_adjustables::FloatParam,
+    pub water_terrain_tangent_damping: crate::gui_adjustables::FloatParam,
     pub ember_bloom_bottom_color: crate::gui_adjustables::ColorParam,
     pub ember_bloom_tip_color: crate::gui_adjustables::ColorParam,
     pub flora_instance_hue_offset: crate::gui_adjustables::FloatParam,
@@ -813,6 +820,7 @@ impl GuiAdjustables {
         let mut water_gamma_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_j_min_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_wall_damping_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut water_terrain_tangent_damping_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut ember_bloom_bottom_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut ember_bloom_tip_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut flora_instance_hue_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1282,6 +1290,13 @@ impl GuiAdjustables {
                             water_wall_damping_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
+                    "water_terrain_tangent_damping" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            water_terrain_tangent_damping_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
                     "ember_bloom_bottom_color" => {
                         if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
                             ember_bloom_bottom_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
@@ -1583,6 +1598,7 @@ impl GuiAdjustables {
             water_gamma: water_gamma_field.expect("Missing parameter: water_gamma"),
             water_j_min: water_j_min_field.expect("Missing parameter: water_j_min"),
             water_wall_damping: water_wall_damping_field.expect("Missing parameter: water_wall_damping"),
+            water_terrain_tangent_damping: water_terrain_tangent_damping_field.expect("Missing parameter: water_terrain_tangent_damping"),
             ember_bloom_bottom_color: ember_bloom_bottom_color_field.expect("Missing parameter: ember_bloom_bottom_color"),
             ember_bloom_tip_color: ember_bloom_tip_color_field.expect("Missing parameter: ember_bloom_tip_color"),
             flora_instance_hue_offset: flora_instance_hue_offset_field.expect("Missing parameter: flora_instance_hue_offset"),
@@ -1672,6 +1688,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "water_gamma" => Some(&adjustables.water_gamma),
         "water_j_min" => Some(&adjustables.water_j_min),
         "water_wall_damping" => Some(&adjustables.water_wall_damping),
+        "water_terrain_tangent_damping" => Some(&adjustables.water_terrain_tangent_damping),
         "flora_instance_hue_offset" => Some(&adjustables.flora_instance_hue_offset),
         "flora_instance_saturation_offset" => Some(&adjustables.flora_instance_saturation_offset),
         "flora_instance_value_offset" => Some(&adjustables.flora_instance_value_offset),
@@ -1808,6 +1825,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "water_gamma" => Some(&mut adjustables.water_gamma),
         "water_j_min" => Some(&mut adjustables.water_j_min),
         "water_wall_damping" => Some(&mut adjustables.water_wall_damping),
+        "water_terrain_tangent_damping" => Some(&mut adjustables.water_terrain_tangent_damping),
         "flora_instance_hue_offset" => Some(&mut adjustables.flora_instance_hue_offset),
         "flora_instance_saturation_offset" => Some(&mut adjustables.flora_instance_saturation_offset),
         "flora_instance_value_offset" => Some(&mut adjustables.flora_instance_value_offset),
