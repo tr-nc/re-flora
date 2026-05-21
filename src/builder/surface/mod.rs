@@ -294,20 +294,10 @@ const SURFACE_BUILD_TIMING_PASSES: [SurfacePassTimingPass; 4] = [
     },
 ];
 
-const FLORA_REBUILD_TIMING_PASSES: [SurfacePassTimingPass; 3] = [
-    SurfacePassTimingPass {
-        label: "clear_occupancy",
-        bench_key: "flora_rebuild_pass_clear_occupancy_gpu",
-    },
-    SurfacePassTimingPass {
-        label: "edit_occupancy",
-        bench_key: "flora_rebuild_pass_edit_occupancy_gpu",
-    },
-    SurfacePassTimingPass {
-        label: "occupancy_to_instances",
-        bench_key: "flora_rebuild_pass_occupancy_to_instances_gpu",
-    },
-];
+const FLORA_REBUILD_TIMING_PASSES: [SurfacePassTimingPass; 1] = [SurfacePassTimingPass {
+    label: "active_surface_to_flora",
+    bench_key: "flora_rebuild_pass_active_surface_to_flora_gpu",
+}];
 
 const FLORA_EDIT_TIMING_PASSES_WITH_INSTANCES: [SurfacePassTimingPass; 4] = [
     SurfacePassTimingPass {
@@ -360,6 +350,7 @@ pub struct SurfaceBuilder {
     instances_to_occupancy_ppl: ComputePipeline,
     edit_occupancy_ppl: ComputePipeline,
     occupancy_to_instances_ppl: ComputePipeline,
+    active_surface_to_flora_ppl: ComputePipeline,
     update_flora_growth_ppl: ComputePipeline,
     pass_timing: Option<SurfacePassTiming>,
 
@@ -421,6 +412,14 @@ impl SurfaceBuilder {
         )
         .unwrap();
 
+        let active_surface_to_flora_sm = ShaderModule::from_glsl(
+            device,
+            shader_compiler,
+            "shader/builder/surface/active_surface_to_flora_instances.comp",
+            "main",
+        )
+        .unwrap();
+
         let update_flora_growth_sm = ShaderModule::from_glsl(
             device,
             shader_compiler,
@@ -474,6 +473,12 @@ impl SurfaceBuilder {
             &pool,
             &[&resources, plain_builder_resources],
         );
+        let active_surface_to_flora_ppl = ComputePipeline::new(
+            device,
+            &active_surface_to_flora_sm,
+            &pool,
+            &[&resources, plain_builder_resources],
+        );
         let update_flora_growth_ppl = ComputePipeline::new(
             device,
             &update_flora_growth_sm,
@@ -492,6 +497,7 @@ impl SurfaceBuilder {
             instances_to_occupancy_ppl,
             edit_occupancy_ppl,
             occupancy_to_instances_ppl,
+            active_surface_to_flora_ppl,
             update_flora_growth_ppl,
             pass_timing,
             chunk_bound,
@@ -642,7 +648,7 @@ impl SurfaceBuilder {
         let should_rebuild_flora = job.place_flora && active_voxel_len > 0;
         let flora_start = Instant::now();
         if should_rebuild_flora {
-            self.seed_and_rebuild_flora_from_surface(job.chunk_id, 0)?;
+            self.seed_and_rebuild_flora_from_surface(job.chunk_id, active_brick_len, 0)?;
         }
         let flora_elapsed = flora_start.elapsed();
         let total_elapsed = job.total_start.elapsed();
@@ -735,26 +741,15 @@ impl SurfaceBuilder {
     fn seed_and_rebuild_flora_from_surface(
         &mut self,
         chunk_id: UVec3,
-        flora_tick: u32,
+        active_brick_len: u32,
+        _flora_tick: u32,
     ) -> Result<()> {
-        let chunk_world_offset = chunk_id * self.voxel_dim_per_chunk;
-        let center = chunk_world_offset.as_vec3() + self.voxel_dim_per_chunk.as_vec3() * 0.5;
-        let radius = self.voxel_dim_per_chunk.as_vec3().length();
+        let active_surface_dispatch_len = active_brick_len.saturating_mul(64);
+        if active_surface_dispatch_len == 0 {
+            return Ok(());
+        }
 
-        update_clear_occupancy_info(
-            &self.resources.clear_occupancy_info,
-            self.voxel_dim_per_chunk,
-        )?;
-        update_edit_occupancy_info(
-            &self.resources.edit_occupancy_info,
-            center,
-            radius,
-            chunk_world_offset,
-            self.voxel_dim_per_chunk,
-            OccupancyEditMode::Add,
-            flora_tick,
-            0,
-        )?;
+        let chunk_world_offset = chunk_id * self.voxel_dim_per_chunk;
         update_occupancy_to_instances_info(
             &self.resources.occupancy_to_instances_info,
             chunk_world_offset,
@@ -766,7 +761,7 @@ impl SurfaceBuilder {
         let chunk_resources = &self.resources.instances.chunk_flora_instances[chunk_idx]
             .1
             .resources;
-        self.bind_manual_instance_buffers(&self.occupancy_to_instances_ppl, chunk_resources);
+        self.bind_manual_instance_buffers(&self.active_surface_to_flora_ppl, chunk_resources);
 
         let device = self.vulkan_ctx.device();
         let cmdbuf = CommandBuffer::new(device, self.vulkan_ctx.command_pool());
@@ -791,48 +786,12 @@ impl SurfaceBuilder {
             }};
         }
 
-        self.resources
-            .occupancy_data
-            .get_image()
-            .record_transition_barrier(&cmdbuf, 0, vk::ImageLayout::GENERAL);
-
+        let active_surface_to_flora_push = [active_brick_len, 0, 0, 0];
         record_timed_flora_pass!({
-            self.clear_occupancy_ppl.record(
+            self.active_surface_to_flora_ppl.record(
                 &cmdbuf,
-                Extent3D::new(
-                    self.voxel_dim_per_chunk.x,
-                    self.voxel_dim_per_chunk.y,
-                    self.voxel_dim_per_chunk.z,
-                ),
-                None,
-            );
-        });
-
-        record_compute_barrier(device, &cmdbuf);
-
-        record_timed_flora_pass!({
-            self.edit_occupancy_ppl.record(
-                &cmdbuf,
-                Extent3D::new(
-                    self.voxel_dim_per_chunk.x,
-                    self.voxel_dim_per_chunk.y,
-                    self.voxel_dim_per_chunk.z,
-                ),
-                None,
-            );
-        });
-
-        record_compute_barrier(device, &cmdbuf);
-
-        record_timed_flora_pass!({
-            self.occupancy_to_instances_ppl.record(
-                &cmdbuf,
-                Extent3D::new(
-                    self.voxel_dim_per_chunk.x,
-                    self.voxel_dim_per_chunk.y,
-                    self.voxel_dim_per_chunk.z,
-                ),
-                None,
+                Extent3D::new(active_surface_dispatch_len, 1, 1),
+                Some(bytemuck::bytes_of(&active_surface_to_flora_push)),
             );
         });
 
