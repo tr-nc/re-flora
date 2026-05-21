@@ -66,7 +66,6 @@ Use real app runs plus logs for end-to-end verification, especially for Vulkan, 
 cargo fmt --check
 cargo check
 cargo test
-source ~/.zshrc
 cargo run --release -- --hidden --auto-exit 0.5
 ```
 
@@ -80,12 +79,6 @@ cargo run --release -- --tail-latest-log 200
 ## Basic Perf Test
 
 Benchmark in release mode is king. Use `cargo run --release` hidden app runs with logs for performance decisions.
-
-Before running the app, source the shell environment:
-
-```bash
-source ~/.zshrc
-```
 
 Discover CLI usage and testing recipes from the binary:
 
