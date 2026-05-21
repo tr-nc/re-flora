@@ -275,14 +275,10 @@ impl SurfacePassTiming {
     }
 }
 
-const SURFACE_BUILD_TIMING_PASSES: [SurfacePassTimingPass; 5] = [
+const SURFACE_BUILD_TIMING_PASSES: [SurfacePassTimingPass; 4] = [
     SurfacePassTimingPass {
         label: "surface_clear",
         bench_key: "surface_pass_surface_clear_gpu",
-    },
-    SurfacePassTimingPass {
-        label: "occupancy_clear_before_surface",
-        bench_key: "surface_pass_occupancy_clear_before_surface_gpu",
     },
     SurfacePassTimingPass {
         label: "make_surface_result_clear",
@@ -559,14 +555,6 @@ impl SurfaceBuilder {
 
         record_timed_surface_pass!({
             self.resources.surface.get_image().record_clear(
-                &cmdbuf,
-                Some(vk::ImageLayout::GENERAL),
-                0,
-                ClearValue::Color(ColorClearValue::UInt([0, 0, 0, 0])),
-            );
-        });
-        record_timed_surface_pass!({
-            self.resources.occupancy_data.get_image().record_clear(
                 &cmdbuf,
                 Some(vk::ImageLayout::GENERAL),
                 0,
