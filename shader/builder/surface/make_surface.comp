@@ -133,9 +133,10 @@ void calculate_normal(out vec3 o_normal, out bool o_is_normal_valid, ivec3 uvi) 
             }
         }
     }
-    o_is_normal_valid = length(normal) > EPSILON;
+    float normal_len_sq = dot(normal, normal);
+    o_is_normal_valid = normal_len_sq > EPSILON * EPSILON;
     if (o_is_normal_valid) {
-        o_normal = normalize(-normal);
+        o_normal = -normal * inversesqrt(normal_len_sq);
     }
 }
 
