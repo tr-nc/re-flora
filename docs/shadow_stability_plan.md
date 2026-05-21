@@ -94,6 +94,8 @@ git commit -am "stabilize shadow projection bounds"
 
 ## Step 3: Dual shadow maps with temporal fade
 
+Status: implemented in `fade between shadow map updates`.
+
 Goal: when the shadow map changes, blend from the previous shadow solution to the new one instead of switching in one frame.
 
 Implementation outline:

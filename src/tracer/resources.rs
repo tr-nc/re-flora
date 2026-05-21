@@ -229,6 +229,8 @@ pub struct TracerResources {
     pub camera_info: Resource<Buffer>,
     pub camera_info_prev_frame: Resource<Buffer>,
     pub shadow_camera_info: Resource<Buffer>,
+    pub shadow_camera_info_prev: Resource<Buffer>,
+    pub shadow_temporal_info: Resource<Buffer>,
     pub flora_growth_info: Resource<Buffer>,
     pub wind_volume_info: Resource<Buffer>,
     pub env_info: Resource<Buffer>,
@@ -252,6 +254,7 @@ pub struct TracerResources {
     pub shadow_map_tex: Resource<Texture>,
     pub shadow_map_tex_for_vsm_ping: Resource<Texture>,
     pub shadow_map_tex_for_vsm_pong: Resource<Texture>,
+    pub shadow_map_tex_for_vsm_prev: Resource<Texture>,
     pub wind_volume_tex: Resource<Texture>,
 
     pub sun_sprite_tex: Resource<Texture>,
@@ -345,6 +348,28 @@ impl TracerResources {
             device.clone(),
             allocator.clone(),
             shadow_camera_info_layout.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+        );
+
+        let shadow_camera_info_prev_layout = flora_vert_sm
+            .get_buffer_layout("U_ShadowCameraInfoPrev")
+            .unwrap();
+        let shadow_camera_info_prev = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            shadow_camera_info_prev_layout.clone(),
+            BufferUsage::empty(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+        );
+
+        let shadow_temporal_info_layout = flora_vert_sm
+            .get_buffer_layout("U_ShadowTemporalInfo")
+            .unwrap();
+        let shadow_temporal_info = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            shadow_temporal_info_layout.clone(),
             BufferUsage::empty(),
             gpu_allocator::MemoryLocation::CpuToGpu,
         );
@@ -497,6 +522,11 @@ impl TracerResources {
             allocator.clone(),
             shadow_map_extent.into(),
         );
+        let shadow_map_tex_for_vsm_prev = Self::create_shadow_map_tex_for_vsm_pingpong(
+            device.clone(),
+            allocator.clone(),
+            shadow_map_extent.into(),
+        );
         let wind_volume_tex =
             Self::create_wind_volume_tex(device.clone(), allocator.clone(), chunk_bound);
 
@@ -580,6 +610,8 @@ impl TracerResources {
             camera_info: Resource::new(camera_info),
             camera_info_prev_frame: Resource::new(camera_info_prev_frame),
             shadow_camera_info: Resource::new(shadow_camera_info),
+            shadow_camera_info_prev: Resource::new(shadow_camera_info_prev),
+            shadow_temporal_info: Resource::new(shadow_temporal_info),
             flora_growth_info: Resource::new(flora_growth_info),
             wind_volume_info: Resource::new(wind_volume_info),
             env_info: Resource::new(env_info),
@@ -601,6 +633,7 @@ impl TracerResources {
             shadow_map_tex: Resource::new(shadow_map_tex),
             shadow_map_tex_for_vsm_ping: Resource::new(shadow_map_tex_for_vsm_ping),
             shadow_map_tex_for_vsm_pong: Resource::new(shadow_map_tex_for_vsm_pong),
+            shadow_map_tex_for_vsm_prev: Resource::new(shadow_map_tex_for_vsm_prev),
             wind_volume_tex: Resource::new(wind_volume_tex),
             sun_sprite_tex: Resource::new(sun_sprite_tex),
             particle_lod_tex_lut: Resource::new(particle_lod_tex_lut),
@@ -947,7 +980,10 @@ impl TracerResources {
         let tex_desc = ImageDesc {
             extent: shadow_map_extent,
             format: vk::Format::R32G32B32A32_SFLOAT,
-            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::SAMPLED,
+            usage: vk::ImageUsageFlags::STORAGE
+                | vk::ImageUsageFlags::SAMPLED
+                | vk::ImageUsageFlags::TRANSFER_SRC
+                | vk::ImageUsageFlags::TRANSFER_DST,
             initial_layout: vk::ImageLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()

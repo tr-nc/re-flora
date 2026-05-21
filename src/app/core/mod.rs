@@ -3062,6 +3062,10 @@ impl App {
                     self.gui_adjustables.latitude.value,
                     self.gui_adjustables.season.value,
                 );
+                let update_shadow_map = self.render_flags.enable_shadows
+                    && (self.shadow_map_update_pending
+                        || shadow_map_interval_elapsed
+                        || time_of_day_changed_by_gui);
 
                 self.tracer
                     .update_buffers(
@@ -3114,6 +3118,7 @@ impl App {
                         self.gui_adjustables.ocean_time_multiplier.value,
                         self.gui_adjustables.ocean_sea_level_shift.value,
                         world_tick_seconds,
+                        update_shadow_map,
                         self.gui_adjustables.lens_flare_intensity.value,
                         self.gui_adjustables.lens_flare_sun_pixel_scale.value,
                         self.flora_tick,
@@ -3231,11 +3236,6 @@ impl App {
 
                 let leaf_bottom = color_to_vec3(self.gui_adjustables.leaves_bottom_color.value);
                 let leaf_tip = color_to_vec3(self.gui_adjustables.leaves_tip_color.value);
-                let update_shadow_map = self.render_flags.enable_shadows
-                    && (self.shadow_map_update_pending
-                        || shadow_map_interval_elapsed
-                        || time_of_day_changed_by_gui);
-
                 self.tracer
                     .record_trace(
                         cmdbuf,

@@ -56,6 +56,26 @@ shadow_camera_info;
 
 layout(set = 0, binding = 5) uniform sampler2D shadow_map_tex_for_vsm_ping;
 
+layout(set = 0, binding = 7) uniform U_ShadowCameraInfoPrev {
+    vec4 pos;
+    mat4 view_mat;
+    mat4 view_mat_inv;
+    mat4 proj_mat;
+    mat4 proj_mat_inv;
+    mat4 view_proj_mat;
+    mat4 view_proj_mat_inv;
+}
+shadow_camera_info_prev;
+
+layout(set = 0, binding = 8) uniform sampler2D shadow_map_tex_for_vsm_prev;
+
+layout(set = 0, binding = 9) uniform U_ShadowTemporalInfo {
+    float blend_alpha;
+    uint has_previous_shadow_map;
+}
+shadow_temporal_info;
+
+#define ENABLE_TEMPORAL_VSM
 #include "../include/vsm.glsl"
 
 const uint SPRITE_FLIP_BIT = 0x80000000u;
@@ -86,8 +106,7 @@ void main() {
     gl_Position =
         apply_depth_offset(vertex_pos, in_instance_pos, camera_info.view_mat, camera_info.proj_mat);
 
-    float shadow_weight =
-        get_shadow_weight_vsm(shadow_camera_info.view_proj_mat, vec4(instance_pos, 1.0));
+    float shadow_weight = get_shadow_weight_vsm_temporal(vec4(instance_pos, 1.0));
     shadow_weight *= get_shadow_weight(vox_local_pos);
 
     float sun_luminance = sun_luminance_from_dir(sun_info.sun_dir, sun_info.sun_luminance);
