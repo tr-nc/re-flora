@@ -209,6 +209,8 @@ pub struct SurfaceResources {
     pub make_surface_result: Resource<Buffer>,
     pub surface_active_brick_flags: Resource<Buffer>,
     pub surface_active_brick_indices: Resource<Buffer>,
+    pub surface_solid_workgroup_indices: Resource<Buffer>,
+    pub surface_solid_workgroup_dispatch_indirect: Resource<Buffer>,
     pub active_surface_flora_dispatch_indirect: Resource<Buffer>,
     pub clear_occupancy_info: Resource<Buffer>,
     pub instances_to_occupancy_info: Resource<Buffer>,
@@ -226,6 +228,7 @@ impl SurfaceResources {
         allocator: Allocator,
         voxel_dim_per_chunk: UVec3,
         make_surface_sm: &ShaderModule,
+        prepare_sparse_surface_dispatch_sm: &ShaderModule,
         clear_occupancy_sm: &ShaderModule,
         instances_to_occupancy_sm: &ShaderModule,
         edit_occupancy_sm: &ShaderModule,
@@ -310,6 +313,31 @@ impl SurfaceResources {
             active_brick_count * std::mem::size_of::<u32>() as u64,
         );
 
+        let solid_workgroup_dim = (voxel_dim_per_chunk + UVec3::splat(7)) / 8;
+        let solid_workgroup_count = solid_workgroup_dim.x as u64
+            * solid_workgroup_dim.y as u64
+            * solid_workgroup_dim.z as u64;
+        let surface_solid_workgroup_indices = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            gpu_allocator::MemoryLocation::GpuOnly,
+            solid_workgroup_count * std::mem::size_of::<u32>() as u64,
+        );
+
+        let surface_solid_workgroup_dispatch_layout = prepare_sparse_surface_dispatch_sm
+            .get_buffer_layout("B_SurfaceSolidWorkgroupDispatchIndirect")
+            .unwrap();
+        let surface_solid_workgroup_dispatch_indirect = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            surface_solid_workgroup_dispatch_layout.clone(),
+            BufferUsage::from_flags(
+                vk::BufferUsageFlags::INDIRECT_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
+            ),
+            gpu_allocator::MemoryLocation::GpuOnly,
+        );
+
         let active_surface_flora_dispatch_layout = prepare_active_surface_flora_dispatch_sm
             .get_buffer_layout("B_ActiveSurfaceFloraDispatchIndirect")
             .unwrap();
@@ -382,6 +410,10 @@ impl SurfaceResources {
             make_surface_result: Resource::new(make_surface_result),
             surface_active_brick_flags: Resource::new(surface_active_brick_flags),
             surface_active_brick_indices: Resource::new(surface_active_brick_indices),
+            surface_solid_workgroup_indices: Resource::new(surface_solid_workgroup_indices),
+            surface_solid_workgroup_dispatch_indirect: Resource::new(
+                surface_solid_workgroup_dispatch_indirect,
+            ),
             active_surface_flora_dispatch_indirect: Resource::new(
                 active_surface_flora_dispatch_indirect,
             ),

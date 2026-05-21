@@ -292,6 +292,15 @@ impl PlainBuilder {
                         0,
                         ClearValue::Color(ColorClearValue::UInt([0, 0, 0, 0])),
                     );
+                    unsafe {
+                        vulkan_context.device().as_raw().cmd_fill_buffer(
+                            cmdbuf.as_raw(),
+                            resources.solid_workgroup_flags.as_raw(),
+                            0,
+                            resources.solid_workgroup_flags.get_size_bytes(),
+                            0,
+                        );
+                    }
                 },
             );
         }

@@ -9,19 +9,20 @@ Implemented and validated:
 - Phase 0: surface/flora GPU timestamp instrumentation.
 - Phase 1: removed redundant GPU clears from the normal surface path.
 - Phase 2: replaced normal flora rebuild with a direct active-surface-brick shader.
+- Phase 3: sparse surface generation from GPU solid `8^3` workgroup flags.
 - Phase 4 subset: folded normal direct flora rebuild into the surface command buffer using an indirect dispatch prepared on GPU.
 - Phase 5 subset: replaced duplicate normal-length square-root work with a squared-length check.
 
-Final measured run: `target/re-flora-logs/re-flora-20260521-171913.113-90526.log`.
+Final measured Phase 3 run: `target/re-flora-logs/re-flora-20260521-174411.058-38643.log`.
 
-| Metric, 8 chunk tree rebuild | Baseline after contree (`160303`) | After Phase 2/5 (`170231`) | After Phase 4 (`171913`) |
-| --- | ---: | ---: | ---: |
-| Total rebuild | `26.36ms` | `17.76ms` | `15.16ms` |
-| Surface total | `23.41ms` | `14.74ms` | `12.52ms` |
-| Contree total | `1.57ms` | `1.50ms` | `1.33ms` |
-| Scene texture total | `1.27ms` | `1.37ms` | `1.23ms` |
+| Metric, 8 chunk tree rebuild | Baseline after contree (`160303`) | After Phase 2/5 (`170231`) | After Phase 4 (`171913`) | After Phase 3 sparse (`174411`) |
+| --- | ---: | ---: | ---: | ---: |
+| Total rebuild | `26.36ms` | `17.76ms` | `15.16ms` | `13.67ms` |
+| Surface total | `23.41ms` | `14.74ms` | `12.52ms` | `10.16ms` |
+| Contree total | `1.57ms` | `1.50ms` | `1.33ms` | `1.63ms` |
+| Scene texture total | `1.27ms` | `1.37ms` | `1.23ms` | `1.76ms` |
 
-The largest win remains Phase 2: normal flora rebuild no longer performs full-volume occupancy passes. Phase 4 then removes the extra per-chunk flora submit/wait by recording `make_surface -> prepare_flora_dispatch -> active_surface_to_flora` in one command buffer. In the Phase 4 run, the active-surface flora GPU pass is `0.006ms` to `0.075ms` for the 8 tested chunks.
+The largest single win remains Phase 2: normal flora rebuild no longer performs full-volume occupancy passes. Phase 4 then removes the extra per-chunk flora submit/wait by recording `make_surface -> prepare_flora_dispatch -> active_surface_to_flora` in one command buffer. Phase 3 further reduces the remaining surface shader work by dispatching surface generation only for solid `8^3` workgroups instead of the whole `256^3` chunk.
 
 ## Baseline evidence
 
@@ -45,19 +46,24 @@ Conclusion: surface optimization was worthwhile because the path still did full-
 
 ## Current algorithm summary
 
-`shader/builder/surface/make_surface.comp`:
+`shader/builder/surface/prepare_sparse_surface_dispatch.comp` scans the chunk's solid `8^3` workgroup flags and writes:
 
-1. Dispatches over the whole chunk volume.
-2. Preloads an `8x8x8` workgroup plus halo into shared memory.
-3. Skips empty voxels.
-4. Skips fully occluded solid voxels.
-5. Computes a normal from a `5x5x5` neighborhood for exposed voxels.
-6. Writes packed surface data to a scratch `surface` image.
-7. Emits active surface brick metadata used by the optimized contree and flora paths.
+1. `surface_solid_workgroup_indices`: a compact list of solid local workgroups;
+2. `surface_solid_workgroup_dispatch_indirect`: an indirect dispatch whose `x` count is the compact list length;
+3. `make_surface_result.solid_workgroup_len`: a debug/readback count for logs and bounds checks.
 
-For normal non-preserve-flora rebuilds, `SurfaceBuilder::submit_build_surface` now records direct flora generation into the same command buffer as `make_surface`:
+`shader/builder/surface/make_surface_sparse.comp` then runs only for that compact workgroup list:
 
-1. `make_surface` writes the active surface brick list and `active_brick_len`;
+1. maps `gl_WorkGroupID.x` through `surface_solid_workgroup_indices`;
+2. preloads the selected `8x8x8` block plus halo into shared memory;
+3. skips empty voxels and fully occluded solid voxels;
+4. computes a normal from a `5x5x5` neighborhood for exposed voxels;
+5. writes packed surface data to the scratch `surface` image;
+6. emits active surface brick metadata used by the optimized contree and flora paths.
+
+For normal non-preserve-flora rebuilds, `SurfaceBuilder::submit_build_surface` records direct flora generation into the same command buffer as sparse surface generation:
+
+1. `make_surface_sparse` writes the active surface brick list and `active_brick_len`;
 2. `prepare_active_surface_flora_dispatch.comp` writes an indirect dispatch size from `active_brick_len`;
 3. `active_surface_to_flora_instances.comp` scans only the 64 voxels inside each active surface brick;
 4. the flora shader loads packed surface data directly;
@@ -125,20 +131,33 @@ Run evidence before Phase 4 from `target/re-flora-logs/re-flora-20260521-170231.
 
 ## Phase 3: sparse surface generation from active solid bricks
 
-Not implemented in this pass.
+Implemented after the Phase 4 subset.
 
-This remains the biggest potential shader-side win, but it requires more source data than the current surface scratch path provides.
+Changes:
 
-Problem: `make_surface.comp` still scans all `256^3` voxels to discover exposed voxels. Sparse chunks with only a small amount of geometry still pay the full scan.
+1. Added `shader/include/solid_workgroups.glsl` for global solid `8^3` workgroup indexing and marking.
+2. Added `solid_workgroup_flags`, a GPU bitset with one bit per `8^3` atlas workgroup. It is cleared together with the atlas.
+3. Marked solid workgroups in voxel write paths:
+   - `shader/builder/chunk_writer/chunk_init.comp`;
+   - `shader/builder/chunk_writer/chunk_modify.comp`;
+   - `shader/builder/chunk_writer/model_voxelize.comp`.
+4. Added `shader/builder/surface/prepare_sparse_surface_dispatch.comp` to scan the 32,768 possible workgroups in a `256^3` chunk and prepare a compact indirect dispatch.
+5. Added `shader/builder/surface/make_surface_sparse.comp`, which preserves the old surface logic but maps dispatch workgroups through the compact solid-workgroup list.
+6. Added readback/logging for `solid_workgroup_len`.
 
-Plan options:
+Correctness notes:
 
-1. Maintain a per-chunk solid-brick list when writing to the voxel atlas.
-2. Dispatch `make_surface` over active solid bricks plus a one-brick halo for boundary exposure.
-3. Preserve correctness at chunk boundaries by including neighbor chunk halo reads.
-4. Feed the resulting active surface brick/voxel lists into contree and flora.
+- The flags are conservative. Removing solids does not immediately clear individual workgroup bits, so stale bits can only cause extra sparse work; `make_surface_sparse` still reads the real atlas and the surface image is cleared before each rebuild.
+- Chunk-boundary reads keep the previous `is_crossing_boundary` behavior through `load_atlas`.
 
-This likely requires changes in voxel write paths, not just surface shaders.
+Run evidence from `target/re-flora-logs/re-flora-20260521-174411.058-38643.log`:
+
+- 8-chunk rebuild total: `13.67ms`.
+- Surface total: `10.16ms`.
+- The large lower chunks dispatched `17,720` to `21,382` solid workgroups and `make_surface_sparse` took `0.882ms` to `1.068ms`.
+- The sparse upper chunks dispatched only `61` to `95` solid workgroups and `make_surface_sparse` took `0.012ms` to `0.014ms`.
+
+Compared with the Phase 4 run (`target/re-flora-logs/re-flora-20260521-171913.113-90526.log`), where the same upper chunks still ran full-volume `make_surface` at about `0.671ms` to `0.676ms`, sparse dispatch removes nearly all surface-shader cost for mostly empty chunks.
 
 ## Phase 4: pipeline or batch surface work
 
@@ -185,9 +204,10 @@ Other Phase 5 experiments tried and not kept:
 
 ## Remaining recommendation
 
-The next meaningful optimization should be either full Phase 4 batching or Phase 3 sparse surface generation:
+Phase 3 is implemented. The next meaningful optimization is full Phase 4 batching and/or reducing the remaining per-chunk clears:
 
-1. Full Phase 4 batching if we want to reduce per-chunk surface submit/wait serialization by adding per-job surface scratch resources and making contree consume those resources safely.
-2. Phase 3 if voxel write paths can cheaply provide active solid brick lists, reducing the remaining `make_surface.comp` full-volume scan.
+1. Full Phase 4 batching would reduce per-chunk surface submit/wait serialization by adding per-job surface scratch resources and making contree consume those resources safely.
+2. `surface_active_brick_flags` clear is now a large fixed cost on sparse chunks (`~0.28ms` to `0.34ms` per chunk in the final run), but the attempted epoch/tag replacement regressed, so any new approach needs measurement.
+3. If edit-heavy workloads become important, add a more precise solid-workgroup update/clear path; the current flags are conservative and can accumulate stale set bits after removals.
 
-The current normal flora rebuild bottleneck has been mostly removed; `make_surface.comp`, active-brick flag clear, and per-chunk synchronization are now the remaining surface costs.
+The normal flora rebuild bottleneck and the full-volume surface scan are now mostly removed for sparse chunks. The remaining costs are fixed clears, per-chunk synchronization, and genuinely dense surface work.

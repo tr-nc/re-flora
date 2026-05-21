@@ -1,0 +1,78 @@
+#version 450
+
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly uniform U_MakeSurfaceInfo {
+    uvec3 atlas_read_offset;
+    uvec3 atlas_read_dim;
+    uint is_crossing_boundary;
+}
+make_surface_info;
+
+layout(set = 0, binding = 1) buffer B_MakeSurfaceResult {
+    uint active_voxel_len;
+    uint active_brick_len;
+    uint solid_workgroup_len;
+}
+make_surface_result;
+
+layout(set = 0, binding = 2) readonly buffer B_SolidWorkgroupFlags { uint data[]; }
+solid_workgroup_flags;
+
+layout(set = 0, binding = 3) writeonly buffer B_SurfaceSolidWorkgroupIndices { uint data[]; }
+surface_solid_workgroup_indices;
+
+layout(set = 0, binding = 4) buffer B_SurfaceSolidWorkgroupDispatchIndirect {
+    uint dispatch_x;
+    uint dispatch_y;
+    uint dispatch_z;
+}
+surface_solid_workgroup_dispatch_indirect;
+
+layout(set = 0, binding = 5, r8ui) readonly uniform uimage3D chunk_atlas;
+
+#define SOLID_WORKGROUPS_READ_ONLY
+#include "../../include/solid_workgroups.glsl"
+
+void main() {
+    const uint SURFACE_WORKGROUP_SIZE = 8u;
+    uvec3 local_grid_dim = (make_surface_info.atlas_read_dim + uvec3(SURFACE_WORKGROUP_SIZE - 1u)) /
+                           SURFACE_WORKGROUP_SIZE;
+    uint local_workgroup_count = local_grid_dim.x * local_grid_dim.y * local_grid_dim.z;
+
+    uint local_idx = gl_GlobalInvocationID.x;
+    if (local_idx >= local_workgroup_count) {
+        return;
+    }
+
+    if (local_idx == 0u) {
+        surface_solid_workgroup_dispatch_indirect.dispatch_y = 1u;
+        surface_solid_workgroup_dispatch_indirect.dispatch_z = 1u;
+    }
+
+    uvec3 local_workgroup_coord = uvec3(
+        local_idx % local_grid_dim.x,
+        local_idx / (local_grid_dim.x * local_grid_dim.z),
+        (local_idx / local_grid_dim.x) % local_grid_dim.z
+    );
+    uvec3 global_workgroup_coord = (make_surface_info.atlas_read_offset / SURFACE_WORKGROUP_SIZE) +
+                                   local_workgroup_coord;
+    uint global_workgroup_idx = solid_workgroup_index_from_coord(
+        global_workgroup_coord,
+        solid_workgroup_grid_dim()
+    );
+    uint flag_word = global_workgroup_idx >> 5u;
+    uint flag_mask = 1u << (global_workgroup_idx & 31u);
+    if ((solid_workgroup_flags.data[flag_word] & flag_mask) == 0u) {
+        return;
+    }
+
+    uint write_idx = atomicAdd(make_surface_result.solid_workgroup_len, 1u);
+    surface_solid_workgroup_indices.data[write_idx] = local_idx;
+
+    // The command buffer clears dispatch_x before this pass. AtomicMax lets all
+    // invocations prepare the indirect dispatch without a second finalize pass.
+    atomicMax(surface_solid_workgroup_dispatch_indirect.dispatch_x, write_idx + 1u);
+}

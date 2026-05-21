@@ -22,8 +22,12 @@ heightmap;
 
 layout(set = 0, binding = 2, r8ui) writeonly uniform uimage3D chunk_atlas;
 
+layout(set = 0, binding = 3) buffer B_SolidWorkgroupFlags { uint data[]; }
+solid_workgroup_flags;
+
 #include "../../include/config.glsl"
 #include "../../include/voxel_types.glsl"
+#include "../../include/solid_workgroups.glsl"
 
 float hash01(uvec3 p) {
     uint h = p.x * 73856093u;
@@ -79,4 +83,7 @@ void main() {
     uint voxel_type    = get_voxel_type(density, base_density, uvec3(atlas_uvi));
 
     imageStore(chunk_atlas, atlas_uvi, uvec4(voxel_type, 0, 0, 0));
+    if (voxel_type != VOXEL_TYPE_EMPTY) {
+        mark_solid_workgroup(uvec3(atlas_uvi));
+    }
 }

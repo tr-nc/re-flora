@@ -45,6 +45,7 @@ struct OccupancyToInstancesResultReadback {
 struct MakeSurfaceResultReadback {
     active_voxel_len: u32,
     active_brick_len: u32,
+    solid_workgroup_len: u32,
 }
 
 pub struct SurfaceBuildJob {
@@ -66,6 +67,7 @@ pub struct SurfaceBuildResult {
     pub chunk_id: UVec3,
     pub active_voxel_len: u32,
     pub active_brick_len: u32,
+    pub solid_workgroup_len: u32,
     pub place_flora: bool,
     pub flora_rebuilt: bool,
     pub setup_ms: f64,
@@ -275,7 +277,7 @@ impl SurfacePassTiming {
     }
 }
 
-const SURFACE_BUILD_TIMING_PASSES: [SurfacePassTimingPass; 3] = [
+const SURFACE_BUILD_TIMING_PASSES: [SurfacePassTimingPass; 4] = [
     SurfacePassTimingPass {
         label: "surface_clear",
         bench_key: "surface_pass_surface_clear_gpu",
@@ -285,12 +287,16 @@ const SURFACE_BUILD_TIMING_PASSES: [SurfacePassTimingPass; 3] = [
         bench_key: "surface_pass_active_brick_flags_clear_gpu",
     },
     SurfacePassTimingPass {
-        label: "make_surface",
-        bench_key: "surface_pass_make_surface_gpu",
+        label: "prepare_sparse_surface",
+        bench_key: "surface_pass_prepare_sparse_surface_gpu",
+    },
+    SurfacePassTimingPass {
+        label: "make_surface_sparse",
+        bench_key: "surface_pass_make_surface_sparse_gpu",
     },
 ];
 
-const SURFACE_BUILD_TIMING_PASSES_WITH_FLORA: [SurfacePassTimingPass; 5] = [
+const SURFACE_BUILD_TIMING_PASSES_WITH_FLORA: [SurfacePassTimingPass; 6] = [
     SurfacePassTimingPass {
         label: "surface_clear",
         bench_key: "surface_pass_surface_clear_gpu",
@@ -300,8 +306,12 @@ const SURFACE_BUILD_TIMING_PASSES_WITH_FLORA: [SurfacePassTimingPass; 5] = [
         bench_key: "surface_pass_active_brick_flags_clear_gpu",
     },
     SurfacePassTimingPass {
-        label: "make_surface",
-        bench_key: "surface_pass_make_surface_gpu",
+        label: "prepare_sparse_surface",
+        bench_key: "surface_pass_prepare_sparse_surface_gpu",
+    },
+    SurfacePassTimingPass {
+        label: "make_surface_sparse",
+        bench_key: "surface_pass_make_surface_sparse_gpu",
     },
     SurfacePassTimingPass {
         label: "prepare_flora_dispatch",
@@ -367,6 +377,7 @@ pub struct SurfaceBuilder {
     #[allow(dead_code)]
     pool: DescriptorPool,
 
+    prepare_sparse_surface_dispatch_ppl: ComputePipeline,
     make_surface_ppl: ComputePipeline,
     clear_occupancy_ppl: ComputePipeline,
     instances_to_occupancy_ppl: ComputePipeline,
@@ -398,7 +409,15 @@ impl SurfaceBuilder {
         let make_surface_sm = ShaderModule::from_glsl(
             device,
             shader_compiler,
-            "shader/builder/surface/make_surface.comp",
+            "shader/builder/surface/make_surface_sparse.comp",
+            "main",
+        )
+        .unwrap();
+
+        let prepare_sparse_surface_dispatch_sm = ShaderModule::from_glsl(
+            device,
+            shader_compiler,
+            "shader/builder/surface/prepare_sparse_surface_dispatch.comp",
             "main",
         )
         .unwrap();
@@ -464,6 +483,7 @@ impl SurfaceBuilder {
             allocator,
             voxel_dim_per_chunk,
             &make_surface_sm,
+            &prepare_sparse_surface_dispatch_sm,
             &clear_occupancy_sm,
             &instances_to_occupancy_sm,
             &edit_occupancy_sm,
@@ -475,6 +495,12 @@ impl SurfaceBuilder {
 
         let pool = DescriptorPool::new(device).unwrap();
 
+        let prepare_sparse_surface_dispatch_ppl = ComputePipeline::new(
+            device,
+            &prepare_sparse_surface_dispatch_sm,
+            &pool,
+            &[&resources, plain_builder_resources],
+        );
         let make_surface_ppl = ComputePipeline::new(
             device,
             &make_surface_sm,
@@ -530,6 +556,7 @@ impl SurfaceBuilder {
             vulkan_ctx,
             resources,
             pool,
+            prepare_sparse_surface_dispatch_ppl,
             make_surface_ppl,
             clear_occupancy_ppl,
             instances_to_occupancy_ppl,
@@ -632,13 +659,29 @@ impl SurfaceBuilder {
             );
         });
 
-        let extent = Extent3D {
-            width: self.voxel_dim_per_chunk.x,
-            height: self.voxel_dim_per_chunk.y,
-            depth: self.voxel_dim_per_chunk.z,
-        };
+        let solid_workgroup_dim = (self.voxel_dim_per_chunk + UVec3::splat(7)) / 8;
+        let solid_workgroup_count =
+            solid_workgroup_dim.x * solid_workgroup_dim.y * solid_workgroup_dim.z;
         record_timed_surface_pass!({
-            self.make_surface_ppl.record(&cmdbuf, extent, None);
+            record_clear_buffer_for_compute(
+                device,
+                &cmdbuf,
+                &self.resources.surface_solid_workgroup_dispatch_indirect,
+            );
+            self.prepare_sparse_surface_dispatch_ppl.record(
+                &cmdbuf,
+                Extent3D::new(solid_workgroup_count, 1, 1),
+                None,
+            );
+        });
+
+        record_compute_to_indirect_and_shader_barrier(device, &cmdbuf);
+        record_timed_surface_pass!({
+            self.make_surface_ppl.record_indirect(
+                &cmdbuf,
+                &self.resources.surface_solid_workgroup_dispatch_indirect,
+                None,
+            );
         });
 
         if place_flora {
@@ -708,6 +751,7 @@ impl SurfaceBuilder {
         let make_surface_result = get_make_surface_result(&self.resources.make_surface_result);
         let active_voxel_len = make_surface_result.active_voxel_len;
         let active_brick_len = make_surface_result.active_brick_len;
+        let solid_workgroup_len = make_surface_result.solid_workgroup_len;
         let readback_elapsed = readback_start.elapsed();
 
         if let Some(timing) = self.pass_timing.as_ref() {
@@ -736,7 +780,7 @@ impl SurfaceBuilder {
         let total_elapsed = job.total_start.elapsed();
 
         log::debug!(
-            "[PERF][SURFACE_BUILD] chunk {:?} total {:.2}ms setup {:.2}ms record {:.2}ms gpu_submit {:.2}ms fence_latency {:.2}ms readback {:.2}ms flora {:.2}ms active_voxels {} active_bricks {} place_flora {} flora_rebuilt {}",
+            "[PERF][SURFACE_BUILD] chunk {:?} total {:.2}ms setup {:.2}ms record {:.2}ms gpu_submit {:.2}ms fence_latency {:.2}ms readback {:.2}ms flora {:.2}ms active_voxels {} active_bricks {} solid_workgroups {} place_flora {} flora_rebuilt {}",
             job.chunk_id,
             total_elapsed.as_secs_f32() * 1000.0,
             job.setup_elapsed.as_secs_f32() * 1000.0,
@@ -747,6 +791,7 @@ impl SurfaceBuilder {
             flora_elapsed.as_secs_f32() * 1000.0,
             active_voxel_len,
             active_brick_len,
+            solid_workgroup_len,
             job.place_flora,
             should_rebuild_flora,
         );
@@ -755,6 +800,7 @@ impl SurfaceBuilder {
             chunk_id: job.chunk_id,
             active_voxel_len,
             active_brick_len,
+            solid_workgroup_len,
             place_flora: job.place_flora,
             flora_rebuilt: should_rebuild_flora,
             setup_ms: job.setup_elapsed.as_secs_f64() * 1000.0,
@@ -1193,13 +1239,14 @@ fn get_make_surface_result(make_surface_result: &Buffer) -> MakeSurfaceResultRea
     let total_u32 = raw_data.len() / std::mem::size_of::<u32>();
     let data = unsafe { std::slice::from_raw_parts(raw_data.as_ptr() as *const u32, total_u32) };
     assert!(
-        total_u32 >= 2,
-        "make_surface_result buffer too small: expected at least 2 u32s, got {}",
+        total_u32 >= 3,
+        "make_surface_result buffer too small: expected at least 3 u32s, got {}",
         total_u32
     );
     MakeSurfaceResultReadback {
         active_voxel_len: data[0],
         active_brick_len: data[1],
+        solid_workgroup_len: data[2],
     }
 }
 

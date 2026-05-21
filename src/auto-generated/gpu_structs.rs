@@ -137,6 +137,13 @@ pub struct RoundCones {
     pub radius_b: f32,
 }
 
+/// Auto-generated from `B_SolidWorkgroupFlags` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SolidWorkgroupFlags {
+    pub data: [u32; 0],
+}
+
 /// Auto-generated from `B_Spheres` (GLSL source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
