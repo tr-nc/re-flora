@@ -209,6 +209,7 @@ pub struct SurfaceResources {
     pub make_surface_result: Resource<Buffer>,
     pub surface_active_brick_flags: Resource<Buffer>,
     pub surface_active_brick_indices: Resource<Buffer>,
+    pub active_surface_flora_dispatch_indirect: Resource<Buffer>,
     pub clear_occupancy_info: Resource<Buffer>,
     pub instances_to_occupancy_info: Resource<Buffer>,
     pub edit_occupancy_info: Resource<Buffer>,
@@ -230,6 +231,7 @@ impl SurfaceResources {
         edit_occupancy_sm: &ShaderModule,
         occupancy_to_instances_sm: &ShaderModule,
         update_flora_growth_sm: &ShaderModule,
+        prepare_active_surface_flora_dispatch_sm: &ShaderModule,
         chunk_dim: UAabb3,
     ) -> Self {
         let surface_desc = ImageDesc {
@@ -308,6 +310,17 @@ impl SurfaceResources {
             active_brick_count * std::mem::size_of::<u32>() as u64,
         );
 
+        let active_surface_flora_dispatch_layout = prepare_active_surface_flora_dispatch_sm
+            .get_buffer_layout("B_ActiveSurfaceFloraDispatchIndirect")
+            .unwrap();
+        let active_surface_flora_dispatch_indirect = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            active_surface_flora_dispatch_layout.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::INDIRECT_BUFFER),
+            gpu_allocator::MemoryLocation::GpuOnly,
+        );
+
         let clear_occupancy_info_layout = clear_occupancy_sm
             .get_buffer_layout("U_ClearOccupancyInfo")
             .unwrap();
@@ -369,6 +382,9 @@ impl SurfaceResources {
             make_surface_result: Resource::new(make_surface_result),
             surface_active_brick_flags: Resource::new(surface_active_brick_flags),
             surface_active_brick_indices: Resource::new(surface_active_brick_indices),
+            active_surface_flora_dispatch_indirect: Resource::new(
+                active_surface_flora_dispatch_indirect,
+            ),
             clear_occupancy_info: Resource::new(clear_occupancy_info),
             instances_to_occupancy_info: Resource::new(instances_to_occupancy_info),
             edit_occupancy_info: Resource::new(edit_occupancy_info),

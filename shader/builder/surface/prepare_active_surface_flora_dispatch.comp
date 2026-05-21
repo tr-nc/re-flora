@@ -1,0 +1,30 @@
+#version 450
+
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer B_MakeSurfaceResult {
+    uint active_voxel_len;
+    uint active_brick_len;
+}
+make_surface_result;
+
+layout(set = 0, binding = 1) writeonly buffer B_ActiveSurfaceFloraDispatchIndirect {
+    uint dispatch_x;
+    uint dispatch_y;
+    uint dispatch_z;
+}
+active_surface_flora_dispatch_indirect;
+
+void main() {
+    const uint FLORA_WORKGROUP_SIZE = 128u;
+    uint invocation_count = make_surface_result.active_brick_len * 64u;
+    uint group_count = (invocation_count + FLORA_WORKGROUP_SIZE - 1u) / FLORA_WORKGROUP_SIZE;
+
+    // Keep the indirect dispatch valid even for empty chunks; the flora shader
+    // reads active_brick_len and immediately exits when there is no work.
+    active_surface_flora_dispatch_indirect.dispatch_x = max(group_count, 1u);
+    active_surface_flora_dispatch_indirect.dispatch_y = 1u;
+    active_surface_flora_dispatch_indirect.dispatch_z = 1u;
+}

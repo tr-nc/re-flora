@@ -9,18 +9,19 @@ Implemented and validated:
 - Phase 0: surface/flora GPU timestamp instrumentation.
 - Phase 1: removed redundant GPU clears from the normal surface path.
 - Phase 2: replaced normal flora rebuild with a direct active-surface-brick shader.
+- Phase 4 subset: folded normal direct flora rebuild into the surface command buffer using an indirect dispatch prepared on GPU.
 - Phase 5 subset: replaced duplicate normal-length square-root work with a squared-length check.
 
-Final measured run: `target/re-flora-logs/re-flora-20260521-170231.671-68224.log`.
+Final measured run: `target/re-flora-logs/re-flora-20260521-171913.113-90526.log`.
 
-| Metric, 8 chunk tree rebuild | Baseline after contree (`160303`) | Final surface work (`170231`) | Delta |
+| Metric, 8 chunk tree rebuild | Baseline after contree (`160303`) | After Phase 2/5 (`170231`) | After Phase 4 (`171913`) |
 | --- | ---: | ---: | ---: |
-| Total rebuild | `26.36ms` | `17.76ms` | `-8.60ms` / `-32.6%` |
-| Surface total | `23.41ms` | `14.74ms` | `-8.67ms` / `-37.0%` |
-| Contree total | `1.57ms` | `1.50ms` | roughly unchanged |
-| Scene texture total | `1.27ms` | `1.37ms` | roughly unchanged |
+| Total rebuild | `26.36ms` | `17.76ms` | `15.16ms` |
+| Surface total | `23.41ms` | `14.74ms` | `12.52ms` |
+| Contree total | `1.57ms` | `1.50ms` | `1.33ms` |
+| Scene texture total | `1.27ms` | `1.37ms` | `1.23ms` |
 
-The main win is Phase 2: normal flora rebuild no longer performs full-volume occupancy passes. In the final run, the active-surface flora GPU pass is `0.011ms` to `0.083ms` per tested chunk instead of the previous CPU-side flora bucket of about `1.00ms` to `1.47ms` per chunk.
+The largest win remains Phase 2: normal flora rebuild no longer performs full-volume occupancy passes. Phase 4 then removes the extra per-chunk flora submit/wait by recording `make_surface -> prepare_flora_dispatch -> active_surface_to_flora` in one command buffer. In the Phase 4 run, the active-surface flora GPU pass is `0.006ms` to `0.075ms` for the 8 tested chunks.
 
 ## Baseline evidence
 
@@ -54,13 +55,13 @@ Conclusion: surface optimization was worthwhile because the path still did full-
 6. Writes packed surface data to a scratch `surface` image.
 7. Emits active surface brick metadata used by the optimized contree and flora paths.
 
-`SurfaceBuilder::finish_build_surface` optionally calls `seed_and_rebuild_flora_from_surface`, which now:
+For normal non-preserve-flora rebuilds, `SurfaceBuilder::submit_build_surface` now records direct flora generation into the same command buffer as `make_surface`:
 
-1. uses `make_surface`'s active surface brick list;
-2. scans only the 64 voxels inside each active surface brick;
-3. loads packed surface data directly;
-4. checks plantability/density/biome;
-5. writes flora instances directly.
+1. `make_surface` writes the active surface brick list and `active_brick_len`;
+2. `prepare_active_surface_flora_dispatch.comp` writes an indirect dispatch size from `active_brick_len`;
+3. `active_surface_to_flora_instances.comp` scans only the 64 voxels inside each active surface brick;
+4. the flora shader loads packed surface data directly;
+5. it checks plantability/density/biome and writes flora instances directly.
 
 The occupancy-based path remains for preserve-flora edits, trimming, growth, and instance-to-occupancy flows.
 
@@ -116,7 +117,7 @@ Changes:
 2. Replaced normal startup/tree-add flora rebuild's full-volume path with a direct active-surface-brick pass.
 3. Kept the occupancy-based path for edit/growth workflows.
 
-Final run evidence from `target/re-flora-logs/re-flora-20260521-170231.671-68224.log`:
+Run evidence before Phase 4 from `target/re-flora-logs/re-flora-20260521-170231.671-68224.log`:
 
 - large active chunks: `active_surface_to_flora=0.071ms` to `0.083ms` GPU;
 - small active chunks: `active_surface_to_flora=0.011ms` to `0.012ms` GPU;
@@ -141,20 +142,28 @@ This likely requires changes in voxel write paths, not just surface shaders.
 
 ## Phase 4: pipeline or batch surface work
 
-Not implemented in this pass.
+Partially implemented in this pass.
 
-Current direct multi-chunk rebuilds call `surface_builder.build_surface`, which submits and waits per chunk. Contree waits are pipelined, but surface is still serial from the CPU point of view.
+Implemented subset:
 
-Possible approaches:
+- Added `shader/builder/surface/prepare_active_surface_flora_dispatch.comp`.
+- Added a GPU-only indirect dispatch buffer for active-surface flora generation.
+- Changed the direct flora shader to read `active_brick_len` from `make_surface_result` instead of a CPU push constant.
+- Recorded direct flora generation in the same command buffer as `make_surface`, with compute barriers and `record_indirect`.
+- Removed the separate direct-flora command submission and queue idle wait from normal surface builds.
+
+Measured result in `target/re-flora-logs/re-flora-20260521-171913.113-90526.log`:
+
+- 8-chunk rebuild total: `15.16ms`
+- Surface total: `12.52ms`
+- Contree total: `1.33ms`
+- Scene texture total: `1.23ms`
+- Surface pass timing now includes `prepare_flora_dispatch` at about `0.002ms` and `active_surface_to_flora` at `0.006ms` to `0.075ms` for the tested 8 chunks.
+
+Remaining Phase 4 work, if needed:
 
 - Add a small ring of per-job surface scratch resources so multiple surface builds can be submitted before readback.
-- Or record surface + direct flora + contree + scene update for a chunk into a larger batch where CPU readbacks are minimized.
-
-Constraints:
-
-- Current surface resources are scratch resources shared by all chunks.
-- Contree consumes the current surface scratch image and active lists.
-- Empty-chunk decisions currently depend on CPU readback of `active_voxel_len`.
+- This is more invasive because current contree pipelines are built against the single `SurfaceResources` scratch image/buffer set, and empty-chunk decisions still depend on CPU readback of `active_voxel_len`.
 
 ## Phase 5: make-surface shader micro-optimizations
 
@@ -167,7 +176,7 @@ Change:
 Evidence:
 
 - This was safe and validated, but the measured performance impact is small relative to run-to-run variance.
-- Final 8-chunk run after this change: `17.76ms` total, `14.74ms` surface.
+- 8-chunk run after this change and before Phase 4: `17.76ms` total, `14.74ms` surface.
 
 Other Phase 5 experiments tried and not kept:
 
@@ -176,9 +185,9 @@ Other Phase 5 experiments tried and not kept:
 
 ## Remaining recommendation
 
-The next meaningful optimization should be Phase 3 or Phase 4, not more small local shader tweaks:
+The next meaningful optimization should be either full Phase 4 batching or Phase 3 sparse surface generation:
 
-1. Phase 3 if voxel write paths can cheaply provide active solid brick lists.
-2. Phase 4 if we want to reduce per-chunk submit/wait serialization by adding per-job surface scratch resources or indirect in-command flora dispatch.
+1. Full Phase 4 batching if we want to reduce per-chunk surface submit/wait serialization by adding per-job surface scratch resources and making contree consume those resources safely.
+2. Phase 3 if voxel write paths can cheaply provide active solid brick lists, reducing the remaining `make_surface.comp` full-volume scan.
 
-The current normal flora rebuild bottleneck has been mostly removed; `make_surface.comp` and per-chunk synchronization are now the remaining surface costs.
+The current normal flora rebuild bottleneck has been mostly removed; `make_surface.comp`, active-brick flag clear, and per-chunk synchronization are now the remaining surface costs.

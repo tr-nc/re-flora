@@ -8,9 +8,6 @@
 
 layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
 
-layout(push_constant) uniform PC { uint active_brick_len; }
-active_surface_to_flora_push;
-
 layout(set = 0, binding = 0) readonly uniform U_OccupancyToInstancesInfo {
     uvec3 chunk_world_offset;
     uvec3 chunk_dim;
@@ -27,6 +24,12 @@ layout(set = 0, binding = 2, r32ui) readonly uniform uimage3D surface;
 
 layout(set = 0, binding = 3) readonly buffer B_SurfaceActiveBrickIndices { uint data[]; }
 surface_active_brick_indices;
+
+layout(set = 0, binding = 4) readonly buffer B_MakeSurfaceResult {
+    uint active_voxel_len;
+    uint active_brick_len;
+}
+make_surface_result;
 
 #include "../../include/instance.glsl"
 layout(set = 1, binding = 0) writeonly buffer B_ManualFloraInstances { Instance data[]; }
@@ -201,7 +204,7 @@ uvec3 decode_active_surface_local_pos(uint linear_idx) {
 
 void main() {
     uint linear_idx = gl_GlobalInvocationID.x;
-    uint max_idx    = active_surface_to_flora_push.active_brick_len * 64u;
+    uint max_idx    = make_surface_result.active_brick_len * 64u;
     if (linear_idx >= max_idx) {
         return;
     }

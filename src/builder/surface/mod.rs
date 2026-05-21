@@ -50,6 +50,7 @@ struct MakeSurfaceResultReadback {
 pub struct SurfaceBuildJob {
     chunk_id: UVec3,
     place_flora: bool,
+    flora_chunk_idx: Option<usize>,
     total_start: Instant,
     submitted_at: Instant,
     setup_elapsed: Duration,
@@ -125,9 +126,8 @@ impl SurfacePassTiming {
             return None;
         }
 
-        let max_pass_count = SURFACE_BUILD_TIMING_PASSES
+        let max_pass_count = SURFACE_BUILD_TIMING_PASSES_WITH_FLORA
             .len()
-            .max(FLORA_REBUILD_TIMING_PASSES.len())
             .max(FLORA_EDIT_TIMING_PASSES_WITH_INSTANCES.len())
             .max(FLORA_GROWTH_TIMING_PASSES.len());
         let max_query_count = (max_pass_count * 2) as u32;
@@ -290,10 +290,36 @@ const SURFACE_BUILD_TIMING_PASSES: [SurfacePassTimingPass; 3] = [
     },
 ];
 
-const FLORA_REBUILD_TIMING_PASSES: [SurfacePassTimingPass; 1] = [SurfacePassTimingPass {
-    label: "active_surface_to_flora",
-    bench_key: "flora_rebuild_pass_active_surface_to_flora_gpu",
-}];
+const SURFACE_BUILD_TIMING_PASSES_WITH_FLORA: [SurfacePassTimingPass; 5] = [
+    SurfacePassTimingPass {
+        label: "surface_clear",
+        bench_key: "surface_pass_surface_clear_gpu",
+    },
+    SurfacePassTimingPass {
+        label: "active_brick_flags_clear",
+        bench_key: "surface_pass_active_brick_flags_clear_gpu",
+    },
+    SurfacePassTimingPass {
+        label: "make_surface",
+        bench_key: "surface_pass_make_surface_gpu",
+    },
+    SurfacePassTimingPass {
+        label: "prepare_flora_dispatch",
+        bench_key: "surface_pass_prepare_flora_dispatch_gpu",
+    },
+    SurfacePassTimingPass {
+        label: "active_surface_to_flora",
+        bench_key: "surface_pass_active_surface_to_flora_gpu",
+    },
+];
+
+fn surface_build_timing_passes(place_flora: bool) -> &'static [SurfacePassTimingPass] {
+    if place_flora {
+        &SURFACE_BUILD_TIMING_PASSES_WITH_FLORA
+    } else {
+        &SURFACE_BUILD_TIMING_PASSES
+    }
+}
 
 const FLORA_EDIT_TIMING_PASSES_WITH_INSTANCES: [SurfacePassTimingPass; 4] = [
     SurfacePassTimingPass {
@@ -346,6 +372,7 @@ pub struct SurfaceBuilder {
     instances_to_occupancy_ppl: ComputePipeline,
     edit_occupancy_ppl: ComputePipeline,
     occupancy_to_instances_ppl: ComputePipeline,
+    prepare_active_surface_flora_dispatch_ppl: ComputePipeline,
     active_surface_to_flora_ppl: ComputePipeline,
     update_flora_growth_ppl: ComputePipeline,
     pass_timing: Option<SurfacePassTiming>,
@@ -416,6 +443,14 @@ impl SurfaceBuilder {
         )
         .unwrap();
 
+        let prepare_active_surface_flora_dispatch_sm = ShaderModule::from_glsl(
+            device,
+            shader_compiler,
+            "shader/builder/surface/prepare_active_surface_flora_dispatch.comp",
+            "main",
+        )
+        .unwrap();
+
         let update_flora_growth_sm = ShaderModule::from_glsl(
             device,
             shader_compiler,
@@ -434,6 +469,7 @@ impl SurfaceBuilder {
             &edit_occupancy_sm,
             &occupancy_to_instances_sm,
             &update_flora_growth_sm,
+            &prepare_active_surface_flora_dispatch_sm,
             chunk_bound,
         );
 
@@ -469,6 +505,12 @@ impl SurfaceBuilder {
             &pool,
             &[&resources, plain_builder_resources],
         );
+        let prepare_active_surface_flora_dispatch_ppl = ComputePipeline::new(
+            device,
+            &prepare_active_surface_flora_dispatch_sm,
+            &pool,
+            &[&resources],
+        );
         let active_surface_to_flora_ppl = ComputePipeline::new(
             device,
             &active_surface_to_flora_sm,
@@ -493,6 +535,7 @@ impl SurfaceBuilder {
             instances_to_occupancy_ppl,
             edit_occupancy_ppl,
             occupancy_to_instances_ppl,
+            prepare_active_surface_flora_dispatch_ppl,
             active_surface_to_flora_ppl,
             update_flora_growth_ppl,
             pass_timing,
@@ -531,6 +574,22 @@ impl SurfaceBuilder {
             true,
         )?;
         cleanup_layout_buffer(&self.resources.make_surface_result)?;
+        let flora_chunk_idx = if place_flora {
+            let chunk_idx = self.get_chunk_resource_index(chunk_id)?;
+            update_occupancy_to_instances_info(
+                &self.resources.occupancy_to_instances_info,
+                atlas_read_offset,
+                self.voxel_dim_per_chunk,
+            )?;
+            cleanup_occupancy_to_instances_result(&self.resources.occupancy_to_instances_result)?;
+            let chunk_resources = &self.resources.instances.chunk_flora_instances[chunk_idx]
+                .1
+                .resources;
+            self.bind_manual_instance_buffers(&self.active_surface_to_flora_ppl, chunk_resources);
+            Some(chunk_idx)
+        } else {
+            None
+        };
         let setup_elapsed = setup_start.elapsed();
 
         let record_start = Instant::now();
@@ -538,8 +597,9 @@ impl SurfaceBuilder {
         cmdbuf.begin(true);
 
         let pass_timing = self.pass_timing.as_ref();
+        let timing_passes = surface_build_timing_passes(place_flora);
         if let Some(timing) = pass_timing {
-            timing.record_reset(&cmdbuf, SURFACE_BUILD_TIMING_PASSES.len());
+            timing.record_reset(&cmdbuf, timing_passes.len());
         }
         let mut timing_pass_index = 0usize;
         macro_rules! record_timed_surface_pass {
@@ -581,8 +641,27 @@ impl SurfaceBuilder {
             self.make_surface_ppl.record(&cmdbuf, extent, None);
         });
 
+        if place_flora {
+            record_compute_barrier(device, &cmdbuf);
+            record_timed_surface_pass!({
+                self.prepare_active_surface_flora_dispatch_ppl.record(
+                    &cmdbuf,
+                    Extent3D::new(1, 1, 1),
+                    None,
+                );
+            });
+            record_compute_to_indirect_and_shader_barrier(device, &cmdbuf);
+            record_timed_surface_pass!({
+                self.active_surface_to_flora_ppl.record_indirect(
+                    &cmdbuf,
+                    &self.resources.active_surface_flora_dispatch_indirect,
+                    None,
+                );
+            });
+        }
+
         if pass_timing.is_some() {
-            assert_eq!(timing_pass_index, SURFACE_BUILD_TIMING_PASSES.len());
+            assert_eq!(timing_pass_index, timing_passes.len());
         }
 
         cmdbuf.end();
@@ -597,6 +676,7 @@ impl SurfaceBuilder {
         Ok(SurfaceBuildJob {
             chunk_id,
             place_flora,
+            flora_chunk_idx,
             total_start,
             submitted_at,
             setup_elapsed,
@@ -635,14 +715,22 @@ impl SurfaceBuilder {
                 "SURFACE_BUILD_PASS_TIMING",
                 "surface_pass_timed_total_gpu",
                 job.chunk_id,
-                &SURFACE_BUILD_TIMING_PASSES,
+                surface_build_timing_passes(job.place_flora),
             );
         }
 
-        let should_rebuild_flora = job.place_flora && active_voxel_len > 0;
+        let should_rebuild_flora = job.flora_chunk_idx.is_some() && active_voxel_len > 0;
         let flora_start = Instant::now();
-        if should_rebuild_flora {
-            self.seed_and_rebuild_flora_from_surface(job.chunk_id, active_brick_len, 0)?;
+        if let Some(chunk_idx) = job.flora_chunk_idx.filter(|_| active_voxel_len > 0) {
+            let result = get_occupancy_to_instances_result(
+                &self.resources.occupancy_to_instances_result,
+                self.flora_species_count,
+            );
+            let chunk_resources_mut =
+                &mut self.resources.instances.chunk_flora_instances[chunk_idx].1;
+            for (species_idx, len) in result.flora_instance_len.iter().enumerate() {
+                chunk_resources_mut.get_mut(species_idx).instances_len = *len;
+            }
         }
         let flora_elapsed = flora_start.elapsed();
         let total_elapsed = job.total_start.elapsed();
@@ -730,92 +818,6 @@ impl SurfaceBuilder {
             target_age,
             OccupancyEditMode::Trim,
         )
-    }
-
-    fn seed_and_rebuild_flora_from_surface(
-        &mut self,
-        chunk_id: UVec3,
-        active_brick_len: u32,
-        _flora_tick: u32,
-    ) -> Result<()> {
-        let active_surface_dispatch_len = active_brick_len.saturating_mul(64);
-        if active_surface_dispatch_len == 0 {
-            return Ok(());
-        }
-
-        let chunk_world_offset = chunk_id * self.voxel_dim_per_chunk;
-        update_occupancy_to_instances_info(
-            &self.resources.occupancy_to_instances_info,
-            chunk_world_offset,
-            self.voxel_dim_per_chunk,
-        )?;
-        cleanup_occupancy_to_instances_result(&self.resources.occupancy_to_instances_result)?;
-
-        let chunk_idx = self.get_chunk_resource_index(chunk_id)?;
-        let chunk_resources = &self.resources.instances.chunk_flora_instances[chunk_idx]
-            .1
-            .resources;
-        self.bind_manual_instance_buffers(&self.active_surface_to_flora_ppl, chunk_resources);
-
-        let device = self.vulkan_ctx.device();
-        let cmdbuf = CommandBuffer::new(device, self.vulkan_ctx.command_pool());
-        cmdbuf.begin(true);
-
-        let pass_timing = self.pass_timing.as_ref();
-        if let Some(timing) = pass_timing {
-            timing.record_reset(&cmdbuf, FLORA_REBUILD_TIMING_PASSES.len());
-        }
-        let mut timing_pass_index = 0usize;
-        macro_rules! record_timed_flora_pass {
-            ($body:block) => {{
-                if let Some(timing) = pass_timing {
-                    timing.record_start(&cmdbuf, timing_pass_index);
-                }
-                let result = { $body };
-                if let Some(timing) = pass_timing {
-                    timing.record_end(&cmdbuf, timing_pass_index);
-                    timing_pass_index += 1;
-                }
-                result
-            }};
-        }
-
-        let active_surface_to_flora_push = [active_brick_len, 0, 0, 0];
-        record_timed_flora_pass!({
-            self.active_surface_to_flora_ppl.record(
-                &cmdbuf,
-                Extent3D::new(active_surface_dispatch_len, 1, 1),
-                Some(bytemuck::bytes_of(&active_surface_to_flora_push)),
-            );
-        });
-
-        if pass_timing.is_some() {
-            assert_eq!(timing_pass_index, FLORA_REBUILD_TIMING_PASSES.len());
-        }
-
-        cmdbuf.end();
-        cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), None);
-        device.wait_queue_idle(&self.vulkan_ctx.get_general_queue());
-
-        if let Some(timing) = self.pass_timing.as_ref() {
-            timing.collect_and_log(
-                "FLORA_REBUILD_PASS_TIMING",
-                "flora_rebuild_pass_timed_total_gpu",
-                chunk_id,
-                &FLORA_REBUILD_TIMING_PASSES,
-            );
-        }
-
-        let result = get_occupancy_to_instances_result(
-            &self.resources.occupancy_to_instances_result,
-            self.flora_species_count,
-        );
-        let chunk_resources_mut = &mut self.resources.instances.chunk_flora_instances[chunk_idx].1;
-        for (species_idx, len) in result.flora_instance_len.iter().enumerate() {
-            chunk_resources_mut.get_mut(species_idx).instances_len = *len;
-        }
-
-        Ok(())
     }
 
     fn run_occupancy_edit(
@@ -1127,6 +1129,21 @@ fn record_compute_barrier(device: &crate::vkn::Device, cmdbuf: &CommandBuffer) {
         vk::PipelineStageFlags::COMPUTE_SHADER,
         vk::PipelineStageFlags::COMPUTE_SHADER,
         vec![MemoryBarrier::new_shader_access()],
+    );
+    barrier.record_insert(device, cmdbuf);
+}
+
+fn record_compute_to_indirect_and_shader_barrier(
+    device: &crate::vkn::Device,
+    cmdbuf: &CommandBuffer,
+) {
+    let barrier = PipelineBarrier::new(
+        vk::PipelineStageFlags::COMPUTE_SHADER,
+        vk::PipelineStageFlags::DRAW_INDIRECT | vk::PipelineStageFlags::COMPUTE_SHADER,
+        vec![
+            MemoryBarrier::new_indirect_access(),
+            MemoryBarrier::new_shader_access(),
+        ],
     );
     barrier.record_insert(device, cmdbuf);
 }
