@@ -167,6 +167,7 @@ pub(crate) fn mesh_generate_chunks(
         );
     }
     let mut rebuilt_chunk_count = 0;
+    let mut contree_skipped_count = 0;
     let mut surface_total = std::time::Duration::ZERO;
     let mut contree_total = std::time::Duration::ZERO;
     let mut scene_total = std::time::Duration::ZERO;
@@ -176,11 +177,13 @@ pub(crate) fn mesh_generate_chunks(
         let chunk_start = Instant::now();
 
         let surface_start = Instant::now();
-        let res = surface_builder.build_surface(chunk_id, true);
-        if let Err(e) = res {
-            log::error!("Failed to build surface for chunk {}: {}", chunk_id, e);
-            continue;
-        }
+        let active_voxel_len = match surface_builder.build_surface(chunk_id, true) {
+            Ok(active_voxel_len) => active_voxel_len,
+            Err(e) => {
+                log::error!("Failed to build surface for chunk {}: {}", chunk_id, e);
+                continue;
+            }
+        };
 
         let surface_elapsed = surface_start.elapsed();
         surface_total += surface_elapsed;
@@ -190,7 +193,21 @@ pub(crate) fn mesh_generate_chunks(
             .record("build_surface", surface_elapsed);
 
         let contree_start = Instant::now();
-        let res = contree_builder.build_and_alloc(atlas_offset).unwrap();
+        let contree_skipped = active_voxel_len == 0;
+        let scene_offsets = if contree_skipped {
+            contree_skipped_count += 1;
+            contree_builder
+                .clear_empty_surface_chunk(atlas_offset)
+                .scene_offsets
+        } else {
+            match contree_builder.build_and_alloc(atlas_offset) {
+                Ok(scene_offsets) => scene_offsets,
+                Err(e) => {
+                    log::error!("Failed to build contree for chunk {}: {}", chunk_id, e);
+                    continue;
+                }
+            }
+        };
         let contree_elapsed = contree_start.elapsed();
         contree_total += contree_elapsed;
         BENCH
@@ -199,7 +216,7 @@ pub(crate) fn mesh_generate_chunks(
             .record("build_and_alloc", contree_elapsed);
 
         let scene_start = Instant::now();
-        if let Some(res) = res {
+        if let Some(res) = scene_offsets {
             let (node_buffer_offset, leaf_buffer_offset) = res;
             scene_accel_builder
                 .update_scene_tex(chunk_id, Some((node_buffer_offset, leaf_buffer_offset)))?;
@@ -212,23 +229,26 @@ pub(crate) fn mesh_generate_chunks(
         rebuilt_chunk_count += 1;
 
         log::debug!(
-            "[PERF][MESH_REBUILD_CHUNK] chunk {:?} total {:.2}ms surface {:.2}ms contree {:.2}ms scene_tex {:.2}ms",
+            "[PERF][MESH_REBUILD_CHUNK] chunk {:?} total {:.2}ms surface {:.2}ms contree {:.2}ms scene_tex {:.2}ms active_voxels {} contree_skipped {}",
             chunk_id,
             chunk_start.elapsed().as_secs_f32() * 1000.0,
             surface_elapsed.as_secs_f32() * 1000.0,
             contree_elapsed.as_secs_f32() * 1000.0,
             scene_elapsed.as_secs_f32() * 1000.0,
+            active_voxel_len,
+            contree_skipped,
         );
     }
 
     log::debug!(
-        "[PERF][MESH_REBUILD] chunks {} rebuilt {} total {:.2}ms surface {:.2}ms contree {:.2}ms scene_tex {:.2}ms",
+        "[PERF][MESH_REBUILD] chunks {} rebuilt {} total {:.2}ms surface {:.2}ms contree {:.2}ms scene_tex {:.2}ms contree_skipped {}",
         chunk_count,
         rebuilt_chunk_count,
         rebuild_start.elapsed().as_secs_f32() * 1000.0,
         surface_total.as_secs_f32() * 1000.0,
         contree_total.as_secs_f32() * 1000.0,
         scene_total.as_secs_f32() * 1000.0,
+        contree_skipped_count,
     );
 
     Ok(())
@@ -279,11 +299,13 @@ pub(crate) fn mesh_generate_chunk_preserve_flora_for_sphere_edit(
     let atlas_offset = chunk_id * voxel_dim_per_chunk;
 
     let surface_start = Instant::now();
-    let res = surface_builder.build_surface(chunk_id, false);
-    if let Err(e) = res {
-        log::error!("Failed to build surface for chunk {}: {}", chunk_id, e);
-        return Ok(());
-    }
+    let active_voxel_len = match surface_builder.build_surface(chunk_id, false) {
+        Ok(active_voxel_len) => active_voxel_len,
+        Err(e) => {
+            log::error!("Failed to build surface for chunk {}: {}", chunk_id, e);
+            return Ok(());
+        }
+    };
     let surface_elapsed = surface_start.elapsed();
     BENCH
         .lock()
@@ -298,14 +320,20 @@ pub(crate) fn mesh_generate_chunk_preserve_flora_for_sphere_edit(
     )?;
 
     let contree_start = Instant::now();
-    let res = contree_builder.build_and_alloc(atlas_offset).unwrap();
+    let scene_offsets = if active_voxel_len == 0 {
+        contree_builder
+            .clear_empty_surface_chunk(atlas_offset)
+            .scene_offsets
+    } else {
+        contree_builder.build_and_alloc(atlas_offset)?
+    };
     let contree_elapsed = contree_start.elapsed();
     BENCH
         .lock()
         .unwrap()
         .record("build_and_alloc", contree_elapsed);
 
-    if let Some(res) = res {
+    if let Some(res) = scene_offsets {
         let (node_buffer_offset, leaf_buffer_offset) = res;
         scene_accel_builder
             .update_scene_tex(chunk_id, Some((node_buffer_offset, leaf_buffer_offset)))?;

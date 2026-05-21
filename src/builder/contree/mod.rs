@@ -723,6 +723,37 @@ impl ContreeBuilder {
         Ok(self.finish_build_and_alloc(job)?.scene_offsets)
     }
 
+    pub fn clear_empty_surface_chunk(&mut self, atlas_offset: UVec3) -> ContreeBuildResult {
+        let total_start = Instant::now();
+        let chunk_idx = atlas_offset / self.voxel_dim_per_chunk;
+        let source_revision = self.clear_empty_chunk_state(atlas_offset, chunk_idx);
+        let total_elapsed = total_start.elapsed();
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("contree_empty_surface_skip_total", total_elapsed);
+        log::debug!(
+            "[QUEUE][CONTREE_REBUILD] chunk {:?} empty source_rev={} total_ms={:.2} gpu_submit_ms=0.00 fence_latency_ms=0.00 size_ms=0.00 skipped_surface_empty=true",
+            chunk_idx,
+            source_revision,
+            total_elapsed.as_secs_f32() * 1000.0,
+        );
+
+        ContreeBuildResult {
+            chunk_idx,
+            scene_offsets: None,
+            source_revision,
+            prealloc_ms: 0.0,
+            gpu_submit_ms: 0.0,
+            fence_latency_ms: 0.0,
+            size_ms: 0.0,
+            confirm_ms: 0.0,
+            total_ms: total_elapsed.as_secs_f64() * 1000.0,
+            node_bytes: 0,
+            leaf_bytes: 0,
+        }
+    }
+
     pub fn submit_build_and_alloc(&mut self, atlas_offset: UVec3) -> Result<ContreeBuildJob> {
         let total_start = Instant::now();
         let atlas_dim = self.voxel_dim_per_chunk;
@@ -840,13 +871,8 @@ impl ContreeBuilder {
             .record("contree_size_total", size_elapsed);
 
         if confirmed_node_buffer_size_in_bytes == 0 || confirmed_leaf_buffer_size_in_bytes == 0 {
-            self.cpu_chunk_caches.remove(&job.chunk_idx);
-            self.remove_shared_chunk_cache(job.chunk_idx);
-            self.cpu_chunk_cache_queue.clear(job.chunk_idx);
-            self.set_scene_chunk(job.chunk_idx, None);
             let chunk_idx = job.chunk_idx;
-            let source_revision = self.record_cpu_chunk_source_update(chunk_idx, false);
-            self.deallocate_chunk_allocation(job.atlas_offset);
+            let source_revision = self.clear_empty_chunk_state(job.atlas_offset, chunk_idx);
             let total_elapsed = job.total_start.elapsed();
             let prealloc_ms = job.prealloc_elapsed.as_secs_f64() * 1000.0;
             let gpu_submit_ms = job.submit_elapsed.as_secs_f64() * 1000.0;
@@ -1104,6 +1130,16 @@ impl ContreeBuilder {
             );
             self.try_submit_next_cpu_chunk_cache_job(focus, chunk_extent);
         }
+    }
+
+    fn clear_empty_chunk_state(&mut self, atlas_offset: UVec3, chunk_idx: UVec3) -> u64 {
+        self.cpu_chunk_caches.remove(&chunk_idx);
+        self.remove_shared_chunk_cache(chunk_idx);
+        self.cpu_chunk_cache_queue.clear(chunk_idx);
+        self.set_scene_chunk(chunk_idx, None);
+        let source_revision = self.record_cpu_chunk_source_update(chunk_idx, false);
+        self.deallocate_chunk_allocation(atlas_offset);
+        source_revision
     }
 
     fn deallocate_chunk_allocation(&mut self, atlas_offset: UVec3) {
