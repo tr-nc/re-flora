@@ -3066,6 +3066,8 @@ impl App {
                     && (self.shadow_map_update_pending
                         || shadow_map_interval_elapsed
                         || time_of_day_changed_by_gui);
+                let shadow_map_update_period_seconds =
+                    SHADOW_MAP_UPDATE_INTERVAL_TICKS as f32 * world_tick_seconds;
 
                 self.tracer
                     .update_buffers(
@@ -3119,6 +3121,7 @@ impl App {
                         self.gui_adjustables.ocean_sea_level_shift.value,
                         world_tick_seconds,
                         update_shadow_map,
+                        shadow_map_update_period_seconds,
                         self.gui_adjustables.lens_flare_intensity.value,
                         self.gui_adjustables.lens_flare_sun_pixel_scale.value,
                         self.flora_tick,

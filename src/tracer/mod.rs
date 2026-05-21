@@ -58,7 +58,6 @@ use std::collections::HashMap;
 
 const MAX_TERRAIN_QUERIES: usize = 1_000;
 pub(super) const WIND_VOLUME_BUCKET_COUNT: u32 = 4;
-const SHADOW_TEMPORAL_FADE_SECONDS: f32 = 0.25;
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -484,6 +483,7 @@ impl Tracer {
         ocean_sea_level_shift: f32,
         world_tick_seconds: f32,
         update_shadow_map: bool,
+        shadow_map_update_period_seconds: f32,
         lens_flare_intensity: f32,
         lens_flare_sun_pixel_scale: f32,
         flora_tick: u32,
@@ -536,15 +536,20 @@ impl Tracer {
         self.current_view_proj_mat = proj_mat * view_mat;
         BufferUpdater::update_camera_info(&mut self.resources.camera_info, view_mat, proj_mat)?;
 
-        // shadow cam info. Keep the shadow lookup matrix fixed between actual
+        // Shadow cam info. Keep the shadow lookup matrix fixed between actual
         // shadow-map renders; otherwise an old map would be sampled through a
         // new projection and shimmer even when the map was not updated.
+        //
+        // When a new shadow map is rendered, preserve the previous fully-filtered
+        // map and interpolate from it to the new one across the whole shadow
+        // update period. This intentionally displays shadows with one update of
+        // latency, but makes each update continuous instead of a short fade pulse.
+        let shadow_map_update_period_seconds = shadow_map_update_period_seconds.max(1.0 / 240.0);
         self.shadow_temporal_blend_alpha = (self.shadow_temporal_blend_alpha
-            + time_info.delta_time().max(0.0) / SHADOW_TEMPORAL_FADE_SECONDS)
+            + time_info.delta_time().max(0.0) / shadow_map_update_period_seconds)
             .min(1.0);
-        self.preserve_shadow_history_this_update = update_shadow_map
-            && self.shadow_map_history_valid
-            && self.shadow_temporal_blend_alpha >= 1.0;
+        self.preserve_shadow_history_this_update =
+            update_shadow_map && self.shadow_map_history_valid;
 
         if update_shadow_map || !self.shadow_camera_initialized {
             if self.preserve_shadow_history_this_update {

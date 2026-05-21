@@ -92,9 +92,9 @@ Commit checkpoint after this step:
 git commit -am "stabilize shadow projection bounds"
 ```
 
-## Step 3: Dual shadow maps with temporal fade
+## Step 3: Dual shadow maps with delayed interpolation
 
-Status: implemented in `fade between shadow map updates`.
+Status: implemented in `fade between shadow map updates`, then revised to interpolate across the full shadow update period.
 
 Goal: when the shadow map changes, blend from the previous shadow solution to the new one instead of switching in one frame.
 
@@ -103,10 +103,11 @@ Implementation outline:
 - Keep two filtered VSM outputs:
   - previous shadow map + previous shadow matrix
   - current shadow map + current shadow matrix
-- On a shadow update:
+- On every shadow update after history exists:
   - preserve the old filtered result and old matrix;
-  - render/filter the new shadow map into the other set;
-  - start a blend timer from 0 to 1.
+  - render/filter the new shadow map into the current set;
+  - reset interpolation to 0 and advance it to 1 over the next shadow update period.
+- This intentionally shows shadows one shadow-update period behind the visual sun, making the reset continuous: just before an update the display is at the current endpoint; just after the update, that same endpoint has become the previous map with alpha 0.
 - In shadow sampling, evaluate both maps and blend visibility:
 
 ```glsl
@@ -115,7 +116,7 @@ float new_vis = sample_vsm(new_shadow_map, new_shadow_matrix, world_pos);
 float vis = mix(old_vis, new_vis, smoothstep(0.0, 1.0, shadow_blend));
 ```
 
-- Start with a short configurable or constant fade duration, e.g. `0.15s` to `0.4s`.
+- Avoid a separate fade duration; the interpolation duration is the actual shadow-map update period.
 
 Likely files:
 
