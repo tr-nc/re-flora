@@ -76,6 +76,282 @@ pub struct SurfaceBuildResult {
     pub total_ms: f64,
 }
 
+#[derive(Clone, Copy)]
+struct SurfacePassTimingPass {
+    label: &'static str,
+    bench_key: &'static str,
+}
+
+struct SurfacePassTiming {
+    device: crate::vkn::Device,
+    query_pool: vk::QueryPool,
+    timestamp_period_ns: f32,
+    max_query_count: u32,
+}
+
+impl Drop for SurfacePassTiming {
+    fn drop(&mut self) {
+        unsafe {
+            self.device
+                .as_raw()
+                .destroy_query_pool(self.query_pool, None);
+        }
+    }
+}
+
+impl SurfacePassTiming {
+    fn maybe_new(vulkan_ctx: &VulkanContext) -> Option<Self> {
+        if !log::log_enabled!(target: module_path!(), log::Level::Debug) {
+            return None;
+        }
+
+        let properties = unsafe {
+            vulkan_ctx
+                .instance()
+                .as_raw()
+                .get_physical_device_properties(vulkan_ctx.physical_device().as_raw())
+        };
+        if properties.limits.timestamp_compute_and_graphics != vk::TRUE {
+            log::debug!(
+                "[PERF][SURFACE_PASS_TIMING] disabled: timestamp_compute_and_graphics unsupported"
+            );
+            return None;
+        }
+        if properties.limits.timestamp_period <= 0.0 {
+            log::debug!(
+                "[PERF][SURFACE_PASS_TIMING] disabled: timestamp_period={}ns",
+                properties.limits.timestamp_period
+            );
+            return None;
+        }
+
+        let max_pass_count = SURFACE_BUILD_TIMING_PASSES
+            .len()
+            .max(FLORA_REBUILD_TIMING_PASSES.len())
+            .max(FLORA_EDIT_TIMING_PASSES_WITH_INSTANCES.len())
+            .max(FLORA_GROWTH_TIMING_PASSES.len());
+        let max_query_count = (max_pass_count * 2) as u32;
+        if max_query_count == 0 {
+            return None;
+        }
+
+        let create_info = vk::QueryPoolCreateInfo::default()
+            .query_type(vk::QueryType::TIMESTAMP)
+            .query_count(max_query_count);
+        let device = vulkan_ctx.device().clone();
+        let query_pool = match unsafe { device.as_raw().create_query_pool(&create_info, None) } {
+            Ok(pool) => pool,
+            Err(err) => {
+                log::warn!("[PERF][SURFACE_PASS_TIMING] disabled: query pool create failed: {err}");
+                return None;
+            }
+        };
+
+        log::debug!(
+            "[PERF][SURFACE_PASS_TIMING] enabled max_passes={} queries={} timestamp_period_ns={:.3}",
+            max_pass_count,
+            max_query_count,
+            properties.limits.timestamp_period,
+        );
+
+        Some(Self {
+            device,
+            query_pool,
+            timestamp_period_ns: properties.limits.timestamp_period,
+            max_query_count,
+        })
+    }
+
+    fn record_reset(&self, cmdbuf: &CommandBuffer, pass_count: usize) {
+        let query_count = self.query_count(pass_count);
+        unsafe {
+            self.device.as_raw().cmd_reset_query_pool(
+                cmdbuf.as_raw(),
+                self.query_pool,
+                0,
+                query_count,
+            );
+        }
+    }
+
+    fn record_start(&self, cmdbuf: &CommandBuffer, pass_index: usize) {
+        self.record_timestamp(cmdbuf, pass_index * 2);
+    }
+
+    fn record_end(&self, cmdbuf: &CommandBuffer, pass_index: usize) {
+        self.record_timestamp(cmdbuf, pass_index * 2 + 1);
+    }
+
+    fn record_timestamp(&self, cmdbuf: &CommandBuffer, query_index: usize) {
+        unsafe {
+            self.device.as_raw().cmd_write_timestamp(
+                cmdbuf.as_raw(),
+                vk::PipelineStageFlags::ALL_COMMANDS,
+                self.query_pool,
+                query_index as u32,
+            );
+        }
+    }
+
+    fn collect_and_log(
+        &self,
+        log_tag: &'static str,
+        total_bench_key: &'static str,
+        chunk_id: UVec3,
+        passes: &[SurfacePassTimingPass],
+    ) {
+        let query_count = self.query_count(passes.len());
+        let mut timestamps = vec![0_u64; query_count as usize];
+        let readback_start = Instant::now();
+        let result = unsafe {
+            self.device.as_raw().get_query_pool_results(
+                self.query_pool,
+                0,
+                &mut timestamps,
+                vk::QueryResultFlags::TYPE_64 | vk::QueryResultFlags::WAIT,
+            )
+        };
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("surface_pass_timestamp_readback", readback_start.elapsed());
+
+        if let Err(err) = result {
+            log::warn!(
+                "[PERF][{}] chunk {:?} query readback failed: {err}",
+                log_tag,
+                chunk_id
+            );
+            return;
+        }
+
+        let mut parts = Vec::with_capacity(passes.len());
+        let mut total_ms = 0.0;
+        let mut bench = crate::util::BENCH.lock().unwrap();
+        for (pass_index, pass) in passes.iter().enumerate() {
+            let start = timestamps[pass_index * 2];
+            let end = timestamps[pass_index * 2 + 1];
+            if end < start {
+                log::debug!(
+                    "[PERF][{}] chunk {:?} pass {} timestamp wrapped or reordered start={} end={}",
+                    log_tag,
+                    chunk_id,
+                    pass.label,
+                    start,
+                    end,
+                );
+                continue;
+            }
+
+            let duration_ms = (end - start) as f64 * self.timestamp_period_ns as f64 / 1_000_000.0;
+            total_ms += duration_ms;
+            bench.record(
+                pass.bench_key,
+                Duration::from_secs_f64(duration_ms / 1000.0),
+            );
+            parts.push(format!("{}={:.3}ms", pass.label, duration_ms));
+        }
+        bench.record(total_bench_key, Duration::from_secs_f64(total_ms / 1000.0));
+        drop(bench);
+
+        log::debug!(
+            "[PERF][{}] chunk {:?} pass_total={:.3}ms {}",
+            log_tag,
+            chunk_id,
+            total_ms,
+            parts.join(" "),
+        );
+    }
+
+    fn query_count(&self, pass_count: usize) -> u32 {
+        let query_count = (pass_count * 2) as u32;
+        assert!(
+            query_count <= self.max_query_count,
+            "surface pass timing query count {} exceeds pool capacity {}",
+            query_count,
+            self.max_query_count,
+        );
+        query_count
+    }
+}
+
+const SURFACE_BUILD_TIMING_PASSES: [SurfacePassTimingPass; 5] = [
+    SurfacePassTimingPass {
+        label: "surface_clear",
+        bench_key: "surface_pass_surface_clear_gpu",
+    },
+    SurfacePassTimingPass {
+        label: "occupancy_clear_before_surface",
+        bench_key: "surface_pass_occupancy_clear_before_surface_gpu",
+    },
+    SurfacePassTimingPass {
+        label: "make_surface_result_clear",
+        bench_key: "surface_pass_make_surface_result_clear_gpu",
+    },
+    SurfacePassTimingPass {
+        label: "active_brick_flags_clear",
+        bench_key: "surface_pass_active_brick_flags_clear_gpu",
+    },
+    SurfacePassTimingPass {
+        label: "make_surface",
+        bench_key: "surface_pass_make_surface_gpu",
+    },
+];
+
+const FLORA_REBUILD_TIMING_PASSES: [SurfacePassTimingPass; 3] = [
+    SurfacePassTimingPass {
+        label: "clear_occupancy",
+        bench_key: "flora_rebuild_pass_clear_occupancy_gpu",
+    },
+    SurfacePassTimingPass {
+        label: "edit_occupancy",
+        bench_key: "flora_rebuild_pass_edit_occupancy_gpu",
+    },
+    SurfacePassTimingPass {
+        label: "occupancy_to_instances",
+        bench_key: "flora_rebuild_pass_occupancy_to_instances_gpu",
+    },
+];
+
+const FLORA_EDIT_TIMING_PASSES_WITH_INSTANCES: [SurfacePassTimingPass; 4] = [
+    SurfacePassTimingPass {
+        label: "clear_occupancy",
+        bench_key: "flora_edit_pass_clear_occupancy_gpu",
+    },
+    SurfacePassTimingPass {
+        label: "instances_to_occupancy",
+        bench_key: "flora_edit_pass_instances_to_occupancy_gpu",
+    },
+    SurfacePassTimingPass {
+        label: "edit_occupancy",
+        bench_key: "flora_edit_pass_edit_occupancy_gpu",
+    },
+    SurfacePassTimingPass {
+        label: "occupancy_to_instances",
+        bench_key: "flora_edit_pass_occupancy_to_instances_gpu",
+    },
+];
+
+const FLORA_EDIT_TIMING_PASSES_WITHOUT_INSTANCES: [SurfacePassTimingPass; 3] = [
+    SurfacePassTimingPass {
+        label: "clear_occupancy",
+        bench_key: "flora_edit_pass_clear_occupancy_gpu",
+    },
+    SurfacePassTimingPass {
+        label: "edit_occupancy",
+        bench_key: "flora_edit_pass_edit_occupancy_gpu",
+    },
+    SurfacePassTimingPass {
+        label: "occupancy_to_instances",
+        bench_key: "flora_edit_pass_occupancy_to_instances_gpu",
+    },
+];
+
+const FLORA_GROWTH_TIMING_PASSES: [SurfacePassTimingPass; 1] = [SurfacePassTimingPass {
+    label: "update_flora_growth",
+    bench_key: "flora_growth_pass_update_gpu",
+}];
+
 pub struct SurfaceBuilder {
     vulkan_ctx: VulkanContext,
     pub resources: SurfaceResources,
@@ -89,6 +365,7 @@ pub struct SurfaceBuilder {
     edit_occupancy_ppl: ComputePipeline,
     occupancy_to_instances_ppl: ComputePipeline,
     update_flora_growth_ppl: ComputePipeline,
+    pass_timing: Option<SurfacePassTiming>,
 
     chunk_bound: UAabb3,
     voxel_dim_per_chunk: UVec3,
@@ -208,6 +485,8 @@ impl SurfaceBuilder {
             &[&resources, plain_builder_resources],
         );
 
+        let pass_timing = SurfacePassTiming::maybe_new(&vulkan_ctx);
+
         Self {
             vulkan_ctx,
             resources,
@@ -218,6 +497,7 @@ impl SurfaceBuilder {
             edit_occupancy_ppl,
             occupancy_to_instances_ppl,
             update_flora_growth_ppl,
+            pass_timing,
             chunk_bound,
             voxel_dim_per_chunk,
             flora_species_count,
@@ -258,31 +538,64 @@ impl SurfaceBuilder {
         let cmdbuf = CommandBuffer::new(device, self.vulkan_ctx.command_pool());
         cmdbuf.begin(true);
 
-        self.resources.surface.get_image().record_clear(
-            &cmdbuf,
-            Some(vk::ImageLayout::GENERAL),
-            0,
-            ClearValue::Color(ColorClearValue::UInt([0, 0, 0, 0])),
-        );
-        self.resources.occupancy_data.get_image().record_clear(
-            &cmdbuf,
-            Some(vk::ImageLayout::GENERAL),
-            0,
-            ClearValue::Color(ColorClearValue::UInt([0, 0, 0, 0])),
-        );
-        record_clear_buffer_for_compute(device, &cmdbuf, &self.resources.make_surface_result);
-        record_clear_buffer_for_compute(
-            device,
-            &cmdbuf,
-            &self.resources.surface_active_brick_flags,
-        );
+        let pass_timing = self.pass_timing.as_ref();
+        if let Some(timing) = pass_timing {
+            timing.record_reset(&cmdbuf, SURFACE_BUILD_TIMING_PASSES.len());
+        }
+        let mut timing_pass_index = 0usize;
+        macro_rules! record_timed_surface_pass {
+            ($body:block) => {{
+                if let Some(timing) = pass_timing {
+                    timing.record_start(&cmdbuf, timing_pass_index);
+                }
+                let result = { $body };
+                if let Some(timing) = pass_timing {
+                    timing.record_end(&cmdbuf, timing_pass_index);
+                    timing_pass_index += 1;
+                }
+                result
+            }};
+        }
+
+        record_timed_surface_pass!({
+            self.resources.surface.get_image().record_clear(
+                &cmdbuf,
+                Some(vk::ImageLayout::GENERAL),
+                0,
+                ClearValue::Color(ColorClearValue::UInt([0, 0, 0, 0])),
+            );
+        });
+        record_timed_surface_pass!({
+            self.resources.occupancy_data.get_image().record_clear(
+                &cmdbuf,
+                Some(vk::ImageLayout::GENERAL),
+                0,
+                ClearValue::Color(ColorClearValue::UInt([0, 0, 0, 0])),
+            );
+        });
+        record_timed_surface_pass!({
+            record_clear_buffer_for_compute(device, &cmdbuf, &self.resources.make_surface_result);
+        });
+        record_timed_surface_pass!({
+            record_clear_buffer_for_compute(
+                device,
+                &cmdbuf,
+                &self.resources.surface_active_brick_flags,
+            );
+        });
 
         let extent = Extent3D {
             width: self.voxel_dim_per_chunk.x,
             height: self.voxel_dim_per_chunk.y,
             depth: self.voxel_dim_per_chunk.z,
         };
-        self.make_surface_ppl.record(&cmdbuf, extent, None);
+        record_timed_surface_pass!({
+            self.make_surface_ppl.record(&cmdbuf, extent, None);
+        });
+
+        if pass_timing.is_some() {
+            assert_eq!(timing_pass_index, SURFACE_BUILD_TIMING_PASSES.len());
+        }
 
         cmdbuf.end();
         let record_elapsed = record_start.elapsed();
@@ -328,6 +641,15 @@ impl SurfaceBuilder {
         let active_voxel_len = make_surface_result.active_voxel_len;
         let active_brick_len = make_surface_result.active_brick_len;
         let readback_elapsed = readback_start.elapsed();
+
+        if let Some(timing) = self.pass_timing.as_ref() {
+            timing.collect_and_log(
+                "SURFACE_BUILD_PASS_TIMING",
+                "surface_pass_timed_total_gpu",
+                job.chunk_id,
+                &SURFACE_BUILD_TIMING_PASSES,
+            );
+        }
 
         let should_rebuild_flora = job.place_flora && active_voxel_len > 0;
         let flora_start = Instant::now();
@@ -462,48 +784,86 @@ impl SurfaceBuilder {
         let cmdbuf = CommandBuffer::new(device, self.vulkan_ctx.command_pool());
         cmdbuf.begin(true);
 
+        let pass_timing = self.pass_timing.as_ref();
+        if let Some(timing) = pass_timing {
+            timing.record_reset(&cmdbuf, FLORA_REBUILD_TIMING_PASSES.len());
+        }
+        let mut timing_pass_index = 0usize;
+        macro_rules! record_timed_flora_pass {
+            ($body:block) => {{
+                if let Some(timing) = pass_timing {
+                    timing.record_start(&cmdbuf, timing_pass_index);
+                }
+                let result = { $body };
+                if let Some(timing) = pass_timing {
+                    timing.record_end(&cmdbuf, timing_pass_index);
+                    timing_pass_index += 1;
+                }
+                result
+            }};
+        }
+
         self.resources
             .occupancy_data
             .get_image()
             .record_transition_barrier(&cmdbuf, 0, vk::ImageLayout::GENERAL);
 
-        self.clear_occupancy_ppl.record(
-            &cmdbuf,
-            Extent3D::new(
-                self.voxel_dim_per_chunk.x,
-                self.voxel_dim_per_chunk.y,
-                self.voxel_dim_per_chunk.z,
-            ),
-            None,
-        );
+        record_timed_flora_pass!({
+            self.clear_occupancy_ppl.record(
+                &cmdbuf,
+                Extent3D::new(
+                    self.voxel_dim_per_chunk.x,
+                    self.voxel_dim_per_chunk.y,
+                    self.voxel_dim_per_chunk.z,
+                ),
+                None,
+            );
+        });
 
         record_compute_barrier(device, &cmdbuf);
 
-        self.edit_occupancy_ppl.record(
-            &cmdbuf,
-            Extent3D::new(
-                self.voxel_dim_per_chunk.x,
-                self.voxel_dim_per_chunk.y,
-                self.voxel_dim_per_chunk.z,
-            ),
-            None,
-        );
+        record_timed_flora_pass!({
+            self.edit_occupancy_ppl.record(
+                &cmdbuf,
+                Extent3D::new(
+                    self.voxel_dim_per_chunk.x,
+                    self.voxel_dim_per_chunk.y,
+                    self.voxel_dim_per_chunk.z,
+                ),
+                None,
+            );
+        });
 
         record_compute_barrier(device, &cmdbuf);
 
-        self.occupancy_to_instances_ppl.record(
-            &cmdbuf,
-            Extent3D::new(
-                self.voxel_dim_per_chunk.x,
-                self.voxel_dim_per_chunk.y,
-                self.voxel_dim_per_chunk.z,
-            ),
-            None,
-        );
+        record_timed_flora_pass!({
+            self.occupancy_to_instances_ppl.record(
+                &cmdbuf,
+                Extent3D::new(
+                    self.voxel_dim_per_chunk.x,
+                    self.voxel_dim_per_chunk.y,
+                    self.voxel_dim_per_chunk.z,
+                ),
+                None,
+            );
+        });
+
+        if pass_timing.is_some() {
+            assert_eq!(timing_pass_index, FLORA_REBUILD_TIMING_PASSES.len());
+        }
 
         cmdbuf.end();
         cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), None);
         device.wait_queue_idle(&self.vulkan_ctx.get_general_queue());
+
+        if let Some(timing) = self.pass_timing.as_ref() {
+            timing.collect_and_log(
+                "FLORA_REBUILD_PASS_TIMING",
+                "flora_rebuild_pass_timed_total_gpu",
+                chunk_id,
+                &FLORA_REBUILD_TIMING_PASSES,
+            );
+        }
 
         let result = get_occupancy_to_instances_result(
             &self.resources.occupancy_to_instances_result,
@@ -589,58 +949,104 @@ impl SurfaceBuilder {
         self.bind_manual_instance_buffers(&self.instances_to_occupancy_ppl, chunk_resources);
         self.bind_manual_instance_buffers(&self.occupancy_to_instances_ppl, chunk_resources);
 
+        let flora_edit_timing_passes: &[SurfacePassTimingPass] = if max_len > 0 {
+            &FLORA_EDIT_TIMING_PASSES_WITH_INSTANCES
+        } else {
+            &FLORA_EDIT_TIMING_PASSES_WITHOUT_INSTANCES
+        };
+
         let device = self.vulkan_ctx.device();
         let cmdbuf = CommandBuffer::new(device, self.vulkan_ctx.command_pool());
         cmdbuf.begin(true);
+
+        let pass_timing = self.pass_timing.as_ref();
+        if let Some(timing) = pass_timing {
+            timing.record_reset(&cmdbuf, flora_edit_timing_passes.len());
+        }
+        let mut timing_pass_index = 0usize;
+        macro_rules! record_timed_flora_edit_pass {
+            ($body:block) => {{
+                if let Some(timing) = pass_timing {
+                    timing.record_start(&cmdbuf, timing_pass_index);
+                }
+                let result = { $body };
+                if let Some(timing) = pass_timing {
+                    timing.record_end(&cmdbuf, timing_pass_index);
+                    timing_pass_index += 1;
+                }
+                result
+            }};
+        }
 
         self.resources
             .occupancy_data
             .get_image()
             .record_transition_barrier(&cmdbuf, 0, vk::ImageLayout::GENERAL);
 
-        self.clear_occupancy_ppl.record(
-            &cmdbuf,
-            Extent3D::new(
-                self.voxel_dim_per_chunk.x,
-                self.voxel_dim_per_chunk.y,
-                self.voxel_dim_per_chunk.z,
-            ),
-            None,
-        );
+        record_timed_flora_edit_pass!({
+            self.clear_occupancy_ppl.record(
+                &cmdbuf,
+                Extent3D::new(
+                    self.voxel_dim_per_chunk.x,
+                    self.voxel_dim_per_chunk.y,
+                    self.voxel_dim_per_chunk.z,
+                ),
+                None,
+            );
+        });
 
         if max_len > 0 {
             record_compute_barrier(device, &cmdbuf);
-            self.instances_to_occupancy_ppl
-                .record(&cmdbuf, Extent3D::new(max_len, 1, 1), None);
+            record_timed_flora_edit_pass!({
+                self.instances_to_occupancy_ppl
+                    .record(&cmdbuf, Extent3D::new(max_len, 1, 1), None);
+            });
         }
 
         record_compute_barrier(device, &cmdbuf);
 
-        self.edit_occupancy_ppl.record(
-            &cmdbuf,
-            Extent3D::new(
-                self.voxel_dim_per_chunk.x,
-                self.voxel_dim_per_chunk.y,
-                self.voxel_dim_per_chunk.z,
-            ),
-            None,
-        );
+        record_timed_flora_edit_pass!({
+            self.edit_occupancy_ppl.record(
+                &cmdbuf,
+                Extent3D::new(
+                    self.voxel_dim_per_chunk.x,
+                    self.voxel_dim_per_chunk.y,
+                    self.voxel_dim_per_chunk.z,
+                ),
+                None,
+            );
+        });
 
         record_compute_barrier(device, &cmdbuf);
 
-        self.occupancy_to_instances_ppl.record(
-            &cmdbuf,
-            Extent3D::new(
-                self.voxel_dim_per_chunk.x,
-                self.voxel_dim_per_chunk.y,
-                self.voxel_dim_per_chunk.z,
-            ),
-            None,
-        );
+        record_timed_flora_edit_pass!({
+            self.occupancy_to_instances_ppl.record(
+                &cmdbuf,
+                Extent3D::new(
+                    self.voxel_dim_per_chunk.x,
+                    self.voxel_dim_per_chunk.y,
+                    self.voxel_dim_per_chunk.z,
+                ),
+                None,
+            );
+        });
+
+        if pass_timing.is_some() {
+            assert_eq!(timing_pass_index, flora_edit_timing_passes.len());
+        }
 
         cmdbuf.end();
         cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), None);
         device.wait_queue_idle(&self.vulkan_ctx.get_general_queue());
+
+        if let Some(timing) = self.pass_timing.as_ref() {
+            timing.collect_and_log(
+                "FLORA_EDIT_PASS_TIMING",
+                "flora_edit_pass_timed_total_gpu",
+                chunk_id,
+                flora_edit_timing_passes,
+            );
+        }
 
         let result = get_occupancy_to_instances_result(
             &self.resources.occupancy_to_instances_result,
@@ -715,11 +1121,30 @@ impl SurfaceBuilder {
         let device = self.vulkan_ctx.device();
         let cmdbuf = CommandBuffer::new(device, self.vulkan_ctx.command_pool());
         cmdbuf.begin(true);
+
+        let pass_timing = self.pass_timing.as_ref();
+        if let Some(timing) = pass_timing {
+            timing.record_reset(&cmdbuf, FLORA_GROWTH_TIMING_PASSES.len());
+            timing.record_start(&cmdbuf, 0);
+        }
         self.update_flora_growth_ppl
             .record(&cmdbuf, Extent3D::new(max_len, 1, 1), None);
+        if let Some(timing) = pass_timing {
+            timing.record_end(&cmdbuf, 0);
+        }
+
         cmdbuf.end();
         cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), None);
         device.wait_queue_idle(&self.vulkan_ctx.get_general_queue());
+
+        if let Some(timing) = self.pass_timing.as_ref() {
+            timing.collect_and_log(
+                "FLORA_GROWTH_PASS_TIMING",
+                "flora_growth_pass_timed_total_gpu",
+                chunk_id,
+                &FLORA_GROWTH_TIMING_PASSES,
+            );
+        }
 
         Ok(get_occupancy_to_instances_result(
             &self.resources.occupancy_to_instances_result,
