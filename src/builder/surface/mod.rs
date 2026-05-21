@@ -275,14 +275,10 @@ impl SurfacePassTiming {
     }
 }
 
-const SURFACE_BUILD_TIMING_PASSES: [SurfacePassTimingPass; 4] = [
+const SURFACE_BUILD_TIMING_PASSES: [SurfacePassTimingPass; 3] = [
     SurfacePassTimingPass {
         label: "surface_clear",
         bench_key: "surface_pass_surface_clear_gpu",
-    },
-    SurfacePassTimingPass {
-        label: "make_surface_result_clear",
-        bench_key: "surface_pass_make_surface_result_clear_gpu",
     },
     SurfacePassTimingPass {
         label: "active_brick_flags_clear",
@@ -534,6 +530,7 @@ impl SurfaceBuilder {
             atlas_read_dim,
             true,
         )?;
+        cleanup_layout_buffer(&self.resources.make_surface_result)?;
         let setup_elapsed = setup_start.elapsed();
 
         let record_start = Instant::now();
@@ -566,9 +563,6 @@ impl SurfaceBuilder {
                 0,
                 ClearValue::Color(ColorClearValue::UInt([0, 0, 0, 0])),
             );
-        });
-        record_timed_surface_pass!({
-            record_clear_buffer_for_compute(device, &cmdbuf, &self.resources.make_surface_result);
         });
         record_timed_surface_pass!({
             record_clear_buffer_for_compute(
@@ -1255,10 +1249,14 @@ fn update_occupancy_to_instances_info(
 }
 
 fn cleanup_occupancy_to_instances_result(result: &Buffer) -> Result<()> {
-    let layout = result.get_layout().unwrap();
+    cleanup_layout_buffer(result)
+}
+
+fn cleanup_layout_buffer(buffer: &Buffer) -> Result<()> {
+    let layout = buffer.get_layout().unwrap();
     let buffer_size = layout.root_member.get_size_bytes() as usize;
     let zeroed = vec![0u8; buffer_size];
-    result.fill_with_raw_u8(&zeroed)?;
+    buffer.fill_with_raw_u8(&zeroed)?;
     Ok(())
 }
 
