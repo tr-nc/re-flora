@@ -952,7 +952,14 @@ impl TracerResources {
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
         };
-        let sam_desc = Default::default();
+        // Filtered VSM moments should be interpolated at lookup time; using
+        // the default nearest sampler makes grass shadows snap by whole texels
+        // even after the compute blur has softened the moments.
+        let sam_desc = SamplerDesc {
+            mag_filter: vk::Filter::LINEAR,
+            min_filter: vk::Filter::LINEAR,
+            ..Default::default()
+        };
         Texture::new(device, allocator, &tex_desc, &sam_desc)
     }
 
