@@ -22,10 +22,6 @@ Goals matter - even for a small cozy game that could keep evolving forever. They
 
 ## 2) High-Priority Features
 
-- **Trading system**
-  - Add a docked ship that enables resource exchange. (Draw the docked ship, the port, with primitives during world init time
-  - Support buy/sell interactions for player inventory.
-
 - **Terrain harvesting feedback**
   - Add particle effects at terrain-edit positions.
   - Emit particles matching voxel color.
