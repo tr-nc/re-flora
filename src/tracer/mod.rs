@@ -520,8 +520,10 @@ impl Tracer {
 
         // shadow cam info
         let world_bound = self.chunk_bound.into();
+        let shadow_map_extent = self.resources.shadow_map_tex.get_image().get_desc().extent;
+        let shadow_map_resolution = shadow_map_extent.width.min(shadow_map_extent.height);
         let (shadow_view_mat, shadow_proj_mat) =
-            calculate_directional_light_matrices(world_bound, sun_dir);
+            calculate_directional_light_matrices(world_bound, sun_dir, shadow_map_resolution);
         self.current_shadow_view_proj_mat = shadow_proj_mat * shadow_view_mat;
         BufferUpdater::update_camera_info(
             &mut self.resources.shadow_camera_info,
