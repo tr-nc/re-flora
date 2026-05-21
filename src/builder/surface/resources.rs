@@ -207,6 +207,8 @@ pub struct SurfaceResources {
     pub surface: Resource<Texture>,
     pub make_surface_info: Resource<Buffer>,
     pub make_surface_result: Resource<Buffer>,
+    pub surface_active_brick_flags: Resource<Buffer>,
+    pub surface_active_brick_indices: Resource<Buffer>,
     pub clear_occupancy_info: Resource<Buffer>,
     pub instances_to_occupancy_info: Resource<Buffer>,
     pub edit_occupancy_info: Resource<Buffer>,
@@ -280,8 +282,30 @@ impl SurfaceResources {
             device.clone(),
             allocator.clone(),
             make_surface_result_layout.clone(),
-            BufferUsage::empty(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
             gpu_allocator::MemoryLocation::CpuToGpu,
+        );
+
+        let active_brick_dim = voxel_dim_per_chunk / 4;
+        let active_brick_count =
+            active_brick_dim.x as u64 * active_brick_dim.y as u64 * active_brick_dim.z as u64;
+        let active_brick_flag_count = active_brick_count.div_ceil(32);
+        let surface_active_brick_flags = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(
+                vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
+            ),
+            gpu_allocator::MemoryLocation::GpuOnly,
+            active_brick_flag_count * std::mem::size_of::<u32>() as u64,
+        );
+
+        let surface_active_brick_indices = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            gpu_allocator::MemoryLocation::GpuOnly,
+            active_brick_count * std::mem::size_of::<u32>() as u64,
         );
 
         let clear_occupancy_info_layout = clear_occupancy_sm
@@ -343,6 +367,8 @@ impl SurfaceResources {
             surface: Resource::new(surface),
             make_surface_info: Resource::new(make_surface_info),
             make_surface_result: Resource::new(make_surface_result),
+            surface_active_brick_flags: Resource::new(surface_active_brick_flags),
+            surface_active_brick_indices: Resource::new(surface_active_brick_indices),
             clear_occupancy_info: Resource::new(clear_occupancy_info),
             instances_to_occupancy_info: Resource::new(instances_to_occupancy_info),
             edit_occupancy_info: Resource::new(edit_occupancy_info),

@@ -77,6 +77,7 @@ pub struct LevelDispatchIndirect {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct MakeSurfaceResult {
     pub active_voxel_len: u32,
+    pub active_brick_len: u32,
 }
 
 /// Auto-generated from `B_ManualFloraInstances` (GLSL source of truth).
@@ -142,6 +143,20 @@ pub struct RoundCones {
 pub struct Spheres {
     pub center: [f32; 3],
     pub radius: f32,
+}
+
+/// Auto-generated from `B_SurfaceActiveBrickFlags` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SurfaceActiveBrickFlags {
+    pub data: [u32; 0],
+}
+
+/// Auto-generated from `B_SurfaceActiveBrickIndices` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SurfaceActiveBrickIndices {
+    pub data: [u32; 0],
 }
 
 /// Auto-generated from `B_TerrainQueryInfo` (GLSL source of truth).

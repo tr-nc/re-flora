@@ -494,6 +494,49 @@ fn contree_pass_timing_passes(total_levels: u32) -> Vec<ContreePassTimingPass> {
     passes
 }
 
+fn contree_level_node_count(level: u32) -> u64 {
+    64_u64.pow(level)
+}
+
+fn contree_level_node_offset(level: u32) -> u64 {
+    let mut offset = 0;
+    for current_level in 0..level {
+        offset += contree_level_node_count(current_level);
+    }
+    offset
+}
+
+fn record_clear_sparse_leaf_nodes(
+    device: &crate::vkn::Device,
+    cmdbuf: &CommandBuffer,
+    sparse_nodes: &Buffer,
+    total_levels: u32,
+) {
+    let leaf_node_level = total_levels.saturating_sub(2);
+    let offset_bytes = contree_level_node_offset(leaf_node_level) * SIZE_OF_NODE_ELEMENT;
+    let size_bytes = contree_level_node_count(leaf_node_level) * SIZE_OF_NODE_ELEMENT;
+
+    unsafe {
+        device.as_raw().cmd_fill_buffer(
+            cmdbuf.as_raw(),
+            sparse_nodes.as_raw(),
+            offset_bytes,
+            size_bytes,
+            0,
+        );
+    }
+
+    let barrier = PipelineBarrier::new(
+        vk::PipelineStageFlags::TRANSFER,
+        vk::PipelineStageFlags::COMPUTE_SHADER,
+        vec![MemoryBarrier::new(
+            vk::AccessFlags::TRANSFER_WRITE,
+            vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE,
+        )],
+    );
+    barrier.record_insert(device, cmdbuf);
+}
+
 struct CpuChunkReadbackBuffers {
     node_readback: Buffer,
     leaf_readback: Buffer,
@@ -658,8 +701,12 @@ impl ContreeBuilder {
 
         let fixed_pool = DescriptorPool::new(device).unwrap();
 
-        let contree_buffer_setup_ppl =
-            ComputePipeline::new(device, &contree_buffer_setup_sm, &fixed_pool, &[&resources]);
+        let contree_buffer_setup_ppl = ComputePipeline::new(
+            device,
+            &contree_buffer_setup_sm,
+            &fixed_pool,
+            &[&resources, surfacer_resources],
+        );
         let contree_leaf_write_ppl = ComputePipeline::new(
             device,
             &contree_leaf_write_sm,
@@ -840,6 +887,13 @@ impl ContreeBuilder {
 
         shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
         indirect_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
+
+        record_clear_sparse_leaf_nodes(
+            vulkan_ctx.device(),
+            &cmdbuf,
+            &resources.sparse_nodes,
+            total_levels,
+        );
 
         record_timed_pass!({
             contree_leaf_write_ppl.record_indirect(

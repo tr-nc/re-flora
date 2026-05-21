@@ -42,6 +42,11 @@ struct OccupancyToInstancesResultReadback {
     has_growing_flora: bool,
 }
 
+struct MakeSurfaceResultReadback {
+    active_voxel_len: u32,
+    active_brick_len: u32,
+}
+
 pub struct SurfaceBuildJob {
     chunk_id: UVec3,
     place_flora: bool,
@@ -59,6 +64,7 @@ pub struct SurfaceBuildJob {
 pub struct SurfaceBuildResult {
     pub chunk_id: UVec3,
     pub active_voxel_len: u32,
+    pub active_brick_len: u32,
     pub place_flora: bool,
     pub flora_rebuilt: bool,
     pub setup_ms: f64,
@@ -246,7 +252,6 @@ impl SurfaceBuilder {
             atlas_read_dim,
             true,
         )?;
-        cleanup_make_surface_result(&self.resources.make_surface_result)?;
         let setup_elapsed = setup_start.elapsed();
 
         let record_start = Instant::now();
@@ -264,6 +269,12 @@ impl SurfaceBuilder {
             Some(vk::ImageLayout::GENERAL),
             0,
             ClearValue::Color(ColorClearValue::UInt([0, 0, 0, 0])),
+        );
+        record_clear_buffer_for_compute(device, &cmdbuf, &self.resources.make_surface_result);
+        record_clear_buffer_for_compute(
+            device,
+            &cmdbuf,
+            &self.resources.surface_active_brick_flags,
         );
 
         let extent = Extent3D {
@@ -313,7 +324,9 @@ impl SurfaceBuilder {
     pub fn finish_build_surface(&mut self, job: SurfaceBuildJob) -> Result<SurfaceBuildResult> {
         let fence_latency_elapsed = job.submitted_at.elapsed();
         let readback_start = Instant::now();
-        let active_voxel_len = get_make_surface_result(&self.resources.make_surface_result);
+        let make_surface_result = get_make_surface_result(&self.resources.make_surface_result);
+        let active_voxel_len = make_surface_result.active_voxel_len;
+        let active_brick_len = make_surface_result.active_brick_len;
         let readback_elapsed = readback_start.elapsed();
 
         let should_rebuild_flora = job.place_flora && active_voxel_len > 0;
@@ -325,7 +338,7 @@ impl SurfaceBuilder {
         let total_elapsed = job.total_start.elapsed();
 
         log::debug!(
-            "[PERF][SURFACE_BUILD] chunk {:?} total {:.2}ms setup {:.2}ms record {:.2}ms gpu_submit {:.2}ms fence_latency {:.2}ms readback {:.2}ms flora {:.2}ms active_voxels {} place_flora {} flora_rebuilt {}",
+            "[PERF][SURFACE_BUILD] chunk {:?} total {:.2}ms setup {:.2}ms record {:.2}ms gpu_submit {:.2}ms fence_latency {:.2}ms readback {:.2}ms flora {:.2}ms active_voxels {} active_bricks {} place_flora {} flora_rebuilt {}",
             job.chunk_id,
             total_elapsed.as_secs_f32() * 1000.0,
             job.setup_elapsed.as_secs_f32() * 1000.0,
@@ -335,6 +348,7 @@ impl SurfaceBuilder {
             readback_elapsed.as_secs_f32() * 1000.0,
             flora_elapsed.as_secs_f32() * 1000.0,
             active_voxel_len,
+            active_brick_len,
             job.place_flora,
             should_rebuild_flora,
         );
@@ -342,6 +356,7 @@ impl SurfaceBuilder {
         Ok(SurfaceBuildResult {
             chunk_id: job.chunk_id,
             active_voxel_len,
+            active_brick_len,
             place_flora: job.place_flora,
             flora_rebuilt: should_rebuild_flora,
             setup_ms: job.setup_elapsed.as_secs_f64() * 1000.0,
@@ -750,6 +765,32 @@ fn record_compute_barrier(device: &crate::vkn::Device, cmdbuf: &CommandBuffer) {
     barrier.record_insert(device, cmdbuf);
 }
 
+fn record_clear_buffer_for_compute(
+    device: &crate::vkn::Device,
+    cmdbuf: &CommandBuffer,
+    buffer: &Buffer,
+) {
+    unsafe {
+        device.as_raw().cmd_fill_buffer(
+            cmdbuf.as_raw(),
+            buffer.as_raw(),
+            0,
+            buffer.get_size_bytes(),
+            0,
+        );
+    }
+
+    let barrier = PipelineBarrier::new(
+        vk::PipelineStageFlags::TRANSFER,
+        vk::PipelineStageFlags::COMPUTE_SHADER,
+        vec![MemoryBarrier::new(
+            vk::AccessFlags::TRANSFER_WRITE,
+            vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE,
+        )],
+    );
+    barrier.record_insert(device, cmdbuf);
+}
+
 fn update_make_surface_info(
     make_surface_info: &Buffer,
     atlas_read_offset: UVec3,
@@ -764,24 +805,19 @@ fn update_make_surface_info(
     })
 }
 
-fn cleanup_make_surface_result(make_surface_result: &Buffer) -> Result<()> {
-    let layout = make_surface_result.get_layout().unwrap();
-    let buffer_size = layout.root_member.get_size_bytes() as usize;
-    let zeroed = vec![0u8; buffer_size];
-    make_surface_result.fill_with_raw_u8(&zeroed)?;
-    Ok(())
-}
-
-fn get_make_surface_result(make_surface_result: &Buffer) -> u32 {
+fn get_make_surface_result(make_surface_result: &Buffer) -> MakeSurfaceResultReadback {
     let raw_data = make_surface_result.read_back().unwrap();
     let total_u32 = raw_data.len() / std::mem::size_of::<u32>();
     let data = unsafe { std::slice::from_raw_parts(raw_data.as_ptr() as *const u32, total_u32) };
     assert!(
-        total_u32 >= 1,
-        "make_surface_result buffer too small: expected at least 1 u32, got {}",
+        total_u32 >= 2,
+        "make_surface_result buffer too small: expected at least 2 u32s, got {}",
         total_u32
     );
-    data[0]
+    MakeSurfaceResultReadback {
+        active_voxel_len: data[0],
+        active_brick_len: data[1],
+    }
 }
 
 fn update_clear_occupancy_info(clear_occupancy_info: &Buffer, chunk_dim: UVec3) -> Result<()> {
