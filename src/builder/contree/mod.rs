@@ -63,6 +63,7 @@ pub struct ContreeBuilder {
     /// Atlas offset <-> (node_alloc_id, leaf_alloc_id)
     chunk_offset_allocation_table: HashMap<UVec3, (u64, u64)>,
 
+    pass_timing: Option<ContreePassTiming>,
     contree_cmdbuf: CommandBuffer,
 
     leaf_allocator: FirstFitAllocator,
@@ -192,6 +193,305 @@ pub struct ContreeBuildResult {
     pub total_ms: f64,
     pub node_bytes: u64,
     pub leaf_bytes: u64,
+}
+
+#[derive(Clone, Copy)]
+struct ContreePassTimingPass {
+    label: &'static str,
+    bench_key: &'static str,
+}
+
+struct ContreePassTiming {
+    device: crate::vkn::Device,
+    query_pool: vk::QueryPool,
+    timestamp_period_ns: f32,
+    passes: Vec<ContreePassTimingPass>,
+}
+
+impl Drop for ContreePassTiming {
+    fn drop(&mut self) {
+        unsafe {
+            self.device
+                .as_raw()
+                .destroy_query_pool(self.query_pool, None);
+        }
+    }
+}
+
+impl ContreePassTiming {
+    fn maybe_new(vulkan_ctx: &VulkanContext, total_levels: u32) -> Option<Self> {
+        if !log::log_enabled!(target: module_path!(), log::Level::Debug) {
+            return None;
+        }
+
+        let properties = unsafe {
+            vulkan_ctx
+                .instance()
+                .as_raw()
+                .get_physical_device_properties(vulkan_ctx.physical_device().as_raw())
+        };
+        if properties.limits.timestamp_compute_and_graphics != vk::TRUE {
+            log::debug!(
+                "[PERF][CONTREE_PASS_TIMING] disabled: timestamp_compute_and_graphics unsupported"
+            );
+            return None;
+        }
+        if properties.limits.timestamp_period <= 0.0 {
+            log::debug!(
+                "[PERF][CONTREE_PASS_TIMING] disabled: timestamp_period={}ns",
+                properties.limits.timestamp_period
+            );
+            return None;
+        }
+
+        let tree_pass_count = total_levels.saturating_sub(2) as usize;
+        if tree_pass_count > CONTREE_TREE_WRITE_TIMING_PASSES.len() {
+            log::debug!(
+                "[PERF][CONTREE_PASS_TIMING] disabled: total_levels={} exceeds timing label capacity {}",
+                total_levels,
+                CONTREE_TREE_WRITE_TIMING_PASSES.len(),
+            );
+            return None;
+        }
+
+        let passes = contree_pass_timing_passes(total_levels);
+        let query_count = (passes.len() * 2) as u32;
+        if query_count == 0 {
+            return None;
+        }
+
+        let create_info = vk::QueryPoolCreateInfo::default()
+            .query_type(vk::QueryType::TIMESTAMP)
+            .query_count(query_count);
+        let device = vulkan_ctx.device().clone();
+        let query_pool = match unsafe { device.as_raw().create_query_pool(&create_info, None) } {
+            Ok(pool) => pool,
+            Err(err) => {
+                log::warn!("[PERF][CONTREE_PASS_TIMING] disabled: query pool create failed: {err}");
+                return None;
+            }
+        };
+
+        log::debug!(
+            "[PERF][CONTREE_PASS_TIMING] enabled passes={} queries={} timestamp_period_ns={:.3}",
+            passes.len(),
+            query_count,
+            properties.limits.timestamp_period,
+        );
+
+        Some(Self {
+            device,
+            query_pool,
+            timestamp_period_ns: properties.limits.timestamp_period,
+            passes,
+        })
+    }
+
+    fn query_count(&self) -> u32 {
+        (self.passes.len() * 2) as u32
+    }
+
+    fn record_reset(&self, cmdbuf: &CommandBuffer) {
+        unsafe {
+            self.device.as_raw().cmd_reset_query_pool(
+                cmdbuf.as_raw(),
+                self.query_pool,
+                0,
+                self.query_count(),
+            );
+        }
+    }
+
+    fn record_start(&self, cmdbuf: &CommandBuffer, pass_index: usize) {
+        self.record_timestamp(cmdbuf, pass_index * 2);
+    }
+
+    fn record_end(&self, cmdbuf: &CommandBuffer, pass_index: usize) {
+        self.record_timestamp(cmdbuf, pass_index * 2 + 1);
+    }
+
+    fn record_timestamp(&self, cmdbuf: &CommandBuffer, query_index: usize) {
+        unsafe {
+            self.device.as_raw().cmd_write_timestamp(
+                cmdbuf.as_raw(),
+                vk::PipelineStageFlags::COMPUTE_SHADER,
+                self.query_pool,
+                query_index as u32,
+            );
+        }
+    }
+
+    fn collect_and_log(&self, chunk_idx: UVec3) {
+        let mut timestamps = vec![0_u64; self.query_count() as usize];
+        let readback_start = Instant::now();
+        let result = unsafe {
+            self.device.as_raw().get_query_pool_results(
+                self.query_pool,
+                0,
+                &mut timestamps,
+                vk::QueryResultFlags::TYPE_64 | vk::QueryResultFlags::WAIT,
+            )
+        };
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("contree_pass_timestamp_readback", readback_start.elapsed());
+
+        if let Err(err) = result {
+            log::warn!(
+                "[PERF][CONTREE_PASS_TIMING] chunk {:?} query readback failed: {err}",
+                chunk_idx
+            );
+            return;
+        }
+
+        let mut parts = Vec::with_capacity(self.passes.len());
+        let mut total_ms = 0.0;
+        let mut bench = crate::util::BENCH.lock().unwrap();
+        for (pass_index, pass) in self.passes.iter().enumerate() {
+            let start = timestamps[pass_index * 2];
+            let end = timestamps[pass_index * 2 + 1];
+            if end < start {
+                log::debug!(
+                    "[PERF][CONTREE_PASS_TIMING] chunk {:?} pass {} timestamp wrapped or reordered start={} end={}",
+                    chunk_idx,
+                    pass.label,
+                    start,
+                    end,
+                );
+                continue;
+            }
+
+            let duration_ms = (end - start) as f64 * self.timestamp_period_ns as f64 / 1_000_000.0;
+            total_ms += duration_ms;
+            bench.record(
+                pass.bench_key,
+                Duration::from_secs_f64(duration_ms / 1000.0),
+            );
+            parts.push(format!("{}={:.3}ms", pass.label, duration_ms));
+        }
+        bench.record(
+            "contree_pass_timed_total_gpu",
+            Duration::from_secs_f64(total_ms / 1000.0),
+        );
+        drop(bench);
+
+        log::debug!(
+            "[PERF][CONTREE_PASS_TIMING] chunk {:?} pass_total={:.3}ms {}",
+            chunk_idx,
+            total_ms,
+            parts.join(" "),
+        );
+    }
+}
+
+const CONTREE_TREE_WRITE_TIMING_PASSES: [ContreePassTimingPass; 8] = [
+    ContreePassTimingPass {
+        label: "tree_write_0",
+        bench_key: "contree_pass_tree_write_0_gpu",
+    },
+    ContreePassTimingPass {
+        label: "tree_write_1",
+        bench_key: "contree_pass_tree_write_1_gpu",
+    },
+    ContreePassTimingPass {
+        label: "tree_write_2",
+        bench_key: "contree_pass_tree_write_2_gpu",
+    },
+    ContreePassTimingPass {
+        label: "tree_write_3",
+        bench_key: "contree_pass_tree_write_3_gpu",
+    },
+    ContreePassTimingPass {
+        label: "tree_write_4",
+        bench_key: "contree_pass_tree_write_4_gpu",
+    },
+    ContreePassTimingPass {
+        label: "tree_write_5",
+        bench_key: "contree_pass_tree_write_5_gpu",
+    },
+    ContreePassTimingPass {
+        label: "tree_write_6",
+        bench_key: "contree_pass_tree_write_6_gpu",
+    },
+    ContreePassTimingPass {
+        label: "tree_write_7",
+        bench_key: "contree_pass_tree_write_7_gpu",
+    },
+];
+
+const CONTREE_BUFFER_UPDATE_TIMING_PASSES: [ContreePassTimingPass; 8] = [
+    ContreePassTimingPass {
+        label: "buffer_update_0",
+        bench_key: "contree_pass_buffer_update_0_gpu",
+    },
+    ContreePassTimingPass {
+        label: "buffer_update_1",
+        bench_key: "contree_pass_buffer_update_1_gpu",
+    },
+    ContreePassTimingPass {
+        label: "buffer_update_2",
+        bench_key: "contree_pass_buffer_update_2_gpu",
+    },
+    ContreePassTimingPass {
+        label: "buffer_update_3",
+        bench_key: "contree_pass_buffer_update_3_gpu",
+    },
+    ContreePassTimingPass {
+        label: "buffer_update_4",
+        bench_key: "contree_pass_buffer_update_4_gpu",
+    },
+    ContreePassTimingPass {
+        label: "buffer_update_5",
+        bench_key: "contree_pass_buffer_update_5_gpu",
+    },
+    ContreePassTimingPass {
+        label: "buffer_update_6",
+        bench_key: "contree_pass_buffer_update_6_gpu",
+    },
+    ContreePassTimingPass {
+        label: "buffer_update_7",
+        bench_key: "contree_pass_buffer_update_7_gpu",
+    },
+];
+
+fn contree_pass_timing_passes(total_levels: u32) -> Vec<ContreePassTimingPass> {
+    let mut passes = vec![
+        ContreePassTimingPass {
+            label: "buffer_setup",
+            bench_key: "contree_pass_buffer_setup_gpu",
+        },
+        ContreePassTimingPass {
+            label: "leaf_write",
+            bench_key: "contree_pass_leaf_write_gpu",
+        },
+        ContreePassTimingPass {
+            label: "buffer_update_after_leaf",
+            bench_key: "contree_pass_buffer_update_after_leaf_gpu",
+        },
+    ];
+
+    let tree_pass_count = total_levels.saturating_sub(2) as usize;
+    for pass_index in 0..tree_pass_count {
+        if let Some(pass) = CONTREE_TREE_WRITE_TIMING_PASSES.get(pass_index) {
+            passes.push(*pass);
+        }
+
+        if pass_index + 1 == tree_pass_count {
+            passes.push(ContreePassTimingPass {
+                label: "last_buffer_update",
+                bench_key: "contree_pass_last_buffer_update_gpu",
+            });
+        } else if let Some(pass) = CONTREE_BUFFER_UPDATE_TIMING_PASSES.get(pass_index) {
+            passes.push(*pass);
+        }
+    }
+
+    passes.push(ContreePassTimingPass {
+        label: "concat",
+        bench_key: "contree_pass_concat_gpu",
+    });
+    passes
 }
 
 struct CpuChunkReadbackBuffers {
@@ -412,16 +712,19 @@ impl ContreeBuilder {
         // contree_concat_ppl.set_descriptor_sets(vec![contree_concat_ds]);
 
         // --- Command Buffer Recording ---
+        let total_levels = get_level(voxel_dim_per_chunk);
+        let pass_timing = ContreePassTiming::maybe_new(&vulkan_ctx, total_levels);
         let contree_cmdbuf = Self::record_cmdbuf(
             &vulkan_ctx,
             &resources,
-            get_level(voxel_dim_per_chunk),
+            total_levels,
             &contree_buffer_setup_ppl,
             &contree_leaf_write_ppl,
             &contree_tree_write_ppl,
             &contree_buffer_update_ppl,
             &contree_last_buffer_update_ppl,
             &contree_concat_ppl,
+            pass_timing.as_ref(),
         );
 
         let node_allocator = FirstFitAllocator::new(node_pool_size_in_bytes);
@@ -455,6 +758,7 @@ impl ContreeBuilder {
             contree_concat_ppl,
             fixed_pool,
             chunk_offset_allocation_table: HashMap::new(),
+            pass_timing,
             contree_cmdbuf,
             node_allocator,
             leaf_allocator,
@@ -486,6 +790,7 @@ impl ContreeBuilder {
         contree_buffer_update_ppl: &ComputePipeline,
         contree_last_buffer_update_ppl: &ComputePipeline,
         contree_concat_ppl: &ComputePipeline,
+        pass_timing: Option<&ContreePassTiming>,
     ) -> CommandBuffer {
         let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
         let indirect_access_memory_barrier = MemoryBarrier::new_indirect_access();
@@ -511,40 +816,80 @@ impl ContreeBuilder {
             depth: 1,
         };
 
-        contree_buffer_setup_ppl.record(&cmdbuf, dispatch_1x1x1, None);
+        if let Some(timing) = pass_timing {
+            timing.record_reset(&cmdbuf);
+        }
+        let mut timing_pass_index = 0usize;
+        macro_rules! record_timed_pass {
+            ($body:block) => {{
+                if let Some(timing) = pass_timing {
+                    timing.record_start(&cmdbuf, timing_pass_index);
+                }
+                let result = { $body };
+                if let Some(timing) = pass_timing {
+                    timing.record_end(&cmdbuf, timing_pass_index);
+                    timing_pass_index += 1;
+                }
+                result
+            }};
+        }
+
+        record_timed_pass!({
+            contree_buffer_setup_ppl.record(&cmdbuf, dispatch_1x1x1, None);
+        });
 
         shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
         indirect_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
 
-        contree_leaf_write_ppl.record_indirect(&cmdbuf, &resources.level_dispatch_indirect, None);
+        record_timed_pass!({
+            contree_leaf_write_ppl.record_indirect(
+                &cmdbuf,
+                &resources.level_dispatch_indirect,
+                None,
+            );
+        });
 
         shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
 
-        contree_buffer_update_ppl.record(&cmdbuf, dispatch_1x1x1, None);
+        record_timed_pass!({
+            contree_buffer_update_ppl.record(&cmdbuf, dispatch_1x1x1, None);
+        });
 
         shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
         indirect_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
 
         for i in 0..(total_levels - 2) {
-            contree_tree_write_ppl.record_indirect(
-                &cmdbuf,
-                &resources.level_dispatch_indirect,
-                None,
-            );
+            record_timed_pass!({
+                contree_tree_write_ppl.record_indirect(
+                    &cmdbuf,
+                    &resources.level_dispatch_indirect,
+                    None,
+                );
+            });
 
             shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
 
             if i != total_levels - 3 {
-                contree_buffer_update_ppl.record(&cmdbuf, dispatch_1x1x1, None);
+                record_timed_pass!({
+                    contree_buffer_update_ppl.record(&cmdbuf, dispatch_1x1x1, None);
+                });
             } else {
-                contree_last_buffer_update_ppl.record(&cmdbuf, dispatch_1x1x1, None);
+                record_timed_pass!({
+                    contree_last_buffer_update_ppl.record(&cmdbuf, dispatch_1x1x1, None);
+                });
             }
 
             shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
             indirect_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
         }
 
-        contree_concat_ppl.record_indirect(&cmdbuf, &resources.concat_dispatch_indirect, None);
+        record_timed_pass!({
+            contree_concat_ppl.record_indirect(&cmdbuf, &resources.concat_dispatch_indirect, None);
+        });
+
+        if let Some(timing) = pass_timing {
+            assert_eq!(timing_pass_index, timing.passes.len());
+        }
 
         cmdbuf.end();
         cmdbuf
@@ -860,6 +1205,9 @@ impl ContreeBuilder {
             "contree_build_gpu",
             fence_latency_elapsed + job.submit_elapsed,
         );
+        if let Some(pass_timing) = self.pass_timing.as_ref() {
+            pass_timing.collect_and_log(job.chunk_idx);
+        }
 
         let size_start = Instant::now();
         let (confirmed_node_buffer_size_in_bytes, confirmed_leaf_buffer_size_in_bytes) =
