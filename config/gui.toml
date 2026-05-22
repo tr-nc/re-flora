@@ -671,7 +671,7 @@ label = "Terrain Margin (grid cells)"
 type = "Float"
 
 [section.param.data]
-value = 0.5
+value = 0
 min = 0
 max = 3
 
