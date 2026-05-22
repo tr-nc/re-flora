@@ -10,6 +10,10 @@
 
 float SHADOW_EPSILON = 3.5 * 1e-3;
 
+// Sub-texel jitter turns stable shadow-map quantization into temporally
+// denoisable noise for the terrain PCSS path.
+float SHADOW_UV_JITTER_TEXELS = 0.35;
+
 float BLOCKER_SEARCH_WIDTH = 2.0 / 100.0;
 float LIGHT_SIZE_UV        = 4.0 / 100.0;
 
@@ -66,11 +70,19 @@ float get_avg_blocker_depth(vec2 base_uv, float ref_z, ivec3 seed) {
     return (blocker_cnt > 0) ? blocker_sum / float(blocker_cnt) : -1.0;
 }
 
+vec2 get_shadow_uv_jitter(ivec3 seed) {
+    ivec3 jitter_seed = ivec3((seed.xy + ivec2(17, 53)) % BN_NOISE_TEX_SIZE.xy,
+                              (seed.z + 23) % BN_NOISE_TEX_SIZE.z);
+    return random_unit_vec2_bn(jitter_seed) * SHADOW_UV_JITTER_TEXELS /
+           vec2(textureSize(shadow_map_tex, 0));
+}
+
 float get_shadow_weight_pcss(vec3 voxel_pos_ws, ivec3 seed) {
     vec4 light_space = shadow_camera_info.view_proj_mat * vec4(voxel_pos_ws, 1.0);
     vec3 ndc         = light_space.xyz / light_space.w; // NDC
     vec2 base_uv     = ndc.xy * 0.5 + 0.5;              // in [0,1]^2
-    float ref_z      = ndc.z;                           // depth of current fragment
+    base_uv += get_shadow_uv_jitter(seed);
+    float ref_z = ndc.z; // depth of current fragment
 
     float avg_blocker_z = get_avg_blocker_depth(base_uv, ref_z, seed);
 
