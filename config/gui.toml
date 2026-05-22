@@ -627,7 +627,7 @@ label = "Substep Rate (Hz)"
 type = "Float"
 
 [section.param.data]
-value = 119.99999
+value = 240.0
 min = 15
 max = 240
 
@@ -649,9 +649,9 @@ label = "Particle Edge Length"
 type = "Float"
 
 [section.param.data]
-value = 0.05
+value = 0.035
 min = 0.005
-max = 0.1
+max = 0.08
 
 [[section.param]]
 id = "water_terrain_margin_cells"
@@ -693,9 +693,9 @@ label = "Stiffness"
 type = "Float"
 
 [section.param.data]
-value = 10000
+value = 10
 min = 0
-max = 100000
+max = 200
 
 [[section.param]]
 id = "water_gamma"
@@ -704,9 +704,9 @@ label = "Equation-of-State Gamma"
 type = "Float"
 
 [section.param.data]
-value = 7
+value = 4
 min = 1
-max = 12
+max = 8
 
 [[section.param]]
 id = "water_j_min"
@@ -715,8 +715,8 @@ label = "Minimum J"
 type = "Float"
 
 [section.param.data]
-value = 0.55
-min = 0.05
+value = 0.05
+min = 0.01
 max = 1
 
 [[section.param]]

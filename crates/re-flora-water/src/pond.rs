@@ -15,17 +15,20 @@ const FLUID_BOX_PROTOTYPE_INITIAL_MAX_WS: Vec3 = Vec3::new(1.85, 1.55, 1.85);
 // Fixed simulation-space rest volume represented by each water marker. This is
 // intentionally independent of the requested marker count: changing particle
 // count changes total simulated water volume instead of shrinking/growing each
-// marker to preserve a constant initial volume.
-const DEFAULT_PARTICLE_VOLUME: f32 = 0.05 * 0.05 * 0.05;
-// Simulation-space density. A real 1000 kg/m^3 value made the existing 60 Hz,
-// dx=1/32 solver far too stiff without retuning K/dt, so keep the calibrated
-// density and derive marker mass from the fixed marker volume.
-const DEFAULT_WEAK_EOS_REST_DENSITY: f32 = 40_960.0;
-const DEFAULT_WEAK_EOS_STIFFNESS: f32 = 10_000.0;
-const DEFAULT_WEAK_EOS_GAMMA: f32 = 7.0;
-const DEFAULT_WEAK_EOS_J_MIN: f32 = 0.55;
+// marker to preserve a constant initial volume. The edge length is near one
+// default 32-cells-per-unit grid cell, which keeps debug-spawned blobs from
+// starting several times over-compressed.
+const DEFAULT_PARTICLE_EDGE_LEN: f32 = 0.035;
+const DEFAULT_PARTICLE_VOLUME: f32 =
+    DEFAULT_PARTICLE_EDGE_LEN * DEFAULT_PARTICLE_EDGE_LEN * DEFAULT_PARTICLE_EDGE_LEN;
+// Density-based fluid defaults follow the incremental_mpm fluid example's
+// dimensionless EOS scale instead of the old J-history water parameters.
+const DEFAULT_FLUID_REST_DENSITY: f32 = 4.0;
+const DEFAULT_FLUID_STIFFNESS: f32 = 10.0;
+const DEFAULT_FLUID_GAMMA: f32 = 4.0;
+const DEFAULT_DIAGNOSTIC_J_MIN: f32 = 0.05;
 const DEFAULT_DYNAMIC_VISCOSITY: f32 = 0.1;
-const DEFAULT_PRESSURE_FLOOR: f32 = 0.0;
+const DEFAULT_PRESSURE_FLOOR: f32 = -0.1;
 const DEFAULT_TERRAIN_TANGENT_DAMPING_PER_SEC: f32 = 20.0;
 
 pub(crate) const WATER_GRID_BOUNDARY_X_MIN: u8 = 1 << 0;
@@ -65,15 +68,15 @@ impl Default for PondWaterConfig {
             collider,
             grid_dim: DEFAULT_GRID_DIM,
             particle_count: DEFAULT_PARTICLE_COUNT,
-            substep_dt: 1.0 / 120.0,
+            substep_dt: 1.0 / 240.0,
             particle_volume: default_particle_volume(),
             particle_mass: default_particle_mass(default_particle_volume()),
             initial_fluid_min_ws: INITIAL_PARTICLE_CHUNK_MIN_WS,
             initial_fluid_max_ws: INITIAL_PARTICLE_CHUNK_MAX_WS,
             gravity: Vec3::new(0.0, -9.8, 0.0),
-            stiffness: DEFAULT_WEAK_EOS_STIFFNESS,
-            gamma: DEFAULT_WEAK_EOS_GAMMA,
-            j_min: DEFAULT_WEAK_EOS_J_MIN,
+            stiffness: DEFAULT_FLUID_STIFFNESS,
+            gamma: DEFAULT_FLUID_GAMMA,
+            j_min: DEFAULT_DIAGNOSTIC_J_MIN,
             dynamic_viscosity: DEFAULT_DYNAMIC_VISCOSITY,
             pressure_floor: DEFAULT_PRESSURE_FLOOR,
             terrain_collision_margin_cells: 0.5,
@@ -187,7 +190,7 @@ fn default_particle_volume() -> f32 {
 }
 
 fn default_particle_mass(particle_volume: f32) -> f32 {
-    DEFAULT_WEAK_EOS_REST_DENSITY * particle_volume
+    DEFAULT_FLUID_REST_DENSITY * particle_volume
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -395,7 +398,7 @@ impl PondWaterSim {
                 )
                 .with_cubic_grid_dim(32)
                 .with_particle_count(1_024)
-                .with_particle_edge_len(0.04),
+                .with_particle_edge_len(DEFAULT_PARTICLE_EDGE_LEN),
         )
     }
 
@@ -982,11 +985,14 @@ mod tests {
         assert_eq!(sim.grid_dim, DEFAULT_GRID_DIM);
         assert!((sim.dx - 1.0 / 32.0).abs() < 1.0e-6);
         assert_eq!(sim.config.particle_volume, default_particle_volume());
-        assert!((sim.config.particle_mass - 5.12).abs() < 1.0e-6);
         assert_eq!(sim.config.particle_mass, default_particle_mass(sim.config.particle_volume));
+        assert!((sim.config.particle_mass / sim.config.particle_volume
+            - DEFAULT_FLUID_REST_DENSITY)
+            .abs()
+            < 1.0e-6);
         assert_eq!(sim.config.initial_fluid_min_ws, INITIAL_PARTICLE_CHUNK_MIN_WS);
         assert_eq!(sim.config.initial_fluid_max_ws, INITIAL_PARTICLE_CHUNK_MAX_WS);
-        assert_eq!(sim.config.j_min, DEFAULT_WEAK_EOS_J_MIN);
+        assert_eq!(sim.config.j_min, DEFAULT_DIAGNOSTIC_J_MIN);
         assert_eq!(sim.config.dynamic_viscosity, DEFAULT_DYNAMIC_VISCOSITY);
         assert_eq!(sim.config.pressure_floor, DEFAULT_PRESSURE_FLOOR);
     }
@@ -1016,9 +1022,9 @@ mod tests {
         assert_eq!(doubled.particle_volume, DEFAULT_PARTICLE_VOLUME);
         assert_eq!(reference.particle_mass, doubled.particle_mass);
         assert!((reference.particle_mass / reference.particle_volume
-            - DEFAULT_WEAK_EOS_REST_DENSITY)
+            - DEFAULT_FLUID_REST_DENSITY)
             .abs()
-            < 1.0e-3);
+            < 1.0e-6);
 
         let custom = PondWaterConfig::default()
             .with_particle_count(8_192)
