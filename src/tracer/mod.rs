@@ -211,7 +211,7 @@ impl Tracer {
             chunk_bound,
             render_extent,
             screen_extent,
-            Extent2D::new(1024, 1024),
+            Extent2D::new(2048, 2048),
             MAX_TERRAIN_QUERIES as u32,
         );
         let particle_resources =
