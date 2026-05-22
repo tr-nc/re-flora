@@ -353,7 +353,7 @@ label = "Alpha"
 type = "Float"
 
 [section.param.data]
-value = 0.08
+value = 0.28
 min = 0
 max = 1
 
@@ -627,7 +627,7 @@ label = "Substep Rate (Hz)"
 type = "Float"
 
 [section.param.data]
-value = 120
+value = 119.99999
 min = 15
 max = 240
 
