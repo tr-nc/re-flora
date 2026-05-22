@@ -665,6 +665,17 @@ min = 0.002
 max = 0.05
 
 [[section.param]]
+id = "water_debug_spawn_height_offset"
+kind = "float"
+label = "Debug Spawn Height Offset"
+type = "Float"
+
+[section.param.data]
+value = 0.45
+min = 0
+max = 1.5
+
+[[section.param]]
 id = "water_terrain_margin_cells"
 kind = "float"
 label = "Terrain Margin (grid cells)"

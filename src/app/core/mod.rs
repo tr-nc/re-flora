@@ -1712,7 +1712,7 @@ impl App {
         water::sync_water_gui_adjustables_from_config(&mut gui_adjustables, &water_config);
 
         log::info!(
-            "[WATER] config profile={:?} gui_config_applied={} particles={} grid={:?} substep_dt={:.6}s terrain_margin_cells={:.2} damping={:.2}/s terrain_tangent_damping={:.2}/s gravity={:?} stiffness={:.1} gamma={:.2} j_min={:.3} viscosity={:.3} pressure_floor={:.3} wall_damping={:.2} collider_bounds {:?}..{:?} cells_per_unit={}",
+            "[WATER] config profile={:?} gui_config_applied={} particles={} grid={:?} substep_dt={:.6}s terrain_margin_cells={:.2} damping={:.2}/s terrain_tangent_damping={:.2}/s debug_spawn_height_offset={:.2} gravity={:?} stiffness={:.1} gamma={:.2} j_min={:.3} viscosity={:.3} pressure_floor={:.3} wall_damping={:.2} collider_bounds {:?}..{:?} cells_per_unit={}",
             options.water_profile,
             water_gui_config_applied,
             water_config.particle_count,
@@ -1721,6 +1721,7 @@ impl App {
             water_config.terrain_collision_margin_cells,
             water_config.linear_damping_per_sec,
             water_config.terrain_tangent_damping_per_sec,
+            water_config.debug_spawn_height_offset,
             water_config.gravity,
             water_config.stiffness,
             water_config.gamma,

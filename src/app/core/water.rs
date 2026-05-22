@@ -487,6 +487,7 @@ fn handle_water_sim_command(
             sim.config.terrain_collision_margin_cells = config.terrain_collision_margin_cells;
             sim.config.terrain_tangent_damping_per_sec = config.terrain_tangent_damping_per_sec;
             sim.config.linear_damping_per_sec = config.linear_damping_per_sec;
+            sim.config.debug_spawn_height_offset = config.debug_spawn_height_offset;
             sim.config.gravity = config.gravity;
             sim.config.stiffness = config.stiffness;
             sim.config.gamma = config.gamma;
@@ -693,6 +694,11 @@ pub(super) fn apply_water_gui_adjustables_to_config(
         0.0,
         config.linear_damping_per_sec,
     );
+    config.debug_spawn_height_offset = finite_at_least(
+        gui_adjustables.water_debug_spawn_height_offset.value,
+        0.0,
+        config.debug_spawn_height_offset,
+    );
     config.terrain_tangent_damping_per_sec = finite_at_least(
         gui_adjustables.water_terrain_tangent_damping.value,
         0.0,
@@ -719,6 +725,7 @@ pub(super) fn sync_water_gui_adjustables_from_config(
     gui_adjustables.water_particle_edge_len.value = config.particle_volume.cbrt();
     gui_adjustables.water_terrain_margin_cells.value = config.terrain_collision_margin_cells;
     gui_adjustables.water_damping.value = config.linear_damping_per_sec;
+    gui_adjustables.water_debug_spawn_height_offset.value = config.debug_spawn_height_offset;
     gui_adjustables.water_terrain_tangent_damping.value = config.terrain_tangent_damping_per_sec;
     gui_adjustables.water_gravity_y.value = config.gravity.y;
     gui_adjustables.water_stiffness.value = config.stiffness;

@@ -6,9 +6,7 @@ use std::sync::Arc;
 const DEFAULT_GRID_DIM: UVec3 = UVec3::new(64, 32, 64);
 const DEFAULT_PARTICLE_COUNT: usize = 0;
 const DEBUG_SPAWN_HYDROSTATIC_J_MAX_DEPTH_CELLS: f32 = 4.0;
-const DEBUG_SPAWN_IMPACT_SPEED_MIN: f32 = 0.35;
-const DEBUG_SPAWN_IMPACT_SPEED_MAX: f32 = 1.15;
-const DEBUG_SPAWN_RADIAL_SPEED: f32 = 0.08;
+const DEFAULT_DEBUG_SPAWN_HEIGHT_OFFSET: f32 = 0.45;
 const INITIAL_PARTICLE_CHUNK_MIN_WS: Vec3 = Vec3::new(1.0, 0.0, 1.0);
 const INITIAL_PARTICLE_CHUNK_MAX_WS: Vec3 = Vec3::new(2.0, 1.0, 2.0);
 const FLUID_BOX_PROTOTYPE_MIN_WS: Vec3 = Vec3::new(1.0, 1.0, 1.0);
@@ -61,6 +59,7 @@ pub struct PondWaterConfig {
     pub terrain_collision_margin_cells: f32,
     pub terrain_tangent_damping_per_sec: f32,
     pub linear_damping_per_sec: f32,
+    pub debug_spawn_height_offset: f32,
     pub wall_padding_cells: f32,
     pub wall_damping: f32,
 }
@@ -86,6 +85,7 @@ impl Default for PondWaterConfig {
             terrain_collision_margin_cells: 0.5,
             terrain_tangent_damping_per_sec: DEFAULT_TERRAIN_TANGENT_DAMPING_PER_SEC,
             linear_damping_per_sec: DEFAULT_LINEAR_DAMPING_PER_SEC,
+            debug_spawn_height_offset: DEFAULT_DEBUG_SPAWN_HEIGHT_OFFSET,
             wall_padding_cells: 2.0,
             wall_damping: 0.0,
         }
@@ -179,6 +179,12 @@ impl PondWaterConfig {
     pub fn with_terrain_tangent_damping_per_sec(mut self, damping_per_sec: f32) -> Self {
         assert!(damping_per_sec >= 0.0 && damping_per_sec.is_finite());
         self.terrain_tangent_damping_per_sec = damping_per_sec;
+        self
+    }
+
+    pub fn with_debug_spawn_height_offset(mut self, height_offset: f32) -> Self {
+        assert!(height_offset >= 0.0 && height_offset.is_finite());
+        self.debug_spawn_height_offset = height_offset;
         self
     }
 
@@ -666,8 +672,9 @@ impl PondWaterSim {
 
         // A dense random blob injected inside the existing pond creates an
         // immediate pressure impulse. Spread debug water across a shallow disk
-        // and place it above the local water surface so it settles in instead
-        // of appearing already compressed inside the fluid volume.
+        // and place its center at a configurable offset above the mouse terrain
+        // hit point. Particles start at rest and fall under gravity instead of
+        // being given an artificial impact velocity.
         let max_horizontal_radius = ((safe_max.x - safe_min.x) * 0.5)
             .min((safe_max.z - safe_min.z) * 0.5);
         let horizontal_radius = radius_ws.max(self.dx * 0.5).min(max_horizontal_radius);
@@ -702,11 +709,9 @@ impl PondWaterSim {
         let spawn_x = surface_point_ws.x.clamp(accepted_min.x, accepted_max.x);
         let spawn_z = surface_point_ws.z.clamp(accepted_min.z, accepted_max.z);
         let local_surface_y = self.local_water_surface_y(spawn_x, spawn_z, horizontal_radius * 1.5);
-        let base_y = surface_point_ws.y.max(local_surface_y.unwrap_or(surface_point_ws.y));
-        let spawn_y = (base_y + self.dx * 1.5 + vertical_radius)
+        let spawn_y = (surface_point_ws.y + self.debug_spawn_height_offset())
             .clamp(safe_min.y + vertical_radius, safe_max.y - vertical_radius);
         let spawn_center = Vec3::new(spawn_x, spawn_y, spawn_z);
-        let impact_speed = self.debug_spawn_impact_speed(spawn_center.y - base_y);
 
         let mut spawned = 0usize;
         self.particles.reserve(count);
@@ -740,8 +745,7 @@ impl PondWaterSim {
 
             let mut particle = WaterParticle::new(bounds.clamp_point(pos, padding));
             particle.j = self.debug_spawn_initial_j(particle.x.y, local_surface_y);
-            let radial_dir = Vec3::new(jitter.x, 0.0, jitter.z).normalize_or_zero();
-            particle.v = radial_dir * DEBUG_SPAWN_RADIAL_SPEED - Vec3::Y * impact_speed;
+            particle.v = Vec3::ZERO;
             self.particles.push(particle);
             spawned += 1;
         }
@@ -774,19 +778,13 @@ impl PondWaterSim {
         max_y.is_finite().then_some(max_y)
     }
 
-    fn debug_spawn_impact_speed(&self, fall_height_ws: f32) -> f32 {
-        if fall_height_ws <= 0.0 || !fall_height_ws.is_finite() {
-            return DEBUG_SPAWN_IMPACT_SPEED_MIN;
+    fn debug_spawn_height_offset(&self) -> f32 {
+        let height_offset = self.config.debug_spawn_height_offset;
+        if height_offset.is_finite() {
+            height_offset.max(0.0)
+        } else {
+            DEFAULT_DEBUG_SPAWN_HEIGHT_OFFSET
         }
-
-        let gravity = self.config.gravity.length().max(0.0);
-        if gravity <= 0.0 || !gravity.is_finite() {
-            return DEBUG_SPAWN_IMPACT_SPEED_MIN;
-        }
-
-        (2.0 * gravity * fall_height_ws)
-            .sqrt()
-            .clamp(DEBUG_SPAWN_IMPACT_SPEED_MIN, DEBUG_SPAWN_IMPACT_SPEED_MAX)
     }
 
     fn debug_spawn_initial_j(&self, particle_y: f32, local_surface_y: Option<f32>) -> f32 {
@@ -1300,21 +1298,29 @@ mod tests {
     }
 
     #[test]
-    fn debug_spawn_seeds_bounded_impact_velocity() {
-        let mut sim = PondWaterSim::fixed_test_box();
+    fn debug_spawn_uses_configured_height_offset_and_starts_at_rest() {
+        let height_offset = 0.4;
+        let surface_point = Vec3::new(1.5, 0.5, 1.5);
+        let radius = 0.05;
+        let mut sim = PondWaterSim::new(
+            PondWaterConfig::default()
+                .with_particle_count(0)
+                .with_debug_spawn_height_offset(height_offset),
+        );
         let initial_len = sim.particles.len();
 
-        let result = sim.spawn_debug_particles_at_surface(Vec3::new(1.5, 0.5, 1.5), 12, 0.05);
+        let result = sim.spawn_debug_particles_at_surface(surface_point, 12, radius);
 
         assert_eq!(result.spawned_count(), 12);
+        let vertical_radius = (radius * 0.2).max(sim.dx * 0.25);
         for particle in &sim.particles[initial_len..] {
+            assert_eq!(particle.v, Vec3::ZERO);
             assert!(
-                particle.v.y <= -DEBUG_SPAWN_IMPACT_SPEED_MIN
-                    && particle.v.y >= -DEBUG_SPAWN_IMPACT_SPEED_MAX,
-                "spawned velocity {:?}",
-                particle.v
+                particle.x.y >= surface_point.y + height_offset - vertical_radius - 1.0e-5
+                    && particle.x.y <= surface_point.y + height_offset + vertical_radius + 1.0e-5,
+                "spawned position {:?}",
+                particle.x
             );
-            assert!(particle.v.length() <= DEBUG_SPAWN_IMPACT_SPEED_MAX + DEBUG_SPAWN_RADIAL_SPEED + 1.0e-5);
         }
     }
 
@@ -1352,28 +1358,38 @@ mod tests {
     }
 
     #[test]
-    fn debug_spawn_uses_local_water_surface_height() {
-        let mut sim = PondWaterSim::new(PondWaterConfig::default().with_particle_count(16));
+    fn debug_spawn_height_offset_is_relative_to_hit_point_not_local_water_surface() {
+        let height_offset = 0.08;
+        let mut sim = PondWaterSim::new(
+            PondWaterConfig::default()
+                .with_particle_count(16)
+                .with_debug_spawn_height_offset(height_offset),
+        );
         let initial_len = sim.particles.len();
         let spawn_x = 1.5;
         let spawn_z = 1.5;
         for particle in &mut sim.particles {
-            particle.x.y = 0.3;
+            particle.x.x = spawn_x;
+            particle.x.y = 0.6;
+            particle.x.z = spawn_z;
         }
         let before_surface_y = max_particle_y_near(&sim, spawn_x, spawn_z, 0.18);
+        let hit_point = Vec3::new(spawn_x, 0.1, spawn_z);
 
-        let result =
-            sim.spawn_debug_particles_at_surface(Vec3::new(spawn_x, 0.1, spawn_z), 16, 0.08);
+        let result = sim.spawn_debug_particles_at_surface(hit_point, 16, 0.08);
 
         assert_eq!(result.spawned_count(), 16);
-        let spawned_min_y = sim.particles[initial_len..]
+        let spawned_max_y = sim.particles[initial_len..]
             .iter()
             .map(|particle| particle.x.y)
-            .fold(f32::INFINITY, f32::min);
+            .fold(f32::NEG_INFINITY, f32::max);
         assert!(
-            spawned_min_y >= before_surface_y + sim.dx - 1.0e-5,
-            "spawned_min_y={spawned_min_y} before_surface_y={before_surface_y} dx={}",
-            sim.dx,
+            spawned_max_y < before_surface_y,
+            "spawned_max_y={spawned_max_y} before_surface_y={before_surface_y}",
+        );
+        assert!(
+            spawned_max_y <= hit_point.y + height_offset + 0.08 * 0.2 + 1.0e-5,
+            "spawned_max_y={spawned_max_y} hit_point={hit_point:?} height_offset={height_offset}",
         );
     }
 
