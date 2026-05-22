@@ -1712,7 +1712,7 @@ impl App {
         water::sync_water_gui_adjustables_from_config(&mut gui_adjustables, &water_config);
 
         log::info!(
-            "[WATER] config profile={:?} gui_config_applied={} particles={} grid={:?} substep_dt={:.6}s terrain_margin_cells={:.2} damping={:.2}/s terrain_tangent_damping={:.2}/s gravity={:?} stiffness={:.1} gamma={:.2} j_min={:.3} wall_damping={:.2} collider_bounds {:?}..{:?} cells_per_unit={}",
+            "[WATER] config profile={:?} gui_config_applied={} particles={} grid={:?} substep_dt={:.6}s terrain_margin_cells={:.2} damping={:.2}/s terrain_tangent_damping={:.2}/s gravity={:?} stiffness={:.1} gamma={:.2} j_min={:.3} viscosity={:.3} pressure_floor={:.3} wall_damping={:.2} collider_bounds {:?}..{:?} cells_per_unit={}",
             options.water_profile,
             water_gui_config_applied,
             water_config.particle_count,
@@ -1725,6 +1725,8 @@ impl App {
             water_config.stiffness,
             water_config.gamma,
             water_config.j_min,
+            water_config.dynamic_viscosity,
+            water_config.pressure_floor,
             water_config.wall_damping,
             water_config.collider.min_ws,
             water_config.collider.max_ws,

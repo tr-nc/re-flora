@@ -8,6 +8,10 @@ const DEFAULT_PARTICLE_COUNT: usize = 0;
 const DEBUG_SPAWN_HYDROSTATIC_J_MAX_DEPTH_CELLS: f32 = 4.0;
 const INITIAL_PARTICLE_CHUNK_MIN_WS: Vec3 = Vec3::new(1.0, 0.0, 1.0);
 const INITIAL_PARTICLE_CHUNK_MAX_WS: Vec3 = Vec3::new(2.0, 1.0, 2.0);
+const FLUID_BOX_PROTOTYPE_MIN_WS: Vec3 = Vec3::new(1.0, 1.0, 1.0);
+const FLUID_BOX_PROTOTYPE_MAX_WS: Vec3 = Vec3::new(2.0, 2.0, 2.0);
+const FLUID_BOX_PROTOTYPE_INITIAL_MIN_WS: Vec3 = Vec3::new(1.15, 1.10, 1.15);
+const FLUID_BOX_PROTOTYPE_INITIAL_MAX_WS: Vec3 = Vec3::new(1.85, 1.55, 1.85);
 // Fixed simulation-space rest volume represented by each water marker. This is
 // intentionally independent of the requested marker count: changing particle
 // count changes total simulated water volume instead of shrinking/growing each
@@ -20,6 +24,8 @@ const DEFAULT_WEAK_EOS_REST_DENSITY: f32 = 40_960.0;
 const DEFAULT_WEAK_EOS_STIFFNESS: f32 = 10_000.0;
 const DEFAULT_WEAK_EOS_GAMMA: f32 = 7.0;
 const DEFAULT_WEAK_EOS_J_MIN: f32 = 0.55;
+const DEFAULT_DYNAMIC_VISCOSITY: f32 = 0.1;
+const DEFAULT_PRESSURE_FLOOR: f32 = 0.0;
 const DEFAULT_TERRAIN_TANGENT_DAMPING_PER_SEC: f32 = 20.0;
 
 pub(crate) const WATER_GRID_BOUNDARY_X_MIN: u8 = 1 << 0;
@@ -37,10 +43,14 @@ pub struct PondWaterConfig {
     pub substep_dt: f32,
     pub particle_mass: f32,
     pub particle_volume: f32,
+    pub initial_fluid_min_ws: Vec3,
+    pub initial_fluid_max_ws: Vec3,
     pub gravity: Vec3,
     pub stiffness: f32,
     pub gamma: f32,
     pub j_min: f32,
+    pub dynamic_viscosity: f32,
+    pub pressure_floor: f32,
     pub terrain_collision_margin_cells: f32,
     pub terrain_tangent_damping_per_sec: f32,
     pub linear_damping_per_sec: f32,
@@ -58,10 +68,14 @@ impl Default for PondWaterConfig {
             substep_dt: 1.0 / 120.0,
             particle_volume: default_particle_volume(),
             particle_mass: default_particle_mass(default_particle_volume()),
+            initial_fluid_min_ws: INITIAL_PARTICLE_CHUNK_MIN_WS,
+            initial_fluid_max_ws: INITIAL_PARTICLE_CHUNK_MAX_WS,
             gravity: Vec3::new(0.0, -9.8, 0.0),
             stiffness: DEFAULT_WEAK_EOS_STIFFNESS,
             gamma: DEFAULT_WEAK_EOS_GAMMA,
             j_min: DEFAULT_WEAK_EOS_J_MIN,
+            dynamic_viscosity: DEFAULT_DYNAMIC_VISCOSITY,
+            pressure_floor: DEFAULT_PRESSURE_FLOOR,
             terrain_collision_margin_cells: 0.5,
             terrain_tangent_damping_per_sec: DEFAULT_TERRAIN_TANGENT_DAMPING_PER_SEC,
             linear_damping_per_sec: 0.8,
@@ -127,6 +141,25 @@ impl PondWaterConfig {
     pub fn with_j_min(mut self, j_min: f32) -> Self {
         assert!(j_min > 0.0 && j_min <= 1.0 && j_min.is_finite());
         self.j_min = j_min;
+        self
+    }
+
+    pub fn with_dynamic_viscosity(mut self, dynamic_viscosity: f32) -> Self {
+        assert!(dynamic_viscosity >= 0.0 && dynamic_viscosity.is_finite());
+        self.dynamic_viscosity = dynamic_viscosity;
+        self
+    }
+
+    pub fn with_pressure_floor(mut self, pressure_floor: f32) -> Self {
+        assert!(pressure_floor.is_finite());
+        self.pressure_floor = pressure_floor;
+        self
+    }
+
+    pub fn with_initial_fluid_bounds(mut self, min_ws: Vec3, max_ws: Vec3) -> Self {
+        assert!(min_ws.is_finite() && max_ws.is_finite() && max_ws.cmpgt(min_ws).all());
+        self.initial_fluid_min_ws = min_ws;
+        self.initial_fluid_max_ws = max_ws;
         self
     }
 
@@ -342,14 +375,28 @@ impl PondWaterSim {
             sim.dx,
             sim.config.particle_volume,
             sim.config.particle_mass / sim.config.particle_volume,
-            INITIAL_PARTICLE_CHUNK_MIN_WS,
-            INITIAL_PARTICLE_CHUNK_MAX_WS,
+            sim.config.initial_fluid_min_ws,
+            sim.config.initial_fluid_max_ws,
         );
         sim
     }
 
     pub fn fixed_test_box() -> Self {
         Self::new(PondWaterConfig::default())
+    }
+
+    pub fn fluid_box_prototype() -> Self {
+        Self::new(
+            PondWaterConfig::default()
+                .with_collider_bounds(FLUID_BOX_PROTOTYPE_MIN_WS, FLUID_BOX_PROTOTYPE_MAX_WS)
+                .with_initial_fluid_bounds(
+                    FLUID_BOX_PROTOTYPE_INITIAL_MIN_WS,
+                    FLUID_BOX_PROTOTYPE_INITIAL_MAX_WS,
+                )
+                .with_cubic_grid_dim(32)
+                .with_particle_count(1_024)
+                .with_particle_edge_len(0.04),
+        )
     }
 
     pub fn set_terrain_collider_set(&mut self, collider_set: WaterTerrainColliderSet) {
@@ -781,17 +828,18 @@ impl PondWaterSim {
             return;
         }
 
-        let volume_min = Vec3::new(
-            INITIAL_PARTICLE_CHUNK_MIN_WS.x.max(safe_min.x),
-            safe_min.y,
-            INITIAL_PARTICLE_CHUNK_MIN_WS.z.max(safe_min.z),
-        );
-        let volume_max = Vec3::new(
-            INITIAL_PARTICLE_CHUNK_MAX_WS.x.min(safe_max.x),
-            INITIAL_PARTICLE_CHUNK_MAX_WS.y.clamp(safe_min.y, safe_max.y),
-            INITIAL_PARTICLE_CHUNK_MAX_WS.z.min(safe_max.z),
-        );
-        if volume_min.x >= volume_max.x || volume_min.z >= volume_max.z {
+        let requested_min = self.config.initial_fluid_min_ws;
+        let requested_max = self.config.initial_fluid_max_ws;
+        if !requested_min.is_finite()
+            || !requested_max.is_finite()
+            || requested_min.cmpge(requested_max).any()
+        {
+            return;
+        }
+
+        let volume_min = requested_min.max(safe_min);
+        let volume_max = requested_max.min(safe_max);
+        if volume_min.cmpge(volume_max).any() {
             return;
         }
 
@@ -852,10 +900,7 @@ impl PondWaterSim {
         }
 
         debug_assert!(self.particles.iter().all(|particle| {
-            particle.x.x >= INITIAL_PARTICLE_CHUNK_MIN_WS.x
-                && particle.x.x <= INITIAL_PARTICLE_CHUNK_MAX_WS.x
-                && particle.x.z >= INITIAL_PARTICLE_CHUNK_MIN_WS.z
-                && particle.x.z <= INITIAL_PARTICLE_CHUNK_MAX_WS.z
+            particle.x.cmpge(volume_min).all() && particle.x.cmple(volume_max).all()
         }));
     }
 }
@@ -939,7 +984,27 @@ mod tests {
         assert_eq!(sim.config.particle_volume, default_particle_volume());
         assert!((sim.config.particle_mass - 5.12).abs() < 1.0e-6);
         assert_eq!(sim.config.particle_mass, default_particle_mass(sim.config.particle_volume));
+        assert_eq!(sim.config.initial_fluid_min_ws, INITIAL_PARTICLE_CHUNK_MIN_WS);
+        assert_eq!(sim.config.initial_fluid_max_ws, INITIAL_PARTICLE_CHUNK_MAX_WS);
         assert_eq!(sim.config.j_min, DEFAULT_WEAK_EOS_J_MIN);
+        assert_eq!(sim.config.dynamic_viscosity, DEFAULT_DYNAMIC_VISCOSITY);
+        assert_eq!(sim.config.pressure_floor, DEFAULT_PRESSURE_FLOOR);
+    }
+
+    #[test]
+    fn fluid_box_prototype_uses_unit_cube_bounds() {
+        let sim = PondWaterSim::fluid_box_prototype();
+        assert_eq!(sim.config.collider.min_ws, FLUID_BOX_PROTOTYPE_MIN_WS);
+        assert_eq!(sim.config.collider.max_ws, FLUID_BOX_PROTOTYPE_MAX_WS);
+        assert_eq!(sim.config.initial_fluid_min_ws, FLUID_BOX_PROTOTYPE_INITIAL_MIN_WS);
+        assert_eq!(sim.config.initial_fluid_max_ws, FLUID_BOX_PROTOTYPE_INITIAL_MAX_WS);
+        assert_eq!(sim.grid_dim, UVec3::splat(32));
+        assert_eq!(sim.particles.len(), 1_024);
+        assert!(sim.particles.iter().all(|particle| {
+            sim.config.collider.contains(particle.x)
+                && particle.x.cmpge(sim.config.initial_fluid_min_ws).all()
+                && particle.x.cmple(sim.config.initial_fluid_max_ws).all()
+        }));
     }
 
     #[test]

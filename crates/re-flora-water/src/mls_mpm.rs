@@ -12,13 +12,16 @@ use super::{
 
 const MAX_SUBSTEPS_PER_UPDATE: usize = 8;
 const ACTIVE_MASS_EPSILON: f32 = 1.0e-8;
+const MIN_FLUID_DENSITY: f32 = 1.0e-8;
 const MAX_J: f32 = 8.0;
 const NO_TENSION_MAX_J: f32 = 1.0;
+#[cfg(test)]
 const MAX_J_LOG_STEP_PER_SUBSTEP: f32 = 0.10;
 // Blend a small MLS grid-density estimate into the deformation-history J each
 // substep. Pure velocity-gradient J can relax to rest volume after wall/terrain
 // collision projection even when particles are visibly overpacked; this feedback
 // re-anchors pressure to the configured marker volume without a neighbor solve.
+#[cfg(test)]
 const DENSITY_J_FEEDBACK_PER_SECOND: f32 = 12.64;
 // Ignore tiny density-estimate compression. The MLS kernel/marker discretization
 // constantly produces sub-percent local density noise; feeding that straight into
@@ -955,16 +958,16 @@ impl PondWaterSim {
     }
 
     fn particle_to_grid(&mut self, dt: f32) {
+        self.particle_to_grid_mass_momentum();
+        self.particle_to_grid_fluid_stress(dt);
+    }
+
+    fn particle_to_grid_mass_momentum(&mut self) {
         let origin_ws = self.origin_ws;
         let grid_dim = self.grid_dim;
         let dx = self.dx;
         let inv_dx = self.inv_dx;
         let mass = self.config.particle_mass;
-        let volume = self.config.particle_volume;
-        let d_inv = 4.0 * inv_dx * inv_dx;
-        let j_min = self.config.j_min;
-        let stiffness = self.config.stiffness;
-        let gamma = self.config.gamma;
         let y_stride = grid_dim.x as usize;
         let z_stride = y_stride * grid_dim.y as usize;
 
@@ -978,9 +981,7 @@ impl PondWaterSim {
             let wy = [weights[0].y, weights[1].y, weights[2].y];
             let wz = [weights[0].z, weights[1].z, weights[2].z];
 
-            let pressure = eos_pressure(stiffness, gamma, particle.j, j_min);
-            let pressure_scale = dt * volume * particle.j * pressure * d_inv;
-            let affine = Mat3::from_diagonal(Vec3::splat(pressure_scale)) + particle.c * mass;
+            let affine = particle.c * mass;
             let momentum = particle.v * mass;
 
             // Most particles are kept away from grid boundaries by wall padding;
@@ -1046,6 +1047,123 @@ impl PondWaterSim {
                             let node_local = node.as_vec3() * dx;
                             let dpos = node_local - local_pos;
                             grid_node.v += weight * (momentum + affine * dpos);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn particle_to_grid_fluid_stress(&mut self, dt: f32) {
+        if dt <= 0.0 || !dt.is_finite() {
+            return;
+        }
+
+        let origin_ws = self.origin_ws;
+        let grid_dim = self.grid_dim;
+        let dx = self.dx;
+        let inv_dx = self.inv_dx;
+        let inv_cell_volume = inv_dx * inv_dx * inv_dx;
+        let d_inv = 4.0 * inv_dx * inv_dx;
+        let mass = self.config.particle_mass;
+        let rest_density = self.config.particle_mass / self.config.particle_volume;
+        let stiffness = self.config.stiffness;
+        let gamma = self.config.gamma;
+        let dynamic_viscosity = self.config.dynamic_viscosity;
+        let pressure_floor = self.config.pressure_floor;
+        let y_stride = grid_dim.x as usize;
+        let z_stride = y_stride * grid_dim.y as usize;
+
+        for particle in &self.particles {
+            let local_pos = particle.x - origin_ws;
+            let grid_pos = local_pos * inv_dx;
+            let base = base_coord(grid_pos);
+            let fx = grid_pos - base.as_vec3();
+            let weights = quadratic_weights(fx);
+            let wx = [weights[0].x, weights[1].x, weights[2].x];
+            let wy = [weights[0].y, weights[1].y, weights[2].y];
+            let wz = [weights[0].z, weights[1].z, weights[2].z];
+
+            let Some(density) = particle_density_from_grid(
+                &self.grid,
+                grid_dim,
+                base,
+                wx,
+                wy,
+                wz,
+                inv_cell_volume,
+            ) else {
+                continue;
+            };
+            let volume = mass / density;
+            if !volume.is_finite() || volume <= 0.0 {
+                continue;
+            }
+
+            let pressure = fluid_eos_pressure(
+                stiffness,
+                gamma,
+                density,
+                rest_density,
+                pressure_floor,
+            );
+            let stress = fluid_stress(pressure, dynamic_viscosity, particle.c);
+            if !mat3_is_finite(stress) {
+                continue;
+            }
+            let stress_affine = stress * (-dt * volume * d_inv);
+
+            if particle_stencil_interior(base, grid_dim) {
+                let base_idx =
+                    grid_index_dims(grid_dim, base.x as u32, base.y as u32, base.z as u32);
+                let base_dpos = base.as_vec3() * dx - local_pos;
+                for (oz, wz) in wz.iter().copied().enumerate() {
+                    let node_z_offset = oz * z_stride;
+                    let dpos_z = base_dpos.z + oz as f32 * dx;
+                    for (oy, wy) in wy.iter().copied().enumerate() {
+                        let node_y_offset = oy * y_stride;
+                        let dpos_y = base_dpos.y + oy as f32 * dx;
+                        let wyz = wy * wz;
+                        for (ox, wx) in wx.iter().copied().enumerate() {
+                            let weight = wx * wyz;
+                            if weight <= 0.0 {
+                                continue;
+                            }
+
+                            let node_idx = base_idx + ox + node_y_offset + node_z_offset;
+                            debug_assert!(node_idx < self.grid.len());
+                            // SAFETY: `particle_stencil_interior` guarantees all 27 stencil
+                            // nodes are inside `grid_dim`, and the grid storage is sized from
+                            // that same domain.
+                            let grid_node = unsafe { self.grid.get_unchecked_mut(node_idx) };
+                            let dpos = Vec3::new(base_dpos.x + ox as f32 * dx, dpos_y, dpos_z);
+                            grid_node.v += weight * (stress_affine * dpos);
+                        }
+                    }
+                }
+            } else {
+                for oz in 0..3 {
+                    for oy in 0..3 {
+                        for ox in 0..3 {
+                            let node = base + IVec3::new(ox, oy, oz);
+                            if !in_grid(node, grid_dim) {
+                                continue;
+                            }
+
+                            let weight = wx[ox as usize] * wy[oy as usize] * wz[oz as usize];
+                            if weight <= 0.0 {
+                                continue;
+                            }
+
+                            let node_idx = grid_index_dims(
+                                grid_dim,
+                                node.x as u32,
+                                node.y as u32,
+                                node.z as u32,
+                            );
+                            let node_local = node.as_vec3() * dx;
+                            let dpos = node_local - local_pos;
+                            self.grid[node_idx].v += weight * (stress_affine * dpos);
                         }
                     }
                 }
@@ -1119,7 +1237,6 @@ impl PondWaterSim {
         let c_scale = 4.0 * inv_dx * inv_dx;
         let inv_cell_volume = inv_dx * inv_dx * inv_dx;
         let rest_density = self.config.particle_mass / self.config.particle_volume;
-        let density_j_blend = density_j_feedback_blend(dt);
         let affine_damping = affine_damping_factor(dt);
         let j_min = self.config.j_min;
         let bounds = self.config.collider;
@@ -1220,16 +1337,13 @@ impl PondWaterSim {
 
             particle.v = clamp_vec3_length(new_v, max_particle_speed);
             particle.c = clamp_mat3_components(new_c, MAX_AFFINE_COMPONENT);
-            let trace_c = particle.c.x_axis.x + particle.c.y_axis.y + particle.c.z_axis.z;
-            let kinematic_j = integrate_no_tension_j(particle.j, trace_c, dt, j_min);
             particle.j = grid_density_no_tension_j(
                 new_density_mass,
                 inv_cell_volume,
                 rest_density,
                 j_min,
             )
-            .map(|density_j| blend_no_tension_j(kinematic_j, density_j, density_j_blend, j_min))
-            .unwrap_or(kinematic_j);
+            .unwrap_or(NO_TENSION_MAX_J);
             particle.x += particle.v * dt;
 
             let box_start = COLLECT_BREAKDOWN.then(Instant::now);
@@ -1365,6 +1479,89 @@ fn quadratic_weights(fx: Vec3) -> [Vec3; 3] {
         Vec3::splat(0.75) - w1 * w1,
         0.5 * w2 * w2,
     ]
+}
+
+fn particle_density_from_grid(
+    grid: &[super::pond::WaterGridNode],
+    grid_dim: glam::UVec3,
+    base: IVec3,
+    wx: [f32; 3],
+    wy: [f32; 3],
+    wz: [f32; 3],
+    inv_cell_volume: f32,
+) -> Option<f32> {
+    if grid.is_empty() || inv_cell_volume <= 0.0 || !inv_cell_volume.is_finite() {
+        return None;
+    }
+
+    let mut gathered_mass = 0.0f32;
+    for oz in 0..3 {
+        for oy in 0..3 {
+            for ox in 0..3 {
+                let node = base + IVec3::new(ox, oy, oz);
+                if !in_grid(node, grid_dim) {
+                    continue;
+                }
+
+                let weight = wx[ox as usize] * wy[oy as usize] * wz[oz as usize];
+                if weight <= 0.0 {
+                    continue;
+                }
+
+                let node_idx = grid_index_dims(
+                    grid_dim,
+                    node.x as u32,
+                    node.y as u32,
+                    node.z as u32,
+                );
+                gathered_mass += grid[node_idx].mass * weight;
+            }
+        }
+    }
+
+    let density = gathered_mass * inv_cell_volume;
+    (density.is_finite() && density > MIN_FLUID_DENSITY).then_some(density)
+}
+
+fn fluid_eos_pressure(
+    stiffness: f32,
+    gamma: f32,
+    density: f32,
+    rest_density: f32,
+    pressure_floor: f32,
+) -> f32 {
+    if !stiffness.is_finite()
+        || stiffness <= 0.0
+        || !gamma.is_finite()
+        || gamma <= 0.0
+        || !density.is_finite()
+        || density <= 0.0
+        || !rest_density.is_finite()
+        || rest_density <= 0.0
+        || !pressure_floor.is_finite()
+    {
+        return 0.0;
+    }
+
+    let density_ratio = density / rest_density;
+    let pressure = if (gamma - 4.0).abs() <= f32::EPSILON {
+        let ratio2 = density_ratio * density_ratio;
+        stiffness * (ratio2 * ratio2 - 1.0)
+    } else {
+        stiffness * (density_ratio.powf(gamma) - 1.0)
+    };
+    pressure.max(pressure_floor)
+}
+
+fn fluid_stress(pressure: f32, dynamic_viscosity: f32, velocity_gradient: Mat3) -> Mat3 {
+    let pressure = if pressure.is_finite() { pressure } else { 0.0 };
+    let dynamic_viscosity = if dynamic_viscosity.is_finite() {
+        dynamic_viscosity.max(0.0)
+    } else {
+        0.0
+    };
+    let strain_rate = velocity_gradient + velocity_gradient.transpose();
+    Mat3::from_diagonal(Vec3::splat(-pressure)) + strain_rate * dynamic_viscosity
 }
 
 fn in_grid(node: IVec3, grid_dim: glam::UVec3) -> bool {
@@ -1629,6 +1826,7 @@ fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
 }
 
+#[cfg(test)]
 fn eos_pressure(stiffness: f32, gamma: f32, j: f32, j_min: f32) -> f32 {
     if !stiffness.is_finite()
         || stiffness <= 0.0
@@ -1689,6 +1887,7 @@ fn grid_density_no_tension_j(
     Some(clamp_no_tension_j(density_j, j_min))
 }
 
+#[cfg(test)]
 fn density_j_feedback_blend(dt: f32) -> f32 {
     if !dt.is_finite() || dt <= 0.0 || DENSITY_J_FEEDBACK_PER_SECOND <= 0.0 {
         return 0.0;
@@ -1697,6 +1896,7 @@ fn density_j_feedback_blend(dt: f32) -> f32 {
     (1.0 - (-DENSITY_J_FEEDBACK_PER_SECOND * dt).exp()).clamp(0.0, 1.0)
 }
 
+#[cfg(test)]
 fn blend_no_tension_j(kinematic_j: f32, density_j: f32, blend: f32, j_min: f32) -> f32 {
     let kinematic_j = clamp_no_tension_j(kinematic_j, j_min);
     let density_j = clamp_no_tension_j(density_j, j_min);
@@ -1714,6 +1914,7 @@ fn affine_damping_factor(dt: f32) -> f32 {
         .clamp(0.0, 1.0)
 }
 
+#[cfg(test)]
 fn integrate_no_tension_j(j: f32, trace_c: f32, dt: f32, j_min: f32) -> f32 {
     let j = clamp_no_tension_j(j, j_min);
     if !trace_c.is_finite() || !dt.is_finite() || dt <= 0.0 {
@@ -2298,8 +2499,9 @@ mod tests {
     use super::{
         affine_damping_factor, blend_no_tension_j, collide_particle_with_terrain,
         collide_particle_with_terrain_iterative, damp_velocity_tangent_to_surface,
-        density_j_feedback_blend, eos_pressure, grid_density_no_tension_j, integrate_no_tension_j,
-        project_velocity_away_from_surface, terrain_grid_particle_query,
+        density_j_feedback_blend, eos_pressure, fluid_eos_pressure, fluid_stress,
+        grid_density_no_tension_j, integrate_no_tension_j, project_velocity_away_from_surface,
+        terrain_grid_particle_query,
         terrain_tangent_damping_factor, TerrainGridParticleQuery, WaterTerrainGridSample,
         ACTIVE_MASS_EPSILON,
     };
@@ -2323,6 +2525,42 @@ mod tests {
         assert!(compressed > 0.0, "compressed={compressed}");
         assert_eq!(eos_pressure(10_000.0, 7.0, 1.0, 0.55), 0.0);
         assert_eq!(eos_pressure(10_000.0, 7.0, 1.2, 0.55), 0.0);
+    }
+
+    #[test]
+    fn fluid_eos_pressure_uses_density_ratio_and_floor() {
+        let compressed = fluid_eos_pressure(10.0, 4.0, 8.0, 4.0, -0.1);
+        assert!((compressed - 150.0).abs() <= 1.0e-5, "compressed={compressed}");
+        assert_eq!(fluid_eos_pressure(10.0, 4.0, 4.0, 4.0, -0.1), 0.0);
+        assert_eq!(fluid_eos_pressure(10.0, 4.0, 2.0, 4.0, -0.1), -0.1);
+        assert_eq!(fluid_eos_pressure(10.0, 4.0, 2.0, 4.0, 0.0), 0.0);
+    }
+
+    #[test]
+    fn fluid_stress_combines_pressure_and_viscosity() {
+        let velocity_gradient = Mat3::from_cols(
+            Vec3::new(1.0, 2.0, 0.0),
+            Vec3::new(3.0, 4.0, 0.0),
+            Vec3::new(0.0, 0.0, 5.0),
+        );
+        let stress = fluid_stress(7.0, 0.5, velocity_gradient);
+
+        assert!((stress.x_axis.x - -6.0).abs() <= 1.0e-6);
+        assert!((stress.y_axis.y - -3.0).abs() <= 1.0e-6);
+        assert!((stress.z_axis.z - -2.0).abs() <= 1.0e-6);
+        assert!((stress.x_axis.y - 2.5).abs() <= 1.0e-6);
+        assert!((stress.y_axis.x - 2.5).abs() <= 1.0e-6);
+    }
+
+    #[test]
+    fn fluid_box_prototype_substeps_keep_particles_finite_and_bounded() {
+        let mut sim = PondWaterSim::fluid_box_prototype();
+        for _ in 0..60 {
+            sim.substep(sim.config.substep_dt);
+        }
+
+        assert_particles_finite_and_bounded(&sim);
+        assert!(sim.grid.iter().all(|node| node.mass >= 0.0 && node.v.is_finite()));
     }
 
     #[test]

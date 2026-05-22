@@ -491,6 +491,8 @@ fn handle_water_sim_command(
             sim.config.stiffness = config.stiffness;
             sim.config.gamma = config.gamma;
             sim.config.j_min = config.j_min;
+            sim.config.dynamic_viscosity = config.dynamic_viscosity;
+            sim.config.pressure_floor = config.pressure_floor;
             sim.config.wall_damping = config.wall_damping;
         }
         WaterSimCommand::SetRuntimeOptions(options) => {
