@@ -17,8 +17,16 @@ use std::{f32::consts::TAU, time::Instant};
 const TERRAIN_HARVEST_MAX_PARTICLES_PER_EDIT: u32 = 4;
 #[allow(dead_code)]
 const TERRAIN_HARVEST_PARTICLE_SIZE: f32 = 1.0 / 256.0;
-const WATER_DEBUG_PARTICLE_SIZE: f32 = 0.012;
+const DEFAULT_WATER_DEBUG_PARTICLE_SIZE: f32 = 0.012;
 const WATER_DEBUG_COLOR: Vec4 = Vec4::new(0.12, 0.45, 1.0, 1.0);
+
+fn water_debug_particle_size(value: f32) -> f32 {
+    if value.is_finite() {
+        value.clamp(0.001, 0.1)
+    } else {
+        DEFAULT_WATER_DEBUG_PARTICLE_SIZE
+    }
+}
 
 pub(super) struct TreeLeafEmitter {
     tree_id: u32,
@@ -471,6 +479,8 @@ impl App {
         }
 
         let bounds = self.water_sim.config.collider;
+        let water_particle_size =
+            water_debug_particle_size(self.gui_adjustables.water_particle_quad_size.value);
         for particle in self
             .water_sim
             .latest_particles()
@@ -484,7 +494,7 @@ impl App {
                 position_ws: particle.position_ws,
                 velocity: particle.velocity,
                 color: WATER_DEBUG_COLOR,
-                size: WATER_DEBUG_PARTICLE_SIZE,
+                size: water_particle_size,
                 kind: ParticleRenderKind::Leaf,
                 texture_variant: 0,
                 animation_frame_offset: 0,

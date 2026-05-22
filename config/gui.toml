@@ -654,6 +654,17 @@ min = 0.005
 max = 0.08
 
 [[section.param]]
+id = "water_particle_quad_size"
+kind = "float"
+label = "Particle Quad Size"
+type = "Float"
+
+[section.param.data]
+value = 0.012
+min = 0.002
+max = 0.05
+
+[[section.param]]
 id = "water_terrain_margin_cells"
 kind = "float"
 label = "Terrain Margin (grid cells)"
