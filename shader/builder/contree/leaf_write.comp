@@ -2,7 +2,7 @@
 
 #extension GL_GOOGLE_include_directive : require
 
-layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 layout(set = 0, binding = 0) readonly uniform U_ContreeBuildInfo {
     uint dim; // the dimension of the contree to be built, uniform in x, y, z
@@ -37,6 +37,15 @@ layout(set = 0, binding = 6) writeonly buffer B_ContreeBuildResult {
 }
 contree_build_result;
 
+layout(set = 0, binding = 7) readonly buffer B_MakeSurfaceResult {
+    uint active_voxel_len;
+    uint active_brick_len;
+}
+make_surface_result;
+
+layout(set = 0, binding = 8) readonly buffer B_SurfaceActiveBrickIndices { uint data[]; }
+surface_active_brick_indices;
+
 #include "../../include/core/bits.glsl"
 
 shared uint shared_invocation_data[64];
@@ -69,10 +78,17 @@ uint register_and_get_local_base(uint invocation_cnt, uint local_invocation_idx)
 
 void main() {
     cleanup_shared_invocation_data(gl_LocalInvocationIndex);
-    ivec3 uvi = ivec3(gl_GlobalInvocationID);
-    if (any(greaterThanEqual(uvi, ivec3(contree_build_state.curr_dim)))) {
+    uint active_brick_list_idx = gl_GlobalInvocationID.x;
+    if (active_brick_list_idx >= make_surface_result.active_brick_len) {
         return;
     }
+
+    uint active_brick_idx = surface_active_brick_indices.data[active_brick_list_idx];
+    uint brick_dim        = contree_build_state.curr_dim;
+    ivec3 uvi            = ivec3(
+        int(active_brick_idx % brick_dim),
+        int(active_brick_idx / (brick_dim * brick_dim)),
+        int((active_brick_idx / brick_dim) % brick_dim));
 
     uint temp[64];
     uint child_mask_lo = 0u;

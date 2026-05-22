@@ -762,6 +762,63 @@ impl App {
             return;
         }
 
+        if active_voxel_len == 0 {
+            let clear_start = Instant::now();
+            let contree = self
+                .contree_builder
+                .clear_empty_surface_chunk(inflight.chunk_id * VOXEL_DIM_PER_CHUNK);
+            let clear_ms = clear_start.elapsed().as_secs_f64() * 1000.0;
+            inflight.main_thread_ms += clear_ms;
+
+            let scene_submit_start = Instant::now();
+            match self
+                .scene_accel_builder
+                .submit_update_scene_tex(contree.chunk_idx, contree.scene_offsets)
+            {
+                Ok(scene_job) => {
+                    let scene_submit_ms = scene_submit_start.elapsed().as_secs_f64() * 1000.0;
+                    inflight.main_thread_ms += scene_submit_ms;
+                    log::log!(
+                        if self.perf_logging {
+                            log::Level::Info
+                        } else {
+                            log::Level::Debug
+                        },
+                        "[PERF][DEFERRED_REBUILD_PHASE] chunk {:?} revision {} phase contree_skip main_thread {:.2}ms contree_total {:.2}ms scene_submit {:.2}ms active_voxels {}",
+                        inflight.chunk_id,
+                        inflight.revision,
+                        clear_ms,
+                        contree.total_ms,
+                        scene_submit_ms,
+                        active_voxel_len,
+                    );
+                    inflight.stage = TerrainChunkRebuildStage::Scene {
+                        active_voxel_len,
+                        surface_total_ms,
+                        contree_total_ms: contree.total_ms,
+                        job: scene_job,
+                    };
+                    self.terrain_chunk_rebuild_inflight = Some(inflight);
+                }
+                Err(err) => {
+                    let scene_submit_ms = scene_submit_start.elapsed().as_secs_f64() * 1000.0;
+                    inflight.main_thread_ms += scene_submit_ms;
+                    self.deferred_chunk_rebuilds
+                        .complete(inflight.chunk_id, inflight.revision);
+                    log::error!(
+                        "[PERF][DEFERRED_REBUILD] chunk {:?} failed scene submit after contree skip {:.2}ms wall {:.2}ms remaining {} revision {}: {}",
+                        inflight.chunk_id,
+                        inflight.main_thread_ms,
+                        inflight.started_at.elapsed().as_secs_f64() * 1000.0,
+                        self.deferred_chunk_rebuilds.len(),
+                        inflight.revision,
+                        err,
+                    );
+                }
+            }
+            return;
+        }
+
         let submit_start = Instant::now();
         match self
             .contree_builder
@@ -1865,14 +1922,32 @@ impl App {
                 let atlas_offset = chunk_id * VOXEL_DIM_PER_CHUNK;
                 loading.step_label = format!("Building {}/{}", current, total);
 
-                if let Err(err) = self.surface_builder.build_surface(chunk_id, true) {
-                    log::error!("build_surface failed for {chunk_id:?}: {err}");
-                    loading.current += 1;
-                    return;
-                }
+                let active_voxel_len = match self.surface_builder.build_surface(chunk_id, true) {
+                    Ok(active_voxel_len) => active_voxel_len,
+                    Err(err) => {
+                        log::error!("build_surface failed for {chunk_id:?}: {err}");
+                        loading.current += 1;
+                        return;
+                    }
+                };
 
-                match self.contree_builder.build_and_alloc(atlas_offset) {
-                    Ok(Some((node_buffer_offset, leaf_buffer_offset))) => {
+                let scene_offsets = if active_voxel_len == 0 {
+                    self.contree_builder
+                        .clear_empty_surface_chunk(atlas_offset)
+                        .scene_offsets
+                } else {
+                    match self.contree_builder.build_and_alloc(atlas_offset) {
+                        Ok(scene_offsets) => scene_offsets,
+                        Err(err) => {
+                            log::error!("build_and_alloc failed for {chunk_id:?}: {err}");
+                            loading.current += 1;
+                            return;
+                        }
+                    }
+                };
+
+                match scene_offsets {
+                    Some((node_buffer_offset, leaf_buffer_offset)) => {
                         if let Err(err) = self.scene_accel_builder.update_scene_tex(
                             chunk_id,
                             Some((node_buffer_offset, leaf_buffer_offset)),
@@ -1880,14 +1955,11 @@ impl App {
                             log::error!("update_scene_tex failed for {chunk_id:?}: {err}");
                         }
                     }
-                    Ok(None) => {
+                    None => {
                         if let Err(err) = self.scene_accel_builder.update_scene_tex(chunk_id, None)
                         {
                             log::error!("clear_scene_tex failed for {chunk_id:?}: {err}");
                         }
-                    }
-                    Err(err) => {
-                        log::error!("build_and_alloc failed for {chunk_id:?}: {err}");
                     }
                 }
 

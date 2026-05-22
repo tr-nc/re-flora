@@ -38,6 +38,12 @@ layout(set = 0, binding = 5) writeonly buffer B_ContreeBuildResult {
 }
 contree_build_result;
 
+layout(set = 0, binding = 6) readonly buffer B_MakeSurfaceResult {
+    uint active_voxel_len;
+    uint active_brick_len;
+}
+make_surface_result;
+
 #include "../../include/config.glsl"
 #include "../../include/core/dispatch_grouper.glsl"
 #include "../../include/core/math.glsl"
@@ -51,10 +57,10 @@ void main() {
     // when dim is guaranteed to be a power of 4, this method can find log4(dim)
     contree_build_state.level = log_4(curr_dim);
 
-    uint dispatch_count                = group_x_4(curr_dim);
+    uint dispatch_count                = max(group_x_64(make_surface_result.active_brick_len), 1u);
     level_dispatch_indirect.dispatch_x = dispatch_count;
-    level_dispatch_indirect.dispatch_y = dispatch_count;
-    level_dispatch_indirect.dispatch_z = dispatch_count;
+    level_dispatch_indirect.dispatch_y = 1;
+    level_dispatch_indirect.dispatch_z = 1;
 
     // we use max_level - 1 because the last level is the leaf level
     for (uint i = 0; i < contree_build_info.max_level - 1; i++) {

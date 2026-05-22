@@ -16,6 +16,7 @@ make_surface_info;
 layout(set = 0, binding = 1) buffer B_MakeSurfaceResult {
     uint active_voxel_len;
     uint active_brick_len;
+    uint solid_workgroup_len;
 }
 make_surface_result;
 
@@ -28,6 +29,9 @@ surface_active_brick_flags;
 
 layout(set = 0, binding = 5) buffer B_SurfaceActiveBrickIndices { uint data[]; }
 surface_active_brick_indices;
+
+layout(set = 0, binding = 6) readonly buffer B_SurfaceSolidWorkgroupIndices { uint data[]; }
+surface_solid_workgroup_indices;
 
 #include "../../include/config.glsl"
 #include "../../include/core/definitions.glsl"
@@ -49,15 +53,22 @@ uint voxel_hash_bucket_from_blue_noise(ivec3 world_pos) {
 #define SHARED_SIZE_3 (SHARED_SIZE * SHARED_SIZE * SHARED_SIZE)
 shared uint shared_data[SHARED_SIZE][SHARED_SIZE][SHARED_SIZE];
 
-ivec3 shared_idx_to_atlas_idx(ivec3 chunk_base, ivec3 shared_idx) {
-    const ivec3 group_base = ivec3(gl_WorkGroupID) * GROUP_SIZE - 2; // include halo
-    ivec3 atlas_idx        = shared_idx + group_base + chunk_base;
+uvec3 decode_surface_workgroup_coord(uint local_workgroup_idx) {
+    uvec3 grid_dim = (make_surface_info.atlas_read_dim + uvec3(GROUP_SIZE - 1u)) / GROUP_SIZE;
+    return uvec3(
+        local_workgroup_idx % grid_dim.x,
+        local_workgroup_idx / (grid_dim.x * grid_dim.z),
+        (local_workgroup_idx / grid_dim.x) % grid_dim.z
+    );
+}
+
+ivec3 shared_idx_to_atlas_idx(ivec3 chunk_base, ivec3 workgroup_base, ivec3 shared_idx) {
+    ivec3 atlas_idx = shared_idx + workgroup_base - ivec3(2) + chunk_base;
     return atlas_idx;
 }
 
-ivec3 local_idx_to_shared_idx(ivec3 local_idx) {
-    const ivec3 group_base = ivec3(gl_WorkGroupID) * GROUP_SIZE - 2; // include halo
-    return local_idx - group_base;
+ivec3 local_idx_to_shared_idx(ivec3 workgroup_base, ivec3 local_idx) {
+    return local_idx - (workgroup_base - ivec3(2));
 }
 
 uint load_atlas(ivec3 atlas_idx, ivec3 atlas_read_offset, ivec3 atlas_read_dim,
@@ -73,7 +84,7 @@ uint load_atlas(ivec3 atlas_idx, ivec3 atlas_read_offset, ivec3 atlas_read_dim,
     }
 }
 
-void preload() {
+void preload(ivec3 workgroup_base) {
     for (uint linear_idx = gl_LocalInvocationIndex; linear_idx < SHARED_SIZE_3;
          linear_idx += GROUP_SIZE_3) {
 
@@ -82,8 +93,11 @@ void preload() {
         shared_idx.y = (linear_idx / SHARED_SIZE) % SHARED_SIZE;
         shared_idx.z = linear_idx / (SHARED_SIZE * SHARED_SIZE);
 
-        ivec3 atlas_idx =
-            shared_idx_to_atlas_idx(ivec3(make_surface_info.atlas_read_offset), ivec3(shared_idx));
+        ivec3 atlas_idx = shared_idx_to_atlas_idx(
+            ivec3(make_surface_info.atlas_read_offset),
+            workgroup_base,
+            ivec3(shared_idx)
+        );
         uint val = load_atlas(atlas_idx, ivec3(make_surface_info.atlas_read_offset),
                               ivec3(make_surface_info.atlas_read_dim),
                               make_surface_info.is_crossing_boundary != 0);
@@ -94,12 +108,12 @@ void preload() {
 
 bool is_solid(uint voxel_type) { return voxel_type != VOXEL_TYPE_EMPTY; }
 
-uint voxel_at_local_idx(ivec3 local_idx) {
-    ivec3 shared_idx = local_idx_to_shared_idx(local_idx);
+uint voxel_at_local_idx(ivec3 workgroup_base, ivec3 local_idx) {
+    ivec3 shared_idx = local_idx_to_shared_idx(workgroup_base, local_idx);
     return shared_data[shared_idx.x][shared_idx.y][shared_idx.z];
 }
 
-bool is_occluded(ivec3 uvi) {
+bool is_occluded(ivec3 workgroup_base, ivec3 uvi) {
     ivec3 neighbours_to_check[6] = {
         ivec3(1, 0, 0),  ivec3(-1, 0, 0), ivec3(0, 1, 0),
         ivec3(0, -1, 0), ivec3(0, 0, 1),  ivec3(0, 0, -1),
@@ -107,7 +121,7 @@ bool is_occluded(ivec3 uvi) {
 
     for (int i = 0; i < 6; i++) {
         ivec3 cur       = uvi + neighbours_to_check[i];
-        uint voxel_type = voxel_at_local_idx(cur);
+        uint voxel_type = voxel_at_local_idx(workgroup_base, cur);
         if (!is_solid(voxel_type)) {
             return false;
         }
@@ -115,7 +129,8 @@ bool is_occluded(ivec3 uvi) {
     return true;
 }
 
-void calculate_normal(out vec3 o_normal, out bool o_is_normal_valid, ivec3 uvi) {
+void calculate_normal(out vec3 o_normal, out bool o_is_normal_valid, ivec3 workgroup_base,
+                      ivec3 uvi) {
     const ivec3 min_bound = ivec3(-2);
     const ivec3 max_bound = ivec3(2);
 
@@ -125,7 +140,7 @@ void calculate_normal(out vec3 o_normal, out bool o_is_normal_valid, ivec3 uvi) 
             for (int x = min_bound.x; x <= max_bound.x; x++) {
                 ivec3 offset    = ivec3(x, y, z);
                 ivec3 cur       = uvi + offset;
-                uint voxel_type = voxel_at_local_idx(cur);
+                uint voxel_type = voxel_at_local_idx(workgroup_base, cur);
 
                 if (is_solid(voxel_type)) {
                     normal += vec3(offset);
@@ -159,23 +174,33 @@ uint compress_voxel_type_and_normal(uint voxel_type, vec3 normal, bool is_normal
     return pack_voxel_surface_data(voxel_type, normal_bits, is_normal_valid, hash_id);
 }
 
-bool is_surface_top(ivec3 p) { return !is_solid(voxel_at_local_idx(p + ivec3(0, 1, 0))); }
+bool is_surface_top(ivec3 workgroup_base, ivec3 p) {
+    return !is_solid(voxel_at_local_idx(workgroup_base, p + ivec3(0, 1, 0)));
+}
 
 void main() {
-    preload();
+    uint workgroup_list_idx = gl_WorkGroupID.x;
+    if (workgroup_list_idx >= make_surface_result.solid_workgroup_len) {
+        return;
+    }
+
+    uint local_workgroup_idx = surface_solid_workgroup_indices.data[workgroup_list_idx];
+    ivec3 workgroup_base = ivec3(decode_surface_workgroup_coord(local_workgroup_idx) * GROUP_SIZE);
+
+    preload(workgroup_base);
     barrier();
 
-    ivec3 uvi = ivec3(gl_GlobalInvocationID);
+    ivec3 uvi = workgroup_base + ivec3(gl_LocalInvocationID);
     if (any(greaterThanEqual(uvi, ivec3(make_surface_info.atlas_read_dim)))) {
         return;
     }
 
-    uint voxel_type = voxel_at_local_idx(uvi);
+    uint voxel_type = voxel_at_local_idx(workgroup_base, uvi);
     if (!is_solid(voxel_type)) {
         return;
     }
 
-    if (is_occluded(uvi)) {
+    if (is_occluded(workgroup_base, uvi)) {
         return;
     }
 
@@ -183,7 +208,7 @@ void main() {
 
     vec3 normal;
     bool is_normal_valid;
-    calculate_normal(normal, is_normal_valid, uvi);
+    calculate_normal(normal, is_normal_valid, workgroup_base, uvi);
     uint properties =
         compress_voxel_type_and_normal(voxel_type, normal, is_normal_valid, world_pos);
 
