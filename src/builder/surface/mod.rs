@@ -600,7 +600,6 @@ impl SurfaceBuilder {
             atlas_read_dim,
             true,
         )?;
-        cleanup_layout_buffer(&self.resources.make_surface_result)?;
         let flora_chunk_idx = if place_flora {
             let chunk_idx = self.get_chunk_resource_index(chunk_id)?;
             update_occupancy_to_instances_info(
@@ -663,6 +662,11 @@ impl SurfaceBuilder {
         let solid_workgroup_count =
             solid_workgroup_dim.x * solid_workgroup_dim.y * solid_workgroup_dim.z;
         record_timed_surface_pass!({
+            // Keep this clear on the GPU timeline. Sync rebuilds can submit a contree
+            // build that still reads the previous chunk's make_surface_result while
+            // the CPU starts recording the next surface build. A host-side clear here
+            // can zero active_brick_len before that queued contree pass consumes it.
+            record_clear_buffer_for_compute(device, &cmdbuf, &self.resources.make_surface_result);
             record_clear_buffer_for_compute(
                 device,
                 &cmdbuf,
