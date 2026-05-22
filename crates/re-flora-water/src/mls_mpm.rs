@@ -31,7 +31,7 @@ const DENSITY_J_FEEDBACK_DEADBAND: f32 = 0.02;
 // for lively splashes but leaves collision/pressure ringing in settled water.
 // Mildly damp only the affine part; particle velocity keeps the configured water
 // linear damping path.
-const APIC_AFFINE_DAMPING_PER_SECOND: f32 = 4.0;
+const APIC_AFFINE_DAMPING_PER_SECOND: f32 = 1.5;
 const MAX_PARTICLE_SPEED: f32 = 20.0;
 const MAX_PARTICLE_CFL_CELLS_PER_SUBSTEP: f32 = 0.5;
 const MAX_AFFINE_COMPONENT: f32 = 100.0;
@@ -2626,7 +2626,7 @@ mod tests {
     fn affine_damping_is_mild_per_substep() {
         let damping_120_hz = affine_damping_factor(1.0 / 120.0);
         assert!(
-            damping_120_hz > 0.96 && damping_120_hz < 0.98,
+            damping_120_hz > 0.98 && damping_120_hz < 0.99,
             "damping_120_hz={damping_120_hz}"
         );
         assert_eq!(affine_damping_factor(0.0), 1.0);

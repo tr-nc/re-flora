@@ -671,7 +671,7 @@ label = "Linear Damping (/s)"
 type = "Float"
 
 [section.param.data]
-value = 0.8
+value = 0.25
 min = 0
 max = 5
 
@@ -693,7 +693,7 @@ label = "Stiffness"
 type = "Float"
 
 [section.param.data]
-value = 10
+value = 16
 min = 0
 max = 200
 
@@ -737,7 +737,7 @@ label = "Terrain Tangent Damping (/s)"
 type = "Float"
 
 [section.param.data]
-value = 20
+value = 4
 min = 0
 max = 20
 

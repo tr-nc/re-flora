@@ -6,6 +6,9 @@ use std::sync::Arc;
 const DEFAULT_GRID_DIM: UVec3 = UVec3::new(64, 32, 64);
 const DEFAULT_PARTICLE_COUNT: usize = 0;
 const DEBUG_SPAWN_HYDROSTATIC_J_MAX_DEPTH_CELLS: f32 = 4.0;
+const DEBUG_SPAWN_IMPACT_SPEED_MIN: f32 = 0.35;
+const DEBUG_SPAWN_IMPACT_SPEED_MAX: f32 = 1.15;
+const DEBUG_SPAWN_RADIAL_SPEED: f32 = 0.08;
 const INITIAL_PARTICLE_CHUNK_MIN_WS: Vec3 = Vec3::new(1.0, 0.0, 1.0);
 const INITIAL_PARTICLE_CHUNK_MAX_WS: Vec3 = Vec3::new(2.0, 1.0, 2.0);
 const FLUID_BOX_PROTOTYPE_MIN_WS: Vec3 = Vec3::new(1.0, 1.0, 1.0);
@@ -24,12 +27,13 @@ const DEFAULT_PARTICLE_VOLUME: f32 =
 // Density-based fluid defaults follow the incremental_mpm fluid example's
 // dimensionless EOS scale instead of the old J-history water parameters.
 const DEFAULT_FLUID_REST_DENSITY: f32 = 4.0;
-const DEFAULT_FLUID_STIFFNESS: f32 = 10.0;
+const DEFAULT_FLUID_STIFFNESS: f32 = 16.0;
 const DEFAULT_FLUID_GAMMA: f32 = 4.0;
 const DEFAULT_DIAGNOSTIC_J_MIN: f32 = 0.05;
-const DEFAULT_DYNAMIC_VISCOSITY: f32 = 0.1;
+const DEFAULT_DYNAMIC_VISCOSITY: f32 = 0.03;
 const DEFAULT_PRESSURE_FLOOR: f32 = -0.1;
-const DEFAULT_TERRAIN_TANGENT_DAMPING_PER_SEC: f32 = 20.0;
+const DEFAULT_TERRAIN_TANGENT_DAMPING_PER_SEC: f32 = 4.0;
+const DEFAULT_LINEAR_DAMPING_PER_SEC: f32 = 0.25;
 
 pub(crate) const WATER_GRID_BOUNDARY_X_MIN: u8 = 1 << 0;
 pub(crate) const WATER_GRID_BOUNDARY_X_MAX: u8 = 1 << 1;
@@ -81,7 +85,7 @@ impl Default for PondWaterConfig {
             pressure_floor: DEFAULT_PRESSURE_FLOOR,
             terrain_collision_margin_cells: 0.5,
             terrain_tangent_damping_per_sec: DEFAULT_TERRAIN_TANGENT_DAMPING_PER_SEC,
-            linear_damping_per_sec: 0.8,
+            linear_damping_per_sec: DEFAULT_LINEAR_DAMPING_PER_SEC,
             wall_padding_cells: 2.0,
             wall_damping: 0.0,
         }
@@ -702,6 +706,7 @@ impl PondWaterSim {
         let spawn_y = (base_y + self.dx * 1.5 + vertical_radius)
             .clamp(safe_min.y + vertical_radius, safe_max.y - vertical_radius);
         let spawn_center = Vec3::new(spawn_x, spawn_y, spawn_z);
+        let impact_speed = self.debug_spawn_impact_speed(spawn_center.y - base_y);
 
         let mut spawned = 0usize;
         self.particles.reserve(count);
@@ -735,6 +740,8 @@ impl PondWaterSim {
 
             let mut particle = WaterParticle::new(bounds.clamp_point(pos, padding));
             particle.j = self.debug_spawn_initial_j(particle.x.y, local_surface_y);
+            let radial_dir = Vec3::new(jitter.x, 0.0, jitter.z).normalize_or_zero();
+            particle.v = radial_dir * DEBUG_SPAWN_RADIAL_SPEED - Vec3::Y * impact_speed;
             self.particles.push(particle);
             spawned += 1;
         }
@@ -765,6 +772,21 @@ impl PondWaterSim {
         }
 
         max_y.is_finite().then_some(max_y)
+    }
+
+    fn debug_spawn_impact_speed(&self, fall_height_ws: f32) -> f32 {
+        if fall_height_ws <= 0.0 || !fall_height_ws.is_finite() {
+            return DEBUG_SPAWN_IMPACT_SPEED_MIN;
+        }
+
+        let gravity = self.config.gravity.length().max(0.0);
+        if gravity <= 0.0 || !gravity.is_finite() {
+            return DEBUG_SPAWN_IMPACT_SPEED_MIN;
+        }
+
+        (2.0 * gravity * fall_height_ws)
+            .sqrt()
+            .clamp(DEBUG_SPAWN_IMPACT_SPEED_MIN, DEBUG_SPAWN_IMPACT_SPEED_MAX)
     }
 
     fn debug_spawn_initial_j(&self, particle_y: f32, local_surface_y: Option<f32>) -> f32 {
@@ -992,9 +1014,16 @@ mod tests {
             < 1.0e-6);
         assert_eq!(sim.config.initial_fluid_min_ws, INITIAL_PARTICLE_CHUNK_MIN_WS);
         assert_eq!(sim.config.initial_fluid_max_ws, INITIAL_PARTICLE_CHUNK_MAX_WS);
+        assert_eq!(sim.config.stiffness, DEFAULT_FLUID_STIFFNESS);
+        assert_eq!(sim.config.gamma, DEFAULT_FLUID_GAMMA);
         assert_eq!(sim.config.j_min, DEFAULT_DIAGNOSTIC_J_MIN);
         assert_eq!(sim.config.dynamic_viscosity, DEFAULT_DYNAMIC_VISCOSITY);
         assert_eq!(sim.config.pressure_floor, DEFAULT_PRESSURE_FLOOR);
+        assert_eq!(
+            sim.config.terrain_tangent_damping_per_sec,
+            DEFAULT_TERRAIN_TANGENT_DAMPING_PER_SEC
+        );
+        assert_eq!(sim.config.linear_damping_per_sec, DEFAULT_LINEAR_DAMPING_PER_SEC);
     }
 
     #[test]
@@ -1268,6 +1297,25 @@ mod tests {
 
         assert_eq!(result.spawned_count(), 12);
         assert_eq!(sim.particles.len(), old_cap + 12);
+    }
+
+    #[test]
+    fn debug_spawn_seeds_bounded_impact_velocity() {
+        let mut sim = PondWaterSim::fixed_test_box();
+        let initial_len = sim.particles.len();
+
+        let result = sim.spawn_debug_particles_at_surface(Vec3::new(1.5, 0.5, 1.5), 12, 0.05);
+
+        assert_eq!(result.spawned_count(), 12);
+        for particle in &sim.particles[initial_len..] {
+            assert!(
+                particle.v.y <= -DEBUG_SPAWN_IMPACT_SPEED_MIN
+                    && particle.v.y >= -DEBUG_SPAWN_IMPACT_SPEED_MAX,
+                "spawned velocity {:?}",
+                particle.v
+            );
+            assert!(particle.v.length() <= DEBUG_SPAWN_IMPACT_SPEED_MAX + DEBUG_SPAWN_RADIAL_SPEED + 1.0e-5);
+        }
     }
 
     #[test]
