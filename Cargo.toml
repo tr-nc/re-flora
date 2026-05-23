@@ -13,9 +13,6 @@ chrono = { version = "0.4", features = ["clock"] }
 # only enable debug assert for glam during debug builds
 glam = { version = "0.32.1", features = ["debug-glam-assert", "bytemuck"] }
 uuid = { version = "1.4", features = ["v4"] }
-# the last release is from 2019, so we use the git version for support of the latest spirv-reflect
-spirv-reflect = { git = "https://github.com/gwihlidal/spirv-reflect-rs.git", rev = "97298067e3b1c9ce05633d78f1183c14a3cc6acc" }
-
 env_logger = "0.11"
 comfy-table = "7.2.2"
 log = "0.4.29"
@@ -23,7 +20,6 @@ time = "0.3.47"
 egui = "0.34.1"
 thiserror = "2.0.18"
 egui-winit = "0.34.1"
-shaderc = "0.10.1"
 noise = "0.9.0"
 fastnoise-lite = "1.1.1"
 rand = "0.10.1"

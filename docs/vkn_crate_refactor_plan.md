@@ -55,3 +55,7 @@ Timestamp query pools, buffer fill commands, and fence wait/poll operations move
 ### Step 7: render command wrappers
 
 Egui and tracer draw paths no longer call raw command-buffer/device methods or raw image-view handles from the game crate. Command-buffer helpers and framebuffer-from-textures keep the raw Vulkan handles inside vkn. Remaining `vk` references outside vkn are descriptor-style constants passed into vkn-owned descriptor structs (formats, usage flags, barriers, render pass settings), not direct backend calls.
+
+### Step 8: dependency cleanup
+
+Normal game dependencies no longer include `ash`, `gpu-allocator`, `shaderc`, or runtime `spirv-reflect`; vkn owns the runtime Vulkan/shader reflection dependencies. Build-time shader struct generation still keeps its build dependencies.
