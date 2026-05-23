@@ -21,6 +21,18 @@ Some rendering modules still pass `re_flora_vkn::vk` descriptor constants into v
 
 No direct `ash::` usage remains outside `crates/re-flora-vkn`.
 
+## Recommended follow-up
+
+Keep the refactor incremental from here. Do not do another broad rendering rewrite just to remove every remaining `vk::` reference at once. Instead, gradually narrow the public surface of `re-flora-vkn` as nearby rendering code is touched:
+
+- Prefer adding small semantic vkn-owned descriptor types over passing raw `vk::*` constants from game code.
+- Prioritize high-churn or high-risk areas first: render targets, pipeline setup, barriers/layout transitions, buffer/image usage roles, and render pass attachment descriptions.
+- Good candidate wrappers include `ColorFormat`, `DepthFormat`, `BufferRole`, `ImageRole`, `RenderTargetDesc`, `PipelineDesc`, and `BarrierDesc`.
+- Keep declarative resource setup behavior unchanged while moving Vulkan-specific enum/flag mapping into vkn.
+- Treat new game-crate uses of raw `vk::` as suspicious unless they are temporarily needed for an explicit vkn API gap.
+
+The intended direction is a stricter boundary: gameplay and renderer orchestration describe what they need; `re-flora-vkn` translates those descriptions into Vulkan details.
+
 ## Validation
 
 Completed successfully:

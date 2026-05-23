@@ -59,3 +59,17 @@ Egui and tracer draw paths no longer call raw command-buffer/device methods or r
 ### Step 8: dependency cleanup
 
 Normal game dependencies no longer include `ash`, `gpu-allocator`, `shaderc`, or runtime `spirv-reflect`; vkn owns the runtime Vulkan/shader reflection dependencies. Build-time shader struct generation still keeps its build dependencies.
+
+## Follow-up direction
+
+The remaining cleanup should be gradual. The current branch has removed direct `ash`, allocator, raw handle, and raw command-buffer leakage from the game crate; the remaining `vk::` references are mostly declarative descriptor constants. Avoid a second large rewrite just to eliminate all of them immediately.
+
+When touching nearby code, prefer replacing raw Vulkan descriptor constants with semantic vkn-owned types and helpers. Useful candidates:
+
+- `ColorFormat` / `DepthFormat` for image and attachment formats.
+- `BufferRole` / `ImageRole` for usage flags and memory/resource intent.
+- `RenderTargetDesc` and render pass attachment descriptors for framebuffer setup.
+- `PipelineDesc` helpers for shader stage, blend, depth, raster, and vertex-input configuration.
+- `BarrierDesc` or transition helpers for image layout and access/stage masks.
+
+The rule of thumb: game/render orchestration should describe intent, and `re-flora-vkn` should translate that intent into Vulkan enums, flags, raw handles, and synchronization details. New raw `vk::` usage outside vkn should be considered temporary and should usually point to a missing vkn API.
