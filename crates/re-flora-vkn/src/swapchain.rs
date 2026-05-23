@@ -10,9 +10,87 @@ use crate::{
 };
 
 use super::{
-    context::VulkanContext, record_image_transition_barrier, CommandBuffer, Device, Image,
+    context::VulkanContext, record_image_transition_barrier, Buffer, CommandBuffer, Device, Image,
     Semaphore,
 };
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PresentMode {
+    Mailbox,
+    Immediate,
+    Fifo,
+    FifoRelaxed,
+}
+
+impl PresentMode {
+    fn as_raw(self) -> vk::PresentModeKHR {
+        match self {
+            Self::Mailbox => vk::PresentModeKHR::MAILBOX,
+            Self::Immediate => vk::PresentModeKHR::IMMEDIATE,
+            Self::Fifo => vk::PresentModeKHR::FIFO,
+            Self::FifoRelaxed => vk::PresentModeKHR::FIFO_RELAXED,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum SwapchainFrameError {
+    OutOfDate,
+    Vulkan(String),
+}
+
+impl std::fmt::Display for SwapchainFrameError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::OutOfDate => write!(f, "swapchain is out of date"),
+            Self::Vulkan(err) => write!(f, "vulkan swapchain error: {err}"),
+        }
+    }
+}
+
+impl std::error::Error for SwapchainFrameError {}
+
+impl From<vk::Result> for SwapchainFrameError {
+    fn from(value: vk::Result) -> Self {
+        match value {
+            vk::Result::ERROR_OUT_OF_DATE_KHR => Self::OutOfDate,
+            other => Self::Vulkan(format!("{other:?}")),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ColorReadbackFormat {
+    Bgra8,
+    Rgba8,
+}
+
+impl ColorReadbackFormat {
+    fn from_raw(format: vk::Format) -> Option<Self> {
+        match format {
+            vk::Format::B8G8R8A8_SRGB | vk::Format::B8G8R8A8_UNORM => Some(Self::Bgra8),
+            vk::Format::R8G8B8A8_SRGB | vk::Format::R8G8B8A8_UNORM => Some(Self::Rgba8),
+            _ => None,
+        }
+    }
+
+    pub fn convert_to_rgba(self, mut data: Vec<u8>) -> Vec<u8> {
+        match self {
+            Self::Bgra8 => {
+                for pixel in data.chunks_exact_mut(4) {
+                    pixel.swap(0, 2);
+                    pixel[3] = 255;
+                }
+            }
+            Self::Rgba8 => {
+                for pixel in data.chunks_exact_mut(4) {
+                    pixel[3] = 255;
+                }
+            }
+        }
+        data
+    }
+}
 
 /// The preference for the swapchain.
 ///
@@ -20,7 +98,7 @@ use super::{
 pub struct SwapchainDesc {
     pub format: vk::Format,
     pub color_space: vk::ColorSpaceKHR,
-    pub present_mode: Option<vk::PresentModeKHR>,
+    pub present_mode: Option<PresentMode>,
     /// Override image count. None = auto (max(min_image_count, 3)).
     pub image_count_override: Option<u32>,
 }
@@ -93,8 +171,8 @@ impl Swapchain {
         self.image_views.len()
     }
 
-    pub fn image_format(&self) -> vk::Format {
-        self.render_target.get_desc().attachments[0].format
+    pub fn color_readback_format(&self) -> Option<ColorReadbackFormat> {
+        ColorReadbackFormat::from_raw(self.render_target.get_desc().attachments[0].format)
     }
 
     fn clean_up(&mut self) {
@@ -131,6 +209,15 @@ impl Swapchain {
                 fence,
             )
         }
+    }
+
+    pub fn acquire_next_image(
+        &mut self,
+        image_available_semaphore: &Semaphore,
+    ) -> Result<u32, SwapchainFrameError> {
+        self.acquire_next(image_available_semaphore)
+            .map(|(image_index, _)| image_index)
+            .map_err(SwapchainFrameError::from)
     }
 
     /// Blits the source image to the destination image.
@@ -203,6 +290,76 @@ impl Swapchain {
                 &present_info,
             )
         }
+    }
+
+    pub fn present_after(
+        &mut self,
+        waiting_for_semaphore: &Semaphore,
+        image_index: u32,
+    ) -> Result<bool, SwapchainFrameError> {
+        self.present(&[waiting_for_semaphore.as_raw()], image_index)
+            .map_err(SwapchainFrameError::from)
+    }
+
+    pub fn record_image_readback(
+        &self,
+        cmdbuf: &CommandBuffer,
+        image_idx: u32,
+        readback_buffer: &Buffer,
+        width: u32,
+        height: u32,
+    ) {
+        let device = self.vulkan_context.device();
+        let swapchain_image = self.get_image(image_idx);
+
+        record_image_transition_barrier(
+            device.as_raw(),
+            cmdbuf.as_raw(),
+            vk::ImageLayout::PRESENT_SRC_KHR,
+            vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+            swapchain_image,
+            vk::ImageAspectFlags::COLOR,
+            0,
+            1,
+        );
+
+        let region = vk::BufferImageCopy::default()
+            .buffer_offset(0)
+            .buffer_row_length(0)
+            .buffer_image_height(0)
+            .image_subresource(vk::ImageSubresourceLayers {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                mip_level: 0,
+                base_array_layer: 0,
+                layer_count: 1,
+            })
+            .image_offset(vk::Offset3D { x: 0, y: 0, z: 0 })
+            .image_extent(vk::Extent3D {
+                width,
+                height,
+                depth: 1,
+            });
+
+        unsafe {
+            device.as_raw().cmd_copy_image_to_buffer(
+                cmdbuf.as_raw(),
+                swapchain_image,
+                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                readback_buffer.as_raw(),
+                &[region],
+            );
+        }
+
+        record_image_transition_barrier(
+            device.as_raw(),
+            cmdbuf.as_raw(),
+            vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+            vk::ImageLayout::PRESENT_SRC_KHR,
+            swapchain_image,
+            vk::ImageAspectFlags::COLOR,
+            0,
+            1,
+        );
     }
 
     pub fn get_render_pass(&self) -> &RenderPass {
@@ -296,7 +453,7 @@ fn choose_surface_format(
 
 fn choose_present_mode(
     context: &VulkanContext,
-    requested_present_mode: Option<PresentModeKHR>,
+    requested_present_mode: Option<PresentMode>,
 ) -> PresentModeKHR {
     let present_modes = unsafe {
         context
@@ -324,20 +481,21 @@ fn choose_present_mode(
     log::info!("Available present modes: {:?}", supported_present_modes);
 
     let chosen_present_mode = if let Some(requested_present_mode) = requested_present_mode {
+        let requested_present_mode_raw = requested_present_mode.as_raw();
         log::info!(
             "Preferred swapchain present mode: {:?}",
-            requested_present_mode
+            requested_present_mode_raw
         );
 
-        if !supported_present_modes.contains(&requested_present_mode) {
+        if !supported_present_modes.contains(&requested_present_mode_raw) {
             panic!(
                 "Preferred swapchain present mode {:?} is not supported by this surface. Available present modes: {:?}",
-                requested_present_mode,
+                requested_present_mode_raw,
                 supported_present_modes
             );
         }
 
-        requested_present_mode
+        requested_present_mode_raw
     } else {
         log::info!("Preferred swapchain present mode: AUTO (MAILBOX -> FIFO -> first supported)");
 

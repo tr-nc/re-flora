@@ -17,6 +17,10 @@ impl BufferUsage {
         Self { usage }
     }
 
+    pub fn transfer_dst() -> Self {
+        Self::from_flags(vk::BufferUsageFlags::TRANSFER_DST)
+    }
+
     pub fn union_with(&mut self, other: &Self) {
         self.usage |= other.usage;
     }

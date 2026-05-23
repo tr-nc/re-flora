@@ -39,6 +39,18 @@ impl Fence {
         self.0.fence
     }
 
+    pub fn wait(&self) -> ash::prelude::VkResult<()> {
+        unsafe { self.0.device.wait_for_fences(&[self.0.fence], true, u64::MAX) }
+    }
+
+    pub fn reset(&self) -> ash::prelude::VkResult<()> {
+        unsafe { self.0.device.reset_fences(&[self.0.fence]) }
+    }
+
+    pub fn is_signaled(&self) -> ash::prelude::VkResult<bool> {
+        unsafe { self.0.device.get_fence_status(self.0.fence) }
+    }
+
     fn create_fence(device: &Device, is_signaled: bool) -> vk::Fence {
         let fence_create_flags = if is_signaled {
             vk::FenceCreateFlags::SIGNALED

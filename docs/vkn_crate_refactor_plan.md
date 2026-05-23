@@ -18,7 +18,7 @@
 - [x] Extract `src/vkn` into `crates/re-flora-vkn` and keep the app compiling.
 - [x] Remove direct app dependency on `gpu-allocator`.
 - [x] Remove direct app dependency on `ash`.
-- [ ] Wrap app-level raw swapchain/frame synchronization calls.
+- [x] Wrap app-level raw swapchain/frame synchronization calls.
 - [ ] Replace app/rendering usages of raw `vk::*` enums/flags with vkn semantic types or helpers.
 - [ ] Audit direct `ash` imports outside `crates/re-flora-vkn` and either wrap or document deliberate low-level rendering-facing API.
 - [ ] Validate with `cargo fmt --check`, `cargo check`, `cargo test`, and `cargo run --release -- --hidden --auto-exit 0.5`.
@@ -37,3 +37,7 @@
 ### Step 3: ash dependency removal
 
 The game crate no longer depends on `ash` directly. Low-level Vulkan symbols that still appear outside vkn come through the vkn crate export and are the next cleanup target for semantic wrappers.
+
+### Step 4: app frame abstraction
+
+The top-level app no longer handles raw swapchain result codes, raw submit infos, raw fences, or raw screenshot image transitions. Vkn now owns present-mode conversion, frame acquire/present error mapping, render command submission, swapchain readback recording, and color readback conversion.

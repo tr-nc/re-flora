@@ -49,10 +49,9 @@ use crate::{
 use anyhow::{Context, Result};
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
-use re_flora_vkn::vk;
 use re_flora_vkn::{
-    record_image_transition_barrier, Allocator, Buffer, BufferUsage, CommandBuffer, Extent2D,
-    Fence, MemoryLocation, Semaphore, SwapchainDesc,
+    Allocator, Buffer, BufferUsage, ColorReadbackFormat, CommandBuffer, Extent2D, Fence,
+    MemoryLocation, Semaphore, SwapchainDesc, SwapchainFrameError,
 };
 use re_flora_water::PondWaterConfig;
 use std::collections::HashMap;
@@ -90,7 +89,7 @@ struct ScreenshotReadback {
     path: String,
     width: u32,
     height: u32,
-    format: vk::Format,
+    format: ColorReadbackFormat,
     buffer: Buffer,
 }
 
@@ -182,7 +181,7 @@ pub struct App {
     frames_in_flight: Vec<FrameSync>,
     current_frame: usize,
     image_render_finished_semaphores: Vec<Semaphore>,
-    images_in_flight: Vec<vk::Fence>,
+    images_in_flight: Vec<Option<Fence>>,
     time_info: TimeInfo,
     render_flags: RenderFlags,
     accumulated_mouse_delta: Vec2,
@@ -1126,7 +1125,7 @@ impl App {
         let buffer = Buffer::new_sized(
             self.vulkan_ctx.device().clone(),
             allocator,
-            BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
+            BufferUsage::transfer_dst(),
             MemoryLocation::GpuToCpu,
             byte_count,
         );
@@ -1135,7 +1134,10 @@ impl App {
             path,
             width,
             height,
-            format: self.swapchain.image_format(),
+            format: self
+                .swapchain
+                .color_readback_format()
+                .context("unsupported swapchain screenshot format")?,
             buffer,
         })
     }
@@ -1146,107 +1148,37 @@ impl App {
         image_idx: u32,
         readback: &ScreenshotReadback,
     ) {
-        let device = self.vulkan_ctx.device();
-        let swapchain_image = self.swapchain.get_image(image_idx);
-
-        record_image_transition_barrier(
-            device.as_raw(),
-            cmdbuf.as_raw(),
-            vk::ImageLayout::PRESENT_SRC_KHR,
-            vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-            swapchain_image,
-            vk::ImageAspectFlags::COLOR,
-            0,
-            1,
-        );
-
-        let region = vk::BufferImageCopy::default()
-            .buffer_offset(0)
-            .buffer_row_length(0)
-            .buffer_image_height(0)
-            .image_subresource(vk::ImageSubresourceLayers {
-                aspect_mask: vk::ImageAspectFlags::COLOR,
-                mip_level: 0,
-                base_array_layer: 0,
-                layer_count: 1,
-            })
-            .image_offset(vk::Offset3D { x: 0, y: 0, z: 0 })
-            .image_extent(vk::Extent3D {
-                width: readback.width,
-                height: readback.height,
-                depth: 1,
-            });
-
-        unsafe {
-            device.as_raw().cmd_copy_image_to_buffer(
-                cmdbuf.as_raw(),
-                swapchain_image,
-                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-                readback.buffer.as_raw(),
-                &[region],
-            );
-        }
-
-        record_image_transition_barrier(
-            device.as_raw(),
-            cmdbuf.as_raw(),
-            vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-            vk::ImageLayout::PRESENT_SRC_KHR,
-            swapchain_image,
-            vk::ImageAspectFlags::COLOR,
-            0,
-            1,
+        self.swapchain.record_image_readback(
+            cmdbuf,
+            image_idx,
+            &readback.buffer,
+            readback.width,
+            readback.height,
         );
     }
 
     fn write_screenshot_readback(readback: ScreenshotReadback) {
         match readback.buffer.read_back() {
-            Ok(raw_data) => match Self::swapchain_readback_to_rgba(readback.format, raw_data) {
-                Ok(rgba_data) => {
-                    match image::RgbaImage::from_raw(readback.width, readback.height, rgba_data) {
-                        Some(image_data) => match image_data.save(&readback.path) {
-                            Ok(()) => log::info!(
-                                "[SCREENSHOT] Saved {}x{} to {}",
-                                readback.width,
-                                readback.height,
-                                readback.path
-                            ),
-                            Err(err) => log::error!(
-                                "[SCREENSHOT] Failed to write {}: {}",
-                                readback.path,
-                                err
-                            ),
-                        },
-                        None => log::error!(
-                            "[SCREENSHOT] Invalid image dimensions or pixel buffer size"
+            Ok(raw_data) => {
+                let rgba_data = readback.format.convert_to_rgba(raw_data);
+                match image::RgbaImage::from_raw(readback.width, readback.height, rgba_data) {
+                    Some(image_data) => match image_data.save(&readback.path) {
+                        Ok(()) => log::info!(
+                            "[SCREENSHOT] Saved {}x{} to {}",
+                            readback.width,
+                            readback.height,
+                            readback.path
                         ),
+                        Err(err) => {
+                            log::error!("[SCREENSHOT] Failed to write {}: {}", readback.path, err)
+                        }
+                    },
+                    None => {
+                        log::error!("[SCREENSHOT] Invalid image dimensions or pixel buffer size")
                     }
                 }
-                Err(err) => log::error!("[SCREENSHOT] Pixel conversion failed: {}", err),
-            },
+            }
             Err(err) => log::error!("[SCREENSHOT] GPU readback failed: {}", err),
-        }
-    }
-
-    fn swapchain_readback_to_rgba(format: vk::Format, mut data: Vec<u8>) -> Result<Vec<u8>> {
-        match format {
-            vk::Format::B8G8R8A8_SRGB | vk::Format::B8G8R8A8_UNORM => {
-                for pixel in data.chunks_exact_mut(4) {
-                    pixel.swap(0, 2);
-                    pixel[3] = 255;
-                }
-                Ok(data)
-            }
-            vk::Format::R8G8B8A8_SRGB | vk::Format::R8G8B8A8_UNORM => {
-                for pixel in data.chunks_exact_mut(4) {
-                    pixel[3] = 255;
-                }
-                Ok(data)
-            }
-            other => Err(anyhow::anyhow!(
-                "unsupported swapchain screenshot format: {:?}",
-                other
-            )),
         }
     }
 }
@@ -1520,7 +1452,7 @@ impl App {
             vulkan_ctx.clone(),
             window_state.window_extent(),
             SwapchainDesc {
-                present_mode: options.present_mode.map(|mode| mode.as_vk()),
+                present_mode: options.present_mode.map(|mode| mode.as_present_mode()),
                 image_count_override: options.swapchain_images,
                 ..Default::default()
             },
@@ -2057,13 +1989,11 @@ impl App {
         let sync = &self.frames_in_flight[self.current_frame];
         let cmdbuf = &sync.command_buffer;
 
-        self.vulkan_ctx
-            .wait_for_fences(&[sync.fence.as_raw()])
-            .unwrap();
+        sync.fence.wait().unwrap();
 
-        let image_idx = match self.swapchain.acquire_next(&sync.image_available) {
-            Ok((image_index, _)) => image_index,
-            Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
+        let image_idx = match self.swapchain.acquire_next_image(&sync.image_available) {
+            Ok(image_index) => image_index,
+            Err(SwapchainFrameError::OutOfDate) => {
                 self.is_resize_pending = true;
                 return;
             }
@@ -2071,20 +2001,12 @@ impl App {
         };
 
         let image_index_usize = image_idx as usize;
-        let image_in_flight_fence = self.images_in_flight[image_index_usize];
-        if image_in_flight_fence != vk::Fence::null() {
-            self.vulkan_ctx
-                .wait_for_fences(&[image_in_flight_fence])
-                .unwrap();
+        if let Some(image_in_flight_fence) = &self.images_in_flight[image_index_usize] {
+            image_in_flight_fence.wait().unwrap();
         }
-        self.images_in_flight[image_index_usize] = sync.fence.as_raw();
+        self.images_in_flight[image_index_usize] = Some(sync.fence.clone());
 
-        unsafe {
-            device
-                .as_raw()
-                .reset_fences(&[sync.fence.as_raw()])
-                .expect("Failed to reset fences")
-        };
+        sync.fence.reset().expect("Failed to reset fences");
 
         cmdbuf.begin(false);
 
@@ -2099,41 +2021,21 @@ impl App {
         self.egui_renderer
             .record_command_buffer(device, cmdbuf, render_area);
 
-        unsafe {
-            device.cmd_end_render_pass(cmdbuf.as_raw());
-        };
+        cmdbuf.end_render_pass();
 
         cmdbuf.end();
 
-        let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
-        let wait_semaphores = [sync.image_available.as_raw()];
         let render_finished = &self.image_render_finished_semaphores[image_index_usize];
-        let signal_semaphores = [render_finished.as_raw()];
-        let command_buffers = [cmdbuf.as_raw()];
-        let submit_info = [vk::SubmitInfo::default()
-            .wait_semaphores(&wait_semaphores)
-            .wait_dst_stage_mask(&wait_stages)
-            .command_buffers(&command_buffers)
-            .signal_semaphores(&signal_semaphores)];
+        self.vulkan_ctx
+            .submit_render_commands(cmdbuf, &sync.image_available, render_finished, &sync.fence)
+            .expect("Failed to submit work to gpu.");
 
-        unsafe {
-            self.vulkan_ctx
-                .device()
-                .as_raw()
-                .queue_submit(
-                    self.vulkan_ctx.get_general_queue().as_raw(),
-                    &submit_info,
-                    sync.fence.as_raw(),
-                )
-                .expect("Failed to submit work to gpu.")
-        };
-
-        let present_result = self.swapchain.present(&signal_semaphores, image_idx);
+        let present_result = self.swapchain.present_after(render_finished, image_idx);
         match present_result {
             Ok(is_suboptimal) if is_suboptimal => {
                 self.is_resize_pending = true;
             }
-            Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
+            Err(SwapchainFrameError::OutOfDate) => {
                 self.is_resize_pending = true;
             }
             Err(error) => panic!("Failed to present queue. Cause: {}", error),
@@ -3087,13 +2989,11 @@ impl App {
                 let sync = &self.frames_in_flight[self.current_frame];
                 let cmdbuf = &sync.command_buffer;
 
-                self.vulkan_ctx
-                    .wait_for_fences(&[sync.fence.as_raw()])
-                    .unwrap();
+                sync.fence.wait().unwrap();
 
-                let image_idx = match self.swapchain.acquire_next(&sync.image_available) {
-                    Ok((image_index, _)) => image_index,
-                    Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
+                let image_idx = match self.swapchain.acquire_next_image(&sync.image_available) {
+                    Ok(image_index) => image_index,
+                    Err(SwapchainFrameError::OutOfDate) => {
                         self.is_resize_pending = true;
                         return;
                     }
@@ -3101,20 +3001,12 @@ impl App {
                 };
 
                 let image_index_usize = image_idx as usize;
-                let image_in_flight_fence = self.images_in_flight[image_index_usize];
-                if image_in_flight_fence != vk::Fence::null() {
-                    self.vulkan_ctx
-                        .wait_for_fences(&[image_in_flight_fence])
-                        .unwrap();
+                if let Some(image_in_flight_fence) = &self.images_in_flight[image_index_usize] {
+                    image_in_flight_fence.wait().unwrap();
                 }
-                self.images_in_flight[image_index_usize] = sync.fence.as_raw();
+                self.images_in_flight[image_index_usize] = Some(sync.fence.clone());
 
-                unsafe {
-                    device
-                        .as_raw()
-                        .reset_fences(&[sync.fence.as_raw()])
-                        .expect("Failed to reset fences")
-                };
+                sync.fence.reset().expect("Failed to reset fences");
 
                 cmdbuf.begin(false);
 
@@ -3349,9 +3241,7 @@ impl App {
                 self.egui_renderer
                     .record_command_buffer(device, cmdbuf, render_area);
 
-                unsafe {
-                    device.cmd_end_render_pass(cmdbuf.as_raw());
-                };
+                cmdbuf.end_render_pass();
 
                 if let Some(readback) = &screenshot_readback {
                     self.record_screenshot_readback(cmdbuf, image_idx, readback);
@@ -3359,37 +3249,24 @@ impl App {
 
                 cmdbuf.end();
 
-                let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
-                let wait_semaphores = [sync.image_available.as_raw()];
                 let render_finished = &self.image_render_finished_semaphores[image_index_usize];
-                let signal_semaphores = [render_finished.as_raw()];
-                let command_buffers = [cmdbuf.as_raw()];
-                let submit_info = [vk::SubmitInfo::default()
-                    .wait_semaphores(&wait_semaphores)
-                    .wait_dst_stage_mask(&wait_stages)
-                    .command_buffers(&command_buffers)
-                    .signal_semaphores(&signal_semaphores)];
+                self.vulkan_ctx
+                    .submit_render_commands(
+                        cmdbuf,
+                        &sync.image_available,
+                        render_finished,
+                        &sync.fence,
+                    )
+                    .expect("Failed to submit work to gpu.");
 
-                unsafe {
-                    self.vulkan_ctx
-                        .device()
-                        .as_raw()
-                        .queue_submit(
-                            self.vulkan_ctx.get_general_queue().as_raw(),
-                            &submit_info,
-                            sync.fence.as_raw(),
-                        )
-                        .expect("Failed to submit work to gpu.")
-                };
-
-                let present_result = self.swapchain.present(&signal_semaphores, image_idx);
+                let present_result = self.swapchain.present_after(render_finished, image_idx);
                 let gpu_ms = gpu_record_start.elapsed().as_secs_f32() * 1000.0;
 
                 match present_result {
                     Ok(is_suboptimal) if is_suboptimal => {
                         self.is_resize_pending = true;
                     }
-                    Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
+                    Err(SwapchainFrameError::OutOfDate) => {
                         self.is_resize_pending = true;
                     }
                     Err(error) => panic!("Failed to present queue. Cause: {}", error),
@@ -3397,9 +3274,7 @@ impl App {
                 }
 
                 if let Some(readback) = screenshot_readback {
-                    self.vulkan_ctx
-                        .wait_for_fences(&[sync.fence.as_raw()])
-                        .unwrap();
+                    sync.fence.wait().unwrap();
                     Self::write_screenshot_readback(readback);
                 }
 

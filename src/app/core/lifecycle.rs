@@ -1,6 +1,5 @@
 use super::App;
-use re_flora_vkn::vk;
-use re_flora_vkn::{Device, Semaphore};
+use re_flora_vkn::{Device, Fence, Semaphore};
 use winit::event_loop::ActiveEventLoop;
 
 impl App {
@@ -47,9 +46,9 @@ impl App {
     pub(super) fn create_swapchain_image_syncs(
         device: &Device,
         image_count: usize,
-    ) -> (Vec<Semaphore>, Vec<vk::Fence>) {
+    ) -> (Vec<Semaphore>, Vec<Option<Fence>>) {
         let semaphores = (0..image_count).map(|_| Semaphore::new(device)).collect();
-        let images_in_flight = vec![vk::Fence::null(); image_count];
+        let images_in_flight = vec![None; image_count];
         (semaphores, images_in_flight)
     }
 }

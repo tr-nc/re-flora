@@ -24,7 +24,7 @@ use re_flora_vkn as vkn;
 
 use app::AppController;
 use env_logger::{Env, Target};
-use re_flora_vkn::vk;
+use re_flora_vkn::PresentMode;
 use std::{
     fs::{self, File, OpenOptions},
     io::{self, Write},
@@ -58,12 +58,12 @@ impl PresentModePreference {
         }
     }
 
-    pub fn as_vk(self) -> vk::PresentModeKHR {
+    pub fn as_present_mode(self) -> PresentMode {
         match self {
-            Self::Mailbox => vk::PresentModeKHR::MAILBOX,
-            Self::Immediate => vk::PresentModeKHR::IMMEDIATE,
-            Self::Fifo => vk::PresentModeKHR::FIFO,
-            Self::FifoRelaxed => vk::PresentModeKHR::FIFO_RELAXED,
+            Self::Mailbox => PresentMode::Mailbox,
+            Self::Immediate => PresentMode::Immediate,
+            Self::Fifo => PresentMode::Fifo,
+            Self::FifoRelaxed => PresentMode::FifoRelaxed,
         }
     }
 }

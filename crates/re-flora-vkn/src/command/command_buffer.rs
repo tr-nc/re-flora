@@ -68,6 +68,10 @@ impl CommandBuffer {
         };
     }
 
+    pub fn end_render_pass(&self) {
+        self.0.device.cmd_end_render_pass_raw(self.0.command_buffer);
+    }
+
     pub fn submit(&self, queue: &Queue, fence: Option<&Fence>) {
         let command_buffers = [self.as_raw()];
         let submit_info = vk::SubmitInfo::default().command_buffers(&command_buffers);
