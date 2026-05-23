@@ -1343,6 +1343,7 @@ impl App {
                     },
                     None,
                     Some(65_536),
+                    None,
                 )?;
                 let removed: u32 = readback.stats.removed_counts.iter().sum();
                 log::info!(

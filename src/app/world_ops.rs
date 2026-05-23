@@ -145,7 +145,7 @@ pub(crate) fn apply_voxel_edit(plain_builder: &mut PlainBuilder, edit: VoxelEdit
             voxel_type,
         } => plain_builder
             .chunk_modify_surface_spheres_with_voxel_type(
-                &bvh_nodes, &spheres, voxel_type, None, None,
+                &bvh_nodes, &spheres, voxel_type, None, None, None,
             )
             .map(|_| ()),
     }

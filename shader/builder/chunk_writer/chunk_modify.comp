@@ -30,6 +30,8 @@ layout(set = 0, binding = 0) readonly uniform U_ChunkModifyInfo {
     uint primitive_kind;
     uint surface_only;
     uint max_write_count;
+    uvec4 max_removed_counts_0_3;
+    uvec4 max_removed_counts_4_7;
 }
 chunk_modify_info;
 
@@ -61,10 +63,12 @@ solid_workgroup_flags;
 
 vec3 center_position_of_voxel(ivec3 voxel_pos) { return vec3(voxel_pos) + vec3(0.5); }
 
-const uint PRIMITIVE_KIND_ROUND_CONE = 0u;
-const uint PRIMITIVE_KIND_CUBOID     = 1u;
-const uint PRIMITIVE_KIND_SPHERE     = 2u;
-const uint VOXEL_TYPE_ANY            = 0xffffffffu;
+const uint PRIMITIVE_KIND_ROUND_CONE       = 0u;
+const uint PRIMITIVE_KIND_CUBOID           = 1u;
+const uint PRIMITIVE_KIND_SPHERE           = 2u;
+const uint VOXEL_TYPE_ANY                  = 0xffffffffu;
+const uint WRITE_COUNT_UNLIMITED           = 0xffffffffu;
+const uint EDIT_STATS_VOXEL_TYPE_COUNT     = 8u;
 const uint EDIT_REMOVAL_CANDIDATE_CAPACITY = 65536u;
 
 bool is_solid(uint voxel_type) { return voxel_type != VOXEL_TYPE_EMPTY; }
@@ -79,6 +83,54 @@ uint load_voxel_type(ivec3 p) {
         return VOXEL_TYPE_EMPTY;
     }
     return imageLoad(chunk_atlas, p).r;
+}
+
+uint max_removed_count_for_type(uint voxel_type) {
+    if (voxel_type < 4u) {
+        return chunk_modify_info.max_removed_counts_0_3[voxel_type];
+    }
+    if (voxel_type < EDIT_STATS_VOXEL_TYPE_COUNT) {
+        return chunk_modify_info.max_removed_counts_4_7[voxel_type - 4u];
+    }
+    return 0u;
+}
+
+bool reserve_removed_voxel(uint voxel_type) {
+    if (voxel_type >= EDIT_STATS_VOXEL_TYPE_COUNT) {
+        return false;
+    }
+
+    uint max_removed_count = max_removed_count_for_type(voxel_type);
+    if (max_removed_count == 0u) {
+        return false;
+    }
+
+    uint removed_idx = atomicAdd(edit_stats.removed_counts[voxel_type], 1u);
+    if (max_removed_count != WRITE_COUNT_UNLIMITED && removed_idx >= max_removed_count) {
+        atomicAdd(edit_stats.removed_counts[voxel_type], uint(-1));
+        return false;
+    }
+    return true;
+}
+
+void release_removed_voxel(uint voxel_type) {
+    if (voxel_type < EDIT_STATS_VOXEL_TYPE_COUNT) {
+        atomicAdd(edit_stats.removed_counts[voxel_type], uint(-1));
+    }
+}
+
+bool reserve_added_voxel(uint voxel_type, out uint added_idx) {
+    if (voxel_type >= EDIT_STATS_VOXEL_TYPE_COUNT) {
+        return false;
+    }
+
+    added_idx = atomicAdd(edit_stats.added_counts[voxel_type], 1u);
+    if (chunk_modify_info.max_write_count != 0u &&
+        added_idx >= chunk_modify_info.max_write_count) {
+        atomicAdd(edit_stats.added_counts[voxel_type], uint(-1));
+        return false;
+    }
+    return true;
 }
 
 bool is_surface_voxel(ivec3 p) {
@@ -183,21 +235,16 @@ void main() {
                     return;
                 }
 
-                uint added_idx;
-                if (chunk_modify_info.max_write_count != 0u) {
-                    added_idx =
-                        atomicAdd(edit_stats.added_counts[chunk_modify_info.fill_voxel_type], 1u);
-                    if (added_idx >= chunk_modify_info.max_write_count) {
-                        atomicAdd(edit_stats.added_counts[chunk_modify_info.fill_voxel_type],
-                                  uint(-1));
-                        return;
-                    }
-                } else {
-                    added_idx =
-                        atomicAdd(edit_stats.added_counts[chunk_modify_info.fill_voxel_type], 1u);
+                if (!reserve_removed_voxel(old_voxel_type)) {
+                    return;
                 }
 
-                atomicAdd(edit_stats.removed_counts[old_voxel_type], 1u);
+                uint added_idx;
+                if (!reserve_added_voxel(chunk_modify_info.fill_voxel_type, added_idx)) {
+                    release_removed_voxel(old_voxel_type);
+                    return;
+                }
+
                 if (chunk_modify_info.fill_voxel_type == VOXEL_TYPE_EMPTY) {
                     if (added_idx < EDIT_REMOVAL_CANDIDATE_CAPACITY) {
                         edit_removal_candidates.positions[added_idx] =

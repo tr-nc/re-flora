@@ -41,7 +41,7 @@ pub const VOXEL_TYPE_SAND: u32 = 3;
 const PRIMITIVE_KIND_ROUND_CONE: u32 = 0;
 const PRIMITIVE_KIND_CUBOID: u32 = 1;
 const PRIMITIVE_KIND_SPHERE: u32 = 2;
-const EDIT_STATS_VOXEL_TYPE_COUNT: usize = 8;
+pub const EDIT_STATS_VOXEL_TYPE_COUNT: usize = 8;
 pub(crate) const EDIT_REMOVAL_CANDIDATE_CAPACITY: u64 = 65_536;
 pub(crate) const CHUNK_SOLID_SAMPLE_CAPACITY: u64 = 65_536;
 const EDIT_REMOVAL_SAMPLE_COUNT: usize = 50;
@@ -707,6 +707,7 @@ impl PlainBuilder {
         fill_voxel_type: u32,
         target_voxel_type: Option<u32>,
         max_write_count: Option<u32>,
+        max_removed_counts: Option<[u32; EDIT_STATS_VOXEL_TYPE_COUNT]>,
     ) -> Result<ChunkModifyReadback> {
         let total_start = Instant::now();
         let atlas_dim = chunk_atlas_dim(&self.resources);
@@ -725,6 +726,7 @@ impl PlainBuilder {
             PRIMITIVE_KIND_SPHERE,
             true,
             max_write_count,
+            max_removed_counts,
         )?;
         update_spheres(&self.resources, spheres)?;
         update_trunk_bvh_nodes(&self.resources, bvh_nodes)?;
@@ -897,6 +899,7 @@ impl PlainBuilder {
             PRIMITIVE_KIND_ROUND_CONE,
             false,
             None,
+            None,
         )?;
         update_round_cones(&self.resources, round_cones)?;
         update_trunk_bvh_nodes(&self.resources, bvh_nodes)?;
@@ -945,6 +948,7 @@ impl PlainBuilder {
             None,
             PRIMITIVE_KIND_CUBOID,
             false,
+            None,
             None,
         )?;
         update_cuboids(&self.resources, cuboids)?;
@@ -1070,7 +1074,9 @@ fn update_chunk_modify_info(
     primitive_kind: u32,
     surface_only: bool,
     max_write_count: Option<u32>,
+    max_removed_counts: Option<[u32; EDIT_STATS_VOXEL_TYPE_COUNT]>,
 ) -> Result<()> {
+    let max_removed_counts = max_removed_counts.unwrap_or([u32::MAX; EDIT_STATS_VOXEL_TYPE_COUNT]);
     resources.chunk_modify_info.fill_uniform(&ChunkModifyInfo {
         offset: offset.to_array(),
         dim: dim.to_array(),
@@ -1079,6 +1085,8 @@ fn update_chunk_modify_info(
         primitive_kind,
         surface_only: if surface_only { 1 } else { 0 },
         max_write_count: max_write_count.unwrap_or(0),
+        max_removed_counts_0_3: max_removed_counts[..4].try_into().unwrap(),
+        max_removed_counts_4_7: max_removed_counts[4..].try_into().unwrap(),
         ..ChunkModifyInfo::zeroed()
     })
 }

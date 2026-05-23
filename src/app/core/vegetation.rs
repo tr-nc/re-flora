@@ -887,6 +887,7 @@ impl App {
         edit: TerrainRemovalEdit,
         target_voxel_type: Option<u32>,
         max_write_count: Option<u32>,
+        max_removed_counts: Option<[u32; crate::builder::EDIT_STATS_VOXEL_TYPE_COUNT]>,
     ) -> Result<ChunkModifyReadback> {
         let total_start = Instant::now();
         if let Some(compiled) = TerrainSurfaceRemovalService::compile(edit) {
@@ -904,6 +905,7 @@ impl App {
                         voxel_type,
                         target_voxel_type,
                         max_write_count,
+                        max_removed_counts,
                     )?,
                 _ => unreachable!("terrain surface removal compiled into unexpected edit type"),
             };
@@ -955,6 +957,7 @@ impl App {
                         voxel_type,
                         None,
                         Some(max_write_count),
+                        None,
                     )?,
                 _ => unreachable!("terrain surface placement compiled into unexpected edit type"),
             };

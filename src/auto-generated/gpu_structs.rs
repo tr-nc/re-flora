@@ -297,6 +297,8 @@ pub struct ChunkModifyInfo {
     pub primitive_kind: u32,
     pub surface_only: u32,
     pub max_write_count: u32,
+    pub max_removed_counts_0_3: [u32; 4],
+    pub max_removed_counts_4_7: [u32; 4],
 }
 
 /// Auto-generated from `U_ChunkSolidSampleInfo` (GLSL source of truth).
