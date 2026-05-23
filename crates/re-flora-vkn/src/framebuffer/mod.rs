@@ -1,4 +1,4 @@
-use crate::{context::VulkanContext, Extent2D, RenderPass};
+use crate::{context::VulkanContext, Extent2D, RenderPass, Texture};
 use anyhow::Result;
 use ash::vk;
 
@@ -34,6 +34,19 @@ impl Framebuffer {
                 extent,
             })
         }
+    }
+
+    pub fn from_textures(
+        vulkan_ctx: VulkanContext,
+        render_pass: &RenderPass,
+        textures: &[&Texture],
+        extent: Extent2D,
+    ) -> Result<Self> {
+        let attachments = textures
+            .iter()
+            .map(|texture| texture.get_image_view().as_raw())
+            .collect::<Vec<_>>();
+        Self::new(vulkan_ctx, render_pass, &attachments, extent)
     }
 
     pub fn as_raw(&self) -> vk::Framebuffer {

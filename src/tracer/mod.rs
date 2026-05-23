@@ -304,9 +304,6 @@ impl Tracer {
         target_texture: &Texture,
         depth_texture: &Texture,
     ) -> Framebuffer {
-        let target_view = target_texture.get_image_view().as_raw();
-        let depth_image_view = depth_texture.get_image_view().as_raw();
-
         let target_image_extent = target_texture
             .get_image()
             .get_desc()
@@ -314,10 +311,10 @@ impl Tracer {
             .as_extent_2d()
             .unwrap();
 
-        Framebuffer::new(
+        Framebuffer::from_textures(
             vulkan_ctx.clone(),
             render_pass,
-            &[target_view, depth_image_view],
+            &[target_texture, depth_texture],
             target_image_extent,
         )
         .unwrap()
@@ -329,17 +326,16 @@ impl Tracer {
         render_pass: &RenderPass,
         shadow_map_tex: &Texture,
     ) -> Framebuffer {
-        let shadow_image_view = shadow_map_tex.get_image_view().as_raw();
         let shadow_image_extent = shadow_map_tex
             .get_image()
             .get_desc()
             .extent
             .as_extent_2d()
             .unwrap();
-        Framebuffer::new(
+        Framebuffer::from_textures(
             vulkan_ctx.clone(),
             render_pass,
-            &[shadow_image_view],
+            &[shadow_map_tex],
             shadow_image_extent,
         )
         .unwrap()
@@ -1210,14 +1206,7 @@ impl Tracer {
                     pipeline.record_bind(cmdbuf);
                     pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
 
-                    unsafe {
-                        self.vulkan_ctx.device().cmd_bind_index_buffer(
-                            cmdbuf.as_raw(),
-                            mesh.indices.as_raw(),
-                            0,
-                            vk::IndexType::UINT32,
-                        );
-                    }
+                    cmdbuf.bind_index_buffer_u32(&mesh.indices);
 
                     let flora_instances = &chunks_by_lod[&lod_state];
                     for instances in flora_instances.iter() {
@@ -1233,14 +1222,7 @@ impl Tracer {
                             *tip_color,
                         );
 
-                        unsafe {
-                            self.vulkan_ctx.device().cmd_bind_vertex_buffers(
-                                cmdbuf.as_raw(),
-                                0,
-                                &[mesh.vertices.as_raw()],
-                                &[0],
-                            );
-                        }
+                        cmdbuf.bind_vertex_buffers(0, &[&mesh.vertices]);
                         pipeline.record_indexed_with_manual_buffer(
                             cmdbuf,
                             1,
@@ -1292,14 +1274,7 @@ impl Tracer {
                 pipeline.record_bind(cmdbuf);
                 pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
 
-                unsafe {
-                    self.vulkan_ctx.device().cmd_bind_index_buffer(
-                        cmdbuf.as_raw(),
-                        indices_buf.as_raw(),
-                        0,
-                        vk::IndexType::UINT32,
-                    );
-                }
+                cmdbuf.bind_index_buffer_u32(indices_buf);
 
                 for tree_instance in leaves_instances.iter() {
                     if tree_instance.resources.instances_len == 0 {
@@ -1312,14 +1287,7 @@ impl Tracer {
                         leaf_bottom_color,
                         leaf_tip_color,
                     );
-                    unsafe {
-                        self.vulkan_ctx.device().cmd_bind_vertex_buffers(
-                            cmdbuf.as_raw(),
-                            0,
-                            &[vertices_buf.as_raw()],
-                            &[0],
-                        );
-                    }
+                    cmdbuf.bind_vertex_buffers(0, &[vertices_buf]);
                     pipeline.record_indexed_with_manual_buffer(
                         cmdbuf,
                         1,
@@ -1347,24 +1315,14 @@ impl Tracer {
                 particle_ppl.record_bind(cmdbuf);
                 particle_ppl.record_viewport_scissor(cmdbuf, viewport, scissor);
 
-                unsafe {
-                    self.vulkan_ctx.device().cmd_bind_index_buffer(
-                        cmdbuf.as_raw(),
-                        particle_resources.indices.as_raw(),
-                        0,
-                        vk::IndexType::UINT32,
-                    );
-
-                    self.vulkan_ctx.device().cmd_bind_vertex_buffers(
-                        cmdbuf.as_raw(),
-                        0,
-                        &[
-                            particle_resources.vertices.as_raw(),
-                            particle_resources.instance_buffer.as_raw(),
-                        ],
-                        &[0, 0],
-                    );
-                }
+                cmdbuf.bind_index_buffer_u32(&particle_resources.indices);
+                cmdbuf.bind_vertex_buffers(
+                    0,
+                    &[
+                        &particle_resources.vertices,
+                        &particle_resources.instance_buffer,
+                    ],
+                );
 
                 particle_ppl.record_indexed(
                     cmdbuf,
@@ -1434,14 +1392,7 @@ impl Tracer {
             .leaves_shadow_lod_ppl
             .record_viewport_scissor(cmdbuf, viewport, scissor);
 
-        unsafe {
-            self.vulkan_ctx.device().cmd_bind_index_buffer(
-                cmdbuf.as_raw(),
-                self.resources.leaves_resources_lod.indices.as_raw(),
-                0,
-                vk::IndexType::UINT32,
-            );
-        }
+        cmdbuf.bind_index_buffer_u32(&self.resources.leaves_resources_lod.indices);
 
         // loop through all tree leaves instances
         for tree_instance in surface_resources.instances.leaves_instances.values() {
@@ -1456,14 +1407,7 @@ impl Tracer {
                 tip_color,
             );
 
-            unsafe {
-                self.vulkan_ctx.device().cmd_bind_vertex_buffers(
-                    cmdbuf.as_raw(),
-                    0,
-                    &[self.resources.leaves_resources_lod.vertices.as_raw()],
-                    &[0],
-                );
-            }
+            cmdbuf.bind_vertex_buffers(0, &[&self.resources.leaves_resources_lod.vertices]);
             // render this instance for shadow map
             self.graphics_pipelines
                 .leaves_shadow_lod_ppl

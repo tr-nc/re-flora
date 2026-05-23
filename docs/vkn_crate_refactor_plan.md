@@ -22,7 +22,7 @@
 - [ ] Replace app/rendering usages of raw `vk::*` enums/flags with vkn semantic types or helpers.
 - [x] Audit direct `ash` imports outside `crates/re-flora-vkn` and remove them.
 - [x] Move query pool, buffer fill, and fence polling/waiting raw calls behind vkn wrappers.
-- [ ] Audit remaining `re_flora_vkn::vk` uses outside the vkn crate and convert high-value cases to semantic helpers.
+- [x] Audit remaining `re_flora_vkn::vk` uses outside the vkn crate and convert high-value raw command/handle cases to semantic helpers.
 - [ ] Validate with `cargo fmt --check`, `cargo check`, `cargo test`, and `cargo run --release -- --hidden --auto-exit 0.5`.
 - [ ] Write final summary in `docs/`.
 
@@ -51,3 +51,7 @@ The transitional `crate::vkn` alias was removed. The derive macro now generates 
 ### Step 6: raw call wrappers
 
 Timestamp query pools, buffer fill commands, and fence wait/poll operations moved behind vkn-owned wrappers. Builder modules no longer create/destroy query pools or issue raw fill/fence calls directly.
+
+### Step 7: render command wrappers
+
+Egui and tracer draw paths no longer call raw command-buffer/device methods or raw image-view handles from the game crate. Command-buffer helpers and framebuffer-from-textures keep the raw Vulkan handles inside vkn. Remaining `vk` references outside vkn are descriptor-style constants passed into vkn-owned descriptor structs (formats, usage flags, barriers, render pass settings), not direct backend calls.

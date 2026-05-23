@@ -1,5 +1,5 @@
 use super::CommandPool;
-use crate::{Device, Fence, Queue};
+use crate::{Buffer, DescriptorSet, Device, Extent2D, Fence, GraphicsPipeline, Queue, Viewport};
 use ash::vk;
 use std::sync::Arc;
 
@@ -70,6 +70,95 @@ impl CommandBuffer {
 
     pub fn end_render_pass(&self) {
         self.0.device.cmd_end_render_pass_raw(self.0.command_buffer);
+    }
+
+    pub fn bind_graphics_pipeline(&self, pipeline: &GraphicsPipeline) {
+        self.0
+            .device
+            .cmd_bind_pipeline_graphics_raw(self.0.command_buffer, pipeline.as_raw());
+    }
+
+    pub fn set_viewport_from_extent(&self, extent: Extent2D) {
+        self.0.device.cmd_set_viewport_raw(
+            self.0.command_buffer,
+            0,
+            &[Viewport::from_extent(extent).as_raw()],
+        );
+    }
+
+    pub fn push_vertex_constants(&self, pipeline: &GraphicsPipeline, constants: &[u8]) {
+        self.0.device.cmd_push_constants_raw(
+            self.0.command_buffer,
+            pipeline.get_layout().as_raw(),
+            vk::ShaderStageFlags::VERTEX,
+            0,
+            constants,
+        );
+    }
+
+    pub fn bind_index_buffer_u32(&self, buffer: &Buffer) {
+        self.0.device.cmd_bind_index_buffer_raw(
+            self.0.command_buffer,
+            buffer.as_raw(),
+            0,
+            vk::IndexType::UINT32,
+        );
+    }
+
+    pub fn bind_vertex_buffers(&self, first_binding: u32, buffers: &[&Buffer]) {
+        let raw_buffers = buffers.iter().map(|buffer| buffer.as_raw()).collect::<Vec<_>>();
+        let offsets = vec![0u64; raw_buffers.len()];
+        self.0.device.cmd_bind_vertex_buffers_raw(
+            self.0.command_buffer,
+            first_binding,
+            &raw_buffers,
+            &offsets,
+        );
+    }
+
+    pub fn set_scissor(&self, offset: [i32; 2], extent: Extent2D) {
+        let scissors = [vk::Rect2D {
+            offset: vk::Offset2D {
+                x: offset[0],
+                y: offset[1],
+            },
+            extent: extent.as_raw(),
+        }];
+        self.0
+            .device
+            .cmd_set_scissor_raw(self.0.command_buffer, 0, &scissors);
+    }
+
+    pub fn bind_graphics_descriptor_set(
+        &self,
+        pipeline: &GraphicsPipeline,
+        first_set: u32,
+        descriptor_set: &DescriptorSet,
+    ) {
+        self.0.device.cmd_bind_descriptor_sets_graphics_raw(
+            self.0.command_buffer,
+            pipeline.get_layout().as_raw(),
+            first_set,
+            &[descriptor_set.as_raw()],
+        );
+    }
+
+    pub fn draw_indexed(
+        &self,
+        index_count: u32,
+        instance_count: u32,
+        first_index: u32,
+        vertex_offset: i32,
+        first_instance: u32,
+    ) {
+        self.0.device.cmd_draw_indexed_raw(
+            self.0.command_buffer,
+            index_count,
+            instance_count,
+            first_index,
+            vertex_offset,
+            first_instance,
+        );
     }
 
     pub fn submit(&self, queue: &Queue, fence: Option<&Fence>) {
