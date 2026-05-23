@@ -2,7 +2,7 @@ use crate::{
     resource::Resource,
     vkn::{Allocator, Device, Extent2D, ImageDesc, Texture},
 };
-use ash::vk;
+use re_flora_vkn::vk;
 use resource_container_derive::ResourceContainer;
 
 #[derive(ResourceContainer)]

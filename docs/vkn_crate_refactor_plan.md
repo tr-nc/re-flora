@@ -17,7 +17,7 @@
 - [x] Create `agent/vkn-crate` branch.
 - [x] Extract `src/vkn` into `crates/re-flora-vkn` and keep the app compiling.
 - [x] Remove direct app dependency on `gpu-allocator`.
-- [ ] Remove direct app dependency on `ash`.
+- [x] Remove direct app dependency on `ash`.
 - [ ] Wrap app-level raw swapchain/frame synchronization calls.
 - [ ] Replace app/rendering usages of raw `vk::*` enums/flags with vkn semantic types or helpers.
 - [ ] Audit direct `ash` imports outside `crates/re-flora-vkn` and either wrap or document deliberate low-level rendering-facing API.
@@ -33,3 +33,7 @@
 ### Step 2: allocator ownership
 
 `re-flora-vkn` now owns GPU allocator construction and memory-location mapping. The game crate creates allocators with `Allocator::new_for_context` and uses `MemoryLocation` from vkn, so it no longer depends directly on `gpu-allocator`.
+
+### Step 3: ash dependency removal
+
+The game crate no longer depends on `ash` directly. Low-level Vulkan symbols that still appear outside vkn come through the vkn crate export and are the next cleanup target for semantic wrappers.

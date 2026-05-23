@@ -1,6 +1,5 @@
 use super::mesh::Mesh;
 use crate::util::ShaderCompiler;
-use ash::vk;
 use egui::ViewportId;
 use egui::{
     epaint::{ImageDelta, Primitive},
@@ -8,6 +7,7 @@ use egui::{
 };
 use egui_winit::EventResponse;
 use glam::Mat4;
+use re_flora_vkn::vk;
 use re_flora_vkn::CommandBuffer;
 use re_flora_vkn::FormatOverride;
 use re_flora_vkn::ImageDesc;

@@ -47,9 +47,9 @@ use crate::{
     WaterProfilePreference,
 };
 use anyhow::{Context, Result};
-use ash::vk;
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
+use re_flora_vkn::vk;
 use re_flora_vkn::{
     record_image_transition_barrier, Allocator, Buffer, BufferUsage, CommandBuffer, Extent2D,
     Fence, MemoryLocation, Semaphore, SwapchainDesc,

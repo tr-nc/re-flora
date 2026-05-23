@@ -5,8 +5,8 @@ use crate::{
         Texture,
     },
 };
-use ash::vk;
 use glam::UVec3;
+use re_flora_vkn::vk;
 use resource_container_derive::ResourceContainer;
 
 #[derive(ResourceContainer)]

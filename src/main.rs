@@ -23,8 +23,8 @@ mod window;
 use re_flora_vkn as vkn;
 
 use app::AppController;
-use ash::vk;
 use env_logger::{Env, Target};
+use re_flora_vkn::vk;
 use std::{
     fs::{self, File, OpenOptions},
     io::{self, Write},

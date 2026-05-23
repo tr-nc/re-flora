@@ -7,8 +7,8 @@ use crate::{
         Texture,
     },
 };
-use ash::vk;
 use glam::{UVec3, Vec3};
+use re_flora_vkn::vk;
 use resource_container_derive::ResourceContainer;
 use std::collections::HashMap;
 

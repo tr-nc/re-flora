@@ -1,5 +1,5 @@
 use crate::{geom::UAabb3, resource::Resource};
-use ash::vk;
+use re_flora_vkn::vk;
 use re_flora_vkn::{Allocator, Buffer, Device, ImageDesc, ShaderModule, Texture};
 use resource_container_derive::ResourceContainer;
 

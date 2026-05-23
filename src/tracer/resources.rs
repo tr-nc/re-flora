@@ -14,9 +14,9 @@ use crate::{
         SamplerDesc, ShaderModule, Texture, TextureRegion, VulkanContext,
     },
 };
-use ash::vk;
 use bytemuck::{Pod, Zeroable};
 use glam::{IVec3, UVec3};
+use re_flora_vkn::vk;
 use resource_container_derive::ResourceContainer;
 use std::path::Path;
 

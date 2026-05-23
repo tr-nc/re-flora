@@ -1,4 +1,4 @@
-use ash::vk;
+use re_flora_vkn::vk;
 use resource_container_derive::ResourceContainer;
 
 use crate::resource::Resource;

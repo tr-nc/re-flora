@@ -1,5 +1,5 @@
 use super::App;
-use ash::vk;
+use re_flora_vkn::vk;
 use re_flora_vkn::{Device, Semaphore};
 use winit::event_loop::ActiveEventLoop;
 

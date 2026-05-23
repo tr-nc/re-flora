@@ -1,6 +1,6 @@
-use ash::vk;
 use egui::epaint::{Primitive, Vertex};
 use egui::ClippedPrimitive;
+use re_flora_vkn::vk;
 use re_flora_vkn::{Allocator, Buffer, BufferUsage, Device, MemoryLocation};
 use std::mem::size_of;
 

@@ -15,9 +15,9 @@ use crate::{
     },
 };
 use anyhow::Result;
-use ash::vk;
 use bytemuck::Zeroable;
 use glam::{UVec3, Vec3};
+use re_flora_vkn::vk;
 pub use resources::*;
 use std::time::{Duration, Instant};
 

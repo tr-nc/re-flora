@@ -1,7 +1,7 @@
 mod resources;
 use anyhow::Result;
-use ash::vk;
 use glam::UVec3;
+use re_flora_vkn::vk;
 pub use resources::*;
 use std::time::Instant;
 

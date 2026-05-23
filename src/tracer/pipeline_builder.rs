@@ -3,7 +3,7 @@ use crate::resource::ResourceContainer;
 use crate::tracer::TracerResources;
 use crate::util::ShaderCompiler;
 use anyhow::Result;
-use ash::vk;
+use re_flora_vkn::vk;
 use re_flora_vkn::{
     AttachmentDescOuter, AttachmentType, ComputePipeline, DescriptorPool, GraphicsPipeline,
     GraphicsPipelineDesc, RenderPass, ShaderModule, Texture, VulkanContext,
