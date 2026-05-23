@@ -1,9 +1,7 @@
-use crate::{
-    resource::Resource,
-    vkn::{Allocator, Buffer, BufferUsage, Device, ShaderModule},
-};
-use ash::vk;
+use crate::resource::Resource;
 use glam::UVec3;
+use re_flora_vkn::vk;
+use re_flora_vkn::{Allocator, Buffer, BufferUsage, Device, MemoryLocation, ShaderModule};
 use resource_container_derive::ResourceContainer;
 
 #[derive(ResourceContainer)]
@@ -57,7 +55,7 @@ impl ContreeBuilderResources {
             allocator.clone(),
             contree_build_state_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::GpuOnly,
+            MemoryLocation::GpuOnly,
         );
 
         let level_dispatch_indirect_layout = contree_buffer_setup_sm
@@ -68,7 +66,7 @@ impl ContreeBuilderResources {
             allocator.clone(),
             level_dispatch_indirect_layout.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::INDIRECT_BUFFER),
-            gpu_allocator::MemoryLocation::GpuOnly,
+            MemoryLocation::GpuOnly,
         );
 
         let concat_dispatch_indirect_layout = last_buffer_update_sm
@@ -79,7 +77,7 @@ impl ContreeBuilderResources {
             allocator.clone(),
             concat_dispatch_indirect_layout.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::INDIRECT_BUFFER),
-            gpu_allocator::MemoryLocation::GpuOnly,
+            MemoryLocation::GpuOnly,
         );
 
         let max_level = log_4(max_voxel_dim_per_chunk.x) + 1;
@@ -97,7 +95,7 @@ impl ContreeBuilderResources {
             device.clone(),
             allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
-            gpu_allocator::MemoryLocation::GpuOnly,
+            MemoryLocation::GpuOnly,
             (max_level - 1) as u64 * std::mem::size_of::<u32>() as u64,
         );
 
@@ -105,7 +103,7 @@ impl ContreeBuilderResources {
             device.clone(),
             allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
-            gpu_allocator::MemoryLocation::GpuOnly,
+            MemoryLocation::GpuOnly,
             (max_level - 1) as u64 * std::mem::size_of::<u32>() as u64,
         );
 
@@ -115,7 +113,7 @@ impl ContreeBuilderResources {
             allocator.clone(),
             sparse_nodes_layout.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
-            gpu_allocator::MemoryLocation::GpuOnly,
+            MemoryLocation::GpuOnly,
             nodes_len_max as u64,
         );
 
@@ -125,7 +123,7 @@ impl ContreeBuilderResources {
             allocator.clone(),
             dense_nodes_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::GpuOnly,
+            MemoryLocation::GpuOnly,
             nodes_len_max as u64,
         );
 
@@ -135,7 +133,7 @@ impl ContreeBuilderResources {
             device.clone(),
             allocator.clone(),
             leaf_data_usage,
-            gpu_allocator::MemoryLocation::GpuOnly,
+            MemoryLocation::GpuOnly,
             leaf_pool_size_in_bytes,
         );
 
@@ -145,7 +143,7 @@ impl ContreeBuilderResources {
             device.clone(),
             allocator.clone(),
             node_data_usage,
-            gpu_allocator::MemoryLocation::GpuOnly,
+            MemoryLocation::GpuOnly,
             node_pool_size_in_bytes,
         );
 
@@ -157,7 +155,7 @@ impl ContreeBuilderResources {
             allocator.clone(),
             contree_build_result_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::GpuToCpu,
+            MemoryLocation::GpuToCpu,
         );
 
         Self {

@@ -1,0 +1,39 @@
+use crate::{Buffer, Texture};
+use std::any::Any;
+use std::ops::{Deref, DerefMut};
+
+pub trait ResourceContainer {
+    fn get_buffer(&self, name: &str) -> Option<&Buffer>;
+    fn get_texture(&self, name: &str) -> Option<&Texture>;
+    fn get_resource_names(&self) -> Vec<&'static str>;
+}
+
+pub struct Resource<T> {
+    inner: T,
+}
+
+impl<T> Resource<T> {
+    pub fn new(resource: T) -> Self {
+        Self { inner: resource }
+    }
+}
+
+impl<T: 'static> Resource<T> {
+    pub fn as_any(&self) -> &dyn Any {
+        &self.inner
+    }
+}
+
+impl<T> Deref for Resource<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<T> DerefMut for Resource<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}

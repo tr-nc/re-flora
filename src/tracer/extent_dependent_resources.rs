@@ -1,8 +1,6 @@
-use crate::{
-    resource::Resource,
-    vkn::{Allocator, Device, Extent2D, ImageDesc, Texture},
-};
-use ash::vk;
+use crate::resource::Resource;
+use re_flora_vkn::vk;
+use re_flora_vkn::{Allocator, Device, Extent2D, ImageDesc, Texture};
 use resource_container_derive::ResourceContainer;
 
 #[derive(ResourceContainer)]

@@ -7,22 +7,24 @@ use crate::util::AllocationStrategy;
 use crate::util::FirstFitAllocator;
 use crate::util::LatestChunkQueue;
 use crate::util::ShaderCompiler;
-use crate::vkn::Allocator;
-use crate::vkn::Buffer;
-use crate::vkn::BufferUsage;
-use crate::vkn::CommandBuffer;
-use crate::vkn::ComputePipeline;
-use crate::vkn::DescriptorPool;
-use crate::vkn::Extent3D;
-use crate::vkn::Fence;
-use crate::vkn::MemoryBarrier;
-use crate::vkn::PipelineBarrier;
-use crate::vkn::ShaderModule;
-use crate::vkn::VulkanContext;
 use anyhow::Result;
-use ash::vk;
 use glam::{UVec3, Vec2, Vec3};
 use petalsonic::{AcousticRay, BatchedAnyHitRayTracer};
+use re_flora_vkn::vk;
+use re_flora_vkn::Allocator;
+use re_flora_vkn::Buffer;
+use re_flora_vkn::BufferUsage;
+use re_flora_vkn::CommandBuffer;
+use re_flora_vkn::ComputePipeline;
+use re_flora_vkn::DescriptorPool;
+use re_flora_vkn::Extent3D;
+use re_flora_vkn::Fence;
+use re_flora_vkn::MemoryBarrier;
+use re_flora_vkn::MemoryLocation;
+use re_flora_vkn::PipelineBarrier;
+use re_flora_vkn::ShaderModule;
+use re_flora_vkn::TimestampQueryPool;
+use re_flora_vkn::VulkanContext;
 use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
@@ -202,45 +204,13 @@ struct ContreePassTimingPass {
 }
 
 struct ContreePassTiming {
-    device: crate::vkn::Device,
-    query_pool: vk::QueryPool,
-    timestamp_period_ns: f32,
+    query_pool: TimestampQueryPool,
     passes: Vec<ContreePassTimingPass>,
-}
-
-impl Drop for ContreePassTiming {
-    fn drop(&mut self) {
-        unsafe {
-            self.device
-                .as_raw()
-                .destroy_query_pool(self.query_pool, None);
-        }
-    }
 }
 
 impl ContreePassTiming {
     fn maybe_new(vulkan_ctx: &VulkanContext, total_levels: u32) -> Option<Self> {
         if !log::log_enabled!(target: module_path!(), log::Level::Debug) {
-            return None;
-        }
-
-        let properties = unsafe {
-            vulkan_ctx
-                .instance()
-                .as_raw()
-                .get_physical_device_properties(vulkan_ctx.physical_device().as_raw())
-        };
-        if properties.limits.timestamp_compute_and_graphics != vk::TRUE {
-            log::debug!(
-                "[PERF][CONTREE_PASS_TIMING] disabled: timestamp_compute_and_graphics unsupported"
-            );
-            return None;
-        }
-        if properties.limits.timestamp_period <= 0.0 {
-            log::debug!(
-                "[PERF][CONTREE_PASS_TIMING] disabled: timestamp_period={}ns",
-                properties.limits.timestamp_period
-            );
             return None;
         }
 
@@ -256,35 +226,17 @@ impl ContreePassTiming {
 
         let passes = contree_pass_timing_passes(total_levels);
         let query_count = (passes.len() * 2) as u32;
-        if query_count == 0 {
-            return None;
-        }
-
-        let create_info = vk::QueryPoolCreateInfo::default()
-            .query_type(vk::QueryType::TIMESTAMP)
-            .query_count(query_count);
-        let device = vulkan_ctx.device().clone();
-        let query_pool = match unsafe { device.as_raw().create_query_pool(&create_info, None) } {
-            Ok(pool) => pool,
-            Err(err) => {
-                log::warn!("[PERF][CONTREE_PASS_TIMING] disabled: query pool create failed: {err}");
-                return None;
-            }
-        };
+        let query_pool =
+            TimestampQueryPool::maybe_new(vulkan_ctx, query_count, "PERF][CONTREE_PASS_TIMING")?;
 
         log::debug!(
             "[PERF][CONTREE_PASS_TIMING] enabled passes={} queries={} timestamp_period_ns={:.3}",
             passes.len(),
             query_count,
-            properties.limits.timestamp_period,
+            query_pool.timestamp_period_ns(),
         );
 
-        Some(Self {
-            device,
-            query_pool,
-            timestamp_period_ns: properties.limits.timestamp_period,
-            passes,
-        })
+        Some(Self { query_pool, passes })
     }
 
     fn query_count(&self) -> u32 {
@@ -292,14 +244,7 @@ impl ContreePassTiming {
     }
 
     fn record_reset(&self, cmdbuf: &CommandBuffer) {
-        unsafe {
-            self.device.as_raw().cmd_reset_query_pool(
-                cmdbuf.as_raw(),
-                self.query_pool,
-                0,
-                self.query_count(),
-            );
-        }
+        self.query_pool.record_reset(cmdbuf, self.query_count());
     }
 
     fn record_start(&self, cmdbuf: &CommandBuffer, pass_index: usize) {
@@ -311,39 +256,33 @@ impl ContreePassTiming {
     }
 
     fn record_timestamp(&self, cmdbuf: &CommandBuffer, query_index: usize) {
-        unsafe {
-            self.device.as_raw().cmd_write_timestamp(
-                cmdbuf.as_raw(),
-                vk::PipelineStageFlags::COMPUTE_SHADER,
-                self.query_pool,
-                query_index as u32,
-            );
-        }
+        self.query_pool.record_timestamp(
+            cmdbuf,
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            query_index as u32,
+        );
     }
 
     fn collect_and_log(&self, chunk_idx: UVec3) {
-        let mut timestamps = vec![0_u64; self.query_count() as usize];
         let readback_start = Instant::now();
-        let result = unsafe {
-            self.device.as_raw().get_query_pool_results(
-                self.query_pool,
-                0,
-                &mut timestamps,
-                vk::QueryResultFlags::TYPE_64 | vk::QueryResultFlags::WAIT,
-            )
+        let timestamps = match self.query_pool.read_u64(self.query_count()) {
+            Ok(timestamps) => timestamps,
+            Err(err) => {
+                crate::util::BENCH
+                    .lock()
+                    .unwrap()
+                    .record("contree_pass_timestamp_readback", readback_start.elapsed());
+                log::warn!(
+                    "[PERF][CONTREE_PASS_TIMING] chunk {:?} query readback failed: {err}",
+                    chunk_idx
+                );
+                return;
+            }
         };
         crate::util::BENCH
             .lock()
             .unwrap()
             .record("contree_pass_timestamp_readback", readback_start.elapsed());
-
-        if let Err(err) = result {
-            log::warn!(
-                "[PERF][CONTREE_PASS_TIMING] chunk {:?} query readback failed: {err}",
-                chunk_idx
-            );
-            return;
-        }
 
         let mut parts = Vec::with_capacity(self.passes.len());
         let mut total_ms = 0.0;
@@ -362,7 +301,8 @@ impl ContreePassTiming {
                 continue;
             }
 
-            let duration_ms = (end - start) as f64 * self.timestamp_period_ns as f64 / 1_000_000.0;
+            let duration_ms =
+                (end - start) as f64 * self.query_pool.timestamp_period_ns() as f64 / 1_000_000.0;
             total_ms += duration_ms;
             bench.record(
                 pass.bench_key,
@@ -507,7 +447,7 @@ fn contree_level_node_offset(level: u32) -> u64 {
 }
 
 fn record_clear_sparse_leaf_nodes(
-    device: &crate::vkn::Device,
+    device: &re_flora_vkn::Device,
     cmdbuf: &CommandBuffer,
     sparse_nodes: &Buffer,
     total_levels: u32,
@@ -516,15 +456,7 @@ fn record_clear_sparse_leaf_nodes(
     let offset_bytes = contree_level_node_offset(leaf_node_level) * SIZE_OF_NODE_ELEMENT;
     let size_bytes = contree_level_node_count(leaf_node_level) * SIZE_OF_NODE_ELEMENT;
 
-    unsafe {
-        device.as_raw().cmd_fill_buffer(
-            cmdbuf.as_raw(),
-            sparse_nodes.as_raw(),
-            offset_bytes,
-            size_bytes,
-            0,
-        );
-    }
+    sparse_nodes.record_fill(cmdbuf, offset_bytes, size_bytes, 0);
 
     let barrier = PipelineBarrier::new(
         vk::PipelineStageFlags::TRANSFER,
@@ -996,7 +928,7 @@ impl ContreeBuilder {
             }
 
             if let Some(job) = self.active_cpu_chunk_cache_job.as_ref() {
-                if let Err(err) = self.vulkan_ctx.wait_for_fences(&[job.fence.as_raw()]) {
+                if let Err(err) = job.fence.wait() {
                     log::error!(
                         "Failed to wait for CPU cache fence for {:?}: {err}",
                         job.chunk_idx
@@ -1086,7 +1018,7 @@ impl ContreeBuilder {
         let submit_start = Instant::now();
         cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), Some(&fence));
         let wait_start = Instant::now();
-        self.vulkan_ctx.wait_for_fences(&[fence.as_raw()]).unwrap();
+        fence.wait().unwrap();
         let wait_ms = wait_start.elapsed().as_secs_f32() * 1000.0;
         log::debug!(
             "[QUEUE][CONTREE_BUILD] dim={:?} node_offset={} leaf_offset={} submit_ms={:.2} fence_wait_ms={:.2}",
@@ -1118,7 +1050,7 @@ impl ContreeBuilder {
     /// Returns: (node_alloc_offset, leaf_alloc_offset)
     pub fn build_and_alloc(&mut self, atlas_offset: UVec3) -> Result<Option<(u64, u64)>> {
         let job = self.submit_build_and_alloc(atlas_offset)?;
-        self.vulkan_ctx.wait_for_fences(&[job.fence.as_raw()])?;
+        job.fence.wait()?;
         Ok(self.finish_build_and_alloc(job)?.scene_offsets)
     }
 
@@ -1222,17 +1154,13 @@ impl ContreeBuilder {
     }
 
     pub fn build_and_alloc_ready(&self, job: &ContreeBuildJob) -> Result<bool> {
-        unsafe {
-            self.vulkan_ctx
-                .device()
-                .as_raw()
-                .get_fence_status(job.fence.as_raw())
-        }
-        .map_err(|err| anyhow::anyhow!("failed to poll contree build fence: {err}"))
+        job.fence
+            .is_signaled()
+            .map_err(|err| anyhow::anyhow!("failed to poll contree build fence: {err}"))
     }
 
     pub fn wait_build_and_alloc(&self, job: &ContreeBuildJob) -> Result<()> {
-        self.vulkan_ctx.wait_for_fences(&[job.fence.as_raw()])?;
+        job.fence.wait()?;
         Ok(())
     }
 
@@ -1449,12 +1377,7 @@ impl ContreeBuilder {
             return;
         };
 
-        let fence_done = match unsafe {
-            self.vulkan_ctx
-                .device()
-                .as_raw()
-                .get_fence_status(job.fence.as_raw())
-        } {
+        let fence_done = match job.fence.is_signaled() {
             Ok(done) => done,
             Err(err) => {
                 log::error!(
@@ -1698,20 +1621,20 @@ impl ContreeBuilder {
 }
 
 impl CpuChunkReadbackBuffers {
-    fn new(device: crate::vkn::Device, allocator: Allocator) -> Self {
+    fn new(device: re_flora_vkn::Device, allocator: Allocator) -> Self {
         Self {
             node_readback: Buffer::new_sized(
                 device.clone(),
                 allocator.clone(),
                 BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
-                gpu_allocator::MemoryLocation::GpuToCpu,
+                MemoryLocation::GpuToCpu,
                 MAX_NODE_BUFFER_SIZE_IN_BYTES,
             ),
             leaf_readback: Buffer::new_sized(
                 device,
                 allocator,
                 BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
-                gpu_allocator::MemoryLocation::GpuToCpu,
+                MemoryLocation::GpuToCpu,
                 MAX_LEAF_BUFFER_SIZE_IN_BYTES,
             ),
         }

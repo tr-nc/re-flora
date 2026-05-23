@@ -1,18 +1,5 @@
 use super::mesh::Mesh;
 use crate::util::ShaderCompiler;
-use crate::vkn::CommandBuffer;
-use crate::vkn::FormatOverride;
-use crate::vkn::ImageDesc;
-use crate::vkn::RenderPass;
-use crate::vkn::TextureRegion;
-use crate::vkn::Viewport;
-use crate::vkn::VulkanContext;
-use crate::vkn::WriteDescriptorSet;
-use crate::vkn::{
-    Allocator, DescriptorPool, DescriptorSet, Device, Extent2D, Extent3D, GraphicsPipeline,
-    GraphicsPipelineDesc, ShaderModule, Texture,
-};
-use ash::vk;
 use egui::ViewportId;
 use egui::{
     epaint::{ImageDelta, Primitive},
@@ -20,6 +7,18 @@ use egui::{
 };
 use egui_winit::EventResponse;
 use glam::Mat4;
+use re_flora_vkn::vk;
+use re_flora_vkn::CommandBuffer;
+use re_flora_vkn::FormatOverride;
+use re_flora_vkn::ImageDesc;
+use re_flora_vkn::RenderPass;
+use re_flora_vkn::TextureRegion;
+use re_flora_vkn::VulkanContext;
+use re_flora_vkn::WriteDescriptorSet;
+use re_flora_vkn::{
+    Allocator, DescriptorPool, DescriptorSet, Device, Extent2D, Extent3D, GraphicsPipeline,
+    GraphicsPipelineDesc, ShaderModule, Texture,
+};
 use std::collections::HashMap;
 use winit::event::WindowEvent;
 use winit::window::Window;
@@ -272,16 +271,12 @@ impl EguiRenderer {
             .unwrap()
             .update(device, allocator, primitives);
 
-        device.cmd_bind_pipeline_graphics_raw(cmdbuf.as_raw(), pipeline.as_raw());
+        cmdbuf.bind_graphics_pipeline(pipeline);
 
         let screen_width = extent.width as f32;
         let screen_height = extent.height as f32;
 
-        device.cmd_set_viewport_raw(
-            cmdbuf.as_raw(),
-            0,
-            &[Viewport::from_extent(extent).as_raw()],
-        );
+        cmdbuf.set_viewport_from_extent(extent);
 
         let projection = Mat4::orthographic_rh(
             0.0,
@@ -294,27 +289,11 @@ impl EguiRenderer {
         .to_cols_array();
 
         let push = bytemuck::bytes_of(&projection);
-        device.cmd_push_constants_raw(
-            cmdbuf.as_raw(),
-            pipeline.get_layout().as_raw(),
-            vk::ShaderStageFlags::VERTEX,
-            0,
-            push,
-        );
+        cmdbuf.push_vertex_constants(pipeline, push);
 
-        device.cmd_bind_index_buffer_raw(
-            cmdbuf.as_raw(),
-            frames.as_mut().unwrap().indices_buffer.as_raw(),
-            0,
-            vk::IndexType::UINT32,
-        );
-
-        device.cmd_bind_vertex_buffers_raw(
-            cmdbuf.as_raw(),
-            0,
-            &[frames.as_mut().unwrap().vertices_buffer.as_raw()],
-            &[0],
-        );
+        let frame = frames.as_ref().unwrap();
+        cmdbuf.bind_index_buffer_u32(&frame.indices_buffer);
+        cmdbuf.bind_vertex_buffers(0, &[&frame.vertices_buffer]);
 
         let mut index_offset = 0u32;
         let mut vertex_offset = 0i32;
@@ -329,41 +308,24 @@ impl EguiRenderer {
                     let clip_w = clip_rect.max.x * pixels_per_point - clip_x;
                     let clip_h = clip_rect.max.y * pixels_per_point - clip_y;
 
-                    let scissors = [vk::Rect2D {
-                        offset: vk::Offset2D {
-                            x: (clip_x as i32).max(0),
-                            y: (clip_y as i32).max(0),
-                        },
-                        extent: vk::Extent2D {
+                    cmdbuf.set_scissor(
+                        [(clip_x as i32).max(0), (clip_y as i32).max(0)],
+                        Extent2D {
                             width: clip_w.min(screen_width) as _,
                             height: clip_h.min(screen_height) as _,
                         },
-                    }];
-
-                    device.cmd_set_scissor_raw(cmdbuf.as_raw(), 0, &scissors);
+                    );
 
                     if Some(m.texture_id) != current_texture_id {
                         let descriptor_set =
                             managed_texture_descriptor_sets.get(&m.texture_id).unwrap();
-                        device.cmd_bind_descriptor_sets_graphics_raw(
-                            cmdbuf.as_raw(),
-                            pipeline.get_layout().as_raw(),
-                            0,
-                            &[descriptor_set.as_raw()],
-                        );
+                        cmdbuf.bind_graphics_descriptor_set(pipeline, 0, descriptor_set);
                         current_texture_id = Some(m.texture_id);
                     }
 
                     let index_count = m.indices.len() as u32;
 
-                    device.cmd_draw_indexed_raw(
-                        cmdbuf.as_raw(),
-                        index_count,
-                        1,
-                        index_offset,
-                        vertex_offset,
-                        0,
-                    );
+                    cmdbuf.draw_indexed(index_count, 1, index_offset, vertex_offset, 0);
 
                     index_offset += index_count;
                     vertex_offset += m.vertices.len() as i32;

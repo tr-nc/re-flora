@@ -3131,8 +3131,6 @@ name = "re-flora"
 version = "0.2.0"
 dependencies = [
  "anyhow",
- "ash",
- "ash-window",
  "bytemuck",
  "chrono",
  "comfy-table",
@@ -3143,7 +3141,6 @@ dependencies = [
  "fastnoise-lite",
  "glam 0.32.1",
  "gltf",
- "gpu-allocator",
  "image",
  "indexmap",
  "log",
@@ -3154,6 +3151,7 @@ dependencies = [
  "petalsonic",
  "rand 0.10.1",
  "re-flora-terrain-collider",
+ "re-flora-vkn",
  "re-flora-water",
  "resource_container_derive",
  "serde",
@@ -3171,6 +3169,24 @@ name = "re-flora-terrain-collider"
 version = "0.1.0"
 dependencies = [
  "glam 0.32.1",
+]
+
+[[package]]
+name = "re-flora-vkn"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ash",
+ "ash-window",
+ "bytemuck",
+ "comfy-table",
+ "glam 0.32.1",
+ "gpu-allocator",
+ "image",
+ "log",
+ "shaderc",
+ "spirv-reflect",
+ "winit",
 ]
 
 [[package]]

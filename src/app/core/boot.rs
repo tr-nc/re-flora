@@ -4,10 +4,10 @@ use crate::app::world_ops;
 use crate::builder::{ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder};
 use crate::geom::UAabb3;
 use crate::util::BENCH;
-use crate::vkn::{VulkanContext, VulkanContextDesc};
 use crate::window::{WindowMode, WindowState, WindowStateDesc};
 use anyhow::Result;
 use glam::UVec3;
+use re_flora_vkn::{VulkanContext, VulkanContextDesc};
 use winit::event_loop::ActiveEventLoop;
 
 impl App {

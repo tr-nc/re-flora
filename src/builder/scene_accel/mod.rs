@@ -1,20 +1,16 @@
 mod resources;
 use anyhow::Result;
-use ash::vk;
 use glam::UVec3;
+use re_flora_vkn::vk;
 pub use resources::*;
 use std::time::Instant;
 
-use crate::{
-    generated::gpu_structs::SceneTexUpdateInfo,
-    geom::UAabb3,
-    util::ShaderCompiler,
-    vkn::{
-        execute_one_time_command, Allocator, Buffer, ClearValue, ColorClearValue, CommandBuffer,
-        ComputePipeline, DescriptorPool, Extent3D, Fence, ShaderModule, VulkanContext,
-    },
-};
+use crate::{generated::gpu_structs::SceneTexUpdateInfo, geom::UAabb3, util::ShaderCompiler};
 use bytemuck::Zeroable;
+use re_flora_vkn::{
+    execute_one_time_command, Allocator, Buffer, ClearValue, ColorClearValue, CommandBuffer,
+    ComputePipeline, DescriptorPool, Extent3D, Fence, ShaderModule, VulkanContext,
+};
 
 pub struct SceneAccelBuilder {
     pub vulkan_ctx: VulkanContext,
@@ -134,7 +130,7 @@ impl SceneAccelBuilder {
         chunk_data: Option<(u64, u64)>,
     ) -> Result<()> {
         let job = self.submit_update_scene_tex(chunk_idx, chunk_data)?;
-        self.vulkan_ctx.wait_for_fences(&[job.fence.as_raw()])?;
+        job.fence.wait()?;
         self.finish_update_scene_tex(job);
         Ok(())
     }
@@ -187,17 +183,13 @@ impl SceneAccelBuilder {
     }
 
     pub fn update_scene_tex_ready(&self, job: &SceneTexUpdateJob) -> Result<bool> {
-        unsafe {
-            self.vulkan_ctx
-                .device()
-                .as_raw()
-                .get_fence_status(job.fence.as_raw())
-        }
-        .map_err(|err| anyhow::anyhow!("failed to poll scene tex update fence: {err}"))
+        job.fence
+            .is_signaled()
+            .map_err(|err| anyhow::anyhow!("failed to poll scene tex update fence: {err}"))
     }
 
     pub fn wait_update_scene_tex(&self, job: &SceneTexUpdateJob) -> Result<()> {
-        self.vulkan_ctx.wait_for_fences(&[job.fence.as_raw()])?;
+        job.fence.wait()?;
         Ok(())
     }
 
