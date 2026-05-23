@@ -20,8 +20,6 @@ mod util;
 mod wind;
 mod window;
 
-use re_flora_vkn as vkn;
-
 use app::AppController;
 use env_logger::{Env, Target};
 use re_flora_vkn::PresentMode;

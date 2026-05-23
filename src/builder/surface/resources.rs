@@ -2,13 +2,13 @@ use crate::{
     flora::species,
     geom::{Aabb3, UAabb3},
     resource::Resource,
-    vkn::{
-        Allocator, Buffer, BufferUsage, Device, Extent3D, ImageDesc, MemoryLocation, ShaderModule,
-        Texture,
-    },
 };
 use glam::{UVec3, Vec3};
 use re_flora_vkn::vk;
+use re_flora_vkn::{
+    Allocator, Buffer, BufferUsage, Device, Extent3D, ImageDesc, MemoryLocation, ShaderModule,
+    Texture,
+};
 use resource_container_derive::ResourceContainer;
 use std::collections::HashMap;
 

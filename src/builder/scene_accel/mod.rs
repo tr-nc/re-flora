@@ -5,16 +5,12 @@ use re_flora_vkn::vk;
 pub use resources::*;
 use std::time::Instant;
 
-use crate::{
-    generated::gpu_structs::SceneTexUpdateInfo,
-    geom::UAabb3,
-    util::ShaderCompiler,
-    vkn::{
-        execute_one_time_command, Allocator, Buffer, ClearValue, ColorClearValue, CommandBuffer,
-        ComputePipeline, DescriptorPool, Extent3D, Fence, ShaderModule, VulkanContext,
-    },
-};
+use crate::{generated::gpu_structs::SceneTexUpdateInfo, geom::UAabb3, util::ShaderCompiler};
 use bytemuck::Zeroable;
+use re_flora_vkn::{
+    execute_one_time_command, Allocator, Buffer, ClearValue, ColorClearValue, CommandBuffer,
+    ComputePipeline, DescriptorPool, Extent3D, Fence, ShaderModule, VulkanContext,
+};
 
 pub struct SceneAccelBuilder {
     pub vulkan_ctx: VulkanContext,

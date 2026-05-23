@@ -8,16 +8,15 @@ use crate::{
     },
     geom::UAabb3,
     util::ShaderCompiler,
-    vkn::{
-        Buffer, ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DescriptorPool,
-        Extent3D, Fence, MemoryBarrier, PipelineBarrier, ShaderModule, VulkanContext,
-        WriteDescriptorSet,
-    },
 };
 use anyhow::Result;
 use bytemuck::Zeroable;
 use glam::{UVec3, Vec3};
 use re_flora_vkn::vk;
+use re_flora_vkn::{
+    Buffer, ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DescriptorPool, Extent3D,
+    Fence, MemoryBarrier, PipelineBarrier, ShaderModule, VulkanContext, WriteDescriptorSet,
+};
 pub use resources::*;
 use std::time::{Duration, Instant};
 

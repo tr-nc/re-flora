@@ -2,9 +2,10 @@ use super::{
     audio::PlayerAudioController, head_bob::HeadBob, movement::MovementState, stride::StrideCycle,
     vectors::CameraVectors, CameraDesc,
 };
-use crate::{audio::SpatialSoundManager, tracer::PlayerCollisionResult, vkn::Extent2D};
+use crate::{audio::SpatialSoundManager, tracer::PlayerCollisionResult};
 use anyhow::Result;
 use glam::{Mat4, Vec2, Vec3, Vec4};
+use re_flora_vkn::Extent2D;
 use winit::event::KeyEvent;
 
 #[derive(Debug, Clone)]

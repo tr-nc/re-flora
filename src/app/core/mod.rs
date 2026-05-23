@@ -40,12 +40,7 @@ use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
 use crate::util::{GrowingFloraChunk, GrowingFloraQueue, LatestChunkQueue, ShaderCompiler, BENCH};
 use crate::RenderFlags;
-use crate::{
-    egui_renderer::EguiRenderer,
-    vkn::{Swapchain, VulkanContext},
-    window::WindowState,
-    WaterProfilePreference,
-};
+use crate::{egui_renderer::EguiRenderer, window::WindowState, WaterProfilePreference};
 use anyhow::{Context, Result};
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
@@ -53,6 +48,7 @@ use re_flora_vkn::{
     Allocator, Buffer, BufferUsage, ColorReadbackFormat, CommandBuffer, Extent2D, Fence,
     MemoryLocation, Semaphore, SwapchainDesc, SwapchainFrameError,
 };
+use re_flora_vkn::{Swapchain, VulkanContext};
 use re_flora_water::PondWaterConfig;
 use std::collections::HashMap;
 use std::fs;

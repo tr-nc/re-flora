@@ -1,9 +1,7 @@
-use crate::{
-    resource::Resource,
-    vkn::{Allocator, Buffer, BufferUsage, Device, MemoryLocation, ShaderModule},
-};
+use crate::resource::Resource;
 use glam::UVec3;
 use re_flora_vkn::vk;
+use re_flora_vkn::{Allocator, Buffer, BufferUsage, Device, MemoryLocation, ShaderModule};
 use resource_container_derive::ResourceContainer;
 
 #[derive(ResourceContainer)]

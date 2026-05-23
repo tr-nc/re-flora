@@ -9,14 +9,14 @@ use crate::{
         Vertex, WIND_VOLUME_BUCKET_COUNT,
     },
     util::get_project_root,
-    vkn::{
-        Allocator, Buffer, BufferUsage, Device, Extent2D, Extent3D, ImageDesc, MemoryLocation,
-        SamplerDesc, ShaderModule, Texture, TextureRegion, VulkanContext,
-    },
 };
 use bytemuck::{Pod, Zeroable};
 use glam::{IVec3, UVec3};
 use re_flora_vkn::vk;
+use re_flora_vkn::{
+    Allocator, Buffer, BufferUsage, Device, Extent2D, Extent3D, ImageDesc, MemoryLocation,
+    SamplerDesc, ShaderModule, Texture, TextureRegion, VulkanContext,
+};
 use resource_container_derive::ResourceContainer;
 use std::path::Path;
 

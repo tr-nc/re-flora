@@ -41,3 +41,7 @@ The game crate no longer depends on `ash` directly. Low-level Vulkan symbols tha
 ### Step 4: app frame abstraction
 
 The top-level app no longer handles raw swapchain result codes, raw submit infos, raw fences, or raw screenshot image transitions. Vkn now owns present-mode conversion, frame acquire/present error mapping, render command submission, swapchain readback recording, and color readback conversion.
+
+### Step 5: crate boundary cleanup
+
+The transitional `crate::vkn` alias was removed. The derive macro now generates implementations against `re_flora_vkn` directly, and game modules import vkn APIs through the new crate name.
