@@ -1,6 +1,8 @@
 use ash::{khr, vk};
 
-use crate::{execute_one_time_command, Allocator, Buffer, BufferUsage, Device, VulkanContext};
+use crate::{
+    execute_one_time_command, Allocator, Buffer, BufferUsage, Device, MemoryLocation, VulkanContext,
+};
 
 use super::AccelStruct;
 
@@ -57,7 +59,7 @@ pub fn create_acc(
         device.clone(),
         allocator.clone(),
         buf_usage_flags,
-        gpu_allocator::MemoryLocation::GpuOnly,
+        MemoryLocation::GpuOnly,
         acceleration_structure_size,
     );
 
@@ -145,7 +147,7 @@ pub fn build_or_update_acc(
             BufferUsage::from_flags(
                 vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS | vk::BufferUsageFlags::STORAGE_BUFFER,
             ),
-            gpu_allocator::MemoryLocation::GpuOnly,
+            MemoryLocation::GpuOnly,
             scratch_buf_size,
         )
     }

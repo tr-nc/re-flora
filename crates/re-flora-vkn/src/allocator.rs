@@ -1,6 +1,8 @@
-use super::Device;
+use super::{Device, VulkanContext};
 use ash::vk;
-use gpu_allocator::vulkan::{Allocation, AllocationCreateDesc, Allocator as GpuAllocator};
+use gpu_allocator::vulkan::{
+    Allocation, AllocationCreateDesc, Allocator as GpuAllocator, AllocatorCreateDesc,
+};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 #[derive(Clone)]
@@ -15,6 +17,21 @@ impl Allocator {
             device: device.clone(),
             allocator,
         }
+    }
+
+    pub fn new_for_context(vulkan_ctx: &VulkanContext) -> Self {
+        let device = vulkan_ctx.device();
+        let allocator_create_info = AllocatorCreateDesc {
+            instance: vulkan_ctx.instance().as_raw().clone(),
+            device: device.as_raw().clone(),
+            physical_device: vulkan_ctx.physical_device().as_raw(),
+            debug_settings: Default::default(),
+            buffer_device_address: true,
+            allocation_sizes: Default::default(),
+        };
+        let gpu_allocator = GpuAllocator::new(&allocator_create_info)
+            .expect("Failed to create gpu allocator");
+        Self::new(device, Arc::new(Mutex::new(gpu_allocator)))
     }
 
     fn get_allocator(&self) -> MutexGuard<'_, GpuAllocator> {

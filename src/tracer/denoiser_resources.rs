@@ -3,7 +3,8 @@ use resource_container_derive::ResourceContainer;
 
 use crate::resource::Resource;
 use re_flora_vkn::{
-    Allocator, Buffer, BufferUsage, Device, Extent2D, ImageDesc, ShaderModule, Texture,
+    Allocator, Buffer, BufferUsage, Device, Extent2D, ImageDesc, MemoryLocation, ShaderModule,
+    Texture,
 };
 
 #[derive(ResourceContainer)]
@@ -49,7 +50,7 @@ impl DenoiserResources {
             allocator.clone(),
             temporal_info_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
         );
 
         let spatial_info_layout = spatial_sm.get_buffer_layout("U_SpatialInfo").unwrap();
@@ -58,7 +59,7 @@ impl DenoiserResources {
             allocator.clone(),
             spatial_info_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
         );
 
         Self {

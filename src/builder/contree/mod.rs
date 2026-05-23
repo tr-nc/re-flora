@@ -20,6 +20,7 @@ use re_flora_vkn::DescriptorPool;
 use re_flora_vkn::Extent3D;
 use re_flora_vkn::Fence;
 use re_flora_vkn::MemoryBarrier;
+use re_flora_vkn::MemoryLocation;
 use re_flora_vkn::PipelineBarrier;
 use re_flora_vkn::ShaderModule;
 use re_flora_vkn::VulkanContext;
@@ -1704,14 +1705,14 @@ impl CpuChunkReadbackBuffers {
                 device.clone(),
                 allocator.clone(),
                 BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
-                gpu_allocator::MemoryLocation::GpuToCpu,
+                MemoryLocation::GpuToCpu,
                 MAX_NODE_BUFFER_SIZE_IN_BYTES,
             ),
             leaf_readback: Buffer::new_sized(
                 device,
                 allocator,
                 BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
-                gpu_allocator::MemoryLocation::GpuToCpu,
+                MemoryLocation::GpuToCpu,
                 MAX_LEAF_BUFFER_SIZE_IN_BYTES,
             ),
         }

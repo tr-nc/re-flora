@@ -1,13 +1,10 @@
-use crate::{Allocator, BufferLayout, CommandBuffer, Device};
+use crate::{Allocator, BufferLayout, CommandBuffer, Device, MemoryLocation};
 
 use super::BufferUsage;
 use anyhow::Result;
 use ash::vk;
 use core::slice;
-use gpu_allocator::{
-    vulkan::{Allocation, AllocationCreateDesc, AllocationScheme},
-    MemoryLocation,
-};
+use gpu_allocator::vulkan::{Allocation, AllocationCreateDesc, AllocationScheme};
 use std::fmt;
 use std::ops::Deref;
 
@@ -150,7 +147,7 @@ impl Buffer {
             .allocate_memory(&AllocationCreateDesc {
                 name: "",
                 requirements,
-                location,
+                location: location.into(),
                 linear: true,
                 allocation_scheme: AllocationScheme::GpuAllocatorManaged,
             })
@@ -199,7 +196,7 @@ impl Buffer {
             .allocate_memory(&AllocationCreateDesc {
                 name: "",
                 requirements,
-                location,
+                location: location.into(),
                 linear: true,
                 allocation_scheme: AllocationScheme::GpuAllocatorManaged,
             })

@@ -2,7 +2,10 @@ use crate::{
     flora::species,
     geom::{Aabb3, UAabb3},
     resource::Resource,
-    vkn::{Allocator, Buffer, BufferUsage, Device, Extent3D, ImageDesc, ShaderModule, Texture},
+    vkn::{
+        Allocator, Buffer, BufferUsage, Device, Extent3D, ImageDesc, MemoryLocation, ShaderModule,
+        Texture,
+    },
 };
 use ash::vk;
 use glam::{UVec3, Vec3};
@@ -35,7 +38,7 @@ impl InstanceResource {
                     | vk::BufferUsageFlags::STORAGE_BUFFER
                     | vk::BufferUsageFlags::TRANSFER_DST,
             ),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
             instance_size as u64 * max_instances,
         );
 
@@ -57,7 +60,7 @@ impl TreeLeafInstanceResource {
                     | vk::BufferUsageFlags::STORAGE_BUFFER
                     | vk::BufferUsageFlags::TRANSFER_DST,
             ),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
             instance_size as u64 * max_instances,
         );
 
@@ -288,7 +291,7 @@ impl SurfaceResources {
             allocator.clone(),
             make_surface_result_layout.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
         );
 
         let active_brick_dim = voxel_dim_per_chunk / 4;
@@ -301,7 +304,7 @@ impl SurfaceResources {
             BufferUsage::from_flags(
                 vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
             ),
-            gpu_allocator::MemoryLocation::GpuOnly,
+            MemoryLocation::GpuOnly,
             active_brick_flag_count * std::mem::size_of::<u32>() as u64,
         );
 
@@ -309,7 +312,7 @@ impl SurfaceResources {
             device.clone(),
             allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
-            gpu_allocator::MemoryLocation::GpuOnly,
+            MemoryLocation::GpuOnly,
             active_brick_count * std::mem::size_of::<u32>() as u64,
         );
 
@@ -321,7 +324,7 @@ impl SurfaceResources {
             device.clone(),
             allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
-            gpu_allocator::MemoryLocation::GpuOnly,
+            MemoryLocation::GpuOnly,
             solid_workgroup_count * std::mem::size_of::<u32>() as u64,
         );
 
@@ -335,7 +338,7 @@ impl SurfaceResources {
             BufferUsage::from_flags(
                 vk::BufferUsageFlags::INDIRECT_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
             ),
-            gpu_allocator::MemoryLocation::GpuOnly,
+            MemoryLocation::GpuOnly,
         );
 
         let active_surface_flora_dispatch_layout = prepare_active_surface_flora_dispatch_sm
@@ -346,7 +349,7 @@ impl SurfaceResources {
             allocator.clone(),
             active_surface_flora_dispatch_layout.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::INDIRECT_BUFFER),
-            gpu_allocator::MemoryLocation::GpuOnly,
+            MemoryLocation::GpuOnly,
         );
 
         let clear_occupancy_info_layout = clear_occupancy_sm
@@ -394,7 +397,7 @@ impl SurfaceResources {
             allocator.clone(),
             occupancy_to_instances_result_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
         );
 
         let instances = InstanceResources::new(

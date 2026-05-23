@@ -10,8 +10,8 @@ use crate::{
     },
     util::get_project_root,
     vkn::{
-        Allocator, Buffer, BufferUsage, Device, Extent2D, Extent3D, ImageDesc, SamplerDesc,
-        ShaderModule, Texture, TextureRegion, VulkanContext,
+        Allocator, Buffer, BufferUsage, Device, Extent2D, Extent3D, ImageDesc, MemoryLocation,
+        SamplerDesc, ShaderModule, Texture, TextureRegion, VulkanContext,
     },
 };
 use ash::vk;
@@ -45,7 +45,7 @@ impl FloraMeshResources {
             device.clone(),
             allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
             (std::mem::size_of::<Vertex>() * vertices_data.len()) as u64,
         );
         vertices.fill(&vertices_data).unwrap();
@@ -54,7 +54,7 @@ impl FloraMeshResources {
             device.clone(),
             allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::INDEX_BUFFER),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
             (std::mem::size_of::<u32>() * indices_data.len()) as u64,
         );
         indices.fill(&indices_data).unwrap();
@@ -120,7 +120,7 @@ impl LeavesResources {
             device.clone(),
             allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
             (std::mem::size_of::<Vertex>() * vertices_data.len()) as u64,
         );
         vertices.fill(&vertices_data).unwrap();
@@ -130,7 +130,7 @@ impl LeavesResources {
             device.clone(),
             allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::INDEX_BUFFER),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
             (std::mem::size_of::<u32>() * indices_data.len()) as u64,
         );
         indices.fill(&indices_data).unwrap();
@@ -170,7 +170,7 @@ impl ParticleRendererResources {
             device.clone(),
             allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
             (std::mem::size_of::<ParticleInstanceGpu>() as u64) * instance_capacity as u64,
         );
 
@@ -203,7 +203,7 @@ impl ParticleRendererResources {
             device.clone(),
             allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
             (std::mem::size_of::<Vertex>() * vertices_data.len()) as u64,
         );
         vertices.fill(&vertices_data).unwrap();
@@ -212,7 +212,7 @@ impl ParticleRendererResources {
             device.clone(),
             allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::INDEX_BUFFER),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
             (std::mem::size_of::<u32>() * indices_data.len()) as u64,
         );
         indices.fill(&indices_data).unwrap();
@@ -300,7 +300,7 @@ impl TracerResources {
             allocator.clone(),
             gui_input_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
         );
 
         let sun_info_layout = tracer_sm.get_buffer_layout("U_SunInfo").unwrap();
@@ -309,7 +309,7 @@ impl TracerResources {
             allocator.clone(),
             sun_info_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
         );
 
         let shading_info_layout = tracer_sm.get_buffer_layout("U_ShadingInfo").unwrap();
@@ -318,7 +318,7 @@ impl TracerResources {
             allocator.clone(),
             shading_info_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
         );
 
         let camera_info_layout = tracer_sm.get_buffer_layout("U_CameraInfo").unwrap();
@@ -327,7 +327,7 @@ impl TracerResources {
             allocator.clone(),
             camera_info_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
         );
 
         let camera_info_prev_frame_layout = tracer_sm
@@ -338,7 +338,7 @@ impl TracerResources {
             allocator.clone(),
             camera_info_prev_frame_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
         );
 
         let shadow_camera_info_layout = tracer_shadow_sm
@@ -349,7 +349,7 @@ impl TracerResources {
             allocator.clone(),
             shadow_camera_info_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
         );
 
         let shadow_camera_info_prev_layout = flora_vert_sm
@@ -360,7 +360,7 @@ impl TracerResources {
             allocator.clone(),
             shadow_camera_info_prev_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
         );
 
         let shadow_temporal_info_layout = flora_vert_sm
@@ -371,7 +371,7 @@ impl TracerResources {
             allocator.clone(),
             shadow_temporal_info_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
         );
 
         let flora_growth_info_layout = flora_vert_sm
@@ -382,7 +382,7 @@ impl TracerResources {
             allocator.clone(),
             flora_growth_info_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
         );
 
         let wind_volume_info_layout = flora_vert_sm.get_buffer_layout("U_WindVolumeInfo").unwrap();
@@ -391,7 +391,7 @@ impl TracerResources {
             allocator.clone(),
             wind_volume_info_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
         );
         let chunk_extent = chunk_bound.get_extent();
         wind_volume_info
@@ -411,7 +411,7 @@ impl TracerResources {
             allocator.clone(),
             env_info_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
         );
 
         let starlight_info_layout = composition_sm.get_buffer_layout("U_StarlightInfo").unwrap();
@@ -420,7 +420,7 @@ impl TracerResources {
             allocator.clone(),
             starlight_info_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
         );
 
         let voxel_colors_layout = tracer_sm.get_buffer_layout("U_VoxelColors").unwrap();
@@ -429,7 +429,7 @@ impl TracerResources {
             allocator.clone(),
             voxel_colors_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
         );
 
         let god_ray_info_layout = god_ray_sm.get_buffer_layout("U_GodRayInfo").unwrap();
@@ -438,7 +438,7 @@ impl TracerResources {
             allocator.clone(),
             god_ray_info_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
         );
 
         let post_processing_info_layout = post_processing_sm
@@ -449,7 +449,7 @@ impl TracerResources {
             allocator.clone(),
             post_processing_info_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
         );
 
         let player_collider_info_layout = player_collider_sm
@@ -460,7 +460,7 @@ impl TracerResources {
             allocator.clone(),
             player_collider_info_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
         );
 
         let player_collision_result_layout = player_collider_sm
@@ -472,7 +472,7 @@ impl TracerResources {
             allocator.clone(),
             player_collision_result_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
         );
 
         let terrain_query_count_layout = terrain_query_sm
@@ -483,14 +483,14 @@ impl TracerResources {
             allocator.clone(),
             terrain_query_count_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
         );
 
         let terrain_query_info = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
             (max_terrain_queries * 8 * std::mem::size_of::<f32>() as u32) as u64,
         );
 
@@ -498,7 +498,7 @@ impl TracerResources {
             device.clone(),
             allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
             (max_terrain_queries * 4 * std::mem::size_of::<f32>() as u32) as u64,
         );
 

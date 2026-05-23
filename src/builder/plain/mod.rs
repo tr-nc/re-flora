@@ -23,6 +23,7 @@ use re_flora_vkn::DescriptorPool;
 use re_flora_vkn::Extent3D;
 use re_flora_vkn::Fence;
 use re_flora_vkn::MemoryBarrier;
+use re_flora_vkn::MemoryLocation;
 use re_flora_vkn::PipelineBarrier;
 use re_flora_vkn::ShaderModule;
 use re_flora_vkn::Texture;
@@ -390,7 +391,7 @@ impl PlainBuilder {
                 .get_allocator()
                 .clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
-            gpu_allocator::MemoryLocation::GpuToCpu,
+            MemoryLocation::GpuToCpu,
             byte_count,
         ));
         log::info!(

@@ -1,6 +1,9 @@
 use crate::{
     resource::Resource,
-    vkn::{Allocator, Buffer, BufferUsage, Device, Extent3D, ImageDesc, ShaderModule, Texture},
+    vkn::{
+        Allocator, Buffer, BufferUsage, Device, Extent3D, ImageDesc, MemoryLocation, ShaderModule,
+        Texture,
+    },
 };
 use ash::vk;
 use glam::UVec3;
@@ -82,7 +85,7 @@ impl PlainBuilderResources {
             BufferUsage::from_flags(
                 vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
             ),
-            gpu_allocator::MemoryLocation::GpuOnly,
+            MemoryLocation::GpuOnly,
             solid_workgroup_flag_words * std::mem::size_of::<u32>() as u64,
         );
 
@@ -108,7 +111,7 @@ impl PlainBuilderResources {
             device.clone(),
             allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
-            gpu_allocator::MemoryLocation::GpuToCpu,
+            MemoryLocation::GpuToCpu,
             std::mem::size_of::<u32>() as u64 * super::CHUNK_SOLID_SAMPLE_CAPACITY,
         );
 
@@ -118,7 +121,7 @@ impl PlainBuilderResources {
             allocator.clone(),
             edit_stats_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
         );
 
         let edit_removal_candidates_layout = chunk_modify_sm
@@ -130,7 +133,7 @@ impl PlainBuilderResources {
             BufferUsage::from_reflect_descriptor_type(
                 edit_removal_candidates_layout.descriptor_type,
             ),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
             std::mem::size_of::<[f32; 4]>() as u64 * super::EDIT_REMOVAL_CANDIDATE_CAPACITY,
         );
 
@@ -142,7 +145,7 @@ impl PlainBuilderResources {
             allocator.clone(),
             edit_removal_sample_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
         );
 
         let round_cones_layout = chunk_modify_sm.get_buffer_layout("B_RoundCones").unwrap();
@@ -151,7 +154,7 @@ impl PlainBuilderResources {
             allocator.clone(),
             round_cones_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
             100000,
         ); // less than 1 MB though, don't worry about the size
 
@@ -161,7 +164,7 @@ impl PlainBuilderResources {
             allocator.clone(),
             trunk_bvh_nodes_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
             100000,
         ); // less than 1 MB though, don't worry about the size
 
@@ -171,7 +174,7 @@ impl PlainBuilderResources {
             allocator.clone(),
             cuboids_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
             100000,
         ); // less than 1 MB though, don't worry about the size
 
@@ -181,7 +184,7 @@ impl PlainBuilderResources {
             allocator.clone(),
             spheres_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
             100000,
         ); // less than 1 MB though, don't worry about the size
 
@@ -198,7 +201,7 @@ impl PlainBuilderResources {
             device.clone(),
             allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
             std::mem::size_of::<[f32; 4]>() as u64 * 300000,
         );
 
@@ -217,7 +220,7 @@ impl PlainBuilderResources {
             allocator.clone(),
             region_indirect_layout.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::INDIRECT_BUFFER),
-            gpu_allocator::MemoryLocation::GpuOnly,
+            MemoryLocation::GpuOnly,
         );
 
         let heightmap_layout = heightmap_sm.get_buffer_layout("B_Heightmap").unwrap();
@@ -227,7 +230,7 @@ impl PlainBuilderResources {
             allocator.clone(),
             heightmap_layout.clone(),
             BufferUsage::empty(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
             heightmap_entry_count as u64,
         );
 

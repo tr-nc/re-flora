@@ -50,16 +50,14 @@ use anyhow::{Context, Result};
 use ash::vk;
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
-use gpu_allocator::vulkan::AllocatorCreateDesc;
 use re_flora_vkn::{
     record_image_transition_barrier, Allocator, Buffer, BufferUsage, CommandBuffer, Extent2D,
-    Fence, Semaphore, SwapchainDesc,
+    Fence, MemoryLocation, Semaphore, SwapchainDesc,
 };
 use re_flora_water::PondWaterConfig;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use ui_style::{
     apply_gui_style, draw_active_voxel_display, draw_backpack_summary, draw_item_panel,
@@ -1129,7 +1127,7 @@ impl App {
             self.vulkan_ctx.device().clone(),
             allocator,
             BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
-            gpu_allocator::MemoryLocation::GpuToCpu,
+            MemoryLocation::GpuToCpu,
             byte_count,
         );
 
@@ -1516,19 +1514,7 @@ impl App {
 
         let device = vulkan_ctx.device();
 
-        let gpu_allocator = {
-            let allocator_create_info = AllocatorCreateDesc {
-                instance: vulkan_ctx.instance().as_raw().clone(),
-                device: device.as_raw().clone(),
-                physical_device: vulkan_ctx.physical_device().as_raw(),
-                debug_settings: Default::default(),
-                buffer_device_address: true,
-                allocation_sizes: Default::default(),
-            };
-            gpu_allocator::vulkan::Allocator::new(&allocator_create_info)
-                .expect("Failed to create gpu allocator")
-        };
-        let allocator = Allocator::new(device, Arc::new(Mutex::new(gpu_allocator)));
+        let allocator = Allocator::new_for_context(&vulkan_ctx);
 
         let swapchain = Swapchain::new(
             vulkan_ctx.clone(),

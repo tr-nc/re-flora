@@ -1,3 +1,5 @@
+pub use ash::vk;
+
 mod resource;
 pub use resource::*;
 

@@ -1,7 +1,7 @@
 use ash::vk;
 use egui::epaint::{Primitive, Vertex};
 use egui::ClippedPrimitive;
-use re_flora_vkn::{Allocator, Buffer, BufferUsage, Device};
+use re_flora_vkn::{Allocator, Buffer, BufferUsage, Device, MemoryLocation};
 use std::mem::size_of;
 
 /// Vertex and index buffer resources for one frame in flight.
@@ -27,7 +27,7 @@ impl Mesh {
             device.clone(),
             allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
             (vertex_count * size_of::<Vertex>()) as _,
         );
         vertices_buffer
@@ -38,7 +38,7 @@ impl Mesh {
             device.clone(),
             allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::INDEX_BUFFER),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
             (index_count * size_of::<u32>()) as _,
         );
         indices_buffer
@@ -67,7 +67,7 @@ impl Mesh {
                 device.clone(),
                 allocator.clone(),
                 BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
-                gpu_allocator::MemoryLocation::CpuToGpu,
+                MemoryLocation::CpuToGpu,
                 size as _,
             );
         }
@@ -83,7 +83,7 @@ impl Mesh {
                 device.clone(),
                 allocator.clone(),
                 BufferUsage::from_flags(vk::BufferUsageFlags::INDEX_BUFFER),
-                gpu_allocator::MemoryLocation::CpuToGpu,
+                MemoryLocation::CpuToGpu,
                 size as _,
             );
         }

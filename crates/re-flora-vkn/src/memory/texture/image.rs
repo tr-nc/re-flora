@@ -1,14 +1,11 @@
 use super::{ImageDesc, TextureRegion};
 use crate::{
     execute_one_time_command, Allocator, Buffer, BufferUsage, CommandBuffer, CommandPool, Device,
-    Queue,
+    MemoryLocation, Queue,
 };
 use anyhow::Result;
 use ash::vk::{self, ImageLayout};
-use gpu_allocator::{
-    vulkan::{Allocation, AllocationCreateDesc, AllocationScheme},
-    MemoryLocation,
-};
+use gpu_allocator::vulkan::{Allocation, AllocationCreateDesc, AllocationScheme};
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
@@ -91,7 +88,7 @@ impl Image {
             .allocate_memory(&AllocationCreateDesc {
                 name: "",
                 requirements,
-                location: MemoryLocation::GpuOnly,
+                location: MemoryLocation::GpuOnly.into(),
                 linear: false,
                 allocation_scheme: AllocationScheme::GpuAllocatorManaged,
             })
@@ -482,7 +479,7 @@ impl Image {
             device.clone(),
             self.get_allocator().clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_SRC),
-            gpu_allocator::MemoryLocation::CpuToGpu,
+            MemoryLocation::CpuToGpu,
             data.len() as _,
         );
         buffer
@@ -538,7 +535,7 @@ impl Image {
             device.clone(),
             self.get_allocator().clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
-            gpu_allocator::MemoryLocation::GpuToCpu,
+            MemoryLocation::GpuToCpu,
             self.get_size() as _,
         );
 

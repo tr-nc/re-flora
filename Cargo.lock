@@ -3142,7 +3142,6 @@ dependencies = [
  "fastnoise-lite",
  "glam 0.32.1",
  "gltf",
- "gpu-allocator",
  "image",
  "indexmap",
  "log",
