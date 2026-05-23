@@ -15,7 +15,8 @@ use glam::{UVec3, Vec3};
 use re_flora_vkn::vk;
 use re_flora_vkn::{
     Buffer, ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DescriptorPool, Extent3D,
-    Fence, MemoryBarrier, PipelineBarrier, ShaderModule, VulkanContext, WriteDescriptorSet,
+    Fence, MemoryBarrier, PipelineBarrier, ShaderModule, TimestampQueryPool, VulkanContext,
+    WriteDescriptorSet,
 };
 pub use resources::*;
 use std::time::{Duration, Instant};
@@ -85,20 +86,7 @@ struct SurfacePassTimingPass {
 }
 
 struct SurfacePassTiming {
-    device: re_flora_vkn::Device,
-    query_pool: vk::QueryPool,
-    timestamp_period_ns: f32,
-    max_query_count: u32,
-}
-
-impl Drop for SurfacePassTiming {
-    fn drop(&mut self) {
-        unsafe {
-            self.device
-                .as_raw()
-                .destroy_query_pool(self.query_pool, None);
-        }
-    }
+    query_pool: TimestampQueryPool,
 }
 
 impl SurfacePassTiming {
@@ -107,72 +95,30 @@ impl SurfacePassTiming {
             return None;
         }
 
-        let properties = unsafe {
-            vulkan_ctx
-                .instance()
-                .as_raw()
-                .get_physical_device_properties(vulkan_ctx.physical_device().as_raw())
-        };
-        if properties.limits.timestamp_compute_and_graphics != vk::TRUE {
-            log::debug!(
-                "[PERF][SURFACE_PASS_TIMING] disabled: timestamp_compute_and_graphics unsupported"
-            );
-            return None;
-        }
-        if properties.limits.timestamp_period <= 0.0 {
-            log::debug!(
-                "[PERF][SURFACE_PASS_TIMING] disabled: timestamp_period={}ns",
-                properties.limits.timestamp_period
-            );
-            return None;
-        }
-
         let max_pass_count = SURFACE_BUILD_TIMING_PASSES_WITH_FLORA
             .len()
             .max(FLORA_EDIT_TIMING_PASSES_WITH_INSTANCES.len())
             .max(FLORA_GROWTH_TIMING_PASSES.len());
         let max_query_count = (max_pass_count * 2) as u32;
-        if max_query_count == 0 {
-            return None;
-        }
-
-        let create_info = vk::QueryPoolCreateInfo::default()
-            .query_type(vk::QueryType::TIMESTAMP)
-            .query_count(max_query_count);
-        let device = vulkan_ctx.device().clone();
-        let query_pool = match unsafe { device.as_raw().create_query_pool(&create_info, None) } {
-            Ok(pool) => pool,
-            Err(err) => {
-                log::warn!("[PERF][SURFACE_PASS_TIMING] disabled: query pool create failed: {err}");
-                return None;
-            }
-        };
+        let query_pool = TimestampQueryPool::maybe_new(
+            vulkan_ctx,
+            max_query_count,
+            "PERF][SURFACE_PASS_TIMING",
+        )?;
 
         log::debug!(
             "[PERF][SURFACE_PASS_TIMING] enabled max_passes={} queries={} timestamp_period_ns={:.3}",
             max_pass_count,
             max_query_count,
-            properties.limits.timestamp_period,
+            query_pool.timestamp_period_ns(),
         );
 
-        Some(Self {
-            device,
-            query_pool,
-            timestamp_period_ns: properties.limits.timestamp_period,
-            max_query_count,
-        })
+        Some(Self { query_pool })
     }
 
     fn record_reset(&self, cmdbuf: &CommandBuffer, pass_count: usize) {
-        let query_count = self.query_count(pass_count);
-        unsafe {
-            self.device.as_raw().cmd_reset_query_pool(
-                cmdbuf.as_raw(),
-                self.query_pool,
-                0,
-                query_count,
-            );
-        }
+        self.query_pool
+            .record_reset(cmdbuf, self.query_count(pass_count));
     }
 
     fn record_start(&self, cmdbuf: &CommandBuffer, pass_index: usize) {
@@ -184,14 +130,11 @@ impl SurfacePassTiming {
     }
 
     fn record_timestamp(&self, cmdbuf: &CommandBuffer, query_index: usize) {
-        unsafe {
-            self.device.as_raw().cmd_write_timestamp(
-                cmdbuf.as_raw(),
-                vk::PipelineStageFlags::ALL_COMMANDS,
-                self.query_pool,
-                query_index as u32,
-            );
-        }
+        self.query_pool.record_timestamp(
+            cmdbuf,
+            vk::PipelineStageFlags::ALL_COMMANDS,
+            query_index as u32,
+        );
     }
 
     fn collect_and_log(
@@ -202,29 +145,26 @@ impl SurfacePassTiming {
         passes: &[SurfacePassTimingPass],
     ) {
         let query_count = self.query_count(passes.len());
-        let mut timestamps = vec![0_u64; query_count as usize];
         let readback_start = Instant::now();
-        let result = unsafe {
-            self.device.as_raw().get_query_pool_results(
-                self.query_pool,
-                0,
-                &mut timestamps,
-                vk::QueryResultFlags::TYPE_64 | vk::QueryResultFlags::WAIT,
-            )
+        let timestamps = match self.query_pool.read_u64(query_count) {
+            Ok(timestamps) => timestamps,
+            Err(err) => {
+                crate::util::BENCH
+                    .lock()
+                    .unwrap()
+                    .record("surface_pass_timestamp_readback", readback_start.elapsed());
+                log::warn!(
+                    "[PERF][{}] chunk {:?} query readback failed: {err}",
+                    log_tag,
+                    chunk_id
+                );
+                return;
+            }
         };
         crate::util::BENCH
             .lock()
             .unwrap()
             .record("surface_pass_timestamp_readback", readback_start.elapsed());
-
-        if let Err(err) = result {
-            log::warn!(
-                "[PERF][{}] chunk {:?} query readback failed: {err}",
-                log_tag,
-                chunk_id
-            );
-            return;
-        }
 
         let mut parts = Vec::with_capacity(passes.len());
         let mut total_ms = 0.0;
@@ -244,7 +184,8 @@ impl SurfacePassTiming {
                 continue;
             }
 
-            let duration_ms = (end - start) as f64 * self.timestamp_period_ns as f64 / 1_000_000.0;
+            let duration_ms =
+                (end - start) as f64 * self.query_pool.timestamp_period_ns() as f64 / 1_000_000.0;
             total_ms += duration_ms;
             bench.record(
                 pass.bench_key,
@@ -267,10 +208,10 @@ impl SurfacePassTiming {
     fn query_count(&self, pass_count: usize) -> u32 {
         let query_count = (pass_count * 2) as u32;
         assert!(
-            query_count <= self.max_query_count,
+            query_count <= self.query_pool.max_query_count(),
             "surface pass timing query count {} exceeds pool capacity {}",
             query_count,
-            self.max_query_count,
+            self.query_pool.max_query_count(),
         );
         query_count
     }
@@ -573,7 +514,7 @@ impl SurfaceBuilder {
 
     pub fn build_surface(&mut self, chunk_id: UVec3, place_flora: bool) -> Result<u32> {
         let job = self.submit_build_surface(chunk_id, place_flora)?;
-        self.vulkan_ctx.wait_for_fences(&[job.fence.as_raw()])?;
+        job.fence.wait()?;
         let result = self.finish_build_surface(job)?;
         Ok(result.active_voxel_len)
     }
@@ -734,17 +675,13 @@ impl SurfaceBuilder {
     }
 
     pub fn build_surface_ready(&self, job: &SurfaceBuildJob) -> Result<bool> {
-        unsafe {
-            self.vulkan_ctx
-                .device()
-                .as_raw()
-                .get_fence_status(job.fence.as_raw())
-        }
-        .map_err(|err| anyhow::anyhow!("failed to poll surface build fence: {err}"))
+        job.fence
+            .is_signaled()
+            .map_err(|err| anyhow::anyhow!("failed to poll surface build fence: {err}"))
     }
 
     pub fn wait_build_surface(&self, job: &SurfaceBuildJob) -> Result<()> {
-        self.vulkan_ctx.wait_for_fences(&[job.fence.as_raw()])?;
+        job.fence.wait()?;
         Ok(())
     }
 
@@ -1202,15 +1139,7 @@ fn record_clear_buffer_for_compute(
     cmdbuf: &CommandBuffer,
     buffer: &Buffer,
 ) {
-    unsafe {
-        device.as_raw().cmd_fill_buffer(
-            cmdbuf.as_raw(),
-            buffer.as_raw(),
-            0,
-            buffer.get_size_bytes(),
-            0,
-        );
-    }
+    buffer.record_fill(cmdbuf, 0, buffer.get_size_bytes(), 0);
 
     let barrier = PipelineBarrier::new(
         vk::PipelineStageFlags::TRANSFER,

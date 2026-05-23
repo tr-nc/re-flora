@@ -293,15 +293,12 @@ impl PlainBuilder {
                         0,
                         ClearValue::Color(ColorClearValue::UInt([0, 0, 0, 0])),
                     );
-                    unsafe {
-                        vulkan_context.device().as_raw().cmd_fill_buffer(
-                            cmdbuf.as_raw(),
-                            resources.solid_workgroup_flags.as_raw(),
-                            0,
-                            resources.solid_workgroup_flags.get_size_bytes(),
-                            0,
-                        );
-                    }
+                    resources.solid_workgroup_flags.record_fill(
+                        cmdbuf,
+                        0,
+                        resources.solid_workgroup_flags.get_size_bytes(),
+                        0,
+                    );
                 },
             );
         }
@@ -458,7 +455,7 @@ impl PlainBuilder {
     ) -> Result<Vec<u32>> {
         let job = self.submit_chunk_atlas_solid_grid_sample(atlas_offset, atlas_dim, sample_dim)?;
         let wait_start = Instant::now();
-        self.vulkan_ctx.wait_for_fences(&[job.fence.as_raw()])?;
+        job.fence.wait()?;
         let wait_elapsed = wait_start.elapsed();
         crate::util::BENCH.lock().unwrap().record(
             "chunk_solid_sample_gpu_dispatch",
@@ -577,13 +574,9 @@ impl PlainBuilder {
     }
 
     pub fn chunk_atlas_solid_grid_sample_ready(&self, job: &ChunkSolidSampleJob) -> Result<bool> {
-        unsafe {
-            self.vulkan_ctx
-                .device()
-                .as_raw()
-                .get_fence_status(job.fence.as_raw())
-        }
-        .map_err(|err| anyhow::anyhow!("failed to poll chunk solid sample fence: {err}"))
+        job.fence
+            .is_signaled()
+            .map_err(|err| anyhow::anyhow!("failed to poll chunk solid sample fence: {err}"))
     }
 
     pub fn finish_chunk_atlas_solid_grid_sample(

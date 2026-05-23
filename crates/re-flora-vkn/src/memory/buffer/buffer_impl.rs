@@ -399,6 +399,13 @@ impl Buffer {
     }
 
     #[allow(dead_code)]
+    pub fn record_fill(&self, cmdbuf: &CommandBuffer, offset: u64, size: u64, value: u32) {
+        unsafe {
+            self.device
+                .cmd_fill_buffer(cmdbuf.as_raw(), self.as_raw(), offset, size, value);
+        }
+    }
+
     pub fn record_copy_to_buffer(
         &self,
         cmdbuf: &CommandBuffer,

@@ -1,5 +1,8 @@
 pub use ash::vk;
 
+mod query;
+pub use query::*;
+
 mod resource;
 pub use resource::*;
 

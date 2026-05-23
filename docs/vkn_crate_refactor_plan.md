@@ -20,7 +20,9 @@
 - [x] Remove direct app dependency on `ash`.
 - [x] Wrap app-level raw swapchain/frame synchronization calls.
 - [ ] Replace app/rendering usages of raw `vk::*` enums/flags with vkn semantic types or helpers.
-- [ ] Audit direct `ash` imports outside `crates/re-flora-vkn` and either wrap or document deliberate low-level rendering-facing API.
+- [x] Audit direct `ash` imports outside `crates/re-flora-vkn` and remove them.
+- [x] Move query pool, buffer fill, and fence polling/waiting raw calls behind vkn wrappers.
+- [ ] Audit remaining `re_flora_vkn::vk` uses outside the vkn crate and convert high-value cases to semantic helpers.
 - [ ] Validate with `cargo fmt --check`, `cargo check`, `cargo test`, and `cargo run --release -- --hidden --auto-exit 0.5`.
 - [ ] Write final summary in `docs/`.
 
@@ -45,3 +47,7 @@ The top-level app no longer handles raw swapchain result codes, raw submit infos
 ### Step 5: crate boundary cleanup
 
 The transitional `crate::vkn` alias was removed. The derive macro now generates implementations against `re_flora_vkn` directly, and game modules import vkn APIs through the new crate name.
+
+### Step 6: raw call wrappers
+
+Timestamp query pools, buffer fill commands, and fence wait/poll operations moved behind vkn-owned wrappers. Builder modules no longer create/destroy query pools or issue raw fill/fence calls directly.
