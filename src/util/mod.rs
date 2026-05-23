@@ -25,9 +25,6 @@ pub use bench::*;
 mod sun_dir;
 pub use sun_dir::*;
 
-mod merge_with_eq;
-pub use merge_with_eq::*;
-
 mod clustering;
 pub use clustering::*;
 

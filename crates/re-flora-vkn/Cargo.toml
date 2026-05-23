@@ -1,0 +1,26 @@
+[package]
+name = "re-flora-vkn"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.102"
+ash = { version = "0.38", default-features = false, features = [
+    "debug",
+    "linked",
+    "std",
+] }
+ash-window = "0.13"
+bytemuck = "1.25.0"
+comfy-table = "7.2.2"
+glam = { version = "0.32.1", features = ["debug-glam-assert", "bytemuck"] }
+gpu-allocator = "0.28.0"
+image = "0.25.10"
+log = "0.4.29"
+shaderc = "0.10.1"
+spirv-reflect = { git = "https://github.com/gwihlidal/spirv-reflect-rs.git", rev = "97298067e3b1c9ce05633d78f1183c14a3cc6acc" }
+winit = { version = "0.30", features = ["rwh_05"] }
+
+[features]
+default = []
+no_validation_layer = []

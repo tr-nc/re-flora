@@ -12,7 +12,7 @@ pub struct BufferUpdater;
 
 impl BufferUpdater {
     pub fn update_camera_info(
-        camera_info: &mut crate::vkn::Buffer,
+        camera_info: &mut re_flora_vkn::Buffer,
         view_mat: Mat4,
         proj_mat: Mat4,
     ) -> Result<()> {
@@ -117,7 +117,7 @@ impl BufferUpdater {
     }
 
     pub fn update_temporal_denoiser_info(
-        temporal_info: &mut crate::vkn::Buffer,
+        temporal_info: &mut re_flora_vkn::Buffer,
         temporal_position_phi: f32,
         temporal_alpha: f32,
     ) -> Result<()> {
@@ -130,7 +130,7 @@ impl BufferUpdater {
 
     #[allow(clippy::too_many_arguments)]
     pub fn update_spatial_denoiser_info(
-        spatial_info: &mut crate::vkn::Buffer,
+        spatial_info: &mut re_flora_vkn::Buffer,
         phi_c: f32,
         phi_n: f32,
         phi_p: f32,
@@ -154,8 +154,8 @@ impl BufferUpdater {
 
     #[allow(clippy::too_many_arguments)]
     pub fn update_denoiser_info(
-        temporal_info: &mut crate::vkn::Buffer,
-        spatial_info: &mut crate::vkn::Buffer,
+        temporal_info: &mut re_flora_vkn::Buffer,
+        spatial_info: &mut re_flora_vkn::Buffer,
         temporal_position_phi: f32,
         temporal_alpha: f32,
         phi_c: f32,

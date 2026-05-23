@@ -1,0 +1,743 @@
+use super::{ImageDesc, TextureRegion};
+use crate::{
+    execute_one_time_command, Allocator, Buffer, BufferUsage, CommandBuffer, CommandPool, Device,
+    Queue,
+};
+use anyhow::Result;
+use ash::vk::{self, ImageLayout};
+use gpu_allocator::{
+    vulkan::{Allocation, AllocationCreateDesc, AllocationScheme},
+    MemoryLocation,
+};
+use std::fmt;
+use std::sync::{Arc, Mutex};
+
+struct ImageInner {
+    device: Device,
+    desc: ImageDesc,
+    image: vk::Image,
+    allocator: Allocator,
+    allocated_mem: Allocation,
+    current_layout: Mutex<Vec<vk::ImageLayout>>,
+    size: vk::DeviceSize,
+}
+
+impl Drop for ImageInner {
+    fn drop(&mut self) {
+        let allocated_mem = std::mem::take(&mut self.allocated_mem);
+        self.allocator.destroy_image(self.image, allocated_mem);
+    }
+}
+
+pub enum ColorClearValue {
+    #[allow(dead_code)]
+    UInt([u32; 4]),
+    #[allow(dead_code)]
+    Float([f32; 4]),
+    #[allow(dead_code)]
+    Int([i32; 4]),
+}
+
+pub enum DepthOrStencilClearValue {
+    #[allow(dead_code)]
+    DepthAndStencil(f32, u32),
+    #[allow(dead_code)]
+    Depth(f32),
+    #[allow(dead_code)]
+    Stencil(u32),
+}
+
+pub enum ClearValue {
+    Color(ColorClearValue),
+    DepthStencil(DepthOrStencilClearValue),
+}
+
+#[derive(Clone)]
+pub struct Image(Arc<ImageInner>);
+
+impl std::ops::Deref for Image {
+    type Target = vk::Image;
+    fn deref(&self) -> &Self::Target {
+        &self.0.image
+    }
+}
+
+impl Image {
+    pub fn new(device: Device, mut allocator: Allocator, desc: &ImageDesc) -> Result<Self> {
+        // for vulkan spec, initial_layout must be either UNDEFINED or PREINITIALIZED,
+        if desc.initial_layout != ImageLayout::UNDEFINED
+            && desc.initial_layout != ImageLayout::PREINITIALIZED
+        {
+            return Err(anyhow::anyhow!("Initial layout must be UNDEFINED"));
+        }
+
+        let image_info = vk::ImageCreateInfo::default()
+            .extent(desc.extent.as_raw())
+            .image_type(desc.get_image_type())
+            .mip_levels(1)
+            .array_layers(desc.array_len)
+            .format(desc.format)
+            .tiling(desc.tilting)
+            .initial_layout(ImageLayout::UNDEFINED)
+            .usage(desc.usage)
+            .sharing_mode(vk::SharingMode::EXCLUSIVE)
+            .samples(desc.samples)
+            .flags(vk::ImageCreateFlags::empty());
+
+        let image = unsafe { device.create_image(&image_info, None).unwrap() };
+        let requirements = unsafe { device.get_image_memory_requirements(image) };
+
+        let allocated_mem = allocator
+            .allocate_memory(&AllocationCreateDesc {
+                name: "",
+                requirements,
+                location: MemoryLocation::GpuOnly,
+                linear: false,
+                allocation_scheme: AllocationScheme::GpuAllocatorManaged,
+            })
+            .expect("Failed to allocate image memory");
+
+        unsafe {
+            device
+                .bind_image_memory(image, allocated_mem.memory(), allocated_mem.offset())
+                .unwrap()
+        };
+
+        let size = desc.extent.width as vk::DeviceSize
+            * desc.extent.height as vk::DeviceSize
+            * desc.extent.depth as vk::DeviceSize
+            * desc.get_pixel_size() as vk::DeviceSize;
+
+        // initialize one entry per array layer
+        let layouts = vec![desc.initial_layout; desc.array_len as usize];
+
+        Ok(Self(Arc::new(ImageInner {
+            device: device.clone(),
+            image,
+            desc: *desc,
+            allocator,
+            allocated_mem,
+            current_layout: Mutex::new(layouts),
+            size,
+        })))
+    }
+
+    pub fn get_desc(&self) -> &ImageDesc {
+        &self.0.desc
+    }
+
+    #[allow(dead_code)]
+    pub fn copy_image_to_buffer(
+        &self,
+        buffer: &mut Buffer,
+        queue: &Queue,
+        command_pool: &CommandPool,
+        dst_image_layout: vk::ImageLayout,
+        array_layer: u32,
+        region: TextureRegion,
+    ) {
+        execute_one_time_command(&self.0.device, command_pool, queue, |cmdbuf| {
+            self.record_transition_barrier(
+                cmdbuf,
+                array_layer,
+                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+            );
+            let region = vk::BufferImageCopy::default()
+                .buffer_offset(0)
+                .buffer_row_length(0)
+                .buffer_image_height(0)
+                .image_subresource(vk::ImageSubresourceLayers {
+                    aspect_mask: self.0.desc.get_aspect_mask(),
+                    mip_level: 0,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                })
+                .image_offset(vk::Offset3D {
+                    x: region.offset[0],
+                    y: region.offset[1],
+                    z: region.offset[2],
+                })
+                .image_extent(vk::Extent3D {
+                    width: region.extent.width,
+                    height: region.extent.height,
+                    depth: region.extent.depth,
+                });
+            unsafe {
+                self.0.device.cmd_copy_image_to_buffer(
+                    cmdbuf.as_raw(),
+                    self.as_raw(),
+                    vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                    buffer.as_raw(),
+                    &[region],
+                )
+            }
+            self.record_transition_barrier(cmdbuf, array_layer, dst_image_layout);
+        });
+    }
+
+    pub fn record_copy_to(
+        &self,
+        cmdbuf: &CommandBuffer,
+        dst_img: &Image,
+        src_img_dst_layout: vk::ImageLayout,
+        dst_img_dst_layout: vk::ImageLayout,
+    ) {
+        self.record_transition_barrier(cmdbuf, 0, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
+        dst_img.record_transition_barrier(cmdbuf, 0, vk::ImageLayout::TRANSFER_DST_OPTIMAL);
+
+        unsafe {
+            self.0.device.cmd_copy_image(
+                cmdbuf.as_raw(),
+                self.as_raw(),
+                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                dst_img.as_raw(),
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                &[self.get_copy_region()],
+            );
+        }
+
+        self.record_transition_barrier(cmdbuf, 0, src_img_dst_layout);
+        dst_img.record_transition_barrier(cmdbuf, 0, dst_img_dst_layout);
+    }
+
+    #[allow(dead_code)]
+    pub fn get_copy_region(&self) -> vk::ImageCopy {
+        vk::ImageCopy {
+            src_subresource: vk::ImageSubresourceLayers {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                mip_level: 0,
+                base_array_layer: 0,
+                layer_count: 1,
+            },
+            src_offset: vk::Offset3D { x: 0, y: 0, z: 0 },
+            dst_subresource: vk::ImageSubresourceLayers {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                mip_level: 0,
+                base_array_layer: 0,
+                layer_count: 1,
+            },
+            dst_offset: vk::Offset3D { x: 0, y: 0, z: 0 },
+            extent: self.0.desc.extent.as_raw(),
+        }
+    }
+
+    pub fn get_size(&self) -> vk::DeviceSize {
+        self.0.size
+    }
+
+    /// Compared to `get_copy_region`, this is a blit region that can take the image color space
+    /// into account.
+    pub fn get_blit_region(&self) -> vk::ImageBlit {
+        let offset_min = vk::Offset3D { x: 0, y: 0, z: 0 };
+        let offset_max = vk::Offset3D {
+            x: self.0.desc.extent.width as i32,
+            y: self.0.desc.extent.height as i32,
+            z: 1,
+        };
+        let offsets = [offset_min, offset_max];
+
+        vk::ImageBlit {
+            src_subresource: vk::ImageSubresourceLayers {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                mip_level: 0,
+                base_array_layer: 0,
+                layer_count: 1,
+            },
+            src_offsets: offsets,
+            dst_subresource: vk::ImageSubresourceLayers {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                mip_level: 0,
+                base_array_layer: 0,
+                layer_count: 1,
+            },
+            dst_offsets: offsets,
+        }
+    }
+
+    pub fn record_clear(
+        &self,
+        cmdbuf: &CommandBuffer,
+        layout_after_clear: Option<vk::ImageLayout>,
+        base_array_layer: u32,
+        clear_value: ClearValue,
+    ) {
+        let target_layout = layout_after_clear.unwrap_or(self.get_layout(base_array_layer));
+        const LAYOUT_USED_TO_CLEAR: vk::ImageLayout = vk::ImageLayout::TRANSFER_DST_OPTIMAL;
+        self.record_transition_barrier(cmdbuf, base_array_layer, LAYOUT_USED_TO_CLEAR);
+
+        if let ClearValue::Color(color_clear_value) = &clear_value {
+            let clear_value = match color_clear_value {
+                ColorClearValue::UInt(v) => vk::ClearColorValue { uint32: *v },
+                ColorClearValue::Float(v) => vk::ClearColorValue { float32: *v },
+                ColorClearValue::Int(v) => vk::ClearColorValue { int32: *v },
+            };
+            // imageLayout specifies the current layout of the image subresource ranges to be cleared,
+            // and must be VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR, VK_IMAGE_LAYOUT_GENERAL or VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL.
+            unsafe {
+                self.0.device.cmd_clear_color_image(
+                    cmdbuf.as_raw(),
+                    self.0.image,
+                    LAYOUT_USED_TO_CLEAR,
+                    &clear_value,
+                    &[vk::ImageSubresourceRange {
+                        aspect_mask: vk::ImageAspectFlags::COLOR,
+                        base_mip_level: 0,
+                        level_count: 1,
+                        base_array_layer,
+                        layer_count: 1,
+                    }],
+                );
+            }
+        }
+        if let ClearValue::DepthStencil(depth_stencil_clear_value) = &clear_value {
+            let (clear_value, aspect_mask) = match depth_stencil_clear_value {
+                DepthOrStencilClearValue::DepthAndStencil(depth, stencil) => (
+                    vk::ClearDepthStencilValue {
+                        depth: *depth,
+                        stencil: *stencil,
+                    },
+                    vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL,
+                ),
+                DepthOrStencilClearValue::Depth(depth) => (
+                    vk::ClearDepthStencilValue {
+                        depth: *depth,
+                        stencil: 0,
+                    },
+                    vk::ImageAspectFlags::DEPTH,
+                ),
+                DepthOrStencilClearValue::Stencil(stencil) => (
+                    vk::ClearDepthStencilValue {
+                        depth: 0.0,
+                        stencil: *stencil,
+                    },
+                    vk::ImageAspectFlags::STENCIL,
+                ),
+            };
+            unsafe {
+                self.0.device.cmd_clear_depth_stencil_image(
+                    cmdbuf.as_raw(),
+                    self.0.image,
+                    LAYOUT_USED_TO_CLEAR,
+                    &clear_value,
+                    &[vk::ImageSubresourceRange {
+                        aspect_mask,
+                        base_mip_level: 0,
+                        level_count: 1,
+                        base_array_layer,
+                        layer_count: 1,
+                    }],
+                );
+            }
+        }
+
+        self.record_transition_barrier(cmdbuf, base_array_layer, target_layout);
+    }
+
+    /// Transition just `array_layer` from its current layout → `target_layout`
+    pub fn record_transition_barrier(
+        &self,
+        cmdbuf: &CommandBuffer,
+        array_layer: u32,
+        target_layout: vk::ImageLayout,
+    ) {
+        let device = &self.0.device;
+        let mut layouts = self.0.current_layout.lock().unwrap();
+        let idx = array_layer as usize;
+        let old_layout = layouts[idx];
+
+        if old_layout == target_layout {
+            return;
+        }
+
+        // emit a barrier for exactly one layer
+        record_image_transition_barrier(
+            device.as_raw(),
+            cmdbuf.as_raw(),
+            old_layout,
+            target_layout,
+            self.0.image,
+            self.0.desc.get_aspect_mask(),
+            array_layer,
+            1, // only one layer
+        );
+
+        // update our tracked layout
+        layouts[idx] = target_layout;
+    }
+
+    /// Force set the layout for the given array layer.
+    #[allow(dead_code)]
+    pub fn set_layout(&self, array_layer: u32, new_layout: vk::ImageLayout) {
+        let mut layouts = self.0.current_layout.lock().unwrap();
+        layouts[array_layer as usize] = new_layout;
+    }
+
+    /// Loads an RGBA image from the given path and checks if it has the same size as the texture.
+    fn load_same_sized_image_as_raw_u8(&self, path: &str) -> Result<Vec<u8>> {
+        let image =
+            image::open(path).map_err(|e| anyhow::anyhow!("Failed to open image: {}", e))?;
+        let rgba_image = image.to_rgba8();
+        let (width, height) = rgba_image.dimensions();
+        if width != self.0.desc.extent.width || height != self.0.desc.extent.height {
+            return Err(anyhow::anyhow!(
+                "Image size does not match texture size: {}x{} != {}x{}",
+                width,
+                height,
+                self.0.desc.extent.width,
+                self.0.desc.extent.height
+            ));
+        }
+        if self.0.desc.extent.depth != 1 {
+            return Err(anyhow::anyhow!(
+                "Image depth must be 1, but got {}",
+                self.0.desc.extent.depth
+            ));
+        }
+        let mut data = rgba_image.into_raw();
+        data = self
+            .convert_rgba_data_to_image_format(&data)
+            .map_err(|e| anyhow::anyhow!("Failed to convert image data: {}", e))?;
+        Ok(data)
+    }
+
+    fn convert_rgba_data_to_image_format(&self, data: &[u8]) -> Result<Vec<u8>> {
+        use ash::vk::Format;
+        let fmt = self.0.desc.format;
+        // data is &[R, G, B, A,  R, G, B, A,  …]
+        match fmt {
+            Format::R8G8B8A8_UNORM => {
+                // already in RGBA8 – just clone
+                Ok(data.to_vec())
+            }
+            Format::R8_UNORM => {
+                // keep only R
+                if !data.len().is_multiple_of(4) {
+                    return Err(anyhow::anyhow!("Input RGBA data length not divisible by 4"));
+                }
+                let mut out = Vec::with_capacity(data.len() / 4);
+                for pixel in data.chunks_exact(4) {
+                    out.push(pixel[0]);
+                }
+                Ok(out)
+            }
+            Format::R8G8_UNORM => {
+                // keep R and G
+                if !data.len().is_multiple_of(4) {
+                    return Err(anyhow::anyhow!("Input RGBA data length not divisible by 4"));
+                }
+                let mut out = Vec::with_capacity(data.len() / 2);
+                for pixel in data.chunks_exact(4) {
+                    out.push(pixel[0]);
+                    out.push(pixel[1]);
+                }
+                Ok(out)
+            }
+            other => Err(anyhow::anyhow!(
+                "Unsupported image format for RGBA→raw conversion: {:?}",
+                other
+            )),
+        }
+    }
+
+    /// Loads an RGBA image from the given path and fills the texture with it.
+    ///
+    /// The image is transitioned into `dst_image_layout` after the copy.
+    /// If `dst_image_layout` is `None`, the image is transitioned back to where it was before the copy.
+    pub fn load_and_fill(
+        &self,
+        queue: &Queue,
+        command_pool: &CommandPool,
+        path: &str,
+        array_layer: u32,
+        dst_image_layout: Option<vk::ImageLayout>,
+    ) -> Result<()> {
+        let data = self.load_same_sized_image_as_raw_u8(path)?;
+        let region = TextureRegion::from_image(self);
+        self.fill_with_raw_u8(
+            queue,
+            command_pool,
+            region,
+            &data,
+            array_layer,
+            dst_image_layout,
+        )
+    }
+
+    /// Uploads an RGBA image to the texture. The image is transitioned into `dst_image_layout` after the copy.
+    ///
+    /// The image is transitioned into `dst_image_layout` after the copy.
+    /// If `dst_image_layout` is `None`, the image is transitioned back to where it was before the copy.
+    pub fn fill_with_raw_u8(
+        &self,
+        queue: &Queue,
+        command_pool: &CommandPool,
+        region: TextureRegion,
+        data: &[u8],
+        array_layer: u32,
+        dst_image_layout: Option<vk::ImageLayout>,
+    ) -> Result<()> {
+        let device = &self.0.device;
+
+        let buffer = Buffer::new_sized(
+            device.clone(),
+            self.get_allocator().clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_SRC),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            data.len() as _,
+        );
+        buffer
+            .fill(data)
+            .map_err(|e| anyhow::anyhow!("Failed to fill buffer: {}", e))?;
+
+        let target_layout = dst_image_layout.unwrap_or(self.get_layout(array_layer));
+
+        execute_one_time_command(device, command_pool, queue, |cmdbuf| {
+            self.record_transition_barrier(
+                cmdbuf,
+                array_layer,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            );
+            let region = vk::BufferImageCopy::default()
+                .buffer_offset(0)
+                .buffer_row_length(0)
+                .buffer_image_height(0)
+                .image_subresource(vk::ImageSubresourceLayers {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    mip_level: 0,
+                    base_array_layer: array_layer,
+                    layer_count: 1,
+                })
+                .image_offset(vk::Offset3D {
+                    x: region.offset[0],
+                    y: region.offset[1],
+                    z: region.offset[2],
+                })
+                .image_extent(region.extent.as_raw());
+            unsafe {
+                device.cmd_copy_buffer_to_image(
+                    cmdbuf.as_raw(),
+                    buffer.as_raw(),
+                    self.as_raw(),
+                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                    &[region],
+                )
+            }
+            self.record_transition_barrier(cmdbuf, array_layer, target_layout);
+        });
+        Ok(())
+    }
+
+    /// Obtain the image data from the texture of the full image region.
+    // TODO: Add support for regions and other formats. Add support for
+    // array layers.
+    #[allow(dead_code)]
+    pub fn fetch_data(&self, queue: &Queue, command_pool: &CommandPool) -> Result<Vec<u8>> {
+        let device = &self.0.device;
+
+        let buffer = Buffer::new_sized(
+            device.clone(),
+            self.get_allocator().clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
+            gpu_allocator::MemoryLocation::GpuToCpu,
+            self.get_size() as _,
+        );
+
+        execute_one_time_command(device, command_pool, queue, |cmdbuf| {
+            self.record_transition_barrier(cmdbuf, 0, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
+            let region = vk::BufferImageCopy::default()
+                .buffer_offset(0)
+                .buffer_row_length(0)
+                .buffer_image_height(0)
+                .image_subresource(vk::ImageSubresourceLayers {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    mip_level: 0,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                })
+                .image_offset(vk::Offset3D { x: 0, y: 0, z: 0 })
+                .image_extent(self.get_desc().extent.as_raw());
+            unsafe {
+                device.cmd_copy_image_to_buffer(
+                    cmdbuf.as_raw(),
+                    self.as_raw(),
+                    vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                    buffer.as_raw(),
+                    &[region],
+                )
+            }
+        });
+
+        let fetched_data = buffer.read_back()?;
+        Ok(fetched_data)
+    }
+
+    pub fn get_layout(&self, array_layer: u32) -> vk::ImageLayout {
+        *self
+            .0
+            .current_layout
+            .lock()
+            .unwrap()
+            .get(array_layer as usize)
+            .unwrap()
+    }
+
+    pub fn as_raw(&self) -> vk::Image {
+        self.0.image
+    }
+
+    pub fn get_allocator(&self) -> &Allocator {
+        &self.0.allocator
+    }
+}
+
+impl fmt::Debug for Image {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Image")
+            .field("image", &self.0.image)
+            .field("desc", &self.0.desc)
+            .field("size", &self.0.size)
+            .field("current_layout", &self.0.current_layout)
+            .finish()
+    }
+}
+
+/// Record a transition barrier for one subresource‐range of an image
+/// (you now provide base_array_layer + layer_count explicitly).
+#[allow(clippy::too_many_arguments)]
+pub fn record_image_transition_barrier(
+    device: &ash::Device,
+    cmdbuf: vk::CommandBuffer,
+    old_layout: vk::ImageLayout,
+    new_layout: vk::ImageLayout,
+    image: vk::Image,
+    aspect_mask: vk::ImageAspectFlags,
+    base_array_layer: u32,
+    layer_count: u32,
+) {
+    let (src_access, src_stage) = map_src_stage_access_flags(old_layout);
+    let (dst_access, dst_stage) = map_dst_stage_access_flags(new_layout);
+
+    let barrier = vk::ImageMemoryBarrier::default()
+        .old_layout(old_layout)
+        .new_layout(new_layout)
+        .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+        .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+        .image(image)
+        .subresource_range(vk::ImageSubresourceRange {
+            aspect_mask,
+            base_mip_level: 0,
+            level_count: 1,
+            base_array_layer,
+            layer_count,
+        })
+        .src_access_mask(src_access)
+        .dst_access_mask(dst_access);
+
+    unsafe {
+        device.cmd_pipeline_barrier(
+            cmdbuf,
+            src_stage,
+            dst_stage,
+            vk::DependencyFlags::empty(),
+            &[],
+            &[],
+            &[barrier],
+        )
+    }
+}
+
+/// A helper for determining the appropriate source (old layout) access mask
+/// and pipeline stage.
+///
+/// - SrcStage represents what stage(s) we are waiting for.
+/// - SrcAccessMask represents which part of writes performed should be made available.
+///
+/// Note that READ access is redundant for SrcAccessMask, as reading never
+/// requires a cache flush.
+///
+fn map_src_stage_access_flags(
+    old_layout: vk::ImageLayout,
+) -> (vk::AccessFlags, vk::PipelineStageFlags) {
+    let general_shader_stages: vk::PipelineStageFlags = vk::PipelineStageFlags::COMPUTE_SHADER
+        | vk::PipelineStageFlags::VERTEX_SHADER
+        | vk::PipelineStageFlags::FRAGMENT_SHADER;
+
+    match old_layout {
+        vk::ImageLayout::UNDEFINED => (
+            vk::AccessFlags::empty(),
+            vk::PipelineStageFlags::TOP_OF_PIPE,
+        ),
+        vk::ImageLayout::GENERAL => (vk::AccessFlags::SHADER_WRITE, general_shader_stages),
+        vk::ImageLayout::TRANSFER_SRC_OPTIMAL => {
+            (vk::AccessFlags::empty(), vk::PipelineStageFlags::TRANSFER)
+        }
+        vk::ImageLayout::TRANSFER_DST_OPTIMAL => (
+            vk::AccessFlags::TRANSFER_WRITE,
+            vk::PipelineStageFlags::TRANSFER,
+        ),
+        vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL => {
+            (vk::AccessFlags::empty(), general_shader_stages)
+        }
+        vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL => (
+            vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+        ),
+        vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL => (
+            vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
+            vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS
+                | vk::PipelineStageFlags::LATE_FRAGMENT_TESTS,
+        ),
+        vk::ImageLayout::PRESENT_SRC_KHR => (
+            vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+        ),
+        layout => {
+            panic!("Unsupported old_layout transition from: {:?}", layout);
+        }
+    }
+}
+
+/// A helper for determining the appropriate destination (new layout) access mask
+/// and pipeline stage.
+///
+/// - DstStage represents what stage(s) we are blocking.
+/// - DstAccessMask represents which part of available memory to be made visible.
+///   (By invalidating caches)
+///
+fn map_dst_stage_access_flags(
+    new_layout: vk::ImageLayout,
+) -> (vk::AccessFlags, vk::PipelineStageFlags) {
+    let general_shader_stages: vk::PipelineStageFlags = vk::PipelineStageFlags::COMPUTE_SHADER
+        | vk::PipelineStageFlags::VERTEX_SHADER
+        | vk::PipelineStageFlags::FRAGMENT_SHADER;
+
+    match new_layout {
+        vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL => {
+            (vk::AccessFlags::SHADER_READ, general_shader_stages)
+        }
+        vk::ImageLayout::GENERAL => (
+            vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE,
+            general_shader_stages,
+        ),
+        vk::ImageLayout::TRANSFER_SRC_OPTIMAL => (
+            vk::AccessFlags::TRANSFER_READ,
+            vk::PipelineStageFlags::TRANSFER,
+        ),
+        vk::ImageLayout::TRANSFER_DST_OPTIMAL => (
+            vk::AccessFlags::TRANSFER_WRITE,
+            vk::PipelineStageFlags::TRANSFER,
+        ),
+        vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL => (
+            vk::AccessFlags::COLOR_ATTACHMENT_READ | vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+        ),
+        vk::ImageLayout::PRESENT_SRC_KHR => (
+            vk::AccessFlags::empty(),
+            vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+        ),
+
+        layout => {
+            panic!("Unsupported new_layout transition to: {:?}", layout);
+        }
+    }
+}

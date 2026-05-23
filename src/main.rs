@@ -17,9 +17,10 @@ mod resource;
 mod tracer;
 mod tree_gen;
 mod util;
-mod vkn;
 mod wind;
 mod window;
+
+use re_flora_vkn as vkn;
 
 use app::AppController;
 use ash::vk;

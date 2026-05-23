@@ -2,7 +2,7 @@ use ash::vk;
 use resource_container_derive::ResourceContainer;
 
 use crate::resource::Resource;
-use crate::vkn::{
+use re_flora_vkn::{
     Allocator, Buffer, BufferUsage, Device, Extent2D, ImageDesc, ShaderModule, Texture,
 };
 

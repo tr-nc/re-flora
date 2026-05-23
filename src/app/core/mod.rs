@@ -39,10 +39,6 @@ use crate::tree_gen::TreeDesc;
 use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
 use crate::util::{GrowingFloraChunk, GrowingFloraQueue, LatestChunkQueue, ShaderCompiler, BENCH};
-use crate::vkn::{
-    record_image_transition_barrier, Allocator, Buffer, BufferUsage, CommandBuffer, Extent2D,
-    Fence, Semaphore, SwapchainDesc,
-};
 use crate::RenderFlags;
 use crate::{
     egui_renderer::EguiRenderer,
@@ -55,6 +51,10 @@ use ash::vk;
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
+use re_flora_vkn::{
+    record_image_transition_barrier, Allocator, Buffer, BufferUsage, CommandBuffer, Extent2D,
+    Fence, Semaphore, SwapchainDesc,
+};
 use re_flora_water::PondWaterConfig;
 use std::collections::HashMap;
 use std::fs;

@@ -7,22 +7,22 @@ use crate::util::AllocationStrategy;
 use crate::util::FirstFitAllocator;
 use crate::util::LatestChunkQueue;
 use crate::util::ShaderCompiler;
-use crate::vkn::Allocator;
-use crate::vkn::Buffer;
-use crate::vkn::BufferUsage;
-use crate::vkn::CommandBuffer;
-use crate::vkn::ComputePipeline;
-use crate::vkn::DescriptorPool;
-use crate::vkn::Extent3D;
-use crate::vkn::Fence;
-use crate::vkn::MemoryBarrier;
-use crate::vkn::PipelineBarrier;
-use crate::vkn::ShaderModule;
-use crate::vkn::VulkanContext;
 use anyhow::Result;
 use ash::vk;
 use glam::{UVec3, Vec2, Vec3};
 use petalsonic::{AcousticRay, BatchedAnyHitRayTracer};
+use re_flora_vkn::Allocator;
+use re_flora_vkn::Buffer;
+use re_flora_vkn::BufferUsage;
+use re_flora_vkn::CommandBuffer;
+use re_flora_vkn::ComputePipeline;
+use re_flora_vkn::DescriptorPool;
+use re_flora_vkn::Extent3D;
+use re_flora_vkn::Fence;
+use re_flora_vkn::MemoryBarrier;
+use re_flora_vkn::PipelineBarrier;
+use re_flora_vkn::ShaderModule;
+use re_flora_vkn::VulkanContext;
 use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
@@ -202,7 +202,7 @@ struct ContreePassTimingPass {
 }
 
 struct ContreePassTiming {
-    device: crate::vkn::Device,
+    device: re_flora_vkn::Device,
     query_pool: vk::QueryPool,
     timestamp_period_ns: f32,
     passes: Vec<ContreePassTimingPass>,
@@ -507,7 +507,7 @@ fn contree_level_node_offset(level: u32) -> u64 {
 }
 
 fn record_clear_sparse_leaf_nodes(
-    device: &crate::vkn::Device,
+    device: &re_flora_vkn::Device,
     cmdbuf: &CommandBuffer,
     sparse_nodes: &Buffer,
     total_levels: u32,
@@ -1698,7 +1698,7 @@ impl ContreeBuilder {
 }
 
 impl CpuChunkReadbackBuffers {
-    fn new(device: crate::vkn::Device, allocator: Allocator) -> Self {
+    fn new(device: re_flora_vkn::Device, allocator: Allocator) -> Self {
         Self {
             node_readback: Buffer::new_sized(
                 device.clone(),

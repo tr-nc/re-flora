@@ -46,14 +46,14 @@ use crate::geom::UAabb3;
 use crate::particles::{ParticleSnapshot, PARTICLE_CAPACITY};
 use crate::resource::ResourceContainer;
 use crate::util::{ShaderCompiler, TimeInfo};
-use crate::vkn::{
+use anyhow::Result;
+use ash::vk;
+use re_flora_vkn::{
     execute_one_time_command_with_fence, Allocator, ClearValue, ColorClearValue, CommandBuffer,
     ComputePipeline, DepthOrStencilClearValue, DescriptorPool, Extent2D, Extent3D, Framebuffer,
     GraphicsPipeline, MemoryBarrier, PipelineBarrier, PushConstantInfo, RenderPass, RenderTarget,
     Texture, Viewport, VulkanContext,
 };
-use anyhow::Result;
-use ash::vk;
 use std::collections::HashMap;
 
 const MAX_TERRAIN_QUERIES: usize = 1_000;

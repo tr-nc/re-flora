@@ -1,7 +1,7 @@
-use crate::vkn::{Allocator, Buffer, BufferUsage, Device};
 use ash::vk;
 use egui::epaint::{Primitive, Vertex};
 use egui::ClippedPrimitive;
+use re_flora_vkn::{Allocator, Buffer, BufferUsage, Device};
 use std::mem::size_of;
 
 /// Vertex and index buffer resources for one frame in flight.

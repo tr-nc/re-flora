@@ -1,6 +1,6 @@
 use super::App;
-use crate::vkn::{Device, Semaphore};
 use ash::vk;
+use re_flora_vkn::{Device, Semaphore};
 use winit::event_loop::ActiveEventLoop;
 
 impl App {

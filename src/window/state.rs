@@ -1,4 +1,4 @@
-use crate::vkn::Extent2D;
+use re_flora_vkn::Extent2D;
 use std::sync::Arc;
 use winit::{
     dpi::{LogicalPosition, LogicalSize},

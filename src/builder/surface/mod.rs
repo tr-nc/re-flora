@@ -86,7 +86,7 @@ struct SurfacePassTimingPass {
 }
 
 struct SurfacePassTiming {
-    device: crate::vkn::Device,
+    device: re_flora_vkn::Device,
     query_pool: vk::QueryPool,
     timestamp_period_ns: f32,
     max_query_count: u32,
@@ -396,7 +396,7 @@ pub struct SurfaceBuilder {
 impl SurfaceBuilder {
     pub fn new(
         vulkan_ctx: VulkanContext,
-        allocator: crate::vkn::Allocator,
+        allocator: re_flora_vkn::Allocator,
         shader_compiler: &ShaderCompiler,
         plain_builder_resources: &PlainBuilderResources,
         voxel_dim_per_chunk: UVec3,
@@ -1174,7 +1174,7 @@ impl SurfaceBuilder {
     }
 }
 
-fn record_compute_barrier(device: &crate::vkn::Device, cmdbuf: &CommandBuffer) {
+fn record_compute_barrier(device: &re_flora_vkn::Device, cmdbuf: &CommandBuffer) {
     let barrier = PipelineBarrier::new(
         vk::PipelineStageFlags::COMPUTE_SHADER,
         vk::PipelineStageFlags::COMPUTE_SHADER,
@@ -1184,7 +1184,7 @@ fn record_compute_barrier(device: &crate::vkn::Device, cmdbuf: &CommandBuffer) {
 }
 
 fn record_compute_to_indirect_and_shader_barrier(
-    device: &crate::vkn::Device,
+    device: &re_flora_vkn::Device,
     cmdbuf: &CommandBuffer,
 ) {
     let barrier = PipelineBarrier::new(
@@ -1199,7 +1199,7 @@ fn record_compute_to_indirect_and_shader_barrier(
 }
 
 fn record_clear_buffer_for_compute(
-    device: &crate::vkn::Device,
+    device: &re_flora_vkn::Device,
     cmdbuf: &CommandBuffer,
     buffer: &Buffer,
 ) {
