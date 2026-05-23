@@ -2,7 +2,8 @@
 .claude/
 .aider*
 __pycache__/
-/resource_container_derive
+/resource_container_derive/target/
+/resource_container_derive/Cargo.lock
 .gitnexus
 CLAUDE.md
 CLAUDE.local.md

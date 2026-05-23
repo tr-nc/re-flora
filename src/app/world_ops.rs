@@ -1,18 +1,93 @@
 use crate::app::world_edits::{BuildEdit, VoxelEdit, WorldBuildBackend, WorldEditPlan};
 use crate::builder::{
-    ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder, VOXEL_TYPE_CHERRY_WOOD,
+    ContreeBuildJob, ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder,
+    VOXEL_TYPE_CHERRY_WOOD,
 };
 use crate::geom::UAabb3;
 use crate::util::BENCH;
 use anyhow::Result;
 use glam::{UVec3, Vec3};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct FloraSphereEdit {
     pub(crate) center: Vec3,
     pub(crate) radius: f32,
     pub(crate) tick: u32,
+}
+
+struct DirectChunkRebuildRecord {
+    chunk_id: UVec3,
+    active_voxel_len: u32,
+    surface_elapsed: Duration,
+    contree_elapsed: Duration,
+    scene_elapsed: Duration,
+    scene_offsets: Option<(u64, u64)>,
+    contree_skipped: bool,
+    contree_done: bool,
+    failed: bool,
+}
+
+struct PendingDirectContree {
+    record_index: usize,
+    job: ContreeBuildJob,
+}
+
+fn finish_pending_direct_contree(
+    contree_builder: &mut ContreeBuilder,
+    pending: &mut Option<PendingDirectContree>,
+    records: &mut [DirectChunkRebuildRecord],
+) {
+    let Some(pending_job) = pending.take() else {
+        return;
+    };
+
+    let finish_start = Instant::now();
+    let job = pending_job.job;
+    let contree_result = match contree_builder.wait_build_and_alloc(&job) {
+        Ok(()) => contree_builder.finish_build_and_alloc(job),
+        Err(err) => {
+            contree_builder.discard_build_and_alloc(job);
+            Err(err)
+        }
+    };
+    let finish_elapsed = finish_start.elapsed();
+
+    let record = &mut records[pending_job.record_index];
+    record.contree_elapsed += finish_elapsed;
+
+    match contree_result {
+        Ok(contree) => {
+            record.scene_offsets = contree.scene_offsets;
+            record.contree_done = true;
+            BENCH
+                .lock()
+                .unwrap()
+                .record("build_and_alloc", record.contree_elapsed);
+        }
+        Err(err) => {
+            record.failed = true;
+            log::error!(
+                "Failed to finish contree for chunk {} after pipelined submit: {}",
+                record.chunk_id,
+                err
+            );
+        }
+    }
+}
+
+fn log_direct_chunk_rebuild_record(record: &DirectChunkRebuildRecord) {
+    log::debug!(
+        "[PERF][MESH_REBUILD_CHUNK] chunk {:?} total {:.2}ms surface {:.2}ms contree {:.2}ms scene_tex {:.2}ms active_voxels {} contree_skipped {}",
+        record.chunk_id,
+        (record.surface_elapsed + record.contree_elapsed + record.scene_elapsed).as_secs_f32()
+            * 1000.0,
+        record.surface_elapsed.as_secs_f32() * 1000.0,
+        record.contree_elapsed.as_secs_f32() * 1000.0,
+        record.scene_elapsed.as_secs_f32() * 1000.0,
+        record.active_voxel_len,
+        record.contree_skipped,
+    );
 }
 
 struct BuilderOnlyWorldBackend<'a> {
@@ -70,7 +145,7 @@ pub(crate) fn apply_voxel_edit(plain_builder: &mut PlainBuilder, edit: VoxelEdit
             voxel_type,
         } => plain_builder
             .chunk_modify_surface_spheres_with_voxel_type(
-                &bvh_nodes, &spheres, voxel_type, None, None,
+                &bvh_nodes, &spheres, voxel_type, None, None, None,
             )
             .map(|_| ()),
     }
@@ -161,26 +236,29 @@ pub(crate) fn mesh_generate_chunks(
     let chunk_count = chunk_ids.len();
     if chunk_count > 1 {
         log::debug!(
-            "[QUEUE][DIRECT_MULTI_REBUILD] rebuilding {} chunks synchronously in one call: {:?}",
+            "[QUEUE][DIRECT_MULTI_REBUILD] rebuilding {} chunks synchronously in one call with pipelined contree waits: {:?}",
             chunk_count,
             chunk_ids,
         );
     }
-    let mut rebuilt_chunk_count = 0;
-    let mut surface_total = std::time::Duration::ZERO;
-    let mut contree_total = std::time::Duration::ZERO;
-    let mut scene_total = std::time::Duration::ZERO;
+
+    let mut records = Vec::with_capacity(chunk_count);
+    let mut pending_contree: Option<PendingDirectContree> = None;
+    let mut contree_skipped_count = 0;
+    let mut surface_total = Duration::ZERO;
 
     for chunk_id in chunk_ids {
         let atlas_offset = chunk_id * voxel_dim_per_chunk;
-        let chunk_start = Instant::now();
 
         let surface_start = Instant::now();
-        let res = surface_builder.build_surface(chunk_id, true);
-        if let Err(e) = res {
-            log::error!("Failed to build surface for chunk {}: {}", chunk_id, e);
-            continue;
-        }
+        let active_voxel_len = match surface_builder.build_surface(chunk_id, true) {
+            Ok(active_voxel_len) => active_voxel_len,
+            Err(e) => {
+                finish_pending_direct_contree(contree_builder, &mut pending_contree, &mut records);
+                log::error!("Failed to build surface for chunk {}: {}", chunk_id, e);
+                continue;
+            }
+        };
 
         let surface_elapsed = surface_start.elapsed();
         surface_total += surface_elapsed;
@@ -189,46 +267,92 @@ pub(crate) fn mesh_generate_chunks(
             .unwrap()
             .record("build_surface", surface_elapsed);
 
-        let contree_start = Instant::now();
-        let res = contree_builder.build_and_alloc(atlas_offset).unwrap();
-        let contree_elapsed = contree_start.elapsed();
-        contree_total += contree_elapsed;
-        BENCH
-            .lock()
-            .unwrap()
-            .record("build_and_alloc", contree_elapsed);
-
-        let scene_start = Instant::now();
-        if let Some(res) = res {
-            let (node_buffer_offset, leaf_buffer_offset) = res;
-            scene_accel_builder
-                .update_scene_tex(chunk_id, Some((node_buffer_offset, leaf_buffer_offset)))?;
-        } else {
-            scene_accel_builder.update_scene_tex(chunk_id, None)?;
-            log::debug!("Cleared scene tex because the chunk is empty");
-        }
-        let scene_elapsed = scene_start.elapsed();
-        scene_total += scene_elapsed;
-        rebuilt_chunk_count += 1;
-
-        log::debug!(
-            "[PERF][MESH_REBUILD_CHUNK] chunk {:?} total {:.2}ms surface {:.2}ms contree {:.2}ms scene_tex {:.2}ms",
+        let record_index = records.len();
+        records.push(DirectChunkRebuildRecord {
             chunk_id,
-            chunk_start.elapsed().as_secs_f32() * 1000.0,
-            surface_elapsed.as_secs_f32() * 1000.0,
-            contree_elapsed.as_secs_f32() * 1000.0,
-            scene_elapsed.as_secs_f32() * 1000.0,
-        );
+            active_voxel_len,
+            surface_elapsed,
+            contree_elapsed: Duration::ZERO,
+            scene_elapsed: Duration::ZERO,
+            scene_offsets: None,
+            contree_skipped: active_voxel_len == 0,
+            contree_done: false,
+            failed: false,
+        });
+
+        // The surface build submitted after the previous contree build runs on the same queue.
+        // Once it has returned, the previous contree fence should usually already be satisfied;
+        // finishing it here avoids an extra blocking wait between every pair of chunks.
+        finish_pending_direct_contree(contree_builder, &mut pending_contree, &mut records);
+
+        if active_voxel_len == 0 {
+            contree_skipped_count += 1;
+            let contree_start = Instant::now();
+            let contree = contree_builder.clear_empty_surface_chunk(atlas_offset);
+            let contree_elapsed = contree_start.elapsed();
+            let record = &mut records[record_index];
+            record.contree_elapsed = contree_elapsed;
+            record.scene_offsets = contree.scene_offsets;
+            record.contree_done = true;
+            BENCH
+                .lock()
+                .unwrap()
+                .record("build_and_alloc", contree_elapsed);
+            continue;
+        }
+
+        let contree_submit_start = Instant::now();
+        match contree_builder.submit_build_and_alloc(atlas_offset) {
+            Ok(job) => {
+                records[record_index].contree_elapsed += contree_submit_start.elapsed();
+                pending_contree = Some(PendingDirectContree { record_index, job });
+            }
+            Err(e) => {
+                records[record_index].failed = true;
+                log::error!("Failed to submit contree for chunk {}: {}", chunk_id, e);
+            }
+        }
     }
 
+    finish_pending_direct_contree(contree_builder, &mut pending_contree, &mut records);
+
+    let mut rebuilt_chunk_count = 0;
+    let mut scene_total = Duration::ZERO;
+    for record in &mut records {
+        if record.failed || !record.contree_done {
+            continue;
+        }
+
+        let scene_start = Instant::now();
+        if let Some((node_buffer_offset, leaf_buffer_offset)) = record.scene_offsets {
+            scene_accel_builder.update_scene_tex(
+                record.chunk_id,
+                Some((node_buffer_offset, leaf_buffer_offset)),
+            )?;
+        } else {
+            scene_accel_builder.update_scene_tex(record.chunk_id, None)?;
+            log::debug!("Cleared scene tex because the chunk is empty");
+        }
+        record.scene_elapsed = scene_start.elapsed();
+        scene_total += record.scene_elapsed;
+        rebuilt_chunk_count += 1;
+
+        log_direct_chunk_rebuild_record(record);
+    }
+
+    let contree_total = records.iter().fold(Duration::ZERO, |total, record| {
+        total + record.contree_elapsed
+    });
+
     log::debug!(
-        "[PERF][MESH_REBUILD] chunks {} rebuilt {} total {:.2}ms surface {:.2}ms contree {:.2}ms scene_tex {:.2}ms",
+        "[PERF][MESH_REBUILD] chunks {} rebuilt {} total {:.2}ms surface {:.2}ms contree {:.2}ms scene_tex {:.2}ms contree_skipped {}",
         chunk_count,
         rebuilt_chunk_count,
         rebuild_start.elapsed().as_secs_f32() * 1000.0,
         surface_total.as_secs_f32() * 1000.0,
         contree_total.as_secs_f32() * 1000.0,
         scene_total.as_secs_f32() * 1000.0,
+        contree_skipped_count,
     );
 
     Ok(())
@@ -267,6 +391,7 @@ pub(crate) fn mesh_generate_preserve_flora_for_sphere_edit(
     Ok(())
 }
 
+#[allow(dead_code)]
 pub(crate) fn mesh_generate_chunk_preserve_flora_for_sphere_edit(
     surface_builder: &mut SurfaceBuilder,
     contree_builder: &mut ContreeBuilder,
@@ -278,11 +403,13 @@ pub(crate) fn mesh_generate_chunk_preserve_flora_for_sphere_edit(
     let atlas_offset = chunk_id * voxel_dim_per_chunk;
 
     let surface_start = Instant::now();
-    let res = surface_builder.build_surface(chunk_id, false);
-    if let Err(e) = res {
-        log::error!("Failed to build surface for chunk {}: {}", chunk_id, e);
-        return Ok(());
-    }
+    let active_voxel_len = match surface_builder.build_surface(chunk_id, false) {
+        Ok(active_voxel_len) => active_voxel_len,
+        Err(e) => {
+            log::error!("Failed to build surface for chunk {}: {}", chunk_id, e);
+            return Ok(());
+        }
+    };
     let surface_elapsed = surface_start.elapsed();
     BENCH
         .lock()
@@ -297,16 +424,23 @@ pub(crate) fn mesh_generate_chunk_preserve_flora_for_sphere_edit(
     )?;
 
     let contree_start = Instant::now();
-    let res = contree_builder.build_and_alloc(atlas_offset).unwrap();
+    let scene_offsets = if active_voxel_len == 0 {
+        contree_builder
+            .clear_empty_surface_chunk(atlas_offset)
+            .scene_offsets
+    } else {
+        contree_builder.build_and_alloc(atlas_offset)?
+    };
     let contree_elapsed = contree_start.elapsed();
     BENCH
         .lock()
         .unwrap()
         .record("build_and_alloc", contree_elapsed);
 
-    if let Some(res) = res {
+    if let Some(res) = scene_offsets {
         let (node_buffer_offset, leaf_buffer_offset) = res;
-        scene_accel_builder.update_scene_tex(chunk_id, Some((node_buffer_offset, leaf_buffer_offset)))?;
+        scene_accel_builder
+            .update_scene_tex(chunk_id, Some((node_buffer_offset, leaf_buffer_offset)))?;
     } else {
         scene_accel_builder.update_scene_tex(chunk_id, None)?;
         log::debug!("Cleared scene tex because the chunk is empty");

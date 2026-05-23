@@ -37,8 +37,17 @@ impl ChunkWorkQueue {
     }
 
     pub(crate) fn pop_nearest_to(&mut self, focus: Vec3, chunk_extent: UVec3) -> Option<UVec3> {
-        let nearest_idx = self.nearest_pending_index(focus, chunk_extent)?;
-        let aged_idx = self.aged_pending_index(focus, chunk_extent)?;
+        self.pop_nearest_to_if(focus, chunk_extent, |_| true)
+    }
+
+    pub(crate) fn pop_nearest_to_if(
+        &mut self,
+        focus: Vec3,
+        chunk_extent: UVec3,
+        mut is_ready: impl FnMut(UVec3) -> bool,
+    ) -> Option<UVec3> {
+        let nearest_idx = self.nearest_pending_index_if(focus, chunk_extent, &mut is_ready)?;
+        let aged_idx = self.aged_pending_index_if(focus, chunk_extent, &mut is_ready)?;
         let nearest_chunk_before_pop = self.pending.get(nearest_idx).copied();
         let chunk_idx = aged_idx;
         let chunk_id = self
@@ -68,22 +77,32 @@ impl ChunkWorkQueue {
         Some(chunk_id)
     }
 
-    fn nearest_pending_index(&self, focus: Vec3, chunk_extent: UVec3) -> Option<usize> {
+    fn nearest_pending_index_if(
+        &self,
+        focus: Vec3,
+        chunk_extent: UVec3,
+        mut is_ready: impl FnMut(UVec3) -> bool,
+    ) -> Option<usize> {
         self.pending
             .iter()
             .enumerate()
-            .filter(|(_, chunk_id)| self.queued.contains_key(chunk_id))
+            .filter(|(_, chunk_id)| self.queued.contains_key(chunk_id) && is_ready(**chunk_id))
             .min_by(|(_, left), (_, right)| {
                 compare_chunk_nearness(**left, **right, focus, chunk_extent)
             })
             .map(|(idx, _)| idx)
     }
 
-    fn aged_pending_index(&self, focus: Vec3, chunk_extent: UVec3) -> Option<usize> {
+    fn aged_pending_index_if(
+        &self,
+        focus: Vec3,
+        chunk_extent: UVec3,
+        mut is_ready: impl FnMut(UVec3) -> bool,
+    ) -> Option<usize> {
         self.pending
             .iter()
             .enumerate()
-            .filter(|(_, chunk_id)| self.queued.contains_key(chunk_id))
+            .filter(|(_, chunk_id)| self.queued.contains_key(chunk_id) && is_ready(**chunk_id))
             .min_by(|(_, left), (_, right)| {
                 compare_aged_chunk_priority(
                     **left,
@@ -243,6 +262,34 @@ mod tests {
         assert_eq!(queue.pop_nearest_to(focus, chunk_extent), Some(chunk(1)));
         assert_eq!(queue.pop_nearest_to(focus, chunk_extent), Some(chunk(2)));
         assert_eq!(queue.pop_nearest_to(focus, chunk_extent), Some(chunk(3)));
+    }
+
+    #[test]
+    fn pop_nearest_if_skips_unready_chunks_without_removing_them() {
+        let mut queue = ChunkWorkQueue::default();
+
+        queue.push(chunk(1));
+        queue.push(chunk(2));
+
+        let focus = Vec3::new(1.25, 0.5, 0.5);
+
+        assert_eq!(
+            queue.pop_nearest_to_if(focus, UVec3::ONE, |chunk_id| chunk_id == chunk(2)),
+            Some(chunk(2))
+        );
+        assert_eq!(queue.pop_nearest_to(focus, UVec3::ONE), Some(chunk(1)));
+    }
+
+    #[test]
+    fn pop_nearest_if_returns_none_when_no_chunks_are_ready() {
+        let mut queue = ChunkWorkQueue::default();
+
+        queue.push(chunk(1));
+
+        let focus = Vec3::new(1.25, 0.5, 0.5);
+
+        assert_eq!(queue.pop_nearest_to_if(focus, UVec3::ONE, |_| false), None);
+        assert_eq!(queue.pop_nearest_to(focus, UVec3::ONE), Some(chunk(1)));
     }
 
     #[test]

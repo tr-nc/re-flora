@@ -39,7 +39,7 @@ pub struct DeviceInfo {
 fn print_titled_table(title: &str, table: &comfy_table::Table) {
     let rendered = table.to_string();
     let Some(border) = rendered.lines().next() else {
-        println!("{}", title);
+        log::info!("{}", title);
         return;
     };
 
@@ -56,11 +56,11 @@ fn print_titled_table(title: &str, table: &comfy_table::Table) {
     );
     let body = rendered.lines().skip(1).collect::<Vec<_>>().join("\n");
 
-    println!("{}\n{}\n{}\n{}", border, title_row, border, body);
+    log::info!("{}\n{}\n{}\n{}", border, title_row, border, body);
 }
 
 fn print_all_devices_with_selection(device_infos: &[DeviceInfo], selection_idx: usize) {
-    println!("\n--- Suitable Physical Devices ---");
+    log::info!("\n--- Suitable Physical Devices ---");
     let mut table = comfy_table::Table::new();
     table.set_header(vec!["Device", "Type", "Memory (MB)", "Score", "Selected?"]);
 
@@ -78,7 +78,7 @@ fn print_all_devices_with_selection(device_infos: &[DeviceInfo], selection_idx: 
         ]);
     }
 
-    println!("{}", table);
+    log::info!("{}", table);
 }
 
 /// Checks for required device extensions and returns a list of any that are missing.
@@ -117,7 +117,7 @@ fn print_queue_family_info(
 ) {
     let queue_families = unsafe { instance.get_physical_device_queue_family_properties(device) };
 
-    println!("\n--- Queue Family Analysis for Selected Device ---");
+    log::info!("\n--- Queue Family Analysis for Selected Device ---");
     let mut table = comfy_table::Table::new();
     table.set_header(vec![
         "Queue Family Index",
@@ -169,12 +169,12 @@ fn print_queue_family_info(
         ]);
     }
 
-    println!("{}", table);
+    log::info!("{}", table);
 }
 
 /// Prints a summary table of selected queue families for different operations.
 fn print_selected_queue_families(qf_indices: &QueueFamilyIndices) {
-    println!("\n--- Selected Queue Family Indices ---");
+    log::info!("\n--- Selected Queue Family Indices ---");
     let mut table = comfy_table::Table::new();
     table.set_header(vec!["Queue Type", "Queue Family Index"]);
 
@@ -187,7 +187,7 @@ fn print_selected_queue_families(qf_indices: &QueueFamilyIndices) {
         &qf_indices.transfer_only.to_string(),
     ]);
 
-    println!("{}", table);
+    log::info!("{}", table);
 }
 
 struct QueueFamilyIndexCandidates {

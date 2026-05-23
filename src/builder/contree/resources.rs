@@ -114,7 +114,7 @@ impl ContreeBuilderResources {
             device.clone(),
             allocator.clone(),
             sparse_nodes_layout.clone(),
-            BufferUsage::empty(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
             gpu_allocator::MemoryLocation::GpuOnly,
             nodes_len_max as u64,
         );

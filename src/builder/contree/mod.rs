@@ -63,6 +63,7 @@ pub struct ContreeBuilder {
     /// Atlas offset <-> (node_alloc_id, leaf_alloc_id)
     chunk_offset_allocation_table: HashMap<UVec3, (u64, u64)>,
 
+    pass_timing: Option<ContreePassTiming>,
     contree_cmdbuf: CommandBuffer,
 
     leaf_allocator: FirstFitAllocator,
@@ -73,6 +74,8 @@ pub struct ContreeBuilder {
     cpu_scene_chunks: Vec<Option<UVec3>>,
     cpu_chunk_caches: HashMap<UVec3, Arc<CpuChunkCache>>,
     cpu_chunk_cache_queue: LatestChunkQueue<CpuChunkCacheBuildSource>,
+    cpu_chunk_source_revisions: HashMap<UVec3, u64>,
+    cpu_chunk_source_updates: Vec<ContreeCpuChunkSourceUpdate>,
     cpu_chunk_readback_buffers: Option<CpuChunkReadbackBuffers>,
     active_cpu_chunk_cache_job: Option<CpuChunkCacheFenceJob>,
     cpu_chunk_cache_decode_inflight: bool,
@@ -97,19 +100,46 @@ struct ContreeRayTracingRuntimeStats {
     total_update_time_us: AtomicU64,
 }
 
-#[derive(Debug, Default, Clone, Copy)]
-pub struct ContreeRayTracingRuntimeSnapshot {
-    pub update_count: usize,
-    pub updated_sources: usize,
-    pub occluded_sources: usize,
-    pub update_failures: usize,
-    pub total_update_time_us: u64,
-}
-
 struct ContreeRayQueryState {
     chunk_dim: UVec3,
     cpu_scene_chunks: Vec<Option<UVec3>>,
     cpu_chunk_caches: HashMap<UVec3, Arc<CpuChunkCache>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ContreeCpuChunkSourceUpdate {
+    pub chunk_idx: UVec3,
+    pub revision: u64,
+    pub is_present: bool,
+}
+
+#[allow(dead_code)]
+pub struct ContreeCpuRayQuerySnapshot {
+    chunk_dim: UVec3,
+    cpu_scene_chunks: Vec<Option<UVec3>>,
+    cpu_chunk_caches: HashMap<UVec3, Arc<CpuChunkCache>>,
+}
+
+#[allow(dead_code)]
+impl ContreeCpuRayQuerySnapshot {
+    pub fn query_terrain_ray_cpu(&self, origin: Vec3, direction: Vec3) -> Option<Vec3> {
+        query_terrain_ray_against_state(
+            self.chunk_dim,
+            &self.cpu_scene_chunks,
+            &self.cpu_chunk_caches,
+            origin,
+            direction,
+        )
+    }
+
+    pub fn query_terrain_occupancy_cpu(&self, point: Vec3) -> bool {
+        query_terrain_occupancy_against_state(
+            self.chunk_dim,
+            &self.cpu_scene_chunks,
+            &self.cpu_chunk_caches,
+            point,
+        )
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -132,6 +162,379 @@ struct CpuChunkCacheBuildSource {
     leaf_alloc_offset: u64,
     node_size_in_bytes: u64,
     leaf_size_in_bytes: u64,
+}
+
+pub struct ContreeBuildJob {
+    atlas_offset: UVec3,
+    chunk_idx: UVec3,
+    node_alloc_id: u64,
+    leaf_alloc_id: u64,
+    node_alloc_offset: u64,
+    leaf_alloc_offset: u64,
+    total_start: Instant,
+    submitted_at: Instant,
+    prealloc_elapsed: Duration,
+    submit_elapsed: Duration,
+    _command_buffer: CommandBuffer,
+    fence: Fence,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug)]
+pub struct ContreeBuildResult {
+    pub chunk_idx: UVec3,
+    pub scene_offsets: Option<(u64, u64)>,
+    pub source_revision: u64,
+    pub prealloc_ms: f64,
+    pub gpu_submit_ms: f64,
+    pub fence_latency_ms: f64,
+    pub size_ms: f64,
+    pub confirm_ms: f64,
+    pub total_ms: f64,
+    pub node_bytes: u64,
+    pub leaf_bytes: u64,
+}
+
+#[derive(Clone, Copy)]
+struct ContreePassTimingPass {
+    label: &'static str,
+    bench_key: &'static str,
+}
+
+struct ContreePassTiming {
+    device: crate::vkn::Device,
+    query_pool: vk::QueryPool,
+    timestamp_period_ns: f32,
+    passes: Vec<ContreePassTimingPass>,
+}
+
+impl Drop for ContreePassTiming {
+    fn drop(&mut self) {
+        unsafe {
+            self.device
+                .as_raw()
+                .destroy_query_pool(self.query_pool, None);
+        }
+    }
+}
+
+impl ContreePassTiming {
+    fn maybe_new(vulkan_ctx: &VulkanContext, total_levels: u32) -> Option<Self> {
+        if !log::log_enabled!(target: module_path!(), log::Level::Debug) {
+            return None;
+        }
+
+        let properties = unsafe {
+            vulkan_ctx
+                .instance()
+                .as_raw()
+                .get_physical_device_properties(vulkan_ctx.physical_device().as_raw())
+        };
+        if properties.limits.timestamp_compute_and_graphics != vk::TRUE {
+            log::debug!(
+                "[PERF][CONTREE_PASS_TIMING] disabled: timestamp_compute_and_graphics unsupported"
+            );
+            return None;
+        }
+        if properties.limits.timestamp_period <= 0.0 {
+            log::debug!(
+                "[PERF][CONTREE_PASS_TIMING] disabled: timestamp_period={}ns",
+                properties.limits.timestamp_period
+            );
+            return None;
+        }
+
+        let tree_pass_count = total_levels.saturating_sub(2) as usize;
+        if tree_pass_count > CONTREE_TREE_WRITE_TIMING_PASSES.len() {
+            log::debug!(
+                "[PERF][CONTREE_PASS_TIMING] disabled: total_levels={} exceeds timing label capacity {}",
+                total_levels,
+                CONTREE_TREE_WRITE_TIMING_PASSES.len(),
+            );
+            return None;
+        }
+
+        let passes = contree_pass_timing_passes(total_levels);
+        let query_count = (passes.len() * 2) as u32;
+        if query_count == 0 {
+            return None;
+        }
+
+        let create_info = vk::QueryPoolCreateInfo::default()
+            .query_type(vk::QueryType::TIMESTAMP)
+            .query_count(query_count);
+        let device = vulkan_ctx.device().clone();
+        let query_pool = match unsafe { device.as_raw().create_query_pool(&create_info, None) } {
+            Ok(pool) => pool,
+            Err(err) => {
+                log::warn!("[PERF][CONTREE_PASS_TIMING] disabled: query pool create failed: {err}");
+                return None;
+            }
+        };
+
+        log::debug!(
+            "[PERF][CONTREE_PASS_TIMING] enabled passes={} queries={} timestamp_period_ns={:.3}",
+            passes.len(),
+            query_count,
+            properties.limits.timestamp_period,
+        );
+
+        Some(Self {
+            device,
+            query_pool,
+            timestamp_period_ns: properties.limits.timestamp_period,
+            passes,
+        })
+    }
+
+    fn query_count(&self) -> u32 {
+        (self.passes.len() * 2) as u32
+    }
+
+    fn record_reset(&self, cmdbuf: &CommandBuffer) {
+        unsafe {
+            self.device.as_raw().cmd_reset_query_pool(
+                cmdbuf.as_raw(),
+                self.query_pool,
+                0,
+                self.query_count(),
+            );
+        }
+    }
+
+    fn record_start(&self, cmdbuf: &CommandBuffer, pass_index: usize) {
+        self.record_timestamp(cmdbuf, pass_index * 2);
+    }
+
+    fn record_end(&self, cmdbuf: &CommandBuffer, pass_index: usize) {
+        self.record_timestamp(cmdbuf, pass_index * 2 + 1);
+    }
+
+    fn record_timestamp(&self, cmdbuf: &CommandBuffer, query_index: usize) {
+        unsafe {
+            self.device.as_raw().cmd_write_timestamp(
+                cmdbuf.as_raw(),
+                vk::PipelineStageFlags::COMPUTE_SHADER,
+                self.query_pool,
+                query_index as u32,
+            );
+        }
+    }
+
+    fn collect_and_log(&self, chunk_idx: UVec3) {
+        let mut timestamps = vec![0_u64; self.query_count() as usize];
+        let readback_start = Instant::now();
+        let result = unsafe {
+            self.device.as_raw().get_query_pool_results(
+                self.query_pool,
+                0,
+                &mut timestamps,
+                vk::QueryResultFlags::TYPE_64 | vk::QueryResultFlags::WAIT,
+            )
+        };
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("contree_pass_timestamp_readback", readback_start.elapsed());
+
+        if let Err(err) = result {
+            log::warn!(
+                "[PERF][CONTREE_PASS_TIMING] chunk {:?} query readback failed: {err}",
+                chunk_idx
+            );
+            return;
+        }
+
+        let mut parts = Vec::with_capacity(self.passes.len());
+        let mut total_ms = 0.0;
+        let mut bench = crate::util::BENCH.lock().unwrap();
+        for (pass_index, pass) in self.passes.iter().enumerate() {
+            let start = timestamps[pass_index * 2];
+            let end = timestamps[pass_index * 2 + 1];
+            if end < start {
+                log::debug!(
+                    "[PERF][CONTREE_PASS_TIMING] chunk {:?} pass {} timestamp wrapped or reordered start={} end={}",
+                    chunk_idx,
+                    pass.label,
+                    start,
+                    end,
+                );
+                continue;
+            }
+
+            let duration_ms = (end - start) as f64 * self.timestamp_period_ns as f64 / 1_000_000.0;
+            total_ms += duration_ms;
+            bench.record(
+                pass.bench_key,
+                Duration::from_secs_f64(duration_ms / 1000.0),
+            );
+            parts.push(format!("{}={:.3}ms", pass.label, duration_ms));
+        }
+        bench.record(
+            "contree_pass_timed_total_gpu",
+            Duration::from_secs_f64(total_ms / 1000.0),
+        );
+        drop(bench);
+
+        log::debug!(
+            "[PERF][CONTREE_PASS_TIMING] chunk {:?} pass_total={:.3}ms {}",
+            chunk_idx,
+            total_ms,
+            parts.join(" "),
+        );
+    }
+}
+
+const CONTREE_TREE_WRITE_TIMING_PASSES: [ContreePassTimingPass; 8] = [
+    ContreePassTimingPass {
+        label: "tree_write_0",
+        bench_key: "contree_pass_tree_write_0_gpu",
+    },
+    ContreePassTimingPass {
+        label: "tree_write_1",
+        bench_key: "contree_pass_tree_write_1_gpu",
+    },
+    ContreePassTimingPass {
+        label: "tree_write_2",
+        bench_key: "contree_pass_tree_write_2_gpu",
+    },
+    ContreePassTimingPass {
+        label: "tree_write_3",
+        bench_key: "contree_pass_tree_write_3_gpu",
+    },
+    ContreePassTimingPass {
+        label: "tree_write_4",
+        bench_key: "contree_pass_tree_write_4_gpu",
+    },
+    ContreePassTimingPass {
+        label: "tree_write_5",
+        bench_key: "contree_pass_tree_write_5_gpu",
+    },
+    ContreePassTimingPass {
+        label: "tree_write_6",
+        bench_key: "contree_pass_tree_write_6_gpu",
+    },
+    ContreePassTimingPass {
+        label: "tree_write_7",
+        bench_key: "contree_pass_tree_write_7_gpu",
+    },
+];
+
+const CONTREE_BUFFER_UPDATE_TIMING_PASSES: [ContreePassTimingPass; 8] = [
+    ContreePassTimingPass {
+        label: "buffer_update_0",
+        bench_key: "contree_pass_buffer_update_0_gpu",
+    },
+    ContreePassTimingPass {
+        label: "buffer_update_1",
+        bench_key: "contree_pass_buffer_update_1_gpu",
+    },
+    ContreePassTimingPass {
+        label: "buffer_update_2",
+        bench_key: "contree_pass_buffer_update_2_gpu",
+    },
+    ContreePassTimingPass {
+        label: "buffer_update_3",
+        bench_key: "contree_pass_buffer_update_3_gpu",
+    },
+    ContreePassTimingPass {
+        label: "buffer_update_4",
+        bench_key: "contree_pass_buffer_update_4_gpu",
+    },
+    ContreePassTimingPass {
+        label: "buffer_update_5",
+        bench_key: "contree_pass_buffer_update_5_gpu",
+    },
+    ContreePassTimingPass {
+        label: "buffer_update_6",
+        bench_key: "contree_pass_buffer_update_6_gpu",
+    },
+    ContreePassTimingPass {
+        label: "buffer_update_7",
+        bench_key: "contree_pass_buffer_update_7_gpu",
+    },
+];
+
+fn contree_pass_timing_passes(total_levels: u32) -> Vec<ContreePassTimingPass> {
+    let mut passes = vec![
+        ContreePassTimingPass {
+            label: "buffer_setup",
+            bench_key: "contree_pass_buffer_setup_gpu",
+        },
+        ContreePassTimingPass {
+            label: "leaf_write",
+            bench_key: "contree_pass_leaf_write_gpu",
+        },
+        ContreePassTimingPass {
+            label: "buffer_update_after_leaf",
+            bench_key: "contree_pass_buffer_update_after_leaf_gpu",
+        },
+    ];
+
+    let tree_pass_count = total_levels.saturating_sub(2) as usize;
+    for pass_index in 0..tree_pass_count {
+        if let Some(pass) = CONTREE_TREE_WRITE_TIMING_PASSES.get(pass_index) {
+            passes.push(*pass);
+        }
+
+        if pass_index + 1 == tree_pass_count {
+            passes.push(ContreePassTimingPass {
+                label: "last_buffer_update",
+                bench_key: "contree_pass_last_buffer_update_gpu",
+            });
+        } else if let Some(pass) = CONTREE_BUFFER_UPDATE_TIMING_PASSES.get(pass_index) {
+            passes.push(*pass);
+        }
+    }
+
+    passes.push(ContreePassTimingPass {
+        label: "concat",
+        bench_key: "contree_pass_concat_gpu",
+    });
+    passes
+}
+
+fn contree_level_node_count(level: u32) -> u64 {
+    64_u64.pow(level)
+}
+
+fn contree_level_node_offset(level: u32) -> u64 {
+    let mut offset = 0;
+    for current_level in 0..level {
+        offset += contree_level_node_count(current_level);
+    }
+    offset
+}
+
+fn record_clear_sparse_leaf_nodes(
+    device: &crate::vkn::Device,
+    cmdbuf: &CommandBuffer,
+    sparse_nodes: &Buffer,
+    total_levels: u32,
+) {
+    let leaf_node_level = total_levels.saturating_sub(2);
+    let offset_bytes = contree_level_node_offset(leaf_node_level) * SIZE_OF_NODE_ELEMENT;
+    let size_bytes = contree_level_node_count(leaf_node_level) * SIZE_OF_NODE_ELEMENT;
+
+    unsafe {
+        device.as_raw().cmd_fill_buffer(
+            cmdbuf.as_raw(),
+            sparse_nodes.as_raw(),
+            offset_bytes,
+            size_bytes,
+            0,
+        );
+    }
+
+    let barrier = PipelineBarrier::new(
+        vk::PipelineStageFlags::TRANSFER,
+        vk::PipelineStageFlags::COMPUTE_SHADER,
+        vec![MemoryBarrier::new(
+            vk::AccessFlags::TRANSFER_WRITE,
+            vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE,
+        )],
+    );
+    barrier.record_insert(device, cmdbuf);
 }
 
 struct CpuChunkReadbackBuffers {
@@ -165,28 +568,6 @@ struct CpuChunkCacheWorkerResult {
 impl ContreeAnyHitRayTracer {
     pub fn set_enabled(&self, enabled: bool) {
         self.enabled.store(enabled, Ordering::Relaxed);
-    }
-
-    pub fn take_runtime_snapshot(&self) -> ContreeRayTracingRuntimeSnapshot {
-        ContreeRayTracingRuntimeSnapshot {
-            update_count: self.runtime_stats.update_count.swap(0, Ordering::Relaxed),
-            updated_sources: self
-                .runtime_stats
-                .updated_sources
-                .swap(0, Ordering::Relaxed),
-            occluded_sources: self
-                .runtime_stats
-                .occluded_sources
-                .swap(0, Ordering::Relaxed),
-            update_failures: self
-                .runtime_stats
-                .update_failures
-                .swap(0, Ordering::Relaxed),
-            total_update_time_us: self
-                .runtime_stats
-                .total_update_time_us
-                .swap(0, Ordering::Relaxed),
-        }
     }
 }
 
@@ -320,8 +701,12 @@ impl ContreeBuilder {
 
         let fixed_pool = DescriptorPool::new(device).unwrap();
 
-        let contree_buffer_setup_ppl =
-            ComputePipeline::new(device, &contree_buffer_setup_sm, &fixed_pool, &[&resources]);
+        let contree_buffer_setup_ppl = ComputePipeline::new(
+            device,
+            &contree_buffer_setup_sm,
+            &fixed_pool,
+            &[&resources, surfacer_resources],
+        );
         let contree_leaf_write_ppl = ComputePipeline::new(
             device,
             &contree_leaf_write_sm,
@@ -374,16 +759,19 @@ impl ContreeBuilder {
         // contree_concat_ppl.set_descriptor_sets(vec![contree_concat_ds]);
 
         // --- Command Buffer Recording ---
+        let total_levels = get_level(voxel_dim_per_chunk);
+        let pass_timing = ContreePassTiming::maybe_new(&vulkan_ctx, total_levels);
         let contree_cmdbuf = Self::record_cmdbuf(
             &vulkan_ctx,
             &resources,
-            get_level(voxel_dim_per_chunk),
+            total_levels,
             &contree_buffer_setup_ppl,
             &contree_leaf_write_ppl,
             &contree_tree_write_ppl,
             &contree_buffer_update_ppl,
             &contree_last_buffer_update_ppl,
             &contree_concat_ppl,
+            pass_timing.as_ref(),
         );
 
         let node_allocator = FirstFitAllocator::new(node_pool_size_in_bytes);
@@ -417,6 +805,7 @@ impl ContreeBuilder {
             contree_concat_ppl,
             fixed_pool,
             chunk_offset_allocation_table: HashMap::new(),
+            pass_timing,
             contree_cmdbuf,
             node_allocator,
             leaf_allocator,
@@ -425,6 +814,8 @@ impl ContreeBuilder {
             cpu_scene_chunks: vec![None; (chunk_dim.x * chunk_dim.y * chunk_dim.z) as usize],
             cpu_chunk_caches: HashMap::new(),
             cpu_chunk_cache_queue: LatestChunkQueue::default(),
+            cpu_chunk_source_revisions: HashMap::new(),
+            cpu_chunk_source_updates: Vec::new(),
             cpu_chunk_readback_buffers,
             active_cpu_chunk_cache_job: None,
             cpu_chunk_cache_decode_inflight: false,
@@ -446,6 +837,7 @@ impl ContreeBuilder {
         contree_buffer_update_ppl: &ComputePipeline,
         contree_last_buffer_update_ppl: &ComputePipeline,
         contree_concat_ppl: &ComputePipeline,
+        pass_timing: Option<&ContreePassTiming>,
     ) -> CommandBuffer {
         let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
         let indirect_access_memory_barrier = MemoryBarrier::new_indirect_access();
@@ -471,40 +863,87 @@ impl ContreeBuilder {
             depth: 1,
         };
 
-        contree_buffer_setup_ppl.record(&cmdbuf, dispatch_1x1x1, None);
+        if let Some(timing) = pass_timing {
+            timing.record_reset(&cmdbuf);
+        }
+        let mut timing_pass_index = 0usize;
+        macro_rules! record_timed_pass {
+            ($body:block) => {{
+                if let Some(timing) = pass_timing {
+                    timing.record_start(&cmdbuf, timing_pass_index);
+                }
+                let result = { $body };
+                if let Some(timing) = pass_timing {
+                    timing.record_end(&cmdbuf, timing_pass_index);
+                    timing_pass_index += 1;
+                }
+                result
+            }};
+        }
+
+        record_timed_pass!({
+            contree_buffer_setup_ppl.record(&cmdbuf, dispatch_1x1x1, None);
+        });
 
         shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
         indirect_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
 
-        contree_leaf_write_ppl.record_indirect(&cmdbuf, &resources.level_dispatch_indirect, None);
+        record_clear_sparse_leaf_nodes(
+            vulkan_ctx.device(),
+            &cmdbuf,
+            &resources.sparse_nodes,
+            total_levels,
+        );
+
+        record_timed_pass!({
+            contree_leaf_write_ppl.record_indirect(
+                &cmdbuf,
+                &resources.level_dispatch_indirect,
+                None,
+            );
+        });
 
         shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
 
-        contree_buffer_update_ppl.record(&cmdbuf, dispatch_1x1x1, None);
+        record_timed_pass!({
+            contree_buffer_update_ppl.record(&cmdbuf, dispatch_1x1x1, None);
+        });
 
         shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
         indirect_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
 
         for i in 0..(total_levels - 2) {
-            contree_tree_write_ppl.record_indirect(
-                &cmdbuf,
-                &resources.level_dispatch_indirect,
-                None,
-            );
+            record_timed_pass!({
+                contree_tree_write_ppl.record_indirect(
+                    &cmdbuf,
+                    &resources.level_dispatch_indirect,
+                    None,
+                );
+            });
 
             shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
 
             if i != total_levels - 3 {
-                contree_buffer_update_ppl.record(&cmdbuf, dispatch_1x1x1, None);
+                record_timed_pass!({
+                    contree_buffer_update_ppl.record(&cmdbuf, dispatch_1x1x1, None);
+                });
             } else {
-                contree_last_buffer_update_ppl.record(&cmdbuf, dispatch_1x1x1, None);
+                record_timed_pass!({
+                    contree_last_buffer_update_ppl.record(&cmdbuf, dispatch_1x1x1, None);
+                });
             }
 
             shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
             indirect_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
         }
 
-        contree_concat_ppl.record_indirect(&cmdbuf, &resources.concat_dispatch_indirect, None);
+        record_timed_pass!({
+            contree_concat_ppl.record_indirect(&cmdbuf, &resources.concat_dispatch_indirect, None);
+        });
+
+        if let Some(timing) = pass_timing {
+            assert_eq!(timing_pass_index, timing.passes.len());
+        }
 
         cmdbuf.end();
         cmdbuf
@@ -570,6 +1009,33 @@ impl ContreeBuilder {
         }
     }
 
+    pub fn cpu_chunk_cache_jobs_idle(&self) -> bool {
+        self.cpu_chunk_cache_jobs_are_idle()
+    }
+
+    #[allow(dead_code)]
+    pub fn cpu_chunk_query_source_ready(&self, chunk_idx: UVec3) -> bool {
+        !self.cpu_chunk_cache_queue.has_unfinished_work(chunk_idx)
+    }
+
+    #[allow(dead_code)]
+    pub fn cpu_chunk_query_source_revision(&self, chunk_idx: UVec3) -> Option<u64> {
+        self.cpu_chunk_source_revisions.get(&chunk_idx).copied()
+    }
+
+    pub fn take_cpu_chunk_source_updates(&mut self) -> Vec<ContreeCpuChunkSourceUpdate> {
+        std::mem::take(&mut self.cpu_chunk_source_updates)
+    }
+
+    #[allow(dead_code)]
+    pub fn cpu_ray_query_snapshot(&self) -> ContreeCpuRayQuerySnapshot {
+        ContreeCpuRayQuerySnapshot {
+            chunk_dim: self.chunk_dim,
+            cpu_scene_chunks: self.cpu_scene_chunks.clone(),
+            cpu_chunk_caches: self.cpu_chunk_caches.clone(),
+        }
+    }
+
     pub fn query_terrain_ray_cpu(&self, origin: Vec3, direction: Vec3) -> Option<Vec3> {
         query_terrain_ray_against_state(
             self.chunk_dim,
@@ -580,6 +1046,27 @@ impl ContreeBuilder {
         )
     }
 
+    #[allow(dead_code)]
+    pub fn query_terrain_occupancy_cpu(&self, point: Vec3) -> bool {
+        query_terrain_occupancy_against_state(
+            self.chunk_dim,
+            &self.cpu_scene_chunks,
+            &self.cpu_chunk_caches,
+            point,
+        )
+    }
+
+    #[allow(dead_code)]
+    pub fn has_cpu_chunk_cache(&self, chunk_idx: UVec3) -> bool {
+        if chunk_idx.cmplt(self.chunk_dim).any() {
+            scene_chunk_present_in_grid(self.chunk_dim, &self.cpu_scene_chunks, chunk_idx)
+                && self.cpu_chunk_caches.contains_key(&chunk_idx)
+        } else {
+            false
+        }
+    }
+
+    #[allow(dead_code)]
     fn build_contree(
         &mut self,
         contree_dim: UVec3,
@@ -630,32 +1117,151 @@ impl ContreeBuilder {
 
     /// Returns: (node_alloc_offset, leaf_alloc_offset)
     pub fn build_and_alloc(&mut self, atlas_offset: UVec3) -> Result<Option<(u64, u64)>> {
+        let job = self.submit_build_and_alloc(atlas_offset)?;
+        self.vulkan_ctx.wait_for_fences(&[job.fence.as_raw()])?;
+        Ok(self.finish_build_and_alloc(job)?.scene_offsets)
+    }
+
+    pub fn clear_empty_surface_chunk(&mut self, atlas_offset: UVec3) -> ContreeBuildResult {
+        let total_start = Instant::now();
+        let chunk_idx = atlas_offset / self.voxel_dim_per_chunk;
+        let source_revision = self.clear_empty_chunk_state(atlas_offset, chunk_idx);
+        let total_elapsed = total_start.elapsed();
+        crate::util::BENCH
+            .lock()
+            .unwrap()
+            .record("contree_empty_surface_skip_total", total_elapsed);
+        log::debug!(
+            "[QUEUE][CONTREE_REBUILD] chunk {:?} empty source_rev={} total_ms={:.2} gpu_submit_ms=0.00 fence_latency_ms=0.00 size_ms=0.00 skipped_surface_empty=true",
+            chunk_idx,
+            source_revision,
+            total_elapsed.as_secs_f32() * 1000.0,
+        );
+
+        ContreeBuildResult {
+            chunk_idx,
+            scene_offsets: None,
+            source_revision,
+            prealloc_ms: 0.0,
+            gpu_submit_ms: 0.0,
+            fence_latency_ms: 0.0,
+            size_ms: 0.0,
+            confirm_ms: 0.0,
+            total_ms: total_elapsed.as_secs_f64() * 1000.0,
+            node_bytes: 0,
+            leaf_bytes: 0,
+        }
+    }
+
+    pub fn submit_build_and_alloc(&mut self, atlas_offset: UVec3) -> Result<ContreeBuildJob> {
         let total_start = Instant::now();
         let atlas_dim = self.voxel_dim_per_chunk;
         let chunk_idx = atlas_offset / self.voxel_dim_per_chunk;
 
         let alloc_start = Instant::now();
-        let (node_alloc_offset_in_bytes, leaf_alloc_offset_in_bytes) = self.pre_allocate_chunk(
-            MAX_NODE_BUFFER_SIZE_IN_BYTES,
-            MAX_LEAF_BUFFER_SIZE_IN_BYTES,
-            atlas_offset,
-        );
+        let node_allocation = self
+            .node_allocator
+            .allocate(MAX_NODE_BUFFER_SIZE_IN_BYTES)
+            .map_err(|err| anyhow::anyhow!("failed to allocate contree node buffer: {err}"))?;
+        let leaf_allocation = self
+            .leaf_allocator
+            .allocate(MAX_LEAF_BUFFER_SIZE_IN_BYTES)
+            .map_err(|err| anyhow::anyhow!("failed to allocate contree leaf buffer: {err}"))?;
+        let prealloc_elapsed = alloc_start.elapsed();
         crate::util::BENCH
             .lock()
             .unwrap()
-            .record("contree_pre_allocate", alloc_start.elapsed());
-        // the offset's unit is in bytes, we need to convert it to array idx, each element is a 3*u32
+            .record("contree_pre_allocate", prealloc_elapsed);
+
+        let node_alloc_offset_in_bytes = node_allocation.offset;
+        let leaf_alloc_offset_in_bytes = leaf_allocation.offset;
         let node_alloc_offset = node_alloc_offset_in_bytes / SIZE_OF_NODE_ELEMENT;
-        // the element of leaf data is a u32
         let leaf_alloc_offset = leaf_alloc_offset_in_bytes / SIZE_OF_LEAF_ELEMENT;
 
-        let build_start = Instant::now();
-        self.build_contree(atlas_dim, node_alloc_offset, leaf_alloc_offset)?;
-        let build_elapsed = build_start.elapsed();
+        update_contree_build_info(
+            &self.resources.contree_build_info,
+            atlas_dim,
+            get_level(atlas_dim),
+            node_alloc_offset as u32,
+            leaf_alloc_offset as u32,
+        )?;
+
+        let cmdbuf = self.contree_cmdbuf.clone();
+        let fence = Fence::new(self.vulkan_ctx.device(), false);
+        let submit_start = Instant::now();
+        cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), Some(&fence));
+        let submitted_at = Instant::now();
+        let submit_elapsed = submit_start.elapsed();
         crate::util::BENCH
             .lock()
             .unwrap()
-            .record("contree_build_gpu", build_elapsed);
+            .record("contree_build_gpu_submit", submit_elapsed);
+        log::debug!(
+            "[QUEUE][CONTREE_BUILD] submit chunk {:?} node_offset={} leaf_offset={} prealloc_ms={:.2} submit_ms={:.2}",
+            chunk_idx,
+            node_alloc_offset,
+            leaf_alloc_offset,
+            prealloc_elapsed.as_secs_f32() * 1000.0,
+            submit_elapsed.as_secs_f32() * 1000.0,
+        );
+
+        Ok(ContreeBuildJob {
+            atlas_offset,
+            chunk_idx,
+            node_alloc_id: node_allocation.id,
+            leaf_alloc_id: leaf_allocation.id,
+            node_alloc_offset,
+            leaf_alloc_offset,
+            total_start,
+            submitted_at,
+            prealloc_elapsed,
+            submit_elapsed,
+            _command_buffer: cmdbuf,
+            fence,
+        })
+    }
+
+    pub fn build_and_alloc_ready(&self, job: &ContreeBuildJob) -> Result<bool> {
+        unsafe {
+            self.vulkan_ctx
+                .device()
+                .as_raw()
+                .get_fence_status(job.fence.as_raw())
+        }
+        .map_err(|err| anyhow::anyhow!("failed to poll contree build fence: {err}"))
+    }
+
+    pub fn wait_build_and_alloc(&self, job: &ContreeBuildJob) -> Result<()> {
+        self.vulkan_ctx.wait_for_fences(&[job.fence.as_raw()])?;
+        Ok(())
+    }
+
+    pub fn discard_build_and_alloc(&mut self, job: ContreeBuildJob) {
+        if let Err(err) = self.node_allocator.deallocate(job.node_alloc_id) {
+            log::error!(
+                "Failed to deallocate stale contree node allocation for {:?}: {}",
+                job.chunk_idx,
+                err,
+            );
+        }
+        if let Err(err) = self.leaf_allocator.deallocate(job.leaf_alloc_id) {
+            log::error!(
+                "Failed to deallocate stale contree leaf allocation for {:?}: {}",
+                job.chunk_idx,
+                err,
+            );
+        }
+    }
+
+    pub fn finish_build_and_alloc(&mut self, job: ContreeBuildJob) -> Result<ContreeBuildResult> {
+        let fence_latency_elapsed = job.submitted_at.elapsed();
+        crate::util::BENCH.lock().unwrap().record(
+            "contree_build_gpu",
+            fence_latency_elapsed + job.submit_elapsed,
+        );
+        if let Some(pass_timing) = self.pass_timing.as_ref() {
+            pass_timing.collect_and_log(job.chunk_idx);
+        }
 
         let size_start = Instant::now();
         let (confirmed_node_buffer_size_in_bytes, confirmed_leaf_buffer_size_in_bytes) =
@@ -667,32 +1273,49 @@ impl ContreeBuilder {
             .record("contree_size_total", size_elapsed);
 
         if confirmed_node_buffer_size_in_bytes == 0 || confirmed_leaf_buffer_size_in_bytes == 0 {
-            self.cpu_chunk_caches.remove(&chunk_idx);
-            self.remove_shared_chunk_cache(chunk_idx);
-            self.cpu_chunk_cache_queue.clear(chunk_idx);
-            self.set_scene_chunk(chunk_idx, None);
-            self.deallocate_chunk_allocation(atlas_offset);
-            let total_elapsed = total_start.elapsed();
+            let chunk_idx = job.chunk_idx;
+            let source_revision = self.clear_empty_chunk_state(job.atlas_offset, chunk_idx);
+            let total_elapsed = job.total_start.elapsed();
+            let prealloc_ms = job.prealloc_elapsed.as_secs_f64() * 1000.0;
+            let gpu_submit_ms = job.submit_elapsed.as_secs_f64() * 1000.0;
+            self.discard_build_and_alloc(job);
             crate::util::BENCH
                 .lock()
                 .unwrap()
                 .record("contree_build_and_alloc_total", total_elapsed);
             log::debug!(
-                "[QUEUE][CONTREE_REBUILD] chunk {:?} empty total_ms={:.2} build_gpu_ms={:.2} size_ms={:.2}",
+                "[QUEUE][CONTREE_REBUILD] chunk {:?} empty source_rev={} total_ms={:.2} gpu_submit_ms={:.2} fence_latency_ms={:.2} size_ms={:.2}",
                 chunk_idx,
+                source_revision,
                 total_elapsed.as_secs_f32() * 1000.0,
-                build_elapsed.as_secs_f32() * 1000.0,
+                gpu_submit_ms,
+                fence_latency_elapsed.as_secs_f32() * 1000.0,
                 size_elapsed.as_secs_f32() * 1000.0,
             );
 
-            return Ok(None);
+            return Ok(ContreeBuildResult {
+                chunk_idx,
+                scene_offsets: None,
+                source_revision,
+                prealloc_ms,
+                gpu_submit_ms,
+                fence_latency_ms: fence_latency_elapsed.as_secs_f64() * 1000.0,
+                size_ms: size_elapsed.as_secs_f64() * 1000.0,
+                confirm_ms: 0.0,
+                total_ms: total_elapsed.as_secs_f64() * 1000.0,
+                node_bytes: 0,
+                leaf_bytes: 0,
+            });
         }
 
         let confirm_start = Instant::now();
+        self.deallocate_chunk_allocation(job.atlas_offset);
+        self.chunk_offset_allocation_table
+            .insert(job.atlas_offset, (job.node_alloc_id, job.leaf_alloc_id));
         self.confirm_allocation_of_chunk(
             confirmed_node_buffer_size_in_bytes,
             confirmed_leaf_buffer_size_in_bytes,
-            atlas_offset,
+            job.atlas_offset,
         );
         let confirm_elapsed = confirm_start.elapsed();
         crate::util::BENCH
@@ -701,31 +1324,49 @@ impl ContreeBuilder {
             .record("contree_confirm_allocation", confirm_elapsed);
 
         let cpu_cache_source = CpuChunkCacheBuildSource {
-            node_alloc_offset,
-            leaf_alloc_offset,
+            node_alloc_offset: job.node_alloc_offset,
+            leaf_alloc_offset: job.leaf_alloc_offset,
             node_size_in_bytes: confirmed_node_buffer_size_in_bytes,
             leaf_size_in_bytes: confirmed_leaf_buffer_size_in_bytes,
         };
-        self.queue_chunk_cpu_cache_rebuild(chunk_idx, cpu_cache_source);
-        self.set_scene_chunk(chunk_idx, Some(chunk_idx));
-        let total_elapsed = total_start.elapsed();
+        self.queue_chunk_cpu_cache_rebuild(job.chunk_idx, cpu_cache_source);
+        self.set_scene_chunk(job.chunk_idx, Some(job.chunk_idx));
+        let total_elapsed = job.total_start.elapsed();
         crate::util::BENCH
             .lock()
             .unwrap()
             .record("contree_build_and_alloc_total", total_elapsed);
+        let source_revision = self
+            .cpu_chunk_source_revisions
+            .get(&job.chunk_idx)
+            .copied()
+            .unwrap_or(0);
         log::debug!(
-            "[QUEUE][CONTREE_REBUILD] chunk {:?} total_ms={:.2} prealloc_ms={:.2} build_gpu_ms={:.2} size_ms={:.2} confirm_ms={:.2} node_bytes={} leaf_bytes={}",
-            chunk_idx,
+            "[QUEUE][CONTREE_REBUILD] chunk {:?} total_ms={:.2} prealloc_ms={:.2} gpu_submit_ms={:.2} fence_latency_ms={:.2} size_ms={:.2} confirm_ms={:.2} node_bytes={} leaf_bytes={}",
+            job.chunk_idx,
             total_elapsed.as_secs_f32() * 1000.0,
-            alloc_start.elapsed().as_secs_f32() * 1000.0,
-            build_elapsed.as_secs_f32() * 1000.0,
+            job.prealloc_elapsed.as_secs_f32() * 1000.0,
+            job.submit_elapsed.as_secs_f32() * 1000.0,
+            fence_latency_elapsed.as_secs_f32() * 1000.0,
             size_elapsed.as_secs_f32() * 1000.0,
             confirm_elapsed.as_secs_f32() * 1000.0,
             confirmed_node_buffer_size_in_bytes,
             confirmed_leaf_buffer_size_in_bytes,
         );
 
-        Ok(Some((node_alloc_offset, leaf_alloc_offset)))
+        Ok(ContreeBuildResult {
+            chunk_idx: job.chunk_idx,
+            scene_offsets: Some((job.node_alloc_offset, job.leaf_alloc_offset)),
+            source_revision,
+            prealloc_ms: job.prealloc_elapsed.as_secs_f64() * 1000.0,
+            gpu_submit_ms: job.submit_elapsed.as_secs_f64() * 1000.0,
+            fence_latency_ms: fence_latency_elapsed.as_secs_f64() * 1000.0,
+            size_ms: size_elapsed.as_secs_f64() * 1000.0,
+            confirm_ms: confirm_elapsed.as_secs_f64() * 1000.0,
+            total_ms: total_elapsed.as_secs_f64() * 1000.0,
+            node_bytes: confirmed_node_buffer_size_in_bytes,
+            leaf_bytes: confirmed_leaf_buffer_size_in_bytes,
+        })
     }
 
     fn queue_chunk_cpu_cache_rebuild(
@@ -868,25 +1509,39 @@ impl ContreeBuilder {
                 .cpu_chunk_cache_queue
                 .is_latest_revision(result.chunk_idx, result.revision);
 
-            if should_publish {
+            let source_revision = if should_publish {
                 self.cpu_chunk_caches
                     .insert(result.chunk_idx, result.cache.clone());
                 self.publish_shared_chunk_cache(result.chunk_idx, result.cache);
                 self.set_scene_chunk(result.chunk_idx, Some(result.chunk_idx));
-            }
+                Some(self.record_cpu_chunk_source_update(result.chunk_idx, true))
+            } else {
+                None
+            };
 
             self.cpu_chunk_cache_queue
                 .complete(result.chunk_idx, result.revision);
             log::debug!(
-                "[QUEUE][CPU_CACHE] publish chunk {:?} revision {} published={} pending={} cached={}",
+                "[QUEUE][CPU_CACHE] publish chunk {:?} revision {} published={} source_rev={:?} pending={} cached={}",
                 result.chunk_idx,
                 result.revision,
                 should_publish,
+                source_revision,
                 self.cpu_chunk_cache_queue.len(),
                 self.cpu_chunk_caches.len(),
             );
             self.try_submit_next_cpu_chunk_cache_job(focus, chunk_extent);
         }
+    }
+
+    fn clear_empty_chunk_state(&mut self, atlas_offset: UVec3, chunk_idx: UVec3) -> u64 {
+        self.cpu_chunk_caches.remove(&chunk_idx);
+        self.remove_shared_chunk_cache(chunk_idx);
+        self.cpu_chunk_cache_queue.clear(chunk_idx);
+        self.set_scene_chunk(chunk_idx, None);
+        let source_revision = self.record_cpu_chunk_source_update(chunk_idx, false);
+        self.deallocate_chunk_allocation(atlas_offset);
+        source_revision
     }
 
     fn deallocate_chunk_allocation(&mut self, atlas_offset: UVec3) {
@@ -905,6 +1560,23 @@ impl ContreeBuilder {
         if let Ok(mut shared_state) = self.shared_ray_query_state.write() {
             shared_state.cpu_scene_chunks[index] = chunk;
         }
+    }
+
+    fn record_cpu_chunk_source_update(&mut self, chunk_idx: UVec3, is_present: bool) -> u64 {
+        let revision = self
+            .cpu_chunk_source_revisions
+            .get(&chunk_idx)
+            .copied()
+            .unwrap_or(0)
+            + 1;
+        self.cpu_chunk_source_revisions.insert(chunk_idx, revision);
+        self.cpu_chunk_source_updates
+            .push(ContreeCpuChunkSourceUpdate {
+                chunk_idx,
+                revision,
+                is_present,
+            });
+        revision
     }
 
     fn publish_shared_chunk_cache(&self, chunk_idx: UVec3, cache: Arc<CpuChunkCache>) {
@@ -927,6 +1599,7 @@ impl ContreeBuilder {
     ///
     /// Returns: (node_alloc_offset_in_bytes, leaf_alloc_offset_in_bytes)
     /// If the chunk already exists, deallocate it first.
+    #[allow(dead_code)]
     fn pre_allocate_chunk(
         &mut self,
         max_node_buffer_size_in_bytes: u64,
@@ -967,7 +1640,7 @@ impl ContreeBuilder {
             .unwrap();
     }
 
-    fn cpu_chunk_cache_jobs_idle(&self) -> bool {
+    fn cpu_chunk_cache_jobs_are_idle(&self) -> bool {
         self.cpu_chunk_cache_queue.is_idle()
             && self.active_cpu_chunk_cache_job.is_none()
             && !self.cpu_chunk_cache_decode_inflight
@@ -1047,15 +1720,19 @@ impl CpuChunkReadbackBuffers {
 
 fn decode_cpu_chunk_cache_job(job: CpuChunkCacheWorkerJob) -> Result<CpuChunkCacheWorkerResult> {
     let readback_start = Instant::now();
-    let node_bytes = job.readback_buffers.node_readback.read_back()?;
-    let leaf_bytes = job.readback_buffers.leaf_readback.read_back()?;
+    let node_bytes = job
+        .readback_buffers
+        .node_readback
+        .read_back_range(0, job.source.node_size_in_bytes)?;
+    let leaf_bytes = job
+        .readback_buffers
+        .leaf_readback
+        .read_back_range(0, job.source.leaf_size_in_bytes)?;
     let readback_elapsed = readback_start.elapsed();
     crate::util::BENCH
         .lock()
         .unwrap()
         .record("contree_cpu_cache_readback", readback_elapsed);
-    let node_bytes = &node_bytes[..job.source.node_size_in_bytes as usize];
-    let leaf_bytes = &leaf_bytes[..job.source.leaf_size_in_bytes as usize];
 
     let decode_start = Instant::now();
     let nodes = node_bytes
@@ -1194,6 +1871,71 @@ fn query_terrain_ray_against_state(
     None
 }
 
+fn query_terrain_occupancy_against_state(
+    chunk_dim: UVec3,
+    cpu_scene_chunks: &[Option<UVec3>],
+    cpu_chunk_caches: &HashMap<UVec3, Arc<CpuChunkCache>>,
+    point: Vec3,
+) -> bool {
+    if !point.is_finite() {
+        return false;
+    }
+
+    let chunk_pos = point.floor().as_ivec3();
+    if !in_aabb_i(chunk_pos, glam::IVec3::ZERO, chunk_dim.as_ivec3()) {
+        return false;
+    }
+
+    let chunk_idx = chunk_pos.as_uvec3();
+    if !scene_chunk_present_in_grid(chunk_dim, cpu_scene_chunks, chunk_idx) {
+        return false;
+    }
+
+    cpu_chunk_caches
+        .get(&chunk_idx)
+        .is_some_and(|cache| query_cached_chunk_cpu_occupancy(cache.as_ref(), point))
+}
+
+fn query_cached_chunk_cpu_occupancy(cache: &CpuChunkCache, point: Vec3) -> bool {
+    if cache.nodes.is_empty() {
+        return false;
+    }
+
+    let local_pos = point - cache.chunk_idx.as_vec3() + Vec3::ONE;
+    if local_pos.cmplt(Vec3::ONE).any() || local_pos.cmpge(Vec3::splat(2.0)).any() {
+        return false;
+    }
+
+    let mut scale_exp = 21i32;
+    let mut node = cache.nodes[0];
+    for _ in 0..16 {
+        let Some(child_idx) = get_node_cell_index(local_pos, scale_exp).map(|idx| idx as u32)
+        else {
+            return false;
+        };
+        if !child_mask_test(node, child_idx) {
+            return false;
+        }
+
+        let bits = child_mask_bitcount_below(node, child_idx);
+        let child_addr = ((node.packed_0 >> 1) + bits) as usize;
+        if is_leaf(node) {
+            return cache
+                .leaves
+                .get(child_addr)
+                .is_some_and(|voxel| *voxel != 0);
+        }
+
+        let Some(next_node) = cache.nodes.get(child_addr).copied() else {
+            return false;
+        };
+        node = next_node;
+        scale_exp -= 2;
+    }
+
+    false
+}
+
 fn query_cached_chunk_cpu_ray(
     cache: &CpuChunkCache,
     origin: Vec3,
@@ -1239,6 +1981,21 @@ fn log_4(n: u32) -> u32 {
 
 fn get_level(contree_dim: UVec3) -> u32 {
     log_4(contree_dim.x) + 1
+}
+
+fn update_contree_build_info(
+    contree_build_info: &Buffer,
+    contree_dim: UVec3,
+    max_level: u32,
+    node_write_offset: u32,
+    leaf_write_offset: u32,
+) -> Result<()> {
+    contree_build_info.fill_uniform(&ContreeBuildInfo {
+        dim: contree_dim.x,
+        max_level,
+        node_write_offset,
+        leaf_write_offset,
+    })
 }
 
 fn march_contree_cpu(

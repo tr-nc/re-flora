@@ -363,11 +363,36 @@ impl Buffer {
     /// * `Ok(Vec<u8>)` containing the buffer's data if successful
     /// * `Err` with a description if memory mapping failed
     pub fn read_back(&self) -> Result<Vec<u8>> {
+        self.read_back_range(0, self.get_size_bytes())
+    }
+
+    /// Reads a byte range from the buffer.
+    ///
+    /// # Parameters
+    /// * `byte_offset` - First byte to copy from the mapped buffer
+    /// * `byte_count` - Number of bytes to copy
+    ///
+    /// # Returns
+    /// * `Ok(Vec<u8>)` containing the requested byte range if successful
+    /// * `Err` if the range is outside the buffer or memory mapping failed
+    pub fn read_back_range(&self, byte_offset: u64, byte_count: u64) -> Result<Vec<u8>> {
+        let buffer_size = self.get_size_bytes();
+        if byte_offset > buffer_size || byte_count > buffer_size - byte_offset {
+            return Err(anyhow::anyhow!(
+                "Readback range [{}, {}) is outside buffer size {}",
+                byte_offset,
+                byte_offset.saturating_add(byte_count),
+                buffer_size
+            ));
+        }
+
         if let Some(ptr) = self.allocated_mem.mapped_ptr() {
-            let size = self.get_size_bytes() as usize;
-            let mut data: Vec<u8> = vec![0; size];
+            let byte_offset = byte_offset as usize;
+            let byte_count = byte_count as usize;
+            let mut data: Vec<u8> = vec![0; byte_count];
             unsafe {
-                let mapped_slice: &mut [u8] = slice::from_raw_parts_mut(ptr.as_ptr().cast(), size);
+                let mapped_slice: &[u8] =
+                    slice::from_raw_parts(ptr.as_ptr().cast::<u8>().add(byte_offset), byte_count);
                 data.copy_from_slice(mapped_slice);
             }
             Ok(data)

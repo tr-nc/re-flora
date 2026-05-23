@@ -361,6 +361,84 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Sea Level Y Shift",
     },
     GeneratedGuiParamDescriptor {
+        section: "WaterSimulation",
+        id: "water_substep_hz",
+        kind: "float",
+        label: "Substep Rate (Hz)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "WaterSimulation",
+        id: "water_world_tick_multiplier",
+        kind: "float",
+        label: "World Tick Multiplier",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "WaterSimulation",
+        id: "water_particle_edge_len",
+        kind: "float",
+        label: "Particle Edge Length",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "WaterSimulation",
+        id: "water_particle_quad_size",
+        kind: "float",
+        label: "Particle Quad Size",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "WaterSimulation",
+        id: "water_debug_spawn_height_offset",
+        kind: "float",
+        label: "Debug Spawn Height Offset",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "WaterSimulation",
+        id: "water_terrain_margin_cells",
+        kind: "float",
+        label: "Terrain Margin (grid cells)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "WaterSimulation",
+        id: "water_damping",
+        kind: "float",
+        label: "Linear Damping (/s)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "WaterSimulation",
+        id: "water_gravity_y",
+        kind: "float",
+        label: "Gravity Y",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "WaterSimulation",
+        id: "water_stiffness",
+        kind: "float",
+        label: "Stiffness",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "WaterSimulation",
+        id: "water_gamma",
+        kind: "float",
+        label: "Equation-of-State Gamma",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "WaterSimulation",
+        id: "water_j_min",
+        kind: "float",
+        label: "Minimum J",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "WaterSimulation",
+        id: "water_wall_damping",
+        kind: "float",
+        label: "Wall Damping",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "WaterSimulation",
+        id: "water_terrain_tangent_damping",
+        kind: "float",
+        label: "Terrain Tangent Damping (/s)",
+    },
+    GeneratedGuiParamDescriptor {
         section: "EmberBloom",
         id: "ember_bloom_bottom_color",
         kind: "color",
@@ -636,6 +714,19 @@ pub struct GuiAdjustables {
     pub ocean_noise_frequency: crate::gui_adjustables::FloatParam,
     pub ocean_time_multiplier: crate::gui_adjustables::FloatParam,
     pub ocean_sea_level_shift: crate::gui_adjustables::FloatParam,
+    pub water_substep_hz: crate::gui_adjustables::FloatParam,
+    pub water_world_tick_multiplier: crate::gui_adjustables::FloatParam,
+    pub water_particle_edge_len: crate::gui_adjustables::FloatParam,
+    pub water_particle_quad_size: crate::gui_adjustables::FloatParam,
+    pub water_debug_spawn_height_offset: crate::gui_adjustables::FloatParam,
+    pub water_terrain_margin_cells: crate::gui_adjustables::FloatParam,
+    pub water_damping: crate::gui_adjustables::FloatParam,
+    pub water_gravity_y: crate::gui_adjustables::FloatParam,
+    pub water_stiffness: crate::gui_adjustables::FloatParam,
+    pub water_gamma: crate::gui_adjustables::FloatParam,
+    pub water_j_min: crate::gui_adjustables::FloatParam,
+    pub water_wall_damping: crate::gui_adjustables::FloatParam,
+    pub water_terrain_tangent_damping: crate::gui_adjustables::FloatParam,
     pub ember_bloom_bottom_color: crate::gui_adjustables::ColorParam,
     pub ember_bloom_tip_color: crate::gui_adjustables::ColorParam,
     pub flora_instance_hue_offset: crate::gui_adjustables::FloatParam,
@@ -741,6 +832,19 @@ impl GuiAdjustables {
         let mut ocean_noise_frequency_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut ocean_time_multiplier_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut ocean_sea_level_shift_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut water_substep_hz_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut water_world_tick_multiplier_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut water_particle_edge_len_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut water_particle_quad_size_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut water_debug_spawn_height_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut water_terrain_margin_cells_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut water_damping_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut water_gravity_y_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut water_stiffness_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut water_gamma_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut water_j_min_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut water_wall_damping_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut water_terrain_tangent_damping_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut ember_bloom_bottom_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut ember_bloom_tip_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut flora_instance_hue_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1147,6 +1251,97 @@ impl GuiAdjustables {
                             ocean_sea_level_shift_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
+                    "water_substep_hz" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            water_substep_hz_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "water_world_tick_multiplier" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            water_world_tick_multiplier_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "water_particle_edge_len" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            water_particle_edge_len_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "water_particle_quad_size" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            water_particle_quad_size_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "water_debug_spawn_height_offset" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            water_debug_spawn_height_offset_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "water_terrain_margin_cells" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            water_terrain_margin_cells_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "water_damping" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            water_damping_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "water_gravity_y" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            water_gravity_y_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "water_stiffness" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            water_stiffness_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "water_gamma" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            water_gamma_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "water_j_min" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            water_j_min_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "water_wall_damping" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            water_wall_damping_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "water_terrain_tangent_damping" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            water_terrain_tangent_damping_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
                     "ember_bloom_bottom_color" => {
                         if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
                             ember_bloom_bottom_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
@@ -1439,6 +1634,19 @@ impl GuiAdjustables {
             ocean_noise_frequency: ocean_noise_frequency_field.expect("Missing parameter: ocean_noise_frequency"),
             ocean_time_multiplier: ocean_time_multiplier_field.expect("Missing parameter: ocean_time_multiplier"),
             ocean_sea_level_shift: ocean_sea_level_shift_field.expect("Missing parameter: ocean_sea_level_shift"),
+            water_substep_hz: water_substep_hz_field.expect("Missing parameter: water_substep_hz"),
+            water_world_tick_multiplier: water_world_tick_multiplier_field.expect("Missing parameter: water_world_tick_multiplier"),
+            water_particle_edge_len: water_particle_edge_len_field.expect("Missing parameter: water_particle_edge_len"),
+            water_particle_quad_size: water_particle_quad_size_field.expect("Missing parameter: water_particle_quad_size"),
+            water_debug_spawn_height_offset: water_debug_spawn_height_offset_field.expect("Missing parameter: water_debug_spawn_height_offset"),
+            water_terrain_margin_cells: water_terrain_margin_cells_field.expect("Missing parameter: water_terrain_margin_cells"),
+            water_damping: water_damping_field.expect("Missing parameter: water_damping"),
+            water_gravity_y: water_gravity_y_field.expect("Missing parameter: water_gravity_y"),
+            water_stiffness: water_stiffness_field.expect("Missing parameter: water_stiffness"),
+            water_gamma: water_gamma_field.expect("Missing parameter: water_gamma"),
+            water_j_min: water_j_min_field.expect("Missing parameter: water_j_min"),
+            water_wall_damping: water_wall_damping_field.expect("Missing parameter: water_wall_damping"),
+            water_terrain_tangent_damping: water_terrain_tangent_damping_field.expect("Missing parameter: water_terrain_tangent_damping"),
             ember_bloom_bottom_color: ember_bloom_bottom_color_field.expect("Missing parameter: ember_bloom_bottom_color"),
             ember_bloom_tip_color: ember_bloom_tip_color_field.expect("Missing parameter: ember_bloom_tip_color"),
             flora_instance_hue_offset: flora_instance_hue_offset_field.expect("Missing parameter: flora_instance_hue_offset"),
@@ -1519,6 +1727,19 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "ocean_noise_frequency" => Some(&adjustables.ocean_noise_frequency),
         "ocean_time_multiplier" => Some(&adjustables.ocean_time_multiplier),
         "ocean_sea_level_shift" => Some(&adjustables.ocean_sea_level_shift),
+        "water_substep_hz" => Some(&adjustables.water_substep_hz),
+        "water_world_tick_multiplier" => Some(&adjustables.water_world_tick_multiplier),
+        "water_particle_edge_len" => Some(&adjustables.water_particle_edge_len),
+        "water_particle_quad_size" => Some(&adjustables.water_particle_quad_size),
+        "water_debug_spawn_height_offset" => Some(&adjustables.water_debug_spawn_height_offset),
+        "water_terrain_margin_cells" => Some(&adjustables.water_terrain_margin_cells),
+        "water_damping" => Some(&adjustables.water_damping),
+        "water_gravity_y" => Some(&adjustables.water_gravity_y),
+        "water_stiffness" => Some(&adjustables.water_stiffness),
+        "water_gamma" => Some(&adjustables.water_gamma),
+        "water_j_min" => Some(&adjustables.water_j_min),
+        "water_wall_damping" => Some(&adjustables.water_wall_damping),
+        "water_terrain_tangent_damping" => Some(&adjustables.water_terrain_tangent_damping),
         "flora_instance_hue_offset" => Some(&adjustables.flora_instance_hue_offset),
         "flora_instance_saturation_offset" => Some(&adjustables.flora_instance_saturation_offset),
         "flora_instance_value_offset" => Some(&adjustables.flora_instance_value_offset),
@@ -1646,6 +1867,19 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "ocean_noise_frequency" => Some(&mut adjustables.ocean_noise_frequency),
         "ocean_time_multiplier" => Some(&mut adjustables.ocean_time_multiplier),
         "ocean_sea_level_shift" => Some(&mut adjustables.ocean_sea_level_shift),
+        "water_substep_hz" => Some(&mut adjustables.water_substep_hz),
+        "water_world_tick_multiplier" => Some(&mut adjustables.water_world_tick_multiplier),
+        "water_particle_edge_len" => Some(&mut adjustables.water_particle_edge_len),
+        "water_particle_quad_size" => Some(&mut adjustables.water_particle_quad_size),
+        "water_debug_spawn_height_offset" => Some(&mut adjustables.water_debug_spawn_height_offset),
+        "water_terrain_margin_cells" => Some(&mut adjustables.water_terrain_margin_cells),
+        "water_damping" => Some(&mut adjustables.water_damping),
+        "water_gravity_y" => Some(&mut adjustables.water_gravity_y),
+        "water_stiffness" => Some(&mut adjustables.water_stiffness),
+        "water_gamma" => Some(&mut adjustables.water_gamma),
+        "water_j_min" => Some(&mut adjustables.water_j_min),
+        "water_wall_damping" => Some(&mut adjustables.water_wall_damping),
+        "water_terrain_tangent_damping" => Some(&mut adjustables.water_terrain_tangent_damping),
         "flora_instance_hue_offset" => Some(&mut adjustables.flora_instance_hue_offset),
         "flora_instance_saturation_offset" => Some(&mut adjustables.flora_instance_saturation_offset),
         "flora_instance_value_offset" => Some(&mut adjustables.flora_instance_value_offset),

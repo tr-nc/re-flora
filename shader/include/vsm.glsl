@@ -41,7 +41,8 @@ float chebyshev_upper_bound(vec2 moments, float t) {
 }
 
 #ifndef IGNORE_GET_SHADOW_WEIGHT_VSM
-float get_shadow_weight_vsm(mat4 shadow_cam_view_proj_mat, vec4 voxel_pos_ws) {
+float get_shadow_weight_vsm_from_map(sampler2D shadow_map_tex, mat4 shadow_cam_view_proj_mat,
+                                     vec4 voxel_pos_ws) {
     vec4 light_space = shadow_cam_view_proj_mat * voxel_pos_ws;
     vec3 ndc         = light_space.xyz / light_space.w;
     vec2 uv          = ndc.xy * 0.5 + 0.5;
@@ -49,7 +50,7 @@ float get_shadow_weight_vsm(mat4 shadow_cam_view_proj_mat, vec4 voxel_pos_ws) {
 
     vec2 evsm_depth = warp_depth(t, get_evsm_exponents());
     // sampled from filtered VSM texture
-    vec4 occluder = texture(shadow_map_tex_for_vsm_ping, uv);
+    vec4 occluder = texture(shadow_map_tex, uv);
 
     float positive_contrib = chebyshev_upper_bound(occluder.xz, evsm_depth.x);
     float negative_contrib = chebyshev_upper_bound(occluder.yw, evsm_depth.y);
@@ -60,6 +61,26 @@ float get_shadow_weight_vsm(mat4 shadow_cam_view_proj_mat, vec4 voxel_pos_ws) {
 
     return vis;
 }
+
+float get_shadow_weight_vsm(mat4 shadow_cam_view_proj_mat, vec4 voxel_pos_ws) {
+    return get_shadow_weight_vsm_from_map(shadow_map_tex_for_vsm_ping, shadow_cam_view_proj_mat,
+                                          voxel_pos_ws);
+}
+
+#ifdef ENABLE_TEMPORAL_VSM
+float get_shadow_weight_vsm_temporal(vec4 voxel_pos_ws) {
+    float current_vis = get_shadow_weight_vsm(shadow_camera_info.view_proj_mat, voxel_pos_ws);
+    if (shadow_temporal_info.has_previous_shadow_map == 0u ||
+        shadow_temporal_info.blend_alpha >= 1.0) {
+        return current_vis;
+    }
+
+    float previous_vis = get_shadow_weight_vsm_from_map(
+        shadow_map_tex_for_vsm_prev, shadow_camera_info_prev.view_proj_mat, voxel_pos_ws);
+    float alpha = smoothstep(0.0, 1.0, clamp(shadow_temporal_info.blend_alpha, 0.0, 1.0));
+    return mix(previous_vis, current_vis, alpha);
+}
+#endif // ENABLE_TEMPORAL_VSM
 #endif // IGNORE_GET_SHADOW_WEIGHT_VSM
 
 #endif // VSM_GLSL

@@ -887,9 +887,11 @@ impl App {
         edit: TerrainRemovalEdit,
         target_voxel_type: Option<u32>,
         max_write_count: Option<u32>,
+        max_removed_counts: Option<[u32; crate::builder::EDIT_STATS_VOXEL_TYPE_COUNT]>,
     ) -> Result<ChunkModifyReadback> {
         let total_start = Instant::now();
         if let Some(compiled) = TerrainSurfaceRemovalService::compile(edit) {
+            let rebuild_bound = compiled.rebuild_bound;
             let stats = match compiled.voxel_edit {
                 VoxelEdit::StampSurfaceSpheres {
                     bvh_nodes,
@@ -903,11 +905,12 @@ impl App {
                         voxel_type,
                         target_voxel_type,
                         max_write_count,
+                        max_removed_counts,
                     )?,
                 _ => unreachable!("terrain surface removal compiled into unexpected edit type"),
             };
             let rebuild_chunk_ids = world_ops::affected_chunk_indices_for_bound(
-                compiled.rebuild_bound,
+                rebuild_bound,
                 super::VOXEL_DIM_PER_CHUNK,
             );
             self.enqueue_deferred_flora_preserving_chunk_rebuilds(
@@ -939,6 +942,7 @@ impl App {
         if let Some(compiled) =
             TerrainSurfaceRemovalService::compile_with_voxel_type(edit, voxel_type)
         {
+            let rebuild_bound = compiled.rebuild_bound;
             let modify_start = Instant::now();
             let stats = match compiled.voxel_edit {
                 VoxelEdit::StampSurfaceSpheres {
@@ -953,13 +957,14 @@ impl App {
                         voxel_type,
                         None,
                         Some(max_write_count),
+                        None,
                     )?,
                 _ => unreachable!("terrain surface placement compiled into unexpected edit type"),
             };
             let _modify_elapsed = modify_start.elapsed();
             let mesh_start = Instant::now();
             let rebuild_chunk_ids = world_ops::affected_chunk_indices_for_bound(
-                compiled.rebuild_bound,
+                rebuild_bound,
                 super::VOXEL_DIM_PER_CHUNK,
             );
             self.enqueue_deferred_flora_preserving_chunk_rebuilds(
@@ -1145,9 +1150,7 @@ impl App {
             self.clean_up_prev_tree()?;
         }
 
-        let tree_pos = match placement {
-            TreePlacement::World(world) => world,
-        };
+        let TreePlacement::World(tree_pos) = placement;
 
         let tree_id = if options.assign_new_id {
             let current_id = self.next_tree_id;

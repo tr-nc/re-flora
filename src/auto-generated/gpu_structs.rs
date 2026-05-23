@@ -15,6 +15,13 @@ pub struct BvhNodes {
     pub offset: u32,
 }
 
+/// Auto-generated from `B_ChunkSolidSamples` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ChunkSolidSamples {
+    pub solid: [u32; 0],
+}
+
 /// Auto-generated from `B_CounterForLevels` (GLSL source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -70,6 +77,7 @@ pub struct LevelDispatchIndirect {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct MakeSurfaceResult {
     pub active_voxel_len: u32,
+    pub active_brick_len: u32,
 }
 
 /// Auto-generated from `B_ManualFloraInstances` (GLSL source of truth).
@@ -129,12 +137,33 @@ pub struct RoundCones {
     pub radius_b: f32,
 }
 
+/// Auto-generated from `B_SolidWorkgroupFlags` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SolidWorkgroupFlags {
+    pub data: [u32; 0],
+}
+
 /// Auto-generated from `B_Spheres` (GLSL source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Spheres {
     pub center: [f32; 3],
     pub radius: f32,
+}
+
+/// Auto-generated from `B_SurfaceActiveBrickFlags` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SurfaceActiveBrickFlags {
+    pub data: [u32; 0],
+}
+
+/// Auto-generated from `B_SurfaceActiveBrickIndices` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SurfaceActiveBrickIndices {
+    pub data: [u32; 0],
 }
 
 /// Auto-generated from `B_TerrainQueryInfo` (GLSL source of truth).
@@ -268,6 +297,20 @@ pub struct ChunkModifyInfo {
     pub primitive_kind: u32,
     pub surface_only: u32,
     pub max_write_count: u32,
+    pub max_removed_counts_0_3: [u32; 4],
+    pub max_removed_counts_4_7: [u32; 4],
+}
+
+/// Auto-generated from `U_ChunkSolidSampleInfo` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ChunkSolidSampleInfo {
+    pub atlas_offset: [u32; 3],
+    pub _pad0: [u8; 4],
+    pub atlas_dim: [u32; 3],
+    pub _pad1: [u8; 4],
+    pub sample_dim: [u32; 3],
+    pub _pad2: [u8; 4],
 }
 
 /// Auto-generated from `U_ClearOccupancyInfo` (GLSL source of truth).
@@ -467,6 +510,28 @@ pub struct ShadowCameraInfo {
     pub proj_mat_inv: [[f32; 4]; 4],
     pub view_proj_mat: [[f32; 4]; 4],
     pub view_proj_mat_inv: [[f32; 4]; 4],
+}
+
+/// Auto-generated from `U_ShadowCameraInfoPrev` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ShadowCameraInfoPrev {
+    pub pos: [f32; 4],
+    pub view_mat: [[f32; 4]; 4],
+    pub view_mat_inv: [[f32; 4]; 4],
+    pub proj_mat: [[f32; 4]; 4],
+    pub proj_mat_inv: [[f32; 4]; 4],
+    pub view_proj_mat: [[f32; 4]; 4],
+    pub view_proj_mat_inv: [[f32; 4]; 4],
+}
+
+/// Auto-generated from `U_ShadowTemporalInfo` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ShadowTemporalInfo {
+    pub blend_alpha: f32,
+    pub has_previous_shadow_map: u32,
+    pub _pad0: [u8; 8],
 }
 
 /// Auto-generated from `U_SpatialInfo` (GLSL source of truth).

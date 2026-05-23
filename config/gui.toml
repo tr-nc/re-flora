@@ -353,7 +353,7 @@ label = "Alpha"
 type = "Float"
 
 [section.param.data]
-value = 0.08
+value = 0.28
 min = 0
 max = 1
 
@@ -616,6 +616,152 @@ type = "Float"
 value = 0.2
 min = -2
 max = 2
+
+[[section]]
+name = "WaterSimulation"
+
+[[section.param]]
+id = "water_substep_hz"
+kind = "float"
+label = "Substep Rate (Hz)"
+type = "Float"
+
+[section.param.data]
+value = 240.0
+min = 15
+max = 240
+
+[[section.param]]
+id = "water_world_tick_multiplier"
+kind = "float"
+label = "World Tick Multiplier"
+type = "Float"
+
+[section.param.data]
+value = 0.25
+min = 0
+max = 1
+
+[[section.param]]
+id = "water_particle_edge_len"
+kind = "float"
+label = "Particle Edge Length"
+type = "Float"
+
+[section.param.data]
+value = 0.035
+min = 0.005
+max = 0.08
+
+[[section.param]]
+id = "water_particle_quad_size"
+kind = "float"
+label = "Particle Quad Size"
+type = "Float"
+
+[section.param.data]
+value = 0.012
+min = 0.002
+max = 0.05
+
+[[section.param]]
+id = "water_debug_spawn_height_offset"
+kind = "float"
+label = "Debug Spawn Height Offset"
+type = "Float"
+
+[section.param.data]
+value = 0.45
+min = 0
+max = 1.5
+
+[[section.param]]
+id = "water_terrain_margin_cells"
+kind = "float"
+label = "Terrain Margin (grid cells)"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = 0
+max = 3
+
+[[section.param]]
+id = "water_damping"
+kind = "float"
+label = "Linear Damping (/s)"
+type = "Float"
+
+[section.param.data]
+value = 0.25
+min = 0
+max = 5
+
+[[section.param]]
+id = "water_gravity_y"
+kind = "float"
+label = "Gravity Y"
+type = "Float"
+
+[section.param.data]
+value = -9.8
+min = -30
+max = 0
+
+[[section.param]]
+id = "water_stiffness"
+kind = "float"
+label = "Stiffness"
+type = "Float"
+
+[section.param.data]
+value = 16
+min = 0
+max = 200
+
+[[section.param]]
+id = "water_gamma"
+kind = "float"
+label = "Equation-of-State Gamma"
+type = "Float"
+
+[section.param.data]
+value = 4
+min = 1
+max = 8
+
+[[section.param]]
+id = "water_j_min"
+kind = "float"
+label = "Minimum J"
+type = "Float"
+
+[section.param.data]
+value = 0.05
+min = 0.01
+max = 1
+
+[[section.param]]
+id = "water_wall_damping"
+kind = "float"
+label = "Wall Damping"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = 0
+max = 1
+
+[[section.param]]
+id = "water_terrain_tangent_damping"
+kind = "float"
+label = "Terrain Tangent Damping (/s)"
+type = "Float"
+
+[section.param.data]
+value = 4
+min = 0
+max = 20
 
 [[section]]
 name = "EmberBloom"

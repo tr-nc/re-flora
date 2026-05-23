@@ -1,8 +1,10 @@
 use super::ui_style::{
     HOE_SLOT_INDEX, MAX_VOXEL_STORAGE_PER_TYPE, SHOVEL_SLOT_INDEX, STAFF_SLOT_INDEX,
+    WATER_SLOT_INDEX,
 };
 use super::App;
 use crate::app::world_edits::TerrainRemovalEdit;
+use crate::builder::{ChunkModifyStats, EDIT_STATS_VOXEL_TYPE_COUNT};
 use crate::tracer::PlayerCollisionResult;
 use glam::{Vec2, Vec3};
 use std::time::Instant;
@@ -36,6 +38,10 @@ impl App {
 
     pub(super) fn is_hoe_selected(&self) -> bool {
         self.selected_item_panel_slot == HOE_SLOT_INDEX
+    }
+
+    pub(super) fn is_water_tool_selected(&self) -> bool {
+        self.selected_item_panel_slot == WATER_SLOT_INDEX
     }
 
     fn active_voxel_type_id(&self) -> Option<u32> {
@@ -74,13 +80,46 @@ impl App {
         if self.active_voxel_type == super::ActiveVoxelType::All {
             return super::BACKPACK_VOXEL_TYPES
                 .iter()
-                .map(|voxel_type| {
-                    MAX_VOXEL_STORAGE_PER_TYPE.saturating_sub(self.voxel_count(*voxel_type))
-                })
+                .map(|voxel_type| self.voxel_storage_remaining(*voxel_type))
                 .sum();
         }
 
-        MAX_VOXEL_STORAGE_PER_TYPE.saturating_sub(self.active_voxel_count())
+        self.voxel_storage_remaining(self.active_voxel_type)
+    }
+
+    fn voxel_storage_remaining(&self, voxel_type: super::ActiveVoxelType) -> u32 {
+        if voxel_type == super::ActiveVoxelType::All {
+            return super::BACKPACK_VOXEL_TYPES
+                .iter()
+                .map(|voxel_type| self.voxel_storage_remaining(*voxel_type))
+                .sum();
+        }
+
+        MAX_VOXEL_STORAGE_PER_TYPE.saturating_sub(self.voxel_count(voxel_type))
+    }
+
+    fn active_removed_voxel_limits(&self) -> [u32; EDIT_STATS_VOXEL_TYPE_COUNT] {
+        let mut limits = [0; EDIT_STATS_VOXEL_TYPE_COUNT];
+        let mut set_limit = |voxel_type: super::ActiveVoxelType, remaining: u32| {
+            if let Some(voxel_type_id) = voxel_type.voxel_type() {
+                if let Some(limit) = limits.get_mut(voxel_type_id as usize) {
+                    *limit = remaining;
+                }
+            }
+        };
+
+        if self.active_voxel_type == super::ActiveVoxelType::All {
+            for voxel_type in super::BACKPACK_VOXEL_TYPES {
+                set_limit(voxel_type, self.voxel_storage_remaining(voxel_type));
+            }
+        } else {
+            set_limit(
+                self.active_voxel_type,
+                self.voxel_storage_remaining(self.active_voxel_type),
+            );
+        }
+
+        limits
     }
 
     fn add_voxel_to_backpack(&mut self, voxel_type: super::ActiveVoxelType, amount: u32) {
@@ -123,7 +162,7 @@ impl App {
         self.add_voxel_to_backpack(self.active_voxel_type, amount);
     }
 
-    fn add_removed_voxels_to_backpack(&mut self, stats: &crate::builder::ChunkModifyStats) {
+    fn add_removed_voxels_to_backpack(&mut self, stats: &ChunkModifyStats) {
         for voxel_type in super::BACKPACK_VOXEL_TYPES {
             if let Some(voxel_type_id) = voxel_type.voxel_type() {
                 self.add_voxel_to_backpack(voxel_type, stats.count_removed(voxel_type_id));
@@ -350,6 +389,7 @@ impl App {
             self.stop_terrain_edit_loop_sound();
             return;
         }
+        let removed_voxel_limits = self.active_removed_voxel_limits();
 
         match self.query_camera_ray_terrain_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
@@ -369,8 +409,15 @@ impl App {
                         },
                         self.active_voxel_type_id(),
                         Some(remaining_capacity),
+                        Some(removed_voxel_limits),
                     )
                     .map(|readback| {
+                        let removed_total: u32 = readback.stats.removed_counts.iter().sum();
+                        if removed_total == 0 {
+                            self.stop_terrain_edit_loop_sound();
+                            return;
+                        }
+
                         if let Some(active_voxel_type_id) = self.active_voxel_type_id() {
                             let harvested = readback.stats.count_removed(active_voxel_type_id);
                             self.add_active_voxel_to_backpack(harvested);
@@ -525,6 +572,26 @@ impl App {
             }
             Err(err) => {
                 log::error!("Hoe trim attempt failed during terrain query: {}", err);
+            }
+        }
+    }
+
+    pub(super) fn try_water_particle_spawn(&mut self) {
+        if self.window_state.is_cursor_visible() || !self.is_water_tool_selected() {
+            return;
+        }
+
+        match self.query_camera_ray_terrain_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
+            Ok(Some(center)) => {
+                self.water_sim.request_debug_particle_spawn(
+                    center,
+                    super::WATER_DEBUG_SPAWN_COUNT,
+                    super::WATER_DEBUG_SPAWN_RADIUS,
+                );
+            }
+            Ok(None) => {}
+            Err(err) => {
+                log::error!("Water particle spawn failed during terrain query: {}", err);
             }
         }
     }

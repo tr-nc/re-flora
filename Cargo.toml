@@ -5,6 +5,8 @@ edition = "2021"
 
 [dependencies]
 resource_container_derive = { path = "./resource_container_derive" }
+re-flora-water = { path = "crates/re-flora-water" }
+re-flora-terrain-collider = { path = "crates/re-flora-terrain-collider" }
 ash = { version = "0.38", default-features = false, features = [
     "debug",
     "linked",
@@ -59,6 +61,20 @@ no_validation_layer = []
 [profile.test]
 # uncomment this line to use release build for tests
 # inherits = "release"
+
+# Keep the main game crate debuggable in dev builds, but compile the CPU MLS-MPM
+# solver like hot-path code. The water crate exists specifically for this split:
+# debug app iteration stays fast enough, while P2G/G2P transfer loops avoid the
+# huge slowdown from unoptimized debug code and debug math assertions.
+[profile.dev.package.re-flora-water]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+
+[profile.dev.package.re-flora-terrain-collider]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
 
 [profile.dev.package.petalsonic]
 opt-level = 3

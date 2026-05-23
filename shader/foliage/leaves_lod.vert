@@ -76,6 +76,25 @@ shadow_camera_info;
 
 layout(set = 0, binding = 5) uniform sampler2D shadow_map_tex_for_vsm_ping;
 
+layout(set = 0, binding = 9) uniform U_ShadowCameraInfoPrev {
+    vec4 pos;
+    mat4 view_mat;
+    mat4 view_mat_inv;
+    mat4 proj_mat;
+    mat4 proj_mat_inv;
+    mat4 view_proj_mat;
+    mat4 view_proj_mat_inv;
+}
+shadow_camera_info_prev;
+
+layout(set = 0, binding = 10) uniform sampler2D shadow_map_tex_for_vsm_prev;
+
+layout(set = 0, binding = 11) uniform U_ShadowTemporalInfo {
+    float blend_alpha;
+    uint has_previous_shadow_map;
+}
+shadow_temporal_info;
+
 layout(set = 0, binding = 6) uniform U_FloraGrowthInfo {
     uint flora_tick;
     uint sprout_delay_ticks;
@@ -94,6 +113,7 @@ layout(set = 0, binding = 8) uniform sampler3D wind_volume_tex;
 #include "../include/instance.glsl"
 #include "../include/sunlight.glsl"
 #include "../include/tree_leaf_instance.glsl"
+#define ENABLE_TEMPORAL_VSM
 #include "../include/vsm.glsl"
 #include "../include/wind_volume.glsl"
 #include "./billboard.glsl"

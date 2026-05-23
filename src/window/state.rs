@@ -5,6 +5,9 @@ use winit::{
     window::{Fullscreen, Window},
 };
 
+#[cfg(target_os = "linux")]
+use winit::platform::wayland::WindowExtWayland;
+
 #[cfg(not(target_os = "macos"))]
 use winit::window::CursorGrabMode;
 
@@ -83,6 +86,9 @@ pub struct WindowStateDesc {
 
     /// Sets whether the background of the window should be transparent.
     pub transparent: bool,
+
+    /// Sets whether the native window should be shown after creation.
+    pub visible: bool,
 }
 
 impl Default for WindowStateDesc {
@@ -98,6 +104,7 @@ impl Default for WindowStateDesc {
             cursor_visible: true,
             window_mode: WindowMode::Windowed(false),
             transparent: false,
+            visible: true,
         }
     }
 }
@@ -146,9 +153,21 @@ impl WindowState {
         let winit_window_attributes = winit_window_attributes.with_title(&desc.title);
         let window = event_loop.create_window(winit_window_attributes).unwrap();
 
-        // set the window to visible
-        // after it has been created
-        window.set_visible(true);
+        // Keep creation hidden to avoid flicker, then show only when requested.
+        if desc.visible {
+            window.set_visible(true);
+        }
+        #[cfg(target_os = "linux")]
+        if !desc.visible && window.xdg_toplevel().is_some() {
+            // Wayland cannot hide/unhide mapped windows and winit ignores
+            // WindowAttributes::visible there. Request minimization as the
+            // best available hidden-mode fallback while keeping the normal
+            // Vulkan surface/swapchain path alive.
+            window.set_minimized(true);
+            log::info!(
+                "Wayland does not support hidden windows; requested minimized hidden window"
+            );
+        }
 
         #[cfg(target_os = "macos")]
         let state = Self {
@@ -163,12 +182,12 @@ impl WindowState {
         };
         // Apply initial cursor state
         #[cfg(target_os = "macos")]
-        if desc.cursor_locked {
+        if desc.visible && desc.cursor_locked {
             macos_cursor::grab_and_hide();
         }
 
         #[cfg(not(target_os = "macos"))]
-        {
+        if desc.visible {
             state.window.set_cursor_visible(desc.cursor_visible);
             state.apply_cursor_grab();
         }
@@ -209,6 +228,9 @@ impl WindowState {
     /// via native NSCursor APIs; on other platforms it uses winit.
     pub fn set_cursor_visibility(&mut self, cursor_visible: bool) {
         self.desc.cursor_visible = cursor_visible;
+        if !self.desc.visible {
+            return;
+        }
         // On macOS, visibility is managed by grab_and_hide / release_and_show.
         // On other platforms, fall back to winit.
         #[cfg(not(target_os = "macos"))]
@@ -238,6 +260,14 @@ impl WindowState {
         self.desc.cursor_locked = cursor_locked;
         self.desc.cursor_visible = !cursor_locked;
 
+        if !self.desc.visible {
+            #[cfg(not(target_os = "macos"))]
+            {
+                self.cursor_grab_pending = false;
+            }
+            return;
+        }
+
         #[cfg(target_os = "macos")]
         if cursor_locked {
             macos_cursor::grab_and_hide();
@@ -258,6 +288,9 @@ impl WindowState {
     /// No-op on macOS (native APIs handle grab state persistently).
     /// Retained for API compatibility.
     pub fn maintain_cursor_grab(&mut self) {
+        if !self.desc.visible {
+            return;
+        }
         #[cfg(not(target_os = "macos"))]
         if self.cursor_grab_pending {
             self.apply_cursor_grab();

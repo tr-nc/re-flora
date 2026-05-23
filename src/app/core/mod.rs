@@ -8,10 +8,12 @@ mod particles;
 mod tree_bench;
 mod ui_style;
 mod vegetation;
+mod water;
 
 use self::particles::TreeLeafEmitter;
 use self::tree_bench::{TreeBench, TreeBenchMode};
 use self::vegetation::{TreeRecord, TreeVariationConfig};
+use crate::app::cpu_solid_voxels::CpuSolidVoxelStore;
 use crate::app::environment;
 use crate::app::gui_config_loader::GuiConfigLoader;
 use crate::app::gui_config_model::GuiConfigFile;
@@ -22,8 +24,8 @@ use crate::app::world_ops;
 use crate::app::GuiAdjustables;
 use crate::audio::{SpatialSoundManager, TreeAudioManager};
 use crate::builder::{
-    ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder, VOXEL_TYPE_CHERRY_WOOD,
-    VOXEL_TYPE_ROCK,
+    ContreeBuildJob, ContreeBuilder, PlainBuilder, SceneAccelBuilder, SceneTexUpdateJob,
+    SurfaceBuildJob, SurfaceBuilder, VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_ROCK,
 };
 use crate::flora::species;
 use crate::geom::{build_bvh, Aabb3, Cuboid, UAabb3};
@@ -37,19 +39,23 @@ use crate::tree_gen::TreeDesc;
 use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
 use crate::util::{GrowingFloraChunk, GrowingFloraQueue, LatestChunkQueue, ShaderCompiler, BENCH};
-use crate::vkn::{Allocator, CommandBuffer, Fence, Semaphore, SwapchainDesc};
+use crate::vkn::{
+    record_image_transition_barrier, Allocator, Buffer, BufferUsage, CommandBuffer, Extent2D,
+    Fence, Semaphore, SwapchainDesc,
+};
 use crate::RenderFlags;
 use crate::{
     egui_renderer::EguiRenderer,
     vkn::{Swapchain, VulkanContext},
     window::WindowState,
+    WaterProfilePreference,
 };
 use anyhow::{Context, Result};
 use ash::vk;
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
 use gpu_allocator::vulkan::AllocatorCreateDesc;
-use petalsonic::DirectOcclusionDebugSnapshot;
+use re_flora_water::PondWaterConfig;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -60,7 +66,8 @@ use ui_style::{
     CUSTOM_GUI_FONT_NAME, CUSTOM_GUI_FONT_PATH, FLOWER_ACCENT, GOLD_ACCENT,
     ITEM_PANEL_HOE_ICON_FALLBACK_PATH, ITEM_PANEL_HOE_ICON_PATH,
     ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH, ITEM_PANEL_SHOVEL_ICON_PATH, ITEM_PANEL_SLOT_COUNT,
-    ITEM_PANEL_STAFF_ICON_FALLBACK_PATH, ITEM_PANEL_STAFF_ICON_PATH, PANEL_BG, PANEL_DARK,
+    ITEM_PANEL_STAFF_ICON_FALLBACK_PATH, ITEM_PANEL_STAFF_ICON_PATH,
+    ITEM_PANEL_WATER_ICON_FALLBACK_PATH, ITEM_PANEL_WATER_ICON_PATH, PANEL_BG, PANEL_DARK,
     SAGE_ACCENT, SHADOW_COLOR,
 };
 use uuid::Uuid;
@@ -72,10 +79,21 @@ use winit::{
 };
 
 const LEAF_CLUSTER_DISTANCE: f32 = 0.08;
+// Hidden runs should exercise audio setup, source updates, ray tracing, and pump paths
+// without producing audible output for the user.
+const HIDDEN_AUDIO_OUTPUT_GAIN_DB: f32 = -120.0;
 struct FrameSync {
     image_available: Semaphore,
     fence: Fence,
     command_buffer: CommandBuffer,
+}
+
+struct ScreenshotReadback {
+    path: String,
+    width: u32,
+    height: u32,
+    format: vk::Format,
+    buffer: Buffer,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -84,12 +102,49 @@ enum LoadingPhase {
     Building,
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Default)]
 enum ChunkRebuildRequest {
     #[default]
     Normal,
     PreserveFlora(world_ops::FloraSphereEdit),
 }
+
+struct TerrainChunkRebuildInFlight {
+    chunk_id: UVec3,
+    revision: u64,
+    started_at: Instant,
+    main_thread_ms: f64,
+    flora_edit: Option<world_ops::FloraSphereEdit>,
+    stage: TerrainChunkRebuildStage,
+}
+
+enum TerrainChunkRebuildStage {
+    Surface {
+        job: SurfaceBuildJob,
+    },
+    ContreeReady {
+        active_voxel_len: u32,
+        surface_total_ms: f64,
+    },
+    Contree {
+        active_voxel_len: u32,
+        surface_total_ms: f64,
+        job: ContreeBuildJob,
+    },
+    Scene {
+        active_voxel_len: u32,
+        surface_total_ms: f64,
+        contree_total_ms: f64,
+        job: SceneTexUpdateJob,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct TerrainSdfColliderRebuildRequest;
+
+#[derive(Clone, Copy, Debug, Default)]
+struct WaterTerrainCacheRebuildRequest;
 
 struct LoadingState {
     chunk_indices: Vec<UVec3>,
@@ -135,6 +190,7 @@ pub struct App {
     accumulated_mouse_delta: Vec2,
     smoothed_mouse_delta: Vec2,
     perf_logging: bool,
+    mute_audio_output: bool,
 
     tracer: Tracer,
 
@@ -154,11 +210,10 @@ pub struct App {
     item_panel_shovel_icon: Option<TextureHandle>,
     item_panel_staff_icon: Option<TextureHandle>,
     item_panel_hoe_icon: Option<TextureHandle>,
+    item_panel_water_icon: Option<TextureHandle>,
     selected_item_panel_slot: usize,
     active_voxel_type: ActiveVoxelType,
-    audio_ray_tracing_debug_text: String,
-    audio_ray_tracing_last_direct_snapshot: Option<DirectOcclusionDebugSnapshot>,
-    audio_ray_tracing_last_runtime_snapshot: crate::builder::ContreeRayTracingRuntimeSnapshot,
+    water_particle_handoff_main_thread_ms: Option<f32>,
     left_mouse_held: bool,
     right_mouse_held: bool,
     shovel_dig_held: bool,
@@ -199,6 +254,22 @@ pub struct App {
     butterfly_emitters: Vec<ButterflyEmitter>,
     butterfly_emitter_desc: ButterflyEmitterDesc,
     particle_animation_time_sec: f32,
+    water_sim: water::AsyncWaterSim,
+    water_terrain_initialized: bool,
+    water_terrain_collider_cache_rebuild_pending: bool,
+    cpu_solid_voxels: CpuSolidVoxelStore,
+    deferred_terrain_sdf_source_refreshes: LatestChunkQueue<water::TerrainSdfSourceRefreshRequest>,
+    deferred_terrain_sdf_collider_rebuilds: LatestChunkQueue<TerrainSdfColliderRebuildRequest>,
+    deferred_water_terrain_cache_rebuilds: LatestChunkQueue<WaterTerrainCacheRebuildRequest>,
+    terrain_sdf_built_source_revisions: HashMap<UVec3, water::TerrainSdfSourceRevision>,
+    terrain_sdf_source_refresh_inflight: Option<water::TerrainSdfSourceRefreshInFlight>,
+    terrain_sdf_collider_build_inflight: bool,
+    terrain_sdf_collider_job_tx: std::sync::mpsc::Sender<water::TerrainSdfColliderWorkerJob>,
+    terrain_sdf_collider_result_rx:
+        std::sync::mpsc::Receiver<water::TerrainSdfColliderWorkerResult>,
+    water_terrain_cache_rebuild_inflight: bool,
+    water_terrain_cache_job_tx: std::sync::mpsc::Sender<water::WaterTerrainCacheWorkerJob>,
+    water_terrain_cache_result_rx: std::sync::mpsc::Receiver<water::WaterTerrainCacheWorkerResult>,
     particle_snapshots: Vec<ParticleSnapshot>,
     #[allow(dead_code)]
     terrain_harvest_particle_handles: Vec<ParticleHandle>,
@@ -210,7 +281,9 @@ pub struct App {
     screenshot_taken: bool,
     auto_exit_delay: Option<f32>,
     tree_bench: Option<TreeBench>,
+    water_edit_soak: Option<water::WaterEditSoak>,
     deferred_chunk_rebuilds: LatestChunkQueue<ChunkRebuildRequest>,
+    terrain_chunk_rebuild_inflight: Option<TerrainChunkRebuildInFlight>,
 
     // note: always keep the context to end, as it has to be destroyed last
     vulkan_ctx: VulkanContext,
@@ -234,11 +307,11 @@ impl Drop for App {
 
 impl App {
     pub(super) fn enqueue_deferred_chunk_rebuilds(&mut self, chunk_ids: &[UVec3]) {
-        for &chunk_id in chunk_ids {
-            self.deferred_chunk_rebuilds
-                .push(chunk_id, ChunkRebuildRequest::Normal);
+        if chunk_ids.is_empty() {
+            return;
         }
 
+        self.rebuild_visible_chunk_batch_synchronously(chunk_ids);
     }
 
     pub(super) fn enqueue_deferred_flora_preserving_chunk_rebuilds(
@@ -246,18 +319,172 @@ impl App {
         chunk_ids: &[UVec3],
         flora_edit: world_ops::FloraSphereEdit,
     ) {
-        for &chunk_id in chunk_ids {
-            self.deferred_chunk_rebuilds
-                .push(chunk_id, ChunkRebuildRequest::PreserveFlora(flora_edit));
+        if chunk_ids.is_empty() {
+            return;
         }
 
+        self.rebuild_visible_flora_preserving_chunk_batch_synchronously(chunk_ids, flora_edit);
+    }
+
+    fn prepare_visible_sync_rebuild(&mut self, chunk_ids: &[UVec3]) -> bool {
+        if self.terrain_chunk_rebuild_inflight.is_some()
+            && !self.finish_deferred_chunk_rebuild_blocking()
+        {
+            return false;
+        }
+
+        for &chunk_id in chunk_ids {
+            self.deferred_chunk_rebuilds.clear(chunk_id);
+        }
+        true
+    }
+
+    fn rebuild_visible_chunk_batch_synchronously(&mut self, chunk_ids: &[UVec3]) {
+        let sync_start = Instant::now();
+        if !self.prepare_visible_sync_rebuild(chunk_ids) {
+            log::error!(
+                "[SYNC_VISIBLE_REBUILD] failed to prepare synchronous rebuild; leaving visible terrain unchanged for chunks {:?}",
+                chunk_ids,
+            );
+            return;
+        }
+        let result = world_ops::mesh_generate_chunks(
+            &mut self.surface_builder,
+            &mut self.contree_builder,
+            &mut self.scene_accel_builder,
+            VOXEL_DIM_PER_CHUNK,
+            chunk_ids.to_vec(),
+        );
+        let elapsed_ms = sync_start.elapsed().as_secs_f64() * 1000.0;
+        match result {
+            Ok(()) => {
+                for &chunk_id in chunk_ids {
+                    self.schedule_terrain_sdf_source_refresh(chunk_id);
+                }
+                log::info!(
+                    "[PERF][SYNC_VISIBLE_REBUILD] chunks {} total {:.2}ms preserve_flora=false chunk_ids={:?}",
+                    chunk_ids.len(),
+                    elapsed_ms,
+                    chunk_ids,
+                );
+            }
+            Err(err) => {
+                log::error!(
+                    "[PERF][SYNC_VISIBLE_REBUILD] failed chunks {} after {:.2}ms preserve_flora=false chunk_ids={:?}: {}",
+                    chunk_ids.len(),
+                    elapsed_ms,
+                    chunk_ids,
+                    err,
+                );
+            }
+        }
+    }
+
+    fn rebuild_visible_flora_preserving_chunk_batch_synchronously(
+        &mut self,
+        chunk_ids: &[UVec3],
+        flora_edit: world_ops::FloraSphereEdit,
+    ) {
+        let sync_start = Instant::now();
+        if !self.prepare_visible_sync_rebuild(chunk_ids) {
+            log::error!(
+                "[SYNC_VISIBLE_REBUILD] failed to prepare synchronous preserve-flora rebuild; leaving visible terrain unchanged for chunks {:?}",
+                chunk_ids,
+            );
+            return;
+        }
+        let mut rebuilt = 0usize;
+        let mut failed = false;
+        for &chunk_id in chunk_ids {
+            match world_ops::mesh_generate_chunk_preserve_flora_for_sphere_edit(
+                &mut self.surface_builder,
+                &mut self.contree_builder,
+                &mut self.scene_accel_builder,
+                VOXEL_DIM_PER_CHUNK,
+                chunk_id,
+                flora_edit,
+            ) {
+                Ok(()) => {
+                    rebuilt += 1;
+                    self.schedule_terrain_sdf_source_refresh(chunk_id);
+                }
+                Err(err) => {
+                    failed = true;
+                    log::error!(
+                        "[SYNC_VISIBLE_REBUILD] failed preserve-flora chunk {:?}: {}",
+                        chunk_id,
+                        err,
+                    );
+                }
+            }
+        }
+        let elapsed_ms = sync_start.elapsed().as_secs_f64() * 1000.0;
+        log::info!(
+            "[PERF][SYNC_VISIBLE_REBUILD] chunks {} rebuilt {} total {:.2}ms preserve_flora=true failed={} chunk_ids={:?}",
+            chunk_ids.len(),
+            rebuilt,
+            elapsed_ms,
+            failed,
+            chunk_ids,
+        );
     }
 
     pub(super) fn deferred_chunk_rebuilds_idle(&self) -> bool {
-        self.deferred_chunk_rebuilds.is_idle()
+        self.deferred_chunk_rebuilds.is_idle() && self.terrain_chunk_rebuild_inflight.is_none()
     }
 
     fn process_deferred_chunk_rebuild(&mut self) {
+        if self.terrain_chunk_rebuild_inflight.is_some() {
+            self.progress_deferred_chunk_rebuild();
+            return;
+        }
+
+        self.try_start_deferred_chunk_rebuild();
+    }
+
+    fn finish_deferred_chunk_rebuild_blocking(&mut self) -> bool {
+        while self.terrain_chunk_rebuild_inflight.is_some() {
+            let wait_result = match self
+                .terrain_chunk_rebuild_inflight
+                .as_ref()
+                .map(|inflight| &inflight.stage)
+            {
+                Some(TerrainChunkRebuildStage::Surface { job }) => {
+                    self.surface_builder.wait_build_surface(job)
+                }
+                Some(TerrainChunkRebuildStage::ContreeReady { .. }) => Ok(()),
+                Some(TerrainChunkRebuildStage::Contree { job, .. }) => {
+                    self.contree_builder.wait_build_and_alloc(job)
+                }
+                Some(TerrainChunkRebuildStage::Scene { job, .. }) => {
+                    self.scene_accel_builder.wait_update_scene_tex(job)
+                }
+                None => Ok(()),
+            };
+
+            if let Err(err) = wait_result {
+                log::error!(
+                    "[QUEUE][DEFERRED_REBUILD] failed while draining async rebuild before visible sync rebuild: {}",
+                    err,
+                );
+                return false;
+            }
+
+            self.progress_deferred_chunk_rebuild();
+        }
+        true
+    }
+
+    fn deferred_surface_rebuild_inflight(&self) -> bool {
+        matches!(
+            self.terrain_chunk_rebuild_inflight
+                .as_ref()
+                .map(|job| &job.stage),
+            Some(TerrainChunkRebuildStage::Surface { .. })
+        )
+    }
+
+    fn try_start_deferred_chunk_rebuild(&mut self) {
         let player_pos = self.tracer.camera_position();
         let Some(work) = self
             .deferred_chunk_rebuilds
@@ -266,47 +493,575 @@ impl App {
             return;
         };
 
-        let rebuild_start = Instant::now();
-        let result = match work.payload {
-            ChunkRebuildRequest::Normal => world_ops::mesh_generate_chunks(
-                &mut self.surface_builder,
-                &mut self.contree_builder,
-                &mut self.scene_accel_builder,
-                VOXEL_DIM_PER_CHUNK,
-                vec![work.chunk_id],
-            ),
+        match work.payload {
+            ChunkRebuildRequest::Normal => {
+                self.start_async_surface_chunk_rebuild(work.chunk_id, work.revision, true, None);
+            }
             ChunkRebuildRequest::PreserveFlora(flora_edit) => {
-                world_ops::mesh_generate_chunk_preserve_flora_for_sphere_edit(
-                    &mut self.surface_builder,
-                    &mut self.contree_builder,
-                    &mut self.scene_accel_builder,
-                    VOXEL_DIM_PER_CHUNK,
+                self.start_async_surface_chunk_rebuild(
                     work.chunk_id,
+                    work.revision,
+                    false,
+                    Some(flora_edit),
+                );
+            }
+        }
+    }
+
+    fn start_async_surface_chunk_rebuild(
+        &mut self,
+        chunk_id: UVec3,
+        revision: u64,
+        place_flora: bool,
+        flora_edit: Option<world_ops::FloraSphereEdit>,
+    ) {
+        let submit_start = Instant::now();
+        match self
+            .surface_builder
+            .submit_build_surface(chunk_id, place_flora)
+        {
+            Ok(job) => {
+                let submit_ms = submit_start.elapsed().as_secs_f64() * 1000.0;
+                log::debug!(
+                    "[QUEUE][DEFERRED_REBUILD] submit surface chunk {:?} revision {} submit_ms={:.2} pending={} active={}",
+                    chunk_id,
+                    revision,
+                    submit_ms,
+                    self.deferred_chunk_rebuilds.len(),
+                    self.deferred_chunk_rebuilds.active_len(),
+                );
+                self.terrain_chunk_rebuild_inflight = Some(TerrainChunkRebuildInFlight {
+                    chunk_id,
+                    revision,
+                    started_at: Instant::now(),
+                    main_thread_ms: submit_ms,
                     flora_edit,
-                )
+                    stage: TerrainChunkRebuildStage::Surface { job },
+                });
+            }
+            Err(err) => {
+                let elapsed_ms = submit_start.elapsed().as_secs_f32() * 1000.0;
+                self.deferred_chunk_rebuilds.complete(chunk_id, revision);
+                log::error!(
+                    "[PERF][DEFERRED_REBUILD] chunk {:?} failed surface submit after {:.2}ms remaining {} revision {}: {}",
+                    chunk_id,
+                    elapsed_ms,
+                    self.deferred_chunk_rebuilds.len(),
+                    revision,
+                    err,
+                );
+            }
+        }
+    }
+
+    fn progress_deferred_chunk_rebuild(&mut self) {
+        let Some(inflight) = self.terrain_chunk_rebuild_inflight.take() else {
+            return;
+        };
+        let TerrainChunkRebuildInFlight {
+            chunk_id,
+            revision,
+            started_at,
+            main_thread_ms,
+            flora_edit,
+            stage,
+        } = inflight;
+        let inflight = TerrainChunkRebuildInFlight {
+            chunk_id,
+            revision,
+            started_at,
+            main_thread_ms,
+            flora_edit,
+            stage: TerrainChunkRebuildStage::ContreeReady {
+                active_voxel_len: 0,
+                surface_total_ms: 0.0,
+            },
+        };
+
+        match stage {
+            TerrainChunkRebuildStage::Surface { job } => {
+                self.progress_deferred_chunk_surface_rebuild(inflight, job);
+            }
+            TerrainChunkRebuildStage::ContreeReady {
+                active_voxel_len,
+                surface_total_ms,
+            } => {
+                self.submit_deferred_chunk_contree_rebuild(
+                    inflight,
+                    active_voxel_len,
+                    surface_total_ms,
+                );
+            }
+            TerrainChunkRebuildStage::Contree {
+                active_voxel_len,
+                surface_total_ms,
+                job,
+            } => {
+                self.finish_deferred_chunk_contree_rebuild(
+                    inflight,
+                    active_voxel_len,
+                    surface_total_ms,
+                    job,
+                );
+            }
+            TerrainChunkRebuildStage::Scene {
+                active_voxel_len,
+                surface_total_ms,
+                contree_total_ms,
+                job,
+            } => {
+                self.finish_deferred_chunk_scene_update(
+                    inflight,
+                    active_voxel_len,
+                    surface_total_ms,
+                    contree_total_ms,
+                    job,
+                );
+            }
+        }
+    }
+
+    fn progress_deferred_chunk_surface_rebuild(
+        &mut self,
+        mut inflight: TerrainChunkRebuildInFlight,
+        job: SurfaceBuildJob,
+    ) {
+        let ready = match self.surface_builder.build_surface_ready(&job) {
+            Ok(ready) => ready,
+            Err(err) => {
+                log::error!(
+                    "[QUEUE][DEFERRED_REBUILD] failed to poll surface chunk {:?} revision {}: {}",
+                    inflight.chunk_id,
+                    inflight.revision,
+                    err,
+                );
+                inflight.stage = TerrainChunkRebuildStage::Surface { job };
+                self.terrain_chunk_rebuild_inflight = Some(inflight);
+                return;
             }
         };
-        let elapsed = rebuild_start.elapsed();
-        self.deferred_chunk_rebuilds
-            .complete(work.chunk_id, work.revision);
 
-        match result {
-            Ok(()) => log::debug!(
-                "[PERF][DEFERRED_REBUILD] chunk {:?} total {:.2}ms remaining {} revision {}",
-                work.chunk_id,
-                elapsed.as_secs_f32() * 1000.0,
-                self.deferred_chunk_rebuilds.len(),
-                work.revision,
-            ),
-            Err(err) => log::error!(
-                "[PERF][DEFERRED_REBUILD] chunk {:?} failed after {:.2}ms remaining {} revision {}: {}",
-                work.chunk_id,
-                elapsed.as_secs_f32() * 1000.0,
-                self.deferred_chunk_rebuilds.len(),
-                work.revision,
-                err,
-            ),
+        if !ready {
+            inflight.stage = TerrainChunkRebuildStage::Surface { job };
+            self.terrain_chunk_rebuild_inflight = Some(inflight);
+            return;
         }
+
+        if !self
+            .deferred_chunk_rebuilds
+            .is_latest_revision(inflight.chunk_id, inflight.revision)
+        {
+            log::debug!(
+                "[QUEUE][DEFERRED_REBUILD] discard stale surface chunk {:?} revision {} wall_ms={:.2} pending={} active={}",
+                inflight.chunk_id,
+                inflight.revision,
+                inflight.started_at.elapsed().as_secs_f32() * 1000.0,
+                self.deferred_chunk_rebuilds.len(),
+                self.deferred_chunk_rebuilds.active_len(),
+            );
+            self.deferred_chunk_rebuilds
+                .complete(inflight.chunk_id, inflight.revision);
+            return;
+        }
+
+        let finish_start = Instant::now();
+        match self.surface_builder.finish_build_surface(job) {
+            Ok(surface) => {
+                let finish_ms = finish_start.elapsed().as_secs_f64() * 1000.0;
+                inflight.main_thread_ms += finish_ms;
+                let surface_total_ms = surface.total_ms;
+                let mut preserve_flora_ms = 0.0;
+                if let Some(flora_edit) = inflight.flora_edit {
+                    let flora_start = Instant::now();
+                    match self.surface_builder.edit_flora_instances(
+                        inflight.chunk_id,
+                        flora_edit.center,
+                        flora_edit.radius,
+                        flora_edit.tick,
+                    ) {
+                        Ok(()) => {
+                            preserve_flora_ms = flora_start.elapsed().as_secs_f64() * 1000.0;
+                            inflight.main_thread_ms += preserve_flora_ms;
+                        }
+                        Err(err) => {
+                            let flora_ms = flora_start.elapsed().as_secs_f64() * 1000.0;
+                            inflight.main_thread_ms += flora_ms;
+                            self.deferred_chunk_rebuilds
+                                .complete(inflight.chunk_id, inflight.revision);
+                            log::error!(
+                                "[PERF][DEFERRED_REBUILD] chunk {:?} failed preserve-flora edit after {:.2}ms wall {:.2}ms remaining {} revision {}: {}",
+                                inflight.chunk_id,
+                                inflight.main_thread_ms,
+                                inflight.started_at.elapsed().as_secs_f64() * 1000.0,
+                                self.deferred_chunk_rebuilds.len(),
+                                inflight.revision,
+                                err,
+                            );
+                            return;
+                        }
+                    }
+                }
+                log::log!(
+                    if self.perf_logging {
+                        log::Level::Info
+                    } else {
+                        log::Level::Debug
+                    },
+                    "[PERF][DEFERRED_REBUILD_PHASE] chunk {:?} revision {} phase surface_finish main_thread {:.2}ms surface_total {:.2}ms active_voxels {} flora {:.2}ms preserve_flora {:.2}ms place_flora {}",
+                    inflight.chunk_id,
+                    inflight.revision,
+                    finish_ms,
+                    surface_total_ms,
+                    surface.active_voxel_len,
+                    surface.flora_ms,
+                    preserve_flora_ms,
+                    surface.place_flora,
+                );
+                inflight.stage = TerrainChunkRebuildStage::ContreeReady {
+                    active_voxel_len: surface.active_voxel_len,
+                    surface_total_ms,
+                };
+                self.terrain_chunk_rebuild_inflight = Some(inflight);
+            }
+            Err(err) => {
+                let finish_ms = finish_start.elapsed().as_secs_f32() * 1000.0;
+                self.deferred_chunk_rebuilds
+                    .complete(inflight.chunk_id, inflight.revision);
+                log::error!(
+                    "[PERF][DEFERRED_REBUILD] chunk {:?} failed surface finish after {:.2}ms remaining {} revision {}: {}",
+                    inflight.chunk_id,
+                    finish_ms,
+                    self.deferred_chunk_rebuilds.len(),
+                    inflight.revision,
+                    err,
+                );
+            }
+        }
+    }
+
+    fn submit_deferred_chunk_contree_rebuild(
+        &mut self,
+        mut inflight: TerrainChunkRebuildInFlight,
+        active_voxel_len: u32,
+        surface_total_ms: f64,
+    ) {
+        if !self
+            .deferred_chunk_rebuilds
+            .is_latest_revision(inflight.chunk_id, inflight.revision)
+        {
+            log::debug!(
+                "[QUEUE][DEFERRED_REBUILD] discard stale contree-ready chunk {:?} revision {} wall_ms={:.2} pending={} active={}",
+                inflight.chunk_id,
+                inflight.revision,
+                inflight.started_at.elapsed().as_secs_f32() * 1000.0,
+                self.deferred_chunk_rebuilds.len(),
+                self.deferred_chunk_rebuilds.active_len(),
+            );
+            self.deferred_chunk_rebuilds
+                .complete(inflight.chunk_id, inflight.revision);
+            return;
+        }
+
+        if active_voxel_len == 0 {
+            let clear_start = Instant::now();
+            let contree = self
+                .contree_builder
+                .clear_empty_surface_chunk(inflight.chunk_id * VOXEL_DIM_PER_CHUNK);
+            let clear_ms = clear_start.elapsed().as_secs_f64() * 1000.0;
+            inflight.main_thread_ms += clear_ms;
+
+            let scene_submit_start = Instant::now();
+            match self
+                .scene_accel_builder
+                .submit_update_scene_tex(contree.chunk_idx, contree.scene_offsets)
+            {
+                Ok(scene_job) => {
+                    let scene_submit_ms = scene_submit_start.elapsed().as_secs_f64() * 1000.0;
+                    inflight.main_thread_ms += scene_submit_ms;
+                    log::log!(
+                        if self.perf_logging {
+                            log::Level::Info
+                        } else {
+                            log::Level::Debug
+                        },
+                        "[PERF][DEFERRED_REBUILD_PHASE] chunk {:?} revision {} phase contree_skip main_thread {:.2}ms contree_total {:.2}ms scene_submit {:.2}ms active_voxels {}",
+                        inflight.chunk_id,
+                        inflight.revision,
+                        clear_ms,
+                        contree.total_ms,
+                        scene_submit_ms,
+                        active_voxel_len,
+                    );
+                    inflight.stage = TerrainChunkRebuildStage::Scene {
+                        active_voxel_len,
+                        surface_total_ms,
+                        contree_total_ms: contree.total_ms,
+                        job: scene_job,
+                    };
+                    self.terrain_chunk_rebuild_inflight = Some(inflight);
+                }
+                Err(err) => {
+                    let scene_submit_ms = scene_submit_start.elapsed().as_secs_f64() * 1000.0;
+                    inflight.main_thread_ms += scene_submit_ms;
+                    self.deferred_chunk_rebuilds
+                        .complete(inflight.chunk_id, inflight.revision);
+                    log::error!(
+                        "[PERF][DEFERRED_REBUILD] chunk {:?} failed scene submit after contree skip {:.2}ms wall {:.2}ms remaining {} revision {}: {}",
+                        inflight.chunk_id,
+                        inflight.main_thread_ms,
+                        inflight.started_at.elapsed().as_secs_f64() * 1000.0,
+                        self.deferred_chunk_rebuilds.len(),
+                        inflight.revision,
+                        err,
+                    );
+                }
+            }
+            return;
+        }
+
+        let submit_start = Instant::now();
+        match self
+            .contree_builder
+            .submit_build_and_alloc(inflight.chunk_id * VOXEL_DIM_PER_CHUNK)
+        {
+            Ok(job) => {
+                let submit_ms = submit_start.elapsed().as_secs_f64() * 1000.0;
+                inflight.main_thread_ms += submit_ms;
+                log::log!(
+                    if self.perf_logging {
+                        log::Level::Info
+                    } else {
+                        log::Level::Debug
+                    },
+                    "[PERF][DEFERRED_REBUILD_PHASE] chunk {:?} revision {} phase contree_submit main_thread {:.2}ms active_voxels {}",
+                    inflight.chunk_id,
+                    inflight.revision,
+                    submit_ms,
+                    active_voxel_len,
+                );
+                inflight.stage = TerrainChunkRebuildStage::Contree {
+                    active_voxel_len,
+                    surface_total_ms,
+                    job,
+                };
+                self.terrain_chunk_rebuild_inflight = Some(inflight);
+            }
+            Err(err) => {
+                let submit_ms = submit_start.elapsed().as_secs_f64() * 1000.0;
+                inflight.main_thread_ms += submit_ms;
+                self.deferred_chunk_rebuilds
+                    .complete(inflight.chunk_id, inflight.revision);
+                log::error!(
+                    "[PERF][DEFERRED_REBUILD] chunk {:?} failed contree submit after {:.2}ms wall {:.2}ms remaining {} revision {}: {}",
+                    inflight.chunk_id,
+                    inflight.main_thread_ms,
+                    inflight.started_at.elapsed().as_secs_f64() * 1000.0,
+                    self.deferred_chunk_rebuilds.len(),
+                    inflight.revision,
+                    err,
+                );
+            }
+        }
+    }
+
+    fn finish_deferred_chunk_contree_rebuild(
+        &mut self,
+        mut inflight: TerrainChunkRebuildInFlight,
+        active_voxel_len: u32,
+        surface_total_ms: f64,
+        job: ContreeBuildJob,
+    ) {
+        let ready = match self.contree_builder.build_and_alloc_ready(&job) {
+            Ok(ready) => ready,
+            Err(err) => {
+                log::error!(
+                    "[QUEUE][DEFERRED_REBUILD] failed to poll contree chunk {:?} revision {}: {}",
+                    inflight.chunk_id,
+                    inflight.revision,
+                    err,
+                );
+                inflight.stage = TerrainChunkRebuildStage::Contree {
+                    active_voxel_len,
+                    surface_total_ms,
+                    job,
+                };
+                self.terrain_chunk_rebuild_inflight = Some(inflight);
+                return;
+            }
+        };
+
+        if !ready {
+            inflight.stage = TerrainChunkRebuildStage::Contree {
+                active_voxel_len,
+                surface_total_ms,
+                job,
+            };
+            self.terrain_chunk_rebuild_inflight = Some(inflight);
+            return;
+        }
+
+        if !self
+            .deferred_chunk_rebuilds
+            .is_latest_revision(inflight.chunk_id, inflight.revision)
+        {
+            log::debug!(
+                "[QUEUE][DEFERRED_REBUILD] discard stale contree chunk {:?} revision {} wall_ms={:.2} pending={} active={}",
+                inflight.chunk_id,
+                inflight.revision,
+                inflight.started_at.elapsed().as_secs_f32() * 1000.0,
+                self.deferred_chunk_rebuilds.len(),
+                self.deferred_chunk_rebuilds.active_len(),
+            );
+            self.contree_builder.discard_build_and_alloc(job);
+            self.deferred_chunk_rebuilds
+                .complete(inflight.chunk_id, inflight.revision);
+            return;
+        }
+
+        let finish_start = Instant::now();
+        let contree = match self.contree_builder.finish_build_and_alloc(job) {
+            Ok(contree) => contree,
+            Err(err) => {
+                let finish_ms = finish_start.elapsed().as_secs_f64() * 1000.0;
+                inflight.main_thread_ms += finish_ms;
+                self.deferred_chunk_rebuilds
+                    .complete(inflight.chunk_id, inflight.revision);
+                log::error!(
+                    "[PERF][DEFERRED_REBUILD] chunk {:?} failed contree finish after {:.2}ms wall {:.2}ms remaining {} revision {}: {}",
+                    inflight.chunk_id,
+                    inflight.main_thread_ms,
+                    inflight.started_at.elapsed().as_secs_f64() * 1000.0,
+                    self.deferred_chunk_rebuilds.len(),
+                    inflight.revision,
+                    err,
+                );
+                return;
+            }
+        };
+        let contree_finish_ms = finish_start.elapsed().as_secs_f64() * 1000.0;
+        inflight.main_thread_ms += contree_finish_ms;
+
+        let scene_data = contree.scene_offsets;
+        let scene_submit_start = Instant::now();
+        match self
+            .scene_accel_builder
+            .submit_update_scene_tex(contree.chunk_idx, scene_data)
+        {
+            Ok(scene_job) => {
+                let scene_submit_ms = scene_submit_start.elapsed().as_secs_f64() * 1000.0;
+                inflight.main_thread_ms += scene_submit_ms;
+                log::log!(
+                    if self.perf_logging {
+                        log::Level::Info
+                    } else {
+                        log::Level::Debug
+                    },
+                    "[PERF][DEFERRED_REBUILD_PHASE] chunk {:?} revision {} phase contree_finish main_thread {:.2}ms contree_total {:.2}ms scene_submit {:.2}ms active_voxels {}",
+                    inflight.chunk_id,
+                    inflight.revision,
+                    contree_finish_ms,
+                    contree.total_ms,
+                    scene_submit_ms,
+                    active_voxel_len,
+                );
+                inflight.stage = TerrainChunkRebuildStage::Scene {
+                    active_voxel_len,
+                    surface_total_ms,
+                    contree_total_ms: contree.total_ms,
+                    job: scene_job,
+                };
+                self.terrain_chunk_rebuild_inflight = Some(inflight);
+            }
+            Err(err) => {
+                let scene_submit_ms = scene_submit_start.elapsed().as_secs_f64() * 1000.0;
+                inflight.main_thread_ms += scene_submit_ms;
+                self.deferred_chunk_rebuilds
+                    .complete(inflight.chunk_id, inflight.revision);
+                log::error!(
+                    "[PERF][DEFERRED_REBUILD] chunk {:?} failed scene submit after {:.2}ms wall {:.2}ms remaining {} revision {}: {}",
+                    inflight.chunk_id,
+                    inflight.main_thread_ms,
+                    inflight.started_at.elapsed().as_secs_f64() * 1000.0,
+                    self.deferred_chunk_rebuilds.len(),
+                    inflight.revision,
+                    err,
+                );
+            }
+        }
+    }
+
+    fn finish_deferred_chunk_scene_update(
+        &mut self,
+        mut inflight: TerrainChunkRebuildInFlight,
+        active_voxel_len: u32,
+        surface_total_ms: f64,
+        contree_total_ms: f64,
+        job: SceneTexUpdateJob,
+    ) {
+        let ready = match self.scene_accel_builder.update_scene_tex_ready(&job) {
+            Ok(ready) => ready,
+            Err(err) => {
+                log::error!(
+                    "[QUEUE][DEFERRED_REBUILD] failed to poll scene update chunk {:?} revision {}: {}",
+                    inflight.chunk_id,
+                    inflight.revision,
+                    err,
+                );
+                inflight.stage = TerrainChunkRebuildStage::Scene {
+                    active_voxel_len,
+                    surface_total_ms,
+                    contree_total_ms,
+                    job,
+                };
+                self.terrain_chunk_rebuild_inflight = Some(inflight);
+                return;
+            }
+        };
+
+        if !ready {
+            inflight.stage = TerrainChunkRebuildStage::Scene {
+                active_voxel_len,
+                surface_total_ms,
+                contree_total_ms,
+                job,
+            };
+            self.terrain_chunk_rebuild_inflight = Some(inflight);
+            return;
+        }
+
+        let finish_start = Instant::now();
+        let scene = self.scene_accel_builder.finish_update_scene_tex(job);
+        let finish_ms = finish_start.elapsed().as_secs_f64() * 1000.0;
+        inflight.main_thread_ms += finish_ms;
+        let is_latest = self
+            .deferred_chunk_rebuilds
+            .is_latest_revision(inflight.chunk_id, inflight.revision);
+        self.deferred_chunk_rebuilds
+            .complete(inflight.chunk_id, inflight.revision);
+        if is_latest {
+            self.schedule_terrain_sdf_source_refresh(inflight.chunk_id);
+        }
+
+        log::log!(
+            if self.perf_logging {
+                log::Level::Info
+            } else {
+                log::Level::Debug
+            },
+            "[PERF][DEFERRED_REBUILD] chunk {:?} total {:.2}ms wall {:.2}ms surface_total {:.2}ms contree_total {:.2}ms scene_total {:.2}ms scene_finish {:.2}ms active_voxels {} remaining {} revision {} latest={} preserve_flora={}",
+            inflight.chunk_id,
+            inflight.main_thread_ms,
+            inflight.started_at.elapsed().as_secs_f64() * 1000.0,
+            surface_total_ms,
+            contree_total_ms,
+            scene.total_ms,
+            finish_ms,
+            active_voxel_len,
+            self.deferred_chunk_rebuilds.len(),
+            inflight.revision,
+            is_latest,
+            inflight.flora_edit.is_some(),
+        );
     }
 
     pub(super) fn track_growing_flora_chunk(&mut self, chunk_id: UVec3) {
@@ -314,6 +1069,10 @@ impl App {
     }
 
     fn update_growing_flora_chunk(&mut self) {
+        if self.deferred_surface_rebuild_inflight() {
+            return;
+        }
+
         let Some(GrowingFloraChunk {
             chunk_id,
             last_flora_tick,
@@ -345,41 +1104,151 @@ impl App {
         }
     }
 
-    fn save_screenshot(&self, path: &str) {
-        let output_path = std::path::Path::new(path);
+    fn prepare_screenshot_readback(
+        &self,
+        path: String,
+        render_area: Extent2D,
+    ) -> Result<ScreenshotReadback> {
+        let output_path = std::path::Path::new(&path);
         if let Some(parent) = output_path.parent() {
             if !parent.as_os_str().is_empty() && !parent.exists() {
-                log::error!(
-                    "[SCREENSHOT] Parent directory does not exist: {}",
-                    parent.display()
-                );
-                return;
+                anyhow::bail!("parent directory does not exist: {}", parent.display());
             }
         }
 
-        self.vulkan_ctx.device().wait_idle();
+        let width = render_area.width;
+        let height = render_area.height;
+        let byte_count = width as u64 * height as u64 * 4;
+        let allocator = self
+            .tracer
+            .get_screen_output_tex()
+            .get_image()
+            .get_allocator()
+            .clone();
+        let buffer = Buffer::new_sized(
+            self.vulkan_ctx.device().clone(),
+            allocator,
+            BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
+            gpu_allocator::MemoryLocation::GpuToCpu,
+            byte_count,
+        );
 
-        let image = self.tracer.get_screen_output_tex().get_image();
-        let extent = image.get_desc().extent;
-        let width = extent.width;
-        let height = extent.height;
+        Ok(ScreenshotReadback {
+            path,
+            width,
+            height,
+            format: self.swapchain.image_format(),
+            buffer,
+        })
+    }
 
-        match image.fetch_data(
-            &self.vulkan_ctx.get_general_queue(),
-            self.vulkan_ctx.command_pool(),
-        ) {
-            Ok(rgba_data) => match image::RgbaImage::from_raw(width, height, rgba_data) {
-                Some(image_data) => match image_data.save(path) {
-                    Ok(()) => log::info!("[SCREENSHOT] Saved {}x{} to {}", width, height, path),
-                    Err(err) => {
-                        log::error!("[SCREENSHOT] Failed to write {}: {}", path, err)
+    fn record_screenshot_readback(
+        &self,
+        cmdbuf: &CommandBuffer,
+        image_idx: u32,
+        readback: &ScreenshotReadback,
+    ) {
+        let device = self.vulkan_ctx.device();
+        let swapchain_image = self.swapchain.get_image(image_idx);
+
+        record_image_transition_barrier(
+            device.as_raw(),
+            cmdbuf.as_raw(),
+            vk::ImageLayout::PRESENT_SRC_KHR,
+            vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+            swapchain_image,
+            vk::ImageAspectFlags::COLOR,
+            0,
+            1,
+        );
+
+        let region = vk::BufferImageCopy::default()
+            .buffer_offset(0)
+            .buffer_row_length(0)
+            .buffer_image_height(0)
+            .image_subresource(vk::ImageSubresourceLayers {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                mip_level: 0,
+                base_array_layer: 0,
+                layer_count: 1,
+            })
+            .image_offset(vk::Offset3D { x: 0, y: 0, z: 0 })
+            .image_extent(vk::Extent3D {
+                width: readback.width,
+                height: readback.height,
+                depth: 1,
+            });
+
+        unsafe {
+            device.as_raw().cmd_copy_image_to_buffer(
+                cmdbuf.as_raw(),
+                swapchain_image,
+                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                readback.buffer.as_raw(),
+                &[region],
+            );
+        }
+
+        record_image_transition_barrier(
+            device.as_raw(),
+            cmdbuf.as_raw(),
+            vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+            vk::ImageLayout::PRESENT_SRC_KHR,
+            swapchain_image,
+            vk::ImageAspectFlags::COLOR,
+            0,
+            1,
+        );
+    }
+
+    fn write_screenshot_readback(readback: ScreenshotReadback) {
+        match readback.buffer.read_back() {
+            Ok(raw_data) => match Self::swapchain_readback_to_rgba(readback.format, raw_data) {
+                Ok(rgba_data) => {
+                    match image::RgbaImage::from_raw(readback.width, readback.height, rgba_data) {
+                        Some(image_data) => match image_data.save(&readback.path) {
+                            Ok(()) => log::info!(
+                                "[SCREENSHOT] Saved {}x{} to {}",
+                                readback.width,
+                                readback.height,
+                                readback.path
+                            ),
+                            Err(err) => log::error!(
+                                "[SCREENSHOT] Failed to write {}: {}",
+                                readback.path,
+                                err
+                            ),
+                        },
+                        None => log::error!(
+                            "[SCREENSHOT] Invalid image dimensions or pixel buffer size"
+                        ),
                     }
-                },
-                None => {
-                    log::error!("[SCREENSHOT] Invalid image dimensions or pixel buffer size")
                 }
+                Err(err) => log::error!("[SCREENSHOT] Pixel conversion failed: {}", err),
             },
             Err(err) => log::error!("[SCREENSHOT] GPU readback failed: {}", err),
+        }
+    }
+
+    fn swapchain_readback_to_rgba(format: vk::Format, mut data: Vec<u8>) -> Result<Vec<u8>> {
+        match format {
+            vk::Format::B8G8R8A8_SRGB | vk::Format::B8G8R8A8_UNORM => {
+                for pixel in data.chunks_exact_mut(4) {
+                    pixel.swap(0, 2);
+                    pixel[3] = 255;
+                }
+                Ok(data)
+            }
+            vk::Format::R8G8B8A8_SRGB | vk::Format::R8G8B8A8_UNORM => {
+                for pixel in data.chunks_exact_mut(4) {
+                    pixel[3] = 255;
+                }
+                Ok(data)
+            }
+            other => Err(anyhow::anyhow!(
+                "unsupported swapchain screenshot format: {:?}",
+                other
+            )),
         }
     }
 }
@@ -410,7 +1279,9 @@ const FREE_ATLAS_DIM: UVec3 = UVec3::new(512, 512, 512);
 const MAX_FRAMES_IN_FLIGHT: usize = 1;
 const SHOVEL_REMOVE_RADIUS: f32 = 0.08;
 const SHOVEL_DIG_INTERVAL: Duration = Duration::from_millis(80);
-const SHOVEL_RAY_QUERY_DISTANCE: f32 = 2.0;
+const SHOVEL_RAY_QUERY_DISTANCE: f32 = 10.0;
+const WATER_DEBUG_SPAWN_COUNT: usize = 48;
+const WATER_DEBUG_SPAWN_RADIUS: f32 = 0.12;
 const TERRAIN_EDIT_LOOP_PATH: &str =
     "assets/sfx/ROCKMisc_Designed Rock Movement Loop A_SARM_RkBrck_Stereo-Loop.wav";
 const TERRAIN_EDIT_LOOP_VOLUME_DB: f32 = 20.0;
@@ -427,7 +1298,7 @@ const DEBUG_MODEL_LINE_START_XZ: Vec2 = Vec2::new(0.5, 0.5);
 const DEBUG_MODEL_LINE_STEP_XZ: Vec2 = Vec2::new(1.0, 0.0);
 const FLORA_FULL_GROWTH_TICKS: u32 = 30;
 const SUN_POSITION_UPDATE_INTERVAL_TICKS: u32 = 1;
-const REQUESTED_SHADOW_MAP_UPDATE_INTERVAL_TICKS: u32 = 1;
+const REQUESTED_SHADOW_MAP_UPDATE_INTERVAL_TICKS: u32 = 10;
 const SHADOW_MAP_UPDATE_INTERVAL_TICKS: u32 =
     if REQUESTED_SHADOW_MAP_UPDATE_INTERVAL_TICKS < SUN_POSITION_UPDATE_INTERVAL_TICKS {
         SUN_POSITION_UPDATE_INTERVAL_TICKS
@@ -616,56 +1487,24 @@ impl App {
         (20.0 * gain.log10()).clamp(MIN_DB, MAX_DB)
     }
 
+    fn master_volume_gain_db(master_volume_linear: f32, mute_audio_output: bool) -> f32 {
+        if mute_audio_output {
+            HIDDEN_AUDIO_OUTPUT_GAIN_DB
+        } else {
+            Self::linear_to_db(master_volume_linear)
+        }
+    }
+
+    fn effective_master_volume_gain_db(&self) -> f32 {
+        Self::master_volume_gain_db(
+            self.gui_adjustables.master_volume.value,
+            self.mute_audio_output,
+        )
+    }
+
     fn update_audio_ray_tracing(&mut self) {
-        let enabled = self.gui_adjustables.audio_ray_tracing_enabled.value;
         self.spatial_sound_manager
-            .set_audio_ray_tracing_enabled(enabled);
-
-        if !enabled {
-            self.audio_ray_tracing_last_direct_snapshot = None;
-            self.audio_ray_tracing_last_runtime_snapshot = Default::default();
-            self.audio_ray_tracing_debug_text = "Audio RT: disabled".to_owned();
-            return;
-        }
-
-        let direct_snapshot = self.spatial_sound_manager.direct_occlusion_debug_snapshot();
-        let runtime_snapshot = self
-            .spatial_sound_manager
-            .take_audio_ray_tracing_runtime_snapshot();
-
-        if let Some(snapshot) = direct_snapshot {
-            self.audio_ray_tracing_last_direct_snapshot = Some(snapshot);
-        }
-
-        if runtime_snapshot.update_count > 0 || runtime_snapshot.update_failures > 0 {
-            self.audio_ray_tracing_last_runtime_snapshot = runtime_snapshot;
-        }
-
-        let direct_snapshot = self.audio_ray_tracing_last_direct_snapshot;
-        let runtime_snapshot = self.audio_ray_tracing_last_runtime_snapshot;
-
-        self.audio_ray_tracing_debug_text = match direct_snapshot {
-            Some(snapshot) => format!(
-                "Audio RT: {} updates / {} rays / {} occluded\nDirect query: {:.3}ms total, failures {}\nDirect occ: {} samples avg {:.3} min {:.3} max {:.3}",
-                runtime_snapshot.update_count,
-                runtime_snapshot.updated_sources,
-                runtime_snapshot.occluded_sources,
-                runtime_snapshot.total_update_time_us as f64 / 1000.0,
-                runtime_snapshot.update_failures,
-                snapshot.sample_count,
-                snapshot.avg_occlusion,
-                snapshot.min_occlusion,
-                snapshot.max_occlusion,
-            ),
-            None => format!(
-                "Audio RT: {} updates / {} rays / {} occluded\nDirect query: {:.3}ms total, failures {}\nDirect occ: no samples",
-                runtime_snapshot.update_count,
-                runtime_snapshot.updated_sources,
-                runtime_snapshot.occluded_sources,
-                runtime_snapshot.total_update_time_us as f64 / 1000.0,
-                runtime_snapshot.update_failures,
-            ),
-        };
+            .set_audio_ray_tracing_enabled(self.gui_adjustables.audio_ray_tracing_enabled.value);
     }
 
     pub fn new(_event_loop: &ActiveEventLoop, options: &crate::AppOptions) -> Result<Self> {
@@ -789,7 +1628,7 @@ impl App {
 
         let debug_tree_pos = Vec3::new(2.0, 0.2, 2.0);
         let gui_config = GuiConfigLoader::load();
-        let gui_adjustables = GuiAdjustables::from_config(&gui_config);
+        let mut gui_adjustables = GuiAdjustables::from_config(&gui_config);
 
         let color_to_vec4 = |color: Color32| -> Vec4 {
             Vec4::new(
@@ -815,6 +1654,90 @@ impl App {
         let butterfly_emitters = Vec::new();
         let butterfly_emitter_desc = Self::butterfly_desc_from_gui_adjustables(&gui_adjustables);
         let particle_snapshots = Vec::with_capacity(PARTICLE_CAPACITY);
+        // Start with the chosen profile and proportional world grid. For the implicit
+        // default run, apply persisted GUI water sliders, then let explicit CLI
+        // overrides win on top.
+        let world_extent = CHUNK_DIM.as_vec3();
+        let cells_per_unit = 32.0;
+        let world_grid_dim = UVec3::new(
+            (world_extent.x * cells_per_unit).ceil() as u32,
+            (world_extent.y * cells_per_unit).ceil() as u32,
+            (world_extent.z * cells_per_unit).ceil() as u32,
+        );
+        let mut water_config = match options.water_profile {
+            Some(WaterProfilePreference::Default) | None => PondWaterConfig::default()
+                .with_collider_bounds(Vec3::ZERO, world_extent)
+                .with_grid_dim(world_grid_dim),
+            Some(WaterProfilePreference::Performance) => PondWaterConfig::default()
+                .with_substep_hz(60.0)
+                .with_terrain_collision_margin_cells(0.0)
+                .with_linear_damping_per_sec(1.5)
+                .with_collider_bounds(Vec3::ZERO, world_extent)
+                .with_grid_dim(world_grid_dim),
+        };
+        let water_gui_config_applied = options.water_profile.is_none();
+        if water_gui_config_applied {
+            water::apply_water_gui_adjustables_to_config(&mut water_config, &gui_adjustables);
+        }
+        if let Some(particle_count) = options.water_particles {
+            water_config = water_config.with_particle_count(particle_count);
+        }
+        if let Some(edge_len) = options.water_particle_edge_len {
+            water_config = water_config.with_particle_edge_len(edge_len);
+        }
+        if let Some(grid_dim) = options.water_grid {
+            water_config = water_config.with_cubic_grid_dim(grid_dim);
+        }
+        if let Some(substep_hz) = options.water_substep_hz {
+            water_config = water_config.with_substep_hz(substep_hz);
+        }
+        if let Some(margin_cells) = options.water_terrain_margin_cells {
+            water_config = water_config.with_terrain_collision_margin_cells(margin_cells);
+        }
+        if let Some(damping_per_sec) = options.water_damping {
+            water_config = water_config.with_linear_damping_per_sec(damping_per_sec);
+        }
+        if let Some(damping_per_sec) = options.water_terrain_tangent_damping {
+            water_config = water_config.with_terrain_tangent_damping_per_sec(damping_per_sec);
+        }
+        if let Some(stiffness) = options.water_stiffness {
+            water_config = water_config.with_stiffness(stiffness);
+        }
+        if let Some(gamma) = options.water_gamma {
+            water_config = water_config.with_gamma(gamma);
+        }
+        if let Some(j_min) = options.water_j_min {
+            water_config = water_config.with_j_min(j_min);
+        }
+        water::sync_water_gui_adjustables_from_config(&mut gui_adjustables, &water_config);
+
+        log::info!(
+            "[WATER] config profile={:?} gui_config_applied={} particles={} grid={:?} substep_dt={:.6}s terrain_margin_cells={:.2} damping={:.2}/s terrain_tangent_damping={:.2}/s debug_spawn_height_offset={:.2} gravity={:?} stiffness={:.1} gamma={:.2} j_min={:.3} viscosity={:.3} pressure_floor={:.3} wall_damping={:.2} collider_bounds {:?}..{:?} cells_per_unit={}",
+            options.water_profile,
+            water_gui_config_applied,
+            water_config.particle_count,
+            water_config.grid_dim,
+            water_config.substep_dt,
+            water_config.terrain_collision_margin_cells,
+            water_config.linear_damping_per_sec,
+            water_config.terrain_tangent_damping_per_sec,
+            water_config.debug_spawn_height_offset,
+            water_config.gravity,
+            water_config.stiffness,
+            water_config.gamma,
+            water_config.j_min,
+            water_config.dynamic_viscosity,
+            water_config.pressure_floor,
+            water_config.wall_damping,
+            water_config.collider.min_ws,
+            water_config.collider.max_ws,
+            cells_per_unit,
+        );
+        let water_sim = water::AsyncWaterSim::new(water_config);
+        let (terrain_sdf_collider_job_tx, terrain_sdf_collider_result_rx) =
+            Self::spawn_terrain_sdf_collider_worker();
+        let (water_terrain_cache_job_tx, water_terrain_cache_result_rx) =
+            Self::spawn_water_terrain_cache_worker();
         let terrain_harvest_particle_handles = Vec::with_capacity(256);
         let particle_forces = ParticleForces {
             linear_damping: 0.08,
@@ -835,6 +1758,7 @@ impl App {
             accumulated_mouse_delta: Vec2::ZERO,
             smoothed_mouse_delta: Vec2::ZERO,
             perf_logging: options.perf,
+            mute_audio_output: options.hidden,
 
             swapchain,
             frames_in_flight,
@@ -867,11 +1791,10 @@ impl App {
             item_panel_shovel_icon: None,
             item_panel_staff_icon: None,
             item_panel_hoe_icon: None,
+            item_panel_water_icon: None,
             selected_item_panel_slot: 0,
             active_voxel_type: ActiveVoxelType::All,
-            audio_ray_tracing_debug_text: "Audio RT: not sampled yet".to_owned(),
-            audio_ray_tracing_last_direct_snapshot: None,
-            audio_ray_tracing_last_runtime_snapshot: Default::default(),
+            water_particle_handoff_main_thread_ms: None,
             left_mouse_held: false,
             right_mouse_held: false,
             shovel_dig_held: false,
@@ -905,6 +1828,21 @@ impl App {
             butterfly_emitters,
             butterfly_emitter_desc,
             particle_animation_time_sec: 0.0,
+            water_sim,
+            water_terrain_initialized: false,
+            water_terrain_collider_cache_rebuild_pending: false,
+            cpu_solid_voxels: CpuSolidVoxelStore::default(),
+            deferred_terrain_sdf_source_refreshes: LatestChunkQueue::default(),
+            deferred_terrain_sdf_collider_rebuilds: LatestChunkQueue::default(),
+            deferred_water_terrain_cache_rebuilds: LatestChunkQueue::default(),
+            terrain_sdf_built_source_revisions: HashMap::new(),
+            terrain_sdf_source_refresh_inflight: None,
+            terrain_sdf_collider_build_inflight: false,
+            terrain_sdf_collider_job_tx,
+            terrain_sdf_collider_result_rx,
+            water_terrain_cache_rebuild_inflight: false,
+            water_terrain_cache_job_tx,
+            water_terrain_cache_result_rx,
             particle_snapshots,
             terrain_harvest_particle_handles,
             particle_forces,
@@ -922,15 +1860,22 @@ impl App {
                 };
                 TreeBench::new(options.tree_bench_samples, mode, options.tree_bench_rapid)
             }),
+            water_edit_soak: options.water_edit_soak.then(water::WaterEditSoak::default),
             deferred_chunk_rebuilds: LatestChunkQueue::default(),
+            terrain_chunk_rebuild_inflight: None,
 
             spatial_sound_manager,
             tree_audio_manager,
         };
 
+        if app.mute_audio_output {
+            log::info!(
+                "--hidden: forcing master audio output volume to 0 while keeping audio engine processing active"
+            );
+        }
         if let Err(err) = app
             .spatial_sound_manager
-            .set_global_volume_gain_db(Self::linear_to_db(app.gui_adjustables.master_volume.value))
+            .set_global_volume_gain_db(app.effective_master_volume_gain_db())
         {
             log::error!("Failed to apply initial master volume: {}", err);
         }
@@ -980,14 +1925,32 @@ impl App {
                 let atlas_offset = chunk_id * VOXEL_DIM_PER_CHUNK;
                 loading.step_label = format!("Building {}/{}", current, total);
 
-                if let Err(err) = self.surface_builder.build_surface(chunk_id, true) {
-                    log::error!("build_surface failed for {chunk_id:?}: {err}");
-                    loading.current += 1;
-                    return;
-                }
+                let active_voxel_len = match self.surface_builder.build_surface(chunk_id, true) {
+                    Ok(active_voxel_len) => active_voxel_len,
+                    Err(err) => {
+                        log::error!("build_surface failed for {chunk_id:?}: {err}");
+                        loading.current += 1;
+                        return;
+                    }
+                };
 
-                match self.contree_builder.build_and_alloc(atlas_offset) {
-                    Ok(Some((node_buffer_offset, leaf_buffer_offset))) => {
+                let scene_offsets = if active_voxel_len == 0 {
+                    self.contree_builder
+                        .clear_empty_surface_chunk(atlas_offset)
+                        .scene_offsets
+                } else {
+                    match self.contree_builder.build_and_alloc(atlas_offset) {
+                        Ok(scene_offsets) => scene_offsets,
+                        Err(err) => {
+                            log::error!("build_and_alloc failed for {chunk_id:?}: {err}");
+                            loading.current += 1;
+                            return;
+                        }
+                    }
+                };
+
+                match scene_offsets {
+                    Some((node_buffer_offset, leaf_buffer_offset)) => {
                         if let Err(err) = self.scene_accel_builder.update_scene_tex(
                             chunk_id,
                             Some((node_buffer_offset, leaf_buffer_offset)),
@@ -995,14 +1958,11 @@ impl App {
                             log::error!("update_scene_tex failed for {chunk_id:?}: {err}");
                         }
                     }
-                    Ok(None) => {
+                    None => {
                         if let Err(err) = self.scene_accel_builder.update_scene_tex(chunk_id, None)
                         {
                             log::error!("clear_scene_tex failed for {chunk_id:?}: {err}");
                         }
-                    }
-                    Err(err) => {
-                        log::error!("build_and_alloc failed for {chunk_id:?}: {err}");
                     }
                 }
 
@@ -1252,6 +2212,7 @@ impl App {
             log::error!("Failed to start audio engine: {}", err);
         }
 
+        self.enqueue_startup_water_terrain_collider_rebuilds();
         self.render_start_time = Some(Instant::now());
     }
 
@@ -1435,6 +2396,33 @@ impl App {
             egui::TextureOptions::NEAREST,
         );
         self.item_panel_hoe_icon = Some(hoe_texture);
+
+        let water_path = if std::path::Path::new(ITEM_PANEL_WATER_ICON_PATH).exists() {
+            ITEM_PANEL_WATER_ICON_PATH
+        } else {
+            log::warn!(
+                "Item panel icon not found at {}. Falling back to {}",
+                ITEM_PANEL_WATER_ICON_PATH,
+                ITEM_PANEL_WATER_ICON_FALLBACK_PATH
+            );
+            ITEM_PANEL_WATER_ICON_FALLBACK_PATH
+        };
+
+        let water_bytes = std::fs::read(water_path)
+            .with_context(|| format!("Failed to read item panel icon from {water_path}"))?;
+        let water_rgba = image::load_from_memory(&water_bytes)
+            .with_context(|| format!("Failed to decode item panel icon from {water_path}"))?
+            .to_rgba8();
+        let water_size = [water_rgba.width() as usize, water_rgba.height() as usize];
+        let water_pixels = water_rgba.into_raw();
+        let water_image = ColorImage::from_rgba_unmultiplied(water_size, &water_pixels);
+
+        let water_texture = self.egui_renderer.context().load_texture(
+            "item_panel_water_debug",
+            water_image,
+            egui::TextureOptions::NEAREST,
+        );
+        self.item_panel_water_icon = Some(water_texture);
         Ok(())
     }
 
@@ -1554,16 +2542,23 @@ impl App {
                 {
                     match state {
                         ElementState::Pressed => {
-                            self.shovel_dig_held = true;
+                            self.shovel_dig_held = false;
                             let now = Instant::now();
                             if self.is_shovel_selected() && button == MouseButton::Left {
+                                self.shovel_dig_held = true;
                                 self.try_shovel_dig(now);
                             } else if self.is_shovel_selected() && button == MouseButton::Right {
+                                self.shovel_dig_held = true;
                                 self.try_shovel_place(now);
                             } else if self.is_staff_selected() && button == MouseButton::Left {
+                                self.shovel_dig_held = true;
                                 self.try_staff_regenerate(now);
                             } else if self.is_hoe_selected() && button == MouseButton::Left {
+                                self.shovel_dig_held = true;
                                 self.try_hoe_trim(now);
+                            } else if self.is_water_tool_selected() && button == MouseButton::Left {
+                                self.stop_terrain_edit_loop_sound();
+                                self.try_water_particle_spawn();
                             }
                         }
                         ElementState::Released => {
@@ -1607,6 +2602,15 @@ impl App {
                 }
 
                 let frame_start = Instant::now();
+                let frame_perf_enabled = self.perf_logging;
+                let mut contree_cache_poll_ms = 0.0f32;
+                let mut terrain_sdf_source_ms = 0.0f32;
+                let mut deferred_chunk_rebuild_ms = 0.0f32;
+                let mut water_terrain_cache_ms = 0.0f32;
+                let mut terrain_sdf_collider_ms = 0.0f32;
+                let mut water_edit_soak_ms = 0.0f32;
+                let mut water_handoff_ms = 0.0f32;
+                let mut particle_update_ms = 0.0f32;
 
                 // resize the window if needed
                 if self.is_resize_pending {
@@ -1616,8 +2620,17 @@ impl App {
                 self.window_state.maintain_cursor_grab();
 
                 self.time_info.update(self.perf_logging);
+                let contree_cache_poll_start = frame_perf_enabled.then(Instant::now);
                 self.contree_builder
                     .poll_cpu_chunk_cache_jobs(self.tracer.camera_position(), VOXEL_DIM_PER_CHUNK);
+                if let Some(start) = contree_cache_poll_start {
+                    contree_cache_poll_ms += start.elapsed().as_secs_f32() * 1000.0;
+                }
+                let terrain_sdf_source_start = frame_perf_enabled.then(Instant::now);
+                self.process_terrain_sdf_source_updates();
+                if let Some(start) = terrain_sdf_source_start {
+                    terrain_sdf_source_ms += start.elapsed().as_secs_f32() * 1000.0;
+                }
 
                 if self.loading_state.is_some() {
                     self.process_loading_step();
@@ -1679,13 +2692,16 @@ impl App {
                 let item_panel_shovel_icon = self.item_panel_shovel_icon.clone();
                 let item_panel_staff_icon = self.item_panel_staff_icon.clone();
                 let item_panel_hoe_icon = self.item_panel_hoe_icon.clone();
+                let item_panel_water_icon = self.item_panel_water_icon.clone();
                 let selected_item_panel_slot = self.selected_item_panel_slot;
                 let backpack_dirt_count = self.backpack_dirt_count;
                 let backpack_sand_count = self.backpack_sand_count;
                 let backpack_cherry_wood_count = self.backpack_cherry_wood_count;
                 let backpack_oak_wood_count = self.backpack_oak_wood_count;
                 let backpack_rock_count = self.backpack_rock_count;
-                let audio_ray_tracing_debug_text = self.audio_ray_tracing_debug_text.clone();
+                let status_bar_text = self
+                    .water_sim
+                    .status_text(self.water_particle_handoff_main_thread_ms);
                 let growing_flora_chunk_count = self.growing_flora_chunks.len();
                 let active_voxel_label = self.active_voxel_type.label();
                 let active_voxel_color = self.active_voxel_type.color();
@@ -1849,6 +2865,7 @@ impl App {
                             item_panel_shovel_icon.as_ref(),
                             item_panel_staff_icon.as_ref(),
                             item_panel_hoe_icon.as_ref(),
+                            item_panel_water_icon.as_ref(),
                             selected_item_panel_slot,
                         );
 
@@ -1866,10 +2883,10 @@ impl App {
                         ));
                         draw_active_voxel_display(ctx, active_voxel_label, active_voxel_color);
 
-                        egui::Area::new("audio_rt_panel".into())
+                        egui::Area::new("status_bar_panel".into())
                             .anchor(egui::Align2::LEFT_BOTTOM, egui::Vec2::new(16.0, -16.0))
                             .show(ctx, |ui| {
-                                let audio_rt_frame = egui::containers::Frame {
+                                let status_bar_frame = egui::containers::Frame {
                                     fill: PANEL_DARK,
                                     inner_margin: egui::Margin::symmetric(10, 8),
                                     corner_radius: egui::CornerRadius::same(0),
@@ -1883,17 +2900,17 @@ impl App {
                                     ..Default::default()
                                 };
 
-                                audio_rt_frame.show(ui, |ui| {
+                                status_bar_frame.show(ui, |ui| {
                                     ui.set_max_width(420.0);
                                     ui.label(
-                                        RichText::new("Audio RT")
+                                        RichText::new("Status Bar")
                                             .color(GOLD_ACCENT)
                                             .monospace()
                                             .size(12.0),
                                     );
                                     ui.add_space(4.0);
                                     ui.label(
-                                        RichText::new(audio_ray_tracing_debug_text.as_str())
+                                        RichText::new(status_bar_text.as_str())
                                             .color(SAGE_ACCENT)
                                             .monospace()
                                             .size(11.0),
@@ -1957,11 +2974,9 @@ impl App {
                 let egui_ms = egui_start.elapsed().as_secs_f32() * 1000.0;
                 self.sync_cursor_with_panels();
 
-                if let Err(err) =
-                    self.spatial_sound_manager
-                        .set_global_volume_gain_db(Self::linear_to_db(
-                            self.gui_adjustables.master_volume.value,
-                        ))
+                if let Err(err) = self
+                    .spatial_sound_manager
+                    .set_global_volume_gain_db(self.effective_master_volume_gain_db())
                 {
                     log::error!("Failed to apply master volume: {}", err);
                 }
@@ -1980,7 +2995,35 @@ impl App {
                     return;
                 }
 
+                let terrain_sdf_source_start = frame_perf_enabled.then(Instant::now);
+                self.process_terrain_sdf_source_updates();
+                if let Some(start) = terrain_sdf_source_start {
+                    terrain_sdf_source_ms += start.elapsed().as_secs_f32() * 1000.0;
+                }
+
+                let deferred_chunk_rebuild_start = frame_perf_enabled.then(Instant::now);
                 self.process_deferred_chunk_rebuild();
+                if let Some(start) = deferred_chunk_rebuild_start {
+                    deferred_chunk_rebuild_ms += start.elapsed().as_secs_f32() * 1000.0;
+                }
+
+                let water_terrain_cache_start = frame_perf_enabled.then(Instant::now);
+                self.process_deferred_water_terrain_cache_rebuild();
+                if let Some(start) = water_terrain_cache_start {
+                    water_terrain_cache_ms += start.elapsed().as_secs_f32() * 1000.0;
+                }
+
+                let terrain_sdf_collider_start = frame_perf_enabled.then(Instant::now);
+                self.process_deferred_terrain_sdf_collider_rebuild();
+                if let Some(start) = terrain_sdf_collider_start {
+                    terrain_sdf_collider_ms += start.elapsed().as_secs_f32() * 1000.0;
+                }
+
+                let water_edit_soak_start = frame_perf_enabled.then(Instant::now);
+                self.process_water_edit_soak();
+                if let Some(start) = water_edit_soak_start {
+                    water_edit_soak_ms += start.elapsed().as_secs_f32() * 1000.0;
+                }
 
                 if self.regenerate_trees_requested {
                     self.regenerate_trees_requested = false;
@@ -2035,7 +3078,22 @@ impl App {
                 }
 
                 if self.render_flags.enable_particles {
+                    if self.water_terrain_initialized {
+                        let water_handoff_start = Instant::now();
+                        self.update_water_sim(frame_delta_time, world_tick_seconds);
+                        let elapsed_ms = water_handoff_start.elapsed().as_secs_f32() * 1000.0;
+                        self.water_particle_handoff_main_thread_ms = Some(elapsed_ms);
+                        if frame_perf_enabled {
+                            water_handoff_ms += elapsed_ms;
+                        }
+                    } else {
+                        self.water_particle_handoff_main_thread_ms = None;
+                    }
+                    let particle_update_start = frame_perf_enabled.then(Instant::now);
                     self.update_particle_simulation(frame_delta_time);
+                    if let Some(start) = particle_update_start {
+                        particle_update_ms += start.elapsed().as_secs_f32() * 1000.0;
+                    }
                 }
 
                 let gpu_record_start = Instant::now();
@@ -2079,6 +3137,12 @@ impl App {
                     self.gui_adjustables.latitude.value,
                     self.gui_adjustables.season.value,
                 );
+                let update_shadow_map = self.render_flags.enable_shadows
+                    && (self.shadow_map_update_pending
+                        || shadow_map_interval_elapsed
+                        || time_of_day_changed_by_gui);
+                let shadow_map_update_period_seconds =
+                    SHADOW_MAP_UPDATE_INTERVAL_TICKS as f32 * world_tick_seconds;
 
                 self.tracer
                     .update_buffers(
@@ -2131,6 +3195,8 @@ impl App {
                         self.gui_adjustables.ocean_time_multiplier.value,
                         self.gui_adjustables.ocean_sea_level_shift.value,
                         world_tick_seconds,
+                        update_shadow_map,
+                        shadow_map_update_period_seconds,
                         self.gui_adjustables.lens_flare_intensity.value,
                         self.gui_adjustables.lens_flare_sun_pixel_scale.value,
                         self.flora_tick,
@@ -2248,11 +3314,6 @@ impl App {
 
                 let leaf_bottom = color_to_vec3(self.gui_adjustables.leaves_bottom_color.value);
                 let leaf_tip = color_to_vec3(self.gui_adjustables.leaves_tip_color.value);
-                let update_shadow_map = self.render_flags.enable_shadows
-                    && (self.shadow_map_update_pending
-                        || shadow_map_interval_elapsed
-                        || time_of_day_changed_by_gui);
-
                 self.tracer
                     .record_trace(
                         cmdbuf,
@@ -2279,6 +3340,22 @@ impl App {
                 );
 
                 let render_area = self.window_state.window_extent();
+                let mut screenshot_readback = None;
+                if !self.screenshot_taken {
+                    if let (Some(render_start_time), Some(path)) =
+                        (self.render_start_time, self.screenshot_path.clone())
+                    {
+                        let elapsed = render_start_time.elapsed().as_secs_f32();
+                        if elapsed >= self.screenshot_delay {
+                            self.screenshot_taken = true;
+                            log::info!("[SCREENSHOT] Capturing after {:.2}s to {}", elapsed, path);
+                            match self.prepare_screenshot_readback(path, render_area) {
+                                Ok(readback) => screenshot_readback = Some(readback),
+                                Err(err) => log::error!("[SCREENSHOT] Failed to prepare: {}", err),
+                            }
+                        }
+                    }
+                }
 
                 self.swapchain
                     .record_begin_render_pass_cmdbuf(cmdbuf, image_idx, render_area);
@@ -2289,6 +3366,10 @@ impl App {
                 unsafe {
                     device.cmd_end_render_pass(cmdbuf.as_raw());
                 };
+
+                if let Some(readback) = &screenshot_readback {
+                    self.record_screenshot_readback(cmdbuf, image_idx, readback);
+                }
 
                 cmdbuf.end();
 
@@ -2329,6 +3410,13 @@ impl App {
                     _ => {}
                 }
 
+                if let Some(readback) = screenshot_readback {
+                    self.vulkan_ctx
+                        .wait_for_fences(&[sync.fence.as_raw()])
+                        .unwrap();
+                    Self::write_screenshot_readback(readback);
+                }
+
                 self.current_frame = (self.current_frame + 1) % self.frames_in_flight.len();
 
                 self.tracer.set_head_bob_params(
@@ -2347,31 +3435,63 @@ impl App {
                     .update_camera(frame_delta_time, self.is_fly_mode, player_collision);
 
                 let total_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
-                if self.perf_logging && self.time_info.total_frame_count().is_multiple_of(30) {
+                let frame_count = self.time_info.total_frame_count();
+                if frame_perf_enabled && frame_count.is_multiple_of(30) {
                     log::info!(
                         "[PERF] frame {} total {:.2}ms egui {:.2}ms gpu+present {:.2}ms",
-                        self.time_info.total_frame_count(),
+                        frame_count,
                         total_ms,
                         egui_ms,
                         gpu_ms
                     );
                 }
+                if frame_perf_enabled {
+                    let tracked_cpu_ms = contree_cache_poll_ms
+                        + terrain_sdf_source_ms
+                        + deferred_chunk_rebuild_ms
+                        + water_terrain_cache_ms
+                        + terrain_sdf_collider_ms
+                        + water_edit_soak_ms
+                        + water_handoff_ms
+                        + particle_update_ms;
+                    let untracked_cpu_ms = (total_ms - egui_ms - gpu_ms - tracked_cpu_ms).max(0.0);
+                    let queue_work_ms = terrain_sdf_source_ms
+                        + deferred_chunk_rebuild_ms
+                        + water_terrain_cache_ms
+                        + terrain_sdf_collider_ms;
+                    if frame_count.is_multiple_of(30) || total_ms >= 16.0 || queue_work_ms >= 2.0 {
+                        log::info!(
+                            "[PERF][FRAME] frame {} total {:.2}ms egui {:.2}ms gpu_present {:.2}ms contree_poll {:.2}ms terrain_source {:.2}ms deferred_rebuild {:.2}ms cache_queue {:.2}ms collider_queue {:.2}ms water_edit_soak {:.2}ms water_handoff {:.2}ms particles {:.2}ms tracked_cpu {:.2}ms untracked_cpu {:.2}ms queues deferred_pending={} deferred_active={} deferred_inflight={} source_pending={} source_active={} collider_pending={} collider_active={} collider_inflight={} cache_pending={} cache_active={} cache_inflight={}",
+                            frame_count,
+                            total_ms,
+                            egui_ms,
+                            gpu_ms,
+                            contree_cache_poll_ms,
+                            terrain_sdf_source_ms,
+                            deferred_chunk_rebuild_ms,
+                            water_terrain_cache_ms,
+                            terrain_sdf_collider_ms,
+                            water_edit_soak_ms,
+                            water_handoff_ms,
+                            particle_update_ms,
+                            tracked_cpu_ms,
+                            untracked_cpu_ms,
+                            self.deferred_chunk_rebuilds.len(),
+                            self.deferred_chunk_rebuilds.active_len(),
+                            self.terrain_chunk_rebuild_inflight.is_some(),
+                            self.deferred_terrain_sdf_source_refreshes.len(),
+                            self.deferred_terrain_sdf_source_refreshes.active_len(),
+                            self.deferred_terrain_sdf_collider_rebuilds.len(),
+                            self.deferred_terrain_sdf_collider_rebuilds.active_len(),
+                            self.terrain_sdf_collider_build_inflight,
+                            self.deferred_water_terrain_cache_rebuilds.len(),
+                            self.deferred_water_terrain_cache_rebuilds.active_len(),
+                            self.water_terrain_cache_rebuild_inflight,
+                        );
+                    }
+                }
                 if let Some(render_start_time) = self.render_start_time {
                     let elapsed = render_start_time.elapsed().as_secs_f32();
-
-                    if !self.screenshot_taken {
-                        if let Some(path) = &self.screenshot_path {
-                            if elapsed >= self.screenshot_delay {
-                                self.screenshot_taken = true;
-                                log::info!(
-                                    "[SCREENSHOT] Capturing after {:.2}s to {}",
-                                    elapsed,
-                                    path
-                                );
-                                self.save_screenshot(path);
-                            }
-                        }
-                    }
 
                     if let Some(auto_exit_delay) = self.auto_exit_delay {
                         if elapsed >= auto_exit_delay {
@@ -2383,5 +3503,21 @@ impl App {
             }
             _ => (),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::App;
+
+    #[test]
+    fn hidden_mode_forces_effective_master_volume_to_zero() {
+        let hidden_gain_db = App::master_volume_gain_db(1.0, true);
+        let normal_zero_gain_db = App::master_volume_gain_db(0.0, false);
+        let normal_full_gain_db = App::master_volume_gain_db(1.0, false);
+
+        assert_eq!(hidden_gain_db, super::HIDDEN_AUDIO_OUTPUT_GAIN_DB);
+        assert!(hidden_gain_db <= normal_zero_gain_db);
+        assert!(hidden_gain_db < normal_full_gain_db);
     }
 }

@@ -47,9 +47,30 @@ impl<T> Default for LatestChunkQueue<T> {
 
 impl<T> LatestChunkQueue<T> {
     pub(crate) fn push(&mut self, chunk_id: UVec3, payload: T) -> u64 {
+        self.push_with(chunk_id, payload, |_, new_payload| new_payload)
+    }
+
+    pub(crate) fn push_coalesced(
+        &mut self,
+        chunk_id: UVec3,
+        payload: T,
+        coalesce: impl FnMut(T, T) -> T,
+    ) -> u64 {
+        self.push_with(chunk_id, payload, coalesce)
+    }
+
+    fn push_with(
+        &mut self,
+        chunk_id: UVec3,
+        payload: T,
+        mut merge_payload: impl FnMut(T, T) -> T,
+    ) -> u64 {
         let state = self.states.entry(chunk_id).or_default();
         state.latest_revision += 1;
-        state.latest_payload = Some(payload);
+        state.latest_payload = Some(match state.latest_payload.take() {
+            Some(existing_payload) => merge_payload(existing_payload, payload),
+            None => payload,
+        });
 
         if state.active_revision.is_none() {
             self.pending.push(chunk_id);
@@ -80,33 +101,66 @@ impl<T> LatestChunkQueue<T> {
         self.pop_with(|pending| pending.pop_nearest_to(focus, chunk_extent))
     }
 
+    #[allow(dead_code)]
+    pub(crate) fn pop_nearest_to_if(
+        &mut self,
+        focus: Vec3,
+        chunk_extent: UVec3,
+        mut is_ready: impl FnMut(UVec3) -> bool,
+    ) -> Option<LatestChunkWork<T>> {
+        self.pop_with(|pending| pending.pop_nearest_to_if(focus, chunk_extent, &mut is_ready))
+    }
+
+    pub(crate) fn pop_nearest_to_if_payload(
+        &mut self,
+        focus: Vec3,
+        chunk_extent: UVec3,
+        mut is_ready: impl FnMut(UVec3, &T) -> bool,
+    ) -> Option<LatestChunkWork<T>> {
+        let states = &self.states;
+        let chunk_id = self
+            .pending
+            .pop_nearest_to_if(focus, chunk_extent, |chunk_id| {
+                states.get(&chunk_id).is_some_and(|state| {
+                    state.active_revision.is_none()
+                        && state.latest_revision > state.completed_revision
+                        && state
+                            .latest_payload
+                            .as_ref()
+                            .is_some_and(|payload| is_ready(chunk_id, payload))
+                })
+            })?;
+        self.take_popped_chunk(chunk_id)
+    }
+
     fn pop_with(
         &mut self,
         mut pop_chunk: impl FnMut(&mut ChunkWorkQueue) -> Option<UVec3>,
     ) -> Option<LatestChunkWork<T>> {
         while let Some(chunk_id) = pop_chunk(&mut self.pending) {
-            let Some(state) = self.states.get_mut(&chunk_id) else {
-                continue;
-            };
-            if state.active_revision.is_some() || state.latest_revision <= state.completed_revision
-            {
-                continue;
+            if let Some(work) = self.take_popped_chunk(chunk_id) {
+                return Some(work);
             }
-
-            let Some(payload) = state.latest_payload.take() else {
-                continue;
-            };
-            let revision = state.latest_revision;
-            state.active_revision = Some(revision);
-
-            return Some(LatestChunkWork {
-                chunk_id,
-                revision,
-                payload,
-            });
         }
 
         None
+    }
+
+    fn take_popped_chunk(&mut self, chunk_id: UVec3) -> Option<LatestChunkWork<T>> {
+        let state = self.states.get_mut(&chunk_id)?;
+        if state.active_revision.is_some() || state.latest_revision <= state.completed_revision {
+            return None;
+        }
+
+        let payload = state.latest_payload.take()?;
+        let revision = state.latest_revision;
+        state.active_revision = Some(revision);
+
+        Some(LatestChunkWork {
+            chunk_id,
+            revision,
+            payload,
+        })
     }
 
     pub(crate) fn complete(&mut self, chunk_id: UVec3, revision: u64) {
@@ -130,6 +184,16 @@ impl<T> LatestChunkQueue<T> {
         self.states
             .get(&chunk_id)
             .map(|state| state.latest_revision == revision)
+            .unwrap_or(false)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn has_unfinished_work(&self, chunk_id: UVec3) -> bool {
+        self.states
+            .get(&chunk_id)
+            .map(|state| {
+                state.active_revision.is_some() || state.latest_revision > state.completed_revision
+            })
             .unwrap_or(false)
     }
 
@@ -241,6 +305,37 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_enqueue_can_coalesce_payloads() {
+        let mut queue = LatestChunkQueue::default();
+        queue.push_coalesced(chunk(1), 10, u32::min);
+        let revision = queue.push_coalesced(chunk(1), 20, u32::min);
+
+        let work = queue.pop_next().unwrap();
+
+        assert_eq!(revision, 2);
+        assert_eq!(work.revision, 2);
+        assert_eq!(work.payload, 10);
+    }
+
+    #[test]
+    fn coalesced_enqueue_while_active_merges_waiting_payloads() {
+        let mut queue = LatestChunkQueue::default();
+        queue.push_coalesced(chunk(1), 30, u32::min);
+        let active_work = queue.pop_next().unwrap();
+
+        queue.push_coalesced(chunk(1), 20, u32::min);
+        let revision = queue.push_coalesced(chunk(1), 10, u32::min);
+        assert!(queue.pop_next().is_none());
+
+        queue.complete(active_work.chunk_id, active_work.revision);
+        let waiting_work = queue.pop_next().unwrap();
+
+        assert_eq!(revision, 3);
+        assert_eq!(waiting_work.revision, 3);
+        assert_eq!(waiting_work.payload, 10);
+    }
+
+    #[test]
     fn duplicate_enqueue_preserves_fifo_order() {
         let mut queue = LatestChunkQueue::default();
         queue.push(chunk(1), "old-a");
@@ -273,5 +368,59 @@ mod tests {
         assert_eq!(first.payload, "new-a");
         assert_eq!(second.chunk_id, chunk(2));
         assert_eq!(third.chunk_id, chunk(3));
+    }
+
+    #[test]
+    fn pop_nearest_if_skips_unready_latest_work() {
+        let mut queue = LatestChunkQueue::default();
+        queue.push(chunk(1), "a");
+        queue.push(chunk(2), "b");
+
+        let focus = Vec3::new(1.25, 0.5, 0.5);
+        let work = queue
+            .pop_nearest_to_if(focus, UVec3::ONE, |chunk_id| chunk_id == chunk(2))
+            .unwrap();
+
+        assert_eq!(work.chunk_id, chunk(2));
+        assert_eq!(work.payload, "b");
+        queue.complete(work.chunk_id, work.revision);
+
+        let remaining = queue.pop_nearest_to(focus, UVec3::ONE).unwrap();
+        assert_eq!(remaining.chunk_id, chunk(1));
+    }
+
+    #[test]
+    fn pop_nearest_payload_predicate_keeps_unready_work_pending() {
+        let mut queue = LatestChunkQueue::default();
+        queue.push(chunk(1), 10);
+        queue.push(chunk(2), 20);
+
+        let focus = Vec3::new(1.25, 0.5, 0.5);
+        let work = queue
+            .pop_nearest_to_if_payload(focus, UVec3::ONE, |_, payload| *payload == 20)
+            .unwrap();
+
+        assert_eq!(work.chunk_id, chunk(2));
+        assert_eq!(work.payload, 20);
+        queue.complete(work.chunk_id, work.revision);
+
+        let remaining = queue.pop_nearest_to(focus, UVec3::ONE).unwrap();
+        assert_eq!(remaining.chunk_id, chunk(1));
+        assert_eq!(remaining.payload, 10);
+    }
+
+    #[test]
+    fn has_unfinished_work_tracks_pending_and_active_revisions() {
+        let mut queue = LatestChunkQueue::default();
+        assert!(!queue.has_unfinished_work(chunk(1)));
+
+        queue.push(chunk(1), "a");
+        assert!(queue.has_unfinished_work(chunk(1)));
+
+        let work = queue.pop_next().unwrap();
+        assert!(queue.has_unfinished_work(chunk(1)));
+
+        queue.complete(work.chunk_id, work.revision);
+        assert!(!queue.has_unfinished_work(chunk(1)));
     }
 }

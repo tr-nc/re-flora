@@ -687,6 +687,10 @@ fn map_src_stage_access_flags(
             vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS
                 | vk::PipelineStageFlags::LATE_FRAGMENT_TESTS,
         ),
+        vk::ImageLayout::PRESENT_SRC_KHR => (
+            vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+        ),
         layout => {
             panic!("Unsupported old_layout transition from: {:?}", layout);
         }
@@ -726,6 +730,10 @@ fn map_dst_stage_access_flags(
         vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL => (
             vk::AccessFlags::COLOR_ATTACHMENT_READ | vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
             vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+        ),
+        vk::ImageLayout::PRESENT_SRC_KHR => (
+            vk::AccessFlags::empty(),
+            vk::PipelineStageFlags::BOTTOM_OF_PIPE,
         ),
 
         layout => {

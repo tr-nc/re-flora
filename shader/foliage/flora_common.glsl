@@ -95,7 +95,7 @@ void prepare_flora_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_l
     anchor_pos = (vec3(vox_local_pos) + wind_offset) * scaling_factor + instance_pos + player_push;
     voxel_pos         = anchor_pos + vec3(0.5) * scaling_factor;
 
-    shadow_weight = get_shadow_weight_vsm(shadow_camera_info.view_proj_mat, vec4(voxel_pos, 1.0));
+    shadow_weight = get_shadow_weight_vsm_temporal(vec4(voxel_pos, 1.0));
     shadow_weight *= get_shadow_weight(vox_local_pos);
 }
 

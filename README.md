@@ -10,7 +10,7 @@ Re: Flora is a cozy voxel game prototype about shaping terrain, planting flora, 
 
 **Prerequisites:**
 
-- [Rust](https://rustup.rs/) (latest stable)
+- [Rust](https://rustup.rs/) via the pinned [`rust-toolchain.toml`](./rust-toolchain.toml)
 - Vulkan-capable GPU with up-to-date drivers (RTX not required)
 - Vulkan development packages:
   - Linux: `libvulkan-dev` + `vulkan-tools` (or distro equivalent)

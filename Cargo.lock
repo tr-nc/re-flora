@@ -3153,6 +3153,8 @@ dependencies = [
  "ordered-float",
  "petalsonic",
  "rand 0.10.1",
+ "re-flora-terrain-collider",
+ "re-flora-water",
  "resource_container_derive",
  "serde",
  "shaderc",
@@ -3162,6 +3164,21 @@ dependencies = [
  "toml",
  "uuid",
  "winit",
+]
+
+[[package]]
+name = "re-flora-terrain-collider"
+version = "0.1.0"
+dependencies = [
+ "glam 0.32.1",
+]
+
+[[package]]
+name = "re-flora-water"
+version = "0.1.0"
+dependencies = [
+ "glam 0.32.1",
+ "log",
 ]
 
 [[package]]
