@@ -23,8 +23,8 @@
 - [x] Audit direct `ash` imports outside `crates/re-flora-vkn` and remove them.
 - [x] Move query pool, buffer fill, and fence polling/waiting raw calls behind vkn wrappers.
 - [x] Audit remaining `re_flora_vkn::vk` uses outside the vkn crate and convert high-value raw command/handle cases to semantic helpers.
-- [ ] Validate with `cargo fmt --check`, `cargo check`, `cargo test`, and `cargo run --release -- --hidden --auto-exit 0.5`.
-- [ ] Write final summary in `docs/`.
+- [x] Validate with `cargo fmt --check`, `cargo check`, `cargo test`, and `cargo run --release -- --hidden --auto-exit 0.5`.
+- [x] Write final summary in `docs/`.
 
 ## Step notes
 
