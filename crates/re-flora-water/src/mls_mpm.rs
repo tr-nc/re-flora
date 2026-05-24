@@ -4,7 +4,7 @@ use std::time::Instant;
 use super::{
     collider::{WaterBoxCollider, WaterTerrainColliderSet},
     pond::{
-        PondWaterConfig, PondWaterSim, WaterTerrainGridSample, WATER_GRID_BOUNDARY_X_MAX,
+        PondWaterConfig, PondWaterSim, WaterGridNode, WaterTerrainGridSample, WATER_GRID_BOUNDARY_X_MAX,
         WATER_GRID_BOUNDARY_X_MIN, WATER_GRID_BOUNDARY_Y_MAX, WATER_GRID_BOUNDARY_Y_MIN,
         WATER_GRID_BOUNDARY_Z_MAX, WATER_GRID_BOUNDARY_Z_MIN,
     },
@@ -32,11 +32,26 @@ const DENSITY_J_FEEDBACK_DEADBAND: f32 = 0.02;
 // Mildly damp only the affine part; particle velocity keeps the configured water
 // linear damping path.
 const APIC_AFFINE_DAMPING_PER_SECOND: f32 = 1.5;
+// Quiet puddles can retain low-energy numerical circulation indefinitely. Apply
+// extra damping only after the whole water body is already slow; fast
+// falling/splashing water bypasses this path so it does not turn the material
+// into honey.
+const QUIET_SETTLING_AVG_SPEED_THRESHOLD: f32 = 0.08;
+const QUIET_SETTLING_MAX_SPEED_THRESHOLD: f32 = 0.40;
+const QUIET_SETTLING_LOCAL_SPEED_THRESHOLD: f32 = 0.35;
 const MAX_PARTICLE_SPEED: f32 = 20.0;
 const MAX_PARTICLE_CFL_CELLS_PER_SUBSTEP: f32 = 0.5;
 const MAX_AFFINE_COMPONENT: f32 = 100.0;
 const TERRAIN_GRID_SKIP_GUARD_CELLS: f32 = 0.25;
 const TERRAIN_GRID_PROJECTION_GUARD_CELLS: f32 = 0.10;
+// Fill missing density-kernel support when terrain SDF occupies part of a
+// particle's pressure stencil. This is an mDBC/Ghost-SPH style density sample:
+// solid-side stencil weight contributes virtual density extrapolated from the
+// mirrored fluid side, with a hydrostatic pressure offset. It is used only for
+// EOS pressure/stress; it does not add real grid mass or alter velocity
+// normalization.
+const TERRAIN_DENSITY_MIN_SOLID_WEIGHT: f32 = 1.0e-5;
+const TERRAIN_GHOST_MIRROR_MIN_DISTANCE_CELLS: f32 = 0.25;
 
 #[derive(Debug)]
 pub struct WaterTerrainCacheBuildRequest {
@@ -357,6 +372,7 @@ impl PondWaterSim {
             self.particle_to_grid(dt);
             let active_nodes = self.update_grid(dt);
             let g2p_breakdown = self.grid_to_particle(dt);
+            self.apply_quiet_settling_damping(dt);
             self.record_diagnostic_substep(active_nodes, g2p_breakdown);
             return;
         }
@@ -379,6 +395,7 @@ impl PondWaterSim {
         let grid_seconds = grid_update_seconds;
 
         let g2p_breakdown = self.grid_to_particle_timed(dt);
+        self.apply_quiet_settling_damping(dt);
 
         let diagnostics_start = Instant::now();
         self.record_diagnostic_substep(active_nodes, g2p_breakdown);
@@ -508,9 +525,17 @@ impl PondWaterSim {
             diag.g2p_terrain_exact_corrections as f64 / diag_substeps;
         let terrain_exact_checks_per_substep = diag.g2p_terrain_exact_checks as f64 / diag_substeps;
         let active_nodes_per_substep = diag.active_node_visits as f64 / diag_substeps;
+        let density_corrections_per_substep =
+            diag.p2g_density_correction_particles as f64 / diag_substeps;
+        let density_correction_factor_avg = if diag.p2g_density_correction_particles > 0 {
+            diag.p2g_density_correction_factor_sum
+                / diag.p2g_density_correction_particles as f64
+        } else {
+            1.0
+        };
 
         let message = format!(
-            "[WATER][DIAG] t={:.3}s frame_dt={:.4}s ran_substeps={} diag_substeps={} particles={} finite={} pos_x={:.3}..{:.3} pos_y={:.3}..{:.3} avg_y={:.3} pos_z={:.3}..{:.3} speed_avg={:.3} speed_max={:.3}/{:.3} speed_limited={} j={:.3}..{:.3} j_min_clamped={} j_max_clamped={} affine_max={:.2} terrain_contact={} terrain_penetrating={} terrain_no_sdf={} terrain_sdf_min={:.5} terrain_penetration_max={:.5} g2p_cache_proj/substep={:.1} g2p_exact_checks/substep={:.1} g2p_exact_corr/substep={:.1} active_nodes/substep={:.0} floor_pinned={} ceil_pinned={} wall_pinned={} out_of_bounds={} non_finite={} fastest_idx={} fastest_pos={:?} fastest_v={:?} fastest_j={:.3} fastest_sdf={:.5}",
+            "[WATER][DIAG] t={:.3}s frame_dt={:.4}s ran_substeps={} diag_substeps={} particles={} finite={} pos_x={:.3}..{:.3} pos_y={:.3}..{:.3} avg_y={:.3} pos_z={:.3}..{:.3} speed_avg={:.3} speed_max={:.3}/{:.3} speed_limited={} j={:.3}..{:.3} j_min_clamped={} j_max_clamped={} affine_max={:.2} terrain_contact={} terrain_penetrating={} terrain_no_sdf={} terrain_sdf_min={:.5} terrain_penetration_max={:.5} p2g_density_corr/substep={:.1} p2g_density_corr_factor_avg={:.3} p2g_density_corr_factor_max={:.3} g2p_cache_proj/substep={:.1} g2p_exact_checks/substep={:.1} g2p_exact_corr/substep={:.1} active_nodes/substep={:.0} floor_pinned={} ceil_pinned={} wall_pinned={} out_of_bounds={} non_finite={} fastest_idx={} fastest_pos={:?} fastest_v={:?} fastest_j={:.3} fastest_sdf={:.5}",
             self.sim_time_seconds,
             frame_dt,
             ran_substeps,
@@ -538,6 +563,9 @@ impl PondWaterSim {
             particle_stats.no_terrain_sdf,
             particle_stats.min_terrain_sdf.unwrap_or(f32::NAN),
             particle_stats.max_terrain_penetration,
+            density_corrections_per_substep,
+            density_correction_factor_avg,
+            diag.p2g_density_correction_factor_max,
             terrain_projections_per_substep,
             terrain_exact_checks_per_substep,
             terrain_exact_corrections_per_substep,
@@ -600,8 +628,14 @@ impl PondWaterSim {
             Some(self.config.j_min),
             self.terrain_collision_margin(),
         );
+        let density_correction_factor_avg = if stats.p2g_density_correction_particles > 0 {
+            stats.p2g_density_correction_factor_sum
+                / stats.p2g_density_correction_particles as f64
+        } else {
+            1.0
+        };
         log::info!(
-            "[PERF][WATER] particles {} grid {:?} nodes {} substeps {} total {:.2}ms avg {:.3}ms/substep repair {:.2}ms clear {:.2}ms p2g {:.2}ms grid {:.2}ms grid_update {:.2}ms g2p {:.2}ms g2p_gather {:.2}ms g2p_box {:.2}ms g2p_terrain {:.2}ms g2p_repair {:.2}ms diagnostics {:.2}ms residual {:.2}ms shadow_measure {:.2}ms terrain_cache_skips/substep {:.0} terrain_cache_projections/substep {:.0} terrain_exact_fallbacks/substep {:.0} terrain_exact_checks/substep {:.0} terrain_exact_corrections/substep {:.0} terrain_shadow_samples/substep {:.1} terrain_shadow_false_skips {} terrain_shadow_sdf_err_avg {:.5} terrain_shadow_sdf_err_max {:.5} active_nodes/substep {:.0} particle_y {:.3}..{:.3} avg {:.3} terrain_sdf_min {:.4} penetrating {} no_sdf {}",
+            "[PERF][WATER] particles {} grid {:?} nodes {} substeps {} total {:.2}ms avg {:.3}ms/substep repair {:.2}ms clear {:.2}ms p2g {:.2}ms grid {:.2}ms grid_update {:.2}ms g2p {:.2}ms g2p_gather {:.2}ms g2p_box {:.2}ms g2p_terrain {:.2}ms g2p_repair {:.2}ms diagnostics {:.2}ms residual {:.2}ms shadow_measure {:.2}ms p2g_density_corr/substep {:.1} p2g_density_corr_factor_avg {:.3} p2g_density_corr_factor_max {:.3} terrain_cache_skips/substep {:.0} terrain_cache_projections/substep {:.0} terrain_exact_fallbacks/substep {:.0} terrain_exact_checks/substep {:.0} terrain_exact_corrections/substep {:.0} terrain_shadow_samples/substep {:.1} terrain_shadow_false_skips {} terrain_shadow_sdf_err_avg {:.5} terrain_shadow_sdf_err_max {:.5} active_nodes/substep {:.0} particle_y {:.3}..{:.3} avg {:.3} terrain_sdf_min {:.4} penetrating {} no_sdf {}",
             self.particles.len(),
             self.grid_dim,
             grid_nodes,
@@ -621,6 +655,9 @@ impl PondWaterSim {
             stats.diagnostics_seconds * 1000.0,
             residual_seconds * 1000.0,
             shadow_measure_seconds * 1000.0,
+            stats.p2g_density_correction_particles as f64 / substeps,
+            density_correction_factor_avg,
+            stats.p2g_density_correction_factor_max,
             stats.g2p_terrain_cache_skips as f64 / substeps,
             stats.g2p_terrain_cache_projections as f64 / substeps,
             stats.g2p_terrain_exact_fallbacks as f64 / substeps,
@@ -954,11 +991,15 @@ impl PondWaterSim {
                 node.solid = false;
                 node.normal = Vec3::ZERO;
             }
+            if let Some(ghost_density) = self.terrain_ghost_density.get_mut(node_idx) {
+                *ghost_density = 0.0;
+            }
         }
     }
 
     fn particle_to_grid(&mut self, dt: f32) {
         self.particle_to_grid_mass_momentum();
+        self.update_terrain_ghost_density_grid();
         self.particle_to_grid_fluid_stress(dt);
     }
 
@@ -1054,6 +1095,74 @@ impl PondWaterSim {
         }
     }
 
+    fn ensure_terrain_ghost_density_len(&mut self) {
+        let node_count = self.grid.len();
+        if self.terrain_ghost_density.len() != node_count {
+            self.terrain_ghost_density = vec![0.0; node_count];
+        }
+    }
+
+    fn update_terrain_ghost_density_grid(&mut self) {
+        if self.touched_grid_nodes.is_empty() {
+            return;
+        }
+
+        self.ensure_terrain_ghost_density_len();
+        let grid = &self.grid;
+        let terrain_grid = &self.terrain_grid;
+        let terrain_ghost_density = &mut self.terrain_ghost_density;
+        let grid_dim = self.grid_dim;
+        let dx = self.dx;
+        let inv_dx = self.inv_dx;
+        let inv_cell_volume = inv_dx * inv_dx * inv_dx;
+        let rest_density = self.config.particle_mass / self.config.particle_volume;
+        let stiffness = self.config.stiffness;
+        let gamma = self.config.gamma;
+        let pressure_floor = self.config.pressure_floor;
+        let gravity = self.config.gravity;
+        let occupancy_transition_cells = self.config.terrain_density_occupancy_transition_cells;
+
+        for &node_idx in &self.touched_grid_nodes {
+            if let Some(cached_density) = terrain_ghost_density.get_mut(node_idx) {
+                *cached_density = 0.0;
+            }
+
+            let Some(sample) = terrain_grid.get(node_idx).copied() else {
+                continue;
+            };
+            if !sample.has_sdf
+                || terrain_solid_occupancy_from_sdf(sample.sdf, dx, occupancy_transition_cells)
+                    <= 0.0
+            {
+                continue;
+            }
+
+            let Some(node) = grid_node_coord_from_index(grid_dim, node_idx) else {
+                continue;
+            };
+            let Some(ghost_density) = terrain_ghost_density_for_grid_node(
+                grid,
+                grid_dim,
+                node,
+                sample,
+                dx,
+                inv_dx,
+                inv_cell_volume,
+                rest_density,
+                stiffness,
+                gamma,
+                pressure_floor,
+                gravity,
+                occupancy_transition_cells,
+            ) else {
+                continue;
+            };
+            if let Some(cached_density) = terrain_ghost_density.get_mut(node_idx) {
+                *cached_density = ghost_density;
+            }
+        }
+    }
+
     fn particle_to_grid_fluid_stress(&mut self, dt: f32) {
         if dt <= 0.0 || !dt.is_finite() {
             return;
@@ -1071,8 +1180,17 @@ impl PondWaterSim {
         let gamma = self.config.gamma;
         let dynamic_viscosity = self.config.dynamic_viscosity;
         let pressure_floor = self.config.pressure_floor;
+        let terrain_grid = &self.terrain_grid;
+        let terrain_ghost_density = &self.terrain_ghost_density;
+        let terrain_density_min_fluid_fraction = self.config.terrain_density_min_fluid_fraction;
+        let terrain_density_max_correction_factor = self.config.terrain_density_max_correction_factor;
+        let terrain_density_occupancy_transition_cells =
+            self.config.terrain_density_occupancy_transition_cells;
         let y_stride = grid_dim.x as usize;
         let z_stride = y_stride * grid_dim.y as usize;
+        let mut density_correction_particles = 0u64;
+        let mut density_correction_factor_sum = 0.0f64;
+        let mut density_correction_factor_max = 1.0f32;
 
         for particle in &self.particles {
             let local_pos = particle.x - origin_ws;
@@ -1084,7 +1202,7 @@ impl PondWaterSim {
             let wy = [weights[0].y, weights[1].y, weights[2].y];
             let wz = [weights[0].z, weights[1].z, weights[2].z];
 
-            let Some(density) = particle_density_from_grid(
+            let Some(raw_density) = particle_density_from_grid(
                 &self.grid,
                 grid_dim,
                 base,
@@ -1095,6 +1213,27 @@ impl PondWaterSim {
             ) else {
                 continue;
             };
+            let density_sample = terrain_boundary_density_correction(
+                raw_density,
+                terrain_grid,
+                terrain_ghost_density,
+                grid_dim,
+                base,
+                wx,
+                wy,
+                wz,
+                dx,
+                terrain_density_min_fluid_fraction,
+                terrain_density_max_correction_factor,
+                terrain_density_occupancy_transition_cells,
+            );
+            if density_sample.correction_factor > 1.0 + f32::EPSILON {
+                density_correction_particles += 1;
+                density_correction_factor_sum += density_sample.correction_factor as f64;
+                density_correction_factor_max =
+                    density_correction_factor_max.max(density_sample.correction_factor);
+            }
+            let density = density_sample.density;
             let volume = mass / density;
             if !volume.is_finite() || volume <= 0.0 {
                 continue;
@@ -1169,6 +1308,19 @@ impl PondWaterSim {
                 }
             }
         }
+
+        self.diagnostic_stats.p2g_density_correction_particles += density_correction_particles;
+        self.diagnostic_stats.p2g_density_correction_factor_sum += density_correction_factor_sum;
+        self.diagnostic_stats.p2g_density_correction_factor_max = self
+            .diagnostic_stats
+            .p2g_density_correction_factor_max
+            .max(density_correction_factor_max);
+        self.perf_stats.p2g_density_correction_particles += density_correction_particles;
+        self.perf_stats.p2g_density_correction_factor_sum += density_correction_factor_sum;
+        self.perf_stats.p2g_density_correction_factor_max = self
+            .perf_stats
+            .p2g_density_correction_factor_max
+            .max(density_correction_factor_max);
     }
 
     fn update_grid(&mut self, dt: f32) -> usize {
@@ -1215,6 +1367,57 @@ impl PondWaterSim {
 
     fn grid_to_particle_timed(&mut self, dt: f32) -> WaterG2pBreakdown {
         self.grid_to_particle_impl::<true>(dt)
+    }
+
+    fn apply_quiet_settling_damping(&mut self, dt: f32) {
+        if !dt.is_finite() || dt <= 0.0 {
+            return;
+        }
+
+        let Some(sample) = quiet_motion_sample(&self.particles) else {
+            return;
+        };
+        let velocity_damping_per_sec = if self.config.quiet_settling_velocity_damping_per_sec.is_finite() {
+            self.config.quiet_settling_velocity_damping_per_sec.max(0.0)
+        } else {
+            0.0
+        };
+        let affine_damping_per_sec = if self.config.quiet_settling_affine_damping_per_sec.is_finite() {
+            self.config.quiet_settling_affine_damping_per_sec.max(0.0)
+        } else {
+            0.0
+        };
+        let damping_weight = quiet_settling_damping_weight(
+            sample.avg_speed,
+            sample.max_speed,
+            velocity_damping_per_sec,
+            affine_damping_per_sec,
+        );
+        if damping_weight <= 0.0 {
+            return;
+        }
+
+        let affine_damping = (-affine_damping_per_sec * damping_weight * dt)
+            .exp()
+            .clamp(0.0, 1.0);
+        for particle in &mut self.particles {
+            if !particle.v.is_finite() || !mat3_is_finite(particle.c) {
+                continue;
+            }
+
+            let speed = particle.v.length();
+            let local_weight = quiet_settling_local_velocity_weight(speed);
+            if local_weight > 0.0 {
+                let velocity_damping = (-velocity_damping_per_sec
+                    * damping_weight
+                    * local_weight
+                    * dt)
+                    .exp()
+                    .clamp(0.0, 1.0);
+                particle.v *= velocity_damping;
+            }
+            particle.c *= affine_damping;
+        }
     }
 
     fn grid_to_particle_impl<const COLLECT_BREAKDOWN: bool>(&mut self, dt: f32) -> WaterG2pBreakdown {
@@ -1523,6 +1726,354 @@ fn particle_density_from_grid(
     (density.is_finite() && density > MIN_FLUID_DENSITY).then_some(density)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct TerrainBoundaryDensitySample {
+    density: f32,
+    correction_factor: f32,
+    fluid_fraction: f32,
+    solid_weight: f32,
+}
+
+fn terrain_boundary_density_correction(
+    raw_density: f32,
+    terrain_grid: &[WaterTerrainGridSample],
+    terrain_ghost_density: &[f32],
+    grid_dim: UVec3,
+    base: IVec3,
+    wx: [f32; 3],
+    wy: [f32; 3],
+    wz: [f32; 3],
+    dx: f32,
+    min_fluid_fraction: f32,
+    max_correction_factor: f32,
+    occupancy_transition_cells: f32,
+) -> TerrainBoundaryDensitySample {
+    if !raw_density.is_finite() || raw_density <= 0.0 {
+        return TerrainBoundaryDensitySample {
+            density: raw_density,
+            correction_factor: 1.0,
+            fluid_fraction: 1.0,
+            solid_weight: 0.0,
+        };
+    }
+
+    let ghost = terrain_ghost_density_contribution(
+        terrain_grid,
+        terrain_ghost_density,
+        grid_dim,
+        base,
+        wx,
+        wy,
+        wz,
+        dx,
+        occupancy_transition_cells,
+    );
+    let solid_weight = ghost.solid_weight;
+    if solid_weight <= TERRAIN_DENSITY_MIN_SOLID_WEIGHT {
+        return TerrainBoundaryDensitySample {
+            density: raw_density,
+            correction_factor: 1.0,
+            fluid_fraction: 1.0,
+            solid_weight,
+        };
+    }
+
+    let min_fluid_fraction = min_fluid_fraction.clamp(1.0e-3, 1.0);
+    let fluid_fraction = (1.0 - solid_weight).clamp(min_fluid_fraction, 1.0);
+    let max_correction_factor = max_correction_factor.max(1.0);
+    let max_density = raw_density * max_correction_factor;
+    let fallback_density = raw_density
+        * fluid_fraction
+            .recip()
+            .min(max_correction_factor);
+    let ghost_density = raw_density + ghost.weighted_density;
+    let density = if ghost_density.is_finite() && ghost_density > raw_density {
+        ghost_density.min(max_density).max(raw_density)
+    } else {
+        fallback_density
+    };
+    let density = if density.is_finite() && density > 0.0 {
+        density
+    } else {
+        raw_density
+    };
+    TerrainBoundaryDensitySample {
+        density,
+        correction_factor: (density / raw_density).max(1.0),
+        fluid_fraction,
+        solid_weight,
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct TerrainGhostDensityContribution {
+    solid_weight: f32,
+    weighted_density: f32,
+}
+
+fn terrain_ghost_density_contribution(
+    terrain_grid: &[WaterTerrainGridSample],
+    terrain_ghost_density: &[f32],
+    grid_dim: UVec3,
+    base: IVec3,
+    wx: [f32; 3],
+    wy: [f32; 3],
+    wz: [f32; 3],
+    dx: f32,
+    occupancy_transition_cells: f32,
+) -> TerrainGhostDensityContribution {
+    if terrain_grid.is_empty() || dx <= 0.0 || !dx.is_finite() {
+        return TerrainGhostDensityContribution::default();
+    }
+
+    let mut solid_weight = 0.0f32;
+    let mut weighted_density = 0.0f32;
+    for oz in 0..3 {
+        for oy in 0..3 {
+            for ox in 0..3 {
+                let node = base + IVec3::new(ox, oy, oz);
+                if !in_grid(node, grid_dim) {
+                    continue;
+                }
+
+                let weight = wx[ox as usize] * wy[oy as usize] * wz[oz as usize];
+                if weight <= 0.0 {
+                    continue;
+                }
+
+                let node_idx = grid_index_dims(
+                    grid_dim,
+                    node.x as u32,
+                    node.y as u32,
+                    node.z as u32,
+                );
+                let Some(sample) = terrain_grid.get(node_idx) else {
+                    continue;
+                };
+                if !sample.has_sdf {
+                    continue;
+                }
+
+                let occupancy =
+                    terrain_solid_occupancy_from_sdf(sample.sdf, dx, occupancy_transition_cells);
+                if occupancy <= 0.0 {
+                    continue;
+                }
+                solid_weight += weight * occupancy;
+
+                let ghost_density = terrain_ghost_density.get(node_idx).copied().unwrap_or(0.0);
+                if ghost_density.is_finite() && ghost_density > MIN_FLUID_DENSITY {
+                    weighted_density += weight * occupancy * ghost_density;
+                }
+            }
+        }
+    }
+
+    TerrainGhostDensityContribution {
+        solid_weight: solid_weight.clamp(0.0, 1.0),
+        weighted_density: weighted_density.max(0.0),
+    }
+}
+
+fn terrain_ghost_density_for_grid_node(
+    grid: &[WaterGridNode],
+    grid_dim: UVec3,
+    node: UVec3,
+    sample: WaterTerrainGridSample,
+    dx: f32,
+    inv_dx: f32,
+    inv_cell_volume: f32,
+    rest_density: f32,
+    stiffness: f32,
+    gamma: f32,
+    pressure_floor: f32,
+    gravity: Vec3,
+    occupancy_transition_cells: f32,
+) -> Option<f32> {
+    if !sample.has_sdf
+        || terrain_solid_occupancy_from_sdf(sample.sdf, dx, occupancy_transition_cells) <= 0.0
+    {
+        return None;
+    }
+
+    let normal = terrain_sample_normal(sample)?;
+    let node_local = node.as_vec3() * dx;
+    let surface_local = node_local - sample.sdf * normal;
+    let mirror_distance = (-sample.sdf).max(dx * TERRAIN_GHOST_MIRROR_MIN_DISTANCE_CELLS.max(0.0));
+    let ghost_local = surface_local - mirror_distance * normal;
+    let mirror_local = surface_local + mirror_distance * normal;
+    let mirror_density = fluid_density_at_local_position(
+        grid,
+        grid_dim,
+        mirror_local,
+        inv_dx,
+        inv_cell_volume,
+    )
+    .unwrap_or(rest_density);
+    if !mirror_density.is_finite() || mirror_density <= 0.0 {
+        return None;
+    }
+
+    let mirror_pressure = fluid_eos_pressure(
+        stiffness,
+        gamma,
+        mirror_density,
+        rest_density,
+        pressure_floor,
+    )
+    .max(0.0);
+    let hydrostatic_delta = rest_density * gravity.dot(ghost_local - mirror_local);
+    let ghost_pressure = (mirror_pressure + hydrostatic_delta).max(0.0);
+    let ghost_density = fluid_density_from_eos_pressure(
+        stiffness,
+        gamma,
+        ghost_pressure,
+        rest_density,
+    )
+    .unwrap_or(mirror_density);
+    (ghost_density.is_finite() && ghost_density > MIN_FLUID_DENSITY).then_some(ghost_density)
+}
+
+fn fluid_density_at_local_position(
+    grid: &[WaterGridNode],
+    grid_dim: UVec3,
+    local_pos: Vec3,
+    inv_dx: f32,
+    inv_cell_volume: f32,
+) -> Option<f32> {
+    if !local_pos.is_finite() || inv_dx <= 0.0 || !inv_dx.is_finite() {
+        return None;
+    }
+
+    let grid_pos = local_pos * inv_dx;
+    let base = grid_pos.floor().as_ivec3();
+    let frac = grid_pos - base.as_vec3();
+    let wx = [1.0 - frac.x, frac.x];
+    let wy = [1.0 - frac.y, frac.y];
+    let wz = [1.0 - frac.z, frac.z];
+    let mut gathered_mass = 0.0f32;
+    for oz in 0..2 {
+        for oy in 0..2 {
+            for ox in 0..2 {
+                let node = base + IVec3::new(ox, oy, oz);
+                if !in_grid(node, grid_dim) {
+                    continue;
+                }
+
+                let weight = wx[ox as usize] * wy[oy as usize] * wz[oz as usize];
+                if weight <= 0.0 {
+                    continue;
+                }
+
+                let node_idx = grid_index_dims(
+                    grid_dim,
+                    node.x as u32,
+                    node.y as u32,
+                    node.z as u32,
+                );
+                gathered_mass += grid[node_idx].mass * weight;
+            }
+        }
+    }
+
+    let density = gathered_mass * inv_cell_volume;
+    (density.is_finite() && density > MIN_FLUID_DENSITY).then_some(density)
+}
+
+fn terrain_sample_normal(sample: WaterTerrainGridSample) -> Option<Vec3> {
+    if !sample.normal.is_finite() {
+        return None;
+    }
+    let len2 = sample.normal.length_squared();
+    (len2 > 1.0e-8 && len2.is_finite()).then_some(sample.normal / len2.sqrt())
+}
+
+#[cfg(test)]
+fn terrain_solid_kernel_weight(
+    terrain_grid: &[WaterTerrainGridSample],
+    grid_dim: glam::UVec3,
+    base: IVec3,
+    wx: [f32; 3],
+    wy: [f32; 3],
+    wz: [f32; 3],
+    dx: f32,
+    occupancy_transition_cells: f32,
+) -> f32 {
+    if terrain_grid.is_empty() || dx <= 0.0 || !dx.is_finite() {
+        return 0.0;
+    }
+
+    let mut solid_weight = 0.0f32;
+    for oz in 0..3 {
+        for oy in 0..3 {
+            for ox in 0..3 {
+                let node = base + IVec3::new(ox, oy, oz);
+                if !in_grid(node, grid_dim) {
+                    continue;
+                }
+
+                let weight = wx[ox as usize] * wy[oy as usize] * wz[oz as usize];
+                if weight <= 0.0 {
+                    continue;
+                }
+
+                let node_idx = grid_index_dims(
+                    grid_dim,
+                    node.x as u32,
+                    node.y as u32,
+                    node.z as u32,
+                );
+                let Some(sample) = terrain_grid.get(node_idx) else {
+                    continue;
+                };
+                if !sample.has_sdf {
+                    continue;
+                }
+
+                solid_weight += weight
+                    * terrain_solid_occupancy_from_sdf(sample.sdf, dx, occupancy_transition_cells);
+            }
+        }
+    }
+
+    solid_weight.clamp(0.0, 1.0)
+}
+
+fn terrain_solid_occupancy_from_sdf(
+    sdf: f32,
+    dx: f32,
+    occupancy_transition_cells: f32,
+) -> f32 {
+    if !sdf.is_finite() || dx <= 0.0 || !dx.is_finite() {
+        return 0.0;
+    }
+
+    let transition_width = dx * occupancy_transition_cells.max(1.0e-3);
+    (0.5 - sdf / transition_width).clamp(0.0, 1.0)
+}
+
+fn fluid_density_from_eos_pressure(
+    stiffness: f32,
+    gamma: f32,
+    pressure: f32,
+    rest_density: f32,
+) -> Option<f32> {
+    if !stiffness.is_finite()
+        || stiffness <= 0.0
+        || !gamma.is_finite()
+        || gamma <= 0.0
+        || !pressure.is_finite()
+        || !rest_density.is_finite()
+        || rest_density <= 0.0
+    {
+        return None;
+    }
+
+    let density_ratio = (1.0 + pressure.max(0.0) / stiffness).powf(gamma.recip());
+    let density = rest_density * density_ratio;
+    (density.is_finite() && density > MIN_FLUID_DENSITY).then_some(density)
+}
+
 fn fluid_eos_pressure(
     stiffness: f32,
     gamma: f32,
@@ -1820,6 +2371,26 @@ fn terrain_grid_cache_range_for_chunk_parts(
 
 fn grid_index_dims(grid_dim: glam::UVec3, x: u32, y: u32, z: u32) -> usize {
     ((z as usize * grid_dim.y as usize + y as usize) * grid_dim.x as usize) + x as usize
+}
+
+fn grid_node_coord_from_index(grid_dim: glam::UVec3, idx: usize) -> Option<glam::UVec3> {
+    let x_dim = grid_dim.x as usize;
+    let y_dim = grid_dim.y as usize;
+    let z_dim = grid_dim.z as usize;
+    if x_dim == 0 || y_dim == 0 || z_dim == 0 {
+        return None;
+    }
+    let layer = x_dim.checked_mul(y_dim)?;
+    let node_count = layer.checked_mul(z_dim)?;
+    if idx >= node_count {
+        return None;
+    }
+
+    let z = idx / layer;
+    let rem = idx - z * layer;
+    let y = rem / x_dim;
+    let x = rem - y * x_dim;
+    Some(glam::UVec3::new(x as u32, y as u32, z as u32))
 }
 
 fn lerp(a: f32, b: f32, t: f32) -> f32 {
@@ -2247,6 +2818,89 @@ fn collide_particle_with_terrain_iterative(
 }
 
 #[derive(Clone, Copy, Debug)]
+struct QuietMotionSample {
+    avg_speed: f32,
+    max_speed: f32,
+}
+
+fn quiet_motion_sample(particles: &[super::pond::WaterParticle]) -> Option<QuietMotionSample> {
+    let mut finite_particles = 0usize;
+    let mut sum_speed = 0.0f32;
+    let mut max_speed = 0.0f32;
+
+    for particle in particles {
+        if !particle.v.is_finite() {
+            continue;
+        }
+
+        finite_particles += 1;
+        let speed = particle.v.length();
+        sum_speed += speed;
+        max_speed = max_speed.max(speed);
+    }
+
+    if finite_particles == 0 {
+        return None;
+    }
+
+    Some(QuietMotionSample {
+        avg_speed: sum_speed / finite_particles as f32,
+        max_speed,
+    })
+}
+
+fn quiet_settling_damping_weight(
+    avg_speed: f32,
+    max_speed: f32,
+    velocity_damping_per_sec: f32,
+    affine_damping_per_sec: f32,
+) -> f32 {
+    if !avg_speed.is_finite()
+        || !max_speed.is_finite()
+        || (velocity_damping_per_sec <= 0.0 && affine_damping_per_sec <= 0.0)
+    {
+        return 0.0;
+    }
+
+    let avg_weight = 1.0
+        - smoothstep(
+            QUIET_SETTLING_AVG_SPEED_THRESHOLD,
+            QUIET_SETTLING_AVG_SPEED_THRESHOLD * 2.0,
+            avg_speed,
+        );
+    let max_weight = 1.0
+        - smoothstep(
+            QUIET_SETTLING_MAX_SPEED_THRESHOLD,
+            QUIET_SETTLING_MAX_SPEED_THRESHOLD * 2.0,
+            max_speed,
+        );
+    avg_weight.min(max_weight).clamp(0.0, 1.0)
+}
+
+fn quiet_settling_local_velocity_weight(speed: f32) -> f32 {
+    if !speed.is_finite() {
+        return 0.0;
+    }
+
+    (1.0
+        - smoothstep(
+            QUIET_SETTLING_LOCAL_SPEED_THRESHOLD,
+            QUIET_SETTLING_LOCAL_SPEED_THRESHOLD * 2.0,
+            speed,
+        ))
+    .clamp(0.0, 1.0)
+}
+
+fn smoothstep(edge0: f32, edge1: f32, value: f32) -> f32 {
+    if !edge0.is_finite() || !edge1.is_finite() || edge1 <= edge0 {
+        return if value >= edge1 { 1.0 } else { 0.0 };
+    }
+
+    let t = ((value - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+#[derive(Clone, Copy, Debug)]
 struct WaterParticleDebugStats {
     finite_particles: usize,
     min_ws: Vec3,
@@ -2500,9 +3154,13 @@ mod tests {
         affine_damping_factor, blend_no_tension_j, collide_particle_with_terrain,
         collide_particle_with_terrain_iterative, damp_velocity_tangent_to_surface,
         density_j_feedback_blend, eos_pressure, fluid_eos_pressure, fluid_stress,
-        grid_density_no_tension_j, integrate_no_tension_j, project_velocity_away_from_surface,
-        terrain_grid_particle_query,
-        terrain_tangent_damping_factor, TerrainGridParticleQuery, WaterTerrainGridSample,
+        grid_density_no_tension_j, grid_node_coord_from_index, integrate_no_tension_j,
+        project_velocity_away_from_surface, quiet_settling_damping_weight,
+        quiet_settling_local_velocity_weight, terrain_boundary_density_correction,
+        terrain_ghost_density_for_grid_node, terrain_grid_particle_query, terrain_solid_kernel_weight,
+        terrain_solid_occupancy_from_sdf,
+        terrain_tangent_damping_factor, TerrainGridParticleQuery, WaterGridNode,
+        WaterTerrainGridSample,
         ACTIVE_MASS_EPSILON,
     };
     use crate::{PondWaterConfig, PondWaterSim, WaterTerrainColliderChunk, WaterTerrainColliderSet};
@@ -2534,6 +3192,96 @@ mod tests {
         assert_eq!(fluid_eos_pressure(10.0, 4.0, 4.0, 4.0, -0.1), 0.0);
         assert_eq!(fluid_eos_pressure(10.0, 4.0, 2.0, 4.0, -0.1), -0.1);
         assert_eq!(fluid_eos_pressure(10.0, 4.0, 2.0, 4.0, 0.0), 0.0);
+    }
+
+    #[test]
+    fn terrain_sdf_occupancy_smooths_over_one_cell() {
+        assert_eq!(terrain_solid_occupancy_from_sdf(0.6, 1.0, 1.0), 0.0);
+        assert_eq!(terrain_solid_occupancy_from_sdf(0.5, 1.0, 1.0), 0.0);
+        assert!((terrain_solid_occupancy_from_sdf(0.0, 1.0, 1.0) - 0.5).abs() <= 1.0e-6);
+        assert_eq!(terrain_solid_occupancy_from_sdf(-0.5, 1.0, 1.0), 1.0);
+        assert_eq!(terrain_solid_occupancy_from_sdf(-0.6, 1.0, 1.0), 1.0);
+        assert_eq!(terrain_solid_occupancy_from_sdf(0.0, 0.0, 1.0), 0.0);
+    }
+
+    #[test]
+    fn terrain_density_correction_skips_when_no_sdf_support_exists() {
+        let grid_dim = UVec3::splat(3);
+        let terrain_grid = vec![WaterTerrainGridSample::default(); 27];
+        let grid = vec![WaterGridNode::default(); 27];
+        let weights = [0.25, 0.5, 0.25];
+        let corrected = terrain_density_correction_for_test(4.0, &grid, &terrain_grid, grid_dim, weights, 4.0);
+
+        assert_eq!(corrected.density, 4.0);
+        assert_eq!(corrected.correction_factor, 1.0);
+        assert_eq!(corrected.solid_weight, 0.0);
+    }
+
+    #[test]
+    fn terrain_density_correction_fills_planar_half_space_support() {
+        let grid_dim = UVec3::splat(3);
+        let terrain_grid = terrain_grid_from_sdf(grid_dim, |node| node.y as f32 - 1.0);
+        let weights = [0.25, 0.5, 0.25];
+        let solid_weight = terrain_solid_kernel_weight(
+            &terrain_grid,
+            grid_dim,
+            IVec3::ZERO,
+            weights,
+            weights,
+            weights,
+            1.0,
+            1.0,
+        );
+        assert!((solid_weight - 0.5).abs() <= 1.0e-6, "solid_weight={solid_weight}");
+
+        let grid = vec![WaterGridNode::default(); 27];
+        let corrected = terrain_density_correction_for_test(2.0, &grid, &terrain_grid, grid_dim, weights, 4.0);
+
+        assert!((corrected.fluid_fraction - 0.5).abs() <= 1.0e-6);
+        assert!((corrected.correction_factor - 2.0).abs() <= 1.0e-6);
+        assert!((corrected.density - 4.0).abs() <= 1.0e-6);
+    }
+
+    #[test]
+    fn terrain_density_correction_adds_hydrostatic_ghost_pressure() {
+        let grid_dim = UVec3::splat(3);
+        let terrain_grid = terrain_grid_from_sdf(grid_dim, |node| node.y as f32 - 1.0);
+        let grid = vec![WaterGridNode::default(); 27];
+        let weights = [0.25, 0.5, 0.25];
+        let no_gravity = terrain_density_correction_for_test_with_gravity(
+            4.0,
+            &grid,
+            &terrain_grid,
+            grid_dim,
+            weights,
+            4.0,
+            Vec3::ZERO,
+        );
+        let with_gravity = terrain_density_correction_for_test_with_gravity(
+            4.0,
+            &grid,
+            &terrain_grid,
+            grid_dim,
+            weights,
+            4.0,
+            Vec3::new(0.0, -9.8, 0.0),
+        );
+
+        assert!(with_gravity.density > no_gravity.density);
+        assert!(with_gravity.correction_factor <= 2.0);
+    }
+
+    #[test]
+    fn terrain_density_correction_is_bounded_for_deep_solid_overlap() {
+        let grid_dim = UVec3::splat(3);
+        let terrain_grid = terrain_grid_from_sdf(grid_dim, |_node| -1.0);
+        let weights = [0.25, 0.5, 0.25];
+        let grid = vec![WaterGridNode::default(); 27];
+        let corrected = terrain_density_correction_for_test(4.0, &grid, &terrain_grid, grid_dim, weights, 4.0);
+
+        assert_eq!(corrected.fluid_fraction, 0.5);
+        assert_eq!(corrected.correction_factor, 2.0);
+        assert_eq!(corrected.density, 8.0);
     }
 
     #[test]
@@ -2630,6 +3378,47 @@ mod tests {
             "damping_120_hz={damping_120_hz}"
         );
         assert_eq!(affine_damping_factor(0.0), 1.0);
+    }
+
+    #[test]
+    fn quiet_settling_damping_is_gated_by_body_speed() {
+        assert_eq!(quiet_settling_damping_weight(0.03, 0.20, 0.0, 0.0), 0.0);
+        assert!(quiet_settling_damping_weight(0.03, 0.20, 4.0, 10.0) > 0.99);
+        assert_eq!(quiet_settling_damping_weight(0.30, 0.20, 4.0, 10.0), 0.0);
+        assert_eq!(quiet_settling_damping_weight(0.03, 1.00, 4.0, 10.0), 0.0);
+
+        assert!(quiet_settling_local_velocity_weight(0.10) > 0.99);
+        assert_eq!(quiet_settling_local_velocity_weight(1.0), 0.0);
+    }
+
+    #[test]
+    fn quiet_settling_damping_skips_fast_splashes() {
+        let mut sim = PondWaterSim::new(PondWaterConfig::default());
+        sim.particles = vec![
+            crate::pond::WaterParticle {
+                x: Vec3::new(0.25, 0.5, 0.25),
+                v: Vec3::new(0.05, 0.0, 0.0),
+                c: Mat3::from_diagonal(Vec3::splat(2.0)),
+                j: 1.0,
+            },
+            crate::pond::WaterParticle {
+                x: Vec3::new(0.75, 0.5, 0.75),
+                v: Vec3::new(0.04, 0.0, 0.0),
+                c: Mat3::from_diagonal(Vec3::splat(2.0)),
+                j: 1.0,
+            },
+        ];
+
+        sim.apply_quiet_settling_damping(1.0 / 60.0);
+        assert!(sim.particles[0].v.length() < 0.05);
+        assert!(sim.particles[0].c.x_axis.x < 2.0);
+
+        let quiet_velocity = sim.particles[0].v;
+        let quiet_affine = sim.particles[0].c;
+        sim.particles[1].v = Vec3::X;
+        sim.apply_quiet_settling_damping(1.0 / 60.0);
+        assert_eq!(sim.particles[0].v, quiet_velocity);
+        assert_eq!(sim.particles[0].c, quiet_affine);
     }
 
     #[test]
@@ -2955,6 +3744,96 @@ mod tests {
                 for _x in 0..2 {
                     samples.push(WaterTerrainGridSample {
                         sdf: y as f32,
+                        normal: Vec3::Y,
+                        near_surface: true,
+                        has_sdf: true,
+                    });
+                }
+            }
+        }
+        samples
+    }
+
+    fn terrain_density_correction_for_test(
+        raw_density: f32,
+        grid: &[WaterGridNode],
+        terrain_grid: &[WaterTerrainGridSample],
+        grid_dim: UVec3,
+        weights: [f32; 3],
+        rest_density: f32,
+    ) -> super::TerrainBoundaryDensitySample {
+        terrain_density_correction_for_test_with_gravity(
+            raw_density,
+            grid,
+            terrain_grid,
+            grid_dim,
+            weights,
+            rest_density,
+            Vec3::new(0.0, -9.8, 0.0),
+        )
+    }
+
+    fn terrain_density_correction_for_test_with_gravity(
+        raw_density: f32,
+        grid: &[WaterGridNode],
+        terrain_grid: &[WaterTerrainGridSample],
+        grid_dim: UVec3,
+        weights: [f32; 3],
+        rest_density: f32,
+        gravity: Vec3,
+    ) -> super::TerrainBoundaryDensitySample {
+        let mut terrain_ghost_density = vec![0.0; terrain_grid.len()];
+        for (node_idx, sample) in terrain_grid.iter().copied().enumerate() {
+            let Some(node) = grid_node_coord_from_index(grid_dim, node_idx) else {
+                continue;
+            };
+            let Some(ghost_density) = terrain_ghost_density_for_grid_node(
+                grid,
+                grid_dim,
+                node,
+                sample,
+                1.0,
+                1.0,
+                1.0,
+                rest_density,
+                16.0,
+                4.0,
+                -0.1,
+                gravity,
+                1.0,
+            ) else {
+                continue;
+            };
+            terrain_ghost_density[node_idx] = ghost_density;
+        }
+
+        terrain_boundary_density_correction(
+            raw_density,
+            terrain_grid,
+            &terrain_ghost_density,
+            grid_dim,
+            IVec3::ZERO,
+            weights,
+            weights,
+            weights,
+            1.0,
+            0.50,
+            2.0,
+            1.0,
+        )
+    }
+
+    fn terrain_grid_from_sdf(
+        grid_dim: UVec3,
+        sdf: impl Fn(IVec3) -> f32,
+    ) -> Vec<WaterTerrainGridSample> {
+        let mut samples = Vec::new();
+        for z in 0..grid_dim.z as i32 {
+            for y in 0..grid_dim.y as i32 {
+                for x in 0..grid_dim.x as i32 {
+                    let sdf = sdf(IVec3::new(x, y, z));
+                    samples.push(WaterTerrainGridSample {
+                        sdf,
                         normal: Vec3::Y,
                         near_surface: true,
                         has_sdf: true,

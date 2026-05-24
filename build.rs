@@ -605,6 +605,14 @@ const SHADER_FILES: &[(&str, shaderc::ShaderKind)] = &[
         shaderc::ShaderKind::Compute,
     ),
     (
+        "shader/tracer/vsm_blur_h.comp",
+        shaderc::ShaderKind::Compute,
+    ),
+    (
+        "shader/tracer/vsm_blur_v.comp",
+        shaderc::ShaderKind::Compute,
+    ),
+    (
         "shader/tracer/composition.comp",
         shaderc::ShaderKind::Compute,
     ),

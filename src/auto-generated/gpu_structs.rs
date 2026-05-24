@@ -250,6 +250,26 @@ pub struct PushConstantSpatial {
     pub _pad0: [u8; 12],
 }
 
+/// Auto-generated from `PushConstantVsmBlurH` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantVsmBlurH {
+    pub blur_radius: u32,
+    pub temporal_alpha: f32,
+    pub reset_history: u32,
+    pub _pad0: [u8; 4],
+}
+
+/// Auto-generated from `PushConstantVsmBlurV` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantVsmBlurV {
+    pub blur_radius: u32,
+    pub temporal_alpha: f32,
+    pub reset_history: u32,
+    pub _pad0: [u8; 4],
+}
+
 /// Auto-generated from `PushConstantWindVolume` (GLSL source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -510,28 +530,6 @@ pub struct ShadowCameraInfo {
     pub proj_mat_inv: [[f32; 4]; 4],
     pub view_proj_mat: [[f32; 4]; 4],
     pub view_proj_mat_inv: [[f32; 4]; 4],
-}
-
-/// Auto-generated from `U_ShadowCameraInfoPrev` (GLSL source of truth).
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct ShadowCameraInfoPrev {
-    pub pos: [f32; 4],
-    pub view_mat: [[f32; 4]; 4],
-    pub view_mat_inv: [[f32; 4]; 4],
-    pub proj_mat: [[f32; 4]; 4],
-    pub proj_mat_inv: [[f32; 4]; 4],
-    pub view_proj_mat: [[f32; 4]; 4],
-    pub view_proj_mat_inv: [[f32; 4]; 4],
-}
-
-/// Auto-generated from `U_ShadowTemporalInfo` (GLSL source of truth).
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct ShadowTemporalInfo {
-    pub blend_alpha: f32,
-    pub has_previous_shadow_map: u32,
-    pub _pad0: [u8; 8],
 }
 
 /// Auto-generated from `U_SpatialInfo` (GLSL source of truth).

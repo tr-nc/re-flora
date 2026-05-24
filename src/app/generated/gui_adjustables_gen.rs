@@ -139,6 +139,18 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Day Cycle Duration (Minutes)",
     },
     GeneratedGuiParamDescriptor {
+        section: "Shadow",
+        id: "vsm_blur_radius",
+        kind: "uint",
+        label: "VSM Blur Radius (texels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Shadow",
+        id: "vsm_temporal_alpha",
+        kind: "float",
+        label: "VSM Temporal Alpha",
+    },
+    GeneratedGuiParamDescriptor {
         section: "Starlight",
         id: "starlight_iterations",
         kind: "int",
@@ -398,9 +410,39 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "WaterSimulation",
+        id: "water_boundary_density_min_fluid_fraction",
+        kind: "float",
+        label: "Boundary Density Min Fluid Fraction",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "WaterSimulation",
+        id: "water_boundary_density_max_correction_factor",
+        kind: "float",
+        label: "Boundary Density Max Correction",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "WaterSimulation",
+        id: "water_boundary_density_occupancy_transition_cells",
+        kind: "float",
+        label: "Boundary Density Transition Cells",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "WaterSimulation",
         id: "water_damping",
         kind: "float",
         label: "Linear Damping (/s)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "WaterSimulation",
+        id: "water_quiet_settling_velocity_damping",
+        kind: "float",
+        label: "Quiet Settling Velocity Damping (/s)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "WaterSimulation",
+        id: "water_quiet_settling_affine_damping",
+        kind: "float",
+        label: "Quiet Settling Affine Damping (/s)",
     },
     GeneratedGuiParamDescriptor {
         section: "WaterSimulation",
@@ -677,6 +719,8 @@ pub struct GuiAdjustables {
     pub latitude: crate::gui_adjustables::FloatParam,
     pub season: crate::gui_adjustables::FloatParam,
     pub day_cycle_minutes: crate::gui_adjustables::FloatParam,
+    pub vsm_blur_radius: crate::gui_adjustables::UintParam,
+    pub vsm_temporal_alpha: crate::gui_adjustables::FloatParam,
     pub starlight_iterations: crate::gui_adjustables::IntParam,
     pub starlight_formuparam: crate::gui_adjustables::FloatParam,
     pub starlight_volsteps: crate::gui_adjustables::IntParam,
@@ -720,7 +764,12 @@ pub struct GuiAdjustables {
     pub water_particle_quad_size: crate::gui_adjustables::FloatParam,
     pub water_debug_spawn_height_offset: crate::gui_adjustables::FloatParam,
     pub water_terrain_margin_cells: crate::gui_adjustables::FloatParam,
+    pub water_boundary_density_min_fluid_fraction: crate::gui_adjustables::FloatParam,
+    pub water_boundary_density_max_correction_factor: crate::gui_adjustables::FloatParam,
+    pub water_boundary_density_occupancy_transition_cells: crate::gui_adjustables::FloatParam,
     pub water_damping: crate::gui_adjustables::FloatParam,
+    pub water_quiet_settling_velocity_damping: crate::gui_adjustables::FloatParam,
+    pub water_quiet_settling_affine_damping: crate::gui_adjustables::FloatParam,
     pub water_gravity_y: crate::gui_adjustables::FloatParam,
     pub water_stiffness: crate::gui_adjustables::FloatParam,
     pub water_gamma: crate::gui_adjustables::FloatParam,
@@ -795,6 +844,8 @@ impl GuiAdjustables {
         let mut latitude_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut season_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut day_cycle_minutes_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut vsm_blur_radius_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut vsm_temporal_alpha_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut starlight_iterations_field: Option<crate::gui_adjustables::IntParam> = None;
         let mut starlight_formuparam_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut starlight_volsteps_field: Option<crate::gui_adjustables::IntParam> = None;
@@ -838,7 +889,12 @@ impl GuiAdjustables {
         let mut water_particle_quad_size_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_debug_spawn_height_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_terrain_margin_cells_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut water_boundary_density_min_fluid_fraction_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut water_boundary_density_max_correction_factor_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut water_boundary_density_occupancy_transition_cells_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_damping_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut water_quiet_settling_velocity_damping_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut water_quiet_settling_affine_damping_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_gravity_y_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_stiffness_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_gamma_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1006,6 +1062,20 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             day_cycle_minutes_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "vsm_blur_radius" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            vsm_blur_radius_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "vsm_temporal_alpha" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            vsm_temporal_alpha_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "starlight_iterations" => {
@@ -1293,11 +1363,46 @@ impl GuiAdjustables {
                             water_terrain_margin_cells_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
+                    "water_boundary_density_min_fluid_fraction" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            water_boundary_density_min_fluid_fraction_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "water_boundary_density_max_correction_factor" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            water_boundary_density_max_correction_factor_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "water_boundary_density_occupancy_transition_cells" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            water_boundary_density_occupancy_transition_cells_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
                     "water_damping" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             water_damping_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "water_quiet_settling_velocity_damping" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            water_quiet_settling_velocity_damping_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "water_quiet_settling_affine_damping" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            water_quiet_settling_affine_damping_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "water_gravity_y" => {
@@ -1597,6 +1702,8 @@ impl GuiAdjustables {
             latitude: latitude_field.expect("Missing parameter: latitude"),
             season: season_field.expect("Missing parameter: season"),
             day_cycle_minutes: day_cycle_minutes_field.expect("Missing parameter: day_cycle_minutes"),
+            vsm_blur_radius: vsm_blur_radius_field.expect("Missing parameter: vsm_blur_radius"),
+            vsm_temporal_alpha: vsm_temporal_alpha_field.expect("Missing parameter: vsm_temporal_alpha"),
             starlight_iterations: starlight_iterations_field.expect("Missing parameter: starlight_iterations"),
             starlight_formuparam: starlight_formuparam_field.expect("Missing parameter: starlight_formuparam"),
             starlight_volsteps: starlight_volsteps_field.expect("Missing parameter: starlight_volsteps"),
@@ -1640,7 +1747,12 @@ impl GuiAdjustables {
             water_particle_quad_size: water_particle_quad_size_field.expect("Missing parameter: water_particle_quad_size"),
             water_debug_spawn_height_offset: water_debug_spawn_height_offset_field.expect("Missing parameter: water_debug_spawn_height_offset"),
             water_terrain_margin_cells: water_terrain_margin_cells_field.expect("Missing parameter: water_terrain_margin_cells"),
+            water_boundary_density_min_fluid_fraction: water_boundary_density_min_fluid_fraction_field.expect("Missing parameter: water_boundary_density_min_fluid_fraction"),
+            water_boundary_density_max_correction_factor: water_boundary_density_max_correction_factor_field.expect("Missing parameter: water_boundary_density_max_correction_factor"),
+            water_boundary_density_occupancy_transition_cells: water_boundary_density_occupancy_transition_cells_field.expect("Missing parameter: water_boundary_density_occupancy_transition_cells"),
             water_damping: water_damping_field.expect("Missing parameter: water_damping"),
+            water_quiet_settling_velocity_damping: water_quiet_settling_velocity_damping_field.expect("Missing parameter: water_quiet_settling_velocity_damping"),
+            water_quiet_settling_affine_damping: water_quiet_settling_affine_damping_field.expect("Missing parameter: water_quiet_settling_affine_damping"),
             water_gravity_y: water_gravity_y_field.expect("Missing parameter: water_gravity_y"),
             water_stiffness: water_stiffness_field.expect("Missing parameter: water_stiffness"),
             water_gamma: water_gamma_field.expect("Missing parameter: water_gamma"),
@@ -1702,6 +1814,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "latitude" => Some(&adjustables.latitude),
         "season" => Some(&adjustables.season),
         "day_cycle_minutes" => Some(&adjustables.day_cycle_minutes),
+        "vsm_temporal_alpha" => Some(&adjustables.vsm_temporal_alpha),
         "starlight_formuparam" => Some(&adjustables.starlight_formuparam),
         "starlight_stepsize" => Some(&adjustables.starlight_stepsize),
         "starlight_zoom" => Some(&adjustables.starlight_zoom),
@@ -1733,7 +1846,12 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "water_particle_quad_size" => Some(&adjustables.water_particle_quad_size),
         "water_debug_spawn_height_offset" => Some(&adjustables.water_debug_spawn_height_offset),
         "water_terrain_margin_cells" => Some(&adjustables.water_terrain_margin_cells),
+        "water_boundary_density_min_fluid_fraction" => Some(&adjustables.water_boundary_density_min_fluid_fraction),
+        "water_boundary_density_max_correction_factor" => Some(&adjustables.water_boundary_density_max_correction_factor),
+        "water_boundary_density_occupancy_transition_cells" => Some(&adjustables.water_boundary_density_occupancy_transition_cells),
         "water_damping" => Some(&adjustables.water_damping),
+        "water_quiet_settling_velocity_damping" => Some(&adjustables.water_quiet_settling_velocity_damping),
+        "water_quiet_settling_affine_damping" => Some(&adjustables.water_quiet_settling_affine_damping),
         "water_gravity_y" => Some(&adjustables.water_gravity_y),
         "water_stiffness" => Some(&adjustables.water_stiffness),
         "water_gamma" => Some(&adjustables.water_gamma),
@@ -1783,6 +1901,7 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
     match id {
         "debug_uint" => Some(&adjustables.debug_uint),
         "grass_render_mode" => Some(&adjustables.grass_render_mode),
+        "vsm_blur_radius" => Some(&adjustables.vsm_blur_radius),
         "god_ray_max_checks" => Some(&adjustables.god_ray_max_checks),
         "a_trous_iteration_count" => Some(&adjustables.a_trous_iteration_count),
         _ => None,
@@ -1842,6 +1961,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "latitude" => Some(&mut adjustables.latitude),
         "season" => Some(&mut adjustables.season),
         "day_cycle_minutes" => Some(&mut adjustables.day_cycle_minutes),
+        "vsm_temporal_alpha" => Some(&mut adjustables.vsm_temporal_alpha),
         "starlight_formuparam" => Some(&mut adjustables.starlight_formuparam),
         "starlight_stepsize" => Some(&mut adjustables.starlight_stepsize),
         "starlight_zoom" => Some(&mut adjustables.starlight_zoom),
@@ -1873,7 +1993,12 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "water_particle_quad_size" => Some(&mut adjustables.water_particle_quad_size),
         "water_debug_spawn_height_offset" => Some(&mut adjustables.water_debug_spawn_height_offset),
         "water_terrain_margin_cells" => Some(&mut adjustables.water_terrain_margin_cells),
+        "water_boundary_density_min_fluid_fraction" => Some(&mut adjustables.water_boundary_density_min_fluid_fraction),
+        "water_boundary_density_max_correction_factor" => Some(&mut adjustables.water_boundary_density_max_correction_factor),
+        "water_boundary_density_occupancy_transition_cells" => Some(&mut adjustables.water_boundary_density_occupancy_transition_cells),
         "water_damping" => Some(&mut adjustables.water_damping),
+        "water_quiet_settling_velocity_damping" => Some(&mut adjustables.water_quiet_settling_velocity_damping),
+        "water_quiet_settling_affine_damping" => Some(&mut adjustables.water_quiet_settling_affine_damping),
         "water_gravity_y" => Some(&mut adjustables.water_gravity_y),
         "water_stiffness" => Some(&mut adjustables.water_stiffness),
         "water_gamma" => Some(&mut adjustables.water_gamma),
@@ -1923,6 +2048,7 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
     match id {
         "debug_uint" => Some(&mut adjustables.debug_uint),
         "grass_render_mode" => Some(&mut adjustables.grass_render_mode),
+        "vsm_blur_radius" => Some(&mut adjustables.vsm_blur_radius),
         "god_ray_max_checks" => Some(&mut adjustables.god_ray_max_checks),
         "a_trous_iteration_count" => Some(&mut adjustables.a_trous_iteration_count),
         _ => None,

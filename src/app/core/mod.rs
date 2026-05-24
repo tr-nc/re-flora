@@ -227,8 +227,7 @@ pub struct App {
     flora_tick_accumulator: f32,
     growing_flora_chunks: GrowingFloraQueue,
     sun_position_update_tick_accumulator: u32,
-    shadow_map_update_tick_accumulator: u32,
-    shadow_map_update_pending: bool,
+    vsm_history_reset_pending: bool,
 
     debug_tree_desc: TreeDesc,
     tree_variation_config: TreeVariationConfig,
@@ -354,6 +353,7 @@ impl App {
                 for &chunk_id in chunk_ids {
                     self.schedule_terrain_sdf_source_refresh(chunk_id);
                 }
+                self.request_vsm_history_reset();
                 log::info!(
                     "[PERF][SYNC_VISIBLE_REBUILD] chunks {} total {:.2}ms preserve_flora=false chunk_ids={:?}",
                     chunk_ids.len(),
@@ -412,6 +412,9 @@ impl App {
             }
         }
         let elapsed_ms = sync_start.elapsed().as_secs_f64() * 1000.0;
+        if rebuilt > 0 {
+            self.request_vsm_history_reset();
+        }
         log::info!(
             "[PERF][SYNC_VISIBLE_REBUILD] chunks {} rebuilt {} total {:.2}ms preserve_flora=true failed={} chunk_ids={:?}",
             chunk_ids.len(),
@@ -1033,6 +1036,7 @@ impl App {
             .complete(inflight.chunk_id, inflight.revision);
         if is_latest {
             self.schedule_terrain_sdf_source_refresh(inflight.chunk_id);
+            self.request_vsm_history_reset();
         }
 
         log::log!(
@@ -1181,7 +1185,11 @@ impl App {
 
 impl WorldBuildBackend for App {
     fn apply_voxel_edit(&mut self, edit: VoxelEdit) -> Result<()> {
-        world_ops::apply_voxel_edit(&mut self.plain_builder, edit)
+        let result = world_ops::apply_voxel_edit(&mut self.plain_builder, edit);
+        if result.is_ok() {
+            self.request_vsm_history_reset();
+        }
+        result
     }
 
     fn apply_build_edit(&mut self, edit: BuildEdit) -> Result<()> {
@@ -1228,13 +1236,6 @@ const DEBUG_MODEL_LINE_START_XZ: Vec2 = Vec2::new(0.5, 0.5);
 const DEBUG_MODEL_LINE_STEP_XZ: Vec2 = Vec2::new(1.0, 0.0);
 const FLORA_FULL_GROWTH_TICKS: u32 = 30;
 const SUN_POSITION_UPDATE_INTERVAL_TICKS: u32 = 1;
-const REQUESTED_SHADOW_MAP_UPDATE_INTERVAL_TICKS: u32 = 10;
-const SHADOW_MAP_UPDATE_INTERVAL_TICKS: u32 =
-    if REQUESTED_SHADOW_MAP_UPDATE_INTERVAL_TICKS < SUN_POSITION_UPDATE_INTERVAL_TICKS {
-        SUN_POSITION_UPDATE_INTERVAL_TICKS
-    } else {
-        REQUESTED_SHADOW_MAP_UPDATE_INTERVAL_TICKS
-    };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ActiveVoxelType {
@@ -1399,11 +1400,15 @@ impl App {
         let wall_aabb = Aabb3::new(DEBUG_AUDIO_WALL_MIN, DEBUG_AUDIO_WALL_MAX);
         let bvh_nodes = build_bvh(&[wall_aabb], &[0]).map_err(anyhow::Error::msg)?;
 
-        self.plain_builder.chunk_modify_cuboids_with_voxel_type(
+        let result = self.plain_builder.chunk_modify_cuboids_with_voxel_type(
             &bvh_nodes,
             &[wall],
             VOXEL_TYPE_CHERRY_WOOD,
-        )
+        );
+        if result.is_ok() {
+            self.request_vsm_history_reset();
+        }
+        result
     }
 
     fn apply_model_placement(&mut self, path: &Path, position: Vec3) -> Result<UAabb3> {
@@ -1440,6 +1445,7 @@ impl App {
             VOXEL_DIM_PER_CHUNK,
             rebuild_bound,
         )?;
+        self.request_vsm_history_reset();
         log::info!(
             "[MODEL_REBUILD] path='{}' total={:.3}ms",
             path.display(),
@@ -1729,14 +1735,19 @@ impl App {
         water::sync_water_gui_adjustables_from_config(&mut gui_adjustables, &water_config);
 
         log::info!(
-            "[WATER] config profile={:?} gui_config_applied={} particles={} grid={:?} substep_dt={:.6}s terrain_margin_cells={:.2} damping={:.2}/s terrain_tangent_damping={:.2}/s debug_spawn_height_offset={:.2} gravity={:?} stiffness={:.1} gamma={:.2} j_min={:.3} viscosity={:.3} pressure_floor={:.3} wall_damping={:.2} collider_bounds {:?}..{:?} initial_fluid {:?}..{:?} cells_per_unit={}",
+            "[WATER] config profile={:?} gui_config_applied={} particles={} grid={:?} substep_dt={:.6}s terrain_margin_cells={:.2} boundary_density_min_fluid_fraction={:.2} boundary_density_max_correction={:.2} boundary_density_transition_cells={:.2} damping={:.2}/s quiet_settling={:.2}/{:.2}/s terrain_tangent_damping={:.2}/s debug_spawn_height_offset={:.2} gravity={:?} stiffness={:.1} gamma={:.2} j_min={:.3} viscosity={:.3} pressure_floor={:.3} wall_damping={:.2} collider_bounds {:?}..{:?} initial_fluid {:?}..{:?} cells_per_unit={}",
             options.water_profile,
             water_gui_config_applied,
             water_config.particle_count,
             water_config.grid_dim,
             water_config.substep_dt,
             water_config.terrain_collision_margin_cells,
+            water_config.terrain_density_min_fluid_fraction,
+            water_config.terrain_density_max_correction_factor,
+            water_config.terrain_density_occupancy_transition_cells,
             water_config.linear_damping_per_sec,
+            water_config.quiet_settling_velocity_damping_per_sec,
+            water_config.quiet_settling_affine_damping_per_sec,
             water_config.terrain_tangent_damping_per_sec,
             water_config.debug_spawn_height_offset,
             water_config.gravity,
@@ -1833,8 +1844,7 @@ impl App {
             flora_tick_accumulator: 0.0,
             growing_flora_chunks: GrowingFloraQueue::default(),
             sun_position_update_tick_accumulator: 0,
-            shadow_map_update_tick_accumulator: 0,
-            shadow_map_update_pending: true,
+            vsm_history_reset_pending: true,
 
             // multi-tree management
             next_tree_id: 1, // Start from 1, use 0 for GUI single tree
@@ -2427,8 +2437,27 @@ impl App {
         environment::calculate_sun_position(time_of_day, latitude, season)
     }
 
+    fn frame_rate_adjusted_vsm_temporal_alpha(alpha_60fps: f32, delta_seconds: f32) -> f32 {
+        let alpha_60fps = alpha_60fps.clamp(0.0, 1.0);
+        if alpha_60fps <= 0.0 || alpha_60fps >= 1.0 {
+            return alpha_60fps;
+        }
+
+        let frame_scale = delta_seconds.max(0.0) * 60.0;
+        1.0 - (1.0 - alpha_60fps).powf(frame_scale)
+    }
+
+    fn request_vsm_history_reset(&mut self) {
+        self.vsm_history_reset_pending = true;
+    }
+
     fn execute_edit_plan(&mut self, plan: WorldEditPlan) -> Result<()> {
-        world_ops::execute_edit_plan_on_backend(self, plan)
+        let affects_shadow_history = !plan.voxel_edits.is_empty() || !plan.build_edits.is_empty();
+        world_ops::execute_edit_plan_on_backend(self, plan)?;
+        if affects_shadow_history {
+            self.request_vsm_history_reset();
+        }
+        Ok(())
     }
 
     pub fn on_window_event(
@@ -2686,6 +2715,7 @@ impl App {
 
                 let mut tree_desc_changed = false;
                 let time_of_day_before_gui = self.gui_adjustables.time_of_day.value;
+                let vsm_blur_radius_before_gui = self.gui_adjustables.vsm_blur_radius.value;
                 let item_panel_shovel_icon = self.item_panel_shovel_icon.clone();
                 let item_panel_staff_icon = self.item_panel_staff_icon.clone();
                 let item_panel_hoe_icon = self.item_panel_hoe_icon.clone();
@@ -3048,6 +3078,11 @@ impl App {
 
                 let time_of_day_changed_by_gui =
                     self.gui_adjustables.time_of_day.value != time_of_day_before_gui;
+                let vsm_blur_radius_changed_by_gui =
+                    self.gui_adjustables.vsm_blur_radius.value != vsm_blur_radius_before_gui;
+                if time_of_day_changed_by_gui || vsm_blur_radius_changed_by_gui {
+                    self.request_vsm_history_reset();
+                }
 
                 // update sun position if auto day/night cycle is enabled
                 let sun_position_updated = sun_update_ticks > 0;
@@ -3061,17 +3096,6 @@ impl App {
 
                     // keep time_of_day in 0.0 to 1.0 range (wrap around)
                     self.gui_adjustables.time_of_day.value %= 1.0;
-                }
-
-                let mut shadow_map_interval_elapsed = false;
-                if sun_update_ticks > 0 {
-                    self.shadow_map_update_tick_accumulator += sun_update_ticks;
-                    while self.shadow_map_update_tick_accumulator
-                        >= SHADOW_MAP_UPDATE_INTERVAL_TICKS
-                    {
-                        self.shadow_map_update_tick_accumulator -= SHADOW_MAP_UPDATE_INTERVAL_TICKS;
-                        shadow_map_interval_elapsed = true;
-                    }
                 }
 
                 if self.render_flags.enable_particles {
@@ -3124,12 +3148,7 @@ impl App {
                     self.gui_adjustables.latitude.value,
                     self.gui_adjustables.season.value,
                 );
-                let update_shadow_map = self.render_flags.enable_shadows
-                    && (self.shadow_map_update_pending
-                        || shadow_map_interval_elapsed
-                        || time_of_day_changed_by_gui);
-                let shadow_map_update_period_seconds =
-                    SHADOW_MAP_UPDATE_INTERVAL_TICKS as f32 * world_tick_seconds;
+                let update_shadow_map = self.render_flags.enable_shadows;
 
                 self.tracer
                     .update_buffers(
@@ -3183,7 +3202,6 @@ impl App {
                         self.gui_adjustables.ocean_sea_level_shift.value,
                         world_tick_seconds,
                         update_shadow_map,
-                        shadow_map_update_period_seconds,
                         self.gui_adjustables.lens_flare_intensity.value,
                         self.gui_adjustables.lens_flare_sun_pixel_scale.value,
                         self.flora_tick,
@@ -3301,6 +3319,11 @@ impl App {
 
                 let leaf_bottom = color_to_vec3(self.gui_adjustables.leaves_bottom_color.value);
                 let leaf_tip = color_to_vec3(self.gui_adjustables.leaves_tip_color.value);
+                let reset_vsm_history = self.vsm_history_reset_pending;
+                let vsm_temporal_alpha = Self::frame_rate_adjusted_vsm_temporal_alpha(
+                    self.gui_adjustables.vsm_temporal_alpha.value,
+                    frame_delta_time,
+                );
                 self.tracer
                     .record_trace(
                         cmdbuf,
@@ -3314,10 +3337,13 @@ impl App {
                         leaf_tip,
                         &self.render_flags,
                         update_shadow_map,
+                        self.gui_adjustables.vsm_blur_radius.value,
+                        vsm_temporal_alpha,
+                        reset_vsm_history,
                     )
                     .unwrap();
                 if update_shadow_map {
-                    self.shadow_map_update_pending = false;
+                    self.vsm_history_reset_pending = false;
                 }
 
                 self.swapchain.record_blit(
