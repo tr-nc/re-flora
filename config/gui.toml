@@ -209,6 +209,20 @@ min = 0.1
 max = 60
 
 [[section]]
+name = "Shadow"
+
+[[section.param]]
+id = "vsm_blur_radius"
+kind = "uint"
+label = "VSM Blur Radius (texels)"
+type = "Uint"
+
+[section.param.data]
+value = 5
+min = 0
+max = 64
+
+[[section]]
 name = "Starlight"
 
 [[section.param]]

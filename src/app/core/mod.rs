@@ -2606,6 +2606,7 @@ impl App {
 
                 let mut tree_desc_changed = false;
                 let time_of_day_before_gui = self.gui_adjustables.time_of_day.value;
+                let vsm_blur_radius_before_gui = self.gui_adjustables.vsm_blur_radius.value;
                 let item_panel_shovel_icon = self.item_panel_shovel_icon.clone();
                 let item_panel_staff_icon = self.item_panel_staff_icon.clone();
                 let item_panel_hoe_icon = self.item_panel_hoe_icon.clone();
@@ -2968,6 +2969,8 @@ impl App {
 
                 let time_of_day_changed_by_gui =
                     self.gui_adjustables.time_of_day.value != time_of_day_before_gui;
+                let vsm_blur_radius_changed_by_gui =
+                    self.gui_adjustables.vsm_blur_radius.value != vsm_blur_radius_before_gui;
 
                 // update sun position if auto day/night cycle is enabled
                 let sun_position_updated = sun_update_ticks > 0;
@@ -3047,7 +3050,8 @@ impl App {
                 let update_shadow_map = self.render_flags.enable_shadows
                     && (self.shadow_map_update_pending
                         || shadow_map_interval_elapsed
-                        || time_of_day_changed_by_gui);
+                        || time_of_day_changed_by_gui
+                        || vsm_blur_radius_changed_by_gui);
                 let shadow_map_update_period_seconds =
                     SHADOW_MAP_UPDATE_INTERVAL_TICKS as f32 * world_tick_seconds;
 
@@ -3234,6 +3238,7 @@ impl App {
                         leaf_tip,
                         &self.render_flags,
                         update_shadow_map,
+                        self.gui_adjustables.vsm_blur_radius.value,
                     )
                     .unwrap();
                 if update_shadow_map {

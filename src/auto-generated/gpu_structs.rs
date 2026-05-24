@@ -250,6 +250,22 @@ pub struct PushConstantSpatial {
     pub _pad0: [u8; 12],
 }
 
+/// Auto-generated from `PushConstantVsmBlurH` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantVsmBlurH {
+    pub blur_radius: u32,
+    pub _pad0: [u8; 12],
+}
+
+/// Auto-generated from `PushConstantVsmBlurV` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantVsmBlurV {
+    pub blur_radius: u32,
+    pub _pad0: [u8; 12],
+}
+
 /// Auto-generated from `PushConstantWindVolume` (GLSL source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]

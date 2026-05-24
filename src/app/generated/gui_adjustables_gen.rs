@@ -139,6 +139,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Day Cycle Duration (Minutes)",
     },
     GeneratedGuiParamDescriptor {
+        section: "Shadow",
+        id: "vsm_blur_radius",
+        kind: "uint",
+        label: "VSM Blur Radius (texels)",
+    },
+    GeneratedGuiParamDescriptor {
         section: "Starlight",
         id: "starlight_iterations",
         kind: "int",
@@ -677,6 +683,7 @@ pub struct GuiAdjustables {
     pub latitude: crate::gui_adjustables::FloatParam,
     pub season: crate::gui_adjustables::FloatParam,
     pub day_cycle_minutes: crate::gui_adjustables::FloatParam,
+    pub vsm_blur_radius: crate::gui_adjustables::UintParam,
     pub starlight_iterations: crate::gui_adjustables::IntParam,
     pub starlight_formuparam: crate::gui_adjustables::FloatParam,
     pub starlight_volsteps: crate::gui_adjustables::IntParam,
@@ -795,6 +802,7 @@ impl GuiAdjustables {
         let mut latitude_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut season_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut day_cycle_minutes_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut vsm_blur_radius_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut starlight_iterations_field: Option<crate::gui_adjustables::IntParam> = None;
         let mut starlight_formuparam_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut starlight_volsteps_field: Option<crate::gui_adjustables::IntParam> = None;
@@ -1006,6 +1014,13 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             day_cycle_minutes_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "vsm_blur_radius" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            vsm_blur_radius_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
                         }
                     }
                     "starlight_iterations" => {
@@ -1597,6 +1612,7 @@ impl GuiAdjustables {
             latitude: latitude_field.expect("Missing parameter: latitude"),
             season: season_field.expect("Missing parameter: season"),
             day_cycle_minutes: day_cycle_minutes_field.expect("Missing parameter: day_cycle_minutes"),
+            vsm_blur_radius: vsm_blur_radius_field.expect("Missing parameter: vsm_blur_radius"),
             starlight_iterations: starlight_iterations_field.expect("Missing parameter: starlight_iterations"),
             starlight_formuparam: starlight_formuparam_field.expect("Missing parameter: starlight_formuparam"),
             starlight_volsteps: starlight_volsteps_field.expect("Missing parameter: starlight_volsteps"),
@@ -1783,6 +1799,7 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
     match id {
         "debug_uint" => Some(&adjustables.debug_uint),
         "grass_render_mode" => Some(&adjustables.grass_render_mode),
+        "vsm_blur_radius" => Some(&adjustables.vsm_blur_radius),
         "god_ray_max_checks" => Some(&adjustables.god_ray_max_checks),
         "a_trous_iteration_count" => Some(&adjustables.a_trous_iteration_count),
         _ => None,
@@ -1923,6 +1940,7 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
     match id {
         "debug_uint" => Some(&mut adjustables.debug_uint),
         "grass_render_mode" => Some(&mut adjustables.grass_render_mode),
+        "vsm_blur_radius" => Some(&mut adjustables.vsm_blur_radius),
         "god_ray_max_checks" => Some(&mut adjustables.god_ray_max_checks),
         "a_trous_iteration_count" => Some(&mut adjustables.a_trous_iteration_count),
         _ => None,

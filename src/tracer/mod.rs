@@ -794,6 +794,7 @@ impl Tracer {
         leaf_tip_color: Vec3,
         render_flags: &crate::RenderFlags,
         update_shadow_map: bool,
+        vsm_blur_radius: u32,
     ) -> Result<()> {
         let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
         let compute_to_compute_barrier = PipelineBarrier::new(
@@ -865,7 +866,7 @@ impl Tracer {
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             self.record_tracer_shadow_pass(cmdbuf);
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-            self.record_vsm_filtering_pass(cmdbuf);
+            self.record_vsm_filtering_pass(cmdbuf, vsm_blur_radius);
             self.shadow_map_history_valid = true;
             self.preserve_shadow_history_this_update = false;
             compute_to_graphics_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
@@ -1544,7 +1545,7 @@ impl Tracer {
         self.last_wind_volume_step = Some(step_index);
     }
 
-    fn record_vsm_filtering_pass(&self, cmdbuf: &CommandBuffer) {
+    fn record_vsm_filtering_pass(&self, cmdbuf: &CommandBuffer, vsm_blur_radius: u32) {
         // transition shadow map to general
         self.resources
             .shadow_map_tex
@@ -1573,15 +1574,16 @@ impl Tracer {
 
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
+        let vsm_blur_radius_bytes = vsm_blur_radius.to_ne_bytes();
         self.compute_pipelines
             .vsm_blur_h_ppl
-            .record(cmdbuf, extent, None);
+            .record(cmdbuf, extent, Some(&vsm_blur_radius_bytes));
 
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
         self.compute_pipelines
             .vsm_blur_v_ppl
-            .record(cmdbuf, extent, None);
+            .record(cmdbuf, extent, Some(&vsm_blur_radius_bytes));
     }
 
     fn record_tracer_pass(&self, cmdbuf: &CommandBuffer) {
