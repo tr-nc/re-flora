@@ -32,6 +32,11 @@ const DEFAULT_DYNAMIC_VISCOSITY: f32 = 0.03;
 const DEFAULT_PRESSURE_FLOOR: f32 = -0.1;
 const DEFAULT_TERRAIN_TANGENT_DAMPING_PER_SEC: f32 = 4.0;
 const DEFAULT_LINEAR_DAMPING_PER_SEC: f32 = 0.25;
+const DEFAULT_TERRAIN_DENSITY_MIN_FLUID_FRACTION: f32 = 0.50;
+const DEFAULT_TERRAIN_DENSITY_MAX_CORRECTION_FACTOR: f32 = 2.0;
+const DEFAULT_TERRAIN_DENSITY_OCCUPANCY_TRANSITION_CELLS: f32 = 1.0;
+const DEFAULT_QUIET_SETTLING_VELOCITY_DAMPING_PER_SEC: f32 = 4.0;
+const DEFAULT_QUIET_SETTLING_AFFINE_DAMPING_PER_SEC: f32 = 10.0;
 
 pub(crate) const WATER_GRID_BOUNDARY_X_MIN: u8 = 1 << 0;
 pub(crate) const WATER_GRID_BOUNDARY_X_MAX: u8 = 1 << 1;
@@ -57,6 +62,11 @@ pub struct PondWaterConfig {
     pub dynamic_viscosity: f32,
     pub pressure_floor: f32,
     pub terrain_collision_margin_cells: f32,
+    pub terrain_density_min_fluid_fraction: f32,
+    pub terrain_density_max_correction_factor: f32,
+    pub terrain_density_occupancy_transition_cells: f32,
+    pub quiet_settling_velocity_damping_per_sec: f32,
+    pub quiet_settling_affine_damping_per_sec: f32,
     pub terrain_tangent_damping_per_sec: f32,
     pub linear_damping_per_sec: f32,
     pub debug_spawn_height_offset: f32,
@@ -83,6 +93,13 @@ impl Default for PondWaterConfig {
             dynamic_viscosity: DEFAULT_DYNAMIC_VISCOSITY,
             pressure_floor: DEFAULT_PRESSURE_FLOOR,
             terrain_collision_margin_cells: 0.5,
+            terrain_density_min_fluid_fraction: DEFAULT_TERRAIN_DENSITY_MIN_FLUID_FRACTION,
+            terrain_density_max_correction_factor: DEFAULT_TERRAIN_DENSITY_MAX_CORRECTION_FACTOR,
+            terrain_density_occupancy_transition_cells:
+                DEFAULT_TERRAIN_DENSITY_OCCUPANCY_TRANSITION_CELLS,
+            quiet_settling_velocity_damping_per_sec:
+                DEFAULT_QUIET_SETTLING_VELOCITY_DAMPING_PER_SEC,
+            quiet_settling_affine_damping_per_sec: DEFAULT_QUIET_SETTLING_AFFINE_DAMPING_PER_SEC,
             terrain_tangent_damping_per_sec: DEFAULT_TERRAIN_TANGENT_DAMPING_PER_SEC,
             linear_damping_per_sec: DEFAULT_LINEAR_DAMPING_PER_SEC,
             debug_spawn_height_offset: DEFAULT_DEBUG_SPAWN_HEIGHT_OFFSET,
@@ -298,6 +315,9 @@ pub struct WaterPerfStats {
     pub g2p_repair_seconds: f64,
     pub total_seconds: f64,
     pub active_node_visits: u64,
+    pub p2g_density_correction_particles: u64,
+    pub p2g_density_correction_factor_sum: f64,
+    pub p2g_density_correction_factor_max: f32,
     pub g2p_terrain_cache_skips: u64,
     pub g2p_terrain_cache_projections: u64,
     pub g2p_terrain_exact_fallbacks: u64,
@@ -328,6 +348,7 @@ pub struct PondWaterSim {
     pub(crate) touched_grid_nodes: Vec<usize>,
     pub(crate) grid_boundary_flags: Vec<u8>,
     pub(crate) terrain_grid: Vec<WaterTerrainGridSample>,
+    pub(crate) terrain_ghost_density: Vec<f32>,
     pub accumulator: f32,
     pub perf_stats: WaterPerfStats,
     pub perf_report_seconds: f32,
@@ -369,6 +390,7 @@ impl PondWaterSim {
             touched_grid_nodes: Vec::with_capacity(touched_grid_capacity),
             grid_boundary_flags,
             terrain_grid: vec![WaterTerrainGridSample::default(); grid_len],
+            terrain_ghost_density: vec![0.0; grid_len],
             accumulator: 0.0,
             perf_stats: WaterPerfStats::default(),
             perf_report_seconds: 0.0,
@@ -1009,6 +1031,26 @@ mod tests {
         assert_eq!(sim.config.j_min, DEFAULT_DIAGNOSTIC_J_MIN);
         assert_eq!(sim.config.dynamic_viscosity, DEFAULT_DYNAMIC_VISCOSITY);
         assert_eq!(sim.config.pressure_floor, DEFAULT_PRESSURE_FLOOR);
+        assert_eq!(
+            sim.config.terrain_density_min_fluid_fraction,
+            DEFAULT_TERRAIN_DENSITY_MIN_FLUID_FRACTION
+        );
+        assert_eq!(
+            sim.config.terrain_density_max_correction_factor,
+            DEFAULT_TERRAIN_DENSITY_MAX_CORRECTION_FACTOR
+        );
+        assert_eq!(
+            sim.config.terrain_density_occupancy_transition_cells,
+            DEFAULT_TERRAIN_DENSITY_OCCUPANCY_TRANSITION_CELLS
+        );
+        assert_eq!(
+            sim.config.quiet_settling_velocity_damping_per_sec,
+            DEFAULT_QUIET_SETTLING_VELOCITY_DAMPING_PER_SEC
+        );
+        assert_eq!(
+            sim.config.quiet_settling_affine_damping_per_sec,
+            DEFAULT_QUIET_SETTLING_AFFINE_DAMPING_PER_SEC
+        );
         assert_eq!(
             sim.config.terrain_tangent_damping_per_sec,
             DEFAULT_TERRAIN_TANGENT_DAMPING_PER_SEC
