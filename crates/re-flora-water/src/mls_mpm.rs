@@ -4,7 +4,7 @@ use std::time::Instant;
 use super::{
     collider::{WaterBoxCollider, WaterTerrainColliderSet},
     pond::{
-        PondWaterConfig, PondWaterSim, WaterTerrainGridSample, WATER_GRID_BOUNDARY_X_MAX,
+        PondWaterConfig, PondWaterSim, WaterGridNode, WaterTerrainGridSample, WATER_GRID_BOUNDARY_X_MAX,
         WATER_GRID_BOUNDARY_X_MIN, WATER_GRID_BOUNDARY_Y_MAX, WATER_GRID_BOUNDARY_Y_MIN,
         WATER_GRID_BOUNDARY_Z_MAX, WATER_GRID_BOUNDARY_Z_MIN,
     },
@@ -38,12 +38,16 @@ const MAX_AFFINE_COMPONENT: f32 = 100.0;
 const TERRAIN_GRID_SKIP_GUARD_CELLS: f32 = 0.25;
 const TERRAIN_GRID_PROJECTION_GUARD_CELLS: f32 = 0.10;
 // Fill missing density-kernel support when terrain SDF occupies part of a
-// particle's pressure stencil. This is a local Volume-Map/Ghost-SPH style
-// correction used only for EOS pressure/stress; it does not add real grid mass.
+// particle's pressure stencil. This is an mDBC/Ghost-SPH style density sample:
+// solid-side stencil weight contributes virtual density extrapolated from the
+// mirrored fluid side, with a hydrostatic pressure offset. It is used only for
+// EOS pressure/stress; it does not add real grid mass or alter velocity
+// normalization.
 const TERRAIN_DENSITY_MIN_FLUID_FRACTION: f32 = 0.50;
 const TERRAIN_DENSITY_MAX_CORRECTION_FACTOR: f32 = 2.0;
 const TERRAIN_DENSITY_OCCUPANCY_TRANSITION_CELLS: f32 = 1.0;
 const TERRAIN_DENSITY_MIN_SOLID_WEIGHT: f32 = 1.0e-5;
+const TERRAIN_GHOST_MIRROR_MIN_DISTANCE_CELLS: f32 = 0.25;
 
 #[derive(Debug)]
 pub struct WaterTerrainCacheBuildRequest {
@@ -1128,6 +1132,7 @@ impl PondWaterSim {
             };
             let density_sample = terrain_boundary_density_correction(
                 raw_density,
+                &self.grid,
                 terrain_grid,
                 grid_dim,
                 base,
@@ -1135,6 +1140,13 @@ impl PondWaterSim {
                 wy,
                 wz,
                 dx,
+                inv_dx,
+                inv_cell_volume,
+                rest_density,
+                stiffness,
+                gamma,
+                pressure_floor,
+                self.config.gravity,
             );
             if density_sample.correction_factor > 1.0 + f32::EPSILON {
                 density_correction_particles += 1;
@@ -1594,13 +1606,21 @@ struct TerrainBoundaryDensitySample {
 
 fn terrain_boundary_density_correction(
     raw_density: f32,
+    grid: &[WaterGridNode],
     terrain_grid: &[WaterTerrainGridSample],
-    grid_dim: glam::UVec3,
+    grid_dim: UVec3,
     base: IVec3,
     wx: [f32; 3],
     wy: [f32; 3],
     wz: [f32; 3],
     dx: f32,
+    inv_dx: f32,
+    inv_cell_volume: f32,
+    rest_density: f32,
+    stiffness: f32,
+    gamma: f32,
+    pressure_floor: f32,
+    gravity: Vec3,
 ) -> TerrainBoundaryDensitySample {
     if !raw_density.is_finite() || raw_density <= 0.0 {
         return TerrainBoundaryDensitySample {
@@ -1611,7 +1631,25 @@ fn terrain_boundary_density_correction(
         };
     }
 
-    let solid_weight = terrain_solid_kernel_weight(terrain_grid, grid_dim, base, wx, wy, wz, dx);
+    let ghost = terrain_ghost_density_contribution(
+        raw_density,
+        grid,
+        terrain_grid,
+        grid_dim,
+        base,
+        wx,
+        wy,
+        wz,
+        dx,
+        inv_dx,
+        inv_cell_volume,
+        rest_density,
+        stiffness,
+        gamma,
+        pressure_floor,
+        gravity,
+    );
+    let solid_weight = ghost.solid_weight;
     if solid_weight <= TERRAIN_DENSITY_MIN_SOLID_WEIGHT {
         return TerrainBoundaryDensitySample {
             density: raw_density,
@@ -1623,18 +1661,199 @@ fn terrain_boundary_density_correction(
 
     let min_fluid_fraction = TERRAIN_DENSITY_MIN_FLUID_FRACTION.clamp(1.0e-3, 1.0);
     let fluid_fraction = (1.0 - solid_weight).clamp(min_fluid_fraction, 1.0);
-    let correction_factor = fluid_fraction
-        .recip()
-        .min(TERRAIN_DENSITY_MAX_CORRECTION_FACTOR.max(1.0));
-    let density = raw_density * correction_factor;
+    let max_correction_factor = TERRAIN_DENSITY_MAX_CORRECTION_FACTOR.max(1.0);
+    let max_density = raw_density * max_correction_factor;
+    let fallback_density = raw_density
+        * fluid_fraction
+            .recip()
+            .min(max_correction_factor);
+    let ghost_density = raw_density + ghost.weighted_density;
+    let density = if ghost_density.is_finite() && ghost_density > raw_density {
+        ghost_density.min(max_density).max(raw_density)
+    } else {
+        fallback_density
+    };
+    let density = if density.is_finite() && density > 0.0 {
+        density
+    } else {
+        raw_density
+    };
     TerrainBoundaryDensitySample {
-        density: if density.is_finite() { density } else { raw_density },
-        correction_factor,
+        density,
+        correction_factor: (density / raw_density).max(1.0),
         fluid_fraction,
         solid_weight,
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct TerrainGhostDensityContribution {
+    solid_weight: f32,
+    weighted_density: f32,
+}
+
+fn terrain_ghost_density_contribution(
+    raw_density: f32,
+    grid: &[WaterGridNode],
+    terrain_grid: &[WaterTerrainGridSample],
+    grid_dim: UVec3,
+    base: IVec3,
+    wx: [f32; 3],
+    wy: [f32; 3],
+    wz: [f32; 3],
+    dx: f32,
+    inv_dx: f32,
+    inv_cell_volume: f32,
+    rest_density: f32,
+    stiffness: f32,
+    gamma: f32,
+    pressure_floor: f32,
+    gravity: Vec3,
+) -> TerrainGhostDensityContribution {
+    if terrain_grid.is_empty() || dx <= 0.0 || !dx.is_finite() {
+        return TerrainGhostDensityContribution::default();
+    }
+
+    let mut solid_weight = 0.0f32;
+    let mut weighted_density = 0.0f32;
+    for oz in 0..3 {
+        for oy in 0..3 {
+            for ox in 0..3 {
+                let node = base + IVec3::new(ox, oy, oz);
+                if !in_grid(node, grid_dim) {
+                    continue;
+                }
+
+                let weight = wx[ox as usize] * wy[oy as usize] * wz[oz as usize];
+                if weight <= 0.0 {
+                    continue;
+                }
+
+                let node_idx = grid_index_dims(
+                    grid_dim,
+                    node.x as u32,
+                    node.y as u32,
+                    node.z as u32,
+                );
+                let Some(sample) = terrain_grid.get(node_idx) else {
+                    continue;
+                };
+                if !sample.has_sdf {
+                    continue;
+                }
+
+                let occupancy = terrain_solid_occupancy_from_sdf(sample.sdf, dx);
+                if occupancy <= 0.0 {
+                    continue;
+                }
+                solid_weight += weight * occupancy;
+
+                let Some(normal) = terrain_sample_normal(*sample) else {
+                    continue;
+                };
+                let node_local = node.as_vec3() * dx;
+                let surface_local = node_local - sample.sdf * normal;
+                let mirror_distance = (-sample.sdf)
+                    .max(dx * TERRAIN_GHOST_MIRROR_MIN_DISTANCE_CELLS.max(0.0));
+                let ghost_local = surface_local - mirror_distance * normal;
+                let mirror_local = surface_local + mirror_distance * normal;
+                let mirror_density = fluid_density_at_local_position(
+                    grid,
+                    grid_dim,
+                    mirror_local,
+                    inv_dx,
+                    inv_cell_volume,
+                )
+                .unwrap_or_else(|| raw_density.max(rest_density));
+                if !mirror_density.is_finite() || mirror_density <= 0.0 {
+                    continue;
+                }
+
+                let mirror_pressure = fluid_eos_pressure(
+                    stiffness,
+                    gamma,
+                    mirror_density,
+                    rest_density,
+                    pressure_floor,
+                )
+                .max(0.0);
+                let hydrostatic_delta = rest_density * gravity.dot(ghost_local - mirror_local);
+                let ghost_pressure = (mirror_pressure + hydrostatic_delta).max(0.0);
+                let ghost_density = fluid_density_from_eos_pressure(
+                    stiffness,
+                    gamma,
+                    ghost_pressure,
+                    rest_density,
+                )
+                .unwrap_or(mirror_density);
+                if ghost_density.is_finite() && ghost_density > MIN_FLUID_DENSITY {
+                    weighted_density += weight * occupancy * ghost_density;
+                }
+            }
+        }
+    }
+
+    TerrainGhostDensityContribution {
+        solid_weight: solid_weight.clamp(0.0, 1.0),
+        weighted_density: weighted_density.max(0.0),
+    }
+}
+
+fn fluid_density_at_local_position(
+    grid: &[WaterGridNode],
+    grid_dim: UVec3,
+    local_pos: Vec3,
+    inv_dx: f32,
+    inv_cell_volume: f32,
+) -> Option<f32> {
+    if !local_pos.is_finite() || inv_dx <= 0.0 || !inv_dx.is_finite() {
+        return None;
+    }
+
+    let grid_pos = local_pos * inv_dx;
+    let base = grid_pos.floor().as_ivec3();
+    let frac = grid_pos - base.as_vec3();
+    let wx = [1.0 - frac.x, frac.x];
+    let wy = [1.0 - frac.y, frac.y];
+    let wz = [1.0 - frac.z, frac.z];
+    let mut gathered_mass = 0.0f32;
+    for oz in 0..2 {
+        for oy in 0..2 {
+            for ox in 0..2 {
+                let node = base + IVec3::new(ox, oy, oz);
+                if !in_grid(node, grid_dim) {
+                    continue;
+                }
+
+                let weight = wx[ox as usize] * wy[oy as usize] * wz[oz as usize];
+                if weight <= 0.0 {
+                    continue;
+                }
+
+                let node_idx = grid_index_dims(
+                    grid_dim,
+                    node.x as u32,
+                    node.y as u32,
+                    node.z as u32,
+                );
+                gathered_mass += grid[node_idx].mass * weight;
+            }
+        }
+    }
+
+    let density = gathered_mass * inv_cell_volume;
+    (density.is_finite() && density > MIN_FLUID_DENSITY).then_some(density)
+}
+
+fn terrain_sample_normal(sample: WaterTerrainGridSample) -> Option<Vec3> {
+    if !sample.normal.is_finite() {
+        return None;
+    }
+    let len2 = sample.normal.length_squared();
+    (len2 > 1.0e-8 && len2.is_finite()).then_some(sample.normal / len2.sqrt())
+}
+
+#[cfg(test)]
 fn terrain_solid_kernel_weight(
     terrain_grid: &[WaterTerrainGridSample],
     grid_dim: glam::UVec3,
@@ -1690,6 +1909,28 @@ fn terrain_solid_occupancy_from_sdf(sdf: f32, dx: f32) -> f32 {
 
     let transition_width = dx * TERRAIN_DENSITY_OCCUPANCY_TRANSITION_CELLS.max(1.0e-3);
     (0.5 - sdf / transition_width).clamp(0.0, 1.0)
+}
+
+fn fluid_density_from_eos_pressure(
+    stiffness: f32,
+    gamma: f32,
+    pressure: f32,
+    rest_density: f32,
+) -> Option<f32> {
+    if !stiffness.is_finite()
+        || stiffness <= 0.0
+        || !gamma.is_finite()
+        || gamma <= 0.0
+        || !pressure.is_finite()
+        || !rest_density.is_finite()
+        || rest_density <= 0.0
+    {
+        return None;
+    }
+
+    let density_ratio = (1.0 + pressure.max(0.0) / stiffness).powf(gamma.recip());
+    let density = rest_density * density_ratio;
+    (density.is_finite() && density > MIN_FLUID_DENSITY).then_some(density)
 }
 
 fn fluid_eos_pressure(
@@ -2672,7 +2913,8 @@ mod tests {
         grid_density_no_tension_j, integrate_no_tension_j, project_velocity_away_from_surface,
         terrain_boundary_density_correction, terrain_grid_particle_query,
         terrain_solid_kernel_weight, terrain_solid_occupancy_from_sdf,
-        terrain_tangent_damping_factor, TerrainGridParticleQuery, WaterTerrainGridSample,
+        terrain_tangent_damping_factor, TerrainGridParticleQuery, WaterGridNode,
+        WaterTerrainGridSample,
         ACTIVE_MASS_EPSILON,
     };
     use crate::{PondWaterConfig, PondWaterSim, WaterTerrainColliderChunk, WaterTerrainColliderSet};
@@ -2720,17 +2962,9 @@ mod tests {
     fn terrain_density_correction_skips_when_no_sdf_support_exists() {
         let grid_dim = UVec3::splat(3);
         let terrain_grid = vec![WaterTerrainGridSample::default(); 27];
+        let grid = vec![WaterGridNode::default(); 27];
         let weights = [0.25, 0.5, 0.25];
-        let corrected = terrain_boundary_density_correction(
-            4.0,
-            &terrain_grid,
-            grid_dim,
-            IVec3::ZERO,
-            weights,
-            weights,
-            weights,
-            1.0,
-        );
+        let corrected = terrain_density_correction_for_test(4.0, &grid, &terrain_grid, grid_dim, weights, 4.0);
 
         assert_eq!(corrected.density, 4.0);
         assert_eq!(corrected.correction_factor, 1.0);
@@ -2753,20 +2987,41 @@ mod tests {
         );
         assert!((solid_weight - 0.5).abs() <= 1.0e-6, "solid_weight={solid_weight}");
 
-        let corrected = terrain_boundary_density_correction(
-            4.0,
-            &terrain_grid,
-            grid_dim,
-            IVec3::ZERO,
-            weights,
-            weights,
-            weights,
-            1.0,
-        );
+        let grid = vec![WaterGridNode::default(); 27];
+        let corrected = terrain_density_correction_for_test(2.0, &grid, &terrain_grid, grid_dim, weights, 4.0);
 
         assert!((corrected.fluid_fraction - 0.5).abs() <= 1.0e-6);
         assert!((corrected.correction_factor - 2.0).abs() <= 1.0e-6);
-        assert!((corrected.density - 8.0).abs() <= 1.0e-6);
+        assert!((corrected.density - 4.0).abs() <= 1.0e-6);
+    }
+
+    #[test]
+    fn terrain_density_correction_adds_hydrostatic_ghost_pressure() {
+        let grid_dim = UVec3::splat(3);
+        let terrain_grid = terrain_grid_from_sdf(grid_dim, |node| node.y as f32 - 1.0);
+        let grid = vec![WaterGridNode::default(); 27];
+        let weights = [0.25, 0.5, 0.25];
+        let no_gravity = terrain_density_correction_for_test_with_gravity(
+            4.0,
+            &grid,
+            &terrain_grid,
+            grid_dim,
+            weights,
+            4.0,
+            Vec3::ZERO,
+        );
+        let with_gravity = terrain_density_correction_for_test_with_gravity(
+            4.0,
+            &grid,
+            &terrain_grid,
+            grid_dim,
+            weights,
+            4.0,
+            Vec3::new(0.0, -9.8, 0.0),
+        );
+
+        assert!(with_gravity.density > no_gravity.density);
+        assert!(with_gravity.correction_factor <= 2.0);
     }
 
     #[test]
@@ -2774,16 +3029,8 @@ mod tests {
         let grid_dim = UVec3::splat(3);
         let terrain_grid = terrain_grid_from_sdf(grid_dim, |_node| -1.0);
         let weights = [0.25, 0.5, 0.25];
-        let corrected = terrain_boundary_density_correction(
-            4.0,
-            &terrain_grid,
-            grid_dim,
-            IVec3::ZERO,
-            weights,
-            weights,
-            weights,
-            1.0,
-        );
+        let grid = vec![WaterGridNode::default(); 27];
+        let corrected = terrain_density_correction_for_test(4.0, &grid, &terrain_grid, grid_dim, weights, 4.0);
 
         assert_eq!(corrected.fluid_fraction, 0.5);
         assert_eq!(corrected.correction_factor, 2.0);
@@ -3217,6 +3464,54 @@ mod tests {
             }
         }
         samples
+    }
+
+    fn terrain_density_correction_for_test(
+        raw_density: f32,
+        grid: &[WaterGridNode],
+        terrain_grid: &[WaterTerrainGridSample],
+        grid_dim: UVec3,
+        weights: [f32; 3],
+        rest_density: f32,
+    ) -> super::TerrainBoundaryDensitySample {
+        terrain_density_correction_for_test_with_gravity(
+            raw_density,
+            grid,
+            terrain_grid,
+            grid_dim,
+            weights,
+            rest_density,
+            Vec3::new(0.0, -9.8, 0.0),
+        )
+    }
+
+    fn terrain_density_correction_for_test_with_gravity(
+        raw_density: f32,
+        grid: &[WaterGridNode],
+        terrain_grid: &[WaterTerrainGridSample],
+        grid_dim: UVec3,
+        weights: [f32; 3],
+        rest_density: f32,
+        gravity: Vec3,
+    ) -> super::TerrainBoundaryDensitySample {
+        terrain_boundary_density_correction(
+            raw_density,
+            grid,
+            terrain_grid,
+            grid_dim,
+            IVec3::ZERO,
+            weights,
+            weights,
+            weights,
+            1.0,
+            1.0,
+            1.0,
+            rest_density,
+            16.0,
+            4.0,
+            -0.1,
+            gravity,
+        )
     }
 
     fn terrain_grid_from_sdf(

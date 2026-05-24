@@ -249,22 +249,26 @@ Success indicators:
 - no increase in terrain penetration or non-finite particles
 - no major performance regression
 
-### Step 4: Optional Ghost Density Grid
+### Step 4: mDBC/Ghost Density Sampling
 
-If local support-fraction correction is too crude, introduce a separate boundary-density grid/buffer:
+Upgrade the local support-fraction correction so solid-side stencil weight uses a virtual ghost density instead of only dividing by fluid fraction:
 
 - Keep real fluid mass in `grid_node.mass` unchanged.
-- Add a separate `boundary_density_mass` or equivalent scalar used only in density gathering.
-- For terrain-solid nodes near the boundary, estimate ghost density by mirroring/sample along the SDF normal into the fluid side.
+- For terrain-solid stencil samples, mirror/sample along the SDF normal into the fluid side.
+- Convert the mirrored fluid density to pressure, add a hydrostatic pressure offset from mirror point to solid ghost point, and convert back to ghost density.
 - Gather density as:
 
   ```text
-  rho = (fluid_mass + boundary_density_mass) * inv_cell_volume
+  rho = rho_real + sum_solid W * occupancy * rho_ghost
   ```
 
-This is closer to mDBC/Ghost SPH but more invasive. It should come after Step 1 measurements.
+This remains a pressure/EOS-only correction. The ghost density does not enter real grid mass or velocity normalization.
 
-### Step 5: Optional First-Order mDBC-Style Extrapolation
+### Step 5: Optional Separate Ghost Density Grid
+
+If per-particle ghost density sampling is too expensive, cache the mirrored ghost density in a separate boundary-density grid/buffer before the pressure pass. This would preserve the same semantics while avoiding repeated mirror sampling for each particle.
+
+### Step 6: Optional First-Order mDBC-Style Extrapolation
 
 If the ghost density grid helps but is noisy, add first-order density extrapolation:
 
