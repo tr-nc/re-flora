@@ -422,6 +422,18 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "WaterSimulation",
+        id: "water_quiet_settling_velocity_damping",
+        kind: "float",
+        label: "Quiet Settling Velocity Damping (/s)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "WaterSimulation",
+        id: "water_quiet_settling_affine_damping",
+        kind: "float",
+        label: "Quiet Settling Affine Damping (/s)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "WaterSimulation",
         id: "water_gravity_y",
         kind: "float",
         label: "Gravity Y",
@@ -742,6 +754,8 @@ pub struct GuiAdjustables {
     pub water_boundary_density_max_correction_factor: crate::gui_adjustables::FloatParam,
     pub water_boundary_density_occupancy_transition_cells: crate::gui_adjustables::FloatParam,
     pub water_damping: crate::gui_adjustables::FloatParam,
+    pub water_quiet_settling_velocity_damping: crate::gui_adjustables::FloatParam,
+    pub water_quiet_settling_affine_damping: crate::gui_adjustables::FloatParam,
     pub water_gravity_y: crate::gui_adjustables::FloatParam,
     pub water_stiffness: crate::gui_adjustables::FloatParam,
     pub water_gamma: crate::gui_adjustables::FloatParam,
@@ -863,6 +877,8 @@ impl GuiAdjustables {
         let mut water_boundary_density_max_correction_factor_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_boundary_density_occupancy_transition_cells_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_damping_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut water_quiet_settling_velocity_damping_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut water_quiet_settling_affine_damping_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_gravity_y_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_stiffness_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_gamma_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1345,6 +1361,20 @@ impl GuiAdjustables {
                             water_damping_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
+                    "water_quiet_settling_velocity_damping" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            water_quiet_settling_velocity_damping_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "water_quiet_settling_affine_damping" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            water_quiet_settling_affine_damping_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
                     "water_gravity_y" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -1689,6 +1719,8 @@ impl GuiAdjustables {
             water_boundary_density_max_correction_factor: water_boundary_density_max_correction_factor_field.expect("Missing parameter: water_boundary_density_max_correction_factor"),
             water_boundary_density_occupancy_transition_cells: water_boundary_density_occupancy_transition_cells_field.expect("Missing parameter: water_boundary_density_occupancy_transition_cells"),
             water_damping: water_damping_field.expect("Missing parameter: water_damping"),
+            water_quiet_settling_velocity_damping: water_quiet_settling_velocity_damping_field.expect("Missing parameter: water_quiet_settling_velocity_damping"),
+            water_quiet_settling_affine_damping: water_quiet_settling_affine_damping_field.expect("Missing parameter: water_quiet_settling_affine_damping"),
             water_gravity_y: water_gravity_y_field.expect("Missing parameter: water_gravity_y"),
             water_stiffness: water_stiffness_field.expect("Missing parameter: water_stiffness"),
             water_gamma: water_gamma_field.expect("Missing parameter: water_gamma"),
@@ -1785,6 +1817,8 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "water_boundary_density_max_correction_factor" => Some(&adjustables.water_boundary_density_max_correction_factor),
         "water_boundary_density_occupancy_transition_cells" => Some(&adjustables.water_boundary_density_occupancy_transition_cells),
         "water_damping" => Some(&adjustables.water_damping),
+        "water_quiet_settling_velocity_damping" => Some(&adjustables.water_quiet_settling_velocity_damping),
+        "water_quiet_settling_affine_damping" => Some(&adjustables.water_quiet_settling_affine_damping),
         "water_gravity_y" => Some(&adjustables.water_gravity_y),
         "water_stiffness" => Some(&adjustables.water_stiffness),
         "water_gamma" => Some(&adjustables.water_gamma),
@@ -1928,6 +1962,8 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "water_boundary_density_max_correction_factor" => Some(&mut adjustables.water_boundary_density_max_correction_factor),
         "water_boundary_density_occupancy_transition_cells" => Some(&mut adjustables.water_boundary_density_occupancy_transition_cells),
         "water_damping" => Some(&mut adjustables.water_damping),
+        "water_quiet_settling_velocity_damping" => Some(&mut adjustables.water_quiet_settling_velocity_damping),
+        "water_quiet_settling_affine_damping" => Some(&mut adjustables.water_quiet_settling_affine_damping),
         "water_gravity_y" => Some(&mut adjustables.water_gravity_y),
         "water_stiffness" => Some(&mut adjustables.water_stiffness),
         "water_gamma" => Some(&mut adjustables.water_gamma),

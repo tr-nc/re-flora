@@ -491,6 +491,10 @@ fn handle_water_sim_command(
                 config.terrain_density_max_correction_factor;
             sim.config.terrain_density_occupancy_transition_cells =
                 config.terrain_density_occupancy_transition_cells;
+            sim.config.quiet_settling_velocity_damping_per_sec =
+                config.quiet_settling_velocity_damping_per_sec;
+            sim.config.quiet_settling_affine_damping_per_sec =
+                config.quiet_settling_affine_damping_per_sec;
             sim.config.terrain_tangent_damping_per_sec = config.terrain_tangent_damping_per_sec;
             sim.config.linear_damping_per_sec = config.linear_damping_per_sec;
             sim.config.debug_spawn_height_offset = config.debug_spawn_height_offset;
@@ -722,6 +726,16 @@ pub(super) fn apply_water_gui_adjustables_to_config(
         0.0,
         config.linear_damping_per_sec,
     );
+    config.quiet_settling_velocity_damping_per_sec = finite_at_least(
+        gui_adjustables.water_quiet_settling_velocity_damping.value,
+        0.0,
+        config.quiet_settling_velocity_damping_per_sec,
+    );
+    config.quiet_settling_affine_damping_per_sec = finite_at_least(
+        gui_adjustables.water_quiet_settling_affine_damping.value,
+        0.0,
+        config.quiet_settling_affine_damping_per_sec,
+    );
     config.debug_spawn_height_offset = finite_at_least(
         gui_adjustables.water_debug_spawn_height_offset.value,
         0.0,
@@ -762,6 +776,10 @@ pub(super) fn sync_water_gui_adjustables_from_config(
         .water_boundary_density_occupancy_transition_cells
         .value = config.terrain_density_occupancy_transition_cells;
     gui_adjustables.water_damping.value = config.linear_damping_per_sec;
+    gui_adjustables.water_quiet_settling_velocity_damping.value =
+        config.quiet_settling_velocity_damping_per_sec;
+    gui_adjustables.water_quiet_settling_affine_damping.value =
+        config.quiet_settling_affine_damping_per_sec;
     gui_adjustables.water_debug_spawn_height_offset.value = config.debug_spawn_height_offset;
     gui_adjustables.water_terrain_tangent_damping.value = config.terrain_tangent_damping_per_sec;
     gui_adjustables.water_gravity_y.value = config.gravity.y;

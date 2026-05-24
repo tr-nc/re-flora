@@ -731,6 +731,28 @@ min = 0
 max = 5
 
 [[section.param]]
+id = "water_quiet_settling_velocity_damping"
+kind = "float"
+label = "Quiet Settling Velocity Damping (/s)"
+type = "Float"
+
+[section.param.data]
+value = 4
+min = 0
+max = 20
+
+[[section.param]]
+id = "water_quiet_settling_affine_damping"
+kind = "float"
+label = "Quiet Settling Affine Damping (/s)"
+type = "Float"
+
+[section.param.data]
+value = 10
+min = 0
+max = 50
+
+[[section.param]]
 id = "water_gravity_y"
 kind = "float"
 label = "Gravity Y"

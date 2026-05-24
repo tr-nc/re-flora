@@ -32,6 +32,13 @@ const DENSITY_J_FEEDBACK_DEADBAND: f32 = 0.02;
 // Mildly damp only the affine part; particle velocity keeps the configured water
 // linear damping path.
 const APIC_AFFINE_DAMPING_PER_SECOND: f32 = 1.5;
+// Quiet puddles can retain low-energy numerical circulation indefinitely. Apply
+// extra damping only after the whole water body is already slow; fast
+// falling/splashing water bypasses this path so it does not turn the material
+// into honey.
+const QUIET_SETTLING_AVG_SPEED_THRESHOLD: f32 = 0.08;
+const QUIET_SETTLING_MAX_SPEED_THRESHOLD: f32 = 0.40;
+const QUIET_SETTLING_LOCAL_SPEED_THRESHOLD: f32 = 0.35;
 const MAX_PARTICLE_SPEED: f32 = 20.0;
 const MAX_PARTICLE_CFL_CELLS_PER_SUBSTEP: f32 = 0.5;
 const MAX_AFFINE_COMPONENT: f32 = 100.0;
@@ -365,6 +372,7 @@ impl PondWaterSim {
             self.particle_to_grid(dt);
             let active_nodes = self.update_grid(dt);
             let g2p_breakdown = self.grid_to_particle(dt);
+            self.apply_quiet_settling_damping(dt);
             self.record_diagnostic_substep(active_nodes, g2p_breakdown);
             return;
         }
@@ -387,6 +395,7 @@ impl PondWaterSim {
         let grid_seconds = grid_update_seconds;
 
         let g2p_breakdown = self.grid_to_particle_timed(dt);
+        self.apply_quiet_settling_damping(dt);
 
         let diagnostics_start = Instant::now();
         self.record_diagnostic_substep(active_nodes, g2p_breakdown);
@@ -1358,6 +1367,57 @@ impl PondWaterSim {
 
     fn grid_to_particle_timed(&mut self, dt: f32) -> WaterG2pBreakdown {
         self.grid_to_particle_impl::<true>(dt)
+    }
+
+    fn apply_quiet_settling_damping(&mut self, dt: f32) {
+        if !dt.is_finite() || dt <= 0.0 {
+            return;
+        }
+
+        let Some(sample) = quiet_motion_sample(&self.particles) else {
+            return;
+        };
+        let velocity_damping_per_sec = if self.config.quiet_settling_velocity_damping_per_sec.is_finite() {
+            self.config.quiet_settling_velocity_damping_per_sec.max(0.0)
+        } else {
+            0.0
+        };
+        let affine_damping_per_sec = if self.config.quiet_settling_affine_damping_per_sec.is_finite() {
+            self.config.quiet_settling_affine_damping_per_sec.max(0.0)
+        } else {
+            0.0
+        };
+        let damping_weight = quiet_settling_damping_weight(
+            sample.avg_speed,
+            sample.max_speed,
+            velocity_damping_per_sec,
+            affine_damping_per_sec,
+        );
+        if damping_weight <= 0.0 {
+            return;
+        }
+
+        let affine_damping = (-affine_damping_per_sec * damping_weight * dt)
+            .exp()
+            .clamp(0.0, 1.0);
+        for particle in &mut self.particles {
+            if !particle.v.is_finite() || !mat3_is_finite(particle.c) {
+                continue;
+            }
+
+            let speed = particle.v.length();
+            let local_weight = quiet_settling_local_velocity_weight(speed);
+            if local_weight > 0.0 {
+                let velocity_damping = (-velocity_damping_per_sec
+                    * damping_weight
+                    * local_weight
+                    * dt)
+                    .exp()
+                    .clamp(0.0, 1.0);
+                particle.v *= velocity_damping;
+            }
+            particle.c *= affine_damping;
+        }
     }
 
     fn grid_to_particle_impl<const COLLECT_BREAKDOWN: bool>(&mut self, dt: f32) -> WaterG2pBreakdown {
@@ -2758,6 +2818,89 @@ fn collide_particle_with_terrain_iterative(
 }
 
 #[derive(Clone, Copy, Debug)]
+struct QuietMotionSample {
+    avg_speed: f32,
+    max_speed: f32,
+}
+
+fn quiet_motion_sample(particles: &[super::pond::WaterParticle]) -> Option<QuietMotionSample> {
+    let mut finite_particles = 0usize;
+    let mut sum_speed = 0.0f32;
+    let mut max_speed = 0.0f32;
+
+    for particle in particles {
+        if !particle.v.is_finite() {
+            continue;
+        }
+
+        finite_particles += 1;
+        let speed = particle.v.length();
+        sum_speed += speed;
+        max_speed = max_speed.max(speed);
+    }
+
+    if finite_particles == 0 {
+        return None;
+    }
+
+    Some(QuietMotionSample {
+        avg_speed: sum_speed / finite_particles as f32,
+        max_speed,
+    })
+}
+
+fn quiet_settling_damping_weight(
+    avg_speed: f32,
+    max_speed: f32,
+    velocity_damping_per_sec: f32,
+    affine_damping_per_sec: f32,
+) -> f32 {
+    if !avg_speed.is_finite()
+        || !max_speed.is_finite()
+        || (velocity_damping_per_sec <= 0.0 && affine_damping_per_sec <= 0.0)
+    {
+        return 0.0;
+    }
+
+    let avg_weight = 1.0
+        - smoothstep(
+            QUIET_SETTLING_AVG_SPEED_THRESHOLD,
+            QUIET_SETTLING_AVG_SPEED_THRESHOLD * 2.0,
+            avg_speed,
+        );
+    let max_weight = 1.0
+        - smoothstep(
+            QUIET_SETTLING_MAX_SPEED_THRESHOLD,
+            QUIET_SETTLING_MAX_SPEED_THRESHOLD * 2.0,
+            max_speed,
+        );
+    avg_weight.min(max_weight).clamp(0.0, 1.0)
+}
+
+fn quiet_settling_local_velocity_weight(speed: f32) -> f32 {
+    if !speed.is_finite() {
+        return 0.0;
+    }
+
+    (1.0
+        - smoothstep(
+            QUIET_SETTLING_LOCAL_SPEED_THRESHOLD,
+            QUIET_SETTLING_LOCAL_SPEED_THRESHOLD * 2.0,
+            speed,
+        ))
+    .clamp(0.0, 1.0)
+}
+
+fn smoothstep(edge0: f32, edge1: f32, value: f32) -> f32 {
+    if !edge0.is_finite() || !edge1.is_finite() || edge1 <= edge0 {
+        return if value >= edge1 { 1.0 } else { 0.0 };
+    }
+
+    let t = ((value - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+#[derive(Clone, Copy, Debug)]
 struct WaterParticleDebugStats {
     finite_particles: usize,
     min_ws: Vec3,
@@ -3012,7 +3155,8 @@ mod tests {
         collide_particle_with_terrain_iterative, damp_velocity_tangent_to_surface,
         density_j_feedback_blend, eos_pressure, fluid_eos_pressure, fluid_stress,
         grid_density_no_tension_j, grid_node_coord_from_index, integrate_no_tension_j,
-        project_velocity_away_from_surface, terrain_boundary_density_correction,
+        project_velocity_away_from_surface, quiet_settling_damping_weight,
+        quiet_settling_local_velocity_weight, terrain_boundary_density_correction,
         terrain_ghost_density_for_grid_node, terrain_grid_particle_query, terrain_solid_kernel_weight,
         terrain_solid_occupancy_from_sdf,
         terrain_tangent_damping_factor, TerrainGridParticleQuery, WaterGridNode,
@@ -3234,6 +3378,47 @@ mod tests {
             "damping_120_hz={damping_120_hz}"
         );
         assert_eq!(affine_damping_factor(0.0), 1.0);
+    }
+
+    #[test]
+    fn quiet_settling_damping_is_gated_by_body_speed() {
+        assert_eq!(quiet_settling_damping_weight(0.03, 0.20, 0.0, 0.0), 0.0);
+        assert!(quiet_settling_damping_weight(0.03, 0.20, 4.0, 10.0) > 0.99);
+        assert_eq!(quiet_settling_damping_weight(0.30, 0.20, 4.0, 10.0), 0.0);
+        assert_eq!(quiet_settling_damping_weight(0.03, 1.00, 4.0, 10.0), 0.0);
+
+        assert!(quiet_settling_local_velocity_weight(0.10) > 0.99);
+        assert_eq!(quiet_settling_local_velocity_weight(1.0), 0.0);
+    }
+
+    #[test]
+    fn quiet_settling_damping_skips_fast_splashes() {
+        let mut sim = PondWaterSim::new(PondWaterConfig::default());
+        sim.particles = vec![
+            crate::pond::WaterParticle {
+                x: Vec3::new(0.25, 0.5, 0.25),
+                v: Vec3::new(0.05, 0.0, 0.0),
+                c: Mat3::from_diagonal(Vec3::splat(2.0)),
+                j: 1.0,
+            },
+            crate::pond::WaterParticle {
+                x: Vec3::new(0.75, 0.5, 0.75),
+                v: Vec3::new(0.04, 0.0, 0.0),
+                c: Mat3::from_diagonal(Vec3::splat(2.0)),
+                j: 1.0,
+            },
+        ];
+
+        sim.apply_quiet_settling_damping(1.0 / 60.0);
+        assert!(sim.particles[0].v.length() < 0.05);
+        assert!(sim.particles[0].c.x_axis.x < 2.0);
+
+        let quiet_velocity = sim.particles[0].v;
+        let quiet_affine = sim.particles[0].c;
+        sim.particles[1].v = Vec3::X;
+        sim.apply_quiet_settling_damping(1.0 / 60.0);
+        assert_eq!(sim.particles[0].v, quiet_velocity);
+        assert_eq!(sim.particles[0].c, quiet_affine);
     }
 
     #[test]
