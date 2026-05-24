@@ -227,8 +227,6 @@ pub struct App {
     flora_tick_accumulator: f32,
     growing_flora_chunks: GrowingFloraQueue,
     sun_position_update_tick_accumulator: u32,
-    shadow_map_update_tick_accumulator: u32,
-    shadow_map_update_pending: bool,
 
     debug_tree_desc: TreeDesc,
     tree_variation_config: TreeVariationConfig,
@@ -1226,13 +1224,6 @@ const DEBUG_MODEL_LINE_START_XZ: Vec2 = Vec2::new(0.5, 0.5);
 const DEBUG_MODEL_LINE_STEP_XZ: Vec2 = Vec2::new(1.0, 0.0);
 const FLORA_FULL_GROWTH_TICKS: u32 = 30;
 const SUN_POSITION_UPDATE_INTERVAL_TICKS: u32 = 1;
-const REQUESTED_SHADOW_MAP_UPDATE_INTERVAL_TICKS: u32 = 10;
-const SHADOW_MAP_UPDATE_INTERVAL_TICKS: u32 =
-    if REQUESTED_SHADOW_MAP_UPDATE_INTERVAL_TICKS < SUN_POSITION_UPDATE_INTERVAL_TICKS {
-        SUN_POSITION_UPDATE_INTERVAL_TICKS
-    } else {
-        REQUESTED_SHADOW_MAP_UPDATE_INTERVAL_TICKS
-    };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ActiveVoxelType {
@@ -1753,8 +1744,6 @@ impl App {
             flora_tick_accumulator: 0.0,
             growing_flora_chunks: GrowingFloraQueue::default(),
             sun_position_update_tick_accumulator: 0,
-            shadow_map_update_tick_accumulator: 0,
-            shadow_map_update_pending: true,
 
             // multi-tree management
             next_tree_id: 1, // Start from 1, use 0 for GUI single tree
@@ -2605,8 +2594,6 @@ impl App {
                 }
 
                 let mut tree_desc_changed = false;
-                let time_of_day_before_gui = self.gui_adjustables.time_of_day.value;
-                let vsm_blur_radius_before_gui = self.gui_adjustables.vsm_blur_radius.value;
                 let item_panel_shovel_icon = self.item_panel_shovel_icon.clone();
                 let item_panel_staff_icon = self.item_panel_staff_icon.clone();
                 let item_panel_hoe_icon = self.item_panel_hoe_icon.clone();
@@ -2967,11 +2954,6 @@ impl App {
                     }
                 }
 
-                let time_of_day_changed_by_gui =
-                    self.gui_adjustables.time_of_day.value != time_of_day_before_gui;
-                let vsm_blur_radius_changed_by_gui =
-                    self.gui_adjustables.vsm_blur_radius.value != vsm_blur_radius_before_gui;
-
                 // update sun position if auto day/night cycle is enabled
                 let sun_position_updated = sun_update_ticks > 0;
                 if sun_position_updated {
@@ -2984,17 +2966,6 @@ impl App {
 
                     // keep time_of_day in 0.0 to 1.0 range (wrap around)
                     self.gui_adjustables.time_of_day.value %= 1.0;
-                }
-
-                let mut shadow_map_interval_elapsed = false;
-                if sun_update_ticks > 0 {
-                    self.shadow_map_update_tick_accumulator += sun_update_ticks;
-                    while self.shadow_map_update_tick_accumulator
-                        >= SHADOW_MAP_UPDATE_INTERVAL_TICKS
-                    {
-                        self.shadow_map_update_tick_accumulator -= SHADOW_MAP_UPDATE_INTERVAL_TICKS;
-                        shadow_map_interval_elapsed = true;
-                    }
                 }
 
                 if self.render_flags.enable_particles {
@@ -3047,13 +3018,8 @@ impl App {
                     self.gui_adjustables.latitude.value,
                     self.gui_adjustables.season.value,
                 );
-                let update_shadow_map = self.render_flags.enable_shadows
-                    && (self.shadow_map_update_pending
-                        || shadow_map_interval_elapsed
-                        || time_of_day_changed_by_gui
-                        || vsm_blur_radius_changed_by_gui);
-                let shadow_map_update_period_seconds =
-                    SHADOW_MAP_UPDATE_INTERVAL_TICKS as f32 * world_tick_seconds;
+                let update_shadow_map = self.render_flags.enable_shadows;
+                let shadow_map_update_period_seconds = frame_delta_time.max(1.0 / 240.0);
 
                 self.tracer
                     .update_buffers(
@@ -3241,9 +3207,6 @@ impl App {
                         self.gui_adjustables.vsm_blur_radius.value,
                     )
                     .unwrap();
-                if update_shadow_map {
-                    self.shadow_map_update_pending = false;
-                }
 
                 self.swapchain.record_blit(
                     self.tracer.get_screen_output_tex().get_image(),
