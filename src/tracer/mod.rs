@@ -540,17 +540,7 @@ impl Tracer {
                 shadow_view_mat,
                 shadow_proj_mat,
             )?;
-            BufferUpdater::update_camera_info(
-                &mut self.resources.shadow_camera_info_prev,
-                shadow_view_mat,
-                shadow_proj_mat,
-            )?;
         }
-        BufferUpdater::update_shadow_temporal_info(
-            &self.resources,
-            1.0,
-            self.shadow_map_history_valid,
-        )?;
 
         // camera info prev frame
         BufferUpdater::update_camera_info(

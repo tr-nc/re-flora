@@ -69,8 +69,8 @@ float get_shadow_weight_vsm(mat4 shadow_cam_view_proj_mat, vec4 voxel_pos_ws) {
 
 #ifdef ENABLE_TEMPORAL_VSM
 float get_shadow_weight_vsm_temporal(vec4 voxel_pos_ws) {
-    // Experiment: disable VSM temporal blending so VSM consumers use the
-    // latest filtered shadow map directly while tuning the spatial blur.
+    // Temporal accumulation now happens in the VSM compute path; ping contains
+    // the final blended VSM moments for this frame.
     return get_shadow_weight_vsm(shadow_camera_info.view_proj_mat, voxel_pos_ws);
 }
 #endif // ENABLE_TEMPORAL_VSM

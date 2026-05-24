@@ -229,8 +229,6 @@ pub struct TracerResources {
     pub camera_info: Resource<Buffer>,
     pub camera_info_prev_frame: Resource<Buffer>,
     pub shadow_camera_info: Resource<Buffer>,
-    pub shadow_camera_info_prev: Resource<Buffer>,
-    pub shadow_temporal_info: Resource<Buffer>,
     pub flora_growth_info: Resource<Buffer>,
     pub wind_volume_info: Resource<Buffer>,
     pub env_info: Resource<Buffer>,
@@ -348,28 +346,6 @@ impl TracerResources {
             device.clone(),
             allocator.clone(),
             shadow_camera_info_layout.clone(),
-            BufferUsage::empty(),
-            MemoryLocation::CpuToGpu,
-        );
-
-        let shadow_camera_info_prev_layout = flora_vert_sm
-            .get_buffer_layout("U_ShadowCameraInfoPrev")
-            .unwrap();
-        let shadow_camera_info_prev = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            shadow_camera_info_prev_layout.clone(),
-            BufferUsage::empty(),
-            MemoryLocation::CpuToGpu,
-        );
-
-        let shadow_temporal_info_layout = flora_vert_sm
-            .get_buffer_layout("U_ShadowTemporalInfo")
-            .unwrap();
-        let shadow_temporal_info = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            shadow_temporal_info_layout.clone(),
             BufferUsage::empty(),
             MemoryLocation::CpuToGpu,
         );
@@ -610,8 +586,6 @@ impl TracerResources {
             camera_info: Resource::new(camera_info),
             camera_info_prev_frame: Resource::new(camera_info_prev_frame),
             shadow_camera_info: Resource::new(shadow_camera_info),
-            shadow_camera_info_prev: Resource::new(shadow_camera_info_prev),
-            shadow_temporal_info: Resource::new(shadow_temporal_info),
             flora_growth_info: Resource::new(flora_growth_info),
             wind_volume_info: Resource::new(wind_volume_info),
             env_info: Resource::new(env_info),
