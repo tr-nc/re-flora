@@ -264,9 +264,11 @@ Upgrade the local support-fraction correction so solid-side stencil weight uses 
 
 This remains a pressure/EOS-only correction. The ghost density does not enter real grid mass or velocity normalization.
 
-### Step 5: Optional Separate Ghost Density Grid
+### Step 5: Separate Ghost Density Grid
 
-If per-particle ghost density sampling is too expensive, cache the mirrored ghost density in a separate boundary-density grid/buffer before the pressure pass. This would preserve the same semantics while avoiding repeated mirror sampling for each particle.
+Per-particle ghost density sampling was expensive because each corrected particle repeatedly mirrored/sample-tested the same solid stencil nodes. The current implementation caches mirrored ghost density in a separate `terrain_ghost_density` grid after real mass/momentum P2G and before pressure/stress P2G. The cache is populated only for currently touched terrain-overlap nodes and is cleared sparsely with the normal touched-grid clear path.
+
+Measured on the 1000-particle hidden startup run, this reduced the mDBC P2G cost from about `0.960 ms/substep` to about `0.556 ms/substep` while preserving the same correction factors and contact behavior. Ghost density remains pressure-only and does not enter real grid mass or velocity normalization.
 
 ### Step 6: Optional First-Order mDBC-Style Extrapolation
 
