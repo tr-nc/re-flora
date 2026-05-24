@@ -32,7 +32,7 @@ impl App {
                         offset: UVec3::ZERO,
                         dim: world_dim,
                     }),
-                    super::startup_water_pool_voxel_edit()?,
+                    super::startup_water_pool_inverted_pyramid_voxel_edit()?,
                 ],
                 build_edits: vec![BuildEdit::RebuildMesh(world_bound)],
             },

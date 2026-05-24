@@ -1255,15 +1255,66 @@ const ACTIVE_VOXEL_TYPES: [ActiveVoxelType; 6] = [
     ActiveVoxelType::Rock,
 ];
 
+#[allow(dead_code)]
 fn startup_water_pool_voxel_edit() -> Result<VoxelEdit> {
-    let min_vox = STARTUP_WATER_POOL_MIN * 256.0;
-    let max_vox = STARTUP_WATER_POOL_MAX * 256.0;
+    startup_water_pool_cuboid_voxel_edit(STARTUP_WATER_POOL_MIN, STARTUP_WATER_POOL_MAX)
+}
+
+fn startup_water_pool_cuboid_voxel_edit(min: Vec3, max: Vec3) -> Result<VoxelEdit> {
+    let min_vox = min * 256.0;
+    let max_vox = max * 256.0;
     let cuboid = Cuboid::from_min_max(min_vox, max_vox);
     let bvh_nodes = build_bvh(&[Aabb3::new(min_vox, max_vox)], &[0]).map_err(anyhow::Error::msg)?;
 
     Ok(VoxelEdit::StampCuboids {
         bvh_nodes,
         cuboids: vec![cuboid],
+        voxel_type: VOXEL_TYPE_EMPTY,
+    })
+}
+
+fn startup_water_pool_inverted_pyramid_voxel_edit() -> Result<VoxelEdit> {
+    let apex = Vec3::new(
+        (STARTUP_WATER_POOL_MIN.x + STARTUP_WATER_POOL_MAX.x) * 0.5,
+        STARTUP_WATER_POOL_MIN.y,
+        (STARTUP_WATER_POOL_MIN.z + STARTUP_WATER_POOL_MAX.z) * 0.5,
+    );
+    let top_y = STARTUP_WATER_POOL_MAX.y;
+    let layer_height = 1.0 / 256.0;
+    let world_min = Vec3::ZERO;
+    let world_max = CHUNK_DIM.as_vec3();
+    let layer_count = ((top_y - apex.y) / layer_height).ceil().max(1.0) as u32;
+    let mut cuboids = Vec::with_capacity(layer_count as usize);
+
+    for layer in 0..layer_count {
+        let y_min = (apex.y + layer as f32 * layer_height).min(top_y);
+        let y_max = (y_min + layer_height).min(top_y);
+        if y_max <= y_min {
+            continue;
+        }
+
+        let y_mid = (y_min + y_max) * 0.5;
+        let half_width = (y_mid - apex.y).max(layer_height * 0.5);
+        let min = Vec3::new(apex.x - half_width, y_min, apex.z - half_width).max(world_min);
+        let max = Vec3::new(apex.x + half_width, y_max, apex.z + half_width).min(world_max);
+        if max.x <= min.x || max.y <= min.y || max.z <= min.z {
+            continue;
+        }
+
+        cuboids.push(Cuboid::from_min_max(min * 256.0, max * 256.0));
+    }
+
+    if cuboids.is_empty() {
+        anyhow::bail!("startup water pool inverted pyramid produced no cuboids");
+    }
+
+    let aabbs: Vec<Aabb3> = cuboids.iter().map(Cuboid::aabb).collect();
+    let leaves_data: Vec<u32> = (0..cuboids.len() as u32).collect();
+    let bvh_nodes = build_bvh(&aabbs, &leaves_data).map_err(anyhow::Error::msg)?;
+
+    Ok(VoxelEdit::StampCuboids {
+        bvh_nodes,
+        cuboids,
         voxel_type: VOXEL_TYPE_EMPTY,
     })
 }
@@ -1328,11 +1379,17 @@ impl ActiveVoxelType {
 
 impl App {
     fn apply_startup_water_pool(&mut self) -> Result<()> {
-        self.execute_edit_plan(WorldEditPlan::with_voxel(startup_water_pool_voxel_edit()?))?;
+        self.execute_edit_plan(WorldEditPlan::with_voxel(
+            startup_water_pool_inverted_pyramid_voxel_edit()?,
+        ))?;
         log::info!(
-            "[TERRAIN_INIT] carved empty startup water pool terrain {:?}..{:?}",
-            STARTUP_WATER_POOL_MIN,
-            STARTUP_WATER_POOL_MAX
+            "[TERRAIN_INIT] carved empty startup water pool inverted pyramid apex {:?} top_y {:.2}",
+            Vec3::new(
+                (STARTUP_WATER_POOL_MIN.x + STARTUP_WATER_POOL_MAX.x) * 0.5,
+                STARTUP_WATER_POOL_MIN.y,
+                (STARTUP_WATER_POOL_MIN.z + STARTUP_WATER_POOL_MAX.z) * 0.5,
+            ),
+            STARTUP_WATER_POOL_MAX.y,
         );
         Ok(())
     }
@@ -3422,6 +3479,60 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::App;
+    use crate::app::world_edits::VoxelEdit;
+
+    fn assert_approx_eq(actual: f32, expected: f32) {
+        assert!(
+            (actual - expected).abs() < 0.0001,
+            "expected {expected}, got {actual}"
+        );
+    }
+
+    #[test]
+    fn startup_water_pool_cuboid_edit_is_still_available() {
+        let edit = super::startup_water_pool_voxel_edit().unwrap();
+        let VoxelEdit::StampCuboids { cuboids, .. } = edit else {
+            panic!("expected cuboid voxel edit");
+        };
+
+        assert_eq!(cuboids.len(), 1);
+        assert_approx_eq(cuboids[0].min().x / 256.0, super::STARTUP_WATER_POOL_MIN.x);
+        assert_approx_eq(cuboids[0].min().y / 256.0, super::STARTUP_WATER_POOL_MIN.y);
+        assert_approx_eq(cuboids[0].min().z / 256.0, super::STARTUP_WATER_POOL_MIN.z);
+        assert_approx_eq(cuboids[0].max().x / 256.0, super::STARTUP_WATER_POOL_MAX.x);
+        assert_approx_eq(cuboids[0].max().y / 256.0, super::STARTUP_WATER_POOL_MAX.y);
+        assert_approx_eq(cuboids[0].max().z / 256.0, super::STARTUP_WATER_POOL_MAX.z);
+    }
+
+    #[test]
+    fn startup_water_pool_inverted_pyramid_uses_45_degree_slices() {
+        let edit = super::startup_water_pool_inverted_pyramid_voxel_edit().unwrap();
+        let VoxelEdit::StampCuboids { cuboids, .. } = edit else {
+            panic!("expected cuboid voxel edit");
+        };
+
+        assert!(cuboids.len() > 1);
+        let center_x = (super::STARTUP_WATER_POOL_MIN.x + super::STARTUP_WATER_POOL_MAX.x) * 0.5;
+        let center_z = (super::STARTUP_WATER_POOL_MIN.z + super::STARTUP_WATER_POOL_MAX.z) * 0.5;
+        let layer = cuboids
+            .iter()
+            .find(|cuboid| {
+                let min = cuboid.min() / 256.0;
+                let max = cuboid.max() / 256.0;
+                min.y <= super::STARTUP_WATER_PARTICLE_MIN_Y
+                    && super::STARTUP_WATER_PARTICLE_MIN_Y <= max.y
+            })
+            .expect("missing pyramid layer at startup water particle height");
+        let min = layer.min() / 256.0;
+        let max = layer.max() / 256.0;
+        let y_mid = (min.y + max.y) * 0.5;
+        let expected_half_width = (y_mid - super::STARTUP_WATER_POOL_MIN.y).max(0.5 / 256.0);
+
+        assert_approx_eq(center_x - min.x, expected_half_width);
+        assert_approx_eq(max.x - center_x, expected_half_width);
+        assert_approx_eq(center_z - min.z, expected_half_width);
+        assert_approx_eq(max.z - center_z, expected_half_width);
+    }
 
     #[test]
     fn hidden_mode_forces_effective_master_volume_to_zero() {
