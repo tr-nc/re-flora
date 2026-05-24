@@ -627,7 +627,7 @@ label = "Substep Rate (Hz)"
 type = "Float"
 
 [section.param.data]
-value = 240.0
+value = 239.99998
 min = 15
 max = 240
 
@@ -737,7 +737,7 @@ label = "Quiet Settling Velocity Damping (/s)"
 type = "Float"
 
 [section.param.data]
-value = 4
+value = 3.8
 min = 0
 max = 20
 
@@ -748,7 +748,7 @@ label = "Quiet Settling Affine Damping (/s)"
 type = "Float"
 
 [section.param.data]
-value = 10
+value = 50
 min = 0
 max = 50
 
