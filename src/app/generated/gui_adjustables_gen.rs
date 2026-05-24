@@ -398,6 +398,24 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "WaterSimulation",
+        id: "water_boundary_density_min_fluid_fraction",
+        kind: "float",
+        label: "Boundary Density Min Fluid Fraction",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "WaterSimulation",
+        id: "water_boundary_density_max_correction_factor",
+        kind: "float",
+        label: "Boundary Density Max Correction",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "WaterSimulation",
+        id: "water_boundary_density_occupancy_transition_cells",
+        kind: "float",
+        label: "Boundary Density Transition Cells",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "WaterSimulation",
         id: "water_damping",
         kind: "float",
         label: "Linear Damping (/s)",
@@ -720,6 +738,9 @@ pub struct GuiAdjustables {
     pub water_particle_quad_size: crate::gui_adjustables::FloatParam,
     pub water_debug_spawn_height_offset: crate::gui_adjustables::FloatParam,
     pub water_terrain_margin_cells: crate::gui_adjustables::FloatParam,
+    pub water_boundary_density_min_fluid_fraction: crate::gui_adjustables::FloatParam,
+    pub water_boundary_density_max_correction_factor: crate::gui_adjustables::FloatParam,
+    pub water_boundary_density_occupancy_transition_cells: crate::gui_adjustables::FloatParam,
     pub water_damping: crate::gui_adjustables::FloatParam,
     pub water_gravity_y: crate::gui_adjustables::FloatParam,
     pub water_stiffness: crate::gui_adjustables::FloatParam,
@@ -838,6 +859,9 @@ impl GuiAdjustables {
         let mut water_particle_quad_size_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_debug_spawn_height_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_terrain_margin_cells_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut water_boundary_density_min_fluid_fraction_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut water_boundary_density_max_correction_factor_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut water_boundary_density_occupancy_transition_cells_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_damping_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_gravity_y_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_stiffness_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1293,6 +1317,27 @@ impl GuiAdjustables {
                             water_terrain_margin_cells_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
+                    "water_boundary_density_min_fluid_fraction" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            water_boundary_density_min_fluid_fraction_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "water_boundary_density_max_correction_factor" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            water_boundary_density_max_correction_factor_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "water_boundary_density_occupancy_transition_cells" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            water_boundary_density_occupancy_transition_cells_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
                     "water_damping" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -1640,6 +1685,9 @@ impl GuiAdjustables {
             water_particle_quad_size: water_particle_quad_size_field.expect("Missing parameter: water_particle_quad_size"),
             water_debug_spawn_height_offset: water_debug_spawn_height_offset_field.expect("Missing parameter: water_debug_spawn_height_offset"),
             water_terrain_margin_cells: water_terrain_margin_cells_field.expect("Missing parameter: water_terrain_margin_cells"),
+            water_boundary_density_min_fluid_fraction: water_boundary_density_min_fluid_fraction_field.expect("Missing parameter: water_boundary_density_min_fluid_fraction"),
+            water_boundary_density_max_correction_factor: water_boundary_density_max_correction_factor_field.expect("Missing parameter: water_boundary_density_max_correction_factor"),
+            water_boundary_density_occupancy_transition_cells: water_boundary_density_occupancy_transition_cells_field.expect("Missing parameter: water_boundary_density_occupancy_transition_cells"),
             water_damping: water_damping_field.expect("Missing parameter: water_damping"),
             water_gravity_y: water_gravity_y_field.expect("Missing parameter: water_gravity_y"),
             water_stiffness: water_stiffness_field.expect("Missing parameter: water_stiffness"),
@@ -1733,6 +1781,9 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "water_particle_quad_size" => Some(&adjustables.water_particle_quad_size),
         "water_debug_spawn_height_offset" => Some(&adjustables.water_debug_spawn_height_offset),
         "water_terrain_margin_cells" => Some(&adjustables.water_terrain_margin_cells),
+        "water_boundary_density_min_fluid_fraction" => Some(&adjustables.water_boundary_density_min_fluid_fraction),
+        "water_boundary_density_max_correction_factor" => Some(&adjustables.water_boundary_density_max_correction_factor),
+        "water_boundary_density_occupancy_transition_cells" => Some(&adjustables.water_boundary_density_occupancy_transition_cells),
         "water_damping" => Some(&adjustables.water_damping),
         "water_gravity_y" => Some(&adjustables.water_gravity_y),
         "water_stiffness" => Some(&adjustables.water_stiffness),
@@ -1873,6 +1924,9 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "water_particle_quad_size" => Some(&mut adjustables.water_particle_quad_size),
         "water_debug_spawn_height_offset" => Some(&mut adjustables.water_debug_spawn_height_offset),
         "water_terrain_margin_cells" => Some(&mut adjustables.water_terrain_margin_cells),
+        "water_boundary_density_min_fluid_fraction" => Some(&mut adjustables.water_boundary_density_min_fluid_fraction),
+        "water_boundary_density_max_correction_factor" => Some(&mut adjustables.water_boundary_density_max_correction_factor),
+        "water_boundary_density_occupancy_transition_cells" => Some(&mut adjustables.water_boundary_density_occupancy_transition_cells),
         "water_damping" => Some(&mut adjustables.water_damping),
         "water_gravity_y" => Some(&mut adjustables.water_gravity_y),
         "water_stiffness" => Some(&mut adjustables.water_stiffness),

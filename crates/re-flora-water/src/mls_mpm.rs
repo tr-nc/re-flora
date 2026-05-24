@@ -43,9 +43,6 @@ const TERRAIN_GRID_PROJECTION_GUARD_CELLS: f32 = 0.10;
 // mirrored fluid side, with a hydrostatic pressure offset. It is used only for
 // EOS pressure/stress; it does not add real grid mass or alter velocity
 // normalization.
-const TERRAIN_DENSITY_MIN_FLUID_FRACTION: f32 = 0.50;
-const TERRAIN_DENSITY_MAX_CORRECTION_FACTOR: f32 = 2.0;
-const TERRAIN_DENSITY_OCCUPANCY_TRANSITION_CELLS: f32 = 1.0;
 const TERRAIN_DENSITY_MIN_SOLID_WEIGHT: f32 = 1.0e-5;
 const TERRAIN_GHOST_MIRROR_MIN_DISTANCE_CELLS: f32 = 0.25;
 
@@ -1114,6 +1111,7 @@ impl PondWaterSim {
         let gamma = self.config.gamma;
         let pressure_floor = self.config.pressure_floor;
         let gravity = self.config.gravity;
+        let occupancy_transition_cells = self.config.terrain_density_occupancy_transition_cells;
 
         for &node_idx in &self.touched_grid_nodes {
             if let Some(cached_density) = terrain_ghost_density.get_mut(node_idx) {
@@ -1123,7 +1121,10 @@ impl PondWaterSim {
             let Some(sample) = terrain_grid.get(node_idx).copied() else {
                 continue;
             };
-            if !sample.has_sdf || terrain_solid_occupancy_from_sdf(sample.sdf, dx) <= 0.0 {
+            if !sample.has_sdf
+                || terrain_solid_occupancy_from_sdf(sample.sdf, dx, occupancy_transition_cells)
+                    <= 0.0
+            {
                 continue;
             }
 
@@ -1143,6 +1144,7 @@ impl PondWaterSim {
                 gamma,
                 pressure_floor,
                 gravity,
+                occupancy_transition_cells,
             ) else {
                 continue;
             };
@@ -1171,6 +1173,10 @@ impl PondWaterSim {
         let pressure_floor = self.config.pressure_floor;
         let terrain_grid = &self.terrain_grid;
         let terrain_ghost_density = &self.terrain_ghost_density;
+        let terrain_density_min_fluid_fraction = self.config.terrain_density_min_fluid_fraction;
+        let terrain_density_max_correction_factor = self.config.terrain_density_max_correction_factor;
+        let terrain_density_occupancy_transition_cells =
+            self.config.terrain_density_occupancy_transition_cells;
         let y_stride = grid_dim.x as usize;
         let z_stride = y_stride * grid_dim.y as usize;
         let mut density_correction_particles = 0u64;
@@ -1208,6 +1214,9 @@ impl PondWaterSim {
                 wy,
                 wz,
                 dx,
+                terrain_density_min_fluid_fraction,
+                terrain_density_max_correction_factor,
+                terrain_density_occupancy_transition_cells,
             );
             if density_sample.correction_factor > 1.0 + f32::EPSILON {
                 density_correction_particles += 1;
@@ -1675,6 +1684,9 @@ fn terrain_boundary_density_correction(
     wy: [f32; 3],
     wz: [f32; 3],
     dx: f32,
+    min_fluid_fraction: f32,
+    max_correction_factor: f32,
+    occupancy_transition_cells: f32,
 ) -> TerrainBoundaryDensitySample {
     if !raw_density.is_finite() || raw_density <= 0.0 {
         return TerrainBoundaryDensitySample {
@@ -1694,6 +1706,7 @@ fn terrain_boundary_density_correction(
         wy,
         wz,
         dx,
+        occupancy_transition_cells,
     );
     let solid_weight = ghost.solid_weight;
     if solid_weight <= TERRAIN_DENSITY_MIN_SOLID_WEIGHT {
@@ -1705,9 +1718,9 @@ fn terrain_boundary_density_correction(
         };
     }
 
-    let min_fluid_fraction = TERRAIN_DENSITY_MIN_FLUID_FRACTION.clamp(1.0e-3, 1.0);
+    let min_fluid_fraction = min_fluid_fraction.clamp(1.0e-3, 1.0);
     let fluid_fraction = (1.0 - solid_weight).clamp(min_fluid_fraction, 1.0);
-    let max_correction_factor = TERRAIN_DENSITY_MAX_CORRECTION_FACTOR.max(1.0);
+    let max_correction_factor = max_correction_factor.max(1.0);
     let max_density = raw_density * max_correction_factor;
     let fallback_density = raw_density
         * fluid_fraction
@@ -1747,6 +1760,7 @@ fn terrain_ghost_density_contribution(
     wy: [f32; 3],
     wz: [f32; 3],
     dx: f32,
+    occupancy_transition_cells: f32,
 ) -> TerrainGhostDensityContribution {
     if terrain_grid.is_empty() || dx <= 0.0 || !dx.is_finite() {
         return TerrainGhostDensityContribution::default();
@@ -1780,7 +1794,8 @@ fn terrain_ghost_density_contribution(
                     continue;
                 }
 
-                let occupancy = terrain_solid_occupancy_from_sdf(sample.sdf, dx);
+                let occupancy =
+                    terrain_solid_occupancy_from_sdf(sample.sdf, dx, occupancy_transition_cells);
                 if occupancy <= 0.0 {
                     continue;
                 }
@@ -1813,8 +1828,11 @@ fn terrain_ghost_density_for_grid_node(
     gamma: f32,
     pressure_floor: f32,
     gravity: Vec3,
+    occupancy_transition_cells: f32,
 ) -> Option<f32> {
-    if !sample.has_sdf || terrain_solid_occupancy_from_sdf(sample.sdf, dx) <= 0.0 {
+    if !sample.has_sdf
+        || terrain_solid_occupancy_from_sdf(sample.sdf, dx, occupancy_transition_cells) <= 0.0
+    {
         return None;
     }
 
@@ -1919,6 +1937,7 @@ fn terrain_solid_kernel_weight(
     wy: [f32; 3],
     wz: [f32; 3],
     dx: f32,
+    occupancy_transition_cells: f32,
 ) -> f32 {
     if terrain_grid.is_empty() || dx <= 0.0 || !dx.is_finite() {
         return 0.0;
@@ -1951,7 +1970,8 @@ fn terrain_solid_kernel_weight(
                     continue;
                 }
 
-                solid_weight += weight * terrain_solid_occupancy_from_sdf(sample.sdf, dx);
+                solid_weight += weight
+                    * terrain_solid_occupancy_from_sdf(sample.sdf, dx, occupancy_transition_cells);
             }
         }
     }
@@ -1959,12 +1979,16 @@ fn terrain_solid_kernel_weight(
     solid_weight.clamp(0.0, 1.0)
 }
 
-fn terrain_solid_occupancy_from_sdf(sdf: f32, dx: f32) -> f32 {
+fn terrain_solid_occupancy_from_sdf(
+    sdf: f32,
+    dx: f32,
+    occupancy_transition_cells: f32,
+) -> f32 {
     if !sdf.is_finite() || dx <= 0.0 || !dx.is_finite() {
         return 0.0;
     }
 
-    let transition_width = dx * TERRAIN_DENSITY_OCCUPANCY_TRANSITION_CELLS.max(1.0e-3);
+    let transition_width = dx * occupancy_transition_cells.max(1.0e-3);
     (0.5 - sdf / transition_width).clamp(0.0, 1.0)
 }
 
@@ -3028,12 +3052,12 @@ mod tests {
 
     #[test]
     fn terrain_sdf_occupancy_smooths_over_one_cell() {
-        assert_eq!(terrain_solid_occupancy_from_sdf(0.6, 1.0), 0.0);
-        assert_eq!(terrain_solid_occupancy_from_sdf(0.5, 1.0), 0.0);
-        assert!((terrain_solid_occupancy_from_sdf(0.0, 1.0) - 0.5).abs() <= 1.0e-6);
-        assert_eq!(terrain_solid_occupancy_from_sdf(-0.5, 1.0), 1.0);
-        assert_eq!(terrain_solid_occupancy_from_sdf(-0.6, 1.0), 1.0);
-        assert_eq!(terrain_solid_occupancy_from_sdf(0.0, 0.0), 0.0);
+        assert_eq!(terrain_solid_occupancy_from_sdf(0.6, 1.0, 1.0), 0.0);
+        assert_eq!(terrain_solid_occupancy_from_sdf(0.5, 1.0, 1.0), 0.0);
+        assert!((terrain_solid_occupancy_from_sdf(0.0, 1.0, 1.0) - 0.5).abs() <= 1.0e-6);
+        assert_eq!(terrain_solid_occupancy_from_sdf(-0.5, 1.0, 1.0), 1.0);
+        assert_eq!(terrain_solid_occupancy_from_sdf(-0.6, 1.0, 1.0), 1.0);
+        assert_eq!(terrain_solid_occupancy_from_sdf(0.0, 0.0, 1.0), 0.0);
     }
 
     #[test]
@@ -3061,6 +3085,7 @@ mod tests {
             weights,
             weights,
             weights,
+            1.0,
             1.0,
         );
         assert!((solid_weight - 0.5).abs() <= 1.0e-6, "solid_weight={solid_weight}");
@@ -3590,6 +3615,7 @@ mod tests {
                 4.0,
                 -0.1,
                 gravity,
+                1.0,
             ) else {
                 continue;
             };
@@ -3605,6 +3631,9 @@ mod tests {
             weights,
             weights,
             weights,
+            1.0,
+            0.50,
+            2.0,
             1.0,
         )
     }

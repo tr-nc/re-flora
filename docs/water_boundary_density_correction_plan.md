@@ -270,6 +270,12 @@ Per-particle ghost density sampling was expensive because each corrected particl
 
 Measured on the 1000-particle hidden startup run, this reduced the mDBC P2G cost from about `0.960 ms/substep` to about `0.556 ms/substep` while preserving the same correction factors and contact behavior. Ghost density remains pressure-only and does not enter real grid mass or velocity normalization.
 
+The correction tuning constants are now runtime GUI/config parameters:
+
+- `water_boundary_density_min_fluid_fraction`
+- `water_boundary_density_max_correction_factor`
+- `water_boundary_density_occupancy_transition_cells`
+
 ### Step 6: Optional First-Order mDBC-Style Extrapolation
 
 If the ghost density grid helps but is noisy, add first-order density extrapolation:

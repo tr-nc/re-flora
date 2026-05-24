@@ -485,6 +485,12 @@ fn handle_water_sim_command(
             sim.config.particle_mass = config.particle_mass;
             sim.config.particle_volume = config.particle_volume;
             sim.config.terrain_collision_margin_cells = config.terrain_collision_margin_cells;
+            sim.config.terrain_density_min_fluid_fraction =
+                config.terrain_density_min_fluid_fraction;
+            sim.config.terrain_density_max_correction_factor =
+                config.terrain_density_max_correction_factor;
+            sim.config.terrain_density_occupancy_transition_cells =
+                config.terrain_density_occupancy_transition_cells;
             sim.config.terrain_tangent_damping_per_sec = config.terrain_tangent_damping_per_sec;
             sim.config.linear_damping_per_sec = config.linear_damping_per_sec;
             sim.config.debug_spawn_height_offset = config.debug_spawn_height_offset;
@@ -689,6 +695,28 @@ pub(super) fn apply_water_gui_adjustables_to_config(
         0.0,
         config.terrain_collision_margin_cells,
     );
+    config.terrain_density_min_fluid_fraction = finite_clamped(
+        gui_adjustables
+            .water_boundary_density_min_fluid_fraction
+            .value,
+        1.0e-3,
+        1.0,
+        config.terrain_density_min_fluid_fraction,
+    );
+    config.terrain_density_max_correction_factor = finite_at_least(
+        gui_adjustables
+            .water_boundary_density_max_correction_factor
+            .value,
+        1.0,
+        config.terrain_density_max_correction_factor,
+    );
+    config.terrain_density_occupancy_transition_cells = finite_at_least(
+        gui_adjustables
+            .water_boundary_density_occupancy_transition_cells
+            .value,
+        1.0e-3,
+        config.terrain_density_occupancy_transition_cells,
+    );
     config.linear_damping_per_sec = finite_at_least(
         gui_adjustables.water_damping.value,
         0.0,
@@ -724,6 +752,15 @@ pub(super) fn sync_water_gui_adjustables_from_config(
     gui_adjustables.water_substep_hz.value = config.substep_dt.recip();
     gui_adjustables.water_particle_edge_len.value = config.particle_volume.cbrt();
     gui_adjustables.water_terrain_margin_cells.value = config.terrain_collision_margin_cells;
+    gui_adjustables
+        .water_boundary_density_min_fluid_fraction
+        .value = config.terrain_density_min_fluid_fraction;
+    gui_adjustables
+        .water_boundary_density_max_correction_factor
+        .value = config.terrain_density_max_correction_factor;
+    gui_adjustables
+        .water_boundary_density_occupancy_transition_cells
+        .value = config.terrain_density_occupancy_transition_cells;
     gui_adjustables.water_damping.value = config.linear_damping_per_sec;
     gui_adjustables.water_debug_spawn_height_offset.value = config.debug_spawn_height_offset;
     gui_adjustables.water_terrain_tangent_damping.value = config.terrain_tangent_damping_per_sec;
