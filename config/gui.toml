@@ -162,7 +162,7 @@ label = "Auto Day/Night Cycle"
 type = "Bool"
 
 [section.param.data]
-value = true
+value = false
 
 [[section.param]]
 id = "time_of_day"
