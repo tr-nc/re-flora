@@ -218,7 +218,7 @@ label = "VSM Blur Radius (texels)"
 type = "Uint"
 
 [section.param.data]
-value = 5
+value = 3
 min = 0
 max = 64
 
@@ -229,7 +229,7 @@ label = "VSM Temporal Alpha"
 type = "Float"
 
 [section.param.data]
-value = 0.2
+value = 0.5
 min = 0
 max = 1
 
