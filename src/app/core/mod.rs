@@ -1218,6 +1218,8 @@ const ITEM_PANEL_SCROLL_SFX_VOLUME_DB: f32 = -6.0;
 const FLORA_SPROUT_DELAY_TICKS: u32 = 2;
 const STARTUP_WATER_POOL_MIN: Vec3 = Vec3::new(1.0, 0.2, 1.0);
 const STARTUP_WATER_POOL_MAX: Vec3 = Vec3::new(1.5, 2.0, 1.5);
+const STARTUP_WATER_PARTICLE_MIN_Y: f32 = 1.0;
+const STARTUP_WATER_PARTICLE_MAX_Y: f32 = 1.2;
 const DEBUG_AUDIO_WALL_MIN: Vec3 = Vec3::new(300.0, 0.0, 512.0);
 const DEBUG_AUDIO_WALL_MAX: Vec3 = Vec3::new(320.0, 256.0, 600.0);
 const DEBUG_MODEL_MAX_LONGEST_EDGE: f32 = 5.0;
@@ -1264,6 +1266,21 @@ fn startup_water_pool_voxel_edit() -> Result<VoxelEdit> {
         cuboids: vec![cuboid],
         voxel_type: VOXEL_TYPE_EMPTY,
     })
+}
+
+fn startup_water_particle_spawn_bounds() -> (Vec3, Vec3) {
+    (
+        Vec3::new(
+            STARTUP_WATER_POOL_MIN.x,
+            STARTUP_WATER_PARTICLE_MIN_Y,
+            STARTUP_WATER_POOL_MIN.z,
+        ),
+        Vec3::new(
+            STARTUP_WATER_POOL_MAX.x,
+            STARTUP_WATER_PARTICLE_MAX_Y,
+            STARTUP_WATER_POOL_MAX.z,
+        ),
+    )
 }
 
 const BACKPACK_VOXEL_TYPES: [ActiveVoxelType; 5] = [
@@ -1618,6 +1635,10 @@ impl App {
         if water_gui_config_applied {
             water::apply_water_gui_adjustables_to_config(&mut water_config, &gui_adjustables);
         }
+        let (startup_water_particle_min, startup_water_particle_max) =
+            startup_water_particle_spawn_bounds();
+        water_config = water_config
+            .with_initial_fluid_bounds(startup_water_particle_min, startup_water_particle_max);
         if let Some(particle_count) = options.water_particles {
             water_config = water_config.with_particle_count(particle_count);
         }
@@ -1651,7 +1672,7 @@ impl App {
         water::sync_water_gui_adjustables_from_config(&mut gui_adjustables, &water_config);
 
         log::info!(
-            "[WATER] config profile={:?} gui_config_applied={} particles={} grid={:?} substep_dt={:.6}s terrain_margin_cells={:.2} damping={:.2}/s terrain_tangent_damping={:.2}/s debug_spawn_height_offset={:.2} gravity={:?} stiffness={:.1} gamma={:.2} j_min={:.3} viscosity={:.3} pressure_floor={:.3} wall_damping={:.2} collider_bounds {:?}..{:?} cells_per_unit={}",
+            "[WATER] config profile={:?} gui_config_applied={} particles={} grid={:?} substep_dt={:.6}s terrain_margin_cells={:.2} damping={:.2}/s terrain_tangent_damping={:.2}/s debug_spawn_height_offset={:.2} gravity={:?} stiffness={:.1} gamma={:.2} j_min={:.3} viscosity={:.3} pressure_floor={:.3} wall_damping={:.2} collider_bounds {:?}..{:?} initial_fluid {:?}..{:?} cells_per_unit={}",
             options.water_profile,
             water_gui_config_applied,
             water_config.particle_count,
@@ -1670,6 +1691,8 @@ impl App {
             water_config.wall_damping,
             water_config.collider.min_ws,
             water_config.collider.max_ws,
+            water_config.initial_fluid_min_ws,
+            water_config.initial_fluid_max_ws,
             cells_per_unit,
         );
         let water_sim = water::AsyncWaterSim::new(water_config);

@@ -866,60 +866,52 @@ impl PondWaterSim {
             return;
         }
 
-        let rest_spacing = self
-            .config
-            .particle_volume
-            .max(1.0e-8)
+        let volume_extent = volume_max - volume_min;
+        let volume = (volume_extent.x * volume_extent.y * volume_extent.z).max(1.0e-8);
+        let target_cell_size = (volume / self.config.particle_count.max(1) as f32)
             .cbrt()
-            .clamp(self.dx * 0.5, self.dx * 3.0);
-        let footprint = Vec3::new(
-            volume_max.x - volume_min.x,
-            0.0,
-            volume_max.z - volume_min.z,
-        );
-        let x_count = ((footprint.x / rest_spacing).ceil() as u32).max(1);
-        let z_count = ((footprint.z / rest_spacing).ceil() as u32).max(1);
-        let layer_capacity = (x_count as usize).saturating_mul(z_count as usize).max(1);
-        let y_layers = self.config.particle_count.div_ceil(layer_capacity).max(1) as u32;
-        let slab_height = ((y_layers.saturating_sub(1)) as f32 * rest_spacing)
-            .min((volume_max.y - volume_min.y).max(0.0));
+            .max(1.0e-6);
+        let x_count = ((volume_extent.x / target_cell_size).ceil() as usize).max(1);
+        let y_count = ((volume_extent.y / target_cell_size).ceil() as usize).max(1);
+        let z_count = ((volume_extent.z / target_cell_size).ceil() as usize).max(1);
+        let xy_count = x_count.saturating_mul(y_count).max(1);
+        let cell_counts = Vec3::new(x_count as f32, y_count as f32, z_count as f32);
 
-        'layers: for y_layer in 0..y_layers {
-            let ty = if y_layers <= 1 {
-                0.0
-            } else {
-                y_layer as f32 / (y_layers - 1) as f32
-            };
-            let y = volume_max.y - slab_height * ty;
-            for z in 0..z_count {
-                for x in 0..x_count {
-                    if self.particles.len() >= self.config.particle_count {
-                        break 'layers;
-                    }
-
-                    let jitter_x = hash_unit(x, z ^ y_layer, 17) - 0.5;
-                    let jitter_z = hash_unit(z, x ^ y_layer, 29) - 0.5;
-                    let jitter_y = hash_unit(x ^ z, y_layer, 43) - 0.5;
-                    let tx = (x as f32 + 0.5 + jitter_x * 0.5) / x_count as f32;
-                    let tz = (z as f32 + 0.5 + jitter_z * 0.5) / z_count as f32;
-                    let pos = Vec3::new(
-                        volume_min.x + footprint.x * tx.clamp(0.0, 1.0),
-                        (y + jitter_y * rest_spacing * 0.1).clamp(volume_min.y, volume_max.y),
-                        volume_min.z + footprint.z * tz.clamp(0.0, 1.0),
-                    );
-                    let mut particle =
-                        WaterParticle::new(self.config.collider.clamp_point(pos, padding));
-                    // Seed the initial column close to weak-EOS hydrostatic balance.
-                    // Starting every marker at J=1 leaves the whole column at
-                    // atmospheric pressure, so gravity first crushes it before the
-                    // EOS pressure wave catches up.
-                    particle.j = self.eos_hydrostatic_j(
-                        (volume_max.y - particle.x.y).max(0.0),
-                        (volume_max.y - volume_min.y).max(0.0),
-                    );
-                    self.particles.push(particle);
-                }
-            }
+        for particle_idx in 0..self.config.particle_count {
+            let x_cell = particle_idx % x_count;
+            let y_cell = (particle_idx / x_count) % y_count;
+            let z_cell = (particle_idx / xy_count) % z_count;
+            let seed = particle_idx as u32;
+            let jitter = Vec3::new(
+                hash_unit(
+                    seed ^ x_cell as u32,
+                    y_cell as u32 ^ 0x9e37_79b9,
+                    z_cell as u32 ^ 0x85eb_ca6b,
+                ),
+                hash_unit(
+                    seed.rotate_left(11) ^ y_cell as u32,
+                    z_cell as u32 ^ 0xc2b2_ae35,
+                    x_cell as u32 ^ 0x27d4_eb2d,
+                ),
+                hash_unit(
+                    seed.rotate_left(21) ^ z_cell as u32,
+                    x_cell as u32 ^ 0x1656_67b1,
+                    y_cell as u32 ^ 0xd3a2_646c,
+                ),
+            );
+            let cell = Vec3::new(x_cell as f32, y_cell as f32, z_cell as f32);
+            let normalized = ((cell + jitter) / cell_counts).clamp(Vec3::ZERO, Vec3::ONE);
+            let pos = volume_min + volume_extent * normalized;
+            let mut particle = WaterParticle::new(self.config.collider.clamp_point(pos, padding));
+            // Seed the initial column close to weak-EOS hydrostatic balance.
+            // Starting every marker at J=1 leaves the whole column at
+            // atmospheric pressure, so gravity first crushes it before the
+            // EOS pressure wave catches up.
+            particle.j = self.eos_hydrostatic_j(
+                (volume_max.y - particle.x.y).max(0.0),
+                (volume_max.y - volume_min.y).max(0.0),
+            );
+            self.particles.push(particle);
         }
 
         debug_assert!(self.particles.iter().all(|particle| {

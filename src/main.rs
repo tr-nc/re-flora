@@ -280,7 +280,7 @@ Options:
   --auto-exit <sec>           Exit automatically after rendering starts
   --perf                      Enable per-frame performance logging
   --water-profile <profile>   Select water profile: default, performance
-  --water-particles <N>       Override initial water MLS-MPM particle count (0 = none)
+  --water-particles <N>       Seed N initial water MLS-MPM particles in the startup pool (0 = none)
   --water-particle-edge-len <L>
                               Override per-particle rest-volume cube edge length
   --water-grid <N>            Override cubic water MLS-MPM grid dimension
