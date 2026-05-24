@@ -1224,6 +1224,7 @@ const DEBUG_MODEL_LINE_START_XZ: Vec2 = Vec2::new(0.5, 0.5);
 const DEBUG_MODEL_LINE_STEP_XZ: Vec2 = Vec2::new(1.0, 0.0);
 const FLORA_FULL_GROWTH_TICKS: u32 = 30;
 const SUN_POSITION_UPDATE_INTERVAL_TICKS: u32 = 1;
+const DEFAULT_VSM_TEMPORAL_ALPHA: f32 = 0.2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ActiveVoxelType {
@@ -3019,7 +3020,6 @@ impl App {
                     self.gui_adjustables.season.value,
                 );
                 let update_shadow_map = self.render_flags.enable_shadows;
-                let shadow_map_update_period_seconds = frame_delta_time.max(1.0 / 240.0);
 
                 self.tracer
                     .update_buffers(
@@ -3073,7 +3073,6 @@ impl App {
                         self.gui_adjustables.ocean_sea_level_shift.value,
                         world_tick_seconds,
                         update_shadow_map,
-                        shadow_map_update_period_seconds,
                         self.gui_adjustables.lens_flare_intensity.value,
                         self.gui_adjustables.lens_flare_sun_pixel_scale.value,
                         self.flora_tick,
@@ -3205,6 +3204,8 @@ impl App {
                         &self.render_flags,
                         update_shadow_map,
                         self.gui_adjustables.vsm_blur_radius.value,
+                        DEFAULT_VSM_TEMPORAL_ALPHA,
+                        false,
                     )
                     .unwrap();
 

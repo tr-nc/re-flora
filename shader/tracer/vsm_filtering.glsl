@@ -8,7 +8,11 @@
 
 const uint VSM_FILTER_MAX_RADIUS = 64u;
 
-layout(push_constant) uniform PC { uint blur_radius; }
+layout(push_constant) uniform PC {
+    uint blur_radius;
+    float temporal_alpha;
+    uint reset_history;
+}
 vsm_filter_push;
 
 int get_vsm_filter_radius() {
@@ -103,6 +107,15 @@ vec4 get_filtered_vsm(ivec2 uvi) {
         return filtered / total_weight;
     }
     return filtered;
+}
+vec4 blend_vsm_temporal_history(ivec2 uvi, vec4 current_filtered) {
+    if (vsm_filter_push.reset_history != 0u) {
+        return current_filtered;
+    }
+
+    vec4 history = imageLoad(shadow_map_tex_for_vsm_prev, uvi);
+    float alpha  = clamp(vsm_filter_push.temporal_alpha, 0.0, 1.0);
+    return mix(history, current_filtered, alpha);
 }
 #endif // VSM_FILTER_V
 

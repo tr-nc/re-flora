@@ -66,6 +66,15 @@ struct WindVolumePushConstants {
     bucket_index: u32,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct VsmFilterPushConstants {
+    blur_radius: u32,
+    temporal_alpha: f32,
+    reset_history: u32,
+    _pad0: u32,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct TerrainRayQuery {
     pub origin: Vec3,
@@ -134,15 +143,8 @@ pub struct Tracer {
     camera_view_mat_prev_frame: Mat4,
     camera_proj_mat_prev_frame: Mat4,
     current_view_proj_mat: Mat4,
-    current_shadow_view_mat: Mat4,
-    current_shadow_proj_mat: Mat4,
-    current_shadow_view_proj_mat: Mat4,
-    prev_shadow_view_mat: Mat4,
-    prev_shadow_proj_mat: Mat4,
-    shadow_temporal_blend_alpha: f32,
     shadow_camera_initialized: bool,
     shadow_map_history_valid: bool,
-    preserve_shadow_history_this_update: bool,
 
     compute_pipelines: ComputePipelines,
     graphics_pipelines: GraphicsPipelines,
@@ -274,15 +276,8 @@ impl Tracer {
             camera_view_mat_prev_frame: Mat4::IDENTITY,
             camera_proj_mat_prev_frame: Mat4::IDENTITY,
             current_view_proj_mat: Mat4::IDENTITY,
-            current_shadow_view_mat: Mat4::IDENTITY,
-            current_shadow_proj_mat: Mat4::IDENTITY,
-            current_shadow_view_proj_mat: Mat4::IDENTITY,
-            prev_shadow_view_mat: Mat4::IDENTITY,
-            prev_shadow_proj_mat: Mat4::IDENTITY,
-            shadow_temporal_blend_alpha: 1.0,
             shadow_camera_initialized: false,
             shadow_map_history_valid: false,
-            preserve_shadow_history_this_update: false,
             compute_pipelines,
             graphics_pipelines,
             render_target_color_and_depth,
@@ -479,7 +474,6 @@ impl Tracer {
         ocean_sea_level_shift: f32,
         world_tick_seconds: f32,
         update_shadow_map: bool,
-        shadow_map_update_period_seconds: f32,
         lens_flare_intensity: f32,
         lens_flare_sun_pixel_scale: f32,
         flora_tick: u32,
@@ -532,61 +526,29 @@ impl Tracer {
         self.current_view_proj_mat = proj_mat * view_mat;
         BufferUpdater::update_camera_info(&mut self.resources.camera_info, view_mat, proj_mat)?;
 
-        // Shadow cam info. Keep the shadow lookup matrix fixed between actual
-        // shadow-map renders; otherwise an old map would be sampled through a
-        // new projection and shimmer even when the map was not updated.
-        //
-        // When a new shadow map is rendered, preserve the previous fully-filtered
-        // map and interpolate from it to the new one across the whole shadow
-        // update period. This intentionally displays shadows with one update of
-        // latency, but makes each update continuous instead of a short fade pulse.
-        let shadow_map_update_period_seconds = shadow_map_update_period_seconds.max(1.0 / 240.0);
-        self.shadow_temporal_blend_alpha = (self.shadow_temporal_blend_alpha
-            + time_info.delta_time().max(0.0) / shadow_map_update_period_seconds)
-            .min(1.0);
-        self.preserve_shadow_history_this_update =
-            update_shadow_map && self.shadow_map_history_valid;
-
+        // Shadow camera info. Shadow maps are rendered every frame while shadows
+        // are enabled, so PCSS and VSM both use the latest light-space matrix.
         if update_shadow_map || !self.shadow_camera_initialized {
-            if self.preserve_shadow_history_this_update {
-                self.prev_shadow_view_mat = self.current_shadow_view_mat;
-                self.prev_shadow_proj_mat = self.current_shadow_proj_mat;
-                self.shadow_temporal_blend_alpha = 0.0;
-                BufferUpdater::update_camera_info(
-                    &mut self.resources.shadow_camera_info_prev,
-                    self.prev_shadow_view_mat,
-                    self.prev_shadow_proj_mat,
-                )?;
-            }
-
             let world_bound = self.chunk_bound.into();
             let shadow_map_extent = self.resources.shadow_map_tex.get_image().get_desc().extent;
             let shadow_map_resolution = shadow_map_extent.width.min(shadow_map_extent.height);
             let (shadow_view_mat, shadow_proj_mat) =
                 calculate_directional_light_matrices(world_bound, sun_dir, shadow_map_resolution);
-            self.current_shadow_view_mat = shadow_view_mat;
-            self.current_shadow_proj_mat = shadow_proj_mat;
-            self.current_shadow_view_proj_mat = shadow_proj_mat * shadow_view_mat;
             self.shadow_camera_initialized = true;
             BufferUpdater::update_camera_info(
                 &mut self.resources.shadow_camera_info,
                 shadow_view_mat,
                 shadow_proj_mat,
             )?;
-
-            if !self.shadow_map_history_valid {
-                self.prev_shadow_view_mat = shadow_view_mat;
-                self.prev_shadow_proj_mat = shadow_proj_mat;
-                BufferUpdater::update_camera_info(
-                    &mut self.resources.shadow_camera_info_prev,
-                    shadow_view_mat,
-                    shadow_proj_mat,
-                )?;
-            }
+            BufferUpdater::update_camera_info(
+                &mut self.resources.shadow_camera_info_prev,
+                shadow_view_mat,
+                shadow_proj_mat,
+            )?;
         }
         BufferUpdater::update_shadow_temporal_info(
             &self.resources,
-            self.shadow_temporal_blend_alpha,
+            1.0,
             self.shadow_map_history_valid,
         )?;
 
@@ -795,6 +757,8 @@ impl Tracer {
         render_flags: &crate::RenderFlags,
         update_shadow_map: bool,
         vsm_blur_radius: u32,
+        vsm_temporal_alpha: f32,
+        reset_vsm_history: bool,
     ) -> Result<()> {
         let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
         let compute_to_compute_barrier = PipelineBarrier::new(
@@ -817,17 +781,6 @@ impl Tracer {
             vec![shader_access_memory_barrier],
         );
 
-        self.resources
-            .shadow_map_tex_for_vsm_prev
-            .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
-
-        if render_flags.enable_shadows
-            && update_shadow_map
-            && self.preserve_shadow_history_this_update
-        {
-            self.record_preserve_shadow_history(cmdbuf);
-        }
         self.record_clear_render_targets(cmdbuf, render_flags, update_shadow_map);
 
         let has_graphics_pass = render_flags.enable_flora || render_flags.enable_particles;
@@ -866,9 +819,12 @@ impl Tracer {
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             self.record_tracer_shadow_pass(cmdbuf);
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-            self.record_vsm_filtering_pass(cmdbuf, vsm_blur_radius);
-            self.shadow_map_history_valid = true;
-            self.preserve_shadow_history_this_update = false;
+            self.record_vsm_filtering_pass(
+                cmdbuf,
+                vsm_blur_radius,
+                vsm_temporal_alpha,
+                reset_vsm_history,
+            );
             compute_to_graphics_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
 
@@ -1009,7 +965,7 @@ impl Tracer {
         }
     }
 
-    fn record_preserve_shadow_history(&self, cmdbuf: &CommandBuffer) {
+    fn record_store_vsm_history(&self, cmdbuf: &CommandBuffer) {
         self.resources
             .shadow_map_tex_for_vsm_ping
             .get_image()
@@ -1545,8 +1501,14 @@ impl Tracer {
         self.last_wind_volume_step = Some(step_index);
     }
 
-    fn record_vsm_filtering_pass(&self, cmdbuf: &CommandBuffer, vsm_blur_radius: u32) {
-        // transition shadow map to general
+    fn record_vsm_filtering_pass(
+        &mut self,
+        cmdbuf: &CommandBuffer,
+        vsm_blur_radius: u32,
+        vsm_temporal_alpha: f32,
+        reset_vsm_history: bool,
+    ) {
+        // transition shadow/VSM images to general for compute read/write access
         self.resources
             .shadow_map_tex
             .get_image()
@@ -1557,6 +1519,10 @@ impl Tracer {
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
         self.resources
             .shadow_map_tex_for_vsm_pong
+            .get_image()
+            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+        self.resources
+            .shadow_map_tex_for_vsm_prev
             .get_image()
             .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
 
@@ -1574,16 +1540,26 @@ impl Tracer {
 
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
-        let vsm_blur_radius_bytes = vsm_blur_radius.to_ne_bytes();
+        let reset_history = reset_vsm_history || !self.shadow_map_history_valid;
+        let push_constants = VsmFilterPushConstants {
+            blur_radius: vsm_blur_radius,
+            temporal_alpha: vsm_temporal_alpha.clamp(0.0, 1.0),
+            reset_history: u32::from(reset_history),
+            _pad0: 0,
+        };
+        let push_constants_bytes = bytemuck::bytes_of(&push_constants);
         self.compute_pipelines
             .vsm_blur_h_ppl
-            .record(cmdbuf, extent, Some(&vsm_blur_radius_bytes));
+            .record(cmdbuf, extent, Some(push_constants_bytes));
 
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
         self.compute_pipelines
             .vsm_blur_v_ppl
-            .record(cmdbuf, extent, Some(&vsm_blur_radius_bytes));
+            .record(cmdbuf, extent, Some(push_constants_bytes));
+
+        self.record_store_vsm_history(cmdbuf);
+        self.shadow_map_history_valid = true;
     }
 
     fn record_tracer_pass(&self, cmdbuf: &CommandBuffer) {
