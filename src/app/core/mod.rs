@@ -25,7 +25,7 @@ use crate::app::GuiAdjustables;
 use crate::audio::{SpatialSoundManager, TreeAudioManager};
 use crate::builder::{
     ContreeBuildJob, ContreeBuilder, PlainBuilder, SceneAccelBuilder, SceneTexUpdateJob,
-    SurfaceBuildJob, SurfaceBuilder, VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_ROCK,
+    SurfaceBuildJob, SurfaceBuilder, VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK,
 };
 use crate::flora::species;
 use crate::geom::{build_bvh, Aabb3, Cuboid, UAabb3};
@@ -1216,6 +1216,8 @@ const ITEM_PANEL_SCROLL_SFX_PATH: &str =
     "assets/sfx/MECHSwtch_Game Boy Advance SP, B Button, On 05_SARM_BTNS.wav";
 const ITEM_PANEL_SCROLL_SFX_VOLUME_DB: f32 = -6.0;
 const FLORA_SPROUT_DELAY_TICKS: u32 = 2;
+const STARTUP_WATER_POOL_MIN: Vec3 = Vec3::new(1.0, 0.2, 1.0);
+const STARTUP_WATER_POOL_MAX: Vec3 = Vec3::new(2.0, 2.0, 2.0);
 const DEBUG_AUDIO_WALL_MIN: Vec3 = Vec3::new(300.0, 0.0, 512.0);
 const DEBUG_AUDIO_WALL_MAX: Vec3 = Vec3::new(320.0, 256.0, 600.0);
 const DEBUG_MODEL_MAX_LONGEST_EDGE: f32 = 5.0;
@@ -1250,6 +1252,19 @@ const ACTIVE_VOXEL_TYPES: [ActiveVoxelType; 6] = [
     ActiveVoxelType::OakWood,
     ActiveVoxelType::Rock,
 ];
+
+fn startup_water_pool_voxel_edit() -> Result<VoxelEdit> {
+    let min_vox = STARTUP_WATER_POOL_MIN * 256.0;
+    let max_vox = STARTUP_WATER_POOL_MAX * 256.0;
+    let cuboid = Cuboid::from_min_max(min_vox, max_vox);
+    let bvh_nodes = build_bvh(&[Aabb3::new(min_vox, max_vox)], &[0]).map_err(anyhow::Error::msg)?;
+
+    Ok(VoxelEdit::StampCuboids {
+        bvh_nodes,
+        cuboids: vec![cuboid],
+        voxel_type: VOXEL_TYPE_EMPTY,
+    })
+}
 
 const BACKPACK_VOXEL_TYPES: [ActiveVoxelType; 5] = [
     ActiveVoxelType::Dirt,
@@ -1295,6 +1310,16 @@ impl ActiveVoxelType {
 }
 
 impl App {
+    fn apply_startup_water_pool(&mut self) -> Result<()> {
+        self.execute_edit_plan(WorldEditPlan::with_voxel(startup_water_pool_voxel_edit()?))?;
+        log::info!(
+            "[TERRAIN_INIT] carved empty startup water pool terrain {:?}..{:?}",
+            STARTUP_WATER_POOL_MIN,
+            STARTUP_WATER_POOL_MAX
+        );
+        Ok(())
+    }
+
     fn apply_debug_audio_wall(&mut self) -> Result<()> {
         let wall = Cuboid::from_min_max(DEBUG_AUDIO_WALL_MIN, DEBUG_AUDIO_WALL_MAX);
         let wall_aabb = Aabb3::new(DEBUG_AUDIO_WALL_MIN, DEBUG_AUDIO_WALL_MAX);
@@ -1802,6 +1827,7 @@ impl App {
 
     fn process_loading_step(&mut self) {
         let mut should_apply_debug_audio_wall = false;
+        let mut should_carve_startup_water_pool = false;
         let loading = match &mut self.loading_state {
             Some(loading) => loading,
             None => return,
@@ -1829,6 +1855,7 @@ impl App {
 
                 loading.current += 1;
                 if loading.current >= total {
+                    should_carve_startup_water_pool = true;
                     should_apply_debug_audio_wall = true;
                     loading.current = 0;
                     loading.phase = LoadingPhase::Building;
@@ -1881,6 +1908,12 @@ impl App {
                 }
 
                 loading.current += 1;
+            }
+        }
+
+        if should_carve_startup_water_pool {
+            if let Err(err) = self.apply_startup_water_pool() {
+                log::error!("Failed to carve startup water pool terrain: {err}");
             }
         }
 
