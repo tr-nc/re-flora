@@ -15,6 +15,8 @@ wind_volume_info;
 
 layout(set = 0, binding = 1, rg16f) uniform writeonly image3D wind_volume_tex;
 
+#define GUI_INPUT_BINDING 2
+#include "../include/gui_input.glsl"
 #include "./wind_volume_sample.glsl"
 
 const uint WIND_VOLUME_BUCKET_COUNT = 4u;

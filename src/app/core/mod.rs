@@ -34,7 +34,7 @@ use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, LeafEmitterDesc, ParticleForces, ParticleHandle,
     ParticleSnapshot, ParticleSystem, PARTICLE_CAPACITY,
 };
-use crate::tracer::{TerrainRayQuery, Tracer, TracerDesc};
+use crate::tracer::{TerrainRayQuery, Tracer, TracerDesc, WindGuiParams};
 use crate::tree_gen::TreeDesc;
 use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
@@ -3149,6 +3149,110 @@ impl App {
                     self.gui_adjustables.season.value,
                 );
                 let update_shadow_map = self.render_flags.enable_shadows;
+                let wind_gui_params = WindGuiParams {
+                    wind_mode: self.gui_adjustables.wind_mode.value,
+                    wind_direction_seed: self.gui_adjustables.wind_direction_seed.value,
+                    wind_strength_seed: self.gui_adjustables.wind_strength_seed.value,
+                    wind_gust_seed: self.gui_adjustables.wind_gust_seed.value,
+                    wind_gust_direction_seed: self.gui_adjustables.wind_gust_direction_seed.value,
+                    wind_direction_frequency: self.gui_adjustables.wind_direction_frequency.value,
+                    wind_strength_frequency: self.gui_adjustables.wind_strength_frequency.value,
+                    wind_gust_frequency: self.gui_adjustables.wind_gust_frequency.value,
+                    wind_gust_direction_frequency: self
+                        .gui_adjustables
+                        .wind_gust_direction_frequency
+                        .value,
+                    wind_direction_octaves: self.gui_adjustables.wind_direction_octaves.value,
+                    wind_strength_octaves: self.gui_adjustables.wind_strength_octaves.value,
+                    wind_gust_octaves: self.gui_adjustables.wind_gust_octaves.value,
+                    wind_gust_direction_octaves: self
+                        .gui_adjustables
+                        .wind_gust_direction_octaves
+                        .value,
+                    wind_direction_lacunarity: self.gui_adjustables.wind_direction_lacunarity.value,
+                    wind_strength_lacunarity: self.gui_adjustables.wind_strength_lacunarity.value,
+                    wind_gust_lacunarity: self.gui_adjustables.wind_gust_lacunarity.value,
+                    wind_gust_direction_lacunarity: self
+                        .gui_adjustables
+                        .wind_gust_direction_lacunarity
+                        .value,
+                    wind_direction_gain: self.gui_adjustables.wind_direction_gain.value,
+                    wind_strength_gain: self.gui_adjustables.wind_strength_gain.value,
+                    wind_gust_gain: self.gui_adjustables.wind_gust_gain.value,
+                    wind_gust_direction_gain: self.gui_adjustables.wind_gust_direction_gain.value,
+                    wind_sample_scale: self.gui_adjustables.wind_sample_scale.value,
+                    wind_second_sample_offset_x: self
+                        .gui_adjustables
+                        .wind_second_sample_offset_x
+                        .value,
+                    wind_second_sample_offset_y: self
+                        .gui_adjustables
+                        .wind_second_sample_offset_y
+                        .value,
+                    wind_strength_offset_x: self.gui_adjustables.wind_strength_offset_x.value,
+                    wind_strength_offset_y: self.gui_adjustables.wind_strength_offset_y.value,
+                    wind_gust_offset_x: self.gui_adjustables.wind_gust_offset_x.value,
+                    wind_gust_offset_y: self.gui_adjustables.wind_gust_offset_y.value,
+                    wind_gust_direction_offset_x: self
+                        .gui_adjustables
+                        .wind_gust_direction_offset_x
+                        .value,
+                    wind_gust_direction_offset_y: self
+                        .gui_adjustables
+                        .wind_gust_direction_offset_y
+                        .value,
+                    wind_gust_direction_second_offset_x: self
+                        .gui_adjustables
+                        .wind_gust_direction_second_offset_x
+                        .value,
+                    wind_gust_direction_second_offset_y: self
+                        .gui_adjustables
+                        .wind_gust_direction_second_offset_y
+                        .value,
+                    wind_direction_time_scroll_x: self
+                        .gui_adjustables
+                        .wind_direction_time_scroll_x
+                        .value,
+                    wind_direction_time_scroll_y: self
+                        .gui_adjustables
+                        .wind_direction_time_scroll_y
+                        .value,
+                    wind_strength_time_scroll_x: self
+                        .gui_adjustables
+                        .wind_strength_time_scroll_x
+                        .value,
+                    wind_strength_time_scroll_y: self
+                        .gui_adjustables
+                        .wind_strength_time_scroll_y
+                        .value,
+                    wind_gust_time_scroll_x: self.gui_adjustables.wind_gust_time_scroll_x.value,
+                    wind_gust_time_scroll_y: self.gui_adjustables.wind_gust_time_scroll_y.value,
+                    wind_gust_direction_time_scroll_x: self
+                        .gui_adjustables
+                        .wind_gust_direction_time_scroll_x
+                        .value,
+                    wind_gust_direction_time_scroll_y: self
+                        .gui_adjustables
+                        .wind_gust_direction_time_scroll_y
+                        .value,
+                    wind_time_scale: self.gui_adjustables.wind_time_scale.value,
+                    wind_direction_detail_strength: self
+                        .gui_adjustables
+                        .wind_direction_detail_strength
+                        .value,
+                    wind_gust_direction_detail_strength: self
+                        .gui_adjustables
+                        .wind_gust_direction_detail_strength
+                        .value,
+                    wind_strength_smooth_min: self.gui_adjustables.wind_strength_smooth_min.value,
+                    wind_strength_smooth_max: self.gui_adjustables.wind_strength_smooth_max.value,
+                    wind_gust_smooth_min: self.gui_adjustables.wind_gust_smooth_min.value,
+                    wind_gust_smooth_max: self.gui_adjustables.wind_gust_smooth_max.value,
+                    wind_gust_boost: self.gui_adjustables.wind_gust_boost.value,
+                    wind_min_strength: self.gui_adjustables.wind_min_strength.value,
+                    wind_max_strength: self.gui_adjustables.wind_max_strength.value,
+                    wind_output_max_strength: self.gui_adjustables.wind_output_max_strength.value,
+                };
 
                 self.tracer
                     .update_buffers(
@@ -3204,6 +3308,7 @@ impl App {
                         update_shadow_map,
                         self.gui_adjustables.lens_flare_intensity.value,
                         self.gui_adjustables.lens_flare_sun_pixel_scale.value,
+                        wind_gui_params,
                         self.flora_tick,
                         FLORA_SPROUT_DELAY_TICKS,
                         FLORA_FULL_GROWTH_TICKS,

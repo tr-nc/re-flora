@@ -28,6 +28,7 @@ pub enum GuiParamKind {
     Float,
     Int,
     Uint,
+    Choice,
     Bool,
     Color,
 }
@@ -55,6 +56,10 @@ pub enum GuiParamValue {
         min: Option<u32>,
         #[serde(default)]
         max: Option<u32>,
+    },
+    Choice {
+        value: u32,
+        options: Vec<String>,
     },
     Bool {
         value: bool,
@@ -90,6 +95,14 @@ impl GuiParamValue {
     }
 
     #[allow(dead_code)]
+    pub fn get_choice(&self) -> Option<(u32, &[String])> {
+        match self {
+            GuiParamValue::Choice { value, options } => Some((*value, options.as_slice())),
+            _ => None,
+        }
+    }
+
+    #[allow(dead_code)]
     pub fn get_bool(&self) -> Option<bool> {
         match self {
             GuiParamValue::Bool { value } => Some(*value),
@@ -119,6 +132,12 @@ impl GuiParamValue {
 
     pub fn set_uint(&mut self, value: u32) {
         if let GuiParamValue::Uint { value: v, .. } = self {
+            *v = value;
+        }
+    }
+
+    pub fn set_choice(&mut self, value: u32) {
+        if let GuiParamValue::Choice { value: v, .. } = self {
             *v = value;
         }
     }

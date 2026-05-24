@@ -66,6 +66,61 @@ struct WindVolumePushConstants {
     bucket_index: u32,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct WindGuiParams {
+    pub wind_mode: u32,
+    pub wind_direction_seed: u32,
+    pub wind_strength_seed: u32,
+    pub wind_gust_seed: u32,
+    pub wind_gust_direction_seed: u32,
+    pub wind_direction_frequency: f32,
+    pub wind_strength_frequency: f32,
+    pub wind_gust_frequency: f32,
+    pub wind_gust_direction_frequency: f32,
+    pub wind_direction_octaves: u32,
+    pub wind_strength_octaves: u32,
+    pub wind_gust_octaves: u32,
+    pub wind_gust_direction_octaves: u32,
+    pub wind_direction_lacunarity: f32,
+    pub wind_strength_lacunarity: f32,
+    pub wind_gust_lacunarity: f32,
+    pub wind_gust_direction_lacunarity: f32,
+    pub wind_direction_gain: f32,
+    pub wind_strength_gain: f32,
+    pub wind_gust_gain: f32,
+    pub wind_gust_direction_gain: f32,
+    pub wind_sample_scale: f32,
+    pub wind_second_sample_offset_x: f32,
+    pub wind_second_sample_offset_y: f32,
+    pub wind_strength_offset_x: f32,
+    pub wind_strength_offset_y: f32,
+    pub wind_gust_offset_x: f32,
+    pub wind_gust_offset_y: f32,
+    pub wind_gust_direction_offset_x: f32,
+    pub wind_gust_direction_offset_y: f32,
+    pub wind_gust_direction_second_offset_x: f32,
+    pub wind_gust_direction_second_offset_y: f32,
+    pub wind_direction_time_scroll_x: f32,
+    pub wind_direction_time_scroll_y: f32,
+    pub wind_strength_time_scroll_x: f32,
+    pub wind_strength_time_scroll_y: f32,
+    pub wind_gust_time_scroll_x: f32,
+    pub wind_gust_time_scroll_y: f32,
+    pub wind_gust_direction_time_scroll_x: f32,
+    pub wind_gust_direction_time_scroll_y: f32,
+    pub wind_time_scale: f32,
+    pub wind_direction_detail_strength: f32,
+    pub wind_gust_direction_detail_strength: f32,
+    pub wind_strength_smooth_min: f32,
+    pub wind_strength_smooth_max: f32,
+    pub wind_gust_smooth_min: f32,
+    pub wind_gust_smooth_max: f32,
+    pub wind_gust_boost: f32,
+    pub wind_min_strength: f32,
+    pub wind_max_strength: f32,
+    pub wind_output_max_strength: f32,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct VsmFilterPushConstants {
@@ -476,6 +531,7 @@ impl Tracer {
         update_shadow_map: bool,
         lens_flare_intensity: f32,
         lens_flare_sun_pixel_scale: f32,
+        wind_gui_params: WindGuiParams,
         flora_tick: u32,
         sprout_delay_ticks: u32,
         full_growth_ticks: u32,
@@ -588,6 +644,7 @@ impl Tracer {
             ocean_sea_level_shift,
             lens_flare_intensity,
             lens_flare_sun_pixel_scale,
+            wind_gui_params,
         )?;
 
         self.world_tick_seconds = crate::game_time::clamp_world_tick_seconds(world_tick_seconds);

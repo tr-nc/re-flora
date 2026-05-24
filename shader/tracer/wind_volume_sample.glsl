@@ -4,56 +4,122 @@
 #include "../include/core/definitions.glsl"
 #include "../include/core/gradient_noise.glsl"
 
-const float WIND_DIRECTION_FREQUENCY       = 0.0025f;
-const float WIND_STRENGTH_FREQUENCY        = 0.00125f;
-const float WIND_MIN_STRENGTH              = 0.5f;
-const float WIND_MAX_STRENGTH              = 5.0f;
-const float WIND_SAMPLE_SCALE              = 256.0f;
-const vec2 WIND_SECOND_SAMPLE_OFFSET       = vec2(57.23f, -113.87f);
-const vec2 WIND_STRENGTH_OFFSET            = vec2(-211.0f, 83.0f);
-const vec2 WIND_GUST_OFFSET                = vec2(149.0f, -67.0f);
-const vec2 WIND_DIRECTION_TIME_SCROLL      = vec2(0.2f, -0.3f);
-const vec2 WIND_STRENGTH_TIME_SCROLL       = vec2(-0.3f, 0.5f);
-const vec2 WIND_GUST_TIME_SCROLL           = vec2(0.7f, -0.45f);
-const float WIND_TIME_SCALE                = 200.0f;
-const float WIND_DIRECTION_DETAIL_STRENGTH = 0.5f;
-const float WIND_GUST_FREQUENCY            = 0.0035f;
-const float WIND_GUST_BOOST                = 0.3f;
+float wind_safe_smoothstep(float edge0, float edge1, float x) {
+    float low  = min(edge0, edge1);
+    float high = max(edge0, edge1);
+    if (high - low <= EPSILON) {
+        return x >= high ? 1.0f : 0.0f;
+    }
+    return smoothstep(low, high, x);
+}
+
+int wind_safe_octaves(uint octaves) { return int(clamp(octaves, 1u, 8u)); }
+
+vec2 sample_wind_direction(vec2 sample_pos, vec2 primary_offset, vec2 detail_offset,
+                           vec2 time_offset, uint seed, float frequency, uint octaves,
+                           float lacunarity, float gain, float detail_strength) {
+    float safe_frequency  = max(frequency, 0.0f);
+    float safe_lacunarity = max(lacunarity, 0.001f);
+    float safe_gain       = max(gain, 0.0f);
+    int safe_octaves      = wind_safe_octaves(octaves);
+
+    float primary_noise = fbm_cnoise_2d(sample_pos.x + primary_offset.x + time_offset.x,
+                                        sample_pos.y + primary_offset.y + time_offset.y, seed,
+                                        safe_frequency, safe_octaves, safe_lacunarity, safe_gain);
+    float detail_noise  = fbm_cnoise_2d(sample_pos.x + detail_offset.x + time_offset.x,
+                                        sample_pos.y + detail_offset.y + time_offset.y, seed,
+                                        safe_frequency, safe_octaves, safe_lacunarity, safe_gain);
+
+    float angle = (primary_noise * 0.5f + 0.5f) * TWO_PI + detail_noise * detail_strength;
+    return vec2(cos(angle), sin(angle));
+}
 
 vec3 sample_procedural_wind(vec3 world_pos, float time) {
-    vec2 sample_pos     = world_pos.xz * WIND_SAMPLE_SCALE;
-    float scroll_time   = time * WIND_TIME_SCALE;
-    vec2 direction_time = WIND_DIRECTION_TIME_SCROLL * scroll_time;
-    vec2 strength_time  = WIND_STRENGTH_TIME_SCROLL * scroll_time;
-    vec2 gust_time      = WIND_GUST_TIME_SCROLL * scroll_time;
+    uint wind_mode = min(gui_input.wind_mode, 3u);
+    bool use_gust  = wind_mode == 1u || wind_mode == 3u;
+    bool use_base  = wind_mode == 2u || wind_mode == 3u;
+    if (!use_base && !use_gust) {
+        return vec3(0.0f);
+    }
 
-    float primary_direction_noise =
-        fbm_cnoise_2d(sample_pos.x + direction_time.x, sample_pos.y + direction_time.y, 1729u,
-                      WIND_DIRECTION_FREQUENCY, 4, 2.0, 0.5);
+    vec2 sample_pos   = world_pos.xz * max(gui_input.wind_sample_scale, 0.0f);
+    float scroll_time = time * gui_input.wind_time_scale;
 
-    float detail_direction_noise =
-        fbm_cnoise_2d(sample_pos.x + WIND_SECOND_SAMPLE_OFFSET.x + direction_time.x,
-                      sample_pos.y + WIND_SECOND_SAMPLE_OFFSET.y + direction_time.y, 1729u,
-                      WIND_DIRECTION_FREQUENCY, 4, 2.0, 0.5);
+    vec2 base_direction_detail_offset =
+        vec2(gui_input.wind_second_sample_offset_x, gui_input.wind_second_sample_offset_y);
+    vec2 strength_offset = vec2(gui_input.wind_strength_offset_x, gui_input.wind_strength_offset_y);
+    vec2 gust_mask_offset = vec2(gui_input.wind_gust_offset_x, gui_input.wind_gust_offset_y);
+    vec2 gust_direction_offset =
+        vec2(gui_input.wind_gust_direction_offset_x, gui_input.wind_gust_direction_offset_y);
+    vec2 gust_direction_detail_offset =
+        gust_direction_offset + vec2(gui_input.wind_gust_direction_second_offset_x,
+                                     gui_input.wind_gust_direction_second_offset_y);
 
-    float base_angle   = (primary_direction_noise * 0.5f + 0.5f) * TWO_PI;
-    float detail_angle = detail_direction_noise * WIND_DIRECTION_DETAIL_STRENGTH;
-    vec2 direction     = vec2(cos(base_angle + detail_angle), sin(base_angle + detail_angle));
+    vec2 base_direction_time =
+        vec2(gui_input.wind_direction_time_scroll_x, gui_input.wind_direction_time_scroll_y) *
+        scroll_time;
+    vec2 strength_time =
+        vec2(gui_input.wind_strength_time_scroll_x, gui_input.wind_strength_time_scroll_y) *
+        scroll_time;
+    vec2 gust_mask_time = vec2(gui_input.wind_gust_time_scroll_x,
+                               gui_input.wind_gust_time_scroll_y) *
+                          scroll_time;
+    vec2 gust_direction_time = vec2(gui_input.wind_gust_direction_time_scroll_x,
+                                    gui_input.wind_gust_direction_time_scroll_y) *
+                               scroll_time;
 
-    float strength_noise = fbm_cnoise_2d(sample_pos.x + WIND_STRENGTH_OFFSET.x + strength_time.x,
-                                         sample_pos.y + WIND_STRENGTH_OFFSET.y + strength_time.y,
-                                         2843u, WIND_STRENGTH_FREQUENCY, 4, 2.0, 0.5);
+    vec2 base_direction = sample_wind_direction(
+        sample_pos, vec2(0.0f), base_direction_detail_offset, base_direction_time,
+        gui_input.wind_direction_seed, gui_input.wind_direction_frequency,
+        gui_input.wind_direction_octaves, gui_input.wind_direction_lacunarity,
+        gui_input.wind_direction_gain, gui_input.wind_direction_detail_strength);
 
-    float gust_noise = fbm_cnoise_2d(sample_pos.x + WIND_GUST_OFFSET.x + gust_time.x,
-                                     sample_pos.y + WIND_GUST_OFFSET.y + gust_time.y, 3181u,
-                                     WIND_GUST_FREQUENCY, 3, 2.0, 0.5);
+    vec2 gust_direction = sample_wind_direction(
+        sample_pos, gust_direction_offset, gust_direction_detail_offset, gust_direction_time,
+        gui_input.wind_gust_direction_seed, gui_input.wind_gust_direction_frequency,
+        gui_input.wind_gust_direction_octaves, gui_input.wind_gust_direction_lacunarity,
+        gui_input.wind_gust_direction_gain, gui_input.wind_gust_direction_detail_strength);
 
-    float normalized_strength = smoothstep(0.08f, 0.92f, strength_noise * 0.5f + 0.5f);
-    float gust_factor         = smoothstep(0.2f, 0.85f, gust_noise * 0.5f + 0.5f);
-    float strength_mix        = clamp(normalized_strength + gust_factor * WIND_GUST_BOOST,
-                                      0.0f, 1.0f);
-    float strength            = mix(WIND_MIN_STRENGTH, WIND_MAX_STRENGTH, strength_mix);
-    vec2 wind_planar = direction * strength;
+    float strength_noise = fbm_cnoise_2d(
+        sample_pos.x + strength_offset.x + strength_time.x,
+        sample_pos.y + strength_offset.y + strength_time.y, gui_input.wind_strength_seed,
+        max(gui_input.wind_strength_frequency, 0.0f),
+        wind_safe_octaves(gui_input.wind_strength_octaves),
+        max(gui_input.wind_strength_lacunarity, 0.001f), max(gui_input.wind_strength_gain, 0.0f));
+
+    float gust_noise = fbm_cnoise_2d(
+        sample_pos.x + gust_mask_offset.x + gust_mask_time.x,
+        sample_pos.y + gust_mask_offset.y + gust_mask_time.y, gui_input.wind_gust_seed,
+        max(gui_input.wind_gust_frequency, 0.0f), wind_safe_octaves(gui_input.wind_gust_octaves),
+        max(gui_input.wind_gust_lacunarity, 0.001f), max(gui_input.wind_gust_gain, 0.0f));
+
+    float base_strength_mix = wind_safe_smoothstep(gui_input.wind_strength_smooth_min,
+                                                   gui_input.wind_strength_smooth_max,
+                                                   strength_noise * 0.5f + 0.5f);
+    float gust_factor       = wind_safe_smoothstep(gui_input.wind_gust_smooth_min,
+                                                   gui_input.wind_gust_smooth_max,
+                                                   gust_noise * 0.5f + 0.5f);
+
+    float base_min_strength = min(gui_input.wind_min_strength, gui_input.wind_max_strength);
+    float base_max_strength = max(gui_input.wind_min_strength, gui_input.wind_max_strength);
+    float base_strength     = mix(base_min_strength, base_max_strength, base_strength_mix);
+    float gust_strength     = gust_factor * max(gui_input.wind_gust_boost, 0.0f);
+
+    vec2 wind_planar = vec2(0.0f);
+    if (use_base) {
+        wind_planar += base_direction * base_strength;
+    }
+    if (use_gust) {
+        wind_planar += gust_direction * gust_strength;
+    }
+
+    if (gui_input.wind_output_max_strength > EPSILON) {
+        float wind_length = length(wind_planar);
+        if (wind_length > gui_input.wind_output_max_strength) {
+            wind_planar *= gui_input.wind_output_max_strength / wind_length;
+        }
+    }
+
     return vec3(wind_planar.x, 0.0f, wind_planar.y);
 }
 

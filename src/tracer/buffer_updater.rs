@@ -2,7 +2,7 @@ use crate::generated::gpu_structs::{
     EnvInfo, FloraGrowthInfo, GodRayInfo, GuiInput, PlayerColliderInfo, PostProcessingInfo,
     ShadingInfo, SpatialInfo, StarlightInfo, SunInfo, TemporalInfo, VoxelColors,
 };
-use crate::tracer::TracerResources;
+use crate::tracer::{TracerResources, WindGuiParams};
 use anyhow::Result;
 use bytemuck::Zeroable;
 use glam::{Mat4, Vec3};
@@ -229,6 +229,7 @@ impl BufferUpdater {
         ocean_sea_level_shift: f32,
         lens_flare_intensity: f32,
         lens_flare_sun_pixel_scale: f32,
+        wind_gui_params: WindGuiParams,
     ) -> Result<()> {
         resources.gui_input.fill_uniform(&GuiInput {
             debug_float,
@@ -248,6 +249,60 @@ impl BufferUpdater {
             ocean_sea_level_shift,
             lens_flare_intensity,
             lens_flare_sun_pixel_scale,
+            wind_mode: wind_gui_params.wind_mode,
+            wind_direction_seed: wind_gui_params.wind_direction_seed,
+            wind_strength_seed: wind_gui_params.wind_strength_seed,
+            wind_gust_seed: wind_gui_params.wind_gust_seed,
+            wind_gust_direction_seed: wind_gui_params.wind_gust_direction_seed,
+            wind_direction_frequency: wind_gui_params.wind_direction_frequency,
+            wind_strength_frequency: wind_gui_params.wind_strength_frequency,
+            wind_gust_frequency: wind_gui_params.wind_gust_frequency,
+            wind_gust_direction_frequency: wind_gui_params.wind_gust_direction_frequency,
+            wind_direction_octaves: wind_gui_params.wind_direction_octaves,
+            wind_strength_octaves: wind_gui_params.wind_strength_octaves,
+            wind_gust_octaves: wind_gui_params.wind_gust_octaves,
+            wind_gust_direction_octaves: wind_gui_params.wind_gust_direction_octaves,
+            wind_direction_lacunarity: wind_gui_params.wind_direction_lacunarity,
+            wind_strength_lacunarity: wind_gui_params.wind_strength_lacunarity,
+            wind_gust_lacunarity: wind_gui_params.wind_gust_lacunarity,
+            wind_gust_direction_lacunarity: wind_gui_params.wind_gust_direction_lacunarity,
+            wind_direction_gain: wind_gui_params.wind_direction_gain,
+            wind_strength_gain: wind_gui_params.wind_strength_gain,
+            wind_gust_gain: wind_gui_params.wind_gust_gain,
+            wind_gust_direction_gain: wind_gui_params.wind_gust_direction_gain,
+            wind_sample_scale: wind_gui_params.wind_sample_scale,
+            wind_second_sample_offset_x: wind_gui_params.wind_second_sample_offset_x,
+            wind_second_sample_offset_y: wind_gui_params.wind_second_sample_offset_y,
+            wind_strength_offset_x: wind_gui_params.wind_strength_offset_x,
+            wind_strength_offset_y: wind_gui_params.wind_strength_offset_y,
+            wind_gust_offset_x: wind_gui_params.wind_gust_offset_x,
+            wind_gust_offset_y: wind_gui_params.wind_gust_offset_y,
+            wind_gust_direction_offset_x: wind_gui_params.wind_gust_direction_offset_x,
+            wind_gust_direction_offset_y: wind_gui_params.wind_gust_direction_offset_y,
+            wind_gust_direction_second_offset_x: wind_gui_params
+                .wind_gust_direction_second_offset_x,
+            wind_gust_direction_second_offset_y: wind_gui_params
+                .wind_gust_direction_second_offset_y,
+            wind_direction_time_scroll_x: wind_gui_params.wind_direction_time_scroll_x,
+            wind_direction_time_scroll_y: wind_gui_params.wind_direction_time_scroll_y,
+            wind_strength_time_scroll_x: wind_gui_params.wind_strength_time_scroll_x,
+            wind_strength_time_scroll_y: wind_gui_params.wind_strength_time_scroll_y,
+            wind_gust_time_scroll_x: wind_gui_params.wind_gust_time_scroll_x,
+            wind_gust_time_scroll_y: wind_gui_params.wind_gust_time_scroll_y,
+            wind_gust_direction_time_scroll_x: wind_gui_params.wind_gust_direction_time_scroll_x,
+            wind_gust_direction_time_scroll_y: wind_gui_params.wind_gust_direction_time_scroll_y,
+            wind_time_scale: wind_gui_params.wind_time_scale,
+            wind_direction_detail_strength: wind_gui_params.wind_direction_detail_strength,
+            wind_gust_direction_detail_strength: wind_gui_params
+                .wind_gust_direction_detail_strength,
+            wind_strength_smooth_min: wind_gui_params.wind_strength_smooth_min,
+            wind_strength_smooth_max: wind_gui_params.wind_strength_smooth_max,
+            wind_gust_smooth_min: wind_gui_params.wind_gust_smooth_min,
+            wind_gust_smooth_max: wind_gui_params.wind_gust_smooth_max,
+            wind_gust_boost: wind_gui_params.wind_gust_boost,
+            wind_min_strength: wind_gui_params.wind_min_strength,
+            wind_max_strength: wind_gui_params.wind_max_strength,
+            wind_output_max_strength: wind_gui_params.wind_output_max_strength,
             ..GuiInput::zeroed()
         })
     }

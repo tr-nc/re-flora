@@ -37,26 +37,8 @@ layout(set = 0, binding = 4) uniform sampler2D gfx_depth_tex;
 layout(set = 0, binding = 5, r32f) uniform readonly image2D compute_depth_tex;
 layout(set = 0, binding = 6) uniform sampler2D shadow_map_tex;
 layout(set = 0, binding = 7, r32f) uniform writeonly image2D god_ray_output_tex;
-layout(set = 0, binding = 8) uniform U_GuiInput {
-    float debug_float;
-    uint debug_bool;
-    uint debug_uint;
-    vec3 flora_instance_hsv_offset_max;
-    vec3 flora_voxel_hsv_offset_max;
-    vec3 grass_bottom_dark;
-    vec3 grass_bottom_light;
-    vec3 grass_tip_dark;
-    vec3 grass_tip_light;
-    vec3 ocean_deep_color;
-    vec3 ocean_shallow_color;
-    float ocean_normal_amplitude;
-    float ocean_noise_frequency;
-    float ocean_time_multiplier;
-    float ocean_sea_level_shift;
-    float lens_flare_intensity;
-    float lens_flare_sun_pixel_scale;
-}
-gui_input;
+#define GUI_INPUT_BINDING 8
+#include "../include/gui_input.glsl"
 
 layout(set = 1, binding = 0, r8) readonly uniform image2DArray scalar_bn;
 layout(set = 1, binding = 1, rg8) readonly uniform image2DArray unit_vec2_bn;

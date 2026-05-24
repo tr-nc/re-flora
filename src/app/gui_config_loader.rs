@@ -262,6 +262,29 @@ impl GuiConfigLoader {
                     }
                 }
             }
+            (GuiParamKind::Choice, GuiParamValue::Choice { value, options }) => {
+                if options.is_empty() {
+                    errors.push(format!(
+                        "Section '{}' param '{}': choice options must not be empty",
+                        section_name, param.id
+                    ));
+                }
+                if *value as usize >= options.len() {
+                    errors.push(format!(
+                        "Section '{}' param '{}': value ({}) is outside choice options 0..{}",
+                        section_name,
+                        param.id,
+                        value,
+                        options.len().saturating_sub(1)
+                    ));
+                }
+                if options.iter().any(|option| option.trim().is_empty()) {
+                    errors.push(format!(
+                        "Section '{}' param '{}': choice options must not contain empty labels",
+                        section_name, param.id
+                    ));
+                }
+            }
             (GuiParamKind::Bool, GuiParamValue::Bool { .. }) => {}
             (GuiParamKind::Color, GuiParamValue::Color { value }) => {
                 if !Self::is_valid_color(value) {
@@ -276,6 +299,7 @@ impl GuiConfigLoader {
                     GuiParamKind::Float => "float { value, min, max }",
                     GuiParamKind::Int => "int { value, min, max }",
                     GuiParamKind::Uint => "uint { value, min, max }",
+                    GuiParamKind::Choice => "choice { value, options }",
                     GuiParamKind::Bool => "bool { value }",
                     GuiParamKind::Color => "color { value }",
                 };
@@ -287,6 +311,7 @@ impl GuiConfigLoader {
                         GuiParamKind::Float => "float",
                         GuiParamKind::Int => "int",
                         GuiParamKind::Uint => "uint",
+                        GuiParamKind::Choice => "choice",
                         GuiParamKind::Bool => "bool",
                         GuiParamKind::Color => "color",
                     },
