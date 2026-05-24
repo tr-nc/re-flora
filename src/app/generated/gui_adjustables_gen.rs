@@ -145,6 +145,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "VSM Blur Radius (texels)",
     },
     GeneratedGuiParamDescriptor {
+        section: "Shadow",
+        id: "vsm_temporal_alpha",
+        kind: "float",
+        label: "VSM Temporal Alpha",
+    },
+    GeneratedGuiParamDescriptor {
         section: "Starlight",
         id: "starlight_iterations",
         kind: "int",
@@ -684,6 +690,7 @@ pub struct GuiAdjustables {
     pub season: crate::gui_adjustables::FloatParam,
     pub day_cycle_minutes: crate::gui_adjustables::FloatParam,
     pub vsm_blur_radius: crate::gui_adjustables::UintParam,
+    pub vsm_temporal_alpha: crate::gui_adjustables::FloatParam,
     pub starlight_iterations: crate::gui_adjustables::IntParam,
     pub starlight_formuparam: crate::gui_adjustables::FloatParam,
     pub starlight_volsteps: crate::gui_adjustables::IntParam,
@@ -803,6 +810,7 @@ impl GuiAdjustables {
         let mut season_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut day_cycle_minutes_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut vsm_blur_radius_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut vsm_temporal_alpha_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut starlight_iterations_field: Option<crate::gui_adjustables::IntParam> = None;
         let mut starlight_formuparam_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut starlight_volsteps_field: Option<crate::gui_adjustables::IntParam> = None;
@@ -1021,6 +1029,13 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0);
                             let max = max.unwrap_or(100);
                             vsm_blur_radius_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "vsm_temporal_alpha" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            vsm_temporal_alpha_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "starlight_iterations" => {
@@ -1613,6 +1628,7 @@ impl GuiAdjustables {
             season: season_field.expect("Missing parameter: season"),
             day_cycle_minutes: day_cycle_minutes_field.expect("Missing parameter: day_cycle_minutes"),
             vsm_blur_radius: vsm_blur_radius_field.expect("Missing parameter: vsm_blur_radius"),
+            vsm_temporal_alpha: vsm_temporal_alpha_field.expect("Missing parameter: vsm_temporal_alpha"),
             starlight_iterations: starlight_iterations_field.expect("Missing parameter: starlight_iterations"),
             starlight_formuparam: starlight_formuparam_field.expect("Missing parameter: starlight_formuparam"),
             starlight_volsteps: starlight_volsteps_field.expect("Missing parameter: starlight_volsteps"),
@@ -1718,6 +1734,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "latitude" => Some(&adjustables.latitude),
         "season" => Some(&adjustables.season),
         "day_cycle_minutes" => Some(&adjustables.day_cycle_minutes),
+        "vsm_temporal_alpha" => Some(&adjustables.vsm_temporal_alpha),
         "starlight_formuparam" => Some(&adjustables.starlight_formuparam),
         "starlight_stepsize" => Some(&adjustables.starlight_stepsize),
         "starlight_zoom" => Some(&adjustables.starlight_zoom),
@@ -1859,6 +1876,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "latitude" => Some(&mut adjustables.latitude),
         "season" => Some(&mut adjustables.season),
         "day_cycle_minutes" => Some(&mut adjustables.day_cycle_minutes),
+        "vsm_temporal_alpha" => Some(&mut adjustables.vsm_temporal_alpha),
         "starlight_formuparam" => Some(&mut adjustables.starlight_formuparam),
         "starlight_stepsize" => Some(&mut adjustables.starlight_stepsize),
         "starlight_zoom" => Some(&mut adjustables.starlight_zoom),

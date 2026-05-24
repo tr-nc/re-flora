@@ -222,6 +222,17 @@ value = 5
 min = 0
 max = 64
 
+[[section.param]]
+id = "vsm_temporal_alpha"
+kind = "float"
+label = "VSM Temporal Alpha"
+type = "Float"
+
+[section.param.data]
+value = 0.2
+min = 0
+max = 1
+
 [[section]]
 name = "Starlight"
 

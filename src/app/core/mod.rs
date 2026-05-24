@@ -1224,7 +1224,6 @@ const DEBUG_MODEL_LINE_START_XZ: Vec2 = Vec2::new(0.5, 0.5);
 const DEBUG_MODEL_LINE_STEP_XZ: Vec2 = Vec2::new(1.0, 0.0);
 const FLORA_FULL_GROWTH_TICKS: u32 = 30;
 const SUN_POSITION_UPDATE_INTERVAL_TICKS: u32 = 1;
-const DEFAULT_VSM_TEMPORAL_ALPHA: f32 = 0.2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ActiveVoxelType {
@@ -2337,6 +2336,16 @@ impl App {
         environment::calculate_sun_position(time_of_day, latitude, season)
     }
 
+    fn frame_rate_adjusted_vsm_temporal_alpha(alpha_60fps: f32, delta_seconds: f32) -> f32 {
+        let alpha_60fps = alpha_60fps.clamp(0.0, 1.0);
+        if alpha_60fps <= 0.0 || alpha_60fps >= 1.0 {
+            return alpha_60fps;
+        }
+
+        let frame_scale = delta_seconds.max(0.0) * 60.0;
+        1.0 - (1.0 - alpha_60fps).powf(frame_scale)
+    }
+
     fn execute_edit_plan(&mut self, plan: WorldEditPlan) -> Result<()> {
         world_ops::execute_edit_plan_on_backend(self, plan)
     }
@@ -3190,6 +3199,10 @@ impl App {
 
                 let leaf_bottom = color_to_vec3(self.gui_adjustables.leaves_bottom_color.value);
                 let leaf_tip = color_to_vec3(self.gui_adjustables.leaves_tip_color.value);
+                let vsm_temporal_alpha = Self::frame_rate_adjusted_vsm_temporal_alpha(
+                    self.gui_adjustables.vsm_temporal_alpha.value,
+                    frame_delta_time,
+                );
                 self.tracer
                     .record_trace(
                         cmdbuf,
@@ -3204,7 +3217,7 @@ impl App {
                         &self.render_flags,
                         update_shadow_map,
                         self.gui_adjustables.vsm_blur_radius.value,
-                        DEFAULT_VSM_TEMPORAL_ALPHA,
+                        vsm_temporal_alpha,
                         false,
                     )
                     .unwrap();
