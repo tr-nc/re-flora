@@ -69,16 +69,9 @@ float get_shadow_weight_vsm(mat4 shadow_cam_view_proj_mat, vec4 voxel_pos_ws) {
 
 #ifdef ENABLE_TEMPORAL_VSM
 float get_shadow_weight_vsm_temporal(vec4 voxel_pos_ws) {
-    float current_vis = get_shadow_weight_vsm(shadow_camera_info.view_proj_mat, voxel_pos_ws);
-    if (shadow_temporal_info.has_previous_shadow_map == 0u ||
-        shadow_temporal_info.blend_alpha >= 1.0) {
-        return current_vis;
-    }
-
-    float previous_vis = get_shadow_weight_vsm_from_map(
-        shadow_map_tex_for_vsm_prev, shadow_camera_info_prev.view_proj_mat, voxel_pos_ws);
-    float alpha = smoothstep(0.0, 1.0, clamp(shadow_temporal_info.blend_alpha, 0.0, 1.0));
-    return mix(previous_vis, current_vis, alpha);
+    // Temporal accumulation now happens in the VSM compute path; ping contains
+    // the final blended VSM moments for this frame.
+    return get_shadow_weight_vsm(shadow_camera_info.view_proj_mat, voxel_pos_ws);
 }
 #endif // ENABLE_TEMPORAL_VSM
 #endif // IGNORE_GET_SHADOW_WEIGHT_VSM

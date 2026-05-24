@@ -1,7 +1,6 @@
 use crate::generated::gpu_structs::{
     EnvInfo, FloraGrowthInfo, GodRayInfo, GuiInput, PlayerColliderInfo, PostProcessingInfo,
-    ShadingInfo, ShadowTemporalInfo, SpatialInfo, StarlightInfo, SunInfo, TemporalInfo,
-    VoxelColors,
+    ShadingInfo, SpatialInfo, StarlightInfo, SunInfo, TemporalInfo, VoxelColors,
 };
 use crate::tracer::TracerResources;
 use anyhow::Result;
@@ -36,20 +35,6 @@ impl BufferUpdater {
             frame_serial_idx,
             ..EnvInfo::zeroed()
         })
-    }
-
-    pub fn update_shadow_temporal_info(
-        resources: &TracerResources,
-        blend_alpha: f32,
-        has_previous_shadow_map: bool,
-    ) -> Result<()> {
-        resources
-            .shadow_temporal_info
-            .fill_uniform(&ShadowTemporalInfo {
-                blend_alpha,
-                has_previous_shadow_map: has_previous_shadow_map as u32,
-                ..ShadowTemporalInfo::zeroed()
-            })
     }
 
     pub fn update_shading_info(resources: &TracerResources, ambient_light: Vec3) -> Result<()> {

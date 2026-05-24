@@ -482,6 +482,7 @@ impl App {
     pub(super) fn remove_tree(&mut self, tree_id: u32) -> Result<()> {
         self.tracer
             .remove_tree_leaves(&mut self.surface_builder.resources, tree_id)?;
+        self.request_vsm_history_reset();
         self.tree_audio_manager.remove_tree(tree_id);
         self.remove_leaf_emitter(tree_id);
         match self.tree_records.remove(&tree_id) {
@@ -909,6 +910,11 @@ impl App {
                     )?,
                 _ => unreachable!("terrain surface removal compiled into unexpected edit type"),
             };
+            if stats.stats.removed_counts.iter().any(|&count| count > 0)
+                || stats.stats.added_counts.iter().any(|&count| count > 0)
+            {
+                self.request_vsm_history_reset();
+            }
             let rebuild_chunk_ids = world_ops::affected_chunk_indices_for_bound(
                 rebuild_bound,
                 super::VOXEL_DIM_PER_CHUNK,
@@ -961,6 +967,11 @@ impl App {
                     )?,
                 _ => unreachable!("terrain surface placement compiled into unexpected edit type"),
             };
+            if stats.stats.removed_counts.iter().any(|&count| count > 0)
+                || stats.stats.added_counts.iter().any(|&count| count > 0)
+            {
+                self.request_vsm_history_reset();
+            }
             let _modify_elapsed = modify_start.elapsed();
             let mesh_start = Instant::now();
             let rebuild_chunk_ids = world_ops::affected_chunk_indices_for_bound(
@@ -1063,6 +1074,7 @@ impl App {
             tree_id,
             quantized_leaf_positions,
         )?;
+        self.request_vsm_history_reset();
         let add_leaves_elapsed = add_leaves_start.elapsed();
         if benchmark_gui_tree {
             crate::util::BENCH

@@ -6,7 +6,18 @@
 #ifndef VSM_FILTERING_GLSL
 #define VSM_FILTERING_GLSL
 
-const int VSM_FILTER_HALF_SIZE = 5;
+const uint VSM_FILTER_MAX_RADIUS = 64u;
+
+layout(push_constant) uniform PC {
+    uint blur_radius;
+    float temporal_alpha;
+    uint reset_history;
+}
+vsm_filter_push;
+
+int get_vsm_filter_radius() {
+    return int(min(vsm_filter_push.blur_radius, VSM_FILTER_MAX_RADIUS));
+}
 
 float get_gaussian_weight(float offset, float sigma) {
     // if sigma is zero (for a 0-sized kernel), only the center pixel gets weight.
@@ -20,15 +31,20 @@ float get_gaussian_weight(float offset, float sigma) {
 // read from ping
 #ifdef VSM_FILTER_H
 vec4 get_filtered_vsm(ivec2 uvi) {
+    int radius = get_vsm_filter_radius();
+    if (radius <= 0) {
+        return imageLoad(shadow_map_tex_for_vsm_ping, uvi);
+    }
+
     vec4 filtered      = vec4(0.0);
     float total_weight = 0.0;
 
     // sigma controls the "spread" of the blur. A larger sigma gives a softer blur.
     // A common practice is to base it on the kernel size.
-    float sigma = float(VSM_FILTER_HALF_SIZE) / 2.0;
+    float sigma = float(radius) / 2.0;
 
     // do a horizontal Gaussian blur
-    for (int i = -VSM_FILTER_HALF_SIZE; i <= VSM_FILTER_HALF_SIZE; i++) {
+    for (int i = -radius; i <= radius; i++) {
         // check if the sample is within the texture bounds
         if (uvi.x + i < 0 || uvi.x + i >= imageSize(shadow_map_tex_for_vsm_ping).x) {
             continue;
@@ -57,14 +73,19 @@ vec4 get_filtered_vsm(ivec2 uvi) {
 #ifdef VSM_FILTER_V
 // read from pong
 vec4 get_filtered_vsm(ivec2 uvi) {
+    int radius = get_vsm_filter_radius();
+    if (radius <= 0) {
+        return imageLoad(shadow_map_tex_for_vsm_pong, uvi);
+    }
+
     vec4 filtered      = vec4(0.0);
     float total_weight = 0.0;
 
     // calculate sigma based on the kernel size
-    float sigma = float(VSM_FILTER_HALF_SIZE) / 2.0;
+    float sigma = float(radius) / 2.0;
 
     // do a vertical Gaussian blur
-    for (int i = -VSM_FILTER_HALF_SIZE; i <= VSM_FILTER_HALF_SIZE; i++) {
+    for (int i = -radius; i <= radius; i++) {
         // check if the sample is within the texture bounds
         if (uvi.y + i < 0 || uvi.y + i >= imageSize(shadow_map_tex_for_vsm_pong).y) {
             continue;
@@ -86,6 +107,15 @@ vec4 get_filtered_vsm(ivec2 uvi) {
         return filtered / total_weight;
     }
     return filtered;
+}
+vec4 blend_vsm_temporal_history(ivec2 uvi, vec4 current_filtered) {
+    if (vsm_filter_push.reset_history != 0u) {
+        return current_filtered;
+    }
+
+    vec4 history = imageLoad(shadow_map_tex_for_vsm_prev, uvi);
+    float alpha  = clamp(vsm_filter_push.temporal_alpha, 0.0, 1.0);
+    return mix(history, current_filtered, alpha);
 }
 #endif // VSM_FILTER_V
 
