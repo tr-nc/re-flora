@@ -1,18 +1,10 @@
-# Packaging paid builds
+# Packaging release builds
 
-Official binaries are built by GitHub Actions and should be distributed through itch.io, not GitHub Releases.
-
-## Repository setup
-
-Add these in GitHub repository settings:
-
-- Secret `BUTLER_API_KEY`: an itch.io API key for `butler`.
-- Variable `ITCH_PROJECT`: itch project slug, for example `username/re-flora`.
-- Optional variable `ITCH_PUBLISH_ON_TAG`: set to `true` only if `v*` tags should auto-publish.
+Official binaries are built by GitHub Actions and attached to the workflow run as downloadable artifacts.
 
 ## Manual test on `main`
 
-Run **Actions → itch builds → Run workflow** on `main` with `publish_to_itch` left `false`.
+Run **Actions → release packages → Run workflow** on `main`.
 
 That performs release builds for:
 
@@ -20,17 +12,18 @@ That performs release builds for:
 - `macos`
 - `fedora`
 
-It packages each build, prints the package name and size, and does not upload GitHub artifacts or public releases.
+It packages each build, prints the package name and size, and uploads each zip as a workflow artifact retained by GitHub Actions.
 
-## Publish to itch.io
+## Tag release
 
-Run the same workflow with `publish_to_itch` set to `true`, or push a `v*` tag after setting `ITCH_PUBLISH_ON_TAG=true`.
+Push a `v*` tag to build release packages automatically:
 
-The workflow pushes packages directly to itch.io channels:
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
 
-- `username/re-flora:windows`
-- `username/re-flora:macos`
-- `username/re-flora:fedora`
+Download the finished packages from the workflow run's **Artifacts** section.
 
 ## Runtime layout
 
