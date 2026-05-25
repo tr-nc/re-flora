@@ -427,7 +427,7 @@ fn generate_gui_adjustables() {
     code.push_str("    }\n");
     code.push_str("}\n\n");
 
-    code.push_str("#[allow(dead_code)]\n");
+    code.push_str("#[allow(dead_code, unused_variables)]\n");
     code.push_str(
         "pub fn get_choice_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::ChoiceParam> {\n",
     );
@@ -529,7 +529,7 @@ fn generate_gui_adjustables() {
     code.push_str("    }\n");
     code.push_str("}\n\n");
 
-    code.push_str("#[allow(dead_code)]\n");
+    code.push_str("#[allow(dead_code, unused_variables)]\n");
     code.push_str(
         "pub fn get_choice_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::ChoiceParam> {\n",
     );

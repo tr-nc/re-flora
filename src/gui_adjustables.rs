@@ -109,6 +109,7 @@ pub struct ChoiceParam {
 }
 
 impl ChoiceParam {
+    #[allow(dead_code)]
     pub fn new(value: u32) -> Self {
         Self { value }
     }
