@@ -16,26 +16,7 @@ pc;
 // these are vertex-rate attributes
 layout(location = 0) in uvec2 in_packed_data;
 
-layout(set = 0, binding = 0) uniform U_GuiInput {
-    float debug_float;
-    uint debug_bool;
-    uint debug_uint;
-    vec3 flora_instance_hsv_offset_max;
-    vec3 flora_voxel_hsv_offset_max;
-    vec3 grass_bottom_dark;
-    vec3 grass_bottom_light;
-    vec3 grass_tip_dark;
-    vec3 grass_tip_light;
-    vec3 ocean_deep_color;
-    vec3 ocean_shallow_color;
-    float ocean_normal_amplitude;
-    float ocean_noise_frequency;
-    float ocean_time_multiplier;
-    float ocean_sea_level_shift;
-    float lens_flare_intensity;
-    float lens_flare_sun_pixel_scale;
-}
-gui_input;
+#include "../include/gui_input.glsl"
 
 layout(set = 0, binding = 1) uniform U_SunInfo {
     vec3 sun_dir;

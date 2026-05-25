@@ -102,6 +102,35 @@ impl GuiRenderable for UintParam {
     }
 }
 
+/// Dropdown choice control. The config renderer owns the displayed option labels.
+#[derive(Debug, Clone)]
+pub struct ChoiceParam {
+    pub value: u32,
+}
+
+impl ChoiceParam {
+    #[allow(dead_code)]
+    pub fn new(value: u32) -> Self {
+        Self { value }
+    }
+
+    #[allow(dead_code)]
+    pub fn get(&self) -> u32 {
+        self.value
+    }
+}
+
+impl GuiRenderable for ChoiceParam {
+    fn render(&mut self, ui: &mut egui::Ui, label: &str) -> bool {
+        ui.horizontal(|ui| {
+            ui.label(label);
+            ui.add(egui::DragValue::new(&mut self.value).speed(1.0))
+        })
+        .inner
+        .changed()
+    }
+}
+
 /// Boolean checkbox control
 #[derive(Debug, Clone)]
 pub struct BoolParam {
@@ -223,6 +252,9 @@ macro_rules! declare_gui_adjustables {
     };
     (@init uint, $default:expr, $range:expr) => {
         $crate::gui_adjustables::UintParam::new($default, $range)
+    };
+    (@init choice, $default:expr) => {
+        $crate::gui_adjustables::ChoiceParam::new($default)
     };
     (@init bool, $default:expr) => {
         $crate::gui_adjustables::BoolParam::new($default)

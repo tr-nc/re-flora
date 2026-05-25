@@ -66,6 +66,14 @@ struct WindVolumePushConstants {
     bucket_index: u32,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct WindGuiParams {
+    pub wind_speed: f32,
+    pub wind_layers: u32,
+    pub wind_sharpness: f32,
+    pub wind_strength: f32,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct VsmFilterPushConstants {
@@ -476,6 +484,7 @@ impl Tracer {
         update_shadow_map: bool,
         lens_flare_intensity: f32,
         lens_flare_sun_pixel_scale: f32,
+        wind_gui_params: WindGuiParams,
         flora_tick: u32,
         sprout_delay_ticks: u32,
         full_growth_ticks: u32,
@@ -588,6 +597,7 @@ impl Tracer {
             ocean_sea_level_shift,
             lens_flare_intensity,
             lens_flare_sun_pixel_scale,
+            wind_gui_params,
         )?;
 
         self.world_tick_seconds = crate::game_time::clamp_world_tick_seconds(world_tick_seconds);

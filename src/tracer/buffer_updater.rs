@@ -2,7 +2,7 @@ use crate::generated::gpu_structs::{
     EnvInfo, FloraGrowthInfo, GodRayInfo, GuiInput, PlayerColliderInfo, PostProcessingInfo,
     ShadingInfo, SpatialInfo, StarlightInfo, SunInfo, TemporalInfo, VoxelColors,
 };
-use crate::tracer::TracerResources;
+use crate::tracer::{TracerResources, WindGuiParams};
 use anyhow::Result;
 use bytemuck::Zeroable;
 use glam::{Mat4, Vec3};
@@ -229,6 +229,7 @@ impl BufferUpdater {
         ocean_sea_level_shift: f32,
         lens_flare_intensity: f32,
         lens_flare_sun_pixel_scale: f32,
+        wind_gui_params: WindGuiParams,
     ) -> Result<()> {
         resources.gui_input.fill_uniform(&GuiInput {
             debug_float,
@@ -248,6 +249,10 @@ impl BufferUpdater {
             ocean_sea_level_shift,
             lens_flare_intensity,
             lens_flare_sun_pixel_scale,
+            wind_speed: wind_gui_params.wind_speed,
+            wind_layers: wind_gui_params.wind_layers,
+            wind_sharpness: wind_gui_params.wind_sharpness,
+            wind_strength: wind_gui_params.wind_strength,
             ..GuiInput::zeroed()
         })
     }

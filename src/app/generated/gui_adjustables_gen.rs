@@ -67,6 +67,30 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "World Tick Time (s)",
     },
     GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_speed",
+        kind: "float",
+        label: "Wind Speed",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_layers",
+        kind: "uint",
+        label: "Wind Layers",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_sharpness",
+        kind: "float",
+        label: "Wind Sharpness",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_strength",
+        kind: "float",
+        label: "Wind Strength",
+    },
+    GeneratedGuiParamDescriptor {
         section: "Audio",
         id: "master_volume",
         kind: "float",
@@ -707,6 +731,10 @@ pub struct GuiAdjustables {
     pub grass_render_mode: crate::gui_adjustables::UintParam,
     pub debug_bool: crate::gui_adjustables::BoolParam,
     pub world_tick_seconds: crate::gui_adjustables::FloatParam,
+    pub wind_speed: crate::gui_adjustables::FloatParam,
+    pub wind_layers: crate::gui_adjustables::UintParam,
+    pub wind_sharpness: crate::gui_adjustables::FloatParam,
+    pub wind_strength: crate::gui_adjustables::FloatParam,
     pub master_volume: crate::gui_adjustables::FloatParam,
     pub audio_ray_tracing_enabled: crate::gui_adjustables::BoolParam,
     pub sun_size: crate::gui_adjustables::FloatParam,
@@ -832,6 +860,10 @@ impl GuiAdjustables {
         let mut grass_render_mode_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut debug_bool_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut world_tick_seconds_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_layers_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut wind_sharpness_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut master_volume_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut audio_ray_tracing_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut sun_size_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -986,6 +1018,34 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             world_tick_seconds_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_speed" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            wind_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_layers" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            wind_layers_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_sharpness" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            wind_sharpness_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_strength" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            wind_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "master_volume" => {
@@ -1690,6 +1750,10 @@ impl GuiAdjustables {
             grass_render_mode: grass_render_mode_field.expect("Missing parameter: grass_render_mode"),
             debug_bool: debug_bool_field.expect("Missing parameter: debug_bool"),
             world_tick_seconds: world_tick_seconds_field.expect("Missing parameter: world_tick_seconds"),
+            wind_speed: wind_speed_field.expect("Missing parameter: wind_speed"),
+            wind_layers: wind_layers_field.expect("Missing parameter: wind_layers"),
+            wind_sharpness: wind_sharpness_field.expect("Missing parameter: wind_sharpness"),
+            wind_strength: wind_strength_field.expect("Missing parameter: wind_strength"),
             master_volume: master_volume_field.expect("Missing parameter: master_volume"),
             audio_ray_tracing_enabled: audio_ray_tracing_enabled_field.expect("Missing parameter: audio_ray_tracing_enabled"),
             sun_size: sun_size_field.expect("Missing parameter: sun_size"),
@@ -1806,6 +1870,9 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "lod_distance" => Some(&adjustables.lod_distance),
         "flora_draw_distance" => Some(&adjustables.flora_draw_distance),
         "world_tick_seconds" => Some(&adjustables.world_tick_seconds),
+        "wind_speed" => Some(&adjustables.wind_speed),
+        "wind_sharpness" => Some(&adjustables.wind_sharpness),
+        "wind_strength" => Some(&adjustables.wind_strength),
         "master_volume" => Some(&adjustables.master_volume),
         "sun_size" => Some(&adjustables.sun_size),
         "sun_luminance" => Some(&adjustables.sun_luminance),
@@ -1901,9 +1968,17 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
     match id {
         "debug_uint" => Some(&adjustables.debug_uint),
         "grass_render_mode" => Some(&adjustables.grass_render_mode),
+        "wind_layers" => Some(&adjustables.wind_layers),
         "vsm_blur_radius" => Some(&adjustables.vsm_blur_radius),
         "god_ray_max_checks" => Some(&adjustables.god_ray_max_checks),
         "a_trous_iteration_count" => Some(&adjustables.a_trous_iteration_count),
+        _ => None,
+    }
+}
+
+#[allow(dead_code, unused_variables)]
+pub fn get_choice_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::ChoiceParam> {
+    match id {
         _ => None,
     }
 }
@@ -1953,6 +2028,9 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "lod_distance" => Some(&mut adjustables.lod_distance),
         "flora_draw_distance" => Some(&mut adjustables.flora_draw_distance),
         "world_tick_seconds" => Some(&mut adjustables.world_tick_seconds),
+        "wind_speed" => Some(&mut adjustables.wind_speed),
+        "wind_sharpness" => Some(&mut adjustables.wind_sharpness),
+        "wind_strength" => Some(&mut adjustables.wind_strength),
         "master_volume" => Some(&mut adjustables.master_volume),
         "sun_size" => Some(&mut adjustables.sun_size),
         "sun_luminance" => Some(&mut adjustables.sun_luminance),
@@ -2048,9 +2126,17 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
     match id {
         "debug_uint" => Some(&mut adjustables.debug_uint),
         "grass_render_mode" => Some(&mut adjustables.grass_render_mode),
+        "wind_layers" => Some(&mut adjustables.wind_layers),
         "vsm_blur_radius" => Some(&mut adjustables.vsm_blur_radius),
         "god_ray_max_checks" => Some(&mut adjustables.god_ray_max_checks),
         "a_trous_iteration_count" => Some(&mut adjustables.a_trous_iteration_count),
+        _ => None,
+    }
+}
+
+#[allow(dead_code, unused_variables)]
+pub fn get_choice_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::ChoiceParam> {
+    match id {
         _ => None,
     }
 }

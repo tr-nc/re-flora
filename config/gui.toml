@@ -79,6 +79,53 @@ min = 0
 max = 0.1
 
 [[section]]
+name = "Wind"
+
+[[section.param]]
+id = "wind_speed"
+kind = "float"
+label = "Wind Speed"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 4
+
+[[section.param]]
+id = "wind_layers"
+kind = "uint"
+label = "Wind Layers"
+type = "Uint"
+
+[section.param.data]
+value = 2
+min = 1
+max = 4
+
+[[section.param]]
+id = "wind_sharpness"
+kind = "float"
+label = "Wind Sharpness"
+type = "Float"
+
+[section.param.data]
+value = 0.335
+min = 0
+max = 1
+
+[[section.param]]
+id = "wind_strength"
+kind = "float"
+label = "Wind Strength"
+type = "Float"
+
+[section.param.data]
+value = 2.4
+min = 0
+max = 5
+
+[[section]]
 name = "Audio"
 
 [[section.param]]

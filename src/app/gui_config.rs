@@ -80,6 +80,15 @@ impl GuiAdjustables {
                         });
                         param.value.set_uint(field.value);
                     }
+                    GuiParamKind::Choice => {
+                        let field = Self::get_choice_param(self, &param.id).unwrap_or_else(|| {
+                            panic!(
+                                "GUI param '{}' (section '{}') missing ChoiceParam in GuiAdjustables; rebuild required",
+                                param.id, section.name
+                            )
+                        });
+                        param.value.set_choice(field.value);
+                    }
                     GuiParamKind::Bool => {
                         let field = Self::get_bool_param(self, &param.id).unwrap_or_else(|| {
                             panic!(
@@ -130,6 +139,14 @@ impl GuiAdjustables {
     }
 
     #[allow(dead_code)]
+    fn get_choice_param<'a>(
+        adjustables: &'a GuiAdjustables,
+        id: &str,
+    ) -> Option<&'a crate::gui_adjustables::ChoiceParam> {
+        generated::get_choice_param(adjustables, id)
+    }
+
+    #[allow(dead_code)]
     fn get_bool_param<'a>(
         adjustables: &'a GuiAdjustables,
         id: &str,
@@ -167,6 +184,14 @@ impl GuiAdjustables {
         id: &str,
     ) -> Option<&'a mut crate::gui_adjustables::UintParam> {
         generated::get_uint_param_mut(adjustables, id)
+    }
+
+    #[allow(dead_code)]
+    pub fn get_choice_param_mut<'a>(
+        adjustables: &'a mut GuiAdjustables,
+        id: &str,
+    ) -> Option<&'a mut crate::gui_adjustables::ChoiceParam> {
+        generated::get_choice_param_mut(adjustables, id)
     }
 
     #[allow(dead_code)]
@@ -229,6 +254,26 @@ pub fn render_gui_from_config(
                             });
                         let range = min.unwrap_or(0)..=max.unwrap_or(100);
                         ui.add(egui::Slider::new(&mut field.value, range).text(&param.label));
+                    }
+                    (GuiParamKind::Choice, GuiParamValue::Choice { options, .. }) => {
+                        let field = GuiAdjustables::get_choice_param_mut(adjustables, &param.id)
+                            .unwrap_or_else(|| {
+                                panic!(
+                                    "GUI param '{}' (section '{}') missing ChoiceParam in GuiAdjustables; rebuild required",
+                                    param.id, section.name
+                                )
+                            });
+                        let selected_text = options
+                            .get(field.value as usize)
+                            .map(String::as_str)
+                            .unwrap_or("Invalid choice");
+                        egui::ComboBox::from_label(&param.label)
+                            .selected_text(selected_text)
+                            .show_ui(ui, |ui| {
+                                for (index, option) in options.iter().enumerate() {
+                                    ui.selectable_value(&mut field.value, index as u32, option);
+                                }
+                            });
                     }
                     (GuiParamKind::Bool, GuiParamValue::Bool { .. }) => {
                         let field = GuiAdjustables::get_bool_param_mut(adjustables, &param.id)

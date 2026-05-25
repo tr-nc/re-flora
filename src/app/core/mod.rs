@@ -34,7 +34,7 @@ use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, LeafEmitterDesc, ParticleForces, ParticleHandle,
     ParticleSnapshot, ParticleSystem, PARTICLE_CAPACITY,
 };
-use crate::tracer::{TerrainRayQuery, Tracer, TracerDesc};
+use crate::tracer::{TerrainRayQuery, Tracer, TracerDesc, WindGuiParams};
 use crate::tree_gen::TreeDesc;
 use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
@@ -3149,6 +3149,12 @@ impl App {
                     self.gui_adjustables.season.value,
                 );
                 let update_shadow_map = self.render_flags.enable_shadows;
+                let wind_gui_params = WindGuiParams {
+                    wind_speed: self.gui_adjustables.wind_speed.value,
+                    wind_layers: self.gui_adjustables.wind_layers.value,
+                    wind_sharpness: self.gui_adjustables.wind_sharpness.value,
+                    wind_strength: self.gui_adjustables.wind_strength.value,
+                };
 
                 self.tracer
                     .update_buffers(
@@ -3204,6 +3210,7 @@ impl App {
                         update_shadow_map,
                         self.gui_adjustables.lens_flare_intensity.value,
                         self.gui_adjustables.lens_flare_sun_pixel_scale.value,
+                        wind_gui_params,
                         self.flora_tick,
                         FLORA_SPROUT_DELAY_TICKS,
                         FLORA_FULL_GROWTH_TICKS,

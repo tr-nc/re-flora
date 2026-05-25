@@ -424,6 +424,10 @@ pub struct GuiInput {
     pub ocean_sea_level_shift: f32,
     pub lens_flare_intensity: f32,
     pub lens_flare_sun_pixel_scale: f32,
+    pub wind_speed: f32,
+    pub wind_layers: u32,
+    pub wind_sharpness: f32,
+    pub wind_strength: f32,
     pub _pad8: [u8; 12],
 }
 
