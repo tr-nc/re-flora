@@ -391,7 +391,7 @@ impl Write for TeeLogWriter {
 }
 
 fn run_log_dir() -> PathBuf {
-    PathBuf::from(env!("PROJECT_ROOT"))
+    re_flora_vkn::project_root()
         .join("target")
         .join(RUN_LOG_DIR_NAME)
 }

@@ -1,0 +1,198 @@
+name: release packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "User-facing build version. Defaults to Cargo.toml version plus short commit for manual runs."
+        type: string
+        required: false
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  desktop:
+    name: ${{ matrix.channel }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            channel: windows
+          - os: macos-15
+            channel: macos
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install macOS build dependencies
+        if: runner.os == 'macOS'
+        run: brew install cmake ninja
+
+      - name: Install Windows build dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install cmake ninja -y
+
+      - name: Set up Windows Vulkan SDK
+        if: runner.os == 'Windows'
+        uses: humbletim/setup-vulkan-sdk@v1.2.1
+        with:
+          vulkan-query-version: 1.4.304.1
+          vulkan-components: Vulkan-Headers, Vulkan-Loader
+          vulkan-use-cache: false
+
+      - name: Show Rust toolchain
+        run: rustup show
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Resolve package version
+        id: version
+        shell: bash
+        env:
+          VERSION_INPUT: ${{ github.event.inputs.version }}
+        run: |
+          if [ -n "${VERSION_INPUT:-}" ]; then
+            version="$VERSION_INPUT"
+          elif [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            cargo_version="$(python scripts/package_release.py --print-version)"
+            short_sha="$(git rev-parse --short=7 HEAD)"
+            version="${cargo_version}+${short_sha}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Package version: $version"
+
+      - name: Package release zip
+        id: package
+        shell: bash
+        run: |
+          archive="$(python scripts/package_release.py \
+            --version '${{ steps.version.outputs.version }}' \
+            --channel '${{ matrix.channel }}')"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          python - <<'PY' "$archive"
+          import pathlib
+          import sys
+          path = pathlib.Path(sys.argv[1])
+          print(f"Created {path} ({path.stat().st_size / 1024 / 1024:.1f} MiB)")
+          PY
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: re-flora-${{ steps.version.outputs.version }}-${{ matrix.channel }}
+          path: ${{ steps.package.outputs.archive }}
+          if-no-files-found: error
+          retention-days: 90
+
+  fedora:
+    name: fedora
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Resolve package version
+        id: version
+        shell: bash
+        env:
+          VERSION_INPUT: ${{ github.event.inputs.version }}
+        run: |
+          if [ -n "${VERSION_INPUT:-}" ]; then
+            version="$VERSION_INPUT"
+          elif [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            cargo_version="$(python scripts/package_release.py --print-version)"
+            short_sha="$(git rev-parse --short=7 HEAD)"
+            version="${cargo_version}+${short_sha}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Package version: $version"
+
+      - name: Build and package in Fedora
+        id: package
+        shell: bash
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            -e PACKAGE_VERSION='${{ steps.version.outputs.version }}' \
+            -e HOST_UID="$(id -u)" \
+            -e HOST_GID="$(id -g)" \
+            fedora:latest \
+            bash -lc '
+              set -euo pipefail
+              dnf install -y \
+                alsa-lib-devel \
+                clang-devel \
+                cmake \
+                curl \
+                gcc \
+                gcc-c++ \
+                git \
+                libX11-devel \
+                libxcb-devel \
+                libxkbcommon-devel \
+                make \
+                ninja-build \
+                patch \
+                pkgconf-pkg-config \
+                python3 \
+                systemd-devel \
+                unzip \
+                vulkan-loader-devel \
+                vulkan-tools \
+                wayland-devel
+              curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+              . "$HOME/.cargo/env"
+              rustup show
+              cargo build --release --locked
+              python3 scripts/package_release.py --version "$PACKAGE_VERSION" --channel fedora
+              chown -R "$HOST_UID:$HOST_GID" target dist
+            '
+          archive="$(find dist -maxdepth 1 -name 're-flora-*-fedora.zip' -print -quit)"
+          if [ -z "${archive:-}" ]; then
+            echo "Fedora package archive was not created" >&2
+            exit 1
+          fi
+          echo "archive=$PWD/$archive" >> "$GITHUB_OUTPUT"
+          python - <<'PY' "$archive"
+          import pathlib
+          import sys
+          path = pathlib.Path(sys.argv[1])
+          print(f"Created {path} ({path.stat().st_size / 1024 / 1024:.1f} MiB)")
+          PY
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: re-flora-${{ steps.version.outputs.version }}-fedora
+          path: ${{ steps.package.outputs.archive }}
+          if-no-files-found: error
+          retention-days: 90

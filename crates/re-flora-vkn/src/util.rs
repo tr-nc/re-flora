@@ -1,6 +1,7 @@
 use anyhow::Result;
 use shaderc::{CompileOptions, Compiler, OptimizationLevel};
 use std::collections::HashMap;
+use std::env;
 use std::hash::Hash;
 use std::path::{Path, PathBuf};
 
@@ -49,11 +50,51 @@ fn replace_backslashes_with_slashes(path: &str) -> String {
 }
 
 pub fn project_root() -> PathBuf {
+    if let Ok(root) = env::var("RE_FLORA_ROOT") {
+        let root = PathBuf::from(root);
+        if is_project_root(&root) {
+            return root;
+        }
+    }
+
+    if let Ok(current_dir) = env::current_dir() {
+        if let Some(root) = find_project_root(current_dir) {
+            return root;
+        }
+    }
+
+    if let Ok(current_exe) = env::current_exe() {
+        if let Some(exe_dir) = current_exe.parent() {
+            if let Some(root) = find_project_root(exe_dir.to_path_buf()) {
+                return root;
+            }
+        }
+    }
+
+    compile_time_project_root()
+}
+
+fn compile_time_project_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)
         .expect("re-flora-vkn must live under <project>/crates/re-flora-vkn")
         .to_path_buf()
+}
+
+fn find_project_root(start: PathBuf) -> Option<PathBuf> {
+    for candidate in start.ancestors() {
+        if is_project_root(candidate) {
+            return Some(candidate.to_path_buf());
+        }
+    }
+    None
+}
+
+fn is_project_root(path: &Path) -> bool {
+    path.join("assets").is_dir()
+        && path.join("shader").is_dir()
+        && path.join("config").join("gui.toml").is_file()
 }
 
 pub fn full_path_from_relative(relative_path: &str) -> String {

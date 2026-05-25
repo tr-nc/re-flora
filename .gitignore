@@ -1,4 +1,5 @@
 /target
+/dist/
 .claude/
 .aider*
 __pycache__/
