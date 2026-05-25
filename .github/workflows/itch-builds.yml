@@ -1,0 +1,256 @@
+name: itch builds
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_to_itch:
+        description: "Upload packages to itch.io with butler. Keep false for a safe CI packaging test."
+        type: boolean
+        default: false
+      itch_project:
+        description: "itch.io project slug, e.g. username/re-flora. Falls back to repository variable ITCH_PROJECT."
+        type: string
+        required: false
+      version:
+        description: "User-facing build version. Defaults to Cargo.toml version plus short commit for manual runs."
+        type: string
+        required: false
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  desktop:
+    name: ${{ matrix.channel }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            channel: windows
+            butler_platform: windows-amd64
+            butler_bin: butler.exe
+          - os: macos-13
+            channel: macos
+            butler_platform: darwin-amd64
+            butler_bin: butler
+
+    env:
+      ITCH_PROJECT: ${{ github.event.inputs.itch_project || vars.ITCH_PROJECT }}
+      SHOULD_PUBLISH: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_itch == 'true') || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && vars.ITCH_PUBLISH_ON_TAG == 'true') }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install macOS build dependencies
+        if: runner.os == 'macOS'
+        run: brew install cmake ninja
+
+      - name: Install Windows build dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install cmake ninja -y
+
+      - name: Show Rust toolchain
+        run: rustup show
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Resolve package version
+        id: version
+        shell: bash
+        env:
+          VERSION_INPUT: ${{ github.event.inputs.version }}
+        run: |
+          if [ -n "${VERSION_INPUT:-}" ]; then
+            version="$VERSION_INPUT"
+          elif [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            cargo_version="$(python scripts/package_release.py --print-version)"
+            short_sha="$(git rev-parse --short=7 HEAD)"
+            version="${cargo_version}+${short_sha}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Package version: $version"
+
+      - name: Package for itch.io
+        id: package
+        shell: bash
+        run: |
+          archive="$(python scripts/package_release.py \
+            --version '${{ steps.version.outputs.version }}' \
+            --channel '${{ matrix.channel }}')"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          python - <<'PY' "$archive"
+          import pathlib
+          import sys
+          path = pathlib.Path(sys.argv[1])
+          print(f"Created {path} ({path.stat().st_size / 1024 / 1024:.1f} MiB)")
+          PY
+
+      - name: Download butler
+        if: env.SHOULD_PUBLISH == 'true'
+        shell: bash
+        run: |
+          curl -L -o butler.zip "https://broth.itch.ovh/butler/${{ matrix.butler_platform }}/LATEST/archive/default"
+          python - <<'PY'
+          import zipfile
+          with zipfile.ZipFile('butler.zip') as archive:
+              archive.extractall('.')
+          PY
+          if [ "${{ runner.os }}" != "Windows" ]; then
+            chmod +x ./${{ matrix.butler_bin }}
+          fi
+
+      - name: Push to itch.io
+        if: env.SHOULD_PUBLISH == 'true'
+        shell: bash
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: |
+          if [ -z "${BUTLER_API_KEY:-}" ]; then
+            echo "Missing repository secret BUTLER_API_KEY" >&2
+            exit 1
+          fi
+          if [ -z "${ITCH_PROJECT:-}" ]; then
+            echo "Set workflow input itch_project or repository variable ITCH_PROJECT, e.g. username/re-flora" >&2
+            exit 1
+          fi
+          ./${{ matrix.butler_bin }} push \
+            "${{ steps.package.outputs.archive }}" \
+            "${ITCH_PROJECT}:${{ matrix.channel }}" \
+            --userversion "${{ steps.version.outputs.version }}"
+
+  fedora:
+    name: fedora
+    runs-on: ubuntu-latest
+
+    env:
+      ITCH_PROJECT: ${{ github.event.inputs.itch_project || vars.ITCH_PROJECT }}
+      SHOULD_PUBLISH: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_itch == 'true') || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && vars.ITCH_PUBLISH_ON_TAG == 'true') }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Resolve package version
+        id: version
+        shell: bash
+        env:
+          VERSION_INPUT: ${{ github.event.inputs.version }}
+        run: |
+          if [ -n "${VERSION_INPUT:-}" ]; then
+            version="$VERSION_INPUT"
+          elif [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            cargo_version="$(python scripts/package_release.py --print-version)"
+            short_sha="$(git rev-parse --short=7 HEAD)"
+            version="${cargo_version}+${short_sha}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Package version: $version"
+
+      - name: Build and package in Fedora
+        id: package
+        shell: bash
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            -e PACKAGE_VERSION='${{ steps.version.outputs.version }}' \
+            -e HOST_UID="$(id -u)" \
+            -e HOST_GID="$(id -g)" \
+            fedora:latest \
+            bash -lc '
+              set -euo pipefail
+              dnf install -y \
+                alsa-lib-devel \
+                cmake \
+                curl \
+                gcc \
+                gcc-c++ \
+                git \
+                libX11-devel \
+                libxcb-devel \
+                libxkbcommon-devel \
+                make \
+                ninja-build \
+                patch \
+                pkgconf-pkg-config \
+                python3 \
+                systemd-devel \
+                unzip \
+                vulkan-loader-devel \
+                vulkan-tools \
+                wayland-devel
+              curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+              . "$HOME/.cargo/env"
+              rustup show
+              cargo build --release --locked
+              python3 scripts/package_release.py --version "$PACKAGE_VERSION" --channel fedora
+              chown -R "$HOST_UID:$HOST_GID" target dist
+            '
+          archive="$(find dist -maxdepth 1 -name 're-flora-*-fedora.zip' -print -quit)"
+          if [ -z "${archive:-}" ]; then
+            echo "Fedora package archive was not created" >&2
+            exit 1
+          fi
+          echo "archive=$PWD/$archive" >> "$GITHUB_OUTPUT"
+          python - <<'PY' "$archive"
+          import pathlib
+          import sys
+          path = pathlib.Path(sys.argv[1])
+          print(f"Created {path} ({path.stat().st_size / 1024 / 1024:.1f} MiB)")
+          PY
+
+      - name: Download butler
+        if: env.SHOULD_PUBLISH == 'true'
+        shell: bash
+        run: |
+          curl -L -o butler.zip "https://broth.itch.ovh/butler/linux-amd64/LATEST/archive/default"
+          python - <<'PY'
+          import zipfile
+          with zipfile.ZipFile('butler.zip') as archive:
+              archive.extractall('.')
+          PY
+          chmod +x ./butler
+
+      - name: Push to itch.io
+        if: env.SHOULD_PUBLISH == 'true'
+        shell: bash
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: |
+          if [ -z "${BUTLER_API_KEY:-}" ]; then
+            echo "Missing repository secret BUTLER_API_KEY" >&2
+            exit 1
+          fi
+          if [ -z "${ITCH_PROJECT:-}" ]; then
+            echo "Set workflow input itch_project or repository variable ITCH_PROJECT, e.g. username/re-flora" >&2
+            exit 1
+          fi
+          ./butler push \
+            "${{ steps.package.outputs.archive }}" \
+            "${ITCH_PROJECT}:fedora" \
+            --userversion "${{ steps.version.outputs.version }}"

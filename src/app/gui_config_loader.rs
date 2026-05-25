@@ -1,7 +1,5 @@
-use std::collections::HashSet;
-use std::path::Path;
-
 use crate::app::gui_config_model::{GuiConfigFile, GuiParamKind};
+use std::{collections::HashSet, path::Path};
 
 const SUPPORTED_SCHEMA_VERSION: u32 = 1;
 const CONFIG_FILE_NAME: &str = "gui.toml";
@@ -52,8 +50,7 @@ impl GuiConfigLoader {
     }
 
     pub fn config_path() -> std::path::PathBuf {
-        let project_root = env!("PROJECT_ROOT");
-        Path::new(project_root)
+        re_flora_vkn::project_root()
             .join("config")
             .join(CONFIG_FILE_NAME)
     }

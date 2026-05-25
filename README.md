@@ -49,6 +49,7 @@ Most values can be tuned live from the config panel. Runtime defaults are stored
 
 ## Documentation
 
+- [Packaging paid builds](./docs/packaging.md)
 - [Technical references](./docs/references.md)
 - [Inspirations and art direction](./docs/inspirations.md)
 - [Roadmap](./ROADMAP.md)
