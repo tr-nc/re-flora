@@ -23,29 +23,29 @@ impl App {
         self.window_state.set_cursor_visibility(any_panel_open);
         self.window_state.set_cursor_grab(!any_panel_open);
         if any_panel_open {
-            self.shovel_dig_held = false;
+            self.player_tools.shovel_dig_held = false;
             self.stop_terrain_edit_loop_sound();
         }
     }
 
     pub(super) fn is_shovel_selected(&self) -> bool {
-        self.selected_item_panel_slot == SHOVEL_SLOT_INDEX
+        self.player_tools.selected_item_panel_slot == SHOVEL_SLOT_INDEX
     }
 
     pub(super) fn is_staff_selected(&self) -> bool {
-        self.selected_item_panel_slot == STAFF_SLOT_INDEX
+        self.player_tools.selected_item_panel_slot == STAFF_SLOT_INDEX
     }
 
     pub(super) fn is_hoe_selected(&self) -> bool {
-        self.selected_item_panel_slot == HOE_SLOT_INDEX
+        self.player_tools.selected_item_panel_slot == HOE_SLOT_INDEX
     }
 
     pub(super) fn is_water_tool_selected(&self) -> bool {
-        self.selected_item_panel_slot == WATER_SLOT_INDEX
+        self.player_tools.selected_item_panel_slot == WATER_SLOT_INDEX
     }
 
     fn active_voxel_type_id(&self) -> Option<u32> {
-        self.active_voxel_type.voxel_type()
+        self.player_tools.active_voxel_type.voxel_type()
     }
 
     fn voxel_count(&self, voxel_type: super::ActiveVoxelType) -> u32 {
@@ -54,20 +54,20 @@ impl App {
                 .iter()
                 .map(|voxel_type| self.voxel_count(*voxel_type))
                 .sum(),
-            super::ActiveVoxelType::Dirt => self.backpack_dirt_count,
-            super::ActiveVoxelType::Sand => self.backpack_sand_count,
-            super::ActiveVoxelType::CherryWood => self.backpack_cherry_wood_count,
-            super::ActiveVoxelType::OakWood => self.backpack_oak_wood_count,
-            super::ActiveVoxelType::Rock => self.backpack_rock_count,
+            super::ActiveVoxelType::Dirt => self.player_tools.backpack_dirt_count,
+            super::ActiveVoxelType::Sand => self.player_tools.backpack_sand_count,
+            super::ActiveVoxelType::CherryWood => self.player_tools.backpack_cherry_wood_count,
+            super::ActiveVoxelType::OakWood => self.player_tools.backpack_oak_wood_count,
+            super::ActiveVoxelType::Rock => self.player_tools.backpack_rock_count,
         }
     }
 
     fn active_voxel_count(&self) -> u32 {
-        self.voxel_count(self.active_voxel_type)
+        self.voxel_count(self.player_tools.active_voxel_type)
     }
 
     fn is_active_voxel_storage_full(&self) -> bool {
-        if self.active_voxel_type == super::ActiveVoxelType::All {
+        if self.player_tools.active_voxel_type == super::ActiveVoxelType::All {
             return super::BACKPACK_VOXEL_TYPES
                 .iter()
                 .all(|voxel_type| self.voxel_count(*voxel_type) >= MAX_VOXEL_STORAGE_PER_TYPE);
@@ -77,14 +77,14 @@ impl App {
     }
 
     fn active_voxel_storage_remaining(&self) -> u32 {
-        if self.active_voxel_type == super::ActiveVoxelType::All {
+        if self.player_tools.active_voxel_type == super::ActiveVoxelType::All {
             return super::BACKPACK_VOXEL_TYPES
                 .iter()
                 .map(|voxel_type| self.voxel_storage_remaining(*voxel_type))
                 .sum();
         }
 
-        self.voxel_storage_remaining(self.active_voxel_type)
+        self.voxel_storage_remaining(self.player_tools.active_voxel_type)
     }
 
     fn voxel_storage_remaining(&self, voxel_type: super::ActiveVoxelType) -> u32 {
@@ -108,14 +108,14 @@ impl App {
             }
         };
 
-        if self.active_voxel_type == super::ActiveVoxelType::All {
+        if self.player_tools.active_voxel_type == super::ActiveVoxelType::All {
             for voxel_type in super::BACKPACK_VOXEL_TYPES {
                 set_limit(voxel_type, self.voxel_storage_remaining(voxel_type));
             }
         } else {
             set_limit(
-                self.active_voxel_type,
-                self.voxel_storage_remaining(self.active_voxel_type),
+                self.player_tools.active_voxel_type,
+                self.voxel_storage_remaining(self.player_tools.active_voxel_type),
             );
         }
 
@@ -126,31 +126,36 @@ impl App {
         match voxel_type {
             super::ActiveVoxelType::All => unreachable!("All is not a concrete backpack voxel"),
             super::ActiveVoxelType::Dirt => {
-                self.backpack_dirt_count = self
+                self.player_tools.backpack_dirt_count = self
+                    .player_tools
                     .backpack_dirt_count
                     .saturating_add(amount)
                     .min(MAX_VOXEL_STORAGE_PER_TYPE)
             }
             super::ActiveVoxelType::Sand => {
-                self.backpack_sand_count = self
+                self.player_tools.backpack_sand_count = self
+                    .player_tools
                     .backpack_sand_count
                     .saturating_add(amount)
                     .min(MAX_VOXEL_STORAGE_PER_TYPE)
             }
             super::ActiveVoxelType::CherryWood => {
-                self.backpack_cherry_wood_count = self
+                self.player_tools.backpack_cherry_wood_count = self
+                    .player_tools
                     .backpack_cherry_wood_count
                     .saturating_add(amount)
                     .min(MAX_VOXEL_STORAGE_PER_TYPE)
             }
             super::ActiveVoxelType::OakWood => {
-                self.backpack_oak_wood_count = self
+                self.player_tools.backpack_oak_wood_count = self
+                    .player_tools
                     .backpack_oak_wood_count
                     .saturating_add(amount)
                     .min(MAX_VOXEL_STORAGE_PER_TYPE)
             }
             super::ActiveVoxelType::Rock => {
-                self.backpack_rock_count = self
+                self.player_tools.backpack_rock_count = self
+                    .player_tools
                     .backpack_rock_count
                     .saturating_add(amount)
                     .min(MAX_VOXEL_STORAGE_PER_TYPE)
@@ -159,7 +164,7 @@ impl App {
     }
 
     fn add_active_voxel_to_backpack(&mut self, amount: u32) {
-        self.add_voxel_to_backpack(self.active_voxel_type, amount);
+        self.add_voxel_to_backpack(self.player_tools.active_voxel_type, amount);
     }
 
     fn add_removed_voxels_to_backpack(&mut self, stats: &ChunkModifyStats) {
@@ -174,27 +179,35 @@ impl App {
         match voxel_type {
             super::ActiveVoxelType::All => unreachable!("All is not a concrete backpack voxel"),
             super::ActiveVoxelType::Dirt => {
-                self.backpack_dirt_count = self.backpack_dirt_count.saturating_sub(amount)
+                self.player_tools.backpack_dirt_count =
+                    self.player_tools.backpack_dirt_count.saturating_sub(amount)
             }
             super::ActiveVoxelType::Sand => {
-                self.backpack_sand_count = self.backpack_sand_count.saturating_sub(amount)
+                self.player_tools.backpack_sand_count =
+                    self.player_tools.backpack_sand_count.saturating_sub(amount)
             }
             super::ActiveVoxelType::CherryWood => {
-                self.backpack_cherry_wood_count =
-                    self.backpack_cherry_wood_count.saturating_sub(amount)
+                self.player_tools.backpack_cherry_wood_count = self
+                    .player_tools
+                    .backpack_cherry_wood_count
+                    .saturating_sub(amount)
             }
             super::ActiveVoxelType::OakWood => {
-                self.backpack_oak_wood_count = self.backpack_oak_wood_count.saturating_sub(amount)
+                self.player_tools.backpack_oak_wood_count = self
+                    .player_tools
+                    .backpack_oak_wood_count
+                    .saturating_sub(amount)
             }
             super::ActiveVoxelType::Rock => {
-                self.backpack_rock_count = self.backpack_rock_count.saturating_sub(amount)
+                self.player_tools.backpack_rock_count =
+                    self.player_tools.backpack_rock_count.saturating_sub(amount)
             }
         }
     }
 
     fn first_placeable_voxel_type(&self) -> Option<super::ActiveVoxelType> {
-        if self.active_voxel_type != super::ActiveVoxelType::All {
-            return (self.active_voxel_count() > 0).then_some(self.active_voxel_type);
+        if self.player_tools.active_voxel_type != super::ActiveVoxelType::All {
+            return (self.active_voxel_count() > 0).then_some(self.player_tools.active_voxel_type);
         }
 
         super::BACKPACK_VOXEL_TYPES
@@ -204,15 +217,15 @@ impl App {
     }
 
     pub(super) fn start_terrain_edit_loop_sound(&mut self, position: Vec3) {
-        if let Some(uuid) = self.terrain_edit_loop_sound {
-            if self.terrain_edit_loop_sound_muted {
+        if let Some(uuid) = self.player_tools.terrain_edit_loop_sound {
+            if self.player_tools.terrain_edit_loop_sound_muted {
                 if let Err(err) = self
                     .spatial_sound_manager
                     .update_source_volume(uuid, super::TERRAIN_EDIT_LOOP_VOLUME_DB)
                 {
                     log::error!("Failed to unmute terrain edit loop sound: {}", err);
                 } else {
-                    self.terrain_edit_loop_sound_muted = false;
+                    self.player_tools.terrain_edit_loop_sound_muted = false;
                 }
             }
 
@@ -229,8 +242,8 @@ impl App {
             true,
         ) {
             Ok(uuid) => {
-                self.terrain_edit_loop_sound = Some(uuid);
-                self.terrain_edit_loop_sound_muted = false;
+                self.player_tools.terrain_edit_loop_sound = Some(uuid);
+                self.player_tools.terrain_edit_loop_sound_muted = false;
             }
             Err(err) => {
                 log::error!("Failed to start terrain edit loop sound: {}", err);
@@ -239,18 +252,18 @@ impl App {
     }
 
     pub(super) fn stop_terrain_edit_loop_sound(&mut self) {
-        if self.terrain_edit_loop_sound_muted {
+        if self.player_tools.terrain_edit_loop_sound_muted {
             return;
         }
 
-        if let Some(uuid) = self.terrain_edit_loop_sound {
+        if let Some(uuid) = self.player_tools.terrain_edit_loop_sound {
             if let Err(err) = self
                 .spatial_sound_manager
                 .update_source_volume(uuid, super::TERRAIN_EDIT_LOOP_MUTED_VOLUME_DB)
             {
                 log::error!("Failed to mute terrain edit loop sound: {}", err);
             } else {
-                self.terrain_edit_loop_sound_muted = true;
+                self.player_tools.terrain_edit_loop_sound_muted = true;
             }
         }
     }
@@ -395,7 +408,7 @@ impl App {
             Ok(Some(center)) => {
                 self.start_terrain_edit_loop_sound(center);
 
-                if let Some(last_dig) = self.last_shovel_dig_time {
+                if let Some(last_dig) = self.player_tools.last_shovel_dig_time {
                     if now.duration_since(last_dig) < super::SHOVEL_DIG_INTERVAL {
                         return;
                     }
@@ -434,11 +447,11 @@ impl App {
                     log::error!("Failed to apply terrain removal: {}", err);
                     return;
                 }
-                self.last_shovel_dig_time = Some(now);
+                self.player_tools.last_shovel_dig_time = Some(now);
             }
             Ok(None) => {
                 self.stop_terrain_edit_loop_sound();
-                self.last_shovel_dig_time = Some(now);
+                self.player_tools.last_shovel_dig_time = Some(now);
             }
             Err(err) => {
                 log::error!("Shovel carve attempt failed during terrain query: {}", err);
@@ -456,7 +469,7 @@ impl App {
             Ok(Some(center)) => {
                 self.start_terrain_edit_loop_sound(center);
 
-                if let Some(last_regen) = self.last_staff_regen_time {
+                if let Some(last_regen) = self.player_tools.last_staff_regen_time {
                     if now.duration_since(last_regen) < super::SHOVEL_DIG_INTERVAL {
                         return;
                     }
@@ -469,11 +482,11 @@ impl App {
                     log::error!("Failed to apply flora regeneration: {}", err);
                     return;
                 }
-                self.last_staff_regen_time = Some(now);
+                self.player_tools.last_staff_regen_time = Some(now);
             }
             Ok(None) => {
                 self.stop_terrain_edit_loop_sound();
-                self.last_staff_regen_time = Some(now);
+                self.player_tools.last_staff_regen_time = Some(now);
             }
             Err(err) => {
                 log::error!(
@@ -504,7 +517,7 @@ impl App {
             Ok(Some(center)) => {
                 self.start_terrain_edit_loop_sound(center);
 
-                if let Some(last_place) = self.last_shovel_place_time {
+                if let Some(last_place) = self.player_tools.last_shovel_place_time {
                     if now.duration_since(last_place) < super::SHOVEL_DIG_INTERVAL {
                         return;
                     }
@@ -529,11 +542,11 @@ impl App {
                     log::error!("Failed to apply terrain placement: {}", err);
                     return;
                 }
-                self.last_shovel_place_time = Some(now);
+                self.player_tools.last_shovel_place_time = Some(now);
             }
             Ok(None) => {
                 self.stop_terrain_edit_loop_sound();
-                self.last_shovel_place_time = Some(now);
+                self.player_tools.last_shovel_place_time = Some(now);
             }
             Err(err) => {
                 log::error!("Shovel place attempt failed during terrain query: {}", err);
@@ -551,7 +564,7 @@ impl App {
             Ok(Some(center)) => {
                 self.start_terrain_edit_loop_sound(center);
 
-                if let Some(last_trim) = self.last_hoe_trim_time {
+                if let Some(last_trim) = self.player_tools.last_hoe_trim_time {
                     if now.duration_since(last_trim) < super::SHOVEL_DIG_INTERVAL {
                         return;
                     }
@@ -564,11 +577,11 @@ impl App {
                     log::error!("Failed to apply flora trim: {}", err);
                     return;
                 }
-                self.last_hoe_trim_time = Some(now);
+                self.player_tools.last_hoe_trim_time = Some(now);
             }
             Ok(None) => {
                 self.stop_terrain_edit_loop_sound();
-                self.last_hoe_trim_time = Some(now);
+                self.player_tools.last_hoe_trim_time = Some(now);
             }
             Err(err) => {
                 log::error!("Hoe trim attempt failed during terrain query: {}", err);

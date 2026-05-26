@@ -5,12 +5,14 @@ mod boot;
 mod input;
 mod lifecycle;
 mod particles;
+mod player_tools;
 mod tree_bench;
 mod ui_style;
 mod vegetation;
 mod water;
 
 use self::particles::TreeLeafEmitter;
+use self::player_tools::PlayerToolState;
 use self::tree_bench::{TreeBench, TreeBenchMode};
 use self::vegetation::{TreeRecord, TreeVariationConfig};
 use crate::app::cpu_solid_voxels::CpuSolidVoxelStore;
@@ -63,7 +65,6 @@ use ui_style::{
     ITEM_PANEL_WATER_ICON_FALLBACK_PATH, ITEM_PANEL_WATER_ICON_PATH, PANEL_BG, PANEL_DARK,
     SAGE_ACCENT, SHADOW_COLOR,
 };
-use uuid::Uuid;
 use winit::{
     event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::ActiveEventLoop,
@@ -204,24 +205,8 @@ pub struct App {
     item_panel_staff_icon: Option<TextureHandle>,
     item_panel_hoe_icon: Option<TextureHandle>,
     item_panel_water_icon: Option<TextureHandle>,
-    selected_item_panel_slot: usize,
-    active_voxel_type: ActiveVoxelType,
+    player_tools: PlayerToolState,
     water_particle_handoff_main_thread_ms: Option<f32>,
-    left_mouse_held: bool,
-    right_mouse_held: bool,
-    shovel_dig_held: bool,
-    last_shovel_dig_time: Option<Instant>,
-    last_shovel_place_time: Option<Instant>,
-    last_staff_regen_time: Option<Instant>,
-    last_hoe_trim_time: Option<Instant>,
-    backpack_dirt_count: u32,
-    backpack_sand_count: u32,
-    backpack_cherry_wood_count: u32,
-    backpack_oak_wood_count: u32,
-    backpack_rock_count: u32,
-    terrain_edit_loop_sound: Option<Uuid>,
-    terrain_edit_loop_sound_muted: bool,
-    backpack_summary_panel_screen_pos: Option<Vec2>,
 
     flora_tick: u32,
     flora_tick_accumulator: f32,
@@ -1822,24 +1807,8 @@ impl App {
             item_panel_staff_icon: None,
             item_panel_hoe_icon: None,
             item_panel_water_icon: None,
-            selected_item_panel_slot: 0,
-            active_voxel_type: ActiveVoxelType::All,
+            player_tools: PlayerToolState::default(),
             water_particle_handoff_main_thread_ms: None,
-            left_mouse_held: false,
-            right_mouse_held: false,
-            shovel_dig_held: false,
-            last_shovel_dig_time: None,
-            last_shovel_place_time: None,
-            last_staff_regen_time: None,
-            last_hoe_trim_time: None,
-            backpack_dirt_count: 0,
-            backpack_sand_count: 0,
-            backpack_cherry_wood_count: 0,
-            backpack_oak_wood_count: 0,
-            backpack_rock_count: 0,
-            terrain_edit_loop_sound: None,
-            terrain_edit_loop_sound_muted: true,
-            backpack_summary_panel_screen_pos: None,
             flora_tick: FLORA_FULL_GROWTH_TICKS,
             flora_tick_accumulator: 0.0,
             growing_flora_chunks: GrowingFloraQueue::default(),
@@ -2545,9 +2514,9 @@ impl App {
 
                     if let Some(slot_idx) = target_slot {
                         if slot_idx < ITEM_PANEL_SLOT_COUNT
-                            && slot_idx != self.selected_item_panel_slot
+                            && slot_idx != self.player_tools.selected_item_panel_slot
                         {
-                            self.selected_item_panel_slot = slot_idx;
+                            self.player_tools.selected_item_panel_slot = slot_idx;
                             self.play_item_panel_scroll_sound();
                         }
                     }
@@ -2557,10 +2526,10 @@ impl App {
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 if button == MouseButton::Left {
-                    self.left_mouse_held = state == ElementState::Pressed;
+                    self.player_tools.left_mouse_held = state == ElementState::Pressed;
                 }
                 if button == MouseButton::Right {
-                    self.right_mouse_held = state == ElementState::Pressed;
+                    self.player_tools.right_mouse_held = state == ElementState::Pressed;
                 }
 
                 if !self.window_state.is_cursor_visible()
@@ -2568,19 +2537,19 @@ impl App {
                 {
                     match state {
                         ElementState::Pressed => {
-                            self.shovel_dig_held = false;
+                            self.player_tools.shovel_dig_held = false;
                             let now = Instant::now();
                             if self.is_shovel_selected() && button == MouseButton::Left {
-                                self.shovel_dig_held = true;
+                                self.player_tools.shovel_dig_held = true;
                                 self.try_shovel_dig(now);
                             } else if self.is_shovel_selected() && button == MouseButton::Right {
-                                self.shovel_dig_held = true;
+                                self.player_tools.shovel_dig_held = true;
                                 self.try_shovel_place(now);
                             } else if self.is_staff_selected() && button == MouseButton::Left {
-                                self.shovel_dig_held = true;
+                                self.player_tools.shovel_dig_held = true;
                                 self.try_staff_regenerate(now);
                             } else if self.is_hoe_selected() && button == MouseButton::Left {
-                                self.shovel_dig_held = true;
+                                self.player_tools.shovel_dig_held = true;
                                 self.try_hoe_trim(now);
                             } else if self.is_water_tool_selected() && button == MouseButton::Left {
                                 self.stop_terrain_edit_loop_sound();
@@ -2588,8 +2557,9 @@ impl App {
                             }
                         }
                         ElementState::Released => {
-                            self.shovel_dig_held = self.left_mouse_held || self.right_mouse_held;
-                            if !self.shovel_dig_held {
+                            self.player_tools.shovel_dig_held = self.player_tools.left_mouse_held
+                                || self.player_tools.right_mouse_held;
+                            if !self.player_tools.shovel_dig_held {
                                 self.stop_terrain_edit_loop_sound();
                             }
                         }
@@ -2607,13 +2577,13 @@ impl App {
                         let direction: isize = if scroll_y > 0.0 { -1 } else { 1 };
                         let current_idx = ACTIVE_VOXEL_TYPES
                             .iter()
-                            .position(|voxel| *voxel == self.active_voxel_type)
+                            .position(|voxel| *voxel == self.player_tools.active_voxel_type)
                             .unwrap_or(0) as isize;
                         let max_idx: isize = (ACTIVE_VOXEL_TYPES.len() - 1) as isize;
                         let new_idx = (current_idx + direction).rem_euclid(max_idx + 1) as usize;
                         let new_voxel = ACTIVE_VOXEL_TYPES[new_idx];
-                        if new_voxel != self.active_voxel_type {
-                            self.active_voxel_type = new_voxel;
+                        if new_voxel != self.player_tools.active_voxel_type {
+                            self.player_tools.active_voxel_type = new_voxel;
                             self.play_item_panel_scroll_sound();
                         }
                     }
@@ -2664,15 +2634,15 @@ impl App {
                     return;
                 }
 
-                if self.shovel_dig_held {
+                if self.player_tools.shovel_dig_held {
                     let now = Instant::now();
-                    if self.is_shovel_selected() && self.left_mouse_held {
+                    if self.is_shovel_selected() && self.player_tools.left_mouse_held {
                         self.try_shovel_dig(now);
-                    } else if self.is_shovel_selected() && self.right_mouse_held {
+                    } else if self.is_shovel_selected() && self.player_tools.right_mouse_held {
                         self.try_shovel_place(now);
-                    } else if self.is_staff_selected() && self.left_mouse_held {
+                    } else if self.is_staff_selected() && self.player_tools.left_mouse_held {
                         self.try_staff_regenerate(now);
-                    } else if self.is_hoe_selected() && self.left_mouse_held {
+                    } else if self.is_hoe_selected() && self.player_tools.left_mouse_held {
                         self.try_hoe_trim(now);
                     } else {
                         self.stop_terrain_edit_loop_sound();
@@ -2720,18 +2690,18 @@ impl App {
                 let item_panel_staff_icon = self.item_panel_staff_icon.clone();
                 let item_panel_hoe_icon = self.item_panel_hoe_icon.clone();
                 let item_panel_water_icon = self.item_panel_water_icon.clone();
-                let selected_item_panel_slot = self.selected_item_panel_slot;
-                let backpack_dirt_count = self.backpack_dirt_count;
-                let backpack_sand_count = self.backpack_sand_count;
-                let backpack_cherry_wood_count = self.backpack_cherry_wood_count;
-                let backpack_oak_wood_count = self.backpack_oak_wood_count;
-                let backpack_rock_count = self.backpack_rock_count;
+                let selected_item_panel_slot = self.player_tools.selected_item_panel_slot;
+                let backpack_dirt_count = self.player_tools.backpack_dirt_count;
+                let backpack_sand_count = self.player_tools.backpack_sand_count;
+                let backpack_cherry_wood_count = self.player_tools.backpack_cherry_wood_count;
+                let backpack_oak_wood_count = self.player_tools.backpack_oak_wood_count;
+                let backpack_rock_count = self.player_tools.backpack_rock_count;
                 let status_bar_text = self
                     .water_sim
                     .status_text(self.water_particle_handoff_main_thread_ms);
                 let growing_flora_chunk_count = self.growing_flora_chunks.len();
-                let active_voxel_label = self.active_voxel_type.label();
-                let active_voxel_color = self.active_voxel_type.color();
+                let active_voxel_label = self.player_tools.active_voxel_type.label();
+                let active_voxel_color = self.player_tools.active_voxel_type.color();
                 let egui_start = Instant::now();
                 self.egui_renderer
                     .update(&self.window_state.window(), |ctx| {
@@ -2904,7 +2874,7 @@ impl App {
                             backpack_oak_wood_count,
                             backpack_rock_count,
                         );
-                        self.backpack_summary_panel_screen_pos = Some(Vec2::new(
+                        self.player_tools.backpack_summary_panel_screen_pos = Some(Vec2::new(
                             backpack_summary_panel_center.x,
                             backpack_summary_panel_center.y,
                         ));
@@ -2945,7 +2915,7 @@ impl App {
                                 });
                             });
 
-                        if self.left_mouse_held {
+                        if self.player_tools.left_mouse_held {
                             let center = ctx.content_rect().center();
                             let painter = ctx.layer_painter(egui::LayerId::new(
                                 egui::Order::Foreground,
