@@ -82,25 +82,14 @@ max = 0.1
 name = "Wind"
 
 [[section.param]]
-id = "wind_speed"
-kind = "float"
-label = "Wind Speed"
-type = "Float"
-
-[section.param.data]
-value = 1
-min = 0
-max = 4
-
-[[section.param]]
-id = "wind_layers"
+id = "wind_source_count"
 kind = "uint"
-label = "Wind Layers"
+label = "Wind Sources"
 type = "Uint"
 
 [section.param.data]
 value = 2
-min = 1
+min = 0
 max = 4
 
 [[section.param]]
@@ -110,20 +99,477 @@ label = "Wind Sharpness"
 type = "Float"
 
 [section.param.data]
-value = 0.335
+value = 0.33
 min = 0
 max = 1
 
 [[section.param]]
-id = "wind_strength"
+id = "wind_source_0_name"
+kind = "string"
+label = "Wind Source 1 Name"
+type = "String"
+
+[section.param.data]
+value = "Gentle Wind"
+
+[[section.param]]
+id = "wind_source_0_muted"
+kind = "bool"
+label = "Wind Source 1 Muted"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "wind_source_0_direction_deg"
 kind = "float"
-label = "Wind Strength"
+label = "Wind Source 1 Direction"
 type = "Float"
 
 [section.param.data]
-value = 2.4
+value = 265
 min = 0
-max = 5
+max = 360
+
+[[section.param]]
+id = "wind_source_0_speed"
+kind = "float"
+label = "Wind Source 1 Speed"
+type = "Float"
+
+[section.param.data]
+value = 0.8
+min = 0
+max = 4
+
+[[section.param]]
+id = "wind_source_0_strength"
+kind = "float"
+label = "Wind Source 1 Strength"
+type = "Float"
+
+[section.param.data]
+value = 1.15
+min = 0
+max = 8
+
+[[section.param]]
+id = "wind_source_0_coverage"
+kind = "float"
+label = "Wind Source 1 Coverage"
+type = "Float"
+
+[section.param.data]
+value = 0.45
+min = 0
+max = 1
+
+[[section.param]]
+id = "wind_source_0_pattern_scale"
+kind = "float"
+label = "Wind Source 1 Pattern Scale"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0.05
+max = 8
+
+[[section.param]]
+id = "wind_source_0_pattern_frequency"
+kind = "float"
+label = "Wind Source 1 Pattern Frequency"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0.05
+max = 8
+
+[[section.param]]
+id = "wind_source_0_octaves"
+kind = "uint"
+label = "Wind Source 1 Octaves"
+type = "Uint"
+
+[section.param.data]
+value = 3
+min = 1
+max = 8
+
+[[section.param]]
+id = "wind_source_0_lacunarity"
+kind = "float"
+label = "Wind Source 1 Lacunarity"
+type = "Float"
+
+[section.param.data]
+value = 2
+min = 1
+max = 4
+
+[[section.param]]
+id = "wind_source_0_gain"
+kind = "float"
+label = "Wind Source 1 Gain"
+type = "Float"
+
+[section.param.data]
+value = 0.5
+min = 0
+max = 1
+
+[[section.param]]
+id = "wind_source_1_name"
+kind = "string"
+label = "Wind Source 2 Name"
+type = "String"
+
+[section.param.data]
+value = "Strong Wind"
+
+[[section.param]]
+id = "wind_source_1_muted"
+kind = "bool"
+label = "Wind Source 2 Muted"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "wind_source_1_direction_deg"
+kind = "float"
+label = "Wind Source 2 Direction"
+type = "Float"
+
+[section.param.data]
+value = 155
+min = 0
+max = 360
+
+[[section.param]]
+id = "wind_source_1_speed"
+kind = "float"
+label = "Wind Source 2 Speed"
+type = "Float"
+
+[section.param.data]
+value = 0.6
+min = 0
+max = 4
+
+[[section.param]]
+id = "wind_source_1_strength"
+kind = "float"
+label = "Wind Source 2 Strength"
+type = "Float"
+
+[section.param.data]
+value = 5.15
+min = 0
+max = 8
+
+[[section.param]]
+id = "wind_source_1_coverage"
+kind = "float"
+label = "Wind Source 2 Coverage"
+type = "Float"
+
+[section.param.data]
+value = 0.425
+min = 0
+max = 1
+
+[[section.param]]
+id = "wind_source_1_pattern_scale"
+kind = "float"
+label = "Wind Source 2 Pattern Scale"
+type = "Float"
+
+[section.param.data]
+value = 2.7
+min = 0.05
+max = 8
+
+[[section.param]]
+id = "wind_source_1_pattern_frequency"
+kind = "float"
+label = "Wind Source 2 Pattern Frequency"
+type = "Float"
+
+[section.param.data]
+value = 1.35
+min = 0.05
+max = 8
+
+[[section.param]]
+id = "wind_source_1_octaves"
+kind = "uint"
+label = "Wind Source 2 Octaves"
+type = "Uint"
+
+[section.param.data]
+value = 3
+min = 1
+max = 8
+
+[[section.param]]
+id = "wind_source_1_lacunarity"
+kind = "float"
+label = "Wind Source 2 Lacunarity"
+type = "Float"
+
+[section.param.data]
+value = 2
+min = 1
+max = 4
+
+[[section.param]]
+id = "wind_source_1_gain"
+kind = "float"
+label = "Wind Source 2 Gain"
+type = "Float"
+
+[section.param.data]
+value = 0.5
+min = 0
+max = 1
+
+[[section.param]]
+id = "wind_source_2_name"
+kind = "string"
+label = "Wind Source 3 Name"
+type = "String"
+
+[section.param.data]
+value = "Wind Source 3"
+
+[[section.param]]
+id = "wind_source_2_muted"
+kind = "bool"
+label = "Wind Source 3 Muted"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "wind_source_2_direction_deg"
+kind = "float"
+label = "Wind Source 3 Direction"
+type = "Float"
+
+[section.param.data]
+value = 76.7
+min = 0
+max = 360
+
+[[section.param]]
+id = "wind_source_2_speed"
+kind = "float"
+label = "Wind Source 3 Speed"
+type = "Float"
+
+[section.param.data]
+value = 1.18
+min = 0
+max = 4
+
+[[section.param]]
+id = "wind_source_2_strength"
+kind = "float"
+label = "Wind Source 3 Strength"
+type = "Float"
+
+[section.param.data]
+value = 1.392
+min = 0
+max = 8
+
+[[section.param]]
+id = "wind_source_2_coverage"
+kind = "float"
+label = "Wind Source 3 Coverage"
+type = "Float"
+
+[section.param.data]
+value = 0.33
+min = 0
+max = 1
+
+[[section.param]]
+id = "wind_source_2_pattern_scale"
+kind = "float"
+label = "Wind Source 3 Pattern Scale"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0.05
+max = 8
+
+[[section.param]]
+id = "wind_source_2_pattern_frequency"
+kind = "float"
+label = "Wind Source 3 Pattern Frequency"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0.05
+max = 8
+
+[[section.param]]
+id = "wind_source_2_octaves"
+kind = "uint"
+label = "Wind Source 3 Octaves"
+type = "Uint"
+
+[section.param.data]
+value = 3
+min = 1
+max = 8
+
+[[section.param]]
+id = "wind_source_2_lacunarity"
+kind = "float"
+label = "Wind Source 3 Lacunarity"
+type = "Float"
+
+[section.param.data]
+value = 2
+min = 1
+max = 4
+
+[[section.param]]
+id = "wind_source_2_gain"
+kind = "float"
+label = "Wind Source 3 Gain"
+type = "Float"
+
+[section.param.data]
+value = 0.5
+min = 0
+max = 1
+
+[[section.param]]
+id = "wind_source_3_name"
+kind = "string"
+label = "Wind Source 4 Name"
+type = "String"
+
+[section.param.data]
+value = "Wind Source 4"
+
+[[section.param]]
+id = "wind_source_3_muted"
+kind = "bool"
+label = "Wind Source 4 Muted"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "wind_source_3_direction_deg"
+kind = "float"
+label = "Wind Source 4 Direction"
+type = "Float"
+
+[section.param.data]
+value = 191
+min = 0
+max = 360
+
+[[section.param]]
+id = "wind_source_3_speed"
+kind = "float"
+label = "Wind Source 4 Speed"
+type = "Float"
+
+[section.param.data]
+value = 1.43
+min = 0
+max = 4
+
+[[section.param]]
+id = "wind_source_3_strength"
+kind = "float"
+label = "Wind Source 4 Strength"
+type = "Float"
+
+[section.param.data]
+value = 1.032
+min = 0
+max = 8
+
+[[section.param]]
+id = "wind_source_3_coverage"
+kind = "float"
+label = "Wind Source 4 Coverage"
+type = "Float"
+
+[section.param.data]
+value = 0.33
+min = 0
+max = 1
+
+[[section.param]]
+id = "wind_source_3_pattern_scale"
+kind = "float"
+label = "Wind Source 4 Pattern Scale"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0.05
+max = 8
+
+[[section.param]]
+id = "wind_source_3_pattern_frequency"
+kind = "float"
+label = "Wind Source 4 Pattern Frequency"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0.05
+max = 8
+
+[[section.param]]
+id = "wind_source_3_octaves"
+kind = "uint"
+label = "Wind Source 4 Octaves"
+type = "Uint"
+
+[section.param.data]
+value = 3
+min = 1
+max = 8
+
+[[section.param]]
+id = "wind_source_3_lacunarity"
+kind = "float"
+label = "Wind Source 4 Lacunarity"
+type = "Float"
+
+[section.param.data]
+value = 2
+min = 1
+max = 4
+
+[[section.param]]
+id = "wind_source_3_gain"
+kind = "float"
+label = "Wind Source 4 Gain"
+type = "Float"
+
+[section.param.data]
+value = 0.5
+min = 0
+max = 1
 
 [[section]]
 name = "Audio"
@@ -138,6 +584,39 @@ type = "Float"
 value = 1
 min = 0
 max = 1
+
+[[section.param]]
+id = "tree_wind_response_min_strength"
+kind = "float"
+label = "Tree Wind Response Min"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = 0
+max = 1
+
+[[section.param]]
+id = "tree_wind_response_max_strength"
+kind = "float"
+label = "Tree Wind Response Max"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 1
+
+[[section.param]]
+id = "tree_wind_volume_db"
+kind = "float"
+label = "Tree Wind Volume (dB)"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = -40
+max = 20
 
 [[section.param]]
 id = "audio_ray_tracing_enabled"

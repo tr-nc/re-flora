@@ -43,6 +43,7 @@ use crate::tree_gen::TreeDesc;
 use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
 use crate::util::{GrowingFloraChunk, GrowingFloraQueue, LatestChunkQueue, ShaderCompiler, BENCH};
+use crate::wind::{WindResponseCurve, WindSource, MAX_WIND_SOURCES};
 use crate::RenderFlags;
 use crate::{egui_renderer::EguiRenderer, window::WindowState, WaterProfilePreference};
 use anyhow::{Context, Result};
@@ -724,6 +725,32 @@ impl App {
             .set_audio_ray_tracing_enabled(self.gui_adjustables.audio_ray_tracing_enabled.value);
     }
 
+    fn tree_audio_wind_response_curve(gui_adjustables: &GuiAdjustables) -> WindResponseCurve {
+        WindResponseCurve {
+            min_strength: gui_adjustables.tree_wind_response_min_strength.value,
+            max_strength: gui_adjustables.tree_wind_response_max_strength.value,
+            power: 1.0,
+        }
+    }
+
+    fn wind_gui_params(gui_adjustables: &GuiAdjustables) -> WindGuiParams {
+        let active_sources = gui_adjustables.active_wind_sources();
+        let source_count = active_sources.len().min(MAX_WIND_SOURCES) as u32;
+        let mut sources = [WindSource::default(); MAX_WIND_SOURCES];
+        for (index, source) in active_sources
+            .into_iter()
+            .take(MAX_WIND_SOURCES)
+            .enumerate()
+        {
+            sources[index] = source;
+        }
+
+        WindGuiParams {
+            sources,
+            source_count,
+        }
+    }
+
     pub fn new(_event_loop: &ActiveEventLoop, options: &crate::AppOptions) -> Result<Self> {
         let chunk_bound = UAabb3::new(UVec3::ZERO, CHUNK_DIM);
         let window_state = Self::create_window_state(_event_loop, options);
@@ -854,7 +881,8 @@ impl App {
         };
         let tree_audio_manager = TreeAudioManager::new(
             spatial_sound_manager.clone(),
-            leaf_emitter_desc.wind_response_curve(),
+            Self::tree_audio_wind_response_curve(&gui_adjustables),
+            gui_adjustables.tree_wind_volume_db.value,
         );
         let butterfly_emitters = Vec::new();
         let butterfly_emitter_desc = Self::butterfly_desc_from_gui_adjustables(&gui_adjustables);
@@ -1864,7 +1892,11 @@ impl App {
                 if world_tick_steps > 0 {
                     self.update_growing_flora_chunk();
                 }
-                if let Err(err) = self.tree_audio_manager.update(time_since_start) {
+                let active_wind_sources = self.gui_adjustables.active_wind_sources();
+                if let Err(err) = self
+                    .tree_audio_manager
+                    .update(time_since_start, &active_wind_sources)
+                {
                     log::warn!("Failed to update tree audio sources: {}", err);
                 }
                 if let Err(err) = self.spatial_sound_manager.pump_audio() {
@@ -2051,6 +2083,39 @@ impl App {
                                         )
                                         .text("Master Volume"),
                                     );
+                                    ui.add(
+                                        egui::Slider::new(
+                                            &mut self
+                                                .gui_adjustables
+                                                .tree_wind_response_min_strength
+                                                .value,
+                                            self.gui_adjustables
+                                                .tree_wind_response_min_strength
+                                                .range
+                                                .clone(),
+                                        )
+                                        .text("Tree Wind Response Min"),
+                                    );
+                                    ui.add(
+                                        egui::Slider::new(
+                                            &mut self
+                                                .gui_adjustables
+                                                .tree_wind_response_max_strength
+                                                .value,
+                                            self.gui_adjustables
+                                                .tree_wind_response_max_strength
+                                                .range
+                                                .clone(),
+                                        )
+                                        .text("Tree Wind Response Max"),
+                                    );
+                                    ui.add(
+                                        egui::Slider::new(
+                                            &mut self.gui_adjustables.tree_wind_volume_db.value,
+                                            self.gui_adjustables.tree_wind_volume_db.range.clone(),
+                                        )
+                                        .text("Tree Wind Volume (dB)"),
+                                    );
                                     ui.checkbox(
                                         &mut self.gui_adjustables.audio_ray_tracing_enabled.value,
                                         "Audio Ray Tracing",
@@ -2178,6 +2243,15 @@ impl App {
                 {
                     log::error!("Failed to apply master volume: {}", err);
                 }
+                if let Err(err) = self
+                    .tree_audio_manager
+                    .set_wind_volume_db(self.gui_adjustables.tree_wind_volume_db.value)
+                {
+                    log::error!("Failed to apply tree wind volume: {}", err);
+                }
+                self.tree_audio_manager.set_wind_response_curve(
+                    Self::tree_audio_wind_response_curve(&self.gui_adjustables),
+                );
 
                 if tree_desc_changed {
                     if let Err(err) = self.replace_single_tree_deferred(
@@ -2320,12 +2394,7 @@ impl App {
                     self.gui_adjustables.season.value,
                 );
                 let update_shadow_map = self.render_flags.enable_shadows;
-                let wind_gui_params = WindGuiParams {
-                    wind_speed: self.gui_adjustables.wind_speed.value,
-                    wind_layers: self.gui_adjustables.wind_layers.value,
-                    wind_sharpness: self.gui_adjustables.wind_sharpness.value,
-                    wind_strength: self.gui_adjustables.wind_strength.value,
-                };
+                let wind_gui_params = Self::wind_gui_params(&self.gui_adjustables);
 
                 self.tracer
                     .update_buffers(
