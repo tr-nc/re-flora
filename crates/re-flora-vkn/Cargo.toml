@@ -7,7 +7,7 @@ edition = "2021"
 anyhow = "1.0.102"
 ash = { version = "0.38", default-features = false, features = [
     "debug",
-    "linked",
+    "loaded",
     "std",
 ] }
 ash-window = "0.13"

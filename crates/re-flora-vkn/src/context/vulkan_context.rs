@@ -45,7 +45,9 @@ pub struct VulkanContext(Arc<VulkanContextInner>);
 
 impl VulkanContext {
     pub fn new(window: &Window, desc: VulkanContextDesc) -> Self {
-        let entry = Entry::linked();
+        let entry = unsafe {
+            Entry::load().unwrap_or_else(|err| panic!("failed to load Vulkan loader: {err}"))
+        };
 
         let instance = Instance::new(&entry, window, &desc.name);
         let surface = Surface::new(&entry, &instance, window);

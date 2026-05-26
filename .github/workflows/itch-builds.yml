@@ -13,10 +13,10 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 env:
   CARGO_TERM_COLOR: always
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   desktop:
@@ -26,7 +26,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
+          - os: windows-2025-vs2026
             channel: windows
           - os: macos-15
             channel: macos
@@ -203,15 +203,19 @@ jobs:
     needs:
       - desktop
       - fedora
-    if: always() && github.ref_type == 'tag'
+    if: github.ref_type == 'tag' && needs.desktop.result == 'success' && needs.fedora.result == 'success'
 
     steps:
       - name: Download package artifacts
-        uses: actions/download-artifact@v6
-        with:
-          pattern: re-flora-*
-          path: dist/release-assets
-          merge-multiple: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download "$GITHUB_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 're-flora-*' \
+            --dir dist/release-assets
 
       - name: Publish GitHub release assets
         shell: bash
@@ -219,11 +223,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          shopt -s nullglob
 
-          assets=(dist/release-assets/*.zip)
-          if [ "${#assets[@]}" -eq 0 ]; then
-            echo "No package artifacts were produced; skipping release upload." >&2
+          mapfile -t assets < <(find dist/release-assets -type f -name '*.zip' | sort)
+          if [ "${#assets[@]}" -ne 3 ]; then
+            echo "Expected 3 package artifacts, found ${#assets[@]}:" >&2
+            find dist/release-assets -maxdepth 3 -type f -print >&2
             exit 1
           fi
 
@@ -231,11 +235,11 @@ jobs:
           title="Re: Flora ${tag#v}"
           notes="Automated package build for ${tag}."
 
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh release edit "$tag" --title "$title" --notes "$notes"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --title "$title" --notes "$notes"
           else
-            gh release create "$tag" --title "$title" --notes "$notes"
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --title "$title" --notes "$notes"
           fi
 
-          gh release upload "$tag" "${assets[@]}" --clobber
-          gh release view "$tag" --json assets --jq '.assets[] | {name, downloadCount}'
+          gh release upload "$tag" --repo "$GITHUB_REPOSITORY" "${assets[@]}" --clobber
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[] | {name, downloadCount}'

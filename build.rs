@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 macro_rules! log {
     ($($arg:tt)*) => {{
         let message = format!($($arg)*);
-        println!("cargo:warning={}", message);
+        eprintln!("{}", message);
     }};
 }
 
