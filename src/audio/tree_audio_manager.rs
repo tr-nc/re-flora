@@ -1,6 +1,6 @@
 use crate::audio::{SpatialSoundManager, TreeAudioSource};
 use crate::util::{cluster_positions, ClusterResult};
-use crate::wind::{Wind, WindResponseCurve};
+use crate::wind::{Wind, WindResponseCurve, WindSource};
 use anyhow::Result;
 use glam::Vec3;
 use log::{debug, warn};
@@ -226,12 +226,12 @@ impl TreeAudioManager {
         }
     }
 
-    pub fn update(&mut self, time_seconds: f32, wind_strength: f32) -> Result<()> {
+    pub fn update(&mut self, time_seconds: f32, wind_sources: &[WindSource]) -> Result<()> {
         for source in self.sources.values_mut() {
             source.update(
                 &self.wind,
                 time_seconds,
-                wind_strength,
+                wind_sources,
                 &self.spatial_sound_manager,
             )?;
         }

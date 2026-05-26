@@ -46,6 +46,7 @@ use crate::geom::UAabb3;
 use crate::particles::{ParticleSnapshot, PARTICLE_CAPACITY};
 use crate::resource::ResourceContainer;
 use crate::util::{ShaderCompiler, TimeInfo};
+use crate::wind::{WindSource, MAX_WIND_SOURCES};
 use anyhow::Result;
 use re_flora_vkn::vk;
 use re_flora_vkn::{
@@ -68,10 +69,8 @@ struct WindVolumePushConstants {
 
 #[derive(Debug, Clone, Copy)]
 pub struct WindGuiParams {
-    pub wind_speed: f32,
-    pub wind_layers: u32,
-    pub wind_sharpness: f32,
-    pub wind_strength: f32,
+    pub sources: [WindSource; MAX_WIND_SOURCES],
+    pub source_count: u32,
 }
 
 #[repr(C)]

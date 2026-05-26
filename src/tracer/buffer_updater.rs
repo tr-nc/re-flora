@@ -231,6 +231,15 @@ impl BufferUpdater {
         lens_flare_sun_pixel_scale: f32,
         wind_gui_params: WindGuiParams,
     ) -> Result<()> {
+        let wind_sources = wind_gui_params.sources.map(|source| {
+            [
+                source.direction_degrees,
+                source.frequency,
+                source.sharpness,
+                source.strength,
+            ]
+        });
+
         resources.gui_input.fill_uniform(&GuiInput {
             debug_float,
             debug_bool: debug_bool as u32,
@@ -249,10 +258,11 @@ impl BufferUpdater {
             ocean_sea_level_shift,
             lens_flare_intensity,
             lens_flare_sun_pixel_scale,
-            wind_speed: wind_gui_params.wind_speed,
-            wind_layers: wind_gui_params.wind_layers,
-            wind_sharpness: wind_gui_params.wind_sharpness,
-            wind_strength: wind_gui_params.wind_strength,
+            wind_source_count: wind_gui_params.source_count,
+            wind_source_0: wind_sources[0],
+            wind_source_1: wind_sources[1],
+            wind_source_2: wind_sources[2],
+            wind_source_3: wind_sources[3],
             ..GuiInput::zeroed()
         })
     }

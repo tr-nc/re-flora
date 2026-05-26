@@ -43,7 +43,7 @@ use crate::tree_gen::TreeDesc;
 use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
 use crate::util::{GrowingFloraChunk, GrowingFloraQueue, LatestChunkQueue, ShaderCompiler, BENCH};
-use crate::wind::WindResponseCurve;
+use crate::wind::{WindResponseCurve, WindSource, MAX_WIND_SOURCES};
 use crate::RenderFlags;
 use crate::{egui_renderer::EguiRenderer, window::WindowState, WaterProfilePreference};
 use anyhow::{Context, Result};
@@ -730,6 +730,24 @@ impl App {
             min_strength: gui_adjustables.tree_wind_response_min_strength.value,
             max_strength: gui_adjustables.tree_wind_response_max_strength.value,
             power: 1.0,
+        }
+    }
+
+    fn wind_gui_params(gui_adjustables: &GuiAdjustables) -> WindGuiParams {
+        let active_sources = gui_adjustables.active_wind_sources();
+        let source_count = active_sources.len().min(MAX_WIND_SOURCES) as u32;
+        let mut sources = [WindSource::default(); MAX_WIND_SOURCES];
+        for (index, source) in active_sources
+            .into_iter()
+            .take(MAX_WIND_SOURCES)
+            .enumerate()
+        {
+            sources[index] = source;
+        }
+
+        WindGuiParams {
+            sources,
+            source_count,
         }
     }
 
@@ -1874,9 +1892,10 @@ impl App {
                 if world_tick_steps > 0 {
                     self.update_growing_flora_chunk();
                 }
+                let active_wind_sources = self.gui_adjustables.active_wind_sources();
                 if let Err(err) = self
                     .tree_audio_manager
-                    .update(time_since_start, self.gui_adjustables.wind_strength.value)
+                    .update(time_since_start, &active_wind_sources)
                 {
                     log::warn!("Failed to update tree audio sources: {}", err);
                 }
@@ -2375,12 +2394,7 @@ impl App {
                     self.gui_adjustables.season.value,
                 );
                 let update_shadow_map = self.render_flags.enable_shadows;
-                let wind_gui_params = WindGuiParams {
-                    wind_speed: self.gui_adjustables.wind_speed.value,
-                    wind_layers: self.gui_adjustables.wind_layers.value,
-                    wind_sharpness: self.gui_adjustables.wind_sharpness.value,
-                    wind_strength: self.gui_adjustables.wind_strength.value,
-                };
+                let wind_gui_params = Self::wind_gui_params(&self.gui_adjustables);
 
                 self.tracer
                     .update_buffers(

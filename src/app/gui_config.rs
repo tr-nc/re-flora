@@ -4,6 +4,8 @@
 /// The config file is the single source of truth.
 use crate::app::gui_config_loader::GuiConfigLoader;
 use crate::app::gui_config_model::{GuiConfigFile, GuiParamKind, GuiParamValue};
+use crate::gui_adjustables::FloatParam;
+use crate::wind::{WindSource, MAX_WIND_SOURCES};
 use egui::Color32;
 
 mod generated {
@@ -42,6 +44,39 @@ fn color_to_hex(color: Color32) -> String {
 
 impl GuiAdjustables {
     const SAVE_DENYLIST: &'static [&'static str] = &["time_of_day"];
+
+    pub fn active_wind_sources(&self) -> Vec<WindSource> {
+        let count = self.wind_source_count.value.min(MAX_WIND_SOURCES as u32) as usize;
+        (0..count)
+            .map(|index| match index {
+                0 => WindSource::new(
+                    self.wind_source_0_direction_deg.value,
+                    self.wind_source_0_frequency.value,
+                    self.wind_source_0_sharpness.value,
+                    self.wind_source_0_strength.value,
+                ),
+                1 => WindSource::new(
+                    self.wind_source_1_direction_deg.value,
+                    self.wind_source_1_frequency.value,
+                    self.wind_source_1_sharpness.value,
+                    self.wind_source_1_strength.value,
+                ),
+                2 => WindSource::new(
+                    self.wind_source_2_direction_deg.value,
+                    self.wind_source_2_frequency.value,
+                    self.wind_source_2_sharpness.value,
+                    self.wind_source_2_strength.value,
+                ),
+                3 => WindSource::new(
+                    self.wind_source_3_direction_deg.value,
+                    self.wind_source_3_frequency.value,
+                    self.wind_source_3_sharpness.value,
+                    self.wind_source_3_strength.value,
+                ),
+                _ => unreachable!(),
+            })
+            .collect()
+    }
 
     pub fn save_to_config(&self) -> std::io::Result<()> {
         let mut config = GuiConfigLoader::load();
@@ -211,6 +246,104 @@ impl GuiAdjustables {
     }
 }
 
+fn wind_source_params_mut(
+    adjustables: &mut GuiAdjustables,
+    index: usize,
+) -> Option<(
+    &mut FloatParam,
+    &mut FloatParam,
+    &mut FloatParam,
+    &mut FloatParam,
+)> {
+    match index {
+        0 => Some((
+            &mut adjustables.wind_source_0_direction_deg,
+            &mut adjustables.wind_source_0_frequency,
+            &mut adjustables.wind_source_0_sharpness,
+            &mut adjustables.wind_source_0_strength,
+        )),
+        1 => Some((
+            &mut adjustables.wind_source_1_direction_deg,
+            &mut adjustables.wind_source_1_frequency,
+            &mut adjustables.wind_source_1_sharpness,
+            &mut adjustables.wind_source_1_strength,
+        )),
+        2 => Some((
+            &mut adjustables.wind_source_2_direction_deg,
+            &mut adjustables.wind_source_2_frequency,
+            &mut adjustables.wind_source_2_sharpness,
+            &mut adjustables.wind_source_2_strength,
+        )),
+        3 => Some((
+            &mut adjustables.wind_source_3_direction_deg,
+            &mut adjustables.wind_source_3_frequency,
+            &mut adjustables.wind_source_3_sharpness,
+            &mut adjustables.wind_source_3_strength,
+        )),
+        _ => None,
+    }
+}
+
+fn render_wind_sources_gui(ui: &mut egui::Ui, adjustables: &mut GuiAdjustables) {
+    let max_sources = MAX_WIND_SOURCES as u32;
+    adjustables.wind_source_count.value = adjustables.wind_source_count.value.min(max_sources);
+
+    ui.horizontal(|ui| {
+        if ui
+            .add_enabled(
+                adjustables.wind_source_count.value > 0,
+                egui::Button::new("- Wind Source"),
+            )
+            .clicked()
+        {
+            adjustables.wind_source_count.value -= 1;
+        }
+        ui.label(format!(
+            "Wind Sources: {}",
+            adjustables.wind_source_count.value
+        ));
+        if ui
+            .add_enabled(
+                adjustables.wind_source_count.value < max_sources,
+                egui::Button::new("+ Wind Source"),
+            )
+            .clicked()
+        {
+            adjustables.wind_source_count.value += 1;
+        }
+    });
+
+    if adjustables.wind_source_count.value == 0 {
+        ui.label("No active wind sources.");
+        return;
+    }
+
+    for index in 0..adjustables.wind_source_count.value as usize {
+        ui.add_space(4.0);
+        ui.collapsing(format!("Wind Source {}", index + 1), |ui| {
+            if let Some((direction, frequency, sharpness, strength)) =
+                wind_source_params_mut(adjustables, index)
+            {
+                ui.add(
+                    egui::Slider::new(&mut direction.value, direction.range.clone())
+                        .text("Direction (deg)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut frequency.value, frequency.range.clone())
+                        .text("Frequency"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut sharpness.value, sharpness.range.clone())
+                        .text("Sharpness"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut strength.value, strength.range.clone()).text("Strength"),
+                );
+            }
+        });
+    }
+}
+
 pub fn render_gui_from_config(
     ui: &mut egui::Ui,
     config: &GuiConfigFile,
@@ -220,6 +353,11 @@ pub fn render_gui_from_config(
 
     for section in &config.section {
         ui.collapsing(&section.name, |ui| {
+            if section.name == "Wind" {
+                render_wind_sources_gui(ui, adjustables);
+                return;
+            }
+
             for param in &section.param {
                 match (&param.kind, &param.value) {
                     (GuiParamKind::Float, GuiParamValue::Float { min, max, .. }) => {

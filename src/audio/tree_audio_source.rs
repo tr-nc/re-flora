@@ -1,5 +1,5 @@
 use crate::audio::SpatialSoundManager;
-use crate::wind::{Wind, WindResponseCurve};
+use crate::wind::{Wind, WindResponseCurve, WindSource};
 use anyhow::Result;
 use glam::Vec3;
 use uuid::Uuid;
@@ -65,14 +65,15 @@ impl TreeAudioSource {
         &mut self,
         wind: &Wind,
         time_seconds: f32,
-        wind_strength: f32,
+        wind_sources: &[WindSource],
         spatial_sound_manager: &SpatialSoundManager,
     ) -> Result<()> {
-        let normalized = if wind_strength <= f32::EPSILON {
-            0.0
-        } else {
-            wind.sample_response(self.position, time_seconds, self.wind_response_curve)
-        };
+        let normalized = wind.sample_response_from_sources(
+            self.position,
+            time_seconds,
+            wind_sources,
+            self.wind_response_curve,
+        );
         self.apply_response_volume(normalized, spatial_sound_manager)
     }
 

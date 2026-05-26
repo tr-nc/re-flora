@@ -27,10 +27,11 @@ layout(set = GUI_INPUT_SET, binding = GUI_INPUT_BINDING) uniform U_GuiInput {
     float ocean_sea_level_shift;
     float lens_flare_intensity;
     float lens_flare_sun_pixel_scale;
-    float wind_speed;
-    uint wind_layers;
-    float wind_sharpness;
-    float wind_strength;
+    uint wind_source_count;
+    vec4 wind_source_0;
+    vec4 wind_source_1;
+    vec4 wind_source_2;
+    vec4 wind_source_3;
 }
 gui_input;
 
