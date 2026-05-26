@@ -1,7 +1,7 @@
 use fastnoise_lite::{FastNoiseLite, FractalType, NoiseType};
 use glam::{Vec2, Vec3};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WindResponseCurve {
     pub min_strength: f32,
     pub max_strength: f32,

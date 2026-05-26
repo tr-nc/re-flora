@@ -98,6 +98,24 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Audio",
+        id: "tree_wind_response_min_strength",
+        kind: "float",
+        label: "Tree Wind Response Min",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Audio",
+        id: "tree_wind_response_max_strength",
+        kind: "float",
+        label: "Tree Wind Response Max",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Audio",
+        id: "tree_wind_volume_db",
+        kind: "float",
+        label: "Tree Wind Volume (dB)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Audio",
         id: "audio_ray_tracing_enabled",
         kind: "bool",
         label: "Audio Ray Tracing",
@@ -736,6 +754,9 @@ pub struct GuiAdjustables {
     pub wind_sharpness: crate::gui_adjustables::FloatParam,
     pub wind_strength: crate::gui_adjustables::FloatParam,
     pub master_volume: crate::gui_adjustables::FloatParam,
+    pub tree_wind_response_min_strength: crate::gui_adjustables::FloatParam,
+    pub tree_wind_response_max_strength: crate::gui_adjustables::FloatParam,
+    pub tree_wind_volume_db: crate::gui_adjustables::FloatParam,
     pub audio_ray_tracing_enabled: crate::gui_adjustables::BoolParam,
     pub sun_size: crate::gui_adjustables::FloatParam,
     pub sun_color: crate::gui_adjustables::ColorParam,
@@ -865,6 +886,9 @@ impl GuiAdjustables {
         let mut wind_sharpness_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut master_volume_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_wind_response_min_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_wind_response_max_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_wind_volume_db_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut audio_ray_tracing_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut sun_size_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sun_color_field: Option<crate::gui_adjustables::ColorParam> = None;
@@ -1053,6 +1077,27 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             master_volume_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_wind_response_min_strength" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_wind_response_min_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_wind_response_max_strength" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_wind_response_max_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_wind_volume_db" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_wind_volume_db_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "audio_ray_tracing_enabled" => {
@@ -1755,6 +1800,9 @@ impl GuiAdjustables {
             wind_sharpness: wind_sharpness_field.expect("Missing parameter: wind_sharpness"),
             wind_strength: wind_strength_field.expect("Missing parameter: wind_strength"),
             master_volume: master_volume_field.expect("Missing parameter: master_volume"),
+            tree_wind_response_min_strength: tree_wind_response_min_strength_field.expect("Missing parameter: tree_wind_response_min_strength"),
+            tree_wind_response_max_strength: tree_wind_response_max_strength_field.expect("Missing parameter: tree_wind_response_max_strength"),
+            tree_wind_volume_db: tree_wind_volume_db_field.expect("Missing parameter: tree_wind_volume_db"),
             audio_ray_tracing_enabled: audio_ray_tracing_enabled_field.expect("Missing parameter: audio_ray_tracing_enabled"),
             sun_size: sun_size_field.expect("Missing parameter: sun_size"),
             sun_color: sun_color_field.expect("Missing parameter: sun_color"),
@@ -1874,6 +1922,9 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "wind_sharpness" => Some(&adjustables.wind_sharpness),
         "wind_strength" => Some(&adjustables.wind_strength),
         "master_volume" => Some(&adjustables.master_volume),
+        "tree_wind_response_min_strength" => Some(&adjustables.tree_wind_response_min_strength),
+        "tree_wind_response_max_strength" => Some(&adjustables.tree_wind_response_max_strength),
+        "tree_wind_volume_db" => Some(&adjustables.tree_wind_volume_db),
         "sun_size" => Some(&adjustables.sun_size),
         "sun_luminance" => Some(&adjustables.sun_luminance),
         "sun_display_luminance" => Some(&adjustables.sun_display_luminance),
@@ -2030,6 +2081,9 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "wind_sharpness" => Some(&mut adjustables.wind_sharpness),
         "wind_strength" => Some(&mut adjustables.wind_strength),
         "master_volume" => Some(&mut adjustables.master_volume),
+        "tree_wind_response_min_strength" => Some(&mut adjustables.tree_wind_response_min_strength),
+        "tree_wind_response_max_strength" => Some(&mut adjustables.tree_wind_response_max_strength),
+        "tree_wind_volume_db" => Some(&mut adjustables.tree_wind_volume_db),
         "sun_size" => Some(&mut adjustables.sun_size),
         "sun_luminance" => Some(&mut adjustables.sun_luminance),
         "sun_display_luminance" => Some(&mut adjustables.sun_display_luminance),

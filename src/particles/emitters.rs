@@ -109,6 +109,7 @@ impl Default for LeafEmitterDesc {
 }
 
 impl LeafEmitterDesc {
+    #[allow(dead_code)]
     pub fn wind_response_curve(&self) -> WindResponseCurve {
         WindResponseCurve {
             min_strength: self.wind_spawn_min_strength,
