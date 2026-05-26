@@ -21,6 +21,10 @@ struct VulkanContextInner {
     instance: Instance,
     physical_device: PhysicalDevice,
     queue_family_indices: QueueFamilyIndices,
+
+    // Keep the dynamically loaded Vulkan loader alive for every function
+    // pointer stored in the instance/device dispatch tables.
+    _entry: Entry,
 }
 
 impl Drop for VulkanContextInner {
@@ -126,6 +130,7 @@ impl VulkanContext {
             instance,
             physical_device,
             queue_family_indices,
+            _entry: entry,
         }))
     }
 

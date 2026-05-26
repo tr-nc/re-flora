@@ -1,6 +1,5 @@
 use egui::epaint::{Primitive, Vertex};
 use egui::ClippedPrimitive;
-use re_flora_vkn::vk;
 use re_flora_vkn::{Allocator, Buffer, BufferUsage, Device, MemoryLocation};
 use std::mem::size_of;
 
@@ -26,7 +25,7 @@ impl Mesh {
         let vertices_buffer = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
-            BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
+            BufferUsage::vertex_buffer(),
             MemoryLocation::CpuToGpu,
             (vertex_count * size_of::<Vertex>()) as _,
         );
@@ -37,7 +36,7 @@ impl Mesh {
         let indices_buffer = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
-            BufferUsage::from_flags(vk::BufferUsageFlags::INDEX_BUFFER),
+            BufferUsage::index_buffer(),
             MemoryLocation::CpuToGpu,
             (index_count * size_of::<u32>()) as _,
         );
@@ -66,7 +65,7 @@ impl Mesh {
             self.vertices_buffer = Buffer::new_sized(
                 device.clone(),
                 allocator.clone(),
-                BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
+                BufferUsage::vertex_buffer(),
                 MemoryLocation::CpuToGpu,
                 size as _,
             );
@@ -82,7 +81,7 @@ impl Mesh {
             self.indices_buffer = Buffer::new_sized(
                 device.clone(),
                 allocator.clone(),
-                BufferUsage::from_flags(vk::BufferUsageFlags::INDEX_BUFFER),
+                BufferUsage::index_buffer(),
                 MemoryLocation::CpuToGpu,
                 size as _,
             );

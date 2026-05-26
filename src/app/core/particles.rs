@@ -52,7 +52,8 @@ impl ParticleEmitter for TreeLeafEmitter {
 impl App {
     fn terrain_harvest_collection_target(&self) -> Vec3 {
         let screen_resolution = self.window_state.resolution();
-        self.backpack_summary_panel_screen_pos
+        self.player_tools
+            .backpack_summary_panel_screen_pos
             .and_then(|screen_pos| {
                 self.tracer.project_screen_point_to_world(
                     screen_pos,

@@ -17,8 +17,38 @@ impl BufferUsage {
         Self { usage }
     }
 
+    pub fn transfer_src() -> Self {
+        Self::from_flags(vk::BufferUsageFlags::TRANSFER_SRC)
+    }
+
     pub fn transfer_dst() -> Self {
         Self::from_flags(vk::BufferUsageFlags::TRANSFER_DST)
+    }
+
+    pub fn vertex_buffer() -> Self {
+        Self::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER)
+    }
+
+    pub fn index_buffer() -> Self {
+        Self::from_flags(vk::BufferUsageFlags::INDEX_BUFFER)
+    }
+
+    pub fn storage_buffer() -> Self {
+        Self::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER)
+    }
+
+    pub fn indirect_buffer() -> Self {
+        Self::from_flags(vk::BufferUsageFlags::INDIRECT_BUFFER)
+    }
+
+    pub fn with_transfer_dst(mut self) -> Self {
+        self.usage |= vk::BufferUsageFlags::TRANSFER_DST;
+        self
+    }
+
+    pub fn with_transfer_src(mut self) -> Self {
+        self.usage |= vk::BufferUsageFlags::TRANSFER_SRC;
+        self
     }
 
     pub fn union_with(&mut self, other: &Self) {
