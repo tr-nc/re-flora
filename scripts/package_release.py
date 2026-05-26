@@ -184,7 +184,7 @@ def copy_runtime_libraries(stage_root: Path, target_dir: Path, current_platform:
         dst = dst_dir / src.name
         shutil.copy2(src, dst)
         copied.append(dst)
-        print(f"Bundled {spec.label}: {dst.relative_to(stage_root)}")
+        print(f"Bundled {spec.label}: {dst.relative_to(stage_root)}", file=sys.stderr)
 
     return copied
 
@@ -304,7 +304,7 @@ def copy_macos_vulkan_runtime(stage_root: Path) -> list[Path]:
         dst = lib_dir / name
         shutil.copy2(src, dst)
         copied.append(dst)
-        print(f"Bundled macOS Vulkan runtime: {dst.relative_to(stage_root)}")
+        print(f"Bundled macOS Vulkan runtime: {dst.relative_to(stage_root)}", file=sys.stderr)
 
     icd_dir = stage_root / "vulkan" / "icd.d"
     icd_dir.mkdir(parents=True, exist_ok=True)
@@ -318,7 +318,7 @@ def copy_macos_vulkan_runtime(stage_root: Path) -> list[Path]:
     icd_path = icd_dir / "MoltenVK_icd.json"
     icd_path.write_text(json.dumps(icd, indent=2) + "\n", encoding="utf-8")
     copied.append(icd_path)
-    print(f"Bundled macOS Vulkan ICD: {icd_path.relative_to(stage_root)}")
+    print(f"Bundled macOS Vulkan ICD: {icd_path.relative_to(stage_root)}", file=sys.stderr)
     return copied
 
 
