@@ -113,6 +113,15 @@ type = "String"
 value = "Gentle Wind"
 
 [[section.param]]
+id = "wind_source_0_muted"
+kind = "bool"
+label = "Wind Source 1 Muted"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "wind_source_0_direction_deg"
 kind = "float"
 label = "Wind Source 1 Direction"
@@ -219,6 +228,15 @@ type = "String"
 
 [section.param.data]
 value = "Strong Wind"
+
+[[section.param]]
+id = "wind_source_1_muted"
+kind = "bool"
+label = "Wind Source 2 Muted"
+type = "Bool"
+
+[section.param.data]
+value = false
 
 [[section.param]]
 id = "wind_source_1_direction_deg"
@@ -329,6 +347,15 @@ type = "String"
 value = "Wind Source 3"
 
 [[section.param]]
+id = "wind_source_2_muted"
+kind = "bool"
+label = "Wind Source 3 Muted"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "wind_source_2_direction_deg"
 kind = "float"
 label = "Wind Source 3 Direction"
@@ -435,6 +462,15 @@ type = "String"
 
 [section.param.data]
 value = "Wind Source 4"
+
+[[section.param]]
+id = "wind_source_3_muted"
+kind = "bool"
+label = "Wind Source 4 Muted"
+type = "Bool"
+
+[section.param.data]
+value = false
 
 [[section.param]]
 id = "wind_source_3_direction_deg"

@@ -4,7 +4,7 @@
 /// The config file is the single source of truth.
 use crate::app::gui_config_loader::GuiConfigLoader;
 use crate::app::gui_config_model::{GuiConfigFile, GuiParamKind, GuiParamValue};
-use crate::gui_adjustables::{FloatParam, StringParam, UintParam};
+use crate::gui_adjustables::{BoolParam, FloatParam, StringParam, UintParam};
 use crate::wind::{WindSource, MAX_WIND_SOURCES};
 use egui::Color32;
 
@@ -48,7 +48,11 @@ impl GuiAdjustables {
     pub fn active_wind_sources(&self) -> Vec<WindSource> {
         let count = self.wind_source_count.value.min(MAX_WIND_SOURCES as u32) as usize;
         (0..count)
-            .filter_map(|index| wind_source_gui_values(self, index).map(|values| values.source))
+            .filter_map(|index| {
+                wind_source_gui_values(self, index)
+                    .filter(|values| !values.muted)
+                    .map(|values| values.source)
+            })
             .collect()
     }
 
@@ -246,6 +250,7 @@ impl GuiAdjustables {
 #[derive(Clone)]
 struct WindSourceGuiValues {
     name: String,
+    muted: bool,
     source: WindSource,
 }
 
@@ -257,6 +262,7 @@ fn wind_source_gui_values(
     let values = match index {
         0 => WindSourceGuiValues {
             name: adjustables.wind_source_0_name.value.clone(),
+            muted: adjustables.wind_source_0_muted.value,
             source: WindSource::new(
                 adjustables.wind_source_0_direction_deg.value,
                 adjustables.wind_source_0_speed.value,
@@ -272,6 +278,7 @@ fn wind_source_gui_values(
         },
         1 => WindSourceGuiValues {
             name: adjustables.wind_source_1_name.value.clone(),
+            muted: adjustables.wind_source_1_muted.value,
             source: WindSource::new(
                 adjustables.wind_source_1_direction_deg.value,
                 adjustables.wind_source_1_speed.value,
@@ -287,6 +294,7 @@ fn wind_source_gui_values(
         },
         2 => WindSourceGuiValues {
             name: adjustables.wind_source_2_name.value.clone(),
+            muted: adjustables.wind_source_2_muted.value,
             source: WindSource::new(
                 adjustables.wind_source_2_direction_deg.value,
                 adjustables.wind_source_2_speed.value,
@@ -302,6 +310,7 @@ fn wind_source_gui_values(
         },
         3 => WindSourceGuiValues {
             name: adjustables.wind_source_3_name.value.clone(),
+            muted: adjustables.wind_source_3_muted.value,
             source: WindSource::new(
                 adjustables.wind_source_3_direction_deg.value,
                 adjustables.wind_source_3_speed.value,
@@ -328,6 +337,7 @@ fn set_wind_source_gui_values(
     match index {
         0 => {
             adjustables.wind_source_0_name.value = values.name;
+            adjustables.wind_source_0_muted.value = values.muted;
             adjustables.wind_source_0_direction_deg.value = values.source.direction_degrees;
             adjustables.wind_source_0_speed.value = values.source.speed;
             adjustables.wind_source_0_strength.value = values.source.strength;
@@ -340,6 +350,7 @@ fn set_wind_source_gui_values(
         }
         1 => {
             adjustables.wind_source_1_name.value = values.name;
+            adjustables.wind_source_1_muted.value = values.muted;
             adjustables.wind_source_1_direction_deg.value = values.source.direction_degrees;
             adjustables.wind_source_1_speed.value = values.source.speed;
             adjustables.wind_source_1_strength.value = values.source.strength;
@@ -352,6 +363,7 @@ fn set_wind_source_gui_values(
         }
         2 => {
             adjustables.wind_source_2_name.value = values.name;
+            adjustables.wind_source_2_muted.value = values.muted;
             adjustables.wind_source_2_direction_deg.value = values.source.direction_degrees;
             adjustables.wind_source_2_speed.value = values.source.speed;
             adjustables.wind_source_2_strength.value = values.source.strength;
@@ -364,6 +376,7 @@ fn set_wind_source_gui_values(
         }
         3 => {
             adjustables.wind_source_3_name.value = values.name;
+            adjustables.wind_source_3_muted.value = values.muted;
             adjustables.wind_source_3_direction_deg.value = values.source.direction_degrees;
             adjustables.wind_source_3_speed.value = values.source.speed;
             adjustables.wind_source_3_strength.value = values.source.strength;
@@ -374,6 +387,16 @@ fn set_wind_source_gui_values(
             adjustables.wind_source_3_lacunarity.value = values.source.lacunarity;
             adjustables.wind_source_3_gain.value = values.source.gain;
         }
+        _ => {}
+    }
+}
+
+fn toggle_wind_source_muted(adjustables: &mut GuiAdjustables, index: usize) {
+    match index {
+        0 => adjustables.wind_source_0_muted.value = !adjustables.wind_source_0_muted.value,
+        1 => adjustables.wind_source_1_muted.value = !adjustables.wind_source_1_muted.value,
+        2 => adjustables.wind_source_2_muted.value = !adjustables.wind_source_2_muted.value,
+        3 => adjustables.wind_source_3_muted.value = !adjustables.wind_source_3_muted.value,
         _ => {}
     }
 }
@@ -400,6 +423,7 @@ fn wind_source_params_mut(
     index: usize,
 ) -> Option<(
     &mut StringParam,
+    &mut BoolParam,
     &mut FloatParam,
     &mut FloatParam,
     &mut FloatParam,
@@ -413,6 +437,7 @@ fn wind_source_params_mut(
     match index {
         0 => Some((
             &mut adjustables.wind_source_0_name,
+            &mut adjustables.wind_source_0_muted,
             &mut adjustables.wind_source_0_direction_deg,
             &mut adjustables.wind_source_0_speed,
             &mut adjustables.wind_source_0_strength,
@@ -425,6 +450,7 @@ fn wind_source_params_mut(
         )),
         1 => Some((
             &mut adjustables.wind_source_1_name,
+            &mut adjustables.wind_source_1_muted,
             &mut adjustables.wind_source_1_direction_deg,
             &mut adjustables.wind_source_1_speed,
             &mut adjustables.wind_source_1_strength,
@@ -437,6 +463,7 @@ fn wind_source_params_mut(
         )),
         2 => Some((
             &mut adjustables.wind_source_2_name,
+            &mut adjustables.wind_source_2_muted,
             &mut adjustables.wind_source_2_direction_deg,
             &mut adjustables.wind_source_2_speed,
             &mut adjustables.wind_source_2_strength,
@@ -449,6 +476,7 @@ fn wind_source_params_mut(
         )),
         3 => Some((
             &mut adjustables.wind_source_3_name,
+            &mut adjustables.wind_source_3_muted,
             &mut adjustables.wind_source_3_direction_deg,
             &mut adjustables.wind_source_3_speed,
             &mut adjustables.wind_source_3_strength,
@@ -497,20 +525,38 @@ fn render_wind_sources_gui(ui: &mut egui::Ui, adjustables: &mut GuiAdjustables) 
     }
 
     let mut delete_index = None;
+    let mut toggle_mute_index = None;
     for index in 0..adjustables.wind_source_count.value as usize {
         ui.add_space(4.0);
-        let title = wind_source_gui_values(adjustables, index)
-            .map(|values| format!("{}: {}", index + 1, values.name))
+        let source_values = wind_source_gui_values(adjustables, index);
+        let title = source_values
+            .as_ref()
+            .map(|values| {
+                if values.muted {
+                    format!("{}: {} (muted)", index + 1, values.name)
+                } else {
+                    format!("{}: {}", index + 1, values.name)
+                }
+            })
             .unwrap_or_else(|| format!("Wind Source {}", index + 1));
         ui.collapsing(title, |ui| {
             ui.horizontal(|ui| {
                 if ui.button("Delete").clicked() {
                     delete_index = Some(index);
                 }
+                let mute_label = if source_values.as_ref().is_some_and(|values| values.muted) {
+                    "Unmute"
+                } else {
+                    "Mute"
+                };
+                if ui.button(mute_label).clicked() {
+                    toggle_mute_index = Some(index);
+                }
             });
 
             if let Some((
                 name,
+                muted,
                 direction,
                 speed,
                 strength,
@@ -526,6 +572,7 @@ fn render_wind_sources_gui(ui: &mut egui::Ui, adjustables: &mut GuiAdjustables) 
                     ui.label("Name");
                     ui.text_edit_singleline(&mut name.value);
                 });
+                ui.checkbox(&mut muted.value, "Muted");
                 ui.add(
                     egui::Slider::new(&mut direction.value, direction.range.clone())
                         .text("Direction (deg)"),
@@ -560,6 +607,9 @@ fn render_wind_sources_gui(ui: &mut egui::Ui, adjustables: &mut GuiAdjustables) 
         });
     }
 
+    if let Some(index) = toggle_mute_index {
+        toggle_wind_source_muted(adjustables, index);
+    }
     if let Some(index) = delete_index {
         delete_wind_source(adjustables, index);
     }
