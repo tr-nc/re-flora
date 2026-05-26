@@ -80,6 +80,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Wind",
+        id: "wind_source_0_name",
+        kind: "string",
+        label: "Wind Source 1 Name",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
         id: "wind_source_0_direction_deg",
         kind: "float",
         label: "Wind Source 1 Direction",
@@ -95,6 +101,48 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         id: "wind_source_0_strength",
         kind: "float",
         label: "Wind Source 1 Strength",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_source_0_coverage",
+        kind: "float",
+        label: "Wind Source 1 Coverage",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_source_0_pattern_scale",
+        kind: "float",
+        label: "Wind Source 1 Pattern Scale",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_source_0_pattern_frequency",
+        kind: "float",
+        label: "Wind Source 1 Pattern Frequency",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_source_0_octaves",
+        kind: "uint",
+        label: "Wind Source 1 Octaves",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_source_0_lacunarity",
+        kind: "float",
+        label: "Wind Source 1 Lacunarity",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_source_0_gain",
+        kind: "float",
+        label: "Wind Source 1 Gain",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_source_1_name",
+        kind: "string",
+        label: "Wind Source 2 Name",
     },
     GeneratedGuiParamDescriptor {
         section: "Wind",
@@ -116,6 +164,48 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Wind",
+        id: "wind_source_1_coverage",
+        kind: "float",
+        label: "Wind Source 2 Coverage",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_source_1_pattern_scale",
+        kind: "float",
+        label: "Wind Source 2 Pattern Scale",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_source_1_pattern_frequency",
+        kind: "float",
+        label: "Wind Source 2 Pattern Frequency",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_source_1_octaves",
+        kind: "uint",
+        label: "Wind Source 2 Octaves",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_source_1_lacunarity",
+        kind: "float",
+        label: "Wind Source 2 Lacunarity",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_source_1_gain",
+        kind: "float",
+        label: "Wind Source 2 Gain",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_source_2_name",
+        kind: "string",
+        label: "Wind Source 3 Name",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
         id: "wind_source_2_direction_deg",
         kind: "float",
         label: "Wind Source 3 Direction",
@@ -134,6 +224,48 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Wind",
+        id: "wind_source_2_coverage",
+        kind: "float",
+        label: "Wind Source 3 Coverage",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_source_2_pattern_scale",
+        kind: "float",
+        label: "Wind Source 3 Pattern Scale",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_source_2_pattern_frequency",
+        kind: "float",
+        label: "Wind Source 3 Pattern Frequency",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_source_2_octaves",
+        kind: "uint",
+        label: "Wind Source 3 Octaves",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_source_2_lacunarity",
+        kind: "float",
+        label: "Wind Source 3 Lacunarity",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_source_2_gain",
+        kind: "float",
+        label: "Wind Source 3 Gain",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_source_3_name",
+        kind: "string",
+        label: "Wind Source 4 Name",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
         id: "wind_source_3_direction_deg",
         kind: "float",
         label: "Wind Source 4 Direction",
@@ -149,6 +281,42 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         id: "wind_source_3_strength",
         kind: "float",
         label: "Wind Source 4 Strength",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_source_3_coverage",
+        kind: "float",
+        label: "Wind Source 4 Coverage",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_source_3_pattern_scale",
+        kind: "float",
+        label: "Wind Source 4 Pattern Scale",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_source_3_pattern_frequency",
+        kind: "float",
+        label: "Wind Source 4 Pattern Frequency",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_source_3_octaves",
+        kind: "uint",
+        label: "Wind Source 4 Octaves",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_source_3_lacunarity",
+        kind: "float",
+        label: "Wind Source 4 Lacunarity",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_source_3_gain",
+        kind: "float",
+        label: "Wind Source 4 Gain",
     },
     GeneratedGuiParamDescriptor {
         section: "Audio",
@@ -811,18 +979,46 @@ pub struct GuiAdjustables {
     pub world_tick_seconds: crate::gui_adjustables::FloatParam,
     pub wind_source_count: crate::gui_adjustables::UintParam,
     pub wind_sharpness: crate::gui_adjustables::FloatParam,
+    pub wind_source_0_name: crate::gui_adjustables::StringParam,
     pub wind_source_0_direction_deg: crate::gui_adjustables::FloatParam,
     pub wind_source_0_speed: crate::gui_adjustables::FloatParam,
     pub wind_source_0_strength: crate::gui_adjustables::FloatParam,
+    pub wind_source_0_coverage: crate::gui_adjustables::FloatParam,
+    pub wind_source_0_pattern_scale: crate::gui_adjustables::FloatParam,
+    pub wind_source_0_pattern_frequency: crate::gui_adjustables::FloatParam,
+    pub wind_source_0_octaves: crate::gui_adjustables::UintParam,
+    pub wind_source_0_lacunarity: crate::gui_adjustables::FloatParam,
+    pub wind_source_0_gain: crate::gui_adjustables::FloatParam,
+    pub wind_source_1_name: crate::gui_adjustables::StringParam,
     pub wind_source_1_direction_deg: crate::gui_adjustables::FloatParam,
     pub wind_source_1_speed: crate::gui_adjustables::FloatParam,
     pub wind_source_1_strength: crate::gui_adjustables::FloatParam,
+    pub wind_source_1_coverage: crate::gui_adjustables::FloatParam,
+    pub wind_source_1_pattern_scale: crate::gui_adjustables::FloatParam,
+    pub wind_source_1_pattern_frequency: crate::gui_adjustables::FloatParam,
+    pub wind_source_1_octaves: crate::gui_adjustables::UintParam,
+    pub wind_source_1_lacunarity: crate::gui_adjustables::FloatParam,
+    pub wind_source_1_gain: crate::gui_adjustables::FloatParam,
+    pub wind_source_2_name: crate::gui_adjustables::StringParam,
     pub wind_source_2_direction_deg: crate::gui_adjustables::FloatParam,
     pub wind_source_2_speed: crate::gui_adjustables::FloatParam,
     pub wind_source_2_strength: crate::gui_adjustables::FloatParam,
+    pub wind_source_2_coverage: crate::gui_adjustables::FloatParam,
+    pub wind_source_2_pattern_scale: crate::gui_adjustables::FloatParam,
+    pub wind_source_2_pattern_frequency: crate::gui_adjustables::FloatParam,
+    pub wind_source_2_octaves: crate::gui_adjustables::UintParam,
+    pub wind_source_2_lacunarity: crate::gui_adjustables::FloatParam,
+    pub wind_source_2_gain: crate::gui_adjustables::FloatParam,
+    pub wind_source_3_name: crate::gui_adjustables::StringParam,
     pub wind_source_3_direction_deg: crate::gui_adjustables::FloatParam,
     pub wind_source_3_speed: crate::gui_adjustables::FloatParam,
     pub wind_source_3_strength: crate::gui_adjustables::FloatParam,
+    pub wind_source_3_coverage: crate::gui_adjustables::FloatParam,
+    pub wind_source_3_pattern_scale: crate::gui_adjustables::FloatParam,
+    pub wind_source_3_pattern_frequency: crate::gui_adjustables::FloatParam,
+    pub wind_source_3_octaves: crate::gui_adjustables::UintParam,
+    pub wind_source_3_lacunarity: crate::gui_adjustables::FloatParam,
+    pub wind_source_3_gain: crate::gui_adjustables::FloatParam,
     pub master_volume: crate::gui_adjustables::FloatParam,
     pub tree_wind_response_min_strength: crate::gui_adjustables::FloatParam,
     pub tree_wind_response_max_strength: crate::gui_adjustables::FloatParam,
@@ -953,18 +1149,46 @@ impl GuiAdjustables {
         let mut world_tick_seconds_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_source_count_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut wind_sharpness_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_source_0_name_field: Option<crate::gui_adjustables::StringParam> = None;
         let mut wind_source_0_direction_deg_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_source_0_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_source_0_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_source_0_coverage_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_source_0_pattern_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_source_0_pattern_frequency_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_source_0_octaves_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut wind_source_0_lacunarity_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_source_0_gain_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_source_1_name_field: Option<crate::gui_adjustables::StringParam> = None;
         let mut wind_source_1_direction_deg_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_source_1_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_source_1_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_source_1_coverage_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_source_1_pattern_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_source_1_pattern_frequency_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_source_1_octaves_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut wind_source_1_lacunarity_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_source_1_gain_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_source_2_name_field: Option<crate::gui_adjustables::StringParam> = None;
         let mut wind_source_2_direction_deg_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_source_2_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_source_2_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_source_2_coverage_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_source_2_pattern_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_source_2_pattern_frequency_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_source_2_octaves_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut wind_source_2_lacunarity_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_source_2_gain_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_source_3_name_field: Option<crate::gui_adjustables::StringParam> = None;
         let mut wind_source_3_direction_deg_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_source_3_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_source_3_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_source_3_coverage_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_source_3_pattern_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_source_3_pattern_frequency_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_source_3_octaves_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut wind_source_3_lacunarity_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_source_3_gain_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut master_volume_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_wind_response_min_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_wind_response_max_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1138,6 +1362,11 @@ impl GuiAdjustables {
                             wind_sharpness_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
+                    "wind_source_0_name" => {
+                        if let (GuiParamKind::String, GuiParamValue::String { value }) = (&param.kind, &param.value) {
+                            wind_source_0_name_field = Some(crate::gui_adjustables::StringParam::new(value.clone()));
+                        }
+                    }
                     "wind_source_0_direction_deg" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -1157,6 +1386,53 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             wind_source_0_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_source_0_coverage" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            wind_source_0_coverage_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_source_0_pattern_scale" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            wind_source_0_pattern_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_source_0_pattern_frequency" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            wind_source_0_pattern_frequency_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_source_0_octaves" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            wind_source_0_octaves_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_source_0_lacunarity" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            wind_source_0_lacunarity_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_source_0_gain" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            wind_source_0_gain_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_source_1_name" => {
+                        if let (GuiParamKind::String, GuiParamValue::String { value }) = (&param.kind, &param.value) {
+                            wind_source_1_name_field = Some(crate::gui_adjustables::StringParam::new(value.clone()));
                         }
                     }
                     "wind_source_1_direction_deg" => {
@@ -1180,6 +1456,53 @@ impl GuiAdjustables {
                             wind_source_1_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
+                    "wind_source_1_coverage" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            wind_source_1_coverage_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_source_1_pattern_scale" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            wind_source_1_pattern_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_source_1_pattern_frequency" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            wind_source_1_pattern_frequency_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_source_1_octaves" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            wind_source_1_octaves_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_source_1_lacunarity" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            wind_source_1_lacunarity_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_source_1_gain" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            wind_source_1_gain_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_source_2_name" => {
+                        if let (GuiParamKind::String, GuiParamValue::String { value }) = (&param.kind, &param.value) {
+                            wind_source_2_name_field = Some(crate::gui_adjustables::StringParam::new(value.clone()));
+                        }
+                    }
                     "wind_source_2_direction_deg" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -1201,6 +1524,53 @@ impl GuiAdjustables {
                             wind_source_2_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
+                    "wind_source_2_coverage" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            wind_source_2_coverage_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_source_2_pattern_scale" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            wind_source_2_pattern_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_source_2_pattern_frequency" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            wind_source_2_pattern_frequency_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_source_2_octaves" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            wind_source_2_octaves_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_source_2_lacunarity" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            wind_source_2_lacunarity_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_source_2_gain" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            wind_source_2_gain_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_source_3_name" => {
+                        if let (GuiParamKind::String, GuiParamValue::String { value }) = (&param.kind, &param.value) {
+                            wind_source_3_name_field = Some(crate::gui_adjustables::StringParam::new(value.clone()));
+                        }
+                    }
                     "wind_source_3_direction_deg" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -1220,6 +1590,48 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             wind_source_3_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_source_3_coverage" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            wind_source_3_coverage_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_source_3_pattern_scale" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            wind_source_3_pattern_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_source_3_pattern_frequency" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            wind_source_3_pattern_frequency_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_source_3_octaves" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            wind_source_3_octaves_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_source_3_lacunarity" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            wind_source_3_lacunarity_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_source_3_gain" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            wind_source_3_gain_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "master_volume" => {
@@ -1947,18 +2359,46 @@ impl GuiAdjustables {
             world_tick_seconds: world_tick_seconds_field.expect("Missing parameter: world_tick_seconds"),
             wind_source_count: wind_source_count_field.expect("Missing parameter: wind_source_count"),
             wind_sharpness: wind_sharpness_field.expect("Missing parameter: wind_sharpness"),
+            wind_source_0_name: wind_source_0_name_field.expect("Missing parameter: wind_source_0_name"),
             wind_source_0_direction_deg: wind_source_0_direction_deg_field.expect("Missing parameter: wind_source_0_direction_deg"),
             wind_source_0_speed: wind_source_0_speed_field.expect("Missing parameter: wind_source_0_speed"),
             wind_source_0_strength: wind_source_0_strength_field.expect("Missing parameter: wind_source_0_strength"),
+            wind_source_0_coverage: wind_source_0_coverage_field.expect("Missing parameter: wind_source_0_coverage"),
+            wind_source_0_pattern_scale: wind_source_0_pattern_scale_field.expect("Missing parameter: wind_source_0_pattern_scale"),
+            wind_source_0_pattern_frequency: wind_source_0_pattern_frequency_field.expect("Missing parameter: wind_source_0_pattern_frequency"),
+            wind_source_0_octaves: wind_source_0_octaves_field.expect("Missing parameter: wind_source_0_octaves"),
+            wind_source_0_lacunarity: wind_source_0_lacunarity_field.expect("Missing parameter: wind_source_0_lacunarity"),
+            wind_source_0_gain: wind_source_0_gain_field.expect("Missing parameter: wind_source_0_gain"),
+            wind_source_1_name: wind_source_1_name_field.expect("Missing parameter: wind_source_1_name"),
             wind_source_1_direction_deg: wind_source_1_direction_deg_field.expect("Missing parameter: wind_source_1_direction_deg"),
             wind_source_1_speed: wind_source_1_speed_field.expect("Missing parameter: wind_source_1_speed"),
             wind_source_1_strength: wind_source_1_strength_field.expect("Missing parameter: wind_source_1_strength"),
+            wind_source_1_coverage: wind_source_1_coverage_field.expect("Missing parameter: wind_source_1_coverage"),
+            wind_source_1_pattern_scale: wind_source_1_pattern_scale_field.expect("Missing parameter: wind_source_1_pattern_scale"),
+            wind_source_1_pattern_frequency: wind_source_1_pattern_frequency_field.expect("Missing parameter: wind_source_1_pattern_frequency"),
+            wind_source_1_octaves: wind_source_1_octaves_field.expect("Missing parameter: wind_source_1_octaves"),
+            wind_source_1_lacunarity: wind_source_1_lacunarity_field.expect("Missing parameter: wind_source_1_lacunarity"),
+            wind_source_1_gain: wind_source_1_gain_field.expect("Missing parameter: wind_source_1_gain"),
+            wind_source_2_name: wind_source_2_name_field.expect("Missing parameter: wind_source_2_name"),
             wind_source_2_direction_deg: wind_source_2_direction_deg_field.expect("Missing parameter: wind_source_2_direction_deg"),
             wind_source_2_speed: wind_source_2_speed_field.expect("Missing parameter: wind_source_2_speed"),
             wind_source_2_strength: wind_source_2_strength_field.expect("Missing parameter: wind_source_2_strength"),
+            wind_source_2_coverage: wind_source_2_coverage_field.expect("Missing parameter: wind_source_2_coverage"),
+            wind_source_2_pattern_scale: wind_source_2_pattern_scale_field.expect("Missing parameter: wind_source_2_pattern_scale"),
+            wind_source_2_pattern_frequency: wind_source_2_pattern_frequency_field.expect("Missing parameter: wind_source_2_pattern_frequency"),
+            wind_source_2_octaves: wind_source_2_octaves_field.expect("Missing parameter: wind_source_2_octaves"),
+            wind_source_2_lacunarity: wind_source_2_lacunarity_field.expect("Missing parameter: wind_source_2_lacunarity"),
+            wind_source_2_gain: wind_source_2_gain_field.expect("Missing parameter: wind_source_2_gain"),
+            wind_source_3_name: wind_source_3_name_field.expect("Missing parameter: wind_source_3_name"),
             wind_source_3_direction_deg: wind_source_3_direction_deg_field.expect("Missing parameter: wind_source_3_direction_deg"),
             wind_source_3_speed: wind_source_3_speed_field.expect("Missing parameter: wind_source_3_speed"),
             wind_source_3_strength: wind_source_3_strength_field.expect("Missing parameter: wind_source_3_strength"),
+            wind_source_3_coverage: wind_source_3_coverage_field.expect("Missing parameter: wind_source_3_coverage"),
+            wind_source_3_pattern_scale: wind_source_3_pattern_scale_field.expect("Missing parameter: wind_source_3_pattern_scale"),
+            wind_source_3_pattern_frequency: wind_source_3_pattern_frequency_field.expect("Missing parameter: wind_source_3_pattern_frequency"),
+            wind_source_3_octaves: wind_source_3_octaves_field.expect("Missing parameter: wind_source_3_octaves"),
+            wind_source_3_lacunarity: wind_source_3_lacunarity_field.expect("Missing parameter: wind_source_3_lacunarity"),
+            wind_source_3_gain: wind_source_3_gain_field.expect("Missing parameter: wind_source_3_gain"),
             master_volume: master_volume_field.expect("Missing parameter: master_volume"),
             tree_wind_response_min_strength: tree_wind_response_min_strength_field.expect("Missing parameter: tree_wind_response_min_strength"),
             tree_wind_response_max_strength: tree_wind_response_max_strength_field.expect("Missing parameter: tree_wind_response_max_strength"),
@@ -2082,15 +2522,35 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "wind_source_0_direction_deg" => Some(&adjustables.wind_source_0_direction_deg),
         "wind_source_0_speed" => Some(&adjustables.wind_source_0_speed),
         "wind_source_0_strength" => Some(&adjustables.wind_source_0_strength),
+        "wind_source_0_coverage" => Some(&adjustables.wind_source_0_coverage),
+        "wind_source_0_pattern_scale" => Some(&adjustables.wind_source_0_pattern_scale),
+        "wind_source_0_pattern_frequency" => Some(&adjustables.wind_source_0_pattern_frequency),
+        "wind_source_0_lacunarity" => Some(&adjustables.wind_source_0_lacunarity),
+        "wind_source_0_gain" => Some(&adjustables.wind_source_0_gain),
         "wind_source_1_direction_deg" => Some(&adjustables.wind_source_1_direction_deg),
         "wind_source_1_speed" => Some(&adjustables.wind_source_1_speed),
         "wind_source_1_strength" => Some(&adjustables.wind_source_1_strength),
+        "wind_source_1_coverage" => Some(&adjustables.wind_source_1_coverage),
+        "wind_source_1_pattern_scale" => Some(&adjustables.wind_source_1_pattern_scale),
+        "wind_source_1_pattern_frequency" => Some(&adjustables.wind_source_1_pattern_frequency),
+        "wind_source_1_lacunarity" => Some(&adjustables.wind_source_1_lacunarity),
+        "wind_source_1_gain" => Some(&adjustables.wind_source_1_gain),
         "wind_source_2_direction_deg" => Some(&adjustables.wind_source_2_direction_deg),
         "wind_source_2_speed" => Some(&adjustables.wind_source_2_speed),
         "wind_source_2_strength" => Some(&adjustables.wind_source_2_strength),
+        "wind_source_2_coverage" => Some(&adjustables.wind_source_2_coverage),
+        "wind_source_2_pattern_scale" => Some(&adjustables.wind_source_2_pattern_scale),
+        "wind_source_2_pattern_frequency" => Some(&adjustables.wind_source_2_pattern_frequency),
+        "wind_source_2_lacunarity" => Some(&adjustables.wind_source_2_lacunarity),
+        "wind_source_2_gain" => Some(&adjustables.wind_source_2_gain),
         "wind_source_3_direction_deg" => Some(&adjustables.wind_source_3_direction_deg),
         "wind_source_3_speed" => Some(&adjustables.wind_source_3_speed),
         "wind_source_3_strength" => Some(&adjustables.wind_source_3_strength),
+        "wind_source_3_coverage" => Some(&adjustables.wind_source_3_coverage),
+        "wind_source_3_pattern_scale" => Some(&adjustables.wind_source_3_pattern_scale),
+        "wind_source_3_pattern_frequency" => Some(&adjustables.wind_source_3_pattern_frequency),
+        "wind_source_3_lacunarity" => Some(&adjustables.wind_source_3_lacunarity),
+        "wind_source_3_gain" => Some(&adjustables.wind_source_3_gain),
         "master_volume" => Some(&adjustables.master_volume),
         "tree_wind_response_min_strength" => Some(&adjustables.tree_wind_response_min_strength),
         "tree_wind_response_max_strength" => Some(&adjustables.tree_wind_response_max_strength),
@@ -2190,6 +2650,10 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "debug_uint" => Some(&adjustables.debug_uint),
         "grass_render_mode" => Some(&adjustables.grass_render_mode),
         "wind_source_count" => Some(&adjustables.wind_source_count),
+        "wind_source_0_octaves" => Some(&adjustables.wind_source_0_octaves),
+        "wind_source_1_octaves" => Some(&adjustables.wind_source_1_octaves),
+        "wind_source_2_octaves" => Some(&adjustables.wind_source_2_octaves),
+        "wind_source_3_octaves" => Some(&adjustables.wind_source_3_octaves),
         "vsm_blur_radius" => Some(&adjustables.vsm_blur_radius),
         "god_ray_max_checks" => Some(&adjustables.god_ray_max_checks),
         "a_trous_iteration_count" => Some(&adjustables.a_trous_iteration_count),
@@ -2200,6 +2664,17 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
 #[allow(dead_code, unused_variables)]
 pub fn get_choice_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::ChoiceParam> {
     None
+}
+
+#[allow(dead_code, unused_variables)]
+pub fn get_string_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::StringParam> {
+    match id {
+        "wind_source_0_name" => Some(&adjustables.wind_source_0_name),
+        "wind_source_1_name" => Some(&adjustables.wind_source_1_name),
+        "wind_source_2_name" => Some(&adjustables.wind_source_2_name),
+        "wind_source_3_name" => Some(&adjustables.wind_source_3_name),
+        _ => None,
+    }
 }
 
 #[allow(dead_code)]
@@ -2251,15 +2726,35 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "wind_source_0_direction_deg" => Some(&mut adjustables.wind_source_0_direction_deg),
         "wind_source_0_speed" => Some(&mut adjustables.wind_source_0_speed),
         "wind_source_0_strength" => Some(&mut adjustables.wind_source_0_strength),
+        "wind_source_0_coverage" => Some(&mut adjustables.wind_source_0_coverage),
+        "wind_source_0_pattern_scale" => Some(&mut adjustables.wind_source_0_pattern_scale),
+        "wind_source_0_pattern_frequency" => Some(&mut adjustables.wind_source_0_pattern_frequency),
+        "wind_source_0_lacunarity" => Some(&mut adjustables.wind_source_0_lacunarity),
+        "wind_source_0_gain" => Some(&mut adjustables.wind_source_0_gain),
         "wind_source_1_direction_deg" => Some(&mut adjustables.wind_source_1_direction_deg),
         "wind_source_1_speed" => Some(&mut adjustables.wind_source_1_speed),
         "wind_source_1_strength" => Some(&mut adjustables.wind_source_1_strength),
+        "wind_source_1_coverage" => Some(&mut adjustables.wind_source_1_coverage),
+        "wind_source_1_pattern_scale" => Some(&mut adjustables.wind_source_1_pattern_scale),
+        "wind_source_1_pattern_frequency" => Some(&mut adjustables.wind_source_1_pattern_frequency),
+        "wind_source_1_lacunarity" => Some(&mut adjustables.wind_source_1_lacunarity),
+        "wind_source_1_gain" => Some(&mut adjustables.wind_source_1_gain),
         "wind_source_2_direction_deg" => Some(&mut adjustables.wind_source_2_direction_deg),
         "wind_source_2_speed" => Some(&mut adjustables.wind_source_2_speed),
         "wind_source_2_strength" => Some(&mut adjustables.wind_source_2_strength),
+        "wind_source_2_coverage" => Some(&mut adjustables.wind_source_2_coverage),
+        "wind_source_2_pattern_scale" => Some(&mut adjustables.wind_source_2_pattern_scale),
+        "wind_source_2_pattern_frequency" => Some(&mut adjustables.wind_source_2_pattern_frequency),
+        "wind_source_2_lacunarity" => Some(&mut adjustables.wind_source_2_lacunarity),
+        "wind_source_2_gain" => Some(&mut adjustables.wind_source_2_gain),
         "wind_source_3_direction_deg" => Some(&mut adjustables.wind_source_3_direction_deg),
         "wind_source_3_speed" => Some(&mut adjustables.wind_source_3_speed),
         "wind_source_3_strength" => Some(&mut adjustables.wind_source_3_strength),
+        "wind_source_3_coverage" => Some(&mut adjustables.wind_source_3_coverage),
+        "wind_source_3_pattern_scale" => Some(&mut adjustables.wind_source_3_pattern_scale),
+        "wind_source_3_pattern_frequency" => Some(&mut adjustables.wind_source_3_pattern_frequency),
+        "wind_source_3_lacunarity" => Some(&mut adjustables.wind_source_3_lacunarity),
+        "wind_source_3_gain" => Some(&mut adjustables.wind_source_3_gain),
         "master_volume" => Some(&mut adjustables.master_volume),
         "tree_wind_response_min_strength" => Some(&mut adjustables.tree_wind_response_min_strength),
         "tree_wind_response_max_strength" => Some(&mut adjustables.tree_wind_response_max_strength),
@@ -2359,6 +2854,10 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "debug_uint" => Some(&mut adjustables.debug_uint),
         "grass_render_mode" => Some(&mut adjustables.grass_render_mode),
         "wind_source_count" => Some(&mut adjustables.wind_source_count),
+        "wind_source_0_octaves" => Some(&mut adjustables.wind_source_0_octaves),
+        "wind_source_1_octaves" => Some(&mut adjustables.wind_source_1_octaves),
+        "wind_source_2_octaves" => Some(&mut adjustables.wind_source_2_octaves),
+        "wind_source_3_octaves" => Some(&mut adjustables.wind_source_3_octaves),
         "vsm_blur_radius" => Some(&mut adjustables.vsm_blur_radius),
         "god_ray_max_checks" => Some(&mut adjustables.god_ray_max_checks),
         "a_trous_iteration_count" => Some(&mut adjustables.a_trous_iteration_count),
@@ -2369,6 +2868,17 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
 #[allow(dead_code, unused_variables)]
 pub fn get_choice_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::ChoiceParam> {
     None
+}
+
+#[allow(dead_code, unused_variables)]
+pub fn get_string_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::StringParam> {
+    match id {
+        "wind_source_0_name" => Some(&mut adjustables.wind_source_0_name),
+        "wind_source_1_name" => Some(&mut adjustables.wind_source_1_name),
+        "wind_source_2_name" => Some(&mut adjustables.wind_source_2_name),
+        "wind_source_3_name" => Some(&mut adjustables.wind_source_3_name),
+        _ => None,
+    }
 }
 
 #[allow(dead_code)]

@@ -9,11 +9,7 @@ const uint WIND_GUST_MASK_SEED = 3181u;
 const float WIND_SAMPLE_SCALE        = 256.0f;
 const float WIND_TIME_SCALE          = 170.0f;
 const float WIND_GUST_MASK_FREQUENCY = 0.008f;
-const int WIND_GUST_MASK_OCTAVES     = 3;
-const float WIND_GUST_LACUNARITY     = 2.0f;
-const float WIND_GUST_GAIN           = 0.5f;
-const float WIND_GUST_SMOOTH_MIN     = 0.52f;
-const float WIND_GUST_SMOOTH_MAX     = 0.82f;
+const float WIND_GUST_SMOOTH_WIDTH   = 0.30f;
 const uint MAX_WIND_SOURCES          = 4u;
 
 float wind_safe_smoothstep(float edge0, float edge1, float x) {
@@ -24,6 +20,8 @@ float wind_safe_smoothstep(float edge0, float edge1, float x) {
     }
     return smoothstep(low, high, x);
 }
+
+int wind_safe_octaves(float octaves) { return int(clamp(round(octaves), 1.0f, 8.0f)); }
 
 vec2 wind_source_offset(uint source_index) {
     if (source_index == 1u) {
@@ -38,26 +36,80 @@ vec2 wind_source_offset(uint source_index) {
     return vec2(149.0f, -67.0f);
 }
 
+vec4 wind_source_params(uint source_index) {
+    if (source_index == 1u) {
+        return gui_input.wind_source_1;
+    }
+    if (source_index == 2u) {
+        return gui_input.wind_source_2;
+    }
+    if (source_index == 3u) {
+        return gui_input.wind_source_3;
+    }
+    return gui_input.wind_source_0;
+}
+
+vec4 wind_source_noise_params(uint source_index) {
+    if (source_index == 1u) {
+        return gui_input.wind_source_1_noise;
+    }
+    if (source_index == 2u) {
+        return gui_input.wind_source_2_noise;
+    }
+    if (source_index == 3u) {
+        return gui_input.wind_source_3_noise;
+    }
+    return gui_input.wind_source_0_noise;
+}
+
+vec4 wind_source_detail_params(uint source_index) {
+    if (source_index == 1u) {
+        return gui_input.wind_source_1_detail;
+    }
+    if (source_index == 2u) {
+        return gui_input.wind_source_2_detail;
+    }
+    if (source_index == 3u) {
+        return gui_input.wind_source_3_detail;
+    }
+    return gui_input.wind_source_0_detail;
+}
+
 float sample_wind_source_gust(
     vec2 sample_pos,
     vec2 time_offset,
     uint source_index,
-    float sharpness
+    float sharpness,
+    vec4 noise_params,
+    vec4 detail_params
 ) {
-    vec2 offset      = wind_source_offset(source_index);
-    float gust_noise = fbm_cnoise_2d(
-        sample_pos.x + offset.x + time_offset.x,
-        sample_pos.y + offset.y + time_offset.y,
-        WIND_GUST_MASK_SEED + source_index * 997u,
-        WIND_GUST_MASK_FREQUENCY,
-        WIND_GUST_MASK_OCTAVES,
-        WIND_GUST_LACUNARITY,
-        WIND_GUST_GAIN);
+    float coverage          = clamp(noise_params.x, 0.0f, 1.0f);
+    float pattern_scale     = max(noise_params.y, 0.05f);
+    float pattern_frequency = max(noise_params.z, 0.05f);
+    int octaves             = wind_safe_octaves(noise_params.w);
+    float lacunarity        = max(detail_params.x, 1.0f);
+    float gain              = clamp(detail_params.y, 0.0f, 1.0f);
+    vec2 offset             = wind_source_offset(source_index);
+    vec2 p                  = (sample_pos + offset + time_offset) / pattern_scale;
+    float frequency         = WIND_GUST_MASK_FREQUENCY * pattern_frequency;
+    float amplitude         = 1.0f;
+    float amplitude_sum     = 0.0f;
+    float noise_sum         = 0.0f;
 
+    for (int octave = 0; octave < 8; ++octave) {
+        if (octave >= octaves) {
+            break;
+        }
+        noise_sum += cnoise_seeded(vec2(p.x, p.y) * frequency, WIND_GUST_MASK_SEED + source_index * 997u + uint(octave) * 1000u) * amplitude;
+        amplitude_sum += amplitude;
+        frequency *= lacunarity;
+        amplitude *= gain;
+    }
+
+    float gust_noise = amplitude_sum <= EPSILON ? 0.0f : noise_sum / amplitude_sum;
     float gust_value = clamp(gust_noise * 0.5f + 0.5f, 0.0f, 1.0f);
-    float center     = (WIND_GUST_SMOOTH_MIN + WIND_GUST_SMOOTH_MAX) * 0.5f;
-    float half_width = (WIND_GUST_SMOOTH_MAX - WIND_GUST_SMOOTH_MIN) * 0.5f *
-                       (1.0f - clamp(sharpness, 0.0f, 1.0f));
+    float center     = 1.0f - coverage;
+    float half_width = WIND_GUST_SMOOTH_WIDTH * 0.5f * (1.0f - clamp(sharpness, 0.0f, 1.0f));
     return wind_safe_smoothstep(center - half_width, center + half_width, gust_value);
 }
 
@@ -72,14 +124,9 @@ vec3 sample_procedural_wind(vec3 world_pos, float time) {
             break;
         }
 
-        vec4 source = gui_input.wind_source_0;
-        if (source_index == 1u) {
-            source = gui_input.wind_source_1;
-        } else if (source_index == 2u) {
-            source = gui_input.wind_source_2;
-        } else if (source_index == 3u) {
-            source = gui_input.wind_source_3;
-        }
+        vec4 source            = wind_source_params(source_index);
+        vec4 noise_params      = wind_source_noise_params(source_index);
+        vec4 detail_params     = wind_source_detail_params(source_index);
         float direction_angle  = radians(source.x);
         float source_speed     = max(source.y, 0.0f);
         float source_sharpness = clamp(source.z, 0.0f, 1.0f);
@@ -94,7 +141,9 @@ vec3 sample_procedural_wind(vec3 world_pos, float time) {
             sample_pos,
             layer_time,
             source_index,
-            source_sharpness);
+            source_sharpness,
+            noise_params,
+            detail_params);
         wind_planar += wind_direction * (wind_factor * source_strength);
     }
 

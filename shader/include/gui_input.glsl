@@ -32,6 +32,14 @@ layout(set = GUI_INPUT_SET, binding = GUI_INPUT_BINDING) uniform U_GuiInput {
     vec4 wind_source_1;
     vec4 wind_source_2;
     vec4 wind_source_3;
+    vec4 wind_source_0_noise;
+    vec4 wind_source_1_noise;
+    vec4 wind_source_2_noise;
+    vec4 wind_source_3_noise;
+    vec4 wind_source_0_detail;
+    vec4 wind_source_1_detail;
+    vec4 wind_source_2_detail;
+    vec4 wind_source_3_detail;
 }
 gui_input;
 

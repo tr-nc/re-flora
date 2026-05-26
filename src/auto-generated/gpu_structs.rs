@@ -430,6 +430,14 @@ pub struct GuiInput {
     pub wind_source_1: [f32; 4],
     pub wind_source_2: [f32; 4],
     pub wind_source_3: [f32; 4],
+    pub wind_source_0_noise: [f32; 4],
+    pub wind_source_1_noise: [f32; 4],
+    pub wind_source_2_noise: [f32; 4],
+    pub wind_source_3_noise: [f32; 4],
+    pub wind_source_0_detail: [f32; 4],
+    pub wind_source_1_detail: [f32; 4],
+    pub wind_source_2_detail: [f32; 4],
+    pub wind_source_3_detail: [f32; 4],
 }
 
 /// Auto-generated from `U_InstancesToOccupancyInfo` (GLSL source of truth).

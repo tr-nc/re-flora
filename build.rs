@@ -31,6 +31,7 @@ fn kind_to_type(kind: &str, id: &str) -> &'static str {
         "int" => "crate::gui_adjustables::IntParam",
         "uint" => "crate::gui_adjustables::UintParam",
         "choice" => "crate::gui_adjustables::ChoiceParam",
+        "string" => "crate::gui_adjustables::StringParam",
         "bool" => "crate::gui_adjustables::BoolParam",
         "color" => "crate::gui_adjustables::ColorParam",
         other => panic!(
@@ -333,6 +334,16 @@ fn generate_gui_adjustables() {
                 ));
                 code.push_str("                        }\n");
             }
+            "string" => {
+                code.push_str(
+                    "                        if let (GuiParamKind::String, GuiParamValue::String { value }) = (&param.kind, &param.value) {\n",
+                );
+                code.push_str(&format!(
+                    "                            {id}_field = Some(crate::gui_adjustables::StringParam::new(value.clone()));\n",
+                    id = id
+                ));
+                code.push_str("                        }\n");
+            }
             "bool" => {
                 code.push_str(
                     "                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {\n",
@@ -451,6 +462,30 @@ fn generate_gui_adjustables() {
     }
     code.push_str("}\n\n");
 
+    code.push_str("#[allow(dead_code, unused_variables)]\n");
+    code.push_str(
+        "pub fn get_string_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::StringParam> {\n",
+    );
+    if descriptors
+        .iter()
+        .any(|(_section, _id, kind, _label)| kind == "string")
+    {
+        code.push_str("    match id {\n");
+        for (_section, id, kind, _label) in &descriptors {
+            if kind == "string" {
+                code.push_str(&format!(
+                    "        \"{}\" => Some(&adjustables.{}),\n",
+                    id, id
+                ));
+            }
+        }
+        code.push_str("        _ => None,\n");
+        code.push_str("    }\n");
+    } else {
+        code.push_str("    None\n");
+    }
+    code.push_str("}\n\n");
+
     code.push_str("#[allow(dead_code)]\n");
     code.push_str(
         "pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::BoolParam> {\n",
@@ -547,6 +582,30 @@ fn generate_gui_adjustables() {
         code.push_str("    match id {\n");
         for (_section, id, kind, _label) in &descriptors {
             if kind == "choice" {
+                code.push_str(&format!(
+                    "        \"{}\" => Some(&mut adjustables.{}),\n",
+                    id, id
+                ));
+            }
+        }
+        code.push_str("        _ => None,\n");
+        code.push_str("    }\n");
+    } else {
+        code.push_str("    None\n");
+    }
+    code.push_str("}\n\n");
+
+    code.push_str("#[allow(dead_code, unused_variables)]\n");
+    code.push_str(
+        "pub fn get_string_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::StringParam> {\n",
+    );
+    if descriptors
+        .iter()
+        .any(|(_section, _id, kind, _label)| kind == "string")
+    {
+        code.push_str("    match id {\n");
+        for (_section, id, kind, _label) in &descriptors {
+            if kind == "string" {
                 code.push_str(&format!(
                     "        \"{}\" => Some(&mut adjustables.{}),\n",
                     id, id

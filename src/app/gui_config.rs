@@ -4,7 +4,7 @@
 /// The config file is the single source of truth.
 use crate::app::gui_config_loader::GuiConfigLoader;
 use crate::app::gui_config_model::{GuiConfigFile, GuiParamKind, GuiParamValue};
-use crate::gui_adjustables::FloatParam;
+use crate::gui_adjustables::{FloatParam, StringParam, UintParam};
 use crate::wind::{WindSource, MAX_WIND_SOURCES};
 use egui::Color32;
 
@@ -48,33 +48,7 @@ impl GuiAdjustables {
     pub fn active_wind_sources(&self) -> Vec<WindSource> {
         let count = self.wind_source_count.value.min(MAX_WIND_SOURCES as u32) as usize;
         (0..count)
-            .map(|index| match index {
-                0 => WindSource::new(
-                    self.wind_source_0_direction_deg.value,
-                    self.wind_source_0_speed.value,
-                    self.wind_sharpness.value,
-                    self.wind_source_0_strength.value,
-                ),
-                1 => WindSource::new(
-                    self.wind_source_1_direction_deg.value,
-                    self.wind_source_1_speed.value,
-                    self.wind_sharpness.value,
-                    self.wind_source_1_strength.value,
-                ),
-                2 => WindSource::new(
-                    self.wind_source_2_direction_deg.value,
-                    self.wind_source_2_speed.value,
-                    self.wind_sharpness.value,
-                    self.wind_source_2_strength.value,
-                ),
-                3 => WindSource::new(
-                    self.wind_source_3_direction_deg.value,
-                    self.wind_source_3_speed.value,
-                    self.wind_sharpness.value,
-                    self.wind_source_3_strength.value,
-                ),
-                _ => unreachable!(),
-            })
+            .filter_map(|index| wind_source_gui_values(self, index).map(|values| values.source))
             .collect()
     }
 
@@ -123,6 +97,15 @@ impl GuiAdjustables {
                             )
                         });
                         param.value.set_choice(field.value);
+                    }
+                    GuiParamKind::String => {
+                        let field = Self::get_string_param(self, &param.id).unwrap_or_else(|| {
+                            panic!(
+                                "GUI param '{}' (section '{}') missing StringParam in GuiAdjustables; rebuild required",
+                                param.id, section.name
+                            )
+                        });
+                        param.value.set_string(field.value.clone());
                     }
                     GuiParamKind::Bool => {
                         let field = Self::get_bool_param(self, &param.id).unwrap_or_else(|| {
@@ -182,6 +165,13 @@ impl GuiAdjustables {
     }
 
     #[allow(dead_code)]
+    fn get_string_param<'a>(
+        adjustables: &'a GuiAdjustables,
+        id: &str,
+    ) -> Option<&'a crate::gui_adjustables::StringParam> {
+        generated::get_string_param(adjustables, id)
+    }
+
     fn get_bool_param<'a>(
         adjustables: &'a GuiAdjustables,
         id: &str,
@@ -230,6 +220,13 @@ impl GuiAdjustables {
     }
 
     #[allow(dead_code)]
+    pub fn get_string_param_mut<'a>(
+        adjustables: &'a mut GuiAdjustables,
+        id: &str,
+    ) -> Option<&'a mut crate::gui_adjustables::StringParam> {
+        generated::get_string_param_mut(adjustables, id)
+    }
+
     pub fn get_bool_param_mut<'a>(
         adjustables: &'a mut GuiAdjustables,
         id: &str,
@@ -246,30 +243,221 @@ impl GuiAdjustables {
     }
 }
 
+#[derive(Clone)]
+struct WindSourceGuiValues {
+    name: String,
+    source: WindSource,
+}
+
+fn wind_source_gui_values(
+    adjustables: &GuiAdjustables,
+    index: usize,
+) -> Option<WindSourceGuiValues> {
+    let sharpness = adjustables.wind_sharpness.value;
+    let values = match index {
+        0 => WindSourceGuiValues {
+            name: adjustables.wind_source_0_name.value.clone(),
+            source: WindSource::new(
+                adjustables.wind_source_0_direction_deg.value,
+                adjustables.wind_source_0_speed.value,
+                sharpness,
+                adjustables.wind_source_0_strength.value,
+                adjustables.wind_source_0_coverage.value,
+                adjustables.wind_source_0_pattern_scale.value,
+                adjustables.wind_source_0_pattern_frequency.value,
+                adjustables.wind_source_0_octaves.value,
+                adjustables.wind_source_0_lacunarity.value,
+                adjustables.wind_source_0_gain.value,
+            ),
+        },
+        1 => WindSourceGuiValues {
+            name: adjustables.wind_source_1_name.value.clone(),
+            source: WindSource::new(
+                adjustables.wind_source_1_direction_deg.value,
+                adjustables.wind_source_1_speed.value,
+                sharpness,
+                adjustables.wind_source_1_strength.value,
+                adjustables.wind_source_1_coverage.value,
+                adjustables.wind_source_1_pattern_scale.value,
+                adjustables.wind_source_1_pattern_frequency.value,
+                adjustables.wind_source_1_octaves.value,
+                adjustables.wind_source_1_lacunarity.value,
+                adjustables.wind_source_1_gain.value,
+            ),
+        },
+        2 => WindSourceGuiValues {
+            name: adjustables.wind_source_2_name.value.clone(),
+            source: WindSource::new(
+                adjustables.wind_source_2_direction_deg.value,
+                adjustables.wind_source_2_speed.value,
+                sharpness,
+                adjustables.wind_source_2_strength.value,
+                adjustables.wind_source_2_coverage.value,
+                adjustables.wind_source_2_pattern_scale.value,
+                adjustables.wind_source_2_pattern_frequency.value,
+                adjustables.wind_source_2_octaves.value,
+                adjustables.wind_source_2_lacunarity.value,
+                adjustables.wind_source_2_gain.value,
+            ),
+        },
+        3 => WindSourceGuiValues {
+            name: adjustables.wind_source_3_name.value.clone(),
+            source: WindSource::new(
+                adjustables.wind_source_3_direction_deg.value,
+                adjustables.wind_source_3_speed.value,
+                sharpness,
+                adjustables.wind_source_3_strength.value,
+                adjustables.wind_source_3_coverage.value,
+                adjustables.wind_source_3_pattern_scale.value,
+                adjustables.wind_source_3_pattern_frequency.value,
+                adjustables.wind_source_3_octaves.value,
+                adjustables.wind_source_3_lacunarity.value,
+                adjustables.wind_source_3_gain.value,
+            ),
+        },
+        _ => return None,
+    };
+    Some(values)
+}
+
+fn set_wind_source_gui_values(
+    adjustables: &mut GuiAdjustables,
+    index: usize,
+    values: WindSourceGuiValues,
+) {
+    match index {
+        0 => {
+            adjustables.wind_source_0_name.value = values.name;
+            adjustables.wind_source_0_direction_deg.value = values.source.direction_degrees;
+            adjustables.wind_source_0_speed.value = values.source.speed;
+            adjustables.wind_source_0_strength.value = values.source.strength;
+            adjustables.wind_source_0_coverage.value = values.source.coverage;
+            adjustables.wind_source_0_pattern_scale.value = values.source.pattern_scale;
+            adjustables.wind_source_0_pattern_frequency.value = values.source.pattern_frequency;
+            adjustables.wind_source_0_octaves.value = values.source.octaves;
+            adjustables.wind_source_0_lacunarity.value = values.source.lacunarity;
+            adjustables.wind_source_0_gain.value = values.source.gain;
+        }
+        1 => {
+            adjustables.wind_source_1_name.value = values.name;
+            adjustables.wind_source_1_direction_deg.value = values.source.direction_degrees;
+            adjustables.wind_source_1_speed.value = values.source.speed;
+            adjustables.wind_source_1_strength.value = values.source.strength;
+            adjustables.wind_source_1_coverage.value = values.source.coverage;
+            adjustables.wind_source_1_pattern_scale.value = values.source.pattern_scale;
+            adjustables.wind_source_1_pattern_frequency.value = values.source.pattern_frequency;
+            adjustables.wind_source_1_octaves.value = values.source.octaves;
+            adjustables.wind_source_1_lacunarity.value = values.source.lacunarity;
+            adjustables.wind_source_1_gain.value = values.source.gain;
+        }
+        2 => {
+            adjustables.wind_source_2_name.value = values.name;
+            adjustables.wind_source_2_direction_deg.value = values.source.direction_degrees;
+            adjustables.wind_source_2_speed.value = values.source.speed;
+            adjustables.wind_source_2_strength.value = values.source.strength;
+            adjustables.wind_source_2_coverage.value = values.source.coverage;
+            adjustables.wind_source_2_pattern_scale.value = values.source.pattern_scale;
+            adjustables.wind_source_2_pattern_frequency.value = values.source.pattern_frequency;
+            adjustables.wind_source_2_octaves.value = values.source.octaves;
+            adjustables.wind_source_2_lacunarity.value = values.source.lacunarity;
+            adjustables.wind_source_2_gain.value = values.source.gain;
+        }
+        3 => {
+            adjustables.wind_source_3_name.value = values.name;
+            adjustables.wind_source_3_direction_deg.value = values.source.direction_degrees;
+            adjustables.wind_source_3_speed.value = values.source.speed;
+            adjustables.wind_source_3_strength.value = values.source.strength;
+            adjustables.wind_source_3_coverage.value = values.source.coverage;
+            adjustables.wind_source_3_pattern_scale.value = values.source.pattern_scale;
+            adjustables.wind_source_3_pattern_frequency.value = values.source.pattern_frequency;
+            adjustables.wind_source_3_octaves.value = values.source.octaves;
+            adjustables.wind_source_3_lacunarity.value = values.source.lacunarity;
+            adjustables.wind_source_3_gain.value = values.source.gain;
+        }
+        _ => {}
+    }
+}
+
+fn delete_wind_source(adjustables: &mut GuiAdjustables, index: usize) {
+    let count = adjustables
+        .wind_source_count
+        .value
+        .min(MAX_WIND_SOURCES as u32) as usize;
+    if index >= count {
+        return;
+    }
+
+    for source_index in index..count.saturating_sub(1) {
+        if let Some(next_values) = wind_source_gui_values(adjustables, source_index + 1) {
+            set_wind_source_gui_values(adjustables, source_index, next_values);
+        }
+    }
+    adjustables.wind_source_count.value = adjustables.wind_source_count.value.saturating_sub(1);
+}
+
 fn wind_source_params_mut(
     adjustables: &mut GuiAdjustables,
     index: usize,
-) -> Option<(&mut FloatParam, &mut FloatParam, &mut FloatParam)> {
+) -> Option<(
+    &mut StringParam,
+    &mut FloatParam,
+    &mut FloatParam,
+    &mut FloatParam,
+    &mut FloatParam,
+    &mut FloatParam,
+    &mut FloatParam,
+    &mut UintParam,
+    &mut FloatParam,
+    &mut FloatParam,
+)> {
     match index {
         0 => Some((
+            &mut adjustables.wind_source_0_name,
             &mut adjustables.wind_source_0_direction_deg,
             &mut adjustables.wind_source_0_speed,
             &mut adjustables.wind_source_0_strength,
+            &mut adjustables.wind_source_0_coverage,
+            &mut adjustables.wind_source_0_pattern_scale,
+            &mut adjustables.wind_source_0_pattern_frequency,
+            &mut adjustables.wind_source_0_octaves,
+            &mut adjustables.wind_source_0_lacunarity,
+            &mut adjustables.wind_source_0_gain,
         )),
         1 => Some((
+            &mut adjustables.wind_source_1_name,
             &mut adjustables.wind_source_1_direction_deg,
             &mut adjustables.wind_source_1_speed,
             &mut adjustables.wind_source_1_strength,
+            &mut adjustables.wind_source_1_coverage,
+            &mut adjustables.wind_source_1_pattern_scale,
+            &mut adjustables.wind_source_1_pattern_frequency,
+            &mut adjustables.wind_source_1_octaves,
+            &mut adjustables.wind_source_1_lacunarity,
+            &mut adjustables.wind_source_1_gain,
         )),
         2 => Some((
+            &mut adjustables.wind_source_2_name,
             &mut adjustables.wind_source_2_direction_deg,
             &mut adjustables.wind_source_2_speed,
             &mut adjustables.wind_source_2_strength,
+            &mut adjustables.wind_source_2_coverage,
+            &mut adjustables.wind_source_2_pattern_scale,
+            &mut adjustables.wind_source_2_pattern_frequency,
+            &mut adjustables.wind_source_2_octaves,
+            &mut adjustables.wind_source_2_lacunarity,
+            &mut adjustables.wind_source_2_gain,
         )),
         3 => Some((
+            &mut adjustables.wind_source_3_name,
             &mut adjustables.wind_source_3_direction_deg,
             &mut adjustables.wind_source_3_speed,
             &mut adjustables.wind_source_3_strength,
+            &mut adjustables.wind_source_3_coverage,
+            &mut adjustables.wind_source_3_pattern_scale,
+            &mut adjustables.wind_source_3_pattern_frequency,
+            &mut adjustables.wind_source_3_octaves,
+            &mut adjustables.wind_source_3_lacunarity,
+            &mut adjustables.wind_source_3_gain,
         )),
         _ => None,
     }
@@ -280,15 +468,6 @@ fn render_wind_sources_gui(ui: &mut egui::Ui, adjustables: &mut GuiAdjustables) 
     adjustables.wind_source_count.value = adjustables.wind_source_count.value.min(max_sources);
 
     ui.horizontal(|ui| {
-        if ui
-            .add_enabled(
-                adjustables.wind_source_count.value > 0,
-                egui::Button::new("- Wind Source"),
-            )
-            .clicked()
-        {
-            adjustables.wind_source_count.value -= 1;
-        }
         ui.label(format!(
             "Wind Sources: {}",
             adjustables.wind_source_count.value
@@ -317,10 +496,36 @@ fn render_wind_sources_gui(ui: &mut egui::Ui, adjustables: &mut GuiAdjustables) 
         return;
     }
 
+    let mut delete_index = None;
     for index in 0..adjustables.wind_source_count.value as usize {
         ui.add_space(4.0);
-        ui.collapsing(format!("Wind Source {}", index + 1), |ui| {
-            if let Some((direction, speed, strength)) = wind_source_params_mut(adjustables, index) {
+        let title = wind_source_gui_values(adjustables, index)
+            .map(|values| format!("{}: {}", index + 1, values.name))
+            .unwrap_or_else(|| format!("Wind Source {}", index + 1));
+        ui.collapsing(title, |ui| {
+            ui.horizontal(|ui| {
+                if ui.button("Delete").clicked() {
+                    delete_index = Some(index);
+                }
+            });
+
+            if let Some((
+                name,
+                direction,
+                speed,
+                strength,
+                coverage,
+                pattern_scale,
+                pattern_frequency,
+                octaves,
+                lacunarity,
+                gain,
+            )) = wind_source_params_mut(adjustables, index)
+            {
+                ui.horizontal(|ui| {
+                    ui.label("Name");
+                    ui.text_edit_singleline(&mut name.value);
+                });
                 ui.add(
                     egui::Slider::new(&mut direction.value, direction.range.clone())
                         .text("Direction (deg)"),
@@ -329,8 +534,34 @@ fn render_wind_sources_gui(ui: &mut egui::Ui, adjustables: &mut GuiAdjustables) 
                 ui.add(
                     egui::Slider::new(&mut strength.value, strength.range.clone()).text("Strength"),
                 );
+                ui.add(
+                    egui::Slider::new(&mut coverage.value, coverage.range.clone()).text("Coverage"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut pattern_scale.value, pattern_scale.range.clone())
+                        .text("Pattern Scale"),
+                );
+                ui.add(
+                    egui::Slider::new(
+                        &mut pattern_frequency.value,
+                        pattern_frequency.range.clone(),
+                    )
+                    .text("Pattern Frequency"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut octaves.value, octaves.range.clone()).text("Octaves"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut lacunarity.value, lacunarity.range.clone())
+                        .text("Lacunarity"),
+                );
+                ui.add(egui::Slider::new(&mut gain.value, gain.range.clone()).text("Gain"));
             }
         });
+    }
+
+    if let Some(index) = delete_index {
+        delete_wind_source(adjustables, index);
     }
 }
 
@@ -402,6 +633,19 @@ pub fn render_gui_from_config(
                                     ui.selectable_value(&mut field.value, index as u32, option);
                                 }
                             });
+                    }
+                    (GuiParamKind::String, GuiParamValue::String { .. }) => {
+                        let field = GuiAdjustables::get_string_param_mut(adjustables, &param.id)
+                            .unwrap_or_else(|| {
+                                panic!(
+                                    "GUI param '{}' (section '{}') missing StringParam in GuiAdjustables; rebuild required",
+                                    param.id, section.name
+                                )
+                            });
+                        ui.horizontal(|ui| {
+                            ui.label(&param.label);
+                            ui.text_edit_singleline(&mut field.value);
+                        });
                     }
                     (GuiParamKind::Bool, GuiParamValue::Bool { .. }) => {
                         let field = GuiAdjustables::get_bool_param_mut(adjustables, &param.id)

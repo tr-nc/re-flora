@@ -29,6 +29,7 @@ pub enum GuiParamKind {
     Int,
     Uint,
     Choice,
+    String,
     Bool,
     Color,
 }
@@ -60,6 +61,9 @@ pub enum GuiParamValue {
     Choice {
         value: u32,
         options: Vec<String>,
+    },
+    String {
+        value: String,
     },
     Bool {
         value: bool,
@@ -103,6 +107,15 @@ impl GuiParamValue {
     }
 
     #[allow(dead_code)]
+    #[allow(dead_code)]
+    pub fn get_string(&self) -> Option<String> {
+        match self {
+            GuiParamValue::String { value } => Some(value.clone()),
+            _ => None,
+        }
+    }
+
+    #[allow(dead_code)]
     pub fn get_bool(&self) -> Option<bool> {
         match self {
             GuiParamValue::Bool { value } => Some(*value),
@@ -138,6 +151,12 @@ impl GuiParamValue {
 
     pub fn set_choice(&mut self, value: u32) {
         if let GuiParamValue::Choice { value: v, .. } = self {
+            *v = value;
+        }
+    }
+
+    pub fn set_string(&mut self, value: String) {
+        if let GuiParamValue::String { value: v } = self {
             *v = value;
         }
     }

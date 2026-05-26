@@ -239,6 +239,17 @@ impl BufferUpdater {
                 source.strength,
             ]
         });
+        let wind_source_noise = wind_gui_params.sources.map(|source| {
+            [
+                source.coverage,
+                source.pattern_scale,
+                source.pattern_frequency,
+                source.octaves as f32,
+            ]
+        });
+        let wind_source_detail = wind_gui_params
+            .sources
+            .map(|source| [source.lacunarity, source.gain, 0.0, 0.0]);
 
         resources.gui_input.fill_uniform(&GuiInput {
             debug_float,
@@ -263,6 +274,14 @@ impl BufferUpdater {
             wind_source_1: wind_sources[1],
             wind_source_2: wind_sources[2],
             wind_source_3: wind_sources[3],
+            wind_source_0_noise: wind_source_noise[0],
+            wind_source_1_noise: wind_source_noise[1],
+            wind_source_2_noise: wind_source_noise[2],
+            wind_source_3_noise: wind_source_noise[3],
+            wind_source_0_detail: wind_source_detail[0],
+            wind_source_1_detail: wind_source_detail[1],
+            wind_source_2_detail: wind_source_detail[2],
+            wind_source_3_detail: wind_source_detail[3],
             ..GuiInput::zeroed()
         })
     }

@@ -9,22 +9,46 @@ pub struct WindSource {
     pub speed: f32,
     pub sharpness: f32,
     pub strength: f32,
+    pub coverage: f32,
+    pub pattern_scale: f32,
+    pub pattern_frequency: f32,
+    pub octaves: u32,
+    pub lacunarity: f32,
+    pub gain: f32,
 }
 
 impl WindSource {
-    pub const fn new(direction_degrees: f32, speed: f32, sharpness: f32, strength: f32) -> Self {
+    #[allow(clippy::too_many_arguments)]
+    pub const fn new(
+        direction_degrees: f32,
+        speed: f32,
+        sharpness: f32,
+        strength: f32,
+        coverage: f32,
+        pattern_scale: f32,
+        pattern_frequency: f32,
+        octaves: u32,
+        lacunarity: f32,
+        gain: f32,
+    ) -> Self {
         Self {
             direction_degrees,
             speed,
             sharpness,
             strength,
+            coverage,
+            pattern_scale,
+            pattern_frequency,
+            octaves,
+            lacunarity,
+            gain,
         }
     }
 }
 
 impl Default for WindSource {
     fn default() -> Self {
-        Self::new(0.0, 0.0, 0.0, 0.0)
+        Self::new(0.0, 0.0, 0.0, 0.0, 0.33, 1.0, 1.0, 3, 2.0, 0.5)
     }
 }
 
@@ -61,8 +85,7 @@ const WIND_GUST_MASK_SEED: i32 = 3181;
 const WIND_GUST_MASK_FREQUENCY: f32 = 0.008;
 const WIND_SAMPLE_SCALE: f32 = 256.0;
 const WIND_TIME_SCALE: f32 = 170.0;
-const WIND_GUST_SMOOTH_MIN: f32 = 0.52;
-const WIND_GUST_SMOOTH_MAX: f32 = 0.82;
+const WIND_GUST_SMOOTH_WIDTH: f32 = 0.30;
 const WIND_SOURCE_OFFSETS: [Vec2; MAX_WIND_SOURCES] = [
     Vec2::new(149.0, -67.0),
     Vec2::new(-211.0, 307.0),
@@ -73,11 +96,8 @@ const WIND_SOURCE_OFFSETS: [Vec2; MAX_WIND_SOURCES] = [
 fn wind_noise_state(seed: i32) -> FastNoiseLite {
     let mut state = FastNoiseLite::with_seed(seed);
     state.set_noise_type(Some(NoiseType::OpenSimplex2));
-    state.set_fractal_type(Some(FractalType::FBm));
-    state.set_fractal_octaves(Some(3));
-    state.set_frequency(Some(WIND_GUST_MASK_FREQUENCY));
-    state.set_fractal_lacunarity(Some(2.0));
-    state.set_fractal_gain(Some(0.5));
+    state.set_fractal_type(Some(FractalType::None));
+    state.set_frequency(Some(1.0));
     state
 }
 
@@ -127,7 +147,7 @@ impl Wind {
             let wind_direction = Vec2::new(angle.cos(), angle.sin());
             let time_offset = -wind_direction * scroll_time * source_speed;
             let wind_factor =
-                self.sample_source_gust(source_index, sample_pos, time_offset, source.sharpness);
+                self.sample_source_gust(source_index, sample_pos, time_offset, source);
             wind_planar += wind_direction * (wind_factor * source_strength);
         }
 
@@ -150,7 +170,7 @@ impl Wind {
         time: f32,
         response_curve: WindResponseCurve,
     ) -> f32 {
-        let default_source = WindSource::new(0.0, 1.0, 0.335, 1.0);
+        let default_source = WindSource::new(0.0, 1.0, 0.335, 1.0, 0.33, 1.0, 1.0, 3, 2.0, 0.5);
         self.sample_response_from_sources(world_pos, time, &[default_source], response_curve)
     }
 
@@ -159,18 +179,35 @@ impl Wind {
         source_index: usize,
         sample_pos: Vec2,
         time_offset: Vec2,
-        sharpness: f32,
+        source: &WindSource,
     ) -> f32 {
         let offset = WIND_SOURCE_OFFSETS[source_index];
         let noise = &self.gust_noises[source_index];
-        let gust_noise = noise.get_noise_2d(
-            sample_pos.x + offset.x + time_offset.x,
-            sample_pos.y + offset.y + time_offset.y,
-        );
+        let pattern_scale = source.pattern_scale.max(0.05);
+        let mut frequency = WIND_GUST_MASK_FREQUENCY * source.pattern_frequency.max(0.05);
+        let lacunarity = source.lacunarity.max(1.0);
+        let gain = source.gain.clamp(0.0, 1.0);
+        let octaves = source.octaves.clamp(1, 8);
+        let p = (sample_pos + offset + time_offset) / pattern_scale;
+        let mut amplitude = 1.0;
+        let mut amplitude_sum = 0.0;
+        let mut noise_sum = 0.0;
+
+        for _ in 0..octaves {
+            noise_sum += noise.get_noise_2d(p.x * frequency, p.y * frequency) * amplitude;
+            amplitude_sum += amplitude;
+            frequency *= lacunarity;
+            amplitude *= gain;
+        }
+
+        let gust_noise = if amplitude_sum <= f32::EPSILON {
+            0.0
+        } else {
+            noise_sum / amplitude_sum
+        };
         let gust_value = (gust_noise * 0.5 + 0.5).clamp(0.0, 1.0);
-        let center = (WIND_GUST_SMOOTH_MIN + WIND_GUST_SMOOTH_MAX) * 0.5;
-        let half_width =
-            (WIND_GUST_SMOOTH_MAX - WIND_GUST_SMOOTH_MIN) * 0.5 * (1.0 - sharpness.clamp(0.0, 1.0));
+        let center = 1.0 - source.coverage.clamp(0.0, 1.0);
+        let half_width = WIND_GUST_SMOOTH_WIDTH * 0.5 * (1.0 - source.sharpness.clamp(0.0, 1.0));
         wind_safe_smoothstep(center - half_width, center + half_width, gust_value)
     }
 }

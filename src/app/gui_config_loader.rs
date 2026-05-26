@@ -282,6 +282,14 @@ impl GuiConfigLoader {
                     ));
                 }
             }
+            (GuiParamKind::String, GuiParamValue::String { value }) => {
+                if value.trim().is_empty() {
+                    errors.push(format!(
+                        "Section '{}' param '{}': string value must not be empty",
+                        section_name, param.id
+                    ));
+                }
+            }
             (GuiParamKind::Bool, GuiParamValue::Bool { .. }) => {}
             (GuiParamKind::Color, GuiParamValue::Color { value }) => {
                 if !Self::is_valid_color(value) {
@@ -297,6 +305,7 @@ impl GuiConfigLoader {
                     GuiParamKind::Int => "int { value, min, max }",
                     GuiParamKind::Uint => "uint { value, min, max }",
                     GuiParamKind::Choice => "choice { value, options }",
+                    GuiParamKind::String => "string { value }",
                     GuiParamKind::Bool => "bool { value }",
                     GuiParamKind::Color => "color { value }",
                 };
@@ -309,6 +318,7 @@ impl GuiConfigLoader {
                         GuiParamKind::Int => "int",
                         GuiParamKind::Uint => "uint",
                         GuiParamKind::Choice => "choice",
+                        GuiParamKind::String => "string",
                         GuiParamKind::Bool => "bool",
                         GuiParamKind::Color => "color",
                     },

@@ -102,6 +102,33 @@ impl GuiRenderable for UintParam {
     }
 }
 
+/// Editable string control.
+#[derive(Debug, Clone)]
+pub struct StringParam {
+    pub value: String,
+}
+
+impl StringParam {
+    pub fn new(value: String) -> Self {
+        Self { value }
+    }
+
+    #[allow(dead_code)]
+    pub fn get(&self) -> &str {
+        &self.value
+    }
+}
+
+impl GuiRenderable for StringParam {
+    fn render(&mut self, ui: &mut egui::Ui, label: &str) -> bool {
+        ui.horizontal(|ui| {
+            ui.label(label);
+            ui.text_edit_singleline(&mut self.value).changed()
+        })
+        .inner
+    }
+}
+
 /// Dropdown choice control. The config renderer owns the displayed option labels.
 #[derive(Debug, Clone)]
 pub struct ChoiceParam {
