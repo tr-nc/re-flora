@@ -49,9 +49,13 @@ impl GuiAdjustables {
         let count = self.wind_source_count.value.min(MAX_WIND_SOURCES as u32) as usize;
         (0..count)
             .filter_map(|index| {
-                wind_source_gui_values(self, index)
-                    .filter(|values| !values.muted)
-                    .map(|values| values.source)
+                wind_source_gui_values(self, index).map(|values| {
+                    let mut source = values.source;
+                    if values.muted {
+                        source.strength = 0.0;
+                    }
+                    source
+                })
             })
             .collect()
     }
@@ -391,16 +395,6 @@ fn set_wind_source_gui_values(
     }
 }
 
-fn toggle_wind_source_muted(adjustables: &mut GuiAdjustables, index: usize) {
-    match index {
-        0 => adjustables.wind_source_0_muted.value = !adjustables.wind_source_0_muted.value,
-        1 => adjustables.wind_source_1_muted.value = !adjustables.wind_source_1_muted.value,
-        2 => adjustables.wind_source_2_muted.value = !adjustables.wind_source_2_muted.value,
-        3 => adjustables.wind_source_3_muted.value = !adjustables.wind_source_3_muted.value,
-        _ => {}
-    }
-}
-
 fn delete_wind_source(adjustables: &mut GuiAdjustables, index: usize) {
     let count = adjustables
         .wind_source_count
@@ -525,7 +519,6 @@ fn render_wind_sources_gui(ui: &mut egui::Ui, adjustables: &mut GuiAdjustables) 
     }
 
     let mut delete_index = None;
-    let mut toggle_mute_index = None;
     for index in 0..adjustables.wind_source_count.value as usize {
         ui.add_space(4.0);
         let source_values = wind_source_gui_values(adjustables, index);
@@ -543,14 +536,6 @@ fn render_wind_sources_gui(ui: &mut egui::Ui, adjustables: &mut GuiAdjustables) 
             ui.horizontal(|ui| {
                 if ui.button("Delete").clicked() {
                     delete_index = Some(index);
-                }
-                let mute_label = if source_values.as_ref().is_some_and(|values| values.muted) {
-                    "Unmute"
-                } else {
-                    "Mute"
-                };
-                if ui.button(mute_label).clicked() {
-                    toggle_mute_index = Some(index);
                 }
             });
 
@@ -607,9 +592,6 @@ fn render_wind_sources_gui(ui: &mut egui::Ui, adjustables: &mut GuiAdjustables) 
         });
     }
 
-    if let Some(index) = toggle_mute_index {
-        toggle_wind_source_muted(adjustables, index);
-    }
     if let Some(index) = delete_index {
         delete_wind_source(adjustables, index);
     }
