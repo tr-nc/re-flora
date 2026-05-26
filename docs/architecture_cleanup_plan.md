@@ -28,6 +28,25 @@ User-requested order:
 5. Split app water orchestration into `app/water/*`.
 6. Move terrain visual rebuild state machine out of `app/core/mod.rs`.
 
+## Progress
+
+Completed in this branch:
+
+1. `extract cli options`
+   - moved CLI option types, parser, help text, and render flags into `src/cli.rs`.
+   - kept crate-root re-exports for compatibility.
+2. `extract player tool state`
+   - introduced `src/app/core/player_tools.rs` and moved item selection, active voxel, tool timers, backpack counters, edit-loop sound state, and backpack panel target state under `PlayerToolState`.
+3. `narrow simple public exports`
+   - replaced selected wildcard module re-exports in simple leaf modules with explicit type/constant exports.
+4. `add semantic buffer usage helpers`
+   - added semantic `BufferUsage` constructors/helpers in `re-flora-vkn` and used them in egui mesh buffers.
+5. `split water simulation runtime`
+   - converted `src/app/core/water.rs` into `src/app/core/water/mod.rs` plus `src/app/core/water/runtime.rs` for `AsyncWaterSim` and its worker thread.
+6. `move terrain rebuild pipeline`
+   - moved deferred/synchronous visible terrain rebuild state and methods from `src/app/core/mod.rs` into `src/app/core/terrain_rebuild.rs`.
+
+
 ## 1. Extract CLI/options from `main.rs`
 
 ### Goal
