@@ -234,7 +234,7 @@ impl BufferUpdater {
         let wind_sources = wind_gui_params.sources.map(|source| {
             [
                 source.direction_degrees,
-                source.frequency,
+                source.speed,
                 source.sharpness,
                 source.strength,
             ]

@@ -6,21 +6,16 @@ pub const MAX_WIND_SOURCES: usize = 4;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WindSource {
     pub direction_degrees: f32,
-    pub frequency: f32,
+    pub speed: f32,
     pub sharpness: f32,
     pub strength: f32,
 }
 
 impl WindSource {
-    pub const fn new(
-        direction_degrees: f32,
-        frequency: f32,
-        sharpness: f32,
-        strength: f32,
-    ) -> Self {
+    pub const fn new(direction_degrees: f32, speed: f32, sharpness: f32, strength: f32) -> Self {
         Self {
             direction_degrees,
-            frequency,
+            speed,
             sharpness,
             strength,
         }
@@ -122,22 +117,17 @@ impl Wind {
         let mut wind_planar = Vec2::ZERO;
 
         for (source_index, source) in sources.iter().take(MAX_WIND_SOURCES).enumerate() {
-            let source_frequency = source.frequency.max(0.0);
+            let source_speed = source.speed.max(0.0);
             let source_strength = source.strength.max(0.0);
-            if source_strength <= f32::EPSILON || source_frequency <= f32::EPSILON {
+            if source_strength <= f32::EPSILON {
                 continue;
             }
 
             let angle = source.direction_degrees.to_radians();
             let wind_direction = Vec2::new(angle.cos(), angle.sin());
-            let time_offset = -wind_direction * scroll_time * source_frequency;
-            let wind_factor = self.sample_source_gust(
-                source_index,
-                sample_pos,
-                time_offset,
-                source_frequency,
-                source.sharpness,
-            );
+            let time_offset = -wind_direction * scroll_time * source_speed;
+            let wind_factor =
+                self.sample_source_gust(source_index, sample_pos, time_offset, source.sharpness);
             wind_planar += wind_direction * (wind_factor * source_strength);
         }
 
@@ -169,14 +159,13 @@ impl Wind {
         source_index: usize,
         sample_pos: Vec2,
         time_offset: Vec2,
-        source_frequency: f32,
         sharpness: f32,
     ) -> f32 {
         let offset = WIND_SOURCE_OFFSETS[source_index];
         let noise = &self.gust_noises[source_index];
         let gust_noise = noise.get_noise_2d(
-            (sample_pos.x + offset.x + time_offset.x) * source_frequency,
-            (sample_pos.y + offset.y + time_offset.y) * source_frequency,
+            sample_pos.x + offset.x + time_offset.x,
+            sample_pos.y + offset.y + time_offset.y,
         );
         let gust_value = (gust_noise * 0.5 + 0.5).clamp(0.0, 1.0);
         let center = (WIND_GUST_SMOOTH_MIN + WIND_GUST_SMOOTH_MAX) * 0.5;

@@ -42,16 +42,14 @@ float sample_wind_source_gust(
     vec2 sample_pos,
     vec2 time_offset,
     uint source_index,
-    float frequency,
     float sharpness
 ) {
-    float source_frequency = WIND_GUST_MASK_FREQUENCY * max(frequency, 0.0f);
-    vec2 offset            = wind_source_offset(source_index);
-    float gust_noise       = fbm_cnoise_2d(
+    vec2 offset      = wind_source_offset(source_index);
+    float gust_noise = fbm_cnoise_2d(
         sample_pos.x + offset.x + time_offset.x,
         sample_pos.y + offset.y + time_offset.y,
         WIND_GUST_MASK_SEED + source_index * 997u,
-        source_frequency,
+        WIND_GUST_MASK_FREQUENCY,
         WIND_GUST_MASK_OCTAVES,
         WIND_GUST_LACUNARITY,
         WIND_GUST_GAIN);
@@ -83,20 +81,19 @@ vec3 sample_procedural_wind(vec3 world_pos, float time) {
             source = gui_input.wind_source_3;
         }
         float direction_angle  = radians(source.x);
-        float source_frequency = max(source.y, 0.0f);
+        float source_speed     = max(source.y, 0.0f);
         float source_sharpness = clamp(source.z, 0.0f, 1.0f);
         float source_strength  = max(source.w, 0.0f);
-        if (source_strength <= EPSILON || source_frequency <= EPSILON) {
+        if (source_strength <= EPSILON) {
             continue;
         }
 
         vec2 wind_direction = vec2(cos(direction_angle), sin(direction_angle));
-        vec2 layer_time     = -wind_direction * scroll_time * source_frequency;
+        vec2 layer_time     = -wind_direction * scroll_time * source_speed;
         float wind_factor   = sample_wind_source_gust(
             sample_pos,
             layer_time,
             source_index,
-            source_frequency,
             source_sharpness);
         wind_planar += wind_direction * (wind_factor * source_strength);
     }

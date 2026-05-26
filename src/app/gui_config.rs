@@ -51,26 +51,26 @@ impl GuiAdjustables {
             .map(|index| match index {
                 0 => WindSource::new(
                     self.wind_source_0_direction_deg.value,
-                    self.wind_source_0_frequency.value,
-                    self.wind_source_0_sharpness.value,
+                    self.wind_source_0_speed.value,
+                    self.wind_sharpness.value,
                     self.wind_source_0_strength.value,
                 ),
                 1 => WindSource::new(
                     self.wind_source_1_direction_deg.value,
-                    self.wind_source_1_frequency.value,
-                    self.wind_source_1_sharpness.value,
+                    self.wind_source_1_speed.value,
+                    self.wind_sharpness.value,
                     self.wind_source_1_strength.value,
                 ),
                 2 => WindSource::new(
                     self.wind_source_2_direction_deg.value,
-                    self.wind_source_2_frequency.value,
-                    self.wind_source_2_sharpness.value,
+                    self.wind_source_2_speed.value,
+                    self.wind_sharpness.value,
                     self.wind_source_2_strength.value,
                 ),
                 3 => WindSource::new(
                     self.wind_source_3_direction_deg.value,
-                    self.wind_source_3_frequency.value,
-                    self.wind_source_3_sharpness.value,
+                    self.wind_source_3_speed.value,
+                    self.wind_sharpness.value,
                     self.wind_source_3_strength.value,
                 ),
                 _ => unreachable!(),
@@ -249,35 +249,26 @@ impl GuiAdjustables {
 fn wind_source_params_mut(
     adjustables: &mut GuiAdjustables,
     index: usize,
-) -> Option<(
-    &mut FloatParam,
-    &mut FloatParam,
-    &mut FloatParam,
-    &mut FloatParam,
-)> {
+) -> Option<(&mut FloatParam, &mut FloatParam, &mut FloatParam)> {
     match index {
         0 => Some((
             &mut adjustables.wind_source_0_direction_deg,
-            &mut adjustables.wind_source_0_frequency,
-            &mut adjustables.wind_source_0_sharpness,
+            &mut adjustables.wind_source_0_speed,
             &mut adjustables.wind_source_0_strength,
         )),
         1 => Some((
             &mut adjustables.wind_source_1_direction_deg,
-            &mut adjustables.wind_source_1_frequency,
-            &mut adjustables.wind_source_1_sharpness,
+            &mut adjustables.wind_source_1_speed,
             &mut adjustables.wind_source_1_strength,
         )),
         2 => Some((
             &mut adjustables.wind_source_2_direction_deg,
-            &mut adjustables.wind_source_2_frequency,
-            &mut adjustables.wind_source_2_sharpness,
+            &mut adjustables.wind_source_2_speed,
             &mut adjustables.wind_source_2_strength,
         )),
         3 => Some((
             &mut adjustables.wind_source_3_direction_deg,
-            &mut adjustables.wind_source_3_frequency,
-            &mut adjustables.wind_source_3_sharpness,
+            &mut adjustables.wind_source_3_speed,
             &mut adjustables.wind_source_3_strength,
         )),
         _ => None,
@@ -313,6 +304,14 @@ fn render_wind_sources_gui(ui: &mut egui::Ui, adjustables: &mut GuiAdjustables) 
         }
     });
 
+    ui.add(
+        egui::Slider::new(
+            &mut adjustables.wind_sharpness.value,
+            adjustables.wind_sharpness.range.clone(),
+        )
+        .text("Sharpness"),
+    );
+
     if adjustables.wind_source_count.value == 0 {
         ui.label("No active wind sources.");
         return;
@@ -321,21 +320,12 @@ fn render_wind_sources_gui(ui: &mut egui::Ui, adjustables: &mut GuiAdjustables) 
     for index in 0..adjustables.wind_source_count.value as usize {
         ui.add_space(4.0);
         ui.collapsing(format!("Wind Source {}", index + 1), |ui| {
-            if let Some((direction, frequency, sharpness, strength)) =
-                wind_source_params_mut(adjustables, index)
-            {
+            if let Some((direction, speed, strength)) = wind_source_params_mut(adjustables, index) {
                 ui.add(
                     egui::Slider::new(&mut direction.value, direction.range.clone())
                         .text("Direction (deg)"),
                 );
-                ui.add(
-                    egui::Slider::new(&mut frequency.value, frequency.range.clone())
-                        .text("Frequency"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut sharpness.value, sharpness.range.clone())
-                        .text("Sharpness"),
-                );
+                ui.add(egui::Slider::new(&mut speed.value, speed.range.clone()).text("Speed"));
                 ui.add(
                     egui::Slider::new(&mut strength.value, strength.range.clone()).text("Strength"),
                 );
