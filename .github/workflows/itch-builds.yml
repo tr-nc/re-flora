@@ -42,7 +42,7 @@ jobs:
 
       - name: Install macOS build dependencies
         if: runner.os == 'macOS'
-        run: brew install cmake ninja
+        run: brew install cmake ninja molten-vk vulkan-loader
 
       - name: Install Windows build dependencies
         if: runner.os == 'Windows'
@@ -61,7 +61,13 @@ jobs:
         run: rustup show
 
       - name: Build release binary
-        run: cargo build --release --locked
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${RUNNER_OS:-}" = "macOS" ]; then
+            export RUSTFLAGS='-C link-arg=-Wl,-rpath,@executable_path/lib'
+          fi
+          cargo build --release --locked --features no_validation_layer
 
       - name: Resolve package version
         id: version
@@ -162,6 +168,7 @@ jobs:
                 make \
                 ninja-build \
                 patch \
+                patchelf \
                 pkgconf-pkg-config \
                 python3 \
                 systemd-devel \
@@ -172,7 +179,8 @@ jobs:
               curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
               . "$HOME/.cargo/env"
               rustup show
-              cargo build --release --locked
+              export RUSTFLAGS="-C link-arg=-Wl,-rpath,\$ORIGIN/lib"
+              cargo build --release --locked --features no_validation_layer
               python3 scripts/package_release.py --version "$PACKAGE_VERSION" --channel fedora
               chown -R "$HOST_UID:$HOST_GID" target dist
             '
