@@ -187,14 +187,14 @@ impl App {
                 .map(|inflight| &inflight.stage)
             {
                 Some(TerrainChunkRebuildStage::Surface { job }) => {
-                    self.surface_builder.wait_build_surface(&job)
+                    self.surface_builder.wait_build_surface(job)
                 }
                 Some(TerrainChunkRebuildStage::ContreeReady { .. }) => Ok(()),
                 Some(TerrainChunkRebuildStage::Contree { job, .. }) => {
-                    self.contree_builder.wait_build_and_alloc(&job)
+                    self.contree_builder.wait_build_and_alloc(job)
                 }
                 Some(TerrainChunkRebuildStage::Scene { job, .. }) => {
-                    self.scene_accel_builder.wait_update_scene_tex(&job)
+                    self.scene_accel_builder.wait_update_scene_tex(job)
                 }
                 None => Ok(()),
             };

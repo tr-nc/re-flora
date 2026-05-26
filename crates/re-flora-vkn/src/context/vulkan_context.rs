@@ -5,7 +5,7 @@ use super::{
     surface::Surface, Queue,
 };
 use ash::{prelude::VkResult, vk, Entry};
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 use winit::window::Window;
 
 pub struct VulkanContextDesc {
@@ -47,7 +47,8 @@ impl FastAccessItems {
 #[derive(Clone)]
 pub struct VulkanContext(Arc<VulkanContextInner>);
 
-fn packaged_root() -> Option<PathBuf> {
+#[cfg(target_os = "macos")]
+fn packaged_root() -> Option<std::path::PathBuf> {
     std::env::current_exe()
         .ok()
         .and_then(|path| path.parent().map(|parent| parent.to_path_buf()))

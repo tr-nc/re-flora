@@ -431,17 +431,24 @@ fn generate_gui_adjustables() {
     code.push_str(
         "pub fn get_choice_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::ChoiceParam> {\n",
     );
-    code.push_str("    match id {\n");
-    for (_section, id, kind, _label) in &descriptors {
-        if kind == "choice" {
-            code.push_str(&format!(
-                "        \"{}\" => Some(&adjustables.{}),\n",
-                id, id
-            ));
+    if descriptors
+        .iter()
+        .any(|(_section, _id, kind, _label)| kind == "choice")
+    {
+        code.push_str("    match id {\n");
+        for (_section, id, kind, _label) in &descriptors {
+            if kind == "choice" {
+                code.push_str(&format!(
+                    "        \"{}\" => Some(&adjustables.{}),\n",
+                    id, id
+                ));
+            }
         }
+        code.push_str("        _ => None,\n");
+        code.push_str("    }\n");
+    } else {
+        code.push_str("    None\n");
     }
-    code.push_str("        _ => None,\n");
-    code.push_str("    }\n");
     code.push_str("}\n\n");
 
     code.push_str("#[allow(dead_code)]\n");
@@ -533,17 +540,24 @@ fn generate_gui_adjustables() {
     code.push_str(
         "pub fn get_choice_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::ChoiceParam> {\n",
     );
-    code.push_str("    match id {\n");
-    for (_section, id, kind, _label) in &descriptors {
-        if kind == "choice" {
-            code.push_str(&format!(
-                "        \"{}\" => Some(&mut adjustables.{}),\n",
-                id, id
-            ));
+    if descriptors
+        .iter()
+        .any(|(_section, _id, kind, _label)| kind == "choice")
+    {
+        code.push_str("    match id {\n");
+        for (_section, id, kind, _label) in &descriptors {
+            if kind == "choice" {
+                code.push_str(&format!(
+                    "        \"{}\" => Some(&mut adjustables.{}),\n",
+                    id, id
+                ));
+            }
         }
+        code.push_str("        _ => None,\n");
+        code.push_str("    }\n");
+    } else {
+        code.push_str("    None\n");
     }
-    code.push_str("        _ => None,\n");
-    code.push_str("    }\n");
     code.push_str("}\n\n");
 
     code.push_str("#[allow(dead_code)]\n");
