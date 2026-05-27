@@ -1877,6 +1877,10 @@ impl Tracer {
         self.camera.vectors()
     }
 
+    pub fn set_footstep_volume_gain(&mut self, volume_gain: f32) {
+        self.camera.set_footstep_volume_gain(volume_gain);
+    }
+
     pub fn update_camera(
         &mut self,
         frame_delta_time: f32,

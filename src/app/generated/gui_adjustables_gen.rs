@@ -308,6 +308,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Audio",
+        id: "footstep_volume_db",
+        kind: "float",
+        label: "Footstep Volume (dB)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Audio",
         id: "tree_wind_response_min_strength",
         kind: "float",
         label: "Tree Wind Response Min",
@@ -999,6 +1005,7 @@ pub struct GuiAdjustables {
     pub wind_source_3_lacunarity: crate::gui_adjustables::FloatParam,
     pub wind_source_3_gain: crate::gui_adjustables::FloatParam,
     pub master_volume: crate::gui_adjustables::FloatParam,
+    pub footstep_volume_db: crate::gui_adjustables::FloatParam,
     pub tree_wind_response_min_strength: crate::gui_adjustables::FloatParam,
     pub tree_wind_response_max_strength: crate::gui_adjustables::FloatParam,
     pub tree_wind_volume_db: crate::gui_adjustables::FloatParam,
@@ -1166,6 +1173,7 @@ impl GuiAdjustables {
         let mut wind_source_3_lacunarity_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_source_3_gain_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut master_volume_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut footstep_volume_db_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_wind_response_min_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_wind_response_max_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_wind_volume_db_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1586,6 +1594,13 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             master_volume_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "footstep_volume_db" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            footstep_volume_db_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "tree_wind_response_min_strength" => {
@@ -2344,6 +2359,7 @@ impl GuiAdjustables {
             wind_source_3_lacunarity: wind_source_3_lacunarity_field.expect("Missing parameter: wind_source_3_lacunarity"),
             wind_source_3_gain: wind_source_3_gain_field.expect("Missing parameter: wind_source_3_gain"),
             master_volume: master_volume_field.expect("Missing parameter: master_volume"),
+            footstep_volume_db: footstep_volume_db_field.expect("Missing parameter: footstep_volume_db"),
             tree_wind_response_min_strength: tree_wind_response_min_strength_field.expect("Missing parameter: tree_wind_response_min_strength"),
             tree_wind_response_max_strength: tree_wind_response_max_strength_field.expect("Missing parameter: tree_wind_response_max_strength"),
             tree_wind_volume_db: tree_wind_volume_db_field.expect("Missing parameter: tree_wind_volume_db"),
@@ -2489,6 +2505,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "wind_source_3_lacunarity" => Some(&adjustables.wind_source_3_lacunarity),
         "wind_source_3_gain" => Some(&adjustables.wind_source_3_gain),
         "master_volume" => Some(&adjustables.master_volume),
+        "footstep_volume_db" => Some(&adjustables.footstep_volume_db),
         "tree_wind_response_min_strength" => Some(&adjustables.tree_wind_response_min_strength),
         "tree_wind_response_max_strength" => Some(&adjustables.tree_wind_response_max_strength),
         "tree_wind_volume_db" => Some(&adjustables.tree_wind_volume_db),
@@ -2690,6 +2707,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "wind_source_3_lacunarity" => Some(&mut adjustables.wind_source_3_lacunarity),
         "wind_source_3_gain" => Some(&mut adjustables.wind_source_3_gain),
         "master_volume" => Some(&mut adjustables.master_volume),
+        "footstep_volume_db" => Some(&mut adjustables.footstep_volume_db),
         "tree_wind_response_min_strength" => Some(&mut adjustables.tree_wind_response_min_strength),
         "tree_wind_response_max_strength" => Some(&mut adjustables.tree_wind_response_max_strength),
         "tree_wind_volume_db" => Some(&mut adjustables.tree_wind_volume_db),

@@ -88,6 +88,11 @@ impl Camera {
         Ok(camera)
     }
 
+    pub fn set_footstep_volume_gain(&mut self, volume_gain: f32) {
+        self.player_audio_controller
+            .set_footstep_volume_gain(volume_gain);
+    }
+
     pub fn on_resize(&mut self, screen_extent: Extent2D) {
         self.desc.aspect_ratio = screen_extent.width as f32 / screen_extent.height as f32;
     }

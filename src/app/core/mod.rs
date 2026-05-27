@@ -2058,6 +2058,13 @@ impl App {
                                     );
                                     ui.add(
                                         egui::Slider::new(
+                                            &mut self.gui_adjustables.footstep_volume_db.value,
+                                            self.gui_adjustables.footstep_volume_db.range.clone(),
+                                        )
+                                        .text("Footstep Volume (dB)"),
+                                    );
+                                    ui.add(
+                                        egui::Slider::new(
                                             &mut self
                                                 .gui_adjustables
                                                 .tree_wind_response_min_strength
@@ -2670,6 +2677,9 @@ impl App {
                 } else {
                     Some(self.query_player_collision_cpu())
                 };
+                self.tracer.set_footstep_volume_gain(
+                    -40.0 + self.gui_adjustables.footstep_volume_db.value,
+                );
                 self.tracer
                     .update_camera(frame_delta_time, self.is_fly_mode, player_collision);
 
