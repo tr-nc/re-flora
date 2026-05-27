@@ -533,7 +533,7 @@ fn render_wind_sources_gui(ui: &mut egui::Ui, adjustables: &mut GuiAdjustables) 
             .as_ref()
             .map(|values| {
                 if values.muted {
-                    format!("{}: {} (muted)", index + 1, values.name)
+                    format!("{}: {} (inactive)", index + 1, values.name)
                 } else {
                     format!("{}: {}", index + 1, values.name)
                 }
@@ -564,7 +564,10 @@ fn render_wind_sources_gui(ui: &mut egui::Ui, adjustables: &mut GuiAdjustables) 
                     ui.label("Name");
                     ui.text_edit_singleline(&mut name.value);
                 });
-                ui.checkbox(&mut muted.value, "Muted");
+                let mut active = !muted.value;
+                if ui.checkbox(&mut active, "Active").changed() {
+                    muted.value = !active;
+                }
                 ui.add(
                     egui::Slider::new(&mut direction.value, direction.range.clone())
                         .text("Direction (deg)"),

@@ -352,7 +352,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Audio",
         id: "master_volume",
         kind: "float",
-        label: "Master Volume",
+        label: "Master Volume (dB)",
     },
     GeneratedGuiParamDescriptor {
         section: "Audio",

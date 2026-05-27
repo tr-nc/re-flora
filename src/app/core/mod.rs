@@ -680,36 +680,11 @@ impl App {
         Ok(paths)
     }
 
-    fn linear_to_db(linear: f32) -> f32 {
-        const MIN_DB: f32 = -80.0;
-        const MAX_DB: f32 = 24.0;
-
-        let linear = linear.clamp(0.0, 1.0);
-        if linear <= 0.0 {
-            return MIN_DB;
-        }
-
-        let max_gain = 10.0_f32.powf(MAX_DB / 20.0);
-
-        let gain = if linear <= 0.5 {
-            let normalized = linear / 0.5;
-            // Give the lower half finer control so the slider feels closer to
-            // the "audio taper" used by game settings rather than a relabeled
-            // decibel control.
-            normalized.powi(3)
-        } else {
-            let normalized = (linear - 0.5) / 0.5;
-            1.0 + (max_gain - 1.0) * normalized.powi(2)
-        };
-
-        (20.0 * gain.log10()).clamp(MIN_DB, MAX_DB)
-    }
-
-    fn master_volume_gain_db(master_volume_linear: f32, mute_audio_output: bool) -> f32 {
+    fn master_volume_gain_db(master_volume_db: f32, mute_audio_output: bool) -> f32 {
         if mute_audio_output {
             HIDDEN_AUDIO_OUTPUT_GAIN_DB
         } else {
-            Self::linear_to_db(master_volume_linear)
+            master_volume_db.clamp(-20.0, 20.0)
         }
     }
 
@@ -2080,9 +2055,9 @@ impl App {
                                     ui.add(
                                         egui::Slider::new(
                                             &mut self.gui_adjustables.master_volume.value,
-                                            0.0..=1.0,
+                                            self.gui_adjustables.master_volume.range.clone(),
                                         )
-                                        .text("Master Volume"),
+                                        .text("Master Volume (dB)"),
                                     );
                                     ui.add(
                                         egui::Slider::new(
@@ -2817,12 +2792,14 @@ mod tests {
 
     #[test]
     fn hidden_mode_forces_effective_master_volume_to_zero() {
-        let hidden_gain_db = App::master_volume_gain_db(1.0, true);
-        let normal_zero_gain_db = App::master_volume_gain_db(0.0, false);
-        let normal_full_gain_db = App::master_volume_gain_db(1.0, false);
+        let hidden_gain_db = App::master_volume_gain_db(0.0, true);
+        let normal_min_gain_db = App::master_volume_gain_db(-20.0, false);
+        let normal_default_gain_db = App::master_volume_gain_db(0.0, false);
+        let normal_max_gain_db = App::master_volume_gain_db(20.0, false);
 
         assert_eq!(hidden_gain_db, super::HIDDEN_AUDIO_OUTPUT_GAIN_DB);
-        assert!(hidden_gain_db <= normal_zero_gain_db);
-        assert!(hidden_gain_db < normal_full_gain_db);
+        assert_eq!(normal_default_gain_db, 0.0);
+        assert!(hidden_gain_db <= normal_min_gain_db);
+        assert!(normal_default_gain_db < normal_max_gain_db);
     }
 }
