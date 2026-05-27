@@ -6,7 +6,6 @@ pub struct WindSource {
     pub direction_degrees: f32,
     pub speed: f32,
     pub pattern_scale: f32,
-    pub pattern_frequency: f32,
     pub octaves: u32,
     pub lacunarity: f32,
     pub gain: f32,
@@ -18,7 +17,6 @@ impl WindSource {
         direction_degrees: f32,
         speed: f32,
         pattern_scale: f32,
-        pattern_frequency: f32,
         octaves: u32,
         lacunarity: f32,
         gain: f32,
@@ -27,7 +25,6 @@ impl WindSource {
             direction_degrees,
             speed,
             pattern_scale,
-            pattern_frequency,
             octaves,
             lacunarity,
             gain,
@@ -37,7 +34,7 @@ impl WindSource {
 
 impl Default for WindSource {
     fn default() -> Self {
-        Self::new(0.0, 0.0, 1.0, 1.0, 3, 2.0, 1.0)
+        Self::new(0.0, 0.0, 1.0, 3, 2.0, 1.0)
     }
 }
 
@@ -146,7 +143,7 @@ impl Wind {
         time: f32,
         response_curve: WindResponseCurve,
     ) -> f32 {
-        let default_source = WindSource::new(0.0, 1.0, 1.0, 1.0, 3, 2.0, 1.0);
+        let default_source = WindSource::new(0.0, 1.0, 1.0, 3, 2.0, 1.0);
         self.sample_response_from_sources(world_pos, time, &[default_source], response_curve)
     }
 
@@ -160,7 +157,7 @@ impl Wind {
         let offset = wind_source_offset(source_index);
         let noise = wind_noise_state(wind_source_seed(source_index));
         let pattern_scale = source.pattern_scale.max(0.05);
-        let mut frequency = WIND_FBM_FREQUENCY * source.pattern_frequency.max(0.05);
+        let mut frequency = WIND_FBM_FREQUENCY;
         let lacunarity = source.lacunarity.max(1.0);
         let gain = source.gain.max(0.0);
         let octaves = source.octaves.clamp(1, 8);

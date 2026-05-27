@@ -85,9 +85,9 @@ impl From<WindSource> for WindSourceGpu {
             params: [source.direction_degrees, source.speed, source.gain, 0.0],
             noise: [
                 source.pattern_scale,
-                source.pattern_frequency,
                 source.octaves as f32,
                 source.lacunarity,
+                0.0,
             ],
         }
     }

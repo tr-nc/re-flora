@@ -166,17 +166,6 @@ min = 0.05
 max = 8
 
 [[section.param]]
-id = "wind_source_0_pattern_frequency"
-kind = "float"
-label = "Wind Source 1 Pattern Frequency"
-type = "Float"
-
-[section.param.data]
-value = 1
-min = 0.05
-max = 8
-
-[[section.param]]
 id = "wind_source_0_octaves"
 kind = "uint"
 label = "Wind Source 1 Octaves"
@@ -257,17 +246,6 @@ type = "Float"
 
 [section.param.data]
 value = 2.7
-min = 0.05
-max = 8
-
-[[section.param]]
-id = "wind_source_1_pattern_frequency"
-kind = "float"
-label = "Wind Source 2 Pattern Frequency"
-type = "Float"
-
-[section.param.data]
-value = 1.35
 min = 0.05
 max = 8
 
@@ -356,17 +334,6 @@ min = 0.05
 max = 8
 
 [[section.param]]
-id = "wind_source_2_pattern_frequency"
-kind = "float"
-label = "Wind Source 3 Pattern Frequency"
-type = "Float"
-
-[section.param.data]
-value = 1
-min = 0.05
-max = 8
-
-[[section.param]]
 id = "wind_source_2_octaves"
 kind = "uint"
 label = "Wind Source 3 Octaves"
@@ -443,17 +410,6 @@ max = 4
 id = "wind_source_3_pattern_scale"
 kind = "float"
 label = "Wind Source 4 Pattern Scale"
-type = "Float"
-
-[section.param.data]
-value = 1
-min = 0.05
-max = 8
-
-[[section.param]]
-id = "wind_source_3_pattern_frequency"
-kind = "float"
-label = "Wind Source 4 Pattern Frequency"
 type = "Float"
 
 [section.param.data]

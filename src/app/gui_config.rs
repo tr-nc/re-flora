@@ -358,16 +358,6 @@ fn wind_source_params(
             },
         });
         params.push(GuiParam {
-            id: format!("{prefix}_pattern_frequency"),
-            kind: GuiParamKind::Float,
-            label: format!("Wind Source {} Pattern Frequency", index + 1),
-            value: GuiParamValue::Float {
-                value: values.source.pattern_frequency,
-                min: Some(0.05),
-                max: Some(8.0),
-            },
-        });
-        params.push(GuiParam {
             id: format!("{prefix}_octaves"),
             kind: GuiParamKind::Uint,
             label: format!("Wind Source {} Octaves", index + 1),
@@ -435,9 +425,6 @@ pub fn wind_sources_from_config(config: &GuiConfigFile) -> Vec<WindSourceGuiValu
             ("speed", GuiParamValue::Float { value, .. }) => values.source.speed = *value,
             ("pattern_scale", GuiParamValue::Float { value, .. }) => {
                 values.source.pattern_scale = *value
-            }
-            ("pattern_frequency", GuiParamValue::Float { value, .. }) => {
-                values.source.pattern_frequency = *value
             }
             ("octaves", GuiParamValue::Uint { value, .. }) => values.source.octaves = *value,
             ("lacunarity", GuiParamValue::Float { value, .. }) => values.source.lacunarity = *value,
@@ -532,10 +519,6 @@ fn render_wind_sources_gui(
             ui.add(
                 egui::Slider::new(&mut values.source.pattern_scale, 0.05..=8.0)
                     .text("Pattern Scale"),
-            );
-            ui.add(
-                egui::Slider::new(&mut values.source.pattern_frequency, 0.05..=8.0)
-                    .text("Pattern Frequency"),
             );
             ui.add(egui::Slider::new(&mut values.source.octaves, 1..=8).text("Octaves"));
             ui.add(egui::Slider::new(&mut values.source.lacunarity, 1.0..=4.0).text("Lacunarity"));
