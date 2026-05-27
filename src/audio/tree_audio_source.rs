@@ -43,7 +43,7 @@ impl TreeAudioSource {
     }
 
     /// Keep the GUI response curve setter wired for now, but the debug audio path below
-    /// intentionally bypasses gust/noise sampling and uses only linear wind strength.
+    /// intentionally bypasses the response curve and uses linear sampled wind strength.
     pub fn set_wind_response_curve(&mut self, wind_response_curve: WindResponseCurve) {
         self.wind_response_curve = wind_response_curve;
     }
@@ -75,21 +75,19 @@ impl TreeAudioSource {
 
     pub fn update(
         &mut self,
-        _wind: &Wind,
-        _time_seconds: f32,
+        wind: &Wind,
+        time_seconds: f32,
         wind_sources: &[WindSource],
         spatial_sound_manager: &SpatialSoundManager,
     ) -> Result<()> {
-        let normalized = Self::linear_wind_strength_response(wind_sources);
+        let normalized = Self::linear_sampled_wind_response(
+            wind.sample_sources(self.position, time_seconds, wind_sources).length(),
+        );
         self.apply_response_volume(normalized, spatial_sound_manager)
     }
 
-    fn linear_wind_strength_response(wind_sources: &[WindSource]) -> f32 {
-        let total_strength = wind_sources
-            .iter()
-            .map(|source| source.strength.max(0.0))
-            .sum::<f32>();
-        (total_strength / TREE_AUDIO_FULL_WIND_STRENGTH).clamp(0.0, 1.0)
+    fn linear_sampled_wind_response(sampled_strength: f32) -> f32 {
+        (sampled_strength.max(0.0) / TREE_AUDIO_FULL_WIND_STRENGTH).clamp(0.0, 1.0)
     }
 
     fn apply_response_volume(
