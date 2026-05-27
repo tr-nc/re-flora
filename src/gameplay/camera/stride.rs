@@ -7,13 +7,17 @@ pub struct StrideSample {
     pub just_step: bool,
 }
 
+const RESTING_PHASE: f32 = 0.85;
+
 impl StrideCycle {
     pub fn new() -> Self {
-        Self { phase: 0.0 }
+        Self {
+            phase: RESTING_PHASE,
+        }
     }
 
     pub fn reset(&mut self) {
-        self.phase = 0.0;
+        self.phase = RESTING_PHASE;
     }
 
     pub fn restart_after_step(&mut self) {
@@ -29,9 +33,9 @@ impl StrideCycle {
         run_interval: f32,
     ) -> StrideSample {
         if !is_active {
-            self.phase = 0.0;
+            self.phase = RESTING_PHASE;
             return StrideSample {
-                phase: 0.0,
+                phase: RESTING_PHASE,
                 just_step: false,
             };
         }
