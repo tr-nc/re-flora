@@ -3,7 +3,7 @@ use crate::util::{cluster_positions, ClusterResult};
 use crate::wind::{Wind, WindResponseCurve, WindSource};
 use anyhow::Result;
 use glam::Vec3;
-use log::{debug, info, warn};
+use log::{debug, warn};
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -242,23 +242,6 @@ impl TreeAudioManager {
                 wind_audio_release_decay,
                 &self.spatial_sound_manager,
             )?;
-            info!(
-                "[AUDIO][TREE_WIND_FRAME] time={:.3} tree_id={} source={} pos=({:.2},{:.2},{:.2}) cluster_size={} target_response={:.4} response={:.4} volume_db={:.2} wind_volume_db={:.2} wind_audio_attack_decay={:.2} wind_audio_release_decay={:.2} wind_sources={}",
-                time_seconds,
-                source.tree_id,
-                source.uuid,
-                source.position.x,
-                source.position.y,
-                source.position.z,
-                source.cluster_size,
-                source.target_response(),
-                source.current_response(),
-                source.current_volume_db(),
-                source.wind_volume_db(),
-                wind_audio_attack_decay,
-                wind_audio_release_decay,
-                wind_sources.len(),
-            );
         }
         Ok(())
     }
