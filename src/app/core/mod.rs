@@ -709,15 +709,9 @@ impl App {
         }
     }
 
-    fn wind_gui_params(
-        wind_sources: &[WindSourceGuiValues],
-        speed_to_strength_multiplier: f32,
-    ) -> WindGuiParams {
+    fn wind_gui_params(wind_sources: &[WindSourceGuiValues]) -> WindGuiParams {
         WindGuiParams {
-            sources: GuiAdjustables::active_wind_sources(
-                wind_sources,
-                speed_to_strength_multiplier,
-            ),
+            sources: GuiAdjustables::active_wind_sources(wind_sources),
         }
     }
 
@@ -1864,10 +1858,7 @@ impl App {
                 if world_tick_steps > 0 {
                     self.update_growing_flora_chunk();
                 }
-                let active_wind_sources = GuiAdjustables::active_wind_sources(
-                    &self.wind_sources,
-                    self.gui_adjustables.wind_speed_to_strength_multiplier.value,
-                );
+                let active_wind_sources = GuiAdjustables::active_wind_sources(&self.wind_sources);
                 if let Err(err) = self.tree_audio_manager.update(
                     time_since_start,
                     &active_wind_sources,
@@ -2399,10 +2390,7 @@ impl App {
                     self.gui_adjustables.season.value,
                 );
                 let update_shadow_map = self.render_flags.enable_shadows;
-                let wind_gui_params = Self::wind_gui_params(
-                    &self.wind_sources,
-                    self.gui_adjustables.wind_speed_to_strength_multiplier.value,
-                );
+                let wind_gui_params = Self::wind_gui_params(&self.wind_sources);
 
                 self.tracer
                     .update_buffers(
