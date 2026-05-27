@@ -7,7 +7,7 @@ use log::{debug, warn};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-const TREE_LOOP_PATH: &str = "assets/sfx/tree_sound_48k.wav";
+const TREE_LOOP_PATH: &str = "assets/sfx/tree_sound_48k_pregain_40db.wav";
 const TREE_SILENT_VOLUME_DB: f32 = -80.0;
 
 /// Keeps track of all looping tree ambience sources so we can later
@@ -226,12 +226,20 @@ impl TreeAudioManager {
         }
     }
 
-    pub fn update(&mut self, time_seconds: f32, wind_sources: &[WindSource]) -> Result<()> {
+    pub fn update(
+        &mut self,
+        time_seconds: f32,
+        wind_sources: &[WindSource],
+        wind_audio_attack_decay: f32,
+        wind_audio_release_decay: f32,
+    ) -> Result<()> {
         for source in self.sources.values_mut() {
             source.update(
                 &self.wind,
                 time_seconds,
                 wind_sources,
+                wind_audio_attack_decay,
+                wind_audio_release_decay,
                 &self.spatial_sound_manager,
             )?;
         }

@@ -25,7 +25,7 @@ use crate::app::world_edits::{
     BuildEdit, TreeAddOptions, TreePlacement, VoxelEdit, WorldBuildBackend, WorldEditPlan,
 };
 use crate::app::world_ops;
-use crate::app::GuiAdjustables;
+use crate::app::{GuiAdjustables, WindSourceGuiValues};
 use crate::audio::{SpatialSoundManager, TreeAudioManager};
 use crate::builder::{
     ContreeBuildJob, ContreeBuilder, PlainBuilder, SceneAccelBuilder, SceneTexUpdateJob,
@@ -43,7 +43,7 @@ use crate::tree_gen::TreeDesc;
 use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
 use crate::util::{GrowingFloraChunk, GrowingFloraQueue, LatestChunkQueue, ShaderCompiler, BENCH};
-use crate::wind::{WindResponseCurve, WindSource, MAX_WIND_SOURCES};
+use crate::wind::WindResponseCurve;
 use crate::RenderFlags;
 use crate::{egui_renderer::EguiRenderer, window::WindowState, WaterProfilePreference};
 use anyhow::{Context, Result};
@@ -162,6 +162,7 @@ pub struct App {
     // gui config and adjustables
     gui_config: GuiConfigFile,
     gui_adjustables: GuiAdjustables,
+    wind_sources: Vec<WindSourceGuiValues>,
     debug_tree_pos: Vec3,
     config_panel_visible: bool,
     settings_panel_visible: bool,
@@ -680,36 +681,11 @@ impl App {
         Ok(paths)
     }
 
-    fn linear_to_db(linear: f32) -> f32 {
-        const MIN_DB: f32 = -80.0;
-        const MAX_DB: f32 = 24.0;
-
-        let linear = linear.clamp(0.0, 1.0);
-        if linear <= 0.0 {
-            return MIN_DB;
-        }
-
-        let max_gain = 10.0_f32.powf(MAX_DB / 20.0);
-
-        let gain = if linear <= 0.5 {
-            let normalized = linear / 0.5;
-            // Give the lower half finer control so the slider feels closer to
-            // the "audio taper" used by game settings rather than a relabeled
-            // decibel control.
-            normalized.powi(3)
-        } else {
-            let normalized = (linear - 0.5) / 0.5;
-            1.0 + (max_gain - 1.0) * normalized.powi(2)
-        };
-
-        (20.0 * gain.log10()).clamp(MIN_DB, MAX_DB)
-    }
-
-    fn master_volume_gain_db(master_volume_linear: f32, mute_audio_output: bool) -> f32 {
+    fn master_volume_gain_db(master_volume_db: f32, mute_audio_output: bool) -> f32 {
         if mute_audio_output {
             HIDDEN_AUDIO_OUTPUT_GAIN_DB
         } else {
-            Self::linear_to_db(master_volume_linear)
+            master_volume_db.clamp(-20.0, 20.0)
         }
     }
 
@@ -733,21 +709,9 @@ impl App {
         }
     }
 
-    fn wind_gui_params(gui_adjustables: &GuiAdjustables) -> WindGuiParams {
-        let active_sources = gui_adjustables.active_wind_sources();
-        let source_count = active_sources.len().min(MAX_WIND_SOURCES) as u32;
-        let mut sources = [WindSource::default(); MAX_WIND_SOURCES];
-        for (index, source) in active_sources
-            .into_iter()
-            .take(MAX_WIND_SOURCES)
-            .enumerate()
-        {
-            sources[index] = source;
-        }
-
+    fn wind_gui_params(wind_sources: &[WindSourceGuiValues]) -> WindGuiParams {
         WindGuiParams {
-            sources,
-            source_count,
+            sources: GuiAdjustables::active_wind_sources(wind_sources),
         }
     }
 
@@ -861,6 +825,7 @@ impl App {
         let debug_tree_pos = Vec3::new(2.0, 0.2, 2.0);
         let gui_config = GuiConfigLoader::load();
         let mut gui_adjustables = GuiAdjustables::from_config(&gui_config);
+        let wind_sources = crate::app::wind_sources_from_config(&gui_config);
 
         let color_to_vec4 = |color: Color32| -> Vec4 {
             Vec4::new(
@@ -1023,6 +988,7 @@ impl App {
 
             gui_config,
             gui_adjustables,
+            wind_sources,
             debug_tree_pos,
             debug_tree_desc: TreeDesc::default(),
             tree_variation_config: TreeVariationConfig::default(),
@@ -1892,11 +1858,13 @@ impl App {
                 if world_tick_steps > 0 {
                     self.update_growing_flora_chunk();
                 }
-                let active_wind_sources = self.gui_adjustables.active_wind_sources();
-                if let Err(err) = self
-                    .tree_audio_manager
-                    .update(time_since_start, &active_wind_sources)
-                {
+                let active_wind_sources = GuiAdjustables::active_wind_sources(&self.wind_sources);
+                if let Err(err) = self.tree_audio_manager.update(
+                    time_since_start,
+                    &active_wind_sources,
+                    self.gui_adjustables.wind_audio_attack_decay.value,
+                    self.gui_adjustables.wind_audio_release_decay.value,
+                ) {
                     log::warn!("Failed to update tree audio sources: {}", err);
                 }
                 if let Err(err) = self.spatial_sound_manager.pump_audio() {
@@ -1987,7 +1955,11 @@ impl App {
                                                     .add(egui::Button::new("Save").small())
                                                     .clicked()
                                                 {
-                                                    match self.gui_adjustables.save_to_config() {
+                                                    match self
+                                                        .gui_adjustables
+                                                        .save_to_config_with_wind_sources(
+                                                            &self.wind_sources,
+                                                        ) {
                                                         Ok(_) => {
                                                             log::info!("Config saved successfully");
                                                         }
@@ -2014,6 +1986,7 @@ impl App {
                                                 ui,
                                                 &self.gui_config,
                                                 &mut self.gui_adjustables,
+                                                &mut self.wind_sources,
                                             );
 
                                             ui.add_space(8.0);
@@ -2079,9 +2052,16 @@ impl App {
                                     ui.add(
                                         egui::Slider::new(
                                             &mut self.gui_adjustables.master_volume.value,
-                                            0.0..=1.0,
+                                            self.gui_adjustables.master_volume.range.clone(),
                                         )
-                                        .text("Master Volume"),
+                                        .text("Master Volume (dB)"),
+                                    );
+                                    ui.add(
+                                        egui::Slider::new(
+                                            &mut self.gui_adjustables.footstep_volume_db.value,
+                                            self.gui_adjustables.footstep_volume_db.range.clone(),
+                                        )
+                                        .text("Footstep Volume (dB)"),
                                     );
                                     ui.add(
                                         egui::Slider::new(
@@ -2115,6 +2095,29 @@ impl App {
                                             self.gui_adjustables.tree_wind_volume_db.range.clone(),
                                         )
                                         .text("Tree Wind Volume (dB)"),
+                                    );
+                                    ui.add(
+                                        egui::Slider::new(
+                                            &mut self.gui_adjustables.wind_audio_attack_decay.value,
+                                            self.gui_adjustables
+                                                .wind_audio_attack_decay
+                                                .range
+                                                .clone(),
+                                        )
+                                        .text("Wind Audio Attack Decay (0 slow, 1 fast)"),
+                                    );
+                                    ui.add(
+                                        egui::Slider::new(
+                                            &mut self
+                                                .gui_adjustables
+                                                .wind_audio_release_decay
+                                                .value,
+                                            self.gui_adjustables
+                                                .wind_audio_release_decay
+                                                .range
+                                                .clone(),
+                                        )
+                                        .text("Wind Audio Release Decay (0 slow, 1 fast)"),
                                     );
                                     ui.checkbox(
                                         &mut self.gui_adjustables.audio_ray_tracing_enabled.value,
@@ -2394,7 +2397,7 @@ impl App {
                     self.gui_adjustables.season.value,
                 );
                 let update_shadow_map = self.render_flags.enable_shadows;
-                let wind_gui_params = Self::wind_gui_params(&self.gui_adjustables);
+                let wind_gui_params = Self::wind_gui_params(&self.wind_sources);
 
                 self.tracer
                     .update_buffers(
@@ -2674,6 +2677,9 @@ impl App {
                 } else {
                     Some(self.query_player_collision_cpu())
                 };
+                self.tracer.set_footstep_volume_gain(
+                    -40.0 + self.gui_adjustables.footstep_volume_db.value,
+                );
                 self.tracer
                     .update_camera(frame_delta_time, self.is_fly_mode, player_collision);
 
@@ -2809,12 +2815,14 @@ mod tests {
 
     #[test]
     fn hidden_mode_forces_effective_master_volume_to_zero() {
-        let hidden_gain_db = App::master_volume_gain_db(1.0, true);
-        let normal_zero_gain_db = App::master_volume_gain_db(0.0, false);
-        let normal_full_gain_db = App::master_volume_gain_db(1.0, false);
+        let hidden_gain_db = App::master_volume_gain_db(0.0, true);
+        let normal_min_gain_db = App::master_volume_gain_db(-20.0, false);
+        let normal_default_gain_db = App::master_volume_gain_db(0.0, false);
+        let normal_max_gain_db = App::master_volume_gain_db(20.0, false);
 
         assert_eq!(hidden_gain_db, super::HIDDEN_AUDIO_OUTPUT_GAIN_DB);
-        assert!(hidden_gain_db <= normal_zero_gain_db);
-        assert!(hidden_gain_db < normal_full_gain_db);
+        assert_eq!(normal_default_gain_db, 0.0);
+        assert!(hidden_gain_db <= normal_min_gain_db);
+        assert!(normal_default_gain_db < normal_max_gain_db);
     }
 }

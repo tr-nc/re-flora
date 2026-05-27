@@ -46,7 +46,7 @@ use crate::geom::UAabb3;
 use crate::particles::{ParticleSnapshot, PARTICLE_CAPACITY};
 use crate::resource::ResourceContainer;
 use crate::util::{ShaderCompiler, TimeInfo};
-use crate::wind::{WindSource, MAX_WIND_SOURCES};
+use crate::wind::WindSource;
 use anyhow::Result;
 use re_flora_vkn::vk;
 use re_flora_vkn::{
@@ -67,10 +67,30 @@ struct WindVolumePushConstants {
     bucket_index: u32,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct WindGuiParams {
-    pub sources: [WindSource; MAX_WIND_SOURCES],
-    pub source_count: u32,
+    pub sources: Vec<WindSource>,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct WindSourceGpu {
+    pub params: [f32; 4],
+    pub noise: [f32; 4],
+}
+
+impl From<WindSource> for WindSourceGpu {
+    fn from(source: WindSource) -> Self {
+        Self {
+            params: [source.direction_degrees, source.speed, source.gain, 0.0],
+            noise: [
+                source.pattern_scale,
+                source.octaves as f32,
+                source.lacunarity,
+                source.persistence,
+            ],
+        }
+    }
 }
 
 #[repr(C)]
@@ -166,6 +186,7 @@ pub struct Tracer {
     world_tick_seconds: f32,
     last_wind_volume_step: Option<u32>,
     initialized_wind_volume_bucket_count: u32,
+    wind_source_buffer_capacity: usize,
     spatial_sound_manager: SpatialSoundManager,
     particle_instance_scratch: Vec<ParticleInstanceGpu>,
 }
@@ -294,6 +315,7 @@ impl Tracer {
             world_tick_seconds: crate::game_time::WORLD_TICK_SECONDS_DEFAULT,
             last_wind_volume_step: None,
             initialized_wind_volume_bucket_count: 0,
+            wind_source_buffer_capacity: 1,
             spatial_sound_manager,
             particle_instance_scratch: Vec::with_capacity(particle_capacity),
         })
@@ -460,6 +482,25 @@ impl Tracer {
         &self.resources.extent_dependent_resources.screen_output_tex
     }
 
+    fn ensure_wind_source_buffer_capacity(&mut self, source_count: usize) -> Result<()> {
+        let required_capacity = source_count.max(1);
+        if required_capacity <= self.wind_source_buffer_capacity {
+            return Ok(());
+        }
+
+        let new_capacity = required_capacity.next_power_of_two();
+        *self.resources.wind_sources = TracerResources::create_wind_sources_buffer(
+            self.vulkan_ctx.device().clone(),
+            self.allocator.clone(),
+            new_capacity,
+        );
+        self.wind_source_buffer_capacity = new_capacity;
+        self.compute_pipelines
+            .wind_volume_ppl
+            .auto_update_descriptor_sets(&[&self.resources])?;
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn update_buffers(
         &mut self,
@@ -577,6 +618,7 @@ impl Tracer {
             voxel_color_variance,
         )?;
 
+        self.ensure_wind_source_buffer_capacity(wind_gui_params.sources.len())?;
         BufferUpdater::update_gui_input(
             &self.resources,
             debug_float,
@@ -1833,6 +1875,10 @@ impl Tracer {
     #[allow(dead_code)]
     pub fn camera_vectors(&self) -> &CameraVectors {
         self.camera.vectors()
+    }
+
+    pub fn set_footstep_volume_gain(&mut self, volume_gain: f32) {
+        self.camera.set_footstep_volume_gain(volume_gain);
     }
 
     pub fn update_camera(

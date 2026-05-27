@@ -231,6 +231,7 @@ pub struct TracerResources {
     pub shadow_camera_info: Resource<Buffer>,
     pub flora_growth_info: Resource<Buffer>,
     pub wind_volume_info: Resource<Buffer>,
+    pub wind_sources: Resource<Buffer>,
     pub env_info: Resource<Buffer>,
     pub starlight_info: Resource<Buffer>,
     pub voxel_colors: Resource<Buffer>,
@@ -369,6 +370,7 @@ impl TracerResources {
             BufferUsage::empty(),
             MemoryLocation::CpuToGpu,
         );
+        let wind_sources = Self::create_wind_sources_buffer(device.clone(), allocator.clone(), 1);
         let chunk_extent = chunk_bound.get_extent();
         wind_volume_info
             .fill_uniform(&WindVolumeInfoGpu {
@@ -588,6 +590,7 @@ impl TracerResources {
             shadow_camera_info: Resource::new(shadow_camera_info),
             flora_growth_info: Resource::new(flora_growth_info),
             wind_volume_info: Resource::new(wind_volume_info),
+            wind_sources: Resource::new(wind_sources),
             env_info: Resource::new(env_info),
             starlight_info: Resource::new(starlight_info),
             voxel_colors: Resource::new(voxel_colors),
@@ -971,6 +974,22 @@ impl TracerResources {
             ..Default::default()
         };
         Texture::new(device, allocator, &tex_desc, &sam_desc)
+    }
+
+    pub fn create_wind_sources_buffer(
+        device: Device,
+        allocator: Allocator,
+        capacity: usize,
+    ) -> Buffer {
+        let byte_count =
+            (capacity.max(1) * std::mem::size_of::<crate::tracer::WindSourceGpu>()) as u64;
+        Buffer::new_sized(
+            device,
+            allocator,
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            MemoryLocation::CpuToGpu,
+            byte_count,
+        )
     }
 
     fn create_wind_volume_tex(
