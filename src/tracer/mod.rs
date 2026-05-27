@@ -77,25 +77,18 @@ pub struct WindGuiParams {
 pub struct WindSourceGpu {
     pub params: [f32; 4],
     pub noise: [f32; 4],
-    pub detail: [f32; 4],
 }
 
 impl From<WindSource> for WindSourceGpu {
     fn from(source: WindSource) -> Self {
         Self {
-            params: [
-                source.direction_degrees,
-                source.speed,
-                source.sharpness,
-                source.strength,
-            ],
+            params: [source.direction_degrees, source.speed, source.gain, 0.0],
             noise: [
-                source.coverage,
                 source.pattern_scale,
                 source.pattern_frequency,
                 source.octaves as f32,
+                source.lacunarity,
             ],
-            detail: [source.lacunarity, source.gain, 0.0, 0.0],
         }
     }
 }

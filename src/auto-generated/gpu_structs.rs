@@ -195,7 +195,6 @@ pub struct TreeLeafInstances {
 pub struct WindSources {
     pub params: [f32; 4],
     pub noise: [f32; 4],
-    pub detail: [f32; 4],
 }
 
 /// Auto-generated from `PushConstantChunkModifySample` (GLSL source of truth).

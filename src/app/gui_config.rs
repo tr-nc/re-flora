@@ -50,7 +50,7 @@ impl GuiAdjustables {
             .map(|values| {
                 let mut source = values.source;
                 if values.muted {
-                    source.strength = 0.0;
+                    source.gain = 0.0;
                 }
                 source
             })
@@ -348,36 +348,6 @@ fn wind_source_params(
             },
         });
         params.push(GuiParam {
-            id: format!("{prefix}_strength"),
-            kind: GuiParamKind::Float,
-            label: format!("Wind Source {} Strength", index + 1),
-            value: GuiParamValue::Float {
-                value: values.source.strength,
-                min: Some(0.0),
-                max: Some(8.0),
-            },
-        });
-        params.push(GuiParam {
-            id: format!("{prefix}_sharpness"),
-            kind: GuiParamKind::Float,
-            label: format!("Wind Source {} Sharpness", index + 1),
-            value: GuiParamValue::Float {
-                value: values.source.sharpness,
-                min: Some(0.0),
-                max: Some(1.0),
-            },
-        });
-        params.push(GuiParam {
-            id: format!("{prefix}_coverage"),
-            kind: GuiParamKind::Float,
-            label: format!("Wind Source {} Coverage", index + 1),
-            value: GuiParamValue::Float {
-                value: values.source.coverage,
-                min: Some(0.0),
-                max: Some(1.0),
-            },
-        });
-        params.push(GuiParam {
             id: format!("{prefix}_pattern_scale"),
             kind: GuiParamKind::Float,
             label: format!("Wind Source {} Pattern Scale", index + 1),
@@ -424,7 +394,7 @@ fn wind_source_params(
             value: GuiParamValue::Float {
                 value: values.source.gain,
                 min: Some(0.0),
-                max: Some(1.0),
+                max: Some(8.0),
             },
         });
     }
@@ -463,9 +433,6 @@ pub fn wind_sources_from_config(config: &GuiConfigFile) -> Vec<WindSourceGuiValu
                 values.source.direction_degrees = *value
             }
             ("speed", GuiParamValue::Float { value, .. }) => values.source.speed = *value,
-            ("strength", GuiParamValue::Float { value, .. }) => values.source.strength = *value,
-            ("sharpness", GuiParamValue::Float { value, .. }) => values.source.sharpness = *value,
-            ("coverage", GuiParamValue::Float { value, .. }) => values.source.coverage = *value,
             ("pattern_scale", GuiParamValue::Float { value, .. }) => {
                 values.source.pattern_scale = *value
             }
@@ -562,9 +529,6 @@ fn render_wind_sources_gui(
                     .text("Direction (deg)"),
             );
             ui.add(egui::Slider::new(&mut values.source.speed, 0.0..=4.0).text("Speed"));
-            ui.add(egui::Slider::new(&mut values.source.strength, 0.0..=8.0).text("Strength"));
-            ui.add(egui::Slider::new(&mut values.source.sharpness, 0.0..=1.0).text("Sharpness"));
-            ui.add(egui::Slider::new(&mut values.source.coverage, 0.0..=1.0).text("Coverage"));
             ui.add(
                 egui::Slider::new(&mut values.source.pattern_scale, 0.05..=8.0)
                     .text("Pattern Scale"),
@@ -575,7 +539,7 @@ fn render_wind_sources_gui(
             );
             ui.add(egui::Slider::new(&mut values.source.octaves, 1..=8).text("Octaves"));
             ui.add(egui::Slider::new(&mut values.source.lacunarity, 1.0..=4.0).text("Lacunarity"));
-            ui.add(egui::Slider::new(&mut values.source.gain, 0.0..=1.0).text("Gain"));
+            ui.add(egui::Slider::new(&mut values.source.gain, 0.0..=8.0).text("Gain"));
         });
     }
 
