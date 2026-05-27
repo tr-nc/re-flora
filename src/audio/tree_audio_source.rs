@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 const TREE_SILENT_VOLUME_DB: f32 = -80.0;
 const VOLUME_EPSILON: f32 = 0.01;
+const TREE_AUDIO_FULL_WIND_STRENGTH: f32 = 8.0;
 
 /// Represents a single looping tree ambience source that can react to wind.
 #[allow(dead_code)]
@@ -41,9 +42,8 @@ impl TreeAudioSource {
         }
     }
 
-    /// Sample the wind at the source position and update the playing source volume.
-    ///
-    /// We only care about the magnitude of the planar wind vector for audio intensity.
+    /// Keep the GUI response curve setter wired for now, but the debug audio path below
+    /// intentionally bypasses gust/noise sampling and uses only linear wind strength.
     pub fn set_wind_response_curve(&mut self, wind_response_curve: WindResponseCurve) {
         self.wind_response_curve = wind_response_curve;
     }
@@ -75,18 +75,21 @@ impl TreeAudioSource {
 
     pub fn update(
         &mut self,
-        wind: &Wind,
-        time_seconds: f32,
+        _wind: &Wind,
+        _time_seconds: f32,
         wind_sources: &[WindSource],
         spatial_sound_manager: &SpatialSoundManager,
     ) -> Result<()> {
-        let normalized = wind.sample_response_from_sources(
-            self.position,
-            time_seconds,
-            wind_sources,
-            self.wind_response_curve,
-        );
+        let normalized = Self::linear_wind_strength_response(wind_sources);
         self.apply_response_volume(normalized, spatial_sound_manager)
+    }
+
+    fn linear_wind_strength_response(wind_sources: &[WindSource]) -> f32 {
+        let total_strength = wind_sources
+            .iter()
+            .map(|source| source.strength.max(0.0))
+            .sum::<f32>();
+        (total_strength / TREE_AUDIO_FULL_WIND_STRENGTH).clamp(0.0, 1.0)
     }
 
     fn apply_response_volume(
