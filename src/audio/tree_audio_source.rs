@@ -7,6 +7,7 @@ use uuid::Uuid;
 const TREE_SILENT_VOLUME_DB: f32 = -80.0;
 const VOLUME_EPSILON: f32 = 0.01;
 const TREE_AUDIO_FULL_WIND_STRENGTH: f32 = 8.0;
+const TREE_AUDIO_RESPONSE_FLOOR: f32 = 0.02;
 
 /// Represents a single looping tree ambience source that can react to wind.
 #[allow(dead_code)]
@@ -82,12 +83,21 @@ impl TreeAudioSource {
     ) -> Result<()> {
         let normalized = Self::linear_sampled_wind_response(
             wind.sample_sources(self.position, time_seconds, wind_sources).length(),
+            wind_sources,
         );
         self.apply_response_volume(normalized, spatial_sound_manager)
     }
 
-    fn linear_sampled_wind_response(sampled_strength: f32) -> f32 {
-        (sampled_strength.max(0.0) / TREE_AUDIO_FULL_WIND_STRENGTH).clamp(0.0, 1.0)
+    fn linear_sampled_wind_response(sampled_strength: f32, wind_sources: &[WindSource]) -> f32 {
+        let has_active_wind = wind_sources
+            .iter()
+            .any(|source| source.strength.max(0.0) > f32::EPSILON);
+        if !has_active_wind {
+            return 0.0;
+        }
+
+        let linear = (sampled_strength.max(0.0) / TREE_AUDIO_FULL_WIND_STRENGTH).clamp(0.0, 1.0);
+        TREE_AUDIO_RESPONSE_FLOOR + linear * (1.0 - TREE_AUDIO_RESPONSE_FLOOR)
     }
 
     fn apply_response_volume(
