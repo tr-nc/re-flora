@@ -76,6 +76,10 @@ use winit::{
 };
 
 const LEAF_CLUSTER_DISTANCE: f32 = 0.08;
+// Debug/tuning mode: keep tree wind ambience to one looping source per tree.
+// The clustered leaf emitters produced many independently modulated wind sources,
+// which makes the gust response sound like per-frame noise while tuning.
+const TREE_AUDIO_PER_TREE_ONLY: bool = true;
 // Hidden runs should exercise audio setup, source updates, ray tracing, and pump paths
 // without producing audible output for the user.
 const HIDDEN_AUDIO_OUTPUT_GAIN_DB: f32 = -120.0;

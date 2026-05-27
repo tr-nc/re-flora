@@ -1100,7 +1100,7 @@ impl App {
             tree_id,
             tree_pos,
             &leaf_clusters,
-            false,
+            super::TREE_AUDIO_PER_TREE_ONLY,
             true,
         )?;
         let audio_elapsed = audio_start.elapsed();
