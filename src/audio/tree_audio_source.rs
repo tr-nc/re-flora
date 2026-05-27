@@ -99,7 +99,11 @@ impl TreeAudioSource {
         let target_volume_db = if response <= f32::EPSILON {
             TREE_SILENT_VOLUME_DB
         } else {
-            TREE_SILENT_VOLUME_DB + (self.wind_volume_db - TREE_SILENT_VOLUME_DB) * response
+            // `SourceConfig` takes dB, but for tuning we want the sampled wind
+            // response to scale perceived source amplitude linearly. Convert the
+            // linear response into a dB offset instead of linearly interpolating
+            // dB from silence, which made normal wind responses nearly inaudible.
+            self.wind_volume_db + 20.0 * response.log10()
         };
 
         self.current_response = response;
