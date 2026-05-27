@@ -130,7 +130,7 @@ label = "Wind Source 1 Active"
 type = "Bool"
 
 [section.param.data]
-value = false
+value = true
 
 [[section.param]]
 id = "wind_source_0_direction_deg"
@@ -245,7 +245,7 @@ label = "Wind Source 2 Pattern Scale"
 type = "Float"
 
 [section.param.data]
-value = 2.7
+value = 5
 min = 0.05
 max = 8
 
@@ -278,7 +278,7 @@ label = "Wind Source 2 Gain"
 type = "Float"
 
 [section.param.data]
-value = 1
+value = 6.5
 min = 0
 max = 8
 
@@ -463,7 +463,6 @@ type = "Float"
 value = 1
 min = -20
 max = 20
-
 
 [[section.param]]
 id = "footstep_volume_db"
