@@ -92,7 +92,6 @@ value = 2
 min = 0
 max = 4
 
-
 [[section.param]]
 id = "wind_speed_to_strength_multiplier"
 kind = "float"
@@ -103,6 +102,7 @@ type = "Float"
 value = 1
 min = 0
 max = 8
+
 [[section.param]]
 id = "wind_audio_attack_decay"
 kind = "float"
@@ -110,7 +110,7 @@ label = "Wind Audio Attack Decay (0 slow, 1 fast)"
 type = "Float"
 
 [section.param.data]
-value = 0.11
+value = 0.8
 min = 0
 max = 1
 
@@ -137,11 +137,11 @@ value = "Gentle Wind"
 [[section.param]]
 id = "wind_source_0_muted"
 kind = "bool"
-label = "Wind Source 1 Muted"
+label = "Wind Source 1 Active"
 type = "Bool"
 
 [section.param.data]
-value = false
+value = true
 
 [[section.param]]
 id = "wind_source_0_direction_deg"
@@ -161,7 +161,7 @@ label = "Wind Source 1 Speed"
 type = "Float"
 
 [section.param.data]
-value = 0.7
+value = 1
 min = 0
 max = 4
 
@@ -183,7 +183,7 @@ label = "Wind Source 1 Coverage"
 type = "Float"
 
 [section.param.data]
-value = 0.6
+value = 0.5
 min = 0
 max = 1
 
@@ -194,7 +194,7 @@ label = "Wind Source 1 Pattern Scale"
 type = "Float"
 
 [section.param.data]
-value = 1
+value = 2.5
 min = 0.05
 max = 8
 
@@ -216,7 +216,7 @@ label = "Wind Source 1 Octaves"
 type = "Uint"
 
 [section.param.data]
-value = 3
+value = 2
 min = 1
 max = 8
 
@@ -254,11 +254,11 @@ value = "Strong Wind"
 [[section.param]]
 id = "wind_source_1_muted"
 kind = "bool"
-label = "Wind Source 2 Muted"
+label = "Wind Source 2 Active"
 type = "Bool"
 
 [section.param.data]
-value = false
+value = true
 
 [[section.param]]
 id = "wind_source_1_direction_deg"
@@ -278,7 +278,7 @@ label = "Wind Source 2 Speed"
 type = "Float"
 
 [section.param.data]
-value = 0.25
+value = 1
 min = 0
 max = 4
 
@@ -366,12 +366,12 @@ label = "Wind Source 3 Name"
 type = "String"
 
 [section.param.data]
-value = "Wind Source 3"
+value = "Wind Source"
 
 [[section.param]]
 id = "wind_source_2_muted"
 kind = "bool"
-label = "Wind Source 3 Muted"
+label = "Wind Source 3 Active"
 type = "Bool"
 
 [section.param.data]
@@ -384,7 +384,7 @@ label = "Wind Source 3 Direction"
 type = "Float"
 
 [section.param.data]
-value = 76.7
+value = 0
 min = 0
 max = 360
 
@@ -395,7 +395,7 @@ label = "Wind Source 3 Speed"
 type = "Float"
 
 [section.param.data]
-value = 1.18
+value = 0
 min = 0
 max = 4
 
@@ -483,12 +483,12 @@ label = "Wind Source 4 Name"
 type = "String"
 
 [section.param.data]
-value = "Wind Source 4"
+value = "Wind Source"
 
 [[section.param]]
 id = "wind_source_3_muted"
 kind = "bool"
-label = "Wind Source 4 Muted"
+label = "Wind Source 4 Active"
 type = "Bool"
 
 [section.param.data]
@@ -501,7 +501,7 @@ label = "Wind Source 4 Direction"
 type = "Float"
 
 [section.param.data]
-value = 191
+value = 0
 min = 0
 max = 360
 
@@ -512,7 +512,7 @@ label = "Wind Source 4 Speed"
 type = "Float"
 
 [section.param.data]
-value = 1.43
+value = 0
 min = 0
 max = 4
 
@@ -603,7 +603,7 @@ label = "Master Volume (dB)"
 type = "Float"
 
 [section.param.data]
-value = 0
+value = 20
 min = -20
 max = 20
 
@@ -636,7 +636,7 @@ label = "Tree Wind Volume (dB)"
 type = "Float"
 
 [section.param.data]
-value = 0
+value = -35
 min = -40
 max = 20
 
