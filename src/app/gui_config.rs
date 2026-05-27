@@ -564,11 +564,6 @@ fn render_wind_sources_gui(
             );
             ui.add(egui::Slider::new(&mut values.source.speed, 0.0..=4.0).text("Speed"));
             ui.add(egui::Slider::new(&mut values.source.sharpness, 0.0..=1.0).text("Sharpness"));
-            ui.label(format!(
-                "Strength: {:.2}",
-                values.source.speed.max(0.0)
-                    * adjustables.wind_speed_to_strength_multiplier.value.max(0.0)
-            ));
             ui.add(egui::Slider::new(&mut values.source.coverage, 0.0..=1.0).text("Coverage"));
             ui.add(
                 egui::Slider::new(&mut values.source.pattern_scale, 0.05..=8.0)
