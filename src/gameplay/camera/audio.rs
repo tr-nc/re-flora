@@ -3,6 +3,8 @@ use anyhow::Result;
 use glam::Vec3;
 use rand::RngExt;
 
+const FOOTSTEP_READ_GAIN_DB: f32 = 20.0;
+
 pub struct PlayerClipCaches {
     // Store file paths for spatial audio
     pub walk_paths: Vec<String>,
@@ -76,7 +78,7 @@ impl PlayerAudioController {
 
     fn play_footstep(&self, clip_path: &str, volume: f32) -> Result<()> {
         self.spatial_sound_manager
-            .add_non_spatial_source(clip_path, volume + self.volume_gain)?;
+            .add_non_spatial_source(clip_path, volume + self.volume_gain + FOOTSTEP_READ_GAIN_DB)?;
         Ok(())
     }
 

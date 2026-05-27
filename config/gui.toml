@@ -636,7 +636,7 @@ label = "Master Volume (dB)"
 type = "Float"
 
 [section.param.data]
-value = 20
+value = 0
 min = -20
 max = 20
 
@@ -669,7 +669,7 @@ label = "Tree Wind Volume (dB)"
 type = "Float"
 
 [section.param.data]
-value = -35
+value = -15
 min = -40
 max = 20
 
