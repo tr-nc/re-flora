@@ -88,14 +88,20 @@ impl TreeAudioSource {
         wind: &Wind,
         time_seconds: f32,
         wind_sources: &[WindSource],
-        wind_audio_decay: f32,
+        wind_audio_attack_decay: f32,
+        wind_audio_release_decay: f32,
         spatial_sound_manager: &SpatialSoundManager,
     ) -> Result<()> {
         let target_response = Self::linear_sampled_wind_response(
             wind.sample_sources(self.position, time_seconds, wind_sources)
                 .length(),
         );
-        let response = self.inertial_response(target_response, time_seconds, wind_audio_decay);
+        let response = self.inertial_response(
+            target_response,
+            time_seconds,
+            wind_audio_attack_decay,
+            wind_audio_release_decay,
+        );
         self.target_response = target_response;
         self.last_update_time_seconds = Some(time_seconds);
         self.apply_response_volume(response, spatial_sound_manager)
@@ -109,7 +115,8 @@ impl TreeAudioSource {
         &self,
         target_response: f32,
         time_seconds: f32,
-        wind_audio_decay: f32,
+        wind_audio_attack_decay: f32,
+        wind_audio_release_decay: f32,
     ) -> f32 {
         let target_response = target_response.clamp(0.0, 1.0);
         let Some(last_update_time_seconds) = self.last_update_time_seconds else {
@@ -120,7 +127,12 @@ impl TreeAudioSource {
             return self.current_response;
         }
 
-        let decay_control = wind_audio_decay.clamp(0.0, 1.0);
+        let decay_control = if target_response >= self.current_response {
+            wind_audio_attack_decay
+        } else {
+            wind_audio_release_decay
+        }
+        .clamp(0.0, 1.0);
         let blend_rate = TREE_AUDIO_DECAY_RATE_MIN
             + (TREE_AUDIO_DECAY_RATE_MAX - TREE_AUDIO_DECAY_RATE_MIN) * decay_control;
         let alpha = 1.0 - (-blend_rate * delta_time).exp();

@@ -517,10 +517,17 @@ fn render_wind_sources_gui(
     );
     ui.add(
         egui::Slider::new(
-            &mut adjustables.wind_audio_decay.value,
-            adjustables.wind_audio_decay.range.clone(),
+            &mut adjustables.wind_audio_attack_decay.value,
+            adjustables.wind_audio_attack_decay.range.clone(),
         )
-        .text("Audio Decay (0 slow, 1 fast)"),
+        .text("Audio Attack Decay (0 slow, 1 fast)"),
+    );
+    ui.add(
+        egui::Slider::new(
+            &mut adjustables.wind_audio_release_decay.value,
+            adjustables.wind_audio_release_decay.range.clone(),
+        )
+        .text("Audio Release Decay (0 slow, 1 fast)"),
     );
 
     if wind_sources.is_empty() {

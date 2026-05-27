@@ -104,9 +104,20 @@ value = 1
 min = 0
 max = 8
 [[section.param]]
-id = "wind_audio_decay"
+id = "wind_audio_attack_decay"
 kind = "float"
-label = "Wind Audio Decay (0 slow, 1 fast)"
+label = "Wind Audio Attack Decay (0 slow, 1 fast)"
+type = "Float"
+
+[section.param.data]
+value = 0.11
+min = 0
+max = 1
+
+[[section.param]]
+id = "wind_audio_release_decay"
+kind = "float"
+label = "Wind Audio Release Decay (0 slow, 1 fast)"
 type = "Float"
 
 [section.param.data]

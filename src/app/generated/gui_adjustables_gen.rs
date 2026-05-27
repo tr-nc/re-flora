@@ -80,9 +80,15 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Wind",
-        id: "wind_audio_decay",
+        id: "wind_audio_attack_decay",
         kind: "float",
-        label: "Wind Audio Decay (0 slow, 1 fast)",
+        label: "Wind Audio Attack Decay (0 slow, 1 fast)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_audio_release_decay",
+        kind: "float",
+        label: "Wind Audio Release Decay (0 slow, 1 fast)",
     },
     GeneratedGuiParamDescriptor {
         section: "Wind",
@@ -1009,7 +1015,8 @@ pub struct GuiAdjustables {
     pub world_tick_seconds: crate::gui_adjustables::FloatParam,
     pub wind_source_count: crate::gui_adjustables::UintParam,
     pub wind_speed_to_strength_multiplier: crate::gui_adjustables::FloatParam,
-    pub wind_audio_decay: crate::gui_adjustables::FloatParam,
+    pub wind_audio_attack_decay: crate::gui_adjustables::FloatParam,
+    pub wind_audio_release_decay: crate::gui_adjustables::FloatParam,
     pub wind_source_0_name: crate::gui_adjustables::StringParam,
     pub wind_source_0_muted: crate::gui_adjustables::BoolParam,
     pub wind_source_0_direction_deg: crate::gui_adjustables::FloatParam,
@@ -1184,7 +1191,8 @@ impl GuiAdjustables {
         let mut world_tick_seconds_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_source_count_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut wind_speed_to_strength_multiplier_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut wind_audio_decay_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_audio_attack_decay_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_audio_release_decay_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_source_0_name_field: Option<crate::gui_adjustables::StringParam> = None;
         let mut wind_source_0_muted_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut wind_source_0_direction_deg_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1402,11 +1410,18 @@ impl GuiAdjustables {
                             wind_speed_to_strength_multiplier_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "wind_audio_decay" => {
+                    "wind_audio_attack_decay" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
-                            wind_audio_decay_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                            wind_audio_attack_decay_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_audio_release_decay" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            wind_audio_release_decay_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "wind_source_0_name" => {
@@ -2426,7 +2441,8 @@ impl GuiAdjustables {
             world_tick_seconds: world_tick_seconds_field.expect("Missing parameter: world_tick_seconds"),
             wind_source_count: wind_source_count_field.expect("Missing parameter: wind_source_count"),
             wind_speed_to_strength_multiplier: wind_speed_to_strength_multiplier_field.expect("Missing parameter: wind_speed_to_strength_multiplier"),
-            wind_audio_decay: wind_audio_decay_field.expect("Missing parameter: wind_audio_decay"),
+            wind_audio_attack_decay: wind_audio_attack_decay_field.expect("Missing parameter: wind_audio_attack_decay"),
+            wind_audio_release_decay: wind_audio_release_decay_field.expect("Missing parameter: wind_audio_release_decay"),
             wind_source_0_name: wind_source_0_name_field.expect("Missing parameter: wind_source_0_name"),
             wind_source_0_muted: wind_source_0_muted_field.expect("Missing parameter: wind_source_0_muted"),
             wind_source_0_direction_deg: wind_source_0_direction_deg_field.expect("Missing parameter: wind_source_0_direction_deg"),
@@ -2591,7 +2607,8 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "flora_draw_distance" => Some(&adjustables.flora_draw_distance),
         "world_tick_seconds" => Some(&adjustables.world_tick_seconds),
         "wind_speed_to_strength_multiplier" => Some(&adjustables.wind_speed_to_strength_multiplier),
-        "wind_audio_decay" => Some(&adjustables.wind_audio_decay),
+        "wind_audio_attack_decay" => Some(&adjustables.wind_audio_attack_decay),
+        "wind_audio_release_decay" => Some(&adjustables.wind_audio_release_decay),
         "wind_source_0_direction_deg" => Some(&adjustables.wind_source_0_direction_deg),
         "wind_source_0_speed" => Some(&adjustables.wind_source_0_speed),
         "wind_source_0_sharpness" => Some(&adjustables.wind_source_0_sharpness),
@@ -2800,7 +2817,8 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "flora_draw_distance" => Some(&mut adjustables.flora_draw_distance),
         "world_tick_seconds" => Some(&mut adjustables.world_tick_seconds),
         "wind_speed_to_strength_multiplier" => Some(&mut adjustables.wind_speed_to_strength_multiplier),
-        "wind_audio_decay" => Some(&mut adjustables.wind_audio_decay),
+        "wind_audio_attack_decay" => Some(&mut adjustables.wind_audio_attack_decay),
+        "wind_audio_release_decay" => Some(&mut adjustables.wind_audio_release_decay),
         "wind_source_0_direction_deg" => Some(&mut adjustables.wind_source_0_direction_deg),
         "wind_source_0_speed" => Some(&mut adjustables.wind_source_0_speed),
         "wind_source_0_sharpness" => Some(&mut adjustables.wind_source_0_sharpness),

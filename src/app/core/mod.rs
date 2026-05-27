@@ -1871,7 +1871,8 @@ impl App {
                 if let Err(err) = self.tree_audio_manager.update(
                     time_since_start,
                     &active_wind_sources,
-                    self.gui_adjustables.wind_audio_decay.value,
+                    self.gui_adjustables.wind_audio_attack_decay.value,
+                    self.gui_adjustables.wind_audio_release_decay.value,
                 ) {
                     log::warn!("Failed to update tree audio sources: {}", err);
                 }
@@ -2099,10 +2100,26 @@ impl App {
                                     );
                                     ui.add(
                                         egui::Slider::new(
-                                            &mut self.gui_adjustables.wind_audio_decay.value,
-                                            self.gui_adjustables.wind_audio_decay.range.clone(),
+                                            &mut self.gui_adjustables.wind_audio_attack_decay.value,
+                                            self.gui_adjustables
+                                                .wind_audio_attack_decay
+                                                .range
+                                                .clone(),
                                         )
-                                        .text("Wind Audio Decay (0 slow, 1 fast)"),
+                                        .text("Wind Audio Attack Decay (0 slow, 1 fast)"),
+                                    );
+                                    ui.add(
+                                        egui::Slider::new(
+                                            &mut self
+                                                .gui_adjustables
+                                                .wind_audio_release_decay
+                                                .value,
+                                            self.gui_adjustables
+                                                .wind_audio_release_decay
+                                                .range
+                                                .clone(),
+                                        )
+                                        .text("Wind Audio Release Decay (0 slow, 1 fast)"),
                                     );
                                     ui.checkbox(
                                         &mut self.gui_adjustables.audio_ray_tracing_enabled.value,

@@ -230,18 +230,20 @@ impl TreeAudioManager {
         &mut self,
         time_seconds: f32,
         wind_sources: &[WindSource],
-        wind_audio_decay: f32,
+        wind_audio_attack_decay: f32,
+        wind_audio_release_decay: f32,
     ) -> Result<()> {
         for source in self.sources.values_mut() {
             source.update(
                 &self.wind,
                 time_seconds,
                 wind_sources,
-                wind_audio_decay,
+                wind_audio_attack_decay,
+                wind_audio_release_decay,
                 &self.spatial_sound_manager,
             )?;
             info!(
-                "[AUDIO][TREE_WIND_FRAME] time={:.3} tree_id={} source={} pos=({:.2},{:.2},{:.2}) cluster_size={} target_response={:.4} response={:.4} volume_db={:.2} wind_volume_db={:.2} wind_audio_decay={:.2} wind_sources={}",
+                "[AUDIO][TREE_WIND_FRAME] time={:.3} tree_id={} source={} pos=({:.2},{:.2},{:.2}) cluster_size={} target_response={:.4} response={:.4} volume_db={:.2} wind_volume_db={:.2} wind_audio_attack_decay={:.2} wind_audio_release_decay={:.2} wind_sources={}",
                 time_seconds,
                 source.tree_id,
                 source.uuid,
@@ -253,7 +255,8 @@ impl TreeAudioManager {
                 source.current_response(),
                 source.current_volume_db(),
                 source.wind_volume_db(),
-                wind_audio_decay,
+                wind_audio_attack_decay,
+                wind_audio_release_decay,
                 wind_sources.len(),
             );
         }
