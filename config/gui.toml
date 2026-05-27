@@ -104,17 +104,6 @@ value = 1
 min = 0
 max = 8
 [[section.param]]
-id = "wind_sharpness"
-kind = "float"
-label = "Wind Sharpness"
-type = "Float"
-
-[section.param.data]
-value = 0
-min = 0
-max = 1
-
-[[section.param]]
 id = "wind_audio_decay"
 kind = "float"
 label = "Wind Audio Decay (0 slow, 1 fast)"
@@ -164,6 +153,17 @@ type = "Float"
 value = 0.7
 min = 0
 max = 4
+
+[[section.param]]
+id = "wind_source_0_sharpness"
+kind = "float"
+label = "Wind Source 1 Sharpness"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = 0
+max = 1
 
 [[section.param]]
 id = "wind_source_0_coverage"
@@ -272,6 +272,17 @@ min = 0
 max = 4
 
 [[section.param]]
+id = "wind_source_1_sharpness"
+kind = "float"
+label = "Wind Source 2 Sharpness"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = 0
+max = 1
+
+[[section.param]]
 id = "wind_source_1_coverage"
 kind = "float"
 label = "Wind Source 2 Coverage"
@@ -378,6 +389,17 @@ min = 0
 max = 4
 
 [[section.param]]
+id = "wind_source_2_sharpness"
+kind = "float"
+label = "Wind Source 3 Sharpness"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = 0
+max = 1
+
+[[section.param]]
 id = "wind_source_2_coverage"
 kind = "float"
 label = "Wind Source 3 Coverage"
@@ -482,6 +504,17 @@ type = "Float"
 value = 1.43
 min = 0
 max = 4
+
+[[section.param]]
+id = "wind_source_3_sharpness"
+kind = "float"
+label = "Wind Source 4 Sharpness"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = 0
+max = 1
 
 [[section.param]]
 id = "wind_source_3_coverage"

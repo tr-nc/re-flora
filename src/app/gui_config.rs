@@ -353,6 +353,16 @@ fn wind_source_params(
             },
         });
         params.push(GuiParam {
+            id: format!("{prefix}_sharpness"),
+            kind: GuiParamKind::Float,
+            label: format!("Wind Source {} Sharpness", index + 1),
+            value: GuiParamValue::Float {
+                value: values.source.sharpness,
+                min: Some(0.0),
+                max: Some(1.0),
+            },
+        });
+        params.push(GuiParam {
             id: format!("{prefix}_coverage"),
             kind: GuiParamKind::Float,
             label: format!("Wind Source {} Coverage", index + 1),
@@ -448,6 +458,7 @@ pub fn wind_sources_from_config(config: &GuiConfigFile) -> Vec<WindSourceGuiValu
                 values.source.direction_degrees = *value
             }
             ("speed", GuiParamValue::Float { value, .. }) => values.source.speed = *value,
+            ("sharpness", GuiParamValue::Float { value, .. }) => values.source.sharpness = *value,
             ("coverage", GuiParamValue::Float { value, .. }) => values.source.coverage = *value,
             ("pattern_scale", GuiParamValue::Float { value, .. }) => {
                 values.source.pattern_scale = *value
@@ -506,13 +517,6 @@ fn render_wind_sources_gui(
     );
     ui.add(
         egui::Slider::new(
-            &mut adjustables.wind_sharpness.value,
-            adjustables.wind_sharpness.range.clone(),
-        )
-        .text("Sharpness"),
-    );
-    ui.add(
-        egui::Slider::new(
             &mut adjustables.wind_audio_decay.value,
             adjustables.wind_audio_decay.range.clone(),
         )
@@ -552,6 +556,7 @@ fn render_wind_sources_gui(
                     .text("Direction (deg)"),
             );
             ui.add(egui::Slider::new(&mut values.source.speed, 0.0..=4.0).text("Speed"));
+            ui.add(egui::Slider::new(&mut values.source.sharpness, 0.0..=1.0).text("Sharpness"));
             ui.label(format!(
                 "Strength: {:.2}",
                 values.source.speed.max(0.0)
