@@ -189,6 +189,15 @@ pub struct TreeLeafInstances {
     pub packed_orientation: u32,
 }
 
+/// Auto-generated from `B_WindSources` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct WindSources {
+    pub params: [f32; 4],
+    pub noise: [f32; 4],
+    pub detail: [f32; 4],
+}
+
 /// Auto-generated from `PushConstantChunkModifySample` (GLSL source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -426,18 +435,6 @@ pub struct GuiInput {
     pub lens_flare_sun_pixel_scale: f32,
     pub wind_source_count: u32,
     pub _pad8: [u8; 8],
-    pub wind_source_0: [f32; 4],
-    pub wind_source_1: [f32; 4],
-    pub wind_source_2: [f32; 4],
-    pub wind_source_3: [f32; 4],
-    pub wind_source_0_noise: [f32; 4],
-    pub wind_source_1_noise: [f32; 4],
-    pub wind_source_2_noise: [f32; 4],
-    pub wind_source_3_noise: [f32; 4],
-    pub wind_source_0_detail: [f32; 4],
-    pub wind_source_1_detail: [f32; 4],
-    pub wind_source_2_detail: [f32; 4],
-    pub wind_source_3_detail: [f32; 4],
 }
 
 /// Auto-generated from `U_InstancesToOccupancyInfo` (GLSL source of truth).

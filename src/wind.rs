@@ -1,8 +1,6 @@
 use fastnoise_lite::{FastNoiseLite, FractalType, NoiseType};
 use glam::{Vec2, Vec3};
 
-pub const MAX_WIND_SOURCES: usize = 4;
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WindSource {
     pub direction_degrees: f32,
@@ -86,12 +84,6 @@ const WIND_GUST_MASK_FREQUENCY: f32 = 0.008;
 const WIND_SAMPLE_SCALE: f32 = 256.0;
 const WIND_TIME_SCALE: f32 = 170.0;
 const WIND_GUST_SMOOTH_WIDTH: f32 = 0.30;
-const WIND_SOURCE_OFFSETS: [Vec2; MAX_WIND_SOURCES] = [
-    Vec2::new(149.0, -67.0),
-    Vec2::new(-211.0, 307.0),
-    Vec2::new(421.0, 83.0),
-    Vec2::new(-97.0, -449.0),
-];
 
 fn wind_noise_state(seed: i32) -> FastNoiseLite {
     let mut state = FastNoiseLite::with_seed(seed);
@@ -99,6 +91,17 @@ fn wind_noise_state(seed: i32) -> FastNoiseLite {
     state.set_fractal_type(Some(FractalType::None));
     state.set_frequency(Some(1.0));
     state
+}
+
+fn wind_source_seed(source_index: usize) -> i32 {
+    WIND_GUST_MASK_SEED.wrapping_add((source_index as i32).wrapping_mul(997))
+}
+
+fn wind_source_offset(source_index: usize) -> Vec2 {
+    let seed = source_index as u32;
+    let x = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+    let y = seed.wrapping_mul(22_695_477).wrapping_add(1_109_515_789);
+    Vec2::new(((x & 1023) as f32) - 512.0, ((y & 1023) as f32) - 512.0)
 }
 
 fn wind_safe_smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
@@ -112,9 +115,7 @@ fn wind_safe_smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-pub struct Wind {
-    gust_noises: [FastNoiseLite; MAX_WIND_SOURCES],
-}
+pub struct Wind;
 
 impl Default for Wind {
     fn default() -> Self {
@@ -124,11 +125,7 @@ impl Default for Wind {
 
 impl Wind {
     pub fn new() -> Self {
-        Self {
-            gust_noises: std::array::from_fn(|index| {
-                wind_noise_state(WIND_GUST_MASK_SEED + index as i32 * 997)
-            }),
-        }
+        Self
     }
 
     pub fn sample_sources(&self, world_pos: Vec3, time: f32, sources: &[WindSource]) -> Vec3 {
@@ -136,7 +133,7 @@ impl Wind {
         let scroll_time = time * WIND_TIME_SCALE;
         let mut wind_planar = Vec2::ZERO;
 
-        for (source_index, source) in sources.iter().take(MAX_WIND_SOURCES).enumerate() {
+        for (source_index, source) in sources.iter().enumerate() {
             let source_speed = source.speed.max(0.0);
             let source_strength = source.strength.max(0.0);
             if source_strength <= f32::EPSILON {
@@ -181,8 +178,8 @@ impl Wind {
         time_offset: Vec2,
         source: &WindSource,
     ) -> f32 {
-        let offset = WIND_SOURCE_OFFSETS[source_index];
-        let noise = &self.gust_noises[source_index];
+        let offset = wind_source_offset(source_index);
+        let noise = wind_noise_state(wind_source_seed(source_index));
         let pattern_scale = source.pattern_scale.max(0.05);
         let mut frequency = WIND_GUST_MASK_FREQUENCY * source.pattern_frequency.max(0.05);
         let lacunarity = source.lacunarity.max(1.0);

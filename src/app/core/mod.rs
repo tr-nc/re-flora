@@ -25,7 +25,7 @@ use crate::app::world_edits::{
     BuildEdit, TreeAddOptions, TreePlacement, VoxelEdit, WorldBuildBackend, WorldEditPlan,
 };
 use crate::app::world_ops;
-use crate::app::GuiAdjustables;
+use crate::app::{GuiAdjustables, WindSourceGuiValues};
 use crate::audio::{SpatialSoundManager, TreeAudioManager};
 use crate::builder::{
     ContreeBuildJob, ContreeBuilder, PlainBuilder, SceneAccelBuilder, SceneTexUpdateJob,
@@ -43,7 +43,7 @@ use crate::tree_gen::TreeDesc;
 use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
 use crate::util::{GrowingFloraChunk, GrowingFloraQueue, LatestChunkQueue, ShaderCompiler, BENCH};
-use crate::wind::{WindResponseCurve, WindSource, MAX_WIND_SOURCES};
+use crate::wind::WindResponseCurve;
 use crate::RenderFlags;
 use crate::{egui_renderer::EguiRenderer, window::WindowState, WaterProfilePreference};
 use anyhow::{Context, Result};
@@ -162,6 +162,7 @@ pub struct App {
     // gui config and adjustables
     gui_config: GuiConfigFile,
     gui_adjustables: GuiAdjustables,
+    wind_sources: Vec<WindSourceGuiValues>,
     debug_tree_pos: Vec3,
     config_panel_visible: bool,
     settings_panel_visible: bool,
@@ -708,21 +709,9 @@ impl App {
         }
     }
 
-    fn wind_gui_params(gui_adjustables: &GuiAdjustables) -> WindGuiParams {
-        let active_sources = gui_adjustables.active_wind_sources();
-        let source_count = active_sources.len().min(MAX_WIND_SOURCES) as u32;
-        let mut sources = [WindSource::default(); MAX_WIND_SOURCES];
-        for (index, source) in active_sources
-            .into_iter()
-            .take(MAX_WIND_SOURCES)
-            .enumerate()
-        {
-            sources[index] = source;
-        }
-
+    fn wind_gui_params(wind_sources: &[WindSourceGuiValues]) -> WindGuiParams {
         WindGuiParams {
-            sources,
-            source_count,
+            sources: GuiAdjustables::active_wind_sources(wind_sources),
         }
     }
 
@@ -836,6 +825,7 @@ impl App {
         let debug_tree_pos = Vec3::new(2.0, 0.2, 2.0);
         let gui_config = GuiConfigLoader::load();
         let mut gui_adjustables = GuiAdjustables::from_config(&gui_config);
+        let wind_sources = crate::app::wind_sources_from_config(&gui_config);
 
         let color_to_vec4 = |color: Color32| -> Vec4 {
             Vec4::new(
@@ -998,6 +988,7 @@ impl App {
 
             gui_config,
             gui_adjustables,
+            wind_sources,
             debug_tree_pos,
             debug_tree_desc: TreeDesc::default(),
             tree_variation_config: TreeVariationConfig::default(),
@@ -1867,7 +1858,7 @@ impl App {
                 if world_tick_steps > 0 {
                     self.update_growing_flora_chunk();
                 }
-                let active_wind_sources = self.gui_adjustables.active_wind_sources();
+                let active_wind_sources = GuiAdjustables::active_wind_sources(&self.wind_sources);
                 if let Err(err) = self.tree_audio_manager.update(
                     time_since_start,
                     &active_wind_sources,
@@ -1963,7 +1954,11 @@ impl App {
                                                     .add(egui::Button::new("Save").small())
                                                     .clicked()
                                                 {
-                                                    match self.gui_adjustables.save_to_config() {
+                                                    match self
+                                                        .gui_adjustables
+                                                        .save_to_config_with_wind_sources(
+                                                            &self.wind_sources,
+                                                        ) {
                                                         Ok(_) => {
                                                             log::info!("Config saved successfully");
                                                         }
@@ -1990,6 +1985,7 @@ impl App {
                                                 ui,
                                                 &self.gui_config,
                                                 &mut self.gui_adjustables,
+                                                &mut self.wind_sources,
                                             );
 
                                             ui.add_space(8.0);
@@ -2377,7 +2373,7 @@ impl App {
                     self.gui_adjustables.season.value,
                 );
                 let update_shadow_map = self.render_flags.enable_shadows;
-                let wind_gui_params = Self::wind_gui_params(&self.gui_adjustables);
+                let wind_gui_params = Self::wind_gui_params(&self.wind_sources);
 
                 self.tracer
                     .update_buffers(

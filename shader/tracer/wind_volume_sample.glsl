@@ -5,12 +5,19 @@
 #include "../include/core/gradient_noise.glsl"
 
 const uint WIND_GUST_MASK_SEED = 3181u;
-
-const float WIND_SAMPLE_SCALE        = 256.0f;
-const float WIND_TIME_SCALE          = 170.0f;
+const float WIND_SAMPLE_SCALE = 256.0f;
+const float WIND_TIME_SCALE = 170.0f;
 const float WIND_GUST_MASK_FREQUENCY = 0.008f;
-const float WIND_GUST_SMOOTH_WIDTH   = 0.30f;
-const uint MAX_WIND_SOURCES          = 4u;
+const float WIND_GUST_SMOOTH_WIDTH = 0.30f;
+
+struct WindSourceGpu {
+    vec4 params; // direction degrees, speed, sharpness, strength
+    vec4 noise;  // coverage, pattern scale, pattern frequency, octaves
+    vec4 detail; // lacunarity, gain, unused, unused
+};
+
+layout(set = 0, binding = 3) readonly buffer B_WindSources { WindSourceGpu data[]; }
+wind_sources;
 
 float wind_safe_smoothstep(float edge0, float edge1, float x) {
     float low  = min(edge0, edge1);
@@ -18,61 +25,19 @@ float wind_safe_smoothstep(float edge0, float edge1, float x) {
     if (high - low <= EPSILON) {
         return x >= high ? 1.0f : 0.0f;
     }
-    return smoothstep(low, high, x);
-}
 
-int wind_safe_octaves(float octaves) { return int(clamp(round(octaves), 1.0f, 8.0f)); }
+    float t = clamp((x - low) / (high - low), 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
 
 vec2 wind_source_offset(uint source_index) {
-    if (source_index == 1u) {
-        return vec2(-211.0f, 307.0f);
-    }
-    if (source_index == 2u) {
-        return vec2(421.0f, 83.0f);
-    }
-    if (source_index == 3u) {
-        return vec2(-97.0f, -449.0f);
-    }
-    return vec2(149.0f, -67.0f);
+    uint x = source_index * 1664525u + 1013904223u;
+    uint y = source_index * 22695477u + 1109515789u;
+    return vec2(float(x & 1023u) - 512.0f, float(y & 1023u) - 512.0f);
 }
 
-vec4 wind_source_params(uint source_index) {
-    if (source_index == 1u) {
-        return gui_input.wind_source_1;
-    }
-    if (source_index == 2u) {
-        return gui_input.wind_source_2;
-    }
-    if (source_index == 3u) {
-        return gui_input.wind_source_3;
-    }
-    return gui_input.wind_source_0;
-}
-
-vec4 wind_source_noise_params(uint source_index) {
-    if (source_index == 1u) {
-        return gui_input.wind_source_1_noise;
-    }
-    if (source_index == 2u) {
-        return gui_input.wind_source_2_noise;
-    }
-    if (source_index == 3u) {
-        return gui_input.wind_source_3_noise;
-    }
-    return gui_input.wind_source_0_noise;
-}
-
-vec4 wind_source_detail_params(uint source_index) {
-    if (source_index == 1u) {
-        return gui_input.wind_source_1_detail;
-    }
-    if (source_index == 2u) {
-        return gui_input.wind_source_2_detail;
-    }
-    if (source_index == 3u) {
-        return gui_input.wind_source_3_detail;
-    }
-    return gui_input.wind_source_0_detail;
+int wind_safe_octaves(float octaves_value) {
+    return int(clamp(round(octaves_value), 1.0f, 8.0f));
 }
 
 float sample_wind_source_gust(
@@ -114,23 +79,19 @@ float sample_wind_source_gust(
 }
 
 vec3 sample_procedural_wind(vec3 world_pos, float time) {
-    vec2 sample_pos          = world_pos.xz * WIND_SAMPLE_SCALE;
-    float scroll_time        = time * WIND_TIME_SCALE;
-    uint wind_source_count   = min(gui_input.wind_source_count, MAX_WIND_SOURCES);
-    vec2 wind_planar         = vec2(0.0f);
+    vec2 sample_pos        = world_pos.xz * WIND_SAMPLE_SCALE;
+    float scroll_time      = time * WIND_TIME_SCALE;
+    vec2 wind_planar       = vec2(0.0f);
 
-    for (uint source_index = 0u; source_index < MAX_WIND_SOURCES; ++source_index) {
-        if (source_index >= wind_source_count) {
-            break;
-        }
-
-        vec4 source            = wind_source_params(source_index);
-        vec4 noise_params      = wind_source_noise_params(source_index);
-        vec4 detail_params     = wind_source_detail_params(source_index);
-        float direction_angle  = radians(source.x);
-        float source_speed     = max(source.y, 0.0f);
-        float source_sharpness = clamp(source.z, 0.0f, 1.0f);
-        float source_strength  = max(source.w, 0.0f);
+    for (uint source_index = 0u; source_index < gui_input.wind_source_count; ++source_index) {
+        WindSourceGpu source_gpu = wind_sources.data[source_index];
+        vec4 source              = source_gpu.params;
+        vec4 noise_params        = source_gpu.noise;
+        vec4 detail_params       = source_gpu.detail;
+        float direction_angle    = radians(source.x);
+        float source_speed       = max(source.y, 0.0f);
+        float source_sharpness   = clamp(source.z, 0.0f, 1.0f);
+        float source_strength    = max(source.w, 0.0f);
         if (source_strength <= EPSILON) {
             continue;
         }

@@ -2,7 +2,7 @@ use crate::generated::gpu_structs::{
     EnvInfo, FloraGrowthInfo, GodRayInfo, GuiInput, PlayerColliderInfo, PostProcessingInfo,
     ShadingInfo, SpatialInfo, StarlightInfo, SunInfo, TemporalInfo, VoxelColors,
 };
-use crate::tracer::{TracerResources, WindGuiParams};
+use crate::tracer::{TracerResources, WindGuiParams, WindSourceGpu};
 use anyhow::Result;
 use bytemuck::Zeroable;
 use glam::{Mat4, Vec3};
@@ -231,25 +231,17 @@ impl BufferUpdater {
         lens_flare_sun_pixel_scale: f32,
         wind_gui_params: WindGuiParams,
     ) -> Result<()> {
-        let wind_sources = wind_gui_params.sources.map(|source| {
-            [
-                source.direction_degrees,
-                source.speed,
-                source.sharpness,
-                source.strength,
-            ]
-        });
-        let wind_source_noise = wind_gui_params.sources.map(|source| {
-            [
-                source.coverage,
-                source.pattern_scale,
-                source.pattern_frequency,
-                source.octaves as f32,
-            ]
-        });
-        let wind_source_detail = wind_gui_params
+        let wind_source_count = wind_gui_params.sources.len() as u32;
+        let mut wind_sources = wind_gui_params
             .sources
-            .map(|source| [source.lacunarity, source.gain, 0.0, 0.0]);
+            .iter()
+            .copied()
+            .map(WindSourceGpu::from)
+            .collect::<Vec<_>>();
+        if wind_sources.is_empty() {
+            wind_sources.push(WindSourceGpu::zeroed());
+        }
+        resources.wind_sources.fill(&wind_sources)?;
 
         resources.gui_input.fill_uniform(&GuiInput {
             debug_float,
@@ -269,19 +261,7 @@ impl BufferUpdater {
             ocean_sea_level_shift,
             lens_flare_intensity,
             lens_flare_sun_pixel_scale,
-            wind_source_count: wind_gui_params.source_count,
-            wind_source_0: wind_sources[0],
-            wind_source_1: wind_sources[1],
-            wind_source_2: wind_sources[2],
-            wind_source_3: wind_sources[3],
-            wind_source_0_noise: wind_source_noise[0],
-            wind_source_1_noise: wind_source_noise[1],
-            wind_source_2_noise: wind_source_noise[2],
-            wind_source_3_noise: wind_source_noise[3],
-            wind_source_0_detail: wind_source_detail[0],
-            wind_source_1_detail: wind_source_detail[1],
-            wind_source_2_detail: wind_source_detail[2],
-            wind_source_3_detail: wind_source_detail[3],
+            wind_source_count,
             ..GuiInput::zeroed()
         })
     }
