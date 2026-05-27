@@ -8,6 +8,7 @@ pub struct WindSource {
     pub pattern_scale: f32,
     pub octaves: u32,
     pub lacunarity: f32,
+    pub persistence: f32,
     pub gain: f32,
 }
 
@@ -19,6 +20,7 @@ impl WindSource {
         pattern_scale: f32,
         octaves: u32,
         lacunarity: f32,
+        persistence: f32,
         gain: f32,
     ) -> Self {
         Self {
@@ -27,6 +29,7 @@ impl WindSource {
             pattern_scale,
             octaves,
             lacunarity,
+            persistence,
             gain,
         }
     }
@@ -34,7 +37,7 @@ impl WindSource {
 
 impl Default for WindSource {
     fn default() -> Self {
-        Self::new(0.0, 0.0, 1.0, 3, 2.0, 1.0)
+        Self::new(0.0, 0.0, 1.0, 3, 2.0, 0.5, 1.0)
     }
 }
 
@@ -71,7 +74,6 @@ const WIND_FBM_SEED: i32 = 3181;
 const WIND_FBM_FREQUENCY: f32 = 0.008;
 const WIND_SAMPLE_SCALE: f32 = 256.0;
 const WIND_TIME_SCALE: f32 = 170.0;
-const WIND_FBM_PERSISTENCE: f32 = 0.5;
 
 fn wind_noise_state(seed: i32) -> FastNoiseLite {
     let mut state = FastNoiseLite::with_seed(seed);
@@ -143,7 +145,7 @@ impl Wind {
         time: f32,
         response_curve: WindResponseCurve,
     ) -> f32 {
-        let default_source = WindSource::new(0.0, 1.0, 1.0, 3, 2.0, 1.0);
+        let default_source = WindSource::new(0.0, 1.0, 1.0, 3, 2.0, 0.5, 1.0);
         self.sample_response_from_sources(world_pos, time, &[default_source], response_curve)
     }
 
@@ -159,6 +161,7 @@ impl Wind {
         let pattern_scale = source.pattern_scale.max(0.05);
         let mut frequency = WIND_FBM_FREQUENCY;
         let lacunarity = source.lacunarity.max(1.0);
+        let persistence = source.persistence.clamp(0.0, 1.0);
         let gain = source.gain.max(0.0);
         let octaves = source.octaves.clamp(1, 8);
         let p = (sample_pos + offset + time_offset) / pattern_scale;
@@ -168,7 +171,7 @@ impl Wind {
         for _ in 0..octaves {
             noise_sum += noise.get_noise_2d(p.x * frequency, p.y * frequency) * amplitude;
             frequency *= lacunarity;
-            amplitude *= WIND_FBM_PERSISTENCE;
+            amplitude *= persistence;
         }
 
         noise_sum * gain

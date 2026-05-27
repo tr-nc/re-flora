@@ -378,6 +378,16 @@ fn wind_source_params(
             },
         });
         params.push(GuiParam {
+            id: format!("{prefix}_persistence"),
+            kind: GuiParamKind::Float,
+            label: format!("Wind Source {} Persistence", index + 1),
+            value: GuiParamValue::Float {
+                value: values.source.persistence,
+                min: Some(0.0),
+                max: Some(1.0),
+            },
+        });
+        params.push(GuiParam {
             id: format!("{prefix}_gain"),
             kind: GuiParamKind::Float,
             label: format!("Wind Source {} Gain", index + 1),
@@ -428,6 +438,9 @@ pub fn wind_sources_from_config(config: &GuiConfigFile) -> Vec<WindSourceGuiValu
             }
             ("octaves", GuiParamValue::Uint { value, .. }) => values.source.octaves = *value,
             ("lacunarity", GuiParamValue::Float { value, .. }) => values.source.lacunarity = *value,
+            ("persistence", GuiParamValue::Float { value, .. }) => {
+                values.source.persistence = *value
+            }
             ("gain", GuiParamValue::Float { value, .. }) => values.source.gain = *value,
             _ => {}
         }
@@ -522,6 +535,9 @@ fn render_wind_sources_gui(
             );
             ui.add(egui::Slider::new(&mut values.source.octaves, 1..=8).text("Octaves"));
             ui.add(egui::Slider::new(&mut values.source.lacunarity, 1.0..=4.0).text("Lacunarity"));
+            ui.add(
+                egui::Slider::new(&mut values.source.persistence, 0.0..=1.0).text("Persistence"),
+            );
             ui.add(egui::Slider::new(&mut values.source.gain, 0.0..=8.0).text("Gain"));
         });
     }

@@ -8,11 +8,9 @@ const uint WIND_FBM_SEED = 3181u;
 const float WIND_SAMPLE_SCALE = 256.0f;
 const float WIND_TIME_SCALE = 170.0f;
 const float WIND_FBM_FREQUENCY = 0.008f;
-const float WIND_FBM_PERSISTENCE = 0.5f;
-
 struct WindSourceGpu {
     vec4 params; // direction degrees, speed, gain, unused
-    vec4 noise;  // pattern scale, octaves, lacunarity, unused
+    vec4 noise;  // pattern scale, octaves, lacunarity, persistence
 };
 
 layout(set = 0, binding = 3) readonly buffer B_WindSources { WindSourceGpu data[]; }
@@ -38,6 +36,7 @@ float sample_wind_source_fbm(
     float pattern_scale     = max(noise_params.x, 0.05f);
     int octaves             = wind_safe_octaves(noise_params.y);
     float lacunarity        = max(noise_params.z, 1.0f);
+    float persistence       = clamp(noise_params.w, 0.0f, 1.0f);
     vec2 offset             = wind_source_offset(source_index);
     vec2 p                  = (sample_pos + offset + time_offset) / pattern_scale;
     float frequency         = WIND_FBM_FREQUENCY;
@@ -50,7 +49,7 @@ float sample_wind_source_fbm(
         }
         noise_sum += cnoise_seeded(vec2(p.x, p.y) * frequency, WIND_FBM_SEED + source_index * 997u + uint(octave) * 1000u) * amplitude;
         frequency *= lacunarity;
-        amplitude *= WIND_FBM_PERSISTENCE;
+        amplitude *= persistence;
     }
 
     return noise_sum * max(gain, 0.0f);

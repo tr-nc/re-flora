@@ -187,6 +187,17 @@ value = 2
 min = 1
 max = 4
 
+
+[[section.param]]
+id = "wind_source_0_persistence"
+kind = "float"
+label = "Wind Source 1 Persistence"
+type = "Float"
+
+[section.param.data]
+value = 0.5
+min = 0
+max = 1
 [[section.param]]
 id = "wind_source_0_gain"
 kind = "float"
@@ -271,6 +282,17 @@ value = 2
 min = 1
 max = 4
 
+
+[[section.param]]
+id = "wind_source_1_persistence"
+kind = "float"
+label = "Wind Source 2 Persistence"
+type = "Float"
+
+[section.param.data]
+value = 0.5
+min = 0
+max = 1
 [[section.param]]
 id = "wind_source_1_gain"
 kind = "float"
@@ -355,6 +377,17 @@ value = 2
 min = 1
 max = 4
 
+
+[[section.param]]
+id = "wind_source_2_persistence"
+kind = "float"
+label = "Wind Source 3 Persistence"
+type = "Float"
+
+[section.param.data]
+value = 0.5
+min = 0
+max = 1
 [[section.param]]
 id = "wind_source_2_gain"
 kind = "float"
@@ -439,6 +472,17 @@ value = 2
 min = 1
 max = 4
 
+
+[[section.param]]
+id = "wind_source_3_persistence"
+kind = "float"
+label = "Wind Source 4 Persistence"
+type = "Float"
+
+[section.param.data]
+value = 0.5
+min = 0
+max = 1
 [[section.param]]
 id = "wind_source_3_gain"
 kind = "float"

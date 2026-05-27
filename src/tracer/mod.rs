@@ -87,7 +87,7 @@ impl From<WindSource> for WindSourceGpu {
                 source.pattern_scale,
                 source.octaves as f32,
                 source.lacunarity,
-                0.0,
+                source.persistence,
             ],
         }
     }
