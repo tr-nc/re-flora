@@ -7,7 +7,8 @@ use uuid::Uuid;
 const TREE_SILENT_VOLUME_DB: f32 = -80.0;
 const VOLUME_EPSILON: f32 = 0.01;
 const TREE_AUDIO_FULL_WIND_STRENGTH: f32 = 8.0;
-const TREE_AUDIO_RESPONSE_FLOOR: f32 = 0.02;
+const TREE_AUDIO_DECAY_RATE_MIN: f32 = 0.25;
+const TREE_AUDIO_DECAY_RATE_MAX: f32 = 8.0;
 
 /// Represents a single looping tree ambience source that can react to wind.
 #[allow(dead_code)]
@@ -17,8 +18,10 @@ pub struct TreeAudioSource {
     pub position: Vec3,
     pub cluster_size: u32,
     wind_volume_db: f32,
+    target_response: f32,
     current_response: f32,
     current_volume_db: f32,
+    last_update_time_seconds: Option<f32>,
     wind_response_curve: WindResponseCurve,
 }
 
@@ -37,8 +40,10 @@ impl TreeAudioSource {
             position,
             cluster_size,
             wind_volume_db,
+            target_response: 0.0,
             current_response: 0.0,
             current_volume_db: TREE_SILENT_VOLUME_DB,
+            last_update_time_seconds: None,
             wind_response_curve,
         }
     }
@@ -62,6 +67,10 @@ impl TreeAudioSource {
         self.apply_response_volume(self.current_response, spatial_sound_manager)
     }
 
+    pub fn target_response(&self) -> f32 {
+        self.target_response
+    }
+
     pub fn current_response(&self) -> f32 {
         self.current_response
     }
@@ -79,25 +88,43 @@ impl TreeAudioSource {
         wind: &Wind,
         time_seconds: f32,
         wind_sources: &[WindSource],
+        wind_audio_decay: f32,
         spatial_sound_manager: &SpatialSoundManager,
     ) -> Result<()> {
-        let normalized = Self::linear_sampled_wind_response(
-            wind.sample_sources(self.position, time_seconds, wind_sources).length(),
-            wind_sources,
+        let target_response = Self::linear_sampled_wind_response(
+            wind.sample_sources(self.position, time_seconds, wind_sources)
+                .length(),
         );
-        self.apply_response_volume(normalized, spatial_sound_manager)
+        let response = self.inertial_response(target_response, time_seconds, wind_audio_decay);
+        self.target_response = target_response;
+        self.last_update_time_seconds = Some(time_seconds);
+        self.apply_response_volume(response, spatial_sound_manager)
     }
 
-    fn linear_sampled_wind_response(sampled_strength: f32, wind_sources: &[WindSource]) -> f32 {
-        let has_active_wind = wind_sources
-            .iter()
-            .any(|source| source.strength.max(0.0) > f32::EPSILON);
-        if !has_active_wind {
-            return 0.0;
+    fn linear_sampled_wind_response(sampled_strength: f32) -> f32 {
+        (sampled_strength.max(0.0) / TREE_AUDIO_FULL_WIND_STRENGTH).clamp(0.0, 1.0)
+    }
+
+    fn inertial_response(
+        &self,
+        target_response: f32,
+        time_seconds: f32,
+        wind_audio_decay: f32,
+    ) -> f32 {
+        let target_response = target_response.clamp(0.0, 1.0);
+        let Some(last_update_time_seconds) = self.last_update_time_seconds else {
+            return target_response;
+        };
+        let delta_time = (time_seconds - last_update_time_seconds).max(0.0);
+        if delta_time <= f32::EPSILON {
+            return self.current_response;
         }
 
-        let linear = (sampled_strength.max(0.0) / TREE_AUDIO_FULL_WIND_STRENGTH).clamp(0.0, 1.0);
-        TREE_AUDIO_RESPONSE_FLOOR + linear * (1.0 - TREE_AUDIO_RESPONSE_FLOOR)
+        let decay_control = wind_audio_decay.clamp(0.0, 1.0);
+        let blend_rate = TREE_AUDIO_DECAY_RATE_MIN
+            + (TREE_AUDIO_DECAY_RATE_MAX - TREE_AUDIO_DECAY_RATE_MIN) * decay_control;
+        let alpha = 1.0 - (-blend_rate * delta_time).exp();
+        self.current_response + (target_response - self.current_response) * alpha
     }
 
     fn apply_response_volume(
@@ -113,7 +140,7 @@ impl TreeAudioSource {
             // response to scale perceived source amplitude linearly. Convert the
             // linear response into a dB offset instead of linearly interpolating
             // dB from silence, which made normal wind responses nearly inaudible.
-            self.wind_volume_db + 20.0 * response.log10()
+            (self.wind_volume_db + 20.0 * response.log10()).max(TREE_SILENT_VOLUME_DB)
         };
 
         self.current_response = response;

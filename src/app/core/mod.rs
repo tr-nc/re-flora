@@ -1897,10 +1897,11 @@ impl App {
                     self.update_growing_flora_chunk();
                 }
                 let active_wind_sources = self.gui_adjustables.active_wind_sources();
-                if let Err(err) = self
-                    .tree_audio_manager
-                    .update(time_since_start, &active_wind_sources)
-                {
+                if let Err(err) = self.tree_audio_manager.update(
+                    time_since_start,
+                    &active_wind_sources,
+                    self.gui_adjustables.wind_audio_decay.value,
+                ) {
                     log::warn!("Failed to update tree audio sources: {}", err);
                 }
                 if let Err(err) = self.spatial_sound_manager.pump_audio() {
@@ -2119,6 +2120,13 @@ impl App {
                                             self.gui_adjustables.tree_wind_volume_db.range.clone(),
                                         )
                                         .text("Tree Wind Volume (dB)"),
+                                    );
+                                    ui.add(
+                                        egui::Slider::new(
+                                            &mut self.gui_adjustables.wind_audio_decay.value,
+                                            self.gui_adjustables.wind_audio_decay.range.clone(),
+                                        )
+                                        .text("Wind Audio Decay (0 slow, 1 fast)"),
                                     );
                                     ui.checkbox(
                                         &mut self.gui_adjustables.audio_ray_tracing_enabled.value,

@@ -512,6 +512,13 @@ fn render_wind_sources_gui(ui: &mut egui::Ui, adjustables: &mut GuiAdjustables) 
         )
         .text("Sharpness"),
     );
+    ui.add(
+        egui::Slider::new(
+            &mut adjustables.wind_audio_decay.value,
+            adjustables.wind_audio_decay.range.clone(),
+        )
+        .text("Audio Decay (0 slow, 1 fast)"),
+    );
 
     if adjustables.wind_source_count.value == 0 {
         ui.label("No active wind sources.");
