@@ -92,6 +92,17 @@ value = 2
 min = 0
 max = 4
 
+
+[[section.param]]
+id = "wind_speed_to_strength_multiplier"
+kind = "float"
+label = "Speed to Strength Multiplier"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 8
 [[section.param]]
 id = "wind_sharpness"
 kind = "float"
@@ -153,17 +164,6 @@ type = "Float"
 value = 0.7
 min = 0
 max = 4
-
-[[section.param]]
-id = "wind_source_0_strength"
-kind = "float"
-label = "Wind Source 1 Strength"
-type = "Float"
-
-[section.param.data]
-value = 0.3
-min = 0
-max = 8
 
 [[section.param]]
 id = "wind_source_0_coverage"
@@ -272,17 +272,6 @@ min = 0
 max = 4
 
 [[section.param]]
-id = "wind_source_1_strength"
-kind = "float"
-label = "Wind Source 2 Strength"
-type = "Float"
-
-[section.param.data]
-value = 4
-min = 0
-max = 8
-
-[[section.param]]
 id = "wind_source_1_coverage"
 kind = "float"
 label = "Wind Source 2 Coverage"
@@ -389,17 +378,6 @@ min = 0
 max = 4
 
 [[section.param]]
-id = "wind_source_2_strength"
-kind = "float"
-label = "Wind Source 3 Strength"
-type = "Float"
-
-[section.param.data]
-value = 1.392
-min = 0
-max = 8
-
-[[section.param]]
 id = "wind_source_2_coverage"
 kind = "float"
 label = "Wind Source 3 Coverage"
@@ -504,17 +482,6 @@ type = "Float"
 value = 1.43
 min = 0
 max = 4
-
-[[section.param]]
-id = "wind_source_3_strength"
-kind = "float"
-label = "Wind Source 4 Strength"
-type = "Float"
-
-[section.param.data]
-value = 1.032
-min = 0
-max = 8
 
 [[section.param]]
 id = "wind_source_3_coverage"
