@@ -61,6 +61,18 @@ impl TreeAudioSource {
         self.apply_response_volume(self.current_response, spatial_sound_manager)
     }
 
+    pub fn current_response(&self) -> f32 {
+        self.current_response
+    }
+
+    pub fn current_volume_db(&self) -> f32 {
+        self.current_volume_db
+    }
+
+    pub fn wind_volume_db(&self) -> f32 {
+        self.wind_volume_db
+    }
+
     pub fn update(
         &mut self,
         wind: &Wind,
