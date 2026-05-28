@@ -1,0 +1,405 @@
+# Sampled Image Refactor Plan
+
+## Goal
+
+Fix macOS/MoltenVK descriptor-limit validation errors by converting read-only storage-image shader inputs to sampled images where appropriate.
+
+Branch: `agent/sampled-image-refactor`
+
+No separate worktree is used for this pass.
+
+## Background
+
+The latest macOS hidden run succeeds, but validation reports pipeline layout errors like:
+
+```text
+vkCreatePipelineLayout(): max per-stage storage image bindings count (22) exceeds device maxPerStageDescriptorStorageImages limit (8).
+vkCreatePipelineLayout(): max per-stage storage image bindings count (14) exceeds device maxPerStageDescriptorStorageImages limit (8).
+```
+
+On the tested Apple M4 Pro / MoltenVK path, relevant limits are:
+
+```text
+maxPerStageDescriptorSamplers       = 16
+maxPerStageDescriptorSampledImages  = 128
+maxPerStageDescriptorStorageImages  = 8
+```
+
+The renderer currently declares many read-only textures as GLSL `image*` objects:
+
+```glsl
+layout(..., r32ui) readonly uniform uimage2D some_tex;
+uint value = imageLoad(some_tex, uv).r;
+```
+
+Even with `readonly`, GLSL `image*` maps to `VK_DESCRIPTOR_TYPE_STORAGE_IMAGE`, so each binding counts against the small storage-image limit. Read-only texture inputs should generally use sampled-image descriptors instead:
+
+```glsl
+layout(set = ..., binding = ...) uniform usampler2D some_tex;
+uint value = texelFetch(some_tex, uv, 0).r;
+```
+
+Use `texelFetch`, not `texture`, for exact integer-coordinate reads that replace `imageLoad`.
+
+## Root Cause
+
+The renderer treats many read-only texture inputs as storage images. This is portable enough on GPUs with generous storage-image limits, but not on Apple/MoltenVK where `maxPerStageDescriptorStorageImages` is 8.
+
+The issue is descriptor classification, not simply texture count.
+
+## Goals
+
+- Bring every shader stage under the per-stage storage image limit on macOS/MoltenVK.
+- Preserve existing rendering behavior.
+- Keep exact texel addressing for denoiser and blue-noise reads.
+- Keep true read-write or write-only outputs as storage images.
+- Avoid large renderer architecture changes in this pass.
+- Leave benchmarks and validation evidence in this document after implementation.
+
+## Non-Goals
+
+- Do not redesign denoising, tracing, or composition algorithms.
+- Do not change texture formats unless validation requires it.
+- Do not claim performance improvements without release-mode measurements.
+- Do not split render passes unless sampled-image conversion is insufficient.
+
+## Initial Suspects
+
+Likely offending shaders:
+
+- `shader/tracer/tracer.comp`
+  - Declares scene texture, output images, blue-noise images, and full denoiser texture set as storage images.
+  - Some denoiser declarations appear unused by this shader and can be removed before conversion.
+- `shader/denoiser/temporal.comp`
+  - Reads many denoiser history/current textures and writes a smaller subset.
+- `shader/denoiser/spatial.comp`
+  - Reads many denoiser textures and writes ping-pong / accumulated outputs.
+
+Secondary candidates after the main errors are fixed:
+
+- `shader/tracer/god_ray.comp` blue-noise inputs.
+- `shader/tracer/composition.comp` read-only compute/depth/lens-flare inputs.
+- VSM blur/creation read-only inputs.
+
+## Implementation Plan
+
+### Step 0: Descriptor Inventory
+
+Produce a before/after count of storage-image and sampled-image descriptors per shader.
+
+Record at least:
+
+- shader path
+- storage image count
+- sampled image count
+- write-capable storage bindings
+- read-only storage bindings that can be converted
+
+Expected current high counts:
+
+```text
+shader/tracer/tracer.comp             storage images: ~22
+shader/denoiser/temporal.comp         storage images: ~14
+shader/denoiser/spatial.comp          storage images: ~14
+```
+
+Inventory helper added:
+
+```bash
+python3 scripts/descriptor_inventory.py \
+  shader/tracer/tracer.comp \
+  shader/denoiser/temporal.comp \
+  shader/denoiser/spatial.comp
+```
+
+Baseline source inventory:
+
+| shader | storage | sampled | storage read-only/dead | storage write-capable |
+| --- | ---: | ---: | ---: | ---: |
+| `shader/tracer/tracer.comp` | 22 | 1 | 15 | 7 |
+| `shader/denoiser/temporal.comp` | 14 | 0 | 12 | 2 |
+| `shader/denoiser/spatial.comp` | 14 | 0 | 11 | 3 |
+
+Step 0 status: done. This source-based inventory matches the validation-error scale and identifies the first cleanup targets.
+
+### Step 1: Remove Unused Storage Image Declarations
+
+Start with `shader/tracer/tracer.comp`.
+
+Keep only denoiser textures that are actually written by the trace pass, such as:
+
+- `compute_output_tex`
+- `compute_depth_tex`
+- `denoiser_normal_tex`
+- `denoiser_position_tex`
+- `denoiser_vox_id_tex`
+- `denoiser_motion_tex`
+- `denoiser_hit_tex`
+
+Remove declarations from `tracer.comp` that are not referenced by the shader body.
+
+This step should reduce descriptor pressure with minimal behavior risk.
+
+Step 1 status: done for `shader/tracer/tracer.comp`.
+
+After removing unused denoiser declarations from the trace shader:
+
+| shader | storage | sampled | storage read-only/dead | storage write-capable |
+| --- | ---: | ---: | ---: | ---: |
+| `shader/tracer/tracer.comp` | 14 | 1 | 7 | 7 |
+| `shader/denoiser/temporal.comp` | 14 | 0 | 12 | 2 |
+| `shader/denoiser/spatial.comp` | 14 | 0 | 11 | 3 |
+
+Validation run:
+
+```text
+cargo check
+```
+
+### Step 2: Convert Read-Only Storage Images to Sampled Images
+
+For exact read-only lookups, replace:
+
+```glsl
+layout(..., r32ui) readonly uniform uimage2D tex;
+imageLoad(tex, uv).r;
+```
+
+with:
+
+```glsl
+layout(set = ..., binding = ...) uniform usampler2D tex;
+texelFetch(tex, uv, 0).r;
+```
+
+Type mapping reminders:
+
+- unsigned integer images: `usampler2D`, `usampler3D`, `usampler2DArray`
+- signed integer images: `isampler*`
+- float/normalized images: `sampler*`
+- array coordinates for `sampler2DArray`: `ivec3(x, y, layer)` with `texelFetch`
+
+Good first targets:
+
+- blue-noise texture arrays in `shader/include/noise_tex.glsl`
+- read-only denoiser current/history textures in temporal/spatial passes
+- read-only depth/color inputs in post-denoiser passes if needed
+
+Step 2 status: done for the known offending trace/denoiser pipelines, plus the shared blue-noise declarations in `shader/tracer/god_ray.comp`.
+
+Current source inventory:
+
+| shader | storage | sampled | storage read-only/dead | storage write-capable |
+| --- | ---: | ---: | ---: | ---: |
+| `shader/tracer/tracer.comp` | 8 | 7 | 1 | 7 |
+| `shader/denoiser/temporal.comp` | 2 | 8 | 0 | 2 |
+| `shader/denoiser/spatial.comp` | 3 | 6 | 0 | 3 |
+| `shader/tracer/god_ray.comp` | 2 | 8 | 1 | 1 |
+
+Notes:
+
+- `tracer.comp` is now exactly at the macOS/MoltenVK storage-image limit of 8.
+- `temporal.comp` and `spatial.comp` are comfortably below the limit.
+- `god_ray.comp` was updated because it shares `shader/include/noise_tex.glsl`.
+- Remaining read-only storage images are candidates for later cleanup, but are not required for the first limit fix.
+
+### Step 3: Update Texture Usage Flags
+
+Any texture sampled in any shader must include:
+
+```rust
+vk::ImageUsageFlags::SAMPLED
+```
+
+Textures that are both written by one pass and sampled by another should include both:
+
+```rust
+vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::SAMPLED
+```
+
+Likely files:
+
+- `src/tracer/resources.rs`
+- `src/tracer/denoiser_resources.rs`
+
+Step 3 status: done.
+
+Updated:
+
+- blue-noise textures: `STORAGE | SAMPLED | TRANSFER_DST`
+- compute output/depth textures: `STORAGE | SAMPLED`
+- denoiser textures: existing usage plus `SAMPLED`
+
+Validation run:
+
+```text
+cargo check
+```
+
+### Step 4: Descriptor Layout / Auto Binding Compatibility
+
+Reflection should map `sampler*` declarations to `VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER` or sampled-image descriptors depending on SPIR-V reflection.
+
+Confirm the existing auto-binding path handles the reflected sampled descriptor type:
+
+- `crates/re-flora-vkn/src/shader/shader_module.rs`
+- `crates/re-flora-vkn/src/pipeline/descriptor_set_utils.rs`
+- `crates/re-flora-vkn/src/descriptor/descriptor_set.rs`
+
+Current `WriteDescriptorSet::new_texture_write` already receives `binding.descriptor_type`, so the main task should be shader/resource declaration alignment rather than new descriptor plumbing.
+
+Step 4 status: done.
+
+Evidence:
+
+- `cargo check` succeeds after sampler conversion, so shader compilation and SPIR-V reflection accept the sampled declarations.
+- Release hidden run succeeds and descriptor writes work at runtime.
+
+### Step 5: Layout Transition Follow-Up
+
+First implementation may keep sampled reads in `VK_IMAGE_LAYOUT_GENERAL` if that is already how the texture is transitioned and validation accepts it.
+
+After correctness is established, consider transitioning read-only sampled phases to:
+
+```rust
+vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL
+```
+
+Only do this as a follow-up if it remains small and safe. It may improve performance, but it is not required for the first descriptor-limit fix.
+
+Step 5 status: deferred. The descriptor-limit fix is validated with sampled descriptors still written using the existing `GENERAL` layout path.
+
+## Validation Plan
+
+Run after each meaningful step:
+
+```bash
+cargo fmt --check
+cargo check
+```
+
+Before handoff:
+
+```bash
+cargo fmt --check
+cargo check
+cargo test
+cargo run --release -- --hidden --auto-exit 0.5
+cargo run --release -- --tail-latest-log 200
+```
+
+Acceptance criteria:
+
+- No `maxPerStageDescriptorStorageImages` validation errors.
+- No other `[Validation]` errors introduced.
+- App exits successfully in hidden release run.
+- Denoiser/tracer output remains visually plausible.
+- Storage image count per offending shader is at or below 8 on macOS/MoltenVK.
+
+Validation status after implementation:
+
+```text
+cargo fmt --check
+cargo check
+cargo test
+cargo run --release -- --hidden --auto-exit 0.5
+cargo run --release -- --tail-latest-log 200
+```
+
+Results:
+
+- `cargo check`: pass
+- `cargo test`: pass, 57 tests
+- hidden release run: pass
+- latest validation-error grep: no `Validation`, `ERROR`, or `maxPerStageDescriptorStorageImages` lines
+- log: `target/re-flora-logs/re-flora-20260528-194704.067-803.log`
+
+## Benchmark Plan
+
+Use release-mode hidden runs. Debug builds and unit tests are not performance evidence.
+
+Suggested commands:
+
+```bash
+cargo run --release -- --hidden --auto-exit 4 --perf
+cargo run --release -- --tail-latest-log 200
+```
+
+Run enough repeats to separate real changes from noise, ideally 3 baseline runs and 3 post-change runs on the same machine/settings.
+
+Track:
+
+- total frame time
+- `gpu_present` / GPU-visible frame time if available
+- denoiser-related timing if available
+- any shader/pass timestamp data if instrumentation exists or is added
+- validation messages
+- visual correctness notes
+
+## Benchmark Results
+
+### Baseline
+
+- Date: 2026-05-28
+- Machine/GPU: Apple M4 Pro through MoltenVK
+- Commit: `dc25b3a6` (`remove unused tracer image bindings`), immediately before sampled-image conversion
+- Command(s): `cargo run --release -- --hidden --auto-exit 4 --perf`
+- Log path(s): `target/re-flora-logs/re-flora-20260528-195120.428-9774.log`
+- Storage image counts:
+  - `shader/tracer/tracer.comp`: 14 storage / 1 sampled
+  - `shader/denoiser/temporal.comp`: 14 storage / 0 sampled
+  - `shader/denoiser/spatial.comp`: 14 storage / 0 sampled
+- Frame/perf summary from the 4s `--perf` run, frames 180..256:
+  - total frame time: avg 25.23 ms, min 23.83 ms, max 26.85 ms
+  - `gpu_present`: avg 24.28 ms, min 22.81 ms, max 25.98 ms, after excluding 4 present/egui attribution outliers where `gpu_present < 5 ms`
+  - reported steady-state FPS samples: about 39 fps
+- Validation summary: `maxPerStageDescriptorStorageImages` validation errors present, 12 `Validation`/`ERROR` matching lines.
+- Visual notes: hidden run only.
+
+### After Refactor
+
+- Date: 2026-05-28
+- Machine/GPU: Apple M4 Pro through MoltenVK
+- Commit: `c2034967` (`convert read only image bindings to samplers`)
+- Command(s):
+  - `cargo run --release -- --hidden --auto-exit 0.5`
+  - `cargo run --release -- --hidden --auto-exit 4 --perf`
+- Log path(s):
+  - `target/re-flora-logs/re-flora-20260528-194704.067-803.log`
+  - `target/re-flora-logs/re-flora-20260528-194805.773-3682.log`
+- Storage image counts:
+  - `shader/tracer/tracer.comp`: 8 storage / 7 sampled
+  - `shader/denoiser/temporal.comp`: 2 storage / 8 sampled
+  - `shader/denoiser/spatial.comp`: 3 storage / 6 sampled
+  - `shader/tracer/god_ray.comp`: 2 storage / 8 sampled
+- Frame/perf summary from the 4s `--perf` run, frames 180..260:
+  - total frame time: avg 24.74 ms, min 23.90 ms, max 25.96 ms
+  - `gpu_present`: avg 23.82 ms, min 22.54 ms, max 25.04 ms
+  - reported steady-state FPS samples: about 40 fps
+- Validation summary: no `Validation`, `ERROR`, or `maxPerStageDescriptorStorageImages` lines in the post-refactor logs.
+- Visual notes: hidden run only; no screenshot/interactive visual pass captured.
+
+### Comparison
+
+Single-run immediate before/after comparison:
+
+| metric | baseline | after | delta |
+| --- | ---: | ---: | ---: |
+| total frame avg | 25.23 ms | 24.74 ms | -0.49 ms / -1.9% |
+| `gpu_present` avg | 24.28 ms | 23.82 ms | -0.46 ms / -1.9% |
+| steady FPS samples | ~39 fps | ~40 fps | +~1 fps |
+| validation errors | present | none | fixed |
+
+- GPU/pass timing delta: no pass-level timestamp instrumentation in this pass.
+- Validation delta: storage-image descriptor-limit validation errors removed.
+- Known caveats:
+  - This is one baseline run and one after run; treat the small performance improvement as within/noise-adjacent unless repeated runs confirm it.
+  - The baseline run emitted Vulkan validation errors, which may add some overhead.
+  - Current sampled descriptor writes still use `VK_IMAGE_LAYOUT_GENERAL`; `SHADER_READ_ONLY_OPTIMAL` remains a follow-up.
+
+## Open Questions
+
+- Answered: SPIR-V reflection and automatic descriptor writes handle the converted `sampler*` declarations in the affected shaders.
+- Answered for this pass: converted reads use `texelFetch` to preserve exact integer texel addressing.
+- Still open: should `scene_tex` reads become sampled in a later hygiene pass? It is not required for the current macOS limit fix.
+- Still open: transition read-only sampled phases to `SHADER_READ_ONLY_OPTIMAL` in a separate follow-up.

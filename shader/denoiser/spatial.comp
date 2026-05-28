@@ -18,19 +18,14 @@ layout(set = 0, binding = 0) uniform U_SpatialInfo {
 }
 spatial_info;
 
-layout(set = 1, binding = 0, r32f) readonly uniform image2D compute_depth_tex;
+layout(set = 1, binding = 0) uniform sampler2D compute_depth_tex;
 
-layout(set = 2, binding = 0, r32ui) uniform uimage2D denoiser_normal_tex;
-layout(set = 2, binding = 1, r32ui) uniform uimage2D denoiser_normal_tex_prev;
-layout(set = 2, binding = 2, rgba32f) uniform image2D denoiser_position_tex;
-layout(set = 2, binding = 3, rgba32f) uniform image2D denoiser_position_tex_prev;
-layout(set = 2, binding = 4, r32ui) uniform uimage2D denoiser_vox_id_tex;
-layout(set = 2, binding = 5, r32ui) uniform uimage2D denoiser_vox_id_tex_prev;
+layout(set = 2, binding = 0) uniform usampler2D denoiser_normal_tex;
+layout(set = 2, binding = 2) uniform sampler2D denoiser_position_tex;
+layout(set = 2, binding = 4) uniform usampler2D denoiser_vox_id_tex;
 layout(set = 2, binding = 6, r32ui) uniform uimage2D denoiser_accumed_tex;
-layout(set = 2, binding = 7, r32ui) uniform uimage2D denoiser_accumed_tex_prev;
-layout(set = 2, binding = 8, rg16f) uniform image2D denoiser_motion_tex;
-layout(set = 2, binding = 9, r8ui) uniform uimage2D denoiser_temporal_hist_len_tex;
-layout(set = 2, binding = 10, r8ui) uniform uimage2D denoiser_hit_tex;
+layout(set = 2, binding = 9) uniform usampler2D denoiser_temporal_hist_len_tex;
+layout(set = 2, binding = 10) uniform usampler2D denoiser_hit_tex;
 layout(set = 2, binding = 11, r11f_g11f_b10f) uniform image2D denoiser_spatial_ping_tex;
 layout(set = 2, binding = 12, r11f_g11f_b10f) uniform image2D denoiser_spatial_pong_tex;
 
@@ -40,13 +35,13 @@ const float WAVELET_FAC = 0.5;
 const float KERNEL3x3[2][2] =
     float[2][2](float[2](1.0, WAVELET_FAC), float[2](WAVELET_FAC, WAVELET_FAC *WAVELET_FAC));
 
-ivec2 img_size() { return imageSize(denoiser_normal_tex); }
+ivec2 img_size() { return textureSize(denoiser_normal_tex, 0); }
 
 void load_from_pingpong(out vec3 n, out vec3 c, out vec3 p, ivec2 uv, uint iter) {
-    n = unpack_normal_v2(imageLoad(denoiser_normal_tex, uv).x);
+    n = unpack_normal_v2(texelFetch(denoiser_normal_tex, uv, 0).x);
     c = (iter % 2u == 0u) ? imageLoad(denoiser_spatial_ping_tex, uv).rgb
                           : imageLoad(denoiser_spatial_pong_tex, uv).rgb;
-    p = imageLoad(denoiser_position_tex, uv).xyz;
+    p = texelFetch(denoiser_position_tex, uv, 0).xyz;
 }
 
 void save_to_pingpong(ivec2 uv, vec3 col, uint iter) {
@@ -72,7 +67,7 @@ void blur_kernel(inout float w_sum, inout vec3 c_sum, ivec2 base_uv, ivec2 off, 
 
     ivec2 size = img_size();
     if (any(lessThan(s_uv, ivec2(0))) || any(greaterThanEqual(s_uv, size)) ||
-        imageLoad(denoiser_hit_tex, s_uv).x == 0u)
+        texelFetch(denoiser_hit_tex, s_uv, 0).x == 0u)
         return;
 
     vec3 n_s, c_s, p_s;
@@ -89,9 +84,9 @@ void blur_kernel(inout float w_sum, inout vec3 c_sum, ivec2 base_uv, ivec2 off, 
     float w_z           = 1.0;
     if (depth_falloff > spatial_info.min_phi_z) {
         bool same_vox =
-            imageLoad(denoiser_vox_id_tex, base_uv).x == imageLoad(denoiser_vox_id_tex, s_uv).x;
+            texelFetch(denoiser_vox_id_tex, base_uv, 0).x == texelFetch(denoiser_vox_id_tex, s_uv, 0).x;
         if (!same_vox) {
-            float hist = float(imageLoad(denoiser_temporal_hist_len_tex, base_uv).x);
+            float hist = float(texelFetch(denoiser_temporal_hist_len_tex, base_uv, 0).x);
             float dist_w =
                 smoothstep(spatial_info.min_phi_z,
                            max(spatial_info.min_phi_z, spatial_info.max_phi_z), depth_falloff);
@@ -107,7 +102,7 @@ void blur_kernel(inout float w_sum, inout vec3 c_sum, ivec2 base_uv, ivec2 off, 
 
 void main() {
     ivec2 uv = ivec2(gl_GlobalInvocationID.xy);
-    if (any(greaterThanEqual(uv, img_size())) || imageLoad(denoiser_hit_tex, uv).x == 0u) return;
+    if (any(greaterThanEqual(uv, img_size())) || texelFetch(denoiser_hit_tex, uv, 0).x == 0u) return;
 
     uint iter = pc.iteration;
 
@@ -122,7 +117,7 @@ void main() {
     vec3 n_c, c_c, p_c;
     load_from_pingpong(n_c, c_c, p_c, uv, iter);
     float lum_c   = lum(c_c);
-    float depth_c = imageLoad(compute_depth_tex, uv).x;
+    float depth_c = texelFetch(compute_depth_tex, uv, 0).x;
 
     const int R = 1;
     float w_sum = 0.0;

@@ -90,7 +90,7 @@ impl DenoiserResources {
             let tex_desc = ImageDesc {
                 extent: rendering_extent.into(),
                 format,
-                usage,
+                usage: usage | vk::ImageUsageFlags::SAMPLED,
                 initial_layout: vk::ImageLayout::UNDEFINED,
                 aspect: vk::ImageAspectFlags::COLOR,
                 ..Default::default()

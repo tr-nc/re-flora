@@ -9,31 +9,27 @@ layout(set = 0, binding = 0) uniform U_TemporalInfo {
     float temporal_alpha;
 }
 temporal_info;
-layout(set = 0, binding = 1, r32ui) uniform uimage2D compute_output_tex;
+layout(set = 0, binding = 1) uniform usampler2D compute_output_tex;
 
-layout(set = 1, binding = 0, r32ui) uniform uimage2D denoiser_normal_tex;
-layout(set = 1, binding = 1, r32ui) uniform uimage2D denoiser_normal_tex_prev;
-layout(set = 1, binding = 2, rgba32f) uniform image2D denoiser_position_tex;
-layout(set = 1, binding = 3, rgba32f) uniform image2D denoiser_position_tex_prev;
-layout(set = 1, binding = 4, r32ui) uniform uimage2D denoiser_vox_id_tex;
-layout(set = 1, binding = 5, r32ui) uniform uimage2D denoiser_vox_id_tex_prev;
-layout(set = 1, binding = 6, r32ui) uniform uimage2D denoiser_accumed_tex;
-layout(set = 1, binding = 7, r32ui) uniform uimage2D denoiser_accumed_tex_prev;
-layout(set = 1, binding = 8, rg16f) uniform image2D denoiser_motion_tex;
+layout(set = 1, binding = 0) uniform usampler2D denoiser_normal_tex;
+layout(set = 1, binding = 1) uniform usampler2D denoiser_normal_tex_prev;
+layout(set = 1, binding = 2) uniform sampler2D denoiser_position_tex;
+layout(set = 1, binding = 3) uniform sampler2D denoiser_position_tex_prev;
+layout(set = 1, binding = 7) uniform usampler2D denoiser_accumed_tex_prev;
+layout(set = 1, binding = 8) uniform sampler2D denoiser_motion_tex;
 layout(set = 1, binding = 9, r8ui) uniform uimage2D denoiser_temporal_hist_len_tex;
-layout(set = 1, binding = 10, r8ui) uniform uimage2D denoiser_hit_tex;
+layout(set = 1, binding = 10) uniform usampler2D denoiser_hit_tex;
 layout(set = 1, binding = 11, r11f_g11f_b10f) uniform image2D denoiser_spatial_ping_tex;
-layout(set = 1, binding = 12, r11f_g11f_b10f) uniform image2D denoiser_spatial_pong_tex;
 
 #include "../include/core/packer.glsl"
 
-ivec2 img_size() { return imageSize(denoiser_normal_tex); }
+ivec2 img_size() { return textureSize(denoiser_normal_tex, 0); }
 
 vec3 fetch_accum_color(ivec2 uv, ivec2 size) {
     if (any(lessThan(uv, ivec2(0))) || any(greaterThanEqual(uv, size))) {
         return vec3(0.0);
     }
-    return unpack_rgbe(imageLoad(denoiser_accumed_tex_prev, uv).x);
+    return unpack_rgbe(texelFetch(denoiser_accumed_tex_prev, uv, 0).x);
 }
 
 bool is_consistent(vec3 n, vec3 n_prev, vec3 p, vec3 p_prev) {
@@ -49,11 +45,11 @@ void main() {
         return;
     }
 
-    if (imageLoad(denoiser_hit_tex, uv).x == 0u) {
+    if (texelFetch(denoiser_hit_tex, uv, 0).x == 0u) {
         return;
     }
 
-    vec2 motion = imageLoad(denoiser_motion_tex, uv).xy * vec2(size);
+    vec2 motion = texelFetch(denoiser_motion_tex, uv, 0).xy * vec2(size);
     vec2 p_uv   = vec2(uv) + motion;
 
     vec2 base_uv_f = floor(p_uv);
@@ -70,13 +66,13 @@ void main() {
     float sum_hist = 0.0;
     vec3 sum_color = vec3(0.0);
 
-    vec3 cur_normal   = unpack_normal_v2(imageLoad(denoiser_normal_tex, uv).x);
-    vec3 cur_position = imageLoad(denoiser_position_tex, uv).xyz;
+    vec3 cur_normal   = unpack_normal_v2(texelFetch(denoiser_normal_tex, uv, 0).x);
+    vec3 cur_position = texelFetch(denoiser_position_tex, uv, 0).xyz;
 
     for (int i = 0; i < 4; ++i) {
         ivec2 tap_uv     = ivec2(base_uv_f) + OFF[i];
-        vec3 prev_normal = unpack_normal_v2(imageLoad(denoiser_normal_tex_prev, tap_uv).x);
-        vec3 prev_pos    = imageLoad(denoiser_position_tex_prev, tap_uv).xyz;
+        vec3 prev_normal = unpack_normal_v2(texelFetch(denoiser_normal_tex_prev, tap_uv, 0).x);
+        vec3 prev_pos    = texelFetch(denoiser_position_tex_prev, tap_uv, 0).xyz;
 
         if (is_consistent(cur_normal, prev_normal, cur_position, prev_pos)) {
             sum_color += w[i] * fetch_accum_color(tap_uv, size);
@@ -85,7 +81,7 @@ void main() {
         }
     }
 
-    vec3 raw_color = unpack_rgbe(imageLoad(compute_output_tex, uv).x);
+    vec3 raw_color = unpack_rgbe(texelFetch(compute_output_tex, uv, 0).x);
 
     float hist_len;
     vec3 out_color;

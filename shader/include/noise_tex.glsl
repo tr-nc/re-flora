@@ -16,17 +16,17 @@ ivec3 get_seed(uint frame_serial_idx) {
 }
 
 // range (0, 1)
-float random_float_bn(ivec3 seed) { return imageLoad(scalar_bn, seed).r; }
+float random_float_bn(ivec3 seed) { return texelFetch(scalar_bn, seed, 0).r; }
 
 // range (-1, 1) in 2 components
-vec2 random_unit_vec2_bn(ivec3 seed) { return imageLoad(unit_vec2_bn, seed).rg * 2.0 - 1.0; }
+vec2 random_unit_vec2_bn(ivec3 seed) { return texelFetch(unit_vec2_bn, seed, 0).rg * 2.0 - 1.0; }
 
 // range (-1, 1) in 3 components
-vec3 random_unit_vec3_bn(ivec3 seed) { return imageLoad(fast_unit_vec3_bn, seed).rgb * 2.0 - 1.0; }
+vec3 random_unit_vec3_bn(ivec3 seed) { return texelFetch(fast_unit_vec3_bn, seed, 0).rgb * 2.0 - 1.0; }
 
 // range (-1, 1) in x and y, range (0, 1) in z
 vec3 random_weighted_cosine_bn(ivec3 seed) {
-    return imageLoad(fast_weighted_cosine_bn, seed).rgb * 2.0 - 1.0;
+    return texelFetch(fast_weighted_cosine_bn, seed, 0).rgb * 2.0 - 1.0;
 }
 
 #endif // NOISE_TEX_GLSL
