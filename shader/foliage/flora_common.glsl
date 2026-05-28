@@ -90,8 +90,10 @@ void prepare_flora_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_l
         wind_offset += grass_wind_vibration(wind_vec, wind_gradient, instance_seed, vox_local_pos,
                                             pc.time);
     } else if (instance_ty == FLORA_SPECIES_TREE_LEAF) {
+        float leaf_motion_time =
+            wind_volume_bucketed_time(get_wind_volume_bucket_index(wind_seed), pc.time);
         wind_offset += leaf_wind_paddling(wind_vec, wind_gradient, instance_seed, vox_local_pos,
-                                          gradient_origin, pc.time);
+                                          gradient_origin, leaf_motion_time);
     }
     vec2 player_delta = instance_pos.xz - camera_info.pos.xz;
     float player_dist = length(player_delta);
