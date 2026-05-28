@@ -115,18 +115,18 @@ The shader currently knows the sampled wind bucket through the seed-to-bucket fu
 - pass the current wind bucket index and bucket timing data through uniforms/push constants; or
 - derive equivalent bucket timing from `pc.time`, world tick seconds, and bucket count in shader.
 
-The second approach avoids extra state if the render-time and wind-volume update-time formulas stay identical. The first approach is more explicit and less fragile.
+Implemented choice: derive bucket timing in shader from `pc.time`, `gui_input.world_tick_seconds`, and the wind volume bucket count. This avoids adding per-pass push-constant state while keeping leaf vibration aligned with the wind volume bucket cadence.
 
 ## Progress Checklist
 
 - [x] Document plan and expected semantics.
-- [ ] Expose vibration controls in GUI config.
-- [ ] Add GUI uniform fields and Rust plumbing.
-- [ ] Replace hard-coded vibration constants.
-- [ ] Implement tree leaf per-voxel wind bucket selection without changing grass.
-- [ ] Implement bucket-aware leaf vibration timing.
-- [ ] Keep main and shadow leaf passes visually consistent.
-- [ ] Run `cargo check` and include generated outputs.
+- [x] Expose vibration controls in GUI config.
+- [x] Add GUI uniform fields and Rust plumbing.
+- [x] Replace hard-coded vibration constants.
+- [x] Implement tree leaf per-voxel wind bucket selection without changing grass.
+- [x] Implement bucket-aware leaf vibration timing.
+- [x] Keep main and shadow leaf passes visually consistent.
+- [x] Run `cargo check` and include generated outputs.
 - [ ] Validate with a hidden release run if the change reaches runtime testing.
 
 ## Non-goals
