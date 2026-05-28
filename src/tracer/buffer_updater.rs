@@ -234,6 +234,12 @@ impl BufferUpdater {
         ocean_sea_level_shift: f32,
         lens_flare_intensity: f32,
         lens_flare_sun_pixel_scale: f32,
+        grass_vibration_amplitude_voxels: f32,
+        grass_vibration_primary_speed: f32,
+        grass_vibration_secondary_speed: f32,
+        leaf_paddle_amplitude_voxels: f32,
+        leaf_paddle_primary_speed: f32,
+        leaf_paddle_secondary_speed: f32,
         wind_gui_params: WindGuiParams,
     ) -> Result<()> {
         let wind_source_count = wind_gui_params.sources.len() as u32;
@@ -267,6 +273,12 @@ impl BufferUpdater {
             lens_flare_intensity,
             lens_flare_sun_pixel_scale,
             wind_source_count,
+            grass_vibration_amplitude_voxels,
+            grass_vibration_primary_speed,
+            grass_vibration_secondary_speed,
+            leaf_paddle_amplitude_voxels,
+            leaf_paddle_primary_speed,
+            leaf_paddle_secondary_speed,
             ..GuiInput::zeroed()
         })
     }

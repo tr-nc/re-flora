@@ -433,7 +433,12 @@ pub struct GuiInput {
     pub lens_flare_intensity: f32,
     pub lens_flare_sun_pixel_scale: f32,
     pub wind_source_count: u32,
-    pub _pad8: [u8; 8],
+    pub grass_vibration_amplitude_voxels: f32,
+    pub grass_vibration_primary_speed: f32,
+    pub grass_vibration_secondary_speed: f32,
+    pub leaf_paddle_amplitude_voxels: f32,
+    pub leaf_paddle_primary_speed: f32,
+    pub leaf_paddle_secondary_speed: f32,
 }
 
 /// Auto-generated from `U_InstancesToOccupancyInfo` (GLSL source of truth).
