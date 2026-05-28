@@ -646,6 +646,8 @@ impl Tracer {
             voxel_color_variance,
         )?;
 
+        self.world_tick_seconds = crate::game_time::clamp_world_tick_seconds(world_tick_seconds);
+
         self.ensure_wind_source_buffer_capacity(wind_gui_params.sources.len())?;
         BufferUpdater::update_gui_input(
             &self.resources,
@@ -666,6 +668,7 @@ impl Tracer {
             ocean_sea_level_shift,
             lens_flare_intensity,
             lens_flare_sun_pixel_scale,
+            self.world_tick_seconds,
             grass_vibration_amplitude_voxels,
             grass_vibration_primary_speed,
             grass_vibration_secondary_speed,
@@ -674,8 +677,6 @@ impl Tracer {
             leaf_paddle_secondary_speed,
             wind_gui_params,
         )?;
-
-        self.world_tick_seconds = crate::game_time::clamp_world_tick_seconds(world_tick_seconds);
 
         BufferUpdater::update_flora_growth_info(
             &self.resources,
