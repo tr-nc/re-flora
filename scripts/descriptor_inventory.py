@@ -17,8 +17,9 @@ from pathlib import Path
 
 DECL_RE = re.compile(
     r"layout\s*\((?P<layout>[^)]*)\)\s*"
-    r"(?P<qualifiers>(?:(?:readonly|writeonly|coherent|volatile|restrict)\s+)*)"
+    r"(?P<pre_qualifiers>(?:(?:readonly|writeonly|coherent|volatile|restrict)\s+)*)"
     r"uniform\s+"
+    r"(?P<post_qualifiers>(?:(?:readonly|writeonly|coherent|volatile|restrict)\s+)*)"
     r"(?P<ty>[iu]?image\w+|[iu]?sampler\w+)\s+"
     r"(?P<name>\w+)\s*;"
 )
@@ -102,7 +103,9 @@ def inventory_shader(path: Path) -> list[DescriptorDecl]:
     for match in DECL_RE.finditer(text):
         ty = match.group("ty")
         descriptor_class = "storage" if "image" in ty else "sampled"
-        qualifiers = " ".join(match.group("qualifiers").split())
+        qualifiers = " ".join(
+            (match.group("pre_qualifiers") + match.group("post_qualifiers")).split()
+        )
         name = match.group("name")
         decls.append(
             DescriptorDecl(

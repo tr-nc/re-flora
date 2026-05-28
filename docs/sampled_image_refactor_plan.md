@@ -185,6 +185,24 @@ Good first targets:
 - read-only denoiser current/history textures in temporal/spatial passes
 - read-only depth/color inputs in post-denoiser passes if needed
 
+Step 2 status: done for the known offending trace/denoiser pipelines, plus the shared blue-noise declarations in `shader/tracer/god_ray.comp`.
+
+Current source inventory:
+
+| shader | storage | sampled | storage read-only/dead | storage write-capable |
+| --- | ---: | ---: | ---: | ---: |
+| `shader/tracer/tracer.comp` | 8 | 7 | 1 | 7 |
+| `shader/denoiser/temporal.comp` | 2 | 8 | 0 | 2 |
+| `shader/denoiser/spatial.comp` | 3 | 6 | 0 | 3 |
+| `shader/tracer/god_ray.comp` | 2 | 8 | 1 | 1 |
+
+Notes:
+
+- `tracer.comp` is now exactly at the macOS/MoltenVK storage-image limit of 8.
+- `temporal.comp` and `spatial.comp` are comfortably below the limit.
+- `god_ray.comp` was updated because it shares `shader/include/noise_tex.glsl`.
+- Remaining read-only storage images are candidates for later cleanup, but are not required for the first limit fix.
+
 ### Step 3: Update Texture Usage Flags
 
 Any texture sampled in any shader must include:
@@ -203,6 +221,20 @@ Likely files:
 
 - `src/tracer/resources.rs`
 - `src/tracer/denoiser_resources.rs`
+
+Step 3 status: done.
+
+Updated:
+
+- blue-noise textures: `STORAGE | SAMPLED | TRANSFER_DST`
+- compute output/depth textures: `STORAGE | SAMPLED`
+- denoiser textures: existing usage plus `SAMPLED`
+
+Validation run:
+
+```text
+cargo check
+```
 
 ### Step 4: Descriptor Layout / Auto Binding Compatibility
 

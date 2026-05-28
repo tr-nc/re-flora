@@ -641,7 +641,9 @@ impl TracerResources {
                 extent: Extent3D::new(128, 128, 1),
                 array_len: BLUE_NOISE_LEN,
                 format,
-                usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
+                usage: vk::ImageUsageFlags::STORAGE
+                    | vk::ImageUsageFlags::SAMPLED
+                    | vk::ImageUsageFlags::TRANSFER_DST,
                 initial_layout: vk::ImageLayout::UNDEFINED,
                 aspect: vk::ImageAspectFlags::COLOR,
                 ..Default::default()

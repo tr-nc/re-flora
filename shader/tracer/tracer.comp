@@ -69,12 +69,12 @@ voxel_colors;
 layout(set = 1, binding = 0, r32ui) writeonly uniform uimage2D compute_output_tex;
 layout(set = 1, binding = 1, r32f) writeonly uniform image2D compute_depth_tex;
 
-layout(set = 2, binding = 0, r8) readonly uniform image2DArray scalar_bn;
-layout(set = 2, binding = 1, rg8) readonly uniform image2DArray unit_vec2_bn;
-layout(set = 2, binding = 2, rgba8) readonly uniform image2DArray unit_vec3_bn;
-layout(set = 2, binding = 3, rgba8) readonly uniform image2DArray weighted_cosine_bn;
-layout(set = 2, binding = 4, rgba8) readonly uniform image2DArray fast_unit_vec3_bn;
-layout(set = 2, binding = 5, rgba8) readonly uniform image2DArray fast_weighted_cosine_bn;
+layout(set = 2, binding = 0) uniform sampler2DArray scalar_bn;
+layout(set = 2, binding = 1) uniform sampler2DArray unit_vec2_bn;
+layout(set = 2, binding = 2) uniform sampler2DArray unit_vec3_bn;
+layout(set = 2, binding = 3) uniform sampler2DArray weighted_cosine_bn;
+layout(set = 2, binding = 4) uniform sampler2DArray fast_unit_vec3_bn;
+layout(set = 2, binding = 5) uniform sampler2DArray fast_weighted_cosine_bn;
 #include "../include/noise_tex.glsl"
 
 layout(set = 3, binding = 0, r32ui) uniform uimage2D denoiser_normal_tex;
