@@ -248,6 +248,13 @@ Confirm the existing auto-binding path handles the reflected sampled descriptor 
 
 Current `WriteDescriptorSet::new_texture_write` already receives `binding.descriptor_type`, so the main task should be shader/resource declaration alignment rather than new descriptor plumbing.
 
+Step 4 status: done.
+
+Evidence:
+
+- `cargo check` succeeds after sampler conversion, so shader compilation and SPIR-V reflection accept the sampled declarations.
+- Release hidden run succeeds and descriptor writes work at runtime.
+
 ### Step 5: Layout Transition Follow-Up
 
 First implementation may keep sampled reads in `VK_IMAGE_LAYOUT_GENERAL` if that is already how the texture is transitioned and validation accepts it.
@@ -259,6 +266,8 @@ vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL
 ```
 
 Only do this as a follow-up if it remains small and safe. It may improve performance, but it is not required for the first descriptor-limit fix.
+
+Step 5 status: deferred. The descriptor-limit fix is validated with sampled descriptors still written using the existing `GENERAL` layout path.
 
 ## Validation Plan
 
@@ -287,6 +296,24 @@ Acceptance criteria:
 - Denoiser/tracer output remains visually plausible.
 - Storage image count per offending shader is at or below 8 on macOS/MoltenVK.
 
+Validation status after implementation:
+
+```text
+cargo fmt --check
+cargo check
+cargo test
+cargo run --release -- --hidden --auto-exit 0.5
+cargo run --release -- --tail-latest-log 200
+```
+
+Results:
+
+- `cargo check`: pass
+- `cargo test`: pass, 57 tests
+- hidden release run: pass
+- latest validation-error grep: no `Validation`, `ERROR`, or `maxPerStageDescriptorStorageImages` lines
+- log: `target/re-flora-logs/re-flora-20260528-194704.067-803.log`
+
 ## Benchmark Plan
 
 Use release-mode hidden runs. Debug builds and unit tests are not performance evidence.
@@ -311,42 +338,56 @@ Track:
 
 ## Benchmark Results
 
-Fill this after implementation.
-
 ### Baseline
 
-- Date:
-- Machine/GPU:
-- Commit:
-- Command(s):
-- Log path(s):
+- Date: 2026-05-28
+- Machine/GPU: Apple M4 Pro through MoltenVK
+- Commit: before this branch's sampled-image changes
+- Command(s): `cargo run --release -- --hidden --auto-exit 0.5`
+- Log path(s): `target/re-flora-logs/re-flora-20260528-173626.398-5621.log`
 - Storage image counts:
-- Frame/perf summary:
-- Validation summary:
-- Visual notes:
+  - `shader/tracer/tracer.comp`: 22 storage / 1 sampled
+  - `shader/denoiser/temporal.comp`: 14 storage / 0 sampled
+  - `shader/denoiser/spatial.comp`: 14 storage / 0 sampled
+- Frame/perf summary: no comparable `--perf` baseline captured before the refactor.
+- Validation summary: `maxPerStageDescriptorStorageImages` validation errors present.
+- Visual notes: hidden run only.
 
 ### After Refactor
 
-- Date:
-- Machine/GPU:
-- Commit:
+- Date: 2026-05-28
+- Machine/GPU: Apple M4 Pro through MoltenVK
+- Commit: `c2034967` (`convert read only image bindings to samplers`)
 - Command(s):
+  - `cargo run --release -- --hidden --auto-exit 0.5`
+  - `cargo run --release -- --hidden --auto-exit 4 --perf`
 - Log path(s):
+  - `target/re-flora-logs/re-flora-20260528-194704.067-803.log`
+  - `target/re-flora-logs/re-flora-20260528-194805.773-3682.log`
 - Storage image counts:
-- Frame/perf summary:
-- Validation summary:
-- Visual notes:
+  - `shader/tracer/tracer.comp`: 8 storage / 7 sampled
+  - `shader/denoiser/temporal.comp`: 2 storage / 8 sampled
+  - `shader/denoiser/spatial.comp`: 3 storage / 6 sampled
+  - `shader/tracer/god_ray.comp`: 2 storage / 8 sampled
+- Frame/perf summary from the 4s `--perf` run, frames 180..260:
+  - total frame time: avg 24.74 ms, min 23.90 ms, max 25.96 ms
+  - `gpu_present`: avg 23.82 ms, min 22.54 ms, max 25.04 ms
+  - reported steady-state FPS samples: about 40 fps
+- Validation summary: no `Validation`, `ERROR`, or `maxPerStageDescriptorStorageImages` lines in the post-refactor logs.
+- Visual notes: hidden run only; no screenshot/interactive visual pass captured.
 
 ### Comparison
 
-- Frame time delta:
-- GPU/pass timing delta:
-- Validation delta:
+- Frame time delta: not computed; no matching `--perf` baseline was captured before code changes.
+- GPU/pass timing delta: not computed; no pass-level timestamp instrumentation in this pass.
+- Validation delta: storage-image descriptor-limit validation errors removed.
 - Known caveats:
+  - A proper performance comparison still needs repeated before/after runs from adjacent commits or branches.
+  - Current sampled descriptor writes still use `VK_IMAGE_LAYOUT_GENERAL`; `SHADER_READ_ONLY_OPTIMAL` remains a follow-up.
 
 ## Open Questions
 
-- Does SPIR-V reflection report GLSL `sampler*` as `COMBINED_IMAGE_SAMPLER` in all affected shaders?
-- Can all sampled replacements safely use `texelFetch`, or do any current reads rely on storage-image-specific format behavior?
-- Should scene texture reads become sampled in this pass, or only if needed after denoiser/blue-noise cleanup?
-- Should read-only sampled resources transition to `SHADER_READ_ONLY_OPTIMAL` immediately or in a separate follow-up?
+- Answered: SPIR-V reflection and automatic descriptor writes handle the converted `sampler*` declarations in the affected shaders.
+- Answered for this pass: converted reads use `texelFetch` to preserve exact integer texel addressing.
+- Still open: should `scene_tex` reads become sampled in a later hygiene pass? It is not required for the current macOS limit fix.
+- Still open: transition read-only sampled phases to `SHADER_READ_ONLY_OPTIMAL` in a separate follow-up.
