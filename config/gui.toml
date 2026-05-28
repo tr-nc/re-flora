@@ -115,6 +115,72 @@ min = 0
 max = 1
 
 [[section.param]]
+id = "grass_vibration_amplitude_voxels"
+kind = "float"
+label = "Grass Vibration Amplitude (voxels)"
+type = "Float"
+
+[section.param.data]
+value = 0.3
+min = 0
+max = 2
+
+[[section.param]]
+id = "grass_vibration_primary_speed"
+kind = "float"
+label = "Grass Vibration Primary Speed"
+type = "Float"
+
+[section.param.data]
+value = 31
+min = 0
+max = 80
+
+[[section.param]]
+id = "grass_vibration_secondary_speed"
+kind = "float"
+label = "Grass Vibration Secondary Speed"
+type = "Float"
+
+[section.param.data]
+value = 47
+min = 0
+max = 120
+
+[[section.param]]
+id = "leaf_paddle_amplitude_voxels"
+kind = "float"
+label = "Leaf Paddle Amplitude (voxels)"
+type = "Float"
+
+[section.param.data]
+value = 0.8
+min = 0
+max = 3
+
+[[section.param]]
+id = "leaf_paddle_primary_speed"
+kind = "float"
+label = "Leaf Paddle Primary Speed"
+type = "Float"
+
+[section.param.data]
+value = 9
+min = 0
+max = 40
+
+[[section.param]]
+id = "leaf_paddle_secondary_speed"
+kind = "float"
+label = "Leaf Paddle Secondary Speed"
+type = "Float"
+
+[section.param.data]
+value = 15
+min = 0
+max = 60
+
+[[section.param]]
 id = "wind_source_0_name"
 kind = "string"
 label = "Wind Source 1 Name"

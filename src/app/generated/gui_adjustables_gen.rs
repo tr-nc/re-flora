@@ -86,6 +86,42 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Wind",
+        id: "grass_vibration_amplitude_voxels",
+        kind: "float",
+        label: "Grass Vibration Amplitude (voxels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "grass_vibration_primary_speed",
+        kind: "float",
+        label: "Grass Vibration Primary Speed",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "grass_vibration_secondary_speed",
+        kind: "float",
+        label: "Grass Vibration Secondary Speed",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "leaf_paddle_amplitude_voxels",
+        kind: "float",
+        label: "Leaf Paddle Amplitude (voxels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "leaf_paddle_primary_speed",
+        kind: "float",
+        label: "Leaf Paddle Primary Speed",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "leaf_paddle_secondary_speed",
+        kind: "float",
+        label: "Leaf Paddle Secondary Speed",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
         id: "wind_source_0_name",
         kind: "string",
         label: "Wind Source 1 Name",
@@ -968,6 +1004,12 @@ pub struct GuiAdjustables {
     pub wind_source_count: crate::gui_adjustables::UintParam,
     pub wind_audio_attack_decay: crate::gui_adjustables::FloatParam,
     pub wind_audio_release_decay: crate::gui_adjustables::FloatParam,
+    pub grass_vibration_amplitude_voxels: crate::gui_adjustables::FloatParam,
+    pub grass_vibration_primary_speed: crate::gui_adjustables::FloatParam,
+    pub grass_vibration_secondary_speed: crate::gui_adjustables::FloatParam,
+    pub leaf_paddle_amplitude_voxels: crate::gui_adjustables::FloatParam,
+    pub leaf_paddle_primary_speed: crate::gui_adjustables::FloatParam,
+    pub leaf_paddle_secondary_speed: crate::gui_adjustables::FloatParam,
     pub wind_source_0_name: crate::gui_adjustables::StringParam,
     pub wind_source_0_muted: crate::gui_adjustables::BoolParam,
     pub wind_source_0_direction_deg: crate::gui_adjustables::FloatParam,
@@ -1136,6 +1178,12 @@ impl GuiAdjustables {
         let mut wind_source_count_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut wind_audio_attack_decay_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_audio_release_decay_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_vibration_amplitude_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_vibration_primary_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_vibration_secondary_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_paddle_amplitude_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_paddle_primary_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_paddle_secondary_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_source_0_name_field: Option<crate::gui_adjustables::StringParam> = None;
         let mut wind_source_0_muted_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut wind_source_0_direction_deg_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1351,6 +1399,48 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             wind_audio_release_decay_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_vibration_amplitude_voxels" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_vibration_amplitude_voxels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_vibration_primary_speed" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_vibration_primary_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_vibration_secondary_speed" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_vibration_secondary_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_paddle_amplitude_voxels" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_paddle_amplitude_voxels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_paddle_primary_speed" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_paddle_primary_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_paddle_secondary_speed" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_paddle_secondary_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "wind_source_0_name" => {
@@ -2322,6 +2412,12 @@ impl GuiAdjustables {
             wind_source_count: wind_source_count_field.expect("Missing parameter: wind_source_count"),
             wind_audio_attack_decay: wind_audio_attack_decay_field.expect("Missing parameter: wind_audio_attack_decay"),
             wind_audio_release_decay: wind_audio_release_decay_field.expect("Missing parameter: wind_audio_release_decay"),
+            grass_vibration_amplitude_voxels: grass_vibration_amplitude_voxels_field.expect("Missing parameter: grass_vibration_amplitude_voxels"),
+            grass_vibration_primary_speed: grass_vibration_primary_speed_field.expect("Missing parameter: grass_vibration_primary_speed"),
+            grass_vibration_secondary_speed: grass_vibration_secondary_speed_field.expect("Missing parameter: grass_vibration_secondary_speed"),
+            leaf_paddle_amplitude_voxels: leaf_paddle_amplitude_voxels_field.expect("Missing parameter: leaf_paddle_amplitude_voxels"),
+            leaf_paddle_primary_speed: leaf_paddle_primary_speed_field.expect("Missing parameter: leaf_paddle_primary_speed"),
+            leaf_paddle_secondary_speed: leaf_paddle_secondary_speed_field.expect("Missing parameter: leaf_paddle_secondary_speed"),
             wind_source_0_name: wind_source_0_name_field.expect("Missing parameter: wind_source_0_name"),
             wind_source_0_muted: wind_source_0_muted_field.expect("Missing parameter: wind_source_0_muted"),
             wind_source_0_direction_deg: wind_source_0_direction_deg_field.expect("Missing parameter: wind_source_0_direction_deg"),
@@ -2480,6 +2576,12 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "world_tick_seconds" => Some(&adjustables.world_tick_seconds),
         "wind_audio_attack_decay" => Some(&adjustables.wind_audio_attack_decay),
         "wind_audio_release_decay" => Some(&adjustables.wind_audio_release_decay),
+        "grass_vibration_amplitude_voxels" => Some(&adjustables.grass_vibration_amplitude_voxels),
+        "grass_vibration_primary_speed" => Some(&adjustables.grass_vibration_primary_speed),
+        "grass_vibration_secondary_speed" => Some(&adjustables.grass_vibration_secondary_speed),
+        "leaf_paddle_amplitude_voxels" => Some(&adjustables.leaf_paddle_amplitude_voxels),
+        "leaf_paddle_primary_speed" => Some(&adjustables.leaf_paddle_primary_speed),
+        "leaf_paddle_secondary_speed" => Some(&adjustables.leaf_paddle_secondary_speed),
         "wind_source_0_direction_deg" => Some(&adjustables.wind_source_0_direction_deg),
         "wind_source_0_speed" => Some(&adjustables.wind_source_0_speed),
         "wind_source_0_pattern_scale" => Some(&adjustables.wind_source_0_pattern_scale),
@@ -2682,6 +2784,12 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "world_tick_seconds" => Some(&mut adjustables.world_tick_seconds),
         "wind_audio_attack_decay" => Some(&mut adjustables.wind_audio_attack_decay),
         "wind_audio_release_decay" => Some(&mut adjustables.wind_audio_release_decay),
+        "grass_vibration_amplitude_voxels" => Some(&mut adjustables.grass_vibration_amplitude_voxels),
+        "grass_vibration_primary_speed" => Some(&mut adjustables.grass_vibration_primary_speed),
+        "grass_vibration_secondary_speed" => Some(&mut adjustables.grass_vibration_secondary_speed),
+        "leaf_paddle_amplitude_voxels" => Some(&mut adjustables.leaf_paddle_amplitude_voxels),
+        "leaf_paddle_primary_speed" => Some(&mut adjustables.leaf_paddle_primary_speed),
+        "leaf_paddle_secondary_speed" => Some(&mut adjustables.leaf_paddle_secondary_speed),
         "wind_source_0_direction_deg" => Some(&mut adjustables.wind_source_0_direction_deg),
         "wind_source_0_speed" => Some(&mut adjustables.wind_source_0_speed),
         "wind_source_0_pattern_scale" => Some(&mut adjustables.wind_source_0_pattern_scale),
