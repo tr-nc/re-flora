@@ -4,7 +4,7 @@ use crate::app::world_ops;
 use crate::builder::{ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder};
 use crate::geom::UAabb3;
 use crate::util::BENCH;
-use crate::window::{WindowMode, WindowState, WindowStateDesc};
+use crate::window::{select_monitor_by_score, WindowMode, WindowState, WindowStateDesc};
 use anyhow::Result;
 use glam::UVec3;
 use re_flora_vkn::{VulkanContext, VulkanContextDesc};
@@ -53,8 +53,13 @@ impl App {
         } else {
             WINDOW_TITLE_RELEASE
         };
-        let hidden_primary_monitor_size = if options.hidden && !options.windowed {
-            event_loop.primary_monitor().map(|monitor| {
+        let fullscreen_monitor = if options.windowed {
+            None
+        } else {
+            select_monitor_by_score(event_loop, options.monitor_score)
+        };
+        let hidden_fullscreen_monitor_size = if options.hidden && !options.windowed {
+            fullscreen_monitor.as_ref().map(|monitor| {
                 let size = monitor.size();
                 let scale_factor = monitor.scale_factor() as f32;
                 (
@@ -74,17 +79,18 @@ impl App {
         let mut window_descriptor = WindowStateDesc {
             title: using_mode.to_owned(),
             window_mode,
+            fullscreen_monitor,
             cursor_locked: !options.hidden,
             cursor_visible: options.hidden,
             visible: !options.hidden,
             ..Default::default()
         };
-        if let Some((width, height)) = hidden_primary_monitor_size {
+        if let Some((width, height)) = hidden_fullscreen_monitor_size {
             window_descriptor.width = width;
             window_descriptor.height = height;
         } else if options.hidden && !options.windowed {
             log::warn!(
-                "Primary monitor unavailable for --hidden; falling back to default windowed extent"
+                "No scored monitor available for --hidden; falling back to default windowed extent"
             );
         }
         if options.hidden {
