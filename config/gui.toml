@@ -132,7 +132,7 @@ label = "Grass Vibration Primary Speed"
 type = "Float"
 
 [section.param.data]
-value = 31
+value = 22.5
 min = 0
 max = 80
 
@@ -143,7 +143,7 @@ label = "Grass Vibration Secondary Speed"
 type = "Float"
 
 [section.param.data]
-value = 47
+value = 23
 min = 0
 max = 120
 
@@ -154,7 +154,7 @@ label = "Leaf Paddle Amplitude (voxels)"
 type = "Float"
 
 [section.param.data]
-value = 0.8
+value = 1.72
 min = 0
 max = 3
 
@@ -165,7 +165,7 @@ label = "Leaf Paddle Primary Speed"
 type = "Float"
 
 [section.param.data]
-value = 9
+value = 11
 min = 0
 max = 40
 
