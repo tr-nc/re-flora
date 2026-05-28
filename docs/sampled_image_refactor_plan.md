@@ -140,6 +140,22 @@ Remove declarations from `tracer.comp` that are not referenced by the shader bod
 
 This step should reduce descriptor pressure with minimal behavior risk.
 
+Step 1 status: done for `shader/tracer/tracer.comp`.
+
+After removing unused denoiser declarations from the trace shader:
+
+| shader | storage | sampled | storage read-only/dead | storage write-capable |
+| --- | ---: | ---: | ---: | ---: |
+| `shader/tracer/tracer.comp` | 14 | 1 | 7 | 7 |
+| `shader/denoiser/temporal.comp` | 14 | 0 | 12 | 2 |
+| `shader/denoiser/spatial.comp` | 14 | 0 | 11 | 3 |
+
+Validation run:
+
+```text
+cargo check
+```
+
 ### Step 2: Convert Read-Only Storage Images to Sampled Images
 
 For exact read-only lookups, replace:
