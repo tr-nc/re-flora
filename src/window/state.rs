@@ -1,7 +1,10 @@
+use crate::MonitorScorePreference;
 use re_flora_vkn::Extent2D;
 use std::sync::Arc;
 use winit::{
-    dpi::{LogicalPosition, LogicalSize},
+    dpi::{LogicalPosition, LogicalSize, PhysicalSize},
+    event_loop::ActiveEventLoop,
+    monitor::MonitorHandle,
     window::{Fullscreen, Window},
 };
 
@@ -39,6 +42,70 @@ mod macos_cursor {
 mod macos_cursor {
     pub fn grab_and_hide() {}
     pub fn release_and_show() {}
+}
+
+fn monitor_score(size: PhysicalSize<u32>) -> u64 {
+    size.width as u64 * size.height as u64
+}
+
+pub fn select_monitor_by_score(
+    event_loop: &ActiveEventLoop,
+    preference: MonitorScorePreference,
+) -> Option<MonitorHandle> {
+    struct ScoredMonitor {
+        index: usize,
+        handle: MonitorHandle,
+        size: PhysicalSize<u32>,
+        name: String,
+        score: u64,
+    }
+
+    let mut monitors: Vec<ScoredMonitor> = event_loop
+        .available_monitors()
+        .enumerate()
+        .map(|(index, handle)| {
+            let size = handle.size();
+            let name = handle.name().unwrap_or_else(|| "<unknown>".to_owned());
+            let score = monitor_score(size);
+            ScoredMonitor {
+                index,
+                handle,
+                size,
+                name,
+                score,
+            }
+        })
+        .collect();
+
+    match preference {
+        MonitorScorePreference::Highest => monitors.sort_by(|a, b| {
+            b.score
+                .cmp(&a.score)
+                .then_with(|| b.size.width.cmp(&a.size.width))
+                .then_with(|| b.size.height.cmp(&a.size.height))
+                .then_with(|| a.name.cmp(&b.name))
+                .then_with(|| a.index.cmp(&b.index))
+        }),
+        MonitorScorePreference::Lowest => monitors.sort_by(|a, b| {
+            a.score
+                .cmp(&b.score)
+                .then_with(|| a.size.width.cmp(&b.size.width))
+                .then_with(|| a.size.height.cmp(&b.size.height))
+                .then_with(|| a.name.cmp(&b.name))
+                .then_with(|| a.index.cmp(&b.index))
+        }),
+    }
+
+    let selected = monitors.into_iter().next()?;
+    log::info!(
+        "Selected borderless fullscreen monitor by {:?} score: '{}' {}x{} physical pixels (score {})",
+        preference,
+        selected.name,
+        selected.size.width,
+        selected.size.height,
+        selected.score,
+    );
+    Some(selected.handle)
 }
 
 /// Defines the way a window
@@ -84,6 +151,9 @@ pub struct WindowStateDesc {
     /// Sets the WindowMode.
     pub window_mode: WindowMode,
 
+    /// Selected monitor for borderless fullscreen. None lets the platform choose.
+    pub fullscreen_monitor: Option<MonitorHandle>,
+
     /// Sets whether the background of the window should be transparent.
     pub transparent: bool,
 
@@ -103,6 +173,7 @@ impl Default for WindowStateDesc {
             cursor_locked: false,
             cursor_visible: true,
             window_mode: WindowMode::Windowed(false),
+            fullscreen_monitor: None,
             transparent: false,
             visible: true,
         }
@@ -123,8 +194,9 @@ impl WindowState {
         let mut winit_window_attributes = Window::default_attributes();
 
         winit_window_attributes = match desc.window_mode {
-            WindowMode::BorderlessFullscreen => winit_window_attributes
-                .with_fullscreen(Some(Fullscreen::Borderless(event_loop.primary_monitor()))),
+            WindowMode::BorderlessFullscreen => winit_window_attributes.with_fullscreen(Some(
+                Fullscreen::Borderless(desc.fullscreen_monitor.clone()),
+            )),
             WindowMode::Windowed(windowed) => {
                 let WindowStateDesc {
                     width,

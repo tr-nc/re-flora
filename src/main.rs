@@ -22,7 +22,9 @@ mod wind;
 mod window;
 
 use app::AppController;
-pub use cli::{AppOptions, PresentModePreference, RenderFlags, WaterProfilePreference};
+pub use cli::{
+    AppOptions, MonitorScorePreference, PresentModePreference, RenderFlags, WaterProfilePreference,
+};
 use env_logger::{Env, Target};
 use std::{
     fs::{self, File, OpenOptions},

@@ -14,6 +14,12 @@ pub enum WaterProfilePreference {
     Performance,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum MonitorScorePreference {
+    Highest,
+    Lowest,
+}
+
 impl PresentModePreference {
     fn from_cli_value(value: &str) -> Option<Self> {
         match value {
@@ -45,6 +51,16 @@ impl WaterProfilePreference {
     }
 }
 
+impl MonitorScorePreference {
+    fn from_cli_value(value: &str) -> Option<Self> {
+        match value {
+            "highest" => Some(Self::Highest),
+            "lowest" => Some(Self::Lowest),
+            _ => None,
+        }
+    }
+}
+
 /// Application launch options parsed from CLI arguments.
 #[derive(Clone, Debug)]
 pub struct AppOptions {
@@ -70,6 +86,8 @@ pub struct AppOptions {
     pub no_flora: bool,
     /// Preferred swapchain present mode override.
     pub present_mode: Option<PresentModePreference>,
+    /// Select borderless fullscreen monitor by physical-pixel score.
+    pub monitor_score: MonitorScorePreference,
     /// Override swapchain image count. None = auto (max(min_image_count, 3)).
     pub swapchain_images: Option<u32>,
     /// Path to save a screenshot after rendering starts. None = no screenshot.
@@ -179,6 +197,19 @@ impl AppOptions {
             None => None,
         };
 
+        let monitor_score = match parse_string_after("--monitor-score") {
+            Some(value) => MonitorScorePreference::from_cli_value(&value).unwrap_or_else(|| {
+                panic!(
+                    "Unsupported --monitor-score '{}'. Supported values: highest, lowest",
+                    value
+                )
+            }),
+            None if args.iter().any(|a| a == "--monitor-score") => {
+                panic!("Missing value for --monitor-score. Supported values: highest, lowest")
+            }
+            None => MonitorScorePreference::Highest,
+        };
+
         let tail_latest_log = args
             .iter()
             .any(|a| a == "--tail-latest-log")
@@ -195,6 +226,7 @@ impl AppOptions {
             no_particles: args.iter().any(|a| a == "--no-particles"),
             no_flora: args.iter().any(|a| a == "--no-flora"),
             present_mode,
+            monitor_score,
             swapchain_images: parse_f32_after("--swapchain-images").map(|v| v as u32),
             screenshot_path: parse_string_after("--screenshot"),
             screenshot_delay: parse_f32_after("--screenshot-delay").unwrap_or(5.0),
@@ -243,6 +275,7 @@ Options:
   --no-particles              Disable particle simulation and rendering
   --no-flora                  Disable flora and leaves rendering
   --present-mode <mode>       Override auto present mode selection: mailbox, immediate, fifo, fifo_relaxed
+  --monitor-score <mode>      Select borderless fullscreen monitor by resolution score: highest, lowest (default: highest)
   --swapchain-images <N>      Override swapchain image count (default: auto)
   --screenshot <path>         Save one screenshot after rendering starts
   --screenshot-delay <sec>    Delay before screenshot capture (default: 5.0)
@@ -277,6 +310,7 @@ Examples:
   re-flora --hidden --auto-exit 20 --perf
   re-flora --hidden --screenshot screenshots/check.png --screenshot-delay 5 --auto-exit 7
   re-flora --present-mode fifo
+  re-flora --monitor-score lowest
   re-flora --swapchain-images 2
   re-flora --no-shadows --no-denoise
   re-flora --screenshot out.png --screenshot-delay 3
