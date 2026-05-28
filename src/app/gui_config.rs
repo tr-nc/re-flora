@@ -496,6 +496,51 @@ fn render_wind_sources_gui(
         .text("Audio Release Decay (0 slow, 1 fast)"),
     );
 
+    ui.add_space(4.0);
+    ui.label("Flora Vibration");
+    ui.add(
+        egui::Slider::new(
+            &mut adjustables.grass_vibration_amplitude_voxels.value,
+            adjustables.grass_vibration_amplitude_voxels.range.clone(),
+        )
+        .text("Grass Vibration Amplitude (voxels)"),
+    );
+    ui.add(
+        egui::Slider::new(
+            &mut adjustables.grass_vibration_primary_speed.value,
+            adjustables.grass_vibration_primary_speed.range.clone(),
+        )
+        .text("Grass Vibration Primary Speed"),
+    );
+    ui.add(
+        egui::Slider::new(
+            &mut adjustables.grass_vibration_secondary_speed.value,
+            adjustables.grass_vibration_secondary_speed.range.clone(),
+        )
+        .text("Grass Vibration Secondary Speed"),
+    );
+    ui.add(
+        egui::Slider::new(
+            &mut adjustables.leaf_paddle_amplitude_voxels.value,
+            adjustables.leaf_paddle_amplitude_voxels.range.clone(),
+        )
+        .text("Leaf Paddle Amplitude (voxels)"),
+    );
+    ui.add(
+        egui::Slider::new(
+            &mut adjustables.leaf_paddle_primary_speed.value,
+            adjustables.leaf_paddle_primary_speed.range.clone(),
+        )
+        .text("Leaf Paddle Primary Speed"),
+    );
+    ui.add(
+        egui::Slider::new(
+            &mut adjustables.leaf_paddle_secondary_speed.value,
+            adjustables.leaf_paddle_secondary_speed.range.clone(),
+        )
+        .text("Leaf Paddle Secondary Speed"),
+    );
+
     if wind_sources.is_empty() {
         ui.label("No wind sources.");
         return;
