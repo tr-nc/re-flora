@@ -7,5 +7,6 @@ const uint FLORA_SPECIES_TALL_GRASS  = 0;
 const uint FLORA_SPECIES_SHORT_GRASS = 1;
 const uint FLORA_SPECIES_LAVENDER    = 2;
 const uint FLORA_SPECIES_EMBER_BLOOM = 3;
+const uint FLORA_SPECIES_TREE_LEAF   = 4;
 
 #endif // FLORA_REGISTRY_GLSL

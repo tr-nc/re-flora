@@ -50,12 +50,14 @@ wind_volume_info;
 
 layout(set = 0, binding = 8) uniform sampler3D wind_volume_tex;
 
+#include "../include/core/hash.glsl"
 #include "../include/instance.glsl"
 #include "../include/tree_leaf_instance.glsl"
 #include "../include/wind_volume.glsl"
 #include "./billboard.glsl"
 #include "./palette.glsl"
 #include "./unpacker.glsl"
+#include "./flora_wind_motion.glsl"
 
 layout(set = 1, binding = 0) readonly buffer B_TreeLeafInstances { TreeLeafInstance data[]; }
 manual_tree_leaf_instances;
@@ -80,9 +82,11 @@ void main() {
     uint instance_seed = get_instance_seed(instance_pos_voxels);
     vec3 wind_sample_pos = instance_pos + vec3(vox_local_pos) * scaling_factor;
     uint wind_seed = get_wind_volume_voxel_seed(instance_seed, vox_local_pos);
-    vec3 wind_vec    = sample_wind_volume(wind_sample_pos, wind_seed);
+    vec3 wind_vec = sample_wind_volume(wind_sample_pos, wind_seed);
     vec3 wind_offset = wind_vec * wind_gradient * wind_gradient;
-    vec3 anchor_pos  = (vox_local_pos + wind_offset) * scaling_factor + instance_pos;
+    wind_offset += leaf_wind_paddling(wind_vec, wind_gradient, instance_seed, vox_local_pos,
+                                      gradient_origin, pc.time);
+    vec3 anchor_pos = (vec3(vox_local_pos) + wind_offset) * scaling_factor + instance_pos;
     vec3 voxel_pos   = anchor_pos + vec3(0.5) * scaling_factor;
     vec3 vert_pos    = get_vert_pos_with_billboard(shadow_camera_info.view_mat, voxel_pos,
                                                    vert_offset_in_vox, scaling_factor);

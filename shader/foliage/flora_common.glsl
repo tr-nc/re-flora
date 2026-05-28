@@ -13,6 +13,8 @@ const float short_grass_height_stddev_voxels = 0.6;
 const float PLAYER_PUSH_RADIUS              = 0.3;
 const float PLAYER_PUSH_STRENGTH            = 0.02;
 
+#include "./flora_wind_motion.glsl"
+
 float sample_standard_normal(uint seed) {
     uint state_a = wellons_hash(seed ^ 0xA511E9B3u);
     uint state_b = wellons_hash(seed ^ 0x63D83595u);
@@ -82,8 +84,15 @@ void prepare_flora_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_l
     vec3 instance_pos    = vec3(instance_pos_voxels) * scaling_factor;
     vec3 wind_sample_pos = is_grass ? instance_pos : instance_pos + vec3(vox_local_pos) * scaling_factor;
     uint wind_seed = is_grass ? instance_seed : get_wind_volume_voxel_seed(instance_seed, vox_local_pos);
-    vec3 wind_vec     = sample_wind_volume(wind_sample_pos, wind_seed);
-    vec3 wind_offset  = wind_vec * wind_gradient * wind_gradient;
+    vec3 wind_vec = sample_wind_volume(wind_sample_pos, wind_seed);
+    vec3 wind_offset = wind_vec * wind_gradient * wind_gradient;
+    if (is_grass) {
+        wind_offset += grass_wind_vibration(wind_vec, wind_gradient, instance_seed, vox_local_pos,
+                                            pc.time);
+    } else if (instance_ty == FLORA_SPECIES_TREE_LEAF) {
+        wind_offset += leaf_wind_paddling(wind_vec, wind_gradient, instance_seed, vox_local_pos,
+                                          gradient_origin, pc.time);
+    }
     vec2 player_delta = instance_pos.xz - camera_info.pos.xz;
     float player_dist = length(player_delta);
     vec2 player_push_dir = player_dist > 1e-4 ? player_delta / player_dist : vec2(0.0);
