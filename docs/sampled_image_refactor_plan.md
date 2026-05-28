@@ -103,6 +103,25 @@ shader/denoiser/temporal.comp         storage images: ~14
 shader/denoiser/spatial.comp          storage images: ~14
 ```
 
+Inventory helper added:
+
+```bash
+python3 scripts/descriptor_inventory.py \
+  shader/tracer/tracer.comp \
+  shader/denoiser/temporal.comp \
+  shader/denoiser/spatial.comp
+```
+
+Baseline source inventory:
+
+| shader | storage | sampled | storage read-only/dead | storage write-capable |
+| --- | ---: | ---: | ---: | ---: |
+| `shader/tracer/tracer.comp` | 22 | 1 | 15 | 7 |
+| `shader/denoiser/temporal.comp` | 14 | 0 | 12 | 2 |
+| `shader/denoiser/spatial.comp` | 14 | 0 | 11 | 3 |
+
+Step 0 status: done. This source-based inventory matches the validation-error scale and identifies the first cleanup targets.
+
 ### Step 1: Remove Unused Storage Image Declarations
 
 Start with `shader/tracer/tracer.comp`.
