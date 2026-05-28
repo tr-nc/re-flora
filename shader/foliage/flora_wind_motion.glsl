@@ -2,12 +2,6 @@
 #define FLORA_WIND_MOTION_GLSL
 
 const float FLORA_TWO_PI = 6.28318530718;
-const float GRASS_VIBRATION_AMPLITUDE_VOXELS = 0.30;
-const float GRASS_VIBRATION_PRIMARY_SPEED = 31.0;
-const float GRASS_VIBRATION_SECONDARY_SPEED = 47.0;
-const float LEAF_PADDLE_AMPLITUDE_VOXELS = 0.80;
-const float LEAF_PADDLE_PRIMARY_SPEED = 9.0;
-const float LEAF_PADDLE_SECONDARY_SPEED = 15.0;
 
 float flora_wind_planar_strength(vec3 wind_vec) {
     return smoothstep(0.03, 2.0, length(wind_vec.xz));
@@ -39,10 +33,10 @@ vec3 grass_wind_vibration(vec3 wind_vec, float wind_gradient, uint instance_seed
     float tip_weight = pow(clamp(wind_gradient, 0.0, 1.0), 1.7);
     float phase = flora_wind_phase(instance_seed, vox_local_pos, 0xB5297A4Du);
     float height_phase = float(vox_local_pos.y) * 1.35;
-    float vibration = sin(time * GRASS_VIBRATION_PRIMARY_SPEED + phase + height_phase);
-    vibration += 0.45 * sin(time * GRASS_VIBRATION_SECONDARY_SPEED + phase * 1.37 - height_phase * 0.6);
+    float vibration = sin(time * gui_input.grass_vibration_primary_speed + phase + height_phase);
+    vibration += 0.45 * sin(time * gui_input.grass_vibration_secondary_speed + phase * 1.37 - height_phase * 0.6);
 
-    return cross_wind_dir * (vibration * GRASS_VIBRATION_AMPLITUDE_VOXELS * strength * tip_weight);
+    return cross_wind_dir * (vibration * gui_input.grass_vibration_amplitude_voxels * strength * tip_weight);
 }
 
 vec3 leaf_wind_paddling(vec3 wind_vec, float wind_gradient, uint instance_seed,
@@ -59,13 +53,13 @@ vec3 leaf_wind_paddling(vec3 wind_vec, float wind_gradient, uint instance_seed,
     float wind_side = dot(local_dir, vec3(wind_dir.x, 0.0, wind_dir.y));
     float phase = flora_wind_phase(instance_seed, vox_local_pos, 0x68E31DA4u);
     float shell_phase = wind_side * 2.4 + float(vox_local_pos.y - gradient_origin.y) * 0.13;
-    float paddle = sin(time * LEAF_PADDLE_PRIMARY_SPEED + phase + shell_phase);
-    paddle += 0.35 * sin(time * LEAF_PADDLE_SECONDARY_SPEED + phase * 1.61 - shell_phase * 0.7);
+    float paddle = sin(time * gui_input.leaf_paddle_primary_speed + phase + shell_phase);
+    paddle += 0.35 * sin(time * gui_input.leaf_paddle_secondary_speed + phase * 1.61 - shell_phase * 0.7);
 
     // Keep the cloud attached near the branch-facing center while letting the exposed shell flutter.
     float shell_weight = pow(clamp(wind_gradient, 0.0, 1.0), 1.15);
     float exposed_side_weight = 0.55 + 0.45 * abs(wind_side);
-    return flap_dir * (paddle * LEAF_PADDLE_AMPLITUDE_VOXELS * strength * shell_weight * exposed_side_weight);
+    return flap_dir * (paddle * gui_input.leaf_paddle_amplitude_voxels * strength * shell_weight * exposed_side_weight);
 }
 
 #endif // FLORA_WIND_MOTION_GLSL
