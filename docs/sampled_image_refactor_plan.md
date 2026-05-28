@@ -342,15 +342,18 @@ Track:
 
 - Date: 2026-05-28
 - Machine/GPU: Apple M4 Pro through MoltenVK
-- Commit: before this branch's sampled-image changes
-- Command(s): `cargo run --release -- --hidden --auto-exit 0.5`
-- Log path(s): `target/re-flora-logs/re-flora-20260528-173626.398-5621.log`
+- Commit: `dc25b3a6` (`remove unused tracer image bindings`), immediately before sampled-image conversion
+- Command(s): `cargo run --release -- --hidden --auto-exit 4 --perf`
+- Log path(s): `target/re-flora-logs/re-flora-20260528-195120.428-9774.log`
 - Storage image counts:
-  - `shader/tracer/tracer.comp`: 22 storage / 1 sampled
+  - `shader/tracer/tracer.comp`: 14 storage / 1 sampled
   - `shader/denoiser/temporal.comp`: 14 storage / 0 sampled
   - `shader/denoiser/spatial.comp`: 14 storage / 0 sampled
-- Frame/perf summary: no comparable `--perf` baseline captured before the refactor.
-- Validation summary: `maxPerStageDescriptorStorageImages` validation errors present.
+- Frame/perf summary from the 4s `--perf` run, frames 180..256:
+  - total frame time: avg 25.23 ms, min 23.83 ms, max 26.85 ms
+  - `gpu_present`: avg 24.28 ms, min 22.81 ms, max 25.98 ms, after excluding 4 present/egui attribution outliers where `gpu_present < 5 ms`
+  - reported steady-state FPS samples: about 39 fps
+- Validation summary: `maxPerStageDescriptorStorageImages` validation errors present, 12 `Validation`/`ERROR` matching lines.
 - Visual notes: hidden run only.
 
 ### After Refactor
@@ -378,11 +381,20 @@ Track:
 
 ### Comparison
 
-- Frame time delta: not computed; no matching `--perf` baseline was captured before code changes.
-- GPU/pass timing delta: not computed; no pass-level timestamp instrumentation in this pass.
+Single-run immediate before/after comparison:
+
+| metric | baseline | after | delta |
+| --- | ---: | ---: | ---: |
+| total frame avg | 25.23 ms | 24.74 ms | -0.49 ms / -1.9% |
+| `gpu_present` avg | 24.28 ms | 23.82 ms | -0.46 ms / -1.9% |
+| steady FPS samples | ~39 fps | ~40 fps | +~1 fps |
+| validation errors | present | none | fixed |
+
+- GPU/pass timing delta: no pass-level timestamp instrumentation in this pass.
 - Validation delta: storage-image descriptor-limit validation errors removed.
 - Known caveats:
-  - A proper performance comparison still needs repeated before/after runs from adjacent commits or branches.
+  - This is one baseline run and one after run; treat the small performance improvement as within/noise-adjacent unless repeated runs confirm it.
+  - The baseline run emitted Vulkan validation errors, which may add some overhead.
   - Current sampled descriptor writes still use `VK_IMAGE_LAYOUT_GENERAL`; `SHADER_READ_ONLY_OPTIMAL` remains a follow-up.
 
 ## Open Questions
