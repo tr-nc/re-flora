@@ -78,6 +78,7 @@ impl Device {
 
     pub fn submit_to_queue(&self, queue: &Queue, desc: SubmitDesc<'_>) -> ash::prelude::VkResult<()> {
         desc.assert_supported_sizes();
+        crate::sync::diagnostics::record_submit(&desc);
 
         let (raw_command_buffers, command_buffer_count) = desc.raw_command_buffers();
         let (raw_wait_semaphores, raw_wait_stages, wait_count) = desc.raw_waits();

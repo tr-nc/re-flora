@@ -1,3 +1,5 @@
+pub(crate) mod diagnostics;
+
 mod semaphore;
 pub use semaphore::*;
 

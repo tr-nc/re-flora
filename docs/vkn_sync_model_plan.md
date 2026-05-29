@@ -334,6 +334,8 @@ Validation:
 
 ### Step 7: Add optional diagnostics hooks, not profiler output
 
+Status: done in branch `agent/vkn-profiler` after Step 6. `sync_diagnostics` is an opt-in feature with submit/present event shapes and no-op hooks at the descriptor dispatch points. The default build keeps the hooks disabled and does not log, allocate, add timestamp queries, or add GPU waits.
+
 - Add internal no-op hooks or event structs that can record submit names and wait/signal names when a future feature is enabled.
 - Keep disabled by default.
 - No timestamp queries, no benchmark files, no per-frame logging in this phase.

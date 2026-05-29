@@ -294,6 +294,7 @@ impl Swapchain {
 
     pub fn present_desc(&mut self, desc: PresentDesc<'_>) -> VkResult<bool> {
         desc.assert_supported_sizes();
+        crate::sync::diagnostics::record_present(&desc);
 
         let (raw_wait_semaphores, wait_count) = desc.raw_waits();
         let wait_semaphores = &raw_wait_semaphores[..wait_count];
