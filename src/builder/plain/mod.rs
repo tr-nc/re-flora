@@ -29,6 +29,7 @@ use re_flora_vkn::PipelineBarrier;
 use re_flora_vkn::PipelineStage;
 use re_flora_vkn::ShaderModule;
 use re_flora_vkn::Texture;
+use re_flora_vkn::TextureLayout;
 use re_flora_vkn::TextureRegion;
 use re_flora_vkn::VulkanContext;
 pub use resources::*;
@@ -334,7 +335,7 @@ impl PlainBuilder {
 
         chunk_atlas
             .get_image()
-            .record_transition_barrier(&cmdbuf, 0, vk::ImageLayout::GENERAL);
+            .record_transition(&cmdbuf, 0, TextureLayout::GENERAL);
 
         heightmap_ppl.record(
             &cmdbuf,

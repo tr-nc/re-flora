@@ -16,7 +16,7 @@ use re_flora_vkn::vk;
 use re_flora_vkn::{
     Buffer, ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DescriptorPool, Extent3D,
     GpuJobToken, MemoryAccess, MemoryBarrier, PipelineBarrier, PipelineStage, ShaderModule,
-    TimestampQueryPool, VulkanContext, WriteDescriptorSet,
+    TextureLayout, TimestampQueryPool, VulkanContext, WriteDescriptorSet,
 };
 pub use resources::*;
 use std::time::{Duration, Instant};
@@ -907,10 +907,11 @@ impl SurfaceBuilder {
             }};
         }
 
-        self.resources
-            .occupancy_data
-            .get_image()
-            .record_transition_barrier(&cmdbuf, 0, vk::ImageLayout::GENERAL);
+        self.resources.occupancy_data.get_image().record_transition(
+            &cmdbuf,
+            0,
+            TextureLayout::GENERAL,
+        );
 
         record_timed_flora_edit_pass!({
             self.clear_occupancy_ppl.record(
