@@ -958,27 +958,53 @@ impl Tracer {
             );
         }
         if has_graphics_pass {
-            Self::with_gpu_scope(
-                gpu_profiler.as_deref_mut(),
-                gpu_profiler_frame_slot,
-                cmdbuf,
-                "graphics.pass",
-                || {
-                    self.record_all_graphics_passes(
+            if let Some(profiler) = gpu_profiler.as_deref_mut() {
+                let graphics_scope = profiler.begin_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "graphics.pass",
+                    PipelineStage::ALL_COMMANDS,
+                );
+                self.record_all_graphics_passes(
+                    cmdbuf,
+                    surface_resources,
+                    lod_distance,
+                    flora_draw_distance,
+                    grass_render_mode,
+                    flora_colors,
+                    leaf_bottom_color,
+                    leaf_tip_color,
+                    time,
+                    render_flags.enable_flora,
+                    render_flags.enable_particles,
+                    Some(profiler),
+                    gpu_profiler_frame_slot,
+                );
+                if let Some(scope) = graphics_scope {
+                    profiler.end_scope(
+                        gpu_profiler_frame_slot,
                         cmdbuf,
-                        surface_resources,
-                        lod_distance,
-                        flora_draw_distance,
-                        grass_render_mode,
-                        flora_colors,
-                        leaf_bottom_color,
-                        leaf_tip_color,
-                        time,
-                        render_flags.enable_flora,
-                        render_flags.enable_particles,
-                    )
-                },
-            );
+                        scope,
+                        PipelineStage::ALL_COMMANDS,
+                    );
+                }
+            } else {
+                self.record_all_graphics_passes(
+                    cmdbuf,
+                    surface_resources,
+                    lod_distance,
+                    flora_draw_distance,
+                    grass_render_mode,
+                    flora_colors,
+                    leaf_bottom_color,
+                    leaf_tip_color,
+                    time,
+                    render_flags.enable_flora,
+                    render_flags.enable_particles,
+                    None,
+                    gpu_profiler_frame_slot,
+                );
+            }
             frag_to_vert_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
@@ -1285,6 +1311,8 @@ impl Tracer {
         time: f32,
         enable_flora: bool,
         enable_particles: bool,
+        mut gpu_profiler: Option<&mut GpuProfiler>,
+        gpu_profiler_frame_slot: usize,
     ) {
         let render_target = &self.render_target_color_and_depth;
 
@@ -1302,7 +1330,13 @@ impl Tracer {
             },
         ];
 
-        render_target.record_begin(cmdbuf, &clear_values);
+        Self::with_gpu_scope(
+            gpu_profiler.as_deref_mut(),
+            gpu_profiler_frame_slot,
+            cmdbuf,
+            "graphics.renderpass.begin",
+            || render_target.record_begin(cmdbuf, &clear_values),
+        );
 
         let render_extent = self
             .resources
@@ -1322,6 +1356,14 @@ impl Tracer {
 
         // Draw all flora species, both LOD levels
         if enable_flora {
+            let flora_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
+                profiler.begin_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "graphics.flora",
+                    PipelineStage::ALL_COMMANDS,
+                )
+            });
             let chunks_by_lod = self.chunks_needs_to_draw_this_frame(
                 surface_resources,
                 lod_distance,
@@ -1383,8 +1425,24 @@ impl Tracer {
                     }
                 }
             }
+            if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), flora_scope) {
+                profiler.end_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    scope,
+                    PipelineStage::ALL_COMMANDS,
+                );
+            }
 
             // Draw leaves, both LOD levels
+            let leaves_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
+                profiler.begin_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "graphics.leaves",
+                    PipelineStage::ALL_COMMANDS,
+                )
+            });
             let trees_by_lod = self.trees_needs_to_draw_this_frame(
                 surface_resources,
                 lod_distance,
@@ -1447,10 +1505,26 @@ impl Tracer {
                     );
                 }
             }
+            if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), leaves_scope) {
+                profiler.end_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    scope,
+                    PipelineStage::ALL_COMMANDS,
+                );
+            }
         } // end enable_flora
 
         // Draw particles in the same render pass (no second CLEAR)
         if enable_particles {
+            let particles_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
+                profiler.begin_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "graphics.particles",
+                    PipelineStage::ALL_COMMANDS,
+                )
+            });
             let particle_resources = &self.particle_resources;
             if particle_resources.instance_count > 0 {
                 let particle_ppl = &self.graphics_pipelines.particle_ppl;
@@ -1476,9 +1550,23 @@ impl Tracer {
                     None,
                 );
             }
+            if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), particles_scope) {
+                profiler.end_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    scope,
+                    PipelineStage::ALL_COMMANDS,
+                );
+            }
         }
 
-        render_target.record_end(cmdbuf);
+        Self::with_gpu_scope(
+            gpu_profiler.as_deref_mut(),
+            gpu_profiler_frame_slot,
+            cmdbuf,
+            "graphics.renderpass.end",
+            || render_target.record_end(cmdbuf),
+        );
 
         self.resources
             .extent_dependent_resources
