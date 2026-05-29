@@ -5,7 +5,7 @@
 //! compiled only with the `sync_diagnostics` feature and are intended as the seam
 //! for a future profiler/sink.
 
-use crate::{PresentDesc, SubmitDesc};
+use crate::{GpuJobDesc, PresentDesc, QueueLane, SubmitDesc};
 
 #[cfg(feature = "sync_diagnostics")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -72,6 +72,44 @@ pub struct PresentWaitDiagnostics {
 }
 
 #[cfg(feature = "sync_diagnostics")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct GpuJobSubmitDiagnostics {
+    pub name: &'static str,
+    pub queue: QueueLane,
+    pub command_buffer_count: usize,
+    pub wait_count: usize,
+    pub signal_count: usize,
+}
+
+#[cfg(feature = "sync_diagnostics")]
+impl GpuJobSubmitDiagnostics {
+    fn from_desc(desc: &GpuJobDesc<'_>) -> Self {
+        Self {
+            name: desc.name,
+            queue: desc.queue,
+            command_buffer_count: desc.command_buffers.len(),
+            wait_count: desc.waits.len(),
+            signal_count: desc.signals.len(),
+        }
+    }
+}
+
+#[cfg(feature = "sync_diagnostics")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GpuJobProbeKind {
+    Poll,
+    Wait,
+}
+
+#[cfg(feature = "sync_diagnostics")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct GpuJobProbeDiagnostics {
+    pub name: &'static str,
+    pub queue: QueueLane,
+    pub kind: GpuJobProbeKind,
+}
+
+#[cfg(feature = "sync_diagnostics")]
 #[inline(always)]
 pub(crate) fn record_submit(desc: &SubmitDesc<'_>) {
     let _submit = SubmitDiagnostics::from_desc(desc);
@@ -109,3 +147,41 @@ pub(crate) fn record_present(desc: &PresentDesc<'_>) {
 #[cfg(not(feature = "sync_diagnostics"))]
 #[inline(always)]
 pub(crate) fn record_present(_desc: &PresentDesc<'_>) {}
+
+#[cfg(feature = "sync_diagnostics")]
+#[inline(always)]
+pub(crate) fn record_gpu_job_submit(desc: &GpuJobDesc<'_>) {
+    let _job = GpuJobSubmitDiagnostics::from_desc(desc);
+}
+
+#[cfg(not(feature = "sync_diagnostics"))]
+#[inline(always)]
+pub(crate) fn record_gpu_job_submit(_desc: &GpuJobDesc<'_>) {}
+
+#[cfg(feature = "sync_diagnostics")]
+#[inline(always)]
+pub(crate) fn record_gpu_job_poll(name: &'static str, queue: QueueLane) {
+    let _poll = GpuJobProbeDiagnostics {
+        name,
+        queue,
+        kind: GpuJobProbeKind::Poll,
+    };
+}
+
+#[cfg(not(feature = "sync_diagnostics"))]
+#[inline(always)]
+pub(crate) fn record_gpu_job_poll(_name: &'static str, _queue: QueueLane) {}
+
+#[cfg(feature = "sync_diagnostics")]
+#[inline(always)]
+pub(crate) fn record_gpu_job_wait(name: &'static str, queue: QueueLane) {
+    let _wait = GpuJobProbeDiagnostics {
+        name,
+        queue,
+        kind: GpuJobProbeKind::Wait,
+    };
+}
+
+#[cfg(not(feature = "sync_diagnostics"))]
+#[inline(always)]
+pub(crate) fn record_gpu_job_wait(_name: &'static str, _queue: QueueLane) {}

@@ -537,6 +537,8 @@ Validation:
 
 ### Step 12: Extend diagnostics hooks to GPU jobs
 
+Status: done in branch `agent/vkn-profiler` after builder job migration. `sync_diagnostics` now includes no-op/default GPU job submit, poll, and wait hooks with stable job names and queue lanes. Readback-finish remains represented by builder finish points for now and can get a dedicated hook once readback publication moves further into vkn.
+
 - Add no-op default hooks for job submit, poll, wait, complete, and readback-finish events.
 - Keep `sync_diagnostics` opt-in and allocation/log-free unless a later sink is explicitly enabled.
 - Carry stable names and IDs so future profiler output can connect chunk jobs to frame stalls and queue pressure.

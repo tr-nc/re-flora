@@ -72,10 +72,12 @@ impl GpuJobToken {
     }
 
     pub fn is_complete(&self) -> VkResult<bool> {
+        crate::sync::diagnostics::record_gpu_job_poll(self.name, self.queue);
         self.fence.is_signaled()
     }
 
     pub fn wait(&self) -> VkResult<()> {
+        crate::sync::diagnostics::record_gpu_job_wait(self.name, self.queue);
         self.fence.wait()
     }
 }
@@ -88,6 +90,7 @@ pub struct GpuJobManager;
 
 impl GpuJobManager {
     pub fn submit(device: &Device, queue: &Queue, desc: GpuJobDesc<'_>) -> VkResult<GpuJobToken> {
+        crate::sync::diagnostics::record_gpu_job_submit(&desc);
         let fence = Fence::new(device, false);
         let submit_desc = SubmitDesc::new(
             desc.name,
