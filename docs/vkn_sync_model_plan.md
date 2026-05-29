@@ -498,6 +498,8 @@ Performance risk: low if the first implementation reuses existing fence behavior
 
 ### Step 10: Migrate one-time command helpers
 
+Status: done in branch `agent/vkn-profiler` after Step 9. `execute_one_time_command_with_fence` now submits through a fence-backed `GpuJobToken`, while `execute_one_time_command` keeps its queue-idle behavior and uses a named semantic submit descriptor without adding a fence.
+
 - Route `execute_one_time_command` and `execute_one_time_command_with_fence` through the new job abstraction where practical.
 - Preserve existing queue-idle behavior for paths that intentionally use it for MoltenVK stability.
 - Ensure synchronous readback helpers still block only where they blocked before.

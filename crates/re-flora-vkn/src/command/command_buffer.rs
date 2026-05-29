@@ -1,6 +1,7 @@
 use super::CommandPool;
 use crate::{
-    Buffer, DescriptorSet, Device, Extent2D, Fence, GraphicsPipeline, Queue, SubmitDesc, Viewport,
+    Buffer, DescriptorSet, Device, Extent2D, Fence, GpuJobDesc, GpuJobManager, GraphicsPipeline,
+    JobCompletion, Queue, QueueLane, SubmitDesc, Viewport,
 };
 use ash::vk;
 use std::sync::Arc;
@@ -194,7 +195,9 @@ pub fn execute_one_time_command<R, F: FnOnce(&CommandBuffer) -> R>(
     let result = executor(&command_buffer);
     command_buffer.end();
 
-    command_buffer.submit(queue, None);
+    let command_buffers = [&command_buffer];
+    let desc = SubmitDesc::new("execute_one_time_command", &command_buffers, &[], &[], None);
+    device.submit_to_queue(queue, desc).unwrap();
     device.wait_queue_idle(queue);
     result
 }
@@ -210,13 +213,20 @@ pub fn execute_one_time_command_with_fence<R, F: FnOnce(&CommandBuffer) -> R>(
     executor: F,
 ) -> R {
     let command_buffer = CommandBuffer::new(device, pool);
-    let fence = Fence::new(device, false);
-
     command_buffer.begin(true);
     let result = executor(&command_buffer);
     command_buffer.end();
 
-    command_buffer.submit(queue, Some(&fence));
-    fence.wait().unwrap();
+    let command_buffers = [&command_buffer];
+    let desc = GpuJobDesc::new(
+        "execute_one_time_command_with_fence",
+        QueueLane::General,
+        &command_buffers,
+        &[],
+        &[],
+        JobCompletion::Fence,
+    );
+    let job = GpuJobManager::submit(device, queue, desc).unwrap();
+    job.wait().unwrap();
     result
 }
