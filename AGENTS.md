@@ -3,9 +3,11 @@
 ## Development Notes
 
 - Keep changes small and focused.
+- Commit each validated step before starting the next one.
 - Prefer measuring before guessing on performance work.
 - For performance work, release-mode app benchmarks are authoritative; debug builds and unit tests are not performance evidence.
 - Run `cargo check` after shader or Rust changes. It also regenerates shader-derived Rust structs.
+- Validate Rust/rendering changes with hidden mode (`cargo run --release -- --hidden --auto-exit 0.5`) and inspect the run log for errors.
 - Do not edit generated files directly unless they are part of the generated output from a build/check.
 
 ## Parallel Agent Workflow
