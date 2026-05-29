@@ -14,8 +14,9 @@ use bytemuck::Zeroable;
 use glam::{UVec3, Vec3};
 use re_flora_vkn::{
     Buffer, ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DescriptorPool, Extent3D,
-    GpuJobToken, MemoryAccess, MemoryBarrier, PipelineBarrier, PipelineStage, ShaderModule,
-    TextureLayout, TimestampQueryPool, VulkanContext, WriteDescriptorSet,
+    GpuJobProfiler, GpuJobScopeToken, GpuJobToken, MemoryAccess, MemoryBarrier, PipelineBarrier,
+    PipelineStage, QueueLane, ShaderModule, TextureLayout, TimestampQueryPool, VulkanContext,
+    WriteDescriptorSet,
 };
 pub use resources::*;
 use std::time::{Duration, Instant};
@@ -58,6 +59,7 @@ pub struct SurfaceBuildJob {
     submit_elapsed: Duration,
     _command_buffer: CommandBuffer,
     gpu_job: GpuJobToken,
+    gpu_scope: Option<GpuJobScopeToken>,
 }
 
 #[allow(dead_code)]
@@ -323,6 +325,7 @@ pub struct SurfaceBuilder {
     active_surface_to_flora_ppl: ComputePipeline,
     update_flora_growth_ppl: ComputePipeline,
     pass_timing: Option<SurfacePassTiming>,
+    gpu_job_profiler: Option<GpuJobProfiler>,
 
     chunk_bound: UAabb3,
     voxel_dim_per_chunk: UVec3,
@@ -502,9 +505,25 @@ impl SurfaceBuilder {
             active_surface_to_flora_ppl,
             update_flora_growth_ppl,
             pass_timing,
+            gpu_job_profiler: None,
             chunk_bound,
             voxel_dim_per_chunk,
             flora_species_count,
+        }
+    }
+
+    pub fn enable_gpu_job_profiling(&mut self, max_scopes: usize) {
+        self.gpu_job_profiler = GpuJobProfiler::maybe_new(
+            &self.vulkan_ctx,
+            max_scopes,
+            "PERF][SURFACE_GPU_JOB_PROFILER",
+        );
+        if let Some(profiler) = self.gpu_job_profiler.as_ref() {
+            log::info!(
+                "[PERF][SURFACE_GPU_JOB_PROFILER] enabled max_scopes={} timestamp_period_ns={:.3}",
+                profiler.max_scopes(),
+                profiler.timestamp_period_ns(),
+            );
         }
     }
 
@@ -557,6 +576,15 @@ impl SurfaceBuilder {
         let record_start = Instant::now();
         let cmdbuf = CommandBuffer::new(device, self.vulkan_ctx.command_pool());
         cmdbuf.begin(true);
+
+        let gpu_scope = self.gpu_job_profiler.as_mut().and_then(|profiler| {
+            profiler.begin_scope(
+                &cmdbuf,
+                "surface.build",
+                QueueLane::General,
+                PipelineStage::COMPUTE_SHADER,
+            )
+        });
 
         let pass_timing = self.pass_timing.as_ref();
         let timing_passes = surface_build_timing_passes(place_flora);
@@ -647,6 +675,12 @@ impl SurfaceBuilder {
             assert_eq!(timing_pass_index, timing_passes.len());
         }
 
+        if let Some(scope) = gpu_scope {
+            if let Some(profiler) = self.gpu_job_profiler.as_mut() {
+                profiler.end_scope(&cmdbuf, scope, PipelineStage::COMPUTE_SHADER);
+            }
+        }
+
         cmdbuf.end();
         let record_elapsed = record_start.elapsed();
 
@@ -667,6 +701,7 @@ impl SurfaceBuilder {
             submit_elapsed,
             _command_buffer: cmdbuf,
             gpu_job,
+            gpu_scope,
         })
     }
 
@@ -689,6 +724,29 @@ impl SurfaceBuilder {
         let active_brick_len = make_surface_result.active_brick_len;
         let solid_workgroup_len = make_surface_result.solid_workgroup_len;
         let readback_elapsed = readback_start.elapsed();
+
+        if let Some(scope) = job.gpu_scope {
+            if let Some(profiler) = self.gpu_job_profiler.as_mut() {
+                match profiler.collect_completed_scope(scope) {
+                    Ok(Some(result)) => {
+                        log::info!(
+                            "[PERF][GPU_JOB_SCOPE] name={} queue={:?} chunk {:?} duration={:.0}us",
+                            result.name,
+                            result.queue,
+                            job.chunk_id,
+                            result.duration_us(),
+                        );
+                    }
+                    Ok(None) => {}
+                    Err(err) => {
+                        log::warn!(
+                            "[PERF][GPU_JOB_SCOPE] surface.build chunk {:?} readback failed: {err}",
+                            job.chunk_id,
+                        );
+                    }
+                }
+            }
+        }
 
         if let Some(timing) = self.pass_timing.as_ref() {
             timing.collect_and_log(

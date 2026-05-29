@@ -171,9 +171,9 @@ Validation:
 
 ## Phase 4: GPU job scopes
 
-Status: not started.
+Status: done in branch `agent/vkn-profiler` for the first representative job.
 
-Attach timestamp scopes to off-frame GPU jobs such as chunk builds, compute jobs, and readbacks.
+Attached timestamp scopes to off-frame GPU jobs such as chunk builds, compute jobs, and readbacks.
 
 Tasks:
 
@@ -181,10 +181,22 @@ Tasks:
 - Collect job timestamp results after job completion, never by waiting solely for profiler data.
 - Start with one or two representative jobs before migrating all builders.
 
+Implementation notes:
+
+- Added `GpuJobProfiler`, `GpuJobScopeToken`, and `GpuJobScopeResult` in vkn.
+- The first app integration is `surface.build`, enabled only under `--perf` via `SurfaceBuilder::enable_gpu_job_profiling`.
+- Scope results are collected in `finish_build_surface`, after the corresponding `GpuJobToken` is already complete.
+- Job scope results log as `[PERF][GPU_JOB_SCOPE]` and keep queue/name metadata for future aggregation.
+
 Validation:
 
-- Hidden release run with terrain/water startup logs.
-- Check job completion latency and existing builder perf lines for regressions.
+- `cargo fmt --check`
+- `cargo check`
+- `cargo check --features sync_diagnostics`
+- `cargo test`
+- `cargo run --release -- --hidden --auto-exit 0.5`
+- `cargo run --release -- --hidden --auto-exit 4 --perf`
+- inspect hidden-run logs for errors, panics, failures, and validation messages
 
 ## Phase 5: Transition/barrier diagnostics sink
 

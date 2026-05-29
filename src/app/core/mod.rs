@@ -927,7 +927,7 @@ impl App {
             FREE_ATLAS_DIM,
         );
 
-        let surface_builder = SurfaceBuilder::new(
+        let mut surface_builder = SurfaceBuilder::new(
             vulkan_ctx.clone(),
             allocator.clone(),
             &shader_compiler,
@@ -935,6 +935,9 @@ impl App {
             VOXEL_DIM_PER_CHUNK,
             chunk_bound,
         );
+        if options.perf {
+            surface_builder.enable_gpu_job_profiling(32);
+        }
 
         let contree_builder = ContreeBuilder::new(
             vulkan_ctx.clone(),
