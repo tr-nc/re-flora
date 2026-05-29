@@ -582,6 +582,22 @@ Validation:
 - `cargo run --release -- --hidden --auto-exit 0.5`
 - inspect hidden-run log for errors, panics, failures, and validation messages
 
+### Step 15: Add profiler-ready texture transition states
+
+Status: done in branch `agent/vkn-profiler` after Step 14. `ResourceState` and `TextureTransition` now describe texture barriers as layout + pipeline stage + memory access. Image transition recording builds a `TextureTransition` before converting to Vulkan, giving a single central shape for future barrier diagnostics/profiling.
+
+- Add semantic access/stage constants needed by texture transitions, including transfer read, color/depth attachment access, bottom-of-pipe, color-attachment output, and fragment-test stages.
+- Move source/destination stage/access inference from raw layout helper functions into `TextureTransition::from_layouts`.
+- Make `record_image_transition_barrier` crate-visible and descriptor-driven rather than public/raw-layout-driven.
+- Keep swapchain-image transitions using the same `TextureTransition` path as wrapped textures.
+
+Validation:
+
+- `cargo fmt --check`
+- `cargo check`
+- `cargo run --release -- --hidden --auto-exit 0.5`
+- inspect hidden-run log for errors, panics, failures, and validation messages
+
 ## Performance guardrails
 
 - No extra queue submissions compared with current frame or job flow.
@@ -617,6 +633,7 @@ After sync is managed, profiler work can build on the same model:
 - present descriptors expose present waits
 - command-buffer GPU scopes can attach to the submit/frame/job that contains them
 - GPU job tokens provide job IDs, queue lanes, names, completion states, and readback points
+- texture transitions provide layout/stage/access state edges for future barrier diagnostics
 - chunk/build/readback diagnostics explain queue pressure outside the main render frame
 
 The profiler should then answer:
@@ -649,8 +666,8 @@ But this phase ends before implementing those outputs.
 Keep the next code change small:
 
 1. Audit the remaining public `vk::` API surface and separate descriptive Vulkan types (`vk::Format`, usage flags, load/store ops) from synchronization/resource-state types.
-2. Add a compact `TextureDesc`/`AttachmentDesc` convenience layer only where it removes state/layout leakage without forcing a broad render-pass rewrite.
-3. Add optional diagnostics hooks for resource transitions once there is a clear event shape (`resource name`, old layout, new layout, source/destination stages/accesses).
+2. Add optional diagnostics hooks for resource transitions using the existing `TextureTransition` event shape.
+3. Add a compact `TextureDesc`/`AttachmentDesc` convenience layer only where it removes state/layout leakage without forcing a broad render-pass rewrite.
 4. Validate no behavior/performance regression with the standard hidden-mode run before broadening the abstraction.
 
-The managed sync seam now covers swapchain frames and off-frame GPU jobs. The resource-state seam is partially established for barriers, texture layouts, descriptor layouts, timestamp stages, and render-pass attachment layouts; the next work should stay targeted and avoid a full render graph until profiler needs are concrete.
+The managed sync seam now covers swapchain frames and off-frame GPU jobs. The resource-state seam is established for barriers, texture transitions, descriptor layouts, timestamp stages, and render-pass attachment layouts; the next work should stay targeted and avoid a full render graph until profiler needs are concrete.
