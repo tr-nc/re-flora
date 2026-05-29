@@ -3,6 +3,9 @@ pub use ash::vk;
 mod query;
 pub use query::*;
 
+mod profiler;
+pub use profiler::*;
+
 mod resource;
 pub use resource::*;
 

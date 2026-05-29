@@ -76,9 +76,9 @@ Already completed on branch `agent/vkn-profiler`:
 
 ## Phase 1: Timestamp query primitives in vkn
 
-Status: not started.
+Status: done in branch `agent/vkn-profiler`.
 
-Add the minimal vkn-owned timestamp building blocks.
+Added the minimal vkn-owned timestamp building blocks.
 
 Tasks:
 
@@ -88,20 +88,24 @@ Tasks:
 - Use semantic `PipelineStage` for timestamp writes.
 - Represent scope metadata with fixed-capacity storage and `&'static str` names.
 
-Expected API shape, subject to adjustment:
+Implemented API shape:
 
 ```rust
 GpuProfiler::maybe_new(...)
 GpuProfiler::begin_frame(frame_slot, cmdbuf)
-GpuProfilerFrame::begin_scope(cmdbuf, "tracer.render")
-GpuProfilerFrame::end_scope(cmdbuf, scope)
-GpuProfiler::try_collect_completed_frame(frame_slot)
+GpuProfilerFrame::begin_scope(cmdbuf, "tracer.render", PipelineStage::ALL_COMMANDS)
+GpuProfilerFrame::end_scope(cmdbuf, scope, PipelineStage::ALL_COMMANDS)
+GpuProfiler::try_collect_frame(frame_slot)
 ```
 
 Validation:
 
-- Compile and tests only if no app integration yet.
-- Hidden run if command recording changes.
+- `cargo fmt --check`
+- `cargo check`
+- `cargo check --features sync_diagnostics`
+- `cargo test`
+- `cargo run --release -- --hidden --auto-exit 0.5`
+- inspect hidden-run log for errors, panics, failures, and validation messages
 
 ## Phase 2: Frame-slot integration
 
