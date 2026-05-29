@@ -50,8 +50,9 @@ use anyhow::{Context, Result};
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
 use re_flora_vkn::{
-    Allocator, Buffer, BufferUsage, ColorReadbackFormat, CommandBuffer, Extent2D, MemoryLocation,
-    SwapchainDesc, SwapchainFrameError, SwapchainFrameManager,
+    Allocator, Buffer, BufferUsage, ColorReadbackFormat, CommandBuffer, Extent2D, GpuProfiler,
+    GpuProfilerFrameResults, MemoryLocation, SwapchainDesc, SwapchainFrameError,
+    SwapchainFrameManager,
 };
 use re_flora_vkn::{Swapchain, VulkanContext};
 use re_flora_water::PondWaterConfig;
@@ -236,6 +237,8 @@ pub struct App {
     swapchain: Swapchain,
     window_state: WindowState,
     frame_manager: SwapchainFrameManager,
+    gpu_profiler: Option<GpuProfiler>,
+    gpu_profiler_latest_results: Option<GpuProfilerFrameResults>,
     time_info: TimeInfo,
     render_flags: RenderFlags,
     accumulated_mouse_delta: Vec2,
@@ -345,6 +348,21 @@ impl Drop for App {
 impl App {
     pub(super) fn track_growing_flora_chunk(&mut self, chunk_id: UVec3) {
         self.growing_flora_chunks.push(chunk_id, self.flora_tick);
+    }
+
+    fn collect_gpu_profiler_frame(&mut self, frame_slot: usize) {
+        let Some(profiler) = &self.gpu_profiler else {
+            return;
+        };
+        match profiler.try_collect_frame(frame_slot) {
+            Ok(Some(results)) => {
+                self.gpu_profiler_latest_results = Some(results);
+            }
+            Ok(None) => {}
+            Err(err) => {
+                log::warn!("[PERF][GPU_PROFILER] frame_slot={frame_slot} readback failed: {err}");
+            }
+        }
     }
 
     fn update_growing_flora_chunk(&mut self) {
@@ -493,6 +511,7 @@ const VOXEL_DIM_PER_CHUNK: UVec3 = UVec3::new(256, 256, 256);
 const CHUNK_DIM: UVec3 = UVec3::new(5, 2, 5);
 const FREE_ATLAS_DIM: UVec3 = UVec3::new(512, 512, 512);
 const MAX_FRAMES_IN_FLIGHT: usize = 1;
+const GPU_PROFILER_MAX_SCOPES_PER_FRAME: usize = 64;
 const SHOVEL_REMOVE_RADIUS: f32 = 0.08;
 const SHOVEL_DIG_INTERVAL: Duration = Duration::from_millis(80);
 const SHOVEL_RAY_QUERY_DISTANCE: f32 = 10.0;
@@ -836,6 +855,17 @@ impl App {
             MAX_FRAMES_IN_FLIGHT,
             swapchain.image_count(),
         );
+        let gpu_profiler = options
+            .perf
+            .then(|| {
+                GpuProfiler::maybe_new(
+                    &vulkan_ctx,
+                    MAX_FRAMES_IN_FLIGHT,
+                    GPU_PROFILER_MAX_SCOPES_PER_FRAME,
+                    "PERF][GPU_PROFILER",
+                )
+            })
+            .flatten();
 
         let renderer = EguiRenderer::new(
             vulkan_ctx.clone(),
@@ -1060,6 +1090,8 @@ impl App {
 
             swapchain,
             frame_manager,
+            gpu_profiler,
+            gpu_profiler_latest_results: None,
 
             tracer,
 
@@ -1356,7 +1388,6 @@ impl App {
                     });
             });
 
-        let device = self.vulkan_ctx.device();
         let frame = match self.frame_manager.begin_frame(&mut self.swapchain) {
             Ok(frame) => frame,
             Err(SwapchainFrameError::OutOfDate) => {
@@ -1365,10 +1396,15 @@ impl App {
             }
             Err(error) => panic!("Error while acquiring next image. Cause: {}", error),
         };
+        self.collect_gpu_profiler_frame(frame.frame_slot());
+        let device = self.vulkan_ctx.device();
         let cmdbuf = frame.command_buffer();
         let image_idx = frame.image_index();
 
         cmdbuf.begin(false);
+        if let Some(profiler) = self.gpu_profiler.as_mut() {
+            profiler.begin_frame(frame.frame_slot(), cmdbuf);
+        }
 
         let render_area = self.window_state.window_extent();
 
@@ -2452,7 +2488,6 @@ impl App {
                 }
 
                 let gpu_record_start = Instant::now();
-                let device = self.vulkan_ctx.device();
                 let frame = match self.frame_manager.begin_frame(&mut self.swapchain) {
                     Ok(frame) => frame,
                     Err(SwapchainFrameError::OutOfDate) => {
@@ -2461,10 +2496,15 @@ impl App {
                     }
                     Err(error) => panic!("Error while acquiring next image. Cause: {}", error),
                 };
+                self.collect_gpu_profiler_frame(frame.frame_slot());
+                let device = self.vulkan_ctx.device();
                 let cmdbuf = frame.command_buffer();
                 let image_idx = frame.image_index();
 
                 cmdbuf.begin(false);
+                if let Some(profiler) = self.gpu_profiler.as_mut() {
+                    profiler.begin_frame(frame.frame_slot(), cmdbuf);
+                }
 
                 let (sun_altitude, sun_azimuth) = Self::calculate_sun_position(
                     self.gui_adjustables.time_of_day.value,

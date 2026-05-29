@@ -109,9 +109,9 @@ Validation:
 
 ## Phase 2: Frame-slot integration
 
-Status: not started.
+Status: done in branch `agent/vkn-profiler`.
 
-Tie timestamp result lifetime to existing managed frame completion.
+Tied timestamp result lifetime to existing managed frame completion.
 
 Tasks:
 
@@ -121,11 +121,19 @@ Tasks:
 - Skip unavailable results without blocking.
 - Expose dropped-scope counts and availability status.
 
+Implementation notes:
+
+- `App` creates `GpuProfiler` only when `--perf` is enabled.
+- After `SwapchainFrameManager::begin_frame` returns, the current frame slot's previous fence has already been waited by vkn, so app collection uses `GpuProfiler::try_collect_frame` before resetting the same slot's query range.
+- Profiler query reset is recorded at the start of the new command buffer for that frame slot.
+
 Validation:
 
+- `cargo fmt --check`
+- `cargo check`
 - `cargo run --release -- --hidden --auto-exit 0.5`
 - `cargo run --release -- --hidden --auto-exit 4 --perf`
-- Confirm no new validation errors and no suspicious frame stalls.
+- inspect hidden-run logs for errors, panics, failures, and validation messages
 
 ## Phase 3: First render scopes
 
