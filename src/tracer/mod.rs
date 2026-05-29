@@ -783,6 +783,34 @@ impl Tracer {
         result
     }
 
+    fn with_gpu_scope<T>(
+        gpu_profiler: Option<&mut GpuProfiler>,
+        gpu_profiler_frame_slot: usize,
+        cmdbuf: &CommandBuffer,
+        name: &'static str,
+        work: impl FnOnce() -> T,
+    ) -> T {
+        let Some(profiler) = gpu_profiler else {
+            return work();
+        };
+        let scope = profiler.begin_scope(
+            gpu_profiler_frame_slot,
+            cmdbuf,
+            name,
+            PipelineStage::ALL_COMMANDS,
+        );
+        let result = work();
+        if let Some(scope) = scope {
+            profiler.end_scope(
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                scope,
+                PipelineStage::ALL_COMMANDS,
+            );
+        }
+        result
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn record_trace(
         &mut self,
@@ -800,7 +828,7 @@ impl Tracer {
         vsm_blur_radius: u32,
         vsm_temporal_alpha: f32,
         reset_vsm_history: bool,
-        gpu_profiler: Option<&mut GpuProfiler>,
+        mut gpu_profiler: Option<&mut GpuProfiler>,
         gpu_profiler_frame_slot: usize,
     ) -> Result<()> {
         let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
@@ -824,12 +852,24 @@ impl Tracer {
             vec![shader_access_memory_barrier],
         );
 
-        self.record_clear_render_targets(cmdbuf, render_flags, update_shadow_map);
+        Self::with_gpu_scope(
+            gpu_profiler.as_deref_mut(),
+            gpu_profiler_frame_slot,
+            cmdbuf,
+            "clear.targets",
+            || self.record_clear_render_targets(cmdbuf, render_flags, update_shadow_map),
+        );
 
         let has_graphics_pass = render_flags.enable_flora || render_flags.enable_particles;
 
         if render_flags.enable_flora {
-            self.record_wind_volume_pass(cmdbuf, time);
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "wind_volume.pass",
+                || self.record_wind_volume_pass(cmdbuf, time),
+            );
 
             let b1 = PipelineBarrier::new(
                 PipelineStage::COMPUTE_SHADER,
@@ -840,12 +880,20 @@ impl Tracer {
         }
 
         if render_flags.enable_flora && render_flags.enable_shadows && update_shadow_map {
-            self.record_leaves_shadow_lod_pass(
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
                 cmdbuf,
-                surface_resources,
-                leaf_bottom_color,
-                leaf_tip_color,
-                time,
+                "leaves_shadow_lod.pass",
+                || {
+                    self.record_leaves_shadow_lod_pass(
+                        cmdbuf,
+                        surface_resources,
+                        leaf_bottom_color,
+                        leaf_tip_color,
+                        time,
+                    )
+                },
             );
         }
         if has_graphics_pass || (render_flags.enable_shadows && update_shadow_map) {
@@ -858,15 +906,35 @@ impl Tracer {
         }
 
         if render_flags.enable_shadows && update_shadow_map {
-            self.record_shadow_depth_copy_pass(cmdbuf);
-            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-            self.record_tracer_shadow_pass(cmdbuf);
-            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-            self.record_vsm_filtering_pass(
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
                 cmdbuf,
-                vsm_blur_radius,
-                vsm_temporal_alpha,
-                reset_vsm_history,
+                "shadow_depth_copy.pass",
+                || self.record_shadow_depth_copy_pass(cmdbuf),
+            );
+            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "tracer_shadow.pass",
+                || self.record_tracer_shadow_pass(cmdbuf),
+            );
+            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "vsm_filtering.pass",
+                || {
+                    self.record_vsm_filtering_pass(
+                        cmdbuf,
+                        vsm_blur_radius,
+                        vsm_temporal_alpha,
+                        reset_vsm_history,
+                    )
+                },
             );
             compute_to_graphics_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
@@ -890,18 +958,26 @@ impl Tracer {
             );
         }
         if has_graphics_pass {
-            self.record_all_graphics_passes(
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
                 cmdbuf,
-                surface_resources,
-                lod_distance,
-                flora_draw_distance,
-                grass_render_mode,
-                flora_colors,
-                leaf_bottom_color,
-                leaf_tip_color,
-                time,
-                render_flags.enable_flora,
-                render_flags.enable_particles,
+                "graphics.pass",
+                || {
+                    self.record_all_graphics_passes(
+                        cmdbuf,
+                        surface_resources,
+                        lod_distance,
+                        flora_draw_distance,
+                        grass_render_mode,
+                        flora_colors,
+                        leaf_bottom_color,
+                        leaf_tip_color,
+                        time,
+                        render_flags.enable_flora,
+                        render_flags.enable_particles,
+                    )
+                },
             );
             frag_to_vert_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
@@ -915,9 +991,21 @@ impl Tracer {
         }
 
         if render_flags.enable_tracer {
-            self.record_tracer_pass(cmdbuf);
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "tracer.pass",
+                || self.record_tracer_pass(cmdbuf),
+            );
         } else {
-            self.clear_tracer_outputs(cmdbuf);
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "tracer_clear.pass",
+                || self.clear_tracer_outputs(cmdbuf),
+            );
         }
 
         if has_graphics_pass || render_flags.enable_tracer {
@@ -930,24 +1018,60 @@ impl Tracer {
         }
 
         if render_flags.enable_god_rays {
-            self.record_god_ray_pass(cmdbuf);
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "god_ray.pass",
+                || self.record_god_ray_pass(cmdbuf),
+            );
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
 
         if render_flags.enable_denoiser {
-            self.record_denoiser_pass(cmdbuf, self.a_trous_iteration_count)?;
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "denoiser.pass",
+                || self.record_denoiser_pass(cmdbuf, self.a_trous_iteration_count),
+            )?;
         }
 
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         if render_flags.enable_lens_flare {
-            self.record_lens_flare_sun_visible_pass(cmdbuf);
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "lens_flare_sun_visible.pass",
+                || self.record_lens_flare_sun_visible_pass(cmdbuf),
+            );
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-            self.record_lens_flare_pass(cmdbuf);
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "lens_flare.pass",
+                || self.record_lens_flare_pass(cmdbuf),
+            );
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-            self.record_lens_flare_downsample_pass(cmdbuf);
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "lens_flare_downsample.pass",
+                || self.record_lens_flare_downsample_pass(cmdbuf),
+            );
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
-        self.record_composition_pass(cmdbuf);
+        Self::with_gpu_scope(
+            gpu_profiler.as_deref_mut(),
+            gpu_profiler_frame_slot,
+            cmdbuf,
+            "composition.pass",
+            || self.record_composition_pass(cmdbuf),
+        );
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         if let Some(profiler) = gpu_profiler {
             let postprocessing_scope = profiler.begin_scope(
