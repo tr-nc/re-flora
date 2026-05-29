@@ -1,7 +1,6 @@
 mod resources;
 use anyhow::Result;
 use glam::UVec3;
-use re_flora_vkn::vk;
 pub use resources::*;
 use std::time::Instant;
 
@@ -9,7 +8,8 @@ use crate::{generated::gpu_structs::SceneTexUpdateInfo, geom::UAabb3, util::Shad
 use bytemuck::Zeroable;
 use re_flora_vkn::{
     execute_one_time_command, Allocator, Buffer, ClearValue, ColorClearValue, CommandBuffer,
-    ComputePipeline, DescriptorPool, Extent3D, GpuJobToken, ShaderModule, VulkanContext,
+    ComputePipeline, DescriptorPool, Extent3D, GpuJobToken, ShaderModule, TextureLayout,
+    VulkanContext,
 };
 
 pub struct SceneAccelBuilder {
@@ -116,7 +116,7 @@ impl SceneAccelBuilder {
             |cmdbuf| {
                 resources.scene_tex.get_image().record_clear(
                     cmdbuf,
-                    Some(vk::ImageLayout::GENERAL),
+                    Some(TextureLayout::GENERAL),
                     0,
                     ClearValue::Color(ColorClearValue::UInt([0, 0, 0, 0])),
                 );

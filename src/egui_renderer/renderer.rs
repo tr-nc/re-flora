@@ -12,6 +12,7 @@ use re_flora_vkn::CommandBuffer;
 use re_flora_vkn::FormatOverride;
 use re_flora_vkn::ImageDesc;
 use re_flora_vkn::RenderPass;
+use re_flora_vkn::TextureLayout;
 use re_flora_vkn::TextureRegion;
 use re_flora_vkn::VulkanContext;
 use re_flora_vkn::WriteDescriptorSet;
@@ -175,7 +176,7 @@ impl EguiRenderer {
                         region,
                         data.as_slice(),
                         0,
-                        Some(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL),
+                        Some(TextureLayout::SHADER_READ_ONLY),
                     )
                     .unwrap();
             } else {
@@ -200,7 +201,7 @@ impl EguiRenderer {
                         TextureRegion::from_image(texture.get_image()),
                         data.as_slice(),
                         0,
-                        Some(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL),
+                        Some(TextureLayout::SHADER_READ_ONLY),
                     )
                     .unwrap();
 

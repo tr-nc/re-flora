@@ -15,7 +15,7 @@ use glam::{IVec3, UVec3};
 use re_flora_vkn::vk;
 use re_flora_vkn::{
     Allocator, Buffer, BufferUsage, Device, Extent2D, Extent3D, ImageDesc, MemoryLocation,
-    SamplerDesc, ShaderModule, Texture, TextureRegion, VulkanContext,
+    SamplerDesc, ShaderModule, Texture, TextureLayout, TextureRegion, VulkanContext,
 };
 use resource_container_derive::ResourceContainer;
 use std::path::Path;
@@ -660,7 +660,7 @@ impl TracerResources {
                         vulkan_ctx.command_pool(),
                         &path,
                         i,
-                        Some(vk::ImageLayout::GENERAL),
+                        Some(TextureLayout::GENERAL),
                     )
                     .unwrap();
             }
@@ -718,7 +718,7 @@ impl TracerResources {
                 TextureRegion::from_image(tex.get_image()),
                 &texels_rgba,
                 0,
-                Some(vk::ImageLayout::GENERAL),
+                Some(TextureLayout::GENERAL),
             )
             .unwrap();
         tex
@@ -904,7 +904,7 @@ impl TracerResources {
                 TextureRegion::from_image(tex.get_image()),
                 data,
                 layer,
-                Some(vk::ImageLayout::GENERAL),
+                Some(TextureLayout::GENERAL),
             )
             .unwrap();
     }

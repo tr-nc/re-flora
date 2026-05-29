@@ -286,13 +286,13 @@ impl PlainBuilder {
                 |cmdbuf| {
                     resources.chunk_atlas.get_image().record_clear(
                         cmdbuf,
-                        Some(vk::ImageLayout::GENERAL),
+                        Some(TextureLayout::GENERAL),
                         0,
                         ClearValue::Color(ColorClearValue::UInt([0, 0, 0, 0])),
                     );
                     resources.free_atlas.get_image().record_clear(
                         cmdbuf,
-                        Some(vk::ImageLayout::GENERAL),
+                        Some(TextureLayout::GENERAL),
                         0,
                         ClearValue::Color(ColorClearValue::UInt([0, 0, 0, 0])),
                     );
@@ -435,7 +435,7 @@ impl PlainBuilder {
             buffer,
             &queue,
             command_pool,
-            vk::ImageLayout::GENERAL,
+            TextureLayout::GENERAL,
             0,
             TextureRegion {
                 offset: [

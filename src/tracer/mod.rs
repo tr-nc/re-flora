@@ -983,8 +983,8 @@ impl Tracer {
                 src_tex.get_image().record_copy_to(
                     cmdbuf,
                     dst_tex.get_image(),
-                    vk::ImageLayout::GENERAL,
-                    vk::ImageLayout::GENERAL,
+                    TextureLayout::GENERAL,
+                    TextureLayout::GENERAL,
                 );
             };
             copy_fn(
@@ -1013,8 +1013,8 @@ impl Tracer {
             .record_copy_to(
                 cmdbuf,
                 self.resources.shadow_map_tex_for_vsm_prev.get_image(),
-                vk::ImageLayout::GENERAL,
-                vk::ImageLayout::GENERAL,
+                TextureLayout::GENERAL,
+                TextureLayout::GENERAL,
             );
     }
 
@@ -1030,7 +1030,7 @@ impl Tracer {
             .get_image()
             .record_clear(
                 cmdbuf,
-                Some(vk::ImageLayout::GENERAL),
+                Some(TextureLayout::GENERAL),
                 0,
                 ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 0.0])),
             );
@@ -1040,7 +1040,7 @@ impl Tracer {
             .get_image()
             .record_clear(
                 cmdbuf,
-                Some(vk::ImageLayout::GENERAL),
+                Some(TextureLayout::GENERAL),
                 0,
                 ClearValue::DepthStencil(DepthOrStencilClearValue::Depth(1.0)),
             );
@@ -1051,14 +1051,14 @@ impl Tracer {
                 .get_image()
                 .record_clear(
                     cmdbuf,
-                    Some(vk::ImageLayout::GENERAL),
+                    Some(TextureLayout::GENERAL),
                     0,
                     ClearValue::DepthStencil(DepthOrStencilClearValue::Depth(1.0)),
                 );
 
             self.resources.shadow_map_tex.get_image().record_clear(
                 cmdbuf,
-                Some(vk::ImageLayout::GENERAL),
+                Some(TextureLayout::GENERAL),
                 0,
                 ClearValue::Color(ColorClearValue::Float([1.0, 0.0, 0.0, 0.0])),
             );
@@ -1070,7 +1070,7 @@ impl Tracer {
             .get_image()
             .record_clear(
                 cmdbuf,
-                Some(vk::ImageLayout::GENERAL),
+                Some(TextureLayout::GENERAL),
                 0,
                 ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 0.0])),
             );
@@ -1082,7 +1082,7 @@ impl Tracer {
             .get_image()
             .record_clear(
                 cmdbuf,
-                Some(vk::ImageLayout::GENERAL),
+                Some(TextureLayout::GENERAL),
                 0,
                 ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 0.0])),
             );
@@ -1093,7 +1093,7 @@ impl Tracer {
             .get_image()
             .record_clear(
                 cmdbuf,
-                Some(vk::ImageLayout::GENERAL),
+                Some(TextureLayout::GENERAL),
                 0,
                 ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 0.0])),
             );
@@ -1104,7 +1104,7 @@ impl Tracer {
             .get_image()
             .record_clear(
                 cmdbuf,
-                Some(vk::ImageLayout::GENERAL),
+                Some(TextureLayout::GENERAL),
                 0,
                 ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 0.0])),
             );
@@ -1116,7 +1116,7 @@ impl Tracer {
                 .get_image()
                 .record_clear(
                     cmdbuf,
-                    Some(vk::ImageLayout::GENERAL),
+                    Some(TextureLayout::GENERAL),
                     0,
                     ClearValue::Color(ColorClearValue::UInt([0, 0, 0, 0])),
                 );
@@ -1336,17 +1336,16 @@ impl Tracer {
 
         render_target.record_end(cmdbuf);
 
-        let desc = render_target.get_desc();
         self.resources
             .extent_dependent_resources
             .gfx_output_tex
             .get_image()
-            .set_layout(0, desc.attachments[0].final_layout);
+            .set_layout(0, TextureLayout::GENERAL);
         self.resources
             .extent_dependent_resources
             .gfx_depth_tex
             .get_image()
-            .set_layout(0, desc.attachments[1].final_layout);
+            .set_layout(0, TextureLayout::GENERAL);
     }
 
     fn record_leaves_shadow_lod_pass(
@@ -1428,11 +1427,10 @@ impl Tracer {
 
         self.render_target_depth_only.record_end(cmdbuf);
 
-        let desc = self.render_target_depth_only.get_desc();
         self.resources
             .shadow_map_depth_tex
             .get_image()
-            .set_layout(0, desc.attachments[0].final_layout);
+            .set_layout(0, TextureLayout::GENERAL);
     }
 
     fn record_tracer_shadow_pass(&self, cmdbuf: &CommandBuffer) {
@@ -1637,7 +1635,7 @@ impl Tracer {
             .get_image()
             .record_clear(
                 cmdbuf,
-                Some(vk::ImageLayout::GENERAL),
+                Some(TextureLayout::GENERAL),
                 0,
                 ClearValue::Color(ColorClearValue::UInt([0, 0, 0, 0])),
             );
@@ -1647,7 +1645,7 @@ impl Tracer {
             .get_image()
             .record_clear(
                 cmdbuf,
-                Some(vk::ImageLayout::GENERAL),
+                Some(TextureLayout::GENERAL),
                 0,
                 ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 0.0])),
             );

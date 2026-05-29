@@ -129,7 +129,7 @@ impl Image {
         buffer: &mut Buffer,
         queue: &Queue,
         command_pool: &CommandPool,
-        dst_image_layout: vk::ImageLayout,
+        dst_image_layout: TextureLayout,
         array_layer: u32,
         region: TextureRegion,
     ) {
@@ -168,7 +168,7 @@ impl Image {
                     &[region],
                 )
             }
-            self.record_transition_barrier(cmdbuf, array_layer, dst_image_layout);
+            self.record_transition_barrier(cmdbuf, array_layer, dst_image_layout.as_raw());
         });
     }
 
@@ -176,8 +176,8 @@ impl Image {
         &self,
         cmdbuf: &CommandBuffer,
         dst_img: &Image,
-        src_img_dst_layout: vk::ImageLayout,
-        dst_img_dst_layout: vk::ImageLayout,
+        src_img_dst_layout: TextureLayout,
+        dst_img_dst_layout: TextureLayout,
     ) {
         self.record_transition_barrier(cmdbuf, 0, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
         dst_img.record_transition_barrier(cmdbuf, 0, vk::ImageLayout::TRANSFER_DST_OPTIMAL);
@@ -193,8 +193,8 @@ impl Image {
             );
         }
 
-        self.record_transition_barrier(cmdbuf, 0, src_img_dst_layout);
-        dst_img.record_transition_barrier(cmdbuf, 0, dst_img_dst_layout);
+        self.record_transition_barrier(cmdbuf, 0, src_img_dst_layout.as_raw());
+        dst_img.record_transition_barrier(cmdbuf, 0, dst_img_dst_layout.as_raw());
     }
 
     #[allow(dead_code)]
@@ -254,11 +254,13 @@ impl Image {
     pub fn record_clear(
         &self,
         cmdbuf: &CommandBuffer,
-        layout_after_clear: Option<vk::ImageLayout>,
+        layout_after_clear: Option<TextureLayout>,
         base_array_layer: u32,
         clear_value: ClearValue,
     ) {
-        let target_layout = layout_after_clear.unwrap_or(self.get_layout(base_array_layer));
+        let target_layout = layout_after_clear
+            .unwrap_or_else(|| self.get_layout(base_array_layer))
+            .as_raw();
         const LAYOUT_USED_TO_CLEAR: vk::ImageLayout = vk::ImageLayout::TRANSFER_DST_OPTIMAL;
         self.record_transition_barrier(cmdbuf, base_array_layer, LAYOUT_USED_TO_CLEAR);
 
@@ -341,7 +343,7 @@ impl Image {
     }
 
     /// Transition just `array_layer` from its current layout → `target_layout`
-    pub fn record_transition_barrier(
+    pub(crate) fn record_transition_barrier(
         &self,
         cmdbuf: &CommandBuffer,
         array_layer: u32,
@@ -374,9 +376,9 @@ impl Image {
 
     /// Force set the layout for the given array layer.
     #[allow(dead_code)]
-    pub fn set_layout(&self, array_layer: u32, new_layout: vk::ImageLayout) {
+    pub fn set_layout(&self, array_layer: u32, new_layout: TextureLayout) {
         let mut layouts = self.0.current_layout.lock().unwrap();
-        layouts[array_layer as usize] = new_layout;
+        layouts[array_layer as usize] = new_layout.as_raw();
     }
 
     /// Loads an RGBA image from the given path and checks if it has the same size as the texture.
@@ -456,7 +458,7 @@ impl Image {
         command_pool: &CommandPool,
         path: &str,
         array_layer: u32,
-        dst_image_layout: Option<vk::ImageLayout>,
+        dst_image_layout: Option<TextureLayout>,
     ) -> Result<()> {
         let data = self.load_same_sized_image_as_raw_u8(path)?;
         let region = TextureRegion::from_image(self);
@@ -481,7 +483,7 @@ impl Image {
         region: TextureRegion,
         data: &[u8],
         array_layer: u32,
-        dst_image_layout: Option<vk::ImageLayout>,
+        dst_image_layout: Option<TextureLayout>,
     ) -> Result<()> {
         let device = &self.0.device;
 
@@ -496,7 +498,9 @@ impl Image {
             .fill(data)
             .map_err(|e| anyhow::anyhow!("Failed to fill buffer: {}", e))?;
 
-        let target_layout = dst_image_layout.unwrap_or(self.get_layout(array_layer));
+        let target_layout = dst_image_layout
+            .unwrap_or_else(|| self.get_layout(array_layer))
+            .as_raw();
 
         execute_one_time_command(device, command_pool, queue, |cmdbuf| {
             self.record_transition_barrier(
@@ -578,14 +582,16 @@ impl Image {
         Ok(fetched_data)
     }
 
-    pub fn get_layout(&self, array_layer: u32) -> vk::ImageLayout {
-        *self
-            .0
-            .current_layout
-            .lock()
-            .unwrap()
-            .get(array_layer as usize)
-            .unwrap()
+    pub fn get_layout(&self, array_layer: u32) -> TextureLayout {
+        TextureLayout::from_raw(
+            *self
+                .0
+                .current_layout
+                .lock()
+                .unwrap()
+                .get(array_layer as usize)
+                .unwrap(),
+        )
     }
 
     pub fn as_raw(&self) -> vk::Image {

@@ -17,6 +17,10 @@ impl TextureLayout {
         Self(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
     pub const PRESENT_SRC: Self = Self(vk::ImageLayout::PRESENT_SRC_KHR);
 
+    pub(crate) fn from_raw(layout: vk::ImageLayout) -> Self {
+        Self(layout)
+    }
+
     pub(crate) fn as_raw(self) -> vk::ImageLayout {
         self.0
     }
