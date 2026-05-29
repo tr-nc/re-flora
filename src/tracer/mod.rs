@@ -53,7 +53,7 @@ use re_flora_vkn::{
     execute_one_time_gpu_job, Allocator, ClearValue, ColorClearValue, CommandBuffer,
     ComputePipeline, DepthOrStencilClearValue, DescriptorPool, Extent2D, Extent3D, Framebuffer,
     GraphicsPipeline, MemoryBarrier, PipelineBarrier, PipelineStage, PushConstantInfo, RenderPass,
-    RenderTarget, Texture, Viewport, VulkanContext,
+    RenderTarget, Texture, TextureLayout, Viewport, VulkanContext,
 };
 use std::collections::HashMap;
 
@@ -961,7 +961,7 @@ impl Tracer {
         ) {
             let tr_fn = |tex: &Texture| {
                 tex.get_image()
-                    .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+                    .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
             };
             tr_fn(&denoiser_resources.tex.denoiser_normal_tex);
             tr_fn(&denoiser_resources.tex.denoiser_normal_tex_prev);
@@ -1436,10 +1436,11 @@ impl Tracer {
     }
 
     fn record_tracer_shadow_pass(&self, cmdbuf: &CommandBuffer) {
-        self.resources
-            .shadow_map_tex
-            .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+        self.resources.shadow_map_tex.get_image().record_transition(
+            cmdbuf,
+            0,
+            TextureLayout::GENERAL,
+        );
         self.compute_pipelines.tracer_shadow_ppl.record(
             cmdbuf,
             self.resources.shadow_map_tex.get_image().get_desc().extent,
@@ -1451,11 +1452,12 @@ impl Tracer {
         self.resources
             .shadow_map_depth_tex
             .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
-        self.resources
-            .shadow_map_tex
-            .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
+        self.resources.shadow_map_tex.get_image().record_transition(
+            cmdbuf,
+            0,
+            TextureLayout::GENERAL,
+        );
 
         self.compute_pipelines.shadow_depth_copy_ppl.record(
             cmdbuf,
@@ -1503,7 +1505,7 @@ impl Tracer {
         self.resources
             .wind_volume_tex
             .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
 
         let bucket_count = WIND_VOLUME_BUCKET_COUNT;
         let step_seconds = self.wind_volume_bucket_step_seconds();
@@ -1550,22 +1552,23 @@ impl Tracer {
         reset_vsm_history: bool,
     ) {
         // transition shadow/VSM images to general for compute read/write access
-        self.resources
-            .shadow_map_tex
-            .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+        self.resources.shadow_map_tex.get_image().record_transition(
+            cmdbuf,
+            0,
+            TextureLayout::GENERAL,
+        );
         self.resources
             .shadow_map_tex_for_vsm_ping
             .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
         self.resources
             .shadow_map_tex_for_vsm_pong
             .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
         self.resources
             .shadow_map_tex_for_vsm_prev
             .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
 
         let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
         let compute_to_compute_barrier = PipelineBarrier::new(
@@ -1608,12 +1611,12 @@ impl Tracer {
             .extent_dependent_resources
             .compute_output_tex
             .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
         self.resources
             .extent_dependent_resources
             .compute_depth_tex
             .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
 
         self.compute_pipelines.tracer_ppl.record(
             cmdbuf,
@@ -1655,7 +1658,7 @@ impl Tracer {
             .extent_dependent_resources
             .god_ray_output_tex
             .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
 
         self.compute_pipelines.god_ray_ppl.record(
             cmdbuf,
@@ -1725,7 +1728,7 @@ impl Tracer {
             .extent_dependent_resources
             .composited_tex
             .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
 
         self.compute_pipelines.composition_ppl.record(
             cmdbuf,
@@ -1744,7 +1747,7 @@ impl Tracer {
             .extent_dependent_resources
             .lens_flare_full_output_tex
             .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
 
         self.compute_pipelines.lens_flare_ppl.record(
             cmdbuf,
@@ -1776,7 +1779,7 @@ impl Tracer {
             .extent_dependent_resources
             .lens_flare_output_tex
             .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
 
         self.compute_pipelines.lens_flare_downsample_ppl.record(
             cmdbuf,
@@ -1795,7 +1798,7 @@ impl Tracer {
             .extent_dependent_resources
             .screen_output_tex
             .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
 
         self.compute_pipelines.post_processing_ppl.record(
             cmdbuf,
