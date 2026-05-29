@@ -1194,26 +1194,29 @@ impl Tracer {
         render_flags: &crate::RenderFlags,
         update_shadow_map: bool,
     ) {
-        self.resources
-            .extent_dependent_resources
-            .gfx_output_tex
-            .get_image()
-            .record_clear(
-                cmdbuf,
-                Some(TextureLayout::GENERAL),
-                0,
-                ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 0.0])),
-            );
-        self.resources
-            .extent_dependent_resources
-            .gfx_depth_tex
-            .get_image()
-            .record_clear(
-                cmdbuf,
-                Some(TextureLayout::GENERAL),
-                0,
-                ClearValue::DepthStencil(DepthOrStencilClearValue::Depth(1.0)),
-            );
+        let has_graphics_pass = render_flags.enable_flora || render_flags.enable_particles;
+        if !has_graphics_pass {
+            self.resources
+                .extent_dependent_resources
+                .gfx_output_tex
+                .get_image()
+                .record_clear(
+                    cmdbuf,
+                    Some(TextureLayout::GENERAL),
+                    0,
+                    ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 0.0])),
+                );
+            self.resources
+                .extent_dependent_resources
+                .gfx_depth_tex
+                .get_image()
+                .record_clear(
+                    cmdbuf,
+                    Some(TextureLayout::GENERAL),
+                    0,
+                    ClearValue::DepthStencil(DepthOrStencilClearValue::Depth(1.0)),
+                );
+        }
 
         if update_shadow_map {
             self.resources
