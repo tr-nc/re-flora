@@ -457,6 +457,19 @@ Status: next. This starts the second milestone: managed sync for chunk-build, co
 - Record the current ordering and wait behavior before changing it.
 - Identify which jobs can share a generic `GpuJobManager` immediately and which need a narrower adapter first.
 
+Audit result from this pass:
+
+| Area | Current sync shape | Migration target |
+| --- | --- | --- |
+| `execute_one_time_command` | one-time command submit followed by queue idle | named vkn helper backed by `GpuJobDesc`, preserving queue-idle wait |
+| `execute_one_time_command_with_fence` | one-time command submit plus local fence wait | named fence-backed vkn job wait |
+| `PlainBuilder::ChunkSolidSampleJob` | async compute/readback job with command buffer + fence in app job struct | replace fence with `GpuJobToken`, keep readback/result fields in builder |
+| `SurfaceBuilder::SurfaceBuildJob` | async compute job with fence polling/wait and readback in finish | replace fence with `GpuJobToken` |
+| `SceneAccelBuilder::SceneTexUpdateJob` | reused command buffer submitted with new fence, polled/waited by builder | replace fence with `GpuJobToken` |
+| `ContreeBuilder::ContreeBuildJob` | reused command buffer submitted with new fence, allocator ownership held by builder | replace fence with `GpuJobToken`, keep allocator rollback in builder |
+| `ContreeBuilder::CpuChunkCacheFenceJob` | copy-to-readback command with fence, then CPU decode worker | replace fence with `GpuJobToken`, keep readback buffers and worker handoff in builder |
+| direct no-fence builder submits | fire-and-forget command submit | keep on `SubmitDesc`; optionally name through job helper later if profiler needs fire-and-forget events |
+
 Validation:
 
 - `rg "Fence|\.wait\(\)|\.is_signaled\(\)|submit\(" src/builder src/app crates/re-flora-vkn/src`
