@@ -262,6 +262,8 @@ Validation:
 
 ### Step 3: Encapsulate per-frame sync objects
 
+Status: done in branch `agent/vkn-profiler` after Step 2 for the frame-in-flight bundle. Render-finished semaphores remain per swapchain image until Step 4 moves image-in-flight tracking into vkn.
+
 - Add `FrameSync` in vkn for image-available semaphore, render-finished semaphore, fence, and possibly command buffer slot ownership.
 - Move construction of frame semaphores/fences into vkn-owned helper/manager.
 - Keep app-facing accessors minimal.

@@ -50,7 +50,7 @@ use anyhow::{Context, Result};
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
 use re_flora_vkn::{
-    Allocator, Buffer, BufferUsage, ColorReadbackFormat, CommandBuffer, Extent2D, Fence,
+    Allocator, Buffer, BufferUsage, ColorReadbackFormat, CommandBuffer, Extent2D, Fence, FrameSync,
     MemoryLocation, Semaphore, SwapchainDesc, SwapchainFrameError,
 };
 use re_flora_vkn::{Swapchain, VulkanContext};
@@ -79,11 +79,6 @@ const LEAF_CLUSTER_DISTANCE: f32 = 0.08;
 // Hidden runs should exercise audio setup, source updates, ray tracing, and pump paths
 // without producing audible output for the user.
 const HIDDEN_AUDIO_OUTPUT_GAIN_DB: f32 = -120.0;
-struct FrameSync {
-    image_available: Semaphore,
-    fence: Fence,
-    command_buffer: CommandBuffer,
-}
 
 struct ScreenshotReadback {
     path: String,
@@ -736,13 +731,8 @@ impl App {
             },
         );
 
-        let frames_in_flight = (0..MAX_FRAMES_IN_FLIGHT)
-            .map(|_| FrameSync {
-                image_available: Semaphore::new(device),
-                fence: Fence::new(device, true),
-                command_buffer: CommandBuffer::new(device, vulkan_ctx.command_pool()),
-            })
-            .collect::<Vec<_>>();
+        let frames_in_flight =
+            FrameSync::create_frames(device, vulkan_ctx.command_pool(), MAX_FRAMES_IN_FLIGHT);
         let current_frame = 0;
         let swapchain_image_count = swapchain.image_count();
         let (image_render_finished_semaphores, images_in_flight) =
@@ -1270,11 +1260,11 @@ impl App {
 
         let device = self.vulkan_ctx.device();
         let sync = &self.frames_in_flight[self.current_frame];
-        let cmdbuf = &sync.command_buffer;
+        let cmdbuf = sync.command_buffer();
 
-        sync.fence.wait().unwrap();
+        sync.fence().wait().unwrap();
 
-        let image_idx = match self.swapchain.acquire_next_image(&sync.image_available) {
+        let image_idx = match self.swapchain.acquire_next_image(sync.image_available()) {
             Ok(image_index) => image_index,
             Err(SwapchainFrameError::OutOfDate) => {
                 self.is_resize_pending = true;
@@ -1287,9 +1277,9 @@ impl App {
         if let Some(image_in_flight_fence) = &self.images_in_flight[image_index_usize] {
             image_in_flight_fence.wait().unwrap();
         }
-        self.images_in_flight[image_index_usize] = Some(sync.fence.clone());
+        self.images_in_flight[image_index_usize] = Some(sync.fence().clone());
 
-        sync.fence.reset().expect("Failed to reset fences");
+        sync.fence().reset().expect("Failed to reset fences");
 
         cmdbuf.begin(false);
 
@@ -1310,7 +1300,12 @@ impl App {
 
         let render_finished = &self.image_render_finished_semaphores[image_index_usize];
         self.vulkan_ctx
-            .submit_render_commands(cmdbuf, &sync.image_available, render_finished, &sync.fence)
+            .submit_render_commands(
+                cmdbuf,
+                sync.image_available(),
+                render_finished,
+                sync.fence(),
+            )
             .expect("Failed to submit work to gpu.");
 
         let present_result = self.swapchain.present_after(render_finished, image_idx);
@@ -2368,11 +2363,11 @@ impl App {
                 let gpu_record_start = Instant::now();
                 let device = self.vulkan_ctx.device();
                 let sync = &self.frames_in_flight[self.current_frame];
-                let cmdbuf = &sync.command_buffer;
+                let cmdbuf = sync.command_buffer();
 
-                sync.fence.wait().unwrap();
+                sync.fence().wait().unwrap();
 
-                let image_idx = match self.swapchain.acquire_next_image(&sync.image_available) {
+                let image_idx = match self.swapchain.acquire_next_image(sync.image_available()) {
                     Ok(image_index) => image_index,
                     Err(SwapchainFrameError::OutOfDate) => {
                         self.is_resize_pending = true;
@@ -2385,9 +2380,9 @@ impl App {
                 if let Some(image_in_flight_fence) = &self.images_in_flight[image_index_usize] {
                     image_in_flight_fence.wait().unwrap();
                 }
-                self.images_in_flight[image_index_usize] = Some(sync.fence.clone());
+                self.images_in_flight[image_index_usize] = Some(sync.fence().clone());
 
-                sync.fence.reset().expect("Failed to reset fences");
+                sync.fence().reset().expect("Failed to reset fences");
 
                 cmdbuf.begin(false);
 
@@ -2638,9 +2633,9 @@ impl App {
                 self.vulkan_ctx
                     .submit_render_commands(
                         cmdbuf,
-                        &sync.image_available,
+                        sync.image_available(),
                         render_finished,
-                        &sync.fence,
+                        sync.fence(),
                     )
                     .expect("Failed to submit work to gpu.");
 
@@ -2659,7 +2654,7 @@ impl App {
                 }
 
                 if let Some(readback) = screenshot_readback {
-                    sync.fence.wait().unwrap();
+                    sync.fence().wait().unwrap();
                     Self::write_screenshot_readback(readback);
                 }
 
