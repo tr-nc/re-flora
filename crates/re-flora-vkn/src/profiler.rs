@@ -114,6 +114,64 @@ impl GpuProfiler {
         })
     }
 
+    pub fn begin_scope(
+        &mut self,
+        frame_slot: usize,
+        cmdbuf: &CommandBuffer,
+        name: &'static str,
+        stage: PipelineStage,
+    ) -> Option<GpuScopeToken> {
+        let first_query = self.first_query_for_frame(frame_slot)?;
+        let slot = self.frame_slots.get_mut(frame_slot)?;
+        let scope_index = slot.scopes.len();
+        if scope_index >= self.max_scopes_per_frame {
+            slot.dropped_scope_count = slot.dropped_scope_count.saturating_add(1);
+            return None;
+        }
+
+        let local_start_query = (scope_index * 2) as u32;
+        let local_end_query = local_start_query + 1;
+        let absolute_start_query = first_query + local_start_query;
+        self.query_pool
+            .record_timestamp(cmdbuf, stage, absolute_start_query);
+        slot.written_query_count = slot.written_query_count.max(local_start_query + 1);
+        slot.scopes.push(GpuScopeMetadata {
+            name,
+            start_query: local_start_query,
+            end_query: local_end_query,
+            ended: false,
+        });
+
+        Some(GpuScopeToken { scope_index })
+    }
+
+    pub fn end_scope(
+        &mut self,
+        frame_slot: usize,
+        cmdbuf: &CommandBuffer,
+        token: GpuScopeToken,
+        stage: PipelineStage,
+    ) {
+        let Some(first_query) = self.first_query_for_frame(frame_slot) else {
+            return;
+        };
+        let Some(slot) = self.frame_slots.get_mut(frame_slot) else {
+            return;
+        };
+        let Some(scope) = slot.scopes.get_mut(token.scope_index) else {
+            return;
+        };
+        if scope.ended {
+            return;
+        }
+
+        let absolute_end_query = first_query + scope.end_query;
+        self.query_pool
+            .record_timestamp(cmdbuf, stage, absolute_end_query);
+        slot.written_query_count = slot.written_query_count.max(scope.end_query + 1);
+        scope.ended = true;
+    }
+
     pub fn try_collect_frame(
         &self,
         frame_slot: usize,
@@ -183,29 +241,8 @@ impl GpuProfilerFrame<'_> {
         name: &'static str,
         stage: PipelineStage,
     ) -> Option<GpuScopeToken> {
-        let first_query = self.profiler.first_query_for_frame(self.frame_slot)?;
-        let slot = self.profiler.frame_slots.get_mut(self.frame_slot)?;
-        let scope_index = slot.scopes.len();
-        if scope_index >= self.profiler.max_scopes_per_frame {
-            slot.dropped_scope_count = slot.dropped_scope_count.saturating_add(1);
-            return None;
-        }
-
-        let local_start_query = (scope_index * 2) as u32;
-        let local_end_query = local_start_query + 1;
-        let absolute_start_query = first_query + local_start_query;
         self.profiler
-            .query_pool
-            .record_timestamp(cmdbuf, stage, absolute_start_query);
-        slot.written_query_count = slot.written_query_count.max(local_start_query + 1);
-        slot.scopes.push(GpuScopeMetadata {
-            name,
-            start_query: local_start_query,
-            end_query: local_end_query,
-            ended: false,
-        });
-
-        Some(GpuScopeToken { scope_index })
+            .begin_scope(self.frame_slot, cmdbuf, name, stage)
     }
 
     pub fn end_scope(
@@ -214,25 +251,8 @@ impl GpuProfilerFrame<'_> {
         token: GpuScopeToken,
         stage: PipelineStage,
     ) {
-        let Some(first_query) = self.profiler.first_query_for_frame(self.frame_slot) else {
-            return;
-        };
-        let Some(slot) = self.profiler.frame_slots.get_mut(self.frame_slot) else {
-            return;
-        };
-        let Some(scope) = slot.scopes.get_mut(token.scope_index) else {
-            return;
-        };
-        if scope.ended {
-            return;
-        }
-
-        let absolute_end_query = first_query + scope.end_query;
         self.profiler
-            .query_pool
-            .record_timestamp(cmdbuf, stage, absolute_end_query);
-        slot.written_query_count = slot.written_query_count.max(scope.end_query + 1);
-        scope.ended = true;
+            .end_scope(self.frame_slot, cmdbuf, token, stage);
     }
 
     pub fn dropped_scope_count(&self) -> u32 {

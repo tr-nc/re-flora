@@ -137,28 +137,37 @@ Validation:
 
 ## Phase 3: First render scopes
 
-Status: not started.
+Status: done in branch `agent/vkn-profiler`.
 
-Record a small number of high-value GPU scopes in the main render path.
+Recorded a small number of high-value GPU scopes in the main render path.
 
-Initial candidate scopes:
+Implemented scopes:
 
 - `frame.render`
 - `tracer.render`
 - `egui.render`
-- `swapchain.blit` or `swapchain.render_pass` if useful
 
 Tasks:
 
 - Keep call sites semantic and short.
 - Avoid wrapping every small command in the first pass.
-- Surface results in existing perf logging or frame timing panel only when profiling/perf is enabled.
+- Surface results in the existing frame timing panel only when profiling/perf is enabled.
+
+Implementation notes:
+
+- `GpuProfiler` now also exposes direct `begin_scope` / `end_scope` methods for app integration without holding a long mutable frame borrow.
+- Loading and normal render paths both record `frame.render`; normal render also records `tracer.render`, and both paths record `egui.render`.
+- The timing panel shows up to 12 collected GPU scopes with microsecond durations and dropped-scope count.
 
 Validation:
 
-- Release hidden perf run.
-- Confirm profiler-disabled runs do not allocate/record/log profiler data.
-- Confirm visible app behavior is unchanged.
+- `cargo fmt --check`
+- `cargo check`
+- `cargo check --features sync_diagnostics`
+- `cargo test`
+- `cargo run --release -- --hidden --auto-exit 0.5`
+- `cargo run --release -- --hidden --auto-exit 4 --perf`
+- inspect hidden-run logs for errors, panics, failures, and validation messages
 
 ## Phase 4: GPU job scopes
 

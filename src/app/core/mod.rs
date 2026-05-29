@@ -51,7 +51,7 @@ use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText,
 use glam::{UVec3, Vec2, Vec3, Vec4};
 use re_flora_vkn::{
     Allocator, Buffer, BufferUsage, ColorReadbackFormat, CommandBuffer, Extent2D, GpuProfiler,
-    GpuProfilerFrameResults, MemoryLocation, SwapchainDesc, SwapchainFrameError,
+    GpuProfilerFrameResults, MemoryLocation, PipelineStage, SwapchainDesc, SwapchainFrameError,
     SwapchainFrameManager,
 };
 use re_flora_vkn::{Swapchain, VulkanContext};
@@ -148,7 +148,12 @@ impl LoadingState {
     }
 }
 
-fn draw_frame_timing_panel(ctx: &egui::Context, timing: FrameTimingSnapshot, perf_logging: bool) {
+fn draw_frame_timing_panel(
+    ctx: &egui::Context,
+    timing: FrameTimingSnapshot,
+    gpu_results: Option<&GpuProfilerFrameResults>,
+    perf_logging: bool,
+) {
     let rows = [
         ("total", timing.total_ms),
         ("egui", timing.egui_ms),
@@ -225,6 +230,45 @@ fn draw_frame_timing_panel(ctx: &egui::Context, timing: FrameTimingSnapshot, per
                             );
                         });
                     });
+                }
+
+                if let Some(gpu_results) = gpu_results {
+                    ui.add_space(4.0);
+                    ui.separator();
+                    ui.label(
+                        RichText::new(format!(
+                            "gpu scopes{}",
+                            if gpu_results.dropped_scope_count == 0 {
+                                "".to_owned()
+                            } else {
+                                format!(" · dropped {}", gpu_results.dropped_scope_count)
+                            }
+                        ))
+                        .color(GOLD_ACCENT)
+                        .monospace()
+                        .size(11.0),
+                    );
+                    for scope in gpu_results.scopes.iter().take(12) {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(format!("{:<18}", scope.name))
+                                    .color(SAGE_ACCENT)
+                                    .monospace()
+                                    .size(11.0),
+                            );
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.label(
+                                        RichText::new(format!("{:>8.0} us", scope.duration_us()))
+                                            .color(Color32::WHITE)
+                                            .monospace()
+                                            .size(11.0),
+                                    );
+                                },
+                            );
+                        });
+                    }
                 }
             });
         });
@@ -1396,15 +1440,24 @@ impl App {
             }
             Err(error) => panic!("Error while acquiring next image. Cause: {}", error),
         };
-        self.collect_gpu_profiler_frame(frame.frame_slot());
+        let frame_slot = frame.frame_slot();
+        self.collect_gpu_profiler_frame(frame_slot);
         let device = self.vulkan_ctx.device();
         let cmdbuf = frame.command_buffer();
         let image_idx = frame.image_index();
 
         cmdbuf.begin(false);
         if let Some(profiler) = self.gpu_profiler.as_mut() {
-            profiler.begin_frame(frame.frame_slot(), cmdbuf);
+            profiler.begin_frame(frame_slot, cmdbuf);
         }
+        let frame_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
+            profiler.begin_scope(
+                frame_slot,
+                cmdbuf,
+                "frame.render",
+                PipelineStage::ALL_COMMANDS,
+            )
+        });
 
         let render_area = self.window_state.window_extent();
 
@@ -1414,10 +1467,29 @@ impl App {
         self.swapchain
             .record_begin_render_pass_cmdbuf(cmdbuf, image_idx, render_area);
 
+        let egui_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
+            profiler.begin_scope(
+                frame_slot,
+                cmdbuf,
+                "egui.render",
+                PipelineStage::ALL_COMMANDS,
+            )
+        });
         self.egui_renderer
             .record_command_buffer(device, cmdbuf, render_area);
+        if let Some(scope) = egui_gpu_scope {
+            if let Some(profiler) = self.gpu_profiler.as_mut() {
+                profiler.end_scope(frame_slot, cmdbuf, scope, PipelineStage::ALL_COMMANDS);
+            }
+        }
 
         cmdbuf.end_render_pass();
+
+        if let Some(scope) = frame_gpu_scope {
+            if let Some(profiler) = self.gpu_profiler.as_mut() {
+                profiler.end_scope(frame_slot, cmdbuf, scope, PipelineStage::ALL_COMMANDS);
+            }
+        }
 
         cmdbuf.end();
 
@@ -2311,6 +2383,7 @@ impl App {
                             draw_frame_timing_panel(
                                 ctx,
                                 self.frame_timing_snapshot,
+                                self.gpu_profiler_latest_results.as_ref(),
                                 self.perf_logging,
                             );
                         }
@@ -2496,15 +2569,24 @@ impl App {
                     }
                     Err(error) => panic!("Error while acquiring next image. Cause: {}", error),
                 };
-                self.collect_gpu_profiler_frame(frame.frame_slot());
+                let frame_slot = frame.frame_slot();
+                self.collect_gpu_profiler_frame(frame_slot);
                 let device = self.vulkan_ctx.device();
                 let cmdbuf = frame.command_buffer();
                 let image_idx = frame.image_index();
 
                 cmdbuf.begin(false);
                 if let Some(profiler) = self.gpu_profiler.as_mut() {
-                    profiler.begin_frame(frame.frame_slot(), cmdbuf);
+                    profiler.begin_frame(frame_slot, cmdbuf);
                 }
+                let frame_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
+                    profiler.begin_scope(
+                        frame_slot,
+                        cmdbuf,
+                        "frame.render",
+                        PipelineStage::ALL_COMMANDS,
+                    )
+                });
 
                 let (sun_altitude, sun_azimuth) = Self::calculate_sun_position(
                     self.gui_adjustables.time_of_day.value,
@@ -2689,6 +2771,14 @@ impl App {
                     self.gui_adjustables.vsm_temporal_alpha.value,
                     frame_delta_time,
                 );
+                let tracer_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
+                    profiler.begin_scope(
+                        frame_slot,
+                        cmdbuf,
+                        "tracer.render",
+                        PipelineStage::ALL_COMMANDS,
+                    )
+                });
                 self.tracer
                     .record_trace(
                         cmdbuf,
@@ -2707,6 +2797,11 @@ impl App {
                         reset_vsm_history,
                     )
                     .unwrap();
+                if let Some(scope) = tracer_gpu_scope {
+                    if let Some(profiler) = self.gpu_profiler.as_mut() {
+                        profiler.end_scope(frame_slot, cmdbuf, scope, PipelineStage::ALL_COMMANDS);
+                    }
+                }
                 if update_shadow_map {
                     self.vsm_history_reset_pending = false;
                 }
@@ -2738,13 +2833,32 @@ impl App {
                 self.swapchain
                     .record_begin_render_pass_cmdbuf(cmdbuf, image_idx, render_area);
 
+                let egui_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
+                    profiler.begin_scope(
+                        frame_slot,
+                        cmdbuf,
+                        "egui.render",
+                        PipelineStage::ALL_COMMANDS,
+                    )
+                });
                 self.egui_renderer
                     .record_command_buffer(device, cmdbuf, render_area);
+                if let Some(scope) = egui_gpu_scope {
+                    if let Some(profiler) = self.gpu_profiler.as_mut() {
+                        profiler.end_scope(frame_slot, cmdbuf, scope, PipelineStage::ALL_COMMANDS);
+                    }
+                }
 
                 cmdbuf.end_render_pass();
 
                 if let Some(readback) = &screenshot_readback {
                     self.record_screenshot_readback(cmdbuf, image_idx, readback);
+                }
+
+                if let Some(scope) = frame_gpu_scope {
+                    if let Some(profiler) = self.gpu_profiler.as_mut() {
+                        profiler.end_scope(frame_slot, cmdbuf, scope, PipelineStage::ALL_COMMANDS);
+                    }
                 }
 
                 cmdbuf.end();
