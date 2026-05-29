@@ -6,7 +6,7 @@ use anyhow::Result;
 use re_flora_vkn::vk;
 use re_flora_vkn::{
     AttachmentDescOuter, AttachmentType, ComputePipeline, DescriptorPool, GraphicsPipeline,
-    GraphicsPipelineDesc, RenderPass, ShaderModule, Texture, VulkanContext,
+    GraphicsPipelineDesc, RenderPass, ShaderModule, Texture, TextureLayout, VulkanContext,
 };
 
 pub struct PipelineBuilder;
@@ -467,16 +467,16 @@ impl PipelineBuilder {
                     texture: output_tex,
                     load_op: vk::AttachmentLoadOp::CLEAR,
                     store_op: vk::AttachmentStoreOp::STORE,
-                    initial_layout: vk::ImageLayout::GENERAL,
-                    final_layout: vk::ImageLayout::GENERAL,
+                    initial_layout: TextureLayout::GENERAL,
+                    final_layout: TextureLayout::GENERAL,
                     ty: AttachmentType::Color,
                 },
                 AttachmentDescOuter {
                     texture: depth_tex,
                     load_op: vk::AttachmentLoadOp::CLEAR,
                     store_op: vk::AttachmentStoreOp::STORE,
-                    initial_layout: vk::ImageLayout::GENERAL,
-                    final_layout: vk::ImageLayout::GENERAL,
+                    initial_layout: TextureLayout::GENERAL,
+                    final_layout: TextureLayout::GENERAL,
                     ty: AttachmentType::Depth,
                 },
             ],
@@ -490,8 +490,8 @@ impl PipelineBuilder {
                 texture: depth_tex,
                 load_op: vk::AttachmentLoadOp::LOAD,
                 store_op: vk::AttachmentStoreOp::STORE,
-                initial_layout: vk::ImageLayout::GENERAL,
-                final_layout: vk::ImageLayout::GENERAL,
+                initial_layout: TextureLayout::GENERAL,
+                final_layout: TextureLayout::GENERAL,
                 ty: AttachmentType::Depth,
             }],
         )

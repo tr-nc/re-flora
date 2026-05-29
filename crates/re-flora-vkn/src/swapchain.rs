@@ -6,7 +6,7 @@ use ash::{
 
 use crate::{
     AttachmentDesc, AttachmentReference, Extent2D, Framebuffer, RenderPass, RenderPassDesc,
-    RenderTarget, SubpassDesc,
+    RenderTarget, SubpassDesc, TextureLayout,
 };
 
 use super::{
@@ -683,14 +683,14 @@ fn create_vulkan_render_pass(device: Device, format: vk::Format) -> RenderPass {
         store_op: vk::AttachmentStoreOp::STORE,
         stencil_load_op: vk::AttachmentLoadOp::DONT_CARE,
         stencil_store_op: vk::AttachmentStoreOp::DONT_CARE,
-        initial_layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-        final_layout: vk::ImageLayout::PRESENT_SRC_KHR,
+        initial_layout: TextureLayout::COLOR_ATTACHMENT,
+        final_layout: TextureLayout::PRESENT_SRC,
     };
 
     let subpass = SubpassDesc {
         color_attachments: vec![AttachmentReference {
             attachment: 0,
-            layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            layout: TextureLayout::COLOR_ATTACHMENT,
         }],
         depth_stencil_attachment: None,
     };
