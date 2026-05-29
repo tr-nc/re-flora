@@ -567,9 +567,9 @@ Validation:
 
 ### Step 14: Use semantic layouts in texture, descriptor, query, and render-pass APIs
 
-Status: done in branch `agent/vkn-profiler` after Step 13. Texture upload/copy/clear APIs, descriptor texture writes, timestamp query stages, and render-pass attachment layouts now take vkn semantic types at app/builder/tracer call sites.
+Status: done in branch `agent/vkn-profiler` after Step 13. Texture creation, upload/copy/clear APIs, descriptor texture writes, timestamp query stages, and render-pass attachment layouts now take vkn semantic types at app/builder/tracer call sites.
 
-- `Image::copy_image_to_buffer`, `record_copy_to`, `record_clear`, `load_and_fill`, `fill_with_raw_u8`, `get_layout`, and `set_layout` use `TextureLayout` at the public API boundary.
+- `ImageDesc::initial_layout` and `Image::copy_image_to_buffer`, `record_copy_to`, `record_clear`, `load_and_fill`, `fill_with_raw_u8`, `get_layout`, and `set_layout` use `TextureLayout` at the public API boundary.
 - `WriteDescriptorSet::new_texture_write` accepts `TextureLayout`.
 - `TimestampQueryPool::record_timestamp` accepts `PipelineStage`.
 - `AttachmentDesc`, `AttachmentReference`, and `AttachmentDescOuter` use `TextureLayout` for render-pass layouts.
