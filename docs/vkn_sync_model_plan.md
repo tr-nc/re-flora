@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Build a clean, robust synchronization model inside `crates/re-flora-vkn` before adding a full profiler. The first objective is not to produce benchmark output; it is to make frame submission, swapchain acquire/present, fences, semaphores, queue ownership, and synchronization intent explicit, named, and owned by vkn without slowing normal release builds.
+Build a clean, robust synchronization model inside `crates/re-flora-vkn` before adding a full profiler. The first objective is not to produce benchmark output; it is to make frame submission, swapchain acquire/present, chunk-build compute submissions, readback jobs, fences, semaphores, queue ownership, and synchronization intent explicit, named, and owned by vkn without slowing normal release builds.
 
 This document tracks the problem, design goals, and staged implementation steps.
 
@@ -15,9 +15,11 @@ The renderer currently has reasonable wrapper types (`Fence`, `Semaphore`, `Swap
 - `VulkanContext::submit_render_commands` hard-codes one render submit shape.
 - `Swapchain::present_after` accepts a specific semaphore, but the dependency is not named or represented as a vkn-level submit/present relationship.
 - App code still reasons about images-in-flight, frame fences, and swapchain semaphores directly.
-- There is no central per-frame sync state that can later explain queue lanes, waits, signals, or frame dependencies.
+- Chunk builders, terrain rebuilds, acceleration-structure builds, voxelization, and GPU readback paths still own their own job fences and polling/wait behavior outside a vkn-managed job model.
+- One-time compute/readback helpers centralize some raw submission mechanics, but they do not expose a stable semantic job lifecycle that a profiler can understand.
+- There is no central per-frame or per-GPU-job sync state that can later explain queue lanes, waits, signals, fence latency, readback latency, or frame/job dependencies.
 
-This makes future professional profiling harder. GPU timestamps can measure pass durations, but without managed submit/wait/signal metadata we cannot reliably explain overlap, wait gaps, or critical paths.
+This makes future professional profiling harder. GPU timestamps can measure pass durations, but without managed submit/wait/signal/fence metadata we cannot reliably explain overlap, wait gaps, readback stalls, queue pressure, or critical paths.
 
 ## Goals
 
@@ -28,11 +30,14 @@ This makes future professional profiling harder. GPU timestamps can measure pass
   - render submit signals render finished
   - present waits on render finished
   - image-in-flight waits are tracked by vkn
+  - chunk/terrain/voxel/acceleration-structure compute jobs submit with stable names
+  - fence-backed job completion and CPU readback waits are tracked by vkn
 - Preserve current behavior and frame pacing.
 - Avoid performance regressions in normal release builds.
 - Keep APIs low-overhead: preallocated per-frame sync objects, no hot-path heap churn, no per-frame string formatting unless diagnostics are enabled.
 - Leave an escape hatch for raw Vulkan handles where necessary, but make direct use uncommon and clearly low-level.
 - Prepare clean extension points for a later profiler, without implementing the profiler in this phase.
+- Cover both swapchain frame sync and off-frame GPU jobs; the profiler foundation should not only understand presentation.
 
 ## Non-goals for this phase
 
@@ -47,7 +52,7 @@ This makes future professional profiling harder. GPU timestamps can measure pass
 
 ### 1. Managed by default, raw as escape hatch
 
-Normal app/render code should use vkn-owned frame and queue APIs. Raw handles may remain available for low-level code paths, but they should be documented as backend escape hatches rather than the normal sync model.
+Normal app/render/chunk-build code should use vkn-owned frame, job, and queue APIs. Raw handles may remain available for low-level code paths, but they should be documented as backend escape hatches rather than the normal sync model.
 
 ### 2. Intent-first API
 
@@ -77,9 +82,24 @@ queue.submit(SubmitDesc {
 });
 ```
 
+Chunk and readback work should use the same intent-first model:
+
+```rust
+let job = gpu_jobs.submit(GpuJobDesc {
+    name: "terrain.source_sample",
+    queue: QueueLane::General,
+    command_buffer: cmdbuf,
+    completion: JobCompletion::Fence,
+});
+
+if job.is_complete()? {
+    let readback = job.finish_readback()?;
+}
+```
+
 ### 3. Zero or near-zero overhead when diagnostics are off
 
-The managed model should primarily reorganize existing sync operations. It should not add extra Vulkan synchronization. It should not allocate or log on every frame by default.
+The managed model should primarily reorganize existing sync operations. It should not add extra Vulkan synchronization. It should not allocate or log on every frame or every chunk job by default.
 
 ### 4. Explicit frame lifecycle
 
@@ -96,6 +116,17 @@ A frame should have a clear lifecycle:
 
 Vkn should own this lifecycle or provide a single high-level abstraction that makes it difficult to misuse.
 
+Async GPU jobs should have a similarly explicit lifecycle:
+
+1. allocate or reuse job resources
+2. record compute/build/copy commands
+3. submit with a named job descriptor
+4. poll or wait for completion through a vkn token
+5. perform readback or publish results only after completion
+6. recycle job resources safely
+
+The app/builder layer may decide what work to do and how to use results, but vkn should own the synchronization mechanics.
+
 ### 5. Future profiler compatibility
 
 Even before profiling is implemented, APIs should carry stable optional names/IDs for:
@@ -106,6 +137,8 @@ Even before profiling is implemented, APIs should carry stable optional names/ID
 - signals
 - frame resources
 - present operations
+- async compute/build/readback jobs
+- job fences and completion polls/waits
 
 When diagnostics/profiling is disabled, names can be static `&'static str` or compiled out of hot paths.
 
@@ -115,9 +148,18 @@ Relevant current files:
 
 - `crates/re-flora-vkn/src/sync/semaphore.rs`
 - `crates/re-flora-vkn/src/sync/fence.rs`
+- `crates/re-flora-vkn/src/sync/frame.rs`
+- `crates/re-flora-vkn/src/sync/submit.rs`
+- `crates/re-flora-vkn/src/sync/present.rs`
 - `crates/re-flora-vkn/src/context/vulkan_context.rs`
+- `crates/re-flora-vkn/src/command/command_buffer.rs`
 - `crates/re-flora-vkn/src/swapchain.rs`
 - `src/app/core/mod.rs`
+- `src/builder/contree/mod.rs`
+- `src/builder/plain/mod.rs`
+- `src/builder/surface/mod.rs`
+- `src/builder/scene_accel/mod.rs`
+- terrain/water GPU sampling and readback call sites under `src/app/core/water` and `src/app/core/terrain_rebuild.rs`
 
 Current top-level frame flow in app code includes:
 
@@ -129,7 +171,15 @@ Current top-level frame flow in app code includes:
 - present through `Swapchain::present_after`
 - advance current frame
 
-This is the first flow to encapsulate.
+This was the first flow to encapsulate. The next sync gap is off-frame GPU work:
+
+- chunk terrain source sampling submits GPU work and waits/polls fences for CPU readback
+- collider/source rebuild queues track active jobs and completion outside vkn
+- voxelization and builder paths create command buffers and fences for asynchronous compute/build jobs
+- acceleration-structure and surface builders wait on job fences directly
+- one-time command helpers submit work with optional fences or queue-idle waits
+
+Those jobs are not swapchain frames, but they still contribute to frame time, queue pressure, and user-visible stalls. They need the same semantic sync model before the profiler can explain the whole renderer.
 
 ## Proposed target architecture
 
@@ -217,6 +267,54 @@ pub struct PresentDesc<'a> {
 ```
 
 Later this can carry profiler metadata for present waits/vsync behavior.
+
+### `GpuJobDesc`
+
+A vkn-owned descriptor for non-swapchain GPU work: compute dispatches, terrain/chunk builds, acceleration-structure builds, blits/copies, and CPU readbacks.
+
+Target shape:
+
+```rust
+pub struct GpuJobDesc<'a> {
+    pub name: &'static str,
+    pub queue: QueueLane,
+    pub command_buffers: &'a [&'a CommandBuffer],
+    pub waits: &'a [SubmitWait<'a>],
+    pub signals: &'a [SubmitSignal<'a>],
+    pub completion: JobCompletion,
+}
+```
+
+Initial implementation can be fence-backed and internally reuse `SubmitDesc`. The important part is that callers submit a named job and receive a typed completion token instead of manually owning raw fence behavior.
+
+### `GpuJobToken`
+
+A short-lived or pool-owned token for submitted asynchronous GPU jobs:
+
+- stable job name
+- queue lane
+- submission generation/index
+- completion fence or future timeline value
+- optional readback/result metadata supplied by the caller
+
+Target app/builder interactions:
+
+- `is_complete()` for polling without blocking
+- `wait()` for explicit blocking paths
+- `finish()` / `finish_readback()` for completion-sensitive result publication
+- no raw fence access in normal builder/app code
+
+### `GpuJobManager`
+
+A vkn-owned manager for reusable async job synchronization:
+
+- owns or recycles fence-backed job slots
+- centralizes submit/poll/wait/reset ordering
+- supports existing general-queue jobs first
+- can later expose transfer/compute queue lanes if real multi-queue scheduling is introduced
+- emits optional diagnostics events for submit, poll, wait, completion, and readback publication
+
+This manager should not decide terrain/chunk algorithms. The app/builder layer remains responsible for choosing work and interpreting outputs; vkn owns the synchronization lifecycle.
 
 ## Implementation steps
 
@@ -345,26 +443,115 @@ Validation:
 - verify disabled path has no heap allocation in hot frame flow
 - release smoke run
 
+### Step 8: Audit off-frame GPU sync call sites
+
+Status: next. This starts the second milestone: managed sync for chunk-build, compute, builder, and readback jobs.
+
+- Inventory all direct `Fence` polling/waiting in app and builder code.
+- Classify jobs by behavior:
+  - synchronous one-time command with queue idle
+  - synchronous one-time command with fence wait
+  - asynchronous compute/build job with polling
+  - asynchronous job with CPU readback
+  - long-lived builder queue job
+- Record the current ordering and wait behavior before changing it.
+- Identify which jobs can share a generic `GpuJobManager` immediately and which need a narrower adapter first.
+
+Validation:
+
+- `rg "Fence|\.wait\(\)|\.is_signaled\(\)|submit\(" src/builder src/app crates/re-flora-vkn/src`
+- no code changes beyond documentation/audit notes in this step
+
+### Step 9: Add a vkn-managed GPU job abstraction
+
+- Add `GpuJobDesc`, `GpuJobToken`, `JobCompletion`, and possibly `QueueLane` under `crates/re-flora-vkn/src/sync` or a sibling job module.
+- Implement fence-backed jobs first, internally routing through `SubmitDesc`.
+- Provide polling and waiting through token methods:
+  - `is_complete()`
+  - `wait()`
+  - `finish()` or `take_completed()` if ownership needs to move
+- Keep raw fence access crate-internal.
+- Do not change chunk algorithms or result formats.
+
+Validation:
+
+- `cargo fmt --check`
+- `cargo check`
+- targeted tests if pure logic is added
+
+Performance risk: low if the first implementation reuses existing fence behavior and avoids per-job allocation beyond existing job creation paths.
+
+### Step 10: Migrate one-time command helpers
+
+- Route `execute_one_time_command` and `execute_one_time_command_with_fence` through the new job abstraction where practical.
+- Preserve existing queue-idle behavior for paths that intentionally use it for MoltenVK stability.
+- Ensure synchronous readback helpers still block only where they blocked before.
+- Add names for common helpers such as transfer copy, terrain source sampling, voxelization, and readback.
+
+Validation:
+
+- `cargo check`
+- `cargo test`
+- hidden release smoke run
+- inspect water/terrain logs for changed fence latency or errors
+
+### Step 11: Migrate chunk/build async jobs
+
+- Move direct builder/app ownership of completion fences behind vkn job tokens or small vkn-backed adapters.
+- Target call sites include:
+  - `src/builder/contree/mod.rs`
+  - `src/builder/plain/mod.rs`
+  - `src/builder/surface/mod.rs`
+  - `src/builder/scene_accel/mod.rs`
+  - terrain source/collider/readback queues in app core modules
+- Preserve queue scheduling, active/pending queue behavior, and result handoff semantics.
+- Keep app/builder code responsible for job payloads and result interpretation; vkn owns submit/poll/wait/reset.
+
+Validation:
+
+- `cargo fmt --check`
+- `cargo check`
+- `cargo test`
+- `cargo run --release -- --hidden --auto-exit 0.5`
+- `cargo run --release -- --hidden --auto-exit 4 --perf`
+- inspect logs for terrain rebuild, collider build, source readback, voxelization, and shutdown errors
+
+### Step 12: Extend diagnostics hooks to GPU jobs
+
+- Add no-op default hooks for job submit, poll, wait, complete, and readback-finish events.
+- Keep `sync_diagnostics` opt-in and allocation/log-free unless a later sink is explicitly enabled.
+- Carry stable names and IDs so future profiler output can connect chunk jobs to frame stalls and queue pressure.
+
+Validation:
+
+- `cargo check`
+- `cargo check --features sync_diagnostics`
+- release smoke run with default features
+
 ## Performance guardrails
 
-- No extra queue submissions compared with current frame flow.
+- No extra queue submissions compared with current frame or job flow.
 - No extra semaphores or fences per frame after initialization.
-- No per-frame heap allocation in the normal path.
-- No per-frame `String` formatting in the normal path.
-- No synchronous GPU waits except the waits already present in the current frame lifecycle.
+- No unbounded per-job sync allocation in hot chunk/build paths; reuse existing job allocation points or vkn job pools where possible.
+- No per-frame or per-job heap allocation in the normal path unless the old path already allocated for that job.
+- No per-frame or per-job `String` formatting in the normal path.
+- No synchronous GPU waits except the waits already present in the current frame lifecycle or existing compute/readback job lifecycle.
 - No immediate query readback.
 - No debug/profiling logging unless explicitly enabled.
 - Preserve existing present-mode behavior.
 - Preserve existing frames-in-flight and swapchain image count behavior.
+- Preserve existing chunk queue pacing, active/pending limits, readback timing, and MoltenVK stability workarounds.
 
 ## Robustness guardrails
 
 - Treat frame lifecycle as stateful: acquired frames should not be submitted twice or presented before submit.
+- Treat GPU job lifecycle as stateful: jobs should not be finished before completion, waited after resource recycling, or reused without reset.
 - Handle `OutOfDate` and suboptimal swapchain results without panics where the current code already recovers.
 - Keep swapchain resize/recreate paths explicit and tested.
 - Make shutdown/drop ordering clear: wait for device idle where needed before destroying swapchain-owned frame resources.
 - Prefer typed errors over panics for acquire/present/submit failures that can happen during resize.
 - Keep screenshot readback path compatible with frame fence ownership.
+- Keep terrain/chunk readback paths compatible with job completion ownership.
 
 ## Future profiler handoff
 
@@ -374,7 +561,9 @@ After sync is managed, profiler work can build on the same model:
 - wait/signal names become dependency edges
 - frame tokens provide frame IDs and image indices
 - present descriptors expose present waits
-- command-buffer GPU scopes can attach to the submit/frame that contains them
+- command-buffer GPU scopes can attach to the submit/frame/job that contains them
+- GPU job tokens provide job IDs, queue lanes, names, completion states, and readback points
+- chunk/build/readback diagnostics explain queue pressure outside the main render frame
 
 The profiler should then answer:
 
@@ -382,6 +571,9 @@ The profiler should then answer:
 - GPU pass durations
 - queue overlap
 - semaphore wait chains
+- fence wait and poll behavior
+- chunk build / compute job contribution to frame stalls
+- readback latency and publication delays
 - critical path
 - p50/p95/p99 frame cost
 
@@ -394,14 +586,17 @@ But this phase ends before implementing those outputs.
 - Should `as_raw()` remain public on sync primitives, or become restricted after migration?
 - Should we introduce timeline semaphores later for non-swapchain queue dependencies, or keep binary semaphores until there is a concrete multi-queue need?
 - Should present/acquire be modeled as special queue events now, or only once the profiler starts?
+- Should the async job manager start as a simple fence-backed pool, or should it immediately reserve room for timeline semaphores?
+- Should builder modules own job payload structs while vkn owns only completion tokens, or should vkn provide a generic typed job slot?
+- Which current queue-idle one-time helpers are stability requirements and which can safely become fence waits?
 
-## Suggested first milestone
+## Suggested next milestone
 
-Keep the first code change small:
+Keep the next code change small:
 
-1. Add semantic submit/present descriptors.
-2. Route existing `submit_render_commands` and `present_after` through them.
-3. Do not change app frame lifecycle yet.
-4. Validate no behavior/performance regression.
+1. Audit builder/app fence call sites and classify job types.
+2. Add a fence-backed `GpuJobDesc` / `GpuJobToken` abstraction inside vkn.
+3. Migrate one narrow helper or builder path first, preferably one with clear validation logs.
+4. Validate no behavior/performance regression before migrating the broader chunk-build queues.
 
-This creates the API seam needed for managed sync while keeping risk low.
+This extends the managed sync seam from swapchain frames to off-frame GPU jobs while keeping risk low.
