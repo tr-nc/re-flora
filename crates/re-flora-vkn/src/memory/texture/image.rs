@@ -612,6 +612,14 @@ pub(crate) fn record_image_transition_barrier(
     base_array_layer: u32,
     layer_count: u32,
 ) {
+    crate::sync::diagnostics::record_texture_transition(
+        image,
+        transition,
+        aspect_mask,
+        base_array_layer,
+        layer_count,
+    );
+
     let barrier = vk::ImageMemoryBarrier::default()
         .old_layout(transition.old_layout())
         .new_layout(transition.new_layout())

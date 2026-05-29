@@ -5,7 +5,8 @@
 //! compiled only with the `sync_diagnostics` feature and are intended as the seam
 //! for a future profiler/sink.
 
-use crate::{GpuJobDesc, PresentDesc, QueueLane, SubmitDesc};
+use crate::{GpuJobDesc, PresentDesc, QueueLane, SubmitDesc, TextureTransition};
+use ash::vk;
 
 #[cfg(feature = "sync_diagnostics")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -110,6 +111,17 @@ pub struct GpuJobProbeDiagnostics {
 }
 
 #[cfg(feature = "sync_diagnostics")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TextureTransitionDiagnostics {
+    pub image: vk::Image,
+    pub old_state: crate::ResourceState,
+    pub new_state: crate::ResourceState,
+    pub aspect_mask: vk::ImageAspectFlags,
+    pub base_array_layer: u32,
+    pub layer_count: u32,
+}
+
+#[cfg(feature = "sync_diagnostics")]
 #[inline(always)]
 pub(crate) fn record_submit(desc: &SubmitDesc<'_>) {
     let _submit = SubmitDiagnostics::from_desc(desc);
@@ -185,3 +197,33 @@ pub(crate) fn record_gpu_job_wait(name: &'static str, queue: QueueLane) {
 #[cfg(not(feature = "sync_diagnostics"))]
 #[inline(always)]
 pub(crate) fn record_gpu_job_wait(_name: &'static str, _queue: QueueLane) {}
+
+#[cfg(feature = "sync_diagnostics")]
+#[inline(always)]
+pub(crate) fn record_texture_transition(
+    image: vk::Image,
+    transition: TextureTransition,
+    aspect_mask: vk::ImageAspectFlags,
+    base_array_layer: u32,
+    layer_count: u32,
+) {
+    let _transition = TextureTransitionDiagnostics {
+        image,
+        old_state: transition.old_state(),
+        new_state: transition.new_state(),
+        aspect_mask,
+        base_array_layer,
+        layer_count,
+    };
+}
+
+#[cfg(not(feature = "sync_diagnostics"))]
+#[inline(always)]
+pub(crate) fn record_texture_transition(
+    _image: vk::Image,
+    _transition: TextureTransition,
+    _aspect_mask: vk::ImageAspectFlags,
+    _base_array_layer: u32,
+    _layer_count: u32,
+) {
+}
