@@ -6,7 +6,7 @@ use ash::{
 
 use crate::{
     AttachmentDesc, AttachmentReference, Extent2D, Framebuffer, RenderPass, RenderPassDesc,
-    RenderTarget, SubpassDesc, TextureLayout,
+    RenderTarget, SubpassDesc, TextureLayout, TextureTransition,
 };
 
 use super::{
@@ -227,15 +227,13 @@ impl Swapchain {
         let dst_raw_img = self.get_image(image_idx);
         let device = self.vulkan_context.device();
 
-        src_img.record_transition_barrier(cmdbuf, 0, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
+        src_img.record_transition_barrier(cmdbuf, 0, TextureLayout::TRANSFER_SRC);
 
-        // transition dst using the raw function
-        // from UNDEFINED, because the image is just being available
+        // Transition the acquired swapchain image from UNDEFINED because it has just become available.
         record_image_transition_barrier(
             device.as_raw(),
             cmdbuf.as_raw(),
-            vk::ImageLayout::UNDEFINED,
-            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            TextureTransition::from_layouts(TextureLayout::UNDEFINED, TextureLayout::TRANSFER_DST),
             dst_raw_img,
             src_img.get_desc().get_aspect_mask(),
             0,
@@ -254,12 +252,14 @@ impl Swapchain {
             );
         }
 
-        // transition dst using the raw function
+        // Transition the swapchain image for the following render pass.
         record_image_transition_barrier(
             device.as_raw(),
             cmdbuf.as_raw(),
-            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-            vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            TextureTransition::from_layouts(
+                TextureLayout::TRANSFER_DST,
+                TextureLayout::COLOR_ATTACHMENT,
+            ),
             dst_raw_img,
             src_img.get_desc().get_aspect_mask(),
             0,
@@ -267,7 +267,7 @@ impl Swapchain {
         );
 
         // for now, just transition src to general
-        src_img.record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+        src_img.record_transition_barrier(cmdbuf, 0, TextureLayout::GENERAL);
     }
 
     /// Present the image to the swapchain with the given index.
@@ -325,8 +325,7 @@ impl Swapchain {
         record_image_transition_barrier(
             device.as_raw(),
             cmdbuf.as_raw(),
-            vk::ImageLayout::PRESENT_SRC_KHR,
-            vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+            TextureTransition::from_layouts(TextureLayout::PRESENT_SRC, TextureLayout::TRANSFER_SRC),
             swapchain_image,
             vk::ImageAspectFlags::COLOR,
             0,
@@ -363,8 +362,7 @@ impl Swapchain {
         record_image_transition_barrier(
             device.as_raw(),
             cmdbuf.as_raw(),
-            vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-            vk::ImageLayout::PRESENT_SRC_KHR,
+            TextureTransition::from_layouts(TextureLayout::TRANSFER_SRC, TextureLayout::PRESENT_SRC),
             swapchain_image,
             vk::ImageAspectFlags::COLOR,
             0,
@@ -397,8 +395,7 @@ impl Swapchain {
         record_image_transition_barrier(
             self.vulkan_context.device().as_raw(),
             cmdbuf.as_raw(),
-            vk::ImageLayout::UNDEFINED,
-            vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            TextureTransition::from_layouts(TextureLayout::UNDEFINED, TextureLayout::COLOR_ATTACHMENT),
             image,
             vk::ImageAspectFlags::COLOR,
             0,

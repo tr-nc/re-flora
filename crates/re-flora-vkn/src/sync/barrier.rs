@@ -31,10 +31,15 @@ impl TextureLayout {
 pub struct MemoryAccess(vk::AccessFlags);
 
 impl MemoryAccess {
+    pub const TRANSFER_READ: Self = Self(vk::AccessFlags::TRANSFER_READ);
     pub const TRANSFER_WRITE: Self = Self(vk::AccessFlags::TRANSFER_WRITE);
     pub const SHADER_READ: Self = Self(vk::AccessFlags::SHADER_READ);
     pub const SHADER_WRITE: Self = Self(vk::AccessFlags::SHADER_WRITE);
     pub const INDIRECT_COMMAND_READ: Self = Self(vk::AccessFlags::INDIRECT_COMMAND_READ);
+    pub const COLOR_ATTACHMENT_READ: Self = Self(vk::AccessFlags::COLOR_ATTACHMENT_READ);
+    pub const COLOR_ATTACHMENT_WRITE: Self = Self(vk::AccessFlags::COLOR_ATTACHMENT_WRITE);
+    pub const DEPTH_STENCIL_ATTACHMENT_WRITE: Self =
+        Self(vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE);
     pub const HOST_READ: Self = Self(vk::AccessFlags::HOST_READ);
 
     pub const fn empty() -> Self {
@@ -104,11 +109,16 @@ pub struct PipelineStage(vk::PipelineStageFlags);
 
 impl PipelineStage {
     pub const TOP_OF_PIPE: Self = Self(vk::PipelineStageFlags::TOP_OF_PIPE);
+    pub const BOTTOM_OF_PIPE: Self = Self(vk::PipelineStageFlags::BOTTOM_OF_PIPE);
     pub const COMPUTE_SHADER: Self = Self(vk::PipelineStageFlags::COMPUTE_SHADER);
     pub const VERTEX_SHADER: Self = Self(vk::PipelineStageFlags::VERTEX_SHADER);
     pub const FRAGMENT_SHADER: Self = Self(vk::PipelineStageFlags::FRAGMENT_SHADER);
     pub const DRAW_INDIRECT: Self = Self(vk::PipelineStageFlags::DRAW_INDIRECT);
     pub const TRANSFER: Self = Self(vk::PipelineStageFlags::TRANSFER);
+    pub const COLOR_ATTACHMENT_OUTPUT: Self =
+        Self(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT);
+    pub const EARLY_FRAGMENT_TESTS: Self = Self(vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS);
+    pub const LATE_FRAGMENT_TESTS: Self = Self(vk::PipelineStageFlags::LATE_FRAGMENT_TESTS);
     pub const HOST: Self = Self(vk::PipelineStageFlags::HOST);
     pub const ALL_COMMANDS: Self = Self(vk::PipelineStageFlags::ALL_COMMANDS);
 
@@ -132,6 +142,184 @@ impl BitOr for PipelineStage {
 impl BitOrAssign for PipelineStage {
     fn bitor_assign(&mut self, rhs: Self) {
         self.0 |= rhs.0;
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ResourceState {
+    layout: TextureLayout,
+    stage: PipelineStage,
+    access: MemoryAccess,
+}
+
+impl ResourceState {
+    pub fn new(layout: TextureLayout, stage: PipelineStage, access: MemoryAccess) -> Self {
+        Self {
+            layout,
+            stage,
+            access,
+        }
+    }
+
+    pub fn layout(self) -> TextureLayout {
+        self.layout
+    }
+
+    pub fn stage(self) -> PipelineStage {
+        self.stage
+    }
+
+    pub fn access(self) -> MemoryAccess {
+        self.access
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TextureTransition {
+    old_state: ResourceState,
+    new_state: ResourceState,
+}
+
+impl TextureTransition {
+    pub fn new(old_state: ResourceState, new_state: ResourceState) -> Self {
+        Self {
+            old_state,
+            new_state,
+        }
+    }
+
+    pub fn from_layouts(old_layout: TextureLayout, new_layout: TextureLayout) -> Self {
+        Self {
+            old_state: texture_source_state(old_layout),
+            new_state: texture_destination_state(new_layout),
+        }
+    }
+
+    pub fn old_state(self) -> ResourceState {
+        self.old_state
+    }
+
+    pub fn new_state(self) -> ResourceState {
+        self.new_state
+    }
+
+    pub(crate) fn old_layout(self) -> vk::ImageLayout {
+        self.old_state.layout.as_raw()
+    }
+
+    pub(crate) fn new_layout(self) -> vk::ImageLayout {
+        self.new_state.layout.as_raw()
+    }
+
+    pub(crate) fn src_stage(self) -> vk::PipelineStageFlags {
+        self.old_state.stage.as_raw()
+    }
+
+    pub(crate) fn dst_stage(self) -> vk::PipelineStageFlags {
+        self.new_state.stage.as_raw()
+    }
+
+    pub(crate) fn src_access(self) -> vk::AccessFlags {
+        self.old_state.access.as_raw()
+    }
+
+    pub(crate) fn dst_access(self) -> vk::AccessFlags {
+        self.new_state.access.as_raw()
+    }
+}
+
+fn general_shader_stages() -> PipelineStage {
+    PipelineStage::COMPUTE_SHADER | PipelineStage::VERTEX_SHADER | PipelineStage::FRAGMENT_SHADER
+}
+
+fn texture_source_state(layout: TextureLayout) -> ResourceState {
+    match layout.as_raw() {
+        vk::ImageLayout::UNDEFINED => ResourceState::new(
+            TextureLayout::UNDEFINED,
+            PipelineStage::TOP_OF_PIPE,
+            MemoryAccess::empty(),
+        ),
+        vk::ImageLayout::GENERAL => ResourceState::new(
+            TextureLayout::GENERAL,
+            general_shader_stages(),
+            MemoryAccess::SHADER_WRITE,
+        ),
+        vk::ImageLayout::TRANSFER_SRC_OPTIMAL => ResourceState::new(
+            TextureLayout::TRANSFER_SRC,
+            PipelineStage::TRANSFER,
+            MemoryAccess::empty(),
+        ),
+        vk::ImageLayout::TRANSFER_DST_OPTIMAL => ResourceState::new(
+            TextureLayout::TRANSFER_DST,
+            PipelineStage::TRANSFER,
+            MemoryAccess::TRANSFER_WRITE,
+        ),
+        vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL => ResourceState::new(
+            TextureLayout::SHADER_READ_ONLY,
+            general_shader_stages(),
+            MemoryAccess::empty(),
+        ),
+        vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL => ResourceState::new(
+            TextureLayout::COLOR_ATTACHMENT,
+            PipelineStage::COLOR_ATTACHMENT_OUTPUT,
+            MemoryAccess::COLOR_ATTACHMENT_WRITE,
+        ),
+        vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL => ResourceState::new(
+            TextureLayout::DEPTH_STENCIL_ATTACHMENT,
+            PipelineStage::EARLY_FRAGMENT_TESTS | PipelineStage::LATE_FRAGMENT_TESTS,
+            MemoryAccess::DEPTH_STENCIL_ATTACHMENT_WRITE,
+        ),
+        vk::ImageLayout::PRESENT_SRC_KHR => ResourceState::new(
+            TextureLayout::PRESENT_SRC,
+            PipelineStage::COLOR_ATTACHMENT_OUTPUT,
+            MemoryAccess::COLOR_ATTACHMENT_WRITE,
+        ),
+        raw_layout => {
+            panic!("Unsupported old_layout transition from: {:?}", raw_layout);
+        }
+    }
+}
+
+fn texture_destination_state(layout: TextureLayout) -> ResourceState {
+    match layout.as_raw() {
+        vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL => ResourceState::new(
+            TextureLayout::SHADER_READ_ONLY,
+            general_shader_stages(),
+            MemoryAccess::SHADER_READ,
+        ),
+        vk::ImageLayout::GENERAL => ResourceState::new(
+            TextureLayout::GENERAL,
+            general_shader_stages(),
+            MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
+        ),
+        vk::ImageLayout::TRANSFER_SRC_OPTIMAL => ResourceState::new(
+            TextureLayout::TRANSFER_SRC,
+            PipelineStage::TRANSFER,
+            MemoryAccess::TRANSFER_READ,
+        ),
+        vk::ImageLayout::TRANSFER_DST_OPTIMAL => ResourceState::new(
+            TextureLayout::TRANSFER_DST,
+            PipelineStage::TRANSFER,
+            MemoryAccess::TRANSFER_WRITE,
+        ),
+        vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL => ResourceState::new(
+            TextureLayout::COLOR_ATTACHMENT,
+            PipelineStage::COLOR_ATTACHMENT_OUTPUT,
+            MemoryAccess::COLOR_ATTACHMENT_READ | MemoryAccess::COLOR_ATTACHMENT_WRITE,
+        ),
+        vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL => ResourceState::new(
+            TextureLayout::DEPTH_STENCIL_ATTACHMENT,
+            PipelineStage::EARLY_FRAGMENT_TESTS | PipelineStage::LATE_FRAGMENT_TESTS,
+            MemoryAccess::DEPTH_STENCIL_ATTACHMENT_WRITE,
+        ),
+        vk::ImageLayout::PRESENT_SRC_KHR => ResourceState::new(
+            TextureLayout::PRESENT_SRC,
+            PipelineStage::BOTTOM_OF_PIPE,
+            MemoryAccess::empty(),
+        ),
+        raw_layout => {
+            panic!("Unsupported new_layout transition to: {:?}", raw_layout);
+        }
     }
 }
 
