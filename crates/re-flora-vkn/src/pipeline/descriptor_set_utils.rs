@@ -1,9 +1,8 @@
 use crate::{
     DescriptorPool, DescriptorSet, DescriptorSetLayoutBinding, PipelineLayout, ResourceContainer,
-    WriteDescriptorSet,
+    TextureLayout, WriteDescriptorSet,
 };
 use anyhow::Result;
-use ash::vk;
 use std::{collections::HashMap, sync::Mutex};
 
 /// Creates descriptor sets for a pipeline using automatic resource binding.
@@ -111,7 +110,7 @@ pub fn auto_update_descriptor_sets(
                     binding.no,
                     binding.descriptor_type,
                     resource,
-                    vk::ImageLayout::GENERAL,
+                    TextureLayout::GENERAL,
                 )]);
             }
         }

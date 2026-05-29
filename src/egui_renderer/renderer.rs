@@ -211,7 +211,7 @@ impl EguiRenderer {
                         0,
                         vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
                         &texture,
-                        vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                        TextureLayout::SHADER_READ_ONLY,
                     ),
                 );
 
@@ -229,7 +229,7 @@ impl EguiRenderer {
                     0,
                     vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
                     &texture,
-                    vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                    TextureLayout::SHADER_READ_ONLY,
                 )]);
 
                 self.managed_textures.insert(*id, texture);
