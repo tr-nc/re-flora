@@ -3,7 +3,7 @@ use glam::UVec3;
 use re_flora_vkn::vk;
 use re_flora_vkn::{
     Allocator, Buffer, BufferUsage, Device, Extent3D, ImageDesc, MemoryLocation, ShaderModule,
-    Texture,
+    Texture, TextureLayout,
 };
 use resource_container_derive::ResourceContainer;
 
@@ -50,7 +50,7 @@ impl PlainBuilderResources {
             usage: vk::ImageUsageFlags::STORAGE
                 | vk::ImageUsageFlags::TRANSFER_DST
                 | vk::ImageUsageFlags::TRANSFER_SRC,
-            initial_layout: vk::ImageLayout::UNDEFINED,
+            initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
         };
@@ -61,7 +61,7 @@ impl PlainBuilderResources {
             extent: Extent3D::new(free_atlas_dim.x, free_atlas_dim.y, free_atlas_dim.z),
             format: vk::Format::R8_UINT,
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
-            initial_layout: vk::ImageLayout::UNDEFINED,
+            initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
         };

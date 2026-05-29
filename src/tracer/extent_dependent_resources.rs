@@ -1,6 +1,6 @@
 use crate::resource::Resource;
 use re_flora_vkn::vk;
-use re_flora_vkn::{Allocator, Device, Extent2D, ImageDesc, Texture};
+use re_flora_vkn::{Allocator, Device, Extent2D, ImageDesc, Texture, TextureLayout};
 use resource_container_derive::ResourceContainer;
 
 #[derive(ResourceContainer)]
@@ -86,7 +86,7 @@ impl ExtentDependentResources {
             usage: vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT
                 | vk::ImageUsageFlags::SAMPLED
                 | vk::ImageUsageFlags::TRANSFER_DST,
-            initial_layout: vk::ImageLayout::UNDEFINED,
+            initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::DEPTH,
             ..Default::default()
         };
@@ -102,7 +102,7 @@ impl ExtentDependentResources {
             extent: rendering_extent.into(),
             format: vk::Format::R32_SFLOAT,
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::SAMPLED,
-            initial_layout: vk::ImageLayout::UNDEFINED,
+            initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
         };
@@ -118,7 +118,7 @@ impl ExtentDependentResources {
             extent: rendering_extent.into(),
             format: vk::Format::R32_UINT,
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::SAMPLED,
-            initial_layout: vk::ImageLayout::UNDEFINED,
+            initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
         };
@@ -136,7 +136,7 @@ impl ExtentDependentResources {
             usage: vk::ImageUsageFlags::SAMPLED
                 | vk::ImageUsageFlags::COLOR_ATTACHMENT
                 | vk::ImageUsageFlags::TRANSFER_DST,
-            initial_layout: vk::ImageLayout::UNDEFINED,
+            initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
         };
@@ -155,7 +155,7 @@ impl ExtentDependentResources {
                 | vk::ImageUsageFlags::SAMPLED
                 | vk::ImageUsageFlags::TRANSFER_SRC
                 | vk::ImageUsageFlags::TRANSFER_DST,
-            initial_layout: vk::ImageLayout::UNDEFINED,
+            initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
         };
@@ -173,7 +173,7 @@ impl ExtentDependentResources {
             usage: vk::ImageUsageFlags::STORAGE
                 | vk::ImageUsageFlags::TRANSFER_SRC
                 | vk::ImageUsageFlags::COLOR_ATTACHMENT,
-            initial_layout: vk::ImageLayout::UNDEFINED,
+            initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
         };
@@ -193,7 +193,7 @@ impl ExtentDependentResources {
             extent: lens_flare_extent.into(),
             format: vk::Format::B10G11R11_UFLOAT_PACK32,
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
-            initial_layout: vk::ImageLayout::UNDEFINED,
+            initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
         };
@@ -209,7 +209,7 @@ impl ExtentDependentResources {
             extent: rendering_extent.into(),
             format: vk::Format::B10G11R11_UFLOAT_PACK32,
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
-            initial_layout: vk::ImageLayout::UNDEFINED,
+            initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
         };
@@ -221,7 +221,7 @@ impl ExtentDependentResources {
             extent: Extent2D::new(1, 1).into(),
             format: vk::Format::R32_UINT,
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
-            initial_layout: vk::ImageLayout::UNDEFINED,
+            initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
         };
@@ -237,7 +237,7 @@ impl ExtentDependentResources {
             extent: rendering_extent.into(),
             format: vk::Format::B10G11R11_UFLOAT_PACK32,
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::SAMPLED,
-            initial_layout: vk::ImageLayout::UNDEFINED,
+            initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
         };

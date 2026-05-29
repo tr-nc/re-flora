@@ -7,7 +7,7 @@ use glam::{UVec3, Vec3};
 use re_flora_vkn::vk;
 use re_flora_vkn::{
     Allocator, Buffer, BufferUsage, Device, Extent3D, ImageDesc, MemoryLocation, ShaderModule,
-    Texture,
+    Texture, TextureLayout,
 };
 use resource_container_derive::ResourceContainer;
 use std::collections::HashMap;
@@ -248,7 +248,7 @@ impl SurfaceResources {
             ),
             format: vk::Format::R32_UINT,
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
-            initial_layout: vk::ImageLayout::UNDEFINED,
+            initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
         };
@@ -263,7 +263,7 @@ impl SurfaceResources {
             ),
             format: vk::Format::R32_UINT,
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
-            initial_layout: vk::ImageLayout::UNDEFINED,
+            initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
         };

@@ -8,6 +8,7 @@ pub struct TextureLayout(vk::ImageLayout);
 
 impl TextureLayout {
     pub const UNDEFINED: Self = Self(vk::ImageLayout::UNDEFINED);
+    pub const PREINITIALIZED: Self = Self(vk::ImageLayout::PREINITIALIZED);
     pub const GENERAL: Self = Self(vk::ImageLayout::GENERAL);
     pub const TRANSFER_SRC: Self = Self(vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
     pub const TRANSFER_DST: Self = Self(vk::ImageLayout::TRANSFER_DST_OPTIMAL);

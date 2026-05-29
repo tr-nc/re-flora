@@ -1,4 +1,4 @@
-use crate::Extent3D;
+use crate::{Extent3D, TextureLayout};
 use ash::vk;
 
 /// Responsible for the creation of image and image view.
@@ -8,7 +8,7 @@ pub struct ImageDesc {
     pub array_len: u32,
     pub format: vk::Format,
     pub usage: vk::ImageUsageFlags,
-    pub initial_layout: vk::ImageLayout,
+    pub initial_layout: TextureLayout,
     pub aspect: vk::ImageAspectFlags,
     pub samples: vk::SampleCountFlags,
     pub tilting: vk::ImageTiling,
@@ -21,7 +21,7 @@ impl Default for ImageDesc {
             array_len: 1,
             format: vk::Format::UNDEFINED,
             usage: vk::ImageUsageFlags::empty(),
-            initial_layout: vk::ImageLayout::UNDEFINED,
+            initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             samples: vk::SampleCountFlags::TYPE_1,
             tilting: vk::ImageTiling::OPTIMAL,

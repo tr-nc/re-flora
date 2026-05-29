@@ -4,7 +4,7 @@ use resource_container_derive::ResourceContainer;
 use crate::resource::Resource;
 use re_flora_vkn::{
     Allocator, Buffer, BufferUsage, Device, Extent2D, ImageDesc, MemoryLocation, ShaderModule,
-    Texture,
+    Texture, TextureLayout,
 };
 
 #[derive(ResourceContainer)]
@@ -91,7 +91,7 @@ impl DenoiserResources {
                 extent: rendering_extent.into(),
                 format,
                 usage: usage | vk::ImageUsageFlags::SAMPLED,
-                initial_layout: vk::ImageLayout::UNDEFINED,
+                initial_layout: TextureLayout::UNDEFINED,
                 aspect: vk::ImageAspectFlags::COLOR,
                 ..Default::default()
             };

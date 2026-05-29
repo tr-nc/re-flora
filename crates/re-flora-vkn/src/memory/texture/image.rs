@@ -4,7 +4,7 @@ use crate::{
     MemoryLocation, Queue, TextureLayout,
 };
 use anyhow::Result;
-use ash::vk::{self, ImageLayout};
+use ash::vk;
 use gpu_allocator::vulkan::{Allocation, AllocationCreateDesc, AllocationScheme};
 use std::fmt;
 use std::sync::{Arc, Mutex};
@@ -62,8 +62,8 @@ impl std::ops::Deref for Image {
 impl Image {
     pub fn new(device: Device, mut allocator: Allocator, desc: &ImageDesc) -> Result<Self> {
         // for vulkan spec, initial_layout must be either UNDEFINED or PREINITIALIZED,
-        if desc.initial_layout != ImageLayout::UNDEFINED
-            && desc.initial_layout != ImageLayout::PREINITIALIZED
+        if desc.initial_layout != TextureLayout::UNDEFINED
+            && desc.initial_layout != TextureLayout::PREINITIALIZED
         {
             return Err(anyhow::anyhow!("Initial layout must be UNDEFINED"));
         }
@@ -75,7 +75,7 @@ impl Image {
             .array_layers(desc.array_len)
             .format(desc.format)
             .tiling(desc.tilting)
-            .initial_layout(ImageLayout::UNDEFINED)
+            .initial_layout(TextureLayout::UNDEFINED.as_raw())
             .usage(desc.usage)
             .sharing_mode(vk::SharingMode::EXCLUSIVE)
             .samples(desc.samples)
@@ -106,7 +106,7 @@ impl Image {
             * desc.get_pixel_size() as vk::DeviceSize;
 
         // initialize one entry per array layer
-        let layouts = vec![desc.initial_layout; desc.array_len as usize];
+        let layouts = vec![desc.initial_layout.as_raw(); desc.array_len as usize];
 
         Ok(Self(Arc::new(ImageInner {
             device: device.clone(),

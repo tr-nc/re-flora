@@ -184,7 +184,7 @@ impl EguiRenderer {
                     extent,
                     format: vk::Format::B8G8R8A8_SRGB,
                     usage: vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST,
-                    initial_layout: vk::ImageLayout::UNDEFINED,
+                    initial_layout: TextureLayout::UNDEFINED,
                     aspect: vk::ImageAspectFlags::COLOR,
                     ..Default::default()
                 };

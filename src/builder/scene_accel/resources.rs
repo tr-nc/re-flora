@@ -1,6 +1,6 @@
 use crate::{geom::UAabb3, resource::Resource};
 use re_flora_vkn::vk;
-use re_flora_vkn::{Allocator, Buffer, Device, ImageDesc, ShaderModule, Texture};
+use re_flora_vkn::{Allocator, Buffer, Device, ImageDesc, ShaderModule, Texture, TextureLayout};
 use resource_container_derive::ResourceContainer;
 
 #[derive(ResourceContainer)]
@@ -20,7 +20,7 @@ impl SceneAccelBuilderResources {
             extent: chunk_bound.get_extent(),
             format: vk::Format::R32G32_UINT,
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
-            initial_layout: vk::ImageLayout::UNDEFINED,
+            initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
         };
