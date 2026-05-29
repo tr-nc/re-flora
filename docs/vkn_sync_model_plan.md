@@ -549,6 +549,39 @@ Validation:
 - `cargo check --features sync_diagnostics`
 - release smoke run with default features
 
+### Step 13: Add semantic resource barrier and layout types
+
+Status: done in branch `agent/vkn-profiler` after the sync model cleanup. `MemoryAccess`, `PipelineStage`, and `TextureLayout` now wrap the corresponding Vulkan flags/layouts inside vkn. Public barrier constructors require semantic types, `Image::record_transition` accepts `TextureLayout`, and the raw `record_transition_barrier` helper is crate-visible only.
+
+- Route builder/tracer memory barriers through `PipelineBarrier`, `MemoryBarrier`, `PipelineStage`, and `MemoryAccess` semantic types.
+- Keep raw access/stage/layout conversion inside vkn.
+- Keep barrier descriptor allocation behavior unchanged; this is an API containment pass, not a render-graph rewrite.
+- Preserve existing image transition state tracking and transition rules.
+
+Validation:
+
+- `cargo fmt --check`
+- `cargo check`
+- `cargo run --release -- --hidden --auto-exit 0.5`
+- inspect hidden-run log for errors, panics, failures, and validation messages
+
+### Step 14: Use semantic layouts in texture, descriptor, query, and render-pass APIs
+
+Status: done in branch `agent/vkn-profiler` after Step 13. Texture upload/copy/clear APIs, descriptor texture writes, timestamp query stages, and render-pass attachment layouts now take vkn semantic types at app/builder/tracer call sites.
+
+- `Image::copy_image_to_buffer`, `record_copy_to`, `record_clear`, `load_and_fill`, `fill_with_raw_u8`, `get_layout`, and `set_layout` use `TextureLayout` at the public API boundary.
+- `WriteDescriptorSet::new_texture_write` accepts `TextureLayout`.
+- `TimestampQueryPool::record_timestamp` accepts `PipelineStage`.
+- `AttachmentDesc`, `AttachmentReference`, and `AttachmentDescOuter` use `TextureLayout` for render-pass layouts.
+- Raw `vk::PipelineStageFlags`, `vk::AccessFlags`, and direct transition helpers are no longer used by builder/tracer/app code.
+
+Validation:
+
+- `cargo fmt --check`
+- `cargo check`
+- `cargo run --release -- --hidden --auto-exit 0.5`
+- inspect hidden-run log for errors, panics, failures, and validation messages
+
 ## Performance guardrails
 
 - No extra queue submissions compared with current frame or job flow.
@@ -615,9 +648,9 @@ But this phase ends before implementing those outputs.
 
 Keep the next code change small:
 
-1. Audit builder/app fence call sites and classify job types.
-2. Add a fence-backed `GpuJobDesc` / `GpuJobToken` abstraction inside vkn.
-3. Migrate one narrow helper or builder path first, preferably one with clear validation logs.
-4. Validate no behavior/performance regression before migrating the broader chunk-build queues.
+1. Audit the remaining public `vk::` API surface and separate descriptive Vulkan types (`vk::Format`, usage flags, load/store ops) from synchronization/resource-state types.
+2. Add a compact `TextureDesc`/`AttachmentDesc` convenience layer only where it removes state/layout leakage without forcing a broad render-pass rewrite.
+3. Add optional diagnostics hooks for resource transitions once there is a clear event shape (`resource name`, old layout, new layout, source/destination stages/accesses).
+4. Validate no behavior/performance regression with the standard hidden-mode run before broadening the abstraction.
 
-This extends the managed sync seam from swapchain frames to off-frame GPU jobs while keeping risk low.
+The managed sync seam now covers swapchain frames and off-frame GPU jobs. The resource-state seam is partially established for barriers, texture layouts, descriptor layouts, timestamp stages, and render-pass attachment layouts; the next work should stay targeted and avoid a full render graph until profiler needs are concrete.
