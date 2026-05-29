@@ -50,8 +50,8 @@ use anyhow::{Context, Result};
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
 use re_flora_vkn::{
-    Allocator, Buffer, BufferUsage, ColorReadbackFormat, CommandBuffer, Extent2D, Fence, FrameSync,
-    MemoryLocation, Semaphore, SwapchainDesc, SwapchainFrameError,
+    Allocator, Buffer, BufferUsage, ColorReadbackFormat, CommandBuffer, Extent2D, MemoryLocation,
+    SwapchainDesc, SwapchainFrameError, SwapchainFrameManager,
 };
 use re_flora_vkn::{Swapchain, VulkanContext};
 use re_flora_water::PondWaterConfig;
@@ -135,10 +135,7 @@ pub struct App {
     is_resize_pending: bool,
     swapchain: Swapchain,
     window_state: WindowState,
-    frames_in_flight: Vec<FrameSync>,
-    current_frame: usize,
-    image_render_finished_semaphores: Vec<Semaphore>,
-    images_in_flight: Vec<Option<Fence>>,
+    frame_manager: SwapchainFrameManager,
     time_info: TimeInfo,
     render_flags: RenderFlags,
     accumulated_mouse_delta: Vec2,
@@ -731,12 +728,12 @@ impl App {
             },
         );
 
-        let frames_in_flight =
-            FrameSync::create_frames(device, vulkan_ctx.command_pool(), MAX_FRAMES_IN_FLIGHT);
-        let current_frame = 0;
-        let swapchain_image_count = swapchain.image_count();
-        let (image_render_finished_semaphores, images_in_flight) =
-            Self::create_swapchain_image_syncs(device, swapchain_image_count);
+        let frame_manager = SwapchainFrameManager::new(
+            device,
+            vulkan_ctx.command_pool(),
+            MAX_FRAMES_IN_FLIGHT,
+            swapchain.image_count(),
+        );
 
         let renderer = EguiRenderer::new(
             vulkan_ctx.clone(),
@@ -960,10 +957,7 @@ impl App {
             mute_audio_output: options.hidden,
 
             swapchain,
-            frames_in_flight,
-            current_frame,
-            image_render_finished_semaphores,
-            images_in_flight,
+            frame_manager,
 
             tracer,
 
@@ -1259,27 +1253,16 @@ impl App {
             });
 
         let device = self.vulkan_ctx.device();
-        let sync = &self.frames_in_flight[self.current_frame];
-        let cmdbuf = sync.command_buffer();
-
-        sync.fence().wait().unwrap();
-
-        let image_idx = match self.swapchain.acquire_next_image(sync.image_available()) {
-            Ok(image_index) => image_index,
+        let frame = match self.frame_manager.begin_frame(&mut self.swapchain) {
+            Ok(frame) => frame,
             Err(SwapchainFrameError::OutOfDate) => {
                 self.is_resize_pending = true;
                 return;
             }
             Err(error) => panic!("Error while acquiring next image. Cause: {}", error),
         };
-
-        let image_index_usize = image_idx as usize;
-        if let Some(image_in_flight_fence) = &self.images_in_flight[image_index_usize] {
-            image_in_flight_fence.wait().unwrap();
-        }
-        self.images_in_flight[image_index_usize] = Some(sync.fence().clone());
-
-        sync.fence().reset().expect("Failed to reset fences");
+        let cmdbuf = frame.command_buffer();
+        let image_idx = frame.image_index();
 
         cmdbuf.begin(false);
 
@@ -1298,13 +1281,13 @@ impl App {
 
         cmdbuf.end();
 
-        let render_finished = &self.image_render_finished_semaphores[image_index_usize];
+        let render_finished = frame.render_finished();
         self.vulkan_ctx
             .submit_render_commands(
                 cmdbuf,
-                sync.image_available(),
+                frame.image_available(),
                 render_finished,
-                sync.fence(),
+                frame.fence(),
             )
             .expect("Failed to submit work to gpu.");
 
@@ -1320,7 +1303,7 @@ impl App {
             _ => {}
         }
 
-        self.current_frame = (self.current_frame + 1) % self.frames_in_flight.len();
+        self.frame_manager.advance_frame();
 
         if is_done {
             self.loading_state = None;
@@ -2362,27 +2345,16 @@ impl App {
 
                 let gpu_record_start = Instant::now();
                 let device = self.vulkan_ctx.device();
-                let sync = &self.frames_in_flight[self.current_frame];
-                let cmdbuf = sync.command_buffer();
-
-                sync.fence().wait().unwrap();
-
-                let image_idx = match self.swapchain.acquire_next_image(sync.image_available()) {
-                    Ok(image_index) => image_index,
+                let frame = match self.frame_manager.begin_frame(&mut self.swapchain) {
+                    Ok(frame) => frame,
                     Err(SwapchainFrameError::OutOfDate) => {
                         self.is_resize_pending = true;
                         return;
                     }
                     Err(error) => panic!("Error while acquiring next image. Cause: {}", error),
                 };
-
-                let image_index_usize = image_idx as usize;
-                if let Some(image_in_flight_fence) = &self.images_in_flight[image_index_usize] {
-                    image_in_flight_fence.wait().unwrap();
-                }
-                self.images_in_flight[image_index_usize] = Some(sync.fence().clone());
-
-                sync.fence().reset().expect("Failed to reset fences");
+                let cmdbuf = frame.command_buffer();
+                let image_idx = frame.image_index();
 
                 cmdbuf.begin(false);
 
@@ -2629,13 +2601,13 @@ impl App {
 
                 cmdbuf.end();
 
-                let render_finished = &self.image_render_finished_semaphores[image_index_usize];
+                let render_finished = frame.render_finished();
                 self.vulkan_ctx
                     .submit_render_commands(
                         cmdbuf,
-                        sync.image_available(),
+                        frame.image_available(),
                         render_finished,
-                        sync.fence(),
+                        frame.fence(),
                     )
                     .expect("Failed to submit work to gpu.");
 
@@ -2654,11 +2626,11 @@ impl App {
                 }
 
                 if let Some(readback) = screenshot_readback {
-                    sync.fence().wait().unwrap();
+                    frame.fence().wait().unwrap();
                     Self::write_screenshot_readback(readback);
                 }
 
-                self.current_frame = (self.current_frame + 1) % self.frames_in_flight.len();
+                self.frame_manager.advance_frame();
 
                 self.tracer.set_head_bob_params(
                     self.gui_adjustables.headbob_vertical_amp.value,

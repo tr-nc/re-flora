@@ -276,6 +276,8 @@ Validation:
 
 ### Step 4: Move images-in-flight tracking into vkn
 
+Status: done in branch `agent/vkn-profiler` after Step 3. `SwapchainFrameManager` now owns frame slots, per-image render-finished semaphores, image-in-flight fences, and current-frame advancement. Submit/present still remain explicit in the app until Step 5.
+
 - Introduce `SwapchainFrameManager` or equivalent.
 - It owns `images_in_flight: Vec<Option<Fence>>` and frame-slot advancement.
 - `begin_frame` handles:
