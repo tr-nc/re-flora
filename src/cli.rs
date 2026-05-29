@@ -207,7 +207,7 @@ impl AppOptions {
             None if args.iter().any(|a| a == "--monitor-score") => {
                 panic!("Missing value for --monitor-score. Supported values: highest, lowest")
             }
-            None => MonitorScorePreference::Highest,
+            None => MonitorScorePreference::Lowest,
         };
 
         let tail_latest_log = args
@@ -275,7 +275,7 @@ Options:
   --no-particles              Disable particle simulation and rendering
   --no-flora                  Disable flora and leaves rendering
   --present-mode <mode>       Override auto present mode selection: mailbox, immediate, fifo, fifo_relaxed
-  --monitor-score <mode>      Select borderless fullscreen monitor by resolution score: highest, lowest (default: highest)
+  --monitor-score <mode>      Select borderless fullscreen monitor by resolution score: highest, lowest (default: lowest)
   --swapchain-images <N>      Override swapchain image count (default: auto)
   --screenshot <path>         Save one screenshot after rendering starts
   --screenshot-delay <sec>    Delay before screenshot capture (default: 5.0)
