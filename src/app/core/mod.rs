@@ -409,6 +409,29 @@ impl App {
         }
     }
 
+    fn log_gpu_profiler_frame(&self, frame_count: u64) {
+        let Some(results) = self.gpu_profiler_latest_results.as_ref() else {
+            return;
+        };
+        if results.scopes.is_empty() && results.dropped_scope_count == 0 {
+            return;
+        }
+
+        let scopes = results
+            .scopes
+            .iter()
+            .map(|scope| format!("{}={:.0}us", scope.name, scope.duration_us()))
+            .collect::<Vec<_>>()
+            .join(" ");
+        log::info!(
+            "[PERF][GPU_FRAME_SCOPE] frame {} scopes={} dropped={} {}",
+            frame_count,
+            results.scopes.len(),
+            results.dropped_scope_count,
+            scopes,
+        );
+    }
+
     fn update_growing_flora_chunk(&mut self) {
         if self.deferred_surface_rebuild_inflight() {
             return;
@@ -2942,6 +2965,7 @@ impl App {
                         egui_ms,
                         gpu_ms
                     );
+                    self.log_gpu_profiler_frame(frame_count);
                 }
                 if frame_perf_enabled {
                     let queue_work_ms = terrain_sdf_source_ms

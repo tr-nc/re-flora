@@ -230,9 +230,9 @@ Validation:
 
 ## Phase 6: Profiler presentation
 
-Status: not started.
+Status: done in branch `agent/vkn-profiler` for the first presentation pass.
 
-Expose collected data in a concise agent-friendly form.
+Exposed collected data in a concise agent-friendly form.
 
 Tasks:
 
@@ -241,11 +241,22 @@ Tasks:
 - Prefer microseconds and stable labels.
 - Eventually support p50/p95/p99 summaries, but only after raw frame/job scopes are reliable.
 
+Implementation notes:
+
+- The frame timing GUI shows GPU frame scopes as plain-text microsecond rows.
+- `--perf` logs `[PERF][GPU_FRAME_SCOPE]` periodically with stable scope labels and dropped-scope count.
+- GPU job scopes log as `[PERF][GPU_JOB_SCOPE]` when their jobs finish.
+- Disabled runs do not allocate the app GPU profiler or surface GPU job profiler.
+
 Validation:
 
+- `cargo fmt --check`
+- `cargo check`
+- `cargo check --features sync_diagnostics`
+- `cargo test`
+- `cargo run --release -- --hidden --auto-exit 0.5`
 - `cargo run --release -- --hidden --auto-exit 4 --perf`
-- Confirm perf logs include useful GPU timings when enabled.
-- Confirm no output churn when disabled.
+- inspect hidden-run logs for errors, panics, failures, and validation messages
 
 ## Open questions
 
@@ -257,8 +268,8 @@ Validation:
 
 ## Immediate next step
 
-Implement Phase 1 narrowly:
+The first profiler primitive is complete through initial presentation. Keep future work incremental:
 
-1. Add non-blocking query result retrieval to `TimestampQueryPool`.
-2. Add fixed-capacity vkn GPU profiler structs with no app integration or only minimal compile-only integration.
-3. Validate and commit before adding render scopes.
+1. Add aggregation summaries such as p50/p95/p99 for frame scopes and representative GPU jobs.
+2. Expand GPU job profiling beyond `surface.build` only after measuring the current log usefulness.
+3. Add a richer transition diagnostics sink only when a concrete profiler view needs transition counts or state-change timelines.
