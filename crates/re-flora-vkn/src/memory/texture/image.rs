@@ -1,7 +1,7 @@
 use super::{ImageDesc, TextureRegion};
 use crate::{
     execute_one_time_command, Allocator, Buffer, BufferUsage, CommandBuffer, CommandPool, Device,
-    MemoryLocation, Queue,
+    MemoryLocation, Queue, TextureLayout,
 };
 use anyhow::Result;
 use ash::vk::{self, ImageLayout};
@@ -328,6 +328,16 @@ impl Image {
         }
 
         self.record_transition_barrier(cmdbuf, base_array_layer, target_layout);
+    }
+
+    /// Transition just `array_layer` from its current layout to `target_layout`.
+    pub fn record_transition(
+        &self,
+        cmdbuf: &CommandBuffer,
+        array_layer: u32,
+        target_layout: TextureLayout,
+    ) {
+        self.record_transition_barrier(cmdbuf, array_layer, target_layout.as_raw());
     }
 
     /// Transition just `array_layer` from its current layout → `target_layout`

@@ -4,6 +4,25 @@ use std::ops::{BitOr, BitOrAssign};
 use crate::{CommandBuffer, Device};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TextureLayout(vk::ImageLayout);
+
+impl TextureLayout {
+    pub const UNDEFINED: Self = Self(vk::ImageLayout::UNDEFINED);
+    pub const GENERAL: Self = Self(vk::ImageLayout::GENERAL);
+    pub const TRANSFER_SRC: Self = Self(vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
+    pub const TRANSFER_DST: Self = Self(vk::ImageLayout::TRANSFER_DST_OPTIMAL);
+    pub const SHADER_READ_ONLY: Self = Self(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
+    pub const COLOR_ATTACHMENT: Self = Self(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
+    pub const DEPTH_STENCIL_ATTACHMENT: Self =
+        Self(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+    pub const PRESENT_SRC: Self = Self(vk::ImageLayout::PRESENT_SRC_KHR);
+
+    pub(crate) fn as_raw(self) -> vk::ImageLayout {
+        self.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MemoryAccess(vk::AccessFlags);
 
 impl MemoryAccess {
