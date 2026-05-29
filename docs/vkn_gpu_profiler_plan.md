@@ -200,9 +200,9 @@ Validation:
 
 ## Phase 5: Transition/barrier diagnostics sink
 
-Status: not started.
+Status: done in branch `agent/vkn-profiler`.
 
-Turn the existing texture-transition diagnostics hook into optional profiler data.
+Turned the existing texture-transition diagnostics hook into optional profiler data.
 
 Tasks:
 
@@ -211,10 +211,22 @@ Tasks:
 - Correlate transitions with frame/job context if available.
 - Avoid per-transition string formatting in the hot path.
 
+Implementation notes:
+
+- `TextureTransitionDiagnostics` is now a stable public event shape in `re_flora_vkn::sync::diagnostics`.
+- Added optional `set_texture_transition_diagnostics_sink` registration behind the existing diagnostics seam.
+- Default builds still compile to a no-op sink path and return `false` for sink registration.
+- `sync_diagnostics` builds forward transition events to the registered function pointer without formatting or allocation in the hook.
+
 Validation:
 
+- `cargo fmt --check`
+- `cargo check`
 - `cargo check --features sync_diagnostics`
-- Hidden release perf run with diagnostics disabled by default.
+- `cargo test`
+- `cargo run --release -- --hidden --auto-exit 0.5`
+- `cargo run --release -- --hidden --auto-exit 4 --perf`
+- inspect hidden-run logs for errors, panics, failures, and validation messages
 
 ## Phase 6: Profiler presentation
 
