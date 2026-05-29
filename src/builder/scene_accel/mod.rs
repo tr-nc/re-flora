@@ -9,7 +9,8 @@ use crate::{generated::gpu_structs::SceneTexUpdateInfo, geom::UAabb3, util::Shad
 use bytemuck::Zeroable;
 use re_flora_vkn::{
     execute_one_time_command, Allocator, Buffer, ClearValue, ColorClearValue, CommandBuffer,
-    ComputePipeline, DescriptorPool, Extent3D, Fence, ShaderModule, VulkanContext,
+    ComputePipeline, DescriptorPool, Extent3D, GpuJobDesc, GpuJobManager, GpuJobToken,
+    JobCompletion, QueueLane, ShaderModule, VulkanContext,
 };
 
 pub struct SceneAccelBuilder {
@@ -31,7 +32,7 @@ pub struct SceneTexUpdateJob {
     uniform_elapsed: std::time::Duration,
     submit_elapsed: std::time::Duration,
     _command_buffer: CommandBuffer,
-    fence: Fence,
+    gpu_job: GpuJobToken,
 }
 
 #[allow(dead_code)]
@@ -130,7 +131,7 @@ impl SceneAccelBuilder {
         chunk_data: Option<(u64, u64)>,
     ) -> Result<()> {
         let job = self.submit_update_scene_tex(chunk_idx, chunk_data)?;
-        job.fence.wait()?;
+        job.gpu_job.wait()?;
         self.finish_update_scene_tex(job);
         Ok(())
     }
@@ -161,9 +162,20 @@ impl SceneAccelBuilder {
             .record("scene_tex_update_uniform", uniform_elapsed);
 
         let submit_start = Instant::now();
-        let fence = Fence::new(self.vulkan_ctx.device(), false);
         let cmdbuf = self.update_scene_tex_cmdbuf.clone();
-        cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), Some(&fence));
+        let command_buffers = [&cmdbuf];
+        let gpu_job = GpuJobManager::submit(
+            self.vulkan_ctx.device(),
+            &self.vulkan_ctx.get_general_queue(),
+            GpuJobDesc::new(
+                "scene_accel.update_scene_tex",
+                QueueLane::General,
+                &command_buffers,
+                &[],
+                &[],
+                JobCompletion::Fence,
+            ),
+        )?;
         let submitted_at = Instant::now();
         let submit_elapsed = submit_start.elapsed();
         crate::util::BENCH
@@ -178,18 +190,18 @@ impl SceneAccelBuilder {
             uniform_elapsed,
             submit_elapsed,
             _command_buffer: cmdbuf,
-            fence,
+            gpu_job,
         })
     }
 
     pub fn update_scene_tex_ready(&self, job: &SceneTexUpdateJob) -> Result<bool> {
-        job.fence
-            .is_signaled()
+        job.gpu_job
+            .is_complete()
             .map_err(|err| anyhow::anyhow!("failed to poll scene tex update fence: {err}"))
     }
 
     pub fn wait_update_scene_tex(&self, job: &SceneTexUpdateJob) -> Result<()> {
-        job.fence.wait()?;
+        job.gpu_job.wait()?;
         Ok(())
     }
 

@@ -21,10 +21,14 @@ use re_flora_vkn::CommandBuffer;
 use re_flora_vkn::ComputePipeline;
 use re_flora_vkn::DescriptorPool;
 use re_flora_vkn::Extent3D;
-use re_flora_vkn::Fence;
+use re_flora_vkn::GpuJobDesc;
+use re_flora_vkn::GpuJobManager;
+use re_flora_vkn::GpuJobToken;
+use re_flora_vkn::JobCompletion;
 use re_flora_vkn::MemoryBarrier;
 use re_flora_vkn::MemoryLocation;
 use re_flora_vkn::PipelineBarrier;
+use re_flora_vkn::QueueLane;
 use re_flora_vkn::ShaderModule;
 use re_flora_vkn::Texture;
 use re_flora_vkn::TextureRegion;
@@ -87,7 +91,7 @@ pub struct ChunkSolidSampleJob {
     prepare_elapsed: Duration,
     submit_elapsed: Duration,
     _command_buffer: CommandBuffer,
-    fence: Fence,
+    gpu_job: GpuJobToken,
 }
 
 impl ChunkSolidSampleJob {
@@ -455,7 +459,7 @@ impl PlainBuilder {
     ) -> Result<Vec<u32>> {
         let job = self.submit_chunk_atlas_solid_grid_sample(atlas_offset, atlas_dim, sample_dim)?;
         let wait_start = Instant::now();
-        job.fence.wait()?;
+        job.gpu_job.wait()?;
         let wait_elapsed = wait_start.elapsed();
         crate::util::BENCH.lock().unwrap().record(
             "chunk_solid_sample_gpu_dispatch",
@@ -540,7 +544,6 @@ impl PlainBuilder {
         );
         let command_buffer =
             CommandBuffer::new(self.vulkan_ctx.device(), self.vulkan_ctx.command_pool());
-        let fence = Fence::new(self.vulkan_ctx.device(), false);
         let submit_start = Instant::now();
         command_buffer.begin(true);
         self.chunk_solid_sample_ppl.record(
@@ -550,7 +553,19 @@ impl PlainBuilder {
         );
         host_read_barrier.record_insert(self.vulkan_ctx.device(), &command_buffer);
         command_buffer.end();
-        command_buffer.submit(&self.vulkan_ctx.get_general_queue(), Some(&fence));
+        let command_buffers = [&command_buffer];
+        let gpu_job = GpuJobManager::submit(
+            self.vulkan_ctx.device(),
+            &self.vulkan_ctx.get_general_queue(),
+            GpuJobDesc::new(
+                "plain.chunk_solid_sample",
+                QueueLane::General,
+                &command_buffers,
+                &[],
+                &[],
+                JobCompletion::Fence,
+            ),
+        )?;
         let submitted_at = Instant::now();
         let submit_elapsed = submit_start.elapsed();
         crate::util::BENCH
@@ -569,13 +584,13 @@ impl PlainBuilder {
             prepare_elapsed,
             submit_elapsed,
             _command_buffer: command_buffer,
-            fence,
+            gpu_job,
         })
     }
 
     pub fn chunk_atlas_solid_grid_sample_ready(&self, job: &ChunkSolidSampleJob) -> Result<bool> {
-        job.fence
-            .is_signaled()
+        job.gpu_job
+            .is_complete()
             .map_err(|err| anyhow::anyhow!("failed to poll chunk solid sample fence: {err}"))
     }
 

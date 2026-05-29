@@ -15,8 +15,8 @@ use glam::{UVec3, Vec3};
 use re_flora_vkn::vk;
 use re_flora_vkn::{
     Buffer, ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DescriptorPool, Extent3D,
-    Fence, MemoryBarrier, PipelineBarrier, ShaderModule, TimestampQueryPool, VulkanContext,
-    WriteDescriptorSet,
+    GpuJobDesc, GpuJobManager, GpuJobToken, JobCompletion, MemoryBarrier, PipelineBarrier,
+    QueueLane, ShaderModule, TimestampQueryPool, VulkanContext, WriteDescriptorSet,
 };
 pub use resources::*;
 use std::time::{Duration, Instant};
@@ -58,7 +58,7 @@ pub struct SurfaceBuildJob {
     record_elapsed: Duration,
     submit_elapsed: Duration,
     _command_buffer: CommandBuffer,
-    fence: Fence,
+    gpu_job: GpuJobToken,
 }
 
 #[allow(dead_code)]
@@ -514,7 +514,7 @@ impl SurfaceBuilder {
 
     pub fn build_surface(&mut self, chunk_id: UVec3, place_flora: bool) -> Result<u32> {
         let job = self.submit_build_surface(chunk_id, place_flora)?;
-        job.fence.wait()?;
+        job.gpu_job.wait()?;
         let result = self.finish_build_surface(job)?;
         Ok(result.active_voxel_len)
     }
@@ -655,8 +655,19 @@ impl SurfaceBuilder {
         let record_elapsed = record_start.elapsed();
 
         let submit_start = Instant::now();
-        let fence = Fence::new(device, false);
-        cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), Some(&fence));
+        let command_buffers = [&cmdbuf];
+        let gpu_job = GpuJobManager::submit(
+            device,
+            &self.vulkan_ctx.get_general_queue(),
+            GpuJobDesc::new(
+                "surface.build",
+                QueueLane::General,
+                &command_buffers,
+                &[],
+                &[],
+                JobCompletion::Fence,
+            ),
+        )?;
         let submitted_at = Instant::now();
         let submit_elapsed = submit_start.elapsed();
 
@@ -670,18 +681,18 @@ impl SurfaceBuilder {
             record_elapsed,
             submit_elapsed,
             _command_buffer: cmdbuf,
-            fence,
+            gpu_job,
         })
     }
 
     pub fn build_surface_ready(&self, job: &SurfaceBuildJob) -> Result<bool> {
-        job.fence
-            .is_signaled()
+        job.gpu_job
+            .is_complete()
             .map_err(|err| anyhow::anyhow!("failed to poll surface build fence: {err}"))
     }
 
     pub fn wait_build_surface(&self, job: &SurfaceBuildJob) -> Result<()> {
-        job.fence.wait()?;
+        job.gpu_job.wait()?;
         Ok(())
     }
 

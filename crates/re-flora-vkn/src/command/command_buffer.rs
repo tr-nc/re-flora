@@ -169,6 +169,23 @@ impl CommandBuffer {
         let desc = SubmitDesc::new("command_buffer.submit", &command_buffers, &[], &[], fence);
         self.0.device.submit_to_queue(queue, desc).unwrap();
     }
+
+    pub fn submit_gpu_job(
+        &self,
+        queue: &Queue,
+        name: &'static str,
+    ) -> ash::prelude::VkResult<crate::GpuJobToken> {
+        let command_buffers = [self];
+        let desc = GpuJobDesc::new(
+            name,
+            QueueLane::General,
+            &command_buffers,
+            &[],
+            &[],
+            JobCompletion::Fence,
+        );
+        GpuJobManager::submit(&self.0.device, queue, desc)
+    }
 }
 
 fn create_cmdbuf(device: &Device, command_pool: vk::CommandPool) -> vk::CommandBuffer {

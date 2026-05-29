@@ -514,6 +514,8 @@ Validation:
 
 ### Step 11: Migrate chunk/build async jobs
 
+Status: done in branch `agent/vkn-profiler` after one-time command migration. Builder async jobs now hold `GpuJobToken` instead of direct `Fence` fields for chunk solid sampling, surface builds, scene texture updates, contree builds, and contree CPU-cache readbacks. Builder payload/result ownership remains in the builder layer.
+
 - Move direct builder/app ownership of completion fences behind vkn job tokens or small vkn-backed adapters.
 - Target call sites include:
   - `src/builder/contree/mod.rs`
