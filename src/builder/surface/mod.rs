@@ -12,7 +12,6 @@ use crate::{
 use anyhow::Result;
 use bytemuck::Zeroable;
 use glam::{UVec3, Vec3};
-use re_flora_vkn::vk;
 use re_flora_vkn::{
     Buffer, ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DescriptorPool, Extent3D,
     GpuJobToken, MemoryAccess, MemoryBarrier, PipelineBarrier, PipelineStage, ShaderModule,
@@ -130,11 +129,8 @@ impl SurfacePassTiming {
     }
 
     fn record_timestamp(&self, cmdbuf: &CommandBuffer, query_index: usize) {
-        self.query_pool.record_timestamp(
-            cmdbuf,
-            vk::PipelineStageFlags::ALL_COMMANDS,
-            query_index as u32,
-        );
+        self.query_pool
+            .record_timestamp(cmdbuf, PipelineStage::ALL_COMMANDS, query_index as u32);
     }
 
     fn collect_and_log(

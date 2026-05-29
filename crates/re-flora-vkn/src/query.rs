@@ -1,4 +1,4 @@
-use crate::{CommandBuffer, Device, VulkanContext};
+use crate::{CommandBuffer, Device, PipelineStage, VulkanContext};
 use ash::{prelude::VkResult, vk};
 
 pub struct TimestampQueryPool {
@@ -82,12 +82,12 @@ impl TimestampQueryPool {
     pub fn record_timestamp(
         &self,
         cmdbuf: &CommandBuffer,
-        stage: vk::PipelineStageFlags,
+        stage: PipelineStage,
         query_index: u32,
     ) {
         unsafe {
             self.device
-                .cmd_write_timestamp(cmdbuf.as_raw(), stage, self.query_pool, query_index);
+                .cmd_write_timestamp(cmdbuf.as_raw(), stage.as_raw(), self.query_pool, query_index);
         }
     }
 

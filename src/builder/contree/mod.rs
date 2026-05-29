@@ -258,11 +258,8 @@ impl ContreePassTiming {
     }
 
     fn record_timestamp(&self, cmdbuf: &CommandBuffer, query_index: usize) {
-        self.query_pool.record_timestamp(
-            cmdbuf,
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            query_index as u32,
-        );
+        self.query_pool
+            .record_timestamp(cmdbuf, PipelineStage::COMPUTE_SHADER, query_index as u32);
     }
 
     fn collect_and_log(&self, chunk_idx: UVec3) {
