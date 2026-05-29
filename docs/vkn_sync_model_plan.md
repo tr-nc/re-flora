@@ -598,6 +598,22 @@ Validation:
 - `cargo run --release -- --hidden --auto-exit 0.5`
 - inspect hidden-run log for errors, panics, failures, and validation messages
 
+### Step 16: Add texture transition diagnostics hook
+
+Status: done in branch `agent/vkn-profiler` after Step 15. `sync_diagnostics` now has a no-op/default `record_texture_transition` hook and a `TextureTransitionDiagnostics` event shape. The hook is called from the central image transition barrier path, so future profiler sinks can observe texture/resource-state transitions without changing texture, swapchain, builder, or tracer call sites.
+
+- Default builds keep the hook as an inline no-op: no logging, allocation, GPU waits, or extra synchronization.
+- `sync_diagnostics` builds materialize an event shape with image handle, old/new resource states, aspect mask, base array layer, and layer count.
+- Actual Vulkan layout transitions still always execute; only diagnostics recording is optional.
+
+Validation:
+
+- `cargo fmt --check`
+- `cargo check`
+- `cargo check --features sync_diagnostics`
+- `cargo run --release -- --hidden --auto-exit 0.5`
+- inspect hidden-run log for errors, panics, failures, and validation messages
+
 ## Performance guardrails
 
 - No extra queue submissions compared with current frame or job flow.
@@ -666,8 +682,8 @@ But this phase ends before implementing those outputs.
 Keep the next code change small:
 
 1. Audit the remaining public `vk::` API surface and separate descriptive Vulkan types (`vk::Format`, usage flags, load/store ops) from synchronization/resource-state types.
-2. Add optional diagnostics hooks for resource transitions using the existing `TextureTransition` event shape.
-3. Add a compact `TextureDesc`/`AttachmentDesc` convenience layer only where it removes state/layout leakage without forcing a broad render-pass rewrite.
+2. Add a compact `TextureDesc`/`AttachmentDesc` convenience layer only where it removes state/layout leakage without forcing a broad render-pass rewrite.
+3. Start the first real profiler primitive: vkn-owned timestamp scope/query helpers, disabled unless profiling is requested.
 4. Validate no behavior/performance regression with the standard hidden-mode run before broadening the abstraction.
 
 The managed sync seam now covers swapchain frames and off-frame GPU jobs. The resource-state seam is established for barriers, texture transitions, descriptor layouts, timestamp stages, and render-pass attachment layouts; the next work should stay targeted and avoid a full render graph until profiler needs are concrete.
