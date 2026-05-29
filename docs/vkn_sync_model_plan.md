@@ -614,6 +614,27 @@ Validation:
 - `cargo run --release -- --hidden --auto-exit 0.5`
 - inspect hidden-run log for errors, panics, failures, and validation messages
 
+### Step 17: Validate diagnostics path and audit remaining Vulkan surface
+
+Status: done in branch `agent/vkn-profiler` after Step 16. The broader validation sweep passed, and the remaining app-side `vk::` usage is descriptive rather than synchronization/resource-state control.
+
+Validation:
+
+- `cargo test`
+- `cargo run --release -- --hidden --auto-exit 4 --perf`
+- inspect perf hidden-run log for errors, panics, failures, and validation messages
+
+Audit result:
+
+- No remaining `vk::ImageLayout`, `vk::AccessFlags`, `vk::PipelineStageFlags`, `record_transition_barrier`, or `record_image_transition_barrier` use outside `crates/re-flora-vkn`.
+- Remaining `vk::` use in `src/` is intentionally descriptive API surface:
+  - `vk::ImageUsageFlags`, `vk::BufferUsageFlags`, and `vk::ImageAspectFlags` for resource creation.
+  - `vk::Format` for image/buffer data formats.
+  - `vk::Filter` for sampling/blit choices.
+  - `vk::ShaderStageFlags`, `vk::DescriptorType`, `vk::AttachmentLoadOp`, and `vk::AttachmentStoreOp` for pipeline/render-pass descriptions.
+  - Small render command structs such as `vk::ClearValue`, `vk::Rect2D`, `vk::Offset2D`, and `vk::Extent2D`.
+- These remaining types are not the sync/resource-state seam needed by the profiler and do not need to be wrapped before timestamp/profiler work.
+
 ## Performance guardrails
 
 - No extra queue submissions compared with current frame or job flow.
@@ -681,9 +702,9 @@ But this phase ends before implementing those outputs.
 
 Keep the next code change small:
 
-1. Audit the remaining public `vk::` API surface and separate descriptive Vulkan types (`vk::Format`, usage flags, load/store ops) from synchronization/resource-state types.
+1. Start the first real profiler primitive: vkn-owned timestamp scope/query helpers, disabled unless profiling is requested.
 2. Add a compact `TextureDesc`/`AttachmentDesc` convenience layer only where it removes state/layout leakage without forcing a broad render-pass rewrite.
-3. Start the first real profiler primitive: vkn-owned timestamp scope/query helpers, disabled unless profiling is requested.
+3. If timestamp scopes need resource context, extend the existing no-op diagnostics event shapes rather than adding app-side Vulkan sync knowledge.
 4. Validate no behavior/performance regression with the standard hidden-mode run before broadening the abstraction.
 
-The managed sync seam now covers swapchain frames and off-frame GPU jobs. The resource-state seam is established for barriers, texture transitions, descriptor layouts, timestamp stages, and render-pass attachment layouts; the next work should stay targeted and avoid a full render graph until profiler needs are concrete.
+The managed sync seam now covers swapchain frames and off-frame GPU jobs. The resource-state seam is established for barriers, texture transitions, descriptor layouts, timestamp stages, and render-pass attachment layouts. The remaining app-side Vulkan types are descriptive, so the next work can move from abstraction cleanup to profiler primitives without a full render graph.
