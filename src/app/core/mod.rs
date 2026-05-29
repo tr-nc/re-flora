@@ -100,6 +100,24 @@ struct TerrainSdfColliderRebuildRequest;
 #[derive(Clone, Copy, Debug, Default)]
 struct WaterTerrainCacheRebuildRequest;
 
+#[derive(Clone, Copy, Debug, Default)]
+struct FrameTimingSnapshot {
+    frame: u64,
+    total_ms: f32,
+    egui_ms: f32,
+    gpu_present_ms: f32,
+    contree_poll_ms: f32,
+    terrain_source_ms: f32,
+    deferred_rebuild_ms: f32,
+    water_cache_ms: f32,
+    collider_queue_ms: f32,
+    water_edit_soak_ms: f32,
+    water_handoff_ms: f32,
+    particles_ms: f32,
+    tracked_cpu_ms: f32,
+    untracked_cpu_ms: f32,
+}
+
 struct LoadingState {
     chunk_indices: Vec<UVec3>,
     current: usize,
@@ -127,6 +145,88 @@ impl LoadingState {
     fn is_done(&self) -> bool {
         self.phase == LoadingPhase::Building && self.current >= self.chunk_indices.len()
     }
+}
+
+fn draw_frame_timing_panel(ctx: &egui::Context, timing: FrameTimingSnapshot, perf_logging: bool) {
+    let rows = [
+        ("total", timing.total_ms),
+        ("egui", timing.egui_ms),
+        ("gpu + present", timing.gpu_present_ms),
+        ("contree poll", timing.contree_poll_ms),
+        ("terrain source", timing.terrain_source_ms),
+        ("deferred rebuild", timing.deferred_rebuild_ms),
+        ("water cache", timing.water_cache_ms),
+        ("collider queue", timing.collider_queue_ms),
+        ("water edit soak", timing.water_edit_soak_ms),
+        ("water handoff", timing.water_handoff_ms),
+        ("particles", timing.particles_ms),
+        ("tracked cpu", timing.tracked_cpu_ms),
+        ("untracked cpu", timing.untracked_cpu_ms),
+    ];
+    egui::Area::new("frame_timing_panel".into())
+        .anchor(egui::Align2::RIGHT_TOP, egui::Vec2::new(-16.0, 16.0))
+        .show(ctx, |ui| {
+            let timing_frame = egui::containers::Frame {
+                fill: PANEL_DARK,
+                inner_margin: egui::Margin::symmetric(12, 10),
+                corner_radius: egui::CornerRadius::same(0),
+                shadow: egui::epaint::Shadow {
+                    offset: [4, 4],
+                    blur: 0,
+                    spread: 0,
+                    color: SHADOW_COLOR,
+                },
+                stroke: egui::Stroke::new(2.0, GOLD_ACCENT),
+                ..Default::default()
+            };
+
+            timing_frame.show(ui, |ui| {
+                ui.set_width(340.0);
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new("Frame Timing")
+                            .color(GOLD_ACCENT)
+                            .monospace()
+                            .size(13.0)
+                            .strong(),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(RichText::new("P").color(SAGE_ACCENT).monospace().size(11.0));
+                    });
+                });
+                ui.label(
+                    RichText::new(format!(
+                        "previous frame {}{}",
+                        timing.frame,
+                        if perf_logging { " · logging" } else { "" }
+                    ))
+                    .color(SAGE_ACCENT)
+                    .monospace()
+                    .size(10.0),
+                );
+                ui.add_space(4.0);
+
+                for (label, value_ms) in rows {
+                    let value_us = value_ms * 1000.0;
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(format!("{label:<18}"))
+                                .color(SAGE_ACCENT)
+                                .monospace()
+                                .size(11.0),
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(
+                                RichText::new(format!("{value_us:>8.0} us"))
+                                    .color(Color32::WHITE)
+                                    .monospace()
+                                    .size(11.0),
+                            );
+                        });
+                    });
+                }
+            });
+        });
 }
 
 pub struct App {
@@ -158,6 +258,8 @@ pub struct App {
     debug_tree_pos: Vec3,
     config_panel_visible: bool,
     settings_panel_visible: bool,
+    frame_timing_panel_visible: bool,
+    frame_timing_snapshot: FrameTimingSnapshot,
     is_fly_mode: bool,
     item_panel_shovel_icon: Option<TextureHandle>,
     item_panel_staff_icon: Option<TextureHandle>,
@@ -981,6 +1083,8 @@ impl App {
             tree_records: HashMap::new(),
             config_panel_visible: false,
             settings_panel_visible: false,
+            frame_timing_panel_visible: options.perf,
+            frame_timing_snapshot: FrameTimingSnapshot::default(),
             is_fly_mode: true,
             item_panel_shovel_icon: None,
             item_panel_staff_icon: None,
@@ -1609,6 +1713,11 @@ impl App {
                 self.sync_cursor_with_panels();
                 return;
             }
+
+            if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyP {
+                self.frame_timing_panel_visible = !self.frame_timing_panel_visible;
+                return;
+            }
         }
 
         // if cursor is visible, feed the event to gui first, if the event is being consumed by gui, no need to handle it again later
@@ -1762,6 +1871,7 @@ impl App {
 
                 let frame_start = Instant::now();
                 let frame_perf_enabled = self.perf_logging;
+                let frame_timing_enabled = frame_perf_enabled || self.frame_timing_panel_visible;
                 let mut contree_cache_poll_ms = 0.0f32;
                 let mut terrain_sdf_source_ms = 0.0f32;
                 let mut deferred_chunk_rebuild_ms = 0.0f32;
@@ -1779,13 +1889,13 @@ impl App {
                 self.window_state.maintain_cursor_grab();
 
                 self.time_info.update(self.perf_logging);
-                let contree_cache_poll_start = frame_perf_enabled.then(Instant::now);
+                let contree_cache_poll_start = frame_timing_enabled.then(Instant::now);
                 self.contree_builder
                     .poll_cpu_chunk_cache_jobs(self.tracer.camera_position(), VOXEL_DIM_PER_CHUNK);
                 if let Some(start) = contree_cache_poll_start {
                     contree_cache_poll_ms += start.elapsed().as_secs_f32() * 1000.0;
                 }
-                let terrain_sdf_source_start = frame_perf_enabled.then(Instant::now);
+                let terrain_sdf_source_start = frame_timing_enabled.then(Instant::now);
                 self.process_terrain_sdf_source_updates();
                 if let Some(start) = terrain_sdf_source_start {
                     terrain_sdf_source_ms += start.elapsed().as_secs_f32() * 1000.0;
@@ -2161,6 +2271,14 @@ impl App {
                             painter.circle_filled(center, 4.0, Color32::RED);
                         }
 
+                        if self.frame_timing_panel_visible {
+                            draw_frame_timing_panel(
+                                ctx,
+                                self.frame_timing_snapshot,
+                                self.perf_logging,
+                            );
+                        }
+
                         // FPS counter in bottom right
                         egui::Area::new("fps_counter".into())
                             .anchor(egui::Align2::RIGHT_BOTTOM, egui::Vec2::new(-16.0, -16.0))
@@ -2238,31 +2356,31 @@ impl App {
                     return;
                 }
 
-                let terrain_sdf_source_start = frame_perf_enabled.then(Instant::now);
+                let terrain_sdf_source_start = frame_timing_enabled.then(Instant::now);
                 self.process_terrain_sdf_source_updates();
                 if let Some(start) = terrain_sdf_source_start {
                     terrain_sdf_source_ms += start.elapsed().as_secs_f32() * 1000.0;
                 }
 
-                let deferred_chunk_rebuild_start = frame_perf_enabled.then(Instant::now);
+                let deferred_chunk_rebuild_start = frame_timing_enabled.then(Instant::now);
                 self.process_deferred_chunk_rebuild();
                 if let Some(start) = deferred_chunk_rebuild_start {
                     deferred_chunk_rebuild_ms += start.elapsed().as_secs_f32() * 1000.0;
                 }
 
-                let water_terrain_cache_start = frame_perf_enabled.then(Instant::now);
+                let water_terrain_cache_start = frame_timing_enabled.then(Instant::now);
                 self.process_deferred_water_terrain_cache_rebuild();
                 if let Some(start) = water_terrain_cache_start {
                     water_terrain_cache_ms += start.elapsed().as_secs_f32() * 1000.0;
                 }
 
-                let terrain_sdf_collider_start = frame_perf_enabled.then(Instant::now);
+                let terrain_sdf_collider_start = frame_timing_enabled.then(Instant::now);
                 self.process_deferred_terrain_sdf_collider_rebuild();
                 if let Some(start) = terrain_sdf_collider_start {
                     terrain_sdf_collider_ms += start.elapsed().as_secs_f32() * 1000.0;
                 }
 
-                let water_edit_soak_start = frame_perf_enabled.then(Instant::now);
+                let water_edit_soak_start = frame_timing_enabled.then(Instant::now);
                 self.process_water_edit_soak();
                 if let Some(start) = water_edit_soak_start {
                     water_edit_soak_ms += start.elapsed().as_secs_f32() * 1000.0;
@@ -2320,13 +2438,13 @@ impl App {
                         self.update_water_sim(frame_delta_time, world_tick_seconds);
                         let elapsed_ms = water_handoff_start.elapsed().as_secs_f32() * 1000.0;
                         self.water_particle_handoff_main_thread_ms = Some(elapsed_ms);
-                        if frame_perf_enabled {
+                        if frame_timing_enabled {
                             water_handoff_ms += elapsed_ms;
                         }
                     } else {
                         self.water_particle_handoff_main_thread_ms = None;
                     }
-                    let particle_update_start = frame_perf_enabled.then(Instant::now);
+                    let particle_update_start = frame_timing_enabled.then(Instant::now);
                     self.update_particle_simulation(frame_delta_time);
                     if let Some(start) = particle_update_start {
                         particle_update_ms += start.elapsed().as_secs_f32() * 1000.0;
@@ -2634,6 +2752,31 @@ impl App {
 
                 let total_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
                 let frame_count = self.time_info.total_frame_count();
+                let tracked_cpu_ms = contree_cache_poll_ms
+                    + terrain_sdf_source_ms
+                    + deferred_chunk_rebuild_ms
+                    + water_terrain_cache_ms
+                    + terrain_sdf_collider_ms
+                    + water_edit_soak_ms
+                    + water_handoff_ms
+                    + particle_update_ms;
+                let untracked_cpu_ms = (total_ms - egui_ms - gpu_ms - tracked_cpu_ms).max(0.0);
+                self.frame_timing_snapshot = FrameTimingSnapshot {
+                    frame: frame_count,
+                    total_ms,
+                    egui_ms,
+                    gpu_present_ms: gpu_ms,
+                    contree_poll_ms: contree_cache_poll_ms,
+                    terrain_source_ms: terrain_sdf_source_ms,
+                    deferred_rebuild_ms: deferred_chunk_rebuild_ms,
+                    water_cache_ms: water_terrain_cache_ms,
+                    collider_queue_ms: terrain_sdf_collider_ms,
+                    water_edit_soak_ms,
+                    water_handoff_ms,
+                    particles_ms: particle_update_ms,
+                    tracked_cpu_ms,
+                    untracked_cpu_ms,
+                };
                 if frame_perf_enabled && frame_count.is_multiple_of(30) {
                     log::info!(
                         "[PERF] frame {} total {:.2}ms egui {:.2}ms gpu+present {:.2}ms",
@@ -2644,15 +2787,6 @@ impl App {
                     );
                 }
                 if frame_perf_enabled {
-                    let tracked_cpu_ms = contree_cache_poll_ms
-                        + terrain_sdf_source_ms
-                        + deferred_chunk_rebuild_ms
-                        + water_terrain_cache_ms
-                        + terrain_sdf_collider_ms
-                        + water_edit_soak_ms
-                        + water_handoff_ms
-                        + particle_update_ms;
-                    let untracked_cpu_ms = (total_ms - egui_ms - gpu_ms - tracked_cpu_ms).max(0.0);
                     let queue_work_ms = terrain_sdf_source_ms
                         + deferred_chunk_rebuild_ms
                         + water_terrain_cache_ms
