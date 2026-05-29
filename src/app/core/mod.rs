@@ -1281,17 +1281,9 @@ impl App {
 
         cmdbuf.end();
 
-        let render_finished = frame.render_finished();
-        self.vulkan_ctx
-            .submit_render_commands(
-                cmdbuf,
-                frame.image_available(),
-                render_finished,
-                frame.fence(),
-            )
-            .expect("Failed to submit work to gpu.");
-
-        let present_result = self.swapchain.present_after(render_finished, image_idx);
+        let present_result =
+            self.frame_manager
+                .submit_and_present(&self.vulkan_ctx, &mut self.swapchain, &frame);
         match present_result {
             Ok(is_suboptimal) if is_suboptimal => {
                 self.is_resize_pending = true;
@@ -1302,8 +1294,6 @@ impl App {
             Err(error) => panic!("Failed to present queue. Cause: {}", error),
             _ => {}
         }
-
-        self.frame_manager.advance_frame();
 
         if is_done {
             self.loading_state = None;
@@ -2601,17 +2591,11 @@ impl App {
 
                 cmdbuf.end();
 
-                let render_finished = frame.render_finished();
-                self.vulkan_ctx
-                    .submit_render_commands(
-                        cmdbuf,
-                        frame.image_available(),
-                        render_finished,
-                        frame.fence(),
-                    )
-                    .expect("Failed to submit work to gpu.");
-
-                let present_result = self.swapchain.present_after(render_finished, image_idx);
+                let present_result = self.frame_manager.submit_and_present(
+                    &self.vulkan_ctx,
+                    &mut self.swapchain,
+                    &frame,
+                );
                 let gpu_ms = gpu_record_start.elapsed().as_secs_f32() * 1000.0;
 
                 match present_result {
@@ -2629,8 +2613,6 @@ impl App {
                     frame.fence().wait().unwrap();
                     Self::write_screenshot_readback(readback);
                 }
-
-                self.frame_manager.advance_frame();
 
                 self.tracer.set_head_bob_params(
                     self.gui_adjustables.headbob_vertical_amp.value,

@@ -298,6 +298,8 @@ Performance risk: must not add additional waits beyond the current sequence. The
 
 ### Step 5: Move submit/present lifecycle into vkn
 
+Status: done in branch `agent/vkn-profiler` after Step 4. The app still records commands and handles presentation outcomes, but render submit, present, and frame advancement now go through `SwapchainFrameManager::submit_and_present`.
+
 - Add `submit_and_present` or equivalent on the frame manager.
 - App stops manually calling:
   - `sync.fence.wait()`
