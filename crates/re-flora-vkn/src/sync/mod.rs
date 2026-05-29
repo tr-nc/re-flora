@@ -6,3 +6,6 @@ pub use fence::*;
 
 mod barrier;
 pub use barrier::*;
+
+mod submit;
+pub use submit::*;

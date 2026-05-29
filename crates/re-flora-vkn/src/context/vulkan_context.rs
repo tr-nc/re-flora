@@ -1,4 +1,7 @@
-use crate::{CommandBuffer, CommandPool, Fence, Semaphore};
+use crate::{
+    CommandBuffer, CommandPool, Fence, PipelineWaitStage, Semaphore, SubmitDesc, SubmitSignal,
+    SubmitWait,
+};
 
 use super::{
     device::Device, instance::Instance, physical_device::PhysicalDevice, queue::QueueFamilyIndices,
@@ -152,23 +155,21 @@ impl VulkanContext {
         render_finished: &Semaphore,
         fence: &Fence,
     ) -> VkResult<()> {
-        let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
-        let wait_semaphores = [image_available.as_raw()];
-        let signal_semaphores = [render_finished.as_raw()];
-        let command_buffers = [command_buffer.as_raw()];
-        let submit_info = [vk::SubmitInfo::default()
-            .wait_semaphores(&wait_semaphores)
-            .wait_dst_stage_mask(&wait_stages)
-            .command_buffers(&command_buffers)
-            .signal_semaphores(&signal_semaphores)];
-
-        unsafe {
-            self.device().as_raw().queue_submit(
-                self.get_general_queue().as_raw(),
-                &submit_info,
-                fence.as_raw(),
-            )
-        }
+        let command_buffers = [command_buffer];
+        let waits = [SubmitWait::new(
+            "swapchain.image_available",
+            image_available,
+            PipelineWaitStage::ColorAttachmentOutput,
+        )];
+        let signals = [SubmitSignal::new("frame.render_finished", render_finished)];
+        let desc = SubmitDesc::new(
+            "main.render",
+            &command_buffers,
+            &waits,
+            &signals,
+            Some(fence),
+        );
+        self.device().submit_to_queue(&self.get_general_queue(), desc)
     }
 
     pub fn get_general_queue(&self) -> Queue {

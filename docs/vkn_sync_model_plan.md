@@ -233,6 +233,8 @@ Later this can carry profiler metadata for present waits/vsync behavior.
 
 ### Step 1: Add labeled submit descriptors inside vkn
 
+Status: done in branch `agent/vkn-profiler` after the initial planning commit.
+
 - Add `SubmitDesc`, `SubmitWait`, `SubmitSignal`, and `PipelineWaitStage` to vkn.
 - Implement a general-queue submit method that translates descriptors to `vk::SubmitInfo`.
 - Make `VulkanContext::submit_render_commands` call the new descriptor API internally.

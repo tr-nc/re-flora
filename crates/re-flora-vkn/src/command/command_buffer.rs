@@ -1,5 +1,7 @@
 use super::CommandPool;
-use crate::{Buffer, DescriptorSet, Device, Extent2D, Fence, GraphicsPipeline, Queue, Viewport};
+use crate::{
+    Buffer, DescriptorSet, Device, Extent2D, Fence, GraphicsPipeline, Queue, SubmitDesc, Viewport,
+};
 use ash::vk;
 use std::sync::Arc;
 
@@ -162,19 +164,9 @@ impl CommandBuffer {
     }
 
     pub fn submit(&self, queue: &Queue, fence: Option<&Fence>) {
-        let command_buffers = [self.as_raw()];
-        let submit_info = vk::SubmitInfo::default().command_buffers(&command_buffers);
-
-        let vk_fence = fence
-            .as_ref()
-            .map(|f| f.as_raw())
-            .unwrap_or(vk::Fence::null());
-        unsafe {
-            self.0
-                .device
-                .queue_submit(queue.as_raw(), &[submit_info], vk_fence)
-                .unwrap();
-        }
+        let command_buffers = [self];
+        let desc = SubmitDesc::new("command_buffer.submit", &command_buffers, &[], &[], fence);
+        self.0.device.submit_to_queue(queue, desc).unwrap();
     }
 }
 
