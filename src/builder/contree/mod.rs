@@ -19,9 +19,11 @@ use re_flora_vkn::ComputePipeline;
 use re_flora_vkn::DescriptorPool;
 use re_flora_vkn::Extent3D;
 use re_flora_vkn::GpuJobToken;
+use re_flora_vkn::MemoryAccess;
 use re_flora_vkn::MemoryBarrier;
 use re_flora_vkn::MemoryLocation;
 use re_flora_vkn::PipelineBarrier;
+use re_flora_vkn::PipelineStage;
 use re_flora_vkn::ShaderModule;
 use re_flora_vkn::TimestampQueryPool;
 use re_flora_vkn::VulkanContext;
@@ -459,11 +461,11 @@ fn record_clear_sparse_leaf_nodes(
     sparse_nodes.record_fill(cmdbuf, offset_bytes, size_bytes, 0);
 
     let barrier = PipelineBarrier::new(
-        vk::PipelineStageFlags::TRANSFER,
-        vk::PipelineStageFlags::COMPUTE_SHADER,
+        PipelineStage::TRANSFER,
+        PipelineStage::COMPUTE_SHADER,
         vec![MemoryBarrier::new(
-            vk::AccessFlags::TRANSFER_WRITE,
-            vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE,
+            MemoryAccess::TRANSFER_WRITE,
+            MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
         )],
     );
     barrier.record_insert(device, cmdbuf);
@@ -775,13 +777,13 @@ impl ContreeBuilder {
         let indirect_access_memory_barrier = MemoryBarrier::new_indirect_access();
 
         let shader_access_pipeline_barrier = PipelineBarrier::new(
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            vk::PipelineStageFlags::COMPUTE_SHADER,
+            PipelineStage::COMPUTE_SHADER,
+            PipelineStage::COMPUTE_SHADER,
             vec![shader_access_memory_barrier],
         );
         let indirect_access_pipeline_barrier = PipelineBarrier::new(
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            vk::PipelineStageFlags::DRAW_INDIRECT | vk::PipelineStageFlags::COMPUTE_SHADER,
+            PipelineStage::COMPUTE_SHADER,
+            PipelineStage::DRAW_INDIRECT | PipelineStage::COMPUTE_SHADER,
             vec![indirect_access_memory_barrier],
         );
 

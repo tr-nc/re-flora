@@ -15,8 +15,8 @@ use glam::{UVec3, Vec3};
 use re_flora_vkn::vk;
 use re_flora_vkn::{
     Buffer, ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DescriptorPool, Extent3D,
-    GpuJobToken, MemoryBarrier, PipelineBarrier, ShaderModule, TimestampQueryPool, VulkanContext,
-    WriteDescriptorSet,
+    GpuJobToken, MemoryAccess, MemoryBarrier, PipelineBarrier, PipelineStage, ShaderModule,
+    TimestampQueryPool, VulkanContext, WriteDescriptorSet,
 };
 pub use resources::*;
 use std::time::{Duration, Instant};
@@ -1114,8 +1114,8 @@ impl SurfaceBuilder {
 
 fn record_compute_barrier(device: &re_flora_vkn::Device, cmdbuf: &CommandBuffer) {
     let barrier = PipelineBarrier::new(
-        vk::PipelineStageFlags::COMPUTE_SHADER,
-        vk::PipelineStageFlags::COMPUTE_SHADER,
+        PipelineStage::COMPUTE_SHADER,
+        PipelineStage::COMPUTE_SHADER,
         vec![MemoryBarrier::new_shader_access()],
     );
     barrier.record_insert(device, cmdbuf);
@@ -1126,8 +1126,8 @@ fn record_compute_to_indirect_and_shader_barrier(
     cmdbuf: &CommandBuffer,
 ) {
     let barrier = PipelineBarrier::new(
-        vk::PipelineStageFlags::COMPUTE_SHADER,
-        vk::PipelineStageFlags::DRAW_INDIRECT | vk::PipelineStageFlags::COMPUTE_SHADER,
+        PipelineStage::COMPUTE_SHADER,
+        PipelineStage::DRAW_INDIRECT | PipelineStage::COMPUTE_SHADER,
         vec![
             MemoryBarrier::new_indirect_access(),
             MemoryBarrier::new_shader_access(),
@@ -1144,11 +1144,11 @@ fn record_clear_buffer_for_compute(
     buffer.record_fill(cmdbuf, 0, buffer.get_size_bytes(), 0);
 
     let barrier = PipelineBarrier::new(
-        vk::PipelineStageFlags::TRANSFER,
-        vk::PipelineStageFlags::COMPUTE_SHADER,
+        PipelineStage::TRANSFER,
+        PipelineStage::COMPUTE_SHADER,
         vec![MemoryBarrier::new(
-            vk::AccessFlags::TRANSFER_WRITE,
-            vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE,
+            MemoryAccess::TRANSFER_WRITE,
+            MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
         )],
     );
     barrier.record_insert(device, cmdbuf);
