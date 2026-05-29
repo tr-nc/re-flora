@@ -52,8 +52,8 @@ use re_flora_vkn::vk;
 use re_flora_vkn::{
     execute_one_time_gpu_job, Allocator, ClearValue, ColorClearValue, CommandBuffer,
     ComputePipeline, DepthOrStencilClearValue, DescriptorPool, Extent2D, Extent3D, Framebuffer,
-    GraphicsPipeline, MemoryBarrier, PipelineBarrier, PipelineStage, PushConstantInfo, RenderPass,
-    RenderTarget, Texture, TextureLayout, Viewport, VulkanContext,
+    GpuProfiler, GraphicsPipeline, MemoryBarrier, PipelineBarrier, PipelineStage, PushConstantInfo,
+    RenderPass, RenderTarget, Texture, TextureLayout, Viewport, VulkanContext,
 };
 use std::collections::HashMap;
 
@@ -800,6 +800,8 @@ impl Tracer {
         vsm_blur_radius: u32,
         vsm_temporal_alpha: f32,
         reset_vsm_history: bool,
+        gpu_profiler: Option<&mut GpuProfiler>,
+        gpu_profiler_frame_slot: usize,
     ) -> Result<()> {
         let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
         let compute_to_compute_barrier = PipelineBarrier::new(
@@ -947,7 +949,25 @@ impl Tracer {
         }
         self.record_composition_pass(cmdbuf);
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-        self.record_post_processing_pass(cmdbuf);
+        if let Some(profiler) = gpu_profiler {
+            let postprocessing_scope = profiler.begin_scope(
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "post_processing.pass",
+                PipelineStage::ALL_COMMANDS,
+            );
+            self.record_post_processing_pass(cmdbuf);
+            if let Some(scope) = postprocessing_scope {
+                profiler.end_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    scope,
+                    PipelineStage::ALL_COMMANDS,
+                );
+            }
+        } else {
+            self.record_post_processing_pass(cmdbuf);
+        }
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         if render_flags.enable_denoiser {
             copy_current_to_prev(&self.resources, cmdbuf);

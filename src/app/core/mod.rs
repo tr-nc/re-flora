@@ -2805,6 +2805,7 @@ impl App {
                         PipelineStage::ALL_COMMANDS,
                     )
                 });
+                let mut gpu_profiler_for_trace = self.gpu_profiler.take();
                 self.tracer
                     .record_trace(
                         cmdbuf,
@@ -2821,13 +2822,16 @@ impl App {
                         self.gui_adjustables.vsm_blur_radius.value,
                         vsm_temporal_alpha,
                         reset_vsm_history,
+                        gpu_profiler_for_trace.as_mut(),
+                        frame_slot,
                     )
                     .unwrap();
                 if let Some(scope) = tracer_gpu_scope {
-                    if let Some(profiler) = self.gpu_profiler.as_mut() {
+                    if let Some(profiler) = gpu_profiler_for_trace.as_mut() {
                         profiler.end_scope(frame_slot, cmdbuf, scope, PipelineStage::ALL_COMMANDS);
                     }
                 }
+                self.gpu_profiler = gpu_profiler_for_trace;
                 if update_shadow_map {
                     self.vsm_history_reset_pending = false;
                 }
