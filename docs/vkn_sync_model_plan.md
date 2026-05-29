@@ -477,6 +477,8 @@ Validation:
 
 ### Step 9: Add a vkn-managed GPU job abstraction
 
+Status: done in branch `agent/vkn-profiler` after the off-frame sync audit. Added fence-backed `GpuJobDesc`, `GpuJobToken`, `GpuJobManager`, `JobCompletion`, and `QueueLane` in vkn. Migration of call sites happens in later steps.
+
 - Add `GpuJobDesc`, `GpuJobToken`, `JobCompletion`, and possibly `QueueLane` under `crates/re-flora-vkn/src/sync` or a sibling job module.
 - Implement fence-backed jobs first, internally routing through `SubmitDesc`.
 - Provide polling and waiting through token methods:
