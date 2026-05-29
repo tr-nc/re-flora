@@ -249,6 +249,8 @@ Performance risk: very low if descriptor slices are stack-backed and no logging/
 
 ### Step 2: Add semantic present descriptor
 
+Status: done in branch `agent/vkn-profiler` after Step 1.
+
 - Add `PresentDesc` to vkn.
 - Make `Swapchain::present_after` call `present_desc` internally.
 - Keep existing public methods temporarily for compatibility.

@@ -11,7 +11,7 @@ use crate::{
 
 use super::{
     context::VulkanContext, record_image_transition_barrier, Buffer, CommandBuffer, Device, Image,
-    Semaphore,
+    PresentDesc, PresentWait, Semaphore,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -292,13 +292,22 @@ impl Swapchain {
         }
     }
 
+    pub fn present_desc(&mut self, desc: PresentDesc<'_>) -> VkResult<bool> {
+        desc.assert_supported_sizes();
+
+        let (raw_wait_semaphores, wait_count) = desc.raw_waits();
+        let wait_semaphores = &raw_wait_semaphores[..wait_count];
+        self.present(wait_semaphores, desc.image_index)
+    }
+
     pub fn present_after(
         &mut self,
         waiting_for_semaphore: &Semaphore,
         image_index: u32,
     ) -> Result<bool, SwapchainFrameError> {
-        self.present(&[waiting_for_semaphore.as_raw()], image_index)
-            .map_err(SwapchainFrameError::from)
+        let waits = [PresentWait::new("frame.render_finished", waiting_for_semaphore)];
+        let desc = PresentDesc::new("swapchain.present", image_index, &waits);
+        self.present_desc(desc).map_err(SwapchainFrameError::from)
     }
 
     pub fn record_image_readback(
