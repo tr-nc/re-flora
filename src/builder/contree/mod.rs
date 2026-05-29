@@ -79,7 +79,7 @@ pub struct ContreeBuilder {
     cpu_chunk_source_revisions: HashMap<UVec3, u64>,
     cpu_chunk_source_updates: Vec<ContreeCpuChunkSourceUpdate>,
     cpu_chunk_readback_buffers: Option<CpuChunkReadbackBuffers>,
-    active_cpu_chunk_cache_job: Option<CpuChunkCacheFenceJob>,
+    active_cpu_chunk_cache_job: Option<CpuChunkCacheGpuJob>,
     cpu_chunk_cache_decode_inflight: bool,
     cpu_chunk_cache_job_tx: mpsc::Sender<CpuChunkCacheWorkerJob>,
     cpu_chunk_cache_result_rx: mpsc::Receiver<CpuChunkCacheWorkerResult>,
@@ -189,7 +189,7 @@ pub struct ContreeBuildResult {
     pub source_revision: u64,
     pub prealloc_ms: f64,
     pub gpu_submit_ms: f64,
-    pub fence_latency_ms: f64,
+    pub gpu_completion_latency_ms: f64,
     pub size_ms: f64,
     pub confirm_ms: f64,
     pub total_ms: f64,
@@ -474,7 +474,7 @@ struct CpuChunkReadbackBuffers {
     leaf_readback: Buffer,
 }
 
-struct CpuChunkCacheFenceJob {
+struct CpuChunkCacheGpuJob {
     _command_buffer: CommandBuffer,
     gpu_job: GpuJobToken,
     chunk_idx: UVec3,
@@ -930,7 +930,7 @@ impl ContreeBuilder {
             if let Some(job) = self.active_cpu_chunk_cache_job.as_ref() {
                 if let Err(err) = job.gpu_job.wait() {
                     log::error!(
-                        "Failed to wait for CPU cache fence for {:?}: {err}",
+                        "Failed to wait for CPU cache GPU job for {:?}: {err}",
                         job.chunk_idx
                     );
                     break;
@@ -1023,7 +1023,7 @@ impl ContreeBuilder {
         gpu_job.wait().unwrap();
         let wait_ms = wait_start.elapsed().as_secs_f32() * 1000.0;
         log::debug!(
-            "[QUEUE][CONTREE_BUILD] dim={:?} node_offset={} leaf_offset={} submit_ms={:.2} fence_wait_ms={:.2}",
+            "[QUEUE][CONTREE_BUILD] dim={:?} node_offset={} leaf_offset={} submit_ms={:.2} gpu_wait_ms={:.2}",
             contree_dim,
             node_write_offset,
             leaf_write_offset,
@@ -1066,7 +1066,7 @@ impl ContreeBuilder {
             .unwrap()
             .record("contree_empty_surface_skip_total", total_elapsed);
         log::debug!(
-            "[QUEUE][CONTREE_REBUILD] chunk {:?} empty source_rev={} total_ms={:.2} gpu_submit_ms=0.00 fence_latency_ms=0.00 size_ms=0.00 skipped_surface_empty=true",
+            "[QUEUE][CONTREE_REBUILD] chunk {:?} empty source_rev={} total_ms={:.2} gpu_submit_ms=0.00 gpu_completion_latency_ms=0.00 size_ms=0.00 skipped_surface_empty=true",
             chunk_idx,
             source_revision,
             total_elapsed.as_secs_f32() * 1000.0,
@@ -1078,7 +1078,7 @@ impl ContreeBuilder {
             source_revision,
             prealloc_ms: 0.0,
             gpu_submit_ms: 0.0,
-            fence_latency_ms: 0.0,
+            gpu_completion_latency_ms: 0.0,
             size_ms: 0.0,
             confirm_ms: 0.0,
             total_ms: total_elapsed.as_secs_f64() * 1000.0,
@@ -1160,7 +1160,7 @@ impl ContreeBuilder {
     pub fn build_and_alloc_ready(&self, job: &ContreeBuildJob) -> Result<bool> {
         job.gpu_job
             .is_complete()
-            .map_err(|err| anyhow::anyhow!("failed to poll contree build fence: {err}"))
+            .map_err(|err| anyhow::anyhow!("failed to poll contree build GPU job: {err}"))
     }
 
     pub fn wait_build_and_alloc(&self, job: &ContreeBuildJob) -> Result<()> {
@@ -1186,10 +1186,10 @@ impl ContreeBuilder {
     }
 
     pub fn finish_build_and_alloc(&mut self, job: ContreeBuildJob) -> Result<ContreeBuildResult> {
-        let fence_latency_elapsed = job.submitted_at.elapsed();
+        let gpu_completion_latency_elapsed = job.submitted_at.elapsed();
         crate::util::BENCH.lock().unwrap().record(
             "contree_build_gpu",
-            fence_latency_elapsed + job.submit_elapsed,
+            gpu_completion_latency_elapsed + job.submit_elapsed,
         );
         if let Some(pass_timing) = self.pass_timing.as_ref() {
             pass_timing.collect_and_log(job.chunk_idx);
@@ -1216,12 +1216,12 @@ impl ContreeBuilder {
                 .unwrap()
                 .record("contree_build_and_alloc_total", total_elapsed);
             log::debug!(
-                "[QUEUE][CONTREE_REBUILD] chunk {:?} empty source_rev={} total_ms={:.2} gpu_submit_ms={:.2} fence_latency_ms={:.2} size_ms={:.2}",
+                "[QUEUE][CONTREE_REBUILD] chunk {:?} empty source_rev={} total_ms={:.2} gpu_submit_ms={:.2} gpu_completion_latency_ms={:.2} size_ms={:.2}",
                 chunk_idx,
                 source_revision,
                 total_elapsed.as_secs_f32() * 1000.0,
                 gpu_submit_ms,
-                fence_latency_elapsed.as_secs_f32() * 1000.0,
+                gpu_completion_latency_elapsed.as_secs_f32() * 1000.0,
                 size_elapsed.as_secs_f32() * 1000.0,
             );
 
@@ -1231,7 +1231,7 @@ impl ContreeBuilder {
                 source_revision,
                 prealloc_ms,
                 gpu_submit_ms,
-                fence_latency_ms: fence_latency_elapsed.as_secs_f64() * 1000.0,
+                gpu_completion_latency_ms: gpu_completion_latency_elapsed.as_secs_f64() * 1000.0,
                 size_ms: size_elapsed.as_secs_f64() * 1000.0,
                 confirm_ms: 0.0,
                 total_ms: total_elapsed.as_secs_f64() * 1000.0,
@@ -1274,12 +1274,12 @@ impl ContreeBuilder {
             .copied()
             .unwrap_or(0);
         log::debug!(
-            "[QUEUE][CONTREE_REBUILD] chunk {:?} total_ms={:.2} prealloc_ms={:.2} gpu_submit_ms={:.2} fence_latency_ms={:.2} size_ms={:.2} confirm_ms={:.2} node_bytes={} leaf_bytes={}",
+            "[QUEUE][CONTREE_REBUILD] chunk {:?} total_ms={:.2} prealloc_ms={:.2} gpu_submit_ms={:.2} gpu_completion_latency_ms={:.2} size_ms={:.2} confirm_ms={:.2} node_bytes={} leaf_bytes={}",
             job.chunk_idx,
             total_elapsed.as_secs_f32() * 1000.0,
             job.prealloc_elapsed.as_secs_f32() * 1000.0,
             job.submit_elapsed.as_secs_f32() * 1000.0,
-            fence_latency_elapsed.as_secs_f32() * 1000.0,
+            gpu_completion_latency_elapsed.as_secs_f32() * 1000.0,
             size_elapsed.as_secs_f32() * 1000.0,
             confirm_elapsed.as_secs_f32() * 1000.0,
             confirmed_node_buffer_size_in_bytes,
@@ -1292,7 +1292,7 @@ impl ContreeBuilder {
             source_revision,
             prealloc_ms: job.prealloc_elapsed.as_secs_f64() * 1000.0,
             gpu_submit_ms: job.submit_elapsed.as_secs_f64() * 1000.0,
-            fence_latency_ms: fence_latency_elapsed.as_secs_f64() * 1000.0,
+            gpu_completion_latency_ms: gpu_completion_latency_elapsed.as_secs_f64() * 1000.0,
             size_ms: size_elapsed.as_secs_f64() * 1000.0,
             confirm_ms: confirm_elapsed.as_secs_f64() * 1000.0,
             total_ms: total_elapsed.as_secs_f64() * 1000.0,
@@ -1363,7 +1363,7 @@ impl ContreeBuilder {
             .unwrap()
             .record("contree_cpu_cache_copy_to_readback", gpu_copy_elapsed);
 
-        self.active_cpu_chunk_cache_job = Some(CpuChunkCacheFenceJob {
+        self.active_cpu_chunk_cache_job = Some(CpuChunkCacheGpuJob {
             _command_buffer: command_buffer,
             gpu_job,
             chunk_idx,
@@ -1385,11 +1385,11 @@ impl ContreeBuilder {
             return;
         };
 
-        let fence_done = match job.gpu_job.is_complete() {
+        let gpu_done = match job.gpu_job.is_complete() {
             Ok(done) => done,
             Err(err) => {
                 log::error!(
-                    "Failed to poll CPU cache fence for {:?} rev {}: {err}",
+                    "Failed to poll CPU cache GPU job for {:?} rev {}: {err}",
                     job.chunk_idx,
                     job.revision,
                 );
@@ -1397,16 +1397,16 @@ impl ContreeBuilder {
             }
         };
 
-        if !fence_done {
+        if !gpu_done {
             return;
         }
 
         let job = self
             .active_cpu_chunk_cache_job
             .take()
-            .expect("active CPU chunk cache job disappeared after fence poll");
+            .expect("active CPU chunk cache job disappeared after GPU job poll");
         log::debug!(
-            "[QUEUE][CPU_CACHE] fence_ready chunk {:?} revision {} pending={}",
+            "[QUEUE][CPU_CACHE] gpu_ready chunk {:?} revision {} pending={}",
             job.chunk_idx,
             job.revision,
             self.cpu_chunk_cache_queue.len(),

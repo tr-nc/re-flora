@@ -1,6 +1,6 @@
 use super::CommandPool;
 use crate::{
-    Buffer, DescriptorSet, Device, Extent2D, Fence, GpuJobDesc, GpuJobManager, GraphicsPipeline,
+    Buffer, DescriptorSet, Device, Extent2D, GpuJobDesc, GpuJobManager, GraphicsPipeline,
     JobCompletion, Queue, QueueLane, SubmitDesc, Viewport,
 };
 use ash::vk;
@@ -164,12 +164,6 @@ impl CommandBuffer {
         );
     }
 
-    pub fn submit(&self, queue: &Queue, fence: Option<&Fence>) {
-        let command_buffers = [self];
-        let desc = SubmitDesc::new("command_buffer.submit", &command_buffers, &[], &[], fence);
-        self.0.device.submit_to_queue(queue, desc).unwrap();
-    }
-
     pub fn submit_gpu_job(
         &self,
         queue: &Queue,
@@ -219,11 +213,12 @@ pub fn execute_one_time_command<R, F: FnOnce(&CommandBuffer) -> R>(
     result
 }
 
-/// Execute a one-time command buffer and wait only for its submission fence.
+/// Execute a one-time command buffer as a managed GPU job and wait only for
+/// that job to complete.
 ///
 /// This avoids idling the entire queue, which is useful for small compute jobs
 /// like batched terrain queries that need synchronous CPU readback.
-pub fn execute_one_time_command_with_fence<R, F: FnOnce(&CommandBuffer) -> R>(
+pub fn execute_one_time_gpu_job<R, F: FnOnce(&CommandBuffer) -> R>(
     device: &Device,
     pool: &CommandPool,
     queue: &Queue,
@@ -236,7 +231,7 @@ pub fn execute_one_time_command_with_fence<R, F: FnOnce(&CommandBuffer) -> R>(
 
     let command_buffers = [&command_buffer];
     let desc = GpuJobDesc::new(
-        "execute_one_time_command_with_fence",
+        "execute_one_time_gpu_job",
         QueueLane::General,
         &command_buffers,
         &[],

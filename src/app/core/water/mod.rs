@@ -1142,7 +1142,7 @@ impl App {
         )?;
         let store_elapsed = store_start.elapsed();
         log::info!(
-            "[WATER][TERRAIN] refreshed GPU solid source chunk {:?} rev {} changed={} solid_samples {}/{} source_dim {:?} atlas_offset={:?} atlas_dim={:?} sample_dim={:?} readback_samples={}/{} readback_bytes={} gpu_prepare={:.3}ms gpu_submit={:.3}ms fence_latency={:.3}ms gpu_readback={:.3}ms gpu_convert={:.3}ms gpu_sample_total={:.3}ms convert={:.3}ms store={:.3}ms total={:.3}ms",
+            "[WATER][TERRAIN] refreshed GPU solid source chunk {:?} rev {} changed={} solid_samples {}/{} source_dim {:?} atlas_offset={:?} atlas_dim={:?} sample_dim={:?} readback_samples={}/{} readback_bytes={} gpu_prepare={:.3}ms gpu_submit={:.3}ms gpu_completion_latency={:.3}ms gpu_readback={:.3}ms gpu_convert={:.3}ms gpu_sample_total={:.3}ms convert={:.3}ms store={:.3}ms total={:.3}ms",
             chunk_id,
             chunk.revision(),
             changed,
@@ -1159,7 +1159,7 @@ impl App {
             sample_result.byte_count,
             sample_result.prepare_ms,
             sample_result.gpu_submit_ms,
-            sample_result.fence_latency_ms,
+            sample_result.gpu_completion_latency_ms,
             sample_result.readback_ms,
             sample_result.convert_ms,
             sample_result.total_ms,

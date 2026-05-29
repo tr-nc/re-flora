@@ -15,8 +15,8 @@ use glam::{UVec3, Vec3};
 use re_flora_vkn::vk;
 use re_flora_vkn::{
     Buffer, ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DescriptorPool, Extent3D,
-    GpuJobDesc, GpuJobManager, GpuJobToken, JobCompletion, MemoryBarrier, PipelineBarrier,
-    QueueLane, ShaderModule, TimestampQueryPool, VulkanContext, WriteDescriptorSet,
+    GpuJobToken, MemoryBarrier, PipelineBarrier, ShaderModule, TimestampQueryPool, VulkanContext,
+    WriteDescriptorSet,
 };
 pub use resources::*;
 use std::time::{Duration, Instant};
@@ -73,7 +73,7 @@ pub struct SurfaceBuildResult {
     pub setup_ms: f64,
     pub record_ms: f64,
     pub gpu_submit_ms: f64,
-    pub fence_latency_ms: f64,
+    pub gpu_completion_latency_ms: f64,
     pub readback_ms: f64,
     pub flora_ms: f64,
     pub total_ms: f64,
@@ -655,19 +655,8 @@ impl SurfaceBuilder {
         let record_elapsed = record_start.elapsed();
 
         let submit_start = Instant::now();
-        let command_buffers = [&cmdbuf];
-        let gpu_job = GpuJobManager::submit(
-            device,
-            &self.vulkan_ctx.get_general_queue(),
-            GpuJobDesc::new(
-                "surface.build",
-                QueueLane::General,
-                &command_buffers,
-                &[],
-                &[],
-                JobCompletion::Fence,
-            ),
-        )?;
+        let gpu_job =
+            cmdbuf.submit_gpu_job(&self.vulkan_ctx.get_general_queue(), "surface.build")?;
         let submitted_at = Instant::now();
         let submit_elapsed = submit_start.elapsed();
 
@@ -688,7 +677,7 @@ impl SurfaceBuilder {
     pub fn build_surface_ready(&self, job: &SurfaceBuildJob) -> Result<bool> {
         job.gpu_job
             .is_complete()
-            .map_err(|err| anyhow::anyhow!("failed to poll surface build fence: {err}"))
+            .map_err(|err| anyhow::anyhow!("failed to poll surface build GPU job: {err}"))
     }
 
     pub fn wait_build_surface(&self, job: &SurfaceBuildJob) -> Result<()> {
@@ -697,7 +686,7 @@ impl SurfaceBuilder {
     }
 
     pub fn finish_build_surface(&mut self, job: SurfaceBuildJob) -> Result<SurfaceBuildResult> {
-        let fence_latency_elapsed = job.submitted_at.elapsed();
+        let gpu_completion_latency_elapsed = job.submitted_at.elapsed();
         let readback_start = Instant::now();
         let make_surface_result = get_make_surface_result(&self.resources.make_surface_result);
         let active_voxel_len = make_surface_result.active_voxel_len;
@@ -731,13 +720,13 @@ impl SurfaceBuilder {
         let total_elapsed = job.total_start.elapsed();
 
         log::debug!(
-            "[PERF][SURFACE_BUILD] chunk {:?} total {:.2}ms setup {:.2}ms record {:.2}ms gpu_submit {:.2}ms fence_latency {:.2}ms readback {:.2}ms flora {:.2}ms active_voxels {} active_bricks {} solid_workgroups {} place_flora {} flora_rebuilt {}",
+            "[PERF][SURFACE_BUILD] chunk {:?} total {:.2}ms setup {:.2}ms record {:.2}ms gpu_submit {:.2}ms gpu_completion_latency {:.2}ms readback {:.2}ms flora {:.2}ms active_voxels {} active_bricks {} solid_workgroups {} place_flora {} flora_rebuilt {}",
             job.chunk_id,
             total_elapsed.as_secs_f32() * 1000.0,
             job.setup_elapsed.as_secs_f32() * 1000.0,
             job.record_elapsed.as_secs_f32() * 1000.0,
             job.submit_elapsed.as_secs_f32() * 1000.0,
-            fence_latency_elapsed.as_secs_f32() * 1000.0,
+            gpu_completion_latency_elapsed.as_secs_f32() * 1000.0,
             readback_elapsed.as_secs_f32() * 1000.0,
             flora_elapsed.as_secs_f32() * 1000.0,
             active_voxel_len,
@@ -757,7 +746,7 @@ impl SurfaceBuilder {
             setup_ms: job.setup_elapsed.as_secs_f64() * 1000.0,
             record_ms: job.record_elapsed.as_secs_f64() * 1000.0,
             gpu_submit_ms: job.submit_elapsed.as_secs_f64() * 1000.0,
-            fence_latency_ms: fence_latency_elapsed.as_secs_f64() * 1000.0,
+            gpu_completion_latency_ms: gpu_completion_latency_elapsed.as_secs_f64() * 1000.0,
             readback_ms: readback_elapsed.as_secs_f64() * 1000.0,
             flora_ms: flora_elapsed.as_secs_f64() * 1000.0,
             total_ms: total_elapsed.as_secs_f64() * 1000.0,
@@ -976,8 +965,9 @@ impl SurfaceBuilder {
         }
 
         cmdbuf.end();
-        cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), None);
-        device.wait_queue_idle(&self.vulkan_ctx.get_general_queue());
+        cmdbuf
+            .submit_gpu_job(&self.vulkan_ctx.get_general_queue(), "surface.flora_edit")?
+            .wait()?;
 
         if let Some(timing) = self.pass_timing.as_ref() {
             timing.collect_and_log(
@@ -1074,8 +1064,9 @@ impl SurfaceBuilder {
         }
 
         cmdbuf.end();
-        cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), None);
-        device.wait_queue_idle(&self.vulkan_ctx.get_general_queue());
+        cmdbuf
+            .submit_gpu_job(&self.vulkan_ctx.get_general_queue(), "surface.flora_growth")?
+            .wait()?;
 
         if let Some(timing) = self.pass_timing.as_ref() {
             timing.collect_and_log(

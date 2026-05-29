@@ -281,7 +281,7 @@ pub(crate) fn mesh_generate_chunks(
         });
 
         // The surface build submitted after the previous contree build runs on the same queue.
-        // Once it has returned, the previous contree fence should usually already be satisfied;
+        // Once it has returned, the previous contree GPU job should usually already be satisfied;
         // finishing it here avoids an extra blocking wait between every pair of chunks.
         finish_pending_direct_contree(contree_builder, &mut pending_contree, &mut records);
 

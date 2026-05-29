@@ -50,7 +50,7 @@ use crate::wind::WindSource;
 use anyhow::Result;
 use re_flora_vkn::vk;
 use re_flora_vkn::{
-    execute_one_time_command_with_fence, Allocator, ClearValue, ColorClearValue, CommandBuffer,
+    execute_one_time_gpu_job, Allocator, ClearValue, ColorClearValue, CommandBuffer,
     ComputePipeline, DepthOrStencilClearValue, DescriptorPool, Extent2D, Extent3D, Framebuffer,
     GraphicsPipeline, MemoryBarrier, PipelineBarrier, PushConstantInfo, RenderPass, RenderTarget,
     Texture, Viewport, VulkanContext,
@@ -2191,7 +2191,7 @@ impl Tracer {
         }
         self.resources.terrain_query_info.fill(&ray_data)?;
 
-        execute_one_time_command_with_fence(
+        execute_one_time_gpu_job(
             self.vulkan_ctx.device(),
             self.vulkan_ctx.command_pool(),
             &self.vulkan_ctx.get_general_queue(),

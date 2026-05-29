@@ -10,7 +10,7 @@ use anyhow::Result;
 use bytemuck::{Pod, Zeroable};
 use glam::{IVec3, UVec3, Vec3};
 use re_flora_vkn::execute_one_time_command;
-use re_flora_vkn::execute_one_time_command_with_fence;
+use re_flora_vkn::execute_one_time_gpu_job;
 use re_flora_vkn::vk;
 use re_flora_vkn::Allocator;
 use re_flora_vkn::Buffer;
@@ -21,14 +21,10 @@ use re_flora_vkn::CommandBuffer;
 use re_flora_vkn::ComputePipeline;
 use re_flora_vkn::DescriptorPool;
 use re_flora_vkn::Extent3D;
-use re_flora_vkn::GpuJobDesc;
-use re_flora_vkn::GpuJobManager;
 use re_flora_vkn::GpuJobToken;
-use re_flora_vkn::JobCompletion;
 use re_flora_vkn::MemoryBarrier;
 use re_flora_vkn::MemoryLocation;
 use re_flora_vkn::PipelineBarrier;
-use re_flora_vkn::QueueLane;
 use re_flora_vkn::ShaderModule;
 use re_flora_vkn::Texture;
 use re_flora_vkn::TextureRegion;
@@ -126,7 +122,7 @@ pub struct ChunkSolidSampleResult {
     pub samples: Vec<u32>,
     pub prepare_ms: f64,
     pub gpu_submit_ms: f64,
-    pub fence_latency_ms: f64,
+    pub gpu_completion_latency_ms: f64,
     pub readback_ms: f64,
     pub convert_ms: f64,
     pub total_ms: f64,
@@ -467,7 +463,7 @@ impl PlainBuilder {
         );
         let result = self.finish_chunk_atlas_solid_grid_sample(job)?;
         log::info!(
-            "[PLAIN_BUILDER][CHUNK_SOLID_SAMPLE] atlas_offset={:?} source_dim={:?} sample_dim={:?} samples={} readback_bytes={} gpu_submit={:.3}ms fence_wait={:.3}ms readback={:.3}ms convert={:.3}ms total={:.3}ms",
+            "[PLAIN_BUILDER][CHUNK_SOLID_SAMPLE] atlas_offset={:?} source_dim={:?} sample_dim={:?} samples={} readback_bytes={} gpu_submit={:.3}ms gpu_wait={:.3}ms readback={:.3}ms convert={:.3}ms total={:.3}ms",
             result.atlas_offset,
             result.atlas_dim,
             result.sample_dim,
@@ -553,18 +549,9 @@ impl PlainBuilder {
         );
         host_read_barrier.record_insert(self.vulkan_ctx.device(), &command_buffer);
         command_buffer.end();
-        let command_buffers = [&command_buffer];
-        let gpu_job = GpuJobManager::submit(
-            self.vulkan_ctx.device(),
+        let gpu_job = command_buffer.submit_gpu_job(
             &self.vulkan_ctx.get_general_queue(),
-            GpuJobDesc::new(
-                "plain.chunk_solid_sample",
-                QueueLane::General,
-                &command_buffers,
-                &[],
-                &[],
-                JobCompletion::Fence,
-            ),
+            "plain.chunk_solid_sample",
         )?;
         let submitted_at = Instant::now();
         let submit_elapsed = submit_start.elapsed();
@@ -591,14 +578,14 @@ impl PlainBuilder {
     pub fn chunk_atlas_solid_grid_sample_ready(&self, job: &ChunkSolidSampleJob) -> Result<bool> {
         job.gpu_job
             .is_complete()
-            .map_err(|err| anyhow::anyhow!("failed to poll chunk solid sample fence: {err}"))
+            .map_err(|err| anyhow::anyhow!("failed to poll chunk solid sample GPU job: {err}"))
     }
 
     pub fn finish_chunk_atlas_solid_grid_sample(
         &mut self,
         job: ChunkSolidSampleJob,
     ) -> Result<ChunkSolidSampleResult> {
-        let fence_latency_elapsed = job.submitted_at.elapsed();
+        let gpu_completion_latency_elapsed = job.submitted_at.elapsed();
         let readback_start = Instant::now();
         let raw = self
             .resources
@@ -635,7 +622,7 @@ impl PlainBuilder {
             samples,
             prepare_ms: job.prepare_elapsed.as_secs_f64() * 1000.0,
             gpu_submit_ms: job.submit_elapsed.as_secs_f64() * 1000.0,
-            fence_latency_ms: fence_latency_elapsed.as_secs_f64() * 1000.0,
+            gpu_completion_latency_ms: gpu_completion_latency_elapsed.as_secs_f64() * 1000.0,
             readback_ms: readback_elapsed.as_secs_f64() * 1000.0,
             convert_ms: convert_elapsed.as_secs_f64() * 1000.0,
             total_ms: total_elapsed.as_secs_f64() * 1000.0,
@@ -660,10 +647,8 @@ impl PlainBuilder {
         );
 
         self.build_cmdbuf
-            .submit(&self.vulkan_ctx.get_general_queue(), None);
-        self.vulkan_ctx
-            .device()
-            .wait_queue_idle(&self.vulkan_ctx.get_general_queue());
+            .submit_gpu_job(&self.vulkan_ctx.get_general_queue(), "plain.chunk_init")?
+            .wait()?;
         return Ok(());
 
         fn update_buffers(
@@ -755,7 +740,7 @@ impl PlainBuilder {
         );
 
         let gpu_start = Instant::now();
-        execute_one_time_command_with_fence(
+        execute_one_time_gpu_job(
             self.vulkan_ctx.device(),
             self.vulkan_ctx.command_pool(),
             &self.vulkan_ctx.get_general_queue(),

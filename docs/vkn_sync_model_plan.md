@@ -462,13 +462,13 @@ Audit result from this pass:
 | Area | Current sync shape | Migration target |
 | --- | --- | --- |
 | `execute_one_time_command` | one-time command submit followed by queue idle | named vkn helper backed by `GpuJobDesc`, preserving queue-idle wait |
-| `execute_one_time_command_with_fence` | one-time command submit plus local fence wait | named fence-backed vkn job wait |
+| `execute_one_time_gpu_job` | one-time command submit plus local job wait | named vkn GPU job wait |
 | `PlainBuilder::ChunkSolidSampleJob` | async compute/readback job with command buffer + fence in app job struct | replace fence with `GpuJobToken`, keep readback/result fields in builder |
 | `SurfaceBuilder::SurfaceBuildJob` | async compute job with fence polling/wait and readback in finish | replace fence with `GpuJobToken` |
 | `SceneAccelBuilder::SceneTexUpdateJob` | reused command buffer submitted with new fence, polled/waited by builder | replace fence with `GpuJobToken` |
 | `ContreeBuilder::ContreeBuildJob` | reused command buffer submitted with new fence, allocator ownership held by builder | replace fence with `GpuJobToken`, keep allocator rollback in builder |
-| `ContreeBuilder::CpuChunkCacheFenceJob` | copy-to-readback command with fence, then CPU decode worker | replace fence with `GpuJobToken`, keep readback buffers and worker handoff in builder |
-| direct no-fence builder submits | fire-and-forget command submit | keep on `SubmitDesc`; optionally name through job helper later if profiler needs fire-and-forget events |
+| `ContreeBuilder::CpuChunkCacheGpuJob` | copy-to-readback command with GPU job token, then CPU decode worker | keep readback buffers and worker handoff in builder |
+| direct synchronous builder submits | command submit followed by an explicit wait | route through `CommandBuffer::submit_gpu_job` and wait on `GpuJobToken` |
 
 Validation:
 
@@ -498,9 +498,9 @@ Performance risk: low if the first implementation reuses existing fence behavior
 
 ### Step 10: Migrate one-time command helpers
 
-Status: done in branch `agent/vkn-profiler` after Step 9. `execute_one_time_command_with_fence` now submits through a fence-backed `GpuJobToken`, while `execute_one_time_command` keeps its queue-idle behavior and uses a named semantic submit descriptor without adding a fence.
+Status: done in branch `agent/vkn-profiler` after Step 9. `execute_one_time_gpu_job` submits through a `GpuJobToken`, while `execute_one_time_command` keeps its queue-idle behavior and uses a named semantic submit descriptor without adding a completion job.
 
-- Route `execute_one_time_command` and `execute_one_time_command_with_fence` through the new job abstraction where practical.
+- Route `execute_one_time_command` and synchronous one-time GPU job helpers through the new job abstraction where practical.
 - Preserve existing queue-idle behavior for paths that intentionally use it for MoltenVK stability.
 - Ensure synchronous readback helpers still block only where they blocked before.
 - Add names for common helpers such as transfer copy, terrain source sampling, voxelization, and readback.
@@ -514,7 +514,7 @@ Validation:
 
 ### Step 11: Migrate chunk/build async jobs
 
-Status: done in branch `agent/vkn-profiler` after one-time command migration. Builder async jobs now hold `GpuJobToken` instead of direct `Fence` fields for chunk solid sampling, surface builds, scene texture updates, contree builds, and contree CPU-cache readbacks. Builder payload/result ownership remains in the builder layer.
+Status: done in branch `agent/vkn-profiler` after one-time command migration. Builder async jobs now hold `GpuJobToken` instead of direct `Fence` fields for chunk solid sampling, surface builds, scene texture updates, contree builds, and contree CPU-cache readbacks. Builder call sites submit through `CommandBuffer::submit_gpu_job` rather than constructing `GpuJobDesc` directly. Builder payload/result ownership remains in the builder layer.
 
 - Move direct builder/app ownership of completion fences behind vkn job tokens or small vkn-backed adapters.
 - Target call sites include:

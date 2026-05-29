@@ -9,8 +9,7 @@ use crate::{generated::gpu_structs::SceneTexUpdateInfo, geom::UAabb3, util::Shad
 use bytemuck::Zeroable;
 use re_flora_vkn::{
     execute_one_time_command, Allocator, Buffer, ClearValue, ColorClearValue, CommandBuffer,
-    ComputePipeline, DescriptorPool, Extent3D, GpuJobDesc, GpuJobManager, GpuJobToken,
-    JobCompletion, QueueLane, ShaderModule, VulkanContext,
+    ComputePipeline, DescriptorPool, Extent3D, GpuJobToken, ShaderModule, VulkanContext,
 };
 
 pub struct SceneAccelBuilder {
@@ -41,7 +40,7 @@ pub struct SceneTexUpdateResult {
     pub chunk_idx: UVec3,
     pub uniform_ms: f64,
     pub gpu_submit_ms: f64,
-    pub fence_latency_ms: f64,
+    pub gpu_completion_latency_ms: f64,
     pub total_ms: f64,
 }
 
@@ -163,18 +162,9 @@ impl SceneAccelBuilder {
 
         let submit_start = Instant::now();
         let cmdbuf = self.update_scene_tex_cmdbuf.clone();
-        let command_buffers = [&cmdbuf];
-        let gpu_job = GpuJobManager::submit(
-            self.vulkan_ctx.device(),
+        let gpu_job = cmdbuf.submit_gpu_job(
             &self.vulkan_ctx.get_general_queue(),
-            GpuJobDesc::new(
-                "scene_accel.update_scene_tex",
-                QueueLane::General,
-                &command_buffers,
-                &[],
-                &[],
-                JobCompletion::Fence,
-            ),
+            "scene_accel.update_scene_tex",
         )?;
         let submitted_at = Instant::now();
         let submit_elapsed = submit_start.elapsed();
@@ -197,7 +187,7 @@ impl SceneAccelBuilder {
     pub fn update_scene_tex_ready(&self, job: &SceneTexUpdateJob) -> Result<bool> {
         job.gpu_job
             .is_complete()
-            .map_err(|err| anyhow::anyhow!("failed to poll scene tex update fence: {err}"))
+            .map_err(|err| anyhow::anyhow!("failed to poll scene tex update GPU job: {err}"))
     }
 
     pub fn wait_update_scene_tex(&self, job: &SceneTexUpdateJob) -> Result<()> {
@@ -206,10 +196,10 @@ impl SceneAccelBuilder {
     }
 
     pub fn finish_update_scene_tex(&mut self, job: SceneTexUpdateJob) -> SceneTexUpdateResult {
-        let fence_latency_elapsed = job.submitted_at.elapsed();
+        let gpu_completion_latency_elapsed = job.submitted_at.elapsed();
         crate::util::BENCH.lock().unwrap().record(
             "scene_tex_update_gpu",
-            fence_latency_elapsed + job.submit_elapsed,
+            gpu_completion_latency_elapsed + job.submit_elapsed,
         );
         let total_elapsed = job.total_start.elapsed();
         crate::util::BENCH
@@ -221,7 +211,7 @@ impl SceneAccelBuilder {
             chunk_idx: job.chunk_idx,
             uniform_ms: job.uniform_elapsed.as_secs_f64() * 1000.0,
             gpu_submit_ms: job.submit_elapsed.as_secs_f64() * 1000.0,
-            fence_latency_ms: fence_latency_elapsed.as_secs_f64() * 1000.0,
+            gpu_completion_latency_ms: gpu_completion_latency_elapsed.as_secs_f64() * 1000.0,
             total_ms: total_elapsed.as_secs_f64() * 1000.0,
         }
     }
