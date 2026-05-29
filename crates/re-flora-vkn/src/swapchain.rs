@@ -198,7 +198,7 @@ impl Swapchain {
         &self.swapchain_device
     }
 
-    pub fn acquire_next(&mut self, image_available_semaphore: &Semaphore) -> VkResult<(u32, bool)> {
+    fn acquire_next(&mut self, image_available_semaphore: &Semaphore) -> VkResult<(u32, bool)> {
         let timeout = u64::MAX;
         let fence = vk::Fence::null();
         unsafe {
@@ -211,7 +211,7 @@ impl Swapchain {
         }
     }
 
-    pub fn acquire_next_image(
+    pub(crate) fn acquire_next_image(
         &mut self,
         image_available_semaphore: &Semaphore,
     ) -> Result<u32, SwapchainFrameError> {
@@ -271,7 +271,7 @@ impl Swapchain {
     }
 
     /// Present the image to the swapchain with the given index.
-    pub fn present(
+    fn present(
         &mut self,
         waiting_for_semaphores: &[vk::Semaphore],
         image_index: u32,
@@ -300,7 +300,7 @@ impl Swapchain {
         self.present(wait_semaphores, desc.image_index)
     }
 
-    pub fn present_after(
+    pub(crate) fn present_after(
         &mut self,
         waiting_for_semaphore: &Semaphore,
         image_index: u32,

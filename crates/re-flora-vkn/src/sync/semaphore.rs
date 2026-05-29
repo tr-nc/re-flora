@@ -18,13 +18,6 @@ impl Drop for SemaphoreInner {
 #[derive(Clone)]
 pub struct Semaphore(Arc<SemaphoreInner>);
 
-impl std::ops::Deref for Semaphore {
-    type Target = vk::Semaphore;
-    fn deref(&self) -> &Self::Target {
-        &self.0.semaphore
-    }
-}
-
 impl Semaphore {
     pub fn new(device: &Device) -> Self {
         let semaphore = Self::create_semaphore(device);
@@ -34,7 +27,7 @@ impl Semaphore {
         }))
     }
 
-    pub fn as_raw(&self) -> vk::Semaphore {
+    pub(crate) fn as_raw(&self) -> vk::Semaphore {
         self.0.semaphore
     }
 

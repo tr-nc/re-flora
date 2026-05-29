@@ -138,17 +138,7 @@ impl VulkanContext {
         }))
     }
 
-    /// Wait for all fences without a timeout
-    pub fn wait_for_fences(&self, fences: &[vk::Fence]) -> VkResult<()> {
-        unsafe {
-            self.0
-                .device
-                .as_raw()
-                .wait_for_fences(fences, true, u64::MAX)
-        }
-    }
-
-    pub fn submit_render_commands(
+    pub(crate) fn submit_render_commands(
         &self,
         command_buffer: &CommandBuffer,
         image_available: &Semaphore,

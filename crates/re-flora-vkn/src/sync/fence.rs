@@ -19,13 +19,6 @@ impl Drop for FenceInner {
 #[derive(Clone)]
 pub struct Fence(Arc<FenceInner>);
 
-impl std::ops::Deref for Fence {
-    type Target = vk::Fence;
-    fn deref(&self) -> &Self::Target {
-        &self.0.fence
-    }
-}
-
 impl Fence {
     pub fn new(device: &Device, is_signaled: bool) -> Self {
         let fence = Self::create_fence(device, is_signaled);
@@ -35,7 +28,7 @@ impl Fence {
         }))
     }
 
-    pub fn as_raw(&self) -> vk::Fence {
+    pub(crate) fn as_raw(&self) -> vk::Fence {
         self.0.fence
     }
 

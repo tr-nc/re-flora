@@ -217,10 +217,6 @@ pub fn execute_one_time_command_with_fence<R, F: FnOnce(&CommandBuffer) -> R>(
     command_buffer.end();
 
     command_buffer.submit(queue, Some(&fence));
-    unsafe {
-        device
-            .wait_for_fences(&[fence.as_raw()], true, u64::MAX)
-            .unwrap();
-    }
+    fence.wait().unwrap();
     result
 }

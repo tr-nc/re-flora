@@ -70,16 +70,8 @@ impl AcquiredFrame {
         &self.command_buffer
     }
 
-    pub fn image_available(&self) -> &Semaphore {
-        &self.image_available
-    }
-
-    pub fn render_finished(&self) -> &Semaphore {
-        &self.render_finished
-    }
-
-    pub fn fence(&self) -> &Fence {
-        &self.fence
+    pub fn wait_until_complete(&self) -> ash::prelude::VkResult<()> {
+        self.fence.wait()
     }
 }
 
@@ -151,14 +143,14 @@ impl SwapchainFrameManager {
     ) -> Result<bool, SwapchainFrameError> {
         vulkan_ctx
             .submit_render_commands(
-                frame.command_buffer(),
-                frame.image_available(),
-                frame.render_finished(),
-                frame.fence(),
+                &frame.command_buffer,
+                &frame.image_available,
+                &frame.render_finished,
+                &frame.fence,
             )
             .map_err(SwapchainFrameError::from)?;
 
-        let present_result = swapchain.present_after(frame.render_finished(), frame.image_index());
+        let present_result = swapchain.present_after(&frame.render_finished, frame.image_index);
         self.advance_frame();
         present_result
     }

@@ -321,6 +321,8 @@ Validation:
 
 ### Step 6: Make raw sync access uncommon
 
+Status: done in branch `agent/vkn-profiler` after Step 5. `Fence` and `Semaphore` no longer deref to Vulkan handles, their raw handles are crate-visible only, raw acquire/present helpers are no longer public app APIs, and screenshot readback waits use `AcquiredFrame::wait_until_complete` instead of reaching through to the frame fence.
+
 - Remove `Deref<Target = vk::Semaphore>` and `Deref<Target = vk::Fence>` if call sites no longer need it.
 - Keep `as_raw()` as crate-visible or clearly documented escape hatch if possible.
 - Prefer semantic helpers for common waits, resets, and status checks.

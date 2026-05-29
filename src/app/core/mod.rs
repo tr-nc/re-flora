@@ -2610,7 +2610,7 @@ impl App {
                 }
 
                 if let Some(readback) = screenshot_readback {
-                    frame.fence().wait().unwrap();
+                    frame.wait_until_complete().unwrap();
                     Self::write_screenshot_readback(readback);
                 }
 
