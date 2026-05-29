@@ -36,12 +36,6 @@ impl BitOrAssign for MemoryAccess {
     }
 }
 
-impl From<vk::AccessFlags> for MemoryAccess {
-    fn from(value: vk::AccessFlags) -> Self {
-        Self(value)
-    }
-}
-
 #[derive(Clone, Copy)]
 pub struct MemoryBarrier {
     src_access_mask: MemoryAccess,
@@ -49,13 +43,10 @@ pub struct MemoryBarrier {
 }
 
 impl MemoryBarrier {
-    pub fn new(
-        src_access_mask: impl Into<MemoryAccess>,
-        dst_access_mask: impl Into<MemoryAccess>,
-    ) -> Self {
+    pub fn new(src_access_mask: MemoryAccess, dst_access_mask: MemoryAccess) -> Self {
         Self {
-            src_access_mask: src_access_mask.into(),
-            dst_access_mask: dst_access_mask.into(),
+            src_access_mask,
+            dst_access_mask,
         }
     }
 
@@ -120,12 +111,6 @@ impl BitOrAssign for PipelineStage {
     }
 }
 
-impl From<vk::PipelineStageFlags> for PipelineStage {
-    fn from(value: vk::PipelineStageFlags) -> Self {
-        Self(value)
-    }
-}
-
 #[derive(Clone)]
 pub struct PipelineBarrier {
     src_stage_mask: PipelineStage,
@@ -135,13 +120,13 @@ pub struct PipelineBarrier {
 
 impl PipelineBarrier {
     pub fn new(
-        src_stage_mask: impl Into<PipelineStage>,
-        dst_stage_mask: impl Into<PipelineStage>,
+        src_stage_mask: PipelineStage,
+        dst_stage_mask: PipelineStage,
         memory_barriers: Vec<MemoryBarrier>,
     ) -> Self {
         Self {
-            src_stage_mask: src_stage_mask.into(),
-            dst_stage_mask: dst_stage_mask.into(),
+            src_stage_mask,
+            dst_stage_mask,
             memory_barriers,
         }
     }
