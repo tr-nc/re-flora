@@ -6,6 +6,8 @@ use crate::{
 use ash::vk;
 use std::sync::Arc;
 
+const MAX_VERTEX_BUFFER_BINDINGS: usize = 8;
+
 struct CommandBufferInner {
     device: Device,
     command_pool: CommandPool,
@@ -109,13 +111,24 @@ impl CommandBuffer {
     }
 
     pub fn bind_vertex_buffers(&self, first_binding: u32, buffers: &[&Buffer]) {
-        let raw_buffers = buffers.iter().map(|buffer| buffer.as_raw()).collect::<Vec<_>>();
-        let offsets = vec![0u64; raw_buffers.len()];
+        assert!(
+            buffers.len() <= MAX_VERTEX_BUFFER_BINDINGS,
+            "binding {} vertex buffers exceeds fixed stack capacity {}",
+            buffers.len(),
+            MAX_VERTEX_BUFFER_BINDINGS
+        );
+
+        let mut raw_buffers = [vk::Buffer::null(); MAX_VERTEX_BUFFER_BINDINGS];
+        let offsets = [0u64; MAX_VERTEX_BUFFER_BINDINGS];
+        for (dst, buffer) in raw_buffers.iter_mut().zip(buffers.iter()) {
+            *dst = buffer.as_raw();
+        }
+
         self.0.device.cmd_bind_vertex_buffers_raw(
             self.0.command_buffer,
             first_binding,
-            &raw_buffers,
-            &offsets,
+            &raw_buffers[..buffers.len()],
+            &offsets[..buffers.len()],
         );
     }
 
