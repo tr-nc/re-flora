@@ -568,6 +568,7 @@ impl PlainBuilder {
         job: ChunkSolidSampleJob,
     ) -> Result<ChunkSolidSampleResult> {
         let gpu_completion_latency_elapsed = job.submitted_at.elapsed();
+        let _completed_gpu_job = job.gpu_job.wait_complete()?;
         let readback_start = Instant::now();
         let raw = self
             .resources
@@ -628,9 +629,10 @@ impl PlainBuilder {
             atlas_dim,
         );
 
-        self.build_cmdbuf
+        let _completed_gpu_job = self
+            .build_cmdbuf
             .submit_gpu_job(&self.vulkan_ctx.get_general_queue(), "plain.chunk_init")?
-            .wait()?;
+            .wait_complete()?;
         return Ok(());
 
         fn update_buffers(

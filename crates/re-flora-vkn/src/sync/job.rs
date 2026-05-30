@@ -55,11 +55,34 @@ impl<'a> GpuJobDesc<'a> {
 /// Completion token for a submitted vkn-managed GPU job.
 ///
 /// The token intentionally exposes semantic polling/waiting only. The backing
-/// fence remains inside vkn.
+/// fence remains inside vkn. Prefer consuming a token with `wait_complete` once
+/// the caller is done tracking a job; borrowed waits remain available for flush
+/// paths that need to keep owning the submitted job record.
 pub struct GpuJobToken {
     name: &'static str,
     queue: QueueLane,
     fence: Fence,
+}
+
+/// Proof that a vkn-managed GPU job has completed.
+///
+/// This keeps the completed backing fence owned by vkn, which gives future job
+/// slot/fence pooling a single explicit handoff point without changing builder
+/// call sites again.
+pub struct CompletedGpuJob {
+    name: &'static str,
+    queue: QueueLane,
+    _fence: Fence,
+}
+
+impl CompletedGpuJob {
+    pub fn name(&self) -> &'static str {
+        self.name
+    }
+
+    pub fn queue(&self) -> QueueLane {
+        self.queue
+    }
 }
 
 impl GpuJobToken {
@@ -79,6 +102,29 @@ impl GpuJobToken {
     pub fn wait(&self) -> VkResult<()> {
         crate::sync::diagnostics::record_gpu_job_wait(self.name, self.queue);
         self.fence.wait()
+    }
+
+    pub fn wait_complete(self) -> VkResult<CompletedGpuJob> {
+        crate::sync::diagnostics::record_gpu_job_wait(self.name, self.queue);
+        self.fence.wait()?;
+        Ok(self.into_completed())
+    }
+
+    pub fn complete_if_ready(self) -> VkResult<Result<CompletedGpuJob, Self>> {
+        crate::sync::diagnostics::record_gpu_job_poll(self.name, self.queue);
+        if self.fence.is_signaled()? {
+            Ok(Ok(self.into_completed()))
+        } else {
+            Ok(Err(self))
+        }
+    }
+
+    fn into_completed(self) -> CompletedGpuJob {
+        CompletedGpuJob {
+            name: self.name,
+            queue: self.queue,
+            _fence: self.fence,
+        }
     }
 }
 

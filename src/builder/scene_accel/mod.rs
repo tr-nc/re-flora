@@ -130,8 +130,7 @@ impl SceneAccelBuilder {
         chunk_data: Option<(u64, u64)>,
     ) -> Result<()> {
         let job = self.submit_update_scene_tex(chunk_idx, chunk_data)?;
-        job.gpu_job.wait()?;
-        self.finish_update_scene_tex(job);
+        self.finish_update_scene_tex(job)?;
         Ok(())
     }
 
@@ -195,8 +194,12 @@ impl SceneAccelBuilder {
         Ok(())
     }
 
-    pub fn finish_update_scene_tex(&mut self, job: SceneTexUpdateJob) -> SceneTexUpdateResult {
+    pub fn finish_update_scene_tex(
+        &mut self,
+        job: SceneTexUpdateJob,
+    ) -> Result<SceneTexUpdateResult> {
         let gpu_completion_latency_elapsed = job.submitted_at.elapsed();
+        let _completed_gpu_job = job.gpu_job.wait_complete()?;
         crate::util::BENCH.lock().unwrap().record(
             "scene_tex_update_gpu",
             gpu_completion_latency_elapsed + job.submit_elapsed,
@@ -207,13 +210,13 @@ impl SceneAccelBuilder {
             .unwrap()
             .record("scene_tex_update_total", total_elapsed);
 
-        SceneTexUpdateResult {
+        Ok(SceneTexUpdateResult {
             chunk_idx: job.chunk_idx,
             uniform_ms: job.uniform_elapsed.as_secs_f64() * 1000.0,
             gpu_submit_ms: job.submit_elapsed.as_secs_f64() * 1000.0,
             gpu_completion_latency_ms: gpu_completion_latency_elapsed.as_secs_f64() * 1000.0,
             total_ms: total_elapsed.as_secs_f64() * 1000.0,
-        }
+        })
     }
 
     pub fn get_resources(&self) -> &SceneAccelBuilderResources {
