@@ -3,7 +3,12 @@ use super::{instance::Instance, physical_device::PhysicalDevice, queue::QueueFam
 use crate::SubmitDesc;
 use ash::vk;
 use comfy_table::Table;
-use std::{collections::HashSet, ffi::CStr, fmt::Debug, sync::Arc};
+use std::{
+    collections::HashSet,
+    ffi::CStr,
+    fmt::Debug,
+    sync::{Arc, Mutex},
+};
 
 #[derive(Clone)]
 struct DeviceExtensionRequirement {
@@ -13,12 +18,17 @@ struct DeviceExtensionRequirement {
 
 struct DeviceInner {
     device: ash::Device,
+    gpu_job_fence_pool: Mutex<Vec<vk::Fence>>,
 }
 
 impl Drop for DeviceInner {
     fn drop(&mut self) {
         unsafe {
             self.device.device_wait_idle().unwrap();
+            let pooled_fences = self.gpu_job_fence_pool.get_mut().unwrap();
+            for fence in pooled_fences.drain(..) {
+                self.device.destroy_fence(fence, None);
+            }
             self.device.destroy_device(None);
         }
     }
@@ -65,7 +75,10 @@ impl Device {
             queue_family_indices,
             &extension_requirements,
         );
-        Self(Arc::new(DeviceInner { device }))
+        Self(Arc::new(DeviceInner {
+            device,
+            gpu_job_fence_pool: Mutex::new(Vec::new()),
+        }))
     }
 
     pub fn as_raw(&self) -> &ash::Device {
@@ -74,6 +87,24 @@ impl Device {
 
     pub fn wait_queue_idle(&self, queue: &Queue) {
         unsafe { self.as_raw().queue_wait_idle(queue.as_raw()).unwrap() };
+    }
+
+    pub(crate) fn acquire_gpu_job_fence(&self) -> ash::prelude::VkResult<Option<vk::Fence>> {
+        let Some(fence) = self.0.gpu_job_fence_pool.lock().unwrap().pop() else {
+            return Ok(None);
+        };
+        let reset_result = unsafe { self.reset_fences(&[fence]) };
+        if let Err(err) = reset_result {
+            unsafe {
+                self.destroy_fence(fence, None);
+            }
+            return Err(err);
+        }
+        Ok(Some(fence))
+    }
+
+    pub(crate) fn recycle_gpu_job_fence(&self, fence: vk::Fence) {
+        self.0.gpu_job_fence_pool.lock().unwrap().push(fence);
     }
 
     pub fn submit_to_queue(&self, queue: &Queue, desc: SubmitDesc<'_>) -> ash::prelude::VkResult<()> {

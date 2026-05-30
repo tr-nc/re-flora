@@ -120,6 +120,7 @@ impl GpuJobToken {
     }
 
     fn into_completed(self) -> CompletedGpuJob {
+        self.fence.mark_completed_for_reuse();
         CompletedGpuJob {
             name: self.name,
             queue: self.queue,
@@ -137,7 +138,7 @@ pub struct GpuJobManager;
 impl GpuJobManager {
     pub fn submit(device: &Device, queue: &Queue, desc: GpuJobDesc<'_>) -> VkResult<GpuJobToken> {
         crate::sync::diagnostics::record_gpu_job_submit(&desc);
-        let fence = Fence::new(device, false);
+        let fence = Fence::new_pooled_gpu_job(device)?;
         let submit_desc = SubmitDesc::new(
             desc.name,
             desc.command_buffers,
