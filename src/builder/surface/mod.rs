@@ -528,7 +528,6 @@ impl SurfaceBuilder {
 
     pub fn build_surface(&mut self, chunk_id: UVec3, place_flora: bool) -> Result<u32> {
         let job = self.submit_build_surface(chunk_id, place_flora)?;
-        job.gpu_job.wait()?;
         let result = self.finish_build_surface(job)?;
         Ok(result.active_voxel_len)
     }
@@ -717,6 +716,7 @@ impl SurfaceBuilder {
 
     pub fn finish_build_surface(&mut self, job: SurfaceBuildJob) -> Result<SurfaceBuildResult> {
         let gpu_completion_latency_elapsed = job.submitted_at.elapsed();
+        let _completed_gpu_job = job.gpu_job.wait_complete()?;
         let readback_start = Instant::now();
         let make_surface_result = get_make_surface_result(&self.resources.make_surface_result);
         let active_voxel_len = make_surface_result.active_voxel_len;
@@ -1019,9 +1019,9 @@ impl SurfaceBuilder {
         }
 
         cmdbuf.end();
-        cmdbuf
+        let _completed_gpu_job = cmdbuf
             .submit_gpu_job(&self.vulkan_ctx.get_general_queue(), "surface.flora_edit")?
-            .wait()?;
+            .wait_complete()?;
 
         if let Some(timing) = self.pass_timing.as_ref() {
             timing.collect_and_log(
@@ -1118,9 +1118,9 @@ impl SurfaceBuilder {
         }
 
         cmdbuf.end();
-        cmdbuf
+        let _completed_gpu_job = cmdbuf
             .submit_gpu_job(&self.vulkan_ctx.get_general_queue(), "surface.flora_growth")?
-            .wait()?;
+            .wait_complete()?;
 
         if let Some(timing) = self.pass_timing.as_ref() {
             timing.collect_and_log(

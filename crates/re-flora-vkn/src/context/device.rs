@@ -3,7 +3,15 @@ use super::{instance::Instance, physical_device::PhysicalDevice, queue::QueueFam
 use crate::SubmitDesc;
 use ash::vk;
 use comfy_table::Table;
-use std::{collections::HashSet, ffi::CStr, fmt::Debug, sync::Arc};
+use std::{
+    collections::HashSet,
+    ffi::CStr,
+    fmt::Debug,
+    sync::{
+        atomic::{AtomicU64, AtomicUsize, Ordering},
+        Arc, Mutex,
+    },
+};
 
 #[derive(Clone)]
 struct DeviceExtensionRequirement {
@@ -11,14 +19,74 @@ struct DeviceExtensionRequirement {
     reason: &'static str,
 }
 
+const GPU_JOB_FENCE_POOL_CAPACITY: usize = 64;
+
+struct GpuJobFencePoolCounters {
+    created: AtomicU64,
+    reused: AtomicU64,
+    recycled: AtomicU64,
+    destroyed_uncompleted: AtomicU64,
+    destroyed_on_cap: AtomicU64,
+    destroyed_on_reset_failure: AtomicU64,
+    max_pool_size: AtomicUsize,
+}
+
+impl GpuJobFencePoolCounters {
+    fn new() -> Self {
+        Self {
+            created: AtomicU64::new(0),
+            reused: AtomicU64::new(0),
+            recycled: AtomicU64::new(0),
+            destroyed_uncompleted: AtomicU64::new(0),
+            destroyed_on_cap: AtomicU64::new(0),
+            destroyed_on_reset_failure: AtomicU64::new(0),
+            max_pool_size: AtomicUsize::new(0),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct GpuJobFencePoolStats {
+    pub created: u64,
+    pub reused: u64,
+    pub recycled: u64,
+    pub destroyed_uncompleted: u64,
+    pub destroyed_on_cap: u64,
+    pub destroyed_on_reset_failure: u64,
+    pub current_pool_size: usize,
+    pub max_pool_size: usize,
+    pub capacity: usize,
+}
+
 struct DeviceInner {
     device: ash::Device,
+    gpu_job_fence_pool: Mutex<Vec<vk::Fence>>,
+    gpu_job_fence_pool_counters: GpuJobFencePoolCounters,
 }
 
 impl Drop for DeviceInner {
     fn drop(&mut self) {
         unsafe {
             self.device.device_wait_idle().unwrap();
+            let pooled_fences = self.gpu_job_fence_pool.get_mut().unwrap();
+            let pooled_count = pooled_fences.len();
+            for fence in pooled_fences.drain(..) {
+                self.device.destroy_fence(fence, None);
+            }
+            log::debug!(
+                "[VKN][GPU_JOB_FENCE_POOL] destroy pooled={} created={} reused={} recycled={} destroyed_uncompleted={} destroyed_on_cap={} destroyed_on_reset_failure={} max_pool_size={} capacity={}",
+                pooled_count,
+                self.gpu_job_fence_pool_counters.created.load(Ordering::Relaxed),
+                self.gpu_job_fence_pool_counters.reused.load(Ordering::Relaxed),
+                self.gpu_job_fence_pool_counters.recycled.load(Ordering::Relaxed),
+                self.gpu_job_fence_pool_counters.destroyed_uncompleted.load(Ordering::Relaxed),
+                self.gpu_job_fence_pool_counters.destroyed_on_cap.load(Ordering::Relaxed),
+                self.gpu_job_fence_pool_counters
+                    .destroyed_on_reset_failure
+                    .load(Ordering::Relaxed),
+                self.gpu_job_fence_pool_counters.max_pool_size.load(Ordering::Relaxed),
+                GPU_JOB_FENCE_POOL_CAPACITY,
+            );
             self.device.destroy_device(None);
         }
     }
@@ -65,7 +133,11 @@ impl Device {
             queue_family_indices,
             &extension_requirements,
         );
-        Self(Arc::new(DeviceInner { device }))
+        Self(Arc::new(DeviceInner {
+            device,
+            gpu_job_fence_pool: Mutex::new(Vec::new()),
+            gpu_job_fence_pool_counters: GpuJobFencePoolCounters::new(),
+        }))
     }
 
     pub fn as_raw(&self) -> &ash::Device {
@@ -74,6 +146,140 @@ impl Device {
 
     pub fn wait_queue_idle(&self, queue: &Queue) {
         unsafe { self.as_raw().queue_wait_idle(queue.as_raw()).unwrap() };
+    }
+
+    pub(crate) fn record_gpu_job_fence_created(&self) {
+        self.0
+            .gpu_job_fence_pool_counters
+            .created
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn acquire_gpu_job_fence(&self) -> ash::prelude::VkResult<Option<vk::Fence>> {
+        let Some(fence) = self.0.gpu_job_fence_pool.lock().unwrap().pop() else {
+            return Ok(None);
+        };
+        let reset_result = unsafe { self.reset_fences(&[fence]) };
+        if let Err(err) = reset_result {
+            self.0
+                .gpu_job_fence_pool_counters
+                .destroyed_on_reset_failure
+                .fetch_add(1, Ordering::Relaxed);
+            log::warn!(
+                "[VKN][GPU_JOB_FENCE_POOL] destroying pooled fence after reset failure: {err}"
+            );
+            unsafe {
+                self.destroy_fence(fence, None);
+            }
+            return Err(err);
+        }
+        self.0
+            .gpu_job_fence_pool_counters
+            .reused
+            .fetch_add(1, Ordering::Relaxed);
+        Ok(Some(fence))
+    }
+
+    pub(crate) fn recycle_gpu_job_fence(&self, fence: vk::Fence) {
+        let (should_destroy, pool_size) = {
+            let mut pool = self.0.gpu_job_fence_pool.lock().unwrap();
+            if pool.len() >= GPU_JOB_FENCE_POOL_CAPACITY {
+                (true, pool.len())
+            } else {
+                pool.push(fence);
+                let pool_size = pool.len();
+                self.update_gpu_job_fence_pool_max(pool_size);
+                (false, pool_size)
+            }
+        };
+
+        if should_destroy {
+            self.0
+                .gpu_job_fence_pool_counters
+                .destroyed_on_cap
+                .fetch_add(1, Ordering::Relaxed);
+            log::warn!(
+                "[VKN][GPU_JOB_FENCE_POOL] capacity {} reached; destroying completed fence instead of recycling it (pool_size={})",
+                GPU_JOB_FENCE_POOL_CAPACITY,
+                pool_size,
+            );
+            unsafe {
+                self.destroy_fence(fence, None);
+            }
+        } else {
+            self.0
+                .gpu_job_fence_pool_counters
+                .recycled
+                .fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    pub(crate) fn destroy_uncompleted_gpu_job_fence(&self, fence: vk::Fence) {
+        self.0
+            .gpu_job_fence_pool_counters
+            .destroyed_uncompleted
+            .fetch_add(1, Ordering::Relaxed);
+        unsafe {
+            self.destroy_fence(fence, None);
+        }
+    }
+
+    pub fn gpu_job_fence_pool_stats(&self) -> GpuJobFencePoolStats {
+        GpuJobFencePoolStats {
+            created: self
+                .0
+                .gpu_job_fence_pool_counters
+                .created
+                .load(Ordering::Relaxed),
+            reused: self
+                .0
+                .gpu_job_fence_pool_counters
+                .reused
+                .load(Ordering::Relaxed),
+            recycled: self
+                .0
+                .gpu_job_fence_pool_counters
+                .recycled
+                .load(Ordering::Relaxed),
+            destroyed_uncompleted: self
+                .0
+                .gpu_job_fence_pool_counters
+                .destroyed_uncompleted
+                .load(Ordering::Relaxed),
+            destroyed_on_cap: self
+                .0
+                .gpu_job_fence_pool_counters
+                .destroyed_on_cap
+                .load(Ordering::Relaxed),
+            destroyed_on_reset_failure: self
+                .0
+                .gpu_job_fence_pool_counters
+                .destroyed_on_reset_failure
+                .load(Ordering::Relaxed),
+            current_pool_size: self.0.gpu_job_fence_pool.lock().unwrap().len(),
+            max_pool_size: self
+                .0
+                .gpu_job_fence_pool_counters
+                .max_pool_size
+                .load(Ordering::Relaxed),
+            capacity: GPU_JOB_FENCE_POOL_CAPACITY,
+        }
+    }
+
+    fn update_gpu_job_fence_pool_max(&self, pool_size: usize) {
+        let max_pool_size = &self.0.gpu_job_fence_pool_counters.max_pool_size;
+        let mut current = max_pool_size.load(Ordering::Relaxed);
+        while pool_size > current {
+            match max_pool_size.compare_exchange_weak(
+                current,
+                pool_size,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(next) => current = next,
+            }
+        }
     }
 
     pub fn submit_to_queue(&self, queue: &Queue, desc: SubmitDesc<'_>) -> ash::prelude::VkResult<()> {

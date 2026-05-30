@@ -252,6 +252,6 @@ pub fn execute_one_time_gpu_job<R, F: FnOnce(&CommandBuffer) -> R>(
         JobCompletion::Fence,
     );
     let job = GpuJobManager::submit(device, queue, desc).unwrap();
-    job.wait().unwrap();
+    let _completed_job = job.wait_complete().unwrap();
     result
 }

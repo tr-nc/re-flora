@@ -767,7 +767,22 @@ impl App {
         }
 
         let finish_start = Instant::now();
-        let scene = self.scene_accel_builder.finish_update_scene_tex(job);
+        let scene = match self.scene_accel_builder.finish_update_scene_tex(job) {
+            Ok(scene) => scene,
+            Err(err) => {
+                let finish_ms = finish_start.elapsed().as_secs_f64() * 1000.0;
+                inflight.main_thread_ms += finish_ms;
+                self.deferred_chunk_rebuilds
+                    .complete(inflight.chunk_id, inflight.revision);
+                log::error!(
+                    "[QUEUE][DEFERRED_REBUILD] failed to finish scene update chunk {:?} revision {}: {}",
+                    inflight.chunk_id,
+                    inflight.revision,
+                    err,
+                );
+                return;
+            }
+        };
         let finish_ms = finish_start.elapsed().as_secs_f64() * 1000.0;
         inflight.main_thread_ms += finish_ms;
         let is_latest = self

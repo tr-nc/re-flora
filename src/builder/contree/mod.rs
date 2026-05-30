@@ -998,7 +998,7 @@ impl ContreeBuilder {
             "contree.build_sync_debug",
         )?;
         let wait_start = Instant::now();
-        gpu_job.wait().unwrap();
+        let _completed_gpu_job = gpu_job.wait_complete().unwrap();
         let wait_ms = wait_start.elapsed().as_secs_f32() * 1000.0;
         log::debug!(
             "[QUEUE][CONTREE_BUILD] dim={:?} node_offset={} leaf_offset={} submit_ms={:.2} gpu_wait_ms={:.2}",
@@ -1030,7 +1030,6 @@ impl ContreeBuilder {
     /// Returns: (node_alloc_offset, leaf_alloc_offset)
     pub fn build_and_alloc(&mut self, atlas_offset: UVec3) -> Result<Option<(u64, u64)>> {
         let job = self.submit_build_and_alloc(atlas_offset)?;
-        job.gpu_job.wait()?;
         Ok(self.finish_build_and_alloc(job)?.scene_offsets)
     }
 
@@ -1147,17 +1146,37 @@ impl ContreeBuilder {
     }
 
     pub fn discard_build_and_alloc(&mut self, job: ContreeBuildJob) {
-        if let Err(err) = self.node_allocator.deallocate(job.node_alloc_id) {
+        if let Err(err) = job.gpu_job.wait_complete() {
             log::error!(
-                "Failed to deallocate stale contree node allocation for {:?}: {}",
+                "Failed to complete stale contree GPU job for {:?}: {}",
                 job.chunk_idx,
                 err,
             );
         }
-        if let Err(err) = self.leaf_allocator.deallocate(job.leaf_alloc_id) {
+        self.deallocate_stale_build_allocations(
+            job.chunk_idx,
+            job.node_alloc_id,
+            job.leaf_alloc_id,
+        );
+    }
+
+    fn deallocate_stale_build_allocations(
+        &mut self,
+        chunk_idx: UVec3,
+        node_alloc_id: u64,
+        leaf_alloc_id: u64,
+    ) {
+        if let Err(err) = self.node_allocator.deallocate(node_alloc_id) {
+            log::error!(
+                "Failed to deallocate stale contree node allocation for {:?}: {}",
+                chunk_idx,
+                err,
+            );
+        }
+        if let Err(err) = self.leaf_allocator.deallocate(leaf_alloc_id) {
             log::error!(
                 "Failed to deallocate stale contree leaf allocation for {:?}: {}",
-                job.chunk_idx,
+                chunk_idx,
                 err,
             );
         }
@@ -1165,6 +1184,7 @@ impl ContreeBuilder {
 
     pub fn finish_build_and_alloc(&mut self, job: ContreeBuildJob) -> Result<ContreeBuildResult> {
         let gpu_completion_latency_elapsed = job.submitted_at.elapsed();
+        let _completed_gpu_job = job.gpu_job.wait_complete()?;
         crate::util::BENCH.lock().unwrap().record(
             "contree_build_gpu",
             gpu_completion_latency_elapsed + job.submit_elapsed,
@@ -1188,7 +1208,11 @@ impl ContreeBuilder {
             let total_elapsed = job.total_start.elapsed();
             let prealloc_ms = job.prealloc_elapsed.as_secs_f64() * 1000.0;
             let gpu_submit_ms = job.submit_elapsed.as_secs_f64() * 1000.0;
-            self.discard_build_and_alloc(job);
+            self.deallocate_stale_build_allocations(
+                job.chunk_idx,
+                job.node_alloc_id,
+                job.leaf_alloc_id,
+            );
             crate::util::BENCH
                 .lock()
                 .unwrap()
@@ -1383,6 +1407,17 @@ impl ContreeBuilder {
             .active_cpu_chunk_cache_job
             .take()
             .expect("active CPU chunk cache job disappeared after GPU job poll");
+        let _completed_gpu_job = match job.gpu_job.wait_complete() {
+            Ok(completed) => completed,
+            Err(err) => {
+                log::error!(
+                    "Failed to complete CPU cache GPU job for {:?} rev {}: {err}",
+                    job.chunk_idx,
+                    job.revision,
+                );
+                return;
+            }
+        };
         log::debug!(
             "[QUEUE][CPU_CACHE] gpu_ready chunk {:?} revision {} pending={}",
             job.chunk_idx,
