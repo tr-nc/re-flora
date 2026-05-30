@@ -1,4 +1,4 @@
-use crate::{AccelStruct, Buffer, Device, Texture};
+use crate::{AccelStruct, Buffer, Device, Texture, TextureLayout};
 use anyhow::Result;
 use ash::vk;
 use std::sync::Arc;
@@ -49,10 +49,10 @@ impl<'a> WriteDescriptorSet<'a> {
         binding: u32,
         descriptor_type: vk::DescriptorType,
         texture: &Texture,
-        image_layout: vk::ImageLayout,
+        image_layout: TextureLayout,
     ) -> Self {
         let image_info = vk::DescriptorImageInfo::default()
-            .image_layout(image_layout)
+            .image_layout(image_layout.as_raw())
             .image_view(texture.get_image_view().as_raw())
             .sampler(texture.get_sampler().as_raw());
 

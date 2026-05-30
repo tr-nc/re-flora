@@ -12,6 +12,7 @@ use re_flora_vkn::CommandBuffer;
 use re_flora_vkn::FormatOverride;
 use re_flora_vkn::ImageDesc;
 use re_flora_vkn::RenderPass;
+use re_flora_vkn::TextureLayout;
 use re_flora_vkn::TextureRegion;
 use re_flora_vkn::VulkanContext;
 use re_flora_vkn::WriteDescriptorSet;
@@ -175,7 +176,7 @@ impl EguiRenderer {
                         region,
                         data.as_slice(),
                         0,
-                        Some(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL),
+                        Some(TextureLayout::SHADER_READ_ONLY),
                     )
                     .unwrap();
             } else {
@@ -183,7 +184,7 @@ impl EguiRenderer {
                     extent,
                     format: vk::Format::B8G8R8A8_SRGB,
                     usage: vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST,
-                    initial_layout: vk::ImageLayout::UNDEFINED,
+                    initial_layout: TextureLayout::UNDEFINED,
                     aspect: vk::ImageAspectFlags::COLOR,
                     ..Default::default()
                 };
@@ -200,7 +201,7 @@ impl EguiRenderer {
                         TextureRegion::from_image(texture.get_image()),
                         data.as_slice(),
                         0,
-                        Some(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL),
+                        Some(TextureLayout::SHADER_READ_ONLY),
                     )
                     .unwrap();
 
@@ -210,7 +211,7 @@ impl EguiRenderer {
                         0,
                         vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
                         &texture,
-                        vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                        TextureLayout::SHADER_READ_ONLY,
                     ),
                 );
 
@@ -228,7 +229,7 @@ impl EguiRenderer {
                     0,
                     vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
                     &texture,
-                    vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                    TextureLayout::SHADER_READ_ONLY,
                 )]);
 
                 self.managed_textures.insert(*id, texture);

@@ -1,5 +1,6 @@
 use super::Queue;
 use super::{instance::Instance, physical_device::PhysicalDevice, queue::QueueFamilyIndices};
+use crate::SubmitDesc;
 use ash::vk;
 use comfy_table::Table;
 use std::{collections::HashSet, ffi::CStr, fmt::Debug, sync::Arc};
@@ -73,6 +74,27 @@ impl Device {
 
     pub fn wait_queue_idle(&self, queue: &Queue) {
         unsafe { self.as_raw().queue_wait_idle(queue.as_raw()).unwrap() };
+    }
+
+    pub fn submit_to_queue(&self, queue: &Queue, desc: SubmitDesc<'_>) -> ash::prelude::VkResult<()> {
+        desc.assert_supported_sizes();
+        crate::sync::diagnostics::record_submit(&desc);
+
+        let (raw_command_buffers, command_buffer_count) = desc.raw_command_buffers();
+        let (raw_wait_semaphores, raw_wait_stages, wait_count) = desc.raw_waits();
+        let (raw_signal_semaphores, signal_count) = desc.raw_signals();
+        let command_buffers = &raw_command_buffers[..command_buffer_count];
+        let wait_semaphores = &raw_wait_semaphores[..wait_count];
+        let wait_stages = &raw_wait_stages[..wait_count];
+        let signal_semaphores = &raw_signal_semaphores[..signal_count];
+        let submit_info = [vk::SubmitInfo::default()
+            .wait_semaphores(wait_semaphores)
+            .wait_dst_stage_mask(wait_stages)
+            .command_buffers(command_buffers)
+            .signal_semaphores(signal_semaphores)];
+        let fence = desc.fence.map_or(vk::Fence::null(), |fence| fence.as_raw());
+
+        unsafe { self.as_raw().queue_submit(queue.as_raw(), &submit_info, fence) }
     }
 
     #[allow(unused)]

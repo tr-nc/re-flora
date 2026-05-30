@@ -4,6 +4,8 @@ Last updated: 2026-05-20.
 
 This document is the running baseline for CPU water simulation performance. Update it whenever an optimization changes `crates/re-flora-water` or the water worker path.
 
+For the current terrain-boundary density correction design, see `docs/water_boundary_density.md`.
+
 ## Current constraints
 
 - Priority: CPU first, single-core first.

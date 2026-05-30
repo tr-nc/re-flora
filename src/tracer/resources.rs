@@ -15,7 +15,7 @@ use glam::{IVec3, UVec3};
 use re_flora_vkn::vk;
 use re_flora_vkn::{
     Allocator, Buffer, BufferUsage, Device, Extent2D, Extent3D, ImageDesc, MemoryLocation,
-    SamplerDesc, ShaderModule, Texture, TextureRegion, VulkanContext,
+    SamplerDesc, ShaderModule, Texture, TextureLayout, TextureRegion, VulkanContext,
 };
 use resource_container_derive::ResourceContainer;
 use std::path::Path;
@@ -644,7 +644,7 @@ impl TracerResources {
                 usage: vk::ImageUsageFlags::STORAGE
                     | vk::ImageUsageFlags::SAMPLED
                     | vk::ImageUsageFlags::TRANSFER_DST,
-                initial_layout: vk::ImageLayout::UNDEFINED,
+                initial_layout: TextureLayout::UNDEFINED,
                 aspect: vk::ImageAspectFlags::COLOR,
                 ..Default::default()
             };
@@ -660,7 +660,7 @@ impl TracerResources {
                         vulkan_ctx.command_pool(),
                         &path,
                         i,
-                        Some(vk::ImageLayout::GENERAL),
+                        Some(TextureLayout::GENERAL),
                     )
                     .unwrap();
             }
@@ -704,7 +704,7 @@ impl TracerResources {
             array_len: 1,
             format: vk::Format::R8G8B8A8_SRGB,
             usage: vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST,
-            initial_layout: vk::ImageLayout::UNDEFINED,
+            initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
         };
@@ -718,7 +718,7 @@ impl TracerResources {
                 TextureRegion::from_image(tex.get_image()),
                 &texels_rgba,
                 0,
-                Some(vk::ImageLayout::GENERAL),
+                Some(TextureLayout::GENERAL),
             )
             .unwrap();
         tex
@@ -821,7 +821,7 @@ impl TracerResources {
             array_len: lut_layer_count,
             format: vk::Format::R8G8B8A8_SRGB,
             usage: vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST,
-            initial_layout: vk::ImageLayout::UNDEFINED,
+            initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
         };
@@ -904,7 +904,7 @@ impl TracerResources {
                 TextureRegion::from_image(tex.get_image()),
                 data,
                 layer,
-                Some(vk::ImageLayout::GENERAL),
+                Some(TextureLayout::GENERAL),
             )
             .unwrap();
     }
@@ -922,7 +922,7 @@ impl TracerResources {
             usage: vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT
                 | vk::ImageUsageFlags::SAMPLED
                 | vk::ImageUsageFlags::TRANSFER_DST,
-            initial_layout: vk::ImageLayout::UNDEFINED,
+            initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::DEPTH,
             ..Default::default()
         };
@@ -943,7 +943,7 @@ impl TracerResources {
             usage: vk::ImageUsageFlags::STORAGE
                 | vk::ImageUsageFlags::SAMPLED
                 | vk::ImageUsageFlags::TRANSFER_DST,
-            initial_layout: vk::ImageLayout::UNDEFINED,
+            initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
         };
@@ -963,7 +963,7 @@ impl TracerResources {
                 | vk::ImageUsageFlags::SAMPLED
                 | vk::ImageUsageFlags::TRANSFER_SRC
                 | vk::ImageUsageFlags::TRANSFER_DST,
-            initial_layout: vk::ImageLayout::UNDEFINED,
+            initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
         };
@@ -1008,7 +1008,7 @@ impl TracerResources {
             ),
             format: vk::Format::R16G16_SFLOAT,
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::SAMPLED,
-            initial_layout: vk::ImageLayout::UNDEFINED,
+            initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
         };

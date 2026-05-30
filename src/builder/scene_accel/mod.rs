@@ -1,7 +1,6 @@
 mod resources;
 use anyhow::Result;
 use glam::UVec3;
-use re_flora_vkn::vk;
 pub use resources::*;
 use std::time::Instant;
 
@@ -9,7 +8,8 @@ use crate::{generated::gpu_structs::SceneTexUpdateInfo, geom::UAabb3, util::Shad
 use bytemuck::Zeroable;
 use re_flora_vkn::{
     execute_one_time_command, Allocator, Buffer, ClearValue, ColorClearValue, CommandBuffer,
-    ComputePipeline, DescriptorPool, Extent3D, Fence, ShaderModule, VulkanContext,
+    ComputePipeline, DescriptorPool, Extent3D, GpuJobToken, ShaderModule, TextureLayout,
+    VulkanContext,
 };
 
 pub struct SceneAccelBuilder {
@@ -31,7 +31,7 @@ pub struct SceneTexUpdateJob {
     uniform_elapsed: std::time::Duration,
     submit_elapsed: std::time::Duration,
     _command_buffer: CommandBuffer,
-    fence: Fence,
+    gpu_job: GpuJobToken,
 }
 
 #[allow(dead_code)]
@@ -40,7 +40,7 @@ pub struct SceneTexUpdateResult {
     pub chunk_idx: UVec3,
     pub uniform_ms: f64,
     pub gpu_submit_ms: f64,
-    pub fence_latency_ms: f64,
+    pub gpu_completion_latency_ms: f64,
     pub total_ms: f64,
 }
 
@@ -116,7 +116,7 @@ impl SceneAccelBuilder {
             |cmdbuf| {
                 resources.scene_tex.get_image().record_clear(
                     cmdbuf,
-                    Some(vk::ImageLayout::GENERAL),
+                    Some(TextureLayout::GENERAL),
                     0,
                     ClearValue::Color(ColorClearValue::UInt([0, 0, 0, 0])),
                 );
@@ -130,7 +130,7 @@ impl SceneAccelBuilder {
         chunk_data: Option<(u64, u64)>,
     ) -> Result<()> {
         let job = self.submit_update_scene_tex(chunk_idx, chunk_data)?;
-        job.fence.wait()?;
+        job.gpu_job.wait()?;
         self.finish_update_scene_tex(job);
         Ok(())
     }
@@ -161,9 +161,11 @@ impl SceneAccelBuilder {
             .record("scene_tex_update_uniform", uniform_elapsed);
 
         let submit_start = Instant::now();
-        let fence = Fence::new(self.vulkan_ctx.device(), false);
         let cmdbuf = self.update_scene_tex_cmdbuf.clone();
-        cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), Some(&fence));
+        let gpu_job = cmdbuf.submit_gpu_job(
+            &self.vulkan_ctx.get_general_queue(),
+            "scene_accel.update_scene_tex",
+        )?;
         let submitted_at = Instant::now();
         let submit_elapsed = submit_start.elapsed();
         crate::util::BENCH
@@ -178,26 +180,26 @@ impl SceneAccelBuilder {
             uniform_elapsed,
             submit_elapsed,
             _command_buffer: cmdbuf,
-            fence,
+            gpu_job,
         })
     }
 
     pub fn update_scene_tex_ready(&self, job: &SceneTexUpdateJob) -> Result<bool> {
-        job.fence
-            .is_signaled()
-            .map_err(|err| anyhow::anyhow!("failed to poll scene tex update fence: {err}"))
+        job.gpu_job
+            .is_complete()
+            .map_err(|err| anyhow::anyhow!("failed to poll scene tex update GPU job: {err}"))
     }
 
     pub fn wait_update_scene_tex(&self, job: &SceneTexUpdateJob) -> Result<()> {
-        job.fence.wait()?;
+        job.gpu_job.wait()?;
         Ok(())
     }
 
     pub fn finish_update_scene_tex(&mut self, job: SceneTexUpdateJob) -> SceneTexUpdateResult {
-        let fence_latency_elapsed = job.submitted_at.elapsed();
+        let gpu_completion_latency_elapsed = job.submitted_at.elapsed();
         crate::util::BENCH.lock().unwrap().record(
             "scene_tex_update_gpu",
-            fence_latency_elapsed + job.submit_elapsed,
+            gpu_completion_latency_elapsed + job.submit_elapsed,
         );
         let total_elapsed = job.total_start.elapsed();
         crate::util::BENCH
@@ -209,7 +211,7 @@ impl SceneAccelBuilder {
             chunk_idx: job.chunk_idx,
             uniform_ms: job.uniform_elapsed.as_secs_f64() * 1000.0,
             gpu_submit_ms: job.submit_elapsed.as_secs_f64() * 1000.0,
-            fence_latency_ms: fence_latency_elapsed.as_secs_f64() * 1000.0,
+            gpu_completion_latency_ms: gpu_completion_latency_elapsed.as_secs_f64() * 1000.0,
             total_ms: total_elapsed.as_secs_f64() * 1000.0,
         }
     }

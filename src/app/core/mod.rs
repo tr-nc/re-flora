@@ -50,8 +50,9 @@ use anyhow::{Context, Result};
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
 use re_flora_vkn::{
-    Allocator, Buffer, BufferUsage, ColorReadbackFormat, CommandBuffer, Extent2D, Fence,
-    MemoryLocation, Semaphore, SwapchainDesc, SwapchainFrameError,
+    Allocator, Buffer, BufferUsage, ColorReadbackFormat, CommandBuffer, Extent2D, GpuProfiler,
+    GpuProfilerFrameResults, MemoryLocation, PipelineStage, SwapchainDesc, SwapchainFrameError,
+    SwapchainFrameManager,
 };
 use re_flora_vkn::{Swapchain, VulkanContext};
 use re_flora_water::PondWaterConfig;
@@ -79,11 +80,6 @@ const LEAF_CLUSTER_DISTANCE: f32 = 0.08;
 // Hidden runs should exercise audio setup, source updates, ray tracing, and pump paths
 // without producing audible output for the user.
 const HIDDEN_AUDIO_OUTPUT_GAIN_DB: f32 = -120.0;
-struct FrameSync {
-    image_available: Semaphore,
-    fence: Fence,
-    command_buffer: CommandBuffer,
-}
 
 struct ScreenshotReadback {
     path: String,
@@ -104,6 +100,24 @@ struct TerrainSdfColliderRebuildRequest;
 
 #[derive(Clone, Copy, Debug, Default)]
 struct WaterTerrainCacheRebuildRequest;
+
+#[derive(Clone, Copy, Debug, Default)]
+struct FrameTimingSnapshot {
+    frame: u64,
+    total_ms: f32,
+    egui_ms: f32,
+    gpu_present_ms: f32,
+    contree_poll_ms: f32,
+    terrain_source_ms: f32,
+    deferred_rebuild_ms: f32,
+    water_cache_ms: f32,
+    collider_queue_ms: f32,
+    water_edit_soak_ms: f32,
+    water_handoff_ms: f32,
+    particles_ms: f32,
+    tracked_cpu_ms: f32,
+    untracked_cpu_ms: f32,
+}
 
 struct LoadingState {
     chunk_indices: Vec<UVec3>,
@@ -134,16 +148,141 @@ impl LoadingState {
     }
 }
 
+fn draw_frame_timing_panel(
+    ctx: &egui::Context,
+    timing: FrameTimingSnapshot,
+    gpu_results: Option<&GpuProfilerFrameResults>,
+    perf_logging: bool,
+) {
+    let rows = [
+        ("total", timing.total_ms),
+        ("egui", timing.egui_ms),
+        ("gpu + present", timing.gpu_present_ms),
+        ("contree poll", timing.contree_poll_ms),
+        ("terrain source", timing.terrain_source_ms),
+        ("deferred rebuild", timing.deferred_rebuild_ms),
+        ("water cache", timing.water_cache_ms),
+        ("collider queue", timing.collider_queue_ms),
+        ("water edit soak", timing.water_edit_soak_ms),
+        ("water handoff", timing.water_handoff_ms),
+        ("particles", timing.particles_ms),
+        ("tracked cpu", timing.tracked_cpu_ms),
+        ("untracked cpu", timing.untracked_cpu_ms),
+    ];
+    egui::Area::new("frame_timing_panel".into())
+        .anchor(egui::Align2::RIGHT_TOP, egui::Vec2::new(-16.0, 16.0))
+        .show(ctx, |ui| {
+            let timing_frame = egui::containers::Frame {
+                fill: PANEL_DARK,
+                inner_margin: egui::Margin::symmetric(12, 10),
+                corner_radius: egui::CornerRadius::same(0),
+                shadow: egui::epaint::Shadow {
+                    offset: [4, 4],
+                    blur: 0,
+                    spread: 0,
+                    color: SHADOW_COLOR,
+                },
+                stroke: egui::Stroke::new(2.0, GOLD_ACCENT),
+                ..Default::default()
+            };
+
+            timing_frame.show(ui, |ui| {
+                ui.set_width(340.0);
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new("Frame Timing")
+                            .color(GOLD_ACCENT)
+                            .monospace()
+                            .size(13.0)
+                            .strong(),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(RichText::new("P").color(SAGE_ACCENT).monospace().size(11.0));
+                    });
+                });
+                ui.label(
+                    RichText::new(format!(
+                        "previous frame {}{}",
+                        timing.frame,
+                        if perf_logging { " · logging" } else { "" }
+                    ))
+                    .color(SAGE_ACCENT)
+                    .monospace()
+                    .size(10.0),
+                );
+                ui.add_space(4.0);
+
+                for (label, value_ms) in rows {
+                    let value_us = value_ms * 1000.0;
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(format!("{label:<18}"))
+                                .color(SAGE_ACCENT)
+                                .monospace()
+                                .size(11.0),
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(
+                                RichText::new(format!("{value_us:>8.0} us"))
+                                    .color(Color32::WHITE)
+                                    .monospace()
+                                    .size(11.0),
+                            );
+                        });
+                    });
+                }
+
+                if let Some(gpu_results) = gpu_results {
+                    ui.add_space(4.0);
+                    ui.separator();
+                    ui.label(
+                        RichText::new(format!(
+                            "gpu scopes{}",
+                            if gpu_results.dropped_scope_count == 0 {
+                                "".to_owned()
+                            } else {
+                                format!(" · dropped {}", gpu_results.dropped_scope_count)
+                            }
+                        ))
+                        .color(GOLD_ACCENT)
+                        .monospace()
+                        .size(11.0),
+                    );
+                    for scope in gpu_results.scopes.iter().take(12) {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(format!("{:<18}", scope.name))
+                                    .color(SAGE_ACCENT)
+                                    .monospace()
+                                    .size(11.0),
+                            );
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.label(
+                                        RichText::new(format!("{:>8.0} us", scope.duration_us()))
+                                            .color(Color32::WHITE)
+                                            .monospace()
+                                            .size(11.0),
+                                    );
+                                },
+                            );
+                        });
+                    }
+                }
+            });
+        });
+}
+
 pub struct App {
     egui_renderer: EguiRenderer,
     loading_state: Option<LoadingState>,
     is_resize_pending: bool,
     swapchain: Swapchain,
     window_state: WindowState,
-    frames_in_flight: Vec<FrameSync>,
-    current_frame: usize,
-    image_render_finished_semaphores: Vec<Semaphore>,
-    images_in_flight: Vec<Option<Fence>>,
+    frame_manager: SwapchainFrameManager,
+    gpu_profiler: Option<GpuProfiler>,
+    gpu_profiler_latest_results: Option<GpuProfilerFrameResults>,
     time_info: TimeInfo,
     render_flags: RenderFlags,
     accumulated_mouse_delta: Vec2,
@@ -166,6 +305,8 @@ pub struct App {
     debug_tree_pos: Vec3,
     config_panel_visible: bool,
     settings_panel_visible: bool,
+    frame_timing_panel_visible: bool,
+    frame_timing_snapshot: FrameTimingSnapshot,
     is_fly_mode: bool,
     item_panel_shovel_icon: Option<TextureHandle>,
     item_panel_staff_icon: Option<TextureHandle>,
@@ -251,6 +392,44 @@ impl Drop for App {
 impl App {
     pub(super) fn track_growing_flora_chunk(&mut self, chunk_id: UVec3) {
         self.growing_flora_chunks.push(chunk_id, self.flora_tick);
+    }
+
+    fn collect_gpu_profiler_frame(&mut self, frame_slot: usize) {
+        let Some(profiler) = &self.gpu_profiler else {
+            return;
+        };
+        match profiler.try_collect_frame(frame_slot) {
+            Ok(Some(results)) => {
+                self.gpu_profiler_latest_results = Some(results);
+            }
+            Ok(None) => {}
+            Err(err) => {
+                log::warn!("[PERF][GPU_PROFILER] frame_slot={frame_slot} readback failed: {err}");
+            }
+        }
+    }
+
+    fn log_gpu_profiler_frame(&self, frame_count: u64) {
+        let Some(results) = self.gpu_profiler_latest_results.as_ref() else {
+            return;
+        };
+        if results.scopes.is_empty() && results.dropped_scope_count == 0 {
+            return;
+        }
+
+        let scopes = results
+            .scopes
+            .iter()
+            .map(|scope| format!("{}={:.0}us", scope.name, scope.duration_us()))
+            .collect::<Vec<_>>()
+            .join(" ");
+        log::info!(
+            "[PERF][GPU_FRAME_SCOPE] frame {} scopes={} dropped={} {}",
+            frame_count,
+            results.scopes.len(),
+            results.dropped_scope_count,
+            scopes,
+        );
     }
 
     fn update_growing_flora_chunk(&mut self) {
@@ -399,6 +578,7 @@ const VOXEL_DIM_PER_CHUNK: UVec3 = UVec3::new(256, 256, 256);
 const CHUNK_DIM: UVec3 = UVec3::new(5, 2, 5);
 const FREE_ATLAS_DIM: UVec3 = UVec3::new(512, 512, 512);
 const MAX_FRAMES_IN_FLIGHT: usize = 1;
+const GPU_PROFILER_MAX_SCOPES_PER_FRAME: usize = 64;
 const SHOVEL_REMOVE_RADIUS: f32 = 0.08;
 const SHOVEL_DIG_INTERVAL: Duration = Duration::from_millis(80);
 const SHOVEL_RAY_QUERY_DISTANCE: f32 = 10.0;
@@ -736,17 +916,23 @@ impl App {
             },
         );
 
-        let frames_in_flight = (0..MAX_FRAMES_IN_FLIGHT)
-            .map(|_| FrameSync {
-                image_available: Semaphore::new(device),
-                fence: Fence::new(device, true),
-                command_buffer: CommandBuffer::new(device, vulkan_ctx.command_pool()),
+        let frame_manager = SwapchainFrameManager::new(
+            device,
+            vulkan_ctx.command_pool(),
+            MAX_FRAMES_IN_FLIGHT,
+            swapchain.image_count(),
+        );
+        let gpu_profiler = options
+            .perf
+            .then(|| {
+                GpuProfiler::maybe_new(
+                    &vulkan_ctx,
+                    MAX_FRAMES_IN_FLIGHT,
+                    GPU_PROFILER_MAX_SCOPES_PER_FRAME,
+                    "PERF][GPU_PROFILER",
+                )
             })
-            .collect::<Vec<_>>();
-        let current_frame = 0;
-        let swapchain_image_count = swapchain.image_count();
-        let (image_render_finished_semaphores, images_in_flight) =
-            Self::create_swapchain_image_syncs(device, swapchain_image_count);
+            .flatten();
 
         let renderer = EguiRenderer::new(
             vulkan_ctx.clone(),
@@ -764,7 +950,7 @@ impl App {
             FREE_ATLAS_DIM,
         );
 
-        let surface_builder = SurfaceBuilder::new(
+        let mut surface_builder = SurfaceBuilder::new(
             vulkan_ctx.clone(),
             allocator.clone(),
             &shader_compiler,
@@ -772,6 +958,9 @@ impl App {
             VOXEL_DIM_PER_CHUNK,
             chunk_bound,
         );
+        if options.perf {
+            surface_builder.enable_gpu_job_profiling(32);
+        }
 
         let contree_builder = ContreeBuilder::new(
             vulkan_ctx.clone(),
@@ -970,10 +1159,9 @@ impl App {
             mute_audio_output: options.hidden,
 
             swapchain,
-            frames_in_flight,
-            current_frame,
-            image_render_finished_semaphores,
-            images_in_flight,
+            frame_manager,
+            gpu_profiler,
+            gpu_profiler_latest_results: None,
 
             tracer,
 
@@ -997,6 +1185,8 @@ impl App {
             tree_records: HashMap::new(),
             config_panel_visible: false,
             settings_panel_visible: false,
+            frame_timing_panel_visible: options.perf,
+            frame_timing_snapshot: FrameTimingSnapshot::default(),
             is_fly_mode: true,
             item_panel_shovel_icon: None,
             item_panel_staff_icon: None,
@@ -1268,30 +1458,32 @@ impl App {
                     });
             });
 
-        let device = self.vulkan_ctx.device();
-        let sync = &self.frames_in_flight[self.current_frame];
-        let cmdbuf = &sync.command_buffer;
-
-        sync.fence.wait().unwrap();
-
-        let image_idx = match self.swapchain.acquire_next_image(&sync.image_available) {
-            Ok(image_index) => image_index,
+        let frame = match self.frame_manager.begin_frame(&mut self.swapchain) {
+            Ok(frame) => frame,
             Err(SwapchainFrameError::OutOfDate) => {
                 self.is_resize_pending = true;
                 return;
             }
             Err(error) => panic!("Error while acquiring next image. Cause: {}", error),
         };
-
-        let image_index_usize = image_idx as usize;
-        if let Some(image_in_flight_fence) = &self.images_in_flight[image_index_usize] {
-            image_in_flight_fence.wait().unwrap();
-        }
-        self.images_in_flight[image_index_usize] = Some(sync.fence.clone());
-
-        sync.fence.reset().expect("Failed to reset fences");
+        let frame_slot = frame.frame_slot();
+        self.collect_gpu_profiler_frame(frame_slot);
+        let device = self.vulkan_ctx.device();
+        let cmdbuf = frame.command_buffer();
+        let image_idx = frame.image_index();
 
         cmdbuf.begin(false);
+        if let Some(profiler) = self.gpu_profiler.as_mut() {
+            profiler.begin_frame(frame_slot, cmdbuf);
+        }
+        let frame_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
+            profiler.begin_scope(
+                frame_slot,
+                cmdbuf,
+                "frame.render",
+                PipelineStage::ALL_COMMANDS,
+            )
+        });
 
         let render_area = self.window_state.window_extent();
 
@@ -1301,19 +1493,35 @@ impl App {
         self.swapchain
             .record_begin_render_pass_cmdbuf(cmdbuf, image_idx, render_area);
 
+        let egui_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
+            profiler.begin_scope(
+                frame_slot,
+                cmdbuf,
+                "egui.render",
+                PipelineStage::ALL_COMMANDS,
+            )
+        });
         self.egui_renderer
             .record_command_buffer(device, cmdbuf, render_area);
+        if let Some(scope) = egui_gpu_scope {
+            if let Some(profiler) = self.gpu_profiler.as_mut() {
+                profiler.end_scope(frame_slot, cmdbuf, scope, PipelineStage::ALL_COMMANDS);
+            }
+        }
 
         cmdbuf.end_render_pass();
 
+        if let Some(scope) = frame_gpu_scope {
+            if let Some(profiler) = self.gpu_profiler.as_mut() {
+                profiler.end_scope(frame_slot, cmdbuf, scope, PipelineStage::ALL_COMMANDS);
+            }
+        }
+
         cmdbuf.end();
 
-        let render_finished = &self.image_render_finished_semaphores[image_index_usize];
-        self.vulkan_ctx
-            .submit_render_commands(cmdbuf, &sync.image_available, render_finished, &sync.fence)
-            .expect("Failed to submit work to gpu.");
-
-        let present_result = self.swapchain.present_after(render_finished, image_idx);
+        let present_result =
+            self.frame_manager
+                .submit_and_present(&self.vulkan_ctx, &mut self.swapchain, &frame);
         match present_result {
             Ok(is_suboptimal) if is_suboptimal => {
                 self.is_resize_pending = true;
@@ -1324,8 +1532,6 @@ impl App {
             Err(error) => panic!("Failed to present queue. Cause: {}", error),
             _ => {}
         }
-
-        self.current_frame = (self.current_frame + 1) % self.frames_in_flight.len();
 
         if is_done {
             self.loading_state = None;
@@ -1641,6 +1847,11 @@ impl App {
                 self.sync_cursor_with_panels();
                 return;
             }
+
+            if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyP {
+                self.frame_timing_panel_visible = !self.frame_timing_panel_visible;
+                return;
+            }
         }
 
         // if cursor is visible, feed the event to gui first, if the event is being consumed by gui, no need to handle it again later
@@ -1794,6 +2005,7 @@ impl App {
 
                 let frame_start = Instant::now();
                 let frame_perf_enabled = self.perf_logging;
+                let frame_timing_enabled = frame_perf_enabled || self.frame_timing_panel_visible;
                 let mut contree_cache_poll_ms = 0.0f32;
                 let mut terrain_sdf_source_ms = 0.0f32;
                 let mut deferred_chunk_rebuild_ms = 0.0f32;
@@ -1811,13 +2023,13 @@ impl App {
                 self.window_state.maintain_cursor_grab();
 
                 self.time_info.update(self.perf_logging);
-                let contree_cache_poll_start = frame_perf_enabled.then(Instant::now);
+                let contree_cache_poll_start = frame_timing_enabled.then(Instant::now);
                 self.contree_builder
                     .poll_cpu_chunk_cache_jobs(self.tracer.camera_position(), VOXEL_DIM_PER_CHUNK);
                 if let Some(start) = contree_cache_poll_start {
                     contree_cache_poll_ms += start.elapsed().as_secs_f32() * 1000.0;
                 }
-                let terrain_sdf_source_start = frame_perf_enabled.then(Instant::now);
+                let terrain_sdf_source_start = frame_timing_enabled.then(Instant::now);
                 self.process_terrain_sdf_source_updates();
                 if let Some(start) = terrain_sdf_source_start {
                     terrain_sdf_source_ms += start.elapsed().as_secs_f32() * 1000.0;
@@ -2193,6 +2405,15 @@ impl App {
                             painter.circle_filled(center, 4.0, Color32::RED);
                         }
 
+                        if self.frame_timing_panel_visible {
+                            draw_frame_timing_panel(
+                                ctx,
+                                self.frame_timing_snapshot,
+                                self.gpu_profiler_latest_results.as_ref(),
+                                self.perf_logging,
+                            );
+                        }
+
                         // FPS counter in bottom right
                         egui::Area::new("fps_counter".into())
                             .anchor(egui::Align2::RIGHT_BOTTOM, egui::Vec2::new(-16.0, -16.0))
@@ -2270,31 +2491,31 @@ impl App {
                     return;
                 }
 
-                let terrain_sdf_source_start = frame_perf_enabled.then(Instant::now);
+                let terrain_sdf_source_start = frame_timing_enabled.then(Instant::now);
                 self.process_terrain_sdf_source_updates();
                 if let Some(start) = terrain_sdf_source_start {
                     terrain_sdf_source_ms += start.elapsed().as_secs_f32() * 1000.0;
                 }
 
-                let deferred_chunk_rebuild_start = frame_perf_enabled.then(Instant::now);
+                let deferred_chunk_rebuild_start = frame_timing_enabled.then(Instant::now);
                 self.process_deferred_chunk_rebuild();
                 if let Some(start) = deferred_chunk_rebuild_start {
                     deferred_chunk_rebuild_ms += start.elapsed().as_secs_f32() * 1000.0;
                 }
 
-                let water_terrain_cache_start = frame_perf_enabled.then(Instant::now);
+                let water_terrain_cache_start = frame_timing_enabled.then(Instant::now);
                 self.process_deferred_water_terrain_cache_rebuild();
                 if let Some(start) = water_terrain_cache_start {
                     water_terrain_cache_ms += start.elapsed().as_secs_f32() * 1000.0;
                 }
 
-                let terrain_sdf_collider_start = frame_perf_enabled.then(Instant::now);
+                let terrain_sdf_collider_start = frame_timing_enabled.then(Instant::now);
                 self.process_deferred_terrain_sdf_collider_rebuild();
                 if let Some(start) = terrain_sdf_collider_start {
                     terrain_sdf_collider_ms += start.elapsed().as_secs_f32() * 1000.0;
                 }
 
-                let water_edit_soak_start = frame_perf_enabled.then(Instant::now);
+                let water_edit_soak_start = frame_timing_enabled.then(Instant::now);
                 self.process_water_edit_soak();
                 if let Some(start) = water_edit_soak_start {
                     water_edit_soak_ms += start.elapsed().as_secs_f32() * 1000.0;
@@ -2352,13 +2573,13 @@ impl App {
                         self.update_water_sim(frame_delta_time, world_tick_seconds);
                         let elapsed_ms = water_handoff_start.elapsed().as_secs_f32() * 1000.0;
                         self.water_particle_handoff_main_thread_ms = Some(elapsed_ms);
-                        if frame_perf_enabled {
+                        if frame_timing_enabled {
                             water_handoff_ms += elapsed_ms;
                         }
                     } else {
                         self.water_particle_handoff_main_thread_ms = None;
                     }
-                    let particle_update_start = frame_perf_enabled.then(Instant::now);
+                    let particle_update_start = frame_timing_enabled.then(Instant::now);
                     self.update_particle_simulation(frame_delta_time);
                     if let Some(start) = particle_update_start {
                         particle_update_ms += start.elapsed().as_secs_f32() * 1000.0;
@@ -2366,30 +2587,32 @@ impl App {
                 }
 
                 let gpu_record_start = Instant::now();
-                let device = self.vulkan_ctx.device();
-                let sync = &self.frames_in_flight[self.current_frame];
-                let cmdbuf = &sync.command_buffer;
-
-                sync.fence.wait().unwrap();
-
-                let image_idx = match self.swapchain.acquire_next_image(&sync.image_available) {
-                    Ok(image_index) => image_index,
+                let frame = match self.frame_manager.begin_frame(&mut self.swapchain) {
+                    Ok(frame) => frame,
                     Err(SwapchainFrameError::OutOfDate) => {
                         self.is_resize_pending = true;
                         return;
                     }
                     Err(error) => panic!("Error while acquiring next image. Cause: {}", error),
                 };
-
-                let image_index_usize = image_idx as usize;
-                if let Some(image_in_flight_fence) = &self.images_in_flight[image_index_usize] {
-                    image_in_flight_fence.wait().unwrap();
-                }
-                self.images_in_flight[image_index_usize] = Some(sync.fence.clone());
-
-                sync.fence.reset().expect("Failed to reset fences");
+                let frame_slot = frame.frame_slot();
+                self.collect_gpu_profiler_frame(frame_slot);
+                let device = self.vulkan_ctx.device();
+                let cmdbuf = frame.command_buffer();
+                let image_idx = frame.image_index();
 
                 cmdbuf.begin(false);
+                if let Some(profiler) = self.gpu_profiler.as_mut() {
+                    profiler.begin_frame(frame_slot, cmdbuf);
+                }
+                let frame_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
+                    profiler.begin_scope(
+                        frame_slot,
+                        cmdbuf,
+                        "frame.render",
+                        PipelineStage::ALL_COMMANDS,
+                    )
+                });
 
                 let (sun_altitude, sun_azimuth) = Self::calculate_sun_position(
                     self.gui_adjustables.time_of_day.value,
@@ -2574,6 +2797,15 @@ impl App {
                     self.gui_adjustables.vsm_temporal_alpha.value,
                     frame_delta_time,
                 );
+                let tracer_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
+                    profiler.begin_scope(
+                        frame_slot,
+                        cmdbuf,
+                        "tracer.render",
+                        PipelineStage::ALL_COMMANDS,
+                    )
+                });
+                let mut gpu_profiler_for_trace = self.gpu_profiler.take();
                 self.tracer
                     .record_trace(
                         cmdbuf,
@@ -2590,8 +2822,16 @@ impl App {
                         self.gui_adjustables.vsm_blur_radius.value,
                         vsm_temporal_alpha,
                         reset_vsm_history,
+                        gpu_profiler_for_trace.as_mut(),
+                        frame_slot,
                     )
                     .unwrap();
+                if let Some(scope) = tracer_gpu_scope {
+                    if let Some(profiler) = gpu_profiler_for_trace.as_mut() {
+                        profiler.end_scope(frame_slot, cmdbuf, scope, PipelineStage::ALL_COMMANDS);
+                    }
+                }
+                self.gpu_profiler = gpu_profiler_for_trace;
                 if update_shadow_map {
                     self.vsm_history_reset_pending = false;
                 }
@@ -2623,8 +2863,21 @@ impl App {
                 self.swapchain
                     .record_begin_render_pass_cmdbuf(cmdbuf, image_idx, render_area);
 
+                let egui_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
+                    profiler.begin_scope(
+                        frame_slot,
+                        cmdbuf,
+                        "egui.render",
+                        PipelineStage::ALL_COMMANDS,
+                    )
+                });
                 self.egui_renderer
                     .record_command_buffer(device, cmdbuf, render_area);
+                if let Some(scope) = egui_gpu_scope {
+                    if let Some(profiler) = self.gpu_profiler.as_mut() {
+                        profiler.end_scope(frame_slot, cmdbuf, scope, PipelineStage::ALL_COMMANDS);
+                    }
+                }
 
                 cmdbuf.end_render_pass();
 
@@ -2632,19 +2885,19 @@ impl App {
                     self.record_screenshot_readback(cmdbuf, image_idx, readback);
                 }
 
+                if let Some(scope) = frame_gpu_scope {
+                    if let Some(profiler) = self.gpu_profiler.as_mut() {
+                        profiler.end_scope(frame_slot, cmdbuf, scope, PipelineStage::ALL_COMMANDS);
+                    }
+                }
+
                 cmdbuf.end();
 
-                let render_finished = &self.image_render_finished_semaphores[image_index_usize];
-                self.vulkan_ctx
-                    .submit_render_commands(
-                        cmdbuf,
-                        &sync.image_available,
-                        render_finished,
-                        &sync.fence,
-                    )
-                    .expect("Failed to submit work to gpu.");
-
-                let present_result = self.swapchain.present_after(render_finished, image_idx);
+                let present_result = self.frame_manager.submit_and_present(
+                    &self.vulkan_ctx,
+                    &mut self.swapchain,
+                    &frame,
+                );
                 let gpu_ms = gpu_record_start.elapsed().as_secs_f32() * 1000.0;
 
                 match present_result {
@@ -2659,11 +2912,9 @@ impl App {
                 }
 
                 if let Some(readback) = screenshot_readback {
-                    sync.fence.wait().unwrap();
+                    frame.wait_until_complete().unwrap();
                     Self::write_screenshot_readback(readback);
                 }
-
-                self.current_frame = (self.current_frame + 1) % self.frames_in_flight.len();
 
                 self.tracer.set_head_bob_params(
                     self.gui_adjustables.headbob_vertical_amp.value,
@@ -2685,6 +2936,31 @@ impl App {
 
                 let total_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
                 let frame_count = self.time_info.total_frame_count();
+                let tracked_cpu_ms = contree_cache_poll_ms
+                    + terrain_sdf_source_ms
+                    + deferred_chunk_rebuild_ms
+                    + water_terrain_cache_ms
+                    + terrain_sdf_collider_ms
+                    + water_edit_soak_ms
+                    + water_handoff_ms
+                    + particle_update_ms;
+                let untracked_cpu_ms = (total_ms - egui_ms - gpu_ms - tracked_cpu_ms).max(0.0);
+                self.frame_timing_snapshot = FrameTimingSnapshot {
+                    frame: frame_count,
+                    total_ms,
+                    egui_ms,
+                    gpu_present_ms: gpu_ms,
+                    contree_poll_ms: contree_cache_poll_ms,
+                    terrain_source_ms: terrain_sdf_source_ms,
+                    deferred_rebuild_ms: deferred_chunk_rebuild_ms,
+                    water_cache_ms: water_terrain_cache_ms,
+                    collider_queue_ms: terrain_sdf_collider_ms,
+                    water_edit_soak_ms,
+                    water_handoff_ms,
+                    particles_ms: particle_update_ms,
+                    tracked_cpu_ms,
+                    untracked_cpu_ms,
+                };
                 if frame_perf_enabled && frame_count.is_multiple_of(30) {
                     log::info!(
                         "[PERF] frame {} total {:.2}ms egui {:.2}ms gpu+present {:.2}ms",
@@ -2693,17 +2969,9 @@ impl App {
                         egui_ms,
                         gpu_ms
                     );
+                    self.log_gpu_profiler_frame(frame_count);
                 }
                 if frame_perf_enabled {
-                    let tracked_cpu_ms = contree_cache_poll_ms
-                        + terrain_sdf_source_ms
-                        + deferred_chunk_rebuild_ms
-                        + water_terrain_cache_ms
-                        + terrain_sdf_collider_ms
-                        + water_edit_soak_ms
-                        + water_handoff_ms
-                        + particle_update_ms;
-                    let untracked_cpu_ms = (total_ms - egui_ms - gpu_ms - tracked_cpu_ms).max(0.0);
                     let queue_work_ms = terrain_sdf_source_ms
                         + deferred_chunk_rebuild_ms
                         + water_terrain_cache_ms

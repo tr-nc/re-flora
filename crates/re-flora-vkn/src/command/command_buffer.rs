@@ -1,7 +1,12 @@
 use super::CommandPool;
-use crate::{Buffer, DescriptorSet, Device, Extent2D, Fence, GraphicsPipeline, Queue, Viewport};
+use crate::{
+    Buffer, DescriptorSet, Device, Extent2D, GpuJobDesc, GpuJobManager, GraphicsPipeline,
+    JobCompletion, Queue, QueueLane, SubmitDesc, Viewport,
+};
 use ash::vk;
 use std::sync::Arc;
+
+const MAX_VERTEX_BUFFER_BINDINGS: usize = 8;
 
 struct CommandBufferInner {
     device: Device,
@@ -106,13 +111,24 @@ impl CommandBuffer {
     }
 
     pub fn bind_vertex_buffers(&self, first_binding: u32, buffers: &[&Buffer]) {
-        let raw_buffers = buffers.iter().map(|buffer| buffer.as_raw()).collect::<Vec<_>>();
-        let offsets = vec![0u64; raw_buffers.len()];
+        assert!(
+            buffers.len() <= MAX_VERTEX_BUFFER_BINDINGS,
+            "binding {} vertex buffers exceeds fixed stack capacity {}",
+            buffers.len(),
+            MAX_VERTEX_BUFFER_BINDINGS
+        );
+
+        let mut raw_buffers = [vk::Buffer::null(); MAX_VERTEX_BUFFER_BINDINGS];
+        let offsets = [0u64; MAX_VERTEX_BUFFER_BINDINGS];
+        for (dst, buffer) in raw_buffers.iter_mut().zip(buffers.iter()) {
+            *dst = buffer.as_raw();
+        }
+
         self.0.device.cmd_bind_vertex_buffers_raw(
             self.0.command_buffer,
             first_binding,
-            &raw_buffers,
-            &offsets,
+            &raw_buffers[..buffers.len()],
+            &offsets[..buffers.len()],
         );
     }
 
@@ -161,20 +177,21 @@ impl CommandBuffer {
         );
     }
 
-    pub fn submit(&self, queue: &Queue, fence: Option<&Fence>) {
-        let command_buffers = [self.as_raw()];
-        let submit_info = vk::SubmitInfo::default().command_buffers(&command_buffers);
-
-        let vk_fence = fence
-            .as_ref()
-            .map(|f| f.as_raw())
-            .unwrap_or(vk::Fence::null());
-        unsafe {
-            self.0
-                .device
-                .queue_submit(queue.as_raw(), &[submit_info], vk_fence)
-                .unwrap();
-        }
+    pub fn submit_gpu_job(
+        &self,
+        queue: &Queue,
+        name: &'static str,
+    ) -> ash::prelude::VkResult<crate::GpuJobToken> {
+        let command_buffers = [self];
+        let desc = GpuJobDesc::new(
+            name,
+            QueueLane::General,
+            &command_buffers,
+            &[],
+            &[],
+            JobCompletion::Fence,
+        );
+        GpuJobManager::submit(&self.0.device, queue, desc)
     }
 }
 
@@ -202,33 +219,39 @@ pub fn execute_one_time_command<R, F: FnOnce(&CommandBuffer) -> R>(
     let result = executor(&command_buffer);
     command_buffer.end();
 
-    command_buffer.submit(queue, None);
+    let command_buffers = [&command_buffer];
+    let desc = SubmitDesc::new("execute_one_time_command", &command_buffers, &[], &[], None);
+    device.submit_to_queue(queue, desc).unwrap();
     device.wait_queue_idle(queue);
     result
 }
 
-/// Execute a one-time command buffer and wait only for its submission fence.
+/// Execute a one-time command buffer as a managed GPU job and wait only for
+/// that job to complete.
 ///
 /// This avoids idling the entire queue, which is useful for small compute jobs
 /// like batched terrain queries that need synchronous CPU readback.
-pub fn execute_one_time_command_with_fence<R, F: FnOnce(&CommandBuffer) -> R>(
+pub fn execute_one_time_gpu_job<R, F: FnOnce(&CommandBuffer) -> R>(
     device: &Device,
     pool: &CommandPool,
     queue: &Queue,
     executor: F,
 ) -> R {
     let command_buffer = CommandBuffer::new(device, pool);
-    let fence = Fence::new(device, false);
-
     command_buffer.begin(true);
     let result = executor(&command_buffer);
     command_buffer.end();
 
-    command_buffer.submit(queue, Some(&fence));
-    unsafe {
-        device
-            .wait_for_fences(&[fence.as_raw()], true, u64::MAX)
-            .unwrap();
-    }
+    let command_buffers = [&command_buffer];
+    let desc = GpuJobDesc::new(
+        "execute_one_time_gpu_job",
+        QueueLane::General,
+        &command_buffers,
+        &[],
+        &[],
+        JobCompletion::Fence,
+    );
+    let job = GpuJobManager::submit(device, queue, desc).unwrap();
+    job.wait().unwrap();
     result
 }

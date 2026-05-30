@@ -12,11 +12,10 @@ use crate::{
 use anyhow::Result;
 use bytemuck::Zeroable;
 use glam::{UVec3, Vec3};
-use re_flora_vkn::vk;
 use re_flora_vkn::{
     Buffer, ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DescriptorPool, Extent3D,
-    Fence, MemoryBarrier, PipelineBarrier, ShaderModule, TimestampQueryPool, VulkanContext,
-    WriteDescriptorSet,
+    GpuJobProfiler, GpuJobScopeToken, GpuJobToken, PipelineBarrier, PipelineStage, QueueLane,
+    ShaderModule, TextureLayout, TimestampQueryPool, VulkanContext, WriteDescriptorSet,
 };
 pub use resources::*;
 use std::time::{Duration, Instant};
@@ -58,7 +57,8 @@ pub struct SurfaceBuildJob {
     record_elapsed: Duration,
     submit_elapsed: Duration,
     _command_buffer: CommandBuffer,
-    fence: Fence,
+    gpu_job: GpuJobToken,
+    gpu_scope: Option<GpuJobScopeToken>,
 }
 
 #[allow(dead_code)]
@@ -73,7 +73,7 @@ pub struct SurfaceBuildResult {
     pub setup_ms: f64,
     pub record_ms: f64,
     pub gpu_submit_ms: f64,
-    pub fence_latency_ms: f64,
+    pub gpu_completion_latency_ms: f64,
     pub readback_ms: f64,
     pub flora_ms: f64,
     pub total_ms: f64,
@@ -130,11 +130,8 @@ impl SurfacePassTiming {
     }
 
     fn record_timestamp(&self, cmdbuf: &CommandBuffer, query_index: usize) {
-        self.query_pool.record_timestamp(
-            cmdbuf,
-            vk::PipelineStageFlags::ALL_COMMANDS,
-            query_index as u32,
-        );
+        self.query_pool
+            .record_timestamp(cmdbuf, PipelineStage::ALL_COMMANDS, query_index as u32);
     }
 
     fn collect_and_log(
@@ -327,6 +324,7 @@ pub struct SurfaceBuilder {
     active_surface_to_flora_ppl: ComputePipeline,
     update_flora_growth_ppl: ComputePipeline,
     pass_timing: Option<SurfacePassTiming>,
+    gpu_job_profiler: Option<GpuJobProfiler>,
 
     chunk_bound: UAabb3,
     voxel_dim_per_chunk: UVec3,
@@ -506,15 +504,31 @@ impl SurfaceBuilder {
             active_surface_to_flora_ppl,
             update_flora_growth_ppl,
             pass_timing,
+            gpu_job_profiler: None,
             chunk_bound,
             voxel_dim_per_chunk,
             flora_species_count,
         }
     }
 
+    pub fn enable_gpu_job_profiling(&mut self, max_scopes: usize) {
+        self.gpu_job_profiler = GpuJobProfiler::maybe_new(
+            &self.vulkan_ctx,
+            max_scopes,
+            "PERF][SURFACE_GPU_JOB_PROFILER",
+        );
+        if let Some(profiler) = self.gpu_job_profiler.as_ref() {
+            log::info!(
+                "[PERF][SURFACE_GPU_JOB_PROFILER] enabled max_scopes={} timestamp_period_ns={:.3}",
+                profiler.max_scopes(),
+                profiler.timestamp_period_ns(),
+            );
+        }
+    }
+
     pub fn build_surface(&mut self, chunk_id: UVec3, place_flora: bool) -> Result<u32> {
         let job = self.submit_build_surface(chunk_id, place_flora)?;
-        job.fence.wait()?;
+        job.gpu_job.wait()?;
         let result = self.finish_build_surface(job)?;
         Ok(result.active_voxel_len)
     }
@@ -562,6 +576,15 @@ impl SurfaceBuilder {
         let cmdbuf = CommandBuffer::new(device, self.vulkan_ctx.command_pool());
         cmdbuf.begin(true);
 
+        let gpu_scope = self.gpu_job_profiler.as_mut().and_then(|profiler| {
+            profiler.begin_scope(
+                &cmdbuf,
+                "surface.build",
+                QueueLane::General,
+                PipelineStage::COMPUTE_SHADER,
+            )
+        });
+
         let pass_timing = self.pass_timing.as_ref();
         let timing_passes = surface_build_timing_passes(place_flora);
         if let Some(timing) = pass_timing {
@@ -585,7 +608,7 @@ impl SurfaceBuilder {
         record_timed_surface_pass!({
             self.resources.surface.get_image().record_clear(
                 &cmdbuf,
-                Some(vk::ImageLayout::GENERAL),
+                Some(TextureLayout::GENERAL),
                 0,
                 ClearValue::Color(ColorClearValue::UInt([0, 0, 0, 0])),
             );
@@ -651,12 +674,18 @@ impl SurfaceBuilder {
             assert_eq!(timing_pass_index, timing_passes.len());
         }
 
+        if let Some(scope) = gpu_scope {
+            if let Some(profiler) = self.gpu_job_profiler.as_mut() {
+                profiler.end_scope(&cmdbuf, scope, PipelineStage::COMPUTE_SHADER);
+            }
+        }
+
         cmdbuf.end();
         let record_elapsed = record_start.elapsed();
 
         let submit_start = Instant::now();
-        let fence = Fence::new(device, false);
-        cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), Some(&fence));
+        let gpu_job =
+            cmdbuf.submit_gpu_job(&self.vulkan_ctx.get_general_queue(), "surface.build")?;
         let submitted_at = Instant::now();
         let submit_elapsed = submit_start.elapsed();
 
@@ -670,29 +699,53 @@ impl SurfaceBuilder {
             record_elapsed,
             submit_elapsed,
             _command_buffer: cmdbuf,
-            fence,
+            gpu_job,
+            gpu_scope,
         })
     }
 
     pub fn build_surface_ready(&self, job: &SurfaceBuildJob) -> Result<bool> {
-        job.fence
-            .is_signaled()
-            .map_err(|err| anyhow::anyhow!("failed to poll surface build fence: {err}"))
+        job.gpu_job
+            .is_complete()
+            .map_err(|err| anyhow::anyhow!("failed to poll surface build GPU job: {err}"))
     }
 
     pub fn wait_build_surface(&self, job: &SurfaceBuildJob) -> Result<()> {
-        job.fence.wait()?;
+        job.gpu_job.wait()?;
         Ok(())
     }
 
     pub fn finish_build_surface(&mut self, job: SurfaceBuildJob) -> Result<SurfaceBuildResult> {
-        let fence_latency_elapsed = job.submitted_at.elapsed();
+        let gpu_completion_latency_elapsed = job.submitted_at.elapsed();
         let readback_start = Instant::now();
         let make_surface_result = get_make_surface_result(&self.resources.make_surface_result);
         let active_voxel_len = make_surface_result.active_voxel_len;
         let active_brick_len = make_surface_result.active_brick_len;
         let solid_workgroup_len = make_surface_result.solid_workgroup_len;
         let readback_elapsed = readback_start.elapsed();
+
+        if let Some(scope) = job.gpu_scope {
+            if let Some(profiler) = self.gpu_job_profiler.as_mut() {
+                match profiler.collect_completed_scope(scope) {
+                    Ok(Some(result)) => {
+                        log::info!(
+                            "[PERF][GPU_JOB_SCOPE] name={} queue={:?} chunk {:?} duration={:.0}us",
+                            result.name,
+                            result.queue,
+                            job.chunk_id,
+                            result.duration_us(),
+                        );
+                    }
+                    Ok(None) => {}
+                    Err(err) => {
+                        log::warn!(
+                            "[PERF][GPU_JOB_SCOPE] surface.build chunk {:?} readback failed: {err}",
+                            job.chunk_id,
+                        );
+                    }
+                }
+            }
+        }
 
         if let Some(timing) = self.pass_timing.as_ref() {
             timing.collect_and_log(
@@ -720,13 +773,13 @@ impl SurfaceBuilder {
         let total_elapsed = job.total_start.elapsed();
 
         log::debug!(
-            "[PERF][SURFACE_BUILD] chunk {:?} total {:.2}ms setup {:.2}ms record {:.2}ms gpu_submit {:.2}ms fence_latency {:.2}ms readback {:.2}ms flora {:.2}ms active_voxels {} active_bricks {} solid_workgroups {} place_flora {} flora_rebuilt {}",
+            "[PERF][SURFACE_BUILD] chunk {:?} total {:.2}ms setup {:.2}ms record {:.2}ms gpu_submit {:.2}ms gpu_completion_latency {:.2}ms readback {:.2}ms flora {:.2}ms active_voxels {} active_bricks {} solid_workgroups {} place_flora {} flora_rebuilt {}",
             job.chunk_id,
             total_elapsed.as_secs_f32() * 1000.0,
             job.setup_elapsed.as_secs_f32() * 1000.0,
             job.record_elapsed.as_secs_f32() * 1000.0,
             job.submit_elapsed.as_secs_f32() * 1000.0,
-            fence_latency_elapsed.as_secs_f32() * 1000.0,
+            gpu_completion_latency_elapsed.as_secs_f32() * 1000.0,
             readback_elapsed.as_secs_f32() * 1000.0,
             flora_elapsed.as_secs_f32() * 1000.0,
             active_voxel_len,
@@ -746,7 +799,7 @@ impl SurfaceBuilder {
             setup_ms: job.setup_elapsed.as_secs_f64() * 1000.0,
             record_ms: job.record_elapsed.as_secs_f64() * 1000.0,
             gpu_submit_ms: job.submit_elapsed.as_secs_f64() * 1000.0,
-            fence_latency_ms: fence_latency_elapsed.as_secs_f64() * 1000.0,
+            gpu_completion_latency_ms: gpu_completion_latency_elapsed.as_secs_f64() * 1000.0,
             readback_ms: readback_elapsed.as_secs_f64() * 1000.0,
             flora_ms: flora_elapsed.as_secs_f64() * 1000.0,
             total_ms: total_elapsed.as_secs_f64() * 1000.0,
@@ -907,10 +960,11 @@ impl SurfaceBuilder {
             }};
         }
 
-        self.resources
-            .occupancy_data
-            .get_image()
-            .record_transition_barrier(&cmdbuf, 0, vk::ImageLayout::GENERAL);
+        self.resources.occupancy_data.get_image().record_transition(
+            &cmdbuf,
+            0,
+            TextureLayout::GENERAL,
+        );
 
         record_timed_flora_edit_pass!({
             self.clear_occupancy_ppl.record(
@@ -965,8 +1019,9 @@ impl SurfaceBuilder {
         }
 
         cmdbuf.end();
-        cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), None);
-        device.wait_queue_idle(&self.vulkan_ctx.get_general_queue());
+        cmdbuf
+            .submit_gpu_job(&self.vulkan_ctx.get_general_queue(), "surface.flora_edit")?
+            .wait()?;
 
         if let Some(timing) = self.pass_timing.as_ref() {
             timing.collect_and_log(
@@ -1063,8 +1118,9 @@ impl SurfaceBuilder {
         }
 
         cmdbuf.end();
-        cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), None);
-        device.wait_queue_idle(&self.vulkan_ctx.get_general_queue());
+        cmdbuf
+            .submit_gpu_job(&self.vulkan_ctx.get_general_queue(), "surface.flora_growth")?
+            .wait()?;
 
         if let Some(timing) = self.pass_timing.as_ref() {
             timing.collect_and_log(
@@ -1111,27 +1167,14 @@ impl SurfaceBuilder {
 }
 
 fn record_compute_barrier(device: &re_flora_vkn::Device, cmdbuf: &CommandBuffer) {
-    let barrier = PipelineBarrier::new(
-        vk::PipelineStageFlags::COMPUTE_SHADER,
-        vk::PipelineStageFlags::COMPUTE_SHADER,
-        vec![MemoryBarrier::new_shader_access()],
-    );
-    barrier.record_insert(device, cmdbuf);
+    PipelineBarrier::compute_shader_access().record_insert(device, cmdbuf);
 }
 
 fn record_compute_to_indirect_and_shader_barrier(
     device: &re_flora_vkn::Device,
     cmdbuf: &CommandBuffer,
 ) {
-    let barrier = PipelineBarrier::new(
-        vk::PipelineStageFlags::COMPUTE_SHADER,
-        vk::PipelineStageFlags::DRAW_INDIRECT | vk::PipelineStageFlags::COMPUTE_SHADER,
-        vec![
-            MemoryBarrier::new_indirect_access(),
-            MemoryBarrier::new_shader_access(),
-        ],
-    );
-    barrier.record_insert(device, cmdbuf);
+    PipelineBarrier::compute_to_indirect_and_shader_access().record_insert(device, cmdbuf);
 }
 
 fn record_clear_buffer_for_compute(
@@ -1141,15 +1184,7 @@ fn record_clear_buffer_for_compute(
 ) {
     buffer.record_fill(cmdbuf, 0, buffer.get_size_bytes(), 0);
 
-    let barrier = PipelineBarrier::new(
-        vk::PipelineStageFlags::TRANSFER,
-        vk::PipelineStageFlags::COMPUTE_SHADER,
-        vec![MemoryBarrier::new(
-            vk::AccessFlags::TRANSFER_WRITE,
-            vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE,
-        )],
-    );
-    barrier.record_insert(device, cmdbuf);
+    PipelineBarrier::transfer_to_compute_shader_access().record_insert(device, cmdbuf);
 }
 
 fn update_make_surface_info(

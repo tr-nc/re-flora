@@ -1,10 +1,10 @@
 use super::{ImageDesc, TextureRegion};
 use crate::{
     execute_one_time_command, Allocator, Buffer, BufferUsage, CommandBuffer, CommandPool, Device,
-    MemoryLocation, Queue,
+    MemoryLocation, Queue, TextureLayout, TextureTransition,
 };
 use anyhow::Result;
-use ash::vk::{self, ImageLayout};
+use ash::vk;
 use gpu_allocator::vulkan::{Allocation, AllocationCreateDesc, AllocationScheme};
 use std::fmt;
 use std::sync::{Arc, Mutex};
@@ -62,8 +62,8 @@ impl std::ops::Deref for Image {
 impl Image {
     pub fn new(device: Device, mut allocator: Allocator, desc: &ImageDesc) -> Result<Self> {
         // for vulkan spec, initial_layout must be either UNDEFINED or PREINITIALIZED,
-        if desc.initial_layout != ImageLayout::UNDEFINED
-            && desc.initial_layout != ImageLayout::PREINITIALIZED
+        if desc.initial_layout != TextureLayout::UNDEFINED
+            && desc.initial_layout != TextureLayout::PREINITIALIZED
         {
             return Err(anyhow::anyhow!("Initial layout must be UNDEFINED"));
         }
@@ -75,7 +75,7 @@ impl Image {
             .array_layers(desc.array_len)
             .format(desc.format)
             .tiling(desc.tilting)
-            .initial_layout(ImageLayout::UNDEFINED)
+            .initial_layout(TextureLayout::UNDEFINED.as_raw())
             .usage(desc.usage)
             .sharing_mode(vk::SharingMode::EXCLUSIVE)
             .samples(desc.samples)
@@ -106,7 +106,7 @@ impl Image {
             * desc.get_pixel_size() as vk::DeviceSize;
 
         // initialize one entry per array layer
-        let layouts = vec![desc.initial_layout; desc.array_len as usize];
+        let layouts = vec![desc.initial_layout.as_raw(); desc.array_len as usize];
 
         Ok(Self(Arc::new(ImageInner {
             device: device.clone(),
@@ -129,16 +129,12 @@ impl Image {
         buffer: &mut Buffer,
         queue: &Queue,
         command_pool: &CommandPool,
-        dst_image_layout: vk::ImageLayout,
+        dst_image_layout: TextureLayout,
         array_layer: u32,
         region: TextureRegion,
     ) {
         execute_one_time_command(&self.0.device, command_pool, queue, |cmdbuf| {
-            self.record_transition_barrier(
-                cmdbuf,
-                array_layer,
-                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-            );
+            self.record_transition_barrier(cmdbuf, array_layer, TextureLayout::TRANSFER_SRC);
             let region = vk::BufferImageCopy::default()
                 .buffer_offset(0)
                 .buffer_row_length(0)
@@ -176,11 +172,11 @@ impl Image {
         &self,
         cmdbuf: &CommandBuffer,
         dst_img: &Image,
-        src_img_dst_layout: vk::ImageLayout,
-        dst_img_dst_layout: vk::ImageLayout,
+        src_img_dst_layout: TextureLayout,
+        dst_img_dst_layout: TextureLayout,
     ) {
-        self.record_transition_barrier(cmdbuf, 0, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
-        dst_img.record_transition_barrier(cmdbuf, 0, vk::ImageLayout::TRANSFER_DST_OPTIMAL);
+        self.record_transition_barrier(cmdbuf, 0, TextureLayout::TRANSFER_SRC);
+        dst_img.record_transition_barrier(cmdbuf, 0, TextureLayout::TRANSFER_DST);
 
         unsafe {
             self.0.device.cmd_copy_image(
@@ -254,12 +250,12 @@ impl Image {
     pub fn record_clear(
         &self,
         cmdbuf: &CommandBuffer,
-        layout_after_clear: Option<vk::ImageLayout>,
+        layout_after_clear: Option<TextureLayout>,
         base_array_layer: u32,
         clear_value: ClearValue,
     ) {
-        let target_layout = layout_after_clear.unwrap_or(self.get_layout(base_array_layer));
-        const LAYOUT_USED_TO_CLEAR: vk::ImageLayout = vk::ImageLayout::TRANSFER_DST_OPTIMAL;
+        let target_layout = layout_after_clear.unwrap_or_else(|| self.get_layout(base_array_layer));
+        const LAYOUT_USED_TO_CLEAR: TextureLayout = TextureLayout::TRANSFER_DST;
         self.record_transition_barrier(cmdbuf, base_array_layer, LAYOUT_USED_TO_CLEAR);
 
         if let ClearValue::Color(color_clear_value) = &clear_value {
@@ -274,7 +270,7 @@ impl Image {
                 self.0.device.cmd_clear_color_image(
                     cmdbuf.as_raw(),
                     self.0.image,
-                    LAYOUT_USED_TO_CLEAR,
+                    LAYOUT_USED_TO_CLEAR.as_raw(),
                     &clear_value,
                     &[vk::ImageSubresourceRange {
                         aspect_mask: vk::ImageAspectFlags::COLOR,
@@ -314,7 +310,7 @@ impl Image {
                 self.0.device.cmd_clear_depth_stencil_image(
                     cmdbuf.as_raw(),
                     self.0.image,
-                    LAYOUT_USED_TO_CLEAR,
+                    LAYOUT_USED_TO_CLEAR.as_raw(),
                     &clear_value,
                     &[vk::ImageSubresourceRange {
                         aspect_mask,
@@ -330,17 +326,27 @@ impl Image {
         self.record_transition_barrier(cmdbuf, base_array_layer, target_layout);
     }
 
-    /// Transition just `array_layer` from its current layout → `target_layout`
-    pub fn record_transition_barrier(
+    /// Transition just `array_layer` from its current layout to `target_layout`.
+    pub fn record_transition(
         &self,
         cmdbuf: &CommandBuffer,
         array_layer: u32,
-        target_layout: vk::ImageLayout,
+        target_layout: TextureLayout,
+    ) {
+        self.record_transition_barrier(cmdbuf, array_layer, target_layout);
+    }
+
+    /// Transition just `array_layer` from its current layout → `target_layout`
+    pub(crate) fn record_transition_barrier(
+        &self,
+        cmdbuf: &CommandBuffer,
+        array_layer: u32,
+        target_layout: TextureLayout,
     ) {
         let device = &self.0.device;
         let mut layouts = self.0.current_layout.lock().unwrap();
         let idx = array_layer as usize;
-        let old_layout = layouts[idx];
+        let old_layout = TextureLayout::from_raw(layouts[idx]);
 
         if old_layout == target_layout {
             return;
@@ -350,8 +356,7 @@ impl Image {
         record_image_transition_barrier(
             device.as_raw(),
             cmdbuf.as_raw(),
-            old_layout,
-            target_layout,
+            TextureTransition::from_layouts(old_layout, target_layout),
             self.0.image,
             self.0.desc.get_aspect_mask(),
             array_layer,
@@ -359,14 +364,14 @@ impl Image {
         );
 
         // update our tracked layout
-        layouts[idx] = target_layout;
+        layouts[idx] = target_layout.as_raw();
     }
 
     /// Force set the layout for the given array layer.
     #[allow(dead_code)]
-    pub fn set_layout(&self, array_layer: u32, new_layout: vk::ImageLayout) {
+    pub fn set_layout(&self, array_layer: u32, new_layout: TextureLayout) {
         let mut layouts = self.0.current_layout.lock().unwrap();
-        layouts[array_layer as usize] = new_layout;
+        layouts[array_layer as usize] = new_layout.as_raw();
     }
 
     /// Loads an RGBA image from the given path and checks if it has the same size as the texture.
@@ -446,7 +451,7 @@ impl Image {
         command_pool: &CommandPool,
         path: &str,
         array_layer: u32,
-        dst_image_layout: Option<vk::ImageLayout>,
+        dst_image_layout: Option<TextureLayout>,
     ) -> Result<()> {
         let data = self.load_same_sized_image_as_raw_u8(path)?;
         let region = TextureRegion::from_image(self);
@@ -471,7 +476,7 @@ impl Image {
         region: TextureRegion,
         data: &[u8],
         array_layer: u32,
-        dst_image_layout: Option<vk::ImageLayout>,
+        dst_image_layout: Option<TextureLayout>,
     ) -> Result<()> {
         let device = &self.0.device;
 
@@ -486,14 +491,10 @@ impl Image {
             .fill(data)
             .map_err(|e| anyhow::anyhow!("Failed to fill buffer: {}", e))?;
 
-        let target_layout = dst_image_layout.unwrap_or(self.get_layout(array_layer));
+        let target_layout = dst_image_layout.unwrap_or_else(|| self.get_layout(array_layer));
 
         execute_one_time_command(device, command_pool, queue, |cmdbuf| {
-            self.record_transition_barrier(
-                cmdbuf,
-                array_layer,
-                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-            );
+            self.record_transition_barrier(cmdbuf, array_layer, TextureLayout::TRANSFER_DST);
             let region = vk::BufferImageCopy::default()
                 .buffer_offset(0)
                 .buffer_row_length(0)
@@ -540,7 +541,7 @@ impl Image {
         );
 
         execute_one_time_command(device, command_pool, queue, |cmdbuf| {
-            self.record_transition_barrier(cmdbuf, 0, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
+            self.record_transition_barrier(cmdbuf, 0, TextureLayout::TRANSFER_SRC);
             let region = vk::BufferImageCopy::default()
                 .buffer_offset(0)
                 .buffer_row_length(0)
@@ -568,14 +569,16 @@ impl Image {
         Ok(fetched_data)
     }
 
-    pub fn get_layout(&self, array_layer: u32) -> vk::ImageLayout {
-        *self
-            .0
-            .current_layout
-            .lock()
-            .unwrap()
-            .get(array_layer as usize)
-            .unwrap()
+    pub fn get_layout(&self, array_layer: u32) -> TextureLayout {
+        TextureLayout::from_raw(
+            *self
+                .0
+                .current_layout
+                .lock()
+                .unwrap()
+                .get(array_layer as usize)
+                .unwrap(),
+        )
     }
 
     pub fn as_raw(&self) -> vk::Image {
@@ -598,25 +601,28 @@ impl fmt::Debug for Image {
     }
 }
 
-/// Record a transition barrier for one subresource‐range of an image
-/// (you now provide base_array_layer + layer_count explicitly).
+/// Record a transition barrier for one subresource-range of an image.
 #[allow(clippy::too_many_arguments)]
-pub fn record_image_transition_barrier(
+pub(crate) fn record_image_transition_barrier(
     device: &ash::Device,
     cmdbuf: vk::CommandBuffer,
-    old_layout: vk::ImageLayout,
-    new_layout: vk::ImageLayout,
+    transition: TextureTransition,
     image: vk::Image,
     aspect_mask: vk::ImageAspectFlags,
     base_array_layer: u32,
     layer_count: u32,
 ) {
-    let (src_access, src_stage) = map_src_stage_access_flags(old_layout);
-    let (dst_access, dst_stage) = map_dst_stage_access_flags(new_layout);
+    crate::sync::diagnostics::record_texture_transition(
+        image,
+        transition,
+        aspect_mask,
+        base_array_layer,
+        layer_count,
+    );
 
     let barrier = vk::ImageMemoryBarrier::default()
-        .old_layout(old_layout)
-        .new_layout(new_layout)
+        .old_layout(transition.old_layout())
+        .new_layout(transition.new_layout())
         .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
         .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
         .image(image)
@@ -627,114 +633,18 @@ pub fn record_image_transition_barrier(
             base_array_layer,
             layer_count,
         })
-        .src_access_mask(src_access)
-        .dst_access_mask(dst_access);
+        .src_access_mask(transition.src_access())
+        .dst_access_mask(transition.dst_access());
 
     unsafe {
         device.cmd_pipeline_barrier(
             cmdbuf,
-            src_stage,
-            dst_stage,
+            transition.src_stage(),
+            transition.dst_stage(),
             vk::DependencyFlags::empty(),
             &[],
             &[],
             &[barrier],
         )
-    }
-}
-
-/// A helper for determining the appropriate source (old layout) access mask
-/// and pipeline stage.
-///
-/// - SrcStage represents what stage(s) we are waiting for.
-/// - SrcAccessMask represents which part of writes performed should be made available.
-///
-/// Note that READ access is redundant for SrcAccessMask, as reading never
-/// requires a cache flush.
-///
-fn map_src_stage_access_flags(
-    old_layout: vk::ImageLayout,
-) -> (vk::AccessFlags, vk::PipelineStageFlags) {
-    let general_shader_stages: vk::PipelineStageFlags = vk::PipelineStageFlags::COMPUTE_SHADER
-        | vk::PipelineStageFlags::VERTEX_SHADER
-        | vk::PipelineStageFlags::FRAGMENT_SHADER;
-
-    match old_layout {
-        vk::ImageLayout::UNDEFINED => (
-            vk::AccessFlags::empty(),
-            vk::PipelineStageFlags::TOP_OF_PIPE,
-        ),
-        vk::ImageLayout::GENERAL => (vk::AccessFlags::SHADER_WRITE, general_shader_stages),
-        vk::ImageLayout::TRANSFER_SRC_OPTIMAL => {
-            (vk::AccessFlags::empty(), vk::PipelineStageFlags::TRANSFER)
-        }
-        vk::ImageLayout::TRANSFER_DST_OPTIMAL => (
-            vk::AccessFlags::TRANSFER_WRITE,
-            vk::PipelineStageFlags::TRANSFER,
-        ),
-        vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL => {
-            (vk::AccessFlags::empty(), general_shader_stages)
-        }
-        vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL => (
-            vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
-            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
-        ),
-        vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL => (
-            vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
-            vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS
-                | vk::PipelineStageFlags::LATE_FRAGMENT_TESTS,
-        ),
-        vk::ImageLayout::PRESENT_SRC_KHR => (
-            vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
-            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
-        ),
-        layout => {
-            panic!("Unsupported old_layout transition from: {:?}", layout);
-        }
-    }
-}
-
-/// A helper for determining the appropriate destination (new layout) access mask
-/// and pipeline stage.
-///
-/// - DstStage represents what stage(s) we are blocking.
-/// - DstAccessMask represents which part of available memory to be made visible.
-///   (By invalidating caches)
-///
-fn map_dst_stage_access_flags(
-    new_layout: vk::ImageLayout,
-) -> (vk::AccessFlags, vk::PipelineStageFlags) {
-    let general_shader_stages: vk::PipelineStageFlags = vk::PipelineStageFlags::COMPUTE_SHADER
-        | vk::PipelineStageFlags::VERTEX_SHADER
-        | vk::PipelineStageFlags::FRAGMENT_SHADER;
-
-    match new_layout {
-        vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL => {
-            (vk::AccessFlags::SHADER_READ, general_shader_stages)
-        }
-        vk::ImageLayout::GENERAL => (
-            vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE,
-            general_shader_stages,
-        ),
-        vk::ImageLayout::TRANSFER_SRC_OPTIMAL => (
-            vk::AccessFlags::TRANSFER_READ,
-            vk::PipelineStageFlags::TRANSFER,
-        ),
-        vk::ImageLayout::TRANSFER_DST_OPTIMAL => (
-            vk::AccessFlags::TRANSFER_WRITE,
-            vk::PipelineStageFlags::TRANSFER,
-        ),
-        vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL => (
-            vk::AccessFlags::COLOR_ATTACHMENT_READ | vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
-            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
-        ),
-        vk::ImageLayout::PRESENT_SRC_KHR => (
-            vk::AccessFlags::empty(),
-            vk::PipelineStageFlags::BOTTOM_OF_PIPE,
-        ),
-
-        layout => {
-            panic!("Unsupported new_layout transition to: {:?}", layout);
-        }
     }
 }

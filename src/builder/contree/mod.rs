@@ -18,10 +18,10 @@ use re_flora_vkn::CommandBuffer;
 use re_flora_vkn::ComputePipeline;
 use re_flora_vkn::DescriptorPool;
 use re_flora_vkn::Extent3D;
-use re_flora_vkn::Fence;
-use re_flora_vkn::MemoryBarrier;
+use re_flora_vkn::GpuJobToken;
 use re_flora_vkn::MemoryLocation;
 use re_flora_vkn::PipelineBarrier;
+use re_flora_vkn::PipelineStage;
 use re_flora_vkn::ShaderModule;
 use re_flora_vkn::TimestampQueryPool;
 use re_flora_vkn::VulkanContext;
@@ -79,7 +79,7 @@ pub struct ContreeBuilder {
     cpu_chunk_source_revisions: HashMap<UVec3, u64>,
     cpu_chunk_source_updates: Vec<ContreeCpuChunkSourceUpdate>,
     cpu_chunk_readback_buffers: Option<CpuChunkReadbackBuffers>,
-    active_cpu_chunk_cache_job: Option<CpuChunkCacheFenceJob>,
+    active_cpu_chunk_cache_job: Option<CpuChunkCacheGpuJob>,
     cpu_chunk_cache_decode_inflight: bool,
     cpu_chunk_cache_job_tx: mpsc::Sender<CpuChunkCacheWorkerJob>,
     cpu_chunk_cache_result_rx: mpsc::Receiver<CpuChunkCacheWorkerResult>,
@@ -178,7 +178,7 @@ pub struct ContreeBuildJob {
     prealloc_elapsed: Duration,
     submit_elapsed: Duration,
     _command_buffer: CommandBuffer,
-    fence: Fence,
+    gpu_job: GpuJobToken,
 }
 
 #[allow(dead_code)]
@@ -189,7 +189,7 @@ pub struct ContreeBuildResult {
     pub source_revision: u64,
     pub prealloc_ms: f64,
     pub gpu_submit_ms: f64,
-    pub fence_latency_ms: f64,
+    pub gpu_completion_latency_ms: f64,
     pub size_ms: f64,
     pub confirm_ms: f64,
     pub total_ms: f64,
@@ -256,11 +256,8 @@ impl ContreePassTiming {
     }
 
     fn record_timestamp(&self, cmdbuf: &CommandBuffer, query_index: usize) {
-        self.query_pool.record_timestamp(
-            cmdbuf,
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            query_index as u32,
-        );
+        self.query_pool
+            .record_timestamp(cmdbuf, PipelineStage::COMPUTE_SHADER, query_index as u32);
     }
 
     fn collect_and_log(&self, chunk_idx: UVec3) {
@@ -458,15 +455,7 @@ fn record_clear_sparse_leaf_nodes(
 
     sparse_nodes.record_fill(cmdbuf, offset_bytes, size_bytes, 0);
 
-    let barrier = PipelineBarrier::new(
-        vk::PipelineStageFlags::TRANSFER,
-        vk::PipelineStageFlags::COMPUTE_SHADER,
-        vec![MemoryBarrier::new(
-            vk::AccessFlags::TRANSFER_WRITE,
-            vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE,
-        )],
-    );
-    barrier.record_insert(device, cmdbuf);
+    PipelineBarrier::transfer_to_compute_shader_access().record_insert(device, cmdbuf);
 }
 
 struct CpuChunkReadbackBuffers {
@@ -474,9 +463,9 @@ struct CpuChunkReadbackBuffers {
     leaf_readback: Buffer,
 }
 
-struct CpuChunkCacheFenceJob {
+struct CpuChunkCacheGpuJob {
     _command_buffer: CommandBuffer,
-    fence: Fence,
+    gpu_job: GpuJobToken,
     chunk_idx: UVec3,
     revision: u64,
     source: CpuChunkCacheBuildSource,
@@ -771,19 +760,8 @@ impl ContreeBuilder {
         contree_concat_ppl: &ComputePipeline,
         pass_timing: Option<&ContreePassTiming>,
     ) -> CommandBuffer {
-        let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
-        let indirect_access_memory_barrier = MemoryBarrier::new_indirect_access();
-
-        let shader_access_pipeline_barrier = PipelineBarrier::new(
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            vec![shader_access_memory_barrier],
-        );
-        let indirect_access_pipeline_barrier = PipelineBarrier::new(
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            vk::PipelineStageFlags::DRAW_INDIRECT | vk::PipelineStageFlags::COMPUTE_SHADER,
-            vec![indirect_access_memory_barrier],
-        );
+        let shader_access_pipeline_barrier = PipelineBarrier::compute_shader_access();
+        let indirect_access_pipeline_barrier = PipelineBarrier::compute_to_indirect_access();
 
         let device = vulkan_ctx.device();
         let cmdbuf = CommandBuffer::new(device, vulkan_ctx.command_pool());
@@ -928,9 +906,9 @@ impl ContreeBuilder {
             }
 
             if let Some(job) = self.active_cpu_chunk_cache_job.as_ref() {
-                if let Err(err) = job.fence.wait() {
+                if let Err(err) = job.gpu_job.wait() {
                     log::error!(
-                        "Failed to wait for CPU cache fence for {:?}: {err}",
+                        "Failed to wait for CPU cache GPU job for {:?}: {err}",
                         job.chunk_idx
                     );
                     break;
@@ -1014,14 +992,16 @@ impl ContreeBuilder {
         )?;
 
         let cmdbuf = self.contree_cmdbuf.clone();
-        let fence = Fence::new(self.vulkan_ctx.device(), false);
         let submit_start = Instant::now();
-        cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), Some(&fence));
+        let gpu_job = cmdbuf.submit_gpu_job(
+            &self.vulkan_ctx.get_general_queue(),
+            "contree.build_sync_debug",
+        )?;
         let wait_start = Instant::now();
-        fence.wait().unwrap();
+        gpu_job.wait().unwrap();
         let wait_ms = wait_start.elapsed().as_secs_f32() * 1000.0;
         log::debug!(
-            "[QUEUE][CONTREE_BUILD] dim={:?} node_offset={} leaf_offset={} submit_ms={:.2} fence_wait_ms={:.2}",
+            "[QUEUE][CONTREE_BUILD] dim={:?} node_offset={} leaf_offset={} submit_ms={:.2} gpu_wait_ms={:.2}",
             contree_dim,
             node_write_offset,
             leaf_write_offset,
@@ -1050,7 +1030,7 @@ impl ContreeBuilder {
     /// Returns: (node_alloc_offset, leaf_alloc_offset)
     pub fn build_and_alloc(&mut self, atlas_offset: UVec3) -> Result<Option<(u64, u64)>> {
         let job = self.submit_build_and_alloc(atlas_offset)?;
-        job.fence.wait()?;
+        job.gpu_job.wait()?;
         Ok(self.finish_build_and_alloc(job)?.scene_offsets)
     }
 
@@ -1064,7 +1044,7 @@ impl ContreeBuilder {
             .unwrap()
             .record("contree_empty_surface_skip_total", total_elapsed);
         log::debug!(
-            "[QUEUE][CONTREE_REBUILD] chunk {:?} empty source_rev={} total_ms={:.2} gpu_submit_ms=0.00 fence_latency_ms=0.00 size_ms=0.00 skipped_surface_empty=true",
+            "[QUEUE][CONTREE_REBUILD] chunk {:?} empty source_rev={} total_ms={:.2} gpu_submit_ms=0.00 gpu_completion_latency_ms=0.00 size_ms=0.00 skipped_surface_empty=true",
             chunk_idx,
             source_revision,
             total_elapsed.as_secs_f32() * 1000.0,
@@ -1076,7 +1056,7 @@ impl ContreeBuilder {
             source_revision,
             prealloc_ms: 0.0,
             gpu_submit_ms: 0.0,
-            fence_latency_ms: 0.0,
+            gpu_completion_latency_ms: 0.0,
             size_ms: 0.0,
             confirm_ms: 0.0,
             total_ms: total_elapsed.as_secs_f64() * 1000.0,
@@ -1119,9 +1099,11 @@ impl ContreeBuilder {
         )?;
 
         let cmdbuf = self.contree_cmdbuf.clone();
-        let fence = Fence::new(self.vulkan_ctx.device(), false);
         let submit_start = Instant::now();
-        cmdbuf.submit(&self.vulkan_ctx.get_general_queue(), Some(&fence));
+        let gpu_job = cmdbuf.submit_gpu_job(
+            &self.vulkan_ctx.get_general_queue(),
+            "contree.build_and_alloc",
+        )?;
         let submitted_at = Instant::now();
         let submit_elapsed = submit_start.elapsed();
         crate::util::BENCH
@@ -1149,18 +1131,18 @@ impl ContreeBuilder {
             prealloc_elapsed,
             submit_elapsed,
             _command_buffer: cmdbuf,
-            fence,
+            gpu_job,
         })
     }
 
     pub fn build_and_alloc_ready(&self, job: &ContreeBuildJob) -> Result<bool> {
-        job.fence
-            .is_signaled()
-            .map_err(|err| anyhow::anyhow!("failed to poll contree build fence: {err}"))
+        job.gpu_job
+            .is_complete()
+            .map_err(|err| anyhow::anyhow!("failed to poll contree build GPU job: {err}"))
     }
 
     pub fn wait_build_and_alloc(&self, job: &ContreeBuildJob) -> Result<()> {
-        job.fence.wait()?;
+        job.gpu_job.wait()?;
         Ok(())
     }
 
@@ -1182,10 +1164,10 @@ impl ContreeBuilder {
     }
 
     pub fn finish_build_and_alloc(&mut self, job: ContreeBuildJob) -> Result<ContreeBuildResult> {
-        let fence_latency_elapsed = job.submitted_at.elapsed();
+        let gpu_completion_latency_elapsed = job.submitted_at.elapsed();
         crate::util::BENCH.lock().unwrap().record(
             "contree_build_gpu",
-            fence_latency_elapsed + job.submit_elapsed,
+            gpu_completion_latency_elapsed + job.submit_elapsed,
         );
         if let Some(pass_timing) = self.pass_timing.as_ref() {
             pass_timing.collect_and_log(job.chunk_idx);
@@ -1212,12 +1194,12 @@ impl ContreeBuilder {
                 .unwrap()
                 .record("contree_build_and_alloc_total", total_elapsed);
             log::debug!(
-                "[QUEUE][CONTREE_REBUILD] chunk {:?} empty source_rev={} total_ms={:.2} gpu_submit_ms={:.2} fence_latency_ms={:.2} size_ms={:.2}",
+                "[QUEUE][CONTREE_REBUILD] chunk {:?} empty source_rev={} total_ms={:.2} gpu_submit_ms={:.2} gpu_completion_latency_ms={:.2} size_ms={:.2}",
                 chunk_idx,
                 source_revision,
                 total_elapsed.as_secs_f32() * 1000.0,
                 gpu_submit_ms,
-                fence_latency_elapsed.as_secs_f32() * 1000.0,
+                gpu_completion_latency_elapsed.as_secs_f32() * 1000.0,
                 size_elapsed.as_secs_f32() * 1000.0,
             );
 
@@ -1227,7 +1209,7 @@ impl ContreeBuilder {
                 source_revision,
                 prealloc_ms,
                 gpu_submit_ms,
-                fence_latency_ms: fence_latency_elapsed.as_secs_f64() * 1000.0,
+                gpu_completion_latency_ms: gpu_completion_latency_elapsed.as_secs_f64() * 1000.0,
                 size_ms: size_elapsed.as_secs_f64() * 1000.0,
                 confirm_ms: 0.0,
                 total_ms: total_elapsed.as_secs_f64() * 1000.0,
@@ -1270,12 +1252,12 @@ impl ContreeBuilder {
             .copied()
             .unwrap_or(0);
         log::debug!(
-            "[QUEUE][CONTREE_REBUILD] chunk {:?} total_ms={:.2} prealloc_ms={:.2} gpu_submit_ms={:.2} fence_latency_ms={:.2} size_ms={:.2} confirm_ms={:.2} node_bytes={} leaf_bytes={}",
+            "[QUEUE][CONTREE_REBUILD] chunk {:?} total_ms={:.2} prealloc_ms={:.2} gpu_submit_ms={:.2} gpu_completion_latency_ms={:.2} size_ms={:.2} confirm_ms={:.2} node_bytes={} leaf_bytes={}",
             job.chunk_idx,
             total_elapsed.as_secs_f32() * 1000.0,
             job.prealloc_elapsed.as_secs_f32() * 1000.0,
             job.submit_elapsed.as_secs_f32() * 1000.0,
-            fence_latency_elapsed.as_secs_f32() * 1000.0,
+            gpu_completion_latency_elapsed.as_secs_f32() * 1000.0,
             size_elapsed.as_secs_f32() * 1000.0,
             confirm_elapsed.as_secs_f32() * 1000.0,
             confirmed_node_buffer_size_in_bytes,
@@ -1288,7 +1270,7 @@ impl ContreeBuilder {
             source_revision,
             prealloc_ms: job.prealloc_elapsed.as_secs_f64() * 1000.0,
             gpu_submit_ms: job.submit_elapsed.as_secs_f64() * 1000.0,
-            fence_latency_ms: fence_latency_elapsed.as_secs_f64() * 1000.0,
+            gpu_completion_latency_ms: gpu_completion_latency_elapsed.as_secs_f64() * 1000.0,
             size_ms: size_elapsed.as_secs_f64() * 1000.0,
             confirm_ms: confirm_elapsed.as_secs_f64() * 1000.0,
             total_ms: total_elapsed.as_secs_f64() * 1000.0,
@@ -1329,7 +1311,6 @@ impl ContreeBuilder {
             .expect("CPU chunk readback buffers should be available before submit");
         let command_buffer =
             CommandBuffer::new(self.vulkan_ctx.device(), self.vulkan_ctx.command_pool());
-        let fence = Fence::new(self.vulkan_ctx.device(), false);
 
         let gpu_copy_start = Instant::now();
         command_buffer.begin(true);
@@ -1348,16 +1329,21 @@ impl ContreeBuilder {
             0,
         );
         command_buffer.end();
-        command_buffer.submit(&self.vulkan_ctx.get_general_queue(), Some(&fence));
+        let gpu_job = command_buffer
+            .submit_gpu_job(
+                &self.vulkan_ctx.get_general_queue(),
+                "contree.cpu_chunk_cache_readback",
+            )
+            .expect("failed to submit CPU chunk cache readback job");
         let gpu_copy_elapsed = gpu_copy_start.elapsed();
         crate::util::BENCH
             .lock()
             .unwrap()
             .record("contree_cpu_cache_copy_to_readback", gpu_copy_elapsed);
 
-        self.active_cpu_chunk_cache_job = Some(CpuChunkCacheFenceJob {
+        self.active_cpu_chunk_cache_job = Some(CpuChunkCacheGpuJob {
             _command_buffer: command_buffer,
-            fence,
+            gpu_job,
             chunk_idx,
             revision,
             source,
@@ -1377,11 +1363,11 @@ impl ContreeBuilder {
             return;
         };
 
-        let fence_done = match job.fence.is_signaled() {
+        let gpu_done = match job.gpu_job.is_complete() {
             Ok(done) => done,
             Err(err) => {
                 log::error!(
-                    "Failed to poll CPU cache fence for {:?} rev {}: {err}",
+                    "Failed to poll CPU cache GPU job for {:?} rev {}: {err}",
                     job.chunk_idx,
                     job.revision,
                 );
@@ -1389,16 +1375,16 @@ impl ContreeBuilder {
             }
         };
 
-        if !fence_done {
+        if !gpu_done {
             return;
         }
 
         let job = self
             .active_cpu_chunk_cache_job
             .take()
-            .expect("active CPU chunk cache job disappeared after fence poll");
+            .expect("active CPU chunk cache job disappeared after GPU job poll");
         log::debug!(
-            "[QUEUE][CPU_CACHE] fence_ready chunk {:?} revision {} pending={}",
+            "[QUEUE][CPU_CACHE] gpu_ready chunk {:?} revision {} pending={}",
             job.chunk_idx,
             job.revision,
             self.cpu_chunk_cache_queue.len(),

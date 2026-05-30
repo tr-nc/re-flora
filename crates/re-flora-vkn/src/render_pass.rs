@@ -1,4 +1,4 @@
-use crate::{CommandBuffer, Device, Framebuffer, Texture};
+use crate::{CommandBuffer, Device, Framebuffer, Texture, TextureLayout};
 use ash::vk;
 use std::{ops::Deref, sync::Arc};
 
@@ -11,8 +11,8 @@ pub struct AttachmentDesc {
     pub store_op: vk::AttachmentStoreOp,
     pub stencil_load_op: vk::AttachmentLoadOp,
     pub stencil_store_op: vk::AttachmentStoreOp,
-    pub initial_layout: vk::ImageLayout,
-    pub final_layout: vk::ImageLayout,
+    pub initial_layout: TextureLayout,
+    pub final_layout: TextureLayout,
 }
 
 /// A reference to an attachment within a subpass, specifying the layout it will be in.
@@ -20,7 +20,7 @@ pub struct AttachmentDesc {
 pub struct AttachmentReference {
     /// Index into the `RenderPassDesc`'s `attachments` vector.
     pub attachment: u32,
-    pub layout: vk::ImageLayout,
+    pub layout: TextureLayout,
 }
 
 /// Describes a single subpass within a render pass.
@@ -73,8 +73,8 @@ pub struct AttachmentDescOuter {
     pub texture: Texture,
     pub load_op: vk::AttachmentLoadOp,
     pub store_op: vk::AttachmentStoreOp,
-    pub initial_layout: vk::ImageLayout,
-    pub final_layout: vk::ImageLayout,
+    pub initial_layout: TextureLayout,
+    pub final_layout: TextureLayout,
     pub ty: AttachmentType,
 }
 
@@ -109,14 +109,14 @@ impl RenderPass {
             if attachment.ty == AttachmentType::Color {
                 subpass_desc.color_attachments.push(AttachmentReference {
                     attachment: attachment_descs.len() as u32 - 1,
-                    layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                    layout: TextureLayout::COLOR_ATTACHMENT,
                 });
                 dst_access_mask |= vk::AccessFlags::COLOR_ATTACHMENT_WRITE;
                 pipeline_stage_mask |= vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT;
             } else if attachment.ty == AttachmentType::Depth {
                 subpass_desc.depth_stencil_attachment = Some(AttachmentReference {
                     attachment: attachment_descs.len() as u32 - 1,
-                    layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                    layout: TextureLayout::DEPTH_STENCIL_ATTACHMENT,
                 });
                 dst_access_mask |= vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE;
                 pipeline_stage_mask |= vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS;
@@ -154,8 +154,8 @@ impl RenderPass {
                     .store_op(att.store_op)
                     .stencil_load_op(att.stencil_load_op)
                     .stencil_store_op(att.stencil_store_op)
-                    .initial_layout(att.initial_layout)
-                    .final_layout(att.final_layout)
+                    .initial_layout(att.initial_layout.as_raw())
+                    .final_layout(att.final_layout.as_raw())
             })
             .collect();
 
@@ -170,7 +170,7 @@ impl RenderPass {
                     .map(|r| {
                         vk::AttachmentReference::default()
                             .attachment(r.attachment)
-                            .layout(r.layout)
+                            .layout(r.layout.as_raw())
                     })
                     .collect()
             })
@@ -183,7 +183,7 @@ impl RenderPass {
                 subpass.depth_stencil_attachment.as_ref().map(|r| {
                     vk::AttachmentReference::default()
                         .attachment(r.attachment)
-                        .layout(r.layout)
+                        .layout(r.layout.as_raw())
                 })
             })
             .collect();

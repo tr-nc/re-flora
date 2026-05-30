@@ -10,7 +10,7 @@ use anyhow::Result;
 use bytemuck::{Pod, Zeroable};
 use glam::{IVec3, UVec3, Vec3};
 use re_flora_vkn::execute_one_time_command;
-use re_flora_vkn::execute_one_time_command_with_fence;
+use re_flora_vkn::execute_one_time_gpu_job;
 use re_flora_vkn::vk;
 use re_flora_vkn::Allocator;
 use re_flora_vkn::Buffer;
@@ -21,12 +21,12 @@ use re_flora_vkn::CommandBuffer;
 use re_flora_vkn::ComputePipeline;
 use re_flora_vkn::DescriptorPool;
 use re_flora_vkn::Extent3D;
-use re_flora_vkn::Fence;
-use re_flora_vkn::MemoryBarrier;
+use re_flora_vkn::GpuJobToken;
 use re_flora_vkn::MemoryLocation;
 use re_flora_vkn::PipelineBarrier;
 use re_flora_vkn::ShaderModule;
 use re_flora_vkn::Texture;
+use re_flora_vkn::TextureLayout;
 use re_flora_vkn::TextureRegion;
 use re_flora_vkn::VulkanContext;
 pub use resources::*;
@@ -87,7 +87,7 @@ pub struct ChunkSolidSampleJob {
     prepare_elapsed: Duration,
     submit_elapsed: Duration,
     _command_buffer: CommandBuffer,
-    fence: Fence,
+    gpu_job: GpuJobToken,
 }
 
 impl ChunkSolidSampleJob {
@@ -122,7 +122,7 @@ pub struct ChunkSolidSampleResult {
     pub samples: Vec<u32>,
     pub prepare_ms: f64,
     pub gpu_submit_ms: f64,
-    pub fence_latency_ms: f64,
+    pub gpu_completion_latency_ms: f64,
     pub readback_ms: f64,
     pub convert_ms: f64,
     pub total_ms: f64,
@@ -283,13 +283,13 @@ impl PlainBuilder {
                 |cmdbuf| {
                     resources.chunk_atlas.get_image().record_clear(
                         cmdbuf,
-                        Some(vk::ImageLayout::GENERAL),
+                        Some(TextureLayout::GENERAL),
                         0,
                         ClearValue::Color(ColorClearValue::UInt([0, 0, 0, 0])),
                     );
                     resources.free_atlas.get_image().record_clear(
                         cmdbuf,
-                        Some(vk::ImageLayout::GENERAL),
+                        Some(TextureLayout::GENERAL),
                         0,
                         ClearValue::Color(ColorClearValue::UInt([0, 0, 0, 0])),
                     );
@@ -313,26 +313,15 @@ impl PlainBuilder {
         chunk_init_ppl: &ComputePipeline,
         dispatch_dim: UVec3,
     ) -> CommandBuffer {
-        let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
-        let indirect_access_memory_barrier = MemoryBarrier::new_indirect_access();
-
-        let shader_access_pipeline_barrier = PipelineBarrier::new(
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            vec![shader_access_memory_barrier],
-        );
-        let indirect_access_pipeline_barrier = PipelineBarrier::new(
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            vk::PipelineStageFlags::DRAW_INDIRECT | vk::PipelineStageFlags::COMPUTE_SHADER,
-            vec![indirect_access_memory_barrier],
-        );
+        let shader_access_pipeline_barrier = PipelineBarrier::compute_shader_access();
+        let indirect_access_pipeline_barrier = PipelineBarrier::compute_to_indirect_access();
 
         let cmdbuf = CommandBuffer::new(vulkan_ctx.device(), vulkan_ctx.command_pool());
         cmdbuf.begin(false);
 
         chunk_atlas
             .get_image()
-            .record_transition_barrier(&cmdbuf, 0, vk::ImageLayout::GENERAL);
+            .record_transition(&cmdbuf, 0, TextureLayout::GENERAL);
 
         heightmap_ppl.record(
             &cmdbuf,
@@ -432,7 +421,7 @@ impl PlainBuilder {
             buffer,
             &queue,
             command_pool,
-            vk::ImageLayout::GENERAL,
+            TextureLayout::GENERAL,
             0,
             TextureRegion {
                 offset: [
@@ -455,7 +444,7 @@ impl PlainBuilder {
     ) -> Result<Vec<u32>> {
         let job = self.submit_chunk_atlas_solid_grid_sample(atlas_offset, atlas_dim, sample_dim)?;
         let wait_start = Instant::now();
-        job.fence.wait()?;
+        job.gpu_job.wait()?;
         let wait_elapsed = wait_start.elapsed();
         crate::util::BENCH.lock().unwrap().record(
             "chunk_solid_sample_gpu_dispatch",
@@ -463,7 +452,7 @@ impl PlainBuilder {
         );
         let result = self.finish_chunk_atlas_solid_grid_sample(job)?;
         log::info!(
-            "[PLAIN_BUILDER][CHUNK_SOLID_SAMPLE] atlas_offset={:?} source_dim={:?} sample_dim={:?} samples={} readback_bytes={} gpu_submit={:.3}ms fence_wait={:.3}ms readback={:.3}ms convert={:.3}ms total={:.3}ms",
+            "[PLAIN_BUILDER][CHUNK_SOLID_SAMPLE] atlas_offset={:?} source_dim={:?} sample_dim={:?} samples={} readback_bytes={} gpu_submit={:.3}ms gpu_wait={:.3}ms readback={:.3}ms convert={:.3}ms total={:.3}ms",
             result.atlas_offset,
             result.atlas_dim,
             result.sample_dim,
@@ -530,17 +519,9 @@ impl PlainBuilder {
             .unwrap()
             .record("chunk_solid_sample_prepare", prepare_elapsed);
 
-        let host_read_barrier = PipelineBarrier::new(
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            vk::PipelineStageFlags::HOST,
-            vec![MemoryBarrier::new(
-                vk::AccessFlags::SHADER_WRITE,
-                vk::AccessFlags::HOST_READ,
-            )],
-        );
+        let host_read_barrier = PipelineBarrier::compute_to_host_read();
         let command_buffer =
             CommandBuffer::new(self.vulkan_ctx.device(), self.vulkan_ctx.command_pool());
-        let fence = Fence::new(self.vulkan_ctx.device(), false);
         let submit_start = Instant::now();
         command_buffer.begin(true);
         self.chunk_solid_sample_ppl.record(
@@ -550,7 +531,10 @@ impl PlainBuilder {
         );
         host_read_barrier.record_insert(self.vulkan_ctx.device(), &command_buffer);
         command_buffer.end();
-        command_buffer.submit(&self.vulkan_ctx.get_general_queue(), Some(&fence));
+        let gpu_job = command_buffer.submit_gpu_job(
+            &self.vulkan_ctx.get_general_queue(),
+            "plain.chunk_solid_sample",
+        )?;
         let submitted_at = Instant::now();
         let submit_elapsed = submit_start.elapsed();
         crate::util::BENCH
@@ -569,21 +553,21 @@ impl PlainBuilder {
             prepare_elapsed,
             submit_elapsed,
             _command_buffer: command_buffer,
-            fence,
+            gpu_job,
         })
     }
 
     pub fn chunk_atlas_solid_grid_sample_ready(&self, job: &ChunkSolidSampleJob) -> Result<bool> {
-        job.fence
-            .is_signaled()
-            .map_err(|err| anyhow::anyhow!("failed to poll chunk solid sample fence: {err}"))
+        job.gpu_job
+            .is_complete()
+            .map_err(|err| anyhow::anyhow!("failed to poll chunk solid sample GPU job: {err}"))
     }
 
     pub fn finish_chunk_atlas_solid_grid_sample(
         &mut self,
         job: ChunkSolidSampleJob,
     ) -> Result<ChunkSolidSampleResult> {
-        let fence_latency_elapsed = job.submitted_at.elapsed();
+        let gpu_completion_latency_elapsed = job.submitted_at.elapsed();
         let readback_start = Instant::now();
         let raw = self
             .resources
@@ -620,7 +604,7 @@ impl PlainBuilder {
             samples,
             prepare_ms: job.prepare_elapsed.as_secs_f64() * 1000.0,
             gpu_submit_ms: job.submit_elapsed.as_secs_f64() * 1000.0,
-            fence_latency_ms: fence_latency_elapsed.as_secs_f64() * 1000.0,
+            gpu_completion_latency_ms: gpu_completion_latency_elapsed.as_secs_f64() * 1000.0,
             readback_ms: readback_elapsed.as_secs_f64() * 1000.0,
             convert_ms: convert_elapsed.as_secs_f64() * 1000.0,
             total_ms: total_elapsed.as_secs_f64() * 1000.0,
@@ -645,10 +629,8 @@ impl PlainBuilder {
         );
 
         self.build_cmdbuf
-            .submit(&self.vulkan_ctx.get_general_queue(), None);
-        self.vulkan_ctx
-            .device()
-            .wait_queue_idle(&self.vulkan_ctx.get_general_queue());
+            .submit_gpu_job(&self.vulkan_ctx.get_general_queue(), "plain.chunk_init")?
+            .wait()?;
         return Ok(());
 
         fn update_buffers(
@@ -733,14 +715,10 @@ impl PlainBuilder {
             _pad0: [0; 12],
         };
         self.next_edit_sample_seed = self.next_edit_sample_seed.wrapping_add(1);
-        let shader_access_pipeline_barrier = PipelineBarrier::new(
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            vec![MemoryBarrier::new_shader_access()],
-        );
+        let shader_access_pipeline_barrier = PipelineBarrier::compute_shader_access();
 
         let gpu_start = Instant::now();
-        execute_one_time_command_with_fence(
+        execute_one_time_gpu_job(
             self.vulkan_ctx.device(),
             self.vulkan_ctx.command_pool(),
             &self.vulkan_ctx.get_general_queue(),
@@ -842,11 +820,7 @@ impl PlainBuilder {
             })?;
         let upload_elapsed = upload_start.elapsed();
 
-        let shader_access_pipeline_barrier = PipelineBarrier::new(
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            vec![MemoryBarrier::new_shader_access()],
-        );
+        let shader_access_pipeline_barrier = PipelineBarrier::compute_shader_access();
 
         let gpu_start = Instant::now();
         execute_one_time_command(

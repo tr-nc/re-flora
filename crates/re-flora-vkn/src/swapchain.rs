@@ -6,12 +6,12 @@ use ash::{
 
 use crate::{
     AttachmentDesc, AttachmentReference, Extent2D, Framebuffer, RenderPass, RenderPassDesc,
-    RenderTarget, SubpassDesc,
+    RenderTarget, SubpassDesc, TextureLayout, TextureTransition,
 };
 
 use super::{
     context::VulkanContext, record_image_transition_barrier, Buffer, CommandBuffer, Device, Image,
-    Semaphore,
+    PresentDesc, PresentWait, Semaphore,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -198,7 +198,7 @@ impl Swapchain {
         &self.swapchain_device
     }
 
-    pub fn acquire_next(&mut self, image_available_semaphore: &Semaphore) -> VkResult<(u32, bool)> {
+    fn acquire_next(&mut self, image_available_semaphore: &Semaphore) -> VkResult<(u32, bool)> {
         let timeout = u64::MAX;
         let fence = vk::Fence::null();
         unsafe {
@@ -211,7 +211,7 @@ impl Swapchain {
         }
     }
 
-    pub fn acquire_next_image(
+    pub(crate) fn acquire_next_image(
         &mut self,
         image_available_semaphore: &Semaphore,
     ) -> Result<u32, SwapchainFrameError> {
@@ -227,15 +227,13 @@ impl Swapchain {
         let dst_raw_img = self.get_image(image_idx);
         let device = self.vulkan_context.device();
 
-        src_img.record_transition_barrier(cmdbuf, 0, vk::ImageLayout::TRANSFER_SRC_OPTIMAL);
+        src_img.record_transition_barrier(cmdbuf, 0, TextureLayout::TRANSFER_SRC);
 
-        // transition dst using the raw function
-        // from UNDEFINED, because the image is just being available
+        // Transition the acquired swapchain image from UNDEFINED because it has just become available.
         record_image_transition_barrier(
             device.as_raw(),
             cmdbuf.as_raw(),
-            vk::ImageLayout::UNDEFINED,
-            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            TextureTransition::from_layouts(TextureLayout::UNDEFINED, TextureLayout::TRANSFER_DST),
             dst_raw_img,
             src_img.get_desc().get_aspect_mask(),
             0,
@@ -254,12 +252,14 @@ impl Swapchain {
             );
         }
 
-        // transition dst using the raw function
+        // Transition the swapchain image for the following render pass.
         record_image_transition_barrier(
             device.as_raw(),
             cmdbuf.as_raw(),
-            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-            vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            TextureTransition::from_layouts(
+                TextureLayout::TRANSFER_DST,
+                TextureLayout::COLOR_ATTACHMENT,
+            ),
             dst_raw_img,
             src_img.get_desc().get_aspect_mask(),
             0,
@@ -267,11 +267,11 @@ impl Swapchain {
         );
 
         // for now, just transition src to general
-        src_img.record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+        src_img.record_transition_barrier(cmdbuf, 0, TextureLayout::GENERAL);
     }
 
     /// Present the image to the swapchain with the given index.
-    pub fn present(
+    fn present(
         &mut self,
         waiting_for_semaphores: &[vk::Semaphore],
         image_index: u32,
@@ -292,13 +292,23 @@ impl Swapchain {
         }
     }
 
-    pub fn present_after(
+    pub fn present_desc(&mut self, desc: PresentDesc<'_>) -> VkResult<bool> {
+        desc.assert_supported_sizes();
+        crate::sync::diagnostics::record_present(&desc);
+
+        let (raw_wait_semaphores, wait_count) = desc.raw_waits();
+        let wait_semaphores = &raw_wait_semaphores[..wait_count];
+        self.present(wait_semaphores, desc.image_index)
+    }
+
+    pub(crate) fn present_after(
         &mut self,
         waiting_for_semaphore: &Semaphore,
         image_index: u32,
     ) -> Result<bool, SwapchainFrameError> {
-        self.present(&[waiting_for_semaphore.as_raw()], image_index)
-            .map_err(SwapchainFrameError::from)
+        let waits = [PresentWait::new("frame.render_finished", waiting_for_semaphore)];
+        let desc = PresentDesc::new("swapchain.present", image_index, &waits);
+        self.present_desc(desc).map_err(SwapchainFrameError::from)
     }
 
     pub fn record_image_readback(
@@ -315,8 +325,7 @@ impl Swapchain {
         record_image_transition_barrier(
             device.as_raw(),
             cmdbuf.as_raw(),
-            vk::ImageLayout::PRESENT_SRC_KHR,
-            vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+            TextureTransition::from_layouts(TextureLayout::PRESENT_SRC, TextureLayout::TRANSFER_SRC),
             swapchain_image,
             vk::ImageAspectFlags::COLOR,
             0,
@@ -353,8 +362,7 @@ impl Swapchain {
         record_image_transition_barrier(
             device.as_raw(),
             cmdbuf.as_raw(),
-            vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-            vk::ImageLayout::PRESENT_SRC_KHR,
+            TextureTransition::from_layouts(TextureLayout::TRANSFER_SRC, TextureLayout::PRESENT_SRC),
             swapchain_image,
             vk::ImageAspectFlags::COLOR,
             0,
@@ -387,8 +395,7 @@ impl Swapchain {
         record_image_transition_barrier(
             self.vulkan_context.device().as_raw(),
             cmdbuf.as_raw(),
-            vk::ImageLayout::UNDEFINED,
-            vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            TextureTransition::from_layouts(TextureLayout::UNDEFINED, TextureLayout::COLOR_ATTACHMENT),
             image,
             vk::ImageAspectFlags::COLOR,
             0,
@@ -673,14 +680,14 @@ fn create_vulkan_render_pass(device: Device, format: vk::Format) -> RenderPass {
         store_op: vk::AttachmentStoreOp::STORE,
         stencil_load_op: vk::AttachmentLoadOp::DONT_CARE,
         stencil_store_op: vk::AttachmentStoreOp::DONT_CARE,
-        initial_layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-        final_layout: vk::ImageLayout::PRESENT_SRC_KHR,
+        initial_layout: TextureLayout::COLOR_ATTACHMENT,
+        final_layout: TextureLayout::PRESENT_SRC,
     };
 
     let subpass = SubpassDesc {
         color_attachments: vec![AttachmentReference {
             attachment: 0,
-            layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            layout: TextureLayout::COLOR_ATTACHMENT,
         }],
         depth_stencil_attachment: None,
     };

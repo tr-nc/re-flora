@@ -50,10 +50,10 @@ use crate::wind::WindSource;
 use anyhow::Result;
 use re_flora_vkn::vk;
 use re_flora_vkn::{
-    execute_one_time_command_with_fence, Allocator, ClearValue, ColorClearValue, CommandBuffer,
+    execute_one_time_gpu_job, Allocator, ClearValue, ColorClearValue, CommandBuffer,
     ComputePipeline, DepthOrStencilClearValue, DescriptorPool, Extent2D, Extent3D, Framebuffer,
-    GraphicsPipeline, MemoryBarrier, PipelineBarrier, PushConstantInfo, RenderPass, RenderTarget,
-    Texture, Viewport, VulkanContext,
+    GpuProfiler, GraphicsPipeline, PipelineBarrier, PipelineStage, PushConstantInfo, RenderPass,
+    RenderTarget, Texture, TextureLayout, Viewport, VulkanContext,
 };
 use std::collections::HashMap;
 
@@ -783,6 +783,34 @@ impl Tracer {
         result
     }
 
+    fn with_gpu_scope<T>(
+        gpu_profiler: Option<&mut GpuProfiler>,
+        gpu_profiler_frame_slot: usize,
+        cmdbuf: &CommandBuffer,
+        name: &'static str,
+        work: impl FnOnce() -> T,
+    ) -> T {
+        let Some(profiler) = gpu_profiler else {
+            return work();
+        };
+        let scope = profiler.begin_scope(
+            gpu_profiler_frame_slot,
+            cmdbuf,
+            name,
+            PipelineStage::ALL_COMMANDS,
+        );
+        let result = work();
+        if let Some(scope) = scope {
+            profiler.end_scope(
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                scope,
+                PipelineStage::ALL_COMMANDS,
+            );
+        }
+        result
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn record_trace(
         &mut self,
@@ -800,80 +828,112 @@ impl Tracer {
         vsm_blur_radius: u32,
         vsm_temporal_alpha: f32,
         reset_vsm_history: bool,
+        mut gpu_profiler: Option<&mut GpuProfiler>,
+        gpu_profiler_frame_slot: usize,
     ) -> Result<()> {
-        let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
-        let compute_to_compute_barrier = PipelineBarrier::new(
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            vec![shader_access_memory_barrier],
-        );
+        let compute_to_compute_barrier = PipelineBarrier::compute_shader_access();
         // VSM filtering writes shadow_map_tex_for_vsm_ping in compute, then the
         // flora vertex shader samples it in the same command buffer. MoltenVK/Metal
         // needs the write made visible to graphics explicitly; a compute->compute
         // barrier is not enough and causes close grass shadow flicker on macOS.
-        let compute_to_graphics_barrier = PipelineBarrier::new(
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            vk::PipelineStageFlags::VERTEX_SHADER,
-            vec![shader_access_memory_barrier],
+        let compute_to_graphics_barrier = PipelineBarrier::shader_access(
+            PipelineStage::COMPUTE_SHADER,
+            PipelineStage::VERTEX_SHADER,
         );
-        let frag_to_vert_barrier = PipelineBarrier::new(
-            vk::PipelineStageFlags::FRAGMENT_SHADER,
-            vk::PipelineStageFlags::VERTEX_SHADER,
-            vec![shader_access_memory_barrier],
+        let frag_to_vert_barrier = PipelineBarrier::shader_access(
+            PipelineStage::FRAGMENT_SHADER,
+            PipelineStage::VERTEX_SHADER,
         );
 
-        self.record_clear_render_targets(cmdbuf, render_flags, update_shadow_map);
+        Self::with_gpu_scope(
+            gpu_profiler.as_deref_mut(),
+            gpu_profiler_frame_slot,
+            cmdbuf,
+            "clear.targets",
+            || self.record_clear_render_targets(cmdbuf, render_flags, update_shadow_map),
+        );
 
         let has_graphics_pass = render_flags.enable_flora || render_flags.enable_particles;
 
         if render_flags.enable_flora {
-            self.record_wind_volume_pass(cmdbuf, time);
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "wind_volume.pass",
+                || self.record_wind_volume_pass(cmdbuf, time),
+            );
 
-            let b1 = PipelineBarrier::new(
-                vk::PipelineStageFlags::COMPUTE_SHADER,
-                vk::PipelineStageFlags::VERTEX_SHADER | vk::PipelineStageFlags::COMPUTE_SHADER,
-                vec![shader_access_memory_barrier],
+            let b1 = PipelineBarrier::shader_access(
+                PipelineStage::COMPUTE_SHADER,
+                PipelineStage::VERTEX_SHADER | PipelineStage::COMPUTE_SHADER,
             );
             b1.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
 
         if render_flags.enable_flora && render_flags.enable_shadows && update_shadow_map {
-            self.record_leaves_shadow_lod_pass(
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
                 cmdbuf,
-                surface_resources,
-                leaf_bottom_color,
-                leaf_tip_color,
-                time,
+                "leaves_shadow_lod.pass",
+                || {
+                    self.record_leaves_shadow_lod_pass(
+                        cmdbuf,
+                        surface_resources,
+                        leaf_bottom_color,
+                        leaf_tip_color,
+                        time,
+                    )
+                },
             );
         }
         if has_graphics_pass || (render_flags.enable_shadows && update_shadow_map) {
-            let frag_to_compute_barrier = PipelineBarrier::new(
-                vk::PipelineStageFlags::FRAGMENT_SHADER,
-                vk::PipelineStageFlags::COMPUTE_SHADER,
-                vec![shader_access_memory_barrier],
+            let frag_to_compute_barrier = PipelineBarrier::shader_access(
+                PipelineStage::FRAGMENT_SHADER,
+                PipelineStage::COMPUTE_SHADER,
             );
             frag_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
 
         if render_flags.enable_shadows && update_shadow_map {
-            self.record_shadow_depth_copy_pass(cmdbuf);
-            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-            self.record_tracer_shadow_pass(cmdbuf);
-            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-            self.record_vsm_filtering_pass(
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
                 cmdbuf,
-                vsm_blur_radius,
-                vsm_temporal_alpha,
-                reset_vsm_history,
+                "shadow_depth_copy.pass",
+                || self.record_shadow_depth_copy_pass(cmdbuf),
+            );
+            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "tracer_shadow.pass",
+                || self.record_tracer_shadow_pass(cmdbuf),
+            );
+            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "vsm_filtering.pass",
+                || {
+                    self.record_vsm_filtering_pass(
+                        cmdbuf,
+                        vsm_blur_radius,
+                        vsm_temporal_alpha,
+                        reset_vsm_history,
+                    )
+                },
             );
             compute_to_graphics_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
 
         if has_graphics_pass && !render_flags.enable_flora {
-            let b1 = PipelineBarrier::new(
-                vk::PipelineStageFlags::COMPUTE_SHADER,
-                vk::PipelineStageFlags::VERTEX_SHADER | vk::PipelineStageFlags::COMPUTE_SHADER,
-                vec![shader_access_memory_barrier],
+            let b1 = PipelineBarrier::shader_access(
+                PipelineStage::COMPUTE_SHADER,
+                PipelineStage::VERTEX_SHADER | PipelineStage::COMPUTE_SHADER,
             );
             b1.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
@@ -888,19 +948,53 @@ impl Tracer {
             );
         }
         if has_graphics_pass {
-            self.record_all_graphics_passes(
-                cmdbuf,
-                surface_resources,
-                lod_distance,
-                flora_draw_distance,
-                grass_render_mode,
-                flora_colors,
-                leaf_bottom_color,
-                leaf_tip_color,
-                time,
-                render_flags.enable_flora,
-                render_flags.enable_particles,
-            );
+            if let Some(profiler) = gpu_profiler.as_deref_mut() {
+                let graphics_scope = profiler.begin_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "graphics.pass",
+                    PipelineStage::ALL_COMMANDS,
+                );
+                self.record_all_graphics_passes(
+                    cmdbuf,
+                    surface_resources,
+                    lod_distance,
+                    flora_draw_distance,
+                    grass_render_mode,
+                    flora_colors,
+                    leaf_bottom_color,
+                    leaf_tip_color,
+                    time,
+                    render_flags.enable_flora,
+                    render_flags.enable_particles,
+                    Some(profiler),
+                    gpu_profiler_frame_slot,
+                );
+                if let Some(scope) = graphics_scope {
+                    profiler.end_scope(
+                        gpu_profiler_frame_slot,
+                        cmdbuf,
+                        scope,
+                        PipelineStage::ALL_COMMANDS,
+                    );
+                }
+            } else {
+                self.record_all_graphics_passes(
+                    cmdbuf,
+                    surface_resources,
+                    lod_distance,
+                    flora_draw_distance,
+                    grass_render_mode,
+                    flora_colors,
+                    leaf_bottom_color,
+                    leaf_tip_color,
+                    time,
+                    render_flags.enable_flora,
+                    render_flags.enable_particles,
+                    None,
+                    gpu_profiler_frame_slot,
+                );
+            }
             frag_to_vert_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
@@ -913,41 +1007,106 @@ impl Tracer {
         }
 
         if render_flags.enable_tracer {
-            self.record_tracer_pass(cmdbuf);
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "tracer.pass",
+                || self.record_tracer_pass(cmdbuf),
+            );
         } else {
-            self.clear_tracer_outputs(cmdbuf);
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "tracer_clear.pass",
+                || self.clear_tracer_outputs(cmdbuf),
+            );
         }
 
         if has_graphics_pass || render_flags.enable_tracer {
-            let b2 = PipelineBarrier::new(
-                vk::PipelineStageFlags::FRAGMENT_SHADER | vk::PipelineStageFlags::COMPUTE_SHADER,
-                vk::PipelineStageFlags::COMPUTE_SHADER,
-                vec![shader_access_memory_barrier],
+            let b2 = PipelineBarrier::shader_access(
+                PipelineStage::FRAGMENT_SHADER | PipelineStage::COMPUTE_SHADER,
+                PipelineStage::COMPUTE_SHADER,
             );
             b2.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
 
         if render_flags.enable_god_rays {
-            self.record_god_ray_pass(cmdbuf);
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "god_ray.pass",
+                || self.record_god_ray_pass(cmdbuf),
+            );
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
 
         if render_flags.enable_denoiser {
-            self.record_denoiser_pass(cmdbuf, self.a_trous_iteration_count)?;
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "denoiser.pass",
+                || self.record_denoiser_pass(cmdbuf, self.a_trous_iteration_count),
+            )?;
         }
 
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         if render_flags.enable_lens_flare {
-            self.record_lens_flare_sun_visible_pass(cmdbuf);
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "lens_flare_sun_visible.pass",
+                || self.record_lens_flare_sun_visible_pass(cmdbuf),
+            );
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-            self.record_lens_flare_pass(cmdbuf);
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "lens_flare.pass",
+                || self.record_lens_flare_pass(cmdbuf),
+            );
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-            self.record_lens_flare_downsample_pass(cmdbuf);
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "lens_flare_downsample.pass",
+                || self.record_lens_flare_downsample_pass(cmdbuf),
+            );
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
-        self.record_composition_pass(cmdbuf);
+        Self::with_gpu_scope(
+            gpu_profiler.as_deref_mut(),
+            gpu_profiler_frame_slot,
+            cmdbuf,
+            "composition.pass",
+            || self.record_composition_pass(cmdbuf),
+        );
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-        self.record_post_processing_pass(cmdbuf);
+        if let Some(profiler) = gpu_profiler {
+            let postprocessing_scope = profiler.begin_scope(
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "post_processing.pass",
+                PipelineStage::ALL_COMMANDS,
+            );
+            self.record_post_processing_pass(cmdbuf);
+            if let Some(scope) = postprocessing_scope {
+                profiler.end_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    scope,
+                    PipelineStage::ALL_COMMANDS,
+                );
+            }
+        } else {
+            self.record_post_processing_pass(cmdbuf);
+        }
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         if render_flags.enable_denoiser {
             copy_current_to_prev(&self.resources, cmdbuf);
@@ -961,7 +1120,7 @@ impl Tracer {
         ) {
             let tr_fn = |tex: &Texture| {
                 tex.get_image()
-                    .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+                    .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
             };
             tr_fn(&denoiser_resources.tex.denoiser_normal_tex);
             tr_fn(&denoiser_resources.tex.denoiser_normal_tex_prev);
@@ -983,8 +1142,8 @@ impl Tracer {
                 src_tex.get_image().record_copy_to(
                     cmdbuf,
                     dst_tex.get_image(),
-                    vk::ImageLayout::GENERAL,
-                    vk::ImageLayout::GENERAL,
+                    TextureLayout::GENERAL,
+                    TextureLayout::GENERAL,
                 );
             };
             copy_fn(
@@ -1013,8 +1172,8 @@ impl Tracer {
             .record_copy_to(
                 cmdbuf,
                 self.resources.shadow_map_tex_for_vsm_prev.get_image(),
-                vk::ImageLayout::GENERAL,
-                vk::ImageLayout::GENERAL,
+                TextureLayout::GENERAL,
+                TextureLayout::GENERAL,
             );
     }
 
@@ -1024,26 +1183,29 @@ impl Tracer {
         render_flags: &crate::RenderFlags,
         update_shadow_map: bool,
     ) {
-        self.resources
-            .extent_dependent_resources
-            .gfx_output_tex
-            .get_image()
-            .record_clear(
-                cmdbuf,
-                Some(vk::ImageLayout::GENERAL),
-                0,
-                ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 0.0])),
-            );
-        self.resources
-            .extent_dependent_resources
-            .gfx_depth_tex
-            .get_image()
-            .record_clear(
-                cmdbuf,
-                Some(vk::ImageLayout::GENERAL),
-                0,
-                ClearValue::DepthStencil(DepthOrStencilClearValue::Depth(1.0)),
-            );
+        let has_graphics_pass = render_flags.enable_flora || render_flags.enable_particles;
+        if !has_graphics_pass {
+            self.resources
+                .extent_dependent_resources
+                .gfx_output_tex
+                .get_image()
+                .record_clear(
+                    cmdbuf,
+                    Some(TextureLayout::GENERAL),
+                    0,
+                    ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 0.0])),
+                );
+            self.resources
+                .extent_dependent_resources
+                .gfx_depth_tex
+                .get_image()
+                .record_clear(
+                    cmdbuf,
+                    Some(TextureLayout::GENERAL),
+                    0,
+                    ClearValue::DepthStencil(DepthOrStencilClearValue::Depth(1.0)),
+                );
+        }
 
         if update_shadow_map {
             self.resources
@@ -1051,14 +1213,14 @@ impl Tracer {
                 .get_image()
                 .record_clear(
                     cmdbuf,
-                    Some(vk::ImageLayout::GENERAL),
+                    Some(TextureLayout::GENERAL),
                     0,
                     ClearValue::DepthStencil(DepthOrStencilClearValue::Depth(1.0)),
                 );
 
             self.resources.shadow_map_tex.get_image().record_clear(
                 cmdbuf,
-                Some(vk::ImageLayout::GENERAL),
+                Some(TextureLayout::GENERAL),
                 0,
                 ClearValue::Color(ColorClearValue::Float([1.0, 0.0, 0.0, 0.0])),
             );
@@ -1070,7 +1232,7 @@ impl Tracer {
             .get_image()
             .record_clear(
                 cmdbuf,
-                Some(vk::ImageLayout::GENERAL),
+                Some(TextureLayout::GENERAL),
                 0,
                 ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 0.0])),
             );
@@ -1082,7 +1244,7 @@ impl Tracer {
             .get_image()
             .record_clear(
                 cmdbuf,
-                Some(vk::ImageLayout::GENERAL),
+                Some(TextureLayout::GENERAL),
                 0,
                 ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 0.0])),
             );
@@ -1093,7 +1255,7 @@ impl Tracer {
             .get_image()
             .record_clear(
                 cmdbuf,
-                Some(vk::ImageLayout::GENERAL),
+                Some(TextureLayout::GENERAL),
                 0,
                 ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 0.0])),
             );
@@ -1104,7 +1266,7 @@ impl Tracer {
             .get_image()
             .record_clear(
                 cmdbuf,
-                Some(vk::ImageLayout::GENERAL),
+                Some(TextureLayout::GENERAL),
                 0,
                 ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 0.0])),
             );
@@ -1116,7 +1278,7 @@ impl Tracer {
                 .get_image()
                 .record_clear(
                     cmdbuf,
-                    Some(vk::ImageLayout::GENERAL),
+                    Some(TextureLayout::GENERAL),
                     0,
                     ClearValue::Color(ColorClearValue::UInt([0, 0, 0, 0])),
                 );
@@ -1141,6 +1303,8 @@ impl Tracer {
         time: f32,
         enable_flora: bool,
         enable_particles: bool,
+        mut gpu_profiler: Option<&mut GpuProfiler>,
+        gpu_profiler_frame_slot: usize,
     ) {
         let render_target = &self.render_target_color_and_depth;
 
@@ -1158,7 +1322,13 @@ impl Tracer {
             },
         ];
 
-        render_target.record_begin(cmdbuf, &clear_values);
+        Self::with_gpu_scope(
+            gpu_profiler.as_deref_mut(),
+            gpu_profiler_frame_slot,
+            cmdbuf,
+            "graphics.renderpass.begin",
+            || render_target.record_begin(cmdbuf, &clear_values),
+        );
 
         let render_extent = self
             .resources
@@ -1178,6 +1348,14 @@ impl Tracer {
 
         // Draw all flora species, both LOD levels
         if enable_flora {
+            let flora_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
+                profiler.begin_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "graphics.flora",
+                    PipelineStage::ALL_COMMANDS,
+                )
+            });
             let chunks_by_lod = self.chunks_needs_to_draw_this_frame(
                 surface_resources,
                 lod_distance,
@@ -1239,8 +1417,24 @@ impl Tracer {
                     }
                 }
             }
+            if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), flora_scope) {
+                profiler.end_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    scope,
+                    PipelineStage::ALL_COMMANDS,
+                );
+            }
 
             // Draw leaves, both LOD levels
+            let leaves_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
+                profiler.begin_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "graphics.leaves",
+                    PipelineStage::ALL_COMMANDS,
+                )
+            });
             let trees_by_lod = self.trees_needs_to_draw_this_frame(
                 surface_resources,
                 lod_distance,
@@ -1303,10 +1497,26 @@ impl Tracer {
                     );
                 }
             }
+            if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), leaves_scope) {
+                profiler.end_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    scope,
+                    PipelineStage::ALL_COMMANDS,
+                );
+            }
         } // end enable_flora
 
         // Draw particles in the same render pass (no second CLEAR)
         if enable_particles {
+            let particles_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
+                profiler.begin_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "graphics.particles",
+                    PipelineStage::ALL_COMMANDS,
+                )
+            });
             let particle_resources = &self.particle_resources;
             if particle_resources.instance_count > 0 {
                 let particle_ppl = &self.graphics_pipelines.particle_ppl;
@@ -1332,21 +1542,34 @@ impl Tracer {
                     None,
                 );
             }
+            if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), particles_scope) {
+                profiler.end_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    scope,
+                    PipelineStage::ALL_COMMANDS,
+                );
+            }
         }
 
-        render_target.record_end(cmdbuf);
+        Self::with_gpu_scope(
+            gpu_profiler.as_deref_mut(),
+            gpu_profiler_frame_slot,
+            cmdbuf,
+            "graphics.renderpass.end",
+            || render_target.record_end(cmdbuf),
+        );
 
-        let desc = render_target.get_desc();
         self.resources
             .extent_dependent_resources
             .gfx_output_tex
             .get_image()
-            .set_layout(0, desc.attachments[0].final_layout);
+            .set_layout(0, TextureLayout::GENERAL);
         self.resources
             .extent_dependent_resources
             .gfx_depth_tex
             .get_image()
-            .set_layout(0, desc.attachments[1].final_layout);
+            .set_layout(0, TextureLayout::GENERAL);
     }
 
     fn record_leaves_shadow_lod_pass(
@@ -1428,18 +1651,18 @@ impl Tracer {
 
         self.render_target_depth_only.record_end(cmdbuf);
 
-        let desc = self.render_target_depth_only.get_desc();
         self.resources
             .shadow_map_depth_tex
             .get_image()
-            .set_layout(0, desc.attachments[0].final_layout);
+            .set_layout(0, TextureLayout::GENERAL);
     }
 
     fn record_tracer_shadow_pass(&self, cmdbuf: &CommandBuffer) {
-        self.resources
-            .shadow_map_tex
-            .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+        self.resources.shadow_map_tex.get_image().record_transition(
+            cmdbuf,
+            0,
+            TextureLayout::GENERAL,
+        );
         self.compute_pipelines.tracer_shadow_ppl.record(
             cmdbuf,
             self.resources.shadow_map_tex.get_image().get_desc().extent,
@@ -1451,11 +1674,12 @@ impl Tracer {
         self.resources
             .shadow_map_depth_tex
             .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
-        self.resources
-            .shadow_map_tex
-            .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
+        self.resources.shadow_map_tex.get_image().record_transition(
+            cmdbuf,
+            0,
+            TextureLayout::GENERAL,
+        );
 
         self.compute_pipelines.shadow_depth_copy_ppl.record(
             cmdbuf,
@@ -1503,7 +1727,7 @@ impl Tracer {
         self.resources
             .wind_volume_tex
             .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
 
         let bucket_count = WIND_VOLUME_BUCKET_COUNT;
         let step_seconds = self.wind_volume_bucket_step_seconds();
@@ -1550,29 +1774,25 @@ impl Tracer {
         reset_vsm_history: bool,
     ) {
         // transition shadow/VSM images to general for compute read/write access
-        self.resources
-            .shadow_map_tex
-            .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+        self.resources.shadow_map_tex.get_image().record_transition(
+            cmdbuf,
+            0,
+            TextureLayout::GENERAL,
+        );
         self.resources
             .shadow_map_tex_for_vsm_ping
             .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
         self.resources
             .shadow_map_tex_for_vsm_pong
             .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
         self.resources
             .shadow_map_tex_for_vsm_prev
             .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
 
-        let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
-        let compute_to_compute_barrier = PipelineBarrier::new(
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            vec![shader_access_memory_barrier],
-        );
+        let compute_to_compute_barrier = PipelineBarrier::compute_shader_access();
 
         let extent = self.resources.shadow_map_tex.get_image().get_desc().extent;
         self.compute_pipelines
@@ -1608,12 +1828,12 @@ impl Tracer {
             .extent_dependent_resources
             .compute_output_tex
             .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
         self.resources
             .extent_dependent_resources
             .compute_depth_tex
             .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
 
         self.compute_pipelines.tracer_ppl.record(
             cmdbuf,
@@ -1634,7 +1854,7 @@ impl Tracer {
             .get_image()
             .record_clear(
                 cmdbuf,
-                Some(vk::ImageLayout::GENERAL),
+                Some(TextureLayout::GENERAL),
                 0,
                 ClearValue::Color(ColorClearValue::UInt([0, 0, 0, 0])),
             );
@@ -1644,7 +1864,7 @@ impl Tracer {
             .get_image()
             .record_clear(
                 cmdbuf,
-                Some(vk::ImageLayout::GENERAL),
+                Some(TextureLayout::GENERAL),
                 0,
                 ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 0.0])),
             );
@@ -1655,7 +1875,7 @@ impl Tracer {
             .extent_dependent_resources
             .god_ray_output_tex
             .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
 
         self.compute_pipelines.god_ray_ppl.record(
             cmdbuf,
@@ -1684,12 +1904,7 @@ impl Tracer {
                 a_trous_iteration_count
             ));
         }
-        let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
-        let compute_to_compute_barrier = PipelineBarrier::new(
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            vec![shader_access_memory_barrier],
-        );
+        let compute_to_compute_barrier = PipelineBarrier::compute_shader_access();
 
         let extent = self
             .resources
@@ -1725,7 +1940,7 @@ impl Tracer {
             .extent_dependent_resources
             .composited_tex
             .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
 
         self.compute_pipelines.composition_ppl.record(
             cmdbuf,
@@ -1744,7 +1959,7 @@ impl Tracer {
             .extent_dependent_resources
             .lens_flare_full_output_tex
             .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
 
         self.compute_pipelines.lens_flare_ppl.record(
             cmdbuf,
@@ -1776,7 +1991,7 @@ impl Tracer {
             .extent_dependent_resources
             .lens_flare_output_tex
             .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
 
         self.compute_pipelines.lens_flare_downsample_ppl.record(
             cmdbuf,
@@ -1795,7 +2010,7 @@ impl Tracer {
             .extent_dependent_resources
             .screen_output_tex
             .get_image()
-            .record_transition_barrier(cmdbuf, 0, vk::ImageLayout::GENERAL);
+            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
 
         self.compute_pipelines.post_processing_ppl.record(
             cmdbuf,
@@ -2191,7 +2406,7 @@ impl Tracer {
         }
         self.resources.terrain_query_info.fill(&ray_data)?;
 
-        execute_one_time_command_with_fence(
+        execute_one_time_gpu_job(
             self.vulkan_ctx.device(),
             self.vulkan_ctx.command_pool(),
             &self.vulkan_ctx.get_general_queue(),
