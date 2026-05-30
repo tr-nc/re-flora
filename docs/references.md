@@ -21,6 +21,24 @@ Technical references used while building Re: Flora.
 - [Ray-AABB Intersection Algorithm](https://medium.com/@bromanz/another-view-on-the-classic-ray-aabb-intersection-algorithm-for-bvh-traversal-41125138b525)
 - [BRDF and PDF for Sampling](https://computergraphics.stackexchange.com/questions/8578/how-to-set-equivalent-pdfs-for-cosine-weighted-and-uniform-sampled-hemispheres)
 
+## Shadow Mapping
+
+- [Microsoft: Common Techniques to Improve Shadow Depth Maps](https://learn.microsoft.com/en-us/windows/win32/dxtecharts/common-techniques-to-improve-shadow-depth-maps)
+- [Microsoft: Cascaded Shadow Maps](https://learn.microsoft.com/en-us/windows/win32/dxtecharts/cascaded-shadow-maps)
+- [MJP: A Sampling of Shadow Techniques](https://therealmjp.github.io/posts/shadow-maps/)
+- [Long Forgotten Blog: Stable Cascaded Shadow Maps](http://longforgottenblog.blogspot.com/2014/12/rendering-post-stable-cascaded-shadow.html)
+- [Michal Valient, GDC09 Killzone 2 rendering talk](https://www.guerrilla-games.com/media/News/Files/GDC09_Valient_Rendering_Technology_Of_Killzone_2.pdf)
+
+## Water Simulation
+
+- [Hu et al. 2018: A Moving Least Squares Material Point Method with Displacement Discontinuity and Two-Way Rigid Body Coupling](https://yuanming.taichi.graphics/publication/2018-mlsmpm/)
+- [Gao et al. 2018: GPU Optimization of Material Point Methods](https://cemyuksel.com/research/papers/gpu_mpm.pdf)
+- [Wang et al. 2020: A Massively Parallel and Scalable Multi-GPU Material Point Method](https://yuxingqiu.github.io/publication/mpmgpu2020siggraph/paper.pdf)
+- [Barsamian, Chargueraud, Ketterlin 2017: A Space and Bandwidth Efficient Multicore Algorithm for the Particle-in-Cell Method](https://chargueraud.org/research/2017/pic_chunk/PIC-chunks.pdf)
+- [Schechter and Bridson 2012: Ghost SPH for Animating Water](https://www.cs.ubc.ca/~rbridson/docs/schechter-siggraph2012-ghostsph.pdf)
+- [English et al. 2022: Modified dynamic boundary conditions for general-purpose SPH](https://doi.org/10.1007/s40571-021-00403-3)
+- [Bender et al. 2019: Volume Maps: An Implicit Boundary Representation for SPH](https://dl.acm.org/doi/10.1145/3359566.3360077)
+
 ## Papers
 
 - [ReSTIR GI: Path Resampling for Real-Time Path Tracing](https://research.nvidia.com/publication/2021-06_restir-gi-path-resampling-real-time-path-tracing)
