@@ -52,8 +52,8 @@ use re_flora_vkn::vk;
 use re_flora_vkn::{
     execute_one_time_gpu_job, Allocator, ClearValue, ColorClearValue, CommandBuffer,
     ComputePipeline, DepthOrStencilClearValue, DescriptorPool, Extent2D, Extent3D, Framebuffer,
-    GpuProfiler, GraphicsPipeline, MemoryBarrier, PipelineBarrier, PipelineStage, PushConstantInfo,
-    RenderPass, RenderTarget, Texture, TextureLayout, Viewport, VulkanContext,
+    GpuProfiler, GraphicsPipeline, PipelineBarrier, PipelineStage, PushConstantInfo, RenderPass,
+    RenderTarget, Texture, TextureLayout, Viewport, VulkanContext,
 };
 use std::collections::HashMap;
 
@@ -831,25 +831,18 @@ impl Tracer {
         mut gpu_profiler: Option<&mut GpuProfiler>,
         gpu_profiler_frame_slot: usize,
     ) -> Result<()> {
-        let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
-        let compute_to_compute_barrier = PipelineBarrier::new(
-            PipelineStage::COMPUTE_SHADER,
-            PipelineStage::COMPUTE_SHADER,
-            [shader_access_memory_barrier],
-        );
+        let compute_to_compute_barrier = PipelineBarrier::compute_shader_access();
         // VSM filtering writes shadow_map_tex_for_vsm_ping in compute, then the
         // flora vertex shader samples it in the same command buffer. MoltenVK/Metal
         // needs the write made visible to graphics explicitly; a compute->compute
         // barrier is not enough and causes close grass shadow flicker on macOS.
-        let compute_to_graphics_barrier = PipelineBarrier::new(
+        let compute_to_graphics_barrier = PipelineBarrier::shader_access(
             PipelineStage::COMPUTE_SHADER,
             PipelineStage::VERTEX_SHADER,
-            [shader_access_memory_barrier],
         );
-        let frag_to_vert_barrier = PipelineBarrier::new(
+        let frag_to_vert_barrier = PipelineBarrier::shader_access(
             PipelineStage::FRAGMENT_SHADER,
             PipelineStage::VERTEX_SHADER,
-            [shader_access_memory_barrier],
         );
 
         Self::with_gpu_scope(
@@ -871,10 +864,9 @@ impl Tracer {
                 || self.record_wind_volume_pass(cmdbuf, time),
             );
 
-            let b1 = PipelineBarrier::new(
+            let b1 = PipelineBarrier::shader_access(
                 PipelineStage::COMPUTE_SHADER,
                 PipelineStage::VERTEX_SHADER | PipelineStage::COMPUTE_SHADER,
-                [shader_access_memory_barrier],
             );
             b1.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
@@ -897,10 +889,9 @@ impl Tracer {
             );
         }
         if has_graphics_pass || (render_flags.enable_shadows && update_shadow_map) {
-            let frag_to_compute_barrier = PipelineBarrier::new(
+            let frag_to_compute_barrier = PipelineBarrier::shader_access(
                 PipelineStage::FRAGMENT_SHADER,
                 PipelineStage::COMPUTE_SHADER,
-                [shader_access_memory_barrier],
             );
             frag_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
@@ -940,10 +931,9 @@ impl Tracer {
         }
 
         if has_graphics_pass && !render_flags.enable_flora {
-            let b1 = PipelineBarrier::new(
+            let b1 = PipelineBarrier::shader_access(
                 PipelineStage::COMPUTE_SHADER,
                 PipelineStage::VERTEX_SHADER | PipelineStage::COMPUTE_SHADER,
-                [shader_access_memory_barrier],
             );
             b1.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
@@ -1035,10 +1025,9 @@ impl Tracer {
         }
 
         if has_graphics_pass || render_flags.enable_tracer {
-            let b2 = PipelineBarrier::new(
+            let b2 = PipelineBarrier::shader_access(
                 PipelineStage::FRAGMENT_SHADER | PipelineStage::COMPUTE_SHADER,
                 PipelineStage::COMPUTE_SHADER,
-                [shader_access_memory_barrier],
             );
             b2.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
@@ -1803,12 +1792,7 @@ impl Tracer {
             .get_image()
             .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
 
-        let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
-        let compute_to_compute_barrier = PipelineBarrier::new(
-            PipelineStage::COMPUTE_SHADER,
-            PipelineStage::COMPUTE_SHADER,
-            [shader_access_memory_barrier],
-        );
+        let compute_to_compute_barrier = PipelineBarrier::compute_shader_access();
 
         let extent = self.resources.shadow_map_tex.get_image().get_desc().extent;
         self.compute_pipelines
@@ -1920,12 +1904,7 @@ impl Tracer {
                 a_trous_iteration_count
             ));
         }
-        let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
-        let compute_to_compute_barrier = PipelineBarrier::new(
-            PipelineStage::COMPUTE_SHADER,
-            PipelineStage::COMPUTE_SHADER,
-            [shader_access_memory_barrier],
-        );
+        let compute_to_compute_barrier = PipelineBarrier::compute_shader_access();
 
         let extent = self
             .resources

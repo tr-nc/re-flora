@@ -14,9 +14,8 @@ use bytemuck::Zeroable;
 use glam::{UVec3, Vec3};
 use re_flora_vkn::{
     Buffer, ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DescriptorPool, Extent3D,
-    GpuJobProfiler, GpuJobScopeToken, GpuJobToken, MemoryAccess, MemoryBarrier, PipelineBarrier,
-    PipelineStage, QueueLane, ShaderModule, TextureLayout, TimestampQueryPool, VulkanContext,
-    WriteDescriptorSet,
+    GpuJobProfiler, GpuJobScopeToken, GpuJobToken, PipelineBarrier, PipelineStage, QueueLane,
+    ShaderModule, TextureLayout, TimestampQueryPool, VulkanContext, WriteDescriptorSet,
 };
 pub use resources::*;
 use std::time::{Duration, Instant};
@@ -1168,27 +1167,14 @@ impl SurfaceBuilder {
 }
 
 fn record_compute_barrier(device: &re_flora_vkn::Device, cmdbuf: &CommandBuffer) {
-    let barrier = PipelineBarrier::new(
-        PipelineStage::COMPUTE_SHADER,
-        PipelineStage::COMPUTE_SHADER,
-        [MemoryBarrier::new_shader_access()],
-    );
-    barrier.record_insert(device, cmdbuf);
+    PipelineBarrier::compute_shader_access().record_insert(device, cmdbuf);
 }
 
 fn record_compute_to_indirect_and_shader_barrier(
     device: &re_flora_vkn::Device,
     cmdbuf: &CommandBuffer,
 ) {
-    let barrier = PipelineBarrier::new(
-        PipelineStage::COMPUTE_SHADER,
-        PipelineStage::DRAW_INDIRECT | PipelineStage::COMPUTE_SHADER,
-        [
-            MemoryBarrier::new_indirect_access(),
-            MemoryBarrier::new_shader_access(),
-        ],
-    );
-    barrier.record_insert(device, cmdbuf);
+    PipelineBarrier::compute_to_indirect_and_shader_access().record_insert(device, cmdbuf);
 }
 
 fn record_clear_buffer_for_compute(
@@ -1198,15 +1184,7 @@ fn record_clear_buffer_for_compute(
 ) {
     buffer.record_fill(cmdbuf, 0, buffer.get_size_bytes(), 0);
 
-    let barrier = PipelineBarrier::new(
-        PipelineStage::TRANSFER,
-        PipelineStage::COMPUTE_SHADER,
-        [MemoryBarrier::new(
-            MemoryAccess::TRANSFER_WRITE,
-            MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
-        )],
-    );
-    barrier.record_insert(device, cmdbuf);
+    PipelineBarrier::transfer_to_compute_shader_access().record_insert(device, cmdbuf);
 }
 
 fn update_make_surface_info(

@@ -330,6 +330,63 @@ pub struct PipelineBarrier<const MEMORY_BARRIER_COUNT: usize> {
     memory_barriers: [MemoryBarrier; MEMORY_BARRIER_COUNT],
 }
 
+impl PipelineBarrier<1> {
+    pub fn shader_access(src_stage_mask: PipelineStage, dst_stage_mask: PipelineStage) -> Self {
+        Self::new(
+            src_stage_mask,
+            dst_stage_mask,
+            [MemoryBarrier::new_shader_access()],
+        )
+    }
+
+    pub fn compute_shader_access() -> Self {
+        Self::shader_access(PipelineStage::COMPUTE_SHADER, PipelineStage::COMPUTE_SHADER)
+    }
+
+    pub fn compute_to_indirect_access() -> Self {
+        Self::new(
+            PipelineStage::COMPUTE_SHADER,
+            PipelineStage::DRAW_INDIRECT | PipelineStage::COMPUTE_SHADER,
+            [MemoryBarrier::new_indirect_access()],
+        )
+    }
+
+    pub fn compute_to_host_read() -> Self {
+        Self::new(
+            PipelineStage::COMPUTE_SHADER,
+            PipelineStage::HOST,
+            [MemoryBarrier::new(
+                MemoryAccess::SHADER_WRITE,
+                MemoryAccess::HOST_READ,
+            )],
+        )
+    }
+
+    pub fn transfer_to_compute_shader_access() -> Self {
+        Self::new(
+            PipelineStage::TRANSFER,
+            PipelineStage::COMPUTE_SHADER,
+            [MemoryBarrier::new(
+                MemoryAccess::TRANSFER_WRITE,
+                MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
+            )],
+        )
+    }
+}
+
+impl PipelineBarrier<2> {
+    pub fn compute_to_indirect_and_shader_access() -> Self {
+        Self::new(
+            PipelineStage::COMPUTE_SHADER,
+            PipelineStage::DRAW_INDIRECT | PipelineStage::COMPUTE_SHADER,
+            [
+                MemoryBarrier::new_indirect_access(),
+                MemoryBarrier::new_shader_access(),
+            ],
+        )
+    }
+}
+
 impl<const MEMORY_BARRIER_COUNT: usize> PipelineBarrier<MEMORY_BARRIER_COUNT> {
     pub fn new(
         src_stage_mask: PipelineStage,

@@ -19,8 +19,6 @@ use re_flora_vkn::ComputePipeline;
 use re_flora_vkn::DescriptorPool;
 use re_flora_vkn::Extent3D;
 use re_flora_vkn::GpuJobToken;
-use re_flora_vkn::MemoryAccess;
-use re_flora_vkn::MemoryBarrier;
 use re_flora_vkn::MemoryLocation;
 use re_flora_vkn::PipelineBarrier;
 use re_flora_vkn::PipelineStage;
@@ -457,15 +455,7 @@ fn record_clear_sparse_leaf_nodes(
 
     sparse_nodes.record_fill(cmdbuf, offset_bytes, size_bytes, 0);
 
-    let barrier = PipelineBarrier::new(
-        PipelineStage::TRANSFER,
-        PipelineStage::COMPUTE_SHADER,
-        [MemoryBarrier::new(
-            MemoryAccess::TRANSFER_WRITE,
-            MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
-        )],
-    );
-    barrier.record_insert(device, cmdbuf);
+    PipelineBarrier::transfer_to_compute_shader_access().record_insert(device, cmdbuf);
 }
 
 struct CpuChunkReadbackBuffers {
@@ -770,19 +760,8 @@ impl ContreeBuilder {
         contree_concat_ppl: &ComputePipeline,
         pass_timing: Option<&ContreePassTiming>,
     ) -> CommandBuffer {
-        let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
-        let indirect_access_memory_barrier = MemoryBarrier::new_indirect_access();
-
-        let shader_access_pipeline_barrier = PipelineBarrier::new(
-            PipelineStage::COMPUTE_SHADER,
-            PipelineStage::COMPUTE_SHADER,
-            [shader_access_memory_barrier],
-        );
-        let indirect_access_pipeline_barrier = PipelineBarrier::new(
-            PipelineStage::COMPUTE_SHADER,
-            PipelineStage::DRAW_INDIRECT | PipelineStage::COMPUTE_SHADER,
-            [indirect_access_memory_barrier],
-        );
+        let shader_access_pipeline_barrier = PipelineBarrier::compute_shader_access();
+        let indirect_access_pipeline_barrier = PipelineBarrier::compute_to_indirect_access();
 
         let device = vulkan_ctx.device();
         let cmdbuf = CommandBuffer::new(device, vulkan_ctx.command_pool());

@@ -22,11 +22,8 @@ use re_flora_vkn::ComputePipeline;
 use re_flora_vkn::DescriptorPool;
 use re_flora_vkn::Extent3D;
 use re_flora_vkn::GpuJobToken;
-use re_flora_vkn::MemoryAccess;
-use re_flora_vkn::MemoryBarrier;
 use re_flora_vkn::MemoryLocation;
 use re_flora_vkn::PipelineBarrier;
-use re_flora_vkn::PipelineStage;
 use re_flora_vkn::ShaderModule;
 use re_flora_vkn::Texture;
 use re_flora_vkn::TextureLayout;
@@ -316,19 +313,8 @@ impl PlainBuilder {
         chunk_init_ppl: &ComputePipeline,
         dispatch_dim: UVec3,
     ) -> CommandBuffer {
-        let shader_access_memory_barrier = MemoryBarrier::new_shader_access();
-        let indirect_access_memory_barrier = MemoryBarrier::new_indirect_access();
-
-        let shader_access_pipeline_barrier = PipelineBarrier::new(
-            PipelineStage::COMPUTE_SHADER,
-            PipelineStage::COMPUTE_SHADER,
-            [shader_access_memory_barrier],
-        );
-        let indirect_access_pipeline_barrier = PipelineBarrier::new(
-            PipelineStage::COMPUTE_SHADER,
-            PipelineStage::DRAW_INDIRECT | PipelineStage::COMPUTE_SHADER,
-            [indirect_access_memory_barrier],
-        );
+        let shader_access_pipeline_barrier = PipelineBarrier::compute_shader_access();
+        let indirect_access_pipeline_barrier = PipelineBarrier::compute_to_indirect_access();
 
         let cmdbuf = CommandBuffer::new(vulkan_ctx.device(), vulkan_ctx.command_pool());
         cmdbuf.begin(false);
@@ -533,14 +519,7 @@ impl PlainBuilder {
             .unwrap()
             .record("chunk_solid_sample_prepare", prepare_elapsed);
 
-        let host_read_barrier = PipelineBarrier::new(
-            PipelineStage::COMPUTE_SHADER,
-            PipelineStage::HOST,
-            [MemoryBarrier::new(
-                MemoryAccess::SHADER_WRITE,
-                MemoryAccess::HOST_READ,
-            )],
-        );
+        let host_read_barrier = PipelineBarrier::compute_to_host_read();
         let command_buffer =
             CommandBuffer::new(self.vulkan_ctx.device(), self.vulkan_ctx.command_pool());
         let submit_start = Instant::now();
@@ -736,11 +715,7 @@ impl PlainBuilder {
             _pad0: [0; 12],
         };
         self.next_edit_sample_seed = self.next_edit_sample_seed.wrapping_add(1);
-        let shader_access_pipeline_barrier = PipelineBarrier::new(
-            PipelineStage::COMPUTE_SHADER,
-            PipelineStage::COMPUTE_SHADER,
-            [MemoryBarrier::new_shader_access()],
-        );
+        let shader_access_pipeline_barrier = PipelineBarrier::compute_shader_access();
 
         let gpu_start = Instant::now();
         execute_one_time_gpu_job(
@@ -845,11 +820,7 @@ impl PlainBuilder {
             })?;
         let upload_elapsed = upload_start.elapsed();
 
-        let shader_access_pipeline_barrier = PipelineBarrier::new(
-            PipelineStage::COMPUTE_SHADER,
-            PipelineStage::COMPUTE_SHADER,
-            [MemoryBarrier::new_shader_access()],
-        );
+        let shader_access_pipeline_barrier = PipelineBarrier::compute_shader_access();
 
         let gpu_start = Instant::now();
         execute_one_time_command(
