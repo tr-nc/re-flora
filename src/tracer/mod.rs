@@ -835,7 +835,7 @@ impl Tracer {
         let compute_to_compute_barrier = PipelineBarrier::new(
             PipelineStage::COMPUTE_SHADER,
             PipelineStage::COMPUTE_SHADER,
-            vec![shader_access_memory_barrier],
+            [shader_access_memory_barrier],
         );
         // VSM filtering writes shadow_map_tex_for_vsm_ping in compute, then the
         // flora vertex shader samples it in the same command buffer. MoltenVK/Metal
@@ -844,12 +844,12 @@ impl Tracer {
         let compute_to_graphics_barrier = PipelineBarrier::new(
             PipelineStage::COMPUTE_SHADER,
             PipelineStage::VERTEX_SHADER,
-            vec![shader_access_memory_barrier],
+            [shader_access_memory_barrier],
         );
         let frag_to_vert_barrier = PipelineBarrier::new(
             PipelineStage::FRAGMENT_SHADER,
             PipelineStage::VERTEX_SHADER,
-            vec![shader_access_memory_barrier],
+            [shader_access_memory_barrier],
         );
 
         Self::with_gpu_scope(
@@ -874,7 +874,7 @@ impl Tracer {
             let b1 = PipelineBarrier::new(
                 PipelineStage::COMPUTE_SHADER,
                 PipelineStage::VERTEX_SHADER | PipelineStage::COMPUTE_SHADER,
-                vec![shader_access_memory_barrier],
+                [shader_access_memory_barrier],
             );
             b1.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
@@ -900,7 +900,7 @@ impl Tracer {
             let frag_to_compute_barrier = PipelineBarrier::new(
                 PipelineStage::FRAGMENT_SHADER,
                 PipelineStage::COMPUTE_SHADER,
-                vec![shader_access_memory_barrier],
+                [shader_access_memory_barrier],
             );
             frag_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
@@ -943,7 +943,7 @@ impl Tracer {
             let b1 = PipelineBarrier::new(
                 PipelineStage::COMPUTE_SHADER,
                 PipelineStage::VERTEX_SHADER | PipelineStage::COMPUTE_SHADER,
-                vec![shader_access_memory_barrier],
+                [shader_access_memory_barrier],
             );
             b1.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
@@ -1038,7 +1038,7 @@ impl Tracer {
             let b2 = PipelineBarrier::new(
                 PipelineStage::FRAGMENT_SHADER | PipelineStage::COMPUTE_SHADER,
                 PipelineStage::COMPUTE_SHADER,
-                vec![shader_access_memory_barrier],
+                [shader_access_memory_barrier],
             );
             b2.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
@@ -1807,7 +1807,7 @@ impl Tracer {
         let compute_to_compute_barrier = PipelineBarrier::new(
             PipelineStage::COMPUTE_SHADER,
             PipelineStage::COMPUTE_SHADER,
-            vec![shader_access_memory_barrier],
+            [shader_access_memory_barrier],
         );
 
         let extent = self.resources.shadow_map_tex.get_image().get_desc().extent;
@@ -1924,7 +1924,7 @@ impl Tracer {
         let compute_to_compute_barrier = PipelineBarrier::new(
             PipelineStage::COMPUTE_SHADER,
             PipelineStage::COMPUTE_SHADER,
-            vec![shader_access_memory_barrier],
+            [shader_access_memory_barrier],
         );
 
         let extent = self

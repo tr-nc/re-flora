@@ -322,12 +322,12 @@ impl PlainBuilder {
         let shader_access_pipeline_barrier = PipelineBarrier::new(
             PipelineStage::COMPUTE_SHADER,
             PipelineStage::COMPUTE_SHADER,
-            vec![shader_access_memory_barrier],
+            [shader_access_memory_barrier],
         );
         let indirect_access_pipeline_barrier = PipelineBarrier::new(
             PipelineStage::COMPUTE_SHADER,
             PipelineStage::DRAW_INDIRECT | PipelineStage::COMPUTE_SHADER,
-            vec![indirect_access_memory_barrier],
+            [indirect_access_memory_barrier],
         );
 
         let cmdbuf = CommandBuffer::new(vulkan_ctx.device(), vulkan_ctx.command_pool());
@@ -536,7 +536,7 @@ impl PlainBuilder {
         let host_read_barrier = PipelineBarrier::new(
             PipelineStage::COMPUTE_SHADER,
             PipelineStage::HOST,
-            vec![MemoryBarrier::new(
+            [MemoryBarrier::new(
                 MemoryAccess::SHADER_WRITE,
                 MemoryAccess::HOST_READ,
             )],
@@ -739,7 +739,7 @@ impl PlainBuilder {
         let shader_access_pipeline_barrier = PipelineBarrier::new(
             PipelineStage::COMPUTE_SHADER,
             PipelineStage::COMPUTE_SHADER,
-            vec![MemoryBarrier::new_shader_access()],
+            [MemoryBarrier::new_shader_access()],
         );
 
         let gpu_start = Instant::now();
@@ -848,7 +848,7 @@ impl PlainBuilder {
         let shader_access_pipeline_barrier = PipelineBarrier::new(
             PipelineStage::COMPUTE_SHADER,
             PipelineStage::COMPUTE_SHADER,
-            vec![MemoryBarrier::new_shader_access()],
+            [MemoryBarrier::new_shader_access()],
         );
 
         let gpu_start = Instant::now();

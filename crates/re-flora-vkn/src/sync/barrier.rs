@@ -324,17 +324,17 @@ fn texture_destination_state(layout: TextureLayout) -> ResourceState {
 }
 
 #[derive(Clone)]
-pub struct PipelineBarrier {
+pub struct PipelineBarrier<const MEMORY_BARRIER_COUNT: usize> {
     src_stage_mask: PipelineStage,
     dst_stage_mask: PipelineStage,
-    memory_barriers: Vec<MemoryBarrier>,
+    memory_barriers: [MemoryBarrier; MEMORY_BARRIER_COUNT],
 }
 
-impl PipelineBarrier {
+impl<const MEMORY_BARRIER_COUNT: usize> PipelineBarrier<MEMORY_BARRIER_COUNT> {
     pub fn new(
         src_stage_mask: PipelineStage,
         dst_stage_mask: PipelineStage,
-        memory_barriers: Vec<MemoryBarrier>,
+        memory_barriers: [MemoryBarrier; MEMORY_BARRIER_COUNT],
     ) -> Self {
         Self {
             src_stage_mask,
@@ -344,11 +344,8 @@ impl PipelineBarrier {
     }
 
     pub fn record_insert(&self, device: &Device, cmdbuf: &CommandBuffer) {
-        let memory_barriers = self
-            .memory_barriers
-            .iter()
-            .map(|mb| mb.as_raw())
-            .collect::<Vec<_>>();
+        let memory_barriers: [vk::MemoryBarrier<'_>; MEMORY_BARRIER_COUNT] =
+            std::array::from_fn(|i| self.memory_barriers[i].as_raw());
 
         unsafe {
             device.cmd_pipeline_barrier(

@@ -1171,7 +1171,7 @@ fn record_compute_barrier(device: &re_flora_vkn::Device, cmdbuf: &CommandBuffer)
     let barrier = PipelineBarrier::new(
         PipelineStage::COMPUTE_SHADER,
         PipelineStage::COMPUTE_SHADER,
-        vec![MemoryBarrier::new_shader_access()],
+        [MemoryBarrier::new_shader_access()],
     );
     barrier.record_insert(device, cmdbuf);
 }
@@ -1183,7 +1183,7 @@ fn record_compute_to_indirect_and_shader_barrier(
     let barrier = PipelineBarrier::new(
         PipelineStage::COMPUTE_SHADER,
         PipelineStage::DRAW_INDIRECT | PipelineStage::COMPUTE_SHADER,
-        vec![
+        [
             MemoryBarrier::new_indirect_access(),
             MemoryBarrier::new_shader_access(),
         ],
@@ -1201,7 +1201,7 @@ fn record_clear_buffer_for_compute(
     let barrier = PipelineBarrier::new(
         PipelineStage::TRANSFER,
         PipelineStage::COMPUTE_SHADER,
-        vec![MemoryBarrier::new(
+        [MemoryBarrier::new(
             MemoryAccess::TRANSFER_WRITE,
             MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
         )],

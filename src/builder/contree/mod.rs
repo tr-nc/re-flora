@@ -460,7 +460,7 @@ fn record_clear_sparse_leaf_nodes(
     let barrier = PipelineBarrier::new(
         PipelineStage::TRANSFER,
         PipelineStage::COMPUTE_SHADER,
-        vec![MemoryBarrier::new(
+        [MemoryBarrier::new(
             MemoryAccess::TRANSFER_WRITE,
             MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
         )],
@@ -776,12 +776,12 @@ impl ContreeBuilder {
         let shader_access_pipeline_barrier = PipelineBarrier::new(
             PipelineStage::COMPUTE_SHADER,
             PipelineStage::COMPUTE_SHADER,
-            vec![shader_access_memory_barrier],
+            [shader_access_memory_barrier],
         );
         let indirect_access_pipeline_barrier = PipelineBarrier::new(
             PipelineStage::COMPUTE_SHADER,
             PipelineStage::DRAW_INDIRECT | PipelineStage::COMPUTE_SHADER,
-            vec![indirect_access_memory_barrier],
+            [indirect_access_memory_barrier],
         );
 
         let device = vulkan_ctx.device();
