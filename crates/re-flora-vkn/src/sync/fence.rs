@@ -17,6 +17,8 @@ impl Drop for FenceInner {
     fn drop(&mut self) {
         if self.recycle_to_gpu_job_pool && self.completed_for_reuse.load(Ordering::Acquire) {
             self.device.recycle_gpu_job_fence(self.fence);
+        } else if self.recycle_to_gpu_job_pool {
+            self.device.destroy_uncompleted_gpu_job_fence(self.fence);
         } else {
             unsafe {
                 self.device.destroy_fence(self.fence, None);
@@ -37,7 +39,10 @@ impl Fence {
     pub(crate) fn new_pooled_gpu_job(device: &Device) -> ash::prelude::VkResult<Self> {
         let fence = match device.acquire_gpu_job_fence()? {
             Some(fence) => fence,
-            None => Self::create_fence(device, false),
+            None => {
+                device.record_gpu_job_fence_created();
+                Self::create_fence(device, false)
+            }
         };
         Ok(Self::from_raw(device, fence, true))
     }
