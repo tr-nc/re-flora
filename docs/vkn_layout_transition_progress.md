@@ -51,21 +51,21 @@ Assumptions to confirm:
 - Objective: Define the minimum `vkn` API for declared resource usage, explicit transitions, debug assertions, and configuration.
 - Expected output: Short design note or code skeleton for resource states such as sampled read, storage read/write, transfer src/dst, color attachment, depth attachment, and present.
 - Dependencies/blockers: Need agreement on naming and how much existing API remains public.
-- Status: not started.
+- Status: in progress; added `ResourceState` constructors and a `ResourceStateTracker` policy API with automatic/manual/assert modes.
 
 ### Phase 2: Centralize transition recording behind a tracker/encoder
 
 - Objective: Add a `vkn`-owned state tracker that records barriers from old state to requested state.
 - Expected output: A linear command encoder or transition tracker that uses existing `TextureTransition`/barrier machinery and keeps explicit transition hooks.
 - Dependencies/blockers: Must preserve current `Image` layout tracking or migrate it carefully.
-- Status: not started.
+- Status: in progress; `Image` now tracks full `ResourceState` per layer while preserving layout-oriented APIs.
 
 ### Phase 3: Move render-pass attachment state updates into `vkn`
 
 - Objective: Make render-target begin/end own attachment state transitions/tracking instead of requiring game code to call `set_layout`.
 - Expected output: Render pass/target paths update tracked image state based on attachment initial/final layouts.
-- Dependencies/blockers: `Framebuffer` currently stores raw image views, so attachment texture identity may need to be retained for texture-backed framebuffers.
-- Status: not started.
+- Dependencies/blockers: Raw swapchain framebuffers still have no texture identity, so tracking applies first to texture-backed framebuffers.
+- Status: in progress; texture-backed `Framebuffer`s retain attachment `Texture`s and `RenderTarget` updates tracked initial/final attachment layouts at begin/end.
 
 ### Phase 4: Add automatic transitions for compute/descriptor texture use
 
@@ -121,13 +121,16 @@ If verification is not yet possible, the missing piece is the tracker/encoder im
 - 2026-06-01: Confirmed current branch is `agent/vkn-layout-transitions` with a clean working tree.
 - 2026-06-01: Inspected current transition ownership. Decision: pursue a `vkn` resource-state tracker/rendergraph-lite direction rather than a full rendergraph initially.
 - 2026-06-01: Created this progress tracker under `docs/` because existing project planning and architecture notes live there.
+- 2026-06-01: Added `ResourceStateTracker` with automatic/manual/assert policies, moved raw image-barrier recording into the tracker module, and migrated `Image` tracking from layout-only to full `ResourceState` per layer while keeping existing layout APIs.
+- 2026-06-01: Made texture-backed `Framebuffer`s retain attachment textures and updated `RenderTarget` to track render-pass attachment initial/final layouts in `vkn`; raw swapchain framebuffers remain unchanged.
+- 2026-06-01: Validated the first implementation slice with `cargo fmt` and `cargo check`.
 
 ## Open Questions / Risks
 
-- Should the first API be called a command encoder, state tracker, resource barrier manager, or rendergraph-lite?
+- Should the first API evolve from `ResourceStateTracker` into a command encoder, or stay as a barrier/resource-state utility?
 - How should automatic behavior be configured: global context setting, per-command-buffer setting, or per-operation policy?
 - How precise do we need to be for storage images: read-only, write-only, or read/write?
 - How do we represent subresource ranges beyond current one-layer tracking?
-- Render-pass attachment tracking may require storing texture identity in `Framebuffer`/`RenderTarget`, not only raw image views.
+- Render-pass attachment tracking now works only for texture-backed framebuffers; raw image-view framebuffers such as swapchain targets still need explicit swapchain handling.
 - Overly conservative barriers may be correct but could hurt performance; precise barriers may require more metadata.
 - Existing `Image::set_layout` is an escape hatch and can hide bugs; migration should replace it with explicit tracker assumptions/assertions where possible.

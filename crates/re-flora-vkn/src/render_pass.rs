@@ -246,9 +246,9 @@ impl RenderPass {
         );
     }
 
-    /// TODO: refactor this so format transition is handled here
-    /// Ends the render pass. The caller is responsible for transitioning image layouts
-    /// to their final state as specified in the `RenderPassDesc`.
+    /// Ends the render pass. Vulkan performs attachment layout transitions according to
+    /// the render-pass attachment descriptions; resource-state tracking is updated by
+    /// `RenderTarget`, which knows the framebuffer attachments.
     pub fn record_end(&self, cmdbuf: &CommandBuffer) {
         self.0.device.cmd_end_render_pass_raw(cmdbuf.as_raw());
     }

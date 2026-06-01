@@ -1,6 +1,11 @@
 use crate::{CommandBuffer, Framebuffer, RenderPass, RenderPassDesc};
 use ash::vk;
 
+#[derive(Clone, Copy, Debug)]
+struct ActiveFramebuffer {
+    index: usize,
+}
+
 /// A render target that combines a RenderPass with multiple Framebuffers for flexible rendering operations.
 /// This abstraction follows the common Vulkan pattern of one RenderPass with multiple Framebuffers,
 /// supporting use cases like multi-buffering, multi-target rendering, and swapchain-style operations.
@@ -8,6 +13,7 @@ pub struct RenderTarget {
     render_pass: RenderPass,
     framebuffers: Vec<Framebuffer>,
     current_framebuffer_index: usize,
+    active_framebuffer: std::sync::Mutex<Option<ActiveFramebuffer>>,
 }
 
 impl RenderTarget {
@@ -22,6 +28,7 @@ impl RenderTarget {
             render_pass,
             framebuffers,
             current_framebuffer_index: 0,
+            active_framebuffer: std::sync::Mutex::new(None),
         }
     }
 
@@ -39,8 +46,12 @@ impl RenderTarget {
             framebuffer_index,
             self.framebuffers.len() - 1
         );
+        self.track_attachment_initial_layouts(framebuffer_index);
         self.render_pass
             .record_begin(cmdbuf, &self.framebuffers[framebuffer_index], clear_values);
+        *self.active_framebuffer.lock().unwrap() = Some(ActiveFramebuffer {
+            index: framebuffer_index,
+        });
     }
 
     /// Begins the render pass with the current framebuffer.
@@ -52,6 +63,9 @@ impl RenderTarget {
     /// Ends the render pass.
     pub fn record_end(&self, cmdbuf: &CommandBuffer) {
         self.render_pass.record_end(cmdbuf);
+        if let Some(active_framebuffer) = self.active_framebuffer.lock().unwrap().take() {
+            self.track_attachment_final_layouts(active_framebuffer.index);
+        }
     }
 
     /// Gets the render pass description.
@@ -62,5 +76,23 @@ impl RenderTarget {
     /// Gets a reference to the underlying render pass.
     pub fn get_render_pass(&self) -> &RenderPass {
         &self.render_pass
+    }
+
+    fn track_attachment_initial_layouts(&self, framebuffer_index: usize) {
+        let framebuffer = &self.framebuffers[framebuffer_index];
+        for (attachment_index, texture) in framebuffer.get_attachments().iter().enumerate() {
+            if let Some(desc) = self.render_pass.get_desc().attachments.get(attachment_index) {
+                texture.get_image().set_layout(0, desc.initial_layout);
+            }
+        }
+    }
+
+    fn track_attachment_final_layouts(&self, framebuffer_index: usize) {
+        let framebuffer = &self.framebuffers[framebuffer_index];
+        for (attachment_index, texture) in framebuffer.get_attachments().iter().enumerate() {
+            if let Some(desc) = self.render_pass.get_desc().attachments.get(attachment_index) {
+                texture.get_image().set_layout(0, desc.final_layout);
+            }
+        }
     }
 }

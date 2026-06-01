@@ -18,10 +18,6 @@ impl TextureLayout {
         Self(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
     pub const PRESENT_SRC: Self = Self(vk::ImageLayout::PRESENT_SRC_KHR);
 
-    pub(crate) fn from_raw(layout: vk::ImageLayout) -> Self {
-        Self(layout)
-    }
-
     pub(crate) fn as_raw(self) -> vk::ImageLayout {
         self.0
     }
@@ -161,6 +157,90 @@ impl ResourceState {
         }
     }
 
+    pub fn from_layout(layout: TextureLayout) -> Self {
+        match layout.as_raw() {
+            vk::ImageLayout::UNDEFINED => Self::undefined(),
+            vk::ImageLayout::PREINITIALIZED => Self::preinitialized(),
+            _ => texture_destination_state(layout),
+        }
+    }
+
+    pub fn undefined() -> Self {
+        Self::new(
+            TextureLayout::UNDEFINED,
+            PipelineStage::TOP_OF_PIPE,
+            MemoryAccess::empty(),
+        )
+    }
+
+    pub fn preinitialized() -> Self {
+        Self::new(
+            TextureLayout::PREINITIALIZED,
+            PipelineStage::TOP_OF_PIPE,
+            MemoryAccess::empty(),
+        )
+    }
+
+    pub fn general_shader_read_write() -> Self {
+        Self::new(
+            TextureLayout::GENERAL,
+            general_shader_stages(),
+            MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
+        )
+    }
+
+    pub fn storage_image_read_write() -> Self {
+        Self::general_shader_read_write()
+    }
+
+    pub fn shader_read_only() -> Self {
+        Self::new(
+            TextureLayout::SHADER_READ_ONLY,
+            general_shader_stages(),
+            MemoryAccess::SHADER_READ,
+        )
+    }
+
+    pub fn transfer_src() -> Self {
+        Self::new(
+            TextureLayout::TRANSFER_SRC,
+            PipelineStage::TRANSFER,
+            MemoryAccess::TRANSFER_READ,
+        )
+    }
+
+    pub fn transfer_dst() -> Self {
+        Self::new(
+            TextureLayout::TRANSFER_DST,
+            PipelineStage::TRANSFER,
+            MemoryAccess::TRANSFER_WRITE,
+        )
+    }
+
+    pub fn color_attachment() -> Self {
+        Self::new(
+            TextureLayout::COLOR_ATTACHMENT,
+            PipelineStage::COLOR_ATTACHMENT_OUTPUT,
+            MemoryAccess::COLOR_ATTACHMENT_READ | MemoryAccess::COLOR_ATTACHMENT_WRITE,
+        )
+    }
+
+    pub fn depth_stencil_attachment() -> Self {
+        Self::new(
+            TextureLayout::DEPTH_STENCIL_ATTACHMENT,
+            PipelineStage::EARLY_FRAGMENT_TESTS | PipelineStage::LATE_FRAGMENT_TESTS,
+            MemoryAccess::DEPTH_STENCIL_ATTACHMENT_WRITE,
+        )
+    }
+
+    pub fn present_src() -> Self {
+        Self::new(
+            TextureLayout::PRESENT_SRC,
+            PipelineStage::BOTTOM_OF_PIPE,
+            MemoryAccess::empty(),
+        )
+    }
+
     pub fn layout(self) -> TextureLayout {
         self.layout
     }
@@ -234,11 +314,8 @@ fn general_shader_stages() -> PipelineStage {
 
 fn texture_source_state(layout: TextureLayout) -> ResourceState {
     match layout.as_raw() {
-        vk::ImageLayout::UNDEFINED => ResourceState::new(
-            TextureLayout::UNDEFINED,
-            PipelineStage::TOP_OF_PIPE,
-            MemoryAccess::empty(),
-        ),
+        vk::ImageLayout::UNDEFINED => ResourceState::undefined(),
+        vk::ImageLayout::PREINITIALIZED => ResourceState::preinitialized(),
         vk::ImageLayout::GENERAL => ResourceState::new(
             TextureLayout::GENERAL,
             general_shader_stages(),

@@ -6,6 +6,7 @@ pub struct Framebuffer {
     vulkan_ctx: VulkanContext,
     framebuffer: vk::Framebuffer,
     extent: Extent2D,
+    attachments: Vec<Texture>,
 }
 
 impl Framebuffer {
@@ -32,6 +33,7 @@ impl Framebuffer {
                 vulkan_ctx,
                 framebuffer,
                 extent,
+                attachments: Vec::new(),
             })
         }
     }
@@ -46,7 +48,9 @@ impl Framebuffer {
             .iter()
             .map(|texture| texture.get_image_view().as_raw())
             .collect::<Vec<_>>();
-        Self::new(vulkan_ctx, render_pass, &attachments, extent)
+        let mut framebuffer = Self::new(vulkan_ctx, render_pass, &attachments, extent)?;
+        framebuffer.attachments = textures.iter().map(|texture| (*texture).clone()).collect();
+        Ok(framebuffer)
     }
 
     pub fn as_raw(&self) -> vk::Framebuffer {
@@ -55,6 +59,10 @@ impl Framebuffer {
 
     pub fn get_extent(&self) -> Extent2D {
         self.extent
+    }
+
+    pub fn get_attachments(&self) -> &[Texture] {
+        &self.attachments
     }
 }
 
