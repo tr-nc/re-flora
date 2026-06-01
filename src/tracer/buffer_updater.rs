@@ -31,14 +31,14 @@ impl BufferUpdater {
     }
 
     pub fn update_env_info(resources: &TracerResources, frame_serial_idx: u32) -> Result<()> {
-        resources.env_info.fill_uniform(&EnvInfo {
+        resources.uniforms.env_info.fill_uniform(&EnvInfo {
             frame_serial_idx,
             ..EnvInfo::zeroed()
         })
     }
 
     pub fn update_shading_info(resources: &TracerResources, ambient_light: Vec3) -> Result<()> {
-        resources.shading_info.fill_uniform(&ShadingInfo {
+        resources.uniforms.shading_info.fill_uniform(&ShadingInfo {
             ambient_light: ambient_light.to_array(),
             ..ShadingInfo::zeroed()
         })
@@ -49,6 +49,7 @@ impl BufferUpdater {
         scaling_factor: f32,
     ) -> Result<()> {
         resources
+            .uniforms
             .post_processing_info
             .fill_uniform(&PostProcessingInfo {
                 scaling_factor,
@@ -62,12 +63,15 @@ impl BufferUpdater {
         sprout_delay_ticks: u32,
         full_growth_ticks: u32,
     ) -> Result<()> {
-        resources.flora_growth_info.fill_uniform(&FloraGrowthInfo {
-            flora_tick,
-            sprout_delay_ticks,
-            full_growth_ticks,
-            ..FloraGrowthInfo::zeroed()
-        })
+        resources
+            .uniforms
+            .flora_growth_info
+            .fill_uniform(&FloraGrowthInfo {
+                flora_tick,
+                sprout_delay_ticks,
+                full_growth_ticks,
+                ..FloraGrowthInfo::zeroed()
+            })
     }
 
     pub fn update_god_ray_info(
@@ -77,7 +81,7 @@ impl BufferUpdater {
         weight: f32,
         color: Vec3,
     ) -> Result<()> {
-        resources.god_ray_info.fill_uniform(&GodRayInfo {
+        resources.uniforms.god_ray_info.fill_uniform(&GodRayInfo {
             max_depth,
             max_checks,
             weight,
@@ -93,6 +97,7 @@ impl BufferUpdater {
         camera_front: Vec3,
     ) -> Result<()> {
         resources
+            .terrain_query
             .player_collider_info
             .fill_uniform(&PlayerColliderInfo {
                 player_pos: player_pos.to_array(),
@@ -177,7 +182,7 @@ impl BufferUpdater {
         sun_altitude: f32,
         sun_azimuth: f32,
     ) -> Result<()> {
-        resources.sun_info.fill_uniform(&SunInfo {
+        resources.uniforms.sun_info.fill_uniform(&SunInfo {
             sun_dir: sun_dir.to_array(),
             sun_size,
             sun_color: sun_color.to_array(),
@@ -198,7 +203,7 @@ impl BufferUpdater {
         rock_color: Vec3,
         hash_color_variance: f32,
     ) -> Result<()> {
-        resources.voxel_colors.fill_uniform(&VoxelColors {
+        resources.uniforms.voxel_colors.fill_uniform(&VoxelColors {
             dirt_color: dirt_color.to_array(),
             sand_color: sand_color.to_array(),
             cherry_wood_color: cherry_wood_color.to_array(),
@@ -241,9 +246,9 @@ impl BufferUpdater {
         if wind_sources.is_empty() {
             wind_sources.push(WindSourceGpu::zeroed());
         }
-        resources.wind_sources.fill(&wind_sources)?;
+        resources.wind.wind_sources.fill(&wind_sources)?;
 
-        resources.gui_input.fill_uniform(&GuiInput {
+        resources.uniforms.gui_input.fill_uniform(&GuiInput {
             debug_float,
             debug_bool: debug_bool as u32,
             debug_uint,
@@ -281,19 +286,22 @@ impl BufferUpdater {
         distfading: f32,
         saturation: f32,
     ) -> Result<()> {
-        resources.starlight_info.fill_uniform(&StarlightInfo {
-            iterations,
-            formuparam,
-            volsteps,
-            stepsize,
-            zoom,
-            tile,
-            speed,
-            brightness,
-            darkmatter,
-            distfading,
-            saturation,
-            ..StarlightInfo::zeroed()
-        })
+        resources
+            .uniforms
+            .starlight_info
+            .fill_uniform(&StarlightInfo {
+                iterations,
+                formuparam,
+                volsteps,
+                stepsize,
+                zoom,
+                tile,
+                speed,
+                brightness,
+                darkmatter,
+                distfading,
+                saturation,
+                ..StarlightInfo::zeroed()
+            })
     }
 }
