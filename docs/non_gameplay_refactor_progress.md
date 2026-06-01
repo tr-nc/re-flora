@@ -94,7 +94,7 @@ Assumptions to confirm before implementation:
 - Objective: Split `mls_mpm.rs` into focused internal modules while preserving algorithms and tests.
 - Expected output: Separate areas for transfer, terrain cache/projection, density/EOS, diagnostics, and repair/collision helpers.
 - Dependencies/blockers: Should follow after Phase 4 or be kept very mechanical; large file split can create merge conflict risk.
-- Status: in progress; density/EOS and terrain-boundary density helpers moved to `crates/re-flora-water/src/mls_mpm/density.rs`, and repair/collision helpers moved to `crates/re-flora-water/src/mls_mpm/repair.rs` as mechanical extractions.
+- Status: in progress; density/EOS, repair/collision, and diagnostic/stat helper groups moved into focused `crates/re-flora-water/src/mls_mpm/` submodules as mechanical extractions.
 
 ### Phase 6: Behavior-identical micro cleanups
 
@@ -169,6 +169,7 @@ If verification is not possible:
 - 2026-06-01: Added `--perf`-only `[PERF][WATER_THREAD]` telemetry for water worker command drain and snapshot publish costs, plus parser support and unit tests.
 - 2026-06-01: Started the water solver file split by moving density/EOS and terrain-boundary density helpers into `crates/re-flora-water/src/mls_mpm/density.rs`; validated with water-crate tests, full cargo tests, and a release hidden run.
 - 2026-06-01: Continued the water solver file split by moving APIC damping, finite-state repair, speed clamps, and box/terrain particle collision helpers into `crates/re-flora-water/src/mls_mpm/repair.rs`; validated with water-crate tests, full cargo tests, parser tests, and a release hidden run.
+- 2026-06-01: Moved quiet-settling and water-particle diagnostic stat helpers into `crates/re-flora-water/src/mls_mpm/diagnostics.rs`; validated with water-crate tests, full cargo tests, parser tests, and a release hidden run.
 
 ## Open Questions / Risks
 
