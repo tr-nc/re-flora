@@ -66,7 +66,7 @@ Assumptions to confirm before implementation:
 - Objective: Reduce `src/app/core/mod.rs` size and improve navigation by moving cohesive behavior into modules without logic changes.
 - Expected output: Small modules such as loading, screenshots, startup debug setup, frame timing, and UI panel composition; imports adjusted; behavior unchanged.
 - Dependencies/blockers: Need careful copy/move boundaries to avoid broad borrow/lifetime churn.
-- Status: in progress; run-log helpers were extracted from `src/main.rs` into `src/run_log.rs` with pure unit tests.
+- Status: in progress; run-log helpers were extracted from `src/main.rs` into `src/run_log.rs`, and frame timing UI/state moved from `src/app/core/mod.rs` into `src/app/core/frame_timing.rs`, with pure unit tests for extracted helper behavior.
 
 ### Phase 2: CPU timing/profiling helper
 
@@ -159,6 +159,7 @@ If verification is not possible:
 - 2026-06-01: Extracted run-log file creation/latest/tail/pruning helpers from `src/main.rs` to `src/run_log.rs`, preserving CLI behavior while adding unit tests for pointer fallback, tailing, filename filtering, and pruning.
 - 2026-06-01: Validated current step with `python3 -m unittest tools/test_parse_perf_log.py`, `cargo fmt --check`, `cargo check`, and `cargo test`.
 - 2026-06-01: Made CLI parsing testable through `AppOptions::from_arg_strings` and added guardrail tests for defaults, common perf/water flags, clamping, log-query flags, and helpful panic messages.
+- 2026-06-01: Moved frame timing snapshot data and panel rendering from `src/app/core/mod.rs` to `src/app/core/frame_timing.rs`, keeping labels and UI rendering behavior unchanged.
 
 ## Open Questions / Risks
 
