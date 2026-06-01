@@ -57,11 +57,16 @@ void prepare_flora_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_l
                            out float color_gradient, out vec3 voxel_pos, out vec3 anchor_pos,
                            out float shadow_weight, out bool should_trim_voxel) {
     is_grass = instance_ty == FLORA_SPECIES_TALL_GRASS || instance_ty == FLORA_SPECIES_SHORT_GRASS;
+    bool is_apple = instance_ty == FLORA_SPECIES_APPLE;
 
     bool is_short_grass = instance_ty == FLORA_SPECIES_SHORT_GRASS;
     uint gradient_length = is_short_grass ? tall_grass_height_voxels : max_length;
-    float wind_gradient = compute_gradient(vox_local_pos, gradient_origin, gradient_length);
-    color_gradient = wind_gradient;
+    float wind_gradient = is_apple ? 1.0 : compute_gradient(vox_local_pos, gradient_origin, gradient_length);
+    color_gradient = is_apple
+                         ? clamp((float(vox_local_pos.y) + float(max_length)) /
+                                     max(1.0, float(max_length) * 2.0),
+                                 0.0, 1.0)
+                         : wind_gradient;
 
     uint grass_height_voxels =
         is_grass ? sample_grass_height(instance_ty, instance_seed) : tall_grass_height_voxels;
@@ -82,10 +87,12 @@ void prepare_flora_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_l
     }
 
     vec3 instance_pos    = vec3(instance_pos_voxels) * scaling_factor;
-    vec3 wind_sample_pos = is_grass ? instance_pos : instance_pos + vec3(vox_local_pos) * scaling_factor;
-    uint wind_seed = is_grass ? instance_seed : get_wind_volume_voxel_seed(instance_seed, vox_local_pos);
+    vec3 wind_sample_pos = (is_grass || is_apple) ? instance_pos :
+                                                  instance_pos + vec3(vox_local_pos) * scaling_factor;
+    uint wind_seed = (is_grass || is_apple) ? instance_seed :
+                                             get_wind_volume_voxel_seed(instance_seed, vox_local_pos);
     vec3 wind_vec = sample_wind_volume(wind_sample_pos, wind_seed);
-    vec3 wind_offset = wind_vec * wind_gradient * wind_gradient;
+    vec3 wind_offset = is_apple ? vec3(0.0) : wind_vec * wind_gradient * wind_gradient;
     float wind_motion_time =
         wind_volume_bucket_update_time(get_wind_volume_bucket_index(wind_seed), pc.time);
     if (is_grass) {
@@ -94,6 +101,8 @@ void prepare_flora_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_l
     } else if (instance_ty == FLORA_SPECIES_TREE_LEAF) {
         wind_offset += leaf_wind_paddling(wind_vec, wind_gradient, instance_seed, vox_local_pos,
                                           gradient_origin, wind_motion_time);
+    } else if (is_apple) {
+        wind_offset += apple_wind_swing(wind_vec, instance_seed, wind_motion_time);
     }
     vec2 player_delta = instance_pos.xz - camera_info.pos.xz;
     float player_dist = length(player_delta);
@@ -124,6 +133,11 @@ vec3 sample_flora_base_color(bool is_grass, uint instance_ty, uint instance_seed
     uint palette_seed        = combine_color_seed(instance_seed);
     vec3 bottom_color_linear = srgb_to_linear(pc.bottom_color);
     vec3 tip_color_linear    = sample_tip_palette(instance_ty, palette_seed, pc.tip_color);
+    if (instance_ty == FLORA_SPECIES_APPLE) {
+        vec3 apple_color = mix(bottom_color_linear, tip_color_linear, color_gradient);
+        float speckle = signed_unit_noise(vec4(vec3(vox_local_pos), float(instance_seed))).x;
+        return apply_hsv_offset(apple_color, vec3(speckle * 0.018, 0.03, speckle * 0.035));
+    }
     vec3 interpolated_color  = mix(bottom_color_linear, tip_color_linear, color_gradient);
     vec3 instance_color_variation =
         signed_unit_noise(float(instance_seed)) * gui_input.flora_instance_hsv_offset_max;

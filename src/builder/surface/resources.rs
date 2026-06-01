@@ -78,14 +78,15 @@ pub struct TreeLeavesInstance {
 }
 
 impl TreeLeavesInstance {
-    pub fn new(
+    pub fn new_with_capacity(
         _tree_id: u32,
         aabb: Aabb3,
         chunk_world_offset: UVec3,
         device: Device,
         allocator: Allocator,
+        max_instances: u64,
     ) -> Self {
-        let resources = TreeLeafInstanceResource::new(device, allocator, 10000);
+        let resources = TreeLeafInstanceResource::new(device, allocator, max_instances.max(1));
         Self {
             aabb,
             chunk_world_offset,
@@ -145,6 +146,7 @@ impl FloraInstanceResources {
 pub struct InstanceResources {
     pub chunk_flora_instances: Vec<(Aabb3, FloraInstanceResources)>,
     pub leaves_instances: HashMap<u32, TreeLeavesInstance>,
+    pub apple_instances: HashMap<u32, TreeLeavesInstance>,
 }
 
 impl InstanceResources {
@@ -186,6 +188,7 @@ impl InstanceResources {
         Self {
             chunk_flora_instances,
             leaves_instances: HashMap::new(),
+            apple_instances: HashMap::new(),
         }
     }
 

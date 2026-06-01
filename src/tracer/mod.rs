@@ -34,6 +34,9 @@ use glam::{Mat4, UVec3, Vec2, Vec3};
 use winit::event::KeyEvent;
 
 const LEAF_INSTANCE_TYPE: u32 = 4;
+const APPLE_INSTANCE_TYPE: u32 = 5;
+const APPLE_BOTTOM_COLOR: Vec3 = Vec3::new(0.48, 0.025, 0.018);
+const APPLE_TIP_COLOR: Vec3 = Vec3::new(0.95, 0.06, 0.035);
 
 use crate::audio::SpatialSoundManager;
 use crate::builder::{
@@ -780,7 +783,7 @@ impl Tracer {
 
     fn trees_needs_to_draw_this_frame<'a>(
         &self,
-        surface_resources: &'a SurfaceResources,
+        tree_instances: &'a HashMap<u32, TreeLeavesInstance>,
         lod_distance: f32,
         flora_draw_distance: f32,
     ) -> HashMap<LodState, Vec<&'a TreeLeavesInstance>> {
@@ -788,7 +791,7 @@ impl Tracer {
         let mut lod1_instances = Vec::new();
         let camera_pos = self.camera.position();
 
-        for tree_instance in surface_resources.instances.leaves_instances.values() {
+        for tree_instance in tree_instances.values() {
             // perform frustum culling
             if !tree_instance
                 .aabb
@@ -1466,7 +1469,7 @@ impl Tracer {
                 )
             });
             let trees_by_lod = self.trees_needs_to_draw_this_frame(
-                surface_resources,
+                &surface_resources.instances.leaves_instances,
                 lod_distance,
                 flora_draw_distance,
             );
@@ -1528,6 +1531,87 @@ impl Tracer {
                 }
             }
             if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), leaves_scope) {
+                profiler.end_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    scope,
+                    PipelineStage::ALL_COMMANDS,
+                );
+            }
+
+            // Draw apples as render-only tree fruit instances using the same
+            // foliage shaders as leaves, but with a smaller apple mesh and a
+            // distinct instance type for color/motion.
+            let apples_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
+                profiler.begin_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "graphics.apples",
+                    PipelineStage::ALL_COMMANDS,
+                )
+            });
+            let apples_by_lod = self.trees_needs_to_draw_this_frame(
+                &surface_resources.instances.apple_instances,
+                lod_distance,
+                flora_draw_distance,
+            );
+            for &lod_state in &[LodState::Lod0, LodState::Lod1] {
+                let pipeline = match lod_state {
+                    LodState::Lod0 => &self.graphics_pipelines.leaves_ppl,
+                    LodState::Lod1 => &self.graphics_pipelines.leaves_lod_ppl,
+                };
+                let (indices_buf, vertices_buf, indices_len) = match lod_state {
+                    LodState::Lod0 => (
+                        &self.resources.meshes.apple_resources.indices,
+                        &self.resources.meshes.apple_resources.vertices,
+                        self.resources.meshes.apple_resources.indices_len,
+                    ),
+                    LodState::Lod1 => (
+                        &self.resources.meshes.apple_resources_lod.indices,
+                        &self.resources.meshes.apple_resources_lod.vertices,
+                        self.resources.meshes.apple_resources_lod.indices_len,
+                    ),
+                };
+
+                let apple_instances = &apples_by_lod[&lod_state];
+                if apple_instances.is_empty() {
+                    continue;
+                }
+
+                pipeline.record_bind(cmdbuf);
+                pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
+                cmdbuf.bind_index_buffer_u32(indices_buf);
+
+                for tree_instance in apple_instances.iter() {
+                    if tree_instance.resources.instances_len == 0 {
+                        continue;
+                    }
+                    let apple_push = flora_push_constant(
+                        time,
+                        APPLE_INSTANCE_TYPE,
+                        tree_instance.chunk_world_offset,
+                        APPLE_BOTTOM_COLOR,
+                        APPLE_TIP_COLOR,
+                    );
+                    cmdbuf.bind_vertex_buffers(0, &[vertices_buf]);
+                    pipeline.record_indexed_with_manual_buffer(
+                        cmdbuf,
+                        1,
+                        0,
+                        &tree_instance.resources.instances_buf,
+                        indices_len,
+                        tree_instance.resources.instances_len,
+                        0,
+                        0,
+                        0,
+                        Some(&PushConstantInfo {
+                            shader_stage: vk::ShaderStageFlags::VERTEX,
+                            push_constants: bytemuck::bytes_of(&apple_push).to_vec(),
+                        }),
+                    );
+                }
+            }
+            if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), apples_scope) {
                 profiler.end_scope(
                     gpu_profiler_frame_slot,
                     cmdbuf,
@@ -1661,6 +1745,39 @@ impl Tracer {
                     0,
                     &tree_instance.resources.instances_buf,
                     self.resources.meshes.leaves_resources_lod.indices_len,
+                    tree_instance.resources.instances_len,
+                    0,
+                    0,
+                    0,
+                    Some(&PushConstantInfo {
+                        shader_stage: vk::ShaderStageFlags::VERTEX,
+                        push_constants: bytemuck::bytes_of(&push_constant).to_vec(),
+                    }),
+                );
+        }
+
+        cmdbuf.bind_index_buffer_u32(&self.resources.meshes.apple_resources_lod.indices);
+        for tree_instance in surface_resources.instances.apple_instances.values() {
+            if tree_instance.resources.instances_len == 0 {
+                continue;
+            }
+            let push_constant = flora_push_constant(
+                time,
+                APPLE_INSTANCE_TYPE,
+                tree_instance.chunk_world_offset,
+                APPLE_BOTTOM_COLOR,
+                APPLE_TIP_COLOR,
+            );
+
+            cmdbuf.bind_vertex_buffers(0, &[&self.resources.meshes.apple_resources_lod.vertices]);
+            self.graphics_pipelines
+                .leaves_shadow_lod_ppl
+                .record_indexed_with_manual_buffer(
+                    cmdbuf,
+                    1,
+                    0,
+                    &tree_instance.resources.instances_buf,
+                    self.resources.meshes.apple_resources_lod.indices_len,
                     tree_instance.resources.instances_len,
                     0,
                     0,
@@ -2189,84 +2306,104 @@ impl Tracer {
         Ok(())
     }
 
-    pub fn add_tree_leaves(
-        &mut self,
-        surface_resources: &mut SurfaceResources,
+    fn build_tree_render_instances(
+        &self,
         tree_id: u32,
-        leaf_positions: &[UVec3],
-    ) -> Result<()> {
-        use crate::builder::{TreeLeafInstance, TreeLeavesInstance};
+        positions: &[UVec3],
+        aabb_margin: f32,
+        span_label: &str,
+    ) -> Result<TreeLeavesInstance> {
+        use crate::builder::TreeLeafInstance;
 
-        let mut instances_data = Vec::new();
-        let chunk_world_offset = leaf_positions
+        let mut instances_data = Vec::with_capacity(positions.len());
+        let chunk_world_offset = positions
             .iter()
             .copied()
             .reduce(UVec3::min)
             .unwrap_or(UVec3::ZERO);
-        if let Some(max_leaf_pos) = leaf_positions.iter().copied().reduce(UVec3::max) {
+        if let Some(max_pos) = positions.iter().copied().reduce(UVec3::max) {
             anyhow::ensure!(
-                (max_leaf_pos - chunk_world_offset)
+                (max_pos - chunk_world_offset)
                     .cmplt(UVec3::splat(1024))
                     .all(),
-                "tree leaf instance span exceeds packed 10-bit local-position range"
+                "{} instance span exceeds packed 10-bit local-position range",
+                span_label,
             );
         }
         let pack_local_pos = |world_pos: UVec3| -> u32 {
             let local_pos = world_pos - chunk_world_offset;
             (local_pos.x & 0x3ff) | ((local_pos.y & 0x3ff) << 10) | ((local_pos.z & 0x3ff) << 20)
         };
-        for leaf_pos in leaf_positions.iter() {
-            let voxel_pos = *leaf_pos;
-
-            let instance = TreeLeafInstance {
-                packed_local_pos: pack_local_pos(voxel_pos),
+        for pos in positions.iter() {
+            instances_data.push(TreeLeafInstance {
+                packed_local_pos: pack_local_pos(*pos),
                 packed_orientation: 0,
-            };
-
-            instances_data.push(instance);
+            });
         }
 
-        // calculate AABB based on actual leaf positions
-        let scaled_leaf_positions = leaf_positions
+        let scaled_positions = positions
             .iter()
-            .map(|leaf| {
+            .map(|pos| {
                 Vec3::new(
-                    leaf.x as f32 / 256.0,
-                    leaf.y as f32 / 256.0,
-                    leaf.z as f32 / 256.0,
+                    pos.x as f32 / 256.0,
+                    pos.y as f32 / 256.0,
+                    pos.z as f32 / 256.0,
                 )
             })
             .collect::<Vec<_>>();
-        let leaves_aabb = crate::builder::InstanceResources::compute_leaves_aabb(
-            &scaled_leaf_positions,
-            0.2, // Default margin to cover leaf radius
-        );
+        let aabb =
+            crate::builder::InstanceResources::compute_leaves_aabb(&scaled_positions, aabb_margin);
 
-        // create new tree leaves instance
-        let mut tree_leaves_instance = TreeLeavesInstance::new(
+        let mut tree_instance = TreeLeavesInstance::new_with_capacity(
             tree_id,
-            leaves_aabb,
+            aabb,
             chunk_world_offset,
             self.vulkan_ctx.device().clone(),
             self.allocator.clone(),
+            positions.len() as u64,
         );
 
-        // fill with instance data if we have any
         if !instances_data.is_empty() {
-            tree_leaves_instance
+            tree_instance
                 .resources
                 .instances_buf
                 .fill(&instances_data)?;
-            tree_leaves_instance.resources.instances_len = instances_data.len() as u32;
+            tree_instance.resources.instances_len = instances_data.len() as u32;
         } else {
-            tree_leaves_instance.resources.instances_len = 0;
+            tree_instance.resources.instances_len = 0;
         }
 
-        // add/update the tree instance in HashMap
+        Ok(tree_instance)
+    }
+
+    pub fn add_tree_leaves(
+        &mut self,
+        surface_resources: &mut SurfaceResources,
+        tree_id: u32,
+        leaf_positions: &[UVec3],
+    ) -> Result<()> {
+        let tree_leaves_instance =
+            self.build_tree_render_instances(tree_id, leaf_positions, 0.2, "tree leaf")?;
         surface_resources
             .instances
             .leaves_instances
             .insert(tree_id, tree_leaves_instance);
+
+        Ok(())
+    }
+
+    pub fn add_tree_apples(
+        &mut self,
+        surface_resources: &mut SurfaceResources,
+        tree_id: u32,
+        apple_positions: &[UVec3],
+    ) -> Result<()> {
+        let tree_apple_instance =
+            self.build_tree_render_instances(tree_id, apple_positions, 0.08, "tree apple")?;
+        surface_resources
+            .instances
+            .apple_instances
+            .insert(tree_id, tree_apple_instance);
 
         Ok(())
     }
@@ -2277,18 +2414,30 @@ impl Tracer {
         tree_id: u32,
     ) -> Result<()> {
         self.vulkan_ctx.device().wait_idle();
-        if let Some(removed_instance) = surface_resources
+        let removed_leaves = surface_resources
             .instances
             .leaves_instances
-            .remove(&tree_id)
-        {
-            log::info!(
+            .remove(&tree_id);
+        let removed_apples = surface_resources.instances.apple_instances.remove(&tree_id);
+
+        match (removed_leaves, removed_apples) {
+            (Some(leaves), Some(apples)) => log::info!(
+                "Removed tree {} with {} leaves and {} apples",
+                tree_id,
+                leaves.resources.instances_len,
+                apples.resources.instances_len
+            ),
+            (Some(leaves), None) => log::info!(
                 "Removed tree {} with {} leaves",
                 tree_id,
-                removed_instance.resources.instances_len
-            );
-        } else {
-            log::warn!("Attempted to remove non-existent tree {}", tree_id);
+                leaves.resources.instances_len
+            ),
+            (None, Some(apples)) => log::info!(
+                "Removed tree {} with {} apples",
+                tree_id,
+                apples.resources.instances_len
+            ),
+            (None, None) => log::warn!("Attempted to remove non-existent tree {}", tree_id),
         }
         Ok(())
     }

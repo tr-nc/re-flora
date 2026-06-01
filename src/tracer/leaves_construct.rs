@@ -1,7 +1,27 @@
 use crate::tracer::{voxel_encoding::append_indexed_cube_data, Vertex};
 use anyhow::Result;
-use glam::IVec3;
+use glam::{IVec3, Vec3};
 use noise::{NoiseFn, Perlin};
+
+fn push_voxel(
+    vertices: &mut Vec<Vertex>,
+    indices: &mut Vec<u32>,
+    pos: IVec3,
+    origin: IVec3,
+    max_length: u32,
+    is_lod_used: bool,
+) -> Result<()> {
+    let vertex_offset = vertices.len() as u32;
+    append_indexed_cube_data(
+        vertices,
+        indices,
+        pos,
+        vertex_offset,
+        origin,
+        max_length,
+        is_lod_used,
+    )
+}
 
 /// Generates indexed voxel data for hollow sphere-shaped leaves.
 ///
@@ -77,13 +97,10 @@ pub fn generate_indexed_voxel_leaves(
                 let noise_threshold = (1.0 - falloff_density) as f64; // Higher density = lower threshold
 
                 if noise_value > noise_threshold {
-                    let vertex_offset = vertices.len() as u32;
-
-                    append_indexed_cube_data(
+                    push_voxel(
                         &mut vertices,
                         &mut indices,
                         pos,
-                        vertex_offset,
                         origin,
                         max_length,
                         is_lod_used,
@@ -91,6 +108,69 @@ pub fn generate_indexed_voxel_leaves(
                 }
             }
         }
+    }
+
+    Ok((vertices, indices))
+}
+
+/// Generates a compact voxel apple mesh centered on the instance anchor.
+///
+/// The apple is intentionally render-only: tree placement creates instances for
+/// this mesh instead of stamping fruit into the terrain voxel field.
+pub fn generate_indexed_voxel_apple(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
+    const ORIGIN: IVec3 = IVec3::ZERO;
+    const MAX_LENGTH: u32 = 6;
+    const BODY_RADIUS_XZ: f32 = 4.5;
+    const BODY_RADIUS_Y: f32 = 5.5;
+
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+
+    for x in -5..=5 {
+        for y in -6..=5 {
+            for z in -5..=5 {
+                let p = Vec3::new(
+                    x as f32 / BODY_RADIUS_XZ,
+                    y as f32 / BODY_RADIUS_Y,
+                    z as f32 / BODY_RADIUS_XZ,
+                );
+                let mut shape = p.length_squared();
+
+                // Small top dimple so the fruit reads as an apple rather than a
+                // perfectly round berry, while keeping one material/color path.
+                if y >= 3 {
+                    let top_center_dist = Vec3::new(x as f32, 0.0, z as f32).length();
+                    if top_center_dist < 2.0 {
+                        shape += 0.25 * (2.0 - top_center_dist);
+                    }
+                }
+
+                if shape <= 1.0 {
+                    push_voxel(
+                        &mut vertices,
+                        &mut indices,
+                        IVec3::new(x, y, z),
+                        ORIGIN,
+                        MAX_LENGTH,
+                        is_lod_used,
+                    )?;
+                }
+            }
+        }
+    }
+
+    // A tiny stem on top helps sell the hanging-fruit silhouette. It shares the
+    // apple color because this path deliberately reuses the existing foliage
+    // shader instead of introducing another material pipeline.
+    for y in 5..=7 {
+        push_voxel(
+            &mut vertices,
+            &mut indices,
+            IVec3::new(0, y, 0),
+            ORIGIN,
+            MAX_LENGTH,
+            is_lod_used,
+        )?;
     }
 
     Ok((vertices, indices))
