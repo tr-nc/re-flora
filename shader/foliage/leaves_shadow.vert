@@ -84,10 +84,10 @@ void main() {
     uint wind_seed = get_wind_volume_voxel_seed(instance_seed, vox_local_pos);
     vec3 wind_vec = sample_wind_volume(wind_sample_pos, wind_seed);
     vec3 wind_offset = wind_vec * wind_gradient * wind_gradient;
-    float leaf_motion_time =
-        wind_volume_bucketed_time(get_wind_volume_bucket_index(wind_seed), pc.time);
+    float wind_motion_time =
+        wind_volume_bucket_update_time(get_wind_volume_bucket_index(wind_seed), pc.time);
     wind_offset += leaf_wind_paddling(wind_vec, wind_gradient, instance_seed, vox_local_pos,
-                                      gradient_origin, leaf_motion_time);
+                                      gradient_origin, wind_motion_time);
     vec3 anchor_pos = (vec3(vox_local_pos) + wind_offset) * scaling_factor + instance_pos;
     vec3 voxel_pos   = anchor_pos + vec3(0.5) * scaling_factor;
     vec3 vert_pos    = get_vert_pos_with_billboard(shadow_camera_info.view_mat, voxel_pos,

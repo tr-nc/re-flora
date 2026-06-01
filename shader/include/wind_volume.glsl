@@ -15,7 +15,7 @@ uint get_wind_volume_voxel_seed(uint instance_seed, ivec3 vox_local_pos) {
     return seed ^ (seed >> 16u);
 }
 
-float wind_volume_bucketed_time(uint bucket_index, float time) {
+float wind_volume_bucket_update_time(uint bucket_index, float time) {
     float step_seconds = gui_input.world_tick_seconds;
     if (step_seconds <= 0.0) {
         return time;
@@ -23,17 +23,13 @@ float wind_volume_bucketed_time(uint bucket_index, float time) {
 
     uint bucket_count = WIND_VOLUME_BUCKET_COUNT;
     uint step_index = uint(floor(max(time, 0.0) / step_seconds));
-    uint active_bucket_index = step_index % bucket_count;
-    if (bucket_index == active_bucket_index) {
-        return time;
-    }
     if (step_index < bucket_index) {
         return 0.0;
     }
 
     uint last_bucket_step =
         bucket_index + ((step_index - bucket_index) / bucket_count) * bucket_count;
-    return float(last_bucket_step + 1u) * step_seconds;
+    return float(last_bucket_step) * step_seconds;
 }
 
 vec3 sample_wind_volume(vec3 world_pos, uint instance_seed) {

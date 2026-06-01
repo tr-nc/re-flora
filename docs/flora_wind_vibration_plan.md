@@ -2,12 +2,13 @@
 
 ## Goal
 
-Improve flora wind motion tunability and tree leaf motion quality without changing the grass behavior that is already working well.
+Improve flora wind motion tunability and tree leaf motion quality while keeping vibration motion aligned with wind bucket updates.
 
-This plan tracks two related changes:
+This plan tracks three related changes:
 
 1. expose grass and leaf vibration controls through the GUI/uniform path;
-2. move tree leaf wind bucketing from instance-level behavior to per-voxel behavior inside each leaf instance, with bucket-aware vibration timing.
+2. move tree leaf wind bucketing from instance-level behavior to per-voxel behavior inside each leaf instance;
+3. apply bucket-update timing to both grass and tree leaf vibration so vibration does not advance every render frame.
 
 ## Current Model
 
@@ -23,14 +24,14 @@ Current bucket semantics:
 
 ### Grass
 
-Do not change grass bucketing or motion behavior in this pass.
-
-Grass should continue to behave as:
+Grass should continue to use instance-level bucketing:
 
 ```text
 grass instance seed -> wind bucket
 whole grass instance samples that bucket
 ```
+
+Grass vibration should use the same last-updated bucket time as the sampled wind offset, so grass vibration changes only when that grass instance's wind bucket is refreshed.
 
 ### Tree Leaves
 
@@ -56,19 +57,14 @@ We intentionally want **per-voxel** assignment, not patch/cluster assignment. Th
 
 ## Vibration Timing Model
 
-Leaf vibration should follow the same bucket state as leaf wind sampling. This is the selected "方案 B" from design discussion.
+Grass and leaf vibration should follow the same bucket state as wind offset sampling. The render shader derives each bucket's last update time from `pc.time`, `gui_input.world_tick_seconds`, and `WIND_VOLUME_BUCKET_COUNT`.
 
 ```text
-active bucket voxel:
-    vibration time = current render time
-
-inactive bucket voxel:
-    vibration time = last time this voxel bucket stopped being active
+sampled wind bucket:
+    vibration time = last time this bucket was updated by the wind volume pass
 ```
 
-This keeps inactive leaf voxels frozen instead of continuing to run their sine-based vibration every frame. When a bucket becomes active again, those voxels resume from current time.
-
-Grass vibration can stay continuous and should not be converted to this bucket-aware timing unless a later tuning pass explicitly asks for it.
+This keeps vibration frozen between bucket updates instead of continuing to run sine-based motion every render frame. Grass uses the instance bucket time; tree leaves use per-voxel bucket time.
 
 ## GUI Parameters To Expose
 
@@ -102,9 +98,9 @@ Start with the minimal six controls above.
 5. Add tree-leaf-only per-voxel bucket selection.
    - Grass keeps instance-level bucket selection.
    - Tree leaf wind seed/bucket uses `instance_seed + vox_local_pos`.
-6. Add bucket-aware leaf vibration time.
-   - Active voxel bucket uses current `pc.time`.
-   - Inactive voxel bucket uses the bucket's last active time.
+6. Add bucket-aware vibration time for both grass and tree leaves.
+   - Grass uses the instance bucket's last wind-volume update time.
+   - Tree leaves use each voxel bucket's last wind-volume update time.
 7. Keep shadow and main leaf passes consistent.
 8. Run `cargo check` to validate shaders and regenerate shader-derived Rust structs.
 
@@ -115,7 +111,7 @@ The shader currently knows the sampled wind bucket through the seed-to-bucket fu
 - pass the current wind bucket index and bucket timing data through uniforms/push constants; or
 - derive equivalent bucket timing from `pc.time`, world tick seconds, and bucket count in shader.
 
-Implemented choice: derive bucket timing in shader from `pc.time`, `gui_input.world_tick_seconds`, and the wind volume bucket count. This avoids adding per-pass push-constant state while keeping leaf vibration aligned with the wind volume bucket cadence.
+Implemented choice: derive bucket timing in shader from `pc.time`, `gui_input.world_tick_seconds`, and the wind volume bucket count. This avoids adding per-pass push-constant state while keeping grass and leaf vibration aligned with the wind volume bucket cadence.
 
 ## Progress Checklist
 
@@ -123,14 +119,14 @@ Implemented choice: derive bucket timing in shader from `pc.time`, `gui_input.wo
 - [x] Expose vibration controls in GUI config.
 - [x] Add GUI uniform fields and Rust plumbing.
 - [x] Replace hard-coded vibration constants.
-- [x] Implement tree leaf per-voxel wind bucket selection without changing grass.
-- [x] Implement bucket-aware leaf vibration timing.
+- [x] Implement tree leaf per-voxel wind bucket selection without changing grass bucketing.
+- [x] Implement bucket-aware grass and leaf vibration timing.
 - [x] Keep main and shadow leaf passes visually consistent.
 - [x] Run `cargo check` and include generated outputs.
-- [ ] Validate with a hidden release run if the change reaches runtime testing.
+- [x] Validate with a hidden release run if the change reaches runtime testing.
 
 ## Non-goals
 
-- Do not change grass bucketing or grass visual behavior in this pass.
+- Do not change grass bucketing in this pass.
 - Do not rewrite the wind volume update system.
 - Do not hand-edit generated Rust files except as outputs from the normal build/check generation path.
