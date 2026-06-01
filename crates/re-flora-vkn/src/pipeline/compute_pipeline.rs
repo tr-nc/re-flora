@@ -1,7 +1,8 @@
 use super::descriptor_set_utils;
 use crate::{
     Buffer, CommandBuffer, DescriptorPool, DescriptorSet, DescriptorSetLayoutBinding, Device,
-    Extent3D, PipelineLayout, ResourceContainer, ShaderModule, WriteDescriptorSet,
+    Extent3D, PipelineLayout, ResourceContainer, ResourceState, ResourceStateTracker, ShaderModule,
+    Texture, WriteDescriptorSet,
 };
 use anyhow::Result;
 use ash::vk;
@@ -18,6 +19,15 @@ struct ComputePipelineInner {
     workgroup_size: [u32; 3],
     descriptor_sets: Mutex<Vec<DescriptorSet>>,
     descriptor_sets_bindings: HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
+    texture_bindings: Mutex<HashMap<String, ComputeTextureBinding>>,
+    resource_state_tracker: Mutex<ResourceStateTracker>,
+    auto_texture_transitions_enabled: Mutex<bool>,
+}
+
+#[derive(Clone)]
+struct ComputeTextureBinding {
+    texture: Texture,
+    state: ResourceState,
 }
 
 impl Drop for ComputePipelineInner {
@@ -74,6 +84,9 @@ impl ComputePipeline {
             workgroup_size,
             descriptor_sets: Mutex::new(vec![]),
             descriptor_sets_bindings,
+            texture_bindings: Mutex::new(HashMap::new()),
+            resource_state_tracker: Mutex::new(ResourceStateTracker::automatic()),
+            auto_texture_transitions_enabled: Mutex::new(false),
         }));
 
         // auto-create descriptor sets
@@ -85,6 +98,7 @@ impl ComputePipeline {
             &pipeline_instance.0.descriptor_sets,
         )
         .unwrap();
+        pipeline_instance.update_texture_bindings(resource_containers);
 
         pipeline_instance
     }
@@ -98,12 +112,50 @@ impl ComputePipeline {
             resource_containers,
             &self.0.descriptor_sets_bindings,
             &self.0.descriptor_sets,
-        )
+        )?;
+        self.update_texture_bindings(resource_containers);
+        Ok(())
     }
 
     pub fn write_descriptor_set(&self, set_no: u32, write: WriteDescriptorSet) {
         let guard = self.0.descriptor_sets.lock().unwrap();
         guard[set_no as usize].perform_writes(&mut [write]);
+    }
+
+    pub fn set_resource_state_tracker(&self, tracker: ResourceStateTracker) {
+        *self.0.resource_state_tracker.lock().unwrap() = tracker;
+    }
+
+    pub fn set_auto_texture_transitions_enabled(&self, enabled: bool) {
+        *self.0.auto_texture_transitions_enabled.lock().unwrap() = enabled;
+    }
+
+    fn update_texture_bindings(&self, resource_containers: &[&dyn ResourceContainer]) {
+        let mut bindings = HashMap::new();
+        for set_bindings in self.0.descriptor_sets_bindings.values() {
+            for binding in set_bindings.values() {
+                if let Some(state) = compute_texture_binding_state(binding.descriptor_type) {
+                    if let Some(texture) = find_unique_texture(resource_containers, &binding.name) {
+                        bindings.insert(
+                            binding.name.clone(),
+                            ComputeTextureBinding { texture, state },
+                        );
+                    }
+                }
+            }
+        }
+        *self.0.texture_bindings.lock().unwrap() = bindings;
+    }
+
+    fn record_texture_transitions(&self, cmdbuf: &CommandBuffer) {
+        if !*self.0.auto_texture_transitions_enabled.lock().unwrap() {
+            return;
+        }
+        let tracker = self.0.resource_state_tracker.lock().unwrap().clone();
+        let bindings = self.0.texture_bindings.lock().unwrap().clone();
+        for binding in bindings.values() {
+            tracker.transition_image(cmdbuf, binding.texture.get_image(), 0, binding.state);
+        }
     }
 
     fn record_bind_descriptor_sets(
@@ -157,6 +209,7 @@ impl ComputePipeline {
         dispatch_extent: Extent3D,
         push_constants: Option<&[u8]>,
     ) {
+        self.record_texture_transitions(cmdbuf);
         self.record_bind(cmdbuf);
         if !self.0.descriptor_sets.lock().unwrap().is_empty() {
             self.record_bind_descriptor_sets(cmdbuf, &self.0.descriptor_sets.lock().unwrap(), 0);
@@ -183,6 +236,7 @@ impl ComputePipeline {
         buffer: &Buffer,
         push_constants: Option<&[u8]>,
     ) {
+        self.record_texture_transitions(cmdbuf);
         self.record_bind(cmdbuf);
         if !self.0.descriptor_sets.lock().unwrap().is_empty() {
             self.record_bind_descriptor_sets(cmdbuf, &self.0.descriptor_sets.lock().unwrap(), 0);
@@ -198,4 +252,31 @@ impl ComputePipeline {
             .device
             .cmd_dispatch_indirect_raw(cmdbuf.as_raw(), buffer.as_raw(), 0);
     }
+}
+
+fn compute_texture_binding_state(descriptor_type: vk::DescriptorType) -> Option<ResourceState> {
+    match descriptor_type {
+        vk::DescriptorType::STORAGE_IMAGE
+        | vk::DescriptorType::COMBINED_IMAGE_SAMPLER
+        | vk::DescriptorType::SAMPLED_IMAGE => Some(ResourceState::general_shader_read_write()),
+        _ => None,
+    }
+}
+
+fn find_unique_texture(
+    resource_containers: &[&dyn ResourceContainer],
+    name: &str,
+) -> Option<Texture> {
+    let mut found = None;
+    for container in resource_containers {
+        if let Some(texture) = container.get_texture(name) {
+            assert!(
+                found.is_none(),
+                "Resource '{}' found in multiple texture containers",
+                name
+            );
+            found = Some(texture.clone());
+        }
+    }
+    found
 }

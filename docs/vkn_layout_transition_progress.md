@@ -72,7 +72,7 @@ Assumptions to confirm:
 - Objective: Before dispatch, transition bound textures into the state required by their descriptor usage.
 - Expected output: Conservative defaults from reflected descriptor type, with optional explicit annotations for sampled vs storage read/write cases.
 - Dependencies/blockers: Descriptor metadata alone may not distinguish readonly/writeonly storage images; may need binding annotations or shader reflection support.
-- Status: not started.
+- Status: in progress; compute pipelines now retain texture bindings from auto resource binding and have an opt-in path to transition texture descriptors before direct and indirect dispatch. It is disabled by default until descriptor layout metadata is made precise enough for all startup paths.
 
 ### Phase 5: Migrate game-code explicit transitions gradually
 
@@ -123,14 +123,17 @@ If verification is not yet possible, the missing piece is the tracker/encoder im
 - 2026-06-01: Created this progress tracker under `docs/` because existing project planning and architecture notes live there.
 - 2026-06-01: Added `ResourceStateTracker` with automatic/manual/assert policies, moved raw image-barrier recording into the tracker module, and migrated `Image` tracking from layout-only to full `ResourceState` per layer while keeping existing layout APIs.
 - 2026-06-01: Made texture-backed `Framebuffer`s retain attachment textures and updated `RenderTarget` to track render-pass attachment initial/final layouts in `vkn`; raw swapchain framebuffers remain unchanged.
-- 2026-06-01: Validated the first implementation slice with `cargo fmt` and `cargo check`.
+- 2026-06-01: Validated the first implementation slice with `cargo fmt`, `cargo check`, `cargo test`, and a release hidden run; latest-log inspection found only the pre-existing multiple-butterfly-atlas warning.
+- 2026-06-01: Added compute-pipeline automatic image transition plumbing for auto-bound texture descriptors. The first attempt used shader-read-only for sampled descriptors, but validation exposed that current descriptor writes still advertise `GENERAL`; adjusted compute texture states to match `GENERAL` and left automatic compute texture transitions opt-in/disabled by default until descriptor layout metadata and startup initialization paths are made precise. Manual descriptor writes remain a known gap.
+- 2026-06-01: Revalidated after making compute automatic texture transitions opt-in: `cargo fmt`, `cargo check`, `cargo test`, and release hidden run all passed; latest-log scan found only the known butterfly-atlas warning.
 
 ## Open Questions / Risks
 
 - Should the first API evolve from `ResourceStateTracker` into a command encoder, or stay as a barrier/resource-state utility?
 - How should automatic behavior be configured: global context setting, per-command-buffer setting, or per-operation policy?
-- How precise do we need to be for storage images: read-only, write-only, or read/write?
+- How precise do we need to be for storage images: read-only, write-only, or read/write? Current compute automatic transitions conservatively use read/write for storage images.
 - How do we represent subresource ranges beyond current one-layer tracking?
 - Render-pass attachment tracking now works only for texture-backed framebuffers; raw image-view framebuffers such as swapchain targets still need explicit swapchain handling.
 - Overly conservative barriers may be correct but could hurt performance; precise barriers may require more metadata.
 - Existing `Image::set_layout` is an escape hatch and can hide bugs; migration should replace it with explicit tracker assumptions/assertions where possible.
+- Manual descriptor writes are not yet tracked for automatic compute transitions unless the texture also came from auto resource binding.
