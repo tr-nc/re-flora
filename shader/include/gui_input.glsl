@@ -28,6 +28,13 @@ layout(set = GUI_INPUT_SET, binding = GUI_INPUT_BINDING) uniform U_GuiInput {
     float lens_flare_intensity;
     float lens_flare_sun_pixel_scale;
     uint wind_source_count;
+    float world_tick_seconds;
+    float grass_vibration_amplitude_voxels;
+    float grass_vibration_primary_speed;
+    float grass_vibration_secondary_speed;
+    float leaf_paddle_amplitude_voxels;
+    float leaf_paddle_primary_speed;
+    float leaf_paddle_secondary_speed;
 }
 gui_input;
 

@@ -15,6 +15,23 @@ uint get_wind_volume_voxel_seed(uint instance_seed, ivec3 vox_local_pos) {
     return seed ^ (seed >> 16u);
 }
 
+float wind_volume_bucket_update_time(uint bucket_index, float time) {
+    float step_seconds = gui_input.world_tick_seconds;
+    if (step_seconds <= 0.0) {
+        return time;
+    }
+
+    uint bucket_count = WIND_VOLUME_BUCKET_COUNT;
+    uint step_index = uint(floor(max(time, 0.0) / step_seconds));
+    if (step_index < bucket_index) {
+        return 0.0;
+    }
+
+    uint last_bucket_step =
+        bucket_index + ((step_index - bucket_index) / bucket_count) * bucket_count;
+    return float(last_bucket_step) * step_seconds;
+}
+
 vec3 sample_wind_volume(vec3 world_pos, uint instance_seed) {
     vec3 local_uv      = clamp(world_pos / wind_volume_info.world_chunk_extent, vec3(0.0), vec3(1.0));
     ivec3 volume_size  = textureSize(wind_volume_tex, 0);
