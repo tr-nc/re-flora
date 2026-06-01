@@ -222,50 +222,370 @@ impl ParticleRendererResources {
 }
 
 #[derive(ResourceContainer)]
-pub struct TracerResources {
+pub struct TracerUniformResources {
     pub gui_input: Resource<Buffer>,
     pub sun_info: Resource<Buffer>,
     pub shading_info: Resource<Buffer>,
     pub camera_info: Resource<Buffer>,
     pub camera_info_prev_frame: Resource<Buffer>,
-    pub shadow_camera_info: Resource<Buffer>,
-    pub flora_growth_info: Resource<Buffer>,
-    pub wind_volume_info: Resource<Buffer>,
-    pub wind_sources: Resource<Buffer>,
     pub env_info: Resource<Buffer>,
     pub starlight_info: Resource<Buffer>,
     pub voxel_colors: Resource<Buffer>,
+    pub flora_growth_info: Resource<Buffer>,
     pub god_ray_info: Resource<Buffer>,
     pub post_processing_info: Resource<Buffer>,
-    pub player_collider_info: Resource<Buffer>,
-    pub player_collision_result: Resource<Buffer>,
-    pub terrain_query_count: Resource<Buffer>,
-    pub terrain_query_info: Resource<Buffer>,
-    pub terrain_query_result: Resource<Buffer>,
+}
 
-    pub flora_meshes: Vec<FloraMeshResources>,
-    pub leaves_resources: LeavesResources,
-
-    pub flora_meshes_lod: Vec<FloraMeshResources>,
-    pub leaves_resources_lod: LeavesResources,
-
+#[derive(ResourceContainer)]
+pub struct ShadowResources {
+    pub shadow_camera_info: Resource<Buffer>,
     pub shadow_map_depth_tex: Resource<Texture>,
     pub shadow_map_tex: Resource<Texture>,
     pub shadow_map_tex_for_vsm_ping: Resource<Texture>,
     pub shadow_map_tex_for_vsm_pong: Resource<Texture>,
     pub shadow_map_tex_for_vsm_prev: Resource<Texture>,
-    pub wind_volume_tex: Resource<Texture>,
+}
 
+#[derive(ResourceContainer)]
+pub struct WindResources {
+    pub wind_volume_info: Resource<Buffer>,
+    pub wind_sources: Resource<Buffer>,
+    pub wind_volume_tex: Resource<Texture>,
+}
+
+#[derive(ResourceContainer)]
+pub struct TerrainQueryResources {
+    pub player_collider_info: Resource<Buffer>,
+    pub player_collision_result: Resource<Buffer>,
+    pub terrain_query_count: Resource<Buffer>,
+    pub terrain_query_info: Resource<Buffer>,
+    pub terrain_query_result: Resource<Buffer>,
+}
+
+#[derive(ResourceContainer)]
+pub struct TracerTextureResources {
     pub sun_sprite_tex: Resource<Texture>,
     pub particle_lod_tex_lut: Resource<Texture>,
-
     pub scalar_bn: Resource<Texture>,
     pub unit_vec2_bn: Resource<Texture>,
     pub unit_vec3_bn: Resource<Texture>,
     pub weighted_cosine_bn: Resource<Texture>,
     pub fast_unit_vec3_bn: Resource<Texture>,
     pub fast_weighted_cosine_bn: Resource<Texture>,
+}
 
+pub struct TracerMeshResources {
+    pub flora_meshes: Vec<FloraMeshResources>,
+    pub leaves_resources: LeavesResources,
+    pub flora_meshes_lod: Vec<FloraMeshResources>,
+    pub leaves_resources_lod: LeavesResources,
+}
+
+impl re_flora_vkn::ResourceContainer for TracerMeshResources {
+    fn get_buffer(&self, _name: &str) -> Option<&re_flora_vkn::Buffer> {
+        None
+    }
+
+    fn get_texture(&self, _name: &str) -> Option<&re_flora_vkn::Texture> {
+        None
+    }
+
+    fn get_resource_names(&self) -> Vec<&'static str> {
+        Vec::new()
+    }
+}
+
+impl TracerUniformResources {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        device: Device,
+        allocator: Allocator,
+        tracer_sm: &ShaderModule,
+        composition_sm: &ShaderModule,
+        god_ray_sm: &ShaderModule,
+        post_processing_sm: &ShaderModule,
+        flora_vert_sm: &ShaderModule,
+    ) -> Self {
+        let layout_buffer = |shader: &ShaderModule, name: &str| {
+            Buffer::from_buffer_layout(
+                device.clone(),
+                allocator.clone(),
+                shader.get_buffer_layout(name).unwrap().clone(),
+                BufferUsage::empty(),
+                MemoryLocation::CpuToGpu,
+            )
+        };
+
+        Self {
+            gui_input: Resource::new(layout_buffer(tracer_sm, "U_GuiInput")),
+            sun_info: Resource::new(layout_buffer(tracer_sm, "U_SunInfo")),
+            shading_info: Resource::new(layout_buffer(tracer_sm, "U_ShadingInfo")),
+            camera_info: Resource::new(layout_buffer(tracer_sm, "U_CameraInfo")),
+            camera_info_prev_frame: Resource::new(layout_buffer(
+                tracer_sm,
+                "U_CameraInfoPrevFrame",
+            )),
+            env_info: Resource::new(layout_buffer(tracer_sm, "U_EnvInfo")),
+            starlight_info: Resource::new(layout_buffer(composition_sm, "U_StarlightInfo")),
+            voxel_colors: Resource::new(layout_buffer(tracer_sm, "U_VoxelColors")),
+            flora_growth_info: Resource::new(layout_buffer(flora_vert_sm, "U_FloraGrowthInfo")),
+            god_ray_info: Resource::new(layout_buffer(god_ray_sm, "U_GodRayInfo")),
+            post_processing_info: Resource::new(layout_buffer(
+                post_processing_sm,
+                "U_PostProcessingInfo",
+            )),
+        }
+    }
+}
+
+impl TerrainQueryResources {
+    fn new(
+        device: Device,
+        allocator: Allocator,
+        player_collider_sm: &ShaderModule,
+        terrain_query_sm: &ShaderModule,
+        max_terrain_queries: u32,
+    ) -> Self {
+        let layout_buffer = |shader: &ShaderModule, name: &str| {
+            Buffer::from_buffer_layout(
+                device.clone(),
+                allocator.clone(),
+                shader.get_buffer_layout(name).unwrap().clone(),
+                BufferUsage::empty(),
+                MemoryLocation::CpuToGpu,
+            )
+        };
+
+        let terrain_query_info = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            MemoryLocation::CpuToGpu,
+            (max_terrain_queries * 8 * std::mem::size_of::<f32>() as u32) as u64,
+        );
+
+        let terrain_query_result = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            MemoryLocation::CpuToGpu,
+            (max_terrain_queries * 4 * std::mem::size_of::<f32>() as u32) as u64,
+        );
+
+        Self {
+            player_collider_info: Resource::new(layout_buffer(
+                player_collider_sm,
+                "U_PlayerColliderInfo",
+            )),
+            player_collision_result: Resource::new(layout_buffer(
+                player_collider_sm,
+                "B_PlayerCollisionResult",
+            )),
+            terrain_query_count: Resource::new(layout_buffer(
+                terrain_query_sm,
+                "U_TerrainQueryCount",
+            )),
+            terrain_query_info: Resource::new(terrain_query_info),
+            terrain_query_result: Resource::new(terrain_query_result),
+        }
+    }
+}
+
+impl ShadowResources {
+    fn new(
+        device: Device,
+        allocator: Allocator,
+        tracer_shadow_sm: &ShaderModule,
+        shadow_map_extent: Extent2D,
+    ) -> Self {
+        let shadow_camera_info = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            tracer_shadow_sm
+                .get_buffer_layout("U_ShadowCameraInfo")
+                .unwrap()
+                .clone(),
+            BufferUsage::empty(),
+            MemoryLocation::CpuToGpu,
+        );
+        let shadow_map_extent = shadow_map_extent.into();
+
+        Self {
+            shadow_camera_info: Resource::new(shadow_camera_info),
+            shadow_map_depth_tex: Resource::new(TracerResources::create_shadow_map_depth_tex(
+                device.clone(),
+                allocator.clone(),
+                shadow_map_extent,
+            )),
+            shadow_map_tex: Resource::new(TracerResources::create_shadow_map_tex(
+                device.clone(),
+                allocator.clone(),
+                shadow_map_extent,
+            )),
+            shadow_map_tex_for_vsm_ping: Resource::new(
+                TracerResources::create_shadow_map_tex_for_vsm_pingpong(
+                    device.clone(),
+                    allocator.clone(),
+                    shadow_map_extent,
+                ),
+            ),
+            shadow_map_tex_for_vsm_pong: Resource::new(
+                TracerResources::create_shadow_map_tex_for_vsm_pingpong(
+                    device.clone(),
+                    allocator.clone(),
+                    shadow_map_extent,
+                ),
+            ),
+            shadow_map_tex_for_vsm_prev: Resource::new(
+                TracerResources::create_shadow_map_tex_for_vsm_pingpong(
+                    device,
+                    allocator,
+                    shadow_map_extent,
+                ),
+            ),
+        }
+    }
+}
+
+impl WindResources {
+    fn new(
+        device: Device,
+        allocator: Allocator,
+        flora_vert_sm: &ShaderModule,
+        chunk_bound: UAabb3,
+    ) -> Self {
+        let wind_volume_info = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            flora_vert_sm
+                .get_buffer_layout("U_WindVolumeInfo")
+                .unwrap()
+                .clone(),
+            BufferUsage::empty(),
+            MemoryLocation::CpuToGpu,
+        );
+        let wind_sources =
+            TracerResources::create_wind_sources_buffer(device.clone(), allocator.clone(), 1);
+        let chunk_extent = chunk_bound.get_extent();
+        wind_volume_info
+            .fill_uniform(&WindVolumeInfoGpu {
+                world_chunk_extent: [
+                    chunk_extent.width as f32,
+                    chunk_extent.height as f32,
+                    chunk_extent.depth as f32,
+                ],
+                _pad0: 0.0,
+            })
+            .unwrap();
+
+        Self {
+            wind_volume_info: Resource::new(wind_volume_info),
+            wind_sources: Resource::new(wind_sources),
+            wind_volume_tex: Resource::new(TracerResources::create_wind_volume_tex(
+                device,
+                allocator,
+                chunk_bound,
+            )),
+        }
+    }
+}
+
+impl TracerTextureResources {
+    fn new(vulkan_ctx: &VulkanContext, allocator: Allocator) -> Self {
+        Self {
+            sun_sprite_tex: Resource::new(TracerResources::create_sun_sprite_tex(
+                vulkan_ctx,
+                allocator.clone(),
+            )),
+            particle_lod_tex_lut: Resource::new(TracerResources::create_particle_lod_tex_lut(
+                vulkan_ctx,
+                allocator.clone(),
+            )),
+            scalar_bn: Resource::new(TracerResources::create_bn(
+                vulkan_ctx,
+                allocator.clone(),
+                vk::Format::R8_UNORM,
+                "stbn/scalar_2d_1d_1d/stbn_scalar_2Dx1Dx1D_128x128x64x1_",
+            )),
+            unit_vec2_bn: Resource::new(TracerResources::create_bn(
+                vulkan_ctx,
+                allocator.clone(),
+                vk::Format::R8G8_UNORM,
+                "stbn/unitvec2_2d_1d/stbn_unitvec2_2Dx1D_128x128x64_",
+            )),
+            unit_vec3_bn: Resource::new(TracerResources::create_bn(
+                vulkan_ctx,
+                allocator.clone(),
+                vk::Format::R8G8B8A8_UNORM,
+                "stbn/unitvec3_2d_1d/stbn_unitvec3_2Dx1D_128x128x64_",
+            )),
+            weighted_cosine_bn: Resource::new(TracerResources::create_bn(
+                vulkan_ctx,
+                allocator.clone(),
+                vk::Format::R8G8B8A8_UNORM,
+                "stbn/unitvec3_cosine_2d_1d/stbn_unitvec3_cosine_2Dx1D_128x128x64_",
+            )),
+            fast_unit_vec3_bn: Resource::new(TracerResources::create_bn(
+                vulkan_ctx,
+                allocator.clone(),
+                vk::Format::R8G8B8A8_UNORM,
+                "fast/unit_vec3/out_",
+            )),
+            fast_weighted_cosine_bn: Resource::new(TracerResources::create_bn(
+                vulkan_ctx,
+                allocator,
+                vk::Format::R8G8B8A8_UNORM,
+                "fast/weighted_cosine/out_",
+            )),
+        }
+    }
+}
+
+impl TracerMeshResources {
+    fn new(device: Device, allocator: Allocator) -> Self {
+        species::assert_species_limit();
+        let flora_meshes = species::species()
+            .iter()
+            .map(|desc| {
+                FloraMeshResources::new(
+                    device.clone(),
+                    allocator.clone(),
+                    false,
+                    desc.mesh_generator,
+                )
+            })
+            .collect::<Vec<_>>();
+        let leaves_resources = LeavesResources::new(device.clone(), allocator.clone(), false);
+        let flora_meshes_lod = species::species()
+            .iter()
+            .map(|desc| {
+                FloraMeshResources::new(
+                    device.clone(),
+                    allocator.clone(),
+                    true,
+                    desc.mesh_generator,
+                )
+            })
+            .collect::<Vec<_>>();
+        let leaves_resources_lod = LeavesResources::new(device, allocator, true);
+
+        Self {
+            flora_meshes,
+            leaves_resources,
+            flora_meshes_lod,
+            leaves_resources_lod,
+        }
+    }
+}
+
+#[derive(ResourceContainer)]
+pub struct TracerResources {
+    pub uniforms: TracerUniformResources,
+    pub shadow: ShadowResources,
+    pub wind: WindResources,
+    pub terrain_query: TerrainQueryResources,
+    pub textures: TracerTextureResources,
+    pub meshes: TracerMeshResources,
     pub extent_dependent_resources: ExtentDependentResources,
     pub denoiser_resources: DenoiserResources,
 }
@@ -293,378 +613,50 @@ impl TracerResources {
     ) -> Self {
         let device = vulkan_ctx.device();
 
-        let gui_input_layout = tracer_sm.get_buffer_layout("U_GuiInput").unwrap();
-        let gui_input = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            gui_input_layout.clone(),
-            BufferUsage::empty(),
-            MemoryLocation::CpuToGpu,
-        );
-
-        let sun_info_layout = tracer_sm.get_buffer_layout("U_SunInfo").unwrap();
-        let sun_info = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            sun_info_layout.clone(),
-            BufferUsage::empty(),
-            MemoryLocation::CpuToGpu,
-        );
-
-        let shading_info_layout = tracer_sm.get_buffer_layout("U_ShadingInfo").unwrap();
-        let shading_info = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            shading_info_layout.clone(),
-            BufferUsage::empty(),
-            MemoryLocation::CpuToGpu,
-        );
-
-        let camera_info_layout = tracer_sm.get_buffer_layout("U_CameraInfo").unwrap();
-        let camera_info = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            camera_info_layout.clone(),
-            BufferUsage::empty(),
-            MemoryLocation::CpuToGpu,
-        );
-
-        let camera_info_prev_frame_layout = tracer_sm
-            .get_buffer_layout("U_CameraInfoPrevFrame")
-            .unwrap();
-        let camera_info_prev_frame = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            camera_info_prev_frame_layout.clone(),
-            BufferUsage::empty(),
-            MemoryLocation::CpuToGpu,
-        );
-
-        let shadow_camera_info_layout = tracer_shadow_sm
-            .get_buffer_layout("U_ShadowCameraInfo")
-            .unwrap();
-        let shadow_camera_info = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            shadow_camera_info_layout.clone(),
-            BufferUsage::empty(),
-            MemoryLocation::CpuToGpu,
-        );
-
-        let flora_growth_info_layout = flora_vert_sm
-            .get_buffer_layout("U_FloraGrowthInfo")
-            .unwrap();
-        let flora_growth_info = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            flora_growth_info_layout.clone(),
-            BufferUsage::empty(),
-            MemoryLocation::CpuToGpu,
-        );
-
-        let wind_volume_info_layout = flora_vert_sm.get_buffer_layout("U_WindVolumeInfo").unwrap();
-        let wind_volume_info = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            wind_volume_info_layout.clone(),
-            BufferUsage::empty(),
-            MemoryLocation::CpuToGpu,
-        );
-        let wind_sources = Self::create_wind_sources_buffer(device.clone(), allocator.clone(), 1);
-        let chunk_extent = chunk_bound.get_extent();
-        wind_volume_info
-            .fill_uniform(&WindVolumeInfoGpu {
-                world_chunk_extent: [
-                    chunk_extent.width as f32,
-                    chunk_extent.height as f32,
-                    chunk_extent.depth as f32,
-                ],
-                _pad0: 0.0,
-            })
-            .unwrap();
-
-        let env_info_layout = tracer_sm.get_buffer_layout("U_EnvInfo").unwrap();
-        let env_info = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            env_info_layout.clone(),
-            BufferUsage::empty(),
-            MemoryLocation::CpuToGpu,
-        );
-
-        let starlight_info_layout = composition_sm.get_buffer_layout("U_StarlightInfo").unwrap();
-        let starlight_info = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            starlight_info_layout.clone(),
-            BufferUsage::empty(),
-            MemoryLocation::CpuToGpu,
-        );
-
-        let voxel_colors_layout = tracer_sm.get_buffer_layout("U_VoxelColors").unwrap();
-        let voxel_colors = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            voxel_colors_layout.clone(),
-            BufferUsage::empty(),
-            MemoryLocation::CpuToGpu,
-        );
-
-        let god_ray_info_layout = god_ray_sm.get_buffer_layout("U_GodRayInfo").unwrap();
-        let god_ray_info = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            god_ray_info_layout.clone(),
-            BufferUsage::empty(),
-            MemoryLocation::CpuToGpu,
-        );
-
-        let post_processing_info_layout = post_processing_sm
-            .get_buffer_layout("U_PostProcessingInfo")
-            .unwrap();
-        let post_processing_info = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            post_processing_info_layout.clone(),
-            BufferUsage::empty(),
-            MemoryLocation::CpuToGpu,
-        );
-
-        let player_collider_info_layout = player_collider_sm
-            .get_buffer_layout("U_PlayerColliderInfo")
-            .unwrap();
-        let player_collider_info = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            player_collider_info_layout.clone(),
-            BufferUsage::empty(),
-            MemoryLocation::CpuToGpu,
-        );
-
-        let player_collision_result_layout = player_collider_sm
-            .get_buffer_layout("B_PlayerCollisionResult")
-            .unwrap();
-
-        let player_collision_result = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            player_collision_result_layout.clone(),
-            BufferUsage::empty(),
-            MemoryLocation::CpuToGpu,
-        );
-
-        let terrain_query_count_layout = terrain_query_sm
-            .get_buffer_layout("U_TerrainQueryCount")
-            .unwrap();
-        let terrain_query_count = Buffer::from_buffer_layout(
-            device.clone(),
-            allocator.clone(),
-            terrain_query_count_layout.clone(),
-            BufferUsage::empty(),
-            MemoryLocation::CpuToGpu,
-        );
-
-        let terrain_query_info = Buffer::new_sized(
-            device.clone(),
-            allocator.clone(),
-            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
-            MemoryLocation::CpuToGpu,
-            (max_terrain_queries * 8 * std::mem::size_of::<f32>() as u32) as u64,
-        );
-
-        let terrain_query_result = Buffer::new_sized(
-            device.clone(),
-            allocator.clone(),
-            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
-            MemoryLocation::CpuToGpu,
-            (max_terrain_queries * 4 * std::mem::size_of::<f32>() as u32) as u64,
-        );
-
-        let shadow_map_depth_tex = Self::create_shadow_map_depth_tex(
-            device.clone(),
-            allocator.clone(),
-            shadow_map_extent.into(),
-        );
-        let shadow_map_tex = Self::create_shadow_map_tex(
-            device.clone(),
-            allocator.clone(),
-            shadow_map_extent.into(),
-        );
-        let shadow_map_tex_for_vsm_ping = Self::create_shadow_map_tex_for_vsm_pingpong(
-            device.clone(),
-            allocator.clone(),
-            shadow_map_extent.into(),
-        );
-        let shadow_map_tex_for_vsm_pong = Self::create_shadow_map_tex_for_vsm_pingpong(
-            device.clone(),
-            allocator.clone(),
-            shadow_map_extent.into(),
-        );
-        let shadow_map_tex_for_vsm_prev = Self::create_shadow_map_tex_for_vsm_pingpong(
-            device.clone(),
-            allocator.clone(),
-            shadow_map_extent.into(),
-        );
-        let wind_volume_tex =
-            Self::create_wind_volume_tex(device.clone(), allocator.clone(), chunk_bound);
-
-        let sun_sprite_tex = Self::create_sun_sprite_tex(vulkan_ctx, allocator.clone());
-        let particle_lod_tex_lut = Self::create_particle_lod_tex_lut(vulkan_ctx, allocator.clone());
-
-        let extent_dependent_resources = ExtentDependentResources::new(
-            device.clone(),
-            allocator.clone(),
-            rendering_extent,
-            screen_extent,
-        );
-
-        let scalar_bn = create_bn(
-            vulkan_ctx,
-            allocator.clone(),
-            vk::Format::R8_UNORM,
-            "stbn/scalar_2d_1d_1d/stbn_scalar_2Dx1Dx1D_128x128x64x1_",
-        );
-        let unit_vec2_bn = create_bn(
-            vulkan_ctx,
-            allocator.clone(),
-            vk::Format::R8G8_UNORM,
-            "stbn/unitvec2_2d_1d/stbn_unitvec2_2Dx1D_128x128x64_",
-        );
-        let unit_vec3_bn = create_bn(
-            vulkan_ctx,
-            allocator.clone(),
-            vk::Format::R8G8B8A8_UNORM,
-            "stbn/unitvec3_2d_1d/stbn_unitvec3_2Dx1D_128x128x64_",
-        );
-        let weighted_cosine_bn = create_bn(
-            vulkan_ctx,
-            allocator.clone(),
-            vk::Format::R8G8B8A8_UNORM,
-            "stbn/unitvec3_cosine_2d_1d/stbn_unitvec3_cosine_2Dx1D_128x128x64_",
-        );
-        let fast_unit_vec3_bn = create_bn(
-            vulkan_ctx,
-            allocator.clone(),
-            vk::Format::R8G8B8A8_UNORM,
-            "fast/unit_vec3/out_",
-        );
-        let fast_weighted_cosine_bn = create_bn(
-            vulkan_ctx,
-            allocator.clone(),
-            vk::Format::R8G8B8A8_UNORM,
-            "fast/weighted_cosine/out_",
-        );
-
-        species::assert_species_limit();
-        let flora_meshes = species::species()
-            .iter()
-            .map(|desc| {
-                FloraMeshResources::new(
-                    device.clone(),
-                    allocator.clone(),
-                    false,
-                    desc.mesh_generator,
-                )
-            })
-            .collect::<Vec<_>>();
-        let leaves_resources = LeavesResources::new(device.clone(), allocator.clone(), false);
-        let flora_meshes_lod = species::species()
-            .iter()
-            .map(|desc| {
-                FloraMeshResources::new(
-                    device.clone(),
-                    allocator.clone(),
-                    true,
-                    desc.mesh_generator,
-                )
-            })
-            .collect::<Vec<_>>();
-        let leaves_resources_lod = LeavesResources::new(device.clone(), allocator.clone(), true);
-
-        return Self {
-            gui_input: Resource::new(gui_input),
-            sun_info: Resource::new(sun_info),
-            shading_info: Resource::new(shading_info),
-            camera_info: Resource::new(camera_info),
-            camera_info_prev_frame: Resource::new(camera_info_prev_frame),
-            shadow_camera_info: Resource::new(shadow_camera_info),
-            flora_growth_info: Resource::new(flora_growth_info),
-            wind_volume_info: Resource::new(wind_volume_info),
-            wind_sources: Resource::new(wind_sources),
-            env_info: Resource::new(env_info),
-            starlight_info: Resource::new(starlight_info),
-            voxel_colors: Resource::new(voxel_colors),
-            god_ray_info: Resource::new(god_ray_info),
-            post_processing_info: Resource::new(post_processing_info),
-            player_collider_info: Resource::new(player_collider_info),
-            player_collision_result: Resource::new(player_collision_result),
-            terrain_query_count: Resource::new(terrain_query_count),
-            terrain_query_info: Resource::new(terrain_query_info),
-            terrain_query_result: Resource::new(terrain_query_result),
-            flora_meshes,
-            leaves_resources,
-            flora_meshes_lod,
-            leaves_resources_lod,
-            extent_dependent_resources,
-            shadow_map_depth_tex: Resource::new(shadow_map_depth_tex),
-            shadow_map_tex: Resource::new(shadow_map_tex),
-            shadow_map_tex_for_vsm_ping: Resource::new(shadow_map_tex_for_vsm_ping),
-            shadow_map_tex_for_vsm_pong: Resource::new(shadow_map_tex_for_vsm_pong),
-            shadow_map_tex_for_vsm_prev: Resource::new(shadow_map_tex_for_vsm_prev),
-            wind_volume_tex: Resource::new(wind_volume_tex),
-            sun_sprite_tex: Resource::new(sun_sprite_tex),
-            particle_lod_tex_lut: Resource::new(particle_lod_tex_lut),
-            scalar_bn: Resource::new(scalar_bn),
-            unit_vec2_bn: Resource::new(unit_vec2_bn),
-            unit_vec3_bn: Resource::new(unit_vec3_bn),
-            weighted_cosine_bn: Resource::new(weighted_cosine_bn),
-            fast_unit_vec3_bn: Resource::new(fast_unit_vec3_bn),
-            fast_weighted_cosine_bn: Resource::new(fast_weighted_cosine_bn),
-            denoiser_resources: DenoiserResources::new(
+        Self {
+            uniforms: TracerUniformResources::new(
                 device.clone(),
                 allocator.clone(),
+                tracer_sm,
+                composition_sm,
+                god_ray_sm,
+                post_processing_sm,
+                flora_vert_sm,
+            ),
+            shadow: ShadowResources::new(
+                device.clone(),
+                allocator.clone(),
+                tracer_shadow_sm,
+                shadow_map_extent,
+            ),
+            wind: WindResources::new(
+                device.clone(),
+                allocator.clone(),
+                flora_vert_sm,
+                chunk_bound,
+            ),
+            terrain_query: TerrainQueryResources::new(
+                device.clone(),
+                allocator.clone(),
+                player_collider_sm,
+                terrain_query_sm,
+                max_terrain_queries,
+            ),
+            textures: TracerTextureResources::new(vulkan_ctx, allocator.clone()),
+            meshes: TracerMeshResources::new(device.clone(), allocator.clone()),
+            extent_dependent_resources: ExtentDependentResources::new(
+                device.clone(),
+                allocator.clone(),
+                rendering_extent,
+                screen_extent,
+            ),
+            denoiser_resources: DenoiserResources::new(
+                device.clone(),
+                allocator,
                 rendering_extent,
                 temporal_sm,
                 spatial_sm,
             ),
-        };
-
-        fn create_bn(
-            vulkan_ctx: &VulkanContext,
-            allocator: Allocator,
-            format: vk::Format,
-            relative_path: &str,
-        ) -> Texture {
-            const BLUE_NOISE_LEN: u32 = 64;
-
-            let img_desc = ImageDesc {
-                extent: Extent3D::new(128, 128, 1),
-                array_len: BLUE_NOISE_LEN,
-                format,
-                usage: vk::ImageUsageFlags::STORAGE
-                    | vk::ImageUsageFlags::SAMPLED
-                    | vk::ImageUsageFlags::TRANSFER_DST,
-                initial_layout: TextureLayout::UNDEFINED,
-                aspect: vk::ImageAspectFlags::COLOR,
-                ..Default::default()
-            };
-            let sam_desc = Default::default();
-            let tex = Texture::new(vulkan_ctx.device().clone(), allocator, &img_desc, &sam_desc);
-
-            let base_path = get_project_root() + "/texture/";
-            for i in 0..BLUE_NOISE_LEN {
-                let path = format!("{}{}{}.png", base_path, relative_path, i);
-                tex.get_image()
-                    .load_and_fill(
-                        &vulkan_ctx.get_general_queue(),
-                        vulkan_ctx.command_pool(),
-                        &path,
-                        i,
-                        Some(TextureLayout::GENERAL),
-                    )
-                    .unwrap();
-            }
-            tex
         }
     }
 
@@ -682,6 +674,44 @@ impl TracerResources {
             screen_extent,
         );
         self.denoiser_resources.on_resize(rendering_extent);
+    }
+
+    fn create_bn(
+        vulkan_ctx: &VulkanContext,
+        allocator: Allocator,
+        format: vk::Format,
+        relative_path: &str,
+    ) -> Texture {
+        const BLUE_NOISE_LEN: u32 = 64;
+
+        let img_desc = ImageDesc {
+            extent: Extent3D::new(128, 128, 1),
+            array_len: BLUE_NOISE_LEN,
+            format,
+            usage: vk::ImageUsageFlags::STORAGE
+                | vk::ImageUsageFlags::SAMPLED
+                | vk::ImageUsageFlags::TRANSFER_DST,
+            initial_layout: TextureLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        let sam_desc = Default::default();
+        let tex = Texture::new(vulkan_ctx.device().clone(), allocator, &img_desc, &sam_desc);
+
+        let base_path = get_project_root() + "/texture/";
+        for i in 0..BLUE_NOISE_LEN {
+            let path = format!("{}{}{}.png", base_path, relative_path, i);
+            tex.get_image()
+                .load_and_fill(
+                    &vulkan_ctx.get_general_queue(),
+                    vulkan_ctx.command_pool(),
+                    &path,
+                    i,
+                    Some(TextureLayout::GENERAL),
+                )
+                .unwrap();
+        }
+        tex
     }
 
     fn create_sun_sprite_tex(vulkan_ctx: &VulkanContext, allocator: Allocator) -> Texture {

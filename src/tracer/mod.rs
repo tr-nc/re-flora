@@ -259,7 +259,7 @@ impl Tracer {
             &vulkan_ctx,
             resources.extent_dependent_resources.gfx_output_tex.clone(),
             resources.extent_dependent_resources.gfx_depth_tex.clone(),
-            resources.shadow_map_depth_tex.clone(),
+            resources.shadow.shadow_map_depth_tex.clone(),
         );
 
         let graphics_pipelines = PipelineBuilder::create_graphics_pipelines(
@@ -279,7 +279,7 @@ impl Tracer {
         let framebuffer_depth_only = Self::create_framebuffer_depth(
             &vulkan_ctx,
             &render_passes.render_pass_depth,
-            &resources.shadow_map_depth_tex,
+            &resources.shadow.shadow_map_depth_tex,
         );
 
         let render_target_color_and_depth = RenderTarget::new(
@@ -392,7 +392,7 @@ impl Tracer {
         let framebuffer_depth_only = Self::create_framebuffer_depth(
             &self.vulkan_ctx,
             self.render_target_depth_only.get_render_pass(),
-            &self.resources.shadow_map_depth_tex,
+            &self.resources.shadow.shadow_map_depth_tex,
         );
 
         self.render_target_color_and_depth = RenderTarget::new(
@@ -420,53 +420,64 @@ impl Tracer {
             ppl.auto_update_descriptor_sets(resources).unwrap()
         };
 
-        // pipelines that need all resources (tracer, scene_accel, contree)
-        let all_resources = &[
-            &self.resources as &dyn ResourceContainer,
-            contree_builder_resources as &dyn ResourceContainer,
-            scene_accel_resources as &dyn ResourceContainer,
-        ];
-        update_compute_fn(&self.compute_pipelines.tracer_ppl, all_resources);
-        update_compute_fn(&self.compute_pipelines.tracer_shadow_ppl, all_resources);
-        update_compute_fn(&self.compute_pipelines.player_collider_ppl, all_resources);
-        update_compute_fn(&self.compute_pipelines.terrain_query_ppl, all_resources);
+        let all_resources =
+            self.all_descriptor_resources(contree_builder_resources, scene_accel_resources);
+        update_compute_fn(&self.compute_pipelines.tracer_ppl, &all_resources);
+        update_compute_fn(&self.compute_pipelines.tracer_shadow_ppl, &all_resources);
+        update_compute_fn(&self.compute_pipelines.player_collider_ppl, &all_resources);
+        update_compute_fn(&self.compute_pipelines.terrain_query_ppl, &all_resources);
 
-        // pipelines that only need tracer resources
-        let tracer_resources = &[&self.resources as &dyn ResourceContainer];
-        update_compute_fn(&self.compute_pipelines.wind_volume_ppl, tracer_resources);
+        let tracer_resources = self.tracer_descriptor_resources();
+        update_compute_fn(&self.compute_pipelines.wind_volume_ppl, &tracer_resources);
         update_compute_fn(
             &self.compute_pipelines.shadow_depth_copy_ppl,
-            tracer_resources,
+            &tracer_resources,
         );
-        update_compute_fn(&self.compute_pipelines.vsm_creation_ppl, tracer_resources);
-        update_compute_fn(&self.compute_pipelines.vsm_blur_h_ppl, tracer_resources);
-        update_compute_fn(&self.compute_pipelines.vsm_blur_v_ppl, tracer_resources);
-        update_compute_fn(&self.compute_pipelines.god_ray_ppl, tracer_resources);
-        update_compute_fn(&self.compute_pipelines.temporal_ppl, tracer_resources);
-        update_compute_fn(&self.compute_pipelines.spatial_ppl, tracer_resources);
-        update_compute_fn(&self.compute_pipelines.lens_flare_ppl, tracer_resources);
+        update_compute_fn(&self.compute_pipelines.vsm_creation_ppl, &tracer_resources);
+        update_compute_fn(&self.compute_pipelines.vsm_blur_h_ppl, &tracer_resources);
+        update_compute_fn(&self.compute_pipelines.vsm_blur_v_ppl, &tracer_resources);
+        update_compute_fn(&self.compute_pipelines.god_ray_ppl, &tracer_resources);
+        update_compute_fn(&self.compute_pipelines.temporal_ppl, &tracer_resources);
+        update_compute_fn(&self.compute_pipelines.spatial_ppl, &tracer_resources);
+        update_compute_fn(&self.compute_pipelines.lens_flare_ppl, &tracer_resources);
         update_compute_fn(
             &self.compute_pipelines.lens_flare_sun_visible_ppl,
-            tracer_resources,
+            &tracer_resources,
         );
         update_compute_fn(
             &self.compute_pipelines.lens_flare_downsample_ppl,
-            tracer_resources,
+            &tracer_resources,
         );
-        update_compute_fn(&self.compute_pipelines.composition_ppl, tracer_resources);
+        update_compute_fn(&self.compute_pipelines.composition_ppl, &tracer_resources);
         update_compute_fn(
             &self.compute_pipelines.post_processing_ppl,
-            tracer_resources,
+            &tracer_resources,
         );
 
         // update graphics pipelines descriptor sets
-        update_graphics_fn(&self.graphics_pipelines.flora_ppl, tracer_resources);
-        update_graphics_fn(&self.graphics_pipelines.flora_lod_ppl, tracer_resources);
+        update_graphics_fn(&self.graphics_pipelines.flora_ppl, &tracer_resources);
+        update_graphics_fn(&self.graphics_pipelines.flora_lod_ppl, &tracer_resources);
         update_graphics_fn(
             &self.graphics_pipelines.leaves_shadow_lod_ppl,
-            tracer_resources,
+            &tracer_resources,
         );
-        update_graphics_fn(&self.graphics_pipelines.particle_ppl, tracer_resources);
+        update_graphics_fn(&self.graphics_pipelines.particle_ppl, &tracer_resources);
+    }
+
+    fn tracer_descriptor_resources(&self) -> [&dyn ResourceContainer; 1] {
+        [&self.resources as &dyn ResourceContainer]
+    }
+
+    fn all_descriptor_resources<'a>(
+        &'a self,
+        contree_builder_resources: &'a ContreeBuilderResources,
+        scene_accel_resources: &'a SceneAccelBuilderResources,
+    ) -> [&'a dyn ResourceContainer; 3] {
+        [
+            &self.resources as &dyn ResourceContainer,
+            contree_builder_resources as &dyn ResourceContainer,
+            scene_accel_resources as &dyn ResourceContainer,
+        ]
     }
 
     // create a lower resolution texture for rendering, for better performance,
@@ -489,15 +500,16 @@ impl Tracer {
         }
 
         let new_capacity = required_capacity.next_power_of_two();
-        *self.resources.wind_sources = TracerResources::create_wind_sources_buffer(
+        *self.resources.wind.wind_sources = TracerResources::create_wind_sources_buffer(
             self.vulkan_ctx.device().clone(),
             self.allocator.clone(),
             new_capacity,
         );
         self.wind_source_buffer_capacity = new_capacity;
+        let tracer_resources = self.tracer_descriptor_resources();
         self.compute_pipelines
             .wind_volume_ppl
-            .auto_update_descriptor_sets(&[&self.resources])?;
+            .auto_update_descriptor_sets(&tracer_resources)?;
         Ok(())
     }
 
@@ -573,19 +585,29 @@ impl Tracer {
         let view_mat = self.camera.get_view_mat();
         let proj_mat = self.camera.get_proj_mat();
         self.current_view_proj_mat = proj_mat * view_mat;
-        BufferUpdater::update_camera_info(&mut self.resources.camera_info, view_mat, proj_mat)?;
+        BufferUpdater::update_camera_info(
+            &mut self.resources.uniforms.camera_info,
+            view_mat,
+            proj_mat,
+        )?;
 
         // Shadow camera info. Shadow maps are rendered every frame while shadows
         // are enabled, so PCSS and VSM both use the latest light-space matrix.
         if update_shadow_map || !self.shadow_camera_initialized {
             let world_bound = self.chunk_bound.into();
-            let shadow_map_extent = self.resources.shadow_map_tex.get_image().get_desc().extent;
+            let shadow_map_extent = self
+                .resources
+                .shadow
+                .shadow_map_tex
+                .get_image()
+                .get_desc()
+                .extent;
             let shadow_map_resolution = shadow_map_extent.width.min(shadow_map_extent.height);
             let (shadow_view_mat, shadow_proj_mat) =
                 calculate_directional_light_matrices(world_bound, sun_dir, shadow_map_resolution);
             self.shadow_camera_initialized = true;
             BufferUpdater::update_camera_info(
-                &mut self.resources.shadow_camera_info,
+                &mut self.resources.shadow.shadow_camera_info,
                 shadow_view_mat,
                 shadow_proj_mat,
             )?;
@@ -593,7 +615,7 @@ impl Tracer {
 
         // camera info prev frame
         BufferUpdater::update_camera_info(
-            &mut self.resources.camera_info_prev_frame,
+            &mut self.resources.uniforms.camera_info_prev_frame,
             self.camera_view_mat_prev_frame,
             self.camera_proj_mat_prev_frame,
         )?;
@@ -941,10 +963,10 @@ impl Tracer {
         if render_flags.enable_flora {
             assert_eq!(
                 flora_colors.len(),
-                self.resources.flora_meshes.len(),
+                self.resources.meshes.flora_meshes.len(),
                 "Flora color count ({}) must match flora mesh count ({})",
                 flora_colors.len(),
-                self.resources.flora_meshes.len()
+                self.resources.meshes.flora_meshes.len()
             );
         }
         if has_graphics_pass {
@@ -1137,11 +1159,15 @@ impl Tracer {
 
     fn record_store_vsm_history(&self, cmdbuf: &CommandBuffer) {
         self.resources
+            .shadow
             .shadow_map_tex_for_vsm_ping
             .get_image()
             .record_copy_to(
                 cmdbuf,
-                self.resources.shadow_map_tex_for_vsm_prev.get_image(),
+                self.resources
+                    .shadow
+                    .shadow_map_tex_for_vsm_prev
+                    .get_image(),
                 TextureLayout::GENERAL,
                 TextureLayout::GENERAL,
             );
@@ -1179,6 +1205,7 @@ impl Tracer {
 
         if update_shadow_map {
             self.resources
+                .shadow
                 .shadow_map_depth_tex
                 .get_image()
                 .record_clear(
@@ -1188,12 +1215,16 @@ impl Tracer {
                     ClearValue::DepthStencil(DepthOrStencilClearValue::Depth(1.0)),
                 );
 
-            self.resources.shadow_map_tex.get_image().record_clear(
-                cmdbuf,
-                Some(TextureLayout::GENERAL),
-                0,
-                ClearValue::Color(ColorClearValue::Float([1.0, 0.0, 0.0, 0.0])),
-            );
+            self.resources
+                .shadow
+                .shadow_map_tex
+                .get_image()
+                .record_clear(
+                    cmdbuf,
+                    Some(TextureLayout::GENERAL),
+                    0,
+                    ClearValue::Color(ColorClearValue::Float([1.0, 0.0, 0.0, 0.0])),
+                );
         }
 
         self.resources
@@ -1358,8 +1389,8 @@ impl Tracer {
                         LodState::Lod1 => &self.graphics_pipelines.flora_lod_ppl,
                     };
                     let mesh_collection = match lod_state {
-                        LodState::Lod0 => &self.resources.flora_meshes,
-                        LodState::Lod1 => &self.resources.flora_meshes_lod,
+                        LodState::Lod0 => &self.resources.meshes.flora_meshes,
+                        LodState::Lod1 => &self.resources.meshes.flora_meshes_lod,
                     };
                     let mesh = mesh_collection.get(species_index).unwrap_or_else(|| {
                         panic!("Missing flora mesh for species index {}", species_index)
@@ -1433,14 +1464,14 @@ impl Tracer {
                 };
                 let (indices_buf, vertices_buf, indices_len) = match lod_state {
                     LodState::Lod0 => (
-                        &self.resources.leaves_resources.indices,
-                        &self.resources.leaves_resources.vertices,
-                        self.resources.leaves_resources.indices_len,
+                        &self.resources.meshes.leaves_resources.indices,
+                        &self.resources.meshes.leaves_resources.vertices,
+                        self.resources.meshes.leaves_resources.indices_len,
                     ),
                     LodState::Lod1 => (
-                        &self.resources.leaves_resources_lod.indices,
-                        &self.resources.leaves_resources_lod.vertices,
-                        self.resources.leaves_resources_lod.indices_len,
+                        &self.resources.meshes.leaves_resources_lod.indices,
+                        &self.resources.meshes.leaves_resources_lod.vertices,
+                        self.resources.meshes.leaves_resources_lod.indices_len,
                     ),
                 };
 
@@ -1574,6 +1605,7 @@ impl Tracer {
 
         let shadow_extent = self
             .resources
+            .shadow
             .shadow_map_depth_tex
             .get_image()
             .get_desc()
@@ -1591,7 +1623,7 @@ impl Tracer {
             .leaves_shadow_lod_ppl
             .record_viewport_scissor(cmdbuf, viewport, scissor);
 
-        cmdbuf.bind_index_buffer_u32(&self.resources.leaves_resources_lod.indices);
+        cmdbuf.bind_index_buffer_u32(&self.resources.meshes.leaves_resources_lod.indices);
 
         // loop through all tree leaves instances
         for tree_instance in surface_resources.instances.leaves_instances.values() {
@@ -1606,7 +1638,7 @@ impl Tracer {
                 tip_color,
             );
 
-            cmdbuf.bind_vertex_buffers(0, &[&self.resources.leaves_resources_lod.vertices]);
+            cmdbuf.bind_vertex_buffers(0, &[&self.resources.meshes.leaves_resources_lod.vertices]);
             // render this instance for shadow map
             self.graphics_pipelines
                 .leaves_shadow_lod_ppl
@@ -1615,7 +1647,7 @@ impl Tracer {
                     1,
                     0,
                     &tree_instance.resources.instances_buf,
-                    self.resources.leaves_resources_lod.indices_len,
+                    self.resources.meshes.leaves_resources_lod.indices_len,
                     tree_instance.resources.instances_len,
                     0,
                     0,
@@ -1633,7 +1665,12 @@ impl Tracer {
     fn record_tracer_shadow_pass(&self, cmdbuf: &CommandBuffer) {
         self.compute_pipelines.tracer_shadow_ppl.record(
             cmdbuf,
-            self.resources.shadow_map_tex.get_image().get_desc().extent,
+            self.resources
+                .shadow
+                .shadow_map_tex
+                .get_image()
+                .get_desc()
+                .extent,
             None,
         );
     }
@@ -1641,7 +1678,12 @@ impl Tracer {
     fn record_shadow_depth_copy_pass(&self, cmdbuf: &CommandBuffer) {
         self.compute_pipelines.shadow_depth_copy_ppl.record(
             cmdbuf,
-            self.resources.shadow_map_tex.get_image().get_desc().extent,
+            self.resources
+                .shadow
+                .shadow_map_tex
+                .get_image()
+                .get_desc()
+                .extent,
             None,
         );
     }
@@ -1685,7 +1727,13 @@ impl Tracer {
         let bucket_count = WIND_VOLUME_BUCKET_COUNT;
         let step_seconds = self.wind_volume_bucket_step_seconds();
         let step_index = (time / step_seconds).floor().max(0.0) as u32;
-        let mut dispatch_extent = self.resources.wind_volume_tex.get_image().get_desc().extent;
+        let mut dispatch_extent = self
+            .resources
+            .wind
+            .wind_volume_tex
+            .get_image()
+            .get_desc()
+            .extent;
         dispatch_extent.width /= WIND_VOLUME_BUCKET_COUNT;
 
         if self.initialized_wind_volume_bucket_count != bucket_count {
@@ -1728,7 +1776,13 @@ impl Tracer {
     ) {
         let compute_to_compute_barrier = PipelineBarrier::compute_shader_access();
 
-        let extent = self.resources.shadow_map_tex.get_image().get_desc().extent;
+        let extent = self
+            .resources
+            .shadow
+            .shadow_map_tex
+            .get_image()
+            .get_desc()
+            .extent;
         self.compute_pipelines
             .vsm_creation_ppl
             .record(cmdbuf, extent, None);
@@ -2021,6 +2075,7 @@ impl Tracer {
         texture_layout.assert_valid();
         let texture_layer_count = self
             .resources
+            .textures
             .particle_lod_tex_lut
             .get_image()
             .get_desc()
@@ -2233,7 +2288,7 @@ impl Tracer {
         outer_radius: f32,
     ) -> Result<()> {
         let device = self.vulkan_ctx.device();
-        self.resources.leaves_resources = LeavesResources::new_with_params(
+        self.resources.meshes.leaves_resources = LeavesResources::new_with_params(
             device.clone(),
             self.allocator.clone(),
             inner_density,
@@ -2243,7 +2298,7 @@ impl Tracer {
             false,
         );
 
-        self.resources.leaves_resources_lod = LeavesResources::new_with_params(
+        self.resources.meshes.leaves_resources_lod = LeavesResources::new_with_params(
             device.clone(),
             self.allocator.clone(),
             inner_density,
@@ -2279,12 +2334,13 @@ impl Tracer {
 
         let query_count = rays.len() as u32;
 
-        self.resources.terrain_query_count.fill_uniform(
-            &crate::generated::gpu_structs::TerrainQueryCount {
+        self.resources
+            .terrain_query
+            .terrain_query_count
+            .fill_uniform(&crate::generated::gpu_structs::TerrainQueryCount {
                 valid_query_count: query_count,
                 ..bytemuck::Zeroable::zeroed()
-            },
-        )?;
+            })?;
 
         let mut ray_data = Vec::with_capacity(rays.len() * 8);
         for ray in rays {
@@ -2297,7 +2353,10 @@ impl Tracer {
             ray_data.push(ray.direction.z);
             ray_data.push(0.0);
         }
-        self.resources.terrain_query_info.fill(&ray_data)?;
+        self.resources
+            .terrain_query
+            .terrain_query_info
+            .fill(&ray_data)?;
 
         execute_one_time_gpu_job(
             self.vulkan_ctx.device(),
@@ -2312,7 +2371,12 @@ impl Tracer {
             },
         );
 
-        let raw_data = self.resources.terrain_query_result.read_back().unwrap();
+        let raw_data = self
+            .resources
+            .terrain_query
+            .terrain_query_result
+            .read_back()
+            .unwrap();
         let hit_data: &[f32] = unsafe {
             std::slice::from_raw_parts(raw_data.as_ptr() as *const f32, (query_count as usize) * 4)
         };

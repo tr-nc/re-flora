@@ -111,7 +111,7 @@ pub fn derive_resource_container(input: TokenStream) -> TokenStream {
 
     // generate compile-time conflict detection
     let direct_names_array = if resource_idents.is_empty() {
-        quote! { &[] }
+        quote! { &[] as &[&'static str] }
     } else {
         let names = resource_idents.iter().map(|ident| {
             quote! { stringify!(#ident) }
