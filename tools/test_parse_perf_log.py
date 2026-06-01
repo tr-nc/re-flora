@@ -26,7 +26,7 @@ class ParsePerfLogTests(unittest.TestCase):
             [
                 "[12:00:00 INFO src::app::core] [PERF] frame 30 total 16.20ms egui 1.20ms gpu+present 5.00ms",
                 "[12:00:00 INFO src::app::core] [PERF][FRAME] frame 31 total 17.00ms egui 1.10ms gpu_present 5.20ms contree_poll 0.01ms terrain_source 0.02ms deferred_rebuild 0.03ms cache_queue 0.04ms collider_queue 0.05ms water_edit_soak 0.06ms water_handoff 0.07ms particles 0.08ms tracked_cpu 0.36ms untracked_cpu 10.34ms",
-                "[12:00:00 INFO re_flora_water::mls_mpm] [PERF][WATER] particles 10000 grid UVec3(160, 64, 160) nodes 1638400 substeps 12 total 42.00ms avg 3.500ms/substep repair 0.00ms clear 0.40ms p2g 12.00ms grid 1.20ms grid_update 1.10ms g2p 28.00ms g2p_gather 5.00ms g2p_box 1.00ms g2p_terrain 2.00ms g2p_repair 0.50ms diagnostics 0.20ms residual 0.10ms shadow_measure 0.30ms",
+                "[12:00:00 INFO re_flora_water::mls_mpm] [PERF][WATER] particles 10000 grid UVec3(160, 64, 160) nodes 1638400 substeps 12 total 42.00ms avg 3.500ms/substep repair 0.00ms clear 0.40ms p2g 12.00ms grid 1.20ms grid_update 1.10ms g2p 28.00ms g2p_gather 5.00ms g2p_box 1.00ms g2p_terrain 2.00ms g2p_repair 0.50ms diagnostics 0.20ms residual 0.10ms shadow_measure 0.30ms p2g_density_corr/substep 10.5 p2g_density_corr_factor_avg 1.125 p2g_density_corr_factor_max 1.750 terrain_cache_skips/substep 120 terrain_cache_projections/substep 30 terrain_exact_fallbacks/substep 4 terrain_exact_checks/substep 5 terrain_exact_corrections/substep 2 terrain_shadow_samples/substep 25.5 terrain_shadow_false_skips 1 terrain_shadow_sdf_err_avg 0.01234 terrain_shadow_sdf_err_max 0.05678 active_nodes/substep 900 particle_y 0.100..1.200 avg 0.400 terrain_sdf_min -0.0100 penetrating 3 no_sdf 7",
                 "[12:00:00 INFO src::app::core::particles] [PERF][PARTICLES] alive=13 snapshots=4109 water_debug=4096 emitters butterflies=1 leaves=36 tick_step=true dt=0.0439 total=0.148ms setup=0.001ms emit=0.011ms sim=0.001ms collect=0.000ms plan=0.016ms snapshot=0.021ms upload=0.098ms",
                 "[12:00:00 INFO src::app::core] [PERF][GPU_FRAME_SCOPE] frame 30 scopes=3 dropped=0 frame.render=9000us tracer.render=7000us egui.render=500us",
                 "[12:00:00 INFO src::builder::surface] [PERF][GPU_JOB_SCOPE] name=surface.build queue=Graphics chunk UVec3(0, 0, 0) duration=615us",
@@ -53,6 +53,9 @@ class ParsePerfLogTests(unittest.TestCase):
         self.assertEqual(self.metric(summary, "frame_detail", "water_handoff"), [0.07])
         self.assertEqual(self.metric(summary, "water_counts", "particles"), [10000.0])
         self.assertEqual(self.metric(summary, "water", "avg_substep"), [3.5])
+        self.assertEqual(self.metric(summary, "water_diagnostics", "terrain_cache_skips_per_substep"), [120.0])
+        self.assertEqual(self.metric(summary, "water_diagnostics", "terrain_shadow_sdf_err_max"), [0.05678])
+        self.assertEqual(self.metric(summary, "water_diagnostics", "terrain_penetrating"), [3.0])
         self.assertEqual(self.metric(summary, "particles", "upload"), [0.098])
         self.assertEqual(self.metric(summary, "particle_counts", "water_debug"), [4096.0])
         self.assertEqual(self.metric(summary, "gpu_frame_scope", "tracer.render"), [7.0])

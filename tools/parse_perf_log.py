@@ -46,6 +46,7 @@ CACHE_DISCARD_RE = re.compile(r"discarded stale worker grid cache region .* work
 KEY_VALUE_WITH_UNIT_RE = re.compile(r"\b([A-Za-z0-9_.:-]+)=([0-9.]+)(us|ms)\b")
 GPU_JOB_NAME_RE = re.compile(r"\bname=([^\s]+)")
 GPU_JOB_DURATION_RE = re.compile(r"\bduration=([0-9.]+)us\b")
+NUMBER_TOKEN = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?"
 
 FRAME_MS_FIELDS = [
     "total",
@@ -92,6 +93,25 @@ PARTICLE_MS_FIELDS = [
 ]
 
 PARTICLE_COUNT_FIELDS = ["alive", "snapshots", "water_debug", "butterflies", "leaves"]
+
+WATER_DIAGNOSTIC_FIELDS = [
+    ("p2g_density_corr/substep", "p2g_density_corr_per_substep"),
+    ("p2g_density_corr_factor_avg", "p2g_density_corr_factor_avg"),
+    ("p2g_density_corr_factor_max", "p2g_density_corr_factor_max"),
+    ("terrain_cache_skips/substep", "terrain_cache_skips_per_substep"),
+    ("terrain_cache_projections/substep", "terrain_cache_projections_per_substep"),
+    ("terrain_exact_fallbacks/substep", "terrain_exact_fallbacks_per_substep"),
+    ("terrain_exact_checks/substep", "terrain_exact_checks_per_substep"),
+    ("terrain_exact_corrections/substep", "terrain_exact_corrections_per_substep"),
+    ("terrain_shadow_samples/substep", "terrain_shadow_samples_per_substep"),
+    ("terrain_shadow_false_skips", "terrain_shadow_false_skips"),
+    ("terrain_shadow_sdf_err_avg", "terrain_shadow_sdf_err_avg"),
+    ("terrain_shadow_sdf_err_max", "terrain_shadow_sdf_err_max"),
+    ("active_nodes/substep", "active_nodes_per_substep"),
+    ("terrain_sdf_min", "terrain_sdf_min"),
+    ("penetrating", "terrain_penetrating"),
+    ("no_sdf", "terrain_no_sdf"),
+]
 
 
 @dataclass
@@ -149,6 +169,13 @@ def extract_eq_ms(line: str, field_name: str) -> Optional[float]:
 
 def extract_eq_count(line: str, field_name: str) -> Optional[float]:
     match = re.search(rf"\b{re.escape(field_name)}=(\d+)\b", line)
+    if not match:
+        return None
+    return float(match.group(1))
+
+
+def extract_labeled_number(line: str, field_name: str) -> Optional[float]:
+    match = re.search(rf"(?<!\S){re.escape(field_name)}\s+({NUMBER_TOKEN})(?=\s|$)", line)
     if not match:
         return None
     return float(match.group(1))
@@ -217,6 +244,10 @@ def parse_log_lines(lines: Iterable[str], source: str = "<memory>") -> PerfSumma
                 value = extract_ms(line, field_name)
                 if value is not None:
                     summary.add("water", "Water timings", "ms", field_name, value)
+            for field_name, metric in WATER_DIAGNOSTIC_FIELDS:
+                value = extract_labeled_number(line, field_name)
+                if value is not None:
+                    summary.add("water_diagnostics", "Water diagnostics", "value", metric, value)
             continue
 
         if PARTICLES_RE.search(line):

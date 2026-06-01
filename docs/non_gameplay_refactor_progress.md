@@ -80,7 +80,7 @@ Assumptions to confirm before implementation:
 - Objective: Make existing release hidden-run logs easier to compare and summarize.
 - Expected output: `tools/parse_perf_log.py` support for frame, water, sync rebuild, GPU scope, and particle markers; concise table/CSV/JSON output if practical.
 - Dependencies/blockers: Need sample logs from `target/re-flora-logs` or fixtures.
-- Status: done for parser structure, GPU/particle markers, latest-log pointer handling, and Markdown/JSON/CSV output; real-run fixture expansion remains a follow-up.
+- Status: done for parser structure, GPU/particle markers, water diagnostic fields, latest-log pointer handling, and Markdown/JSON/CSV output; real-run fixture expansion remains a follow-up.
 
 ### Phase 4: Water measurement-only diagnostics
 
@@ -164,6 +164,7 @@ If verification is not possible:
 - 2026-06-01: Replaced the per-frame flora color `Vec` allocation with a fixed stack array sliced to the current species count; color selection behavior is unchanged.
 - 2026-06-01: Moved loading progress state, loading frame rendering, final loading setup, and startup terrain query validation into `src/app/core/loading.rs`, preserving the existing loading flow.
 - 2026-06-01: Added `FrameCpuTimings`/`FrameCpuScope` in `src/app/core/frame_timing.rs` and replaced repeated manual frame CPU timing accumulation in the redraw loop, preserving existing timing fields and perf log labels.
+- 2026-06-01: Extended `tools/parse_perf_log.py` to summarize existing `[PERF][WATER]` diagnostic counters such as terrain cache skip/project ratios, exact fallback counts, shadow-sample error, active nodes, and terrain penetration/no-SDF counts.
 
 ## Open Questions / Risks
 
