@@ -94,7 +94,7 @@ Assumptions to confirm before implementation:
 - Objective: Split `mls_mpm.rs` into focused internal modules while preserving algorithms and tests.
 - Expected output: Separate areas for transfer, terrain cache/projection, density/EOS, diagnostics, and repair/collision helpers.
 - Dependencies/blockers: Should follow after Phase 4 or be kept very mechanical; large file split can create merge conflict risk.
-- Status: in progress; density/EOS, repair/collision, diagnostic/stat, and terrain-grid cache helper groups moved into focused `crates/re-flora-water/src/mls_mpm/` submodules as mechanical extractions.
+- Status: in progress; density/EOS, repair/collision, diagnostic/stat, terrain-grid cache, and transfer/math helper groups moved into focused `crates/re-flora-water/src/mls_mpm/` submodules as mechanical extractions.
 
 ### Phase 6: Behavior-identical micro cleanups
 
@@ -171,6 +171,7 @@ If verification is not possible:
 - 2026-06-01: Continued the water solver file split by moving APIC damping, finite-state repair, speed clamps, and box/terrain particle collision helpers into `crates/re-flora-water/src/mls_mpm/repair.rs`; validated with water-crate tests, full cargo tests, parser tests, and a release hidden run.
 - 2026-06-01: Moved quiet-settling and water-particle diagnostic stat helpers into `crates/re-flora-water/src/mls_mpm/diagnostics.rs`; validated with water-crate tests, full cargo tests, parser tests, and a release hidden run.
 - 2026-06-01: Moved terrain-grid cache request/patch/apply helpers into `crates/re-flora-water/src/mls_mpm/terrain.rs`; validated with water-crate tests, full cargo tests, parser tests, and a release hidden run.
+- 2026-06-01: Moved grid/transfer math helpers, terrain particle cache query helpers, G2P breakdown structs, and grid-node collision projection into `crates/re-flora-water/src/mls_mpm/transfer.rs`; validated with water-crate tests, full cargo tests, parser tests, and a release hidden run.
 
 ## Open Questions / Risks
 
