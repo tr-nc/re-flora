@@ -145,13 +145,15 @@ jobs:
         id: package
         shell: bash
         run: |
+          # Pin the Fedora build image so release binaries only require glibc
+          # from our oldest supported Fedora, not whatever fedora:latest has.
           docker run --rm \
             -v "$PWD:/work" \
             -w /work \
             -e PACKAGE_VERSION='${{ steps.version.outputs.version }}' \
             -e HOST_UID="$(id -u)" \
             -e HOST_GID="$(id -g)" \
-            fedora:latest \
+            fedora:43 \
             bash -lc '
               set -euo pipefail
               dnf install -y \
