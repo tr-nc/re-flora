@@ -38,6 +38,100 @@ impl Default for WaterSimRuntimeOptions {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct WaterSnapshotPublishReport {
+    particle_count: usize,
+    published_particles: usize,
+    total_ms: f32,
+    lock_ms: f32,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct WaterThreadPerfStats {
+    report_seconds: f32,
+    ticks: u64,
+    active_ticks: u64,
+    idle_ticks: u64,
+    commands: u64,
+    max_commands_per_tick: usize,
+    maxed_command_ticks: u64,
+    command_drain_ms: f64,
+    publish_count: u64,
+    publish_particles: u64,
+    publish_ms: f64,
+    publish_lock_ms: f64,
+}
+
+impl WaterThreadPerfStats {
+    fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    fn record_tick(&mut self, dt: f32, enabled: bool) {
+        self.report_seconds += dt.max(0.0);
+        self.ticks += 1;
+        if enabled {
+            self.active_ticks += 1;
+        } else {
+            self.idle_ticks += 1;
+        }
+    }
+
+    fn record_command_drain(&mut self, commands_this_tick: usize, elapsed: Duration) {
+        self.commands += commands_this_tick as u64;
+        self.max_commands_per_tick = self.max_commands_per_tick.max(commands_this_tick);
+        if commands_this_tick >= WATER_SIM_THREAD_MAX_COMMANDS_PER_TICK {
+            self.maxed_command_ticks += 1;
+        }
+        self.command_drain_ms += elapsed.as_secs_f64() * 1000.0;
+    }
+
+    fn record_publish(&mut self, report: WaterSnapshotPublishReport) {
+        self.publish_count += 1;
+        self.publish_particles += report.published_particles as u64;
+        self.publish_ms += report.total_ms as f64;
+        self.publish_lock_ms += report.lock_ms as f64;
+    }
+
+    fn log_and_reset_if_due(
+        &mut self,
+        sim: &PondWaterSim,
+        runtime_options: WaterSimRuntimeOptions,
+    ) {
+        if self.report_seconds < 1.0 {
+            return;
+        }
+
+        let ticks = self.ticks.max(1) as f64;
+        let publishes = self.publish_count.max(1) as f64;
+        log::info!(
+            "[PERF][WATER_THREAD] seconds={:.3} enabled={} particles={} ticks={} active_ticks={} idle_ticks={} commands={} commands_per_tick={:.2} max_commands_per_tick={} maxed_command_ticks={} command_drain={:.3}ms publish_count={} publish_particles={} publish_particles_per_publish={:.1} publish={:.3}ms publish_lock={:.3}ms snapshot_bucket_count={}",
+            self.report_seconds,
+            runtime_options.enabled,
+            sim.particles.len(),
+            self.ticks,
+            self.active_ticks,
+            self.idle_ticks,
+            self.commands,
+            self.commands as f64 / ticks,
+            self.max_commands_per_tick,
+            self.maxed_command_ticks,
+            self.command_drain_ms,
+            self.publish_count,
+            self.publish_particles,
+            self.publish_particles as f64 / publishes,
+            self.publish_ms,
+            self.publish_lock_ms,
+            if runtime_options.enabled {
+                WATER_SIM_SNAPSHOT_BUCKET_COUNT
+            } else {
+                1
+            },
+        );
+        self.reset();
+    }
+}
+
 enum WaterSimCommand {
     UpdateConfig(PondWaterConfig),
     SetRuntimeOptions(WaterSimRuntimeOptions),
@@ -399,13 +493,17 @@ fn run_water_sim_thread(
     let mut last_tick = Instant::now();
     let mut last_publish = Instant::now();
     let mut publish_bucket_index = 0usize;
-    publish_water_sim_snapshot(&sim, &shared, 0.0, 0, 0, 1);
+    let mut thread_perf_stats = WaterThreadPerfStats::default();
+    let _ = publish_water_sim_snapshot(&sim, &shared, 0.0, 0, 0, 1, false);
 
     loop {
         let tick_start = Instant::now();
+        let command_drain_start = runtime_options.perf_logging.then(Instant::now);
+        let mut commands_this_tick = 0usize;
         for _ in 0..WATER_SIM_THREAD_MAX_COMMANDS_PER_TICK {
             match command_rx.try_recv() {
                 Ok(command) => {
+                    commands_this_tick += 1;
                     if !handle_water_sim_command(&mut sim, command, &mut runtime_options) {
                         log::info!("[WATER][THREAD] simulation thread stopped");
                         return;
@@ -418,10 +516,19 @@ fn run_water_sim_thread(
                 }
             }
         }
+        if let Some(command_drain_start) = command_drain_start {
+            thread_perf_stats
+                .record_command_drain(commands_this_tick, command_drain_start.elapsed());
+        }
 
         let now = Instant::now();
         let dt = now.duration_since(last_tick).as_secs_f32();
         last_tick = now;
+        if runtime_options.perf_logging {
+            thread_perf_stats.record_tick(dt, runtime_options.enabled);
+        } else {
+            thread_perf_stats.reset();
+        }
         let sim_update_start = Instant::now();
         let sim_time_before = sim.sim_time_seconds;
         if runtime_options.enabled {
@@ -442,14 +549,18 @@ fn run_water_sim_thread(
             } else {
                 1
             };
-            publish_water_sim_snapshot(
+            let publish_report = publish_water_sim_snapshot(
                 &sim,
                 &shared,
                 worker_update_ms,
                 worker_substeps,
                 publish_bucket_index,
                 publish_bucket_count,
+                runtime_options.perf_logging,
             );
+            if runtime_options.perf_logging {
+                thread_perf_stats.record_publish(publish_report);
+            }
             publish_bucket_index = if publish_bucket_count > 1 {
                 (publish_bucket_index + 1) % publish_bucket_count
             } else {
@@ -458,10 +569,17 @@ fn run_water_sim_thread(
             last_publish = Instant::now();
         }
 
+        if runtime_options.perf_logging {
+            thread_perf_stats.log_and_reset_if_due(&sim, runtime_options);
+        }
+
         let sleep_for =
             water_sim_thread_sleep_duration(&sim, runtime_options, tick_start.elapsed());
         match command_rx.recv_timeout(sleep_for) {
             Ok(command) => {
+                if runtime_options.perf_logging {
+                    thread_perf_stats.record_command_drain(1, Duration::ZERO);
+                }
                 if !handle_water_sim_command(&mut sim, command, &mut runtime_options) {
                     log::info!("[WATER][THREAD] simulation thread stopped");
                     return;
@@ -581,7 +699,9 @@ fn publish_water_sim_snapshot(
     worker_substeps: u32,
     publish_bucket_index: usize,
     publish_bucket_count: usize,
-) {
+    collect_perf: bool,
+) -> WaterSnapshotPublishReport {
+    let total_start = collect_perf.then(Instant::now);
     let particle_count = sim.particles.len();
     let publish_bucket_count = publish_bucket_count.max(1);
     let publish_bucket_index = publish_bucket_index % publish_bucket_count;
@@ -620,6 +740,7 @@ fn publish_water_sim_snapshot(
         publish_bucket_count,
     };
 
+    let lock_start = collect_perf.then(Instant::now);
     match shared.lock() {
         Ok(mut guard) => {
             guard.latest_snapshot = Some(snapshot);
@@ -627,6 +748,16 @@ fn publish_water_sim_snapshot(
         Err(poisoned) => {
             poisoned.into_inner().latest_snapshot = Some(snapshot);
         }
+    }
+    WaterSnapshotPublishReport {
+        particle_count,
+        published_particles: publish_count,
+        total_ms: total_start
+            .map(|start| start.elapsed().as_secs_f32() * 1000.0)
+            .unwrap_or(0.0),
+        lock_ms: lock_start
+            .map(|start| start.elapsed().as_secs_f32() * 1000.0)
+            .unwrap_or(0.0),
     }
 }
 
@@ -677,5 +808,60 @@ fn log_skipped_water_spawn(center: Vec3, reason: DebugWaterSpawnSkipReason) {
                 max_ws,
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn water_thread_perf_stats_accumulate_and_reset() {
+        let mut stats = WaterThreadPerfStats::default();
+
+        stats.record_tick(0.5, true);
+        stats.record_tick(0.25, false);
+        stats.record_command_drain(3, Duration::from_micros(500));
+        stats.record_publish(WaterSnapshotPublishReport {
+            particle_count: 8,
+            published_particles: 2,
+            total_ms: 0.25,
+            lock_ms: 0.05,
+        });
+
+        assert_eq!(stats.report_seconds, 0.75);
+        assert_eq!(stats.ticks, 2);
+        assert_eq!(stats.active_ticks, 1);
+        assert_eq!(stats.idle_ticks, 1);
+        assert_eq!(stats.commands, 3);
+        assert_eq!(stats.max_commands_per_tick, 3);
+        assert_eq!(stats.command_drain_ms, 0.5);
+        assert_eq!(stats.publish_count, 1);
+        assert_eq!(stats.publish_particles, 2);
+        assert_eq!(stats.publish_ms, 0.25);
+        assert!((stats.publish_lock_ms - 0.05).abs() < 1.0e-6);
+
+        stats.reset();
+        assert_eq!(stats, WaterThreadPerfStats::default());
+    }
+
+    #[test]
+    fn snapshot_publish_report_tracks_bucket_size_without_changing_snapshot() {
+        let sim = PondWaterSim::new(PondWaterConfig::default().with_particle_count(8));
+        let shared = Arc::new(Mutex::new(WaterSimThreadShared::default()));
+
+        let report = publish_water_sim_snapshot(&sim, &shared, 1.0, 2, 1, 4, false);
+        let snapshot = shared.lock().unwrap().latest_snapshot.clone().unwrap();
+
+        assert_eq!(report.particle_count, 8);
+        assert_eq!(report.published_particles, 2);
+        assert_eq!(snapshot.particle_count, 8);
+        assert_eq!(snapshot.particles.len(), 2);
+        assert_eq!(snapshot.worker_update_ms, 1.0);
+        assert_eq!(snapshot.worker_substeps, 2);
+        assert_eq!(snapshot.publish_bucket_index, 1);
+        assert_eq!(snapshot.publish_bucket_count, 4);
+        assert_eq!(report.total_ms, 0.0);
+        assert_eq!(report.lock_ms, 0.0);
     }
 }

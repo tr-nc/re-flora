@@ -2,16 +2,23 @@
 use crate::util::Timer;
 
 mod boot;
+mod frame_timing;
 mod input;
 mod lifecycle;
+mod loading;
 mod particles;
 mod player_tools;
+mod screenshot;
 mod terrain_rebuild;
 mod tree_bench;
 mod ui_style;
 mod vegetation;
 mod water;
 
+use self::frame_timing::{
+    draw_frame_timing_panel, FrameCpuScope, FrameCpuTimings, FrameTimingSnapshot,
+};
+use self::loading::{LoadingPhase, LoadingState};
 use self::particles::TreeLeafEmitter;
 use self::player_tools::PlayerToolState;
 use self::terrain_rebuild::{ChunkRebuildRequest, TerrainChunkRebuildInFlight};
@@ -50,9 +57,8 @@ use anyhow::{Context, Result};
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
 use re_flora_vkn::{
-    Allocator, Buffer, BufferUsage, ColorReadbackFormat, CommandBuffer, Extent2D, GpuProfiler,
-    GpuProfilerFrameResults, MemoryLocation, PipelineStage, SwapchainDesc, SwapchainFrameError,
-    SwapchainFrameManager,
+    Allocator, GpuProfiler, GpuProfilerFrameResults, PipelineStage, SwapchainDesc,
+    SwapchainFrameError, SwapchainFrameManager,
 };
 use re_flora_vkn::{Swapchain, VulkanContext};
 use re_flora_water::PondWaterConfig;
@@ -81,198 +87,11 @@ const LEAF_CLUSTER_DISTANCE: f32 = 0.08;
 // without producing audible output for the user.
 const HIDDEN_AUDIO_OUTPUT_GAIN_DB: f32 = -120.0;
 
-struct ScreenshotReadback {
-    path: String,
-    width: u32,
-    height: u32,
-    format: ColorReadbackFormat,
-    buffer: Buffer,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum LoadingPhase {
-    Terrain,
-    Building,
-}
-
 #[derive(Clone, Copy, Debug, Default)]
 struct TerrainSdfColliderRebuildRequest;
 
 #[derive(Clone, Copy, Debug, Default)]
 struct WaterTerrainCacheRebuildRequest;
-
-#[derive(Clone, Copy, Debug, Default)]
-struct FrameTimingSnapshot {
-    frame: u64,
-    total_ms: f32,
-    egui_ms: f32,
-    gpu_present_ms: f32,
-    contree_poll_ms: f32,
-    terrain_source_ms: f32,
-    deferred_rebuild_ms: f32,
-    water_cache_ms: f32,
-    collider_queue_ms: f32,
-    water_edit_soak_ms: f32,
-    water_handoff_ms: f32,
-    particles_ms: f32,
-    tracked_cpu_ms: f32,
-    untracked_cpu_ms: f32,
-}
-
-struct LoadingState {
-    chunk_indices: Vec<UVec3>,
-    current: usize,
-    step_label: String,
-    phase: LoadingPhase,
-}
-
-impl LoadingState {
-    fn total(&self) -> usize {
-        self.chunk_indices.len()
-    }
-
-    fn progress_fraction(&self) -> f32 {
-        if self.chunk_indices.is_empty() {
-            return 1.0;
-        }
-
-        let total = self.chunk_indices.len() as f32;
-        match self.phase {
-            LoadingPhase::Terrain => (self.current as f32 / total) * 0.5,
-            LoadingPhase::Building => 0.5 + (self.current as f32 / total) * 0.5,
-        }
-    }
-
-    fn is_done(&self) -> bool {
-        self.phase == LoadingPhase::Building && self.current >= self.chunk_indices.len()
-    }
-}
-
-fn draw_frame_timing_panel(
-    ctx: &egui::Context,
-    timing: FrameTimingSnapshot,
-    gpu_results: Option<&GpuProfilerFrameResults>,
-    perf_logging: bool,
-) {
-    let rows = [
-        ("total", timing.total_ms),
-        ("egui", timing.egui_ms),
-        ("gpu + present", timing.gpu_present_ms),
-        ("contree poll", timing.contree_poll_ms),
-        ("terrain source", timing.terrain_source_ms),
-        ("deferred rebuild", timing.deferred_rebuild_ms),
-        ("water cache", timing.water_cache_ms),
-        ("collider queue", timing.collider_queue_ms),
-        ("water edit soak", timing.water_edit_soak_ms),
-        ("water handoff", timing.water_handoff_ms),
-        ("particles", timing.particles_ms),
-        ("tracked cpu", timing.tracked_cpu_ms),
-        ("untracked cpu", timing.untracked_cpu_ms),
-    ];
-    egui::Area::new("frame_timing_panel".into())
-        .anchor(egui::Align2::RIGHT_TOP, egui::Vec2::new(-16.0, 16.0))
-        .show(ctx, |ui| {
-            let timing_frame = egui::containers::Frame {
-                fill: PANEL_DARK,
-                inner_margin: egui::Margin::symmetric(12, 10),
-                corner_radius: egui::CornerRadius::same(0),
-                shadow: egui::epaint::Shadow {
-                    offset: [4, 4],
-                    blur: 0,
-                    spread: 0,
-                    color: SHADOW_COLOR,
-                },
-                stroke: egui::Stroke::new(2.0, GOLD_ACCENT),
-                ..Default::default()
-            };
-
-            timing_frame.show(ui, |ui| {
-                ui.set_width(340.0);
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new("Frame Timing")
-                            .color(GOLD_ACCENT)
-                            .monospace()
-                            .size(13.0)
-                            .strong(),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(RichText::new("P").color(SAGE_ACCENT).monospace().size(11.0));
-                    });
-                });
-                ui.label(
-                    RichText::new(format!(
-                        "previous frame {}{}",
-                        timing.frame,
-                        if perf_logging { " · logging" } else { "" }
-                    ))
-                    .color(SAGE_ACCENT)
-                    .monospace()
-                    .size(10.0),
-                );
-                ui.add_space(4.0);
-
-                for (label, value_ms) in rows {
-                    let value_us = value_ms * 1000.0;
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            RichText::new(format!("{label:<18}"))
-                                .color(SAGE_ACCENT)
-                                .monospace()
-                                .size(11.0),
-                        );
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(
-                                RichText::new(format!("{value_us:>8.0} us"))
-                                    .color(Color32::WHITE)
-                                    .monospace()
-                                    .size(11.0),
-                            );
-                        });
-                    });
-                }
-
-                if let Some(gpu_results) = gpu_results {
-                    ui.add_space(4.0);
-                    ui.separator();
-                    ui.label(
-                        RichText::new(format!(
-                            "gpu scopes{}",
-                            if gpu_results.dropped_scope_count == 0 {
-                                "".to_owned()
-                            } else {
-                                format!(" · dropped {}", gpu_results.dropped_scope_count)
-                            }
-                        ))
-                        .color(GOLD_ACCENT)
-                        .monospace()
-                        .size(11.0),
-                    );
-                    for scope in gpu_results.scopes.iter().take(12) {
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                RichText::new(format!("{:<18}", scope.name))
-                                    .color(SAGE_ACCENT)
-                                    .monospace()
-                                    .size(11.0),
-                            );
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    ui.label(
-                                        RichText::new(format!("{:>8.0} us", scope.duration_us()))
-                                            .color(Color32::WHITE)
-                                            .monospace()
-                                            .size(11.0),
-                                    );
-                                },
-                            );
-                        });
-                    }
-                }
-            });
-        });
-}
 
 pub struct App {
     egui_renderer: EguiRenderer,
@@ -465,87 +284,6 @@ impl App {
                 );
                 self.growing_flora_chunks.push(chunk_id, last_flora_tick);
             }
-        }
-    }
-
-    fn prepare_screenshot_readback(
-        &self,
-        path: String,
-        render_area: Extent2D,
-    ) -> Result<ScreenshotReadback> {
-        let output_path = std::path::Path::new(&path);
-        if let Some(parent) = output_path.parent() {
-            if !parent.as_os_str().is_empty() && !parent.exists() {
-                anyhow::bail!("parent directory does not exist: {}", parent.display());
-            }
-        }
-
-        let width = render_area.width;
-        let height = render_area.height;
-        let byte_count = width as u64 * height as u64 * 4;
-        let allocator = self
-            .tracer
-            .get_screen_output_tex()
-            .get_image()
-            .get_allocator()
-            .clone();
-        let buffer = Buffer::new_sized(
-            self.vulkan_ctx.device().clone(),
-            allocator,
-            BufferUsage::transfer_dst(),
-            MemoryLocation::GpuToCpu,
-            byte_count,
-        );
-
-        Ok(ScreenshotReadback {
-            path,
-            width,
-            height,
-            format: self
-                .swapchain
-                .color_readback_format()
-                .context("unsupported swapchain screenshot format")?,
-            buffer,
-        })
-    }
-
-    fn record_screenshot_readback(
-        &self,
-        cmdbuf: &CommandBuffer,
-        image_idx: u32,
-        readback: &ScreenshotReadback,
-    ) {
-        self.swapchain.record_image_readback(
-            cmdbuf,
-            image_idx,
-            &readback.buffer,
-            readback.width,
-            readback.height,
-        );
-    }
-
-    fn write_screenshot_readback(readback: ScreenshotReadback) {
-        match readback.buffer.read_back() {
-            Ok(raw_data) => {
-                let rgba_data = readback.format.convert_to_rgba(raw_data);
-                match image::RgbaImage::from_raw(readback.width, readback.height, rgba_data) {
-                    Some(image_data) => match image_data.save(&readback.path) {
-                        Ok(()) => log::info!(
-                            "[SCREENSHOT] Saved {}x{} to {}",
-                            readback.width,
-                            readback.height,
-                            readback.path
-                        ),
-                        Err(err) => {
-                            log::error!("[SCREENSHOT] Failed to write {}: {}", readback.path, err)
-                        }
-                    },
-                    None => {
-                        log::error!("[SCREENSHOT] Invalid image dimensions or pixel buffer size")
-                    }
-                }
-            }
-            Err(err) => log::error!("[SCREENSHOT] GPU readback failed: {}", err),
         }
     }
 }
@@ -1269,402 +1007,6 @@ impl App {
         Ok(app)
     }
 
-    fn process_loading_step(&mut self) {
-        let mut should_apply_debug_audio_wall = false;
-        let mut should_carve_startup_water_pool = false;
-        let loading = match &mut self.loading_state {
-            Some(loading) => loading,
-            None => return,
-        };
-
-        if loading.is_done() {
-            return;
-        }
-
-        let total = loading.total();
-        let current = loading.current + 1;
-
-        match loading.phase {
-            LoadingPhase::Terrain => {
-                let chunk_id = loading.chunk_indices[loading.current];
-                let atlas_offset = chunk_id * VOXEL_DIM_PER_CHUNK;
-                loading.step_label = format!("Terrain {}/{}", current, total);
-
-                if let Err(err) = self
-                    .plain_builder
-                    .chunk_init(atlas_offset, VOXEL_DIM_PER_CHUNK)
-                {
-                    log::error!("chunk_init failed for {chunk_id:?}: {err}");
-                }
-
-                loading.current += 1;
-                if loading.current >= total {
-                    should_carve_startup_water_pool = true;
-                    should_apply_debug_audio_wall = true;
-                    loading.current = 0;
-                    loading.phase = LoadingPhase::Building;
-                }
-            }
-            LoadingPhase::Building => {
-                let chunk_id = loading.chunk_indices[loading.current];
-                let atlas_offset = chunk_id * VOXEL_DIM_PER_CHUNK;
-                loading.step_label = format!("Building {}/{}", current, total);
-
-                let active_voxel_len = match self.surface_builder.build_surface(chunk_id, true) {
-                    Ok(active_voxel_len) => active_voxel_len,
-                    Err(err) => {
-                        log::error!("build_surface failed for {chunk_id:?}: {err}");
-                        loading.current += 1;
-                        return;
-                    }
-                };
-
-                let scene_offsets = if active_voxel_len == 0 {
-                    self.contree_builder
-                        .clear_empty_surface_chunk(atlas_offset)
-                        .scene_offsets
-                } else {
-                    match self.contree_builder.build_and_alloc(atlas_offset) {
-                        Ok(scene_offsets) => scene_offsets,
-                        Err(err) => {
-                            log::error!("build_and_alloc failed for {chunk_id:?}: {err}");
-                            loading.current += 1;
-                            return;
-                        }
-                    }
-                };
-
-                match scene_offsets {
-                    Some((node_buffer_offset, leaf_buffer_offset)) => {
-                        if let Err(err) = self.scene_accel_builder.update_scene_tex(
-                            chunk_id,
-                            Some((node_buffer_offset, leaf_buffer_offset)),
-                        ) {
-                            log::error!("update_scene_tex failed for {chunk_id:?}: {err}");
-                        }
-                    }
-                    None => {
-                        if let Err(err) = self.scene_accel_builder.update_scene_tex(chunk_id, None)
-                        {
-                            log::error!("clear_scene_tex failed for {chunk_id:?}: {err}");
-                        }
-                    }
-                }
-
-                loading.current += 1;
-            }
-        }
-
-        if should_carve_startup_water_pool {
-            if let Err(err) = self.apply_startup_water_pool() {
-                log::error!("Failed to carve startup water pool terrain: {err}");
-            }
-        }
-
-        if should_apply_debug_audio_wall {
-            if let Err(err) = self.apply_debug_audio_wall() {
-                log::error!("Failed to apply debug audio wall: {err}");
-            }
-        }
-    }
-
-    fn render_loading_frame(&mut self) {
-        let loading = match &self.loading_state {
-            Some(loading) => loading,
-            None => return,
-        };
-
-        let progress = loading.progress_fraction();
-        let step_label = loading.step_label.clone();
-        let is_done = loading.is_done();
-        let total = loading.total();
-        let current = loading.current;
-
-        self.egui_renderer
-            .update(&self.window_state.window(), |ctx| {
-                #[allow(deprecated)]
-                egui::CentralPanel::default()
-                    .frame(egui::containers::Frame {
-                        fill: Color32::from_rgb(20, 20, 25),
-                        ..Default::default()
-                    })
-                    .show(ctx, |ui| {
-                        ui.vertical_centered(|ui| {
-                            ui.add_space(ui.available_height() * 0.3);
-
-                            ui.label(
-                                RichText::new("Re: Flora")
-                                    .size(36.0)
-                                    .color(Color32::from_rgb(200, 180, 140)),
-                            );
-                            ui.add_space(8.0);
-                            ui.label(
-                                RichText::new("Loading world...")
-                                    .size(18.0)
-                                    .color(Color32::from_rgb(160, 160, 170)),
-                            );
-                            ui.add_space(24.0);
-
-                            let bar_width = ui.available_width().min(400.0);
-                            let progress = if is_done { 1.0 } else { progress };
-                            let bar_height = 24.0;
-                            let (rect, _) = ui.allocate_at_least(
-                                egui::vec2(bar_width, bar_height),
-                                egui::Sense::hover(),
-                            );
-
-                            let painter = ui.painter();
-                            painter.rect_filled(rect, 2.0, Color32::from_rgb(40, 40, 50));
-
-                            let fill_width = rect.width() * progress;
-                            let fill_rect = egui::Rect::from_min_max(
-                                rect.min,
-                                egui::pos2(rect.min.x + fill_width, rect.max.y),
-                            );
-                            painter.rect_filled(fill_rect, 2.0, Color32::from_rgb(100, 140, 80));
-
-                            let pct_text = format!("{}%", (progress * 100.0) as u32);
-                            let font = egui::FontId::proportional(14.0);
-                            let shadow_galley = painter.layout_no_wrap(
-                                pct_text.clone(),
-                                font.clone(),
-                                Color32::from_black_alpha(120),
-                            );
-                            let galley = painter.layout_no_wrap(pct_text, font, Color32::WHITE);
-                            let text_pos = egui::pos2(
-                                rect.center().x - galley.size().x / 2.0,
-                                rect.center().y - galley.size().y / 2.0,
-                            );
-                            painter.galley(
-                                egui::pos2(text_pos.x + 1.0, text_pos.y + 1.0),
-                                shadow_galley,
-                                Color32::from_black_alpha(120),
-                            );
-                            painter.galley(text_pos, galley, Color32::WHITE);
-
-                            ui.add_space(12.0);
-
-                            let status = if is_done {
-                                "Finalizing...".to_owned()
-                            } else {
-                                format!("{} - chunk {}/{}", step_label, current + 1, total)
-                            };
-                            ui.label(
-                                RichText::new(status)
-                                    .size(14.0)
-                                    .color(Color32::from_rgb(130, 130, 140)),
-                            );
-                        });
-                    });
-            });
-
-        let frame = match self.frame_manager.begin_frame(&mut self.swapchain) {
-            Ok(frame) => frame,
-            Err(SwapchainFrameError::OutOfDate) => {
-                self.is_resize_pending = true;
-                return;
-            }
-            Err(error) => panic!("Error while acquiring next image. Cause: {}", error),
-        };
-        let frame_slot = frame.frame_slot();
-        self.collect_gpu_profiler_frame(frame_slot);
-        let device = self.vulkan_ctx.device();
-        let cmdbuf = frame.command_buffer();
-        let image_idx = frame.image_index();
-
-        cmdbuf.begin(false);
-        if let Some(profiler) = self.gpu_profiler.as_mut() {
-            profiler.begin_frame(frame_slot, cmdbuf);
-        }
-        let frame_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
-            profiler.begin_scope(
-                frame_slot,
-                cmdbuf,
-                "frame.render",
-                PipelineStage::ALL_COMMANDS,
-            )
-        });
-
-        let render_area = self.window_state.window_extent();
-
-        self.swapchain
-            .record_prepare_image_for_render_pass(cmdbuf, image_idx);
-
-        self.swapchain
-            .record_begin_render_pass_cmdbuf(cmdbuf, image_idx, render_area);
-
-        let egui_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
-            profiler.begin_scope(
-                frame_slot,
-                cmdbuf,
-                "egui.render",
-                PipelineStage::ALL_COMMANDS,
-            )
-        });
-        self.egui_renderer
-            .record_command_buffer(device, cmdbuf, render_area);
-        if let Some(scope) = egui_gpu_scope {
-            if let Some(profiler) = self.gpu_profiler.as_mut() {
-                profiler.end_scope(frame_slot, cmdbuf, scope, PipelineStage::ALL_COMMANDS);
-            }
-        }
-
-        cmdbuf.end_render_pass();
-
-        if let Some(scope) = frame_gpu_scope {
-            if let Some(profiler) = self.gpu_profiler.as_mut() {
-                profiler.end_scope(frame_slot, cmdbuf, scope, PipelineStage::ALL_COMMANDS);
-            }
-        }
-
-        cmdbuf.end();
-
-        let present_result =
-            self.frame_manager
-                .submit_and_present(&self.vulkan_ctx, &mut self.swapchain, &frame);
-        match present_result {
-            Ok(is_suboptimal) if is_suboptimal => {
-                self.is_resize_pending = true;
-            }
-            Err(SwapchainFrameError::OutOfDate) => {
-                self.is_resize_pending = true;
-            }
-            Err(error) => panic!("Failed to present queue. Cause: {}", error),
-            _ => {}
-        }
-
-        if is_done {
-            self.loading_state = None;
-            self.finalize_loading();
-        }
-    }
-
-    fn finalize_loading(&mut self) {
-        self.vulkan_ctx.device().wait_idle();
-        self.contree_builder.flush_cpu_chunk_cache_jobs();
-        BENCH.lock().unwrap().summary();
-
-        self.ensure_map_butterfly_emitter();
-
-        self.debug_tree_pos.y =
-            self.query_terrain_height_cpu(Vec2::new(self.debug_tree_pos.x, self.debug_tree_pos.z));
-
-        if let Err(err) = self.add_tree(
-            self.debug_tree_desc.clone(),
-            TreePlacement::World(self.debug_tree_pos),
-            TreeAddOptions::default(),
-        ) {
-            log::error!("Failed to add debug tree: {}", err);
-        }
-
-        match Self::debug_model_paths() {
-            Ok(paths) => {
-                for (index, path) in paths.iter().enumerate() {
-                    let position = self.debug_model_position(index);
-                    if let Err(err) = self.apply_model_placement(path, position) {
-                        log::error!(
-                            "Failed to place debug model '{}' at {:?}: {}",
-                            path.display(),
-                            position,
-                            err
-                        );
-                    }
-                }
-            }
-            Err(err) => {
-                log::error!("Failed to discover debug model GLBs: {err}");
-            }
-        }
-
-        if let Err(err) = self.tracer.regenerate_leaves(
-            self.gui_adjustables.leaves_inner_density.value,
-            self.gui_adjustables.leaves_outer_density.value,
-            self.gui_adjustables.leaves_inner_radius.value,
-            self.gui_adjustables.leaves_outer_radius.value,
-        ) {
-            log::error!("Failed to regenerate leaves: {}", err);
-        }
-
-        if let Err(err) = self.spatial_sound_manager.start() {
-            log::error!("Failed to start audio engine: {}", err);
-        }
-
-        self.enqueue_startup_water_terrain_collider_rebuilds();
-        self.render_start_time = Some(Instant::now());
-    }
-
-    #[allow(dead_code)]
-    fn validate_startup_terrain_query(&mut self) {
-        let rays = [
-            TerrainRayQuery {
-                origin: Vec3::new(0.5, 1.0, 0.5),
-                direction: Vec3::new(0.0, -1.0, 0.0),
-            },
-            TerrainRayQuery {
-                origin: Vec3::new(1.5, 1.0, 1.5),
-                direction: Vec3::new(0.0, -1.0, 0.0),
-            },
-            TerrainRayQuery {
-                origin: Vec3::new(2.5, 1.0, 3.5),
-                direction: Vec3::new(0.0, -1.0, 0.0),
-            },
-            TerrainRayQuery {
-                origin: Vec3::new(4.5, 1.0, 4.5),
-                direction: Vec3::new(0.0, -1.0, 0.0),
-            },
-        ];
-
-        for ray in rays {
-            let cpu_start = Instant::now();
-            let cpu_hit = self
-                .contree_builder
-                .query_terrain_ray_cpu(ray.origin, ray.direction);
-            let cpu_elapsed = cpu_start.elapsed();
-
-            let gpu_start = Instant::now();
-            let gpu_hit = self.tracer.query_terrain_ray_with_validity(ray);
-            let gpu_elapsed = gpu_start.elapsed();
-
-            let format_cpu = |hit: Option<Vec3>| match hit {
-                Some(pos) => format!("hit ({:.3}, {:.3}, {:.3})", pos.x, pos.y, pos.z),
-                None => "miss".to_owned(),
-            };
-            let gpu_position = match &gpu_hit {
-                Ok(sample) if sample.is_valid => Some(sample.position),
-                _ => None,
-            };
-            let format_gpu =
-                |result: &anyhow::Result<crate::tracer::TerrainRayHitSample>| match result {
-                    Ok(sample) if sample.is_valid => format!(
-                        "hit ({:.3}, {:.3}, {:.3})",
-                        sample.position.x, sample.position.y, sample.position.z
-                    ),
-                    Ok(_) => "miss".to_owned(),
-                    Err(err) => format!("error: {err}"),
-                };
-            let position_delta = match (cpu_hit, gpu_position) {
-                (Some(cpu_pos), Some(gpu_pos)) => format!("{:.6}", cpu_pos.distance(gpu_pos)),
-                _ => "n/a".to_owned(),
-            };
-
-            log::info!(
-                "Terrain query validation for origin ({:.3}, {:.3}, {:.3}) dir ({:.3}, {:.3}, {:.3}): cached_chunks={}, CPU={} in {:?}, GPU={} in {:?}, delta={}",
-                ray.origin.x,
-                ray.origin.y,
-                ray.origin.z,
-                ray.direction.x,
-                ray.direction.y,
-                ray.direction.z,
-                self.contree_builder.cpu_cached_chunk_count(),
-                format_cpu(cpu_hit),
-                cpu_elapsed,
-                format_gpu(&gpu_hit),
-                gpu_elapsed,
-                position_delta,
-            );
-        }
-    }
-
     fn configure_gui_font(&mut self) -> Result<()> {
         if let Some(font_path) = CUSTOM_GUI_FONT_PATH {
             let font_bytes = std::fs::read(font_path)
@@ -2006,14 +1348,7 @@ impl App {
                 let frame_start = Instant::now();
                 let frame_perf_enabled = self.perf_logging;
                 let frame_timing_enabled = frame_perf_enabled || self.frame_timing_panel_visible;
-                let mut contree_cache_poll_ms = 0.0f32;
-                let mut terrain_sdf_source_ms = 0.0f32;
-                let mut deferred_chunk_rebuild_ms = 0.0f32;
-                let mut water_terrain_cache_ms = 0.0f32;
-                let mut terrain_sdf_collider_ms = 0.0f32;
-                let mut water_edit_soak_ms = 0.0f32;
-                let mut water_handoff_ms = 0.0f32;
-                let mut particle_update_ms = 0.0f32;
+                let mut cpu_timings = FrameCpuTimings::new(frame_timing_enabled);
 
                 // resize the window if needed
                 if self.is_resize_pending {
@@ -2023,17 +1358,15 @@ impl App {
                 self.window_state.maintain_cursor_grab();
 
                 self.time_info.update(self.perf_logging);
-                let contree_cache_poll_start = frame_timing_enabled.then(Instant::now);
-                self.contree_builder
-                    .poll_cpu_chunk_cache_jobs(self.tracer.camera_position(), VOXEL_DIM_PER_CHUNK);
-                if let Some(start) = contree_cache_poll_start {
-                    contree_cache_poll_ms += start.elapsed().as_secs_f32() * 1000.0;
-                }
-                let terrain_sdf_source_start = frame_timing_enabled.then(Instant::now);
-                self.process_terrain_sdf_source_updates();
-                if let Some(start) = terrain_sdf_source_start {
-                    terrain_sdf_source_ms += start.elapsed().as_secs_f32() * 1000.0;
-                }
+                cpu_timings.time(FrameCpuScope::ContreePoll, || {
+                    self.contree_builder.poll_cpu_chunk_cache_jobs(
+                        self.tracer.camera_position(),
+                        VOXEL_DIM_PER_CHUNK,
+                    );
+                });
+                cpu_timings.time(FrameCpuScope::TerrainSource, || {
+                    self.process_terrain_sdf_source_updates();
+                });
 
                 if self.loading_state.is_some() {
                     self.process_loading_step();
@@ -2491,35 +1824,21 @@ impl App {
                     return;
                 }
 
-                let terrain_sdf_source_start = frame_timing_enabled.then(Instant::now);
-                self.process_terrain_sdf_source_updates();
-                if let Some(start) = terrain_sdf_source_start {
-                    terrain_sdf_source_ms += start.elapsed().as_secs_f32() * 1000.0;
-                }
-
-                let deferred_chunk_rebuild_start = frame_timing_enabled.then(Instant::now);
-                self.process_deferred_chunk_rebuild();
-                if let Some(start) = deferred_chunk_rebuild_start {
-                    deferred_chunk_rebuild_ms += start.elapsed().as_secs_f32() * 1000.0;
-                }
-
-                let water_terrain_cache_start = frame_timing_enabled.then(Instant::now);
-                self.process_deferred_water_terrain_cache_rebuild();
-                if let Some(start) = water_terrain_cache_start {
-                    water_terrain_cache_ms += start.elapsed().as_secs_f32() * 1000.0;
-                }
-
-                let terrain_sdf_collider_start = frame_timing_enabled.then(Instant::now);
-                self.process_deferred_terrain_sdf_collider_rebuild();
-                if let Some(start) = terrain_sdf_collider_start {
-                    terrain_sdf_collider_ms += start.elapsed().as_secs_f32() * 1000.0;
-                }
-
-                let water_edit_soak_start = frame_timing_enabled.then(Instant::now);
-                self.process_water_edit_soak();
-                if let Some(start) = water_edit_soak_start {
-                    water_edit_soak_ms += start.elapsed().as_secs_f32() * 1000.0;
-                }
+                cpu_timings.time(FrameCpuScope::TerrainSource, || {
+                    self.process_terrain_sdf_source_updates();
+                });
+                cpu_timings.time(FrameCpuScope::DeferredRebuild, || {
+                    self.process_deferred_chunk_rebuild();
+                });
+                cpu_timings.time(FrameCpuScope::WaterCache, || {
+                    self.process_deferred_water_terrain_cache_rebuild();
+                });
+                cpu_timings.time(FrameCpuScope::ColliderQueue, || {
+                    self.process_deferred_terrain_sdf_collider_rebuild();
+                });
+                cpu_timings.time(FrameCpuScope::WaterEditSoak, || {
+                    self.process_water_edit_soak();
+                });
 
                 if self.regenerate_trees_requested {
                     self.regenerate_trees_requested = false;
@@ -2573,17 +1892,13 @@ impl App {
                         self.update_water_sim(frame_delta_time, world_tick_seconds);
                         let elapsed_ms = water_handoff_start.elapsed().as_secs_f32() * 1000.0;
                         self.water_particle_handoff_main_thread_ms = Some(elapsed_ms);
-                        if frame_timing_enabled {
-                            water_handoff_ms += elapsed_ms;
-                        }
+                        cpu_timings.add_ms(FrameCpuScope::WaterHandoff, elapsed_ms);
                     } else {
                         self.water_particle_handoff_main_thread_ms = None;
                     }
-                    let particle_update_start = frame_timing_enabled.then(Instant::now);
-                    self.update_particle_simulation(frame_delta_time);
-                    if let Some(start) = particle_update_start {
-                        particle_update_ms += start.elapsed().as_secs_f32() * 1000.0;
-                    }
+                    cpu_timings.time(FrameCpuScope::Particles, || {
+                        self.update_particle_simulation(frame_delta_time);
+                    });
                 }
 
                 let gpu_record_start = Instant::now();
@@ -2763,9 +2078,9 @@ impl App {
                     )
                 };
 
-                let flora_colors: Vec<(Vec3, Vec3)> = species::species()
-                    .iter()
-                    .map(|desc| match desc.key {
+                let mut flora_colors = [(Vec3::ZERO, Vec3::ZERO); species::MAX_FLORA_SPECIES];
+                for (slot, desc) in flora_colors.iter_mut().zip(species::species()) {
+                    *slot = match desc.key {
                         "tall_grass" | "short_grass" => (
                             color_to_vec3(self.gui_adjustables.grass_bottom_dark_color.value),
                             color_to_vec3(self.gui_adjustables.grass_tip_light_color.value),
@@ -2787,8 +2102,9 @@ impl App {
                             );
                             (color_to_vec3(bottom), color_to_vec3(tip))
                         }
-                    })
-                    .collect();
+                    };
+                }
+                let flora_colors = &flora_colors[..species::species_count()];
 
                 let leaf_bottom = color_to_vec3(self.gui_adjustables.leaves_bottom_color.value);
                 let leaf_tip = color_to_vec3(self.gui_adjustables.leaves_tip_color.value);
@@ -2936,31 +2252,9 @@ impl App {
 
                 let total_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
                 let frame_count = self.time_info.total_frame_count();
-                let tracked_cpu_ms = contree_cache_poll_ms
-                    + terrain_sdf_source_ms
-                    + deferred_chunk_rebuild_ms
-                    + water_terrain_cache_ms
-                    + terrain_sdf_collider_ms
-                    + water_edit_soak_ms
-                    + water_handoff_ms
-                    + particle_update_ms;
-                let untracked_cpu_ms = (total_ms - egui_ms - gpu_ms - tracked_cpu_ms).max(0.0);
-                self.frame_timing_snapshot = FrameTimingSnapshot {
-                    frame: frame_count,
-                    total_ms,
-                    egui_ms,
-                    gpu_present_ms: gpu_ms,
-                    contree_poll_ms: contree_cache_poll_ms,
-                    terrain_source_ms: terrain_sdf_source_ms,
-                    deferred_rebuild_ms: deferred_chunk_rebuild_ms,
-                    water_cache_ms: water_terrain_cache_ms,
-                    collider_queue_ms: terrain_sdf_collider_ms,
-                    water_edit_soak_ms,
-                    water_handoff_ms,
-                    particles_ms: particle_update_ms,
-                    tracked_cpu_ms,
-                    untracked_cpu_ms,
-                };
+                let frame_timing_snapshot =
+                    cpu_timings.snapshot(frame_count, total_ms, egui_ms, gpu_ms);
+                self.frame_timing_snapshot = frame_timing_snapshot;
                 if frame_perf_enabled && frame_count.is_multiple_of(30) {
                     log::info!(
                         "[PERF] frame {} total {:.2}ms egui {:.2}ms gpu+present {:.2}ms",
@@ -2972,10 +2266,7 @@ impl App {
                     self.log_gpu_profiler_frame(frame_count);
                 }
                 if frame_perf_enabled {
-                    let queue_work_ms = terrain_sdf_source_ms
-                        + deferred_chunk_rebuild_ms
-                        + water_terrain_cache_ms
-                        + terrain_sdf_collider_ms;
+                    let queue_work_ms = cpu_timings.queue_work_ms();
                     if frame_count.is_multiple_of(30) || total_ms >= 16.0 || queue_work_ms >= 2.0 {
                         log::info!(
                             "[PERF][FRAME] frame {} total {:.2}ms egui {:.2}ms gpu_present {:.2}ms contree_poll {:.2}ms terrain_source {:.2}ms deferred_rebuild {:.2}ms cache_queue {:.2}ms collider_queue {:.2}ms water_edit_soak {:.2}ms water_handoff {:.2}ms particles {:.2}ms tracked_cpu {:.2}ms untracked_cpu {:.2}ms queues deferred_pending={} deferred_active={} deferred_inflight={} source_pending={} source_active={} collider_pending={} collider_active={} collider_inflight={} cache_pending={} cache_active={} cache_inflight={}",
@@ -2983,16 +2274,16 @@ impl App {
                             total_ms,
                             egui_ms,
                             gpu_ms,
-                            contree_cache_poll_ms,
-                            terrain_sdf_source_ms,
-                            deferred_chunk_rebuild_ms,
-                            water_terrain_cache_ms,
-                            terrain_sdf_collider_ms,
-                            water_edit_soak_ms,
-                            water_handoff_ms,
-                            particle_update_ms,
-                            tracked_cpu_ms,
-                            untracked_cpu_ms,
+                            frame_timing_snapshot.contree_poll_ms,
+                            frame_timing_snapshot.terrain_source_ms,
+                            frame_timing_snapshot.deferred_rebuild_ms,
+                            frame_timing_snapshot.water_cache_ms,
+                            frame_timing_snapshot.collider_queue_ms,
+                            frame_timing_snapshot.water_edit_soak_ms,
+                            frame_timing_snapshot.water_handoff_ms,
+                            frame_timing_snapshot.particles_ms,
+                            frame_timing_snapshot.tracked_cpu_ms,
+                            frame_timing_snapshot.untracked_cpu_ms,
                             self.deferred_chunk_rebuilds.len(),
                             self.deferred_chunk_rebuilds.active_len(),
                             self.terrain_chunk_rebuild_inflight.is_some(),

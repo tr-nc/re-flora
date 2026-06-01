@@ -142,8 +142,10 @@ pub struct AppOptions {
 
 impl AppOptions {
     pub fn from_args() -> Self {
-        let args: Vec<String> = std::env::args().collect();
+        Self::from_arg_strings(std::env::args().collect())
+    }
 
+    fn from_arg_strings(args: Vec<String>) -> Self {
         let parse_f32_after = |flag: &str| -> Option<f32> {
             args.iter()
                 .position(|a| a == flag)
@@ -346,6 +348,164 @@ impl From<&AppOptions> for RenderFlags {
             enable_tracer: !options.no_tracer,
             enable_flora: !options.no_flora,
             enable_particles: !options.no_particles,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(args: &[&str]) -> AppOptions {
+        AppOptions::from_arg_strings(args.iter().map(|arg| (*arg).to_owned()).collect())
+    }
+
+    #[test]
+    fn defaults_match_runtime_expectations() {
+        let options = parse(&["re-flora"]);
+
+        assert!(!options.windowed);
+        assert!(!options.hidden);
+        assert!(!options.perf);
+        assert!(options.present_mode.is_none());
+        assert!(matches!(
+            options.monitor_score,
+            MonitorScorePreference::Lowest
+        ));
+        assert_eq!(options.screenshot_delay, 5.0);
+        assert_eq!(options.tree_bench_samples, 10);
+        assert!(options.tail_latest_log.is_none());
+    }
+
+    #[test]
+    fn parses_common_perf_and_water_options() {
+        let options = parse(&[
+            "re-flora",
+            "--hidden",
+            "--auto-exit",
+            "4",
+            "--perf",
+            "--water-profile",
+            "performance",
+            "--water-particles",
+            "35000",
+            "--water-particle-edge-len",
+            "0.05",
+            "--water-grid",
+            "128",
+            "--water-substep-hz",
+            "60",
+            "--water-terrain-margin-cells",
+            "0.0",
+            "--water-damping",
+            "1.5",
+            "--water-terrain-tangent-damping",
+            "2.0",
+            "--water-stiffness",
+            "12",
+            "--water-gamma",
+            "4",
+            "--water-j-min",
+            "0.25",
+            "--water-edit-soak",
+        ]);
+
+        assert!(options.hidden);
+        assert!(options.perf);
+        assert_eq!(options.auto_exit_delay, Some(4.0));
+        assert!(matches!(
+            options.water_profile,
+            Some(WaterProfilePreference::Performance)
+        ));
+        assert_eq!(options.water_particles, Some(35000));
+        assert_eq!(options.water_particle_edge_len, Some(0.05));
+        assert_eq!(options.water_grid, Some(128));
+        assert_eq!(options.water_substep_hz, Some(60.0));
+        assert_eq!(options.water_terrain_margin_cells, Some(0.0));
+        assert_eq!(options.water_damping, Some(1.5));
+        assert_eq!(options.water_terrain_tangent_damping, Some(2.0));
+        assert_eq!(options.water_stiffness, Some(12.0));
+        assert_eq!(options.water_gamma, Some(4.0));
+        assert_eq!(options.water_j_min, Some(0.25));
+        assert!(options.water_edit_soak);
+    }
+
+    #[test]
+    fn clamps_numeric_options_like_runtime_parser() {
+        let options = parse(&[
+            "re-flora",
+            "--water-particle-edge-len",
+            "0",
+            "--water-grid",
+            "1",
+            "--water-substep-hz",
+            "0",
+            "--water-terrain-margin-cells",
+            "-5",
+            "--water-damping",
+            "-1",
+            "--water-terrain-tangent-damping",
+            "-1",
+            "--water-gamma",
+            "0",
+            "--water-j-min",
+            "5",
+        ]);
+
+        assert_eq!(options.water_particle_edge_len, Some(1.0e-6));
+        assert_eq!(options.water_grid, Some(4));
+        assert_eq!(options.water_substep_hz, Some(1.0));
+        assert_eq!(options.water_terrain_margin_cells, Some(0.0));
+        assert_eq!(options.water_damping, Some(0.0));
+        assert_eq!(options.water_terrain_tangent_damping, Some(0.0));
+        assert_eq!(options.water_gamma, Some(1.0e-4));
+        assert_eq!(options.water_j_min, Some(1.0));
+    }
+
+    #[test]
+    fn parses_log_query_options() {
+        let options = parse(&[
+            "re-flora",
+            "--print-log-dir",
+            "--latest-log",
+            "--tail-latest-log",
+            "120",
+        ]);
+
+        assert!(options.print_log_dir);
+        assert!(options.latest_log);
+        assert_eq!(options.tail_latest_log, Some(120));
+    }
+
+    #[test]
+    fn tail_latest_log_defaults_to_200_without_value() {
+        let options = parse(&["re-flora", "--tail-latest-log"]);
+        assert_eq!(options.tail_latest_log, Some(200));
+    }
+
+    #[test]
+    fn unsupported_present_mode_panics_with_helpful_message() {
+        let panic = std::panic::catch_unwind(|| parse(&["re-flora", "--present-mode", "bad"]))
+            .expect_err("unsupported present mode should panic");
+        let message = panic_message(panic);
+        assert!(message.contains("Unsupported --present-mode"));
+        assert!(message.contains("mailbox"));
+    }
+
+    #[test]
+    fn missing_water_profile_panics_with_helpful_message() {
+        let panic = std::panic::catch_unwind(|| parse(&["re-flora", "--water-profile"]))
+            .expect_err("missing water profile should panic");
+        assert!(panic_message(panic).contains("Missing value for --water-profile"));
+    }
+
+    fn panic_message(panic: Box<dyn std::any::Any + Send>) -> String {
+        if let Some(message) = panic.downcast_ref::<&str>() {
+            (*message).to_owned()
+        } else if let Some(message) = panic.downcast_ref::<String>() {
+            message.clone()
+        } else {
+            "<non-string panic>".to_owned()
         }
     }
 }
