@@ -86,7 +86,7 @@ impl ComputePipeline {
             descriptor_sets_bindings,
             texture_bindings: Mutex::new(HashMap::new()),
             resource_state_tracker: Mutex::new(ResourceStateTracker::automatic()),
-            auto_texture_transitions_enabled: Mutex::new(false),
+            auto_texture_transitions_enabled: Mutex::new(true),
         }));
 
         // auto-create descriptor sets
@@ -163,7 +163,13 @@ impl ComputePipeline {
         let bindings = self.0.texture_bindings.lock().unwrap().clone();
         for binding in bindings.values() {
             let image = binding.texture.get_image();
-            tracker.transition_image_layers(cmdbuf, image, 0, image.get_desc().array_len, binding.state);
+            tracker.transition_image_layers(
+                cmdbuf,
+                image,
+                0,
+                image.get_desc().array_len,
+                binding.state,
+            );
         }
     }
 

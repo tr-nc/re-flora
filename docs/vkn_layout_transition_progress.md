@@ -23,12 +23,9 @@ Known from inspection:
   - `Image::record_clear`
   - `Image::record_copy_to`
   - swapchain blit/readback paths in `crates/re-flora-vkn/src/swapchain.rs`
-- Game/render code still explicitly calls transitions in several places, for example:
-  - `src/builder/surface/mod.rs`
-  - `src/builder/plain/mod.rs`
-  - `src/tracer/mod.rs`
+- Game/render `record_transition(...)` call sites have been migrated out; explicit image transitions now mostly live inside `vkn` helpers such as clears, uploads, copies, swapchain paths, render-target tracking, and pipeline texture-use tracking.
 - Descriptor writes are not transitions. `auto_update_descriptor_sets` now writes sampled descriptors with `SHADER_READ_ONLY` and storage-image descriptors with `GENERAL`; actual barriers still come from resource-state tracking.
-- Render pass code currently has a note that callers are responsible for final layout tracking after `record_end`; some callers use `Image::set_layout` after render passes.
+- Texture-backed render targets update tracked attachment initial/final layouts at render-pass begin/end. Raw swapchain framebuffer paths still use explicit swapchain handling.
 - Full correctness requires tracking more than image layout: layout, pipeline stage, access mask, and subresource range.
 
 Constraints:
@@ -72,7 +69,7 @@ Assumptions to confirm:
 - Objective: Before dispatch, transition bound textures into the state required by their descriptor usage.
 - Expected output: Conservative defaults from reflected descriptor type, with optional explicit annotations for sampled vs storage read/write cases.
 - Dependencies/blockers: Descriptor metadata alone may not distinguish readonly/writeonly storage images; may need binding annotations or shader reflection support.
-- Status: in progress; compute pipelines now retain texture bindings from auto resource binding and have an opt-in path to transition texture descriptors before direct and indirect dispatch. Sampled descriptors use `SHADER_READ_ONLY`; storage-image descriptors remain `GENERAL`. The automatic path is still disabled by default until all startup paths are covered; migrated builder/tracer texture-using compute paths are opted in explicitly.
+- Status: in progress; compute pipelines now retain texture bindings from auto resource binding and transition texture descriptors before direct and indirect dispatch by default. Sampled descriptors use `SHADER_READ_ONLY`; storage-image descriptors remain `GENERAL`. The default-on path can still be disabled per pipeline for cached command buffers whose referenced images are intentionally initialized later.
 
 ### Phase 5: Add graphics sampled texture transition hooks
 
@@ -86,7 +83,7 @@ Assumptions to confirm:
 - Objective: Replace repeated manual transitions with declared usage through the new `vkn` API while keeping debug assertions available.
 - Expected output: Smaller call sites in `src/builder/*` and `src/tracer/*`, with behavior unchanged.
 - Dependencies/blockers: Phases 2-4 should exist first.
-- Status: in progress; game-code `record_transition(...)` calls in `src/builder/*` and `src/tracer/mod.rs` have been migrated to vkn-owned compute texture transitions or render-target attachment tracking.
+- Status: in progress; game-code `record_transition(...)` calls in `src/builder/*` and `src/tracer/mod.rs` have been migrated to vkn-owned compute texture transitions, graphics texture transitions, or render-target attachment tracking. Remaining known gap: manual descriptor writes are not yet tracked unless the texture also came from auto resource binding.
 
 ### Phase 7: Diagnostics and strict modes
 
@@ -141,13 +138,17 @@ If verification is not yet possible, the missing piece is the tracker/encoder im
 - 2026-06-01: Opted remaining tracer texture-using compute pipelines into automatic texture transitions and removed manual `record_transition(GENERAL)` setup from tracer, shadow/VSM, denoiser, composition, lens-flare, and post-processing passes.
 - 2026-06-01: Added graphics-pipeline texture transition tracking for auto-bound descriptors and call it before tracer graphics render passes begin, covering flora/leaves/particles and leaf-shadow sampled texture use.
 - 2026-06-01: Made auto descriptor writes and auto texture transition states agree on layout precision: sampled image descriptors now use `SHADER_READ_ONLY`, while storage images stay in `GENERAL`.
+- 2026-06-01: Updated compute and graphics automatic texture transitions to cover all array layers for auto-bound textures instead of only layer 0.
+- 2026-06-01: Flipped compute automatic texture transitions to default-on, removed redundant per-pipeline opt-in calls, and kept an explicit opt-out for the cached contree leaf-write command buffer that reads a surface image initialized by later per-chunk surface builds.
+- 2026-06-01: Moved `SceneAccelBuilder::clear_tex` before recording its cached update command buffer, matching the plain-builder pattern where images are physically initialized before automatic-transition recording mutates their tracked state.
+- 2026-06-01: Revalidated default-on compute transitions with `cargo fmt --check`, `cargo check`, `cargo test`, and a release hidden run; latest-log scan shows only the known hidden-monitor and butterfly-atlas warnings.
 
 ## Open Questions / Risks
 
 - Should the first API evolve from `ResourceStateTracker` into a command encoder, or stay as a barrier/resource-state utility?
 - How should automatic behavior be configured: global context setting, per-command-buffer setting, or per-operation policy?
 - How precise do we need to be for storage images: read-only, write-only, or read/write? Current automatic transitions conservatively use read/write for storage images because Vulkan storage image descriptors require `GENERAL` layout.
-- How do we represent subresource ranges beyond current one-layer tracking?
+- Array-layer ranges are now handled for auto-bound textures; mip ranges and image-view subresource subsets are still not represented.
 - Render-pass attachment tracking now works only for texture-backed framebuffers; raw image-view framebuffers such as swapchain targets still need explicit swapchain handling.
 - Overly conservative barriers may be correct but could hurt performance; precise barriers may require more metadata.
 - Existing `Image::set_layout` is an escape hatch and can hide bugs; migration should replace it with explicit tracker assumptions/assertions where possible.

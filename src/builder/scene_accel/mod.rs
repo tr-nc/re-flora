@@ -72,10 +72,14 @@ impl SceneAccelBuilder {
         let update_scene_tex_ppl =
             ComputePipeline::new(device, &update_scene_tex_sm, &pool, &[&resources]);
 
+        // Initialize the scene texture before recording cached command buffers.
+        // Recording automatic texture transitions mutates the tracked image state;
+        // doing it before the first real clear would make the clear believe the
+        // image has already left UNDEFINED.
+        Self::clear_tex(&vulkan_ctx, &resources);
+
         let update_scene_tex_cmdbuf =
             Self::record_update_scene_tex_cmdbuf(vulkan_ctx.clone(), &update_scene_tex_ppl);
-
-        Self::clear_tex(&vulkan_ctx, &resources);
 
         Ok(Self {
             vulkan_ctx,

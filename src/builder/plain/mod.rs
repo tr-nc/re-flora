@@ -236,18 +236,14 @@ impl PlainBuilder {
 
         let buffer_setup_ppl = ComputePipeline::new(device, &buffer_setup_sm, &pool, &[&resources]);
         let chunk_init_ppl = ComputePipeline::new(device, &chunk_init_sm, &pool, &[&resources]);
-        chunk_init_ppl.set_auto_texture_transitions_enabled(true);
         let heightmap_ppl = ComputePipeline::new(device, &heightmap_sm, &pool, &[&resources]);
         let chunk_modify_ppl = ComputePipeline::new(device, &chunk_modify_sm, &pool, &[&resources]);
-        chunk_modify_ppl.set_auto_texture_transitions_enabled(true);
         let chunk_modify_sample_ppl =
             ComputePipeline::new(device, &chunk_modify_sample_sm, &pool, &[&resources]);
         let chunk_solid_sample_ppl =
             ComputePipeline::new(device, &chunk_solid_sample_sm, &pool, &[&resources]);
-        chunk_solid_sample_ppl.set_auto_texture_transitions_enabled(true);
         let model_voxelize_ppl =
             ComputePipeline::new(device, &model_voxelize_sm, &pool, &[&resources]);
-        model_voxelize_ppl.set_auto_texture_transitions_enabled(true);
 
         init_atlas_images(&vulkan_ctx, &resources);
 

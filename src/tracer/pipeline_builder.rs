@@ -268,7 +268,6 @@ impl PipelineBuilder {
             pool,
             &[resources, contree_builder_resources, scene_accel_resources],
         );
-        tracer_ppl.set_auto_texture_transitions_enabled(true);
 
         let tracer_shadow_ppl = ComputePipeline::new(
             device,
@@ -276,7 +275,6 @@ impl PipelineBuilder {
             pool,
             &[resources, contree_builder_resources, scene_accel_resources],
         );
-        tracer_shadow_ppl.set_auto_texture_transitions_enabled(true);
 
         let shadow_depth_copy_ppl = ComputePipeline::new(
             device,
@@ -284,7 +282,6 @@ impl PipelineBuilder {
             pool,
             &[resources],
         );
-        shadow_depth_copy_ppl.set_auto_texture_transitions_enabled(true);
 
         let player_collider_ppl = ComputePipeline::new(
             device,
@@ -302,46 +299,35 @@ impl PipelineBuilder {
 
         let wind_volume_ppl =
             ComputePipeline::new(device, &shader_modules.wind_volume_sm, pool, &[resources]);
-        wind_volume_ppl.set_auto_texture_transitions_enabled(true);
 
         let vsm_creation_ppl =
             ComputePipeline::new(device, &shader_modules.vsm_creation_sm, pool, &[resources]);
-        vsm_creation_ppl.set_auto_texture_transitions_enabled(true);
         let vsm_blur_h_ppl =
             ComputePipeline::new(device, &shader_modules.vsm_blur_h_sm, pool, &[resources]);
-        vsm_blur_h_ppl.set_auto_texture_transitions_enabled(true);
         let vsm_blur_v_ppl =
             ComputePipeline::new(device, &shader_modules.vsm_blur_v_sm, pool, &[resources]);
-        vsm_blur_v_ppl.set_auto_texture_transitions_enabled(true);
         let god_ray_ppl =
             ComputePipeline::new(device, &shader_modules.god_ray_sm, pool, &[resources]);
-        god_ray_ppl.set_auto_texture_transitions_enabled(true);
         let temporal_ppl =
             ComputePipeline::new(device, &shader_modules.temporal_sm, pool, &[resources]);
-        temporal_ppl.set_auto_texture_transitions_enabled(true);
         let spatial_ppl =
             ComputePipeline::new(device, &shader_modules.spatial_sm, pool, &[resources]);
-        spatial_ppl.set_auto_texture_transitions_enabled(true);
         let composition_ppl =
             ComputePipeline::new(device, &shader_modules.composition_sm, pool, &[resources]);
-        composition_ppl.set_auto_texture_transitions_enabled(true);
         let lens_flare_ppl =
             ComputePipeline::new(device, &shader_modules.lens_flare_sm, pool, &[resources]);
-        lens_flare_ppl.set_auto_texture_transitions_enabled(true);
         let lens_flare_sun_visible_ppl = ComputePipeline::new(
             device,
             &shader_modules.lens_flare_sun_visible_sm,
             pool,
             &[resources],
         );
-        lens_flare_sun_visible_ppl.set_auto_texture_transitions_enabled(true);
         let lens_flare_downsample_ppl = ComputePipeline::new(
             device,
             &shader_modules.lens_flare_downsample_sm,
             pool,
             &[resources],
         );
-        lens_flare_downsample_ppl.set_auto_texture_transitions_enabled(true);
 
         let post_processing_ppl = ComputePipeline::new(
             device,
@@ -349,7 +335,6 @@ impl PipelineBuilder {
             pool,
             &[resources],
         );
-        post_processing_ppl.set_auto_texture_transitions_enabled(true);
 
         ComputePipelines {
             tracer_ppl,

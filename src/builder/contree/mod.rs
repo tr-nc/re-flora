@@ -634,6 +634,9 @@ impl ContreeBuilder {
             &fixed_pool,
             &[&resources, surfacer_resources],
         );
+        // This command buffer is cached before per-chunk surface builds initialize
+        // the surface image. Surface builds leave the image in GENERAL for contree reads.
+        contree_leaf_write_ppl.set_auto_texture_transitions_enabled(false);
         let contree_tree_write_ppl =
             ComputePipeline::new(device, &contree_tree_write_sm, &fixed_pool, &[&resources]);
         let contree_buffer_update_ppl = ComputePipeline::new(
