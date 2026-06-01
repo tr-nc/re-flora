@@ -130,6 +130,10 @@ impl ComputePipeline {
         *self.0.auto_texture_transitions_enabled.lock().unwrap() = enabled;
     }
 
+    pub fn auto_texture_transitions_enabled(&self) -> bool {
+        *self.0.auto_texture_transitions_enabled.lock().unwrap()
+    }
+
     pub fn tracked_texture_binding_count(&self) -> usize {
         self.0.texture_bindings.lock().unwrap().len()
     }
@@ -158,7 +162,8 @@ impl ComputePipeline {
         let tracker = self.0.resource_state_tracker.lock().unwrap().clone();
         let bindings = self.0.texture_bindings.lock().unwrap().clone();
         for binding in bindings.values() {
-            tracker.transition_image(cmdbuf, binding.texture.get_image(), 0, binding.state);
+            let image = binding.texture.get_image();
+            tracker.transition_image_layers(cmdbuf, image, 0, image.get_desc().array_len, binding.state);
         }
     }
 
@@ -260,9 +265,10 @@ impl ComputePipeline {
 
 fn compute_texture_binding_state(descriptor_type: vk::DescriptorType) -> Option<ResourceState> {
     match descriptor_type {
-        vk::DescriptorType::STORAGE_IMAGE
-        | vk::DescriptorType::COMBINED_IMAGE_SAMPLER
-        | vk::DescriptorType::SAMPLED_IMAGE => Some(ResourceState::general_shader_read_write()),
+        vk::DescriptorType::STORAGE_IMAGE => Some(ResourceState::storage_image_read_write()),
+        vk::DescriptorType::COMBINED_IMAGE_SAMPLER | vk::DescriptorType::SAMPLED_IMAGE => {
+            Some(ResourceState::shader_read_only())
+        }
         _ => None,
     }
 }
