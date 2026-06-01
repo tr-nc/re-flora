@@ -72,7 +72,7 @@ Assumptions to confirm:
 - Objective: Before dispatch, transition bound textures into the state required by their descriptor usage.
 - Expected output: Conservative defaults from reflected descriptor type, with optional explicit annotations for sampled vs storage read/write cases.
 - Dependencies/blockers: Descriptor metadata alone may not distinguish readonly/writeonly storage images; may need binding annotations or shader reflection support.
-- Status: in progress; compute pipelines now retain texture bindings from auto resource binding and have an opt-in path to transition texture descriptors before direct and indirect dispatch. It remains disabled by default until descriptor layout metadata is made precise enough for all startup paths; the wind-volume compute pipeline is the first narrow opt-in call site.
+- Status: in progress; compute pipelines now retain texture bindings from auto resource binding and have an opt-in path to transition texture descriptors before direct and indirect dispatch. It is disabled by default until descriptor layout metadata is precise enough for all startup paths; wind-volume and surface flora occupancy edit passes are currently opted in.
 
 ### Phase 5: Migrate game-code explicit transitions gradually
 
@@ -129,6 +129,7 @@ If verification is not yet possible, the missing piece is the tracker/encoder im
 - 2026-06-01: Enabled opt-in automatic compute texture transitions for the wind-volume pipeline and removed its matching manual pre-dispatch `GENERAL` transition as the first game-code migration candidate.
 - 2026-06-01: Removed tracer render-pass post-end `set_layout(GENERAL)` calls for graphics output/depth and shadow depth textures; texture-backed `RenderTarget` final-layout tracking now owns these assumptions.
 - 2026-06-01: Enabled opt-in automatic compute texture transitions for surface flora occupancy edit passes and removed the shared manual `occupancy_data -> GENERAL` pre-dispatch transition.
+- 2026-06-01: Tried flipping compute automatic texture transitions to default-on, but release hidden validation exposed startup descriptor/layout mismatches on resources still in `UNDEFINED`; reverted to opt-in default while retaining per-pipeline enable/disable and a simple tracked-binding-count inspection helper.
 
 ## Open Questions / Risks
 

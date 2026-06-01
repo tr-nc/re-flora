@@ -130,6 +130,10 @@ impl ComputePipeline {
         *self.0.auto_texture_transitions_enabled.lock().unwrap() = enabled;
     }
 
+    pub fn tracked_texture_binding_count(&self) -> usize {
+        self.0.texture_bindings.lock().unwrap().len()
+    }
+
     fn update_texture_bindings(&self, resource_containers: &[&dyn ResourceContainer]) {
         let mut bindings = HashMap::new();
         for set_bindings in self.0.descriptor_sets_bindings.values() {
