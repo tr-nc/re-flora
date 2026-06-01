@@ -1559,17 +1559,6 @@ impl Tracer {
             "graphics.renderpass.end",
             || render_target.record_end(cmdbuf),
         );
-
-        self.resources
-            .extent_dependent_resources
-            .gfx_output_tex
-            .get_image()
-            .set_layout(0, TextureLayout::GENERAL);
-        self.resources
-            .extent_dependent_resources
-            .gfx_depth_tex
-            .get_image()
-            .set_layout(0, TextureLayout::GENERAL);
     }
 
     fn record_leaves_shadow_lod_pass(
@@ -1650,11 +1639,6 @@ impl Tracer {
         }
 
         self.render_target_depth_only.record_end(cmdbuf);
-
-        self.resources
-            .shadow_map_depth_tex
-            .get_image()
-            .set_layout(0, TextureLayout::GENERAL);
     }
 
     fn record_tracer_shadow_pass(&self, cmdbuf: &CommandBuffer) {

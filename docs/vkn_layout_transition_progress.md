@@ -79,7 +79,7 @@ Assumptions to confirm:
 - Objective: Replace repeated manual transitions with declared usage through the new `vkn` API while keeping debug assertions available.
 - Expected output: Smaller call sites in `src/builder/*` and `src/tracer/*`, with behavior unchanged.
 - Dependencies/blockers: Phases 2-4 should exist first.
-- Status: not started.
+- Status: in progress; removed the tracer render-pass post-end `set_layout(GENERAL)` calls that are now covered by texture-backed `RenderTarget` attachment final-layout tracking.
 
 ### Phase 6: Diagnostics and strict modes
 
@@ -127,6 +127,7 @@ If verification is not yet possible, the missing piece is the tracker/encoder im
 - 2026-06-01: Added compute-pipeline automatic image transition plumbing for auto-bound texture descriptors. The first attempt used shader-read-only for sampled descriptors, but validation exposed that current descriptor writes still advertise `GENERAL`; adjusted compute texture states to match `GENERAL` and left automatic compute texture transitions opt-in/disabled by default until descriptor layout metadata and startup initialization paths are made precise. Manual descriptor writes remain a known gap.
 - 2026-06-01: Revalidated after making compute automatic texture transitions opt-in: `cargo fmt`, `cargo check`, `cargo test`, and release hidden run all passed; latest-log scan found only the known butterfly-atlas warning.
 - 2026-06-01: Enabled opt-in automatic compute texture transitions for the wind-volume pipeline and removed its matching manual pre-dispatch `GENERAL` transition as the first game-code migration candidate.
+- 2026-06-01: Removed tracer render-pass post-end `set_layout(GENERAL)` calls for graphics output/depth and shadow depth textures; texture-backed `RenderTarget` final-layout tracking now owns these assumptions.
 
 ## Open Questions / Risks
 
