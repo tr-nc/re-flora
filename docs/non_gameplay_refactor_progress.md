@@ -94,7 +94,7 @@ Assumptions to confirm before implementation:
 - Objective: Split `mls_mpm.rs` into focused internal modules while preserving algorithms and tests.
 - Expected output: Separate areas for transfer, terrain cache/projection, density/EOS, diagnostics, and repair/collision helpers.
 - Dependencies/blockers: Should follow after Phase 4 or be kept very mechanical; large file split can create merge conflict risk.
-- Status: not started
+- Status: in progress; density/EOS and terrain-boundary density helpers moved to `crates/re-flora-water/src/mls_mpm/density.rs` as a mechanical extraction.
 
 ### Phase 6: Behavior-identical micro cleanups
 
@@ -167,6 +167,7 @@ If verification is not possible:
 - 2026-06-01: Extended `tools/parse_perf_log.py` to summarize existing `[PERF][WATER]` diagnostic counters such as terrain cache skip/project ratios, exact fallback counts, shadow-sample error, active nodes, and terrain penetration/no-SDF counts.
 - 2026-06-01: Extended detailed-frame perf parsing to summarize queue pressure fields (`*_pending`, `*_active`, `*_inflight`) from existing `[PERF][FRAME]` markers.
 - 2026-06-01: Added `--perf`-only `[PERF][WATER_THREAD]` telemetry for water worker command drain and snapshot publish costs, plus parser support and unit tests.
+- 2026-06-01: Started the water solver file split by moving density/EOS and terrain-boundary density helpers into `crates/re-flora-water/src/mls_mpm/density.rs`; validated with water-crate tests, full cargo tests, and a release hidden run.
 
 ## Open Questions / Risks
 
