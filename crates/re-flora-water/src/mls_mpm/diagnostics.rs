@@ -1,9 +1,17 @@
 use glam::Vec3;
+use std::time::Instant;
 
-use super::{density::MAX_J, repair::mat3_is_finite};
+use super::{
+    density::MAX_J,
+    repair::{mat3_is_finite, max_particle_speed_for_substep},
+    transfer::{
+        should_shadow_sample_terrain, terrain_grid_particle_query, TerrainGridParticleQuery,
+        TerrainShadowSampleStats, WaterG2pBreakdown,
+    },
+};
 use crate::{
     collider::{WaterBoxCollider, WaterTerrainColliderSet},
-    pond::WaterParticle,
+    pond::{PondWaterSim, WaterParticle},
 };
 
 // Quiet puddles can retain low-energy numerical circulation indefinitely. Apply
@@ -95,6 +103,321 @@ fn smoothstep(edge0: f32, edge1: f32, value: f32) -> f32 {
 
     let t = ((value - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
+}
+
+
+impl PondWaterSim {
+    pub(super) fn record_diagnostic_substep(
+        &mut self,
+        active_nodes: usize,
+        g2p_breakdown: WaterG2pBreakdown,
+    ) {
+        self.diagnostic_stats.substeps += 1;
+        self.diagnostic_stats.active_node_visits += active_nodes as u64;
+        self.diagnostic_stats.g2p_terrain_cache_skips += g2p_breakdown.terrain_cache_skips;
+        self.diagnostic_stats.g2p_terrain_cache_projections +=
+            g2p_breakdown.terrain_cache_projections;
+        self.diagnostic_stats.g2p_terrain_exact_fallbacks +=
+            g2p_breakdown.terrain_exact_fallbacks;
+        self.diagnostic_stats.g2p_terrain_exact_checks += g2p_breakdown.terrain_exact_checks;
+        self.diagnostic_stats.g2p_terrain_exact_corrections +=
+            g2p_breakdown.terrain_exact_corrections;
+    }
+
+    pub(super) fn log_diagnostics_after_update(&mut self, frame_dt: f32, ran_substeps: usize) {
+        const REPORT_INTERVAL_SECONDS: f32 = 0.25;
+        const ANOMALY_REPORT_INTERVAL_SECONDS: f32 = 0.10;
+        const SPEED_LIMIT_WARN_FRACTION: f32 = 0.98;
+        const TERRAIN_PENETRATION_WARN_CELLS: f32 = 1.0;
+        const BOUNDARY_PIN_WARN_FRACTION: f32 = 0.25;
+
+        self.diagnostic_report_seconds += frame_dt;
+
+        let padding = self.dx * self.config.wall_padding_cells.max(1.0);
+        let speed_limit = max_particle_speed_for_substep(self.dx, self.config.substep_dt);
+        let terrain_collision_margin = self.terrain_collision_margin();
+        let eos_j_min = Some(self.config.j_min);
+        let interval_due = self.diagnostic_report_seconds >= REPORT_INTERVAL_SECONDS;
+        let terrain_activity_since_report = self.diagnostic_stats.g2p_terrain_cache_projections > 0
+            || self.diagnostic_stats.g2p_terrain_exact_corrections > 0;
+        let early_terrain_contact =
+            terrain_activity_since_report && self.last_terrain_contact_particles == 0;
+
+        if !interval_due && !early_terrain_contact {
+            let cheap_particle_stats = water_particle_debug_stats(
+                &self.particles,
+                None,
+                self.config.collider,
+                padding,
+                speed_limit,
+                eos_j_min,
+                terrain_collision_margin,
+            );
+            let speed_saturated = cheap_particle_stats.max_speed
+                >= speed_limit * SPEED_LIMIT_WARN_FRACTION
+                || cheap_particle_stats.speed_limited_particles > self.particles.len() / 8;
+            let boundary_pinned = cheap_particle_stats.floor_pinned_particles
+                + cheap_particle_stats.wall_pinned_particles
+                > (self.particles.len() as f32 * BOUNDARY_PIN_WARN_FRACTION) as usize;
+            let cheap_anomalous = cheap_particle_stats.non_finite_particles > 0
+                || cheap_particle_stats.out_of_bounds_particles > 0
+                || speed_saturated
+                || boundary_pinned;
+            if !(cheap_anomalous
+                && self.diagnostic_report_seconds >= ANOMALY_REPORT_INTERVAL_SECONDS)
+            {
+                return;
+            }
+        }
+
+        let particle_stats = water_particle_debug_stats(
+            &self.particles,
+            self.terrain.as_ref(),
+            self.config.collider,
+            padding,
+            speed_limit,
+            eos_j_min,
+            terrain_collision_margin,
+        );
+
+        let newly_contacting = (particle_stats.terrain_contact_particles > 0 || early_terrain_contact)
+            && self.last_terrain_contact_particles == 0;
+        let speed_saturated = particle_stats.max_speed >= speed_limit * SPEED_LIMIT_WARN_FRACTION
+            || particle_stats.speed_limited_particles > self.particles.len() / 8;
+        let deep_terrain_penetration = particle_stats.max_terrain_penetration
+            > self.dx * TERRAIN_PENETRATION_WARN_CELLS;
+        let boundary_pinned = particle_stats.floor_pinned_particles
+            + particle_stats.wall_pinned_particles
+            > (self.particles.len() as f32 * BOUNDARY_PIN_WARN_FRACTION) as usize;
+        let anomalous = particle_stats.non_finite_particles > 0
+            || particle_stats.out_of_bounds_particles > 0
+            || speed_saturated
+            || deep_terrain_penetration
+            || boundary_pinned;
+
+        let should_report = interval_due
+            || newly_contacting
+            || (anomalous && self.diagnostic_report_seconds >= ANOMALY_REPORT_INTERVAL_SECONDS);
+        if !should_report {
+            self.last_terrain_contact_particles = particle_stats.terrain_contact_particles;
+            return;
+        }
+
+        let diag = self.diagnostic_stats;
+        let diag_substeps = diag.substeps.max(1) as f64;
+        let terrain_projections_per_substep = diag.g2p_terrain_cache_projections as f64 / diag_substeps;
+        let terrain_exact_corrections_per_substep =
+            diag.g2p_terrain_exact_corrections as f64 / diag_substeps;
+        let terrain_exact_checks_per_substep = diag.g2p_terrain_exact_checks as f64 / diag_substeps;
+        let active_nodes_per_substep = diag.active_node_visits as f64 / diag_substeps;
+        let density_corrections_per_substep =
+            diag.p2g_density_correction_particles as f64 / diag_substeps;
+        let density_correction_factor_avg = if diag.p2g_density_correction_particles > 0 {
+            diag.p2g_density_correction_factor_sum
+                / diag.p2g_density_correction_particles as f64
+        } else {
+            1.0
+        };
+
+        let message = format!(
+            "[WATER][DIAG] t={:.3}s frame_dt={:.4}s ran_substeps={} diag_substeps={} particles={} finite={} pos_x={:.3}..{:.3} pos_y={:.3}..{:.3} avg_y={:.3} pos_z={:.3}..{:.3} speed_avg={:.3} speed_max={:.3}/{:.3} speed_limited={} j={:.3}..{:.3} j_min_clamped={} j_max_clamped={} affine_max={:.2} terrain_contact={} terrain_penetrating={} terrain_no_sdf={} terrain_sdf_min={:.5} terrain_penetration_max={:.5} p2g_density_corr/substep={:.1} p2g_density_corr_factor_avg={:.3} p2g_density_corr_factor_max={:.3} g2p_cache_proj/substep={:.1} g2p_exact_checks/substep={:.1} g2p_exact_corr/substep={:.1} active_nodes/substep={:.0} floor_pinned={} ceil_pinned={} wall_pinned={} out_of_bounds={} non_finite={} fastest_idx={} fastest_pos={:?} fastest_v={:?} fastest_j={:.3} fastest_sdf={:.5}",
+            self.sim_time_seconds,
+            frame_dt,
+            ran_substeps,
+            diag.substeps,
+            self.particles.len(),
+            particle_stats.finite_particles,
+            particle_stats.min_ws.x,
+            particle_stats.max_ws.x,
+            particle_stats.min_ws.y,
+            particle_stats.max_ws.y,
+            particle_stats.avg_ws.y,
+            particle_stats.min_ws.z,
+            particle_stats.max_ws.z,
+            particle_stats.avg_speed,
+            particle_stats.max_speed,
+            speed_limit,
+            particle_stats.speed_limited_particles,
+            particle_stats.min_j,
+            particle_stats.max_j,
+            particle_stats.j_min_clamped_particles,
+            particle_stats.j_max_clamped_particles,
+            particle_stats.max_abs_affine,
+            particle_stats.terrain_contact_particles,
+            particle_stats.terrain_penetrating,
+            particle_stats.no_terrain_sdf,
+            particle_stats.min_terrain_sdf.unwrap_or(f32::NAN),
+            particle_stats.max_terrain_penetration,
+            density_corrections_per_substep,
+            density_correction_factor_avg,
+            diag.p2g_density_correction_factor_max,
+            terrain_projections_per_substep,
+            terrain_exact_checks_per_substep,
+            terrain_exact_corrections_per_substep,
+            active_nodes_per_substep,
+            particle_stats.floor_pinned_particles,
+            particle_stats.ceiling_pinned_particles,
+            particle_stats.wall_pinned_particles,
+            particle_stats.out_of_bounds_particles,
+            particle_stats.non_finite_particles,
+            particle_stats.max_speed_index,
+            particle_stats.max_speed_position,
+            particle_stats.max_speed_velocity,
+            particle_stats.max_speed_j,
+            particle_stats.max_speed_terrain_sdf.unwrap_or(f32::NAN),
+        );
+        if anomalous {
+            log::warn!("{message}");
+        } else {
+            log::info!("{message}");
+        }
+
+        self.last_terrain_contact_particles = particle_stats.terrain_contact_particles;
+        self.diagnostic_report_seconds = 0.0;
+        self.diagnostic_stats.reset();
+    }
+
+    pub(super) fn log_perf_report(&mut self) {
+        let mut stats = self.perf_stats;
+        if stats.substeps == 0 {
+            return;
+        }
+
+        let shadow_measure_start = Instant::now();
+        let shadow_stats = self.measure_terrain_shadow_samples();
+        let shadow_measure_seconds = shadow_measure_start.elapsed().as_secs_f64();
+        stats.g2p_terrain_shadow_samples += shadow_stats.samples;
+        stats.g2p_terrain_shadow_false_skips += shadow_stats.false_skips;
+        stats.g2p_terrain_shadow_sdf_abs_error_sum += shadow_stats.sdf_abs_error_sum;
+        stats.g2p_terrain_shadow_sdf_abs_error_max = stats
+            .g2p_terrain_shadow_sdf_abs_error_max
+            .max(shadow_stats.sdf_abs_error_max);
+
+        let substeps = stats.substeps as f64;
+        let recorded_seconds = stats.repair_seconds
+            + stats.clear_seconds
+            + stats.p2g_seconds
+            + stats.grid_seconds
+            + stats.g2p_seconds
+            + stats.diagnostics_seconds;
+        let residual_seconds = (stats.total_seconds - recorded_seconds).max(0.0);
+        let grid_nodes = self.grid.len();
+        let particle_padding = self.dx * self.config.wall_padding_cells.max(1.0);
+        let max_particle_speed = max_particle_speed_for_substep(self.dx, self.config.substep_dt);
+        let particle_stats = water_particle_debug_stats(
+            &self.particles,
+            self.terrain.as_ref(),
+            self.config.collider,
+            particle_padding,
+            max_particle_speed,
+            Some(self.config.j_min),
+            self.terrain_collision_margin(),
+        );
+        let density_correction_factor_avg = if stats.p2g_density_correction_particles > 0 {
+            stats.p2g_density_correction_factor_sum
+                / stats.p2g_density_correction_particles as f64
+        } else {
+            1.0
+        };
+        log::info!(
+            "[PERF][WATER] particles {} grid {:?} nodes {} substeps {} total {:.2}ms avg {:.3}ms/substep repair {:.2}ms clear {:.2}ms p2g {:.2}ms grid {:.2}ms grid_update {:.2}ms g2p {:.2}ms g2p_gather {:.2}ms g2p_box {:.2}ms g2p_terrain {:.2}ms g2p_repair {:.2}ms diagnostics {:.2}ms residual {:.2}ms shadow_measure {:.2}ms p2g_density_corr/substep {:.1} p2g_density_corr_factor_avg {:.3} p2g_density_corr_factor_max {:.3} terrain_cache_skips/substep {:.0} terrain_cache_projections/substep {:.0} terrain_exact_fallbacks/substep {:.0} terrain_exact_checks/substep {:.0} terrain_exact_corrections/substep {:.0} terrain_shadow_samples/substep {:.1} terrain_shadow_false_skips {} terrain_shadow_sdf_err_avg {:.5} terrain_shadow_sdf_err_max {:.5} active_nodes/substep {:.0} particle_y {:.3}..{:.3} avg {:.3} terrain_sdf_min {:.4} penetrating {} no_sdf {}",
+            self.particles.len(),
+            self.grid_dim,
+            grid_nodes,
+            stats.substeps,
+            stats.total_seconds * 1000.0,
+            stats.total_seconds * 1000.0 / substeps,
+            stats.repair_seconds * 1000.0,
+            stats.clear_seconds * 1000.0,
+            stats.p2g_seconds * 1000.0,
+            stats.grid_seconds * 1000.0,
+            stats.grid_update_seconds * 1000.0,
+            stats.g2p_seconds * 1000.0,
+            stats.g2p_gather_seconds * 1000.0,
+            stats.g2p_box_seconds * 1000.0,
+            stats.g2p_terrain_seconds * 1000.0,
+            stats.g2p_repair_seconds * 1000.0,
+            stats.diagnostics_seconds * 1000.0,
+            residual_seconds * 1000.0,
+            shadow_measure_seconds * 1000.0,
+            stats.p2g_density_correction_particles as f64 / substeps,
+            density_correction_factor_avg,
+            stats.p2g_density_correction_factor_max,
+            stats.g2p_terrain_cache_skips as f64 / substeps,
+            stats.g2p_terrain_cache_projections as f64 / substeps,
+            stats.g2p_terrain_exact_fallbacks as f64 / substeps,
+            stats.g2p_terrain_exact_checks as f64 / substeps,
+            stats.g2p_terrain_exact_corrections as f64 / substeps,
+            stats.g2p_terrain_shadow_samples as f64 / substeps,
+            stats.g2p_terrain_shadow_false_skips,
+            if stats.g2p_terrain_shadow_samples > 0 {
+                stats.g2p_terrain_shadow_sdf_abs_error_sum
+                    / stats.g2p_terrain_shadow_samples as f64
+            } else {
+                f64::NAN
+            },
+            stats.g2p_terrain_shadow_sdf_abs_error_max,
+            stats.active_node_visits as f64 / substeps,
+            particle_stats.min_ws.y,
+            particle_stats.max_ws.y,
+            particle_stats.avg_ws.y,
+            particle_stats.min_terrain_sdf.unwrap_or(f32::NAN),
+            particle_stats.terrain_penetrating,
+            particle_stats.no_terrain_sdf,
+        );
+
+        self.perf_stats.reset();
+        self.perf_report_seconds = 0.0;
+    }
+
+    fn measure_terrain_shadow_samples(&self) -> TerrainShadowSampleStats {
+        // Keep expensive exact-SDF cache validation out of the measured G2P hot loop.
+        // Sampling once per perf report still catches cache drift without charging every substep.
+        let mut stats = TerrainShadowSampleStats::default();
+        let Some(terrain) = self.terrain.as_ref() else {
+            return stats;
+        };
+
+        let terrain_collision_margin = self.terrain_collision_margin();
+        for (particle_idx, particle) in self.particles.iter().enumerate() {
+            if !should_shadow_sample_terrain(particle_idx) {
+                continue;
+            }
+
+            let local_pos = particle.x - self.origin_ws;
+            match terrain_grid_particle_query(
+                local_pos,
+                self.inv_dx,
+                self.dx,
+                self.grid_dim,
+                &self.terrain_grid,
+                terrain_collision_margin,
+            ) {
+                TerrainGridParticleQuery::Skip { sdf } => {
+                    stats.samples += 1;
+                    if let Some(exact_sdf) = terrain.sample_sdf_ws(particle.x) {
+                        let abs_error = (sdf - exact_sdf).abs();
+                        stats.sdf_abs_error_sum += abs_error as f64;
+                        stats.sdf_abs_error_max = stats.sdf_abs_error_max.max(abs_error);
+                        if exact_sdf <= terrain_collision_margin {
+                            stats.false_skips += 1;
+                        }
+                    }
+                }
+                TerrainGridParticleQuery::CachedProjection { cached_sdf, .. } => {
+                    stats.samples += 1;
+                    if let Some(exact_sdf) = terrain.sample_sdf_ws(particle.x) {
+                        let abs_error = (cached_sdf - exact_sdf).abs();
+                        stats.sdf_abs_error_sum += abs_error as f64;
+                        stats.sdf_abs_error_max = stats.sdf_abs_error_max.max(abs_error);
+                    }
+                }
+                TerrainGridParticleQuery::ExactFallback => {}
+            }
+        }
+
+        stats
+    }
 }
 
 #[derive(Clone, Copy, Debug)]

@@ -94,7 +94,7 @@ Assumptions to confirm before implementation:
 - Objective: Split `mls_mpm.rs` into focused internal modules while preserving algorithms and tests.
 - Expected output: Separate areas for transfer, terrain cache/projection, density/EOS, diagnostics, and repair/collision helpers.
 - Dependencies/blockers: Should follow after Phase 4 or be kept very mechanical; large file split can create merge conflict risk.
-- Status: in progress; density/EOS, repair/collision, diagnostic/stat, terrain-grid cache, and transfer/math helper groups moved into focused `crates/re-flora-water/src/mls_mpm/` submodules as mechanical extractions.
+- Status: in progress; density/EOS, repair/collision, terrain-grid cache, transfer/math, quiet-settling, and diagnostic logging/stat helper groups moved into focused `crates/re-flora-water/src/mls_mpm/` submodules as mechanical extractions.
 
 ### Phase 6: Behavior-identical micro cleanups
 
@@ -172,6 +172,7 @@ If verification is not possible:
 - 2026-06-01: Moved quiet-settling and water-particle diagnostic stat helpers into `crates/re-flora-water/src/mls_mpm/diagnostics.rs`; validated with water-crate tests, full cargo tests, parser tests, and a release hidden run.
 - 2026-06-01: Moved terrain-grid cache request/patch/apply helpers into `crates/re-flora-water/src/mls_mpm/terrain.rs`; validated with water-crate tests, full cargo tests, parser tests, and a release hidden run.
 - 2026-06-01: Moved grid/transfer math helpers, terrain particle cache query helpers, G2P breakdown structs, and grid-node collision projection into `crates/re-flora-water/src/mls_mpm/transfer.rs`; validated with water-crate tests, full cargo tests, parser tests, and a release hidden run.
+- 2026-06-01: Moved water diagnostic log/report methods into `crates/re-flora-water/src/mls_mpm/diagnostics.rs`, leaving call sites and log marker strings unchanged; validated with water-crate tests, full cargo tests, parser tests, and a release hidden run.
 
 ## Open Questions / Risks
 
