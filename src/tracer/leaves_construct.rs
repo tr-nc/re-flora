@@ -119,16 +119,16 @@ pub fn generate_indexed_voxel_leaves(
 /// this mesh instead of stamping fruit into the terrain voxel field.
 pub fn generate_indexed_voxel_apple(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
     const ORIGIN: IVec3 = IVec3::ZERO;
-    const MAX_LENGTH: u32 = 6;
-    const BODY_RADIUS_XZ: f32 = 4.5;
-    const BODY_RADIUS_Y: f32 = 5.5;
+    const MAX_LENGTH: u32 = 4;
+    const BODY_RADIUS_XZ: f32 = 2.5;
+    const BODY_RADIUS_Y: f32 = 2.75;
 
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
 
-    for x in -5..=5 {
-        for y in -6..=5 {
-            for z in -5..=5 {
+    for x in -3..=3 {
+        for y in -3..=3 {
+            for z in -3..=3 {
                 let p = Vec3::new(
                     x as f32 / BODY_RADIUS_XZ,
                     y as f32 / BODY_RADIUS_Y,
@@ -138,10 +138,10 @@ pub fn generate_indexed_voxel_apple(is_lod_used: bool) -> Result<(Vec<Vertex>, V
 
                 // Small top dimple so the fruit reads as an apple rather than a
                 // perfectly round berry, while keeping one material/color path.
-                if y >= 3 {
+                if y >= 2 {
                     let top_center_dist = Vec3::new(x as f32, 0.0, z as f32).length();
-                    if top_center_dist < 2.0 {
-                        shape += 0.25 * (2.0 - top_center_dist);
+                    if top_center_dist < 1.25 {
+                        shape += 0.25 * (1.25 - top_center_dist);
                     }
                 }
 
@@ -162,7 +162,7 @@ pub fn generate_indexed_voxel_apple(is_lod_used: bool) -> Result<(Vec<Vertex>, V
     // A tiny stem on top helps sell the hanging-fruit silhouette. It shares the
     // apple color because this path deliberately reuses the existing foliage
     // shader instead of introducing another material pipeline.
-    for y in 5..=7 {
+    for y in 3..=4 {
         push_voxel(
             &mut vertices,
             &mut indices,
