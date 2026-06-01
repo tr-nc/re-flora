@@ -108,7 +108,7 @@ Assumptions to confirm before implementation:
 - Objective: Add fast deterministic tests for infrastructure touched by the refactor.
 - Expected output: Tests for CLI parsing, log helpers, water GUI config clamping/sync, frame-rate temporal alpha math, queue/revision behavior, and perf parser fixtures where feasible.
 - Dependencies/blockers: Avoid GPU/window/audio tests in normal `cargo test`.
-- Status: in progress; perf parser fixture tests added.
+- Status: in progress; perf parser, run-log helper, and CLI parser fixture tests added.
 
 ## Verification Method
 
@@ -158,6 +158,7 @@ If verification is not possible:
 - 2026-06-01: Reworked `tools/parse_perf_log.py` into a reusable parser with Markdown/JSON/CSV outputs, latest-run pointer support, GPU frame/job scope parsing, particle timing/count parsing, and fixed detailed-frame `water_handoff` parsing. Added fixture tests in `tools/test_parse_perf_log.py`.
 - 2026-06-01: Extracted run-log file creation/latest/tail/pruning helpers from `src/main.rs` to `src/run_log.rs`, preserving CLI behavior while adding unit tests for pointer fallback, tailing, filename filtering, and pruning.
 - 2026-06-01: Validated current step with `python3 -m unittest tools/test_parse_perf_log.py`, `cargo fmt --check`, `cargo check`, and `cargo test`.
+- 2026-06-01: Made CLI parsing testable through `AppOptions::from_arg_strings` and added guardrail tests for defaults, common perf/water flags, clamping, log-query flags, and helpful panic messages.
 
 ## Open Questions / Risks
 
