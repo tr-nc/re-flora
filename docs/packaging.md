@@ -16,14 +16,29 @@ It packages each build, prints the package name and size, and uploads each zip a
 
 ## Tag release
 
-Push a `v*` tag to build release packages automatically:
+Use the release tag helper from a clean, up-to-date `main` checkout:
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+scripts/release_tag.py
 ```
 
-Download the finished packages from the workflow run's **Artifacts** section.
+The default tag is `v<Cargo.toml package.version>`. After bumping `Cargo.toml` and `Cargo.lock`, preview or cut an explicit patch version:
+
+```bash
+scripts/release_tag.py --dry-run 0.2.8
+scripts/release_tag.py 0.2.8
+```
+
+The helper creates an annotated `v*` tag and pushes it to `origin`, which starts the package workflow automatically. It refuses dirty worktrees, non-`main` branches, stale branches, existing tags, and versions that differ from `Cargo.toml` unless explicitly overridden.
+
+Manual fallback:
+
+```bash
+git tag -a v0.2.8 -m "Re: Flora 0.2.8"
+git push origin v0.2.8
+```
+
+Download the finished packages from the workflow run's **Artifacts** section. Tag builds also create or update the matching GitHub Release with package assets.
 
 ## Runtime layout
 
