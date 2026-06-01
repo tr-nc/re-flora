@@ -64,6 +64,23 @@ FRAME_MS_FIELDS = [
     "untracked_cpu",
 ]
 
+FRAME_QUEUE_COUNT_FIELDS = [
+    "deferred_pending",
+    "deferred_active",
+    "source_pending",
+    "source_active",
+    "collider_pending",
+    "collider_active",
+    "cache_pending",
+    "cache_active",
+]
+
+FRAME_QUEUE_BOOL_FIELDS = [
+    "deferred_inflight",
+    "collider_inflight",
+    "cache_inflight",
+]
+
 WATER_MS_FIELDS = [
     "total",
     "repair",
@@ -174,6 +191,13 @@ def extract_eq_count(line: str, field_name: str) -> Optional[float]:
     return float(match.group(1))
 
 
+def extract_eq_bool(line: str, field_name: str) -> Optional[float]:
+    match = re.search(rf"\b{re.escape(field_name)}=(true|false)\b", line)
+    if not match:
+        return None
+    return 1.0 if match.group(1) == "true" else 0.0
+
+
 def extract_labeled_number(line: str, field_name: str) -> Optional[float]:
     match = re.search(rf"(?<!\S){re.escape(field_name)}\s+({NUMBER_TOKEN})(?=\s|$)", line)
     if not match:
@@ -221,6 +245,14 @@ def parse_log_lines(lines: Iterable[str], source: str = "<memory>") -> PerfSumma
                 value = extract_ms(line, field_name)
                 if value is not None:
                     summary.add("frame_detail", "Detailed frame samples", "ms", field_name, value)
+            for field_name in FRAME_QUEUE_COUNT_FIELDS:
+                value = extract_eq_count(line, field_name)
+                if value is not None:
+                    summary.add("frame_queues", "Frame queue samples", "count", field_name, value)
+            for field_name in FRAME_QUEUE_BOOL_FIELDS:
+                value = extract_eq_bool(line, field_name)
+                if value is not None:
+                    summary.add("frame_queues", "Frame queue samples", "count", field_name, value)
             continue
 
         if match := FRAME_RE.search(line):
