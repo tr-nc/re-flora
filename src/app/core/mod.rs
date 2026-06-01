@@ -2532,9 +2532,9 @@ impl App {
                     )
                 };
 
-                let flora_colors: Vec<(Vec3, Vec3)> = species::species()
-                    .iter()
-                    .map(|desc| match desc.key {
+                let mut flora_colors = [(Vec3::ZERO, Vec3::ZERO); species::MAX_FLORA_SPECIES];
+                for (slot, desc) in flora_colors.iter_mut().zip(species::species()) {
+                    *slot = match desc.key {
                         "tall_grass" | "short_grass" => (
                             color_to_vec3(self.gui_adjustables.grass_bottom_dark_color.value),
                             color_to_vec3(self.gui_adjustables.grass_tip_light_color.value),
@@ -2556,8 +2556,9 @@ impl App {
                             );
                             (color_to_vec3(bottom), color_to_vec3(tip))
                         }
-                    })
-                    .collect();
+                    };
+                }
+                let flora_colors = &flora_colors[..species::species_count()];
 
                 let leaf_bottom = color_to_vec3(self.gui_adjustables.leaves_bottom_color.value);
                 let leaf_tip = color_to_vec3(self.gui_adjustables.leaves_tip_color.value);

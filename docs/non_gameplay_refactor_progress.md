@@ -101,7 +101,7 @@ Assumptions to confirm before implementation:
 - Objective: Reduce avoidable per-frame CPU/allocation noise without changing output.
 - Expected output: Examples include caching per-species color vectors, avoiding repeated style rebuilds when unchanged, replacing small per-frame temp vectors with fixed buffers, and tighter perf-log formatting gates.
 - Dependencies/blockers: Each cleanup needs before/after release hidden-run evidence or a clear no-op rationale.
-- Status: not started
+- Status: in progress; per-frame flora color collection now uses a fixed stack array instead of allocating a `Vec`.
 
 ### Phase 7: Pure-logic guardrail tests
 
@@ -161,6 +161,7 @@ If verification is not possible:
 - 2026-06-01: Made CLI parsing testable through `AppOptions::from_arg_strings` and added guardrail tests for defaults, common perf/water flags, clamping, log-query flags, and helpful panic messages.
 - 2026-06-01: Moved frame timing snapshot data and panel rendering from `src/app/core/mod.rs` to `src/app/core/frame_timing.rs`, keeping labels and UI rendering behavior unchanged.
 - 2026-06-01: Moved screenshot readback prepare/record/write helpers from `src/app/core/mod.rs` to `src/app/core/screenshot.rs`, leaving call sites and behavior unchanged.
+- 2026-06-01: Replaced the per-frame flora color `Vec` allocation with a fixed stack array sliced to the current species count; color selection behavior is unchanged.
 
 ## Open Questions / Risks
 
