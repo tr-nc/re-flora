@@ -999,13 +999,6 @@ impl Tracer {
         }
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
-        if render_flags.enable_denoiser {
-            record_denoiser_resources_transition_barrier(
-                &self.resources.denoiser_resources,
-                cmdbuf,
-            );
-        }
-
         if render_flags.enable_tracer {
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
@@ -1113,29 +1106,6 @@ impl Tracer {
         }
 
         return Ok(());
-
-        fn record_denoiser_resources_transition_barrier(
-            denoiser_resources: &DenoiserResources,
-            cmdbuf: &CommandBuffer,
-        ) {
-            let tr_fn = |tex: &Texture| {
-                tex.get_image()
-                    .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
-            };
-            tr_fn(&denoiser_resources.tex.denoiser_normal_tex);
-            tr_fn(&denoiser_resources.tex.denoiser_normal_tex_prev);
-            tr_fn(&denoiser_resources.tex.denoiser_position_tex);
-            tr_fn(&denoiser_resources.tex.denoiser_position_tex_prev);
-            tr_fn(&denoiser_resources.tex.denoiser_vox_id_tex);
-            tr_fn(&denoiser_resources.tex.denoiser_vox_id_tex_prev);
-            tr_fn(&denoiser_resources.tex.denoiser_accumed_tex);
-            tr_fn(&denoiser_resources.tex.denoiser_accumed_tex_prev);
-            tr_fn(&denoiser_resources.tex.denoiser_motion_tex);
-            tr_fn(&denoiser_resources.tex.denoiser_temporal_hist_len_tex);
-            tr_fn(&denoiser_resources.tex.denoiser_hit_tex);
-            tr_fn(&denoiser_resources.tex.denoiser_spatial_ping_tex);
-            tr_fn(&denoiser_resources.tex.denoiser_spatial_pong_tex);
-        }
 
         fn copy_current_to_prev(resources: &TracerResources, cmdbuf: &CommandBuffer) {
             let copy_fn = |src_tex: &Texture, dst_tex: &Texture| {
@@ -1642,11 +1612,6 @@ impl Tracer {
     }
 
     fn record_tracer_shadow_pass(&self, cmdbuf: &CommandBuffer) {
-        self.resources.shadow_map_tex.get_image().record_transition(
-            cmdbuf,
-            0,
-            TextureLayout::GENERAL,
-        );
         self.compute_pipelines.tracer_shadow_ppl.record(
             cmdbuf,
             self.resources.shadow_map_tex.get_image().get_desc().extent,
@@ -1655,16 +1620,6 @@ impl Tracer {
     }
 
     fn record_shadow_depth_copy_pass(&self, cmdbuf: &CommandBuffer) {
-        self.resources
-            .shadow_map_depth_tex
-            .get_image()
-            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
-        self.resources.shadow_map_tex.get_image().record_transition(
-            cmdbuf,
-            0,
-            TextureLayout::GENERAL,
-        );
-
         self.compute_pipelines.shadow_depth_copy_ppl.record(
             cmdbuf,
             self.resources.shadow_map_tex.get_image().get_desc().extent,
@@ -1752,25 +1707,6 @@ impl Tracer {
         vsm_temporal_alpha: f32,
         reset_vsm_history: bool,
     ) {
-        // transition shadow/VSM images to general for compute read/write access
-        self.resources.shadow_map_tex.get_image().record_transition(
-            cmdbuf,
-            0,
-            TextureLayout::GENERAL,
-        );
-        self.resources
-            .shadow_map_tex_for_vsm_ping
-            .get_image()
-            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
-        self.resources
-            .shadow_map_tex_for_vsm_pong
-            .get_image()
-            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
-        self.resources
-            .shadow_map_tex_for_vsm_prev
-            .get_image()
-            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
-
         let compute_to_compute_barrier = PipelineBarrier::compute_shader_access();
 
         let extent = self.resources.shadow_map_tex.get_image().get_desc().extent;
@@ -1803,17 +1739,6 @@ impl Tracer {
     }
 
     fn record_tracer_pass(&self, cmdbuf: &CommandBuffer) {
-        self.resources
-            .extent_dependent_resources
-            .compute_output_tex
-            .get_image()
-            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
-        self.resources
-            .extent_dependent_resources
-            .compute_depth_tex
-            .get_image()
-            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
-
         self.compute_pipelines.tracer_ppl.record(
             cmdbuf,
             self.resources
@@ -1850,12 +1775,6 @@ impl Tracer {
     }
 
     fn record_god_ray_pass(&self, cmdbuf: &CommandBuffer) {
-        self.resources
-            .extent_dependent_resources
-            .god_ray_output_tex
-            .get_image()
-            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
-
         self.compute_pipelines.god_ray_ppl.record(
             cmdbuf,
             self.resources
@@ -1915,12 +1834,6 @@ impl Tracer {
     }
 
     fn record_composition_pass(&self, cmdbuf: &CommandBuffer) {
-        self.resources
-            .extent_dependent_resources
-            .composited_tex
-            .get_image()
-            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
-
         self.compute_pipelines.composition_ppl.record(
             cmdbuf,
             self.resources
@@ -1934,12 +1847,6 @@ impl Tracer {
     }
 
     fn record_lens_flare_pass(&self, cmdbuf: &CommandBuffer) {
-        self.resources
-            .extent_dependent_resources
-            .lens_flare_full_output_tex
-            .get_image()
-            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
-
         self.compute_pipelines.lens_flare_ppl.record(
             cmdbuf,
             self.resources
@@ -1966,12 +1873,6 @@ impl Tracer {
     }
 
     fn record_lens_flare_downsample_pass(&self, cmdbuf: &CommandBuffer) {
-        self.resources
-            .extent_dependent_resources
-            .lens_flare_output_tex
-            .get_image()
-            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
-
         self.compute_pipelines.lens_flare_downsample_ppl.record(
             cmdbuf,
             self.resources
@@ -1985,12 +1886,6 @@ impl Tracer {
     }
 
     fn record_post_processing_pass(&self, cmdbuf: &CommandBuffer) {
-        self.resources
-            .extent_dependent_resources
-            .screen_output_tex
-            .get_image()
-            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
-
         self.compute_pipelines.post_processing_ppl.record(
             cmdbuf,
             self.resources

@@ -72,14 +72,14 @@ Assumptions to confirm:
 - Objective: Before dispatch, transition bound textures into the state required by their descriptor usage.
 - Expected output: Conservative defaults from reflected descriptor type, with optional explicit annotations for sampled vs storage read/write cases.
 - Dependencies/blockers: Descriptor metadata alone may not distinguish readonly/writeonly storage images; may need binding annotations or shader reflection support.
-- Status: in progress; compute pipelines now retain texture bindings from auto resource binding and have an opt-in path to transition texture descriptors before direct and indirect dispatch. It is disabled by default until descriptor layout metadata is precise enough for all startup paths; wind-volume, plain-builder texture users, and surface flora occupancy edit passes are currently opted in.
+- Status: in progress; compute pipelines now retain texture bindings from auto resource binding and have an opt-in path to transition texture descriptors before direct and indirect dispatch. It is disabled by default until descriptor layout metadata is precise enough for all startup paths; migrated builder/tracer texture-using compute paths are opted in explicitly.
 
 ### Phase 5: Migrate game-code explicit transitions gradually
 
 - Objective: Replace repeated manual transitions with declared usage through the new `vkn` API while keeping debug assertions available.
 - Expected output: Smaller call sites in `src/builder/*` and `src/tracer/*`, with behavior unchanged.
 - Dependencies/blockers: Phases 2-4 should exist first.
-- Status: in progress; removed the tracer render-pass post-end `set_layout(GENERAL)` calls that are now covered by texture-backed `RenderTarget` attachment final-layout tracking, plus migrated plain-builder chunk-atlas pre-dispatch state setup to compute pipeline auto transitions.
+- Status: in progress; game-code `record_transition(...)` calls in `src/builder/*` and `src/tracer/mod.rs` have been migrated to vkn-owned compute texture transitions or render-target attachment tracking.
 
 ### Phase 6: Diagnostics and strict modes
 
@@ -131,6 +131,7 @@ If verification is not yet possible, the missing piece is the tracker/encoder im
 - 2026-06-01: Enabled opt-in automatic compute texture transitions for surface flora occupancy edit passes and removed the shared manual `occupancy_data -> GENERAL` pre-dispatch transition.
 - 2026-06-01: Tried flipping compute automatic texture transitions to default-on, but release hidden validation exposed startup descriptor/layout mismatches on resources still in `UNDEFINED`; reverted to opt-in default while retaining per-pipeline enable/disable and a simple tracked-binding-count inspection helper.
 - 2026-06-01: Opted plain-builder texture-using compute pipelines into automatic texture transitions and removed the manual `chunk_atlas -> GENERAL` transition from the recorded chunk-init command buffer.
+- 2026-06-01: Opted remaining tracer texture-using compute pipelines into automatic texture transitions and removed manual `record_transition(GENERAL)` setup from tracer, shadow/VSM, denoiser, composition, lens-flare, and post-processing passes.
 
 ## Open Questions / Risks
 
