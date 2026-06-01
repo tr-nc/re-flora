@@ -94,7 +94,7 @@ Assumptions to confirm before implementation:
 - Objective: Split `mls_mpm.rs` into focused internal modules while preserving algorithms and tests.
 - Expected output: Separate areas for transfer, terrain cache/projection, density/EOS, diagnostics, and repair/collision helpers.
 - Dependencies/blockers: Should follow after Phase 4 or be kept very mechanical; large file split can create merge conflict risk.
-- Status: in progress; density/EOS, repair/collision, terrain-grid cache, transfer/math, P2G, G2P/grid update, step orchestration, quiet-settling, diagnostic logging/stat helper groups, and solver tests moved into focused `crates/re-flora-water/src/mls_mpm/` submodules as mechanical extractions.
+- Status: complete; density/EOS, repair/collision, terrain-grid cache, transfer/math, P2G, G2P/grid update, step orchestration, quiet-settling, diagnostic logging/stat helper groups, and solver tests moved into focused `crates/re-flora-water/src/mls_mpm/` submodules as mechanical extractions. `mls_mpm.rs` now only declares the module tree, shared constants, public re-exports, and the test module.
 
 ### Phase 6: Behavior-identical micro cleanups
 
