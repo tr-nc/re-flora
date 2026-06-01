@@ -134,16 +134,7 @@ pub fn generate_indexed_voxel_apple(is_lod_used: bool) -> Result<(Vec<Vertex>, V
                     y as f32 / BODY_RADIUS_Y,
                     z as f32 / BODY_RADIUS_XZ,
                 );
-                let mut shape = p.length_squared();
-
-                // Small top dimple so the fruit reads as an apple rather than a
-                // perfectly round berry, while keeping one material/color path.
-                if y >= 2 {
-                    let top_center_dist = Vec3::new(x as f32, 0.0, z as f32).length();
-                    if top_center_dist < 1.25 {
-                        shape += 0.25 * (1.25 - top_center_dist);
-                    }
-                }
+                let shape = p.length_squared();
 
                 if shape <= 1.0 {
                     push_voxel(
@@ -157,20 +148,6 @@ pub fn generate_indexed_voxel_apple(is_lod_used: bool) -> Result<(Vec<Vertex>, V
                 }
             }
         }
-    }
-
-    // A tiny stem on top helps sell the hanging-fruit silhouette. It shares the
-    // apple color because this path deliberately reuses the existing foliage
-    // shader instead of introducing another material pipeline.
-    for y in 3..=4 {
-        push_voxel(
-            &mut vertices,
-            &mut indices,
-            IVec3::new(0, y, 0),
-            ORIGIN,
-            MAX_LENGTH,
-            is_lod_used,
-        )?;
     }
 
     Ok((vertices, indices))

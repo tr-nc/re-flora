@@ -295,10 +295,10 @@ struct CompiledTreePlacement {
 struct TreePlacementService;
 
 const APPLE_SPAWN_PROBABILITY: f32 = 0.30;
-const APPLE_MIN_HANG_VOXELS: f32 = 13.0;
-const APPLE_HANG_VARIANCE_VOXELS: f32 = 6.0;
-const APPLE_MIN_SIDE_OFFSET_VOXELS: f32 = 2.0;
-const APPLE_SIDE_OFFSET_VARIANCE_VOXELS: f32 = 6.0;
+const APPLE_MIN_HANG_VOXELS: f32 = 4.0;
+const APPLE_HANG_VARIANCE_VOXELS: f32 = 2.0;
+const APPLE_MIN_SIDE_OFFSET_VOXELS: f32 = 0.5;
+const APPLE_SIDE_OFFSET_VARIANCE_VOXELS: f32 = 1.5;
 
 fn analyze_round_cones(round_cones: &[RoundCone]) -> (f32, f32, f32, f32, usize, usize) {
     let mut radius_min = f32::INFINITY;
