@@ -698,7 +698,7 @@ impl TracerResources {
         let sam_desc = Default::default();
         let tex = Texture::new(vulkan_ctx.device().clone(), allocator, &img_desc, &sam_desc);
 
-        let base_path = get_project_root() + "/texture/";
+        let base_path = get_project_root() + "/assets/texture/noise/";
         for i in 0..BLUE_NOISE_LEN {
             let path = format!("{}{}{}.png", base_path, relative_path, i);
             tex.get_image()
