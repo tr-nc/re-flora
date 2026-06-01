@@ -1,8 +1,8 @@
 use super::descriptor_set_utils;
 use crate::{
     Buffer, CommandBuffer, DescriptorPool, DescriptorSet, DescriptorSetLayoutBinding, Device,
-    Extent3D, PipelineLayout, ResourceContainer, ResourceState, ResourceStateTracker, ShaderModule,
-    Texture, WriteDescriptorSet,
+    Extent3D, PipelineLayout, ResourceContainer, ResourceState, ResourceStatePolicy,
+    ResourceStateTracker, ShaderModule, Texture, WriteDescriptorSet,
 };
 use anyhow::Result;
 use ash::vk;
@@ -23,6 +23,8 @@ struct ComputePipelineInner {
     resource_state_tracker: Mutex<ResourceStateTracker>,
     auto_texture_transitions_enabled: Mutex<bool>,
 }
+
+const MANUAL_TEXTURE_BINDING_PREFIX: &str = "manual:";
 
 #[derive(Clone)]
 struct ComputeTextureBinding {
@@ -118,12 +120,26 @@ impl ComputePipeline {
     }
 
     pub fn write_descriptor_set(&self, set_no: u32, write: WriteDescriptorSet) {
+        let mut write = write;
+        self.update_texture_binding_from_write(set_no, &write);
         let guard = self.0.descriptor_sets.lock().unwrap();
-        guard[set_no as usize].perform_writes(&mut [write]);
+        guard[set_no as usize].perform_writes(std::slice::from_mut(&mut write));
     }
 
     pub fn set_resource_state_tracker(&self, tracker: ResourceStateTracker) {
         *self.0.resource_state_tracker.lock().unwrap() = tracker;
+    }
+
+    pub fn set_resource_state_policy(&self, policy: ResourceStatePolicy) {
+        self.0
+            .resource_state_tracker
+            .lock()
+            .unwrap()
+            .set_policy(policy);
+    }
+
+    pub fn resource_state_policy(&self) -> ResourceStatePolicy {
+        self.0.resource_state_tracker.lock().unwrap().policy()
     }
 
     pub fn set_auto_texture_transitions_enabled(&self, enabled: bool) {
@@ -152,7 +168,28 @@ impl ComputePipeline {
                 }
             }
         }
-        *self.0.texture_bindings.lock().unwrap() = bindings;
+        let mut tracked_bindings = self.0.texture_bindings.lock().unwrap();
+        tracked_bindings.retain(|name, _| name.starts_with(MANUAL_TEXTURE_BINDING_PREFIX));
+        tracked_bindings.extend(bindings);
+    }
+
+    fn update_texture_binding_from_write(&self, set_no: u32, write: &WriteDescriptorSet<'_>) {
+        let key = manual_texture_binding_key(set_no, write.binding(), write.array_element());
+        let mut bindings = self.0.texture_bindings.lock().unwrap();
+        if let (Some(texture), Some(state)) = (
+            write.texture(),
+            compute_texture_binding_state(write.descriptor_type()),
+        ) {
+            bindings.insert(
+                key,
+                ComputeTextureBinding {
+                    texture: texture.clone(),
+                    state,
+                },
+            );
+        } else {
+            bindings.remove(&key);
+        }
     }
 
     fn record_texture_transitions(&self, cmdbuf: &CommandBuffer) {
@@ -277,6 +314,10 @@ fn compute_texture_binding_state(descriptor_type: vk::DescriptorType) -> Option<
         }
         _ => None,
     }
+}
+
+fn manual_texture_binding_key(set_no: u32, binding: u32, array_element: u32) -> String {
+    format!("{MANUAL_TEXTURE_BINDING_PREFIX}{set_no}:{binding}:{array_element}")
 }
 
 fn find_unique_texture(

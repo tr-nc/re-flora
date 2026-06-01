@@ -392,7 +392,6 @@ impl PipelineBuilder {
             pool,
             &[resources],
         );
-        flora_ppl.set_auto_texture_transitions_enabled(true);
 
         let flora_lod_ppl = Self::create_gfx_pipeline(
             vulkan_ctx,
@@ -403,7 +402,6 @@ impl PipelineBuilder {
             pool,
             &[resources],
         );
-        flora_lod_ppl.set_auto_texture_transitions_enabled(true);
 
         let leaves_ppl = Self::create_gfx_pipeline(
             vulkan_ctx,
@@ -414,7 +412,6 @@ impl PipelineBuilder {
             pool,
             &[resources],
         );
-        leaves_ppl.set_auto_texture_transitions_enabled(true);
 
         let leaves_lod_ppl = Self::create_gfx_pipeline(
             vulkan_ctx,
@@ -425,7 +422,6 @@ impl PipelineBuilder {
             pool,
             &[resources],
         );
-        leaves_lod_ppl.set_auto_texture_transitions_enabled(true);
 
         let leaves_shadow_lod_ppl = Self::create_gfx_pipeline(
             vulkan_ctx,
@@ -436,7 +432,6 @@ impl PipelineBuilder {
             pool,
             &[resources],
         );
-        leaves_shadow_lod_ppl.set_auto_texture_transitions_enabled(true);
 
         let particle_ppl = Self::create_gfx_pipeline(
             vulkan_ctx,
@@ -447,7 +442,6 @@ impl PipelineBuilder {
             pool,
             &[resources],
         );
-        particle_ppl.set_auto_texture_transitions_enabled(true);
         GraphicsPipelines {
             flora_ppl,
             flora_lod_ppl,

@@ -7,6 +7,8 @@
 
 use crate::{GpuJobDesc, PresentDesc, QueueLane, SubmitDesc, TextureTransition};
 use ash::vk;
+#[cfg(feature = "sync_diagnostics")]
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub type TextureTransitionDiagnosticsSink = fn(TextureTransitionDiagnostics);
 
@@ -25,12 +27,35 @@ static TEXTURE_TRANSITION_SINK: std::sync::OnceLock<TextureTransitionDiagnostics
     std::sync::OnceLock::new();
 
 #[cfg(feature = "sync_diagnostics")]
+static TEXTURE_TRANSITION_LOGGING_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(feature = "sync_diagnostics")]
 pub fn set_texture_transition_diagnostics_sink(sink: TextureTransitionDiagnosticsSink) -> bool {
     TEXTURE_TRANSITION_SINK.set(sink).is_ok()
 }
 
 #[cfg(not(feature = "sync_diagnostics"))]
 pub fn set_texture_transition_diagnostics_sink(_sink: TextureTransitionDiagnosticsSink) -> bool {
+    false
+}
+
+#[cfg(feature = "sync_diagnostics")]
+pub fn set_texture_transition_logging_enabled(enabled: bool) -> bool {
+    TEXTURE_TRANSITION_LOGGING_ENABLED.swap(enabled, Ordering::Relaxed)
+}
+
+#[cfg(not(feature = "sync_diagnostics"))]
+pub fn set_texture_transition_logging_enabled(_enabled: bool) -> bool {
+    false
+}
+
+#[cfg(feature = "sync_diagnostics")]
+pub fn texture_transition_logging_enabled() -> bool {
+    TEXTURE_TRANSITION_LOGGING_ENABLED.load(Ordering::Relaxed)
+}
+
+#[cfg(not(feature = "sync_diagnostics"))]
+pub fn texture_transition_logging_enabled() -> bool {
     false
 }
 
@@ -230,6 +255,18 @@ pub(crate) fn record_texture_transition(
         base_array_layer,
         layer_count,
     };
+    if TEXTURE_TRANSITION_LOGGING_ENABLED.load(Ordering::Relaxed) {
+        log::trace!(
+            target: "re_flora_vkn::sync::texture_transition",
+            "image={:?} aspect={:?} layers={}..{} {:?}->{:?}",
+            transition.image,
+            transition.aspect_mask,
+            transition.base_array_layer,
+            transition.base_array_layer + transition.layer_count,
+            transition.old_state,
+            transition.new_state,
+        );
+    }
     if let Some(sink) = TEXTURE_TRANSITION_SINK.get() {
         sink(transition);
     }

@@ -24,7 +24,7 @@ Known from inspection:
   - `Image::record_copy_to`
   - swapchain blit/readback paths in `crates/re-flora-vkn/src/swapchain.rs`
 - Game/render `record_transition(...)` call sites have been migrated out; explicit image transitions now mostly live inside `vkn` helpers such as clears, uploads, copies, swapchain paths, render-target tracking, and pipeline texture-use tracking.
-- Descriptor writes are not transitions. `auto_update_descriptor_sets` now writes sampled descriptors with `SHADER_READ_ONLY` and storage-image descriptors with `GENERAL`; actual barriers still come from resource-state tracking.
+- Descriptor writes are not transitions. `auto_update_descriptor_sets` now writes sampled descriptors with `SHADER_READ_ONLY` and storage-image descriptors with `GENERAL`; actual barriers still come from resource-state tracking. Pipeline-level manual texture writes are tracked as declared texture use, while raw `DescriptorSet::perform_writes` remains an escape hatch.
 - Texture-backed render targets update tracked attachment initial/final layouts at render-pass begin/end. Raw swapchain framebuffer paths still use explicit swapchain handling.
 - Full correctness requires tracking more than image layout: layout, pipeline stage, access mask, and subresource range.
 
@@ -76,21 +76,21 @@ Assumptions to confirm:
 - Objective: Before render-pass begin, let graphics pipelines transition sampled textures declared through descriptors.
 - Expected output: Conservative graphics pipeline texture transition helper that can be called outside render passes.
 - Dependencies/blockers: Graphics barriers must be recorded before render-pass begin; draw-time recording is too late for arbitrary image barriers.
-- Status: in progress; graphics pipelines retain auto-bound texture descriptors and expose configurable `record_texture_transitions` for call sites to run before render-pass begin. Tracer graphics passes use it for flora/leaves/particles and leaf-shadow rendering.
+- Status: in progress; graphics pipelines retain auto-bound and pipeline-written texture descriptors and expose configurable `record_texture_transitions` for call sites to run before render-pass begin. Tracer graphics passes use it for flora/leaves/particles and leaf-shadow rendering. Graphics auto texture transitions are enabled by default, but the explicit pre-render-pass hook remains necessary because Vulkan image barriers cannot be recorded inside arbitrary render-pass draw helpers.
 
 ### Phase 6: Migrate game-code explicit transitions gradually
 
 - Objective: Replace repeated manual transitions with declared usage through the new `vkn` API while keeping debug assertions available.
 - Expected output: Smaller call sites in `src/builder/*` and `src/tracer/*`, with behavior unchanged.
 - Dependencies/blockers: Phases 2-4 should exist first.
-- Status: in progress; game-code `record_transition(...)` calls in `src/builder/*` and `src/tracer/mod.rs` have been migrated to vkn-owned compute texture transitions, graphics texture transitions, or render-target attachment tracking. Remaining known gap: manual descriptor writes are not yet tracked unless the texture also came from auto resource binding.
+- Status: in progress; game-code `record_transition(...)` calls in `src/builder/*` and `src/tracer/mod.rs` have been migrated to vkn-owned compute texture transitions, graphics texture transitions, or render-target attachment tracking. Pipeline-level manual texture descriptor writes now update tracked texture use; raw descriptor-set writes remain manual/escape-hatch territory.
 
 ### Phase 7: Diagnostics and strict modes
 
 - Objective: Make automatic transitions easy to debug and configurable.
 - Expected output: Optional transition logging, validation assertions, manual-only mode, conservative/precise policy switches, and clear panic/error messages for unknown states.
 - Dependencies/blockers: Need the tracker API to stabilize first.
-- Status: not started.
+- Status: in progress; compute and graphics pipelines expose policy setters/getters for automatic/manual/assert tracking, auto-transition enabled/getter hooks, and tracked-binding counts. The `sync_diagnostics` feature now exposes optional texture-transition trace logging and the existing transition diagnostics sink for deeper inspection.
 
 ## Verification Method
 
@@ -142,6 +142,8 @@ If verification is not yet possible, the missing piece is the tracker/encoder im
 - 2026-06-01: Flipped compute automatic texture transitions to default-on, removed redundant per-pipeline opt-in calls, and kept an explicit opt-out for the cached contree leaf-write command buffer that reads a surface image initialized by later per-chunk surface builds.
 - 2026-06-01: Moved `SceneAccelBuilder::clear_tex` before recording its cached update command buffer, matching the plain-builder pattern where images are physically initialized before automatic-transition recording mutates their tracked state.
 - 2026-06-01: Revalidated default-on compute transitions with `cargo fmt --check`, `cargo check`, `cargo test`, and a release hidden run; latest-log scan shows only the known hidden-monitor and butterfly-atlas warnings.
+- 2026-06-01: Enabled graphics texture transitions by default, removed redundant graphics per-pipeline opt-ins, and made pipeline-level manual texture descriptor writes update tracked texture-use state.
+- 2026-06-01: Added pipeline resource-state policy getters/setters and feature-gated texture-transition trace logging for `sync_diagnostics`.
 
 ## Open Questions / Risks
 
@@ -152,4 +154,4 @@ If verification is not yet possible, the missing piece is the tracker/encoder im
 - Render-pass attachment tracking now works only for texture-backed framebuffers; raw image-view framebuffers such as swapchain targets still need explicit swapchain handling.
 - Overly conservative barriers may be correct but could hurt performance; precise barriers may require more metadata.
 - Existing `Image::set_layout` is an escape hatch and can hide bugs; migration should replace it with explicit tracker assumptions/assertions where possible.
-- Manual descriptor writes are not yet tracked for automatic compute/graphics transitions unless the texture also came from auto resource binding.
+- Pipeline-level manual texture descriptor writes are tracked for automatic compute/graphics transitions; raw `DescriptorSet::perform_writes` calls still bypass pipeline tracking and should remain an explicit escape hatch.
