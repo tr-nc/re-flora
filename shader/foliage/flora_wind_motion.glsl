@@ -39,6 +39,26 @@ vec3 grass_wind_vibration(vec3 wind_vec, float wind_gradient, uint instance_seed
     return cross_wind_dir * (vibration * gui_input.grass_vibration_amplitude_voxels * strength * tip_weight);
 }
 
+vec3 apple_wind_swing(vec3 wind_vec, uint instance_seed, float time) {
+    float strength = max(0.18, flora_wind_planar_strength(wind_vec));
+    vec2 wind_dir = flora_wind_planar_dir(wind_vec);
+    vec3 along_wind_dir = vec3(wind_dir.x, 0.0, wind_dir.y);
+    vec3 cross_wind_dir = vec3(-wind_dir.y, 0.0, wind_dir.x);
+
+    float phase = construct_float_01(wellons_hash(instance_seed ^ 0x9E3779B9u)) * FLORA_TWO_PI;
+    float speed_jitter = construct_float_01(wellons_hash(instance_seed ^ 0xB7E15162u));
+    float amp_jitter = construct_float_01(wellons_hash(instance_seed ^ 0xC2B2AE35u));
+    float speed = mix(1.6, 2.7, speed_jitter);
+    float amplitude_voxels = mix(1.3, 2.7, amp_jitter) * strength;
+
+    float swing = sin(time * speed + phase);
+    float clatter = 0.36 * sin(time * speed * 2.73 + phase * 1.41);
+    float bob = -abs(swing) * 0.28 * amplitude_voxels;
+
+    return along_wind_dir * (swing * amplitude_voxels) +
+           cross_wind_dir * (clatter * amplitude_voxels) + vec3(0.0, bob, 0.0);
+}
+
 vec3 leaf_wind_paddling(vec3 wind_vec, float wind_gradient, uint instance_seed,
                         ivec3 vox_local_pos, ivec3 gradient_origin, float time) {
     float strength = flora_wind_planar_strength(wind_vec);

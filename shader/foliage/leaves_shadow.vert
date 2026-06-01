@@ -80,14 +80,19 @@ void main() {
     vec3 instance_pos = instance_pos_voxels * scaling_factor;
 
     uint instance_seed = get_instance_seed(instance_pos_voxels);
-    vec3 wind_sample_pos = instance_pos + vec3(vox_local_pos) * scaling_factor;
-    uint wind_seed = get_wind_volume_voxel_seed(instance_seed, vox_local_pos);
+    bool is_apple = pc.instance_ty == FLORA_SPECIES_APPLE;
+    vec3 wind_sample_pos = is_apple ? instance_pos : instance_pos + vec3(vox_local_pos) * scaling_factor;
+    uint wind_seed = is_apple ? instance_seed : get_wind_volume_voxel_seed(instance_seed, vox_local_pos);
     vec3 wind_vec = sample_wind_volume(wind_sample_pos, wind_seed);
     vec3 wind_offset = wind_vec * wind_gradient * wind_gradient;
     float wind_motion_time =
         wind_volume_bucket_update_time(get_wind_volume_bucket_index(wind_seed), pc.time);
-    wind_offset += leaf_wind_paddling(wind_vec, wind_gradient, instance_seed, vox_local_pos,
-                                      gradient_origin, wind_motion_time);
+    if (is_apple) {
+        wind_offset = apple_wind_swing(wind_vec, instance_seed, wind_motion_time);
+    } else {
+        wind_offset += leaf_wind_paddling(wind_vec, wind_gradient, instance_seed, vox_local_pos,
+                                          gradient_origin, wind_motion_time);
+    }
     vec3 anchor_pos = (vec3(vox_local_pos) + wind_offset) * scaling_factor + instance_pos;
     vec3 voxel_pos   = anchor_pos + vec3(0.5) * scaling_factor;
     vec3 vert_pos    = get_vert_pos_with_billboard(shadow_camera_info.view_mat, voxel_pos,

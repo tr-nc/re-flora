@@ -7,7 +7,8 @@ const uint FLORA_SPECIES_TALL_GRASS  = 0;
 const uint FLORA_SPECIES_SHORT_GRASS = 1;
 const uint FLORA_SPECIES_LAVENDER    = 2;
 const uint FLORA_SPECIES_EMBER_BLOOM = 3;
-// Render-only tree leaf instance type; not included in FLORA_SPECIES_COUNT.
+// Render-only tree instance types; not included in FLORA_SPECIES_COUNT.
 const uint FLORA_SPECIES_TREE_LEAF   = 4;
+const uint FLORA_SPECIES_APPLE       = 5;
 
 #endif // FLORA_REGISTRY_GLSL

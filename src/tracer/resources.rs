@@ -4,9 +4,9 @@ use crate::{
     particles::{BUTTERFLY_ATLAS_ROW_FOR_VIEW, PARTICLE_CAPACITY, PARTICLE_SPRITE_FRAME_DIM},
     resource::Resource,
     tracer::{
-        leaves_construct::generate_indexed_voxel_leaves, load_butterfly_and_remap,
-        ButterflyPalettePreset, DenoiserResources, ExtentDependentResources, ParticleTextureLayout,
-        Vertex, WIND_VOLUME_BUCKET_COUNT,
+        leaves_construct::{generate_indexed_voxel_apple, generate_indexed_voxel_leaves},
+        load_butterfly_and_remap, ButterflyPalettePreset, DenoiserResources,
+        ExtentDependentResources, ParticleTextureLayout, Vertex, WIND_VOLUME_BUCKET_COUNT,
     },
     util::get_project_root,
 };
@@ -277,8 +277,10 @@ pub struct TracerTextureResources {
 pub struct TracerMeshResources {
     pub flora_meshes: Vec<FloraMeshResources>,
     pub leaves_resources: LeavesResources,
+    pub apple_resources: FloraMeshResources,
     pub flora_meshes_lod: Vec<FloraMeshResources>,
     pub leaves_resources_lod: LeavesResources,
+    pub apple_resources_lod: FloraMeshResources,
 }
 
 impl re_flora_vkn::ResourceContainer for TracerMeshResources {
@@ -556,6 +558,12 @@ impl TracerMeshResources {
             })
             .collect::<Vec<_>>();
         let leaves_resources = LeavesResources::new(device.clone(), allocator.clone(), false);
+        let apple_resources = FloraMeshResources::new(
+            device.clone(),
+            allocator.clone(),
+            false,
+            generate_indexed_voxel_apple,
+        );
         let flora_meshes_lod = species::species()
             .iter()
             .map(|desc| {
@@ -567,13 +575,17 @@ impl TracerMeshResources {
                 )
             })
             .collect::<Vec<_>>();
-        let leaves_resources_lod = LeavesResources::new(device, allocator, true);
+        let leaves_resources_lod = LeavesResources::new(device.clone(), allocator.clone(), true);
+        let apple_resources_lod =
+            FloraMeshResources::new(device, allocator, true, generate_indexed_voxel_apple);
 
         Self {
             flora_meshes,
             leaves_resources,
+            apple_resources,
             flora_meshes_lod,
             leaves_resources_lod,
+            apple_resources_lod,
         }
     }
 }
