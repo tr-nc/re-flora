@@ -94,7 +94,7 @@ Assumptions to confirm before implementation:
 - Objective: Split `mls_mpm.rs` into focused internal modules while preserving algorithms and tests.
 - Expected output: Separate areas for transfer, terrain cache/projection, density/EOS, diagnostics, and repair/collision helpers.
 - Dependencies/blockers: Should follow after Phase 4 or be kept very mechanical; large file split can create merge conflict risk.
-- Status: in progress; density/EOS, repair/collision, terrain-grid cache, transfer/math, P2G, G2P/grid update, quiet-settling, and diagnostic logging/stat helper groups moved into focused `crates/re-flora-water/src/mls_mpm/` submodules as mechanical extractions.
+- Status: in progress; density/EOS, repair/collision, terrain-grid cache, transfer/math, P2G, G2P/grid update, step orchestration, quiet-settling, and diagnostic logging/stat helper groups moved into focused `crates/re-flora-water/src/mls_mpm/` submodules as mechanical extractions.
 
 ### Phase 6: Behavior-identical micro cleanups
 
@@ -175,6 +175,7 @@ If verification is not possible:
 - 2026-06-01: Moved water diagnostic log/report methods into `crates/re-flora-water/src/mls_mpm/diagnostics.rs`, leaving call sites and log marker strings unchanged; validated with water-crate tests, full cargo tests, parser tests, and a release hidden run.
 - 2026-06-01: Moved grid clearing, particle-to-grid mass/momentum, terrain ghost-density refresh, and P2G fluid-stress passes into `crates/re-flora-water/src/mls_mpm/p2g.rs`; validated with water-crate tests, full cargo tests, parser tests, and a release hidden run.
 - 2026-06-01: Moved grid update, G2P gather/collision/repair, and quiet-settling damping passes into `crates/re-flora-water/src/mls_mpm/g2p.rs`; validated with water-crate tests, full cargo tests, parser tests, and a release hidden run.
+- 2026-06-01: Moved fixed-step update/substep orchestration into `crates/re-flora-water/src/mls_mpm/step.rs`, preserving perf log accumulation and diagnostic call order; validated with water-crate tests, full cargo tests, parser tests, and a release hidden run.
 
 ## Open Questions / Risks
 
