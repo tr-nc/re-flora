@@ -48,49 +48,49 @@ Assumptions to confirm:
 - Objective: Define the minimum `vkn` API for declared resource usage, explicit transitions, debug assertions, and configuration.
 - Expected output: Short design note or code skeleton for resource states such as sampled read, storage read/write, transfer src/dst, color attachment, depth attachment, and present.
 - Dependencies/blockers: Need agreement on naming and how much existing API remains public.
-- Status: in progress; added `ResourceState` constructors and a `ResourceStateTracker` policy API with automatic/manual/assert modes.
+- Status: complete for current scope; added `ResourceState` constructors and a `ResourceStateTracker` policy API with automatic/manual/assert modes.
 
 ### Phase 2: Centralize transition recording behind a tracker/encoder
 
 - Objective: Add a `vkn`-owned state tracker that records barriers from old state to requested state.
 - Expected output: A linear command encoder or transition tracker that uses existing `TextureTransition`/barrier machinery and keeps explicit transition hooks.
 - Dependencies/blockers: Must preserve current `Image` layout tracking or migrate it carefully.
-- Status: in progress; `Image` now tracks full `ResourceState` per layer while preserving layout-oriented APIs.
+- Status: complete for current scope; `Image` now tracks full `ResourceState` per layer while preserving layout-oriented APIs.
 
 ### Phase 3: Move render-pass attachment state updates into `vkn`
 
 - Objective: Make render-target begin/end own attachment state transitions/tracking instead of requiring game code to call `set_layout`.
 - Expected output: Render pass/target paths update tracked image state based on attachment initial/final layouts.
 - Dependencies/blockers: Raw swapchain framebuffers still have no texture identity, so tracking applies first to texture-backed framebuffers.
-- Status: in progress; texture-backed `Framebuffer`s retain attachment `Texture`s and `RenderTarget` updates tracked initial/final attachment layouts at begin/end.
+- Status: complete for current scope; texture-backed `Framebuffer`s retain attachment `Texture`s and `RenderTarget` updates tracked initial/final attachment layouts at begin/end.
 
 ### Phase 4: Add automatic transitions for compute/descriptor texture use
 
 - Objective: Before dispatch, transition bound textures into the state required by their descriptor usage.
 - Expected output: Conservative defaults from reflected descriptor type, with optional explicit annotations for sampled vs storage read/write cases.
 - Dependencies/blockers: Descriptor metadata alone may not distinguish readonly/writeonly storage images; may need binding annotations or shader reflection support.
-- Status: in progress; compute pipelines now retain texture bindings from auto resource binding and transition texture descriptors before direct and indirect dispatch by default. Sampled descriptors use `SHADER_READ_ONLY`; storage-image descriptors remain `GENERAL`. The default-on path can still be disabled per pipeline for cached command buffers whose referenced images are intentionally initialized later.
+- Status: complete for current scope; compute pipelines now retain texture bindings from auto resource binding and transition texture descriptors before direct and indirect dispatch by default. Sampled descriptors use `SHADER_READ_ONLY`; storage-image descriptors remain `GENERAL`. The default-on path can still be disabled per pipeline for cached command buffers whose referenced images are intentionally initialized later.
 
 ### Phase 5: Add graphics sampled texture transition hooks
 
 - Objective: Before render-pass begin, let graphics pipelines transition sampled textures declared through descriptors.
 - Expected output: Conservative graphics pipeline texture transition helper that can be called outside render passes.
 - Dependencies/blockers: Graphics barriers must be recorded before render-pass begin; draw-time recording is too late for arbitrary image barriers.
-- Status: in progress; graphics pipelines retain auto-bound and pipeline-written texture descriptors and expose configurable `record_texture_transitions` for call sites to run before render-pass begin. Tracer graphics passes use it for flora/leaves/particles and leaf-shadow rendering. Graphics auto texture transitions are enabled by default, but the explicit pre-render-pass hook remains necessary because Vulkan image barriers cannot be recorded inside arbitrary render-pass draw helpers.
+- Status: complete for current scope; graphics pipelines retain auto-bound and pipeline-written texture descriptors and expose configurable `record_texture_transitions` for call sites to run before render-pass begin. Tracer graphics passes use it for flora/leaves/particles and leaf-shadow rendering. Graphics auto texture transitions are enabled by default, but the explicit pre-render-pass hook remains necessary because Vulkan image barriers cannot be recorded inside arbitrary render-pass draw helpers.
 
 ### Phase 6: Migrate game-code explicit transitions gradually
 
 - Objective: Replace repeated manual transitions with declared usage through the new `vkn` API while keeping debug assertions available.
 - Expected output: Smaller call sites in `src/builder/*` and `src/tracer/*`, with behavior unchanged.
 - Dependencies/blockers: Phases 2-4 should exist first.
-- Status: in progress; game-code `record_transition(...)` calls in `src/builder/*` and `src/tracer/mod.rs` have been migrated to vkn-owned compute texture transitions, graphics texture transitions, or render-target attachment tracking. Pipeline-level manual texture descriptor writes now update tracked texture use; raw descriptor-set writes remain manual/escape-hatch territory.
+- Status: complete for current scope; game-code `record_transition(...)` calls in `src/builder/*` and `src/tracer/mod.rs` have been migrated to vkn-owned compute texture transitions, graphics texture transitions, or render-target attachment tracking. Pipeline-level manual texture descriptor writes now update tracked texture use; raw descriptor-set writes remain manual/escape-hatch territory.
 
 ### Phase 7: Diagnostics and strict modes
 
 - Objective: Make automatic transitions easy to debug and configurable.
 - Expected output: Optional transition logging, validation assertions, manual-only mode, conservative/precise policy switches, and clear panic/error messages for unknown states.
 - Dependencies/blockers: Need the tracker API to stabilize first.
-- Status: in progress; compute and graphics pipelines expose policy setters/getters for automatic/manual/assert tracking, auto-transition enabled/getter hooks, and tracked-binding counts. The `sync_diagnostics` feature now exposes optional texture-transition trace logging and the existing transition diagnostics sink for deeper inspection.
+- Status: complete for current scope; compute and graphics pipelines expose policy setters/getters for automatic/manual/assert tracking, auto-transition enabled/getter hooks, and tracked-binding counts. The `sync_diagnostics` feature now exposes optional texture-transition trace logging and the existing transition diagnostics sink for deeper inspection.
 
 ## Verification Method
 
@@ -144,6 +144,7 @@ If verification is not yet possible, the missing piece is the tracker/encoder im
 - 2026-06-01: Revalidated default-on compute transitions with `cargo fmt --check`, `cargo check`, `cargo test`, and a release hidden run; latest-log scan shows only the known hidden-monitor and butterfly-atlas warnings.
 - 2026-06-01: Enabled graphics texture transitions by default, removed redundant graphics per-pipeline opt-ins, and made pipeline-level manual texture descriptor writes update tracked texture-use state.
 - 2026-06-01: Added pipeline resource-state policy getters/setters and feature-gated texture-transition trace logging for `sync_diagnostics`.
+- 2026-06-01: Marked the rendergraph-lite transition migration phases complete for the current scope after full validation passed.
 
 ## Open Questions / Risks
 
