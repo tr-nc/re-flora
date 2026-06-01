@@ -73,7 +73,7 @@ Assumptions to confirm before implementation:
 - Objective: Replace repeated manual `Instant` timing blocks with a small, opt-in timing helper that preserves existing log semantics.
 - Expected output: Reusable scoped timing/timing-accumulator utilities for frame and queue timings, with disabled-path overhead kept minimal.
 - Dependencies/blockers: Must not allocate or format strings when profiling/timing UI is disabled.
-- Status: not started
+- Status: in progress; `FrameCpuTimings` and `FrameCpuScope` now centralize frame CPU scope accumulation while preserving existing frame timing labels and `--perf` log semantics.
 
 ### Phase 3: Perf log parser improvements
 
@@ -163,6 +163,7 @@ If verification is not possible:
 - 2026-06-01: Moved screenshot readback prepare/record/write helpers from `src/app/core/mod.rs` to `src/app/core/screenshot.rs`, leaving call sites and behavior unchanged.
 - 2026-06-01: Replaced the per-frame flora color `Vec` allocation with a fixed stack array sliced to the current species count; color selection behavior is unchanged.
 - 2026-06-01: Moved loading progress state, loading frame rendering, final loading setup, and startup terrain query validation into `src/app/core/loading.rs`, preserving the existing loading flow.
+- 2026-06-01: Added `FrameCpuTimings`/`FrameCpuScope` in `src/app/core/frame_timing.rs` and replaced repeated manual frame CPU timing accumulation in the redraw loop, preserving existing timing fields and perf log labels.
 
 ## Open Questions / Risks
 

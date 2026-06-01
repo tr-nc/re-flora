@@ -15,7 +15,9 @@ mod ui_style;
 mod vegetation;
 mod water;
 
-use self::frame_timing::{draw_frame_timing_panel, FrameTimingSnapshot};
+use self::frame_timing::{
+    draw_frame_timing_panel, FrameCpuScope, FrameCpuTimings, FrameTimingSnapshot,
+};
 use self::loading::{LoadingPhase, LoadingState};
 use self::particles::TreeLeafEmitter;
 use self::player_tools::PlayerToolState;
@@ -1346,14 +1348,7 @@ impl App {
                 let frame_start = Instant::now();
                 let frame_perf_enabled = self.perf_logging;
                 let frame_timing_enabled = frame_perf_enabled || self.frame_timing_panel_visible;
-                let mut contree_cache_poll_ms = 0.0f32;
-                let mut terrain_sdf_source_ms = 0.0f32;
-                let mut deferred_chunk_rebuild_ms = 0.0f32;
-                let mut water_terrain_cache_ms = 0.0f32;
-                let mut terrain_sdf_collider_ms = 0.0f32;
-                let mut water_edit_soak_ms = 0.0f32;
-                let mut water_handoff_ms = 0.0f32;
-                let mut particle_update_ms = 0.0f32;
+                let mut cpu_timings = FrameCpuTimings::new(frame_timing_enabled);
 
                 // resize the window if needed
                 if self.is_resize_pending {
@@ -1363,17 +1358,15 @@ impl App {
                 self.window_state.maintain_cursor_grab();
 
                 self.time_info.update(self.perf_logging);
-                let contree_cache_poll_start = frame_timing_enabled.then(Instant::now);
-                self.contree_builder
-                    .poll_cpu_chunk_cache_jobs(self.tracer.camera_position(), VOXEL_DIM_PER_CHUNK);
-                if let Some(start) = contree_cache_poll_start {
-                    contree_cache_poll_ms += start.elapsed().as_secs_f32() * 1000.0;
-                }
-                let terrain_sdf_source_start = frame_timing_enabled.then(Instant::now);
-                self.process_terrain_sdf_source_updates();
-                if let Some(start) = terrain_sdf_source_start {
-                    terrain_sdf_source_ms += start.elapsed().as_secs_f32() * 1000.0;
-                }
+                cpu_timings.time(FrameCpuScope::ContreePoll, || {
+                    self.contree_builder.poll_cpu_chunk_cache_jobs(
+                        self.tracer.camera_position(),
+                        VOXEL_DIM_PER_CHUNK,
+                    );
+                });
+                cpu_timings.time(FrameCpuScope::TerrainSource, || {
+                    self.process_terrain_sdf_source_updates();
+                });
 
                 if self.loading_state.is_some() {
                     self.process_loading_step();
@@ -1831,35 +1824,21 @@ impl App {
                     return;
                 }
 
-                let terrain_sdf_source_start = frame_timing_enabled.then(Instant::now);
-                self.process_terrain_sdf_source_updates();
-                if let Some(start) = terrain_sdf_source_start {
-                    terrain_sdf_source_ms += start.elapsed().as_secs_f32() * 1000.0;
-                }
-
-                let deferred_chunk_rebuild_start = frame_timing_enabled.then(Instant::now);
-                self.process_deferred_chunk_rebuild();
-                if let Some(start) = deferred_chunk_rebuild_start {
-                    deferred_chunk_rebuild_ms += start.elapsed().as_secs_f32() * 1000.0;
-                }
-
-                let water_terrain_cache_start = frame_timing_enabled.then(Instant::now);
-                self.process_deferred_water_terrain_cache_rebuild();
-                if let Some(start) = water_terrain_cache_start {
-                    water_terrain_cache_ms += start.elapsed().as_secs_f32() * 1000.0;
-                }
-
-                let terrain_sdf_collider_start = frame_timing_enabled.then(Instant::now);
-                self.process_deferred_terrain_sdf_collider_rebuild();
-                if let Some(start) = terrain_sdf_collider_start {
-                    terrain_sdf_collider_ms += start.elapsed().as_secs_f32() * 1000.0;
-                }
-
-                let water_edit_soak_start = frame_timing_enabled.then(Instant::now);
-                self.process_water_edit_soak();
-                if let Some(start) = water_edit_soak_start {
-                    water_edit_soak_ms += start.elapsed().as_secs_f32() * 1000.0;
-                }
+                cpu_timings.time(FrameCpuScope::TerrainSource, || {
+                    self.process_terrain_sdf_source_updates();
+                });
+                cpu_timings.time(FrameCpuScope::DeferredRebuild, || {
+                    self.process_deferred_chunk_rebuild();
+                });
+                cpu_timings.time(FrameCpuScope::WaterCache, || {
+                    self.process_deferred_water_terrain_cache_rebuild();
+                });
+                cpu_timings.time(FrameCpuScope::ColliderQueue, || {
+                    self.process_deferred_terrain_sdf_collider_rebuild();
+                });
+                cpu_timings.time(FrameCpuScope::WaterEditSoak, || {
+                    self.process_water_edit_soak();
+                });
 
                 if self.regenerate_trees_requested {
                     self.regenerate_trees_requested = false;
@@ -1913,17 +1892,13 @@ impl App {
                         self.update_water_sim(frame_delta_time, world_tick_seconds);
                         let elapsed_ms = water_handoff_start.elapsed().as_secs_f32() * 1000.0;
                         self.water_particle_handoff_main_thread_ms = Some(elapsed_ms);
-                        if frame_timing_enabled {
-                            water_handoff_ms += elapsed_ms;
-                        }
+                        cpu_timings.add_ms(FrameCpuScope::WaterHandoff, elapsed_ms);
                     } else {
                         self.water_particle_handoff_main_thread_ms = None;
                     }
-                    let particle_update_start = frame_timing_enabled.then(Instant::now);
-                    self.update_particle_simulation(frame_delta_time);
-                    if let Some(start) = particle_update_start {
-                        particle_update_ms += start.elapsed().as_secs_f32() * 1000.0;
-                    }
+                    cpu_timings.time(FrameCpuScope::Particles, || {
+                        self.update_particle_simulation(frame_delta_time);
+                    });
                 }
 
                 let gpu_record_start = Instant::now();
@@ -2277,31 +2252,9 @@ impl App {
 
                 let total_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
                 let frame_count = self.time_info.total_frame_count();
-                let tracked_cpu_ms = contree_cache_poll_ms
-                    + terrain_sdf_source_ms
-                    + deferred_chunk_rebuild_ms
-                    + water_terrain_cache_ms
-                    + terrain_sdf_collider_ms
-                    + water_edit_soak_ms
-                    + water_handoff_ms
-                    + particle_update_ms;
-                let untracked_cpu_ms = (total_ms - egui_ms - gpu_ms - tracked_cpu_ms).max(0.0);
-                self.frame_timing_snapshot = FrameTimingSnapshot {
-                    frame: frame_count,
-                    total_ms,
-                    egui_ms,
-                    gpu_present_ms: gpu_ms,
-                    contree_poll_ms: contree_cache_poll_ms,
-                    terrain_source_ms: terrain_sdf_source_ms,
-                    deferred_rebuild_ms: deferred_chunk_rebuild_ms,
-                    water_cache_ms: water_terrain_cache_ms,
-                    collider_queue_ms: terrain_sdf_collider_ms,
-                    water_edit_soak_ms,
-                    water_handoff_ms,
-                    particles_ms: particle_update_ms,
-                    tracked_cpu_ms,
-                    untracked_cpu_ms,
-                };
+                let frame_timing_snapshot =
+                    cpu_timings.snapshot(frame_count, total_ms, egui_ms, gpu_ms);
+                self.frame_timing_snapshot = frame_timing_snapshot;
                 if frame_perf_enabled && frame_count.is_multiple_of(30) {
                     log::info!(
                         "[PERF] frame {} total {:.2}ms egui {:.2}ms gpu+present {:.2}ms",
@@ -2313,10 +2266,7 @@ impl App {
                     self.log_gpu_profiler_frame(frame_count);
                 }
                 if frame_perf_enabled {
-                    let queue_work_ms = terrain_sdf_source_ms
-                        + deferred_chunk_rebuild_ms
-                        + water_terrain_cache_ms
-                        + terrain_sdf_collider_ms;
+                    let queue_work_ms = cpu_timings.queue_work_ms();
                     if frame_count.is_multiple_of(30) || total_ms >= 16.0 || queue_work_ms >= 2.0 {
                         log::info!(
                             "[PERF][FRAME] frame {} total {:.2}ms egui {:.2}ms gpu_present {:.2}ms contree_poll {:.2}ms terrain_source {:.2}ms deferred_rebuild {:.2}ms cache_queue {:.2}ms collider_queue {:.2}ms water_edit_soak {:.2}ms water_handoff {:.2}ms particles {:.2}ms tracked_cpu {:.2}ms untracked_cpu {:.2}ms queues deferred_pending={} deferred_active={} deferred_inflight={} source_pending={} source_active={} collider_pending={} collider_active={} collider_inflight={} cache_pending={} cache_active={} cache_inflight={}",
@@ -2324,16 +2274,16 @@ impl App {
                             total_ms,
                             egui_ms,
                             gpu_ms,
-                            contree_cache_poll_ms,
-                            terrain_sdf_source_ms,
-                            deferred_chunk_rebuild_ms,
-                            water_terrain_cache_ms,
-                            terrain_sdf_collider_ms,
-                            water_edit_soak_ms,
-                            water_handoff_ms,
-                            particle_update_ms,
-                            tracked_cpu_ms,
-                            untracked_cpu_ms,
+                            frame_timing_snapshot.contree_poll_ms,
+                            frame_timing_snapshot.terrain_source_ms,
+                            frame_timing_snapshot.deferred_rebuild_ms,
+                            frame_timing_snapshot.water_cache_ms,
+                            frame_timing_snapshot.collider_queue_ms,
+                            frame_timing_snapshot.water_edit_soak_ms,
+                            frame_timing_snapshot.water_handoff_ms,
+                            frame_timing_snapshot.particles_ms,
+                            frame_timing_snapshot.tracked_cpu_ms,
+                            frame_timing_snapshot.untracked_cpu_ms,
                             self.deferred_chunk_rebuilds.len(),
                             self.deferred_chunk_rebuilds.active_len(),
                             self.terrain_chunk_rebuild_inflight.is_some(),
