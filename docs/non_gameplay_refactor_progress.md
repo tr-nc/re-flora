@@ -80,14 +80,14 @@ Assumptions to confirm before implementation:
 - Objective: Make existing release hidden-run logs easier to compare and summarize.
 - Expected output: `tools/parse_perf_log.py` support for frame, water, sync rebuild, GPU scope, and particle markers; concise table/CSV/JSON output if practical.
 - Dependencies/blockers: Need sample logs from `target/re-flora-logs` or fixtures.
-- Status: done for parser structure, GPU/particle markers, detailed-frame queue fields, water diagnostic fields, latest-log pointer handling, and Markdown/JSON/CSV output; real-run fixture expansion remains a follow-up.
+- Status: done for parser structure, GPU/particle markers, detailed-frame queue fields, water and water-thread diagnostic fields, latest-log pointer handling, and Markdown/JSON/CSV output; real-run fixture expansion remains a follow-up.
 
 ### Phase 4: Water measurement-only diagnostics
 
 - Objective: Add low-risk `--perf` diagnostics that prepare future water optimization without changing simulation behavior.
 - Expected output: Metrics for interior fast-path ratio, base-cell particle distribution, G2P/P2G locality hints, snapshot publish cost, command queue pressure, and terrain-cache fallback/skip summaries.
 - Dependencies/blockers: Must keep normal non-`--perf` simulation unchanged and avoid distorting hot paths excessively.
-- Status: not started
+- Status: in progress; added `--perf`-gated water simulation thread telemetry for command drain pressure and snapshot publish cost without affecting non-perf simulation behavior.
 
 ### Phase 5: Water solver readability refactor
 
@@ -166,6 +166,7 @@ If verification is not possible:
 - 2026-06-01: Added `FrameCpuTimings`/`FrameCpuScope` in `src/app/core/frame_timing.rs` and replaced repeated manual frame CPU timing accumulation in the redraw loop, preserving existing timing fields and perf log labels.
 - 2026-06-01: Extended `tools/parse_perf_log.py` to summarize existing `[PERF][WATER]` diagnostic counters such as terrain cache skip/project ratios, exact fallback counts, shadow-sample error, active nodes, and terrain penetration/no-SDF counts.
 - 2026-06-01: Extended detailed-frame perf parsing to summarize queue pressure fields (`*_pending`, `*_active`, `*_inflight`) from existing `[PERF][FRAME]` markers.
+- 2026-06-01: Added `--perf`-only `[PERF][WATER_THREAD]` telemetry for water worker command drain and snapshot publish costs, plus parser support and unit tests.
 
 ## Open Questions / Risks
 

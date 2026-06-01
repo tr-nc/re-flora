@@ -30,6 +30,7 @@ FRAME_RE = re.compile(
 WATER_RE = re.compile(
     r"\[PERF\]\[WATER\] particles (\d+) .*? substeps (\d+) total ([0-9.]+)ms avg ([0-9.]+)ms/substep"
 )
+WATER_THREAD_RE = re.compile(r"\[PERF\]\[WATER_THREAD\]")
 PARTICLES_RE = re.compile(r"\[PERF\]\[PARTICLES\]")
 GPU_FRAME_SCOPE_RE = re.compile(r"\[PERF\]\[GPU_FRAME_SCOPE\]")
 GPU_JOB_SCOPE_RE = re.compile(r"\[PERF\]\[GPU_JOB_SCOPE\]")
@@ -130,6 +131,24 @@ WATER_DIAGNOSTIC_FIELDS = [
     ("no_sdf", "terrain_no_sdf"),
 ]
 
+WATER_THREAD_MS_FIELDS = ["command_drain", "publish", "publish_lock"]
+
+WATER_THREAD_VALUE_FIELDS = [
+    "seconds",
+    "particles",
+    "ticks",
+    "active_ticks",
+    "idle_ticks",
+    "commands",
+    "commands_per_tick",
+    "max_commands_per_tick",
+    "maxed_command_ticks",
+    "publish_count",
+    "publish_particles",
+    "publish_particles_per_publish",
+    "snapshot_bucket_count",
+]
+
 
 @dataclass
 class MetricGroup:
@@ -196,6 +215,13 @@ def extract_eq_bool(line: str, field_name: str) -> Optional[float]:
     if not match:
         return None
     return 1.0 if match.group(1) == "true" else 0.0
+
+
+def extract_eq_number(line: str, field_name: str) -> Optional[float]:
+    match = re.search(rf"\b{re.escape(field_name)}=({NUMBER_TOKEN})\b", line)
+    if not match:
+        return None
+    return float(match.group(1))
 
 
 def extract_labeled_number(line: str, field_name: str) -> Optional[float]:
@@ -280,6 +306,19 @@ def parse_log_lines(lines: Iterable[str], source: str = "<memory>") -> PerfSumma
                 value = extract_labeled_number(line, field_name)
                 if value is not None:
                     summary.add("water_diagnostics", "Water diagnostics", "value", metric, value)
+            continue
+
+        if WATER_THREAD_RE.search(line):
+            if (value := extract_eq_bool(line, "enabled")) is not None:
+                summary.add("water_thread_values", "Water thread samples", "value", "enabled", value)
+            for field_name in WATER_THREAD_VALUE_FIELDS:
+                value = extract_eq_number(line, field_name)
+                if value is not None:
+                    summary.add("water_thread_values", "Water thread samples", "value", field_name, value)
+            for field_name in WATER_THREAD_MS_FIELDS:
+                value = extract_eq_ms(line, field_name)
+                if value is not None:
+                    summary.add("water_thread", "Water thread timings", "ms", field_name, value)
             continue
 
         if PARTICLES_RE.search(line):
