@@ -299,6 +299,10 @@ impl PipelineBuilder {
 
         let wind_volume_ppl =
             ComputePipeline::new(device, &shader_modules.wind_volume_sm, pool, &[resources]);
+        // First opt-in automatic texture transition path: this pipeline owns one
+        // storage image and previously had a matching manual GENERAL transition
+        // immediately before dispatch.
+        wind_volume_ppl.set_auto_texture_transitions_enabled(true);
 
         let vsm_creation_ppl =
             ComputePipeline::new(device, &shader_modules.vsm_creation_sm, pool, &[resources]);

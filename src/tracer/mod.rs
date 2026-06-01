@@ -1724,11 +1724,6 @@ impl Tracer {
     }
 
     fn record_wind_volume_pass(&mut self, cmdbuf: &CommandBuffer, time: f32) {
-        self.resources
-            .wind_volume_tex
-            .get_image()
-            .record_transition(cmdbuf, 0, TextureLayout::GENERAL);
-
         let bucket_count = WIND_VOLUME_BUCKET_COUNT;
         let step_seconds = self.wind_volume_bucket_step_seconds();
         let step_index = (time / step_seconds).floor().max(0.0) as u32;

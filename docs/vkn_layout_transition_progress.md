@@ -72,7 +72,7 @@ Assumptions to confirm:
 - Objective: Before dispatch, transition bound textures into the state required by their descriptor usage.
 - Expected output: Conservative defaults from reflected descriptor type, with optional explicit annotations for sampled vs storage read/write cases.
 - Dependencies/blockers: Descriptor metadata alone may not distinguish readonly/writeonly storage images; may need binding annotations or shader reflection support.
-- Status: in progress; compute pipelines now retain texture bindings from auto resource binding and have an opt-in path to transition texture descriptors before direct and indirect dispatch. It is disabled by default until descriptor layout metadata is made precise enough for all startup paths.
+- Status: in progress; compute pipelines now retain texture bindings from auto resource binding and have an opt-in path to transition texture descriptors before direct and indirect dispatch. It remains disabled by default until descriptor layout metadata is made precise enough for all startup paths; the wind-volume compute pipeline is the first narrow opt-in call site.
 
 ### Phase 5: Migrate game-code explicit transitions gradually
 
@@ -126,6 +126,7 @@ If verification is not yet possible, the missing piece is the tracker/encoder im
 - 2026-06-01: Validated the first implementation slice with `cargo fmt`, `cargo check`, `cargo test`, and a release hidden run; latest-log inspection found only the pre-existing multiple-butterfly-atlas warning.
 - 2026-06-01: Added compute-pipeline automatic image transition plumbing for auto-bound texture descriptors. The first attempt used shader-read-only for sampled descriptors, but validation exposed that current descriptor writes still advertise `GENERAL`; adjusted compute texture states to match `GENERAL` and left automatic compute texture transitions opt-in/disabled by default until descriptor layout metadata and startup initialization paths are made precise. Manual descriptor writes remain a known gap.
 - 2026-06-01: Revalidated after making compute automatic texture transitions opt-in: `cargo fmt`, `cargo check`, `cargo test`, and release hidden run all passed; latest-log scan found only the known butterfly-atlas warning.
+- 2026-06-01: Enabled opt-in automatic compute texture transitions for the wind-volume pipeline and removed its matching manual pre-dispatch `GENERAL` transition as the first game-code migration candidate.
 
 ## Open Questions / Risks
 
