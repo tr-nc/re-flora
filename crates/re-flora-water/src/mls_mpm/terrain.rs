@@ -1,7 +1,7 @@
 use glam::{IVec3, UVec3, Vec3};
 use std::time::Instant;
 
-use super::grid_index_dims;
+use super::transfer::grid_index_dims;
 use crate::{
     collider::WaterTerrainColliderSet,
     pond::{PondWaterConfig, PondWaterSim, WaterTerrainGridSample},

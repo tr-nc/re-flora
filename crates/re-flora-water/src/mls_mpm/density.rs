@@ -1,6 +1,9 @@
 use glam::{IVec3, Mat3, UVec3, Vec3};
 
-use super::{grid_index_dims, in_grid, WaterGridNode, WaterTerrainGridSample};
+use super::{
+    transfer::{grid_index_dims, in_grid},
+    WaterGridNode, WaterTerrainGridSample,
+};
 
 pub(super) const MAX_J: f32 = 8.0;
 pub(super) const NO_TENSION_MAX_J: f32 = 1.0;
