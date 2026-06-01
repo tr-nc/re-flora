@@ -451,24 +451,28 @@ impl SurfaceBuilder {
             &pool,
             &[&resources, plain_builder_resources],
         );
+        clear_occupancy_ppl.set_auto_texture_transitions_enabled(true);
         let instances_to_occupancy_ppl = ComputePipeline::new(
             device,
             &instances_to_occupancy_sm,
             &pool,
             &[&resources, plain_builder_resources],
         );
+        instances_to_occupancy_ppl.set_auto_texture_transitions_enabled(true);
         let edit_occupancy_ppl = ComputePipeline::new(
             device,
             &edit_occupancy_sm,
             &pool,
             &[&resources, plain_builder_resources],
         );
+        edit_occupancy_ppl.set_auto_texture_transitions_enabled(true);
         let occupancy_to_instances_ppl = ComputePipeline::new(
             device,
             &occupancy_to_instances_sm,
             &pool,
             &[&resources, plain_builder_resources],
         );
+        occupancy_to_instances_ppl.set_auto_texture_transitions_enabled(true);
         let prepare_active_surface_flora_dispatch_ppl = ComputePipeline::new(
             device,
             &prepare_active_surface_flora_dispatch_sm,
@@ -959,12 +963,6 @@ impl SurfaceBuilder {
                 result
             }};
         }
-
-        self.resources.occupancy_data.get_image().record_transition(
-            &cmdbuf,
-            0,
-            TextureLayout::GENERAL,
-        );
 
         record_timed_flora_edit_pass!({
             self.clear_occupancy_ppl.record(

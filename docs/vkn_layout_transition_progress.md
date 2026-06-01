@@ -128,6 +128,7 @@ If verification is not yet possible, the missing piece is the tracker/encoder im
 - 2026-06-01: Revalidated after making compute automatic texture transitions opt-in: `cargo fmt`, `cargo check`, `cargo test`, and release hidden run all passed; latest-log scan found only the known butterfly-atlas warning.
 - 2026-06-01: Enabled opt-in automatic compute texture transitions for the wind-volume pipeline and removed its matching manual pre-dispatch `GENERAL` transition as the first game-code migration candidate.
 - 2026-06-01: Removed tracer render-pass post-end `set_layout(GENERAL)` calls for graphics output/depth and shadow depth textures; texture-backed `RenderTarget` final-layout tracking now owns these assumptions.
+- 2026-06-01: Enabled opt-in automatic compute texture transitions for surface flora occupancy edit passes and removed the shared manual `occupancy_data -> GENERAL` pre-dispatch transition.
 
 ## Open Questions / Risks
 
