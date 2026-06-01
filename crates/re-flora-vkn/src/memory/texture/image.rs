@@ -1,7 +1,8 @@
 use super::{ImageDesc, TextureRegion};
 use crate::{
-    execute_one_time_command, Allocator, Buffer, BufferUsage, CommandBuffer, CommandPool, Device,
-    MemoryLocation, Queue, TextureLayout, TextureTransition,
+    execute_one_time_command, record_image_transition_barrier, Allocator, Buffer, BufferUsage,
+    CommandBuffer, CommandPool, Device, MemoryLocation, Queue, ResourceState, TextureLayout,
+    TextureTransition,
 };
 use anyhow::Result;
 use ash::vk;
@@ -15,7 +16,7 @@ struct ImageInner {
     image: vk::Image,
     allocator: Allocator,
     allocated_mem: Allocation,
-    current_layout: Mutex<Vec<vk::ImageLayout>>,
+    current_state: Mutex<Vec<ResourceState>>,
     size: vk::DeviceSize,
 }
 
@@ -106,7 +107,7 @@ impl Image {
             * desc.get_pixel_size() as vk::DeviceSize;
 
         // initialize one entry per array layer
-        let layouts = vec![desc.initial_layout.as_raw(); desc.array_len as usize];
+        let states = vec![ResourceState::from_layout(desc.initial_layout); desc.array_len as usize];
 
         Ok(Self(Arc::new(ImageInner {
             device: device.clone(),
@@ -114,7 +115,7 @@ impl Image {
             desc: *desc,
             allocator,
             allocated_mem,
-            current_layout: Mutex::new(layouts),
+            current_state: Mutex::new(states),
             size,
         })))
     }
@@ -343,35 +344,103 @@ impl Image {
         array_layer: u32,
         target_layout: TextureLayout,
     ) {
-        let device = &self.0.device;
-        let mut layouts = self.0.current_layout.lock().unwrap();
-        let idx = array_layer as usize;
-        let old_layout = TextureLayout::from_raw(layouts[idx]);
-
-        if old_layout == target_layout {
-            return;
-        }
-
-        // emit a barrier for exactly one layer
-        record_image_transition_barrier(
-            device.as_raw(),
-            cmdbuf.as_raw(),
-            TextureTransition::from_layouts(old_layout, target_layout),
-            self.0.image,
-            self.0.desc.get_aspect_mask(),
+        self.record_state_transition(
+            cmdbuf,
             array_layer,
-            1, // only one layer
+            1,
+            ResourceState::from_layout(target_layout),
+        );
+    }
+
+    /// Transition one or more array layers from their tracked states to `target_state`.
+    pub(crate) fn record_state_transition(
+        &self,
+        cmdbuf: &CommandBuffer,
+        base_array_layer: u32,
+        layer_count: u32,
+        target_state: ResourceState,
+    ) {
+        let device = &self.0.device;
+        let mut states = self.0.current_state.lock().unwrap();
+        let start = base_array_layer as usize;
+        let end = start + layer_count as usize;
+        assert!(
+            end <= states.len(),
+            "image state transition layer range {}..{} exceeds array length {}",
+            base_array_layer,
+            base_array_layer + layer_count,
+            states.len()
         );
 
-        // update our tracked layout
-        layouts[idx] = target_layout.as_raw();
+        let mut run_start = base_array_layer;
+        let mut run_len = 0_u32;
+        let mut run_old_state = None;
+
+        for layer in base_array_layer..base_array_layer + layer_count {
+            let old_state = states[layer as usize];
+            if old_state == target_state {
+                if let Some(old_state) = run_old_state.take() {
+                    record_image_transition_barrier(
+                        device.as_raw(),
+                        cmdbuf.as_raw(),
+                        TextureTransition::new(old_state, target_state),
+                        self.0.image,
+                        self.0.desc.get_aspect_mask(),
+                        run_start,
+                        run_len,
+                    );
+                    run_len = 0;
+                }
+                continue;
+            }
+
+            if run_old_state == Some(old_state) {
+                run_len += 1;
+            } else {
+                if let Some(prev_old_state) = run_old_state {
+                    record_image_transition_barrier(
+                        device.as_raw(),
+                        cmdbuf.as_raw(),
+                        TextureTransition::new(prev_old_state, target_state),
+                        self.0.image,
+                        self.0.desc.get_aspect_mask(),
+                        run_start,
+                        run_len,
+                    );
+                }
+                run_start = layer;
+                run_len = 1;
+                run_old_state = Some(old_state);
+            }
+        }
+
+        if let Some(old_state) = run_old_state {
+            record_image_transition_barrier(
+                device.as_raw(),
+                cmdbuf.as_raw(),
+                TextureTransition::new(old_state, target_state),
+                self.0.image,
+                self.0.desc.get_aspect_mask(),
+                run_start,
+                run_len,
+            );
+        }
+
+        for state in &mut states[start..end] {
+            *state = target_state;
+        }
     }
 
     /// Force set the layout for the given array layer.
     #[allow(dead_code)]
     pub fn set_layout(&self, array_layer: u32, new_layout: TextureLayout) {
-        let mut layouts = self.0.current_layout.lock().unwrap();
-        layouts[array_layer as usize] = new_layout.as_raw();
+        self.set_state(array_layer, ResourceState::from_layout(new_layout));
+    }
+
+    /// Force set the tracked state for the given array layer.
+    pub fn set_state(&self, array_layer: u32, new_state: ResourceState) {
+        let mut states = self.0.current_state.lock().unwrap();
+        states[array_layer as usize] = new_state;
     }
 
     /// Loads an RGBA image from the given path and checks if it has the same size as the texture.
@@ -570,15 +639,17 @@ impl Image {
     }
 
     pub fn get_layout(&self, array_layer: u32) -> TextureLayout {
-        TextureLayout::from_raw(
-            *self
-                .0
-                .current_layout
-                .lock()
-                .unwrap()
-                .get(array_layer as usize)
-                .unwrap(),
-        )
+        self.get_state(array_layer).layout()
+    }
+
+    pub fn get_state(&self, array_layer: u32) -> ResourceState {
+        *self
+            .0
+            .current_state
+            .lock()
+            .unwrap()
+            .get(array_layer as usize)
+            .unwrap()
     }
 
     pub fn as_raw(&self) -> vk::Image {
@@ -596,55 +667,7 @@ impl fmt::Debug for Image {
             .field("image", &self.0.image)
             .field("desc", &self.0.desc)
             .field("size", &self.0.size)
-            .field("current_layout", &self.0.current_layout)
+            .field("current_state", &self.0.current_state)
             .finish()
-    }
-}
-
-/// Record a transition barrier for one subresource-range of an image.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn record_image_transition_barrier(
-    device: &ash::Device,
-    cmdbuf: vk::CommandBuffer,
-    transition: TextureTransition,
-    image: vk::Image,
-    aspect_mask: vk::ImageAspectFlags,
-    base_array_layer: u32,
-    layer_count: u32,
-) {
-    crate::sync::diagnostics::record_texture_transition(
-        image,
-        transition,
-        aspect_mask,
-        base_array_layer,
-        layer_count,
-    );
-
-    let barrier = vk::ImageMemoryBarrier::default()
-        .old_layout(transition.old_layout())
-        .new_layout(transition.new_layout())
-        .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-        .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-        .image(image)
-        .subresource_range(vk::ImageSubresourceRange {
-            aspect_mask,
-            base_mip_level: 0,
-            level_count: 1,
-            base_array_layer,
-            layer_count,
-        })
-        .src_access_mask(transition.src_access())
-        .dst_access_mask(transition.dst_access());
-
-    unsafe {
-        device.cmd_pipeline_barrier(
-            cmdbuf,
-            transition.src_stage(),
-            transition.dst_stage(),
-            vk::DependencyFlags::empty(),
-            &[],
-            &[],
-            &[barrier],
-        )
     }
 }

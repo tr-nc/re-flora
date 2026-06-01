@@ -3,6 +3,7 @@ use crate::{
     TextureLayout, WriteDescriptorSet,
 };
 use anyhow::Result;
+use ash::vk;
 use std::{collections::HashMap, sync::Mutex};
 
 /// Creates descriptor sets for a pipeline using automatic resource binding.
@@ -110,10 +111,19 @@ pub fn auto_update_descriptor_sets(
                     binding.no,
                     binding.descriptor_type,
                     resource,
-                    TextureLayout::GENERAL,
+                    descriptor_image_layout(binding.descriptor_type),
                 )]);
             }
         }
     }
     Ok(())
+}
+
+pub fn descriptor_image_layout(descriptor_type: vk::DescriptorType) -> TextureLayout {
+    match descriptor_type {
+        vk::DescriptorType::COMBINED_IMAGE_SAMPLER | vk::DescriptorType::SAMPLED_IMAGE => {
+            TextureLayout::SHADER_READ_ONLY
+        }
+        _ => TextureLayout::GENERAL,
+    }
 }

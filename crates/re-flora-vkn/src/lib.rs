@@ -18,6 +18,9 @@ pub use memory::*;
 mod sync;
 pub use sync::*;
 
+mod resource_state_tracker;
+pub use resource_state_tracker::*;
+
 mod context;
 pub use context::*;
 

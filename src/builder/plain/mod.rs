@@ -25,7 +25,6 @@ use re_flora_vkn::GpuJobToken;
 use re_flora_vkn::MemoryLocation;
 use re_flora_vkn::PipelineBarrier;
 use re_flora_vkn::ShaderModule;
-use re_flora_vkn::Texture;
 use re_flora_vkn::TextureLayout;
 use re_flora_vkn::TextureRegion;
 use re_flora_vkn::VulkanContext;
@@ -250,7 +249,6 @@ impl PlainBuilder {
 
         let build_cmdbuf = Self::record_build_cmdbuf(
             &vulkan_ctx,
-            &resources.chunk_atlas,
             &resources.region_indirect,
             &heightmap_ppl,
             &buffer_setup_ppl,
@@ -306,7 +304,6 @@ impl PlainBuilder {
 
     fn record_build_cmdbuf(
         vulkan_ctx: &VulkanContext,
-        chunk_atlas: &Texture,
         region_indirect: &Buffer,
         heightmap_ppl: &ComputePipeline,
         buffer_setup_ppl: &ComputePipeline,
@@ -318,10 +315,6 @@ impl PlainBuilder {
 
         let cmdbuf = CommandBuffer::new(vulkan_ctx.device(), vulkan_ctx.command_pool());
         cmdbuf.begin(false);
-
-        chunk_atlas
-            .get_image()
-            .record_transition(&cmdbuf, 0, TextureLayout::GENERAL);
 
         heightmap_ppl.record(
             &cmdbuf,
@@ -621,7 +614,6 @@ impl PlainBuilder {
         // re-record the command buffer with updated descriptor sets
         self.build_cmdbuf = Self::record_build_cmdbuf(
             &self.vulkan_ctx,
-            &self.resources.chunk_atlas,
             &self.resources.region_indirect,
             &self.heightmap_ppl,
             &self.buffer_setup_ppl,

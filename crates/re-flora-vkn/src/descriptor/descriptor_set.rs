@@ -38,6 +38,7 @@ pub struct WriteDescriptorSet<'a> {
     array_element: u32,
 
     image_infos: Option<Vec<vk::DescriptorImageInfo>>,
+    texture: Option<Texture>,
     buffer_infos: Option<Vec<vk::DescriptorBufferInfo>>,
     accel_struct_infos: Option<Vec<vk::WriteDescriptorSetAccelerationStructureKHR<'a>>>,
 
@@ -61,6 +62,7 @@ impl<'a> WriteDescriptorSet<'a> {
             descriptor_type,
             array_element: 0,
             image_infos: Some(vec![image_info]),
+            texture: Some(texture.clone()),
             buffer_infos: None,
             accel_struct_infos: None,
             _accel_handles: None,
@@ -81,6 +83,7 @@ impl<'a> WriteDescriptorSet<'a> {
             descriptor_type,
             array_element: 0,
             image_infos: None,
+            texture: None,
             buffer_infos: Some(vec![buffer_info]),
             accel_struct_infos: None,
             _accel_handles: None,
@@ -101,6 +104,7 @@ impl<'a> WriteDescriptorSet<'a> {
             descriptor_type: vk::DescriptorType::ACCELERATION_STRUCTURE_KHR,
             array_element: 0,
             image_infos: None,
+            texture: None,
             buffer_infos: None,
             accel_struct_infos: Some(vec![as_info]),
             _accel_handles: Some(handles),
@@ -123,6 +127,22 @@ impl<'a> WriteDescriptorSet<'a> {
     pub fn with_array_element(mut self, array_element: u32) -> Self {
         self.array_element = array_element;
         self
+    }
+
+    pub(crate) fn binding(&self) -> u32 {
+        self.binding
+    }
+
+    pub(crate) fn descriptor_type(&self) -> vk::DescriptorType {
+        self.descriptor_type
+    }
+
+    pub(crate) fn array_element(&self) -> u32 {
+        self.array_element
+    }
+
+    pub(crate) fn texture(&self) -> Option<&Texture> {
+        self.texture.as_ref()
     }
 
     pub fn make_raw(&mut self, descriptor_set: &DescriptorSet) -> vk::WriteDescriptorSet<'_> {

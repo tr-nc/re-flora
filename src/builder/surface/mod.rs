@@ -960,12 +960,6 @@ impl SurfaceBuilder {
             }};
         }
 
-        self.resources.occupancy_data.get_image().record_transition(
-            &cmdbuf,
-            0,
-            TextureLayout::GENERAL,
-        );
-
         record_timed_flora_edit_pass!({
             self.clear_occupancy_ppl.record(
                 &cmdbuf,
