@@ -66,7 +66,7 @@ Assumptions to confirm before implementation:
 - Objective: Reduce `src/app/core/mod.rs` size and improve navigation by moving cohesive behavior into modules without logic changes.
 - Expected output: Small modules such as loading, screenshots, startup debug setup, frame timing, and UI panel composition; imports adjusted; behavior unchanged.
 - Dependencies/blockers: Need careful copy/move boundaries to avoid broad borrow/lifetime churn.
-- Status: in progress; run-log helpers were extracted from `src/main.rs` into `src/run_log.rs`, frame timing UI/state moved into `src/app/core/frame_timing.rs`, and screenshot readback helpers moved into `src/app/core/screenshot.rs`, with pure unit tests for extracted helper behavior where applicable.
+- Status: in progress; run-log helpers were extracted from `src/main.rs` into `src/run_log.rs`; frame timing UI/state, screenshot readback helpers, and loading/finalization helpers moved into focused `src/app/core/*` modules, with pure unit tests for extracted helper behavior where applicable.
 
 ### Phase 2: CPU timing/profiling helper
 
@@ -162,6 +162,7 @@ If verification is not possible:
 - 2026-06-01: Moved frame timing snapshot data and panel rendering from `src/app/core/mod.rs` to `src/app/core/frame_timing.rs`, keeping labels and UI rendering behavior unchanged.
 - 2026-06-01: Moved screenshot readback prepare/record/write helpers from `src/app/core/mod.rs` to `src/app/core/screenshot.rs`, leaving call sites and behavior unchanged.
 - 2026-06-01: Replaced the per-frame flora color `Vec` allocation with a fixed stack array sliced to the current species count; color selection behavior is unchanged.
+- 2026-06-01: Moved loading progress state, loading frame rendering, final loading setup, and startup terrain query validation into `src/app/core/loading.rs`, preserving the existing loading flow.
 
 ## Open Questions / Risks
 

@@ -1,0 +1,434 @@
+use super::*;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum LoadingPhase {
+    Terrain,
+    Building,
+}
+
+pub(super) struct LoadingState {
+    pub(super) chunk_indices: Vec<UVec3>,
+    pub(super) current: usize,
+    pub(super) step_label: String,
+    pub(super) phase: LoadingPhase,
+}
+
+impl LoadingState {
+    fn total(&self) -> usize {
+        self.chunk_indices.len()
+    }
+
+    fn progress_fraction(&self) -> f32 {
+        if self.chunk_indices.is_empty() {
+            return 1.0;
+        }
+
+        let total = self.chunk_indices.len() as f32;
+        match self.phase {
+            LoadingPhase::Terrain => (self.current as f32 / total) * 0.5,
+            LoadingPhase::Building => 0.5 + (self.current as f32 / total) * 0.5,
+        }
+    }
+
+    fn is_done(&self) -> bool {
+        self.phase == LoadingPhase::Building && self.current >= self.chunk_indices.len()
+    }
+}
+
+impl App {
+    pub(super) fn process_loading_step(&mut self) {
+        let mut should_apply_debug_audio_wall = false;
+        let mut should_carve_startup_water_pool = false;
+        let loading = match &mut self.loading_state {
+            Some(loading) => loading,
+            None => return,
+        };
+
+        if loading.is_done() {
+            return;
+        }
+
+        let total = loading.total();
+        let current = loading.current + 1;
+
+        match loading.phase {
+            LoadingPhase::Terrain => {
+                let chunk_id = loading.chunk_indices[loading.current];
+                let atlas_offset = chunk_id * VOXEL_DIM_PER_CHUNK;
+                loading.step_label = format!("Terrain {}/{}", current, total);
+
+                if let Err(err) = self
+                    .plain_builder
+                    .chunk_init(atlas_offset, VOXEL_DIM_PER_CHUNK)
+                {
+                    log::error!("chunk_init failed for {chunk_id:?}: {err}");
+                }
+
+                loading.current += 1;
+                if loading.current >= total {
+                    should_carve_startup_water_pool = true;
+                    should_apply_debug_audio_wall = true;
+                    loading.current = 0;
+                    loading.phase = LoadingPhase::Building;
+                }
+            }
+            LoadingPhase::Building => {
+                let chunk_id = loading.chunk_indices[loading.current];
+                let atlas_offset = chunk_id * VOXEL_DIM_PER_CHUNK;
+                loading.step_label = format!("Building {}/{}", current, total);
+
+                let active_voxel_len = match self.surface_builder.build_surface(chunk_id, true) {
+                    Ok(active_voxel_len) => active_voxel_len,
+                    Err(err) => {
+                        log::error!("build_surface failed for {chunk_id:?}: {err}");
+                        loading.current += 1;
+                        return;
+                    }
+                };
+
+                let scene_offsets = if active_voxel_len == 0 {
+                    self.contree_builder
+                        .clear_empty_surface_chunk(atlas_offset)
+                        .scene_offsets
+                } else {
+                    match self.contree_builder.build_and_alloc(atlas_offset) {
+                        Ok(scene_offsets) => scene_offsets,
+                        Err(err) => {
+                            log::error!("build_and_alloc failed for {chunk_id:?}: {err}");
+                            loading.current += 1;
+                            return;
+                        }
+                    }
+                };
+
+                match scene_offsets {
+                    Some((node_buffer_offset, leaf_buffer_offset)) => {
+                        if let Err(err) = self.scene_accel_builder.update_scene_tex(
+                            chunk_id,
+                            Some((node_buffer_offset, leaf_buffer_offset)),
+                        ) {
+                            log::error!("update_scene_tex failed for {chunk_id:?}: {err}");
+                        }
+                    }
+                    None => {
+                        if let Err(err) = self.scene_accel_builder.update_scene_tex(chunk_id, None)
+                        {
+                            log::error!("clear_scene_tex failed for {chunk_id:?}: {err}");
+                        }
+                    }
+                }
+
+                loading.current += 1;
+            }
+        }
+
+        if should_carve_startup_water_pool {
+            if let Err(err) = self.apply_startup_water_pool() {
+                log::error!("Failed to carve startup water pool terrain: {err}");
+            }
+        }
+
+        if should_apply_debug_audio_wall {
+            if let Err(err) = self.apply_debug_audio_wall() {
+                log::error!("Failed to apply debug audio wall: {err}");
+            }
+        }
+    }
+
+    pub(super) fn render_loading_frame(&mut self) {
+        let loading = match &self.loading_state {
+            Some(loading) => loading,
+            None => return,
+        };
+
+        let progress = loading.progress_fraction();
+        let step_label = loading.step_label.clone();
+        let is_done = loading.is_done();
+        let total = loading.total();
+        let current = loading.current;
+
+        self.egui_renderer
+            .update(&self.window_state.window(), |ctx| {
+                #[allow(deprecated)]
+                egui::CentralPanel::default()
+                    .frame(egui::containers::Frame {
+                        fill: Color32::from_rgb(20, 20, 25),
+                        ..Default::default()
+                    })
+                    .show(ctx, |ui| {
+                        ui.vertical_centered(|ui| {
+                            ui.add_space(ui.available_height() * 0.3);
+
+                            ui.label(
+                                RichText::new("Re: Flora")
+                                    .size(36.0)
+                                    .color(Color32::from_rgb(200, 180, 140)),
+                            );
+                            ui.add_space(8.0);
+                            ui.label(
+                                RichText::new("Loading world...")
+                                    .size(18.0)
+                                    .color(Color32::from_rgb(160, 160, 170)),
+                            );
+                            ui.add_space(24.0);
+
+                            let bar_width = ui.available_width().min(400.0);
+                            let progress = if is_done { 1.0 } else { progress };
+                            let bar_height = 24.0;
+                            let (rect, _) = ui.allocate_at_least(
+                                egui::vec2(bar_width, bar_height),
+                                egui::Sense::hover(),
+                            );
+
+                            let painter = ui.painter();
+                            painter.rect_filled(rect, 2.0, Color32::from_rgb(40, 40, 50));
+
+                            let fill_width = rect.width() * progress;
+                            let fill_rect = egui::Rect::from_min_max(
+                                rect.min,
+                                egui::pos2(rect.min.x + fill_width, rect.max.y),
+                            );
+                            painter.rect_filled(fill_rect, 2.0, Color32::from_rgb(100, 140, 80));
+
+                            let pct_text = format!("{}%", (progress * 100.0) as u32);
+                            let font = egui::FontId::proportional(14.0);
+                            let shadow_galley = painter.layout_no_wrap(
+                                pct_text.clone(),
+                                font.clone(),
+                                Color32::from_black_alpha(120),
+                            );
+                            let galley = painter.layout_no_wrap(pct_text, font, Color32::WHITE);
+                            let text_pos = egui::pos2(
+                                rect.center().x - galley.size().x / 2.0,
+                                rect.center().y - galley.size().y / 2.0,
+                            );
+                            painter.galley(
+                                egui::pos2(text_pos.x + 1.0, text_pos.y + 1.0),
+                                shadow_galley,
+                                Color32::from_black_alpha(120),
+                            );
+                            painter.galley(text_pos, galley, Color32::WHITE);
+
+                            ui.add_space(12.0);
+
+                            let status = if is_done {
+                                "Finalizing...".to_owned()
+                            } else {
+                                format!("{} - chunk {}/{}", step_label, current + 1, total)
+                            };
+                            ui.label(
+                                RichText::new(status)
+                                    .size(14.0)
+                                    .color(Color32::from_rgb(130, 130, 140)),
+                            );
+                        });
+                    });
+            });
+
+        let frame = match self.frame_manager.begin_frame(&mut self.swapchain) {
+            Ok(frame) => frame,
+            Err(SwapchainFrameError::OutOfDate) => {
+                self.is_resize_pending = true;
+                return;
+            }
+            Err(error) => panic!("Error while acquiring next image. Cause: {}", error),
+        };
+        let frame_slot = frame.frame_slot();
+        self.collect_gpu_profiler_frame(frame_slot);
+        let device = self.vulkan_ctx.device();
+        let cmdbuf = frame.command_buffer();
+        let image_idx = frame.image_index();
+
+        cmdbuf.begin(false);
+        if let Some(profiler) = self.gpu_profiler.as_mut() {
+            profiler.begin_frame(frame_slot, cmdbuf);
+        }
+        let frame_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
+            profiler.begin_scope(
+                frame_slot,
+                cmdbuf,
+                "frame.render",
+                PipelineStage::ALL_COMMANDS,
+            )
+        });
+
+        let render_area = self.window_state.window_extent();
+
+        self.swapchain
+            .record_prepare_image_for_render_pass(cmdbuf, image_idx);
+
+        self.swapchain
+            .record_begin_render_pass_cmdbuf(cmdbuf, image_idx, render_area);
+
+        let egui_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
+            profiler.begin_scope(
+                frame_slot,
+                cmdbuf,
+                "egui.render",
+                PipelineStage::ALL_COMMANDS,
+            )
+        });
+        self.egui_renderer
+            .record_command_buffer(device, cmdbuf, render_area);
+        if let Some(scope) = egui_gpu_scope {
+            if let Some(profiler) = self.gpu_profiler.as_mut() {
+                profiler.end_scope(frame_slot, cmdbuf, scope, PipelineStage::ALL_COMMANDS);
+            }
+        }
+
+        cmdbuf.end_render_pass();
+
+        if let Some(scope) = frame_gpu_scope {
+            if let Some(profiler) = self.gpu_profiler.as_mut() {
+                profiler.end_scope(frame_slot, cmdbuf, scope, PipelineStage::ALL_COMMANDS);
+            }
+        }
+
+        cmdbuf.end();
+
+        let present_result =
+            self.frame_manager
+                .submit_and_present(&self.vulkan_ctx, &mut self.swapchain, &frame);
+        match present_result {
+            Ok(is_suboptimal) if is_suboptimal => {
+                self.is_resize_pending = true;
+            }
+            Err(SwapchainFrameError::OutOfDate) => {
+                self.is_resize_pending = true;
+            }
+            Err(error) => panic!("Failed to present queue. Cause: {}", error),
+            _ => {}
+        }
+
+        if is_done {
+            self.loading_state = None;
+            self.finalize_loading();
+        }
+    }
+
+    pub(super) fn finalize_loading(&mut self) {
+        self.vulkan_ctx.device().wait_idle();
+        self.contree_builder.flush_cpu_chunk_cache_jobs();
+        BENCH.lock().unwrap().summary();
+
+        self.ensure_map_butterfly_emitter();
+
+        self.debug_tree_pos.y =
+            self.query_terrain_height_cpu(Vec2::new(self.debug_tree_pos.x, self.debug_tree_pos.z));
+
+        if let Err(err) = self.add_tree(
+            self.debug_tree_desc.clone(),
+            TreePlacement::World(self.debug_tree_pos),
+            TreeAddOptions::default(),
+        ) {
+            log::error!("Failed to add debug tree: {}", err);
+        }
+
+        match Self::debug_model_paths() {
+            Ok(paths) => {
+                for (index, path) in paths.iter().enumerate() {
+                    let position = self.debug_model_position(index);
+                    if let Err(err) = self.apply_model_placement(path, position) {
+                        log::error!(
+                            "Failed to place debug model '{}' at {:?}: {}",
+                            path.display(),
+                            position,
+                            err
+                        );
+                    }
+                }
+            }
+            Err(err) => {
+                log::error!("Failed to discover debug model GLBs: {err}");
+            }
+        }
+
+        if let Err(err) = self.tracer.regenerate_leaves(
+            self.gui_adjustables.leaves_inner_density.value,
+            self.gui_adjustables.leaves_outer_density.value,
+            self.gui_adjustables.leaves_inner_radius.value,
+            self.gui_adjustables.leaves_outer_radius.value,
+        ) {
+            log::error!("Failed to regenerate leaves: {}", err);
+        }
+
+        if let Err(err) = self.spatial_sound_manager.start() {
+            log::error!("Failed to start audio engine: {}", err);
+        }
+
+        self.enqueue_startup_water_terrain_collider_rebuilds();
+        self.render_start_time = Some(Instant::now());
+    }
+
+    #[allow(dead_code)]
+    fn validate_startup_terrain_query(&mut self) {
+        let rays = [
+            TerrainRayQuery {
+                origin: Vec3::new(0.5, 1.0, 0.5),
+                direction: Vec3::new(0.0, -1.0, 0.0),
+            },
+            TerrainRayQuery {
+                origin: Vec3::new(1.5, 1.0, 1.5),
+                direction: Vec3::new(0.0, -1.0, 0.0),
+            },
+            TerrainRayQuery {
+                origin: Vec3::new(2.5, 1.0, 3.5),
+                direction: Vec3::new(0.0, -1.0, 0.0),
+            },
+            TerrainRayQuery {
+                origin: Vec3::new(4.5, 1.0, 4.5),
+                direction: Vec3::new(0.0, -1.0, 0.0),
+            },
+        ];
+
+        for ray in rays {
+            let cpu_start = Instant::now();
+            let cpu_hit = self
+                .contree_builder
+                .query_terrain_ray_cpu(ray.origin, ray.direction);
+            let cpu_elapsed = cpu_start.elapsed();
+
+            let gpu_start = Instant::now();
+            let gpu_hit = self.tracer.query_terrain_ray_with_validity(ray);
+            let gpu_elapsed = gpu_start.elapsed();
+
+            let format_cpu = |hit: Option<Vec3>| match hit {
+                Some(pos) => format!("hit ({:.3}, {:.3}, {:.3})", pos.x, pos.y, pos.z),
+                None => "miss".to_owned(),
+            };
+            let gpu_position = match &gpu_hit {
+                Ok(sample) if sample.is_valid => Some(sample.position),
+                _ => None,
+            };
+            let format_gpu =
+                |result: &anyhow::Result<crate::tracer::TerrainRayHitSample>| match result {
+                    Ok(sample) if sample.is_valid => format!(
+                        "hit ({:.3}, {:.3}, {:.3})",
+                        sample.position.x, sample.position.y, sample.position.z
+                    ),
+                    Ok(_) => "miss".to_owned(),
+                    Err(err) => format!("error: {err}"),
+                };
+            let position_delta = match (cpu_hit, gpu_position) {
+                (Some(cpu_pos), Some(gpu_pos)) => format!("{:.6}", cpu_pos.distance(gpu_pos)),
+                _ => "n/a".to_owned(),
+            };
+
+            log::info!(
+                "Terrain query validation for origin ({:.3}, {:.3}, {:.3}) dir ({:.3}, {:.3}, {:.3}): cached_chunks={}, CPU={} in {:?}, GPU={} in {:?}, delta={}",
+                ray.origin.x,
+                ray.origin.y,
+                ray.origin.z,
+                ray.direction.x,
+                ray.direction.y,
+                ray.direction.z,
+                self.contree_builder.cpu_cached_chunk_count(),
+                format_cpu(cpu_hit),
+                cpu_elapsed,
+                format_gpu(&gpu_hit),
+                gpu_elapsed,
+                position_delta,
+            );
+        }
+    }
+}
