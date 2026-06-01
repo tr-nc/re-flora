@@ -1,8 +1,8 @@
 use super::descriptor_set_utils;
 use crate::{
     Buffer, CommandBuffer, DescriptorPool, DescriptorSet, DescriptorSetLayoutBinding, Device,
-    FormatOverride, MergeWithEq, PipelineLayout, RenderPass, ResourceContainer, ShaderModule,
-    Viewport, WriteDescriptorSet,
+    FormatOverride, MergeWithEq, PipelineLayout, RenderPass, ResourceContainer, ResourceState,
+    ResourceStateTracker, ShaderModule, Texture, Viewport, WriteDescriptorSet,
 };
 use anyhow::Result;
 use ash::vk;
@@ -20,6 +20,15 @@ struct GraphicsPipelineInner {
     descriptor_sets: Mutex<Vec<DescriptorSet>>,
     manual_buffer_descriptor_sets: Mutex<HashMap<vk::Buffer, DescriptorSet>>,
     descriptor_sets_bindings: HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
+    texture_bindings: Mutex<HashMap<String, GraphicsTextureBinding>>,
+    resource_state_tracker: Mutex<ResourceStateTracker>,
+    auto_texture_transitions_enabled: Mutex<bool>,
+}
+
+#[derive(Clone)]
+struct GraphicsTextureBinding {
+    texture: Texture,
+    state: ResourceState,
 }
 
 impl Drop for GraphicsPipelineInner {
@@ -187,6 +196,9 @@ impl GraphicsPipeline {
             descriptor_sets: Mutex::new(Vec::new()),
             manual_buffer_descriptor_sets: Mutex::new(HashMap::new()),
             descriptor_sets_bindings,
+            texture_bindings: Mutex::new(HashMap::new()),
+            resource_state_tracker: Mutex::new(ResourceStateTracker::automatic()),
+            auto_texture_transitions_enabled: Mutex::new(false),
         }));
 
         // auto-create descriptor sets
@@ -198,6 +210,7 @@ impl GraphicsPipeline {
             &pipeline_instance.0.descriptor_sets,
         )
         .unwrap();
+        pipeline_instance.update_texture_bindings(resource_containers);
 
         return pipeline_instance;
 
@@ -237,6 +250,50 @@ impl GraphicsPipeline {
 
     pub fn get_layout(&self) -> &PipelineLayout {
         &self.0.pipeline_layout
+    }
+
+    pub fn set_resource_state_tracker(&self, tracker: ResourceStateTracker) {
+        *self.0.resource_state_tracker.lock().unwrap() = tracker;
+    }
+
+    pub fn set_auto_texture_transitions_enabled(&self, enabled: bool) {
+        *self.0.auto_texture_transitions_enabled.lock().unwrap() = enabled;
+    }
+
+    pub fn auto_texture_transitions_enabled(&self) -> bool {
+        *self.0.auto_texture_transitions_enabled.lock().unwrap()
+    }
+
+    pub fn tracked_texture_binding_count(&self) -> usize {
+        self.0.texture_bindings.lock().unwrap().len()
+    }
+
+    pub fn record_texture_transitions(&self, cmdbuf: &CommandBuffer) {
+        if !*self.0.auto_texture_transitions_enabled.lock().unwrap() {
+            return;
+        }
+        let tracker = self.0.resource_state_tracker.lock().unwrap().clone();
+        let bindings = self.0.texture_bindings.lock().unwrap().clone();
+        for binding in bindings.values() {
+            tracker.transition_image(cmdbuf, binding.texture.get_image(), 0, binding.state);
+        }
+    }
+
+    fn update_texture_bindings(&self, resource_containers: &[&dyn ResourceContainer]) {
+        let mut bindings = HashMap::new();
+        for set_bindings in self.0.descriptor_sets_bindings.values() {
+            for binding in set_bindings.values() {
+                if let Some(state) = graphics_texture_binding_state(binding.descriptor_type) {
+                    if let Some(texture) = find_unique_texture(resource_containers, &binding.name) {
+                        bindings.insert(
+                            binding.name.clone(),
+                            GraphicsTextureBinding { texture, state },
+                        );
+                    }
+                }
+            }
+        }
+        *self.0.texture_bindings.lock().unwrap() = bindings;
     }
 
     fn record_bind_descriptor_sets(
@@ -433,6 +490,35 @@ impl GraphicsPipeline {
             resource_containers,
             &self.0.descriptor_sets_bindings,
             &self.0.descriptor_sets,
-        )
+        )?;
+        self.update_texture_bindings(resource_containers);
+        Ok(())
     }
+}
+
+fn graphics_texture_binding_state(descriptor_type: vk::DescriptorType) -> Option<ResourceState> {
+    match descriptor_type {
+        vk::DescriptorType::STORAGE_IMAGE
+        | vk::DescriptorType::COMBINED_IMAGE_SAMPLER
+        | vk::DescriptorType::SAMPLED_IMAGE => Some(ResourceState::general_shader_read_write()),
+        _ => None,
+    }
+}
+
+fn find_unique_texture(
+    resource_containers: &[&dyn ResourceContainer],
+    name: &str,
+) -> Option<Texture> {
+    let mut found = None;
+    for container in resource_containers {
+        if let Some(texture) = container.get_texture(name) {
+            assert!(
+                found.is_none(),
+                "Resource '{}' found in multiple texture containers",
+                name
+            );
+            found = Some(texture.clone());
+        }
+    }
+    found
 }

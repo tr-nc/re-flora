@@ -1292,6 +1292,22 @@ impl Tracer {
             },
         ];
 
+        if enable_flora {
+            for pipeline in [
+                &self.graphics_pipelines.flora_ppl,
+                &self.graphics_pipelines.flora_lod_ppl,
+                &self.graphics_pipelines.leaves_ppl,
+                &self.graphics_pipelines.leaves_lod_ppl,
+            ] {
+                pipeline.record_texture_transitions(cmdbuf);
+            }
+        }
+        if enable_particles {
+            self.graphics_pipelines
+                .particle_ppl
+                .record_texture_transitions(cmdbuf);
+        }
+
         Self::with_gpu_scope(
             gpu_profiler.as_deref_mut(),
             gpu_profiler_frame_slot,
@@ -1539,6 +1555,9 @@ impl Tracer {
         tip_color: Vec3,
         time: f32,
     ) {
+        self.graphics_pipelines
+            .leaves_shadow_lod_ppl
+            .record_texture_transitions(cmdbuf);
         self.graphics_pipelines
             .leaves_shadow_lod_ppl
             .record_bind(cmdbuf);

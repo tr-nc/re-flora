@@ -6,7 +6,7 @@ Move image layout/resource-state transition policy toward `re-flora-vkn` so game
 
 Done means:
 
-- Common operations such as clears, uploads, copies, render-pass attachment use, compute dispatches, sampled reads, and swapchain transfers have a clear `vkn`-owned transition path.
+- Common operations such as clears, uploads, copies, render-pass attachment use, compute dispatches, graphics sampled reads, and swapchain transfers have a clear `vkn`-owned transition path.
 - Explicit transitions remain available for debugging, assertions, and special cases.
 - Automatic behavior is configurable and inspectable, not hidden magic.
 - Existing rendering behavior and validation checks remain clean.
@@ -74,14 +74,21 @@ Assumptions to confirm:
 - Dependencies/blockers: Descriptor metadata alone may not distinguish readonly/writeonly storage images; may need binding annotations or shader reflection support.
 - Status: in progress; compute pipelines now retain texture bindings from auto resource binding and have an opt-in path to transition texture descriptors before direct and indirect dispatch. It is disabled by default until descriptor layout metadata is precise enough for all startup paths; migrated builder/tracer texture-using compute paths are opted in explicitly.
 
-### Phase 5: Migrate game-code explicit transitions gradually
+### Phase 5: Add graphics sampled texture transition hooks
+
+- Objective: Before render-pass begin, let graphics pipelines transition sampled textures declared through descriptors.
+- Expected output: Conservative graphics pipeline texture transition helper that can be called outside render passes.
+- Dependencies/blockers: Descriptor metadata still uses conservative `GENERAL` image layouts.
+- Status: in progress; graphics pipelines retain auto-bound texture descriptors and expose configurable `record_texture_transitions` for call sites to run before render-pass begin. Tracer graphics passes use it for flora/leaves/particles and leaf-shadow rendering.
+
+### Phase 6: Migrate game-code explicit transitions gradually
 
 - Objective: Replace repeated manual transitions with declared usage through the new `vkn` API while keeping debug assertions available.
 - Expected output: Smaller call sites in `src/builder/*` and `src/tracer/*`, with behavior unchanged.
 - Dependencies/blockers: Phases 2-4 should exist first.
 - Status: in progress; game-code `record_transition(...)` calls in `src/builder/*` and `src/tracer/mod.rs` have been migrated to vkn-owned compute texture transitions or render-target attachment tracking.
 
-### Phase 6: Diagnostics and strict modes
+### Phase 7: Diagnostics and strict modes
 
 - Objective: Make automatic transitions easy to debug and configurable.
 - Expected output: Optional transition logging, validation assertions, manual-only mode, conservative/precise policy switches, and clear panic/error messages for unknown states.
@@ -132,6 +139,7 @@ If verification is not yet possible, the missing piece is the tracker/encoder im
 - 2026-06-01: Tried flipping compute automatic texture transitions to default-on, but release hidden validation exposed startup descriptor/layout mismatches on resources still in `UNDEFINED`; reverted to opt-in default while retaining per-pipeline enable/disable and a simple tracked-binding-count inspection helper.
 - 2026-06-01: Opted plain-builder texture-using compute pipelines into automatic texture transitions and removed the manual `chunk_atlas -> GENERAL` transition from the recorded chunk-init command buffer.
 - 2026-06-01: Opted remaining tracer texture-using compute pipelines into automatic texture transitions and removed manual `record_transition(GENERAL)` setup from tracer, shadow/VSM, denoiser, composition, lens-flare, and post-processing passes.
+- 2026-06-01: Added graphics-pipeline texture transition tracking for auto-bound descriptors and call it before tracer graphics render passes begin, covering flora/leaves/particles and leaf-shadow sampled texture use.
 
 ## Open Questions / Risks
 
@@ -142,4 +150,4 @@ If verification is not yet possible, the missing piece is the tracker/encoder im
 - Render-pass attachment tracking now works only for texture-backed framebuffers; raw image-view framebuffers such as swapchain targets still need explicit swapchain handling.
 - Overly conservative barriers may be correct but could hurt performance; precise barriers may require more metadata.
 - Existing `Image::set_layout` is an escape hatch and can hide bugs; migration should replace it with explicit tracker assumptions/assertions where possible.
-- Manual descriptor writes are not yet tracked for automatic compute transitions unless the texture also came from auto resource binding.
+- Manual descriptor writes are not yet tracked for automatic compute/graphics transitions unless the texture also came from auto resource binding.
