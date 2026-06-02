@@ -799,7 +799,7 @@ label = "Leaf Shadow Temporal Alpha"
 type = "Float"
 
 [section.param.data]
-value = 0.08
+value = 0.4
 min = 0
 max = 1
 
