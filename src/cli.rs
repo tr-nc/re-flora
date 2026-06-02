@@ -1,5 +1,10 @@
 use re_flora_vkn::PresentMode;
 
+pub const CAMERA_SNAPSHOT_LIST_HINT: &str =
+    "Run `re-flora --list-camera-snapshots` to list available camera snapshots.";
+
+const SCREENSHOT_USAGE: &str = "Expected `--screenshot <preset> <path> --screenshot-delay <sec>`.";
+
 #[derive(Clone, Copy, Debug)]
 pub enum PresentModePreference {
     Mailbox,
@@ -92,8 +97,12 @@ pub struct AppOptions {
     pub swapchain_images: Option<u32>,
     /// Path to save a screenshot after rendering starts. None = no screenshot.
     pub screenshot_path: Option<String>,
-    /// Delay in seconds after rendering starts before taking the screenshot.
-    pub screenshot_delay: f32,
+    /// Delay in seconds after rendering starts before taking the screenshot. Required with --screenshot.
+    pub screenshot_delay: Option<f32>,
+    /// Apply a named camera snapshot at startup. Screenshot runs set this from the requested preset.
+    pub camera_snapshot: Option<String>,
+    /// Print available camera snapshot names and exit successfully.
+    pub list_camera_snapshots: bool,
     /// Auto-exit N seconds after rendering starts. None = don't auto-exit.
     pub auto_exit_delay: Option<f32>,
     /// Enable per-frame performance timing output to console.
@@ -140,12 +149,27 @@ pub struct AppOptions {
     pub help: bool,
 }
 
+#[derive(Clone, Debug)]
+struct ParsedScreenshot {
+    preset_name: String,
+    path: String,
+    delay: f32,
+}
+
 impl AppOptions {
     pub fn from_args() -> Self {
         Self::from_arg_strings(std::env::args().collect())
     }
 
+    pub fn try_from_args() -> Result<Self, String> {
+        Self::try_from_arg_strings(std::env::args().collect())
+    }
+
     fn from_arg_strings(args: Vec<String>) -> Self {
+        Self::try_from_arg_strings(args).unwrap_or_else(|err| panic!("{err}"))
+    }
+
+    fn try_from_arg_strings(args: Vec<String>) -> Result<Self, String> {
         let parse_f32_after = |flag: &str| -> Option<f32> {
             args.iter()
                 .position(|a| a == flag)
@@ -160,64 +184,62 @@ impl AppOptions {
                 .and_then(|v| v.parse::<u32>().ok())
         };
 
-        let parse_string_after = |flag: &str| -> Option<String> {
-            args.iter()
-                .position(|a| a == flag)
-                .and_then(|i| args.get(i + 1))
-                .cloned()
-        };
+        let parse_required_string_after =
+            |flag: &str, label: &str| -> Result<Option<String>, String> {
+                let Some(index) = args.iter().position(|a| a == flag) else {
+                    return Ok(None);
+                };
+                let Some(value) = args.get(index + 1) else {
+                    return Err(format!("Missing value for {flag}. Expected {label}."));
+                };
+                if value.starts_with("--") {
+                    return Err(format!("Missing value for {flag}. Expected {label}."));
+                }
+                Ok(Some(value.clone()))
+            };
 
-        let present_mode = match parse_string_after("--present-mode") {
-            Some(value) => {
-                Some(PresentModePreference::from_cli_value(&value).unwrap_or_else(|| {
-                    panic!(
-                        "Unsupported --present-mode '{}'. Supported values: mailbox, immediate, fifo, fifo_relaxed",
-                        value
-                    )
-                }))
-            }
-            None if args.iter().any(|a| a == "--present-mode") => {
-                panic!(
-                    "Missing value for --present-mode. Supported values: mailbox, immediate, fifo, fifo_relaxed"
-                )
-            }
+        let present_mode = match parse_required_string_after(
+            "--present-mode",
+            "one of: mailbox, immediate, fifo, fifo_relaxed",
+        )? {
+            Some(value) => Some(parse_present_mode_preference(&value)?),
             None => None,
         };
 
-        let water_profile = match parse_string_after("--water-profile") {
-            Some(value) => Some(
-                WaterProfilePreference::from_cli_value(&value).unwrap_or_else(|| {
-                    panic!(
-                        "Unsupported --water-profile '{}'. Supported values: default, performance",
-                        value
-                    )
-                }),
-            ),
-            None if args.iter().any(|a| a == "--water-profile") => {
-                panic!("Missing value for --water-profile. Supported values: default, performance")
-            }
-            None => None,
-        };
+        let water_profile =
+            match parse_required_string_after("--water-profile", "one of: default, performance")? {
+                Some(value) => Some(parse_water_profile_preference(&value)?),
+                None => None,
+            };
 
-        let monitor_score = match parse_string_after("--monitor-score") {
-            Some(value) => MonitorScorePreference::from_cli_value(&value).unwrap_or_else(|| {
-                panic!(
-                    "Unsupported --monitor-score '{}'. Supported values: highest, lowest",
-                    value
-                )
-            }),
-            None if args.iter().any(|a| a == "--monitor-score") => {
-                panic!("Missing value for --monitor-score. Supported values: highest, lowest")
+        let monitor_score =
+            match parse_required_string_after("--monitor-score", "one of: highest, lowest")? {
+                Some(value) => parse_monitor_score_preference(&value)?,
+                None => MonitorScorePreference::Lowest,
+            };
+
+        let screenshot = parse_screenshot_request(&args)?;
+        let camera_snapshot = if let Some(screenshot) = &screenshot {
+            if args.iter().any(|a| a == "--camera-snapshot") {
+                return Err(format!(
+                    "Do not combine --camera-snapshot with --screenshot. {SCREENSHOT_USAGE}\n{CAMERA_SNAPSHOT_LIST_HINT}"
+                ));
             }
-            None => MonitorScorePreference::Lowest,
+            Some(screenshot.preset_name.clone())
+        } else {
+            parse_required_string_after("--camera-snapshot", "a camera snapshot name")?
         };
+        let screenshot_path = screenshot
+            .as_ref()
+            .map(|screenshot| screenshot.path.clone());
+        let screenshot_delay = screenshot.as_ref().map(|screenshot| screenshot.delay);
 
         let tail_latest_log = args
             .iter()
             .any(|a| a == "--tail-latest-log")
             .then(|| parse_u32_after("--tail-latest-log").unwrap_or(200) as usize);
 
-        Self {
+        Ok(Self {
             windowed: args.iter().any(|a| a == "--windowed"),
             hidden: args.iter().any(|a| a == "--hidden"),
             no_shadows: args.iter().any(|a| a == "--no-shadows"),
@@ -230,8 +252,10 @@ impl AppOptions {
             present_mode,
             monitor_score,
             swapchain_images: parse_f32_after("--swapchain-images").map(|v| v as u32),
-            screenshot_path: parse_string_after("--screenshot"),
-            screenshot_delay: parse_f32_after("--screenshot-delay").unwrap_or(5.0),
+            screenshot_path,
+            screenshot_delay,
+            camera_snapshot,
+            list_camera_snapshots: args.iter().any(|a| a == "--list-camera-snapshots"),
             auto_exit_delay: parse_f32_after("--auto-exit"),
             perf: args.iter().any(|a| a == "--perf"),
             water_profile,
@@ -257,8 +281,120 @@ impl AppOptions {
             latest_log: args.iter().any(|a| a == "--latest-log"),
             tail_latest_log,
             help: args.iter().any(|a| a == "--help" || a == "-h"),
-        }
+        })
     }
+}
+
+fn parse_present_mode_preference(value: &str) -> Result<PresentModePreference, String> {
+    PresentModePreference::from_cli_value(value).ok_or_else(|| {
+        format!(
+            "Unsupported --present-mode '{value}'. Supported values: mailbox, immediate, fifo, fifo_relaxed"
+        )
+    })
+}
+
+fn parse_water_profile_preference(value: &str) -> Result<WaterProfilePreference, String> {
+    WaterProfilePreference::from_cli_value(value).ok_or_else(|| {
+        format!("Unsupported --water-profile '{value}'. Supported values: default, performance")
+    })
+}
+
+fn parse_monitor_score_preference(value: &str) -> Result<MonitorScorePreference, String> {
+    MonitorScorePreference::from_cli_value(value).ok_or_else(|| {
+        format!("Unsupported --monitor-score '{value}'. Supported values: highest, lowest")
+    })
+}
+
+fn parse_screenshot_request(args: &[String]) -> Result<Option<ParsedScreenshot>, String> {
+    let screenshot_indices: Vec<usize> = args
+        .iter()
+        .enumerate()
+        .filter_map(|(index, arg)| (arg == "--screenshot").then_some(index))
+        .collect();
+
+    if screenshot_indices.is_empty() {
+        if args.iter().any(|arg| arg == "--screenshot-delay") {
+            return Err(format!(
+                "--screenshot-delay requires --screenshot. {SCREENSHOT_USAGE}\n{CAMERA_SNAPSHOT_LIST_HINT}"
+            ));
+        }
+        return Ok(None);
+    }
+
+    if screenshot_indices.len() > 1 {
+        return Err(format!(
+            "Only one --screenshot is supported per run. {SCREENSHOT_USAGE}\n{CAMERA_SNAPSHOT_LIST_HINT}"
+        ));
+    }
+
+    let screenshot_index = screenshot_indices[0];
+    let preset_name = required_screenshot_arg(args, screenshot_index + 1, "preset name")?;
+    let path = required_screenshot_arg(args, screenshot_index + 2, "output path")?;
+    let delay = parse_required_screenshot_delay(args)?;
+
+    Ok(Some(ParsedScreenshot {
+        preset_name,
+        path,
+        delay,
+    }))
+}
+
+fn required_screenshot_arg(args: &[String], index: usize, label: &str) -> Result<String, String> {
+    let Some(value) = args.get(index) else {
+        return Err(format!(
+            "Missing screenshot {label}. {SCREENSHOT_USAGE}\n{CAMERA_SNAPSHOT_LIST_HINT}"
+        ));
+    };
+    if value.starts_with("--") {
+        return Err(format!(
+            "Missing screenshot {label}. {SCREENSHOT_USAGE}\n{CAMERA_SNAPSHOT_LIST_HINT}"
+        ));
+    }
+    Ok(value.clone())
+}
+
+fn parse_required_screenshot_delay(args: &[String]) -> Result<f32, String> {
+    let delay_indices: Vec<usize> = args
+        .iter()
+        .enumerate()
+        .filter_map(|(index, arg)| (arg == "--screenshot-delay").then_some(index))
+        .collect();
+
+    if delay_indices.is_empty() {
+        return Err(format!(
+            "Missing --screenshot-delay <sec> for --screenshot. {SCREENSHOT_USAGE}\n{CAMERA_SNAPSHOT_LIST_HINT}"
+        ));
+    }
+    if delay_indices.len() > 1 {
+        return Err(format!(
+            "Only one --screenshot-delay is supported per run. {SCREENSHOT_USAGE}\n{CAMERA_SNAPSHOT_LIST_HINT}"
+        ));
+    }
+
+    let delay_index = delay_indices[0];
+    let Some(value) = args.get(delay_index + 1) else {
+        return Err(format!(
+            "Missing value for --screenshot-delay. {SCREENSHOT_USAGE}\n{CAMERA_SNAPSHOT_LIST_HINT}"
+        ));
+    };
+    if value.starts_with("--") {
+        return Err(format!(
+            "Missing value for --screenshot-delay. {SCREENSHOT_USAGE}\n{CAMERA_SNAPSHOT_LIST_HINT}"
+        ));
+    }
+    let delay = value.parse::<f32>().map_err(|_| {
+        format!(
+            "Invalid --screenshot-delay '{}'. Expected a non-negative number of seconds.\n{CAMERA_SNAPSHOT_LIST_HINT}",
+            value
+        )
+    })?;
+    if !delay.is_finite() || delay < 0.0 {
+        return Err(format!(
+            "Invalid --screenshot-delay '{}'. Expected a non-negative number of seconds.\n{CAMERA_SNAPSHOT_LIST_HINT}",
+            value
+        ));
+    }
+    Ok(delay)
 }
 
 pub fn print_help() {
@@ -279,8 +415,11 @@ Options:
   --present-mode <mode>       Override auto present mode selection: mailbox, immediate, fifo, fifo_relaxed
   --monitor-score <mode>      Select borderless fullscreen monitor by resolution score: highest, lowest (default: lowest)
   --swapchain-images <N>      Override swapchain image count (default: auto)
-  --screenshot <path>         Save one screenshot after rendering starts
-  --screenshot-delay <sec>    Delay before screenshot capture (default: 5.0)
+  --screenshot <preset> <path>
+                              Save one screenshot from exactly one camera snapshot preset
+  --screenshot-delay <sec>    Required delay before screenshot capture when --screenshot is used
+  --camera-snapshot <name>    Apply a saved camera snapshot at startup (do not combine with --screenshot)
+  --list-camera-snapshots     Print available camera snapshot names and exit
   --auto-exit <sec>           Exit automatically after rendering starts
   --perf                      Enable per-frame performance logging
   --water-profile <profile>   Select water profile: default, performance
@@ -310,12 +449,13 @@ Options:
 Examples:
   re-flora --windowed
   re-flora --hidden --auto-exit 20 --perf
-  re-flora --hidden --screenshot screenshots/check.png --screenshot-delay 5 --auto-exit 7
+  re-flora --hidden --screenshot player-default screenshots/check.png --screenshot-delay 2 --auto-exit 4
   re-flora --present-mode fifo
   re-flora --monitor-score lowest
   re-flora --swapchain-images 2
   re-flora --no-shadows --no-denoise
-  re-flora --screenshot out.png --screenshot-delay 3
+  re-flora --hidden --screenshot tree-closeup out.png --screenshot-delay 2 --auto-exit 4
+  re-flora --list-camera-snapshots
   re-flora --auto-exit 10 --perf
   re-flora --hidden --auto-exit 4 --perf --water-profile performance
   re-flora --hidden --auto-exit 4 --perf --water-particles 35000 --water-particle-edge-len 0.05
@@ -372,7 +512,10 @@ mod tests {
             options.monitor_score,
             MonitorScorePreference::Lowest
         ));
-        assert_eq!(options.screenshot_delay, 5.0);
+        assert!(options.screenshot_path.is_none());
+        assert!(options.screenshot_delay.is_none());
+        assert!(options.camera_snapshot.is_none());
+        assert!(!options.list_camera_snapshots);
         assert_eq!(options.tree_bench_samples, 10);
         assert!(options.tail_latest_log.is_none());
     }
@@ -475,6 +618,70 @@ mod tests {
         assert!(options.print_log_dir);
         assert!(options.latest_log);
         assert_eq!(options.tail_latest_log, Some(120));
+    }
+
+    #[test]
+    fn parses_camera_snapshot_options() {
+        let options = parse(&[
+            "re-flora",
+            "--camera-snapshot",
+            "tree-closeup",
+            "--list-camera-snapshots",
+        ]);
+
+        assert_eq!(options.camera_snapshot.as_deref(), Some("tree-closeup"));
+        assert!(options.list_camera_snapshots);
+        assert!(options.screenshot_path.is_none());
+        assert!(options.screenshot_delay.is_none());
+    }
+
+    #[test]
+    fn parses_screenshot_preset_path_and_required_delay() {
+        let options = parse(&[
+            "re-flora",
+            "--hidden",
+            "--screenshot",
+            "tree-closeup",
+            "out.png",
+            "--screenshot-delay",
+            "2.5",
+        ]);
+
+        assert!(options.hidden);
+        assert_eq!(options.camera_snapshot.as_deref(), Some("tree-closeup"));
+        assert_eq!(options.screenshot_path.as_deref(), Some("out.png"));
+        assert_eq!(options.screenshot_delay, Some(2.5));
+    }
+
+    #[test]
+    fn screenshot_requires_delay() {
+        let panic = std::panic::catch_unwind(|| {
+            parse(&["re-flora", "--screenshot", "tree-closeup", "out.png"])
+        })
+        .expect_err("missing screenshot delay should panic");
+        let message = panic_message(panic);
+        assert!(message.contains("Missing --screenshot-delay"));
+        assert!(message.contains("--list-camera-snapshots"));
+    }
+
+    #[test]
+    fn screenshot_rejects_separate_camera_snapshot_flag() {
+        let panic = std::panic::catch_unwind(|| {
+            parse(&[
+                "re-flora",
+                "--screenshot",
+                "tree-closeup",
+                "out.png",
+                "--screenshot-delay",
+                "2",
+                "--camera-snapshot",
+                "other",
+            ])
+        })
+        .expect_err("screenshot should own the camera snapshot preset");
+        let message = panic_message(panic);
+        assert!(message.contains("Do not combine --camera-snapshot with --screenshot"));
+        assert!(message.contains("--list-camera-snapshots"));
     }
 
     #[test]

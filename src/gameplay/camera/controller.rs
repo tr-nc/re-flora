@@ -25,6 +25,14 @@ impl PlayerRigidBody {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CameraPose {
+    pub position: Vec3,
+    pub yaw_deg: f32,
+    pub pitch_deg: f32,
+    pub fov_deg: f32,
+}
+
 pub struct Camera {
     position: Vec3,
 
@@ -141,9 +149,39 @@ impl Camera {
         )
     }
 
+    pub fn pose(&self) -> CameraPose {
+        CameraPose {
+            position: self.position,
+            yaw_deg: self.yaw.to_degrees(),
+            pitch_deg: self.pitch.to_degrees(),
+            fov_deg: self.desc.projection.v_fov,
+        }
+    }
+
+    pub fn apply_pose(&mut self, pose: CameraPose) {
+        self.position = pose.position;
+        self.yaw = pose.yaw_deg.to_radians();
+        self.pitch = pose.pitch_deg.to_radians();
+        self.desc.projection.v_fov = pose.fov_deg.clamp(1.0, 170.0);
+
+        self.limit_yaw();
+        self.clamp_pitch();
+        self.vectors.update(self.yaw, self.pitch);
+        self.reset_velocity();
+        self.movement_state.reset_input();
+        self.head_bob.reset();
+        self.stride_cycle.reset();
+        self.was_on_ground = false;
+        self.pre_landing_speed = 0.0;
+    }
+
     /// Only controls the camera's movement state based on the key event.
     pub fn handle_keyboard(&mut self, key_event: &KeyEvent) {
         self.movement_state.handle_keyboard(key_event);
+    }
+
+    pub fn reset_input(&mut self) {
+        self.movement_state.reset_input();
     }
 
     /// Limits the yaw to prevent the camera from spinning indefinitely.

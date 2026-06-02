@@ -88,6 +88,50 @@ fn init_env_logger() -> Option<PathBuf> {
     log_path
 }
 
+fn handle_camera_snapshot_query_options(options: &AppOptions) -> bool {
+    if !options.list_camera_snapshots {
+        return false;
+    }
+
+    match app::camera_snapshots::CameraSnapshotLibrary::load_default() {
+        Ok(library) => {
+            for name in library.names_for_cli() {
+                println!("{name}");
+            }
+        }
+        Err(err) => {
+            eprintln!("Failed to load camera snapshots: {err}");
+            std::process::exit(1);
+        }
+    }
+
+    true
+}
+
+fn validate_requested_camera_snapshot(options: &AppOptions) -> Result<(), String> {
+    let Some(requested_name) = options.camera_snapshot.as_deref() else {
+        return Ok(());
+    };
+
+    let library = app::camera_snapshots::CameraSnapshotLibrary::load_default().map_err(|err| {
+        format!(
+            "Failed to load camera snapshots: {err}\n{}",
+            cli::CAMERA_SNAPSHOT_LIST_HINT
+        )
+    })?;
+
+    if library.is_cli_name_available(requested_name) {
+        return Ok(());
+    }
+
+    Err(format!(
+        "Camera snapshot '{}' not found. Available camera snapshots: {}\n{}",
+        requested_name,
+        library.names_for_cli().join(", "),
+        cli::CAMERA_SNAPSHOT_LIST_HINT
+    ))
+}
+
 fn handle_log_query_options(options: &AppOptions) -> bool {
     if !options.print_log_dir && !options.latest_log && options.tail_latest_log.is_none() {
         return false;
@@ -149,13 +193,26 @@ fn handle_log_query_options(options: &AppOptions) -> bool {
 pub fn main() {
     // backtrace_on();
 
-    let options = AppOptions::from_args();
+    let options = match AppOptions::try_from_args() {
+        Ok(options) => options,
+        Err(err) => {
+            eprintln!("{err}");
+            std::process::exit(1);
+        }
+    };
     if options.help {
         cli::print_help();
         return;
     }
     if handle_log_query_options(&options) {
         return;
+    }
+    if handle_camera_snapshot_query_options(&options) {
+        return;
+    }
+    if let Err(err) = validate_requested_camera_snapshot(&options) {
+        eprintln!("{err}");
+        std::process::exit(1);
     }
 
     let run_log_path = init_env_logger();

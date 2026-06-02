@@ -66,6 +66,12 @@ impl MovementState {
         }
     }
 
+    pub fn reset_input(&mut self) {
+        self.is_boosted = false;
+        self.axes = AxesState::default();
+        self.jump_requested = false;
+    }
+
     /// Handles keyboard input for movement controls
     pub fn handle_keyboard(&mut self, key_event: &KeyEvent) {
         if let PhysicalKey::Code(code) = key_event.physical_key {
