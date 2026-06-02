@@ -2,6 +2,7 @@
 use crate::util::Timer;
 
 mod boot;
+mod camera_snapshot_ui;
 mod frame_timing;
 mod input;
 mod lifecycle;
@@ -15,6 +16,7 @@ mod ui_style;
 mod vegetation;
 mod water;
 
+use self::camera_snapshot_ui::draw_camera_snapshots_ui;
 use self::frame_timing::{
     draw_frame_timing_panel, FrameCpuScope, FrameCpuTimings, FrameTimingSnapshot,
 };
@@ -24,6 +26,7 @@ use self::player_tools::PlayerToolState;
 use self::terrain_rebuild::{ChunkRebuildRequest, TerrainChunkRebuildInFlight};
 use self::tree_bench::{TreeBench, TreeBenchMode};
 use self::vegetation::{TreeRecord, TreeVariationConfig};
+use crate::app::camera_snapshots::CameraSnapshotLibrary;
 use crate::app::cpu_solid_voxels::CpuSolidVoxelStore;
 use crate::app::environment;
 use crate::app::gui_config_loader::GuiConfigLoader;
@@ -124,6 +127,10 @@ pub struct App {
     debug_tree_pos: Vec3,
     config_panel_visible: bool,
     settings_panel_visible: bool,
+    camera_snapshots: CameraSnapshotLibrary,
+    camera_snapshot_draft_name: String,
+    camera_snapshot_draft_description: String,
+    camera_snapshot_status: Option<String>,
     frame_timing_panel_visible: bool,
     frame_timing_snapshot: FrameTimingSnapshot,
     is_fly_mode: bool,
@@ -749,6 +756,30 @@ impl App {
             spatial_sound_manager.clone(),
         )?;
 
+        let camera_snapshots = match CameraSnapshotLibrary::load_default() {
+            Ok(library) => {
+                log::info!(
+                    "[CAMERA_SNAPSHOT] Loaded {} snapshots from {}",
+                    library.snapshots().len(),
+                    library.path().display()
+                );
+                library
+            }
+            Err(err) => {
+                if options.camera_snapshot.is_some() {
+                    return Err(err).context(
+                        "camera snapshot was requested, but the snapshot file could not be loaded",
+                    );
+                }
+                log::warn!(
+                    "[CAMERA_SNAPSHOT] Failed to load snapshots; starting with an empty library: {}",
+                    err
+                );
+                CameraSnapshotLibrary::empty_default()
+            }
+        };
+        let camera_snapshot_draft_name = camera_snapshots.unique_name("snapshot");
+
         let debug_tree_pos = Vec3::new(2.0, 0.2, 2.0);
         let gui_config = GuiConfigLoader::load();
         let mut gui_adjustables = GuiAdjustables::from_config(&gui_config);
@@ -923,6 +954,10 @@ impl App {
             tree_records: HashMap::new(),
             config_panel_visible: false,
             settings_panel_visible: false,
+            camera_snapshots,
+            camera_snapshot_draft_name,
+            camera_snapshot_draft_description: String::new(),
+            camera_snapshot_status: None,
             frame_timing_panel_visible: options.perf,
             frame_timing_snapshot: FrameTimingSnapshot::default(),
             is_fly_mode: true,
@@ -1000,6 +1035,8 @@ impl App {
         {
             log::error!("Failed to apply initial master volume: {}", err);
         }
+
+        app.apply_startup_camera_snapshot(options.camera_snapshot.as_deref())?;
 
         app.configure_gui_font()?;
         app.load_item_panel_icons()?;
@@ -1448,6 +1485,8 @@ impl App {
                 let growing_flora_chunk_count = self.growing_flora_chunks.len();
                 let active_voxel_label = self.player_tools.active_voxel_type.label();
                 let active_voxel_color = self.player_tools.active_voxel_type.color();
+                let mut camera_snapshot_to_apply = None;
+                let current_camera_pose = self.tracer.camera_pose();
                 let egui_start = Instant::now();
                 self.egui_renderer
                     .update(&self.window_state.window(), |ctx| {
@@ -1532,6 +1571,19 @@ impl App {
                                                 &self.gui_config,
                                                 &mut self.gui_adjustables,
                                                 &mut self.wind_sources,
+                                            );
+
+                                            ui.add_space(8.0);
+                                            ui.separator();
+                                            ui.add_space(8.0);
+                                            camera_snapshot_to_apply = draw_camera_snapshots_ui(
+                                                ui,
+                                                &mut self.camera_snapshots,
+                                                &mut self.camera_snapshot_draft_name,
+                                                &mut self.camera_snapshot_draft_description,
+                                                &mut self.camera_snapshot_status,
+                                                current_camera_pose,
+                                                self.is_fly_mode,
                                             );
 
                                             ui.add_space(8.0);
@@ -1793,6 +1845,9 @@ impl App {
                     });
                 let egui_ms = egui_start.elapsed().as_secs_f32() * 1000.0;
                 self.sync_cursor_with_panels();
+                if let Some(snapshot) = camera_snapshot_to_apply {
+                    self.apply_camera_snapshot(&snapshot);
+                }
 
                 if let Err(err) = self
                     .spatial_sound_manager

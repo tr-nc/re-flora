@@ -1,5 +1,7 @@
 use re_flora_vkn::PresentMode;
 
+pub const FIXED_SCREENSHOT_DELAY_SECONDS: f32 = 2.0;
+
 #[derive(Clone, Copy, Debug)]
 pub enum PresentModePreference {
     Mailbox,
@@ -92,8 +94,12 @@ pub struct AppOptions {
     pub swapchain_images: Option<u32>,
     /// Path to save a screenshot after rendering starts. None = no screenshot.
     pub screenshot_path: Option<String>,
-    /// Delay in seconds after rendering starts before taking the screenshot.
+    /// Fixed delay in seconds after rendering starts before taking the screenshot.
     pub screenshot_delay: f32,
+    /// Apply a named camera snapshot at startup. None keeps the default player camera.
+    pub camera_snapshot: Option<String>,
+    /// Print available camera snapshot names and exit successfully.
+    pub list_camera_snapshots: bool,
     /// Auto-exit N seconds after rendering starts. None = don't auto-exit.
     pub auto_exit_delay: Option<f32>,
     /// Enable per-frame performance timing output to console.
@@ -231,7 +237,9 @@ impl AppOptions {
             monitor_score,
             swapchain_images: parse_f32_after("--swapchain-images").map(|v| v as u32),
             screenshot_path: parse_string_after("--screenshot"),
-            screenshot_delay: parse_f32_after("--screenshot-delay").unwrap_or(5.0),
+            screenshot_delay: FIXED_SCREENSHOT_DELAY_SECONDS,
+            camera_snapshot: parse_string_after("--camera-snapshot"),
+            list_camera_snapshots: args.iter().any(|a| a == "--list-camera-snapshots"),
             auto_exit_delay: parse_f32_after("--auto-exit"),
             perf: args.iter().any(|a| a == "--perf"),
             water_profile,
@@ -279,8 +287,9 @@ Options:
   --present-mode <mode>       Override auto present mode selection: mailbox, immediate, fifo, fifo_relaxed
   --monitor-score <mode>      Select borderless fullscreen monitor by resolution score: highest, lowest (default: lowest)
   --swapchain-images <N>      Override swapchain image count (default: auto)
-  --screenshot <path>         Save one screenshot after rendering starts
-  --screenshot-delay <sec>    Delay before screenshot capture (default: 5.0)
+  --screenshot <path>         Save one screenshot after a fixed 2-second render warmup
+  --camera-snapshot <name>    Apply a saved camera snapshot at startup (omit for player default)
+  --list-camera-snapshots     Print available camera snapshot names and exit
   --auto-exit <sec>           Exit automatically after rendering starts
   --perf                      Enable per-frame performance logging
   --water-profile <profile>   Select water profile: default, performance
@@ -310,12 +319,13 @@ Options:
 Examples:
   re-flora --windowed
   re-flora --hidden --auto-exit 20 --perf
-  re-flora --hidden --screenshot screenshots/check.png --screenshot-delay 5 --auto-exit 7
+  re-flora --hidden --screenshot screenshots/check.png --auto-exit 4
   re-flora --present-mode fifo
   re-flora --monitor-score lowest
   re-flora --swapchain-images 2
   re-flora --no-shadows --no-denoise
-  re-flora --screenshot out.png --screenshot-delay 3
+  re-flora --hidden --camera-snapshot tree-closeup --screenshot out.png --auto-exit 4
+  re-flora --list-camera-snapshots
   re-flora --auto-exit 10 --perf
   re-flora --hidden --auto-exit 4 --perf --water-profile performance
   re-flora --hidden --auto-exit 4 --perf --water-particles 35000 --water-particle-edge-len 0.05
@@ -372,7 +382,9 @@ mod tests {
             options.monitor_score,
             MonitorScorePreference::Lowest
         ));
-        assert_eq!(options.screenshot_delay, 5.0);
+        assert_eq!(options.screenshot_delay, FIXED_SCREENSHOT_DELAY_SECONDS);
+        assert!(options.camera_snapshot.is_none());
+        assert!(!options.list_camera_snapshots);
         assert_eq!(options.tree_bench_samples, 10);
         assert!(options.tail_latest_log.is_none());
     }
@@ -475,6 +487,22 @@ mod tests {
         assert!(options.print_log_dir);
         assert!(options.latest_log);
         assert_eq!(options.tail_latest_log, Some(120));
+    }
+
+    #[test]
+    fn parses_camera_snapshot_options() {
+        let options = parse(&[
+            "re-flora",
+            "--camera-snapshot",
+            "tree-closeup",
+            "--list-camera-snapshots",
+            "--screenshot-delay",
+            "99",
+        ]);
+
+        assert_eq!(options.camera_snapshot.as_deref(), Some("tree-closeup"));
+        assert!(options.list_camera_snapshots);
+        assert_eq!(options.screenshot_delay, FIXED_SCREENSHOT_DELAY_SECONDS);
     }
 
     #[test]

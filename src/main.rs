@@ -88,6 +88,26 @@ fn init_env_logger() -> Option<PathBuf> {
     log_path
 }
 
+fn handle_camera_snapshot_query_options(options: &AppOptions) -> bool {
+    if !options.list_camera_snapshots {
+        return false;
+    }
+
+    match app::camera_snapshots::CameraSnapshotLibrary::load_default() {
+        Ok(library) => {
+            for name in library.names_for_cli() {
+                println!("{name}");
+            }
+        }
+        Err(err) => {
+            eprintln!("Failed to load camera snapshots: {err}");
+            std::process::exit(1);
+        }
+    }
+
+    true
+}
+
 fn handle_log_query_options(options: &AppOptions) -> bool {
     if !options.print_log_dir && !options.latest_log && options.tail_latest_log.is_none() {
         return false;
@@ -155,6 +175,9 @@ pub fn main() {
         return;
     }
     if handle_log_query_options(&options) {
+        return;
+    }
+    if handle_camera_snapshot_query_options(&options) {
         return;
     }
 

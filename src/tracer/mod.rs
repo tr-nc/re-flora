@@ -43,7 +43,9 @@ use crate::builder::{
     ContreeBuilderResources, FloraInstanceResources, SceneAccelBuilderResources, SurfaceResources,
     TreeLeavesInstance,
 };
-use crate::gameplay::{calculate_directional_light_matrices, Camera, CameraDesc, CameraVectors};
+use crate::gameplay::{
+    calculate_directional_light_matrices, Camera, CameraDesc, CameraPose, CameraVectors,
+};
 use crate::generated::gpu_structs::PushConstantFlora;
 use crate::geom::UAabb3;
 use crate::particles::{ParticleSnapshot, PARTICLE_CAPACITY};
@@ -2126,6 +2128,29 @@ impl Tracer {
 
     pub fn camera_position(&self) -> Vec3 {
         self.camera.position()
+    }
+
+    pub fn camera_pose(&self) -> CameraPose {
+        self.camera.pose()
+    }
+
+    pub fn apply_camera_pose(&mut self, pose: CameraPose) {
+        self.camera.apply_pose(pose);
+        let view_mat = self.camera.get_view_mat();
+        let proj_mat = self.camera.get_proj_mat();
+        self.camera_view_mat_prev_frame = view_mat;
+        self.camera_proj_mat_prev_frame = proj_mat;
+        self.current_view_proj_mat = proj_mat * view_mat;
+        self.shadow_map_history_valid = false;
+        if let Err(err) = self
+            .spatial_sound_manager
+            .update_player_pos(self.camera.position(), self.camera.vectors())
+        {
+            log::warn!(
+                "Failed to update listener after applying camera pose: {}",
+                err
+            );
+        }
     }
 
     pub fn camera_front(&self) -> Vec3 {

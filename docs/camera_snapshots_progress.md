@@ -28,29 +28,30 @@ Known systems and files:
   - `src/app/core/boot.rs`
   - `src/app/core/screenshot.rs`
   - `src/cli.rs`
-- In-game config/menu UI already exists in `src/app/core/mod.rs` and related UI modules.
-- Existing hidden/screenshot commands:
-  - `cargo run --release -- --hidden --screenshot screenshots/check.png --screenshot-delay 5 --auto-exit 7`
-  - `cargo run --release -- --latest-log`
-  - `cargo run --release -- --tail-latest-log 200`
+- Camera snapshot implementation files:
+  - `src/app/camera_snapshots.rs`
+  - `src/app/core/camera_snapshot_ui.rs`
+  - `docs/camera_snapshots.md`
 
-Constraints and decisions so far:
+Commands:
 
-- Do not add new keyboard shortcuts.
-- Snapshot management should live in the existing menu UI.
-- Store snapshots in a single readable text file, likely TOML under `config/`.
-- Store camera pose in a readable form, not only raw matrices.
-- Snapshot names should be normalized to lowercase kebab-case (`foo-bar`) and made unique automatically.
-- Hidden mode should load all snapshots at startup.
-- A virtual/default camera option should preserve current player default behavior.
-- Screenshot delay should be fixed internally, currently proposed as 2 seconds.
+- `cargo run --release -- --list-camera-snapshots`
+- `cargo run --release -- --hidden --screenshot screenshots/check.png --auto-exit 4`
+- `cargo run --release -- --hidden --camera-snapshot tree-closeup --screenshot screenshots/tree-closeup.png --auto-exit 4`
+- `cargo run --release -- --latest-log`
+- `cargo run --release -- --tail-latest-log 200`
 
-Assumptions to confirm:
+Implemented decisions:
 
-- TOML is acceptable for the snapshot file, e.g. `config/camera_snapshots.toml`.
-- A snapshot pose should include at least position, yaw, pitch, and possibly FOV/fly-mode.
-- Applying a snapshot should reset temporal/render history where needed.
-- A missing requested snapshot should fail with a clear error rather than silently falling back.
+- No new keyboard shortcuts.
+- Snapshot management lives in the existing debug/config menu UI.
+- Snapshots are stored in readable TOML at `config/camera_snapshots.toml`.
+- Stored pose fields are position, yaw, pitch, FOV, description, and fly mode.
+- Snapshot names are normalized to lowercase kebab-case (`foo-bar`) and made unique automatically.
+- Hidden mode loads snapshots at startup.
+- `player-default` is always available as the virtual/default camera option.
+- Missing requested startup snapshots fail clearly and list available names.
+- Screenshots use a fixed 2-second internal render warmup; `--screenshot-delay` is no longer exposed in help and is ignored by current parsing.
 
 ## Plan / Phases
 
@@ -62,9 +63,8 @@ Assumptions to confirm:
   - TOML load/save support.
   - Name normalization and uniqueness helpers.
   - Unit tests for parsing/naming behavior.
-- Dependencies/blockers:
-  - Confirm final file path and fields.
-- Status: not started
+- Dependencies/blockers: none remaining.
+- Status: done
 
 ### Phase 2: Camera pose access and application
 
@@ -72,82 +72,77 @@ Assumptions to confirm:
 - Expected output:
   - Camera/tracer methods for get/apply snapshot pose.
   - Temporal history reset hook when applying a pose.
-- Dependencies/blockers:
-  - Need to inspect exact camera previous-frame/history interactions.
-- Status: not started
+- Dependencies/blockers: none remaining.
+- Status: done
 
 ### Phase 3: In-game menu UI
 
 - Objective: Add snapshot controls to the existing menu/config UI without new hotkeys.
 - Expected output:
-  - UI area for current pose, snapshot name input, save button, and list/apply controls.
+  - UI area for current pose, snapshot name input, save button, list/apply controls, and delete controls.
   - Automatic normalized unique names.
   - Persistence to the snapshot file.
-- Dependencies/blockers:
-  - Phase 1 and Phase 2.
-- Status: not started
+- Dependencies/blockers: none remaining.
+- Status: done
 
 ### Phase 4: CLI and hidden-mode integration
 
 - Objective: Let hidden/screenshot automation select a snapshot by name.
 - Expected output:
-  - CLI option such as `--camera-snapshot <name>`.
-  - Optional listing/help behavior if useful.
-  - Startup loads snapshot file and applies selected snapshot before screenshot timing begins.
+  - `--camera-snapshot <name>`.
+  - `--list-camera-snapshots`.
+  - Startup loads the snapshot file and applies the selected snapshot before screenshot timing begins.
   - No selected snapshot preserves current default camera behavior.
-- Dependencies/blockers:
-  - Phase 1 and Phase 2.
-- Status: not started
+- Dependencies/blockers: none remaining.
+- Status: done
 
 ### Phase 5: Screenshot delay simplification
 
 - Objective: Make screenshot timing model-safe and temporal-friendly.
 - Expected output:
-  - `--screenshot` captures after a fixed internal delay, proposed 2 seconds.
-  - Existing `--screenshot-delay` behavior is either removed from help or retained only as a compatibility/internal override, pending decision.
+  - `--screenshot` captures after a fixed internal 2-second warmup.
   - Hidden screenshot examples no longer require model/user-provided delay.
-- Dependencies/blockers:
-  - Confirm compatibility expectations for existing scripts.
-- Status: not started
+- Dependencies/blockers: none remaining.
+- Status: done
 
 ### Phase 6: Documentation and examples
 
 - Objective: Document the workflow for players, agents, and manual validation.
 - Expected output:
-  - Short usage notes in an appropriate docs file or README section.
+  - Short usage notes.
   - Example TOML and CLI commands.
-- Dependencies/blockers:
-  - Implementation details finalized.
-- Status: not started
+- Dependencies/blockers: none remaining.
+- Status: done
 
 ## Verification Method
 
-Planned checks:
+Completed checks:
 
-- Formatting and compile checks:
-  - `cargo fmt --check`
-  - `cargo check`
-- Unit tests:
-  - Name normalization: spaces/punctuation/case become `foo-bar`.
-  - Duplicate names get deterministic suffixes.
-  - Snapshot TOML round-trip preserves pose fields.
-  - Missing/invalid snapshot file is handled safely.
-- Hidden screenshot validation:
-  - Create or commit a small sample snapshot file.
-  - Run: `cargo run --release -- --hidden --camera-snapshot <name> --screenshot screenshots/<name>.png --auto-exit 3`
-  - Confirm the screenshot is created and the run log reports the selected snapshot.
-  - Run: `cargo run --release -- --tail-latest-log 200` and check for errors.
-- UI/manual validation:
-  - Open the game normally.
-  - Save multiple snapshots from the menu.
-  - Confirm names are normalized and unique.
-  - Restart and confirm snapshots are reloaded.
-  - Apply each snapshot and confirm the camera moves to the stored pose.
-- Regression validation:
-  - Hidden run without any snapshot option still uses the current default camera.
-  - Hidden run with no snapshot file does not fail unless a specific missing snapshot was requested.
+- `cargo fmt --check`
+- `cargo check`
+- `cargo test`
+- `cargo run -- --list-camera-snapshots`
+- Temporary snapshot file validation:
+  - created `config/camera_snapshots.toml` with `test-overview`
+  - ran `cargo run -- --list-camera-snapshots`
+  - confirmed `player-default` and `test-overview` printed
+  - removed the temporary snapshot file before final status
+- Hidden snapshot screenshot validation:
+  - `cargo run --release -- --hidden --camera-snapshot test-overview --screenshot target/camera-snapshot-check.png --auto-exit 3`
+  - confirmed log applied `test-overview`
+  - confirmed screenshot saved after about 2 seconds
+  - confirmed `target/camera-snapshot-check.png` exists and is a valid 1920x1200 PNG
+- Hidden default-camera regression:
+  - `cargo run --release -- --hidden --auto-exit 0.5`
+  - confirmed startup with no snapshot file and no requested snapshot uses default player camera and exits successfully
 
-Verification is not yet possible because implementation has not started.
+Manual validation still recommended:
+
+- Open the game normally.
+- Save multiple snapshots from the menu.
+- Confirm names are normalized and unique.
+- Restart and confirm snapshots are reloaded.
+- Apply/delete snapshots from the UI.
 
 ## Progress Log
 
@@ -157,13 +152,16 @@ Verification is not yet possible because implementation has not started.
 - 2026-06-03: Decided screenshots should use a fixed internal temporal-warmup delay, proposed as 2 seconds, instead of exposing delay selection to the model.
 - 2026-06-03: Created isolated worktree `/home/terence/code/re-flora-agent-camera-snapshots` on branch `agent/camera-snapshots` from `main`.
 - 2026-06-03: Created this progress document. No implementation changes made.
+- 2026-06-03: Implemented snapshot persistence at `config/camera_snapshots.toml` with readable TOML, normalized unique kebab-case names, and unit tests.
+- 2026-06-03: Added camera pose get/apply methods and reset camera movement/input/history when applying snapshots.
+- 2026-06-03: Added Camera Snapshots controls to the existing debug/config menu without new shortcuts.
+- 2026-06-03: Added `--camera-snapshot <name>` and `--list-camera-snapshots`; hidden runs keep the default camera when no snapshot is selected.
+- 2026-06-03: Changed screenshot capture to a fixed 2-second render warmup and removed delay from help/examples.
+- 2026-06-03: Added `docs/camera_snapshots.md` and linked it from `README.md`.
+- 2026-06-03: Validated with formatting, check, tests, snapshot listing, hidden snapshot screenshot, and hidden default-camera runs.
 
 ## Open Questions / Risks
 
-- Should the snapshot file path be exactly `config/camera_snapshots.toml`?
-- Which fields are required in the snapshot schema: position/yaw/pitch only, or also FOV, fly mode, time of day, render flags, or config overrides?
-- Should `--screenshot-delay` be removed, hidden, ignored, or kept for backwards compatibility?
-- Should requesting a missing snapshot fail hard, or fall back to default only in non-agent/manual usage?
-- Applying a snapshot during runtime may need denoiser, shadow, and previous-frame camera history resets to avoid transient artifacts.
-- UI persistence can race with manual edits if the file is changed while the game is running; decide whether this matters for MVP.
+- UI persistence can race with manual edits if the file is changed while the game is running; this is acceptable for MVP.
 - Screenshot determinism may still be affected by particles, water simulation, temporal effects, GPU/driver differences, and time-of-day animation.
+- No automated UI click test exists; menu save/apply/delete behavior is covered by compile-time checks and manual validation remains recommended.
