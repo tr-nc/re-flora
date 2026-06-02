@@ -39,7 +39,16 @@ Constraints and assumptions:
 - Objective: choose exact texture format, coordinate/depth model, and receiver sampling rule.
 - Expected output: short design note or updated section in this document specifying 2D opacity, layered opacity, or another representation.
 - Dependencies/blockers: decide how much depth correctness is required for receivers above/below canopy.
-- Status: in progress.
+- Status: done.
+
+Chosen design:
+
+- Use a separate 2D light-space opacity map at the existing shadow-map resolution.
+- Render current animated leaf/apple caster geometry into an `R8G8B8A8_UNORM` color target and accumulate fragment alpha with standard over blending; the alpha channel is interpreted as leaf opacity.
+- Do not feed animated leaf depth into the terrain VSM path. The main `shadow_map_tex` and VSM moments remain terrain/stable-scene only.
+- Build a small low-resolution light-space influence mask from the opacity map. Receivers sample this mask first and skip high-resolution leaf-opacity sampling when the mask is empty.
+- Receiver rule: terrain VSM visibility is multiplied by leaf transmittance `1 - opacity * strength` only for non-tree-leaf flora receivers inside the mask.
+- Depth model: first implementation is intentionally 2D opacity, not layered/deep opacity. This can over-shadow receivers in front of the canopy, but is acceptable for grass/low flora under trees and avoids a much more expensive deep-opacity path.
 
 ### Phase 2: Add leaf shadow resources and descriptors
 
