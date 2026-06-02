@@ -1209,12 +1209,40 @@ impl App {
         Ok(())
     }
 
+    fn gui_wants_keyboard_input(&self) -> bool {
+        self.window_state.is_cursor_visible()
+            && self.egui_renderer.context().egui_wants_keyboard_input()
+    }
+
     pub fn on_window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
         _id: WindowId,
         event: WindowEvent,
     ) {
+        let is_keyboard_event = matches!(&event, WindowEvent::KeyboardInput { .. });
+        let gui_wanted_keyboard_before_event = self.gui_wants_keyboard_input();
+
+        // Feed GUI-visible events to egui first. Keep keyboard movement available while panels are
+        // merely open, but reserve keyboard input for egui while a text/numeric edit has focus.
+        if self.window_state.is_cursor_visible() {
+            let consumed = self
+                .egui_renderer
+                .on_window_event(&self.window_state.window(), &event)
+                .consumed;
+            let gui_wants_keyboard =
+                gui_wanted_keyboard_before_event || self.gui_wants_keyboard_input();
+
+            if is_keyboard_event && gui_wants_keyboard {
+                self.tracer.reset_camera_input();
+                return;
+            }
+
+            if consumed && !is_keyboard_event {
+                return;
+            }
+        }
+
         if let WindowEvent::KeyboardInput { event, .. } = &event {
             if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyQ {
                 self.on_terminate(event_loop);
@@ -1229,21 +1257,6 @@ impl App {
 
             if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyP {
                 self.frame_timing_panel_visible = !self.frame_timing_panel_visible;
-                return;
-            }
-        }
-
-        // if cursor is visible, feed the event to gui first, if the event is being consumed by gui, no need to handle it again later
-        if self.window_state.is_cursor_visible() {
-            let consumed = self
-                .egui_renderer
-                .on_window_event(&self.window_state.window(), &event)
-                .consumed;
-
-            if consumed {
-                if let WindowEvent::KeyboardInput { event, .. } = &event {
-                    self.tracer.handle_keyboard(event);
-                }
                 return;
             }
         }
@@ -1845,6 +1858,9 @@ impl App {
                     });
                 let egui_ms = egui_start.elapsed().as_secs_f32() * 1000.0;
                 self.sync_cursor_with_panels();
+                if self.gui_wants_keyboard_input() {
+                    self.tracer.reset_camera_input();
+                }
                 if let Some(snapshot) = camera_snapshot_to_apply {
                     self.apply_camera_snapshot(&snapshot);
                 }

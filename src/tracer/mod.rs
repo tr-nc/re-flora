@@ -2114,6 +2114,10 @@ impl Tracer {
         self.camera.handle_keyboard(key_event);
     }
 
+    pub fn reset_camera_input(&mut self) {
+        self.camera.reset_input();
+    }
+
     pub fn handle_mouse(&mut self, delta: Vec2) {
         self.camera.handle_mouse(delta);
     }

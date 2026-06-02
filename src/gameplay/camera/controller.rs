@@ -180,6 +180,10 @@ impl Camera {
         self.movement_state.handle_keyboard(key_event);
     }
 
+    pub fn reset_input(&mut self) {
+        self.movement_state.reset_input();
+    }
+
     /// Limits the yaw to prevent the camera from spinning indefinitely.
     /// The yaw is clamped to the range (-π, π).
     fn limit_yaw(&mut self) {
