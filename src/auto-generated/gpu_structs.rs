@@ -440,6 +440,10 @@ pub struct GuiInput {
     pub leaf_paddle_amplitude_voxels: f32,
     pub leaf_paddle_primary_speed: f32,
     pub leaf_paddle_secondary_speed: f32,
+    pub leaf_shadow_fragment_opacity: f32,
+    pub leaf_shadow_strength: f32,
+    pub leaf_shadow_min_transmittance: f32,
+    pub leaf_shadow_filter_radius_texels: f32,
     pub _pad8: [u8; 12],
 }
 

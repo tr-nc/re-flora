@@ -588,6 +588,10 @@ impl Tracer {
         leaf_paddle_amplitude_voxels: f32,
         leaf_paddle_primary_speed: f32,
         leaf_paddle_secondary_speed: f32,
+        leaf_shadow_fragment_opacity: f32,
+        leaf_shadow_strength: f32,
+        leaf_shadow_min_transmittance: f32,
+        leaf_shadow_filter_radius_texels: f32,
         wind_gui_params: WindGuiParams,
         flora_tick: u32,
         sprout_delay_ticks: u32,
@@ -721,6 +725,10 @@ impl Tracer {
             leaf_paddle_amplitude_voxels,
             leaf_paddle_primary_speed,
             leaf_paddle_secondary_speed,
+            leaf_shadow_fragment_opacity,
+            leaf_shadow_strength,
+            leaf_shadow_min_transmittance,
+            leaf_shadow_filter_radius_texels,
             wind_gui_params,
         )?;
 

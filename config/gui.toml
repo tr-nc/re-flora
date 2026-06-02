@@ -759,6 +759,50 @@ value = 0.5
 min = 0
 max = 1
 
+[[section.param]]
+id = "leaf_shadow_fragment_opacity"
+kind = "float"
+label = "Leaf Shadow Fragment Opacity"
+type = "Float"
+
+[section.param.data]
+value = 0.4
+min = 0
+max = 1
+
+[[section.param]]
+id = "leaf_shadow_strength"
+kind = "float"
+label = "Leaf Shadow Strength"
+type = "Float"
+
+[section.param.data]
+value = 1.15
+min = 0
+max = 3
+
+[[section.param]]
+id = "leaf_shadow_min_transmittance"
+kind = "float"
+label = "Leaf Shadow Min Transmittance"
+type = "Float"
+
+[section.param.data]
+value = 0.14
+min = 0
+max = 1
+
+[[section.param]]
+id = "leaf_shadow_filter_radius_texels"
+kind = "float"
+label = "Leaf Shadow Filter Radius (texels)"
+type = "Float"
+
+[section.param.data]
+value = 2
+min = 0
+max = 8
+
 [[section]]
 name = "Starlight"
 
