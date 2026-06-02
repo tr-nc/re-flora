@@ -40,6 +40,14 @@ impl PipelineBuilder {
         )
         .unwrap();
 
+        let leaf_shadow_mask_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            shader_compiler,
+            "shader/tracer/leaf_shadow_mask.comp",
+            "main",
+        )
+        .unwrap();
+
         let vsm_creation_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             shader_compiler,
@@ -226,6 +234,7 @@ impl PipelineBuilder {
             tracer_sm,
             tracer_shadow_sm,
             shadow_depth_copy_sm,
+            leaf_shadow_mask_sm,
             vsm_creation_sm,
             vsm_blur_h_sm,
             vsm_blur_v_sm,
@@ -279,6 +288,13 @@ impl PipelineBuilder {
         let shadow_depth_copy_ppl = ComputePipeline::new(
             device,
             &shader_modules.shadow_depth_copy_sm,
+            pool,
+            &[resources],
+        );
+
+        let leaf_shadow_mask_ppl = ComputePipeline::new(
+            device,
+            &shader_modules.leaf_shadow_mask_sm,
             pool,
             &[resources],
         );
@@ -340,6 +356,7 @@ impl PipelineBuilder {
             tracer_ppl,
             tracer_shadow_ppl,
             shadow_depth_copy_ppl,
+            leaf_shadow_mask_ppl,
             vsm_creation_ppl,
             vsm_blur_h_ppl,
             vsm_blur_v_ppl,
@@ -362,6 +379,7 @@ impl PipelineBuilder {
         gfx_output_tex: Texture,
         gfx_depth_tex: Texture,
         shadow_map_depth_tex: Texture,
+        leaf_shadow_opacity_tex: Texture,
     ) -> RenderPasses {
         let render_pass_color_and_depth = Self::create_render_pass_with_color_and_depth(
             vulkan_ctx,
@@ -370,9 +388,12 @@ impl PipelineBuilder {
         );
         let render_pass_depth =
             Self::create_render_pass_with_depth(vulkan_ctx, shadow_map_depth_tex);
+        let render_pass_leaf_shadow_opacity =
+            Self::create_render_pass_with_color(vulkan_ctx, leaf_shadow_opacity_tex);
         RenderPasses {
             render_pass_color_and_depth,
             render_pass_depth,
+            render_pass_leaf_shadow_opacity,
         }
     }
 
@@ -423,14 +444,20 @@ impl PipelineBuilder {
             &[resources],
         );
 
-        let leaves_shadow_lod_ppl = Self::create_gfx_pipeline(
+        let leaves_shadow_lod_ppl = Self::create_gfx_pipeline_with_desc(
             vulkan_ctx,
             &shader_modules.leaves_shadow_vert_sm,
             &shader_modules.leaves_shadow_frag_sm,
-            &render_passes.render_pass_depth,
+            &render_passes.render_pass_leaf_shadow_opacity,
             None,
             pool,
             &[resources],
+            GraphicsPipelineDesc {
+                cull_mode: vk::CullModeFlags::BACK,
+                depth_test_enable: false,
+                depth_write_enable: false,
+                ..Default::default()
+            },
         );
 
         let particle_ppl = Self::create_gfx_pipeline(
@@ -497,6 +524,20 @@ impl PipelineBuilder {
         )
     }
 
+    fn create_render_pass_with_color(vulkan_ctx: &VulkanContext, color_tex: Texture) -> RenderPass {
+        RenderPass::with_attachments(
+            vulkan_ctx.device().clone(),
+            &[AttachmentDescOuter {
+                texture: color_tex,
+                load_op: vk::AttachmentLoadOp::LOAD,
+                store_op: vk::AttachmentStoreOp::STORE,
+                initial_layout: TextureLayout::GENERAL,
+                final_layout: TextureLayout::GENERAL,
+                ty: AttachmentType::Color,
+            }],
+        )
+    }
+
     fn create_gfx_pipeline(
         vulkan_ctx: &VulkanContext,
         vert_sm: &ShaderModule,
@@ -506,17 +547,40 @@ impl PipelineBuilder {
         descriptor_pool: &DescriptorPool,
         resource_containers: &[&dyn ResourceContainer],
     ) -> GraphicsPipeline {
-        GraphicsPipeline::new(
-            vulkan_ctx.device(),
+        Self::create_gfx_pipeline_with_desc(
+            vulkan_ctx,
             vert_sm,
             frag_sm,
             render_pass,
-            &GraphicsPipelineDesc {
+            instance_rate_starting_location,
+            descriptor_pool,
+            resource_containers,
+            GraphicsPipelineDesc {
                 cull_mode: vk::CullModeFlags::BACK,
                 depth_test_enable: true,
                 depth_write_enable: true,
                 ..Default::default()
             },
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn create_gfx_pipeline_with_desc(
+        vulkan_ctx: &VulkanContext,
+        vert_sm: &ShaderModule,
+        frag_sm: &ShaderModule,
+        render_pass: &RenderPass,
+        instance_rate_starting_location: Option<u32>,
+        descriptor_pool: &DescriptorPool,
+        resource_containers: &[&dyn ResourceContainer],
+        desc: GraphicsPipelineDesc,
+    ) -> GraphicsPipeline {
+        GraphicsPipeline::new(
+            vulkan_ctx.device(),
+            vert_sm,
+            frag_sm,
+            render_pass,
+            &desc,
             instance_rate_starting_location,
             descriptor_pool,
             resource_containers,
@@ -528,6 +592,7 @@ pub struct ShaderModules {
     pub tracer_sm: ShaderModule,
     pub tracer_shadow_sm: ShaderModule,
     pub shadow_depth_copy_sm: ShaderModule,
+    pub leaf_shadow_mask_sm: ShaderModule,
     pub vsm_creation_sm: ShaderModule,
     pub vsm_blur_h_sm: ShaderModule,
     pub vsm_blur_v_sm: ShaderModule,
@@ -557,6 +622,7 @@ pub struct ComputePipelines {
     pub tracer_ppl: ComputePipeline,
     pub tracer_shadow_ppl: ComputePipeline,
     pub shadow_depth_copy_ppl: ComputePipeline,
+    pub leaf_shadow_mask_ppl: ComputePipeline,
     pub vsm_creation_ppl: ComputePipeline,
     pub vsm_blur_h_ppl: ComputePipeline,
     pub vsm_blur_v_ppl: ComputePipeline,
@@ -576,6 +642,7 @@ pub struct ComputePipelines {
 pub struct RenderPasses {
     pub render_pass_color_and_depth: RenderPass,
     pub render_pass_depth: RenderPass,
+    pub render_pass_leaf_shadow_opacity: RenderPass,
 }
 
 pub struct GraphicsPipelines {

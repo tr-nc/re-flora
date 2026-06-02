@@ -115,7 +115,10 @@ void prepare_flora_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_l
     anchor_pos = (vec3(vox_local_pos) + wind_offset) * scaling_factor + instance_pos + player_push;
     voxel_pos         = anchor_pos + vec3(0.5) * scaling_factor;
 
+    bool receiver_accepts_leaf_shadow =
+        instance_ty != FLORA_SPECIES_TREE_LEAF && instance_ty != FLORA_SPECIES_APPLE;
     shadow_weight = get_shadow_weight_vsm_temporal(vec4(voxel_pos, 1.0));
+    shadow_weight *= get_leaf_shadow_transmittance(vec4(voxel_pos, 1.0), receiver_accepts_leaf_shadow);
     shadow_weight *= get_shadow_weight(vox_local_pos);
 }
 

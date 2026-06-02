@@ -55,35 +55,67 @@ Chosen design:
 - Objective: add separate leaf shadow texture(s), sampler, descriptor bindings, and any push/uniform data.
 - Expected output: new resources in `src/tracer/resources.rs` and pipeline descriptor updates.
 - Dependencies/blockers: Phase 1 format/layout decision.
-- Status: not started.
+- Status: done.
+
+Implementation notes:
+
+- Added `leaf_shadow_opacity_tex` at shadow-map resolution.
+- Added `leaf_shadow_mask_tex` at 1/8 shadow-map resolution.
+- Added descriptor bindings for flora/leaf receivers and a compute mask pass.
 
 ### Phase 3: Render animated leaves into the separate leaf shadow path
 
 - Objective: reuse current animated leaf shadow geometry/wind path, but write leaf opacity/transmittance instead of feeding leaf depth into the main VSM.
 - Expected output: shader/pass changes for leaf-only shadow accumulation; main VSM excludes or ignores leaf depth.
 - Dependencies/blockers: Phase 2 resources; need blend/atomic strategy for opacity accumulation.
-- Status: not started.
+- Status: done.
+
+Implementation notes:
+
+- Reused `shader/foliage/leaves_shadow.vert` so shadow casters use current wind/leaf/apple animation.
+- Changed `shader/foliage/leaves_shadow.frag` to write opacity alpha into the separate color target.
+- Retargeted the leaf shadow graphics pass to `leaf_shadow_opacity_tex` and disabled depth testing/writes for opacity accumulation.
+- Stopped feeding animated leaf depth into `shadow_map_depth_tex`; main VSM now starts from clear depth plus terrain traced by `tracer_shadow.comp`.
 
 ### Phase 4: Build a cheap leaf-shadow influence mask
 
 - Objective: identify light-space tiles/chunks where leaf shadow can affect receivers.
 - Expected output: low-res mask or CPU/GPU metadata so most grass can skip leaf-shadow sampling.
 - Dependencies/blockers: Phase 1 representation and pass layout.
-- Status: not started.
+- Status: done.
+
+Implementation notes:
+
+- Added `shader/tracer/leaf_shadow_mask.comp` to downsample and dilate the opacity map into a conservative mask.
+- The flora receiver path samples this low-res mask before doing high-res opacity PCF.
 
 ### Phase 5: Sample leaf shadow in flora/grass shaders
 
 - Objective: multiply terrain VSM shadow by separate leaf transmittance only when the receiver may be affected.
 - Expected output: `flora_common.glsl` or related shader changes that compute `final_shadow = terrain_vsm * leaf_shadow`.
 - Dependencies/blockers: Phase 2-4.
-- Status: not started.
+- Status: done.
+
+Implementation notes:
+
+- Added `shader/include/leaf_shadow.glsl`.
+- Flora/leaf vertex shaders bind the opacity and mask textures.
+- `flora_common.glsl` multiplies terrain VSM visibility by leaf transmittance for non-tree-leaf/non-apple flora receivers.
 
 ### Phase 6: Tune and validate quality/performance
 
 - Objective: tune resolution, blur/mip, opacity strength, and skip thresholds.
 - Expected output: validated settings and documented tradeoffs.
 - Dependencies/blockers: implementation phases complete.
-- Status: not started.
+- Status: done.
+
+Tuning notes:
+
+- Opacity alpha per caster fragment: `0.11`.
+- Receiver leaf shadow strength: `0.62`.
+- Minimum receiver transmittance: `0.42`.
+- Mask threshold: `0.003` generation, `0.01` receiver sampling.
+- GPU profiler hidden release run showed the extra passes at roughly `leaf_shadow_opacity.pass=17-19us` and `leaf_shadow_mask.pass=39-40us` on the tested RTX 3060 Ti path.
 
 ## Verification Method
 
@@ -112,10 +144,27 @@ Performance acceptance:
 - Confirm the extra receiver cost is localized by mask/tile/chunk gating.
 - If GPU profiling is available, inspect pass cost for leaf shadow generation and receiver sampling.
 
-Verification not yet possible because implementation has not started.
+Latest verification:
+
+- `cargo fmt --check`
+- `cargo check`
+- `cargo test`
+- `cargo run --release -- --hidden --auto-exit 5`
+- `cargo run --release -- --hidden --auto-exit 4 --perf`
+- `cargo run --release -- --hidden --screenshot target/leaf-shadow-check.png --screenshot-delay 2 --auto-exit 3`
+
+Validation notes:
+
+- Hidden 5s release smoke exited successfully.
+- Perf run included `leaf_shadow_opacity.pass` and `leaf_shadow_mask.pass` GPU scopes with no dropped scopes.
+- Screenshot was saved to `target/leaf-shadow-check.png`; tree/grass shadows were visibly present.
+- No shader, Vulkan, panic, fatal, or error log entries were observed.
+- Remaining warnings are pre-existing/non-blocking: multiple butterfly atlas files and short startup audio ring-buffer underruns.
 
 ## Progress Log
 
+- 2026-06-03: Chose a separate 2D light-space opacity map plus low-res influence mask; deferred layered/deep opacity because grass receivers are the target and the deep path is much more expensive.
+- 2026-06-03: Added leaf shadow opacity/mask resources, render pass, mask compute pass, and receiver shader sampling. Runtime smoke passed with no shader/Vulkan errors.
 - 2026-06-02: Confirmed current grass/flora VSM sampling is per voxel world position, not one shared blade position.
 - 2026-06-02: Discussed that exact moving leaves in the main VSM cause high-frequency instability, blur/light bleeding, and temporal ghosting.
 - 2026-06-02: Decided to pursue a separate moving-leaf opacity/transmittance shadow path instead of forcing PCSS on all receivers or freezing shadow casters.
@@ -124,9 +173,9 @@ Verification not yet possible because implementation has not started.
 
 ## Open Questions / Risks
 
-- Should the first implementation be a simple 2D light-space opacity map, or a layered/deep opacity map to avoid affecting receivers in front of the leaves?
-- What resolution is enough for believable animated leaf shadows without excessive cost?
-- Should opacity accumulation use raster blending, storage image atomics, or a compute post-process?
-- How should the receiver skip mask be represented: light-space tile mask, world chunk metadata, or both?
-- How much blur/mip filtering is acceptable before leaf shadows feel too soft?
-- Need to ensure removing leaves from main VSM does not regress other receivers that currently depend on leaf depth in `shadow_map_tex`.
+- The first implementation is a simple 2D opacity map. It can over-shadow receivers in front of the canopy; if this is visible, move to layered/deep opacity.
+- Current resolution is full shadow-map opacity plus 1/8-resolution mask. If it is too sharp/expensive, tune opacity resolution or PCF taps.
+- Current accumulation uses raster alpha blending. If opacity ordering or saturation becomes a problem, consider storage-image atomics or a compute accumulation pass.
+- Current receiver skip mask is light-space only. World chunk metadata may be worth adding if receiver cost remains high.
+- Current filtering is a small receiver-side 5-tap PCF. More blur may soften leaf shadows too much.
+- Need visual confirmation that removing leaves from main VSM does not regress non-flora receivers that previously depended on leaf depth in `shadow_map_tex`.

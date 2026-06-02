@@ -723,6 +723,10 @@ const SHADER_FILES: &[(&str, shaderc::ShaderKind)] = &[
         shaderc::ShaderKind::Compute,
     ),
     (
+        "shader/tracer/leaf_shadow_mask.comp",
+        shaderc::ShaderKind::Compute,
+    ),
+    (
         "shader/tracer/vsm_blur_h.comp",
         shaderc::ShaderKind::Compute,
     ),

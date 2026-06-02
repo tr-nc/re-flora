@@ -55,8 +55,8 @@ use re_flora_vkn::vk;
 use re_flora_vkn::{
     execute_one_time_gpu_job, Allocator, ClearValue, ColorClearValue, CommandBuffer,
     ComputePipeline, DepthOrStencilClearValue, DescriptorPool, Extent2D, Extent3D, Framebuffer,
-    GpuProfiler, GraphicsPipeline, PipelineBarrier, PipelineStage, PushConstantInfo, RenderPass,
-    RenderTarget, Texture, TextureLayout, Viewport, VulkanContext,
+    GpuProfiler, GraphicsPipeline, MemoryAccess, MemoryBarrier, PipelineBarrier, PipelineStage,
+    PushConstantInfo, RenderPass, RenderTarget, Texture, TextureLayout, Viewport, VulkanContext,
 };
 use std::collections::HashMap;
 
@@ -181,6 +181,7 @@ pub struct Tracer {
 
     render_target_color_and_depth: RenderTarget,
     render_target_depth_only: RenderTarget,
+    render_target_leaf_shadow_opacity: RenderTarget,
 
     #[allow(dead_code)]
     pool: DescriptorPool,
@@ -263,6 +264,7 @@ impl Tracer {
             resources.extent_dependent_resources.gfx_output_tex.clone(),
             resources.extent_dependent_resources.gfx_depth_tex.clone(),
             resources.shadow.shadow_map_depth_tex.clone(),
+            resources.shadow.leaf_shadow_opacity_tex.clone(),
         );
 
         let graphics_pipelines = PipelineBuilder::create_graphics_pipelines(
@@ -284,6 +286,11 @@ impl Tracer {
             &render_passes.render_pass_depth,
             &resources.shadow.shadow_map_depth_tex,
         );
+        let framebuffer_leaf_shadow_opacity = Self::create_framebuffer_color(
+            &vulkan_ctx,
+            &render_passes.render_pass_leaf_shadow_opacity,
+            &resources.shadow.leaf_shadow_opacity_tex,
+        );
 
         let render_target_color_and_depth = RenderTarget::new(
             render_passes.render_pass_color_and_depth,
@@ -292,6 +299,10 @@ impl Tracer {
         let render_target_depth_only = RenderTarget::new(
             render_passes.render_pass_depth,
             vec![framebuffer_depth_only],
+        );
+        let render_target_leaf_shadow_opacity = RenderTarget::new(
+            render_passes.render_pass_leaf_shadow_opacity,
+            vec![framebuffer_leaf_shadow_opacity],
         );
 
         let particle_capacity = PARTICLE_CAPACITY;
@@ -313,6 +324,7 @@ impl Tracer {
             graphics_pipelines,
             render_target_color_and_depth,
             render_target_depth_only,
+            render_target_leaf_shadow_opacity,
             pool,
             a_trous_iteration_count: 3,
             world_tick_seconds: crate::game_time::WORLD_TICK_SECONDS_DEFAULT,
@@ -345,6 +357,22 @@ impl Tracer {
             target_image_extent,
         )
         .unwrap()
+    }
+
+    /// A framebuffer that contains a color texture.
+    fn create_framebuffer_color(
+        vulkan_ctx: &VulkanContext,
+        render_pass: &RenderPass,
+        color_tex: &Texture,
+    ) -> Framebuffer {
+        let color_extent = color_tex
+            .get_image()
+            .get_desc()
+            .extent
+            .as_extent_2d()
+            .unwrap();
+        Framebuffer::from_textures(vulkan_ctx.clone(), render_pass, &[color_tex], color_extent)
+            .unwrap()
     }
 
     /// A framebuffer that contains the shadow map texture
@@ -397,6 +425,11 @@ impl Tracer {
             self.render_target_depth_only.get_render_pass(),
             &self.resources.shadow.shadow_map_depth_tex,
         );
+        let framebuffer_leaf_shadow_opacity = Self::create_framebuffer_color(
+            &self.vulkan_ctx,
+            self.render_target_leaf_shadow_opacity.get_render_pass(),
+            &self.resources.shadow.leaf_shadow_opacity_tex,
+        );
 
         self.render_target_color_and_depth = RenderTarget::new(
             self.render_target_color_and_depth.get_render_pass().clone(),
@@ -405,6 +438,12 @@ impl Tracer {
         self.render_target_depth_only = RenderTarget::new(
             self.render_target_depth_only.get_render_pass().clone(),
             vec![framebuffer_depth_only],
+        );
+        self.render_target_leaf_shadow_opacity = RenderTarget::new(
+            self.render_target_leaf_shadow_opacity
+                .get_render_pass()
+                .clone(),
+            vec![framebuffer_leaf_shadow_opacity],
         );
 
         self.update_sets(contree_builder_resources, scene_accel_resources);
@@ -434,6 +473,10 @@ impl Tracer {
         update_compute_fn(&self.compute_pipelines.wind_volume_ppl, &tracer_resources);
         update_compute_fn(
             &self.compute_pipelines.shadow_depth_copy_ppl,
+            &tracer_resources,
+        );
+        update_compute_fn(
+            &self.compute_pipelines.leaf_shadow_mask_ppl,
             &tracer_resources,
         );
         update_compute_fn(&self.compute_pipelines.vsm_creation_ppl, &tracer_resources);
@@ -882,6 +925,14 @@ impl Tracer {
             PipelineStage::FRAGMENT_SHADER,
             PipelineStage::VERTEX_SHADER,
         );
+        let color_to_compute_barrier = PipelineBarrier::new(
+            PipelineStage::COLOR_ATTACHMENT_OUTPUT,
+            PipelineStage::COMPUTE_SHADER,
+            [MemoryBarrier::new(
+                MemoryAccess::COLOR_ATTACHMENT_WRITE,
+                MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
+            )],
+        );
 
         Self::with_gpu_scope(
             gpu_profiler.as_deref_mut(),
@@ -914,7 +965,7 @@ impl Tracer {
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
                 cmdbuf,
-                "leaves_shadow_lod.pass",
+                "leaf_shadow_opacity.pass",
                 || {
                     self.record_leaves_shadow_lod_pass(
                         cmdbuf,
@@ -925,6 +976,15 @@ impl Tracer {
                     )
                 },
             );
+            color_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "leaf_shadow_mask.pass",
+                || self.record_leaf_shadow_mask_pass(cmdbuf),
+            );
+            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
         if has_graphics_pass || (render_flags.enable_shadows && update_shadow_map) {
             let frag_to_compute_barrier = PipelineBarrier::shader_access(
@@ -1240,6 +1300,28 @@ impl Tracer {
                     Some(TextureLayout::GENERAL),
                     0,
                     ClearValue::Color(ColorClearValue::Float([1.0, 0.0, 0.0, 0.0])),
+                );
+
+            self.resources
+                .shadow
+                .leaf_shadow_opacity_tex
+                .get_image()
+                .record_clear(
+                    cmdbuf,
+                    Some(TextureLayout::GENERAL),
+                    0,
+                    ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 0.0])),
+                );
+
+            self.resources
+                .shadow
+                .leaf_shadow_mask_tex
+                .get_image()
+                .record_clear(
+                    cmdbuf,
+                    Some(TextureLayout::GENERAL),
+                    0,
+                    ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 0.0])),
                 );
         }
 
@@ -1690,20 +1772,15 @@ impl Tracer {
             .leaves_shadow_lod_ppl
             .record_bind(cmdbuf);
 
-        let clear_values = [vk::ClearValue {
-            depth_stencil: vk::ClearDepthStencilValue {
-                depth: 1.0,
-                stencil: 0,
-            },
-        }];
+        let clear_values: [vk::ClearValue; 0] = [];
 
-        self.render_target_depth_only
+        self.render_target_leaf_shadow_opacity
             .record_begin(cmdbuf, &clear_values);
 
         let shadow_extent = self
             .resources
             .shadow
-            .shadow_map_depth_tex
+            .leaf_shadow_opacity_tex
             .get_image()
             .get_desc()
             .extent;
@@ -1789,7 +1866,7 @@ impl Tracer {
                 );
         }
 
-        self.render_target_depth_only.record_end(cmdbuf);
+        self.render_target_leaf_shadow_opacity.record_end(cmdbuf);
     }
 
     fn record_tracer_shadow_pass(&self, cmdbuf: &CommandBuffer) {
@@ -1811,6 +1888,19 @@ impl Tracer {
             self.resources
                 .shadow
                 .shadow_map_tex
+                .get_image()
+                .get_desc()
+                .extent,
+            None,
+        );
+    }
+
+    fn record_leaf_shadow_mask_pass(&self, cmdbuf: &CommandBuffer) {
+        self.compute_pipelines.leaf_shadow_mask_ppl.record(
+            cmdbuf,
+            self.resources
+                .shadow
+                .leaf_shadow_mask_tex
                 .get_image()
                 .get_desc()
                 .extent,
